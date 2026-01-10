@@ -82,7 +82,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     // The web implementation has a different signature.
     if (kIsWeb) {
-      await (getPlayerService() as service_impl.PlayerService).initialize(null, file: file);
+      // Use dynamic to call the web-specific initialize method.
+      // This is a workaround for the current service design.
+      await (_playerService as dynamic).initialize(null, file: file);
     } else {
       await _playerService.initialize(file.path);
     }
