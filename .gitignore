@@ -24,7 +24,8 @@
 build/
 
 # Do not track the Flutter SDK if it's placed inside the project
-flutter/
+# Only ignore a top-level Flutter SDK folder, not platform sources like windows/flutter
+/flutter/
 
 # iOS
 ios/Pods/
