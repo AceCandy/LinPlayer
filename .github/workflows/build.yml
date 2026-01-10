@@ -113,6 +113,17 @@ jobs:
       - name: Build Windows executable
         run: flutter build windows --release
 
+      # 5.5. Bundle MSVC runtime DLLs into the release folder (avoid missing VC runtime on target PCs)
+      - name: Copy MSVC runtime DLLs
+        shell: pwsh
+        run: |
+          $release64 = "build/windows/x64/runner/Release"
+          if (-not (Test-Path $release64)) { exit 1 }
+          $vcBase = Get-ChildItem "C:\Program Files\Microsoft Visual Studio\2022\Enterprise\VC\Redist\MSVC" | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+          $crtDir = Join-Path $vcBase.FullName "x64/Microsoft.VC143.CRT"
+          if (-not (Test-Path $crtDir)) { Write-Error "MSVC CRT path not found."; exit 1 }
+          Copy-Item -Path (Join-Path $crtDir "*") -Destination $release64 -Recurse -Force
+
       # 6. Archive the release build folder as a ZIP file
       - name: Archive Windows release
         run: |
