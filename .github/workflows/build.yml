@@ -16,7 +16,7 @@ jobs:
     name: Build Android APK
     runs-on: ubuntu-latest
     env:
-      PUB_CACHE: ${{ runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\Pub\\Cache' || '/home/runner/.pub-cache' }}
+      PUB_CACHE: /home/runner/.pub-cache
     steps:
       # 1. Check out the repository code
       - name: Check out code
