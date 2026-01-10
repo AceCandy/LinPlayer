@@ -71,13 +71,27 @@ jobs:
       - name: Enable Windows desktop support
         run: flutter config --enable-windows-desktop
 
+      # 4.5. Ensure Windows platform files are present (handles missing windows/flutter)
+      - name: Regenerate Windows platform scaffolding if needed
+        run: flutter create --platforms=windows .
+
       # 5. Build the Windows executable in release mode
       - name: Build Windows executable
         run: flutter build windows --release
 
       # 6. Archive the release build folder as a ZIP file
       - name: Archive Windows release
-        run: Compress-Archive -Path build/windows/runner/Release -DestinationPath LinPlayer-Windows-Release.zip
+        run: |
+          $release64 = "build/windows/x64/runner/Release"
+          $releaseLegacy = "build/windows/runner/Release"
+          if (Test-Path $release64) {
+            Compress-Archive -Path $release64 -DestinationPath LinPlayer-Windows-Release.zip
+          } elseif (Test-Path $releaseLegacy) {
+            Compress-Archive -Path $releaseLegacy -DestinationPath LinPlayer-Windows-Release.zip
+          } else {
+            Write-Error "Release folder not found after build."
+            exit 1
+          }
 
       # 7. Upload the generated ZIP file as a build artifact
       - name: Upload Windows artifact
