@@ -15,6 +15,8 @@ jobs:
   build-android:
     name: Build Android APK
     runs-on: ubuntu-latest
+    env:
+      PUB_CACHE: ${{ runner.os == 'Windows' && 'C:\\Users\\runneradmin\\AppData\\Local\\Pub\\Cache' || '/home/runner/.pub-cache' }}
     steps:
       # 1. Check out the repository code
       - name: Check out code
@@ -33,9 +35,28 @@ jobs:
         with:
           channel: 'stable' # Use stable channel
 
+      # 3.5 Cache pub dependencies
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
       # 4. Get Flutter dependencies
       - name: Get Flutter dependencies
         run: flutter pub get
+
+      # 4.5. Static analysis
+      - name: Flutter analyze
+        run: flutter analyze
+
+      # 4.6. Run tests
+      - name: Flutter tests
+        run: flutter test
 
       # 5. Build the APK in release mode
       - name: Build APK
@@ -52,6 +73,8 @@ jobs:
   build-windows:
     name: Build Windows Release
     runs-on: windows-latest
+    env:
+      PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
     steps:
       # 1. Check out the repository code
       - name: Check out code
@@ -62,6 +85,17 @@ jobs:
         uses: subosito/flutter-action@v2
         with:
           channel: 'stable' # Use stable channel
+
+      # 2.5 Cache pub dependencies
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
 
       # 3. Get Flutter dependencies
       - name: Get Flutter dependencies
