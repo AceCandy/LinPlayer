@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:cached_network_image/cached_network_image.dart';
 
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
@@ -34,15 +35,32 @@ class LibraryPage extends StatelessWidget {
                       itemBuilder: (context, index) {
                         final LibraryInfo lib = libs[index];
                         return ListTile(
-                          leading: const Icon(Icons.folder),
+                          leading: CachedNetworkImage(
+                            imageUrl: EmbyApi.imageUrl(
+                              baseUrl: appState.baseUrl!,
+                              itemId: lib.id,
+                              token: appState.token!,
+                              maxWidth: 120,
+                            ),
+                            width: 60,
+                            height: 60,
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) =>
+                                const SizedBox(width: 60, height: 60, child: Icon(Icons.folder)),
+                            errorWidget: (_, __, ___) =>
+                                const SizedBox(width: 60, height: 60, child: Icon(Icons.folder)),
+                          ),
                           title: Text(lib.name),
                           subtitle: Text(lib.id),
                           trailing: const Icon(Icons.chevron_right),
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(
-                                builder: (_) =>
-                                    LibraryItemsPage(appState: appState, library: lib),
+                                builder: (_) => LibraryItemsPage(
+                                  appState: appState,
+                                  parentId: lib.id,
+                                  title: lib.name,
+                                ),
                               ),
                             );
                           },

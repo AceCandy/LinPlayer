@@ -37,12 +37,34 @@ class MediaItem {
   final String id;
   final String name;
   final String type;
-  MediaItem({required this.id, required this.name, required this.type});
+  final String overview;
+  final String seriesName;
+  final String seasonName;
+  final int? seasonNumber;
+  final int? episodeNumber;
+  final bool hasImage;
+  MediaItem({
+    required this.id,
+    required this.name,
+    required this.type,
+    required this.overview,
+    required this.seriesName,
+    required this.seasonName,
+    required this.seasonNumber,
+    required this.episodeNumber,
+    required this.hasImage,
+  });
 
   factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
         id: json['Id'] as String? ?? '',
         name: json['Name'] as String? ?? '',
         type: json['Type'] as String? ?? '',
+        overview: json['Overview'] as String? ?? '',
+        seriesName: json['SeriesName'] as String? ?? '',
+        seasonName: json['SeasonName'] as String? ?? '',
+        seasonNumber: json['ParentIndexNumber'] as int?,
+        episodeNumber: json['IndexNumber'] as int?,
+        hasImage: (json['ImageTags'] as Map?)?.isNotEmpty == true,
       );
 }
 
@@ -189,7 +211,7 @@ class EmbyApi {
     required String parentId,
   }) async {
     final url = Uri.parse(
-        '$baseUrl/emby/Users/$userId/Items?ParentId=$parentId&Recursive=true&Fields=Path');
+        '$baseUrl/emby/Users/$userId/Items?ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
     final resp = await http.get(url, headers: {
       'X-Emby-Token': token,
       'Accept': 'application/json',
@@ -202,5 +224,16 @@ class EmbyApi {
         .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
         .toList();
     return items;
+  }
+
+  static String imageUrl({
+    required String baseUrl,
+    required String itemId,
+    required String token,
+    String imageType = 'Primary',
+    int? maxWidth,
+  }) {
+    final mw = maxWidth != null ? '&maxWidth=$maxWidth' : '';
+    return '$baseUrl/emby/Items/$itemId/Images/$imageType?quality=90$mw&api_key=$token';
   }
 }
