@@ -1,7 +1,9 @@
 import 'dart:convert';
 import 'dart:math';
+import 'dart:io';
 
 import 'package:http/http.dart' as http;
+import 'package:http/io_client.dart';
 
 class DomainInfo {
   final String name;
@@ -93,6 +95,10 @@ class EmbyApi {
   final String _hostOrUrl;
   final String _preferredScheme;
   final String? _port;
+  final http.Client _client = IOClient(
+    HttpClient()
+      ..badCertificateCallback = (_, __, ___) => true,
+  );
 
   // Simple device id generator to satisfy Emby header requirements
   static String _randomId() {
@@ -115,20 +121,30 @@ class EmbyApi {
     final parsed = Uri.tryParse(_hostOrUrl);
     if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
       final port = parsed.hasPort ? ':${parsed.port}' : '';
-      return ['${parsed.scheme}://${parsed.host}$port'];
+      final path = parsed.path.isNotEmpty ? parsed.path : '';
+      return ['${parsed.scheme}://${parsed.host}$port$path'];
+    }
+
+    // handle host/path form without scheme
+    String hostPart = _hostOrUrl;
+    String pathPart = '';
+    if (_hostOrUrl.contains('/')) {
+      final split = _hostOrUrl.split('/');
+      hostPart = split.first;
+      pathPart = '/${split.skip(1).join('/')}';
     }
 
     String port = _port ?? '';
     if (port.isEmpty) {
       port = _preferredScheme == 'http' ? '80' : '443';
     }
-    final preferred = '$_preferredScheme://$_hostOrUrl:$port';
+    final preferred = '$_preferredScheme://$hostPart:$port$pathPart';
 
     final fallbackScheme = _preferredScheme == 'http' ? 'https' : 'http';
     final fallbackPort = _port?.isNotEmpty == true
         ? _port!
         : (fallbackScheme == 'http' ? '80' : '443');
-    final fallback = '$fallbackScheme://$_hostOrUrl:$fallbackPort';
+    final fallback = '$fallbackScheme://$hostPart:$fallbackPort$pathPart';
 
     if (preferred == fallback) {
       return [preferred];
@@ -150,7 +166,7 @@ class EmbyApi {
       });
 
       try {
-        final resp = await http.post(url, headers: _authHeader(), body: body);
+        final resp = await _client.post(url, headers: _authHeader(), body: body);
         if (resp.statusCode != 200) {
           errors.add('${url.origin}: HTTP ${resp.statusCode}');
           continue;
@@ -164,7 +180,11 @@ class EmbyApi {
         }
         return AuthResult(token: token, baseUrlUsed: base, userId: userId);
       } catch (e) {
-        errors.add('${url.origin}: $e');
+        if (e is SocketException) {
+          errors.add('${url.origin}: DNS/网络不可达 (${e.message})');
+        } else {
+          errors.add('${url.origin}: $e');
+        }
       }
     }
     throw Exception('登录失败：${errors.join(" | ")}');
@@ -177,7 +197,7 @@ class EmbyApi {
   }) async {
     final url = Uri.parse('$baseUrl/emby/System/Ext/ServerDomains');
     try {
-      final resp = await http.get(url, headers: {
+      final resp = await _client.get(url, headers: {
         'X-Emby-Token': token,
         'Accept': 'application/json',
       });
@@ -203,7 +223,7 @@ class EmbyApi {
   }) async {
     // Emby 官方推荐获取视图的接口：/Users/{userId}/Views
     final url = Uri.parse('$baseUrl/emby/Users/$userId/Views');
-    final resp = await http.get(url, headers: {
+    final resp = await _client.get(url, headers: {
       'X-Emby-Token': token,
       'Accept': 'application/json',
     });
@@ -235,7 +255,7 @@ class EmbyApi {
       params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
     }
     final url = Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
-    final resp = await http.get(url, headers: {
+    final resp = await _client.get(url, headers: {
       'X-Emby-Token': token,
       'Accept': 'application/json',
     });
@@ -290,7 +310,7 @@ class EmbyApi {
   }) async {
     final url = Uri.parse(
         '$baseUrl/emby/Users/$userId/Items?Filters=IsResumable&SortBy=DatePlayed&SortOrder=Descending&Limit=$limit&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags');
-    final resp = await http.get(url, headers: {
+    final resp = await _client.get(url, headers: {
       'X-Emby-Token': token,
       'Accept': 'application/json',
     });
@@ -319,6 +339,7 @@ class EmbyApi {
         includeItemTypes: 'Movie',
         limit: limit,
         startIndex: 0,
+        searchTerm: null,
       );
 
   Future<PagedResult<MediaItem>> fetchLatestEpisodes({
@@ -335,7 +356,32 @@ class EmbyApi {
         includeItemTypes: 'Episode',
         limit: limit,
         startIndex: 0,
+        searchTerm: null,
       );
+
+  Future<PagedResult<MediaItem>> fetchLatestFromLibrary({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String libraryId,
+    int limit = 12,
+  }) async {
+    final url = Uri.parse(
+        '$baseUrl/emby/Users/$userId/Items?ParentId=$libraryId&SortBy=DateCreated&SortOrder=Descending&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags&Limit=$limit');
+    final resp = await _client.get(url, headers: {
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('获取库最新内容失败（${resp.statusCode}）');
+    }
+    final map = jsonDecode(resp.body) as Map<String, dynamic>;
+    final items = (map['Items'] as List<dynamic>? ?? [])
+        .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final total = map['TotalRecordCount'] as int? ?? items.length;
+    return PagedResult(items, total);
+  }
 
   static String imageUrl({
     required String baseUrl,

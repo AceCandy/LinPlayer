@@ -12,6 +12,7 @@ class AppState extends ChangeNotifier {
   final Map<String, List<MediaItem>> _itemsCache = {};
   final Map<String, int> _itemsTotal = {};
   final Map<String, List<MediaItem>> _homeSections = {};
+  final Set<String> _hiddenLibraries = {};
   bool _loading = false;
   String? _error;
 
@@ -23,6 +24,19 @@ class AppState extends ChangeNotifier {
   List<MediaItem> getItems(String parentId) => _itemsCache[parentId] ?? [];
   int getTotal(String parentId) => _itemsTotal[parentId] ?? 0;
   List<MediaItem> getHome(String key) => _homeSections[key] ?? [];
+  Iterable<HomeEntry> get homeEntries sync* {
+    for (final entry in _homeSections.entries) {
+      if (entry.key.startsWith('lib_')) {
+        final libId = entry.key.substring(4);
+        final name = _libraries.firstWhere(
+          (l) => l.id == libId,
+          orElse: () => LibraryInfo(id: libId, name: '媒体库', type: ''),
+        ).name;
+        if (_hiddenLibraries.contains(libId)) continue;
+        yield HomeEntry(key: entry.key, displayName: name, items: entry.value);
+      }
+    }
+  }
   bool get isLoading => _loading;
   String? get error => _error;
 
@@ -31,6 +45,9 @@ class AppState extends ChangeNotifier {
     _baseUrl = prefs.getString('baseUrl');
     _token = prefs.getString('token');
     _userId = prefs.getString('userId');
+    _hiddenLibraries
+      ..clear()
+      ..addAll(prefs.getStringList('hiddenLibs') ?? []);
     notifyListeners();
   }
 
@@ -43,10 +60,12 @@ class AppState extends ChangeNotifier {
     _itemsCache.clear();
     _itemsTotal.clear();
     _homeSections.clear();
+    _hiddenLibraries.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('baseUrl');
     await prefs.remove('token');
     await prefs.remove('userId');
+    await prefs.remove('hiddenLibs');
     notifyListeners();
   }
 
@@ -83,6 +102,7 @@ class AppState extends ChangeNotifier {
       await prefs.setString('baseUrl', auth.baseUrlUsed);
       await prefs.setString('token', auth.token);
       await prefs.setString('userId', auth.userId);
+      await prefs.setStringList('hiddenLibs', _hiddenLibraries.toList());
     } catch (e) {
       _error = e.toString();
     } finally {
@@ -121,6 +141,8 @@ class AppState extends ChangeNotifier {
       _itemsCache.clear();
       _itemsTotal.clear();
       _homeSections.clear();
+      final prefs = await SharedPreferences.getInstance();
+      await prefs.setStringList('hiddenLibs', _hiddenLibraries.toList());
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -183,9 +205,52 @@ class AppState extends ChangeNotifier {
       userId: _userId!,
       limit: 20,
     );
+    final Map<String, List<MediaItem>> libraryLatest = {};
+    for (final lib in _libraries) {
+      try {
+        final latest = await api.fetchLatestFromLibrary(
+          token: _token!,
+          baseUrl: _baseUrl!,
+          userId: _userId!,
+          libraryId: lib.id,
+          limit: 12,
+        );
+        if (latest.items.isNotEmpty) {
+          libraryLatest['lib_${lib.id}'] = latest.items;
+        }
+      } catch (_) {
+        // ignore failures per library
+      }
+    }
     _homeSections['continue'] = cw.items;
     _homeSections['movies'] = movies.items;
     _homeSections['episodes'] = eps.items;
+    _homeSections.addAll(libraryLatest);
     notifyListeners();
   }
+
+  void toggleLibraryHidden(String libId) async {
+    if (_hiddenLibraries.contains(libId)) {
+      _hiddenLibraries.remove(libId);
+    } else {
+      _hiddenLibraries.add(libId);
+    }
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList('hiddenLibs', _hiddenLibraries.toList());
+    notifyListeners();
+  }
+
+  bool isLibraryHidden(String libId) => _hiddenLibraries.contains(libId);
+
+  void sortLibrariesByName() {
+    _libraries.sort((a, b) => a.name.compareTo(b.name));
+    notifyListeners();
+  }
+}
+
+class HomeEntry {
+  final String key;
+  final String displayName;
+  final List<MediaItem> items;
+  HomeEntry({required this.key, required this.displayName, required this.items});
 }

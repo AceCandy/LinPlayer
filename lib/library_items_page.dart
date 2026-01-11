@@ -130,6 +130,7 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                         item: item,
                         appState: widget.appState,
                         enableGlass: enableGlass,
+                        isTv: _isTv(context),
                         onOpenFolder: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -170,6 +171,7 @@ class _ItemCard extends StatelessWidget {
     required this.enableGlass,
     required this.onOpenFolder,
     required this.onPlay,
+    required this.isTv,
   });
 
   final MediaItem item;
@@ -177,6 +179,7 @@ class _ItemCard extends StatelessWidget {
   final bool enableGlass;
   final VoidCallback onOpenFolder;
   final VoidCallback onPlay;
+  final bool isTv;
 
   bool get _isPlayable => item.type == 'Movie' || item.type == 'Episode';
   bool get _isFolder =>
@@ -273,32 +276,59 @@ class _ItemCard extends StatelessWidget {
       ],
     );
 
+    Widget decorated;
+    if (enableGlass && !isTv) {
+      decorated = ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+          child: Container(
+            decoration: BoxDecoration(
+              color: Colors.white.withValues(alpha: 0.06),
+              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+              borderRadius: BorderRadius.circular(16),
+            ),
+            padding: const EdgeInsets.all(12),
+            child: cardContent,
+          ),
+        ),
+      );
+    } else if (isTv) {
+      decorated = FocusableActionDetector(
+        mouseCursor: SystemMouseCursors.click,
+        child: Card(
+          elevation: 4,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Padding(
+            padding: const EdgeInsets.all(12),
+            child: cardContent,
+          ),
+        ),
+        onShowFocusHighlight: (focused) {
+          // noop; focus style via InkWell below
+        },
+      );
+      decorated = InkWell(
+        focusColor: Colors.blue.withValues(alpha: 0.2),
+        hoverColor: Colors.blue.withValues(alpha: 0.05),
+        borderRadius: BorderRadius.circular(12),
+        onTap: _isPlayable ? onPlay : onOpenFolder,
+        child: decorated,
+      );
+    } else {
+      decorated = Card(
+        elevation: 2,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: Padding(
+          padding: const EdgeInsets.all(12),
+          child: cardContent,
+        ),
+      );
+    }
+
     return Padding(
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: enableGlass
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(16),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-                child: Container(
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.06),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                    borderRadius: BorderRadius.circular(16),
-                  ),
-                  padding: const EdgeInsets.all(12),
-                  child: cardContent,
-                ),
-              ),
-            )
-          : Card(
-              elevation: 2,
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(12),
-                child: cardContent,
-              ),
-            ),
+      child: decorated,
     );
   }
 }

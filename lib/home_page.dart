@@ -110,10 +110,17 @@ class _HomeBody extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final sections = [
-      ('继续观看', appState.getHome('continue')),
+      if (appState.getHome('continue').isNotEmpty)
+        ('继续观看', appState.getHome('continue')),
       ('最新电影', appState.getHome('movies')),
       ('最新剧集', appState.getHome('episodes')),
     ];
+    // 动态添加每个媒体库的最新内容
+    for (final entry in appState.homeEntries) {
+      if (entry.items.isNotEmpty) {
+        sections.add(('${entry.displayName} · 最新', entry.items));
+      }
+    }
 
     return RefreshIndicator(
       onRefresh: onRefresh,

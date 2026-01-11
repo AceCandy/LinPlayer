@@ -5,67 +5,118 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'library_items_page.dart';
 
-class LibraryPage extends StatelessWidget {
+class LibraryPage extends StatefulWidget {
   const LibraryPage({super.key, required this.appState});
 
   final AppState appState;
 
   @override
+  State<LibraryPage> createState() => _LibraryPageState();
+}
+
+class _LibraryPageState extends State<LibraryPage> {
+  bool _showHidden = false;
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: appState,
+      animation: widget.appState,
       builder: (context, _) {
-        final libs = appState.libraries;
+        final libs = widget.appState.libraries
+            .where((l) => _showHidden ? true : !widget.appState.isLibraryHidden(l.id))
+            .toList();
         return Scaffold(
           appBar: AppBar(
             title: const Text('媒体库'),
             actions: [
               IconButton(
+                icon: const Icon(Icons.sort_by_alpha),
+                tooltip: '名称排序',
+                onPressed: widget.appState.sortLibrariesByName,
+              ),
+              IconButton(
+                icon: Icon(_showHidden ? Icons.visibility : Icons.visibility_off),
+                tooltip: _showHidden ? '隐藏已隐藏的库' : '显示已隐藏的库',
+                onPressed: () => setState(() => _showHidden = !_showHidden),
+              ),
+              IconButton(
                 icon: const Icon(Icons.refresh),
-                onPressed: appState.isLoading ? null : () => appState.refreshLibraries(),
+                onPressed:
+                    widget.appState.isLoading ? null : () => widget.appState.refreshLibraries(),
               ),
             ],
           ),
-          body: appState.isLoading
+          body: widget.appState.isLoading
               ? const Center(child: CircularProgressIndicator())
               : libs.isEmpty
                   ? const Center(child: Text('暂无媒体库，点击右上角刷新重试'))
-                  : ListView.builder(
-                      itemCount: libs.length,
-                      itemBuilder: (context, index) {
-                        final LibraryInfo lib = libs[index];
-                        return ListTile(
-                          leading: CachedNetworkImage(
-                            imageUrl: EmbyApi.imageUrl(
-                              baseUrl: appState.baseUrl!,
-                              itemId: lib.id,
-                              token: appState.token!,
-                              maxWidth: 120,
-                            ),
-                            width: 60,
-                            height: 60,
-                            fit: BoxFit.cover,
-                            placeholder: (_, __) =>
-                                const SizedBox(width: 60, height: 60, child: Icon(Icons.folder)),
-                            errorWidget: (_, __, ___) =>
-                                const SizedBox(width: 60, height: 60, child: Icon(Icons.folder)),
-                          ),
-                          title: Text(lib.name),
-                          subtitle: Text(lib.id),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: () {
-                            Navigator.of(context).push(
-                              MaterialPageRoute(
-                                builder: (_) => LibraryItemsPage(
-                                  appState: appState,
-                                  parentId: lib.id,
-                                  title: lib.name,
+                  : Padding(
+                      padding: const EdgeInsets.all(12),
+                      child: GridView.builder(
+                        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: 2,
+                          mainAxisSpacing: 12,
+                          crossAxisSpacing: 12,
+                          childAspectRatio: 2 / 3,
+                        ),
+                        itemCount: libs.length,
+                        itemBuilder: (context, index) {
+                          final LibraryInfo lib = libs[index];
+                          final imageUrl = EmbyApi.imageUrl(
+                            baseUrl: widget.appState.baseUrl!,
+                            itemId: lib.id,
+                            token: widget.appState.token!,
+                            maxWidth: 400,
+                          );
+                          return InkWell(
+                            borderRadius: BorderRadius.circular(12),
+                            onTap: () {
+                              Navigator.of(context).push(
+                                MaterialPageRoute(
+                                  builder: (_) => LibraryItemsPage(
+                                    appState: widget.appState,
+                                    parentId: lib.id,
+                                    title: lib.name,
+                                  ),
                                 ),
-                              ),
-                            );
-                          },
-                        );
-                      },
+                              );
+                            },
+                            onLongPress: () {
+                              widget.appState.toggleLibraryHidden(lib.id);
+                              setState(() {});
+                            },
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Expanded(
+                                  child: ClipRRect(
+                                    borderRadius: BorderRadius.circular(12),
+                                    child: CachedNetworkImage(
+                                      imageUrl: imageUrl,
+                                      fit: BoxFit.cover,
+                                      placeholder: (_, __) => const ColoredBox(
+                                        color: Colors.black12,
+                                        child: Center(child: Icon(Icons.image)),
+                                      ),
+                                      errorWidget: (_, __, ___) => const ColoredBox(
+                                        color: Colors.black12,
+                                        child: Center(child: Icon(Icons.folder)),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                                const SizedBox(height: 8),
+                                Text(
+                                  lib.name,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ],
+                            ),
+                          );
+                        },
+                      ),
                     ),
         );
       },

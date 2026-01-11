@@ -16,6 +16,7 @@ class PlayNetworkPage extends StatefulWidget {
 class _PlayNetworkPageState extends State<PlayNetworkPage> {
   final PlayerService _playerService = getPlayerService();
   bool _loading = true;
+  String? _playError;
 
   @override
   void initState() {
@@ -29,6 +30,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       _playerService.controller?.addListener(() {
         if (mounted) setState(() {});
       });
+    } catch (e) {
+      _playError = e.toString();
     } finally {
       if (mounted) {
         setState(() => _loading = false);
@@ -57,7 +60,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
               color: Colors.black,
               child: initialized
                   ? VideoPlayer(_playerService.controller!)
-                  : const Center(child: CircularProgressIndicator()),
+                  : _playError != null
+                      ? Center(
+                          child: Text(
+                          '播放失败：$_playError',
+                          style: const TextStyle(color: Colors.redAccent),
+                        ))
+                      : const Center(child: CircularProgressIndicator()),
             ),
           ),
           if (_loading) const LinearProgressIndicator(),
