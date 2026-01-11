@@ -55,7 +55,7 @@ class AppState extends ChangeNotifier {
     try {
       final api = EmbyApi(hostOrUrl: hostOrUrl, preferredScheme: scheme, port: port);
       final auth = await api.authenticate(username: username, password: password);
-      final lines = await api.fetchDomains(auth.token, auth.baseUrlUsed);
+      final lines = await api.fetchDomains(auth.token, auth.baseUrlUsed, allowFailure: true);
       final libs = await api.fetchLibraries(auth.token, auth.baseUrlUsed);
       _baseUrl = auth.baseUrlUsed;
       _token = auth.token;
@@ -81,7 +81,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
     try {
       final api = EmbyApi(hostOrUrl: _baseUrl!, preferredScheme: 'https');
-      _domains = await api.fetchDomains(_token!, _baseUrl!);
+      _domains = await api.fetchDomains(_token!, _baseUrl!, allowFailure: true);
       _error = null;
     } catch (e) {
       _error = e.toString();

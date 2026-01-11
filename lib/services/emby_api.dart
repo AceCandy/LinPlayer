@@ -135,20 +135,30 @@ class EmbyApi {
     throw Exception('登录失败：${errors.join(" | ")}');
   }
 
-  Future<List<DomainInfo>> fetchDomains(String token, String baseUrl) async {
+  Future<List<DomainInfo>> fetchDomains(
+    String token,
+    String baseUrl, {
+    bool allowFailure = true,
+  }) async {
     final url = Uri.parse('$baseUrl/emby/System/Ext/ServerDomains');
-    final resp = await http.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
-    if (resp.statusCode != 200) {
-      throw Exception('拉取线路失败（${resp.statusCode}）');
+    try {
+      final resp = await http.get(url, headers: {
+        'X-Emby-Token': token,
+        'Accept': 'application/json',
+      });
+      if (resp.statusCode != 200) {
+        if (allowFailure) return [];
+        throw Exception('拉取线路失败（${resp.statusCode}）');
+      }
+      final map = jsonDecode(resp.body) as Map<String, dynamic>;
+      final list = (map['data'] as List<dynamic>? ?? [])
+          .map((e) => DomainInfo.fromJson(e as Map<String, dynamic>))
+          .toList();
+      return list;
+    } catch (e) {
+      if (allowFailure) return [];
+      rethrow;
     }
-    final map = jsonDecode(resp.body) as Map<String, dynamic>;
-    final list = (map['data'] as List<dynamic>? ?? [])
-        .map((e) => DomainInfo.fromJson(e as Map<String, dynamic>))
-        .toList();
-    return list;
   }
 
   Future<List<LibraryInfo>> fetchLibraries(String token, String baseUrl) async {
