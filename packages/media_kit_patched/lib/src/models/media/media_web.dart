@@ -11,7 +11,7 @@ import 'package:web/web.dart' as html;
 
 import 'package:media_kit/src/models/playable.dart';
 
-import 'package:media_kit/src/player/web/utils/asset_loader.dart';
+// Web asset loading逻辑在精简版中移除；asset:// 直接返回原始 URI。
 
 /// {@template media}
 ///
@@ -125,8 +125,7 @@ class Media extends Playable {
   /// Normalizes the passed URI.
   static String normalizeURI(String uri) {
     if (uri.startsWith(_kAssetScheme)) {
-      // Handle asset:// scheme. Only for Flutter.
-      return AssetLoader.load(uri);
+      return uri;
     }
     return uri;
   }
