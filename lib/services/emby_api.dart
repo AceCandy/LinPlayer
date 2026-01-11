@@ -134,22 +134,23 @@ class EmbyApi {
       pathPart = '/${split.skip(1).join('/')}';
     }
 
-    String port = _port ?? '';
-    if (port.isEmpty) {
-      port = _preferredScheme == 'http' ? '80' : '443';
-    }
-    final preferred = '$_preferredScheme://$hostPart:$port$pathPart';
+    final withPort = _port != null && _port!.isNotEmpty
+        ? [
+            '$_preferredScheme://$hostPart:${_port!}$pathPart',
+            '${_preferredScheme == 'http' ? 'https' : 'http'}://$hostPart:${_port!}$pathPart'
+          ]
+        : [
+            '$_preferredScheme://$hostPart$pathPart',
+            '${_preferredScheme == 'http' ? 'https' : 'http'}://$hostPart$pathPart'
+          ];
 
-    final fallbackScheme = _preferredScheme == 'http' ? 'https' : 'http';
-    final fallbackPort = _port?.isNotEmpty == true
-        ? _port!
-        : (fallbackScheme == 'http' ? '80' : '443');
-    final fallback = '$fallbackScheme://$hostPart:$fallbackPort$pathPart';
-
-    if (preferred == fallback) {
-      return [preferred];
+    // de-dup
+    final seen = <String>{};
+    final result = <String>[];
+    for (final c in withPort) {
+      if (seen.add(c)) result.add(c);
     }
-    return [preferred, fallback];
+    return result;
   }
 
   Future<AuthResult> authenticate({

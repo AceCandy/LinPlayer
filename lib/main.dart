@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:media_kit/media_kit.dart';
 
 import 'login_page.dart';
 import 'home_page.dart';
@@ -6,6 +7,7 @@ import 'state/app_state.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  MediaKit.ensureInitialized();
   final appState = AppState();
   await appState.loadFromStorage();
   runApp(LinPlayerApp(appState: appState));
