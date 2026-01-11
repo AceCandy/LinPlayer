@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'services/emby_api.dart';
+import 'library_page.dart';
 import 'state/app_state.dart';
 import 'player_screen.dart';
 
@@ -59,6 +60,34 @@ class DomainListPage extends StatelessWidget {
             },
             icon: const Icon(Icons.play_circle),
             label: const Text('本地播放器'),
+          ),
+          bottomNavigationBar: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            child: Row(
+              children: [
+                Expanded(
+                  child: FilledButton.tonal(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => LibraryPage(appState: appState)),
+                      );
+                    },
+                    child: const Text('媒体库'),
+                  ),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: FilledButton(
+                    onPressed: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(builder: (_) => const PlayerScreen()),
+                      );
+                    },
+                    child: const Text('本地播放器'),
+                  ),
+                ),
+              ],
+            ),
           ),
         );
       },

@@ -35,32 +35,13 @@ class _LoginPageState extends State<LoginPage> {
     setState(() {});
   }
 
-  String _buildBaseUrl() {
-    String raw = _hostCtrl.text.trim();
-    String port = _portCtrl.text.trim();
-
-    // 如果用户直接粘贴了完整 URL，解析取用
-    Uri? parsed = Uri.tryParse(raw);
-    if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
-      final scheme = parsed.scheme;
-      final host = parsed.host;
-      final p = parsed.hasPort ? parsed.port.toString() : port;
-      return p.isNotEmpty ? '$scheme://$host:$p' : '$scheme://$host';
-    }
-
-    // 否则按输入的协议/端口拼接
-    if (port.isEmpty) {
-      port = _defaultPortForScheme(_scheme);
-    }
-    return '$_scheme://$raw${port.isNotEmpty ? ':$port' : ''}';
-  }
-
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
     FocusScope.of(context).unfocus();
-    final baseUrl = _buildBaseUrl();
     await widget.appState.login(
-      baseUrl: baseUrl,
+      hostOrUrl: _hostCtrl.text.trim(),
+      scheme: _scheme,
+      port: _portCtrl.text.trim().isEmpty ? null : _portCtrl.text.trim(),
       username: _userCtrl.text.trim(),
       password: _pwdCtrl.text,
     );
