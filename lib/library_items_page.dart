@@ -190,17 +190,17 @@ class _ItemCard extends StatelessWidget {
           child: image != null
               ? CachedNetworkImage(
                   imageUrl: image,
-                  width: 90,
-                  height: 130,
+                  width: 150,
+                  height: 84, // 16:9
                   fit: BoxFit.cover,
                   placeholder: (_, __) =>
-                      const SizedBox(width: 90, height: 130, child: Icon(Icons.image)),
+                      const SizedBox(width: 150, height: 84, child: Icon(Icons.image)),
                   errorWidget: (_, __, ___) =>
-                      const SizedBox(width: 90, height: 130, child: Icon(Icons.broken_image)),
+                      const SizedBox(width: 150, height: 84, child: Icon(Icons.broken_image)),
                 )
               : const SizedBox(
-                  width: 90,
-                  height: 130,
+                  width: 150,
+                  height: 84,
                   child: Icon(Icons.image),
                 ),
         ),

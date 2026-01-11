@@ -50,6 +50,7 @@ class MediaItem {
   final int? episodeNumber;
   final bool hasImage;
   final String? parentId;
+  final int playbackPositionTicks;
   MediaItem({
     required this.id,
     required this.name,
@@ -60,6 +61,7 @@ class MediaItem {
     required this.seasonNumber,
     required this.episodeNumber,
     required this.hasImage,
+    required this.playbackPositionTicks,
     this.parentId,
   });
 
@@ -73,6 +75,8 @@ class MediaItem {
         seasonNumber: json['ParentIndexNumber'] as int?,
         episodeNumber: json['IndexNumber'] as int?,
         hasImage: (json['ImageTags'] as Map?)?.isNotEmpty == true,
+        playbackPositionTicks:
+            (json['UserData'] as Map?)?['PlaybackPositionTicks'] as int? ?? 0,
         parentId: json['ParentId'] as String?,
       );
 }
@@ -321,6 +325,8 @@ class EmbyApi {
     final map = jsonDecode(resp.body) as Map<String, dynamic>;
     final items = (map['Items'] as List<dynamic>? ?? [])
         .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
+        // 只保留真正有播放进度的
+        .where((e) => e.playbackPositionTicks > 0)
         .toList();
     final total = map['TotalRecordCount'] as int? ?? items.length;
     return PagedResult(items, total);

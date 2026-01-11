@@ -308,12 +308,13 @@ class _HomeCard extends StatelessWidget {
     }
 
     final card = SizedBox(
-      width: 140,
+      width: 160,
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           AspectRatio(
-            aspectRatio: 2 / 3,
+            // 16:9 横版封面
+            aspectRatio: 16 / 9,
             child: ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: image != null
@@ -333,12 +334,6 @@ class _HomeCard extends StatelessWidget {
             item.name,
             style: Theme.of(context).textTheme.bodyLarge,
             maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-          Text(
-            subtitle,
-            style: Theme.of(context).textTheme.bodySmall,
-            maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
         ],
