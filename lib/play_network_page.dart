@@ -1,6 +1,5 @@
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
-
+import 'package:media_kit_video/media_kit_video.dart';
 import 'player_service.dart';
 
 class PlayNetworkPage extends StatefulWidget {
@@ -27,9 +26,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   Future<void> _init() async {
     try {
       await _playerService.initialize(null, networkUrl: widget.streamUrl);
-      _playerService.controller?.addListener(() {
-        if (mounted) setState(() {});
-      });
     } catch (e) {
       _playError = e.toString();
     } finally {
@@ -59,7 +55,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
             child: Container(
               color: Colors.black,
               child: initialized
-                  ? VideoPlayer(_playerService.controller!)
+                  ? Video(
+                      controller: _playerService.controller,
+                    )
                   : _playError != null
                       ? Center(
                           child: Text(
@@ -85,11 +83,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
               ),
             ],
           ),
-          if (initialized)
-            VideoProgressIndicator(
-              _playerService.controller!,
-              allowScrubbing: true,
-            ),
         ],
       ),
     );

@@ -1,7 +1,9 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:flutter/material.dart';
-import 'package:video_player/video_player.dart';
+import 'package:media_kit_video/media_kit_video.dart';
 
 import 'player_service.dart';
 
@@ -16,26 +18,26 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final PlayerService _playerService = getPlayerService();
   final List<PlatformFile> _playlist = [];
   int _currentlyPlayingIndex = -1;
+  StreamSubscription<Duration>? _posSub;
+  Duration _position = Duration.zero;
+  Duration _duration = Duration.zero;
+  String? _playError;
 
   @override
-  void initState() {
-    super.initState();
-    _playerService.controller?.addListener(() {
-      if (mounted) setState(() {});
-    });
+  void dispose() {
+    _posSub?.cancel();
+    _playerService.dispose();
+    super.dispose();
   }
 
   Future<void> _pickFile() async {
-    FilePickerResult? result = await FilePicker.platform.pickFiles(
+    final result = await FilePicker.platform.pickFiles(
       type: FileType.video,
       allowMultiple: true,
       withData: kIsWeb,
     );
-
     if (result != null) {
-      setState(() {
-        _playlist.addAll(result.files);
-      });
+      setState(() => _playlist.addAll(result.files));
       if (_currentlyPlayingIndex == -1 && _playlist.isNotEmpty) {
         _playFile(_playlist.first, 0);
       }
@@ -45,25 +47,27 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Future<void> _playFile(PlatformFile file, int index) async {
     setState(() {
       _currentlyPlayingIndex = index;
+      _playError = null;
     });
+    try {
+      await _playerService.dispose();
+    } catch (_) {}
 
-    if (kIsWeb) {
-      await _playerService.initialize(null, file: file);
-    } else {
-      await _playerService.initialize(file.path);
+    try {
+      if (kIsWeb) {
+        await _playerService.initialize(null, networkUrl: file.path ?? '');
+      } else {
+        await _playerService.initialize(file.path);
+      }
+      _duration = _playerService.duration;
+      _posSub?.cancel();
+      _posSub = _playerService.player.stream.position.listen((d) {
+        setState(() => _position = d);
+      });
+    } catch (e) {
+      setState(() => _playError = e.toString());
     }
-
-    _playerService.controller?.addListener(() {
-      if (mounted) setState(() {});
-    });
-
     setState(() {});
-  }
-
-  @override
-  void dispose() {
-    _playerService.dispose();
-    super.dispose();
   }
 
   @override
@@ -89,10 +93,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Container(
               color: Colors.black,
               child: _playerService.isInitialized
-                  ? VideoPlayer(_playerService.controller!)
-                  : const Center(
-                      child: Text('Select a video to play'),
-                    ),
+                  ? Video(controller: _playerService.controller)
+                  : _playError != null
+                      ? Center(
+                          child: Text(
+                            '播放失败：$_playError',
+                            style: const TextStyle(color: Colors.redAccent),
+                          ),
+                        )
+                      : const Center(child: Text('选择一个视频播放')),
             ),
           ),
           Row(
@@ -103,22 +112,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 onPressed: !_playerService.isInitialized
                     ? null
                     : () {
-                        final newPosition =
-                            _playerService.position - const Duration(seconds: 10);
-                        _playerService.seek(newPosition);
+                        final newPos = _position - const Duration(seconds: 10);
+                        _playerService.seek(newPos);
                       },
               ),
               IconButton(
-                icon: Icon(
-                  _playerService.isPlaying ? Icons.pause : Icons.play_arrow,
-                ),
+                icon: Icon(_playerService.isPlaying ? Icons.pause : Icons.play_arrow),
                 onPressed: !_playerService.isInitialized
                     ? null
                     : () {
                         setState(() {
-                          _playerService.isPlaying
-                              ? _playerService.pause()
-                              : _playerService.play();
+                          _playerService.isPlaying ? _playerService.pause() : _playerService.play();
                         });
                       },
               ),
@@ -127,19 +131,22 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 onPressed: !_playerService.isInitialized
                     ? null
                     : () {
-                        final newPosition =
-                            _playerService.position + const Duration(seconds: 10);
-                        _playerService.seek(newPosition);
+                        final newPos = _position + const Duration(seconds: 10);
+                        _playerService.seek(newPos);
                       },
               ),
             ],
           ),
           if (_playerService.isInitialized)
-            VideoProgressIndicator(_playerService.controller!, allowScrubbing: true),
+            Slider(
+              value: _position.inMilliseconds.toDouble().clamp(0, _duration.inMilliseconds + 1),
+              max: (_playerService.duration.inMilliseconds + 1).toDouble(),
+              onChanged: (v) => _playerService.seek(Duration(milliseconds: v.toInt())),
+            ),
           const Padding(
             padding: EdgeInsets.all(8.0),
             child: Text(
-              'Playlist',
+              '播放列表',
               style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
             ),
           ),
@@ -157,9 +164,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       color: isPlaying ? Colors.blue : null,
                     ),
                   ),
-                  onTap: () {
-                    _playFile(file, index);
-                  },
+                  onTap: () => _playFile(file, index),
                 );
               },
             ),

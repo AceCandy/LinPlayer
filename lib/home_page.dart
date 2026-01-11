@@ -21,6 +21,91 @@ class HomePage extends StatefulWidget {
   State<HomePage> createState() => _HomePageState();
 }
 
+class _GlobalSearchDelegate extends SearchDelegate<String> {
+  _GlobalSearchDelegate({required this.appState});
+  final AppState appState;
+  List<MediaItem> _results = [];
+  bool _loading = false;
+
+  Future<void> _doSearch(String q) async {
+    _loading = true;
+    try {
+      await appState.loadItems(
+        parentId: appState.userId ?? '',
+        searchTerm: q,
+        startIndex: 0,
+        includeItemTypes: null,
+      );
+      _results = appState.getItems(appState.userId ?? '');
+    } finally {
+      _loading = false;
+    }
+  }
+
+  @override
+  Widget buildResults(BuildContext context) {
+    if (_loading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    if (_results.isEmpty) {
+      return const Center(child: Text('没有结果'));
+    }
+    return ListView.builder(
+      itemCount: _results.length,
+      itemBuilder: (context, index) {
+        final item = _results[index];
+        return ListTile(
+          leading: const Icon(Icons.search),
+          title: Text(item.name),
+          subtitle: Text(item.type),
+          onTap: () {
+            Navigator.of(context).push(
+              MaterialPageRoute(
+                builder: (_) => LibraryItemsPage(
+                  appState: appState,
+                  parentId: item.id,
+                  title: item.name,
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  @override
+  Widget buildSuggestions(BuildContext context) => const SizedBox.shrink();
+
+  @override
+  List<Widget>? buildActions(BuildContext context) {
+    return [
+      IconButton(
+        icon: const Icon(Icons.clear),
+        onPressed: () {
+          query = '';
+          _results = [];
+          showSuggestions(context);
+        },
+      )
+    ];
+  }
+
+  @override
+  Widget? buildLeading(BuildContext context) {
+    return IconButton(
+      icon: const Icon(Icons.arrow_back),
+      onPressed: () => close(context, ''),
+    );
+  }
+
+  @override
+  void showResults(BuildContext context) {
+    // ignore: use_build_context_synchronously
+    _doSearch(query).then((_) => super.showResults(context));
+  }
+}
+
 class _HomePageState extends State<HomePage> {
   int _index = 0; // 0 home, 1 libraries, 2 local
   bool _loading = true;
@@ -64,6 +149,16 @@ class _HomePageState extends State<HomePage> {
       appBar: AppBar(
         title: const Text('LinPlayer'),
         actions: [
+          IconButton(
+            icon: const Icon(Icons.search),
+            tooltip: '搜索',
+            onPressed: () {
+              showSearch(
+                context: context,
+                delegate: _GlobalSearchDelegate(appState: widget.appState),
+              );
+            },
+          ),
           IconButton(
             icon: const Icon(Icons.cloud_queue),
             tooltip: '线路',
@@ -109,18 +204,17 @@ class _HomeBody extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final sections = [
-      if (appState.getHome('continue').isNotEmpty)
-        ('继续观看', appState.getHome('continue')),
-      ('最新电影', appState.getHome('movies')),
-      ('最新剧集', appState.getHome('episodes')),
-    ];
-    // 动态添加每个媒体库的最新内容
+    final sections = <(String, List<MediaItem>)>[];
+    if (appState.getHome('continue').isNotEmpty) {
+      sections.add(('继续观看', appState.getHome('continue')));
+    }
     for (final entry in appState.homeEntries) {
       if (entry.items.isNotEmpty) {
         sections.add(('${entry.displayName} · 最新', entry.items));
       }
     }
+    sections.add(('最新电影', appState.getHome('movies')));
+    sections.add(('最新剧集', appState.getHome('episodes')));
 
     return RefreshIndicator(
       onRefresh: onRefresh,
