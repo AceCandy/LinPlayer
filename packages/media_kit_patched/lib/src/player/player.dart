@@ -16,7 +16,6 @@ import 'package:media_kit/src/models/playlist_mode.dart';
 import 'package:media_kit/src/models/player_stream.dart';
 
 import 'package:media_kit/src/player/native/player/player.dart';
-import 'package:media_kit/src/player/web/player/player.dart';
 import 'package:media_kit/src/player/platform_player.dart';
 
 /// {@template player}
@@ -106,18 +105,13 @@ class Player {
   }) {
     if (platformPlayer != null) {
       platform = platformPlayer;
-    } else if (UniversalPlatform.isWindows) {
+    } else if (UniversalPlatform.isWindows ||
+        UniversalPlatform.isLinux ||
+        UniversalPlatform.isMacOS ||
+        UniversalPlatform.isIOS ||
+        UniversalPlatform.isAndroid ||
+        UniversalPlatform.isWeb) {
       platform = NativePlayer(configuration: configuration);
-    } else if (UniversalPlatform.isLinux) {
-      platform = NativePlayer(configuration: configuration);
-    } else if (UniversalPlatform.isMacOS) {
-      platform = NativePlayer(configuration: configuration);
-    } else if (UniversalPlatform.isIOS) {
-      platform = NativePlayer(configuration: configuration);
-    } else if (UniversalPlatform.isAndroid) {
-      platform = NativePlayer(configuration: configuration);
-    } else if (UniversalPlatform.isWeb) {
-      platform = WebPlayer(configuration: configuration);
     }
   }
 
