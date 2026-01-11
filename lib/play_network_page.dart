@@ -15,6 +15,7 @@ class PlayNetworkPage extends StatefulWidget {
 
 class _PlayNetworkPageState extends State<PlayNetworkPage> {
   final PlayerService _playerService = getPlayerService();
+  bool _loading = true;
 
   @override
   void initState() {
@@ -23,11 +24,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   }
 
   Future<void> _init() async {
-    await _playerService.initialize(null, networkUrl: widget.streamUrl);
-    _playerService.controller?.addListener(() {
-      if (mounted) setState(() {});
-    });
-    setState(() {});
+    try {
+      await _playerService.initialize(null, networkUrl: widget.streamUrl);
+      _playerService.controller?.addListener(() {
+        if (mounted) setState(() {});
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   @override
@@ -54,6 +60,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                   : const Center(child: CircularProgressIndicator()),
             ),
           ),
+          if (_loading) const LinearProgressIndicator(),
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceEvenly,
             children: [

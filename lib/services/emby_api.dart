@@ -20,10 +20,14 @@ class DomainInfo {
 class LibraryInfo {
   final String id;
   final String name;
-  LibraryInfo({required this.id, required this.name});
+  final String type;
+  LibraryInfo({required this.id, required this.name, required this.type});
 
-  factory LibraryInfo.fromJson(Map<String, dynamic> json) =>
-      LibraryInfo(id: json['Id'] as String? ?? '', name: json['Name'] as String? ?? '');
+  factory LibraryInfo.fromJson(Map<String, dynamic> json) => LibraryInfo(
+        id: json['Id'] as String? ?? '',
+        name: json['Name'] as String? ?? '',
+        type: json['CollectionType'] as String? ?? '',
+      );
 }
 
 class AuthResult {
@@ -43,6 +47,7 @@ class MediaItem {
   final int? seasonNumber;
   final int? episodeNumber;
   final bool hasImage;
+  final String? parentId;
   MediaItem({
     required this.id,
     required this.name,
@@ -53,6 +58,7 @@ class MediaItem {
     required this.seasonNumber,
     required this.episodeNumber,
     required this.hasImage,
+    this.parentId,
   });
 
   factory MediaItem.fromJson(Map<String, dynamic> json) => MediaItem(
@@ -65,7 +71,14 @@ class MediaItem {
         seasonNumber: json['ParentIndexNumber'] as int?,
         episodeNumber: json['IndexNumber'] as int?,
         hasImage: (json['ImageTags'] as Map?)?.isNotEmpty == true,
+        parentId: json['ParentId'] as String?,
       );
+}
+
+class PagedResult<T> {
+  final List<T> items;
+  final int total;
+  PagedResult(this.items, this.total);
 }
 
 class EmbyApi {
@@ -204,14 +217,24 @@ class EmbyApi {
     return items;
   }
 
-  Future<List<MediaItem>> fetchItems({
+  Future<PagedResult<MediaItem>> fetchItems({
     required String token,
     required String baseUrl,
     required String userId,
     required String parentId,
+    int startIndex = 0,
+    int limit = 30,
+    String? includeItemTypes,
+    String? searchTerm,
   }) async {
-    final url = Uri.parse(
-        '$baseUrl/emby/Users/$userId/Items?ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
+    final params = StringBuffer(
+        'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
+    params.write('&StartIndex=$startIndex&Limit=$limit');
+    if (includeItemTypes != null) params.write('&IncludeItemTypes=$includeItemTypes');
+    if (searchTerm != null && searchTerm.isNotEmpty) {
+      params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
+    }
+    final url = Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
     final resp = await http.get(url, headers: {
       'X-Emby-Token': token,
       'Accept': 'application/json',
@@ -223,8 +246,96 @@ class EmbyApi {
     final items = (map['Items'] as List<dynamic>? ?? [])
         .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
         .toList();
-    return items;
+    final total = map['TotalRecordCount'] as int? ?? items.length;
+    return PagedResult(items, total);
   }
+
+  Future<PagedResult<MediaItem>> fetchSeasons({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String seriesId,
+  }) {
+    return fetchItems(
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
+      parentId: seriesId,
+      includeItemTypes: 'Season',
+      limit: 100,
+    );
+  }
+
+  Future<PagedResult<MediaItem>> fetchEpisodes({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String seasonId,
+  }) {
+    return fetchItems(
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
+      parentId: seasonId,
+      includeItemTypes: 'Episode',
+      limit: 200,
+    );
+  }
+
+  Future<PagedResult<MediaItem>> fetchContinueWatching({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    int limit = 30,
+  }) async {
+    final url = Uri.parse(
+        '$baseUrl/emby/Users/$userId/Items?Filters=IsResumable&SortBy=DatePlayed&SortOrder=Descending&Limit=$limit&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags');
+    final resp = await http.get(url, headers: {
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('获取继续观看失败（${resp.statusCode}）');
+    }
+    final map = jsonDecode(resp.body) as Map<String, dynamic>;
+    final items = (map['Items'] as List<dynamic>? ?? [])
+        .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final total = map['TotalRecordCount'] as int? ?? items.length;
+    return PagedResult(items, total);
+  }
+
+  Future<PagedResult<MediaItem>> fetchLatestMovies({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    int limit = 30,
+  }) =>
+      fetchItems(
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
+        parentId: userId, // Emby ignores ParentId when searching latest with types
+        includeItemTypes: 'Movie',
+        limit: limit,
+        startIndex: 0,
+      );
+
+  Future<PagedResult<MediaItem>> fetchLatestEpisodes({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    int limit = 30,
+  }) =>
+      fetchItems(
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
+        parentId: userId,
+        includeItemTypes: 'Episode',
+        limit: limit,
+        startIndex: 0,
+      );
 
   static String imageUrl({
     required String baseUrl,

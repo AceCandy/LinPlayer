@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
-import 'domain_list_page.dart';
 import 'login_page.dart';
+import 'home_page.dart';
 import 'state/app_state.dart';
 
 void main() async {
@@ -22,20 +22,22 @@ class LinPlayerApp extends StatelessWidget {
       animation: appState,
       builder: (context, _) {
         final isLoggedIn = appState.token != null;
+        const seed = Colors.blue;
         return MaterialApp(
           title: 'LinPlayer',
           debugShowCheckedModeBanner: false,
-          theme: ThemeData.dark().copyWith(
-            primaryColor: Colors.blue,
+          themeMode: ThemeMode.system,
+          theme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light),
             visualDensity: VisualDensity.adaptivePlatformDensity,
-            colorScheme: const ColorScheme.dark().copyWith(
-              primary: Colors.blue,
-              secondary: Colors.blueAccent,
-            ),
           ),
-          home: isLoggedIn
-              ? DomainListPage(appState: appState)
-              : LoginPage(appState: appState),
+          darkTheme: ThemeData(
+            useMaterial3: true,
+            colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
+            visualDensity: VisualDensity.adaptivePlatformDensity,
+          ),
+          home: isLoggedIn ? HomePage(appState: appState) : LoginPage(appState: appState),
         );
       },
     );

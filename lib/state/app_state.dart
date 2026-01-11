@@ -9,6 +9,9 @@ class AppState extends ChangeNotifier {
   String? _userId;
   List<DomainInfo> _domains = [];
   List<LibraryInfo> _libraries = [];
+  final Map<String, List<MediaItem>> _itemsCache = {};
+  final Map<String, int> _itemsTotal = {};
+  final Map<String, List<MediaItem>> _homeSections = {};
   bool _loading = false;
   String? _error;
 
@@ -17,6 +20,9 @@ class AppState extends ChangeNotifier {
   String? get userId => _userId;
   List<DomainInfo> get domains => _domains;
   List<LibraryInfo> get libraries => _libraries;
+  List<MediaItem> getItems(String parentId) => _itemsCache[parentId] ?? [];
+  int getTotal(String parentId) => _itemsTotal[parentId] ?? 0;
+  List<MediaItem> getHome(String key) => _homeSections[key] ?? [];
   bool get isLoading => _loading;
   String? get error => _error;
 
@@ -34,6 +40,9 @@ class AppState extends ChangeNotifier {
     _userId = null;
     _domains = [];
     _libraries = [];
+    _itemsCache.clear();
+    _itemsTotal.clear();
+    _homeSections.clear();
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove('baseUrl');
     await prefs.remove('token');
@@ -66,6 +75,9 @@ class AppState extends ChangeNotifier {
       _userId = auth.userId;
       _domains = lines;
       _libraries = libs;
+      _itemsCache.clear();
+      _itemsTotal.clear();
+      _homeSections.clear();
 
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString('baseUrl', auth.baseUrlUsed);
@@ -106,6 +118,9 @@ class AppState extends ChangeNotifier {
         baseUrl: _baseUrl!,
         userId: _userId!,
       );
+      _itemsCache.clear();
+      _itemsTotal.clear();
+      _homeSections.clear();
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -115,16 +130,62 @@ class AppState extends ChangeNotifier {
     }
   }
 
-  Future<List<MediaItem>> fetchItems(String parentId) async {
+  Future<void> loadItems({
+    required String parentId,
+    int startIndex = 0,
+    int limit = 30,
+    String? includeItemTypes,
+    String? searchTerm,
+  }) async {
     if (_baseUrl == null || _token == null || _userId == null) {
       throw Exception('未登录');
     }
     final api = EmbyApi(hostOrUrl: _baseUrl!, preferredScheme: 'https');
-    return api.fetchItems(
+    final result = await api.fetchItems(
       token: _token!,
       baseUrl: _baseUrl!,
       userId: _userId!,
       parentId: parentId,
+      startIndex: startIndex,
+      limit: limit,
+      includeItemTypes: includeItemTypes,
+      searchTerm: searchTerm,
     );
+    final list = _itemsCache[parentId] ?? [];
+    if (startIndex == 0) {
+      _itemsCache[parentId] = result.items;
+    } else {
+      list.addAll(result.items);
+      _itemsCache[parentId] = list;
+    }
+    _itemsTotal[parentId] = result.total;
+    notifyListeners();
+  }
+
+  Future<void> loadHome() async {
+    if (_baseUrl == null || _token == null || _userId == null) return;
+    final api = EmbyApi(hostOrUrl: _baseUrl!, preferredScheme: 'https');
+    final cw = await api.fetchContinueWatching(
+      token: _token!,
+      baseUrl: _baseUrl!,
+      userId: _userId!,
+      limit: 20,
+    );
+    final movies = await api.fetchLatestMovies(
+      token: _token!,
+      baseUrl: _baseUrl!,
+      userId: _userId!,
+      limit: 20,
+    );
+    final eps = await api.fetchLatestEpisodes(
+      token: _token!,
+      baseUrl: _baseUrl!,
+      userId: _userId!,
+      limit: 20,
+    );
+    _homeSections['continue'] = cw.items;
+    _homeSections['movies'] = movies.items;
+    _homeSections['episodes'] = eps.items;
+    notifyListeners();
   }
 }
