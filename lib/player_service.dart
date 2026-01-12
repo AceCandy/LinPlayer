@@ -1,30 +1,47 @@
+import 'dart:async';
+
+import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 class PlayerService {
-  late final Player _player;
-  late final VideoController _controller;
-  bool _initialized = false;
+  Player? _player;
+  VideoController? _controller;
+  StreamSubscription<String>? _errorSub;
 
-  Player get player => _player;
-  VideoController get controller => _controller;
-  bool get isInitialized => _initialized;
+  Player get player => _player!;
+  VideoController get controller => _controller!;
+  bool get isInitialized => _player != null && _controller != null;
 
-  Duration get position => _player.state.position;
-  Duration get duration => _player.state.duration;
-  bool get isPlaying => _player.state.playing;
+  Duration get position => _player?.state.position ?? Duration.zero;
+  Duration get duration => _player?.state.duration ?? Duration.zero;
+  bool get isPlaying => _player?.state.playing ?? false;
 
   PlayerConfiguration _config({
     required bool isTv,
     required bool hardwareDecode,
   }) {
-    // 基于 mpv_PlayKit 思路的精简版：启用 gpu-next 输出、适度放大缓存、放宽协议白名单。
+    final platform = defaultTargetPlatform;
+    final isAndroid = !kIsWeb && platform == TargetPlatform.android;
+    final isDesktop = !kIsWeb &&
+        (platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux ||
+            platform == TargetPlatform.macOS);
+    final extraOptions = <String>[
+      hardwareDecode ? 'hwdec=auto-safe' : 'hwdec=no',
+      'video-sync=audio',
+      'scale=lanczos',
+      'dscale=hermite',
+      'sigmoid-upscaling=yes',
+      'linear-downscaling=yes',
+      'correct-downscaling=yes',
+    ];
+
     return PlayerConfiguration(
-      vo: 'gpu-next',
+      vo: isAndroid || isDesktop ? 'gpu' : null,
       osc: false,
       title: 'LinPlayer',
       logLevel: MPVLogLevel.warn,
-      // 对标 mpv 配置里 demuxer-max-bytes=150MiB
       bufferSize: isTv ? 100 * 1024 * 1024 : 150 * 1024 * 1024,
       protocolWhitelist: const [
         'udp',
@@ -36,21 +53,14 @@ class PlayerService {
         'crypto',
         'data',
         'file',
+        'fd',
+        'content',
         'rtmp',
         'rtmps',
         'rtsp',
         'ftp',
       ],
-      extraMpvOptions: [
-        'gpu-context=d3d11',
-        hardwareDecode ? 'hwdec=auto-safe' : 'hwdec=no',
-        'video-sync=audio',
-        'scale=lanczos',
-        'dscale=hermite',
-        'sigmoid-upscaling=yes',
-        'linear-downscaling=yes',
-        'correct-downscaling=yes',
-      ],
+      extraMpvOptions: extraOptions,
     );
   }
 
@@ -60,23 +70,48 @@ class PlayerService {
     bool isTv = false,
     bool hardwareDecode = true,
   }) async {
-    _player = Player(configuration: _config(isTv: isTv, hardwareDecode: hardwareDecode));
-    _controller = VideoController(_player);
-    if (networkUrl != null) {
-      await _player.open(Media(networkUrl));
-    } else if (path != null) {
-      await _player.open(Media(path));
-    } else {
-      throw Exception('No media source provided');
+    await dispose();
+    MediaKit.ensureInitialized();
+    final player = Player(
+      configuration: _config(
+        isTv: isTv,
+        hardwareDecode: hardwareDecode,
+      ),
+    );
+    final controller = VideoController(player);
+    _player = player;
+    _controller = controller;
+    _errorSub = player.stream.error.listen((message) {
+      debugPrint('Player error: $message');
+    });
+
+    try {
+      if (networkUrl != null && networkUrl.isNotEmpty) {
+        await player.open(Media(networkUrl));
+      } else if (path != null && path.isNotEmpty) {
+        await player.open(Media(path));
+      } else {
+        throw Exception('No media source provided');
+      }
+    } catch (_) {
+      await dispose();
+      rethrow;
     }
-    _initialized = true;
   }
 
-  Future<void> play() => _player.play();
-  Future<void> pause() => _player.pause();
-  Future<void> seek(Duration pos) => _player.seek(pos);
+  Future<void> play() => _player!.play();
+  Future<void> pause() => _player!.pause();
+  Future<void> seek(Duration pos) => _player!.seek(pos);
+
   Future<void> dispose() async {
-    await _player.dispose();
+    await _errorSub?.cancel();
+    _errorSub = null;
+    final player = _player;
+    _player = null;
+    _controller = null;
+    if (player != null) {
+      await player.dispose();
+    }
   }
 }
 

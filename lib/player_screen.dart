@@ -20,6 +20,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   final List<PlatformFile> _playlist = [];
   int _currentlyPlayingIndex = -1;
   StreamSubscription<Duration>? _posSub;
+  StreamSubscription<String>? _errorSub;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   String? _playError;
@@ -29,6 +30,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void dispose() {
     _posSub?.cancel();
+    _errorSub?.cancel();
     _playerService.dispose();
     super.dispose();
   }
@@ -57,6 +59,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _playError = null;
     });
     final isTv = _isTv(context);
+    await _errorSub?.cancel();
+    _errorSub = null;
     try {
       await _playerService.dispose();
     } catch (_) {}
@@ -81,6 +85,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _playerService.player.stream.tracks.listen((t) {
         if (!mounted) return;
         setState(() => _tracks = t);
+      });
+      _errorSub?.cancel();
+      _errorSub = _playerService.player.stream.error.listen((message) {
+        if (!mounted) return;
+        setState(() => _playError = message);
       });
       _duration = _playerService.duration;
       _posSub?.cancel();

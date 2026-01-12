@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
@@ -25,6 +27,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   String? _playError;
   bool _hwdecOn = true;
   Tracks _tracks = const Tracks();
+  StreamSubscription<String>? _errorSub;
 
   @override
   void initState() {
@@ -33,6 +36,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   }
 
   Future<void> _init() async {
+    await _errorSub?.cancel();
+    _errorSub = null;
     try {
       await _playerService.initialize(
         null,
@@ -45,6 +50,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         if (!mounted) return;
         setState(() => _tracks = t);
       });
+      _errorSub?.cancel();
+      _errorSub = _playerService.player.stream.error.listen((message) {
+        if (!mounted) return;
+        setState(() => _playError = message);
+      });
     } catch (e) {
       _playError = e.toString();
     } finally {
@@ -56,6 +66,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
 
   @override
   void dispose() {
+    _errorSub?.cancel();
     _playerService.dispose();
     super.dispose();
   }
