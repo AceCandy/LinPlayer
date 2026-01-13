@@ -148,6 +148,7 @@ class _HomePageState extends State<HomePage> {
           );
         },
         isTv: isTv,
+        showSearchBar: true,
       ),
       LibraryPage(appState: widget.appState),
       const PlayerScreen(),
@@ -195,6 +196,7 @@ class _HomeBody extends StatelessWidget {
     required this.enableGlass,
     required this.onSearch,
     required this.isTv,
+    required this.showSearchBar,
   });
 
   final AppState appState;
@@ -203,66 +205,78 @@ class _HomeBody extends StatelessWidget {
   final bool enableGlass;
   final void Function(String) onSearch;
   final bool isTv;
+  final bool showSearchBar;
 
   @override
   Widget build(BuildContext context) {
     final sections = <(String, List<MediaItem>)>[];
-    if (appState.getHome('continue').isNotEmpty) {
-      sections.add(('继续观看', appState.getHome('continue')));
-    }
     for (final entry in appState.homeEntries) {
-      // 仅展示可播放条目，避免文件夹/分类
-      final playable = entry.items.where((e) => e.type == 'Episode' || e.type == 'Movie').toList();
-      if (playable.isNotEmpty) {
-        sections.add(('${entry.displayName} · 最新', playable));
+      final shows = entry.items;
+      if (shows.isNotEmpty) {
+        sections.add((entry.displayName, shows));
       }
     }
-    sections.add(('最新电影', appState.getHome('movies')));
-    sections.add(('最新剧集', appState.getHome('episodes')));
 
     return RefreshIndicator(
       onRefresh: onRefresh,
       child: ListView(
         padding: const EdgeInsets.only(bottom: 16),
         children: [
-          const SizedBox(height: 12),
-          Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: TextField(
-              decoration: const InputDecoration(
-                hintText: '搜索片名…',
-                prefixIcon: Icon(Icons.search),
+          if (showSearchBar) ...[
+            const SizedBox(height: 12),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: TextField(
+                decoration: const InputDecoration(
+                  hintText: '搜索片名…',
+                  prefixIcon: Icon(Icons.search),
+                ),
+                textInputAction: TextInputAction.search,
+                onSubmitted: onSearch,
               ),
-              textInputAction: TextInputAction.search,
-              onSubmitted: onSearch,
             ),
-          ),
-          const SizedBox(height: 12),
+            const SizedBox(height: 12),
+          ],
           if (loading) const LinearProgressIndicator(),
           for (final sec in sections)
             if (sec.$2.isNotEmpty) ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: Text(sec.$1, style: Theme.of(context).textTheme.titleLarge),
-              ),
-              SizedBox(
-                height: 240,
-                child: ListView.separated(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  scrollDirection: Axis.horizontal,
-                  itemBuilder: (context, index) {
-                    final item = sec.$2[index];
-                    return _HomeCard(
-                      item: item,
-                      appState: appState,
-                      enableGlass: enableGlass,
-                      isTv: isTv,
-                    );
-                  },
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
-                  itemCount: sec.$2.length,
-                ),
-              ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            child: Text(sec.$1, style: Theme.of(context).textTheme.titleLarge),
+          ),
+          GridView.builder(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+              crossAxisCount: 3,
+              mainAxisSpacing: 12,
+              crossAxisSpacing: 12,
+              childAspectRatio: 2 / 3,
+            ),
+            itemCount: sec.$2.length,
+            itemBuilder: (context, index) {
+              final item = sec.$2[index];
+              return _HomeCard(
+                item: item,
+                appState: appState,
+                enableGlass: enableGlass,
+                isTv: isTv,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => PlayNetworkPage(
+                        title: item.name,
+                        itemId: item.id,
+                        appState: appState,
+                        isTv: isTv,
+                      ),
+                    ),
+                  );
+                },
+              );
+            },
+          ),
             ]
             else
               const SizedBox.shrink(),
@@ -283,14 +297,14 @@ class _HomeCard extends StatelessWidget {
     required this.appState,
     required this.enableGlass,
     required this.isTv,
+    required this.onTap,
   });
 
   final MediaItem item;
   final AppState appState;
   final bool enableGlass;
   final bool isTv;
-
-  bool get _isPlayable => item.type == 'Movie' || item.type == 'Episode';
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -313,67 +327,38 @@ class _HomeCard extends StatelessWidget {
       }
     }
 
-    final card = SizedBox(
-      width: 230,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            // 16:9 横版封面
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: image != null
-                  ? CachedNetworkImage(
-                      imageUrl: image,
-                      fit: BoxFit.cover,
-                      placeholder: (_, __) =>
-                          const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                      errorWidget: (_, __, ___) =>
-                          const ColoredBox(color: Colors.black12, child: Icon(Icons.broken_image)),
-                    )
-                  : const ColoredBox(color: Colors.black12, child: Icon(Icons.image)),
-            ),
+    final card = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        AspectRatio(
+          aspectRatio: 2 / 3,
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(12),
+            child: image != null
+                ? CachedNetworkImage(
+                    imageUrl: image,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) =>
+                        const Center(child: CircularProgressIndicator(strokeWidth: 2)),
+                    errorWidget: (_, __, ___) =>
+                        const ColoredBox(color: Colors.black12, child: Icon(Icons.broken_image)),
+                  )
+                : const ColoredBox(color: Colors.black12, child: Icon(Icons.image)),
           ),
-          const SizedBox(height: 6),
-          Text(
-            item.name,
-            style: Theme.of(context).textTheme.bodyLarge,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-          ),
-        ],
-      ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          item.name,
+          style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+        ),
+      ],
     );
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: _isPlayable
-          ? () {
-              final url =
-                  '${appState.baseUrl}/emby/Videos/${item.id}/stream?static=true&MediaSourceId=${item.id}&api_key=${appState.token}';
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => PlayNetworkPage(
-                    title: item.name,
-                    streamUrl: url,
-                    isTv: isTv,
-                  ),
-                ),
-              );
-            }
-          : () {
-              Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => LibraryItemsPage(
-                    appState: appState,
-                    parentId: item.id,
-                    title: item.name,
-                    isTv: isTv,
-                  ),
-                ),
-              );
-            },
+      onTap: onTap,
       child: enableGlass
           ? ClipRRect(
               borderRadius: BorderRadius.circular(14),

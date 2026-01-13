@@ -13,12 +13,20 @@ class AppState extends ChangeNotifier {
   final Map<String, int> _itemsTotal = {};
   final Map<String, List<MediaItem>> _homeSections = {};
   final Set<String> _hiddenLibraries = {};
+  late final String _deviceId = _randomId();
   bool _loading = false;
   String? _error;
+
+  static String _randomId() {
+    const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
+    final rand = DateTime.now().microsecondsSinceEpoch;
+    return List.generate(16, (i) => chars[(rand + i * 31) % chars.length]).join();
+  }
 
   String? get baseUrl => _baseUrl;
   String? get token => _token;
   String? get userId => _userId;
+  String get deviceId => _deviceId;
   List<DomainInfo> get domains => _domains;
   List<LibraryInfo> get libraries => _libraries;
   List<MediaItem> getItems(String parentId) => _itemsCache[parentId] ?? [];
@@ -195,47 +203,28 @@ class AppState extends ChangeNotifier {
   Future<void> loadHome() async {
     if (_baseUrl == null || _token == null || _userId == null) return;
     final api = EmbyApi(hostOrUrl: _baseUrl!, preferredScheme: 'https');
-    final cw = await api.fetchContinueWatching(
-      token: _token!,
-      baseUrl: _baseUrl!,
-      userId: _userId!,
-      limit: 20,
-    );
-    final movies = await api.fetchLatestMovies(
-      token: _token!,
-      baseUrl: _baseUrl!,
-      userId: _userId!,
-      limit: 20,
-    );
-    final eps = await api.fetchLatestEpisodes(
-      token: _token!,
-      baseUrl: _baseUrl!,
-      userId: _userId!,
-      limit: 20,
-    );
-    final Map<String, List<MediaItem>> libraryLatest = {};
+    final Map<String, List<MediaItem>> libraryShows = {};
     for (final lib in _libraries) {
       try {
-        final latest = await api.fetchLatestFromLibrary(
+        final fetched = await api.fetchItems(
           token: _token!,
           baseUrl: _baseUrl!,
           userId: _userId!,
-          libraryId: lib.id,
-          limit: 12,
-          // 电视/连续剧库仅取剧集，其它库可包含电影
-          onlyEpisodes: lib.type.toLowerCase().contains('tv') || lib.type.toLowerCase().contains('series'),
+          parentId: lib.id,
+          includeItemTypes: 'Series,Movie',
+          recursive: true,
+          excludeFolders: false,
+          limit: 80,
+          sortBy: 'DateCreated',
         );
-        if (latest.items.isNotEmpty) {
-          libraryLatest['lib_${lib.id}'] = latest.items;
-        }
+        libraryShows['lib_${lib.id}'] = fetched.items;
       } catch (_) {
         // ignore failures per library
       }
     }
-    _homeSections['continue'] = cw.items;
-    _homeSections['movies'] = movies.items;
-    _homeSections['episodes'] = eps.items;
-    _homeSections.addAll(libraryLatest);
+    _homeSections
+      ..clear()
+      ..addAll(libraryShows);
     notifyListeners();
   }
 

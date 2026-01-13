@@ -87,6 +87,12 @@ class PagedResult<T> {
   PagedResult(this.items, this.total);
 }
 
+class PlaybackInfoResult {
+  final String playSessionId;
+  final String mediaSourceId;
+  PlaybackInfoResult({required this.playSessionId, required this.mediaSourceId});
+}
+
 class EmbyApi {
   EmbyApi({
     required String hostOrUrl,
@@ -260,7 +266,9 @@ class EmbyApi {
         'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
     params.write('&StartIndex=$startIndex&Limit=$limit');
     params.write('&Recursive=$recursive');
-    if (excludeFolders) params.write('&Filters=IsNotFolder');
+    if (excludeFolders) {
+      params.write('&Filters=IsNotFolder');
+    }
     if (includeItemTypes != null) params.write('&IncludeItemTypes=$includeItemTypes');
     if (sortBy != null && sortBy.isNotEmpty) {
       params.write('&SortBy=$sortBy&SortOrder=$sortOrder');
@@ -405,6 +413,42 @@ class EmbyApi {
         .toList();
     final total = map['TotalRecordCount'] as int? ?? items.length;
     return PagedResult(items, total);
+  }
+
+  Future<PlaybackInfoResult> fetchPlaybackInfo({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String deviceId,
+    required String itemId,
+  }) async {
+    final url = Uri.parse('$baseUrl/emby/Items/$itemId/PlaybackInfo');
+    final resp = await _client.post(
+      url,
+      headers: {
+        'X-Emby-Token': token,
+        'Accept': 'application/json',
+        'Content-Type': 'application/json',
+      },
+      body: jsonEncode({
+        'UserId': userId,
+        'DeviceProfile': {
+          'DeviceId': deviceId,
+        },
+      }),
+    );
+    if (resp.statusCode != 200) {
+      throw Exception('获取播放信息失败(${resp.statusCode})');
+    }
+    final map = jsonDecode(resp.body) as Map<String, dynamic>;
+    final session = map['PlaySessionId'] as String? ?? '';
+    final sources = (map['MediaSources'] as List?) ?? [];
+    if (session.isEmpty || sources.isEmpty) {
+      throw Exception('播放信息缺失');
+    }
+    final ms = sources.first as Map<String, dynamic>;
+    final mediaSourceId = ms['Id'] as String? ?? itemId;
+    return PlaybackInfoResult(playSessionId: session, mediaSourceId: mediaSourceId);
   }
 
   static String imageUrl({

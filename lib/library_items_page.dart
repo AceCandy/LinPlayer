@@ -54,9 +54,9 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
         parentId: widget.parentId,
         startIndex: start,
         limit: 30,
-        includeItemTypes: 'Movie,Episode',
+        includeItemTypes: 'Series,Movie',
         recursive: true,
-        excludeFolders: true,
+        excludeFolders: false,
         sortBy: 'DateCreated',
       );
     } finally {
@@ -101,8 +101,6 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                     return const Center(child: CircularProgressIndicator());
                   }
                   final item = items[index];
-                  final url =
-                      '${widget.appState.baseUrl}/emby/Videos/${item.id}/stream?static=true&MediaSourceId=${item.id}&api_key=${widget.appState.token}';
                   return _GridItem(
                     item: item,
                     appState: widget.appState,
@@ -113,7 +111,8 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                         MaterialPageRoute(
                           builder: (_) => PlayNetworkPage(
                             title: item.name,
-                            streamUrl: url,
+                            itemId: item.id,
+                            appState: widget.appState,
                             isTv: widget.isTv,
                           ),
                         ),

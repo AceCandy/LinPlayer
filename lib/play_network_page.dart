@@ -3,18 +3,23 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
+
 import 'player_service.dart';
+import 'services/emby_api.dart';
+import 'state/app_state.dart';
 
 class PlayNetworkPage extends StatefulWidget {
   const PlayNetworkPage({
     super.key,
     required this.title,
-    required this.streamUrl,
+    required this.itemId,
+    required this.appState,
     this.isTv = false,
   });
 
   final String title;
-  final String streamUrl;
+  final String itemId;
+  final AppState appState;
   final bool isTv;
 
   @override
@@ -28,6 +33,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   bool _hwdecOn = true;
   Tracks _tracks = const Tracks();
   StreamSubscription<String>? _errorSub;
+  String? _resolvedStream;
 
   @override
   void initState() {
@@ -39,9 +45,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     await _errorSub?.cancel();
     _errorSub = null;
     try {
+      final streamUrl = await _buildStreamUrl();
+      _resolvedStream = streamUrl;
       await _playerService.initialize(
         null,
-        networkUrl: widget.streamUrl,
+        networkUrl: streamUrl,
         isTv: widget.isTv,
         hardwareDecode: _hwdecOn,
       );
@@ -64,6 +72,25 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     }
   }
 
+  Future<String> _buildStreamUrl() async {
+    final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final info = await api.fetchPlaybackInfo(
+      token: widget.appState.token!,
+      baseUrl: widget.appState.baseUrl!,
+      userId: widget.appState.userId!,
+      deviceId: widget.appState.deviceId,
+      itemId: widget.itemId,
+    );
+    final base = widget.appState.baseUrl!;
+    final token = widget.appState.token!;
+    final userId = widget.appState.userId!;
+    final url =
+        '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=${info.mediaSourceId}'
+        '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
+        '&api_key=$token';
+    return url;
+  }
+
   @override
   void dispose() {
     _errorSub?.cancel();
@@ -78,19 +105,15 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       appBar: AppBar(
         title: Text(widget.title),
         actions: [
-          IconButton(
-            tooltip: '选集',
-            icon: const Icon(Icons.playlist_play),
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (_) => const Padding(
-                  padding: EdgeInsets.all(16),
-                  child: Text('当前只有单集播放，暂无可选集。'),
-                ),
-              );
-            },
-          ),
+          if (_resolvedStream != null)
+            IconButton(
+              tooltip: '复制链接',
+              icon: const Icon(Icons.link),
+              onPressed: () {
+                ScaffoldMessenger.of(context)
+                    .showSnackBar(const SnackBar(content: Text('已生成播放链接')));
+              },
+            ),
           IconButton(
             tooltip: '音轨',
             icon: const Icon(Icons.audiotrack),
@@ -125,9 +148,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
             child: Container(
               color: Colors.black,
               child: initialized
-                  ? Video(
-                      controller: _playerService.controller,
-                    )
+                  ? Video(controller: _playerService.controller)
                   : _playError != null
                       ? Center(
                           child: Text(
