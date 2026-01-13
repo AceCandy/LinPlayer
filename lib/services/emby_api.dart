@@ -188,12 +188,21 @@ class EmbyApi {
     return List.generate(16, (_) => chars[rand.nextInt(chars.length)]).join();
   }
 
-  Map<String, String> _authHeader() {
-    final deviceId = _randomId();
+  static String _authorizationValue({
+    required String deviceId,
+    String client = 'LinPlayer',
+    String device = 'Flutter',
+    String version = '1.0.0',
+  }) {
+    return 'MediaBrowser Client="$client", Device="$device", DeviceId="$deviceId", Version="$version"';
+  }
+
+  Map<String, String> _authHeader({String? deviceId}) {
+    final id = (deviceId == null || deviceId.isEmpty) ? _randomId() : deviceId;
     return {
       'Content-Type': 'application/json',
       'X-Emby-Authorization':
-          'MediaBrowser Client="LinPlayer", Device="Flutter", DeviceId="$deviceId", Version="1.0.0"'
+          _authorizationValue(deviceId: id),
     };
   }
 
@@ -237,6 +246,7 @@ class EmbyApi {
   Future<AuthResult> authenticate({
     required String username,
     required String password,
+    String? deviceId,
   }) async {
     final errors = <String>[];
     for (final base in _candidates()) {
@@ -248,7 +258,11 @@ class EmbyApi {
       });
 
       try {
-        final resp = await _client.post(url, headers: _authHeader(), body: body);
+        final resp = await _client.post(
+          url,
+          headers: _authHeader(deviceId: deviceId),
+          body: body,
+        );
         if (resp.statusCode != 200) {
           errors.add('${url.origin}: HTTP ${resp.statusCode}');
           continue;
@@ -508,6 +522,7 @@ class EmbyApi {
           Uri.parse('$baseUrl/emby/Items/$itemId/PlaybackInfo'),
           headers: {
             'X-Emby-Token': token,
+            'X-Emby-Authorization': _authorizationValue(deviceId: deviceId),
             'Accept': 'application/json',
             'Content-Type': 'application/json',
           },
@@ -521,6 +536,7 @@ class EmbyApi {
               '$baseUrl/emby/Items/$itemId/PlaybackInfo?UserId=$userId&DeviceId=$deviceId'),
           headers: {
             'X-Emby-Token': token,
+            'X-Emby-Authorization': _authorizationValue(deviceId: deviceId),
             'Accept': 'application/json',
           },
         );
@@ -533,8 +549,18 @@ class EmbyApi {
       throw Exception('获取播放信息失败(${resp.statusCode})');
     }
     final map = jsonDecode(resp.body) as Map<String, dynamic>;
-    final session = map['PlaySessionId'] as String? ?? '';
-    final sources = (map['MediaSources'] as List?) ?? [];
+    var session = map['PlaySessionId'] as String? ?? '';
+    var sources = (map['MediaSources'] as List?) ?? [];
+
+    if (session.isEmpty || sources.isEmpty) {
+      // Fallback: some servers return 200 but require POST body to include DeviceProfile.
+      final resp2 = await postReq();
+      if (resp2.statusCode == 200) {
+        final map2 = jsonDecode(resp2.body) as Map<String, dynamic>;
+        session = map2['PlaySessionId'] as String? ?? '';
+        sources = (map2['MediaSources'] as List?) ?? [];
+      }
+    }
     if (session.isEmpty || sources.isEmpty) {
       throw Exception('播放信息缺失');
     }

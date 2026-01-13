@@ -264,16 +264,30 @@ class _HomeBody extends StatelessWidget {
                 enableGlass: enableGlass,
                 isTv: isTv,
                 onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => PlayNetworkPage(
-                        title: item.name,
-                        itemId: item.id,
-                        appState: appState,
-                        isTv: isTv,
+                  final type = item.type.toLowerCase();
+                  if (type == 'series') {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => ShowDetailPage(
+                          itemId: item.id,
+                          title: item.name,
+                          appState: appState,
+                          isTv: isTv,
+                        ),
                       ),
-                    ),
-                  );
+                    );
+                  } else {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(
+                        builder: (_) => PlayNetworkPage(
+                          title: item.name,
+                          itemId: item.id,
+                          appState: appState,
+                          isTv: isTv,
+                        ),
+                      ),
+                    );
+                  }
                 },
               );
             },

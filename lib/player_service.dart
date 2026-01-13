@@ -51,12 +51,17 @@ class PlayerService {
         'rtsp',
         'ftp',
       ],
+      extraMpvOptions: [
+        hardwareDecode ? 'hwdec=auto-safe' : 'hwdec=no',
+        'tls-verify=no',
+      ],
     );
   }
 
   Future<void> initialize(
     String? path, {
     String? networkUrl,
+    Map<String, String>? httpHeaders,
     bool isTv = false,
     bool hardwareDecode = true,
   }) async {
@@ -77,7 +82,7 @@ class PlayerService {
 
     try {
       if (networkUrl != null && networkUrl.isNotEmpty) {
-        await player.open(Media(networkUrl));
+        await player.open(Media(networkUrl, httpHeaders: httpHeaders));
       } else if (path != null && path.isNotEmpty) {
         await player.open(Media(path));
       } else {

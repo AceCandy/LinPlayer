@@ -50,6 +50,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       await _playerService.initialize(
         null,
         networkUrl: streamUrl,
+        httpHeaders: {
+          'X-Emby-Token': widget.appState.token!,
+          'X-Emby-Authorization':
+              'MediaBrowser Client="LinPlayer", Device="Flutter", DeviceId="${widget.appState.deviceId}", Version="1.0.0"',
+        },
         isTv: widget.isTv,
         hardwareDecode: _hwdecOn,
       );
@@ -76,6 +81,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     final base = widget.appState.baseUrl!;
     final token = widget.appState.token!;
     final userId = widget.appState.userId!;
+    String ensureApiKey(String url) {
+      final uri = Uri.parse(url);
+      if (uri.queryParameters.containsKey('api_key')) return url;
+      final params = Map<String, String>.from(uri.queryParameters);
+      params['api_key'] = token;
+      return uri.replace(queryParameters: params).toString();
+    }
+
+    String resolve(String candidate) {
+      final resolved = Uri.parse(base).resolve(candidate).toString();
+      return ensureApiKey(resolved);
+    }
     try {
       final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
       final info = await api.fetchPlaybackInfo(
@@ -85,14 +102,26 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         deviceId: widget.appState.deviceId,
         itemId: widget.itemId,
       );
-      final url =
-          '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=${info.mediaSourceId}'
+      final Map<String, dynamic>? ms = info.mediaSources.isNotEmpty
+          ? info.mediaSources.first as Map<String, dynamic>
+          : null;
+      final supportsDirect =
+          ms?['SupportsDirectPlay'] == true || ms?['SupportsDirectStream'] == true;
+      final transcodingUrl = ms?['TranscodingUrl'] as String?;
+      if (!supportsDirect && transcodingUrl != null && transcodingUrl.isNotEmpty) {
+        return resolve(transcodingUrl);
+      }
+      final directStreamUrl = ms?['DirectStreamUrl'] as String?;
+      if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
+        return resolve(directStreamUrl);
+      }
+      return '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=${info.mediaSourceId}'
           '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
           '&api_key=$token';
-      return url;
     } catch (_) {
+      return '$base/emby/Videos/${widget.itemId}/stream?static=true&UserId=$userId'
+          '&DeviceId=${widget.appState.deviceId}&api_key=$token';
       // 回退：无需 playbackInfo 的直链（部分服务器禁用该接口）
-      return '$base/emby/Videos/${widget.itemId}/stream?static=true&api_key=$token';
     }
   }
 

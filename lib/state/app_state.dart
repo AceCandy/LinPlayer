@@ -90,7 +90,11 @@ class AppState extends ChangeNotifier {
 
     try {
       final api = EmbyApi(hostOrUrl: hostOrUrl, preferredScheme: scheme, port: port);
-      final auth = await api.authenticate(username: username, password: password);
+      final auth = await api.authenticate(
+        username: username,
+        password: password,
+        deviceId: _deviceId,
+      );
       final lines = await api.fetchDomains(auth.token, auth.baseUrlUsed, allowFailure: true);
       final libs = await api.fetchLibraries(
         token: auth.token,
