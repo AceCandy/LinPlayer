@@ -4,6 +4,7 @@ import 'package:media_kit/media_kit.dart';
 import 'login_page.dart';
 import 'home_page.dart';
 import 'state/app_state.dart';
+import 'src/ui/app_theme.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -25,21 +26,12 @@ class LinPlayerApp extends StatelessWidget {
       animation: appState,
       builder: (context, _) {
         final isLoggedIn = appState.token != null;
-        const seed = Colors.blue;
         return MaterialApp(
           title: 'LinPlayer',
           debugShowCheckedModeBanner: false,
-          themeMode: ThemeMode.system,
-          theme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light),
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
-          darkTheme: ThemeData(
-            useMaterial3: true,
-            colorScheme: ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark),
-            visualDensity: VisualDensity.adaptivePlatformDensity,
-          ),
+          themeMode: ThemeMode.dark,
+          darkTheme: AppTheme.dark(),
+          theme: AppTheme.dark(),
           home: isLoggedIn ? HomePage(appState: appState) : LoginPage(appState: appState),
         );
       },

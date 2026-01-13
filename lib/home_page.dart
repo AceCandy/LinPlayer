@@ -229,11 +229,9 @@ class _HomeBody extends StatelessWidget {
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: TextField(
-              decoration: InputDecoration(
+              decoration: const InputDecoration(
                 hintText: '搜索片名…',
-                prefixIcon: const Icon(Icons.search),
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(12)),
-                contentPadding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+                prefixIcon: Icon(Icons.search),
               ),
               textInputAction: TextInputAction.search,
               onSubmitted: onSearch,

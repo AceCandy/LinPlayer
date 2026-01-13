@@ -18,12 +18,12 @@ class DomainListPage extends StatelessWidget {
         final domains = appState.domains;
         return Scaffold(
           appBar: AppBar(
-            title: const Text('可用线路'),
+            title: const Text('服务器'),
             actions: [
               IconButton(
                 icon: const Icon(Icons.refresh),
                 onPressed: appState.isLoading ? null : () => appState.refreshDomains(),
-                tooltip: '刷新线路',
+                tooltip: '刷新',
               ),
               IconButton(
                 icon: const Icon(Icons.logout),
@@ -36,33 +36,44 @@ class DomainListPage extends StatelessWidget {
               ? const Center(child: CircularProgressIndicator())
               : domains.isEmpty
                   ? const Center(child: Text('暂无线路，点击右上角刷新重试'))
-                  : ListView.builder(
+                  : ListView.separated(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 96),
                       itemCount: domains.length,
+                      separatorBuilder: (_, __) => const SizedBox(height: 12),
                       itemBuilder: (context, index) {
                         final DomainInfo d = domains[index];
-                        return ListTile(
-                          leading: const Icon(Icons.cloud),
-                          title: Text(d.name.isNotEmpty ? d.name : d.url),
-                          subtitle: Text(d.url),
-                          onTap: () {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              SnackBar(content: Text('已选择：${d.url}')),
-                            );
-                          },
+                        final name = d.name.isNotEmpty ? d.name : d.url;
+                        final initial = name.isNotEmpty ? name[0].toUpperCase() : '?';
+                        return Card(
+                          child: ListTile(
+                            leading: CircleAvatar(
+                              backgroundColor:
+                                  Theme.of(context).colorScheme.primary.withValues(alpha: 0.14),
+                              child:
+                                  Text(initial, style: const TextStyle(fontWeight: FontWeight.w700)),
+                            ),
+                            title: Text(name, style: const TextStyle(fontWeight: FontWeight.w600)),
+                            subtitle: Text(d.url, overflow: TextOverflow.ellipsis),
+                            trailing: const Icon(Icons.more_vert),
+                            onTap: () {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('已选择：${d.url}')),
+                              );
+                            },
+                          ),
                         );
                       },
                     ),
-          floatingActionButton: FloatingActionButton.extended(
+          floatingActionButton: FloatingActionButton(
             onPressed: () {
               Navigator.of(context).push(
                 MaterialPageRoute(builder: (_) => const PlayerScreen()),
               );
             },
-            icon: const Icon(Icons.play_circle),
-            label: const Text('本地播放器'),
+            child: const Icon(Icons.add),
           ),
           bottomNavigationBar: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
             child: Row(
               children: [
                 Expanded(
