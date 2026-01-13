@@ -44,6 +44,13 @@ class MediaItem {
   final String name;
   final String type;
   final String overview;
+  final double? communityRating;
+  final String? premiereDate;
+  final List<String> genres;
+  final int? runTimeTicks;
+  final int? sizeBytes;
+  final String? container;
+  final Map<String, String> providerIds;
   final String seriesName;
   final String seasonName;
   final int? seasonNumber;
@@ -51,17 +58,26 @@ class MediaItem {
   final bool hasImage;
   final String? parentId;
   final int playbackPositionTicks;
+  final List<MediaPerson> people;
   MediaItem({
     required this.id,
     required this.name,
     required this.type,
     required this.overview,
+    required this.communityRating,
+    required this.premiereDate,
+    required this.genres,
+    required this.runTimeTicks,
+    required this.sizeBytes,
+    required this.container,
+    required this.providerIds,
     required this.seriesName,
     required this.seasonName,
     required this.seasonNumber,
     required this.episodeNumber,
     required this.hasImage,
     required this.playbackPositionTicks,
+    required this.people,
     this.parentId,
   });
 
@@ -70,6 +86,16 @@ class MediaItem {
         name: json['Name'] as String? ?? '',
         type: json['Type'] as String? ?? '',
         overview: json['Overview'] as String? ?? '',
+        communityRating: (json['CommunityRating'] as num?)?.toDouble(),
+        premiereDate: json['PremiereDate'] as String?,
+        genres: (json['Genres'] as List?)?.cast<String>() ?? const [],
+        runTimeTicks: json['RunTimeTicks'] as int?,
+        sizeBytes: json['Size'] as int?,
+        container: json['Container'] as String?,
+        providerIds: (json['ProviderIds'] as Map?)?.map(
+              (key, value) => MapEntry(key.toString(), value.toString()),
+            ) ??
+            const {},
         seriesName: json['SeriesName'] as String? ?? '',
         seasonName: json['SeasonName'] as String? ?? '',
         seasonNumber: json['ParentIndexNumber'] as int?,
@@ -77,6 +103,10 @@ class MediaItem {
         hasImage: (json['ImageTags'] as Map?)?.isNotEmpty == true,
         playbackPositionTicks:
             (json['UserData'] as Map?)?['PlaybackPositionTicks'] as int? ?? 0,
+        people: (json['People'] as List?)
+                ?.map((e) => MediaPerson.fromJson(e as Map<String, dynamic>))
+                .toList() ??
+            const [],
         parentId: json['ParentId'] as String?,
       );
 }
@@ -87,10 +117,51 @@ class PagedResult<T> {
   PagedResult(this.items, this.total);
 }
 
+class MediaPerson {
+  final String name;
+  final String role;
+  final String type;
+  final String id;
+  final String? primaryImageTag;
+  MediaPerson({
+    required this.name,
+    required this.role,
+    required this.type,
+    required this.id,
+    required this.primaryImageTag,
+  });
+
+  factory MediaPerson.fromJson(Map<String, dynamic> json) => MediaPerson(
+        name: json['Name'] as String? ?? '',
+        role: json['Role'] as String? ?? '',
+        type: json['Type'] as String? ?? '',
+        id: json['Id'] as String? ?? '',
+        primaryImageTag: json['PrimaryImageTag'] as String?,
+      );
+}
+
+class ChapterInfo {
+  final String name;
+  final int startTicks;
+  ChapterInfo({required this.name, required this.startTicks});
+
+  Duration get start => Duration(microseconds: (startTicks / 10).round());
+
+  factory ChapterInfo.fromJson(Map<String, dynamic> json) => ChapterInfo(
+        name: json['Name'] as String? ?? '',
+        startTicks: json['StartPositionTicks'] as int? ?? 0,
+      );
+}
+
 class PlaybackInfoResult {
   final String playSessionId;
   final String mediaSourceId;
-  PlaybackInfoResult({required this.playSessionId, required this.mediaSourceId});
+  final List<dynamic> mediaSources;
+  PlaybackInfoResult({
+    required this.playSessionId,
+    required this.mediaSourceId,
+    required this.mediaSources,
+  });
 }
 
 class EmbyApi {
@@ -263,7 +334,7 @@ class EmbyApi {
     String sortOrder = 'Descending',
   }) async {
     final params = StringBuffer(
-        'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
+        'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate');
     params.write('&StartIndex=$startIndex&Limit=$limit');
     params.write('&Recursive=$recursive');
     if (excludeFolders) {
@@ -422,21 +493,42 @@ class EmbyApi {
     required String deviceId,
     required String itemId,
   }) async {
-    final url = Uri.parse('$baseUrl/emby/Items/$itemId/PlaybackInfo');
-    final resp = await _client.post(
-      url,
-      headers: {
-        'X-Emby-Token': token,
-        'Accept': 'application/json',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'UserId': userId,
-        'DeviceProfile': {
-          'DeviceId': deviceId,
-        },
-      }),
-    );
+    final deviceProfile = {
+      "Name": "LinPlayer",
+      "MaxStreamingBitrate": 120000000,
+      "DirectPlayProfiles": [
+        {"Container": "mp4,mkv,mov,avi,ts,flv,webm", "Type": "Video"},
+        {"Container": "mp3,aac,flac,wav,ogg", "Type": "Audio"}
+      ],
+      "TranscodingProfiles": [],
+      "DeviceId": deviceId,
+    };
+
+    Future<http.Response> postReq() => _client.post(
+          Uri.parse('$baseUrl/emby/Items/$itemId/PlaybackInfo'),
+          headers: {
+            'X-Emby-Token': token,
+            'Accept': 'application/json',
+            'Content-Type': 'application/json',
+          },
+          body: jsonEncode({
+            'UserId': userId,
+            'DeviceProfile': deviceProfile,
+          }),
+        );
+    Future<http.Response> getReq() => _client.get(
+          Uri.parse(
+              '$baseUrl/emby/Items/$itemId/PlaybackInfo?UserId=$userId&DeviceId=$deviceId'),
+          headers: {
+            'X-Emby-Token': token,
+            'Accept': 'application/json',
+          },
+        );
+
+    http.Response resp = await postReq();
+    if (resp.statusCode >= 500) {
+      resp = await getReq();
+    }
     if (resp.statusCode != 200) {
       throw Exception('获取播放信息失败(${resp.statusCode})');
     }
@@ -448,7 +540,30 @@ class EmbyApi {
     }
     final ms = sources.first as Map<String, dynamic>;
     final mediaSourceId = ms['Id'] as String? ?? itemId;
-    return PlaybackInfoResult(playSessionId: session, mediaSourceId: mediaSourceId);
+    return PlaybackInfoResult(
+      playSessionId: session,
+      mediaSourceId: mediaSourceId,
+      mediaSources: sources,
+    );
+  }
+
+  Future<MediaItem> fetchItemDetail({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String itemId,
+  }) async {
+    final url = Uri.parse(
+        '$baseUrl/emby/Users/$userId/Items/$itemId?Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,ProviderIds,CommunityRating,PremiereDate,ProductionYear,Genres,People,RunTimeTicks,Size,Container');
+    final resp = await _client.get(url, headers: {
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('获取详情失败(${resp.statusCode})');
+    }
+    final map = jsonDecode(resp.body) as Map<String, dynamic>;
+    return MediaItem.fromJson(map);
   }
 
   static String imageUrl({
@@ -460,5 +575,56 @@ class EmbyApi {
   }) {
     final mw = maxWidth != null ? '&maxWidth=$maxWidth' : '';
     return '$baseUrl/emby/Items/$itemId/Images/$imageType?quality=90$mw&api_key=$token';
+  }
+
+  static String personImageUrl({
+    required String baseUrl,
+    required String personId,
+    required String token,
+    int? maxWidth,
+  }) {
+    final mw = maxWidth != null ? '&maxWidth=$maxWidth' : '';
+    return '$baseUrl/emby/Items/$personId/Images/Primary?quality=90$mw&api_key=$token';
+  }
+
+  Future<List<ChapterInfo>> fetchChapters({
+    required String token,
+    required String baseUrl,
+    required String itemId,
+  }) async {
+    final url = Uri.parse('$baseUrl/emby/Items/$itemId/Chapters');
+    final resp = await _client.get(url, headers: {
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('获取章节失败(${resp.statusCode})');
+    }
+    final list = (jsonDecode(resp.body)['Items'] as List?) ?? [];
+    return list.map((e) => ChapterInfo.fromJson(e as Map<String, dynamic>)).toList();
+  }
+
+  Future<PagedResult<MediaItem>> fetchSimilar({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    required String itemId,
+    int limit = 10,
+  }) async {
+    final url = Uri.parse(
+        '$baseUrl/emby/Users/$userId/Items/$itemId/Similar?Limit=$limit&Fields=Overview,ImageTags,ProviderIds,CommunityRating,Genres,ProductionYear');
+    final resp = await _client.get(url, headers: {
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+    });
+    if (resp.statusCode != 200) {
+      throw Exception('获取相似条目失败(${resp.statusCode})');
+    }
+    final map = jsonDecode(resp.body) as Map<String, dynamic>;
+    final items = (map['Items'] as List<dynamic>? ?? [])
+        .map((e) => MediaItem.fromJson(e as Map<String, dynamic>))
+        .toList();
+    final total = map['TotalRecordCount'] as int? ?? items.length;
+    return PagedResult(items, total);
   }
 }

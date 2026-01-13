@@ -10,7 +10,7 @@ import 'play_network_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'domain_list_page.dart';
-import 'library_items_page.dart';
+import 'show_detail_page.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.appState});
@@ -61,10 +61,11 @@ class _GlobalSearchDelegate extends SearchDelegate<String> {
           onTap: () {
             Navigator.of(context).push(
               MaterialPageRoute(
-                builder: (_) => LibraryItemsPage(
-                  appState: appState,
-                  parentId: item.id,
+                builder: (_) => ShowDetailPage(
+                  itemId: item.id,
                   title: item.name,
+                  appState: appState,
+                  isTv: false,
                 ),
               ),
             );

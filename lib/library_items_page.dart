@@ -4,7 +4,7 @@ import 'package:flutter/material.dart';
 
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
-import 'play_network_page.dart';
+import 'show_detail_page.dart';
 
 class LibraryItemsPage extends StatefulWidget {
   const LibraryItemsPage({
@@ -109,9 +109,9 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                     onTap: () {
                       Navigator.of(context).push(
                         MaterialPageRoute(
-                          builder: (_) => PlayNetworkPage(
-                            title: item.name,
+                          builder: (_) => ShowDetailPage(
                             itemId: item.id,
+                            title: item.name,
                             appState: widget.appState,
                             isTv: widget.isTv,
                           ),
