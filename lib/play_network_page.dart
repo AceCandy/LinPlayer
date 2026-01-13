@@ -73,22 +73,27 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   }
 
   Future<String> _buildStreamUrl() async {
-    final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
-    final info = await api.fetchPlaybackInfo(
-      token: widget.appState.token!,
-      baseUrl: widget.appState.baseUrl!,
-      userId: widget.appState.userId!,
-      deviceId: widget.appState.deviceId,
-      itemId: widget.itemId,
-    );
     final base = widget.appState.baseUrl!;
     final token = widget.appState.token!;
     final userId = widget.appState.userId!;
-    final url =
-        '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=${info.mediaSourceId}'
-        '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
-        '&api_key=$token';
-    return url;
+    try {
+      final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+      final info = await api.fetchPlaybackInfo(
+        token: token,
+        baseUrl: base,
+        userId: userId,
+        deviceId: widget.appState.deviceId,
+        itemId: widget.itemId,
+      );
+      final url =
+          '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=${info.mediaSourceId}'
+          '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
+          '&api_key=$token';
+      return url;
+    } catch (_) {
+      // 回退：无需 playbackInfo 的直链（部分服务器禁用该接口）
+      return '$base/emby/Videos/${widget.itemId}/stream?static=true&api_key=$token';
+    }
   }
 
   @override

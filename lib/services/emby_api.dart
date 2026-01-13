@@ -525,9 +525,9 @@ class EmbyApi {
           },
         );
 
-    http.Response resp = await postReq();
-    if (resp.statusCode >= 500) {
-      resp = await getReq();
+    http.Response resp = await getReq();
+    if (resp.statusCode >= 500 || resp.statusCode == 404) {
+      resp = await postReq();
     }
     if (resp.statusCode != 200) {
       throw Exception('获取播放信息失败(${resp.statusCode})');
@@ -617,6 +617,9 @@ class EmbyApi {
       'X-Emby-Token': token,
       'Accept': 'application/json',
     });
+    if (resp.statusCode == 404) {
+      return PagedResult(const [], 0);
+    }
     if (resp.statusCode != 200) {
       throw Exception('获取相似条目失败(${resp.statusCode})');
     }

@@ -66,13 +66,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         );
         if (eps.items.isNotEmpty) firstEp = eps.items.first;
       }
-      final similar = await api.fetchSimilar(
-        token: widget.appState.token!,
-        baseUrl: widget.appState.baseUrl!,
-        userId: widget.appState.userId!,
-        itemId: widget.itemId,
-        limit: 12,
-      );
+      PagedResult<MediaItem> similar = PagedResult(const [], 0);
+      try {
+        similar = await api.fetchSimilar(
+          token: widget.appState.token!,
+          baseUrl: widget.appState.baseUrl!,
+          userId: widget.appState.userId!,
+          itemId: widget.itemId,
+          limit: 12,
+        );
+      } catch (_) {}
       _album = [
         EmbyApi.imageUrl(
           baseUrl: widget.appState.baseUrl!,
