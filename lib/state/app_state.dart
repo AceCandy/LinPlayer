@@ -158,6 +158,10 @@ class AppState extends ChangeNotifier {
     int limit = 30,
     String? includeItemTypes,
     String? searchTerm,
+    bool recursive = false,
+    bool excludeFolders = true,
+    String? sortBy,
+    String sortOrder = 'Descending',
   }) async {
     if (_baseUrl == null || _token == null || _userId == null) {
       throw Exception('未登录');
@@ -172,6 +176,10 @@ class AppState extends ChangeNotifier {
       limit: limit,
       includeItemTypes: includeItemTypes,
       searchTerm: searchTerm,
+      recursive: recursive,
+      excludeFolders: excludeFolders,
+      sortBy: sortBy,
+      sortOrder: sortOrder,
     );
     final list = _itemsCache[parentId] ?? [];
     if (startIndex == 0) {

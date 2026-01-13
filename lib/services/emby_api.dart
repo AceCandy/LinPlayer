@@ -251,11 +251,20 @@ class EmbyApi {
     int limit = 30,
     String? includeItemTypes,
     String? searchTerm,
+    bool recursive = false,
+    bool excludeFolders = true,
+    String? sortBy,
+    String sortOrder = 'Descending',
   }) async {
     final params = StringBuffer(
         'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio');
     params.write('&StartIndex=$startIndex&Limit=$limit');
+    params.write('&Recursive=$recursive');
+    if (excludeFolders) params.write('&Filters=IsNotFolder');
     if (includeItemTypes != null) params.write('&IncludeItemTypes=$includeItemTypes');
+    if (sortBy != null && sortBy.isNotEmpty) {
+      params.write('&SortBy=$sortBy&SortOrder=$sortOrder');
+    }
     if (searchTerm != null && searchTerm.isNotEmpty) {
       params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
     }

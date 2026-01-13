@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -56,6 +54,10 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
         parentId: widget.parentId,
         startIndex: start,
         limit: 30,
+        includeItemTypes: 'Movie,Episode',
+        recursive: true,
+        excludeFolders: true,
+        sortBy: 'DateCreated',
       );
     } finally {
       if (mounted) setState(() => _loadingMore = false);
@@ -81,86 +83,64 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
       appBar: AppBar(
         title: Text(widget.title),
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: items.isEmpty && _loadingMore
-                ? const Center(child: CircularProgressIndicator())
-                : ListView.builder(
-                    controller: _scroll,
-                    itemCount: items.length + (_loadingMore ? 1 : 0),
-                    itemBuilder: (context, index) {
-                      if (index >= items.length) {
-                        return const Padding(
-                          padding: EdgeInsets.symmetric(vertical: 16),
-                          child: Center(child: CircularProgressIndicator()),
-                        );
-                      }
-                      final item = items[index];
-                      return _ItemCard(
-                        item: item,
-                        appState: widget.appState,
-                        enableGlass: enableGlass,
-                        isTv: _isTv(context),
-                        onOpenFolder: () {
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => LibraryItemsPage(
-                                appState: widget.appState,
-                                parentId: item.id,
-                                title: item.name,
-                                isTv: widget.isTv,
-                              ),
-                            ),
-                          );
-                        },
-                        onPlay: () {
-                          final url =
-                              '${widget.appState.baseUrl}/emby/Videos/${item.id}/stream?static=true&MediaSourceId=${item.id}&api_key=${widget.appState.token}';
-                          Navigator.of(context).push(
-                            MaterialPageRoute(
-                              builder: (_) => PlayNetworkPage(
-                                title: item.name,
-                                streamUrl: url,
-                                isTv: widget.isTv,
-                              ),
-                            ),
-                          );
-                        },
+      body: items.isEmpty && _loadingMore
+          ? const Center(child: CircularProgressIndicator())
+          : Padding(
+              padding: const EdgeInsets.all(12),
+              child: GridView.builder(
+                controller: _scroll,
+                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: 3,
+                  mainAxisSpacing: 12,
+                  crossAxisSpacing: 12,
+                  childAspectRatio: 2 / 3,
+                ),
+                itemCount: items.length + (_loadingMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= items.length) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final item = items[index];
+                  final url =
+                      '${widget.appState.baseUrl}/emby/Videos/${item.id}/stream?static=true&MediaSourceId=${item.id}&api_key=${widget.appState.token}';
+                  return _GridItem(
+                    item: item,
+                    appState: widget.appState,
+                    enableGlass: enableGlass,
+                    isTv: _isTv(context),
+                    onTap: () {
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => PlayNetworkPage(
+                            title: item.name,
+                            streamUrl: url,
+                            isTv: widget.isTv,
+                          ),
+                        ),
                       );
                     },
-                  ),
-          ),
-        ],
-      ),
+                  );
+                },
+              ),
+            ),
     );
   }
 }
 
-class _ItemCard extends StatelessWidget {
-  const _ItemCard({
+class _GridItem extends StatelessWidget {
+  const _GridItem({
     required this.item,
     required this.appState,
     required this.enableGlass,
-    required this.onOpenFolder,
-    required this.onPlay,
     required this.isTv,
+    required this.onTap,
   });
 
   final MediaItem item;
   final AppState appState;
   final bool enableGlass;
-  final VoidCallback onOpenFolder;
-  final VoidCallback onPlay;
   final bool isTv;
-
-  bool get _isPlayable => item.type == 'Movie' || item.type == 'Episode';
-  bool get _isFolder =>
-      item.type == 'Series' ||
-      item.type == 'Season' ||
-      item.type == 'BoxSet' ||
-      item.type == 'CollectionFolder' ||
-      item.type == 'Folder';
+  final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -169,139 +149,70 @@ class _ItemCard extends StatelessWidget {
             baseUrl: appState.baseUrl!,
             itemId: item.id,
             token: appState.token!,
-            maxWidth: 400,
+            imageType: 'Primary',
+            maxWidth: 500,
           )
         : null;
 
-    String subtitle = item.type;
+    String badge = '';
     if (item.type == 'Episode') {
       final s = item.seasonNumber ?? 0;
       final e = item.episodeNumber ?? 0;
-      subtitle = 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
-      if (item.seriesName.isNotEmpty) {
-        subtitle = '${item.seriesName} · $subtitle';
-      }
-    }
-    if (item.overview.isNotEmpty) {
-      subtitle = '$subtitle · ${item.overview}';
+      badge = 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
+    } else if (item.type == 'Movie') {
+      badge = '电影';
     }
 
-    final cardContent = Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        ClipRRect(
-          borderRadius: BorderRadius.circular(10),
-          child: image != null
-              ? CachedNetworkImage(
-                  imageUrl: image,
-                  width: 150,
-                  height: 84, // 16:9
-                  fit: BoxFit.cover,
-                  placeholder: (_, __) =>
-                      const SizedBox(width: 150, height: 84, child: Icon(Icons.image)),
-                  errorWidget: (_, __, ___) =>
-                      const SizedBox(width: 150, height: 84, child: Icon(Icons.broken_image)),
-                )
-              : const SizedBox(
-                  width: 150,
-                  height: 84,
-                  child: Icon(Icons.image),
-                ),
-        ),
-        const SizedBox(width: 12),
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                item.name,
-                style: Theme.of(context).textTheme.titleMedium,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-              ),
-              const SizedBox(height: 6),
-              Text(
-                subtitle,
-                maxLines: 3,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.bodyMedium,
-              ),
-              const SizedBox(height: 8),
-              Row(
-                children: [
-                  if (_isPlayable)
-                    FilledButton.tonal(
-                      onPressed: onPlay,
-                      child: const Text('播放'),
-                    ),
-                  if (_isFolder) ...[
-                    const SizedBox(width: 8),
-                    OutlinedButton(
-                      onPressed: onOpenFolder,
-                      child: const Text('进入'),
-                    )
-                  ],
-                ],
-              )
-            ],
+    final poster = ClipRRect(
+      borderRadius: BorderRadius.circular(12),
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: image != null
+                ? CachedNetworkImage(
+                    imageUrl: image,
+                    fit: BoxFit.cover,
+                    placeholder: (_, __) => const ColoredBox(color: Colors.black12),
+                    errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black26),
+                  )
+                : const ColoredBox(color: Colors.black26),
           ),
-        ),
-      ],
+          if (badge.isNotEmpty)
+            Positioned(
+              left: 6,
+              top: 6,
+              child: Container(
+                padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withValues(alpha: 0.55),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: Text(
+                  badge,
+                  style: const TextStyle(fontSize: 11, fontWeight: FontWeight.w600),
+                ),
+              ),
+            ),
+        ],
+      ),
     );
 
-    Widget decorated;
-    if (enableGlass && !isTv) {
-      decorated = ClipRRect(
-        borderRadius: BorderRadius.circular(16),
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-          child: Container(
-            decoration: BoxDecoration(
-              color: Colors.white.withValues(alpha: 0.06),
-              border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-              borderRadius: BorderRadius.circular(16),
-            ),
-            padding: const EdgeInsets.all(12),
-            child: cardContent,
+    return InkWell(
+      borderRadius: BorderRadius.circular(12),
+      onTap: onTap,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(child: poster),
+          const SizedBox(height: 6),
+          Text(
+            item.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w600),
           ),
-        ),
-      );
-    } else if (isTv) {
-      decorated = FocusableActionDetector(
-        mouseCursor: SystemMouseCursors.click,
-        child: Card(
-          elevation: 4,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          child: Padding(
-            padding: const EdgeInsets.all(12),
-            child: cardContent,
-          ),
-        ),
-        onShowFocusHighlight: (focused) {
-          // noop; focus style via InkWell below
-        },
-      );
-      decorated = InkWell(
-        focusColor: Colors.blue.withValues(alpha: 0.2),
-        hoverColor: Colors.blue.withValues(alpha: 0.05),
-        borderRadius: BorderRadius.circular(12),
-        onTap: _isPlayable ? onPlay : onOpenFolder,
-        child: decorated,
-      );
-    } else {
-      decorated = Card(
-        elevation: 2,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: cardContent,
-        ),
-      );
-    }
-
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-      child: decorated,
+        ],
+      ),
     );
   }
 }
