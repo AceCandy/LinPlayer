@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -54,7 +55,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   bool _appliedAudioPref = false;
   bool _appliedSubtitlePref = false;
 
-  final GlobalKey<DanmakuStageState> _danmakuKey = GlobalKey<DanmakuStageState>();
+  final GlobalKey<DanmakuStageState> _danmakuKey =
+      GlobalKey<DanmakuStageState>();
   final List<DanmakuSource> _danmakuSources = [];
   int _danmakuSourceIndex = -1;
   bool _danmakuEnabled = false;
@@ -116,7 +118,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         if (!mounted) return;
         final wentBack = pos + const Duration(seconds: 2) < _lastPosition;
         _lastPosition = pos;
-        if (wentBack) _syncDanmakuCursor(pos);
+        if (wentBack) {
+          _syncDanmakuCursor(pos);
+        }
         _drainDanmaku(pos);
       });
       _errorSub?.cancel();
@@ -185,7 +189,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   }
 
   void _syncDanmakuCursor(Duration position) {
-    if (_danmakuSourceIndex < 0 || _danmakuSourceIndex >= _danmakuSources.length) {
+    if (_danmakuSourceIndex < 0 ||
+        _danmakuSourceIndex >= _danmakuSources.length) {
       _nextDanmakuIndex = 0;
       return;
     }
@@ -196,12 +201,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
 
   void _drainDanmaku(Duration position) {
     if (!_danmakuEnabled) return;
-    if (_danmakuSourceIndex < 0 || _danmakuSourceIndex >= _danmakuSources.length) return;
+    if (_danmakuSourceIndex < 0 ||
+        _danmakuSourceIndex >= _danmakuSources.length) {
+      return;
+    }
     final stage = _danmakuKey.currentState;
     if (stage == null) return;
 
     final items = _danmakuSources[_danmakuSourceIndex].items;
-    while (_nextDanmakuIndex < items.length && items[_nextDanmakuIndex].time <= position) {
+    while (_nextDanmakuIndex < items.length &&
+        items[_nextDanmakuIndex].time <= position) {
       stage.emit(items[_nextDanmakuIndex]);
       _nextDanmakuIndex++;
     }
@@ -245,7 +254,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final hasSources = _danmakuSources.isNotEmpty;
-            final selectedName = (_danmakuSourceIndex >= 0 && _danmakuSourceIndex < _danmakuSources.length)
+            final selectedName = (_danmakuSourceIndex >= 0 &&
+                    _danmakuSourceIndex < _danmakuSources.length)
                 ? _danmakuSources[_danmakuSourceIndex].name
                 : '未选择';
 
@@ -257,7 +267,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                   Row(
                     children: [
                       Expanded(
-                        child: Text('弹幕', style: Theme.of(context).textTheme.titleLarge),
+                        child: Text('弹幕',
+                            style: Theme.of(context).textTheme.titleLarge),
                       ),
                       TextButton.icon(
                         onPressed: () async {
@@ -273,11 +284,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                     value: _danmakuEnabled,
                     onChanged: (v) {
                       setState(() => _danmakuEnabled = v);
-                      if (!v) _danmakuKey.currentState?.clear();
+                      if (!v) {
+                        _danmakuKey.currentState?.clear();
+                      }
                       setSheetState(() {});
                     },
                     title: const Text('启用弹幕'),
-                    subtitle: Text(hasSources ? '当前：$selectedName' : '尚未加载弹幕文件'),
+                    subtitle:
+                        Text(hasSources ? '当前：$selectedName' : '尚未加载弹幕文件'),
                     contentPadding: EdgeInsets.zero,
                   ),
                   const Divider(height: 1),
@@ -287,7 +301,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                     title: const Text('弹幕源'),
                     trailing: DropdownButtonHideUnderline(
                       child: DropdownButton<int>(
-                        value: _danmakuSourceIndex >= 0 ? _danmakuSourceIndex : null,
+                        value: _danmakuSourceIndex >= 0
+                            ? _danmakuSourceIndex
+                            : null,
                         hint: const Text('请选择'),
                         items: [
                           for (var i = 0; i < _danmakuSources.length; i++)
@@ -366,7 +382,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       if (widget.audioStreamIndex != null) {
         params['AudioStreamIndex'] = widget.audioStreamIndex.toString();
       }
-      if (widget.subtitleStreamIndex != null && widget.subtitleStreamIndex! >= 0) {
+      if (widget.subtitleStreamIndex != null &&
+          widget.subtitleStreamIndex! >= 0) {
         params['SubtitleStreamIndex'] = widget.subtitleStreamIndex.toString();
       }
       return uri.replace(queryParameters: params).toString();
@@ -376,8 +393,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       final resolved = Uri.parse(base).resolve(candidate).toString();
       return applyQueryPrefs(resolved);
     }
+
     try {
-      final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+      final api = EmbyApi(
+          hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
       final info = await api.fetchPlaybackInfo(
         token: token,
         baseUrl: base,
@@ -407,13 +426,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       final mediaSourceId = (ms?['Id'] as String?) ?? info.mediaSourceId;
       return applyQueryPrefs(
         '$base/emby/Videos/${widget.itemId}/stream?static=true&MediaSourceId=$mediaSourceId'
-            '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
-            '&api_key=$token',
+        '&PlaySessionId=${info.playSessionId}&UserId=$userId&DeviceId=${widget.appState.deviceId}'
+        '&api_key=$token',
       );
     } catch (_) {
       return applyQueryPrefs(
         '$base/emby/Videos/${widget.itemId}/stream?static=true&UserId=$userId'
-            '&DeviceId=${widget.appState.deviceId}&api_key=$token',
+        '&DeviceId=${widget.appState.deviceId}&api_key=$token',
       );
       // 回退：无需 playbackInfo 的直链（部分服务器禁用该接口）
     }
@@ -440,9 +459,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
             IconButton(
               tooltip: '复制链接',
               icon: const Icon(Icons.link),
-              onPressed: () {
-                ScaffoldMessenger.of(context)
-                    .showSnackBar(const SnackBar(content: Text('已生成播放链接')));
+              onPressed: () async {
+                final text = _resolvedStream;
+                if (text == null || text.isEmpty) return;
+                await Clipboard.setData(ClipboardData(text: text));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制播放链接')),
+                );
               },
             ),
           IconButton(
@@ -508,7 +532,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                                     padding: const EdgeInsets.only(top: 12),
                                     child: Text(
                                       '缓冲中 ${(_bufferingPct! <= 1 ? _bufferingPct! * 100 : _bufferingPct!).clamp(0, 100).toStringAsFixed(0)}%',
-                                      style: const TextStyle(color: Colors.white),
+                                      style:
+                                          const TextStyle(color: Colors.white),
                                     ),
                                   ),
                               ],

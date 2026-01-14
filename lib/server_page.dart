@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 
 import 'state/app_state.dart';
+import 'state/preferences.dart';
 import 'state/server_profile.dart';
 import 'src/ui/theme_sheet.dart';
 
@@ -33,7 +34,8 @@ class _ServerPageState extends State<ServerPage> {
       context: context,
       isScrollControlled: true,
       showDragHandle: true,
-      builder: (ctx) => _EditServerSheet(appState: widget.appState, server: server),
+      builder: (ctx) =>
+          _EditServerSheet(appState: widget.appState, server: server),
     );
   }
 
@@ -45,10 +47,12 @@ class _ServerPageState extends State<ServerPage> {
         final servers = widget.appState.servers;
         final loading = widget.appState.isLoading;
         final isTv = _isTv(context);
+        final listLayout = widget.appState.serverListLayout;
+        final isList = listLayout == ServerListLayout.list;
         final width = MediaQuery.of(context).size.width;
         final crossAxisCount = isTv
-            ? (width >= 1200 ? 10 : 8)
-            : (width >= 900 ? 8 : (width >= 600 ? 6 : 4));
+            ? (width >= 1200 ? 12 : 10)
+            : (width >= 900 ? 10 : (width >= 600 ? 8 : 6));
 
         return Scaffold(
           body: SafeArea(
@@ -62,15 +66,34 @@ class _ServerPageState extends State<ServerPage> {
                         Expanded(
                           child: Text(
                             '服务器',
-                            style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                            style: Theme.of(context)
+                                .textTheme
+                                .titleLarge
+                                ?.copyWith(
                                   fontWeight: FontWeight.w700,
                                   height: 1.1,
                                 ),
                           ),
                         ),
                         IconButton(
+                          tooltip: isList ? '网格显示' : '条状显示',
+                          onPressed: loading
+                              ? null
+                              : () async {
+                                  await widget.appState.setServerListLayout(
+                                    isList
+                                        ? ServerListLayout.grid
+                                        : ServerListLayout.list,
+                                  );
+                                },
+                          icon: Icon(isList
+                              ? Icons.grid_view_outlined
+                              : Icons.view_list_outlined),
+                        ),
+                        IconButton(
                           tooltip: '主题',
-                          onPressed: () => showThemeSheet(context, widget.appState),
+                          onPressed: () =>
+                              showThemeSheet(context, widget.appState),
                           icon: const Icon(Icons.palette_outlined),
                         ),
                         IconButton(
@@ -102,29 +125,60 @@ class _ServerPageState extends State<ServerPage> {
                 else
                   SliverPadding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                    sliver: SliverGrid.builder(
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: crossAxisCount,
-                        mainAxisSpacing: 10,
-                        crossAxisSpacing: 10,
-                        childAspectRatio: 1.1,
-                      ),
-                      itemCount: servers.length,
-                      itemBuilder: (context, index) {
-                        final server = servers[index];
-                        final isActive = server.id == widget.appState.activeServerId;
-                        return _ServerCard(
-                          server: server,
-                          active: isActive,
-                          onTap: loading
-                              ? null
-                              : () async {
-                                  await widget.appState.enterServer(server.id);
-                                },
-                          onLongPress: () => _showEditServerSheet(server),
-                        );
-                      },
-                    ),
+                    sliver: isList
+                        ? SliverList(
+                            delegate: SliverChildBuilderDelegate(
+                              (context, index) {
+                                final server = servers[index];
+                                final isActive =
+                                    server.id == widget.appState.activeServerId;
+                                return Padding(
+                                  padding: EdgeInsets.only(
+                                      bottom:
+                                          index == servers.length - 1 ? 0 : 10),
+                                  child: _ServerListTile(
+                                    server: server,
+                                    active: isActive,
+                                    onTap: loading
+                                        ? null
+                                        : () async {
+                                            await widget.appState
+                                                .enterServer(server.id);
+                                          },
+                                    onLongPress: () =>
+                                        _showEditServerSheet(server),
+                                  ),
+                                );
+                              },
+                              childCount: servers.length,
+                            ),
+                          )
+                        : SliverGrid.builder(
+                            gridDelegate:
+                                SliverGridDelegateWithFixedCrossAxisCount(
+                              crossAxisCount: crossAxisCount,
+                              mainAxisSpacing: 8,
+                              crossAxisSpacing: 8,
+                              childAspectRatio: 1.2,
+                            ),
+                            itemCount: servers.length,
+                            itemBuilder: (context, index) {
+                              final server = servers[index];
+                              final isActive =
+                                  server.id == widget.appState.activeServerId;
+                              return _ServerCard(
+                                server: server,
+                                active: isActive,
+                                onTap: loading
+                                    ? null
+                                    : () async {
+                                        await widget.appState
+                                            .enterServer(server.id);
+                                      },
+                                onLongPress: () => _showEditServerSheet(server),
+                              );
+                            },
+                          ),
                   ),
               ],
             ),
@@ -135,7 +189,7 @@ class _ServerPageState extends State<ServerPage> {
   }
 }
 
-class _ServerCard extends StatelessWidget {
+class _ServerCard extends StatefulWidget {
   const _ServerCard({
     required this.server,
     required this.active,
@@ -149,29 +203,65 @@ class _ServerCard extends StatelessWidget {
   final VoidCallback onLongPress;
 
   @override
+  State<_ServerCard> createState() => _ServerCardState();
+}
+
+class _ServerCardState extends State<_ServerCard> {
+  bool _focused = false;
+  bool _hovered = false;
+
+  @override
   Widget build(BuildContext context) {
+    final server = widget.server;
+    final active = widget.active;
     final colorScheme = Theme.of(context).colorScheme;
-    final initial = server.name.trim().isNotEmpty ? server.name.trim()[0].toUpperCase() : '?';
+    final isDark = colorScheme.brightness == Brightness.dark;
+    final initial = server.name.trim().isNotEmpty
+        ? server.name.trim()[0].toUpperCase()
+        : '?';
+    final highlighted = _focused || _hovered;
+
+    final borderColor = active
+        ? colorScheme.primary.withValues(alpha: 0.55)
+        : highlighted
+            ? colorScheme.secondary.withValues(alpha: isDark ? 0.65 : 0.55)
+            : colorScheme.outlineVariant;
+    final borderWidth = (active || highlighted) ? 1.35 : 1.0;
 
     return InkWell(
       borderRadius: BorderRadius.circular(14),
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Ink(
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      onFocusChange: (v) => setState(() => _focused = v),
+      onHover: (v) => setState(() => _hovered = v),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
         decoration: BoxDecoration(
-          color: colorScheme.surfaceContainerHigh,
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              colorScheme.surfaceContainerHigh
+                  .withValues(alpha: isDark ? 0.78 : 0.92),
+              colorScheme.surfaceContainerHigh
+                  .withValues(alpha: isDark ? 0.62 : 0.84),
+            ],
+          ),
           borderRadius: BorderRadius.circular(14),
           border: Border.all(
-            color: active ? colorScheme.primary.withValues(alpha: 0.45) : colorScheme.outlineVariant,
-            width: active ? 1.2 : 1,
+            color: borderColor,
+            width: borderWidth,
           ),
         ),
-        padding: const EdgeInsets.all(10),
+        padding: const EdgeInsets.all(8),
         child: Stack(
           children: [
             Align(
               alignment: Alignment.topRight,
-              child: active ? const Icon(Icons.check_circle, size: 18) : const SizedBox.shrink(),
+              child: active
+                  ? const Icon(Icons.check_circle, size: 16)
+                  : const SizedBox.shrink(),
             ),
             Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -179,8 +269,9 @@ class _ServerCard extends StatelessWidget {
                 Row(
                   children: [
                     CircleAvatar(
-                      radius: 14,
-                      backgroundColor: colorScheme.primary.withValues(alpha: 0.14),
+                      radius: 12,
+                      backgroundColor:
+                          colorScheme.primary.withValues(alpha: 0.14),
                       child: Text(
                         initial,
                         style: const TextStyle(fontWeight: FontWeight.w700),
@@ -193,7 +284,10 @@ class _ServerCard extends StatelessWidget {
                   server.name,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(fontWeight: FontWeight.w700),
+                  style: Theme.of(context)
+                      .textTheme
+                      .bodyMedium
+                      ?.copyWith(fontWeight: FontWeight.w700),
                 ),
                 if ((server.remark ?? '').trim().isNotEmpty) ...[
                   const SizedBox(height: 3),
@@ -209,6 +303,117 @@ class _ServerCard extends StatelessWidget {
                 ],
               ],
             ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerListTile extends StatefulWidget {
+  const _ServerListTile({
+    required this.server,
+    required this.active,
+    required this.onTap,
+    required this.onLongPress,
+  });
+
+  final ServerProfile server;
+  final bool active;
+  final VoidCallback? onTap;
+  final VoidCallback onLongPress;
+
+  @override
+  State<_ServerListTile> createState() => _ServerListTileState();
+}
+
+class _ServerListTileState extends State<_ServerListTile> {
+  bool _focused = false;
+  bool _hovered = false;
+
+  @override
+  Widget build(BuildContext context) {
+    final server = widget.server;
+    final active = widget.active;
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final initial = server.name.trim().isNotEmpty
+        ? server.name.trim()[0].toUpperCase()
+        : '?';
+    final highlighted = _focused || _hovered;
+
+    final borderColor = active
+        ? scheme.primary.withValues(alpha: 0.55)
+        : highlighted
+            ? scheme.secondary.withValues(alpha: isDark ? 0.65 : 0.55)
+            : scheme.outlineVariant;
+    final borderWidth = (active || highlighted) ? 1.35 : 1.0;
+
+    return InkWell(
+      borderRadius: BorderRadius.circular(14),
+      onTap: widget.onTap,
+      onLongPress: widget.onLongPress,
+      onFocusChange: (v) => setState(() => _focused = v),
+      onHover: (v) => setState(() => _hovered = v),
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 140),
+        curve: Curves.easeOut,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              scheme.surfaceContainerHigh
+                  .withValues(alpha: isDark ? 0.74 : 0.92),
+              scheme.surfaceContainerHigh
+                  .withValues(alpha: isDark ? 0.6 : 0.86),
+            ],
+          ),
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(color: borderColor, width: borderWidth),
+        ),
+        child: Row(
+          children: [
+            CircleAvatar(
+              radius: 14,
+              backgroundColor: scheme.primary.withValues(alpha: 0.14),
+              child: Text(
+                initial,
+                style: const TextStyle(fontWeight: FontWeight.w700),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    server.name,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: Theme.of(context)
+                        .textTheme
+                        .bodyMedium
+                        ?.copyWith(fontWeight: FontWeight.w700),
+                  ),
+                  if ((server.remark ?? '').trim().isNotEmpty) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      server.remark!.trim(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context)
+                          .textTheme
+                          .bodySmall
+                          ?.copyWith(color: scheme.onSurfaceVariant),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (active) const Icon(Icons.check_circle, size: 18),
           ],
         ),
       ),
@@ -266,7 +471,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
     if (!raw.contains('://')) {
       if (!_nameTouched && _nameCtrl.text.trim().isEmpty && raw.isNotEmpty) {
         _nameCtrl.text = raw.split('/').first;
-        _nameCtrl.selection = TextSelection.collapsed(offset: _nameCtrl.text.length);
+        _nameCtrl.selection =
+            TextSelection.collapsed(offset: _nameCtrl.text.length);
       }
       return;
     }
@@ -286,7 +492,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
         _portCtrl.text = _defaultPortForScheme(uri.scheme);
       }
 
-      final hostPart = uri.host + ((uri.path.isNotEmpty && uri.path != '/') ? uri.path : '');
+      final hostPart =
+          uri.host + ((uri.path.isNotEmpty && uri.path != '/') ? uri.path : '');
       _hostCtrl.value = _hostCtrl.value.copyWith(
         text: hostPart,
         selection: TextSelection.collapsed(offset: hostPart.length),
@@ -294,7 +501,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
 
       if (!_nameTouched && _nameCtrl.text.trim().isEmpty) {
         _nameCtrl.text = uri.host;
-        _nameCtrl.selection = TextSelection.collapsed(offset: _nameCtrl.text.length);
+        _nameCtrl.selection =
+            TextSelection.collapsed(offset: _nameCtrl.text.length);
       }
     } finally {
       _handlingHostParse = false;
@@ -311,7 +519,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
     FocusScope.of(context).unfocus();
     // Auto-complete scheme if user only typed host/path.
     final hostInput = _hostCtrl.text.trim();
-    final hostOrUrl = hostInput.contains('://') ? hostInput : '$_scheme://$hostInput';
+    final hostOrUrl =
+        hostInput.contains('://') ? hostInput : '$_scheme://$hostInput';
     await widget.appState.addServer(
       hostOrUrl: hostOrUrl,
       scheme: _scheme,
@@ -337,7 +546,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
     final loading = widget.appState.isLoading;
 
     return Padding(
-      padding: EdgeInsets.only(left: 16, right: 16, bottom: viewInsets.bottom + 16),
+      padding:
+          EdgeInsets.only(left: 16, right: 16, bottom: viewInsets.bottom + 16),
       child: Form(
         key: _formKey,
         child: Column(
@@ -391,7 +601,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
                       hintText: '例如：emby.example.com 或 1.2.3.4',
                     ),
                     keyboardType: TextInputType.url,
-                    validator: (v) => (v == null || v.trim().isEmpty) ? '请输入服务器地址' : null,
+                    validator: (v) =>
+                        (v == null || v.trim().isEmpty) ? '请输入服务器地址' : null,
                   ),
                 ),
               ],
@@ -419,7 +630,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
             TextFormField(
               controller: _userCtrl,
               decoration: const InputDecoration(labelText: '账号'),
-              validator: (v) => (v == null || v.trim().isEmpty) ? '请输入账号' : null,
+              validator: (v) =>
+                  (v == null || v.trim().isEmpty) ? '请输入账号' : null,
             ),
             const SizedBox(height: 10),
             TextFormField(
@@ -428,7 +640,8 @@ class _AddServerSheetState extends State<_AddServerSheet> {
                 labelText: '密码',
                 suffixIcon: IconButton(
                   tooltip: _pwdVisible ? '隐藏密码' : '显示密码',
-                  icon: Icon(_pwdVisible ? Icons.visibility_off : Icons.visibility),
+                  icon: Icon(
+                      _pwdVisible ? Icons.visibility_off : Icons.visibility),
                   onPressed: () => setState(() => _pwdVisible = !_pwdVisible),
                 ),
               ),
@@ -468,8 +681,10 @@ class _EditServerSheet extends StatefulWidget {
 }
 
 class _EditServerSheetState extends State<_EditServerSheet> {
-  late final TextEditingController _nameCtrl = TextEditingController(text: widget.server.name);
-  late final TextEditingController _remarkCtrl = TextEditingController(text: widget.server.remark);
+  late final TextEditingController _nameCtrl =
+      TextEditingController(text: widget.server.name);
+  late final TextEditingController _remarkCtrl =
+      TextEditingController(text: widget.server.remark);
 
   @override
   void dispose() {
@@ -495,8 +710,12 @@ class _EditServerSheetState extends State<_EditServerSheet> {
         title: const Text('删除服务器？'),
         content: Text('将删除“${widget.server.name}”。'),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(false), child: const Text('取消')),
-          FilledButton(onPressed: () => Navigator.of(ctx).pop(true), child: const Text('删除')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(false),
+              child: const Text('取消')),
+          FilledButton(
+              onPressed: () => Navigator.of(ctx).pop(true),
+              child: const Text('删除')),
         ],
       ),
     );
@@ -510,7 +729,8 @@ class _EditServerSheetState extends State<_EditServerSheet> {
   Widget build(BuildContext context) {
     final viewInsets = MediaQuery.of(context).viewInsets;
     return Padding(
-      padding: EdgeInsets.only(left: 16, right: 16, bottom: viewInsets.bottom + 16),
+      padding:
+          EdgeInsets.only(left: 16, right: 16, bottom: viewInsets.bottom + 16),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [

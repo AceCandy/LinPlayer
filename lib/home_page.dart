@@ -197,7 +197,8 @@ class _HomePageState extends State<HomePage> {
                                       controller: urlCtrl,
                                       decoration: const InputDecoration(
                                         labelText: '地址',
-                                        hintText: '例如：https://emby.example.com:8920',
+                                        hintText:
+                                            '例如：https://emby.example.com:8920',
                                       ),
                                       keyboardType: TextInputType.url,
                                     ),
@@ -250,7 +251,9 @@ class _HomePageState extends State<HomePage> {
                       ),
                       IconButton(
                         tooltip: '刷新',
-                        onPressed: widget.appState.isLoading ? null : widget.appState.refreshDomains,
+                        onPressed: widget.appState.isLoading
+                            ? null
+                            : widget.appState.refreshDomains,
                         icon: const Icon(Icons.refresh),
                       ),
                     ],
@@ -270,7 +273,8 @@ class _HomePageState extends State<HomePage> {
                           final entry = entries[index];
                           final d = entry.domain;
                           final isCustom = entry.isCustom;
-                          final name = d.name.trim().isNotEmpty ? d.name.trim() : d.url;
+                          final name =
+                              d.name.trim().isNotEmpty ? d.name.trim() : d.url;
                           final remark = widget.appState.domainRemark(d.url);
                           final selected = current == d.url;
                           return ListTile(
@@ -303,7 +307,8 @@ class _HomePageState extends State<HomePage> {
                                   tooltip: '备注',
                                   icon: const Icon(Icons.edit_outlined),
                                   onPressed: () async {
-                                    final ctrl = TextEditingController(text: remark ?? '');
+                                    final ctrl = TextEditingController(
+                                        text: remark ?? '');
                                     final v = await showDialog<String>(
                                       context: context,
                                       builder: (dctx) => AlertDialog(
@@ -316,18 +321,21 @@ class _HomePageState extends State<HomePage> {
                                         ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.of(dctx).pop(),
+                                            onPressed: () =>
+                                                Navigator.of(dctx).pop(),
                                             child: const Text('取消'),
                                           ),
                                           FilledButton(
-                                            onPressed: () => Navigator.of(dctx).pop(ctrl.text),
+                                            onPressed: () => Navigator.of(dctx)
+                                                .pop(ctrl.text),
                                             child: const Text('保存'),
                                           ),
                                         ],
                                       ),
                                     );
                                     if (v == null) return;
-                                    await widget.appState.setDomainRemark(d.url, v);
+                                    await widget.appState
+                                        .setDomainRemark(d.url, v);
                                   },
                                 ),
                                 if (selected) const Icon(Icons.check),
@@ -336,7 +344,8 @@ class _HomePageState extends State<HomePage> {
                             onLongPress: !isCustom
                                 ? null
                                 : () async {
-                                    final action = await showModalBottomSheet<String>(
+                                    final action =
+                                        await showModalBottomSheet<String>(
                                       context: context,
                                       showDragHandle: true,
                                       builder: (bctx) => SafeArea(
@@ -349,14 +358,18 @@ class _HomePageState extends State<HomePage> {
                                             ),
                                             const Divider(height: 1),
                                             ListTile(
-                                              leading: const Icon(Icons.edit_outlined),
+                                              leading: const Icon(
+                                                  Icons.edit_outlined),
                                               title: const Text('编辑'),
-                                              onTap: () => Navigator.of(bctx).pop('edit'),
+                                              onTap: () => Navigator.of(bctx)
+                                                  .pop('edit'),
                                             ),
                                             ListTile(
-                                              leading: const Icon(Icons.delete_outline),
+                                              leading: const Icon(
+                                                  Icons.delete_outline),
                                               title: const Text('删除'),
-                                              onTap: () => Navigator.of(bctx).pop('delete'),
+                                              onTap: () => Navigator.of(bctx)
+                                                  .pop('delete'),
                                             ),
                                             const SizedBox(height: 8),
                                           ],
@@ -374,25 +387,32 @@ class _HomePageState extends State<HomePage> {
                                           content: Text('将删除“$name”。'),
                                           actions: [
                                             TextButton(
-                                              onPressed: () => Navigator.of(dctx).pop(false),
+                                              onPressed: () =>
+                                                  Navigator.of(dctx).pop(false),
                                               child: const Text('取消'),
                                             ),
                                             FilledButton(
-                                              onPressed: () => Navigator.of(dctx).pop(true),
+                                              onPressed: () =>
+                                                  Navigator.of(dctx).pop(true),
                                               child: const Text('删除'),
                                             ),
                                           ],
                                         ),
                                       );
                                       if (ok != true) return;
-                                      await widget.appState.removeCustomDomain(d.url);
+                                      await widget.appState
+                                          .removeCustomDomain(d.url);
                                       return;
                                     }
 
-                                    final nameCtrl = TextEditingController(text: d.name);
-                                    final urlCtrl = TextEditingController(text: d.url);
-                                    final remarkCtrl = TextEditingController(text: remark ?? '');
-                                    final result = await showDialog<Map<String, String>>(
+                                    final nameCtrl =
+                                        TextEditingController(text: d.name);
+                                    final urlCtrl =
+                                        TextEditingController(text: d.url);
+                                    final remarkCtrl = TextEditingController(
+                                        text: remark ?? '');
+                                    final result =
+                                        await showDialog<Map<String, String>>(
                                       context: context,
                                       builder: (dctx) => AlertDialog(
                                         title: const Text('编辑自定义线路'),
@@ -402,25 +422,32 @@ class _HomePageState extends State<HomePage> {
                                             children: [
                                               TextField(
                                                 controller: nameCtrl,
-                                                decoration: const InputDecoration(labelText: '名称'),
+                                                decoration:
+                                                    const InputDecoration(
+                                                        labelText: '名称'),
                                               ),
                                               const SizedBox(height: 10),
                                               TextField(
                                                 controller: urlCtrl,
-                                                decoration: const InputDecoration(labelText: '地址'),
+                                                decoration:
+                                                    const InputDecoration(
+                                                        labelText: '地址'),
                                                 keyboardType: TextInputType.url,
                                               ),
                                               const SizedBox(height: 10),
                                               TextField(
                                                 controller: remarkCtrl,
-                                                decoration: const InputDecoration(labelText: '备注（可选）'),
+                                                decoration:
+                                                    const InputDecoration(
+                                                        labelText: '备注（可选）'),
                                               ),
                                             ],
                                           ),
                                         ),
                                         actions: [
                                           TextButton(
-                                            onPressed: () => Navigator.of(dctx).pop(),
+                                            onPressed: () =>
+                                                Navigator.of(dctx).pop(),
                                             child: const Text('取消'),
                                           ),
                                           FilledButton(
@@ -428,7 +455,8 @@ class _HomePageState extends State<HomePage> {
                                               Navigator.of(dctx).pop({
                                                 'name': nameCtrl.text.trim(),
                                                 'url': urlCtrl.text.trim(),
-                                                'remark': remarkCtrl.text.trim(),
+                                                'remark':
+                                                    remarkCtrl.text.trim(),
                                               });
                                             },
                                             child: const Text('保存'),
@@ -442,13 +470,16 @@ class _HomePageState extends State<HomePage> {
                                         d.url,
                                         name: result['name'] ?? '',
                                         url: result['url'] ?? '',
-                                        remark: (result['remark'] ?? '').trim().isEmpty
+                                        remark: (result['remark'] ?? '')
+                                                .trim()
+                                                .isEmpty
                                             ? null
                                             : (result['remark'] ?? '').trim(),
                                       );
                                     } catch (e) {
                                       if (!context.mounted) return;
-                                      ScaffoldMessenger.of(context).showSnackBar(
+                                      ScaffoldMessenger.of(context)
+                                          .showSnackBar(
                                         SnackBar(content: Text(e.toString())),
                                       );
                                     }
@@ -457,7 +488,9 @@ class _HomePageState extends State<HomePage> {
                               await widget.appState.setBaseUrl(d.url);
                               // Best-effort: reload content after line switch.
                               // ignore: unawaited_futures
-                              widget.appState.refreshLibraries().then((_) => widget.appState.loadHome());
+                              widget.appState
+                                  .refreshLibraries()
+                                  .then((_) => widget.appState.loadHome());
                               if (ctx.mounted) Navigator.of(ctx).pop();
                             },
                           );
@@ -492,7 +525,8 @@ class _HomePageState extends State<HomePage> {
           if (q.trim().isEmpty) return;
           showSearch(
             context: context,
-            delegate: _GlobalSearchDelegate(appState: widget.appState)..query = q.trim(),
+            delegate: _GlobalSearchDelegate(appState: widget.appState)
+              ..query = q.trim(),
           );
         },
         isTv: isTv,
@@ -508,14 +542,17 @@ class _HomePageState extends State<HomePage> {
         return Scaffold(
           appBar: _index == 0
               ? AppBar(
-                  title: Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
+                  title:
+                      Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
                   actions: [
                     IconButton(
                       icon: const Icon(Icons.video_library_outlined),
                       tooltip: '媒体库',
                       onPressed: () {
                         Navigator.of(context).push(
-                          MaterialPageRoute(builder: (_) => LibraryPage(appState: widget.appState)),
+                          MaterialPageRoute(
+                              builder: (_) =>
+                                  LibraryPage(appState: widget.appState)),
                         );
                       },
                     ),
@@ -542,9 +579,11 @@ class _HomePageState extends State<HomePage> {
             selectedIndex: _index,
             onDestinationSelected: (i) => setState(() => _index = i),
             destinations: const [
-              NavigationDestination(icon: Icon(Icons.home_outlined), label: '首页'),
+              NavigationDestination(
+                  icon: Icon(Icons.home_outlined), label: '首页'),
               NavigationDestination(icon: Icon(Icons.folder_open), label: '本地'),
-              NavigationDestination(icon: Icon(Icons.settings_outlined), label: '设置'),
+              NavigationDestination(
+                  icon: Icon(Icons.settings_outlined), label: '设置'),
             ],
           ),
         );
@@ -603,17 +642,17 @@ class _HomeBody extends StatelessWidget {
             const SizedBox(height: 8),
           ],
           if (loading) const LinearProgressIndicator(),
-           for (final sec in sections)
-             if (sec.items.isNotEmpty) ...[
-               _HomeSectionHeader(
-                 title: sec.displayName,
-                 count: sec.key.startsWith('lib_')
-                     ? appState.getTotal(sec.key.substring(4))
-                     : 0,
-                 onTap: () {
-                   if (!sec.key.startsWith('lib_')) return;
-                   final libId = sec.key.substring(4);
-                   Navigator.of(context).push(
+          for (final sec in sections)
+            if (sec.items.isNotEmpty) ...[
+              _HomeSectionHeader(
+                title: sec.displayName,
+                count: sec.key.startsWith('lib_')
+                    ? appState.getTotal(sec.key.substring(4))
+                    : 0,
+                onTap: () {
+                  if (!sec.key.startsWith('lib_')) return;
+                  final libId = sec.key.substring(4);
+                  Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => LibraryItemsPage(
                         appState: appState,
@@ -631,8 +670,7 @@ class _HomeBody extends StatelessWidget {
                 enableGlass: enableGlass,
                 isTv: isTv,
               ),
-            ]
-            else
+            ] else
               const SizedBox.shrink(),
           if (sections.every((e) => e.items.isEmpty) && !loading)
             const Padding(
@@ -646,7 +684,8 @@ class _HomeBody extends StatelessWidget {
 }
 
 class _HomeSectionHeader extends StatelessWidget {
-  const _HomeSectionHeader({required this.title, required this.count, required this.onTap});
+  const _HomeSectionHeader(
+      {required this.title, required this.count, required this.onTap});
 
   final String title;
   final int count;
@@ -679,10 +718,8 @@ class _HomeSectionHeader extends StatelessWidget {
               if (count > 0)
                 Text(
                   formatCount(count),
-                  style: Theme.of(context)
-                      .textTheme
-                      .labelLarge
-                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                  style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant),
                 ),
               const SizedBox(width: 2),
               Icon(
@@ -715,7 +752,7 @@ class _HomeSectionCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-        return LayoutBuilder(
+    return LayoutBuilder(
       builder: (context, constraints) {
         const padding = 14.0;
         const spacing = 8.0;
@@ -723,7 +760,8 @@ class _HomeSectionCarousel extends StatelessWidget {
         final maxCount = items.length < _maxItems ? items.length : _maxItems;
 
         final itemWidth =
-            (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) / visible;
+            (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
+                visible;
         final imageHeight = itemWidth * 3 / 2;
         final listHeight = imageHeight + 44; // card padding + title line
 
@@ -821,18 +859,22 @@ class _HomeCard extends StatelessWidget {
                     imageUrl: image,
                     httpHeaders: {'User-Agent': EmbyApi.userAgent},
                     fit: BoxFit.cover,
-                    placeholder: (_, __) =>
-                        const Center(child: CircularProgressIndicator(strokeWidth: 2)),
-                    errorWidget: (_, __, ___) =>
-                        const ColoredBox(color: Colors.black12, child: Icon(Icons.broken_image)),
+                    placeholder: (_, __) => const Center(
+                        child: CircularProgressIndicator(strokeWidth: 2)),
+                    errorWidget: (_, __, ___) => const ColoredBox(
+                        color: Colors.black12, child: Icon(Icons.broken_image)),
                   )
-                : const ColoredBox(color: Colors.black12, child: Icon(Icons.image)),
+                : const ColoredBox(
+                    color: Colors.black12, child: Icon(Icons.image)),
           ),
         ),
         const SizedBox(height: 6),
         Text(
           item.name,
-          style: Theme.of(context).textTheme.bodySmall?.copyWith(fontWeight: FontWeight.w600),
+          style: Theme.of(context)
+              .textTheme
+              .bodySmall
+              ?.copyWith(fontWeight: FontWeight.w600),
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
         ),
@@ -846,20 +888,39 @@ class _HomeCard extends StatelessWidget {
           ? ClipRRect(
               borderRadius: BorderRadius.circular(12),
               child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 10, sigmaY: 10),
-                child: Container(
-                  padding: const EdgeInsets.all(6),
-                  decoration: BoxDecoration(
-                    color: Colors.white.withValues(alpha: 0.08),
-                    border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                  child: card,
+                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
+                child: Builder(
+                  builder: (context) {
+                    final scheme = Theme.of(context).colorScheme;
+                    final isDark = scheme.brightness == Brightness.dark;
+                    return Container(
+                      padding: const EdgeInsets.all(6),
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [
+                            scheme.surfaceContainerHigh
+                                .withValues(alpha: isDark ? 0.58 : 0.78),
+                            scheme.surfaceContainerHigh
+                                .withValues(alpha: isDark ? 0.42 : 0.68),
+                          ],
+                        ),
+                        border: Border.all(
+                          color: scheme.outlineVariant
+                              .withValues(alpha: isDark ? 0.38 : 0.7),
+                        ),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: card,
+                    );
+                  },
                 ),
               ),
             )
           : Card(
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12)),
               child: Padding(
                 padding: const EdgeInsets.all(6),
                 child: card,

@@ -71,6 +71,31 @@ enum VideoVersionPreference {
   preferAvc,
 }
 
+enum ServerListLayout {
+  grid,
+  list,
+}
+
+ServerListLayout serverListLayoutFromId(String? id) {
+  switch (id) {
+    case 'list':
+      return ServerListLayout.list;
+    default:
+      return ServerListLayout.grid;
+  }
+}
+
+extension ServerListLayoutX on ServerListLayout {
+  String get id {
+    switch (this) {
+      case ServerListLayout.grid:
+        return 'grid';
+      case ServerListLayout.list:
+        return 'list';
+    }
+  }
+}
+
 VideoVersionPreference videoVersionPreferenceFromId(String? id) {
   switch (id) {
     case 'highestResolution':
@@ -117,4 +142,3 @@ extension VideoVersionPreferenceX on VideoVersionPreference {
     }
   }
 }
-

@@ -45,6 +45,7 @@ class LinPlayerApp extends StatelessWidget {
           builder: (lightDynamic, darkDynamic) {
             final useDynamic = appState.useDynamicColor;
             return MaterialApp(
+              key: ValueKey<String>('nav:${appState.activeServerId ?? 'none'}'),
               title: 'LinPlayer',
               debugShowCheckedModeBanner: false,
               themeMode: appState.themeMode,
@@ -58,7 +59,9 @@ class LinPlayerApp extends StatelessWidget {
                 seed: appState.themeSeedColor,
                 secondarySeed: appState.themeSecondarySeedColor,
               ),
-              home: isLoggedIn ? HomePage(appState: appState) : ServerPage(appState: appState),
+              home: isLoggedIn
+                  ? HomePage(appState: appState)
+                  : ServerPage(appState: appState),
             );
           },
         );

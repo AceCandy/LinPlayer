@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
@@ -7,6 +8,8 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'player_service.dart';
+import 'src/player/danmaku.dart';
+import 'src/player/danmaku_stage.dart';
 import 'src/player/track_preferences.dart';
 import 'state/app_state.dart';
 
@@ -33,6 +36,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
   DateTime? _lastPositionUiUpdate;
   bool _appliedAudioPref = false;
   bool _appliedSubtitlePref = false;
+
+  final GlobalKey<DanmakuStageState> _danmakuKey =
+      GlobalKey<DanmakuStageState>();
+  final List<DanmakuSource> _danmakuSources = [];
+  int _danmakuSourceIndex = -1;
+  bool _danmakuEnabled = false;
+  double _danmakuOpacity = 1.0;
+  int _nextDanmakuIndex = 0;
 
   @override
   void initState() {
@@ -72,7 +83,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _playError = null;
       _appliedAudioPref = false;
       _appliedSubtitlePref = false;
+      _nextDanmakuIndex = 0;
     });
+    _danmakuKey.currentState?.clear();
     final isTv = _isTv(context);
     await _errorSub?.cancel();
     _errorSub = null;
@@ -112,12 +125,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _posSub?.cancel();
       _posSub = _playerService.player.stream.position.listen((d) {
         if (!mounted) return;
+        final wentBack = d + const Duration(seconds: 2) < _position;
         final now = DateTime.now();
         final deltaMs = (d.inMilliseconds - _position.inMilliseconds).abs();
         final shouldRebuild = _lastPositionUiUpdate == null ||
-            now.difference(_lastPositionUiUpdate!) >= const Duration(milliseconds: 250) ||
+            now.difference(_lastPositionUiUpdate!) >=
+                const Duration(milliseconds: 250) ||
             deltaMs >= 1000;
         _position = d;
+        if (wentBack) {
+          _syncDanmakuCursor(d);
+        }
+        _drainDanmaku(d);
         if (shouldRebuild) {
           _lastPositionUiUpdate = now;
           setState(() {});
@@ -129,13 +148,197 @@ class _PlayerScreenState extends State<PlayerScreen> {
     setState(() {});
   }
 
+  void _syncDanmakuCursor(Duration position) {
+    if (_danmakuSourceIndex < 0 ||
+        _danmakuSourceIndex >= _danmakuSources.length) {
+      _nextDanmakuIndex = 0;
+      return;
+    }
+    final items = _danmakuSources[_danmakuSourceIndex].items;
+    _nextDanmakuIndex = DanmakuParser.lowerBoundByTime(items, position);
+    _danmakuKey.currentState?.clear();
+  }
+
+  void _drainDanmaku(Duration position) {
+    if (!_danmakuEnabled) return;
+    if (_danmakuSourceIndex < 0 ||
+        _danmakuSourceIndex >= _danmakuSources.length) {
+      return;
+    }
+    final stage = _danmakuKey.currentState;
+    if (stage == null) return;
+
+    final items = _danmakuSources[_danmakuSourceIndex].items;
+    while (_nextDanmakuIndex < items.length &&
+        items[_nextDanmakuIndex].time <= position) {
+      stage.emit(items[_nextDanmakuIndex]);
+      _nextDanmakuIndex++;
+    }
+  }
+
+  Future<void> _pickDanmakuFile() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['xml'],
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final file = result.files.first;
+
+    String content = '';
+    if (kIsWeb) {
+      final bytes = file.bytes;
+      if (bytes == null) return;
+      content = DanmakuParser.decodeBytes(bytes);
+    } else {
+      final path = file.path;
+      if (path == null || path.trim().isEmpty) return;
+      content = await File(path).readAsString();
+    }
+
+    final items = DanmakuParser.parseBilibiliXml(content);
+    if (!mounted) return;
+    setState(() {
+      _danmakuSources.add(DanmakuSource(name: file.name, items: items));
+      _danmakuSourceIndex = _danmakuSources.length - 1;
+      _danmakuEnabled = true;
+      _syncDanmakuCursor(_position);
+    });
+  }
+
+  Future<void> _showDanmakuSheet() async {
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            final hasSources = _danmakuSources.isNotEmpty;
+            final selectedName = (_danmakuSourceIndex >= 0 &&
+                    _danmakuSourceIndex < _danmakuSources.length)
+                ? _danmakuSources[_danmakuSourceIndex].name
+                : '未选择';
+
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text('弹幕',
+                            style: Theme.of(context).textTheme.titleLarge),
+                      ),
+                      TextButton.icon(
+                        onPressed: () async {
+                          await _pickDanmakuFile();
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.upload_file),
+                        label: const Text('加载'),
+                      ),
+                    ],
+                  ),
+                  SwitchListTile(
+                    value: _danmakuEnabled,
+                    onChanged: (v) {
+                      setState(() => _danmakuEnabled = v);
+                      if (!v) {
+                        _danmakuKey.currentState?.clear();
+                      }
+                      setSheetState(() {});
+                    },
+                    title: const Text('启用弹幕'),
+                    subtitle:
+                        Text(hasSources ? '当前：$selectedName' : '尚未加载弹幕文件'),
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.layers_outlined),
+                    title: const Text('弹幕源'),
+                    trailing: DropdownButtonHideUnderline(
+                      child: DropdownButton<int>(
+                        value: _danmakuSourceIndex >= 0
+                            ? _danmakuSourceIndex
+                            : null,
+                        hint: const Text('请选择'),
+                        items: [
+                          for (var i = 0; i < _danmakuSources.length; i++)
+                            DropdownMenuItem(
+                              value: i,
+                              child: Text(
+                                _danmakuSources[i].name,
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                        ],
+                        onChanged: !hasSources
+                            ? null
+                            : (v) {
+                                if (v == null) return;
+                                setState(() {
+                                  _danmakuSourceIndex = v;
+                                  _danmakuEnabled = true;
+                                  _syncDanmakuCursor(_position);
+                                });
+                                setSheetState(() {});
+                              },
+                      ),
+                    ),
+                  ),
+                  const Divider(height: 1),
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: const Icon(Icons.opacity_outlined),
+                    title: const Text('不透明度'),
+                    subtitle: Slider(
+                      value: _danmakuOpacity,
+                      min: 0.2,
+                      max: 1.0,
+                      onChanged: (v) {
+                        setState(() => _danmakuOpacity = v);
+                        setSheetState(() {});
+                      },
+                    ),
+                  ),
+                  if (hasSources)
+                    SizedBox(
+                      width: double.infinity,
+                      child: OutlinedButton.icon(
+                        onPressed: () {
+                          setState(() {
+                            _danmakuSources.clear();
+                            _danmakuSourceIndex = -1;
+                            _danmakuEnabled = false;
+                            _danmakuKey.currentState?.clear();
+                          });
+                          setSheetState(() {});
+                        },
+                        icon: const Icon(Icons.delete_outline),
+                        label: const Text('清空弹幕'),
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   void _maybeApplyPreferredTracks(Tracks tracks) {
     final appState = widget.appState;
     final player = _playerService.isInitialized ? _playerService.player : null;
     if (appState == null || player == null) return;
 
     if (!_appliedAudioPref) {
-      final picked = pickPreferredAudioTrack(tracks, appState.preferredAudioLang);
+      final picked =
+          pickPreferredAudioTrack(tracks, appState.preferredAudioLang);
       if (picked != null) {
         player.setAudioTrack(picked);
       }
@@ -158,8 +361,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final currentFileName =
-        _currentlyPlayingIndex != -1 ? _playlist[_currentlyPlayingIndex].name : 'LinPlayer';
+    final currentFileName = _currentlyPlayingIndex != -1
+        ? _playlist[_currentlyPlayingIndex].name
+        : 'LinPlayer';
 
     return Scaffold(
       appBar: AppBar(
@@ -202,12 +406,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
             onPressed: () => _showSubtitleTracks(context),
           ),
           IconButton(
+            tooltip: '弹幕',
+            icon: const Icon(Icons.comment_outlined),
+            onPressed: _showDanmakuSheet,
+          ),
+          IconButton(
             tooltip: _hwdecOn ? '切换软解' : '切换硬解',
             icon: Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
             onPressed: () {
               setState(() => _hwdecOn = !_hwdecOn);
               if (_currentlyPlayingIndex >= 0 && _playlist.isNotEmpty) {
-                _playFile(_playlist[_currentlyPlayingIndex], _currentlyPlayingIndex);
+                _playFile(
+                    _playlist[_currentlyPlayingIndex], _currentlyPlayingIndex);
               }
             },
           ),
@@ -224,7 +434,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
             child: Container(
               color: Colors.black,
               child: _playerService.isInitialized
-                  ? Video(controller: _playerService.controller)
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Video(controller: _playerService.controller),
+                        Positioned.fill(
+                          child: DanmakuStage(
+                            key: _danmakuKey,
+                            enabled: _danmakuEnabled,
+                            opacity: _danmakuOpacity,
+                          ),
+                        ),
+                      ],
+                    )
                   : _playError != null
                       ? Center(
                           child: Text(
@@ -260,9 +482,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
           ),
           if (_playerService.isInitialized)
             Slider(
-              value: _position.inMilliseconds.toDouble().clamp(0, _duration.inMilliseconds + 1),
+              value: _position.inMilliseconds
+                  .toDouble()
+                  .clamp(0, _duration.inMilliseconds + 1),
               max: (_playerService.duration.inMilliseconds + 1).toDouble(),
-              onChanged: (v) => _playerService.seek(Duration(milliseconds: v.toInt())),
+              onChanged: (v) =>
+                  _playerService.seek(Duration(milliseconds: v.toInt())),
             ),
           const Padding(
             padding: EdgeInsets.all(8.0),
@@ -278,7 +503,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 final file = _playlist[index];
                 final isPlaying = index == _currentlyPlayingIndex;
                 return ListTile(
-                  leading: Icon(isPlaying ? Icons.play_circle_filled : Icons.movie),
+                  leading:
+                      Icon(isPlaying ? Icons.play_circle_filled : Icons.movie),
                   title: Text(
                     file.name,
                     style: TextStyle(

@@ -18,6 +18,7 @@ class AppState extends ChangeNotifier {
   static const _kPreferredSubtitleLangKey = 'preferredSubtitleLang_v1';
   static const _kPreferredVideoVersionKey = 'preferredVideoVersion_v1';
   static const _kAppIconIdKey = 'appIconId_v1';
+  static const _kServerListLayoutKey = 'serverListLayout_v1';
 
   final List<ServerProfile> _servers = [];
   String? _activeServerId;
@@ -34,20 +35,24 @@ class AppState extends ChangeNotifier {
   bool _preferHardwareDecode = true;
   String _preferredAudioLang = '';
   String _preferredSubtitleLang = '';
-  VideoVersionPreference _preferredVideoVersion = VideoVersionPreference.defaultVersion;
+  VideoVersionPreference _preferredVideoVersion =
+      VideoVersionPreference.defaultVersion;
   String _appIconId = 'default';
+  ServerListLayout _serverListLayout = ServerListLayout.grid;
   bool _loading = false;
   String? _error;
 
   static String _randomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
     final rand = DateTime.now().microsecondsSinceEpoch;
-    return List.generate(16, (i) => chars[(rand + i * 31) % chars.length]).join();
+    return List.generate(16, (i) => chars[(rand + i * 31) % chars.length])
+        .join();
   }
 
   List<ServerProfile> get servers => List.unmodifiable(_servers);
   String? get activeServerId => _activeServerId;
-  ServerProfile? get activeServer => _servers.firstWhereOrNull((s) => s.id == _activeServerId);
+  ServerProfile? get activeServer =>
+      _servers.firstWhereOrNull((s) => s.id == _activeServerId);
   bool get hasActiveServer => activeServer != null;
 
   String? get baseUrl => activeServer?.baseUrl;
@@ -71,6 +76,7 @@ class AppState extends ChangeNotifier {
   String get preferredSubtitleLang => _preferredSubtitleLang;
   VideoVersionPreference get preferredVideoVersion => _preferredVideoVersion;
   String get appIconId => _appIconId;
+  ServerListLayout get serverListLayout => _serverListLayout;
 
   Iterable<HomeEntry> get homeEntries sync* {
     for (final entry in _homeSections.entries) {
@@ -99,9 +105,11 @@ class AppState extends ChangeNotifier {
     _preferHardwareDecode = prefs.getBool(_kPreferHardwareDecodeKey) ?? true;
     _preferredAudioLang = prefs.getString(_kPreferredAudioLangKey) ?? '';
     _preferredSubtitleLang = prefs.getString(_kPreferredSubtitleLangKey) ?? '';
-    _preferredVideoVersion =
-        videoVersionPreferenceFromId(prefs.getString(_kPreferredVideoVersionKey));
+    _preferredVideoVersion = videoVersionPreferenceFromId(
+        prefs.getString(_kPreferredVideoVersionKey));
     _appIconId = prefs.getString(_kAppIconIdKey) ?? 'default';
+    _serverListLayout =
+        serverListLayoutFromId(prefs.getString(_kServerListLayoutKey));
 
     final rawServers = prefs.getString(_kServersKey);
     _servers.clear();
@@ -112,7 +120,9 @@ class AppState extends ChangeNotifier {
           for (final item in decoded) {
             if (item is Map<String, dynamic>) {
               final s = ServerProfile.fromJson(item);
-              if (s.id.isNotEmpty && s.baseUrl.isNotEmpty && s.token.isNotEmpty) {
+              if (s.id.isNotEmpty &&
+                  s.baseUrl.isNotEmpty &&
+                  s.token.isNotEmpty) {
                 _servers.add(s);
               }
             }
@@ -136,7 +146,8 @@ class AppState extends ChangeNotifier {
             baseUrl: baseUrl,
             token: token,
             userId: userId,
-            hiddenLibraries: (prefs.getStringList('hiddenLibs') ?? const <String>[]).toSet(),
+            hiddenLibraries:
+                (prefs.getStringList('hiddenLibs') ?? const <String>[]).toSet(),
           ),
         );
         await _persistServers(prefs);
@@ -178,7 +189,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
 
     try {
-      final api = EmbyApi(hostOrUrl: hostOrUrl, preferredScheme: scheme, port: port);
+      final api =
+          EmbyApi(hostOrUrl: hostOrUrl, preferredScheme: scheme, port: port);
       final auth = await api.authenticate(
         username: username,
         password: password,
@@ -187,12 +199,14 @@ class AppState extends ChangeNotifier {
 
       String? serverName;
       try {
-        serverName = await api.fetchServerName(auth.baseUrlUsed, token: auth.token);
+        serverName =
+            await api.fetchServerName(auth.baseUrlUsed, token: auth.token);
       } catch (_) {
         // best-effort
       }
 
-      final lines = await api.fetchDomains(auth.token, auth.baseUrlUsed, allowFailure: true);
+      final lines = await api.fetchDomains(auth.token, auth.baseUrlUsed,
+          allowFailure: true);
       final libs = await api.fetchLibraries(
         token: auth.token,
         baseUrl: auth.baseUrlUsed,
@@ -205,7 +219,8 @@ class AppState extends ChangeNotifier {
               ? serverName!.trim()
               : _suggestServerName(auth.baseUrlUsed));
 
-      final existingIndex = _servers.indexWhere((s) => s.baseUrl == auth.baseUrlUsed);
+      final existingIndex =
+          _servers.indexWhere((s) => s.baseUrl == auth.baseUrlUsed);
       final server = ServerProfile(
         id: existingIndex >= 0 ? _servers[existingIndex].id : _randomId(),
         name: name,
@@ -213,9 +228,12 @@ class AppState extends ChangeNotifier {
         baseUrl: auth.baseUrlUsed,
         token: auth.token,
         userId: auth.userId,
-        hiddenLibraries: existingIndex >= 0 ? _servers[existingIndex].hiddenLibraries : null,
-        domainRemarks: existingIndex >= 0 ? _servers[existingIndex].domainRemarks : null,
-        customDomains: existingIndex >= 0 ? _servers[existingIndex].customDomains : null,
+        hiddenLibraries:
+            existingIndex >= 0 ? _servers[existingIndex].hiddenLibraries : null,
+        domainRemarks:
+            existingIndex >= 0 ? _servers[existingIndex].domainRemarks : null,
+        customDomains:
+            existingIndex >= 0 ? _servers[existingIndex].customDomains : null,
       );
 
       if (existingIndex >= 0) {
@@ -286,8 +304,12 @@ class AppState extends ChangeNotifier {
   }) async {
     final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
-    if (name != null && name.trim().isNotEmpty) server.name = name.trim();
-    if (remark != null) server.remark = remark.trim().isEmpty ? null : remark.trim();
+    if (name != null && name.trim().isNotEmpty) {
+      server.name = name.trim();
+    }
+    if (remark != null) {
+      server.remark = remark.trim().isEmpty ? null : remark.trim();
+    }
     final prefs = await SharedPreferences.getInstance();
     await _persistServers(prefs);
     notifyListeners();
@@ -426,7 +448,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  List<CustomDomain> get customDomains => activeServer?.customDomains ?? const <CustomDomain>[];
+  List<CustomDomain> get customDomains =>
+      activeServer?.customDomains ?? const <CustomDomain>[];
 
   static String _normalizeUrl(String raw, {String defaultScheme = 'https'}) {
     final v = raw.trim();
@@ -439,7 +462,8 @@ class AppState extends ChangeNotifier {
   static bool _isValidHttpUrl(String raw) {
     final uri = Uri.tryParse(raw);
     if (uri == null) return false;
-    return (uri.scheme == 'http' || uri.scheme == 'https') && uri.host.isNotEmpty;
+    return (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
   }
 
   Future<void> addCustomDomain({
@@ -531,7 +555,8 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  bool isLibraryHidden(String libId) => activeServer?.hiddenLibraries.contains(libId) == true;
+  bool isLibraryHidden(String libId) =>
+      activeServer?.hiddenLibraries.contains(libId) == true;
 
   void sortLibrariesByName() {
     _libraries.sort((a, b) => a.name.compareTo(b.name));
@@ -594,6 +619,14 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setServerListLayout(ServerListLayout layout) async {
+    if (_serverListLayout == layout) return;
+    _serverListLayout = layout;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kServerListLayoutKey, layout.id);
+    notifyListeners();
+  }
+
   static ThemeMode _decodeThemeMode(String? raw) {
     switch (raw) {
       case 'light':
@@ -636,7 +669,8 @@ class HomeEntry {
   final String key;
   final String displayName;
   final List<MediaItem> items;
-  HomeEntry({required this.key, required this.displayName, required this.items});
+  HomeEntry(
+      {required this.key, required this.displayName, required this.items});
 }
 
 extension _FirstWhereOrNull<E> on List<E> {

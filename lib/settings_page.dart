@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import 'src/ui/app_icon_service.dart';
+import 'src/ui/frosted_card.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 
@@ -16,7 +17,7 @@ class SettingsPage extends StatefulWidget {
 }
 
 class _SettingsPageState extends State<SettingsPage> {
-  static const _donateUrl = 'https://afdian.net/';
+  static const _donateUrl = 'https://afdian.com/a/zzzwannasleep';
   static const _customSentinel = '__custom__';
   static const _subtitleOff = 'off';
 
@@ -67,7 +68,8 @@ class _SettingsPageState extends State<SettingsPage> {
     return items;
   }
 
-  Future<String?> _askCustomLang(BuildContext context, {required String title, String? initial}) {
+  Future<String?> _askCustomLang(BuildContext context,
+      {required String title, String? initial}) {
     final ctrl = TextEditingController(text: initial ?? '');
     return showDialog<String>(
       context: context,
@@ -81,7 +83,9 @@ class _SettingsPageState extends State<SettingsPage> {
           autofocus: true,
         ),
         actions: [
-          TextButton(onPressed: () => Navigator.of(ctx).pop(), child: const Text('取消')),
+          TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消')),
           FilledButton(
             onPressed: () => Navigator.of(ctx).pop(ctrl.text.trim()),
             child: const Text('保存'),
@@ -111,12 +115,15 @@ class _SettingsPageState extends State<SettingsPage> {
               _Section(
                 title: '外观',
                 subtitle: canBlur ? '手机/桌面启用毛玻璃等特效' : 'TV 端自动关闭高开销特效',
+                enableBlur: canBlur,
                 child: Column(
                   children: [
                     SegmentedButton<ThemeMode>(
                       segments: const [
-                        ButtonSegment(value: ThemeMode.system, label: Text('系统')),
-                        ButtonSegment(value: ThemeMode.light, label: Text('浅色')),
+                        ButtonSegment(
+                            value: ThemeMode.system, label: Text('系统')),
+                        ButtonSegment(
+                            value: ThemeMode.light, label: Text('浅色')),
                         ButtonSegment(value: ThemeMode.dark, label: Text('深色')),
                       ],
                       selected: {appState.themeMode},
@@ -160,6 +167,7 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 12),
               _Section(
                 title: '播放',
+                enableBlur: canBlur,
                 child: Column(
                   children: [
                     SwitchListTile(
@@ -203,7 +211,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       trailing: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
                           value: appState.preferredSubtitleLang,
-                          items: _subtitleLangItems(appState.preferredSubtitleLang),
+                          items: _subtitleLangItems(
+                              appState.preferredSubtitleLang),
                           onChanged: (v) async {
                             if (v == null) return;
                             if (v == _customSentinel) {
@@ -250,18 +259,22 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 12),
               _Section(
                 title: '应用',
+                enableBlur: canBlur,
                 child: Column(
                   children: [
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.apps_outlined),
                       title: const Text('应用图标'),
-                      subtitle: Text(AppIconService.isSupported ? '切换后可能需要等待桌面刷新' : '仅 Android 支持'),
+                      subtitle: Text(AppIconService.isSupported
+                          ? '切换后可能需要等待桌面刷新'
+                          : '仅 Android 支持'),
                       trailing: DropdownButtonHideUnderline(
                         child: DropdownButton<String>(
                           value: appState.appIconId,
                           items: const [
-                            DropdownMenuItem(value: 'default', child: Text('默认')),
+                            DropdownMenuItem(
+                                value: 'default', child: Text('默认')),
                             DropdownMenuItem(value: 'warm', child: Text('暖色调')),
                             DropdownMenuItem(value: 'cool', child: Text('冷色调')),
                           ],
@@ -272,7 +285,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                   final ok = await AppIconService.setIconId(v);
                                   if (!ok && context.mounted) {
                                     ScaffoldMessenger.of(context).showSnackBar(
-                                      const SnackBar(content: Text('切换失败（可能不支持当前系统/桌面）')),
+                                      const SnackBar(
+                                          content: Text('切换失败（可能不支持当前系统/桌面）')),
                                     );
                                     return;
                                   }
@@ -292,7 +306,8 @@ class _SettingsPageState extends State<SettingsPage> {
                         final ok = await launchUrlString(_donateUrl);
                         if (!ok && context.mounted) {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('无法打开链接，请检查系统浏览器/网络设置')),
+                            const SnackBar(
+                                content: Text('无法打开链接，请检查系统浏览器/网络设置')),
                           );
                         }
                       },
@@ -316,37 +331,45 @@ class _SettingsPageState extends State<SettingsPage> {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, this.subtitle, required this.child});
+  const _Section({
+    required this.title,
+    this.subtitle,
+    required this.child,
+    required this.enableBlur,
+  });
 
   final String title;
   final String? subtitle;
   final Widget child;
+  final bool enableBlur;
 
   @override
   Widget build(BuildContext context) {
-    return Card(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+    return FrostedCard(
+      enableBlur: enableBlur,
+      padding: const EdgeInsets.fromLTRB(14, 12, 14, 6),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            style: Theme.of(context)
+                .textTheme
+                .titleMedium
+                ?.copyWith(fontWeight: FontWeight.w700),
+          ),
+          if ((subtitle ?? '').trim().isNotEmpty) ...[
+            const SizedBox(height: 2),
             Text(
-              title,
-              style: Theme.of(context).textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+              subtitle!.trim(),
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                  ),
             ),
-            if ((subtitle ?? '').trim().isNotEmpty) ...[
-              const SizedBox(height: 2),
-              Text(
-                subtitle!.trim(),
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: Theme.of(context).colorScheme.onSurfaceVariant,
-                    ),
-              ),
-            ],
-            const SizedBox(height: 8),
-            child,
           ],
-        ),
+          const SizedBox(height: 8),
+          child,
+        ],
       ),
     );
   }
