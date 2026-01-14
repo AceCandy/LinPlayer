@@ -165,6 +165,15 @@ class PlaybackInfoResult {
 }
 
 class EmbyApi {
+  static String appVersion = '1.0.0';
+
+  static String get userAgent => 'LinPlayer/$appVersion';
+
+  static void setAppVersion(String version) {
+    final v = version.trim();
+    if (v.isNotEmpty) appVersion = v;
+  }
+
   EmbyApi({
     required String hostOrUrl,
     required String preferredScheme,
@@ -178,6 +187,7 @@ class EmbyApi {
   final String? _port;
   final http.Client _client = IOClient(
     HttpClient()
+      ..userAgent = userAgent
       ..badCertificateCallback = (_, __, ___) => true,
   );
 
@@ -192,18 +202,38 @@ class EmbyApi {
     required String deviceId,
     String client = 'LinPlayer',
     String device = 'Flutter',
-    String version = '1.0.0',
+    String? version,
   }) {
-    return 'MediaBrowser Client="$client", Device="$device", DeviceId="$deviceId", Version="$version"';
+    final v = (version == null || version.trim().isEmpty) ? appVersion : version.trim();
+    return 'MediaBrowser Client="$client", Device="$device", DeviceId="$deviceId", Version="$v"';
   }
 
   Map<String, String> _authHeader({String? deviceId}) {
     final id = (deviceId == null || deviceId.isEmpty) ? _randomId() : deviceId;
     return {
       'Content-Type': 'application/json',
+      'Accept': 'application/json',
+      'User-Agent': userAgent,
       'X-Emby-Authorization':
           _authorizationValue(deviceId: id),
     };
+  }
+
+  Map<String, String> _jsonHeaders({
+    required String token,
+    String? deviceId,
+    bool includeContentType = false,
+  }) {
+    final headers = <String, String>{
+      'X-Emby-Token': token,
+      'Accept': 'application/json',
+      'User-Agent': userAgent,
+    };
+    if (includeContentType) headers['Content-Type'] = 'application/json';
+    if (deviceId != null && deviceId.isNotEmpty) {
+      headers['X-Emby-Authorization'] = _authorizationValue(deviceId: deviceId);
+    }
+    return headers;
   }
 
   List<String> _candidates() {
@@ -294,8 +324,7 @@ class EmbyApi {
     final url = Uri.parse('$baseUrl/emby/System/Ext/ServerDomains');
     try {
       final resp = await _client.get(url, headers: {
-        'X-Emby-Token': token,
-        'Accept': 'application/json',
+        ..._jsonHeaders(token: token),
       });
       if (resp.statusCode != 200) {
         if (allowFailure) return [];
@@ -319,10 +348,7 @@ class EmbyApi {
   }) async {
     // Emby 官方推荐获取视图的接口：/Users/{userId}/Views
     final url = Uri.parse('$baseUrl/emby/Users/$userId/Views');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('拉取媒体库失败（${resp.statusCode}）');
     }
@@ -362,10 +388,7 @@ class EmbyApi {
       params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
     }
     final url = Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('拉取媒体列表失败（${resp.statusCode}）');
     }
@@ -422,10 +445,7 @@ class EmbyApi {
   }) async {
     final url = Uri.parse(
         '$baseUrl/emby/Users/$userId/Items?Filters=IsResumable&SortBy=DatePlayed&SortOrder=Descending&Limit=$limit&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('获取继续观看失败（${resp.statusCode}）');
     }
@@ -491,8 +511,7 @@ class EmbyApi {
         '&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,UserData'
         '&Limit=$limit');
     final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
+      ..._jsonHeaders(token: token),
     });
     if (resp.statusCode != 200) {
       throw Exception('获取库最新内容失败（${resp.statusCode}）');
@@ -525,12 +544,11 @@ class EmbyApi {
 
     Future<http.Response> postReq() => _client.post(
           Uri.parse('$baseUrl/emby/Items/$itemId/PlaybackInfo'),
-          headers: {
-            'X-Emby-Token': token,
-            'X-Emby-Authorization': _authorizationValue(deviceId: deviceId),
-            'Accept': 'application/json',
-            'Content-Type': 'application/json',
-          },
+          headers: _jsonHeaders(
+            token: token,
+            deviceId: deviceId,
+            includeContentType: true,
+          ),
           body: jsonEncode({
             'UserId': userId,
             'DeviceProfile': deviceProfile,
@@ -539,11 +557,7 @@ class EmbyApi {
     Future<http.Response> getReq() => _client.get(
           Uri.parse(
               '$baseUrl/emby/Items/$itemId/PlaybackInfo?UserId=$userId&DeviceId=$deviceId'),
-          headers: {
-            'X-Emby-Token': token,
-            'X-Emby-Authorization': _authorizationValue(deviceId: deviceId),
-            'Accept': 'application/json',
-          },
+          headers: _jsonHeaders(token: token, deviceId: deviceId),
         );
 
     http.Response resp = await getReq();
@@ -586,10 +600,7 @@ class EmbyApi {
   }) async {
     final url = Uri.parse(
         '$baseUrl/emby/Users/$userId/Items/$itemId?Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,ProviderIds,CommunityRating,PremiereDate,ProductionYear,Genres,People,RunTimeTicks,Size,Container');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('获取详情失败(${resp.statusCode})');
     }
@@ -624,10 +635,7 @@ class EmbyApi {
     required String itemId,
   }) async {
     final url = Uri.parse('$baseUrl/emby/Items/$itemId/Chapters');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     // 404 means the item has no chapters on many servers.
     if (resp.statusCode == 404) {
       return const [];
@@ -648,10 +656,7 @@ class EmbyApi {
   }) async {
     final url = Uri.parse(
         '$baseUrl/emby/Users/$userId/Items/$itemId/Similar?Limit=$limit&Fields=Overview,ImageTags,ProviderIds,CommunityRating,Genres,ProductionYear');
-    final resp = await _client.get(url, headers: {
-      'X-Emby-Token': token,
-      'Accept': 'application/json',
-    });
+    final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode == 404) {
       return PagedResult(const [], 0);
     }

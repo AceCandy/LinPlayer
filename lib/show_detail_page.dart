@@ -503,8 +503,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                 background: Stack(
                   fit: StackFit.expand,
                   children: [
-                    Image.network(hero, fit: BoxFit.cover,
-                        errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26)),
+                    Image.network(
+                      hero,
+                      fit: BoxFit.cover,
+                      headers: {'User-Agent': EmbyApi.userAgent},
+                      errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26),
+                    ),
                     Container(
                       decoration: const BoxDecoration(
                         gradient: LinearGradient(
@@ -616,12 +620,18 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             final url = _album[index];
                             return ClipRRect(
                               borderRadius: BorderRadius.circular(12),
-                              child: Image.network(url,
+                              child: Image.network(
+                                url,
+                                width: 220,
+                                height: 140,
+                                fit: BoxFit.cover,
+                                headers: {'User-Agent': EmbyApi.userAgent},
+                                errorBuilder: (_, __, ___) => const SizedBox(
                                   width: 220,
                                   height: 140,
-                                  fit: BoxFit.cover,
-                                  errorBuilder: (_, __, ___) =>
-                                      const SizedBox(width: 220, height: 140, child: ColoredBox(color: Colors.black26))),
+                                  child: ColoredBox(color: Colors.black26),
+                                ),
+                              ),
                             );
                           },
                         ),
@@ -674,6 +684,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                         child: Image.network(
                                           img,
                                           fit: BoxFit.cover,
+                                          headers: {'User-Agent': EmbyApi.userAgent},
                                           errorBuilder: (_, __, ___) =>
                                               const ColoredBox(color: Colors.black26),
                                         ),
@@ -741,9 +752,13 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                           ? SizedBox(
                                               height: 180,
                                               width: 140,
-                                              child: Image.network(img,
-                                                  fit: BoxFit.cover,
-                                                  errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26)),
+                                              child: Image.network(
+                                                img,
+                                                fit: BoxFit.cover,
+                                                headers: {'User-Agent': EmbyApi.userAgent},
+                                                errorBuilder: (_, __, ___) =>
+                                                    const ColoredBox(color: Colors.black26),
+                                              ),
                                             )
                                           : const SizedBox(
                                               height: 180, width: 140, child: ColoredBox(color: Colors.black26)),
@@ -900,6 +915,7 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                         child: Image.network(
                                           img,
                                           fit: BoxFit.cover,
+                                          headers: {'User-Agent': EmbyApi.userAgent},
                                           errorBuilder: (_, __, ___) =>
                                               const ColoredBox(color: Colors.black26),
                                         ),

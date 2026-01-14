@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 
 import 'login_page.dart';
 import 'home_page.dart';
+import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'src/ui/app_theme.dart';
 
@@ -10,6 +12,14 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Ensure native media backends (mpv) are ready before any player is created.
   MediaKit.ensureInitialized();
+
+  try {
+    final info = await PackageInfo.fromPlatform();
+    EmbyApi.setAppVersion('${info.version}+${info.buildNumber}');
+  } catch (_) {
+    // PackageInfo is best-effort; keep default version if unavailable.
+  }
+
   final appState = AppState();
   await appState.loadFromStorage();
   runApp(LinPlayerApp(appState: appState));

@@ -100,6 +100,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     borderRadius: BorderRadius.circular(12),
                                     child: CachedNetworkImage(
                                       imageUrl: imageUrl,
+                                      httpHeaders: {'User-Agent': EmbyApi.userAgent},
                                       fit: BoxFit.cover,
                                       placeholder: (_, __) => const ColoredBox(
                                         color: Colors.black12,

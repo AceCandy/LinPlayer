@@ -335,7 +335,7 @@ class _HomeSectionCarousel extends StatelessWidget {
       builder: (context, constraints) {
         const padding = 16.0;
         const spacing = 10.0;
-        const visible = 3.0;
+        const visible = 4.0;
         final maxCount = items.length < _maxItems ? items.length : _maxItems;
 
         final itemWidth =
@@ -421,7 +421,7 @@ class _HomeCard extends StatelessWidget {
             baseUrl: appState.baseUrl!,
             itemId: item.id,
             token: appState.token!,
-            maxWidth: 320,
+            maxWidth: 240,
           )
         : null;
 
@@ -435,6 +435,7 @@ class _HomeCard extends StatelessWidget {
             child: image != null
                 ? CachedNetworkImage(
                     imageUrl: image,
+                    httpHeaders: {'User-Agent': EmbyApi.userAgent},
                     fit: BoxFit.cover,
                     placeholder: (_, __) =>
                         const Center(child: CircularProgressIndicator(strokeWidth: 2)),

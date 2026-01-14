@@ -173,6 +173,7 @@ class _GridItem extends StatelessWidget {
             child: image != null
                 ? CachedNetworkImage(
                     imageUrl: image,
+                    httpHeaders: {'User-Agent': EmbyApi.userAgent},
                     fit: BoxFit.cover,
                     placeholder: (_, __) => const ColoredBox(color: Colors.black12),
                     errorWidget: (_, __, ___) => const ColoredBox(color: Colors.black26),
