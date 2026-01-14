@@ -15,9 +15,18 @@ on:
 
 jobs:
   build-macos-dmg:
-    name: Build DMG (universal)
-    # GitHub-hosted Intel (macos-13) runners were retired; build a universal app on Apple Silicon.
-    runs-on: macos-14
+    name: Build DMG (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # Apple Silicon (arm64)
+          - arch: arm64
+            runner: macos-15
+          # Intel (x86_64) replacement for retired macos-13
+          - arch: x86_64
+            runner: macos-15-intel
     env:
       PUB_CACHE: /Users/runner/.pub-cache
     steps:
@@ -46,7 +55,7 @@ jobs:
         run: flutter pub get
 
       - name: Build macOS app
-        run: flutter build macos --release --universal
+        run: flutter build macos --release
 
       - name: Create DMG installer
         shell: bash
@@ -71,10 +80,10 @@ jobs:
           ditto "$APP_PATH" "$STAGING/$(basename "$APP_PATH")"
           ln -s /Applications "$STAGING/Applications"
 
-          hdiutil create -volname "LinPlayer" -srcfolder "$STAGING" -ov -format UDZO "LinPlayer-macOS-universal.dmg"
+          hdiutil create -volname "LinPlayer" -srcfolder "$STAGING" -ov -format UDZO "LinPlayer-macOS-${{ matrix.arch }}.dmg"
 
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-macOS-DMG-universal
-          path: LinPlayer-macOS-universal.dmg
+          name: LinPlayer-macOS-DMG-${{ matrix.arch }}
+          path: LinPlayer-macOS-${{ matrix.arch }}.dmg
