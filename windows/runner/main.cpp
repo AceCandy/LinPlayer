@@ -5,6 +5,16 @@
 #include "flutter_window.h"
 #include "utils.h"
 
+// Hint the driver to prefer the high-performance GPU on dual-GPU systems
+// (e.g. NVIDIA Optimus / AMD Switchable Graphics).
+//
+// This does not override the user's OS-level graphics preference, but it helps
+// avoid unintentionally running on the integrated GPU by default.
+extern "C" {
+__declspec(dllexport) DWORD NvOptimusEnablement = 0x00000001;
+__declspec(dllexport) int AmdPowerXpressRequestHighPerformance = 1;
+}
+
 int APIENTRY wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE prev,
                       _In_ wchar_t *command_line, _In_ int show_command) {
   // Attach to console when present (e.g., 'flutter run') or create a
