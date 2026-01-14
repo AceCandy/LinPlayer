@@ -118,7 +118,15 @@ jobs:
         shell: pwsh
         run: |
           $release64 = "build/windows/x64/runner/Release"
-          if (-not (Test-Path $release64)) { exit 1 }
+          $releaseLegacy = "build/windows/runner/Release"
+          if (Test-Path $release64) {
+            $release = $release64
+          } elseif (Test-Path $releaseLegacy) {
+            $release = $releaseLegacy
+          } else {
+            Write-Error "Release folder not found after build."
+            exit 1
+          }
           $roots = @(
             "C:\Program Files\Microsoft Visual Studio\2022",
             "C:\Program Files (x86)\Microsoft Visual Studio\2022"
@@ -137,25 +145,54 @@ jobs:
             if ($crtDir) { break }
           }
           if (-not $crtDir) { Write-Error "MSVC CRT path not found."; exit 1 }
-          Copy-Item -Path (Join-Path $crtDir "*") -Destination $release64 -Recurse -Force
+          Copy-Item -Path (Join-Path $crtDir "*") -Destination $release -Recurse -Force
 
-      # 6. Archive the release build folder as a ZIP file
-      - name: Archive Windows release
+      # 6. Build a Windows installer (setup.exe) using Inno Setup.
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
         run: |
           $release64 = "build/windows/x64/runner/Release"
           $releaseLegacy = "build/windows/runner/Release"
           if (Test-Path $release64) {
-            Compress-Archive -Path $release64 -DestinationPath LinPlayer-Windows-Release.zip
+            $release = $release64
           } elseif (Test-Path $releaseLegacy) {
-            Compress-Archive -Path $releaseLegacy -DestinationPath LinPlayer-Windows-Release.zip
+            $release = $releaseLegacy
           } else {
-            Write-Error "Release folder not found after build."
-            exit 1
+            throw "Release folder not found after build."
           }
 
-      # 7. Upload the generated ZIP file as a build artifact
-      - name: Upload Windows artifact
+          $versionLine = (Get-Content pubspec.yaml | Select-String -Pattern '^version:' | Select-Object -First 1).Line
+          if (-not $versionLine) { throw "Could not read version from pubspec.yaml." }
+          $fullVersion = $versionLine.Split(':', 2)[1].Trim()
+          $appVersion = $fullVersion.Split('+')[0].Trim()
+          $buildNumber = $null
+          if ($fullVersion -match '\\+(\\d+)$') { $buildNumber = $Matches[1] }
+          if ($buildNumber) { $appVersion = "$appVersion.$buildNumber" }
+
+          $env:SOURCE_DIR = (Resolve-Path $release).Path
+          $env:OUTPUT_DIR = (Resolve-Path ".").Path
+          $env:APP_ARCH = "x64"
+          $env:APP_VERSION = $appVersion
+          $env:APP_VERSION_FULL = $fullVersion
+
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles "Inno Setup 6\\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found." }
+
+          & $iscc ".github/installer/windows/linplayer.iss"
+
+      # 7. Upload the generated installer as a build artifact
+      - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-Windows-Release
-          path: LinPlayer-Windows-Release.zip
+          name: LinPlayer-Windows-Setup
+          path: LinPlayer-Setup-x64.exe
