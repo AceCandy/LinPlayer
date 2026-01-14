@@ -1,0 +1,97 @@
+name: Publish Latest (Stable)
+
+on:
+  workflow_dispatch:
+
+concurrency:
+  group: latest-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  publish-latest:
+    name: Promote nightly -> latest
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out code (for tagging)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Ensure GitHub CLI is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
+
+      - name: Fetch nightly tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git fetch --force origin refs/tags/nightly:refs/tags/nightly
+
+      - name: Resolve nightly commit
+        shell: bash
+        run: |
+          set -euo pipefail
+          NIGHTLY_SHA="$(git rev-parse refs/tags/nightly^{})"
+          echo "NIGHTLY_SHA=$NIGHTLY_SHA" >> "$GITHUB_ENV"
+          echo "Nightly commit: $NIGHTLY_SHA"
+
+      - name: Download assets from nightly release
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf dist
+          mkdir -p dist
+          gh release download nightly --dir dist
+
+      - name: Extract nightly version
+        shell: bash
+        run: |
+          set -euo pipefail
+          BODY="$(gh release view nightly --json body -q '.body')"
+          VERSION_FULL="$(printf '%s\n' "$BODY" | sed -n 's/^- Version: //p' | head -n 1)"
+          if [[ -z "${VERSION_FULL:-}" ]]; then
+            VERSION_FULL="unknown"
+          fi
+          echo "VERSION_FULL=$VERSION_FULL" >> "$GITHUB_ENV"
+
+      - name: Update latest tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f latest "$NIGHTLY_SHA"
+          git push -f origin refs/tags/latest
+
+      - name: Create or update latest release
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES="Stable build\n\n- Version: ${VERSION_FULL}\n- Commit: ${NIGHTLY_SHA}\n- Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
+
+          if gh release view latest >/dev/null 2>&1; then
+            gh release edit latest --title "Latest (${VERSION_FULL})" --notes "$NOTES"
+          else
+            gh release create latest --title "Latest (${VERSION_FULL})" --notes "$NOTES"
+          fi
+
+      - name: Upload latest assets (overwrite)
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release upload latest "dist/LinPlayer-Android.apk" --clobber
+          gh release upload latest "dist/LinPlayer-Windows-Setup-x64.exe" --clobber
+          gh release upload latest "dist/LinPlayer-iOS-unsigned.ipa" --clobber
+          gh release upload latest "dist/LinPlayer-macOS-arm64.dmg" --clobber
+          gh release upload latest "dist/LinPlayer-macOS-x86_64.dmg" --clobber
+
