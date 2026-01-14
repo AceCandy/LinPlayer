@@ -1,0 +1,73 @@
+name: Build iOS (Unsigned IPA)
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+    inputs:
+      flutter_channel:
+        description: Flutter channel
+        required: true
+        default: stable
+        type: choice
+        options:
+          - stable
+          - beta
+          - master
+
+jobs:
+  build-ios-unsigned-ipa:
+    name: Build Unsigned IPA
+    runs-on: macos-latest
+    env:
+      PUB_CACHE: /Users/runner/.pub-cache
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: ${{ github.event.inputs.flutter_channel || 'stable' }}
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build iOS app (no codesign)
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(ls -1 build/ios/iphoneos/*.app | head -n 1)"
+          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
+            echo "Could not find built .app under build/ios/iphoneos."
+            exit 1
+          fi
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+
+          /usr/bin/zip -qry LinPlayer-iOS-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinPlayer-iOS-Unsigned-IPA
+          path: LinPlayer-iOS-unsigned.ipa
