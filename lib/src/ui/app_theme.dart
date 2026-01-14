@@ -1,86 +1,104 @@
 import 'package:flutter/material.dart';
 
-/// Centralized theme based on the reference UI in the screenshots.
+/// Centralized theme (light/dark + optional Material You dynamic color).
 class AppTheme {
-  static const _bg = Color(0xFF0F1117);
-  static const _surface = Color(0xFF161921);
-  static const _surfaceHigh = Color(0xFF1E2230);
-  static const _accent = Color(0xFF8CB4FF);
-  static const _accent2 = Color(0xFFFFC27A);
+  static const _seed = Color(0xFF8CB4FF);
+  static const _seed2 = Color(0xFFFFC27A);
 
-  static ThemeData dark() {
+  static ThemeData light({ColorScheme? dynamicScheme}) {
+    final scheme = (dynamicScheme ?? ColorScheme.fromSeed(seedColor: _seed, brightness: Brightness.light))
+        .copyWith(secondary: _seed2);
+    return _build(scheme);
+  }
+
+  static ThemeData dark({ColorScheme? dynamicScheme}) {
+    final scheme = (dynamicScheme ?? ColorScheme.fromSeed(seedColor: _seed, brightness: Brightness.dark))
+        .copyWith(secondary: _seed2);
+    return _build(scheme);
+  }
+
+  static ThemeData _build(ColorScheme scheme) {
     final base = ThemeData(
       useMaterial3: true,
-      brightness: Brightness.dark,
-      scaffoldBackgroundColor: _bg,
-      colorScheme: ColorScheme.fromSeed(
-        seedColor: _accent,
-        brightness: Brightness.dark,
-        surface: _surface,
-      ).copyWith(
-        secondary: _accent2,
-        surface: _surface,
-        onSurface: Colors.white,
-      ),
+      colorScheme: scheme,
+      brightness: scheme.brightness,
+      visualDensity: VisualDensity.compact,
+    );
+
+    final radius = BorderRadius.circular(18);
+    final isDark = scheme.brightness == Brightness.dark;
+    TextStyle? scale(TextStyle? style) {
+      if (style == null) return null;
+      final size = style.fontSize;
+      if (size == null) return style;
+      return style.copyWith(fontSize: size * 0.92);
+    }
+
+    final textTheme = base.textTheme.copyWith(
+      displayLarge: scale(base.textTheme.displayLarge),
+      displayMedium: scale(base.textTheme.displayMedium),
+      displaySmall: scale(base.textTheme.displaySmall),
+      headlineLarge: scale(base.textTheme.headlineLarge),
+      headlineMedium: scale(base.textTheme.headlineMedium),
+      headlineSmall: scale(base.textTheme.headlineSmall),
+      titleLarge: scale(base.textTheme.titleLarge),
+      titleMedium: scale(base.textTheme.titleMedium),
+      titleSmall: scale(base.textTheme.titleSmall),
+      bodyLarge: scale(base.textTheme.bodyLarge),
+      bodyMedium: scale(base.textTheme.bodyMedium),
+      bodySmall: scale(base.textTheme.bodySmall),
+      labelLarge: scale(base.textTheme.labelLarge),
+      labelMedium: scale(base.textTheme.labelMedium),
+      labelSmall: scale(base.textTheme.labelSmall),
     );
 
     return base.copyWith(
+      textTheme: textTheme,
+      scaffoldBackgroundColor: scheme.surface,
       appBarTheme: base.appBarTheme.copyWith(
-        backgroundColor: _bg,
+        backgroundColor: scheme.surface,
         surfaceTintColor: Colors.transparent,
         elevation: 0,
-        titleTextStyle: base.textTheme.titleLarge?.copyWith(fontWeight: FontWeight.w600),
+        toolbarHeight: 48,
+        titleTextStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
       navigationBarTheme: base.navigationBarTheme.copyWith(
-        backgroundColor: _surface,
-        indicatorColor: _accent.withValues(alpha: 0.2),
+        backgroundColor: scheme.surfaceContainerHigh,
+        indicatorColor: scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14),
         labelBehavior: NavigationDestinationLabelBehavior.alwaysShow,
-        height: 64,
+        height: 54,
       ),
       cardTheme: base.cardTheme.copyWith(
-        color: _surfaceHigh,
+        color: scheme.surfaceContainerHigh,
         surfaceTintColor: Colors.transparent,
         margin: EdgeInsets.zero,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        shape: RoundedRectangleBorder(borderRadius: radius),
       ),
       listTileTheme: base.listTileTheme.copyWith(
-        iconColor: Colors.white70,
+        iconColor: scheme.onSurfaceVariant,
         contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
         horizontalTitleGap: 12,
       ),
       chipTheme: base.chipTheme.copyWith(
-        backgroundColor: _surfaceHigh,
-        selectedColor: _accent.withValues(alpha: 0.2),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        backgroundColor: scheme.surfaceContainerHigh,
+        selectedColor: scheme.primary.withValues(alpha: 0.2),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w500),
+        labelStyle: const TextStyle(fontWeight: FontWeight.w600),
       ),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(
         filled: true,
-        fillColor: _surfaceHigh,
-        border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(16),
-          borderSide: BorderSide.none,
-        ),
-        hintStyle: const TextStyle(color: Colors.white70),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-      ),
-      elevatedButtonTheme: ElevatedButtonThemeData(
-        style: ElevatedButton.styleFrom(
-          backgroundColor: _accent,
-          foregroundColor: Colors.black,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(14)),
-          padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 12),
-          textStyle: const TextStyle(fontWeight: FontWeight.w600),
-        ),
+        fillColor: scheme.surfaceContainerHigh,
+        border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
       floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
-        backgroundColor: _accent,
-        foregroundColor: Colors.black87,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        backgroundColor: scheme.primary,
+        foregroundColor: scheme.onPrimary,
+        shape: RoundedRectangleBorder(borderRadius: radius),
       ),
       dividerTheme: base.dividerTheme.copyWith(
-        color: Colors.white12,
+        color: scheme.outlineVariant.withValues(alpha: isDark ? 0.55 : 0.8),
         thickness: 1,
         space: 16,
       ),

@@ -57,11 +57,11 @@ class _LibraryPageState extends State<LibraryPage> {
                   ? const Center(child: Text('暂无媒体库，点击右上角刷新重试'))
                   : Padding(
                       padding: const EdgeInsets.all(12),
-                      child: GridView.builder(
-                        gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                          maxCrossAxisExtent: 170,
-                          mainAxisSpacing: 8,
-                          crossAxisSpacing: 8,
+                    child: GridView.builder(
+                      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 150,
+                          mainAxisSpacing: 6,
+                          crossAxisSpacing: 6,
                           childAspectRatio: 1.33,
                         ),
                         itemCount: libs.length,
@@ -118,7 +118,10 @@ class _LibraryPageState extends State<LibraryPage> {
                                   lib.name,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
-                                  style: Theme.of(context).textTheme.titleMedium,
+                                  style: Theme.of(context)
+                                      .textTheme
+                                      .bodyMedium
+                                      ?.copyWith(fontWeight: FontWeight.w700),
                                 ),
                               ],
                             ),

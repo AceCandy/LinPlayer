@@ -10,8 +10,8 @@ import 'player_screen.dart';
 import 'play_network_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
-import 'domain_list_page.dart';
 import 'show_detail_page.dart';
+import 'src/ui/theme_sheet.dart';
 
 class HomePage extends StatefulWidget {
   const HomePage({super.key, required this.appState});
@@ -121,6 +121,9 @@ class _HomePageState extends State<HomePage> {
   Future<void> _load() async {
     setState(() => _loading = true);
     try {
+      if (widget.appState.libraries.isEmpty && !widget.appState.isLoading) {
+        await widget.appState.refreshLibraries();
+      }
       await widget.appState.loadHome();
     } finally {
       if (mounted) setState(() => _loading = false);
@@ -130,6 +133,139 @@ class _HomePageState extends State<HomePage> {
   bool _isTv(BuildContext context) =>
       defaultTargetPlatform == TargetPlatform.android &&
       MediaQuery.of(context).size.shortestSide > 600;
+
+  Future<void> _showRoutePicker() async {
+    if (widget.appState.domains.isEmpty && !widget.appState.isLoading) {
+      // Best effort: prefetch line list.
+      // ignore: unawaited_futures
+      widget.appState.refreshDomains();
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        return AnimatedBuilder(
+          animation: widget.appState,
+          builder: (context, _) {
+            final domains = widget.appState.domains;
+            final current = widget.appState.baseUrl;
+            return Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '线路',
+                          style: Theme.of(context).textTheme.titleLarge,
+                        ),
+                      ),
+                      IconButton(
+                        tooltip: '刷新',
+                        onPressed: widget.appState.isLoading ? null : widget.appState.refreshDomains,
+                        icon: const Icon(Icons.refresh),
+                      ),
+                    ],
+                  ),
+                  if (domains.isEmpty && !widget.appState.isLoading)
+                    const Padding(
+                      padding: EdgeInsets.only(top: 10, bottom: 8),
+                      child: Text('暂无线路（未部署扩展时属于正常情况）'),
+                    )
+                  else
+                    Flexible(
+                      child: ListView.separated(
+                        shrinkWrap: true,
+                        itemCount: domains.length,
+                        separatorBuilder: (_, __) => const Divider(height: 1),
+                        itemBuilder: (context, index) {
+                          final d = domains[index];
+                          final name = d.name.trim().isNotEmpty ? d.name.trim() : d.url;
+                          final remark = widget.appState.domainRemark(d.url);
+                          final selected = current == d.url;
+                          return ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            title: Text(
+                              name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            subtitle: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                if ((remark ?? '').trim().isNotEmpty)
+                                  Text(
+                                    remark!.trim(),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                Text(
+                                  d.url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                            trailing: Row(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                IconButton(
+                                  tooltip: '备注',
+                                  icon: const Icon(Icons.edit_outlined),
+                                  onPressed: () async {
+                                    final ctrl = TextEditingController(text: remark ?? '');
+                                    final v = await showDialog<String>(
+                                      context: context,
+                                      builder: (dctx) => AlertDialog(
+                                        title: const Text('线路备注'),
+                                        content: TextField(
+                                          controller: ctrl,
+                                          decoration: const InputDecoration(
+                                            hintText: '例如：直连 / 移动 / 挂梯…',
+                                          ),
+                                        ),
+                                        actions: [
+                                          TextButton(
+                                            onPressed: () => Navigator.of(dctx).pop(),
+                                            child: const Text('取消'),
+                                          ),
+                                          FilledButton(
+                                            onPressed: () => Navigator.of(dctx).pop(ctrl.text),
+                                            child: const Text('保存'),
+                                          ),
+                                        ],
+                                      ),
+                                    );
+                                    if (v == null) return;
+                                    await widget.appState.setDomainRemark(d.url, v);
+                                  },
+                                ),
+                                if (selected) const Icon(Icons.check),
+                              ],
+                            ),
+                            onTap: () async {
+                              await widget.appState.setBaseUrl(d.url);
+                              if (ctx.mounted) Navigator.of(ctx).pop();
+                            },
+                          );
+                        },
+                      ),
+                    ),
+                ],
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
+  Future<void> _showThemeSheet() => showThemeSheet(context, widget.appState);
+
+  Future<void> _switchServer() => widget.appState.leaveServer();
 
   @override
   Widget build(BuildContext context) {
@@ -158,21 +294,22 @@ class _HomePageState extends State<HomePage> {
 
     return Scaffold(
       appBar: AppBar(
-        title: const Text('LinPlayer'),
+        title: Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
         actions: [
           IconButton(
-            icon: const Icon(Icons.cloud_queue),
+            icon: const Icon(Icons.alt_route_outlined),
             tooltip: '线路',
-            onPressed: () {
-              Navigator.of(context).push(
-                MaterialPageRoute(builder: (_) => DomainListPage(appState: widget.appState)),
-              );
-            },
+            onPressed: _showRoutePicker,
           ),
           IconButton(
-            icon: const Icon(Icons.logout),
-            tooltip: '退出登录',
-            onPressed: widget.appState.logout,
+            icon: const Icon(Icons.palette_outlined),
+            tooltip: '主题',
+            onPressed: _showThemeSheet,
+          ),
+          IconButton(
+            icon: const Icon(Icons.storage_outlined),
+            tooltip: '服务器',
+            onPressed: _switchServer,
           ),
         ],
       ),
@@ -225,9 +362,9 @@ class _HomeBody extends StatelessWidget {
         padding: const EdgeInsets.only(bottom: 16),
         children: [
           if (showSearchBar) ...[
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
+              padding: const EdgeInsets.symmetric(horizontal: 14),
               child: TextField(
                 decoration: const InputDecoration(
                   hintText: '搜索片名…',
@@ -237,17 +374,20 @@ class _HomeBody extends StatelessWidget {
                 onSubmitted: onSearch,
               ),
             ),
-            const SizedBox(height: 12),
+            const SizedBox(height: 8),
           ],
           if (loading) const LinearProgressIndicator(),
-          for (final sec in sections)
-            if (sec.items.isNotEmpty) ...[
-              _HomeSectionHeader(
-                title: sec.displayName,
-                onTap: () {
-                  if (!sec.key.startsWith('lib_')) return;
-                  final libId = sec.key.substring(4);
-                  Navigator.of(context).push(
+           for (final sec in sections)
+             if (sec.items.isNotEmpty) ...[
+               _HomeSectionHeader(
+                 title: sec.displayName,
+                 count: sec.key.startsWith('lib_')
+                     ? appState.getTotal(sec.key.substring(4))
+                     : 0,
+                 onTap: () {
+                   if (!sec.key.startsWith('lib_')) return;
+                   final libId = sec.key.substring(4);
+                   Navigator.of(context).push(
                     MaterialPageRoute(
                       builder: (_) => LibraryItemsPage(
                         appState: appState,
@@ -280,32 +420,50 @@ class _HomeBody extends StatelessWidget {
 }
 
 class _HomeSectionHeader extends StatelessWidget {
-  const _HomeSectionHeader({required this.title, required this.onTap});
+  const _HomeSectionHeader({required this.title, required this.count, required this.onTap});
 
   final String title;
+  final int count;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) {
+    String formatCount(int n) => n
+        .toString()
+        .replaceAllMapped(RegExp(r'(\\d)(?=(\\d{3})+$)'), (m) => '${m[1]},');
+
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 6),
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
         onTap: onTap,
         child: Padding(
-          padding: const EdgeInsets.symmetric(vertical: 4),
+          padding: const EdgeInsets.symmetric(vertical: 2),
           child: Row(
             children: [
               Expanded(
                 child: Text(
                   title,
-                  style: Theme.of(context).textTheme.titleLarge,
+                  style: Theme.of(context).textTheme.titleMedium,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                 ),
               ),
               const SizedBox(width: 6),
-              const Text('＞', style: TextStyle(color: Colors.white70, fontSize: 20, height: 1)),
+              if (count > 0)
+                Text(
+                  formatCount(count),
+                  style: Theme.of(context)
+                      .textTheme
+                      .labelLarge
+                      ?.copyWith(color: Theme.of(context).colorScheme.onSurfaceVariant),
+                ),
+              const SizedBox(width: 2),
+              Icon(
+                Icons.chevron_right,
+                size: 18,
+                color: Theme.of(context).colorScheme.onSurfaceVariant,
+              ),
             ],
           ),
         ),
@@ -331,10 +489,10 @@ class _HomeSectionCarousel extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(
+        return LayoutBuilder(
       builder: (context, constraints) {
-        const padding = 16.0;
-        const spacing = 10.0;
+        const padding = 14.0;
+        const spacing = 8.0;
         const visible = 4.0;
         final maxCount = items.length < _maxItems ? items.length : _maxItems;
 

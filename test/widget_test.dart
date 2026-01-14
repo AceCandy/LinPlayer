@@ -4,9 +4,9 @@ import 'package:lin_player/main.dart';
 import 'package:lin_player/state/app_state.dart';
 
 void main() {
-  testWidgets('Shows login screen by default', (WidgetTester tester) async {
+  testWidgets('Shows server screen by default', (WidgetTester tester) async {
     final appState = AppState();
     await tester.pumpWidget(LinPlayerApp(appState: appState));
-    expect(find.text('连接服务器'), findsOneWidget);
+    expect(find.text('还没有服务器，点右上角“+”添加。'), findsOneWidget);
   });
 }

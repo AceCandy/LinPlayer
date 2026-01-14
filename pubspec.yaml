@@ -25,6 +25,7 @@ dependencies:
   media_kit_libs_macos_video: ^1.0.11
   url_launcher: ^6.3.0
   package_info_plus: ^9.0.0
+  dynamic_color: ^1.7.0
 
 dev_dependencies:
   flutter_test:

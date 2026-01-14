@@ -1,9 +1,10 @@
+import 'package:dynamic_color/dynamic_color.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
-import 'login_page.dart';
 import 'home_page.dart';
+import 'server_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'src/ui/app_theme.dart';
@@ -35,14 +36,19 @@ class LinPlayerApp extends StatelessWidget {
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) {
-        final isLoggedIn = appState.token != null;
-        return MaterialApp(
-          title: 'LinPlayer',
-          debugShowCheckedModeBanner: false,
-          themeMode: ThemeMode.dark,
-          darkTheme: AppTheme.dark(),
-          theme: AppTheme.dark(),
-          home: isLoggedIn ? HomePage(appState: appState) : LoginPage(appState: appState),
+        final isLoggedIn = appState.hasActiveServer;
+        return DynamicColorBuilder(
+          builder: (lightDynamic, darkDynamic) {
+            final useDynamic = appState.useDynamicColor;
+            return MaterialApp(
+              title: 'LinPlayer',
+              debugShowCheckedModeBanner: false,
+              themeMode: appState.themeMode,
+              theme: AppTheme.light(dynamicScheme: useDynamic ? lightDynamic : null),
+              darkTheme: AppTheme.dark(dynamicScheme: useDynamic ? darkDynamic : null),
+              home: isLoggedIn ? HomePage(appState: appState) : ServerPage(appState: appState),
+            );
+          },
         );
       },
     );
