@@ -1,0 +1,368 @@
+name: Nightly Release
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+concurrency:
+  group: nightly-release
+  cancel-in-progress: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-android:
+    name: Build Android APK
+    runs-on: ubuntu-latest
+    env:
+      PUB_CACHE: /home/runner/.pub-cache
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v3
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Flutter analyze
+        run: flutter analyze
+
+      - name: Flutter tests
+        run: flutter test
+
+      - name: Build APK
+        run: flutter build apk --release
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-android
+          path: build/app/outputs/flutter-apk/app-release.apk
+
+  build-windows:
+    name: Build Windows Setup (x64)
+    runs-on: windows-latest
+    env:
+      PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Enable Windows desktop support
+        run: flutter config --enable-windows-desktop
+
+      - name: Regenerate Windows platform scaffolding if needed
+        run: flutter create --platforms=windows .
+
+      - name: Build Windows executable
+        run: flutter build windows --release
+
+      - name: Copy MSVC runtime DLLs
+        shell: pwsh
+        run: |
+          $release64 = "build/windows/x64/runner/Release"
+          $releaseLegacy = "build/windows/runner/Release"
+          if (Test-Path $release64) {
+            $release = $release64
+          } elseif (Test-Path $releaseLegacy) {
+            $release = $releaseLegacy
+          } else {
+            Write-Error "Release folder not found after build."
+            exit 1
+          }
+          $roots = @(
+            "C:\Program Files\Microsoft Visual Studio\2022",
+            "C:\Program Files (x86)\Microsoft Visual Studio\2022"
+          )
+          $crtDir = $null
+          foreach ($root in $roots) {
+            foreach ($edition in @("Enterprise","Professional","Community","BuildTools")) {
+              $search = Join-Path $root "$edition\VC\Redist\MSVC"
+              if (-not (Test-Path $search)) { continue }
+              $found = Get-ChildItem -Directory -Recurse -Filter "Microsoft.VC143.CRT" $search | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              if (-not $found) {
+                $found = Get-ChildItem -Directory -Recurse -Filter "Microsoft.VC142.CRT" $search | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+              }
+              if ($found) { $crtDir = $found.FullName; break }
+            }
+            if ($crtDir) { break }
+          }
+          if (-not $crtDir) { Write-Error "MSVC CRT path not found."; exit 1 }
+          Copy-Item -Path (Join-Path $crtDir "*") -Destination $release -Recurse -Force
+
+      - name: Install Inno Setup
+        shell: pwsh
+        run: choco install innosetup --no-progress -y
+
+      - name: Build Windows installer
+        shell: pwsh
+        run: |
+          $release64 = "build/windows/x64/runner/Release"
+          $releaseLegacy = "build/windows/runner/Release"
+          if (Test-Path $release64) {
+            $release = $release64
+          } elseif (Test-Path $releaseLegacy) {
+            $release = $releaseLegacy
+          } else {
+            throw "Release folder not found after build."
+          }
+
+          $versionLine = (Get-Content pubspec.yaml | Select-String -Pattern '^version:' | Select-Object -First 1).Line
+          if (-not $versionLine) { throw "Could not read version from pubspec.yaml." }
+          $fullVersion = $versionLine.Split(':', 2)[1].Trim()
+          $appVersion = $fullVersion.Split('+')[0].Trim()
+          $buildNumber = $null
+          if ($fullVersion -match '\\+(\\d+)$') { $buildNumber = $Matches[1] }
+          if ($buildNumber) { $appVersion = "$appVersion.$buildNumber" }
+
+          $env:SOURCE_DIR = (Resolve-Path $release).Path
+          $env:OUTPUT_DIR = (Resolve-Path ".").Path
+          $env:APP_ARCH = "x64"
+          $env:APP_VERSION = $appVersion
+          $env:APP_VERSION_FULL = $fullVersion
+
+          $iscc = Join-Path ${env:ProgramFiles(x86)} "Inno Setup 6\\ISCC.exe"
+          if (-not (Test-Path $iscc)) { $iscc = Join-Path $env:ProgramFiles "Inno Setup 6\\ISCC.exe" }
+          if (-not (Test-Path $iscc)) {
+            $cmd = Get-Command ISCC.exe -ErrorAction SilentlyContinue
+            if ($cmd) { $iscc = $cmd.Source }
+          }
+          if (-not (Test-Path $iscc)) { throw "ISCC.exe not found." }
+
+          & $iscc ".github/installer/windows/linplayer.iss"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-windows
+          path: LinPlayer-Setup-x64.exe
+
+  build-ios:
+    name: Build iOS Unsigned IPA
+    runs-on: macos-latest
+    env:
+      PUB_CACHE: /Users/runner/.pub-cache
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build iOS app (no codesign)
+        shell: bash
+        run: |
+          set -euo pipefail
+          flutter build ios --release --no-codesign
+
+      - name: Package unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find build/ios -maxdepth 6 -type d -name '*.app' 2>/dev/null | grep -v RunnerTests | head -n 1 || true)"
+          if [[ -z "${APP_PATH:-}" ]]; then
+            ARCHIVE_PATH="$(find build/ios -maxdepth 6 -type d -name '*.xcarchive' 2>/dev/null | head -n 1 || true)"
+            if [[ -n "${ARCHIVE_PATH:-}" ]]; then
+              APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' 2>/dev/null | head -n 1 || true)"
+            fi
+          fi
+          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
+            echo "Could not find built .app under build/ios."
+            find build/ios -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry LinPlayer-iOS-unsigned.ipa Payload
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-ios
+          path: LinPlayer-iOS-unsigned.ipa
+
+  build-macos:
+    name: Build macOS DMG (${{ matrix.arch }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - arch: arm64
+            runner: macos-14
+          - arch: x86_64
+            runner: macos-13
+    env:
+      PUB_CACHE: /Users/runner/.pub-cache
+    steps:
+      - name: Check out code
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Cache Flutter pub packages
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ env.PUB_CACHE }}
+            .dart_tool
+          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-pub-
+
+      - name: Enable macOS desktop support
+        run: flutter config --enable-macos-desktop
+
+      - name: Get Flutter dependencies
+        run: flutter pub get
+
+      - name: Build macOS app
+        run: flutter build macos --release
+
+      - name: Create DMG installer
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find build/macos -maxdepth 7 -type d -name '*.app' 2>/dev/null | grep -v 'RunnerTests' | head -n 1 || true)"
+          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
+            echo "Could not find built .app under build/macos."
+            find build/macos -maxdepth 5 -print || true
+            exit 1
+          fi
+
+          STAGING="$RUNNER_TEMP/dmg-staging"
+          rm -rf "$STAGING"
+          mkdir -p "$STAGING"
+          ditto "$APP_PATH" "$STAGING/$(basename "$APP_PATH")"
+          ln -s /Applications "$STAGING/Applications"
+          hdiutil create -volname "LinPlayer" -srcfolder "$STAGING" -ov -format UDZO "LinPlayer-macOS-${{ matrix.arch }}.dmg"
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: nightly-macos-${{ matrix.arch }}
+          path: LinPlayer-macOS-${{ matrix.arch }}.dmg
+
+  publish:
+    name: Publish Nightly Release
+    runs-on: ubuntu-latest
+    needs:
+      - build-android
+      - build-windows
+      - build-ios
+      - build-macos
+    env:
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - name: Check out code (for tagging)
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Download build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - name: Ensure GitHub CLI is available
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! command -v gh >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y gh
+          fi
+
+      - name: Update nightly tag
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -f nightly "$GITHUB_SHA"
+          git push -f origin refs/tags/nightly
+
+      - name: Create or update nightly release
+        shell: bash
+        run: |
+          set -euo pipefail
+          NOTES="Nightly build\n\n- Commit: ${GITHUB_SHA}\n- Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')"
+
+          if gh release view nightly >/dev/null 2>&1; then
+            gh release edit nightly --title "Nightly" --notes "$NOTES"
+          else
+            gh release create nightly --title "Nightly" --notes "$NOTES" --prerelease
+          fi
+
+      - name: Upload release assets (overwrite)
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          gh release upload nightly "dist/nightly-android/app-release.apk#LinPlayer-Android.apk" --clobber
+          gh release upload nightly "dist/nightly-windows/LinPlayer-Setup-x64.exe#LinPlayer-Windows-Setup-x64.exe" --clobber
+          gh release upload nightly "dist/nightly-ios/LinPlayer-iOS-unsigned.ipa#LinPlayer-iOS-unsigned.ipa" --clobber
+          gh release upload nightly "dist/nightly-macos-arm64/LinPlayer-macOS-arm64.dmg#LinPlayer-macOS-arm64.dmg" --clobber
+          gh release upload nightly "dist/nightly-macos-x86_64/LinPlayer-macOS-x86_64.dmg#LinPlayer-macOS-x86_64.dmg" --clobber
