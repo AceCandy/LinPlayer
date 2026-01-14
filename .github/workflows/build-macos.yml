@@ -54,9 +54,14 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP_PATH="$(ls -1 build/macos/Build/Products/Release/*.app | head -n 1)"
+          # Flutter/Xcode output paths can vary across versions, so locate the built .app robustly.
+          APP_PATH="$(find build/macos -maxdepth 7 -type d -name '*.app' 2>/dev/null | grep -v 'RunnerTests' | head -n 1 || true)"
           if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
-            echo "Could not find built .app under build/macos/Build/Products/Release."
+            echo "Could not find built .app under build/macos."
+            echo "--- Debug: build/macos (maxdepth 5) ---"
+            find build/macos -maxdepth 5 -print || true
+            echo "--- Debug: build/macos/Build/Products ---"
+            ls -la build/macos/Build/Products || true
             exit 1
           fi
 

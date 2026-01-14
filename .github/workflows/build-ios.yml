@@ -54,9 +54,20 @@ jobs:
         run: |
           set -euo pipefail
 
-          APP_PATH="$(ls -1 build/ios/iphoneos/*.app | head -n 1)"
+          # Flutter/Xcode output paths can vary across versions, so locate the built .app robustly.
+          APP_PATH="$(find build/ios -maxdepth 6 -type d -name '*.app' 2>/dev/null | grep -v RunnerTests | head -n 1 || true)"
+          if [[ -z "${APP_PATH:-}" ]]; then
+            ARCHIVE_PATH="$(find build/ios -maxdepth 6 -type d -name '*.xcarchive' 2>/dev/null | head -n 1 || true)"
+            if [[ -n "${ARCHIVE_PATH:-}" ]]; then
+              APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' 2>/dev/null | head -n 1 || true)"
+            fi
+          fi
           if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
-            echo "Could not find built .app under build/ios/iphoneos."
+            echo "Could not find built .app under build/ios."
+            echo "--- Debug: build/ios (maxdepth 4) ---"
+            find build/ios -maxdepth 4 -print || true
+            echo "--- Debug: build/ios/iphoneos ---"
+            ls -la build/ios/iphoneos || true
             exit 1
           fi
 
