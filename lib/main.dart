@@ -1,7 +1,7 @@
+import 'dart:async';
+
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
-import 'package:flutter_displaymode/flutter_displaymode.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -11,6 +11,7 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'src/ui/app_theme.dart';
 import 'src/ui/app_icon_service.dart';
+import 'src/ui/high_refresh_rate.dart';
 import 'src/ui/ui_scale.dart';
 
 void main() async {
@@ -29,27 +30,49 @@ void main() async {
   await appState.loadFromStorage();
 
   // Best-effort: request the highest refresh rate on Android devices.
-  if (!kIsWeb && defaultTargetPlatform == TargetPlatform.android) {
-    try {
-      await FlutterDisplayMode.setHighRefreshRate();
-    } catch (_) {}
-  }
+  await HighRefreshRate.apply();
   // Best-effort: keep launcher icon in sync with settings (Android only).
   // ignore: unawaited_futures
   AppIconService.setIconId(appState.appIconId);
   runApp(LinPlayerApp(appState: appState));
 }
 
-class LinPlayerApp extends StatelessWidget {
+class LinPlayerApp extends StatefulWidget {
   const LinPlayerApp({super.key, required this.appState});
 
   final AppState appState;
 
   @override
+  State<LinPlayerApp> createState() => _LinPlayerAppState();
+}
+
+class _LinPlayerAppState extends State<LinPlayerApp>
+    with WidgetsBindingObserver {
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      unawaited(HighRefreshRate.apply(force: true));
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
-      animation: appState,
+      animation: widget.appState,
       builder: (context, _) {
+        final appState = widget.appState;
         final isLoggedIn = appState.hasActiveServer;
         return DynamicColorBuilder(
           builder: (lightDynamic, darkDynamic) {

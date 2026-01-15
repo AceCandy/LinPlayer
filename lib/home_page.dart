@@ -513,33 +513,31 @@ class _HomePageState extends State<HomePage> {
 
   @override
   Widget build(BuildContext context) {
-    final isTv = _isTv(context);
-    final enableGlass = !isTv;
-
-    final pages = [
-      _HomeBody(
-        appState: widget.appState,
-        loading: _loading,
-        onRefresh: _load,
-        enableGlass: enableGlass,
-        onSearch: (q) {
-          if (q.trim().isEmpty) return;
-          showSearch(
-            context: context,
-            delegate: _GlobalSearchDelegate(appState: widget.appState)
-              ..query = q.trim(),
-          );
-        },
-        isTv: isTv,
-        showSearchBar: true,
-      ),
-      PlayerScreen(appState: widget.appState),
-      SettingsPage(appState: widget.appState),
-    ];
-
     return AnimatedBuilder(
       animation: widget.appState,
       builder: (context, _) {
+        final isTv = _isTv(context);
+        final enableGlass = !isTv && widget.appState.enableBlurEffects;
+        final pages = [
+          _HomeBody(
+            appState: widget.appState,
+            loading: _loading,
+            onRefresh: _load,
+            enableGlass: enableGlass,
+            onSearch: (q) {
+              if (q.trim().isEmpty) return;
+              showSearch(
+                context: context,
+                delegate: _GlobalSearchDelegate(appState: widget.appState)
+                  ..query = q.trim(),
+              );
+            },
+            isTv: isTv,
+            showSearchBar: true,
+          ),
+          PlayerScreen(appState: widget.appState),
+          SettingsPage(appState: widget.appState),
+        ];
         return Scaffold(
           appBar: _index == 0
               ? AppBar(

@@ -72,7 +72,9 @@ class PlayerService {
         if (dolbyVisionMode)
           'hwdec=no'
         else
-          (hardwareDecode ? (isAndroid ? 'hwdec=mediacodec-copy' : 'hwdec=auto') : 'hwdec=no'),
+          (hardwareDecode
+              ? (isAndroid ? 'hwdec=mediacodec-copy' : 'hwdec=auto-safe')
+              : 'hwdec=no'),
         'tls-verify=no',
         if (dolbyVisionMode && isAndroid) 'gpu-context=android',
         if (dolbyVisionMode && isAndroid) 'gpu-api=opengl',
@@ -82,7 +84,7 @@ class PlayerService {
         if (isNetwork) 'demuxer-max-bytes=$networkDemuxerMaxBytes',
         if (isNetwork) 'demuxer-max-back-bytes=$networkDemuxerMaxBackBytes',
         // Reduce stutter on Windows by forcing a D3D11 GPU context for `vo=gpu`.
-        if (isWindows) 'gpu-context=d3d11',
+        if (isWindows && !dolbyVisionMode) 'gpu-context=d3d11',
       ],
     );
   }
@@ -92,15 +94,69 @@ class PlayerService {
     return c.contains('dvhe') || c.contains('dvh1') || c.contains('dovi');
   }
 
-  Future<bool> _isDolbyVision(Player player) async {
+  Future<String?> _tryGetProperty(Player player, String name) async {
     try {
-      final profile = await (player.platform as dynamic).getProperty(
-        'current-tracks/video/dolby-vision-profile',
-      );
-      if (profile.trim().isNotEmpty && profile.trim() != '0') return true;
-    } catch (_) {}
+      final value = await (player.platform as dynamic).getProperty(name);
+      final s = value?.toString().trim();
+      if (s == null || s.isEmpty) return null;
+      return s;
+    } catch (_) {
+      return null;
+    }
+  }
 
-    final tracks = player.state.tracks;
+  Future<Tracks> _waitForTracks(Player player) async {
+    final current = player.state.tracks;
+    if (current.video.isNotEmpty ||
+        current.audio.isNotEmpty ||
+        current.subtitle.isNotEmpty) {
+      return current;
+    }
+
+    try {
+      return await player.stream.tracks
+          .firstWhere((t) =>
+              t.video.isNotEmpty || t.audio.isNotEmpty || t.subtitle.isNotEmpty)
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      return current;
+    }
+  }
+
+  Future<VideoParams> _waitForVideoParams(Player player) async {
+    final current = player.state.videoParams;
+    bool hasSignal(VideoParams p) =>
+        (p.colormatrix ?? '').trim().isNotEmpty ||
+        (p.colorlevels ?? '').trim().isNotEmpty ||
+        (p.primaries ?? '').trim().isNotEmpty ||
+        (p.gamma ?? '').trim().isNotEmpty ||
+        (p.pixelformat ?? '').trim().isNotEmpty ||
+        (p.hwPixelformat ?? '').trim().isNotEmpty;
+
+    if (hasSignal(current)) return current;
+
+    try {
+      return await player.stream.videoParams
+          .firstWhere((p) => hasSignal(p))
+          .timeout(const Duration(seconds: 2));
+    } catch (_) {
+      return current;
+    }
+  }
+
+  Future<bool> _isDolbyVision(Player player) async {
+    final videoParams = await _waitForVideoParams(player);
+    final matrix = (videoParams.colormatrix ?? '').toLowerCase().trim();
+    if (matrix == 'dolbyvision') return true;
+
+    final profile = await _tryGetProperty(
+          player,
+          'current-tracks/video/dolby-vision-profile',
+        ) ??
+        await _tryGetProperty(player, 'video-params/dolby-vision-profile');
+    if (profile != null && profile != '0') return true;
+
+    final tracks = await _waitForTracks(player);
     for (final v in tracks.video) {
       if (_isDolbyVisionCodec(v.codec)) return true;
       if ((v.title ?? '').toLowerCase().contains('dolby')) return true;
@@ -146,23 +202,28 @@ class PlayerService {
         throw Exception('No media source provided');
       }
 
-      // Best-effort: Dolby Vision workaround on Android.
+      // Best-effort: Dolby Vision workaround on Android & desktop.
       // Many devices show green/purple tint with DV when hwdec is enabled or vo isn't gpu-next.
-      if (!dolbyVisionMode &&
-          !kIsWeb &&
-          defaultTargetPlatform == TargetPlatform.android) {
-        final isDv = await _isDolbyVision(player);
-        if (isDv) {
-          await dispose();
-          return initialize(
-            path,
-            networkUrl: networkUrl,
-            httpHeaders: httpHeaders,
-            isTv: isTv,
-            hardwareDecode: false,
-            mpvCacheSizeMb: mpvCacheSizeMb,
-            dolbyVisionMode: true,
-          );
+      if (!dolbyVisionMode && !kIsWeb) {
+        final platform = defaultTargetPlatform;
+        final isSupportedPlatform = platform == TargetPlatform.android ||
+            platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux ||
+            platform == TargetPlatform.macOS;
+        if (isSupportedPlatform) {
+          final isDv = await _isDolbyVision(player);
+          if (isDv) {
+            await dispose();
+            return initialize(
+              path,
+              networkUrl: networkUrl,
+              httpHeaders: httpHeaders,
+              isTv: isTv,
+              hardwareDecode: false,
+              mpvCacheSizeMb: mpvCacheSizeMb,
+              dolbyVisionMode: true,
+            );
+          }
         }
       }
     } catch (_) {

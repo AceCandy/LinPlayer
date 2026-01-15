@@ -20,6 +20,7 @@ class AppState extends ChangeNotifier {
   static const _kAppIconIdKey = 'appIconId_v1';
   static const _kServerListLayoutKey = 'serverListLayout_v1';
   static const _kMpvCacheSizeMbKey = 'mpvCacheSizeMb_v1';
+  static const _kEnableBlurEffectsKey = 'enableBlurEffects_v1';
 
   final List<ServerProfile> _servers = [];
   String? _activeServerId;
@@ -41,6 +42,7 @@ class AppState extends ChangeNotifier {
   String _appIconId = 'default';
   ServerListLayout _serverListLayout = ServerListLayout.grid;
   int _mpvCacheSizeMb = 500;
+  bool _enableBlurEffects = true;
   bool _loading = false;
   String? _error;
 
@@ -80,6 +82,7 @@ class AppState extends ChangeNotifier {
   String get appIconId => _appIconId;
   ServerListLayout get serverListLayout => _serverListLayout;
   int get mpvCacheSizeMb => _mpvCacheSizeMb;
+  bool get enableBlurEffects => _enableBlurEffects;
 
   Iterable<HomeEntry> get homeEntries sync* {
     for (final entry in _homeSections.entries) {
@@ -123,6 +126,7 @@ class AppState extends ChangeNotifier {
       _mpvCacheSizeMb = _mpvCacheSizeMb.clamp(200, 2048);
       await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
     }
+    _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
 
     final rawServers = prefs.getString(_kServersKey);
     _servers.clear();
@@ -646,6 +650,14 @@ class AppState extends ChangeNotifier {
     _mpvCacheSizeMb = v;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
+    notifyListeners();
+  }
+
+  Future<void> setEnableBlurEffects(bool enabled) async {
+    if (_enableBlurEffects == enabled) return;
+    _enableBlurEffects = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kEnableBlurEffectsKey, enabled);
     notifyListeners();
   }
 

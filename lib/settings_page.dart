@@ -104,7 +104,8 @@ class _SettingsPageState extends State<SettingsPage> {
       animation: widget.appState,
       builder: (context, _) {
         final appState = widget.appState;
-        final canBlur = !isTv;
+        final blurAllowed = !isTv;
+        final enableBlur = blurAllowed && appState.enableBlurEffects;
 
         return Scaffold(
           appBar: AppBar(
@@ -116,8 +117,10 @@ class _SettingsPageState extends State<SettingsPage> {
             children: [
               _Section(
                 title: '外观',
-                subtitle: canBlur ? '手机/桌面启用毛玻璃等特效' : 'TV 端自动关闭高开销特效',
-                enableBlur: canBlur,
+                subtitle: blurAllowed
+                    ? (enableBlur ? '手机/桌面启用毛玻璃等特效' : '已关闭毛玻璃特效（更流畅）')
+                    : 'TV 端自动关闭高开销特效',
+                enableBlur: enableBlur,
                 child: Column(
                   children: [
                     SegmentedButton<ThemeMode>(
@@ -132,6 +135,20 @@ class _SettingsPageState extends State<SettingsPage> {
                       onSelectionChanged: (s) => appState.setThemeMode(s.first),
                     ),
                     const SizedBox(height: 10),
+                    SwitchListTile(
+                      value: appState.enableBlurEffects,
+                      onChanged: blurAllowed
+                          ? (v) => appState.setEnableBlurEffects(v)
+                          : null,
+                      title: const Text('毛玻璃特效'),
+                      subtitle: Text(
+                        blurAllowed
+                            ? '关闭可提升滚动/动画流畅度（尤其是高刷屏）'
+                            : 'TV 端强制关闭以提升流畅度',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const Divider(height: 1),
                     SwitchListTile(
                       value: appState.useDynamicColor,
                       onChanged: (v) => appState.setUseDynamicColor(v),
@@ -169,7 +186,7 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 12),
               _Section(
                 title: '播放',
-                enableBlur: canBlur,
+                enableBlur: enableBlur,
                 child: Column(
                   children: [
                     SwitchListTile(
@@ -296,7 +313,7 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 12),
               _Section(
                 title: '应用',
-                enableBlur: canBlur,
+                enableBlur: enableBlur,
                 child: Column(
                   children: [
                     ListTile(
