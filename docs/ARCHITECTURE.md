@@ -49,7 +49,8 @@
     - Emby 线路（`DomainInfo`）、媒体库（`LibraryInfo`）
     - 列表缓存（`_itemsCache`、`_itemsTotal`、`_homeSections`）
     - 主题与动态取色开关（Material You）
-    - SharedPreferences 持久化（servers/activeServer/theme）
+    - 弹幕设置（启用/来源、本地/在线、在线源列表、开放平台凭证、样式参数等）
+    - SharedPreferences 持久化（servers/activeServer/theme/danmaku...）
   - 关键流程：
     - `addServer(...)`：登录并保存服务器（调用 `EmbyApi.authenticate` → `fetchDomains`/`fetchLibraries`）。
     - `enterServer(serverId)`：切换服务器并刷新线路/媒体库/首页区块。
@@ -61,6 +62,8 @@
     - `baseUrl/token/userId`：Emby 访问三要素
     - `hiddenLibraries`：隐藏的媒体库（长按媒体库卡片切换）
     - `domainRemarks`：线路备注（可选）
+- `lib/state/danmaku_preferences.dart`
+  - 角色：弹幕偏好枚举与序列化（本地/在线）。
 
 ### Emby 接口封装（HTTP）
 - `lib/services/emby_api.dart`
@@ -85,6 +88,13 @@
   - `imageUrl(...)` / `personImageUrl(...)`：
     - 统一生成封面/人物图片 URL（UI 用 `CachedNetworkImage` 加载）。
 
+### 在线弹幕接口封装（弹弹play）
+- `lib/services/dandanplay_api.dart`
+  - 角色：封装弹弹play API v2 的匹配与弹幕下载（`/api/v2/match`、`/api/v2/comment/{episodeId}`）。
+  - 鉴权：
+    - 优先使用开放平台签名头：`X-AppId` / `X-Timestamp` / `X-Signature`。
+    - 若返回 403 且提示缺少鉴权，会回退到 `X-AppSecret` 模式（方便自建兼容服务）。
+
 ### 播放器封装与播放链路
 
 #### 1) 播放器封装
@@ -100,6 +110,9 @@
 - `lib/player_screen.dart`
   - `FilePicker` 选择本地视频 → `PlayerService.initialize(path)`。
   - 支持：播放列表、进度条、10s 快进/快退、音轨/字幕切换、硬解/软解切换。
+  - 弹幕：
+    - `Video` 上方叠加 `DanmakuStage`（覆盖层渲染）。
+    - 支持本地 XML 加载与在线加载（在线匹配使用文件名前 16MB 的 MD5 + 文件名）。
 
 #### 3) Emby 在线播放（网络）
 - `lib/play_network_page.dart`
@@ -110,6 +123,9 @@
     3. 监听 buffering / error / tracks：
        - UI 展示缓冲进度。
        - 初始音轨/字幕偏好只应用一次（避免 tracks 更新时反复覆盖）。
+  - 弹幕：
+    - `Video` 上方叠加 `DanmakuStage`（覆盖层渲染）。
+    - 在线匹配默认仅使用标题/文件名（无法获取文件 Hash 时准确度可能下降）。
 
 ### 主要页面（UI）
 - `lib/server_page.dart`：服务器管理（添加/编辑/删除/选择），并提供主题设置入口。
@@ -117,6 +133,7 @@
 - `lib/library_page.dart`：媒体库列表（刷新、排序、显示/隐藏库）。
 - `lib/library_items_page.dart`：媒体库内容列表（分页加载、进入详情）。
 - `lib/show_detail_page.dart`：详情页（Series/Season/Episode 结构、相似推荐、章节、播放入口与可选媒体源/音轨/字幕）。
+- `lib/danmaku_settings_page.dart`：弹幕设置页（本地/在线、在线源管理、样式设置）。
 - `lib/src/ui/`：UI 基础设施
   - `app_theme.dart`：Material 3 主题与动态取色。
   - `theme_sheet.dart`：主题设置弹窗。

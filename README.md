@@ -10,6 +10,7 @@
 - 响应式缩放：在竖屏平板/手机上自动放大 UI（文本/图标/间距），避免 UI 过小；大屏横屏基本保持原比例。
 - 双主题：Material 3，跟随系统明/暗色；桌面/手机卡片带轻量毛玻璃；Android TV 自动关闭毛玻璃，使用简洁卡片防卡顿。
 - 本地播放器：原生文件选择与播放功能保留。
+- 弹幕：支持本地 XML 与在线弹幕（弹弹play 开放平台 API 兼容服务），可在设置中调整样式。
 - 构建：Android 同时支持 32 位和 64 位；Windows 打包附带运行时与 DLL。
 
 ## 快速上手
@@ -21,6 +22,29 @@
 2. 登录后默认进入首页：继续观看、最新电影/剧集；点击卡片可播放（电影/剧集）或下钻（剧集/合集）。
 3. 媒体库页：显示库海报；点库进入分层列表，可搜索并无限滚动；Episode / Movie 直接播放，Series / Season / Folder 继续下钻。
 4. 本地播放器：底部导航「本地」进入，选择本地文件播放。
+
+## 弹幕（本地 / 在线）
+
+设置入口：设置 → 播放 → 弹幕
+
+### 本地弹幕
+- 播放时点击右上角「弹幕」按钮 → 「本地」加载 XML。
+- 当前解析器支持 Bilibili 弹幕 XML 格式（常见 `<d p="...">文本</d>`）。
+
+### 在线弹幕（弹弹play）
+- 在「设置 → 播放 → 弹幕」中把「弹幕来源」切换为「在线」，并配置一个或多个「弹幕 API URL」（可拖动调整优先级）。
+- 默认弹幕源：`https://api.dandanplay.net`
+- 重要：使用官方弹弹play源通常需要配置开放平台 `AppId` / `AppSecret`（文档：`https://doc.dandanplay.com/open/`）。
+- 播放时会自动尝试匹配并加载；也可以在播放页「弹幕」面板中点击「在线加载」手动触发。
+
+### 样式设置
+- 支持：弹幕缩放、透明度、滚动速度、最大行数、粗体。
+
+### 说明与限制
+- 本地播放：使用「文件名前 16MB 的 MD5」+ 文件名进行匹配，准确率更高。
+- Emby 在线播放：无法获取文件 Hash 时默认仅用标题/文件名匹配，可能需要更准确的命名。
+- Web 端暂不支持在线弹幕匹配。
+- 目前在线弹幕按「弹弹play API v2」实现；其它弹幕服务器仅当实现了同样的接口（如 `/api/v2/match`、`/api/v2/comment/{episodeId}`）才能直接作为弹幕源使用。
 
 ## 构建与运行
 ```bash
@@ -102,10 +126,14 @@ flutter build windows --release
 - `lib/library_page.dart` 媒体库列表
 - `lib/library_items_page.dart` 分层/搜索/播放列表
 - `lib/show_detail_page.dart` 详情页（季/集、相似推荐、播放入口）
+- `lib/danmaku_settings_page.dart` 弹幕设置页（本地/在线、样式、在线源管理）
 - `lib/play_network_page.dart` Emby 在线播放
 - `lib/player_screen.dart` 本地播放器
 - `lib/player_service.dart` 播放器封装（mpv 参数、硬解/软解）
 - `lib/services/emby_api.dart` Emby API 封装
+- `lib/services/dandanplay_api.dart` 在线弹幕（弹弹play API v2）封装
+- `lib/src/player/danmaku.dart` 弹幕解析（本地 XML / 在线列表）
+- `lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
 - `lib/state/app_state.dart` 状态/登录/缓存
 
 ## 鸣谢
