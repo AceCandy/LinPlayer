@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/emby_api.dart';
+import 'danmaku_preferences.dart';
 import 'preferences.dart';
 import 'server_profile.dart';
 
@@ -22,6 +23,16 @@ class AppState extends ChangeNotifier {
   static const _kMpvCacheSizeMbKey = 'mpvCacheSizeMb_v1';
   static const _kEnableBlurEffectsKey = 'enableBlurEffects_v1';
   static const _kExternalMpvPathKey = 'externalMpvPath_v1';
+  static const _kDanmakuEnabledKey = 'danmakuEnabled_v1';
+  static const _kDanmakuLoadModeKey = 'danmakuLoadMode_v1';
+  static const _kDanmakuApiUrlsKey = 'danmakuApiUrls_v1';
+  static const _kDanmakuAppIdKey = 'danmakuAppId_v1';
+  static const _kDanmakuAppSecretKey = 'danmakuAppSecret_v1';
+  static const _kDanmakuOpacityKey = 'danmakuOpacity_v1';
+  static const _kDanmakuScaleKey = 'danmakuScale_v1';
+  static const _kDanmakuSpeedKey = 'danmakuSpeed_v1';
+  static const _kDanmakuBoldKey = 'danmakuBold_v1';
+  static const _kDanmakuMaxLinesKey = 'danmakuMaxLines_v1';
 
   final List<ServerProfile> _servers = [];
   String? _activeServerId;
@@ -45,6 +56,16 @@ class AppState extends ChangeNotifier {
   int _mpvCacheSizeMb = 500;
   bool _enableBlurEffects = true;
   String _externalMpvPath = '';
+  bool _danmakuEnabled = true;
+  DanmakuLoadMode _danmakuLoadMode = DanmakuLoadMode.local;
+  List<String> _danmakuApiUrls = ['https://api.dandanplay.net'];
+  String _danmakuAppId = '';
+  String _danmakuAppSecret = '';
+  double _danmakuOpacity = 1.0;
+  double _danmakuScale = 1.0;
+  double _danmakuSpeed = 1.0;
+  bool _danmakuBold = true;
+  int _danmakuMaxLines = 10;
   bool _loading = false;
   String? _error;
 
@@ -86,6 +107,16 @@ class AppState extends ChangeNotifier {
   int get mpvCacheSizeMb => _mpvCacheSizeMb;
   bool get enableBlurEffects => _enableBlurEffects;
   String get externalMpvPath => _externalMpvPath;
+  bool get danmakuEnabled => _danmakuEnabled;
+  DanmakuLoadMode get danmakuLoadMode => _danmakuLoadMode;
+  List<String> get danmakuApiUrls => List.unmodifiable(_danmakuApiUrls);
+  String get danmakuAppId => _danmakuAppId;
+  String get danmakuAppSecret => _danmakuAppSecret;
+  double get danmakuOpacity => _danmakuOpacity;
+  double get danmakuScale => _danmakuScale;
+  double get danmakuSpeed => _danmakuSpeed;
+  bool get danmakuBold => _danmakuBold;
+  int get danmakuMaxLines => _danmakuMaxLines;
 
   Iterable<HomeEntry> get homeEntries sync* {
     for (final entry in _homeSections.entries) {
@@ -131,6 +162,28 @@ class AppState extends ChangeNotifier {
     }
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _externalMpvPath = prefs.getString(_kExternalMpvPathKey) ?? '';
+
+    _danmakuEnabled = prefs.getBool(_kDanmakuEnabledKey) ?? true;
+    _danmakuLoadMode =
+        danmakuLoadModeFromId(prefs.getString(_kDanmakuLoadModeKey));
+    final rawUrls = prefs.getStringList(_kDanmakuApiUrlsKey);
+    if (rawUrls != null) {
+      _danmakuApiUrls = rawUrls
+          .map(_normalizeDanmakuApiUrl)
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    _danmakuAppId = prefs.getString(_kDanmakuAppIdKey) ?? '';
+    _danmakuAppSecret = prefs.getString(_kDanmakuAppSecretKey) ?? '';
+    _danmakuOpacity = (prefs.getDouble(_kDanmakuOpacityKey) ?? 1.0)
+        .clamp(0.2, 1.0)
+        .toDouble();
+    _danmakuScale =
+        (prefs.getDouble(_kDanmakuScaleKey) ?? 1.0).clamp(0.5, 1.6).toDouble();
+    _danmakuSpeed =
+        (prefs.getDouble(_kDanmakuSpeedKey) ?? 1.0).clamp(0.4, 2.5).toDouble();
+    _danmakuBold = prefs.getBool(_kDanmakuBoldKey) ?? true;
+    _danmakuMaxLines = (prefs.getInt(_kDanmakuMaxLinesKey) ?? 10).clamp(1, 40);
 
     final rawServers = prefs.getString(_kServersKey);
     _servers.clear();
@@ -657,6 +710,25 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  static String _normalizeDanmakuApiUrl(String url) {
+    final raw = url.trim();
+    if (raw.isEmpty) return '';
+    try {
+      var uri = Uri.parse(raw);
+      if (!uri.hasScheme) {
+        uri = Uri.parse('https://$raw');
+      }
+      final normalized = uri.replace(
+        fragment: '',
+        query: '',
+        path: uri.path.replaceAll(RegExp(r'/+$'), ''),
+      );
+      return normalized.toString().replaceAll(RegExp(r'/+$'), '');
+    } catch (_) {
+      return raw.replaceAll(RegExp(r'/+$'), '');
+    }
+  }
+
   Future<void> setEnableBlurEffects(bool enabled) async {
     if (_enableBlurEffects == enabled) return;
     _enableBlurEffects = enabled;
@@ -675,6 +747,125 @@ class AppState extends ChangeNotifier {
     } else {
       await prefs.setString(_kExternalMpvPathKey, p);
     }
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuEnabled(bool enabled) async {
+    if (_danmakuEnabled == enabled) return;
+    _danmakuEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kDanmakuEnabledKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuLoadMode(DanmakuLoadMode mode) async {
+    if (_danmakuLoadMode == mode) return;
+    _danmakuLoadMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kDanmakuLoadModeKey, mode.id);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuApiUrls(List<String> urls) async {
+    final normalized =
+        urls.map(_normalizeDanmakuApiUrl).where((e) => e.isNotEmpty).toList();
+    _danmakuApiUrls = normalized;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setStringList(_kDanmakuApiUrlsKey, normalized);
+    notifyListeners();
+  }
+
+  Future<void> addDanmakuApiUrl(String url) async {
+    final u = _normalizeDanmakuApiUrl(url);
+    if (u.isEmpty) return;
+    final exists =
+        _danmakuApiUrls.any((e) => e.toLowerCase() == u.toLowerCase());
+    if (exists) return;
+    await setDanmakuApiUrls([..._danmakuApiUrls, u]);
+  }
+
+  Future<void> removeDanmakuApiUrlAt(int index) async {
+    if (index < 0 || index >= _danmakuApiUrls.length) return;
+    final next = [..._danmakuApiUrls]..removeAt(index);
+    await setDanmakuApiUrls(next);
+  }
+
+  Future<void> reorderDanmakuApiUrls(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= _danmakuApiUrls.length) return;
+    final next = [..._danmakuApiUrls];
+    if (newIndex > oldIndex) newIndex -= 1;
+    final item = next.removeAt(oldIndex);
+    next.insert(newIndex.clamp(0, next.length), item);
+    await setDanmakuApiUrls(next);
+  }
+
+  Future<void> setDanmakuAppId(String id) async {
+    final v = id.trim();
+    if (_danmakuAppId == v) return;
+    _danmakuAppId = v;
+    final prefs = await SharedPreferences.getInstance();
+    if (v.isEmpty) {
+      await prefs.remove(_kDanmakuAppIdKey);
+    } else {
+      await prefs.setString(_kDanmakuAppIdKey, v);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuAppSecret(String secret) async {
+    final v = secret.trim();
+    if (_danmakuAppSecret == v) return;
+    _danmakuAppSecret = v;
+    final prefs = await SharedPreferences.getInstance();
+    if (v.isEmpty) {
+      await prefs.remove(_kDanmakuAppSecretKey);
+    } else {
+      await prefs.setString(_kDanmakuAppSecretKey, v);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuOpacity(double opacity) async {
+    final v = opacity.clamp(0.2, 1.0).toDouble();
+    if ((_danmakuOpacity - v).abs() < 0.001) return;
+    _danmakuOpacity = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kDanmakuOpacityKey, v);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuScale(double scale) async {
+    final v = scale.clamp(0.5, 1.6).toDouble();
+    if ((_danmakuScale - v).abs() < 0.001) return;
+    _danmakuScale = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kDanmakuScaleKey, v);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuSpeed(double speed) async {
+    final v = speed.clamp(0.4, 2.5).toDouble();
+    if ((_danmakuSpeed - v).abs() < 0.001) return;
+    _danmakuSpeed = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kDanmakuSpeedKey, v);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuBold(bool bold) async {
+    if (_danmakuBold == bold) return;
+    _danmakuBold = bold;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kDanmakuBoldKey, bold);
+    notifyListeners();
+  }
+
+  Future<void> setDanmakuMaxLines(int lines) async {
+    final v = lines.clamp(1, 40);
+    if (_danmakuMaxLines == v) return;
+    _danmakuMaxLines = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setInt(_kDanmakuMaxLinesKey, v);
     notifyListeners();
   }
 

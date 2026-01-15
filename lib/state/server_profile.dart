@@ -51,7 +51,8 @@ class ServerProfile {
       baseUrl: json['baseUrl'] as String? ?? '',
       token: json['token'] as String? ?? '',
       userId: json['userId'] as String? ?? '',
-      hiddenLibraries: ((json['hiddenLibraries'] as List?)?.cast<String>() ?? const <String>[])
+      hiddenLibraries: ((json['hiddenLibraries'] as List?)?.cast<String>() ??
+              const <String>[])
           .toSet(),
       domainRemarks: (json['domainRemarks'] as Map?)?.map(
             (key, value) => MapEntry(key.toString(), value.toString()),
@@ -59,7 +60,8 @@ class ServerProfile {
           <String, String>{},
       customDomains: (json['customDomains'] as List?)
               ?.whereType<Map>()
-              .map((e) => CustomDomain.fromJson(e.map((k, v) => MapEntry(k.toString(), v))))
+              .map((e) => CustomDomain.fromJson(
+                  e.map((k, v) => MapEntry(k.toString(), v))))
               .toList() ??
           <CustomDomain>[],
     );

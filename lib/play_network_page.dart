@@ -9,8 +9,10 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'player_service.dart';
+import 'services/dandanplay_api.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'state/danmaku_preferences.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/track_preferences.dart';
@@ -61,6 +63,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   int _danmakuSourceIndex = -1;
   bool _danmakuEnabled = false;
   double _danmakuOpacity = 1.0;
+  double _danmakuScale = 1.0;
+  double _danmakuSpeed = 1.0;
+  bool _danmakuBold = true;
+  int _danmakuMaxLines = 10;
   int _nextDanmakuIndex = 0;
   Duration _lastPosition = Duration.zero;
 
@@ -68,6 +74,12 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   void initState() {
     super.initState();
     _hwdecOn = widget.appState.preferHardwareDecode;
+    _danmakuEnabled = widget.appState.danmakuEnabled;
+    _danmakuOpacity = widget.appState.danmakuOpacity;
+    _danmakuScale = widget.appState.danmakuScale;
+    _danmakuSpeed = widget.appState.danmakuSpeed;
+    _danmakuBold = widget.appState.danmakuBold;
+    _danmakuMaxLines = widget.appState.danmakuMaxLines;
     _init();
   }
 
@@ -101,8 +113,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         externalMpvPath: widget.appState.externalMpvPath,
       );
       if (_playerService.isExternalPlayback) {
-        _playError =
-            _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
+        _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
         return;
       }
       _tracks = _playerService.player.state.tracks;
@@ -135,11 +146,109 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         if (!mounted) return;
         setState(() => _playError = message);
       });
+      _maybeAutoLoadOnlineDanmaku();
     } catch (e) {
       _playError = e.toString();
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+      }
+    }
+  }
+
+  void _maybeAutoLoadOnlineDanmaku() {
+    final appState = widget.appState;
+    if (!appState.danmakuEnabled) return;
+    if (appState.danmakuLoadMode != DanmakuLoadMode.online) return;
+    if (kIsWeb) return;
+    // ignore: unawaited_futures
+    _loadOnlineDanmakuForNetwork(showToast: false);
+  }
+
+  Future<void> _loadOnlineDanmakuForNetwork({bool showToast = true}) async {
+    final appState = widget.appState;
+    if (appState.danmakuApiUrls.isEmpty) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请先在设置-弹幕中添加在线弹幕源')),
+        );
+      }
+      return;
+    }
+
+    final hasOfficial = appState.danmakuApiUrls.any((u) {
+      final host = Uri.tryParse(u)?.host.toLowerCase() ?? '';
+      return host == 'api.dandanplay.net';
+    });
+    final hasCreds = appState.danmakuAppId.trim().isNotEmpty &&
+        appState.danmakuAppSecret.trim().isNotEmpty;
+
+    if (hasOfficial && !hasCreds && showToast && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('使用官方弹弹play源时通常需要配置 AppId/AppSecret（设置-弹幕）'),
+        ),
+      );
+    }
+
+    int fileSizeBytes = 0;
+    int videoDurationSeconds = 0;
+    try {
+      final api =
+          EmbyApi(hostOrUrl: appState.baseUrl!, preferredScheme: 'https');
+      final item = await api.fetchItemDetail(
+        token: appState.token!,
+        baseUrl: appState.baseUrl!,
+        userId: appState.userId!,
+        itemId: widget.itemId,
+      );
+      fileSizeBytes = item.sizeBytes ?? 0;
+      final ticks = item.runTimeTicks ?? 0;
+      if (ticks > 0) {
+        videoDurationSeconds = (ticks / 10000000).round().clamp(0, 1 << 31);
+      }
+    } catch (_) {}
+
+    if (videoDurationSeconds <= 0) {
+      videoDurationSeconds = _playerService.duration.inSeconds;
+    }
+
+    try {
+      final sources = await loadOnlineDanmakuSources(
+        apiUrls: appState.danmakuApiUrls,
+        fileName: widget.title,
+        fileHash: null,
+        fileSizeBytes: fileSizeBytes,
+        videoDurationSeconds: videoDurationSeconds,
+        appId: appState.danmakuAppId,
+        appSecret: appState.danmakuAppSecret,
+        throwIfEmpty: showToast,
+      );
+      if (!mounted) return;
+      if (sources.isEmpty) {
+        if (showToast) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未匹配到在线弹幕')),
+          );
+        }
+        return;
+      }
+      setState(() {
+        _danmakuSources.addAll(sources);
+        _danmakuSourceIndex = _danmakuSources.length - 1;
+        _danmakuEnabled = true;
+        _syncDanmakuCursor(_lastPosition);
+      });
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已加载在线弹幕：${sources.length} 个来源')),
+        );
+      }
+    } catch (e) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('在线弹幕加载失败：$e')),
+        );
       }
     }
   }
@@ -258,6 +367,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       context: context,
       showDragHandle: true,
       builder: (ctx) {
+        var onlineLoading = false;
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final hasSources = _danmakuSources.isNotEmpty;
@@ -286,6 +396,33 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                         label: const Text('加载'),
                       ),
                     ],
+                  ),
+                  Align(
+                    alignment: Alignment.centerRight,
+                    child: TextButton.icon(
+                      onPressed: onlineLoading
+                          ? null
+                          : () async {
+                              onlineLoading = true;
+                              setSheetState(() {});
+                              try {
+                                await _loadOnlineDanmakuForNetwork(
+                                  showToast: true,
+                                );
+                              } finally {
+                                onlineLoading = false;
+                                setSheetState(() {});
+                              }
+                            },
+                      icon: onlineLoading
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.cloud_download_outlined),
+                      label: const Text('在线加载'),
+                    ),
                   ),
                   SwitchListTile(
                     value: _danmakuEnabled,
@@ -524,6 +661,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                             key: _danmakuKey,
                             enabled: _danmakuEnabled,
                             opacity: _danmakuOpacity,
+                            scale: _danmakuScale,
+                            speed: _danmakuSpeed,
+                            bold: _danmakuBold,
+                            maxLines: _danmakuMaxLines,
                           ),
                         ),
                         if (_buffering)

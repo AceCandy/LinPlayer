@@ -43,4 +43,3 @@ Future<void> showThemeSheet(BuildContext context, AppState appState) {
     },
   );
 }
-

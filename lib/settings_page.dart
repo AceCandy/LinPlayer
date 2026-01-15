@@ -3,9 +3,11 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import 'danmaku_settings_page.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/frosted_card.dart';
 import 'state/app_state.dart';
+import 'state/danmaku_preferences.dart';
 import 'state/preferences.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -208,10 +210,10 @@ class _SettingsPageState extends State<SettingsPage> {
                       title: const Text('MPV 缓存大小'),
                       subtitle: Builder(
                         builder: (context) {
-                          final cacheMb =
-                              (_mpvCacheDraftMb ?? appState.mpvCacheSizeMb.toDouble())
-                                  .round()
-                                  .clamp(200, 2048);
+                          final cacheMb = (_mpvCacheDraftMb ??
+                                  appState.mpvCacheSizeMb.toDouble())
+                              .round()
+                              .clamp(200, 2048);
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
@@ -330,6 +332,26 @@ class _SettingsPageState extends State<SettingsPage> {
                     const Divider(height: 1),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.comment_outlined),
+                      title: const Text('弹幕'),
+                      subtitle: Text(
+                        appState.danmakuLoadMode == DanmakuLoadMode.online
+                            ? '在线：${appState.danmakuApiUrls.isEmpty ? '未配置弹幕源' : appState.danmakuApiUrls.first}'
+                            : '本地弹幕',
+                      ),
+                      trailing: const Icon(Icons.chevron_right),
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                DanmakuSettingsPage(appState: widget.appState),
+                          ),
+                        );
+                      },
+                    ),
+                    const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.video_file_outlined),
                       title: const Text('优先视频版本'),
                       trailing: DropdownButtonHideUnderline(
@@ -373,8 +395,10 @@ class _SettingsPageState extends State<SettingsPage> {
                             DropdownMenuItem(
                                 value: 'default', child: Text('默认')),
                             DropdownMenuItem(value: 'pink', child: Text('粉色')),
-                            DropdownMenuItem(value: 'purple', child: Text('紫色')),
-                            DropdownMenuItem(value: 'miku', child: Text('初音未来')),
+                            DropdownMenuItem(
+                                value: 'purple', child: Text('紫色')),
+                            DropdownMenuItem(
+                                value: 'miku', child: Text('初音未来')),
                           ],
                           onChanged: !AppIconService.isSupported
                               ? null

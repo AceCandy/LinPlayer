@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:io';
 
+import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -8,10 +9,12 @@ import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
 import 'player_service.dart';
+import 'services/dandanplay_api.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/track_preferences.dart';
 import 'state/app_state.dart';
+import 'state/danmaku_preferences.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({super.key, this.appState});
@@ -43,12 +46,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _danmakuSourceIndex = -1;
   bool _danmakuEnabled = false;
   double _danmakuOpacity = 1.0;
+  double _danmakuScale = 1.0;
+  double _danmakuSpeed = 1.0;
+  bool _danmakuBold = true;
+  int _danmakuMaxLines = 10;
   int _nextDanmakuIndex = 0;
 
   @override
   void initState() {
     super.initState();
-    _hwdecOn = widget.appState?.preferHardwareDecode ?? true;
+    final appState = widget.appState;
+    _hwdecOn = appState?.preferHardwareDecode ?? true;
+    _danmakuEnabled = appState?.danmakuEnabled ?? true;
+    _danmakuOpacity = appState?.danmakuOpacity ?? 1.0;
+    _danmakuScale = appState?.danmakuScale ?? 1.0;
+    _danmakuSpeed = appState?.danmakuSpeed ?? 1.0;
+    _danmakuBold = appState?.danmakuBold ?? true;
+    _danmakuMaxLines = appState?.danmakuMaxLines ?? 10;
   }
 
   @override
@@ -85,6 +99,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
       _appliedAudioPref = false;
       _appliedSubtitlePref = false;
       _nextDanmakuIndex = 0;
+      _danmakuSources.clear();
+      _danmakuSourceIndex = -1;
+      final appState = widget.appState;
+      _danmakuEnabled = appState?.danmakuEnabled ?? true;
+      _danmakuOpacity = appState?.danmakuOpacity ?? 1.0;
+      _danmakuScale = appState?.danmakuScale ?? 1.0;
+      _danmakuSpeed = appState?.danmakuSpeed ?? 1.0;
+      _danmakuBold = appState?.danmakuBold ?? true;
+      _danmakuMaxLines = appState?.danmakuMaxLines ?? 10;
     });
     _danmakuKey.currentState?.clear();
     final isTv = _isTv(context);
@@ -96,23 +119,23 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
     try {
       if (kIsWeb) {
-          await _playerService.initialize(
-            null,
-            networkUrl: file.path ?? '',
-            isTv: isTv,
-            hardwareDecode: _hwdecOn,
-            mpvCacheSizeMb: widget.appState?.mpvCacheSizeMb ?? 500,
-            externalMpvPath: widget.appState?.externalMpvPath,
-          );
-        } else {
-          await _playerService.initialize(
-            file.path,
-            isTv: isTv,
-            hardwareDecode: _hwdecOn,
-            mpvCacheSizeMb: widget.appState?.mpvCacheSizeMb ?? 500,
-            externalMpvPath: widget.appState?.externalMpvPath,
-          );
-        }
+        await _playerService.initialize(
+          null,
+          networkUrl: file.path ?? '',
+          isTv: isTv,
+          hardwareDecode: _hwdecOn,
+          mpvCacheSizeMb: widget.appState?.mpvCacheSizeMb ?? 500,
+          externalMpvPath: widget.appState?.externalMpvPath,
+        );
+      } else {
+        await _playerService.initialize(
+          file.path,
+          isTv: isTv,
+          hardwareDecode: _hwdecOn,
+          mpvCacheSizeMb: widget.appState?.mpvCacheSizeMb ?? 500,
+          externalMpvPath: widget.appState?.externalMpvPath,
+        );
+      }
       if (!mounted) return;
       if (_playerService.isExternalPlayback) {
         setState(() => _playError =
@@ -132,6 +155,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() => _playError = message);
       });
       _duration = _playerService.duration;
+      _maybeAutoLoadOnlineDanmaku(file);
       _posSub?.cancel();
       _posSub = _playerService.player.stream.position.listen((d) {
         if (!mounted) return;
@@ -156,6 +180,119 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() => _playError = e.toString());
     }
     setState(() {});
+  }
+
+  Future<String> _computeFileHash16M(String path) async {
+    const maxBytes = 16 * 1024 * 1024;
+    final file = File(path);
+    final digest = await md5.bind(file.openRead(0, maxBytes)).first;
+    return digest.toString();
+  }
+
+  void _maybeAutoLoadOnlineDanmaku(PlatformFile file) {
+    final appState = widget.appState;
+    if (appState == null) return;
+    if (!appState.danmakuEnabled) return;
+    if (appState.danmakuLoadMode != DanmakuLoadMode.online) return;
+    if (kIsWeb) return;
+    // ignore: unawaited_futures
+    _loadOnlineDanmakuForFile(file, showToast: false);
+  }
+
+  Future<void> _loadOnlineDanmakuForFile(
+    PlatformFile file, {
+    bool showToast = true,
+  }) async {
+    final appState = widget.appState;
+    if (appState == null) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未找到应用设置，无法加载在线弹幕')),
+        );
+      }
+      return;
+    }
+    if (appState.danmakuApiUrls.isEmpty) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请先在设置-弹幕中添加在线弹幕源')),
+        );
+      }
+      return;
+    }
+    if (kIsWeb) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Web 端暂不支持在线弹幕匹配')),
+        );
+      }
+      return;
+    }
+    final path = file.path;
+    if (path == null || path.trim().isEmpty) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法读取视频文件路径')),
+        );
+      }
+      return;
+    }
+
+    final hasOfficial = appState.danmakuApiUrls.any((u) {
+      final host = Uri.tryParse(u)?.host.toLowerCase() ?? '';
+      return host == 'api.dandanplay.net';
+    });
+    final hasCreds = appState.danmakuAppId.trim().isNotEmpty &&
+        appState.danmakuAppSecret.trim().isNotEmpty;
+
+    if (hasOfficial && !hasCreds && showToast && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('使用官方弹弹play源时通常需要配置 AppId/AppSecret（设置-弹幕）'),
+        ),
+      );
+    }
+
+    try {
+      final size = await File(path).length();
+      final hash = await _computeFileHash16M(path);
+      final sources = await loadOnlineDanmakuSources(
+        apiUrls: appState.danmakuApiUrls,
+        fileName: file.name,
+        fileHash: hash,
+        fileSizeBytes: size,
+        videoDurationSeconds: _duration.inSeconds,
+        appId: appState.danmakuAppId,
+        appSecret: appState.danmakuAppSecret,
+        throwIfEmpty: showToast,
+      );
+      if (!mounted) return;
+      if (sources.isEmpty) {
+        if (showToast) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未匹配到在线弹幕')),
+          );
+        }
+        return;
+      }
+      setState(() {
+        _danmakuSources.addAll(sources);
+        _danmakuSourceIndex = _danmakuSources.length - 1;
+        _danmakuEnabled = true;
+        _syncDanmakuCursor(_position);
+      });
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已加载在线弹幕：${sources.length} 个来源')),
+        );
+      }
+    } catch (e) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('在线弹幕加载失败：$e')),
+        );
+      }
+    }
   }
 
   void _syncDanmakuCursor(Duration position) {
@@ -221,6 +358,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       context: context,
       showDragHandle: true,
       builder: (ctx) {
+        var onlineLoading = false;
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final hasSources = _danmakuSources.isNotEmpty;
@@ -246,7 +384,36 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           setSheetState(() {});
                         },
                         icon: const Icon(Icons.upload_file),
-                        label: const Text('加载'),
+                        label: const Text('本地'),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: onlineLoading ||
+                                _currentlyPlayingIndex < 0 ||
+                                _currentlyPlayingIndex >= _playlist.length
+                            ? null
+                            : () async {
+                                onlineLoading = true;
+                                setSheetState(() {});
+                                try {
+                                  await _loadOnlineDanmakuForFile(
+                                    _playlist[_currentlyPlayingIndex],
+                                    showToast: true,
+                                  );
+                                } finally {
+                                  onlineLoading = false;
+                                  setSheetState(() {});
+                                }
+                              },
+                        icon: onlineLoading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.cloud_download_outlined),
+                        label: const Text('在线'),
                       ),
                     ],
                   ),
@@ -453,6 +620,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             key: _danmakuKey,
                             enabled: _danmakuEnabled,
                             opacity: _danmakuOpacity,
+                            scale: _danmakuScale,
+                            speed: _danmakuSpeed,
+                            bold: _danmakuBold,
+                            maxLines: _danmakuMaxLines,
                           ),
                         ),
                       ],

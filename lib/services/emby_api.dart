@@ -36,7 +36,8 @@ class AuthResult {
   final String token;
   final String baseUrlUsed;
   final String userId;
-  AuthResult({required this.token, required this.baseUrlUsed, required this.userId});
+  AuthResult(
+      {required this.token, required this.baseUrlUsed, required this.userId});
 }
 
 class MediaItem {
@@ -204,7 +205,9 @@ class EmbyApi {
     String device = 'Flutter',
     String? version,
   }) {
-    final v = (version == null || version.trim().isEmpty) ? appVersion : version.trim();
+    final v = (version == null || version.trim().isEmpty)
+        ? appVersion
+        : version.trim();
     return 'MediaBrowser Client="$client", Device="$device", DeviceId="$deviceId", Version="$v"';
   }
 
@@ -214,8 +217,7 @@ class EmbyApi {
       'Content-Type': 'application/json',
       'Accept': 'application/json',
       'User-Agent': userAgent,
-      'X-Emby-Authorization':
-          _authorizationValue(deviceId: id),
+      'X-Emby-Authorization': _authorizationValue(deviceId: id),
     };
   }
 
@@ -242,8 +244,11 @@ class EmbyApi {
     if (parsed != null && parsed.hasScheme && parsed.host.isNotEmpty) {
       final port = parsed.hasPort
           ? ':${parsed.port}'
-          : (_port != null && _port!.trim().isNotEmpty ? ':${_port!.trim()}' : '');
-      final path = parsed.path.isNotEmpty && parsed.path != '/' ? parsed.path : '';
+          : (_port != null && _port!.trim().isNotEmpty
+              ? ':${_port!.trim()}'
+              : '');
+      final path =
+          parsed.path.isNotEmpty && parsed.path != '/' ? parsed.path : '';
       return ['${parsed.scheme}://${parsed.host}$port$path'];
     }
 
@@ -301,7 +306,8 @@ class EmbyApi {
         }
         final map = jsonDecode(resp.body) as Map<String, dynamic>;
         final token = map['AccessToken'] as String?;
-        final userId = (map['User'] as Map<String, dynamic>?)?['Id'] as String? ?? '';
+        final userId =
+            (map['User'] as Map<String, dynamic>?)?['Id'] as String? ?? '';
         if (token == null || token.isEmpty) {
           errors.add('${url.origin}: 未返回 token');
           continue;
@@ -332,13 +338,16 @@ class EmbyApi {
         final headers = <String, String>{
           'Accept': 'application/json',
           'User-Agent': userAgent,
-          if (token != null && token.trim().isNotEmpty) 'X-Emby-Token': token.trim(),
+          if (token != null && token.trim().isNotEmpty)
+            'X-Emby-Token': token.trim(),
         };
         final resp = await _client.get(url, headers: headers);
         if (resp.statusCode != 200) continue;
         final map = jsonDecode(resp.body);
         if (map is! Map) continue;
-        final name = (map['ServerName'] ?? map['Name'] ?? map['ApplicationName'])?.toString();
+        final name =
+            (map['ServerName'] ?? map['Name'] ?? map['ApplicationName'])
+                ?.toString();
         if (name != null && name.trim().isNotEmpty) {
           return name.trim();
         }
@@ -414,14 +423,16 @@ class EmbyApi {
     if (excludeFolders) {
       params.write('&Filters=IsNotFolder');
     }
-    if (includeItemTypes != null) params.write('&IncludeItemTypes=$includeItemTypes');
+    if (includeItemTypes != null)
+      params.write('&IncludeItemTypes=$includeItemTypes');
     if (sortBy != null && sortBy.isNotEmpty) {
       params.write('&SortBy=$sortBy&SortOrder=$sortOrder');
     }
     if (searchTerm != null && searchTerm.isNotEmpty) {
       params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
     }
-    final url = Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
+    final url =
+        Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
     final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('拉取媒体列表失败（${resp.statusCode}）');
@@ -503,7 +514,8 @@ class EmbyApi {
         token: token,
         baseUrl: baseUrl,
         userId: userId,
-        parentId: userId, // Emby ignores ParentId when searching latest with types
+        parentId:
+            userId, // Emby ignores ParentId when searching latest with types
         includeItemTypes: 'Movie',
         limit: limit,
         startIndex: 0,
@@ -535,8 +547,7 @@ class EmbyApi {
     int limit = 12,
     bool onlyEpisodes = true,
   }) async {
-    final url = Uri.parse(
-        '$baseUrl/emby/Users/$userId/Items'
+    final url = Uri.parse('$baseUrl/emby/Users/$userId/Items'
         '?ParentId=$libraryId'
         '&IncludeItemTypes=${onlyEpisodes ? 'Episode' : 'Episode,Movie'}'
         '&Recursive=true'
@@ -678,7 +689,9 @@ class EmbyApi {
       throw Exception('获取章节失败(${resp.statusCode})');
     }
     final list = (jsonDecode(resp.body)['Items'] as List?) ?? [];
-    return list.map((e) => ChapterInfo.fromJson(e as Map<String, dynamic>)).toList();
+    return list
+        .map((e) => ChapterInfo.fromJson(e as Map<String, dynamic>))
+        .toList();
   }
 
   Future<PagedResult<MediaItem>> fetchSimilar({

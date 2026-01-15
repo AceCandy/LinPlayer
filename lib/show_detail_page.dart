@@ -49,7 +49,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       _loading = true;
       _error = null;
     });
-    final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final api =
+        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
     try {
       final detail = await api.fetchItemDetail(
         token: widget.appState.token!,
@@ -69,7 +70,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           : PagedResult<MediaItem>(const [], 0);
 
       final seasonItems = isSeries
-          ? seasons.items.where((s) => s.type.toLowerCase() == 'season').toList()
+          ? seasons.items
+              .where((s) => s.type.toLowerCase() == 'season')
+              .toList()
           : <MediaItem>[];
       seasonItems.sort((a, b) {
         final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
@@ -150,7 +153,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           final sources = playInfo.mediaSources.cast<Map<String, dynamic>>();
           if (sources.isNotEmpty) {
             final validSelection = selectedMediaSourceId != null &&
-                sources.any((s) => (s['Id'] as String? ?? '') == selectedMediaSourceId);
+                sources.any(
+                    (s) => (s['Id'] as String? ?? '') == selectedMediaSourceId);
             if (!validSelection) {
               selectedMediaSourceId = _pickPreferredMediaSourceId(
                     sources,
@@ -216,7 +220,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     return null;
   }
 
-  static Map<String, dynamic>? _findMediaSource(PlaybackInfoResult info, String? id) {
+  static Map<String, dynamic>? _findMediaSource(
+      PlaybackInfoResult info, String? id) {
     final sources = info.mediaSources.cast<Map<String, dynamic>>();
     if (sources.isEmpty) return null;
     if (id != null && id.isNotEmpty) {
@@ -227,7 +232,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     return sources.first;
   }
 
-  static List<Map<String, dynamic>> _streamsOfType(Map<String, dynamic> ms, String type) {
+  static List<Map<String, dynamic>> _streamsOfType(
+      Map<String, dynamic> ms, String type) {
     final streams = (ms['MediaStreams'] as List?) ?? const [];
     return streams
         .where((e) => (e as Map)['Type'] == type)
@@ -235,14 +241,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         .toList();
   }
 
-  static Map<String, dynamic>? _defaultStream(List<Map<String, dynamic>> streams) {
+  static Map<String, dynamic>? _defaultStream(
+      List<Map<String, dynamic>> streams) {
     for (final s in streams) {
       if (s['IsDefault'] == true) return s;
     }
     return streams.isNotEmpty ? streams.first : null;
   }
 
-  static String _streamLabel(Map<String, dynamic> stream, {bool includeCodec = true}) {
+  static String _streamLabel(Map<String, dynamic> stream,
+      {bool includeCodec = true}) {
     final title = (stream['DisplayTitle'] as String?) ??
         (stream['Title'] as String?) ??
         (stream['Language'] as String?) ??
@@ -272,7 +280,10 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     String codecOf(Map<String, dynamic> ms) {
       final videos = _streamsOfType(ms, 'Video');
       final video = videos.isNotEmpty ? videos.first : null;
-      return ((ms['VideoCodec'] as String?) ?? (video?['Codec'] as String?) ?? '').toLowerCase();
+      return ((ms['VideoCodec'] as String?) ??
+              (video?['Codec'] as String?) ??
+              '')
+          .toLowerCase();
     }
 
     bool isHevc(Map<String, dynamic> ms) {
@@ -352,14 +363,17 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
 
   String _mediaSourceSubtitle(Map<String, dynamic> ms) {
     final size = ms['Size'];
-    final sizeGb = size is num ? (size / (1024 * 1024 * 1024)).toStringAsFixed(1) : null;
+    final sizeGb =
+        size is num ? (size / (1024 * 1024 * 1024)).toStringAsFixed(1) : null;
     final bitrate = _asInt(ms['Bitrate']);
-    final bitrateMbps = bitrate != null ? (bitrate / 1000000).toStringAsFixed(1) : null;
+    final bitrateMbps =
+        bitrate != null ? (bitrate / 1000000).toStringAsFixed(1) : null;
 
     final videoStreams = _streamsOfType(ms, 'Video');
     final video = videoStreams.isNotEmpty ? videoStreams.first : null;
     final height = _asInt(video?['Height']);
-    final vCodec = (ms['VideoCodec'] as String?) ?? (video?['Codec'] as String?);
+    final vCodec =
+        (ms['VideoCodec'] as String?) ?? (video?['Codec'] as String?);
 
     final parts = <String>[];
     if (height != null) parts.add('${height}p');
@@ -369,7 +383,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     return parts.isEmpty ? '直连播放' : parts.join(' / ');
   }
 
-  Widget _moviePlaybackOptionsCard(BuildContext context, PlaybackInfoResult info) {
+  Widget _moviePlaybackOptionsCard(
+      BuildContext context, PlaybackInfoResult info) {
     final ms = _findMediaSource(info, _selectedMediaSourceId);
     if (ms == null) return const SizedBox.shrink();
 
@@ -428,7 +443,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             leading: const Icon(Icons.audiotrack),
             title: Text(audioText),
             trailing: const Icon(Icons.arrow_drop_down),
-            onTap: audioStreams.isEmpty ? null : () => _pickAudioStream(context, ms),
+            onTap: audioStreams.isEmpty
+                ? null
+                : () => _pickAudioStream(context, ms),
           ),
           const Divider(height: 1),
           ListTile(
@@ -442,7 +459,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     );
   }
 
-  Future<void> _pickMediaSource(BuildContext context, PlaybackInfoResult info) async {
+  Future<void> _pickMediaSource(
+      BuildContext context, PlaybackInfoResult info) async {
     final sources = info.mediaSources.cast<Map<String, dynamic>>();
     if (sources.isEmpty) return;
 
@@ -455,9 +473,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
               const ListTile(title: Text('版本选择')),
               ...sources.map((ms) {
                 final id = ms['Id'] as String? ?? '';
-                final selectedNow = id.isNotEmpty && id == _selectedMediaSourceId;
+                final selectedNow =
+                    id.isNotEmpty && id == _selectedMediaSourceId;
                 return ListTile(
-                  leading: Icon(selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
                   title: Text(_mediaSourceTitle(ms)),
                   subtitle: Text(_mediaSourceSubtitle(ms)),
                   onTap: () => Navigator.of(ctx).pop(id),
@@ -479,7 +499,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     });
   }
 
-  Future<void> _pickAudioStream(BuildContext context, Map<String, dynamic> ms) async {
+  Future<void> _pickAudioStream(
+      BuildContext context, Map<String, dynamic> ms) async {
     final audioStreams = _streamsOfType(ms, 'Audio');
     if (audioStreams.isEmpty) return;
 
@@ -493,16 +514,20 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             children: [
               const ListTile(title: Text('音轨选择')),
               ListTile(
-                leading: Icon(_selectedAudioStreamIndex == null ? Icons.check : Icons.circle_outlined),
+                leading: Icon(_selectedAudioStreamIndex == null
+                    ? Icons.check
+                    : Icons.circle_outlined),
                 title: const Text('默认'),
                 onTap: () => Navigator.of(ctx).pop(null),
               ),
               ...audioStreams.map((s) {
                 final idx = _asInt(s['Index']);
-                final selectedNow = idx != null && idx == _selectedAudioStreamIndex;
+                final selectedNow =
+                    idx != null && idx == _selectedAudioStreamIndex;
                 final title = _streamLabel(s, includeCodec: false);
                 return ListTile(
-                  leading: Icon(selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
                   title: Text(idx == defIndex ? '$title (默认)' : title),
                   subtitle: (s['Codec'] as String?)?.isNotEmpty == true
                       ? Text(s['Codec'] as String)
@@ -520,7 +545,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     setState(() => _selectedAudioStreamIndex = selected);
   }
 
-  Future<void> _pickSubtitleStream(BuildContext context, Map<String, dynamic> ms) async {
+  Future<void> _pickSubtitleStream(
+      BuildContext context, Map<String, dynamic> ms) async {
     final subtitleStreams = _streamsOfType(ms, 'Subtitle');
     if (subtitleStreams.isEmpty) return;
 
@@ -547,10 +573,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
               ),
               ...subtitleStreams.map((s) {
                 final idx = _asInt(s['Index']);
-                final selectedNow = idx != null && idx == _selectedSubtitleStreamIndex;
+                final selectedNow =
+                    idx != null && idx == _selectedSubtitleStreamIndex;
                 final title = _streamLabel(s, includeCodec: false);
                 return ListTile(
-                  leading: Icon(selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
                   title: Text(idx == defIndex ? '$title (默认)' : title),
                   subtitle: (s['Codec'] as String?)?.isNotEmpty == true
                       ? Text(s['Codec'] as String)
@@ -581,8 +609,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     }
     final item = _detail!;
     final isSeries = item.type.toLowerCase() == 'series';
-    final runtime =
-        item.runTimeTicks != null ? Duration(microseconds: item.runTimeTicks! ~/ 10) : null;
+    final runtime = item.runTimeTicks != null
+        ? Duration(microseconds: item.runTimeTicks! ~/ 10)
+        : null;
     final hero = EmbyApi.imageUrl(
       baseUrl: widget.appState.baseUrl!,
       itemId: item.id,
@@ -607,7 +636,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                       hero,
                       fit: BoxFit.cover,
                       headers: {'User-Agent': EmbyApi.userAgent},
-                      errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26),
+                      errorBuilder: (_, __, ___) =>
+                          const ColoredBox(color: Colors.black26),
                     ),
                     Container(
                       decoration: const BoxDecoration(
@@ -628,16 +658,21 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                               style: Theme.of(context)
                                   .textTheme
                                   .headlineSmall
-                                  ?.copyWith(color: Colors.white, fontWeight: FontWeight.w700)),
+                                  ?.copyWith(
+                                      color: Colors.white,
+                                      fontWeight: FontWeight.w700)),
                           const SizedBox(height: 8),
                           Wrap(
                             spacing: 8,
                             children: [
                               if (item.communityRating != null)
-                                _pill(context, '★ ${item.communityRating!.toStringAsFixed(1)}'),
+                                _pill(context,
+                                    '★ ${item.communityRating!.toStringAsFixed(1)}'),
                               if (item.premiereDate != null)
-                                _pill(context, item.premiereDate!.split('T').first),
-                              if (item.genres.isNotEmpty) _pill(context, item.genres.first),
+                                _pill(context,
+                                    item.premiereDate!.split('T').first),
+                              if (item.genres.isNotEmpty)
+                                _pill(context, item.genres.first),
                               if (isSeries)
                                 _pill(context, '${_seasons.length} 季')
                               else if (runtime != null)
@@ -660,7 +695,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                     if (_featuredEpisode != null)
                       _playButton(
                         context,
-                        label: '播放 S${_featuredEpisode!.seasonNumber ?? 1}:E${_featuredEpisode!.episodeNumber ?? 1}',
+                        label:
+                            '播放 S${_featuredEpisode!.seasonNumber ?? 1}:E${_featuredEpisode!.episodeNumber ?? 1}',
                         onTap: () {
                           Navigator.of(context).push(
                             MaterialPageRoute(
@@ -672,9 +708,10 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             ),
                           );
                         },
-                    ),
+                      ),
                     if (!isSeries) ...[
-                      if (_playInfo != null) _moviePlaybackOptionsCard(context, _playInfo!),
+                      if (_playInfo != null)
+                        _moviePlaybackOptionsCard(context, _playInfo!),
                       if (_playInfo != null) const SizedBox(height: 12),
                       _playButton(
                         context,
@@ -689,7 +726,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 isTv: widget.isTv,
                                 mediaSourceId: _selectedMediaSourceId,
                                 audioStreamIndex: _selectedAudioStreamIndex,
-                                subtitleStreamIndex: _selectedSubtitleStreamIndex,
+                                subtitleStreamIndex:
+                                    _selectedSubtitleStreamIndex,
                               ),
                             ),
                           );
@@ -697,7 +735,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                       ),
                     ],
                     const SizedBox(height: 12),
-                    Text(item.overview, style: Theme.of(context).textTheme.bodyMedium),
+                    Text(item.overview,
+                        style: Theme.of(context).textTheme.bodyMedium),
                     const SizedBox(height: 16),
                     if (_chapters.isNotEmpty) ...[
                       _chaptersSection(context, _chapters),
@@ -708,14 +747,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                       const SizedBox(height: 16),
                     ],
                     if (_album.isNotEmpty) ...[
-                      Text('相册', style: Theme.of(context).textTheme.titleMedium),
+                      Text('相册',
+                          style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       SizedBox(
                         height: 140,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: _album.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 10),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 10),
                           itemBuilder: (context, index) {
                             final url = _album[index];
                             return ClipRRect(
@@ -746,7 +787,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: _seasons.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 12),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
                           itemBuilder: (context, index) {
                             final s = _seasons[index];
                             final label = s.name.isNotEmpty
@@ -784,9 +826,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                         child: Image.network(
                                           img,
                                           fit: BoxFit.cover,
-                                          headers: {'User-Agent': EmbyApi.userAgent},
+                                          headers: {
+                                            'User-Agent': EmbyApi.userAgent
+                                          },
                                           errorBuilder: (_, __, ___) =>
-                                              const ColoredBox(color: Colors.black26),
+                                              const ColoredBox(
+                                                  color: Colors.black26),
                                         ),
                                       ),
                                     ),
@@ -798,7 +843,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       style: Theme.of(context)
                                           .textTheme
                                           .bodyMedium
-                                          ?.copyWith(fontWeight: FontWeight.w600),
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w600),
                                     ),
                                   ],
                                 ),
@@ -810,14 +856,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                       const SizedBox(height: 16),
                     ],
                     if (_similar.isNotEmpty) ...[
-                      Text('更多类似', style: Theme.of(context).textTheme.titleMedium),
+                      Text('更多类似',
+                          style: Theme.of(context).textTheme.titleMedium),
                       const SizedBox(height: 8),
                       SizedBox(
                         height: 240,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           itemCount: _similar.length,
-                          separatorBuilder: (_, __) => const SizedBox(width: 12),
+                          separatorBuilder: (_, __) =>
+                              const SizedBox(width: 12),
                           itemBuilder: (context, index) {
                             final s = _similar[index];
                             final img = s.hasImage
@@ -848,26 +896,35 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                   children: [
                                     ClipRRect(
                                       borderRadius: BorderRadius.circular(10),
-                                  child: img != null
+                                      child: img != null
                                           ? SizedBox(
                                               height: 180,
                                               width: 140,
                                               child: Image.network(
                                                 img,
                                                 fit: BoxFit.cover,
-                                                headers: {'User-Agent': EmbyApi.userAgent},
+                                                headers: {
+                                                  'User-Agent':
+                                                      EmbyApi.userAgent
+                                                },
                                                 errorBuilder: (_, __, ___) =>
-                                                    const ColoredBox(color: Colors.black26),
+                                                    const ColoredBox(
+                                                        color: Colors.black26),
                                               ),
                                             )
                                           : const SizedBox(
-                                              height: 180, width: 140, child: ColoredBox(color: Colors.black26)),
+                                              height: 180,
+                                              width: 140,
+                                              child: ColoredBox(
+                                                  color: Colors.black26)),
                                     ),
                                     const SizedBox(height: 6),
                                     Text(s.name,
                                         maxLines: 2,
                                         overflow: TextOverflow.ellipsis,
-                                        style: Theme.of(context).textTheme.bodyMedium),
+                                        style: Theme.of(context)
+                                            .textTheme
+                                            .bodyMedium),
                                   ],
                                 ),
                               ),
@@ -924,7 +981,8 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
       _loading = true;
       _error = null;
     });
-    final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final api =
+        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
     try {
       final eps = await api.fetchEpisodes(
         token: widget.appState.token!,
@@ -979,7 +1037,8 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                         final e = _episodes[index];
                         final epNo = e.episodeNumber ?? (index + 1);
                         final dur = e.runTimeTicks != null
-                            ? Duration(microseconds: (e.runTimeTicks! / 10).round())
+                            ? Duration(
+                                microseconds: (e.runTimeTicks! / 10).round())
                             : null;
                         final img = EmbyApi.imageUrl(
                           baseUrl: widget.appState.baseUrl!,
@@ -1015,9 +1074,12 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                         child: Image.network(
                                           img,
                                           fit: BoxFit.cover,
-                                          headers: {'User-Agent': EmbyApi.userAgent},
+                                          headers: {
+                                            'User-Agent': EmbyApi.userAgent
+                                          },
                                           errorBuilder: (_, __, ___) =>
-                                              const ColoredBox(color: Colors.black26),
+                                              const ColoredBox(
+                                                  color: Colors.black26),
                                         ),
                                       ),
                                     ),
@@ -1025,7 +1087,8 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                   const SizedBox(width: 12),
                                   Expanded(
                                     child: Column(
-                                      crossAxisAlignment: CrossAxisAlignment.start,
+                                      crossAxisAlignment:
+                                          CrossAxisAlignment.start,
                                       children: [
                                         Text(
                                           '第$epNo集 · ${e.name}',
@@ -1034,7 +1097,8 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                           style: Theme.of(context)
                                               .textTheme
                                               .titleMedium
-                                              ?.copyWith(fontWeight: FontWeight.w700),
+                                              ?.copyWith(
+                                                  fontWeight: FontWeight.w700),
                                         ),
                                         const SizedBox(height: 6),
                                         if (e.overview.isNotEmpty)
@@ -1042,13 +1106,17 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                             e.overview,
                                             maxLines: 3,
                                             overflow: TextOverflow.ellipsis,
-                                            style: Theme.of(context).textTheme.bodyMedium,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodyMedium,
                                           ),
                                         if (dur != null) ...[
                                           const SizedBox(height: 8),
                                           Text(
                                             _fmt(dur),
-                                            style: Theme.of(context).textTheme.bodySmall,
+                                            style: Theme.of(context)
+                                                .textTheme
+                                                .bodySmall,
                                           ),
                                         ],
                                       ],
@@ -1100,7 +1168,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       _loading = true;
       _error = null;
     });
-    final api = EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final api =
+        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
     try {
       final detail = await api.fetchItemDetail(
         token: widget.appState.token!,
@@ -1159,11 +1228,14 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(ep.name, style: Theme.of(context).textTheme.titleLarge),
+                      Text(ep.name,
+                          style: Theme.of(context).textTheme.titleLarge),
                       const SizedBox(height: 6),
-                      if (_detail?.overview.isNotEmpty == true) Text(_detail!.overview),
+                      if (_detail?.overview.isNotEmpty == true)
+                        Text(_detail!.overview),
                       const SizedBox(height: 12),
-                      if (_playInfo != null) _mediaSourcesSection(context, _playInfo!),
+                      if (_playInfo != null)
+                        _mediaSourcesSection(context, _playInfo!),
                       const SizedBox(height: 12),
                       _playButton(
                         context,
@@ -1184,14 +1256,16 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                       ),
                       const SizedBox(height: 16),
                       if (_detail?.people.isNotEmpty == true)
-                        _peopleSection(context, _detail!.people, widget.appState),
+                        _peopleSection(
+                            context, _detail!.people, widget.appState),
                       if (_playInfo != null) ...[
                         const SizedBox(height: 16),
                         _mediaInfo(context, _playInfo!),
                       ],
                       if (_chapters.isNotEmpty) ...[
                         const SizedBox(height: 16),
-                        Text('章节', style: Theme.of(context).textTheme.titleMedium),
+                        Text('章节',
+                            style: Theme.of(context).textTheme.titleMedium),
                         const SizedBox(height: 8),
                         Wrap(
                           spacing: 8,
@@ -1283,7 +1357,8 @@ Widget _pill(BuildContext context, String text) => Container(
       child: Text(text, style: const TextStyle(color: Colors.white)),
     );
 
-Widget _playButton(BuildContext context, {required String label, required VoidCallback onTap}) {
+Widget _playButton(BuildContext context,
+    {required String label, required VoidCallback onTap}) {
   return GestureDetector(
     onTap: onTap,
     child: Container(
@@ -1297,7 +1372,8 @@ Widget _playButton(BuildContext context, {required String label, required VoidCa
         mainAxisAlignment: MainAxisAlignment.center,
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.play_arrow, color: Theme.of(context).colorScheme.onPrimaryContainer),
+          Icon(Icons.play_arrow,
+              color: Theme.of(context).colorScheme.onPrimaryContainer),
           const SizedBox(width: 6),
           Text(label,
               style: TextStyle(
@@ -1310,7 +1386,8 @@ Widget _playButton(BuildContext context, {required String label, required VoidCa
   );
 }
 
-Widget _peopleSection(BuildContext context, List<MediaPerson> people, AppState appState) {
+Widget _peopleSection(
+    BuildContext context, List<MediaPerson> people, AppState appState) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -1336,7 +1413,9 @@ Widget _peopleSection(BuildContext context, List<MediaPerson> people, AppState a
                   radius: 42,
                   backgroundImage: img.isNotEmpty ? NetworkImage(img) : null,
                   backgroundColor: Colors.white24,
-                  child: img.isEmpty ? Text(p.name.isNotEmpty ? p.name[0] : '?') : null,
+                  child: img.isEmpty
+                      ? Text(p.name.isNotEmpty ? p.name[0] : '?')
+                      : null,
                 ),
                 const SizedBox(height: 6),
                 Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
@@ -1378,8 +1457,14 @@ Widget _mediaSourcesSection(BuildContext context, PlaybackInfoResult info) {
 Widget _mediaInfo(BuildContext context, PlaybackInfoResult info) {
   final map = info.mediaSources.first as Map<String, dynamic>;
   final streams = (map['MediaStreams'] as List?) ?? [];
-  final video = streams.where((e) => (e as Map)['Type'] == 'Video').map((e) => e as Map).toList();
-  final audio = streams.where((e) => (e as Map)['Type'] == 'Audio').map((e) => e as Map).toList();
+  final video = streams
+      .where((e) => (e as Map)['Type'] == 'Video')
+      .map((e) => e as Map)
+      .toList();
+  final audio = streams
+      .where((e) => (e as Map)['Type'] == 'Audio')
+      .map((e) => e as Map)
+      .toList();
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -1389,8 +1474,16 @@ Widget _mediaInfo(BuildContext context, PlaybackInfoResult info) {
         spacing: 12,
         runSpacing: 12,
         children: [
-          _infoCard('视频', video.map((v) => '${v['DisplayTitle'] ?? ''}\n${v['Codec'] ?? ''}').join('\n')),
-          _infoCard('音频', audio.map((a) => '${a['DisplayTitle'] ?? ''}\n${a['Codec'] ?? ''}').join('\n')),
+          _infoCard(
+              '视频',
+              video
+                  .map((v) => '${v['DisplayTitle'] ?? ''}\n${v['Codec'] ?? ''}')
+                  .join('\n')),
+          _infoCard(
+              '音频',
+              audio
+                  .map((a) => '${a['DisplayTitle'] ?? ''}\n${a['Codec'] ?? ''}')
+                  .join('\n')),
         ],
       ),
     ],
@@ -1414,9 +1507,11 @@ Widget _infoCard(String title, String body) => SizedBox(
       ),
     );
 
-Widget _externalLinksSection(BuildContext context, MediaItem item, AppState appState) {
+Widget _externalLinksSection(
+    BuildContext context, MediaItem item, AppState appState) {
   final tmdbId = item.providerIds.entries
-      .firstWhere((e) => e.key.toLowerCase().contains('tmdb'), orElse: () => const MapEntry('', ''))
+      .firstWhere((e) => e.key.toLowerCase().contains('tmdb'),
+          orElse: () => const MapEntry('', ''))
       .value;
   if (tmdbId.isEmpty) return const SizedBox.shrink();
   final isSeries = item.type.toLowerCase() == 'series';

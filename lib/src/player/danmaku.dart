@@ -41,6 +41,34 @@ class DanmakuParser {
     return items;
   }
 
+  static List<DanmakuItem> parseDandanplayComments(
+    List<Map<String, dynamic>> comments, {
+    double shiftSeconds = 0,
+  }) {
+    final items = <DanmakuItem>[];
+    for (final c in comments) {
+      final p = c['p'] as String?;
+      final rawText = c['m'] as String?;
+      if (p == null || rawText == null) continue;
+      final parts = p.split(',');
+      if (parts.isEmpty) continue;
+      final sec = double.tryParse(parts.first);
+      if (sec == null || sec.isNaN || sec.isInfinite) continue;
+      final shifted = sec + shiftSeconds;
+      if (shifted < 0) continue;
+      final text = _unescapeXmlText(rawText).trim();
+      if (text.isEmpty) continue;
+      items.add(
+        DanmakuItem(
+          time: Duration(milliseconds: (shifted * 1000).round()),
+          text: text,
+        ),
+      );
+    }
+    items.sort((a, b) => a.time.compareTo(b.time));
+    return items;
+  }
+
   static int lowerBoundByTime(List<DanmakuItem> items, Duration time) {
     var lo = 0;
     var hi = items.length;
@@ -66,15 +94,14 @@ class DanmakuParser {
         .replaceAll('&#39;', "'")
         .replaceAll('&#34;', '"')
         .replaceAllMapped(RegExp(r'&#(\\d+);'), (m) {
-          final n = int.tryParse(m.group(1) ?? '');
-          if (n == null) return m.group(0) ?? '';
-          return String.fromCharCode(n);
-        })
-        .replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
-          final n = int.tryParse(m.group(1) ?? '', radix: 16);
-          if (n == null) return m.group(0) ?? '';
-          return String.fromCharCode(n);
-        });
+      final n = int.tryParse(m.group(1) ?? '');
+      if (n == null) return m.group(0) ?? '';
+      return String.fromCharCode(n);
+    }).replaceAllMapped(RegExp(r'&#x([0-9a-fA-F]+);'), (m) {
+      final n = int.tryParse(m.group(1) ?? '', radix: 16);
+      if (n == null) return m.group(0) ?? '';
+      return String.fromCharCode(n);
+    });
   }
 
   static String decodeBytes(List<int> bytes) {
@@ -86,4 +113,3 @@ class DanmakuParser {
     }
   }
 }
-

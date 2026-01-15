@@ -10,9 +10,9 @@ class AppTheme {
     Color seed = _defaultSeed,
     Color secondarySeed = _defaultSecondarySeed,
   }) {
-    final scheme =
-        (dynamicScheme ?? ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light))
-            .copyWith(secondary: secondarySeed);
+    final scheme = (dynamicScheme ??
+            ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.light))
+        .copyWith(secondary: secondarySeed);
     return _build(scheme);
   }
 
@@ -21,9 +21,9 @@ class AppTheme {
     Color seed = _defaultSeed,
     Color secondarySeed = _defaultSecondarySeed,
   }) {
-    final scheme =
-        (dynamicScheme ?? ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark))
-            .copyWith(secondary: secondarySeed);
+    final scheme = (dynamicScheme ??
+            ColorScheme.fromSeed(seedColor: seed, brightness: Brightness.dark))
+        .copyWith(secondary: secondarySeed);
     return _build(scheme);
   }
 
@@ -70,7 +70,8 @@ class AppTheme {
         surfaceTintColor: Colors.transparent,
         elevation: 0,
         toolbarHeight: 48,
-        titleTextStyle: textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
+        titleTextStyle:
+            textTheme.titleMedium?.copyWith(fontWeight: FontWeight.w700),
       ),
       navigationBarTheme: base.navigationBarTheme.copyWith(
         backgroundColor: scheme.surfaceContainerHigh,
@@ -99,8 +100,10 @@ class AppTheme {
       inputDecorationTheme: base.inputDecorationTheme.copyWith(
         filled: true,
         fillColor: scheme.surfaceContainerHigh,
-        border: OutlineInputBorder(borderRadius: radius, borderSide: BorderSide.none),
-        contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+        border: OutlineInputBorder(
+            borderRadius: radius, borderSide: BorderSide.none),
+        contentPadding:
+            const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
       ),
       floatingActionButtonTheme: base.floatingActionButtonTheme.copyWith(
         backgroundColor: scheme.primary,
