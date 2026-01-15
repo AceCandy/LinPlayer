@@ -158,7 +158,7 @@ class _DanmakuText extends StatelessWidget {
         fontSize: fontSize,
         color: Colors.white,
         fontWeight: bold ? FontWeight.w600 : FontWeight.w400,
-        shadows: [
+        shadows: const [
           Shadow(
             blurRadius: 4,
             offset: Offset(1, 1),

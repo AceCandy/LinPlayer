@@ -423,8 +423,9 @@ class EmbyApi {
     if (excludeFolders) {
       params.write('&Filters=IsNotFolder');
     }
-    if (includeItemTypes != null)
+    if (includeItemTypes != null) {
       params.write('&IncludeItemTypes=$includeItemTypes');
+    }
     if (sortBy != null && sortBy.isNotEmpty) {
       params.write('&SortBy=$sortBy&SortOrder=$sortOrder');
     }

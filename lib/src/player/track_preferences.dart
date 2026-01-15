@@ -68,7 +68,9 @@ bool matchesPreferredLanguage({
 
 AudioTrack? pickPreferredAudioTrack(Tracks tracks, String preference) {
   final pref = _norm(preference);
-  if (pref.isEmpty || pref == 'default') return null;
+  if (pref.isEmpty || pref == 'default') {
+    return null;
+  }
   for (final a in tracks.audio) {
     if (matchesPreferredLanguage(
         preference: pref, language: a.language, title: a.title)) {
@@ -80,8 +82,9 @@ AudioTrack? pickPreferredAudioTrack(Tracks tracks, String preference) {
 
 SubtitleTrack? pickPreferredSubtitleTrack(Tracks tracks, String preference) {
   final pref = _norm(preference);
-  if (pref.isEmpty || pref == 'default' || isSubtitleOffPreference(pref))
+  if (pref.isEmpty || pref == 'default' || isSubtitleOffPreference(pref)) {
     return null;
+  }
   for (final s in tracks.subtitle) {
     if (matchesPreferredLanguage(
         preference: pref, language: s.language, title: s.title)) {
