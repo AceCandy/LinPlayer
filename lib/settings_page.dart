@@ -1,11 +1,14 @@
 import 'dart:async';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import 'danmaku_settings_page.dart';
+import 'services/app_update_service.dart';
 import 'services/cover_cache_manager.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/frosted_card.dart';
@@ -30,6 +33,25 @@ class _SettingsPageState extends State<SettingsPage> {
   static const _subtitleOff = 'off';
   double? _mpvCacheDraftMb;
   double? _uiScaleDraft;
+  bool _checkingUpdate = false;
+  String _currentVersionFull = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _loadPackageInfo();
+  }
+
+  Future<void> _loadPackageInfo() async {
+    try {
+      final info = await PackageInfo.fromPlatform();
+      if (!mounted) return;
+      setState(() {
+        _currentVersionFull = AppUpdateService.packageVersionFull(info);
+      });
+    } catch (_) {
+    }
+  }
 
   bool _isTv(BuildContext context) =>
       defaultTargetPlatform == TargetPlatform.android &&
@@ -113,6 +135,197 @@ class _SettingsPageState extends State<SettingsPage> {
       builder: (_) => const _UnlimitedCoverCacheConfirmDialog(),
     );
     return ok == true;
+  }
+
+  Future<void> _checkUpdates(BuildContext context) async {
+    if (_checkingUpdate) return;
+    setState(() => _checkingUpdate = true);
+
+    try {
+      final svc = AppUpdateService();
+      final result = await svc.checkForUpdate();
+      if (!context.mounted) return;
+
+      final latest = (result.latestVersionFull ?? '').trim();
+      if (latest.isEmpty) {
+        final open = await showDialog<bool>(
+          context: context,
+          builder: (dctx) => AlertDialog(
+            title: const Text('检查更新'),
+            content: const Text('已获取到版本信息，但无法解析版本号。是否打开下载页面？'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dctx).pop(false),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () => Navigator.of(dctx).pop(true),
+                child: const Text('打开'),
+              ),
+            ],
+          ),
+        );
+        if (open == true && context.mounted) {
+          final url = result.release.htmlUrl.trim().isNotEmpty
+              ? result.release.htmlUrl.trim()
+              : _repoUrl;
+          final ok = await launchUrlString(url);
+          if (!ok && context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('无法打开链接，请检查系统浏览器/网络设置')),
+            );
+          }
+        }
+        return;
+      }
+
+      if (!result.hasUpdate) {
+        final current = result.currentVersionFull.trim();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              current.isEmpty ? '已经是最新版本' : '已经是最新版本（$current）',
+            ),
+          ),
+        );
+        return;
+      }
+
+      final current = result.currentVersionFull.trim();
+      final notes = result.release.body.trim();
+      final platform = AppUpdateService.currentPlatform;
+      final candidates = AppUpdateService.candidateAssetsForPlatform(
+        platform: platform,
+        assets: result.release.assets,
+      );
+
+      final confirmed = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: const Text('发现新版本'),
+          content: ConstrainedBox(
+            constraints: const BoxConstraints(maxHeight: 360),
+            child: SingleChildScrollView(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    current.isEmpty
+                        ? '最新版本：$latest'
+                        : '当前：$current  →  最新：$latest',
+                  ),
+                  if (notes.isNotEmpty) ...[
+                    const SizedBox(height: 12),
+                    Text(notes),
+                  ],
+                ],
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(true),
+              child: Text(
+                platform == AppUpdatePlatform.windows ? '下载并安装' : '去下载',
+              ),
+            ),
+          ],
+        ),
+      );
+      if (confirmed != true || !context.mounted) return;
+
+      if (platform == AppUpdatePlatform.windows) {
+        final asset = candidates.isNotEmpty ? candidates.first : null;
+        if (asset == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('未找到 Windows 安装包资源')),
+          );
+          return;
+        }
+
+        final error = await showDialog<String>(
+          context: context,
+          barrierDismissible: false,
+          builder: (_) => _UpdateProgressDialog(asset: asset),
+        );
+        if (error != null && context.mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('更新失败：$error')),
+          );
+        }
+        return;
+      }
+
+      final asset = await _pickAssetIfNeeded(context, candidates);
+      final url = asset?.browserDownloadUrl.trim().isNotEmpty == true
+          ? asset!.browserDownloadUrl.trim()
+          : (result.release.htmlUrl.trim().isNotEmpty
+              ? result.release.htmlUrl.trim()
+              : _repoUrl);
+      final ok = await launchUrlString(url);
+      if (!ok && context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法打开链接，请检查系统浏览器/网络设置')),
+        );
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('检查更新失败：$e')),
+      );
+    } finally {
+      if (mounted) {
+        setState(() => _checkingUpdate = false);
+      }
+    }
+  }
+
+  Future<GitHubReleaseAsset?> _pickAssetIfNeeded(
+    BuildContext context,
+    List<GitHubReleaseAsset> candidates,
+  ) async {
+    if (candidates.isEmpty) return null;
+    if (candidates.length == 1) return candidates.first;
+
+    String sizeLabel(int size) {
+      if (size <= 0) return '';
+      final mb = size / (1024 * 1024);
+      return '${mb.toStringAsFixed(1)} MB';
+    }
+
+    return showDialog<GitHubReleaseAsset>(
+      context: context,
+      builder: (dctx) => SimpleDialog(
+        title: const Text('选择下载包'),
+        children: [
+          ...candidates.map(
+            (a) => SimpleDialogOption(
+              onPressed: () => Navigator.of(dctx).pop(a),
+              child: Row(
+                children: [
+                  Expanded(child: Text(a.name)),
+                  const SizedBox(width: 8),
+                  Text(
+                    sizeLabel(a.size),
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+          SimpleDialogOption(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('取消'),
+          ),
+        ],
+      ),
+    );
   }
 
   @override
@@ -587,6 +800,26 @@ class _SettingsPageState extends State<SettingsPage> {
                         const Divider(height: 1),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.system_update_alt_outlined),
+                          title: const Text('检查更新'),
+                          subtitle: _currentVersionFull.trim().isEmpty
+                              ? null
+                              : Text('当前版本：${_currentVersionFull.trim()}'),
+                          trailing: _checkingUpdate
+                              ? const SizedBox(
+                                  width: 20,
+                                  height: 20,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.chevron_right),
+                          onTap: _checkingUpdate
+                              ? null
+                              : () => _checkUpdates(context),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.info_outline),
                           title: const Text('关于'),
                           subtitle: const Text(_repoUrl),
@@ -611,6 +844,78 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _UpdateProgressDialog extends StatefulWidget {
+  const _UpdateProgressDialog({required this.asset});
+
+  final GitHubReleaseAsset asset;
+
+  @override
+  State<_UpdateProgressDialog> createState() => _UpdateProgressDialogState();
+}
+
+class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
+  double? _progress;
+  String _status = '正在下载更新...';
+
+  @override
+  void initState() {
+    super.initState();
+    _start();
+  }
+
+  Future<void> _start() async {
+    final svc = AppUpdateService();
+    try {
+      final file = await svc.downloadAssetToTemp(
+        widget.asset,
+        onProgress: (received, total) {
+          if (!mounted) return;
+          if (total <= 0) {
+            setState(() => _progress = null);
+            return;
+          }
+          setState(() => _progress = received / total);
+        },
+      );
+      if (!mounted) return;
+      setState(() => _status = '正在启动安装程序（如弹出权限提示请允许）...');
+      await svc.startWindowsInstaller(file);
+      exit(0);
+    } catch (e) {
+      if (!mounted) return;
+      Navigator.of(context).pop(e.toString());
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    var progress = _progress;
+    if (progress != null) {
+      if (progress < 0) progress = 0;
+      if (progress > 1) progress = 1;
+    }
+
+    return AlertDialog(
+      title: const Text('正在更新'),
+      content: Column(
+        mainAxisSize: MainAxisSize.min,
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(_status),
+          const SizedBox(height: 16),
+          if (progress == null)
+            const Center(child: CircularProgressIndicator())
+          else ...[
+            LinearProgressIndicator(value: progress),
+            const SizedBox(height: 8),
+            Text('${(progress * 100).toStringAsFixed(0)}%'),
+          ],
+        ],
+      ),
     );
   }
 }
