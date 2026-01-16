@@ -127,10 +127,11 @@ class _SearchPageState extends State<SearchPage> {
         _results = const [];
       });
     } finally {
-      if (!mounted || seq != _searchSeq) return;
-      setState(() {
-        _loading = false;
-      });
+      if (mounted && seq == _searchSeq) {
+        setState(() {
+          _loading = false;
+        });
+      }
     }
   }
 
