@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
@@ -102,6 +104,15 @@ class _SettingsPageState extends State<SettingsPage> {
         ],
       ),
     );
+  }
+
+  Future<bool> _confirmEnableUnlimitedCoverCache(BuildContext context) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => const _UnlimitedCoverCacheConfirmDialog(),
+    );
+    return ok == true;
   }
 
   @override
@@ -506,6 +517,27 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                         ),
                         const Divider(height: 1),
+                        SwitchListTile(
+                          value: appState.unlimitedCoverCache,
+                          onChanged: (v) async {
+                            if (v) {
+                              final confirmed =
+                                  await _confirmEnableUnlimitedCoverCache(
+                                context,
+                              );
+                              if (!confirmed) return;
+                            }
+                            CoverCacheManager.setUnlimited(v);
+                            await appState.setUnlimitedCoverCache(v);
+                          },
+                          secondary: const Icon(Icons.all_inclusive),
+                          title: const Text('不限制封面缓存'),
+                          subtitle: const Text(
+                            '开启后封面/随机推荐图片将持续缓存，容易被误判为下载，请谨慎使用。',
+                          ),
+                          contentPadding: EdgeInsets.zero,
+                        ),
+                        const Divider(height: 1),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.delete_outline),
@@ -579,6 +611,65 @@ class _SettingsPageState extends State<SettingsPage> {
           ),
         );
       },
+    );
+  }
+}
+
+class _UnlimitedCoverCacheConfirmDialog extends StatefulWidget {
+  const _UnlimitedCoverCacheConfirmDialog();
+
+  @override
+  State<_UnlimitedCoverCacheConfirmDialog> createState() =>
+      _UnlimitedCoverCacheConfirmDialogState();
+}
+
+class _UnlimitedCoverCacheConfirmDialogState
+    extends State<_UnlimitedCoverCacheConfirmDialog> {
+  static const _waitSeconds = 3;
+  int _remaining = _waitSeconds;
+  Timer? _timer;
+
+  @override
+  void initState() {
+    super.initState();
+    _timer = Timer.periodic(const Duration(seconds: 1), (timer) {
+      if (!mounted) return;
+      setState(() {
+        _remaining -= 1;
+        if (_remaining <= 0) {
+          _remaining = 0;
+          timer.cancel();
+        }
+      });
+    });
+  }
+
+  @override
+  void dispose() {
+    _timer?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final canConfirm = _remaining == 0;
+    return AlertDialog(
+      title: const Text('开启不限制缓存？'),
+      content: const Text(
+        '开启后将会一直缓存到结束，容易被误判为下载。\n'
+        '注意使用。\n\n'
+        '等待 3 秒后「确定」按钮才可以点击。',
+      ),
+      actions: [
+        TextButton(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: const Text('取消'),
+        ),
+        FilledButton(
+          onPressed: canConfirm ? () => Navigator.of(context).pop(true) : null,
+          child: Text(canConfirm ? '确定' : '确定（$_remaining）'),
+        ),
+      ],
     );
   }
 }

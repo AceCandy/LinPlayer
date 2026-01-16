@@ -620,25 +620,15 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
     super.dispose();
   }
 
-  Future<List<MediaItem>> _fetch() async {
+  Future<List<MediaItem>> _fetch({bool forceRefresh = false}) async {
     final baseUrl = widget.appState.baseUrl;
     final token = widget.appState.token;
     final userId = widget.appState.userId;
     if (baseUrl == null || token == null || userId == null) return const [];
 
-    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
-    // Fetch a few more to increase the chance of getting items with artwork.
-    final res = await api.fetchRandomRecommendations(
-      token: token,
-      baseUrl: baseUrl,
-      userId: userId,
-      limit: 12,
+    final picked = await widget.appState.loadRandomRecommendations(
+      forceRefresh: forceRefresh,
     );
-
-    final withArtwork = res.items.where((e) => e.hasImage).toList();
-    final picked = withArtwork.length >= 6
-        ? withArtwork.take(6).toList()
-        : res.items.take(6).toList();
 
     // Pre-cache banner images to avoid reloading when swiping back & forth.
     final urls = <String>{};
@@ -694,7 +684,7 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
     _lastImageUrls = <String>{};
     setState(() {
       _page = 0;
-      _future = _fetch();
+      _future = _fetch(forceRefresh: true);
     });
     if (_controller.hasClients) _controller.jumpToPage(0);
   }

@@ -22,6 +22,7 @@ class AppState extends ChangeNotifier {
   static const _kAppIconIdKey = 'appIconId_v1';
   static const _kServerListLayoutKey = 'serverListLayout_v1';
   static const _kMpvCacheSizeMbKey = 'mpvCacheSizeMb_v1';
+  static const _kUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
   static const _kEnableBlurEffectsKey = 'enableBlurEffects_v1';
   static const _kExternalMpvPathKey = 'externalMpvPath_v1';
   static const _kDanmakuEnabledKey = 'danmakuEnabled_v1';
@@ -43,6 +44,8 @@ class AppState extends ChangeNotifier {
   final Map<String, List<MediaItem>> _itemsCache = {};
   final Map<String, int> _itemsTotal = {};
   final Map<String, List<MediaItem>> _homeSections = {};
+  List<MediaItem>? _randomRecommendations;
+  Future<List<MediaItem>>? _randomRecommendationsInFlight;
   late final String _deviceId = _randomId();
   ThemeMode _themeMode = ThemeMode.system;
   double _uiScaleFactor = 1.0;
@@ -56,6 +59,7 @@ class AppState extends ChangeNotifier {
   String _appIconId = 'default';
   ServerListLayout _serverListLayout = ServerListLayout.grid;
   int _mpvCacheSizeMb = 500;
+  bool _unlimitedCoverCache = false;
   bool _enableBlurEffects = true;
   String _externalMpvPath = '';
   bool _danmakuEnabled = true;
@@ -108,6 +112,7 @@ class AppState extends ChangeNotifier {
   String get appIconId => _appIconId;
   ServerListLayout get serverListLayout => _serverListLayout;
   int get mpvCacheSizeMb => _mpvCacheSizeMb;
+  bool get unlimitedCoverCache => _unlimitedCoverCache;
   bool get enableBlurEffects => _enableBlurEffects;
   String get externalMpvPath => _externalMpvPath;
   bool get danmakuEnabled => _danmakuEnabled;
@@ -166,6 +171,7 @@ class AppState extends ChangeNotifier {
       _mpvCacheSizeMb = _mpvCacheSizeMb.clamp(200, 2048);
       await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
     }
+    _unlimitedCoverCache = prefs.getBool(_kUnlimitedCoverCacheKey) ?? false;
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _externalMpvPath = prefs.getString(_kExternalMpvPathKey) ?? '';
 
@@ -250,6 +256,8 @@ class AppState extends ChangeNotifier {
     _itemsCache.clear();
     _itemsTotal.clear();
     _homeSections.clear();
+    _randomRecommendations = null;
+    _randomRecommendationsInFlight = null;
     final prefs = await SharedPreferences.getInstance();
     await prefs.remove(_kActiveServerIdKey);
     notifyListeners();
@@ -328,6 +336,8 @@ class AppState extends ChangeNotifier {
       _itemsCache.clear();
       _itemsTotal.clear();
       _homeSections.clear();
+      _randomRecommendations = null;
+      _randomRecommendationsInFlight = null;
 
       final prefs = await SharedPreferences.getInstance();
       await _persistServers(prefs);
@@ -351,6 +361,8 @@ class AppState extends ChangeNotifier {
       _itemsCache.clear();
       _itemsTotal.clear();
       _homeSections.clear();
+      _randomRecommendations = null;
+      _randomRecommendationsInFlight = null;
       _error = null;
 
       final prefs = await SharedPreferences.getInstance();
@@ -425,6 +437,8 @@ class AppState extends ChangeNotifier {
       _itemsCache.clear();
       _itemsTotal.clear();
       _homeSections.clear();
+      _randomRecommendations = null;
+      _randomRecommendationsInFlight = null;
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -501,6 +515,46 @@ class AppState extends ChangeNotifier {
       ..clear()
       ..addAll(libraryShows);
     notifyListeners();
+  }
+
+  Future<List<MediaItem>> loadRandomRecommendations({
+    bool forceRefresh = false,
+  }) {
+    if (!forceRefresh) {
+      final cached = _randomRecommendations;
+      if (cached != null) return Future.value(cached);
+      final inFlight = _randomRecommendationsInFlight;
+      if (inFlight != null) return inFlight;
+    }
+
+    final future = _fetchRandomRecommendations();
+    _randomRecommendationsInFlight = future;
+    return future.then((items) {
+      _randomRecommendations = items;
+      return items;
+    }).whenComplete(() {
+      if (_randomRecommendationsInFlight == future) {
+        _randomRecommendationsInFlight = null;
+      }
+    });
+  }
+
+  Future<List<MediaItem>> _fetchRandomRecommendations() async {
+    if (baseUrl == null || token == null || userId == null) return const [];
+
+    final api = EmbyApi(hostOrUrl: baseUrl!, preferredScheme: 'https');
+    // Fetch a few more to increase the chance of getting items with artwork.
+    final res = await api.fetchRandomRecommendations(
+      token: token!,
+      baseUrl: baseUrl!,
+      userId: userId!,
+      limit: 12,
+    );
+
+    final withArtwork = res.items.where((e) => e.hasImage).toList();
+    return withArtwork.length >= 6
+        ? withArtwork.take(6).toList()
+        : res.items.take(6).toList();
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -722,6 +776,14 @@ class AppState extends ChangeNotifier {
     _mpvCacheSizeMb = v;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
+    notifyListeners();
+  }
+
+  Future<void> setUnlimitedCoverCache(bool enabled) async {
+    if (_unlimitedCoverCache == enabled) return;
+    _unlimitedCoverCache = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kUnlimitedCoverCacheKey, enabled);
     notifyListeners();
   }
 
