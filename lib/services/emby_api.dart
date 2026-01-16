@@ -449,6 +449,25 @@ class EmbyApi {
     return PagedResult(items, total);
   }
 
+  Future<PagedResult<MediaItem>> fetchRandomRecommendations({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    int limit = 6,
+    String includeItemTypes = 'Movie,Series',
+  }) {
+    return fetchItems(
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
+      includeItemTypes: includeItemTypes,
+      limit: limit,
+      recursive: true,
+      sortBy: 'Random',
+      sortOrder: 'Ascending',
+    );
+  }
+
   Future<PagedResult<MediaItem>> fetchSeasons({
     required String token,
     required String baseUrl,

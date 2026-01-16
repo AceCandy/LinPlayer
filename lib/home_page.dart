@@ -530,6 +530,8 @@ class _HomeBody extends StatelessWidget {
       child: ListView(
         padding: const EdgeInsets.only(bottom: 16),
         children: [
+          const SizedBox(height: 8),
+          _RandomRecommendSection(appState: appState, isTv: isTv),
           if (showSearchBar) ...[
             const SizedBox(height: 8),
             Padding(
@@ -591,6 +593,318 @@ class _HomeBody extends StatelessWidget {
             ),
         ],
       ),
+    );
+  }
+}
+
+class _RandomRecommendSection extends StatefulWidget {
+  const _RandomRecommendSection({required this.appState, required this.isTv});
+
+  final AppState appState;
+  final bool isTv;
+
+  @override
+  State<_RandomRecommendSection> createState() =>
+      _RandomRecommendSectionState();
+}
+
+class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
+  final PageController _controller = PageController();
+  Future<List<MediaItem>>? _future;
+  int _page = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _fetch();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  Future<List<MediaItem>> _fetch() async {
+    final baseUrl = widget.appState.baseUrl;
+    final token = widget.appState.token;
+    final userId = widget.appState.userId;
+    if (baseUrl == null || token == null || userId == null) return const [];
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
+    // Fetch a few more to increase the chance of getting items with artwork.
+    final res = await api.fetchRandomRecommendations(
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
+      limit: 12,
+    );
+
+    final withArtwork = res.items.where((e) => e.hasImage).toList();
+    if (withArtwork.length >= 6) return withArtwork.take(6).toList();
+    return res.items.take(6).toList();
+  }
+
+  void _reload() {
+    setState(() {
+      _page = 0;
+      _future = _fetch();
+    });
+    if (_controller.hasClients) _controller.jumpToPage(0);
+  }
+
+  String _yearOf(MediaItem item) {
+    final d = (item.premiereDate ?? '').trim();
+    if (d.isEmpty) return '';
+    final parsed = DateTime.tryParse(d);
+    if (parsed != null) return parsed.year.toString();
+    return d.length >= 4 ? d.substring(0, 4) : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FutureBuilder<List<MediaItem>>(
+      future: _future,
+      builder: (context, snap) {
+        final items = snap.data ?? const <MediaItem>[];
+        final loading = snap.connectionState == ConnectionState.waiting;
+        final theme = Theme.of(context);
+
+        if (!loading && snap.hasError && items.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '随机推荐加载失败',
+                    style: theme.textTheme.bodyMedium?.copyWith(
+                      color: theme.colorScheme.onSurfaceVariant,
+                    ),
+                  ),
+                ),
+                TextButton.icon(
+                  onPressed: _reload,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重试'),
+                ),
+              ],
+            ),
+          );
+        }
+
+        // Keep a lightweight placeholder so the top of the page doesn't jump.
+        if (loading && items.isEmpty) {
+          return Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(16),
+                child: ColoredBox(
+                  color: theme.colorScheme.surfaceContainerHighest,
+                  child: const Center(
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
+          );
+        }
+
+        if (items.isEmpty) return const SizedBox.shrink();
+
+        final baseUrl = widget.appState.baseUrl!;
+        final token = widget.appState.token!;
+
+        Widget bannerImage(MediaItem item) {
+          final backdrop = EmbyApi.imageUrl(
+            baseUrl: baseUrl,
+            itemId: item.id,
+            token: token,
+            imageType: 'Backdrop',
+            maxWidth: 1280,
+          );
+          final primary = EmbyApi.imageUrl(
+            baseUrl: baseUrl,
+            itemId: item.id,
+            token: token,
+            imageType: 'Primary',
+            maxWidth: 720,
+          );
+
+          Widget placeholder() => const ColoredBox(
+                color: Colors.black12,
+                child: Center(
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                ),
+              );
+
+          Widget broken() =>
+              const ColoredBox(color: Colors.black12, child: Icon(Icons.image));
+
+          return CachedNetworkImage(
+            imageUrl: backdrop,
+            httpHeaders: {'User-Agent': EmbyApi.userAgent},
+            fit: BoxFit.cover,
+            placeholder: (_, __) => placeholder(),
+            errorWidget: (_, __, ___) => CachedNetworkImage(
+              imageUrl: primary,
+              httpHeaders: {'User-Agent': EmbyApi.userAgent},
+              fit: BoxFit.cover,
+              placeholder: (_, __) => placeholder(),
+              errorWidget: (_, __, ___) => broken(),
+            ),
+          );
+        }
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '随机推荐',
+                      style: theme.textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '换一换',
+                    onPressed: loading ? null : _reload,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: AspectRatio(
+                aspectRatio: 16 / 9,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(16),
+                  child: PageView.builder(
+                    controller: _controller,
+                    itemCount: items.length,
+                    onPageChanged: (i) => setState(() => _page = i),
+                    itemBuilder: (context, index) {
+                      final item = items[index];
+                      final year = _yearOf(item);
+                      final rating = item.communityRating;
+
+                      return Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => ShowDetailPage(
+                                  itemId: item.id,
+                                  title: item.name,
+                                  appState: widget.appState,
+                                  isTv: widget.isTv,
+                                ),
+                              ),
+                            );
+                          },
+                          child: Stack(
+                            fit: StackFit.expand,
+                            children: [
+                              bannerImage(item),
+                              const DecoratedBox(
+                                decoration: BoxDecoration(
+                                  gradient: LinearGradient(
+                                    begin: Alignment.bottomCenter,
+                                    end: Alignment.center,
+                                    colors: [
+                                      Color(0xCC000000),
+                                      Color(0x33000000),
+                                      Colors.transparent,
+                                    ],
+                                  ),
+                                ),
+                              ),
+                              Positioned(
+                                left: 14,
+                                right: 14,
+                                bottom: 12,
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      item.name,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.titleMedium?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    const SizedBox(height: 4),
+                                    DefaultTextStyle(
+                                      style:
+                                          theme.textTheme.labelLarge?.copyWith(
+                                                color: Colors.white70,
+                                              ) ??
+                                              const TextStyle(
+                                                  color: Colors.white70),
+                                      child: Row(
+                                        children: [
+                                          if (rating != null) ...[
+                                            const Icon(Icons.star,
+                                                size: 16, color: Colors.amber),
+                                            const SizedBox(width: 4),
+                                            Text(rating.toStringAsFixed(1)),
+                                          ],
+                                          if (year.isNotEmpty) ...[
+                                            if (rating != null)
+                                              const SizedBox(width: 10),
+                                            Text(year),
+                                          ],
+                                        ],
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: List.generate(items.length, (i) {
+                final selected = i == _page;
+                final color = selected
+                    ? theme.colorScheme.primary
+                    : theme.colorScheme.onSurfaceVariant.withValues(alpha: 0.5);
+                return AnimatedContainer(
+                  duration: const Duration(milliseconds: 180),
+                  margin: const EdgeInsets.symmetric(horizontal: 3),
+                  width: selected ? 14 : 6,
+                  height: 6,
+                  decoration: BoxDecoration(
+                    color: color,
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                );
+              }),
+            ),
+            const SizedBox(height: 6),
+          ],
+        );
+      },
     );
   }
 }
