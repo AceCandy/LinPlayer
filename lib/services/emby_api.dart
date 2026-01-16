@@ -406,7 +406,7 @@ class EmbyApi {
     required String token,
     required String baseUrl,
     required String userId,
-    required String parentId,
+    String? parentId,
     int startIndex = 0,
     int limit = 30,
     String? includeItemTypes,
@@ -416,24 +416,27 @@ class EmbyApi {
     String? sortBy,
     String sortOrder = 'Descending',
   }) async {
-    final params = StringBuffer(
-        'ParentId=$parentId&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate');
-    params.write('&StartIndex=$startIndex&Limit=$limit');
-    params.write('&Recursive=$recursive');
+    final params = <String>[
+      if (parentId != null && parentId.isNotEmpty) 'ParentId=$parentId',
+      'Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate',
+      'StartIndex=$startIndex',
+      'Limit=$limit',
+      'Recursive=$recursive',
+    ];
     if (excludeFolders) {
-      params.write('&Filters=IsNotFolder');
+      params.add('Filters=IsNotFolder');
     }
     if (includeItemTypes != null) {
-      params.write('&IncludeItemTypes=$includeItemTypes');
+      params.add('IncludeItemTypes=$includeItemTypes');
     }
     if (sortBy != null && sortBy.isNotEmpty) {
-      params.write('&SortBy=$sortBy&SortOrder=$sortOrder');
+      params.addAll(['SortBy=$sortBy', 'SortOrder=$sortOrder']);
     }
     if (searchTerm != null && searchTerm.isNotEmpty) {
-      params.write('&SearchTerm=${Uri.encodeComponent(searchTerm)}');
+      params.add('SearchTerm=${Uri.encodeComponent(searchTerm)}');
     }
     final url =
-        Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.toString()}');
+        Uri.parse('$baseUrl/emby/Users/$userId/Items?${params.join('&')}');
     final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('拉取媒体列表失败（${resp.statusCode}）');

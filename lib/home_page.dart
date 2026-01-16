@@ -8,6 +8,7 @@ import 'library_page.dart';
 import 'library_items_page.dart';
 import 'player_screen.dart';
 import 'play_network_page.dart';
+import 'search_page.dart';
 import 'settings_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
@@ -21,92 +22,6 @@ class HomePage extends StatefulWidget {
 
   @override
   State<HomePage> createState() => _HomePageState();
-}
-
-class _GlobalSearchDelegate extends SearchDelegate<String> {
-  _GlobalSearchDelegate({required this.appState});
-  final AppState appState;
-  List<MediaItem> _results = [];
-  bool _loading = false;
-
-  Future<void> _doSearch(String q) async {
-    _loading = true;
-    try {
-      await appState.loadItems(
-        parentId: appState.userId ?? '',
-        searchTerm: q,
-        startIndex: 0,
-        includeItemTypes: null,
-      );
-      _results = appState.getItems(appState.userId ?? '');
-    } finally {
-      _loading = false;
-    }
-  }
-
-  @override
-  Widget buildResults(BuildContext context) {
-    if (_loading) {
-      return const Center(child: CircularProgressIndicator());
-    }
-    if (_results.isEmpty) {
-      return const Center(child: Text('没有结果'));
-    }
-    return ListView.builder(
-      itemCount: _results.length,
-      itemBuilder: (context, index) {
-        final item = _results[index];
-        return ListTile(
-          leading: const Icon(Icons.search),
-          title: Text(item.name),
-          subtitle: Text(item.type),
-          onTap: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => ShowDetailPage(
-                  itemId: item.id,
-                  title: item.name,
-                  appState: appState,
-                  isTv: false,
-                ),
-              ),
-            );
-          },
-        );
-      },
-    );
-  }
-
-  @override
-  Widget buildSuggestions(BuildContext context) => const SizedBox.shrink();
-
-  @override
-  List<Widget>? buildActions(BuildContext context) {
-    return [
-      IconButton(
-        icon: const Icon(Icons.clear),
-        onPressed: () {
-          query = '';
-          _results = [];
-          showSuggestions(context);
-        },
-      )
-    ];
-  }
-
-  @override
-  Widget? buildLeading(BuildContext context) {
-    return IconButton(
-      icon: const Icon(Icons.arrow_back),
-      onPressed: () => close(context, ''),
-    );
-  }
-
-  @override
-  void showResults(BuildContext context) {
-    // ignore: use_build_context_synchronously
-    _doSearch(query).then((_) => super.showResults(context));
-  }
 }
 
 class _HomePageState extends State<HomePage> {
@@ -524,14 +439,6 @@ class _HomePageState extends State<HomePage> {
             loading: _loading,
             onRefresh: _load,
             enableGlass: enableGlass,
-            onSearch: (q) {
-              if (q.trim().isEmpty) return;
-              showSearch(
-                context: context,
-                delegate: _GlobalSearchDelegate(appState: widget.appState)
-                  ..query = q.trim(),
-              );
-            },
             isTv: isTv,
             showSearchBar: true,
           ),
@@ -597,7 +504,6 @@ class _HomeBody extends StatelessWidget {
     required this.loading,
     required this.onRefresh,
     required this.enableGlass,
-    required this.onSearch,
     required this.isTv,
     required this.showSearchBar,
   });
@@ -606,7 +512,6 @@ class _HomeBody extends StatelessWidget {
   final bool loading;
   final Future<void> Function() onRefresh;
   final bool enableGlass;
-  final void Function(String) onSearch;
   final bool isTv;
   final bool showSearchBar;
 
@@ -630,12 +535,20 @@ class _HomeBody extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.symmetric(horizontal: 14),
               child: TextField(
+                readOnly: true,
+                showCursor: false,
+                enableInteractiveSelection: false,
                 decoration: const InputDecoration(
                   hintText: '搜索片名…',
                   prefixIcon: Icon(Icons.search),
                 ),
-                textInputAction: TextInputAction.search,
-                onSubmitted: onSearch,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => SearchPage(appState: appState),
+                    ),
+                  );
+                },
               ),
             ),
             const SizedBox(height: 8),
