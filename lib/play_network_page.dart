@@ -870,6 +870,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     } catch (_) {}
   }
 
+  String get _orientationTooltip => switch (_orientationMode) {
+        _OrientationMode.auto => 'Orientation: Auto',
+        _OrientationMode.landscape => 'Orientation: Landscape',
+        _OrientationMode.portrait => 'Orientation: Portrait',
+      };
+
+  IconData get _orientationIcon => switch (_orientationMode) {
+        _OrientationMode.auto => Icons.screen_rotation,
+        _OrientationMode.landscape => Icons.stay_current_landscape,
+        _OrientationMode.portrait => Icons.stay_current_portrait,
+      };
+
   Future<void> _cycleOrientationMode() async {
     final next = switch (_orientationMode) {
       _OrientationMode.auto => _OrientationMode.landscape,
@@ -880,6 +892,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       setState(() => _orientationMode = next);
     } else {
       _orientationMode = next;
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(_orientationTooltip),
+            duration: const Duration(milliseconds: 800),
+          ),
+        );
     }
     await _applyOrientationForMode(videoParams: _lastVideoParams);
   }
@@ -958,8 +980,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
             },
           ),
           IconButton(
-            tooltip: 'Rotate',
-            icon: const Icon(Icons.screen_rotation),
+            tooltip: _orientationTooltip,
+            icon: Icon(_orientationIcon),
             onPressed: _cycleOrientationMode,
           ),
         ],

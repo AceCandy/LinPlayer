@@ -5,6 +5,7 @@ import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
@@ -31,6 +32,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
   int _currentlyPlayingIndex = -1;
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<String>? _errorSub;
+  StreamSubscription<VideoParams>? _videoParamsSub;
+  VideoParams? _lastVideoParams;
+  _OrientationMode _orientationMode = _OrientationMode.auto;
+  String? _lastOrientationKey;
+  bool _isTvDevice = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   String? _playError;
@@ -69,6 +75,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _posSub?.cancel();
     _errorSub?.cancel();
+    _videoParamsSub?.cancel();
+    // ignore: unawaited_futures
+    _exitOrientationLock();
     _playerService.dispose();
     super.dispose();
   }
@@ -111,8 +120,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     });
     _danmakuKey.currentState?.clear();
     final isTv = _isTv(context);
+    _isTvDevice = isTv;
     await _errorSub?.cancel();
     _errorSub = null;
+    await _videoParamsSub?.cancel();
+    _videoParamsSub = null;
     try {
       await _playerService.dispose();
     } catch (_) {}
@@ -156,6 +168,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
       });
       _duration = _playerService.duration;
       _maybeAutoLoadOnlineDanmaku(file);
+      _videoParamsSub = _playerService.player.stream.videoParams.listen((p) {
+        _lastVideoParams = p;
+        // ignore: unawaited_futures
+        _applyOrientationForMode(videoParams: p);
+      });
+      _lastVideoParams = _playerService.player.state.videoParams;
+      // ignore: unawaited_futures
+      _applyOrientationForMode(videoParams: _lastVideoParams);
       _posSub?.cancel();
       _posSub = _playerService.player.stream.position.listen((d) {
         if (!mounted) return;
@@ -180,6 +200,108 @@ class _PlayerScreenState extends State<PlayerScreen> {
       setState(() => _playError = e.toString());
     }
     setState(() {});
+  }
+
+  bool get _shouldControlSystemUi {
+    if (kIsWeb) return false;
+    if (_isTvDevice) return false;
+    return Platform.isAndroid || Platform.isIOS;
+  }
+
+  double? _displayAspect(VideoParams p) {
+    var aspect = p.aspect;
+    if (aspect == null || aspect <= 0) {
+      final w = (p.dw ?? p.w)?.toDouble();
+      final h = (p.dh ?? p.h)?.toDouble();
+      if (w != null && h != null && w > 0 && h > 0) {
+        aspect = w / h;
+      }
+    }
+    final rotate = (p.rotate ?? 0) % 180;
+    if (rotate != 0 && aspect != null && aspect != 0) {
+      aspect = 1 / aspect;
+    }
+    if (aspect == null || aspect <= 0) return null;
+    return aspect;
+  }
+
+  Future<void> _applyOrientationForMode({VideoParams? videoParams}) async {
+    if (!_shouldControlSystemUi) return;
+
+    List<DeviceOrientation>? orientations;
+    switch (_orientationMode) {
+      case _OrientationMode.landscape:
+        orientations = const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ];
+        break;
+      case _OrientationMode.portrait:
+        orientations = const [DeviceOrientation.portraitUp];
+        break;
+      case _OrientationMode.auto:
+        final p = videoParams;
+        if (p == null) return;
+        final aspect = _displayAspect(p);
+        if (aspect == null) return;
+        orientations = aspect < 1.0
+            ? const [DeviceOrientation.portraitUp]
+            : const [
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ];
+        break;
+    }
+
+    final key = orientations.map((o) => o.name).join(',');
+    if (_lastOrientationKey == key) return;
+    _lastOrientationKey = key;
+    try {
+      await SystemChrome.setPreferredOrientations(orientations);
+    } catch (_) {}
+  }
+
+  Future<void> _exitOrientationLock() async {
+    if (!_shouldControlSystemUi) return;
+    try {
+      await SystemChrome.setPreferredOrientations(const []);
+    } catch (_) {}
+  }
+
+  String get _orientationTooltip => switch (_orientationMode) {
+        _OrientationMode.auto => 'Orientation: Auto',
+        _OrientationMode.landscape => 'Orientation: Landscape',
+        _OrientationMode.portrait => 'Orientation: Portrait',
+      };
+
+  IconData get _orientationIcon => switch (_orientationMode) {
+        _OrientationMode.auto => Icons.screen_rotation,
+        _OrientationMode.landscape => Icons.stay_current_landscape,
+        _OrientationMode.portrait => Icons.stay_current_portrait,
+      };
+
+  Future<void> _cycleOrientationMode() async {
+    final next = switch (_orientationMode) {
+      _OrientationMode.auto => _OrientationMode.landscape,
+      _OrientationMode.landscape => _OrientationMode.portrait,
+      _OrientationMode.portrait => _OrientationMode.auto,
+    };
+    if (mounted) {
+      setState(() => _orientationMode = next);
+    } else {
+      _orientationMode = next;
+    }
+    if (mounted) {
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(_orientationTooltip),
+            duration: const Duration(milliseconds: 800),
+          ),
+        );
+    }
+    await _applyOrientationForMode(videoParams: _lastVideoParams);
   }
 
   Future<String> _computeFileHash16M(String path) async {
@@ -542,6 +664,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         ? _playlist[_currentlyPlayingIndex].name
         : 'LinPlayer';
 
+    _isTvDevice = _isTv(context);
+
     return Scaffold(
       appBar: AppBar(
         title: Text(currentFileName),
@@ -597,6 +721,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     _playlist[_currentlyPlayingIndex], _currentlyPlayingIndex);
               }
             },
+          ),
+          IconButton(
+            tooltip: _orientationTooltip,
+            icon: Icon(_orientationIcon),
+            onPressed: _cycleOrientationMode,
           ),
           IconButton(
             icon: const Icon(Icons.folder_open),
@@ -763,3 +892,5 @@ class _PlayerScreenState extends State<PlayerScreen> {
     );
   }
 }
+
+enum _OrientationMode { auto, landscape, portrait }
