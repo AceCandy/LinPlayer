@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
 import 'package:cached_network_image/cached_network_image.dart';
 
+import 'services/cover_cache_manager.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'library_items_page.dart';
@@ -106,6 +107,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                     borderRadius: BorderRadius.circular(12),
                                     child: CachedNetworkImage(
                                       imageUrl: imageUrl,
+                                      cacheManager: CoverCacheManager.instance,
                                       httpHeaders: {
                                         'User-Agent': EmbyApi.userAgent
                                       },

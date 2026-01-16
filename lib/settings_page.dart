@@ -4,6 +4,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import 'danmaku_settings_page.dart';
+import 'services/cover_cache_manager.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/frosted_card.dart';
 import 'src/ui/glass_background.dart';
@@ -22,6 +23,7 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   static const _donateUrl = 'https://afdian.com/a/zzzwannasleep';
+  static const _repoUrl = 'https://github.com/zzzwannasleep/LinPlayer';
   static const _customSentinel = '__custom__';
   static const _subtitleOff = 'off';
   double? _mpvCacheDraftMb;
@@ -504,11 +506,69 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                         ),
                         const Divider(height: 1),
-                        const ListTile(
+                        ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: Icon(Icons.info_outline),
-                          title: Text('关于'),
-                          subtitle: Text('LinPlayer'),
+                          leading: const Icon(Icons.delete_outline),
+                          title: const Text('清理封面缓存'),
+                          subtitle: const Text('删除本地缓存的封面/随机推荐图片'),
+                          onTap: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dctx) => AlertDialog(
+                                title: const Text('清理封面缓存'),
+                                content: const Text(
+                                  '将删除已缓存的封面/随机推荐图片，下次展示时会重新下载。',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(dctx).pop(false),
+                                    child: const Text('取消'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () => Navigator.of(dctx).pop(
+                                      true,
+                                    ),
+                                    child: const Text('清理'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed != true) return;
+                            try {
+                              await CoverCacheManager.instance.emptyCache();
+                              PaintingBinding.instance.imageCache.clear();
+                              PaintingBinding.instance.imageCache
+                                  .clearLiveImages();
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('已清理封面缓存')),
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('清理失败：$e')),
+                              );
+                            }
+                          },
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.info_outline),
+                          title: const Text('关于'),
+                          subtitle: const Text(_repoUrl),
+                          trailing: const Icon(Icons.open_in_new),
+                          onTap: () async {
+                            final ok = await launchUrlString(_repoUrl);
+                            if (!ok && context.mounted) {
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(
+                                  content: Text('无法打开链接，请检查系统浏览器/网络设置'),
+                                ),
+                              );
+                            }
+                          },
                         ),
                       ],
                     ),

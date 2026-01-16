@@ -1,5 +1,3 @@
-import 'dart:ui';
-
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
@@ -10,9 +8,11 @@ import 'player_screen.dart';
 import 'play_network_page.dart';
 import 'search_page.dart';
 import 'settings_page.dart';
+import 'services/cover_cache_manager.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'show_detail_page.dart';
+import 'src/ui/rating_badge.dart';
 import 'src/ui/theme_sheet.dart';
 
 class HomePage extends StatefulWidget {
@@ -432,13 +432,11 @@ class _HomePageState extends State<HomePage> {
       animation: widget.appState,
       builder: (context, _) {
         final isTv = _isTv(context);
-        final enableGlass = !isTv && widget.appState.enableBlurEffects;
         final pages = [
           _HomeBody(
             appState: widget.appState,
             loading: _loading,
             onRefresh: _load,
-            enableGlass: enableGlass,
             isTv: isTv,
             showSearchBar: true,
           ),
@@ -503,7 +501,6 @@ class _HomeBody extends StatelessWidget {
     required this.appState,
     required this.loading,
     required this.onRefresh,
-    required this.enableGlass,
     required this.isTv,
     required this.showSearchBar,
   });
@@ -511,7 +508,6 @@ class _HomeBody extends StatelessWidget {
   final AppState appState;
   final bool loading;
   final Future<void> Function() onRefresh;
-  final bool enableGlass;
   final bool isTv;
   final bool showSearchBar;
 
@@ -580,7 +576,6 @@ class _HomeBody extends StatelessWidget {
               _HomeSectionCarousel(
                 items: sec.items,
                 appState: appState,
-                enableGlass: enableGlass,
                 isTv: isTv,
               ),
             ] else
@@ -611,6 +606,7 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
   final PageController _controller = PageController();
   Future<List<MediaItem>>? _future;
   int _page = 0;
+  Set<String> _lastImageUrls = <String>{};
 
   @override
   void initState() {
@@ -640,11 +636,62 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
     );
 
     final withArtwork = res.items.where((e) => e.hasImage).toList();
-    if (withArtwork.length >= 6) return withArtwork.take(6).toList();
-    return res.items.take(6).toList();
+    final picked = withArtwork.length >= 6
+        ? withArtwork.take(6).toList()
+        : res.items.take(6).toList();
+
+    // Pre-cache banner images to avoid reloading when swiping back & forth.
+    final urls = <String>{};
+    for (final item in picked) {
+      urls.add(
+        EmbyApi.imageUrl(
+          baseUrl: baseUrl,
+          itemId: item.id,
+          token: token,
+          imageType: 'Backdrop',
+          maxWidth: 1280,
+        ),
+      );
+      urls.add(
+        EmbyApi.imageUrl(
+          baseUrl: baseUrl,
+          itemId: item.id,
+          token: token,
+          imageType: 'Primary',
+          maxWidth: 720,
+        ),
+      );
+    }
+    _lastImageUrls = urls;
+    if (!mounted) return picked;
+    for (final url in urls) {
+      // ignore: unawaited_futures
+      precacheImage(
+        CachedNetworkImageProvider(
+          url,
+          cacheManager: CoverCacheManager.instance,
+          headers: {'User-Agent': EmbyApi.userAgent},
+        ),
+        context,
+      );
+    }
+
+    return picked;
   }
 
   void _reload() {
+    for (final url in _lastImageUrls) {
+      // ignore: unawaited_futures
+      CoverCacheManager.instance.removeFile(url);
+      PaintingBinding.instance.imageCache.evict(
+        CachedNetworkImageProvider(
+          url,
+          cacheManager: CoverCacheManager.instance,
+          headers: {'User-Agent': EmbyApi.userAgent},
+        ),
+      );
+    }
+    _lastImageUrls = <String>{};
     setState(() {
       _page = 0;
       _future = _fetch();
@@ -749,11 +796,13 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
 
           return CachedNetworkImage(
             imageUrl: backdrop,
+            cacheManager: CoverCacheManager.instance,
             httpHeaders: {'User-Agent': EmbyApi.userAgent},
             fit: BoxFit.cover,
             placeholder: (_, __) => placeholder(),
             errorWidget: (_, __, ___) => CachedNetworkImage(
               imageUrl: primary,
+              cacheManager: CoverCacheManager.instance,
               httpHeaders: {'User-Agent': EmbyApi.userAgent},
               fit: BoxFit.cover,
               placeholder: (_, __) => placeholder(),
@@ -1047,13 +1096,11 @@ class _HomeSectionCarousel extends StatelessWidget {
   const _HomeSectionCarousel({
     required this.items,
     required this.appState,
-    required this.enableGlass,
     required this.isTv,
   });
 
   final List<MediaItem> items;
   final AppState appState;
-  final bool enableGlass;
   final bool isTv;
 
   static const _maxItems = 12;
@@ -1090,7 +1137,6 @@ class _HomeSectionCarousel extends StatelessWidget {
                   child: _HomeCard(
                     item: item,
                     appState: appState,
-                    enableGlass: enableGlass,
                     isTv: isTv,
                     onTap: () {
                       final type = item.type.toLowerCase();
@@ -1133,107 +1179,102 @@ class _HomeCard extends StatelessWidget {
   const _HomeCard({
     required this.item,
     required this.appState,
-    required this.enableGlass,
     required this.isTv,
     required this.onTap,
   });
 
   final MediaItem item;
   final AppState appState;
-  final bool enableGlass;
   final bool isTv;
   final VoidCallback onTap;
 
+  String _yearOf() {
+    final d = (item.premiereDate ?? '').trim();
+    if (d.isEmpty) return '';
+    final parsed = DateTime.tryParse(d);
+    if (parsed != null) return parsed.year.toString();
+    return d.length >= 4 ? d.substring(0, 4) : '';
+  }
+
   @override
   Widget build(BuildContext context) {
+    final theme = Theme.of(context);
     final image = item.hasImage
         ? EmbyApi.imageUrl(
             baseUrl: appState.baseUrl!,
             itemId: item.id,
             token: appState.token!,
-            maxWidth: 240,
+            maxWidth: isTv ? 320 : 240,
           )
         : null;
 
-    final card = Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        AspectRatio(
-          aspectRatio: 2 / 3,
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(10),
-            child: image != null
-                ? CachedNetworkImage(
-                    imageUrl: image,
-                    httpHeaders: {'User-Agent': EmbyApi.userAgent},
-                    fit: BoxFit.cover,
-                    placeholder: (_, __) => const Center(
-                        child: CircularProgressIndicator(strokeWidth: 2)),
-                    errorWidget: (_, __, ___) => const ColoredBox(
-                        color: Colors.black12, child: Icon(Icons.broken_image)),
-                  )
-                : const ColoredBox(
-                    color: Colors.black12, child: Icon(Icons.image)),
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          item.name,
-          style: Theme.of(context)
-              .textTheme
-              .bodySmall
-              ?.copyWith(fontWeight: FontWeight.w600),
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-        ),
-      ],
-    );
+    final year = _yearOf();
+    final rating = item.communityRating;
 
     return InkWell(
-      borderRadius: BorderRadius.circular(12),
+      borderRadius: BorderRadius.circular(10),
       onTap: onTap,
-      child: enableGlass
-          ? ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: BackdropFilter(
-                filter: ImageFilter.blur(sigmaX: 14, sigmaY: 14),
-                child: Builder(
-                  builder: (context) {
-                    final scheme = Theme.of(context).colorScheme;
-                    final isDark = scheme.brightness == Brightness.dark;
-                    return Container(
-                      padding: const EdgeInsets.all(6),
-                      decoration: BoxDecoration(
-                        gradient: LinearGradient(
-                          begin: Alignment.topLeft,
-                          end: Alignment.bottomRight,
-                          colors: [
-                            scheme.surfaceContainerHigh
-                                .withValues(alpha: isDark ? 0.58 : 0.78),
-                            scheme.surfaceContainerHigh
-                                .withValues(alpha: isDark ? 0.42 : 0.68),
-                          ],
-                        ),
-                        border: Border.all(
-                          color: scheme.outlineVariant
-                              .withValues(alpha: isDark ? 0.38 : 0.7),
-                        ),
-                        borderRadius: BorderRadius.circular(12),
-                      ),
-                      child: card,
-                    );
-                  },
-                ),
-              ),
-            )
-          : Card(
-              shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12)),
-              child: Padding(
-                padding: const EdgeInsets.all(6),
-                child: card,
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.center,
+        children: [
+          AspectRatio(
+            aspectRatio: 2 / 3,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: Stack(
+                children: [
+                  Positioned.fill(
+                    child: image != null
+                        ? CachedNetworkImage(
+                            imageUrl: image,
+                            cacheManager: CoverCacheManager.instance,
+                            httpHeaders: {'User-Agent': EmbyApi.userAgent},
+                            fit: BoxFit.cover,
+                            placeholder: (_, __) =>
+                                const ColoredBox(color: Colors.black12),
+                            errorWidget: (_, __, ___) => const ColoredBox(
+                              color: Colors.black12,
+                              child: Icon(Icons.broken_image),
+                            ),
+                          )
+                        : const ColoredBox(
+                            color: Colors.black12, child: Icon(Icons.image)),
+                  ),
+                  if (rating != null)
+                    Positioned(
+                      left: 6,
+                      top: 6,
+                      child: RatingBadge(rating: rating),
+                    ),
+                ],
               ),
             ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            item.name,
+            style: theme.textTheme.bodySmall?.copyWith(
+              fontWeight: FontWeight.w600,
+            ),
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          if (year.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              year,
+              style: theme.textTheme.labelSmall?.copyWith(
+                color: theme.colorScheme.onSurfaceVariant,
+                fontWeight: FontWeight.w600,
+              ),
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
+        ],
+      ),
     );
   }
 }

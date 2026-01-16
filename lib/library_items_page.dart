@@ -2,9 +2,11 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'services/cover_cache_manager.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'show_detail_page.dart';
+import 'src/ui/rating_badge.dart';
 import 'src/ui/ui_scale.dart';
 
 class LibraryItemsPage extends StatefulWidget {
@@ -145,6 +147,14 @@ class _GridItem extends StatelessWidget {
   final bool isTv;
   final VoidCallback onTap;
 
+  String _yearOf() {
+    final d = (item.premiereDate ?? '').trim();
+    if (d.isEmpty) return '';
+    final parsed = DateTime.tryParse(d);
+    if (parsed != null) return parsed.year.toString();
+    return d.length >= 4 ? d.substring(0, 4) : '';
+  }
+
   @override
   Widget build(BuildContext context) {
     final image = item.hasImage
@@ -157,6 +167,9 @@ class _GridItem extends StatelessWidget {
           )
         : null;
 
+    final year = _yearOf();
+    final rating = item.communityRating;
+
     String badge = '';
     if (item.type == 'Episode') {
       final s = item.seasonNumber ?? 0;
@@ -167,6 +180,20 @@ class _GridItem extends StatelessWidget {
       badge = '电影';
     }
 
+    Widget labelBadge(String text) {
+      return Container(
+        padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
+        decoration: BoxDecoration(
+          color: Colors.black.withValues(alpha: 0.55),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Text(
+          text,
+          style: const TextStyle(fontSize: 10, fontWeight: FontWeight.w600),
+        ),
+      );
+    }
+
     final poster = ClipRRect(
       borderRadius: BorderRadius.circular(10),
       child: Stack(
@@ -175,6 +202,7 @@ class _GridItem extends StatelessWidget {
             child: image != null
                 ? CachedNetworkImage(
                     imageUrl: image,
+                    cacheManager: CoverCacheManager.instance,
                     httpHeaders: {'User-Agent': EmbyApi.userAgent},
                     fit: BoxFit.cover,
                     placeholder: (_, __) =>
@@ -184,21 +212,18 @@ class _GridItem extends StatelessWidget {
                   )
                 : const ColoredBox(color: Colors.black26),
           ),
-          if (badge.isNotEmpty)
+          if (rating != null || badge.isNotEmpty)
             Positioned(
               left: 6,
               top: 6,
-              child: Container(
-                padding: const EdgeInsets.symmetric(horizontal: 7, vertical: 3),
-                decoration: BoxDecoration(
-                  color: Colors.black.withValues(alpha: 0.55),
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                child: Text(
-                  badge,
-                  style: const TextStyle(
-                      fontSize: 10, fontWeight: FontWeight.w600),
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (rating != null) RatingBadge(rating: rating),
+                  if (rating != null && badge.isNotEmpty)
+                    const SizedBox(width: 6),
+                  if (badge.isNotEmpty) labelBadge(badge),
+                ],
               ),
             ),
         ],
@@ -209,12 +234,13 @@ class _GridItem extends StatelessWidget {
       borderRadius: BorderRadius.circular(10),
       onTap: onTap,
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.center,
         children: [
           Expanded(child: poster),
           const SizedBox(height: 6),
           Text(
             item.name,
+            textAlign: TextAlign.center,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: Theme.of(context)
@@ -222,6 +248,19 @@ class _GridItem extends StatelessWidget {
                 .bodySmall
                 ?.copyWith(fontWeight: FontWeight.w600),
           ),
+          if (year.isNotEmpty) ...[
+            const SizedBox(height: 2),
+            Text(
+              year,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: Theme.of(context).textTheme.labelSmall?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+          ],
         ],
       ),
     );
