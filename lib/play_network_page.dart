@@ -413,7 +413,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     if (season > 0 && episode > 0) {
       final s = season.toString().padLeft(2, '0');
       final e = episode.toString().padLeft(2, '0');
-      return '$base S${s}E${e}$extra'.trim();
+      return '$base S${s}E$e$extra'.trim();
     }
     if (episode > 0) {
       final e = episode.toString().padLeft(2, '0');

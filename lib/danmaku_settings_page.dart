@@ -63,19 +63,19 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
     final cs = theme.colorScheme;
     return theme.sliderTheme.copyWith(
       trackHeight: 8,
-      activeTrackColor: cs.primary.withOpacity(0.55),
-      inactiveTrackColor: cs.onSurface.withOpacity(0.18),
-      thumbColor: cs.primary.withOpacity(0.9),
-      overlayColor: cs.primary.withOpacity(0.12),
+      activeTrackColor: cs.primary.withValues(alpha: 0.55),
+      inactiveTrackColor: cs.onSurface.withValues(alpha: 0.18),
+      thumbColor: cs.primary.withValues(alpha: 0.9),
+      overlayColor: cs.primary.withValues(alpha: 0.12),
       thumbShape: const _BarThumbShape(width: 4, height: 28),
       overlayShape: const RoundSliderOverlayShape(overlayRadius: 18),
       trackShape: const RoundedRectSliderTrackShape(),
       showValueIndicator: ShowValueIndicator.never,
       tickMarkShape: showTicks
-          ? const RoundSliderTickMarkShape(tickMarkRadius: 2.4)
-          : const RoundSliderTickMarkShape(tickMarkRadius: 0),
-      activeTickMarkColor: cs.primary.withOpacity(0.75),
-      inactiveTickMarkColor: cs.onSurface.withOpacity(0.25),
+           ? const RoundSliderTickMarkShape(tickMarkRadius: 2.4)
+           : const RoundSliderTickMarkShape(tickMarkRadius: 0),
+      activeTickMarkColor: cs.primary.withValues(alpha: 0.75),
+      inactiveTickMarkColor: cs.onSurface.withValues(alpha: 0.25),
     );
   }
 
@@ -466,11 +466,11 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                     enableBlur: enableBlur,
                     child: Column(
                       children: [
-                        ListTile(
+                        const ListTile(
                           contentPadding: EdgeInsets.zero,
-                          leading: const Icon(Icons.cloud_outlined),
-                          title: const Text('弹幕 API URL'),
-                          subtitle: const Text('支持多个，长按拖动调整优先级（越靠前优先尝试）'),
+                          leading: Icon(Icons.cloud_outlined),
+                          title: Text('弹幕 API URL'),
+                          subtitle: Text('支持多个，长按拖动调整优先级（越靠前优先尝试）'),
                         ),
                         Row(
                           children: [
