@@ -49,8 +49,7 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _currentVersionFull = AppUpdateService.packageVersionFull(info);
       });
-    } catch (_) {
-    }
+    } catch (_) {}
   }
 
   bool _isTv(BuildContext context) =>
@@ -331,6 +330,8 @@ class _SettingsPageState extends State<SettingsPage> {
   @override
   Widget build(BuildContext context) {
     final isTv = _isTv(context);
+    final isAndroid =
+        !kIsWeb && defaultTargetPlatform == TargetPlatform.android;
     final isDesktop = !kIsWeb &&
         (defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
@@ -492,6 +493,50 @@ class _SettingsPageState extends State<SettingsPage> {
                           contentPadding: EdgeInsets.zero,
                         ),
                         const Divider(height: 1),
+                        if (isAndroid) ...[
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.memory_outlined),
+                            title: const Text('播放器内核'),
+                            subtitle: const Text('Exo 更适合部分杜比视界 P8 片源（偏紫/偏绿）'),
+                            trailing: DropdownButtonHideUnderline(
+                              child: DropdownButton<PlayerCore>(
+                                value: appState.playerCore,
+                                items: [
+                                  DropdownMenuItem(
+                                    value: PlayerCore.mpv,
+                                    child: Text(PlayerCore.mpv.label),
+                                  ),
+                                  DropdownMenuItem(
+                                    value: PlayerCore.exo,
+                                    child: Text(
+                                        '${PlayerCore.exo.label}（Android）'),
+                                  ),
+                                ],
+                                onChanged: (v) {
+                                  if (v == null) return;
+                                  // ignore: unawaited_futures
+                                  appState.setPlayerCore(v);
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    const SnackBar(
+                                      content: Text('切换内核将在下次开始播放时生效'),
+                                    ),
+                                  );
+                                },
+                              ),
+                            ),
+                          ),
+                          const Divider(height: 1),
+                        ] else ...[
+                          const ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: Icon(Icons.memory_outlined),
+                            title: Text('播放器内核'),
+                            subtitle: Text('当前平台仅支持 MPV（Exo 仅 Android）'),
+                            trailing: Text('MPV'),
+                          ),
+                          const Divider(height: 1),
+                        ],
                         ListTile(
                           contentPadding: EdgeInsets.zero,
                           leading: const Icon(Icons.storage_outlined),

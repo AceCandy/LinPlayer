@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 import 'library_page.dart';
 import 'library_items_page.dart';
 import 'player_screen.dart';
+import 'player_screen_exo.dart';
 import 'play_network_page.dart';
+import 'play_network_page_exo.dart';
 import 'search_page.dart';
 import 'settings_page.dart';
 import 'services/cover_cache_manager.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'state/preferences.dart';
 import 'show_detail_page.dart';
 import 'src/ui/rating_badge.dart';
 import 'src/ui/theme_sheet.dart';
@@ -432,6 +435,9 @@ class _HomePageState extends State<HomePage> {
       animation: widget.appState,
       builder: (context, _) {
         final isTv = _isTv(context);
+        final useExoCore = !kIsWeb &&
+            defaultTargetPlatform == TargetPlatform.android &&
+            widget.appState.playerCore == PlayerCore.exo;
         final pages = [
           _HomeBody(
             appState: widget.appState,
@@ -440,7 +446,9 @@ class _HomePageState extends State<HomePage> {
             isTv: isTv,
             showSearchBar: true,
           ),
-          PlayerScreen(appState: widget.appState),
+          useExoCore
+              ? ExoPlayerScreen(appState: widget.appState)
+              : PlayerScreen(appState: widget.appState),
           SettingsPage(appState: widget.appState),
         ];
         return Scaffold(
@@ -1130,6 +1138,9 @@ class _HomeSectionCarousel extends StatelessWidget {
                     isTv: isTv,
                     onTap: () {
                       final type = item.type.toLowerCase();
+                      final useExoCore = !kIsWeb &&
+                          defaultTargetPlatform == TargetPlatform.android &&
+                          appState.playerCore == PlayerCore.exo;
                       if (type == 'series') {
                         Navigator.of(context).push(
                           MaterialPageRoute(
@@ -1144,12 +1155,19 @@ class _HomeSectionCarousel extends StatelessWidget {
                       } else {
                         Navigator.of(context).push(
                           MaterialPageRoute(
-                            builder: (_) => PlayNetworkPage(
-                              title: item.name,
-                              itemId: item.id,
-                              appState: appState,
-                              isTv: isTv,
-                            ),
+                            builder: (_) => useExoCore
+                                ? ExoPlayNetworkPage(
+                                    title: item.name,
+                                    itemId: item.id,
+                                    appState: appState,
+                                    isTv: isTv,
+                                  )
+                                : PlayNetworkPage(
+                                    title: item.name,
+                                    itemId: item.id,
+                                    appState: appState,
+                                    isTv: isTv,
+                                  ),
                           ),
                         );
                       }

@@ -1,9 +1,11 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'play_network_page.dart';
+import 'play_network_page_exo.dart';
 
 class ShowDetailPage extends StatefulWidget {
   const ShowDetailPage({
@@ -717,18 +719,34 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                         context,
                         label: '播放',
                         onTap: () {
+                          final useExoCore = !kIsWeb &&
+                              defaultTargetPlatform == TargetPlatform.android &&
+                              widget.appState.playerCore == PlayerCore.exo;
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => PlayNetworkPage(
-                                title: item.name,
-                                itemId: item.id,
-                                appState: widget.appState,
-                                isTv: widget.isTv,
-                                mediaSourceId: _selectedMediaSourceId,
-                                audioStreamIndex: _selectedAudioStreamIndex,
-                                subtitleStreamIndex:
-                                    _selectedSubtitleStreamIndex,
-                              ),
+                              builder: (_) => useExoCore
+                                  ? ExoPlayNetworkPage(
+                                      title: item.name,
+                                      itemId: item.id,
+                                      appState: widget.appState,
+                                      isTv: widget.isTv,
+                                      mediaSourceId: _selectedMediaSourceId,
+                                      audioStreamIndex:
+                                          _selectedAudioStreamIndex,
+                                      subtitleStreamIndex:
+                                          _selectedSubtitleStreamIndex,
+                                    )
+                                  : PlayNetworkPage(
+                                      title: item.name,
+                                      itemId: item.id,
+                                      appState: widget.appState,
+                                      isTv: widget.isTv,
+                                      mediaSourceId: _selectedMediaSourceId,
+                                      audioStreamIndex:
+                                          _selectedAudioStreamIndex,
+                                      subtitleStreamIndex:
+                                          _selectedSubtitleStreamIndex,
+                                    ),
                             ),
                           );
                         },
@@ -1039,8 +1057,9 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                         final e = _episodes[index];
                         final epNo = e.episodeNumber ?? (index + 1);
                         final epName = e.name.trim();
-                        final titleText =
-                            epName.isNotEmpty ? '$epNo. $epName' : '$epNo. 第$epNo集';
+                        final titleText = epName.isNotEmpty
+                            ? '$epNo. $epName'
+                            : '$epNo. 第$epNo集';
                         final dur = e.runTimeTicks != null
                             ? Duration(
                                 microseconds: (e.runTimeTicks! / 10).round())
@@ -1262,15 +1281,26 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                         context,
                         label: '播放',
                         onTap: () {
+                          final useExoCore = !kIsWeb &&
+                              defaultTargetPlatform == TargetPlatform.android &&
+                              widget.appState.playerCore == PlayerCore.exo;
                           Navigator.of(context).push(
                             MaterialPageRoute(
-                              builder: (_) => PlayNetworkPage(
-                                title: ep.name,
-                                itemId: ep.id,
-                                appState: widget.appState,
-                                isTv: widget.isTv,
-                                mediaSourceId: _preferredMediaSourceId,
-                              ),
+                              builder: (_) => useExoCore
+                                  ? ExoPlayNetworkPage(
+                                      title: ep.name,
+                                      itemId: ep.id,
+                                      appState: widget.appState,
+                                      isTv: widget.isTv,
+                                      mediaSourceId: _preferredMediaSourceId,
+                                    )
+                                  : PlayNetworkPage(
+                                      title: ep.name,
+                                      itemId: ep.id,
+                                      appState: widget.appState,
+                                      isTv: widget.isTv,
+                                      mediaSourceId: _preferredMediaSourceId,
+                                    ),
                             ),
                           );
                         },

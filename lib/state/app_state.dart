@@ -16,6 +16,7 @@ class AppState extends ChangeNotifier {
   static const _kDynamicColorKey = 'dynamicColor_v1';
   static const _kThemeTemplateKey = 'themeTemplate_v1';
   static const _kPreferHardwareDecodeKey = 'preferHardwareDecode_v1';
+  static const _kPlayerCoreKey = 'playerCore_v1';
   static const _kPreferredAudioLangKey = 'preferredAudioLang_v1';
   static const _kPreferredSubtitleLangKey = 'preferredSubtitleLang_v1';
   static const _kPreferredVideoVersionKey = 'preferredVideoVersion_v1';
@@ -63,6 +64,7 @@ class AppState extends ChangeNotifier {
   bool _useDynamicColor = true;
   ThemeTemplate _themeTemplate = ThemeTemplate.defaultBlue;
   bool _preferHardwareDecode = true;
+  PlayerCore _playerCore = PlayerCore.mpv;
   String _preferredAudioLang = '';
   String _preferredSubtitleLang = '';
   VideoVersionPreference _preferredVideoVersion =
@@ -126,6 +128,7 @@ class AppState extends ChangeNotifier {
   Color get themeSecondarySeedColor => _themeTemplate.secondarySeed;
 
   bool get preferHardwareDecode => _preferHardwareDecode;
+  PlayerCore get playerCore => _playerCore;
   String get preferredAudioLang => _preferredAudioLang;
   String get preferredSubtitleLang => _preferredSubtitleLang;
   VideoVersionPreference get preferredVideoVersion => _preferredVideoVersion;
@@ -183,6 +186,7 @@ class AppState extends ChangeNotifier {
     _useDynamicColor = prefs.getBool(_kDynamicColorKey) ?? true;
     _themeTemplate = themeTemplateFromId(prefs.getString(_kThemeTemplateKey));
     _preferHardwareDecode = prefs.getBool(_kPreferHardwareDecodeKey) ?? true;
+    _playerCore = playerCoreFromId(prefs.getString(_kPlayerCoreKey));
     _preferredAudioLang = prefs.getString(_kPreferredAudioLangKey) ?? '';
     _preferredSubtitleLang = prefs.getString(_kPreferredSubtitleLangKey) ?? '';
     _preferredVideoVersion = videoVersionPreferenceFromId(
@@ -776,6 +780,14 @@ class AppState extends ChangeNotifier {
     _preferHardwareDecode = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kPreferHardwareDecodeKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setPlayerCore(PlayerCore core) async {
+    if (_playerCore == core) return;
+    _playerCore = core;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPlayerCoreKey, core.id);
     notifyListeners();
   }
 

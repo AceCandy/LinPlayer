@@ -71,6 +71,40 @@ enum VideoVersionPreference {
   preferAvc,
 }
 
+enum PlayerCore {
+  mpv,
+  exo,
+}
+
+PlayerCore playerCoreFromId(String? id) {
+  switch (id) {
+    case 'exo':
+      return PlayerCore.exo;
+    default:
+      return PlayerCore.mpv;
+  }
+}
+
+extension PlayerCoreX on PlayerCore {
+  String get id {
+    switch (this) {
+      case PlayerCore.mpv:
+        return 'mpv';
+      case PlayerCore.exo:
+        return 'exo';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case PlayerCore.mpv:
+        return 'MPV';
+      case PlayerCore.exo:
+        return 'Exo';
+    }
+  }
+}
+
 enum ServerListLayout {
   grid,
   list,
