@@ -62,3 +62,4 @@ class ServerIconEntry {
         url: json['url'] as String? ?? '',
       );
 }
+
