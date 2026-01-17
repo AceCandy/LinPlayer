@@ -3,12 +3,56 @@ import 'dart:convert';
 import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
+import '../services/backup_crypto.dart';
 import '../services/emby_api.dart';
 import 'danmaku_preferences.dart';
 import 'preferences.dart';
 import 'server_profile.dart';
 
+enum BackupServerSecretMode {
+  token,
+  password,
+}
+
+BackupServerSecretMode backupServerSecretModeFromId(String? id) {
+  switch (id) {
+    case 'password':
+      return BackupServerSecretMode.password;
+    case 'token':
+    default:
+      return BackupServerSecretMode.token;
+  }
+}
+
+extension BackupServerSecretModeX on BackupServerSecretMode {
+  String get id {
+    switch (this) {
+      case BackupServerSecretMode.token:
+        return 'token';
+      case BackupServerSecretMode.password:
+        return 'password';
+    }
+  }
+}
+
+class BackupServerLogin {
+  final String username;
+  final String password;
+
+  const BackupServerLogin({required this.username, required this.password});
+}
+
+typedef BackupServerAuthenticator = Future<AuthResult> Function({
+  required String baseUrl,
+  required String username,
+  required String password,
+  required String deviceId,
+});
+
 class AppState extends ChangeNotifier {
+  static const _kBackupType = 'lin_player_backup';
+  static const _kBackupSchemaVersionV1 = 1;
+  static const _kBackupSchemaVersionV2 = 2;
   static const _kServersKey = 'servers_v1';
   static const _kActiveServerIdKey = 'activeServerId_v1';
   static const _kThemeModeKey = 'themeMode_v1';
@@ -277,6 +321,7 @@ class AppState extends ChangeNotifier {
         _servers.add(
           ServerProfile(
             id: _randomId(),
+            username: '',
             name: _suggestServerName(baseUrl),
             baseUrl: baseUrl,
             token: token,
@@ -293,6 +338,492 @@ class AppState extends ChangeNotifier {
     if (_activeServerId != null && activeServer == null) {
       _activeServerId = null;
       await prefs.remove(_kActiveServerIdKey);
+    }
+
+    notifyListeners();
+  }
+
+  Map<String, dynamic> exportBackupMap() {
+    return {
+      'type': _kBackupType,
+      'version': _kBackupSchemaVersionV1,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+      'data': {
+        'themeMode': _encodeThemeMode(_themeMode),
+        'uiScaleFactor': _uiScaleFactor,
+        'useDynamicColor': _useDynamicColor,
+        'themeTemplate': _themeTemplate.id,
+        'preferHardwareDecode': _preferHardwareDecode,
+        'playerCore': _playerCore.id,
+        'preferredAudioLang': _preferredAudioLang,
+        'preferredSubtitleLang': _preferredSubtitleLang,
+        'preferredVideoVersion': _preferredVideoVersion.id,
+        'appIconId': _appIconId,
+        'serverListLayout': _serverListLayout.id,
+        'mpvCacheSizeMb': _mpvCacheSizeMb,
+        'unlimitedCoverCache': _unlimitedCoverCache,
+        'enableBlurEffects': _enableBlurEffects,
+        'externalMpvPath': _externalMpvPath,
+        'danmaku': {
+          'enabled': _danmakuEnabled,
+          'loadMode': _danmakuLoadMode.id,
+          'apiUrls': _danmakuApiUrls,
+          'appId': _danmakuAppId,
+          'appSecret': _danmakuAppSecret,
+          'opacity': _danmakuOpacity,
+          'scale': _danmakuScale,
+          'speed': _danmakuSpeed,
+          'bold': _danmakuBold,
+          'maxLines': _danmakuMaxLines,
+          'topMaxLines': _danmakuTopMaxLines,
+          'bottomMaxLines': _danmakuBottomMaxLines,
+          'rememberSelectedSource': _danmakuRememberSelectedSource,
+          'lastSelectedSourceName': _danmakuLastSelectedSourceName,
+          'mergeDuplicates': _danmakuMergeDuplicates,
+          'preventOverlap': _danmakuPreventOverlap,
+          'blockWords': _danmakuBlockWords,
+          'matchMode': _danmakuMatchMode.id,
+          'chConvert': _danmakuChConvert.id,
+        },
+        'activeServerId': _activeServerId,
+        'servers': _servers.map((s) => s.toJson()).toList(),
+      },
+    };
+  }
+
+  String exportBackupJson({bool pretty = true}) {
+    final json = exportBackupMap();
+    if (!pretty) return jsonEncode(json);
+    return JsonEncoder.withIndent('  ').convert(json);
+  }
+
+  Future<String> exportEncryptedBackupJson({
+    required String passphrase,
+    required BackupServerSecretMode mode,
+    Map<String, BackupServerLogin>? serverLogins,
+    bool pretty = true,
+  }) async {
+    final v1 = exportBackupMap();
+    final data = _coerceStringKeyedMap(v1['data']);
+    if (data == null) throw const FormatException('Invalid backup payload');
+
+    if (mode == BackupServerSecretMode.password) {
+      final logins = serverLogins ?? const {};
+      final servers = <Map<String, dynamic>>[];
+      for (final server in _servers) {
+        final login = logins[server.id];
+        if (login == null) {
+          throw FormatException('Missing server login: ${server.name}');
+        }
+        servers.add({
+          'id': server.id,
+          'name': server.name,
+          'remark': server.remark,
+          'iconUrl': server.iconUrl,
+          'baseUrl': server.baseUrl,
+          'username': login.username.trim(),
+          'password': login.password,
+          'hiddenLibraries': server.hiddenLibraries.toList(),
+          'domainRemarks': server.domainRemarks,
+          'customDomains': server.customDomains.map((e) => e.toJson()).toList(),
+        });
+      }
+      data['servers'] = servers;
+    }
+
+    final inner = {
+      'mode': mode.id,
+      'data': data,
+    };
+
+    final encrypted = await BackupCrypto.encryptJson(
+      plaintextJson: jsonEncode(inner),
+      passphrase: passphrase,
+    );
+
+    final wrapper = {
+      'type': _kBackupType,
+      'version': _kBackupSchemaVersionV2,
+      'createdAt': DateTime.now().toUtc().toIso8601String(),
+      'crypto': encrypted,
+    };
+    if (!pretty) return jsonEncode(wrapper);
+    return JsonEncoder.withIndent('  ').convert(wrapper);
+  }
+
+  Future<void> importBackupJson(
+    String raw, {
+    String? passphrase,
+    BackupServerAuthenticator? authenticator,
+  }) async {
+    final decoded = jsonDecode(raw);
+    final backup = _coerceStringKeyedMap(decoded);
+    if (backup == null) throw const FormatException('Invalid backup JSON');
+
+    final version = _readInt(backup['version'], fallback: 0);
+    if (version == _kBackupSchemaVersionV2) {
+      final p = (passphrase ?? '').trim();
+      if (p.isEmpty) throw const FormatException('Missing passphrase');
+      await importEncryptedBackupMap(
+        backup,
+        passphrase: p,
+        authenticator: authenticator,
+      );
+      return;
+    }
+
+    await importBackupMap(backup);
+  }
+
+  Future<void> importEncryptedBackupMap(
+    Map<String, dynamic> wrapper, {
+    required String passphrase,
+    BackupServerAuthenticator? authenticator,
+  }) async {
+    final type = (wrapper['type'] ?? '').toString().trim();
+    if (type != _kBackupType) {
+      throw FormatException('Invalid backup type: $type');
+    }
+
+    final version = _readInt(wrapper['version'], fallback: 0);
+    if (version != _kBackupSchemaVersionV2) {
+      throw FormatException('Unsupported backup version: $version');
+    }
+
+    final crypto = _coerceStringKeyedMap(wrapper['crypto']);
+    if (crypto == null) throw const FormatException('Missing crypto payload');
+
+    final decryptedJson = await BackupCrypto.decryptJson(
+      encrypted: crypto,
+      passphrase: passphrase,
+    );
+    final decrypted = _coerceStringKeyedMap(jsonDecode(decryptedJson));
+    if (decrypted == null) throw const FormatException('Invalid backup payload');
+
+    final mode = backupServerSecretModeFromId(decrypted['mode']?.toString());
+    final data = _coerceStringKeyedMap(decrypted['data']);
+    if (data == null) throw const FormatException('Invalid backup payload');
+
+    if (mode == BackupServerSecretMode.token) {
+      await importBackupMap({
+        'type': _kBackupType,
+        'version': _kBackupSchemaVersionV1,
+        'data': data,
+      });
+      return;
+    }
+
+    final rawServers = data['servers'];
+    if (rawServers is! List) {
+      throw const FormatException('Invalid backup payload: missing servers');
+    }
+
+    final auth = authenticator ?? _authenticateForBackup;
+    final nextServers = <ServerProfile>[];
+
+    for (final item in rawServers) {
+      final map = _coerceStringKeyedMap(item);
+      if (map == null) continue;
+      final id = (map['id'] ?? '').toString().trim();
+      final name = (map['name'] ?? '').toString().trim();
+      final remark = (map['remark'] ?? '').toString().trim();
+      final iconUrl = (map['iconUrl'] ?? '').toString().trim();
+      final baseUrl = (map['baseUrl'] ?? '').toString().trim();
+      final username = (map['username'] ?? '').toString().trim();
+      final password = (map['password'] ?? '').toString();
+
+      if (baseUrl.isEmpty || username.isEmpty) continue;
+
+      final result = await auth(
+        baseUrl: baseUrl,
+        username: username,
+        password: password,
+        deviceId: _deviceId,
+      );
+
+      final hidden = ((map['hiddenLibraries'] as List?)?.cast<String>() ??
+              const <String>[])
+          .toSet();
+      final domainRemarks = (map['domainRemarks'] as Map?)?.map(
+            (key, value) => MapEntry(key.toString(), value.toString()),
+          ) ??
+          <String, String>{};
+      final customDomains = (map['customDomains'] as List?)
+              ?.whereType<Map>()
+              .map((e) => CustomDomain.fromJson(
+                  e.map((k, v) => MapEntry(k.toString(), v))))
+              .toList() ??
+          <CustomDomain>[];
+
+      nextServers.add(
+        ServerProfile(
+          id: id.isEmpty ? _randomId() : id,
+          username: username,
+          name: name.isEmpty ? _suggestServerName(result.baseUrlUsed) : name,
+          remark: remark.isEmpty ? null : remark,
+          iconUrl: iconUrl.isEmpty ? null : iconUrl,
+          baseUrl: result.baseUrlUsed,
+          token: result.token,
+          userId: result.userId,
+          hiddenLibraries: hidden,
+          domainRemarks: domainRemarks,
+          customDomains: customDomains,
+        ),
+      );
+    }
+
+    String? nextActiveServerId = data['activeServerId']?.toString().trim();
+    if ((nextActiveServerId ?? '').isEmpty ||
+        !nextServers.any((s) => s.id == nextActiveServerId)) {
+      nextActiveServerId = null;
+    }
+
+    final v1Data = Map<String, dynamic>.from(data)
+      ..['servers'] = nextServers.map((s) => s.toJson()).toList()
+      ..['activeServerId'] = nextActiveServerId;
+
+    await importBackupMap({
+      'type': _kBackupType,
+      'version': _kBackupSchemaVersionV1,
+      'data': v1Data,
+    });
+  }
+
+  Future<void> importBackupMap(Map<String, dynamic> backup) async {
+    final type = (backup['type'] ?? '').toString().trim();
+    if (type != _kBackupType) {
+      throw FormatException('Invalid backup type: $type');
+    }
+
+    final version = _readInt(backup['version'], fallback: 0);
+    if (version != _kBackupSchemaVersionV1) {
+      throw FormatException('Unsupported backup version: $version');
+    }
+
+    final data = _coerceStringKeyedMap(backup['data']);
+    if (data == null) {
+      throw const FormatException('Invalid backup payload: missing data');
+    }
+
+    final danmakuMap = _coerceStringKeyedMap(data['danmaku']) ?? const {};
+
+    final nextThemeMode = _decodeThemeMode(data['themeMode']?.toString());
+    final nextUiScale = _readDouble(data['uiScaleFactor'], fallback: 1.0)
+        .clamp(0.5, 2.0)
+        .toDouble();
+    final nextUseDynamic = _readBool(data['useDynamicColor'], fallback: true);
+    final nextThemeTemplate =
+        themeTemplateFromId(data['themeTemplate']?.toString());
+    final nextPreferHardware =
+        _readBool(data['preferHardwareDecode'], fallback: true);
+    final nextPlayerCore = playerCoreFromId(data['playerCore']?.toString());
+    final nextPreferredAudioLang =
+        (data['preferredAudioLang'] ?? '').toString().trim();
+    final nextPreferredSubtitleLang =
+        (data['preferredSubtitleLang'] ?? '').toString().trim();
+    final nextPreferredVideoVersion =
+        videoVersionPreferenceFromId(data['preferredVideoVersion']?.toString());
+    final nextAppIconId = (data['appIconId'] ?? 'default').toString().trim();
+    final nextServerListLayout =
+        serverListLayoutFromId(data['serverListLayout']?.toString());
+
+    final nextMpvCacheSizeMb =
+        _readInt(data['mpvCacheSizeMb'], fallback: 500).clamp(200, 2048);
+    final nextUnlimitedCoverCache =
+        _readBool(data['unlimitedCoverCache'], fallback: false);
+    final nextEnableBlurEffects =
+        _readBool(data['enableBlurEffects'], fallback: true);
+    final nextExternalMpvPath =
+        (data['externalMpvPath'] ?? '').toString().trim();
+
+    final nextDanmakuEnabled =
+        _readBool(danmakuMap['enabled'], fallback: true);
+    final nextDanmakuLoadMode =
+        danmakuLoadModeFromId(danmakuMap['loadMode']?.toString());
+    final nextDanmakuApiUrls = _readStringList(danmakuMap['apiUrls'])
+        .map(_normalizeDanmakuApiUrl)
+        .where((e) => e.isNotEmpty)
+        .toList();
+    final nextDanmakuAppId = (danmakuMap['appId'] ?? '').toString().trim();
+    final nextDanmakuAppSecret =
+        (danmakuMap['appSecret'] ?? '').toString().trim();
+    final nextDanmakuOpacity = _readDouble(danmakuMap['opacity'], fallback: 1.0)
+        .clamp(0.2, 1.0)
+        .toDouble();
+    final nextDanmakuScale = _readDouble(danmakuMap['scale'], fallback: 1.0)
+        .clamp(0.5, 1.6)
+        .toDouble();
+    final nextDanmakuSpeed = _readDouble(danmakuMap['speed'], fallback: 1.0)
+        .clamp(0.4, 2.5)
+        .toDouble();
+    final nextDanmakuBold = _readBool(danmakuMap['bold'], fallback: true);
+    final nextDanmakuMaxLines =
+        _readInt(danmakuMap['maxLines'], fallback: 10).clamp(1, 40);
+    final nextDanmakuTopMaxLines =
+        _readInt(danmakuMap['topMaxLines'], fallback: 0).clamp(0, 40);
+    final nextDanmakuBottomMaxLines =
+        _readInt(danmakuMap['bottomMaxLines'], fallback: 0).clamp(0, 40);
+    final nextDanmakuRememberSelectedSource =
+        _readBool(danmakuMap['rememberSelectedSource'], fallback: false);
+    final nextDanmakuLastSelectedSourceName =
+        (danmakuMap['lastSelectedSourceName'] ?? '').toString().trim();
+    final nextDanmakuMergeDuplicates =
+        _readBool(danmakuMap['mergeDuplicates'], fallback: false);
+    final nextDanmakuPreventOverlap =
+        _readBool(danmakuMap['preventOverlap'], fallback: true);
+    final nextDanmakuBlockWords =
+        (danmakuMap['blockWords'] ?? '').toString().trimRight();
+    final nextDanmakuMatchMode =
+        danmakuMatchModeFromId(danmakuMap['matchMode']?.toString());
+    final nextDanmakuChConvert =
+        danmakuChConvertFromId(danmakuMap['chConvert']?.toString());
+
+    final nextServers = <ServerProfile>[];
+    final rawServers = data['servers'];
+    if (rawServers is List) {
+      for (final item in rawServers) {
+        final map = _coerceStringKeyedMap(item);
+        if (map == null) continue;
+        final s = ServerProfile.fromJson(map);
+        if (s.id.isEmpty || s.baseUrl.isEmpty || s.token.isEmpty) continue;
+        nextServers.add(s);
+      }
+    }
+
+    String? nextActiveServerId = data['activeServerId']?.toString().trim();
+    if ((nextActiveServerId ?? '').isEmpty ||
+        !nextServers.any((s) => s.id == nextActiveServerId)) {
+      nextActiveServerId = null;
+    }
+
+    _themeMode = nextThemeMode;
+    _uiScaleFactor = nextUiScale;
+    _useDynamicColor = nextUseDynamic;
+    _themeTemplate = nextThemeTemplate;
+    _preferHardwareDecode = nextPreferHardware;
+    _playerCore = nextPlayerCore;
+    _preferredAudioLang = nextPreferredAudioLang;
+    _preferredSubtitleLang = nextPreferredSubtitleLang;
+    _preferredVideoVersion = nextPreferredVideoVersion;
+    _appIconId = nextAppIconId.isEmpty ? 'default' : nextAppIconId;
+    const supportedAppIcons = {'default', 'pink', 'purple', 'miku'};
+    if (!supportedAppIcons.contains(_appIconId)) {
+      _appIconId = 'default';
+    }
+    _serverListLayout = nextServerListLayout;
+    _mpvCacheSizeMb = nextMpvCacheSizeMb;
+    _unlimitedCoverCache = nextUnlimitedCoverCache;
+    _enableBlurEffects = nextEnableBlurEffects;
+    _externalMpvPath = nextExternalMpvPath;
+    _danmakuEnabled = nextDanmakuEnabled;
+    _danmakuLoadMode = nextDanmakuLoadMode;
+    _danmakuApiUrls = nextDanmakuApiUrls.isEmpty
+        ? const ['https://api.dandanplay.net']
+        : nextDanmakuApiUrls;
+    _danmakuAppId = nextDanmakuAppId;
+    _danmakuAppSecret = nextDanmakuAppSecret;
+    _danmakuOpacity = nextDanmakuOpacity;
+    _danmakuScale = nextDanmakuScale;
+    _danmakuSpeed = nextDanmakuSpeed;
+    _danmakuBold = nextDanmakuBold;
+    _danmakuMaxLines = nextDanmakuMaxLines;
+    _danmakuTopMaxLines = nextDanmakuTopMaxLines;
+    _danmakuBottomMaxLines = nextDanmakuBottomMaxLines;
+    _danmakuRememberSelectedSource = nextDanmakuRememberSelectedSource;
+    _danmakuLastSelectedSourceName = nextDanmakuLastSelectedSourceName;
+    _danmakuMergeDuplicates = nextDanmakuMergeDuplicates;
+    _danmakuPreventOverlap = nextDanmakuPreventOverlap;
+    _danmakuBlockWords = nextDanmakuBlockWords;
+    _danmakuMatchMode = nextDanmakuMatchMode;
+    _danmakuChConvert = nextDanmakuChConvert;
+
+    _servers
+      ..clear()
+      ..addAll(nextServers);
+    _activeServerId = nextActiveServerId;
+
+    _domains = [];
+    _libraries = [];
+    _itemsCache.clear();
+    _itemsTotal.clear();
+    _homeSections.clear();
+    _randomRecommendations = null;
+    _randomRecommendationsInFlight = null;
+    _error = null;
+    _loading = false;
+
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kThemeModeKey, _encodeThemeMode(_themeMode));
+    await prefs.setDouble(_kUiScaleFactorKey, _uiScaleFactor);
+    await prefs.setBool(_kDynamicColorKey, _useDynamicColor);
+    await prefs.setString(_kThemeTemplateKey, _themeTemplate.id);
+    await prefs.setBool(_kPreferHardwareDecodeKey, _preferHardwareDecode);
+    await prefs.setString(_kPlayerCoreKey, _playerCore.id);
+    await prefs.setString(_kPreferredAudioLangKey, _preferredAudioLang);
+    await prefs.setString(_kPreferredSubtitleLangKey, _preferredSubtitleLang);
+    await prefs.setString(
+      _kPreferredVideoVersionKey,
+      _preferredVideoVersion.id,
+    );
+    await prefs.setString(_kAppIconIdKey, _appIconId);
+    await prefs.setString(_kServerListLayoutKey, _serverListLayout.id);
+    await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
+    await prefs.setBool(_kUnlimitedCoverCacheKey, _unlimitedCoverCache);
+    await prefs.setBool(_kEnableBlurEffectsKey, _enableBlurEffects);
+
+    if (_externalMpvPath.isEmpty) {
+      await prefs.remove(_kExternalMpvPathKey);
+    } else {
+      await prefs.setString(_kExternalMpvPathKey, _externalMpvPath);
+    }
+
+    await prefs.setBool(_kDanmakuEnabledKey, _danmakuEnabled);
+    await prefs.setString(_kDanmakuLoadModeKey, _danmakuLoadMode.id);
+    await prefs.setStringList(_kDanmakuApiUrlsKey, _danmakuApiUrls);
+    if (_danmakuAppId.isEmpty) {
+      await prefs.remove(_kDanmakuAppIdKey);
+    } else {
+      await prefs.setString(_kDanmakuAppIdKey, _danmakuAppId);
+    }
+    if (_danmakuAppSecret.isEmpty) {
+      await prefs.remove(_kDanmakuAppSecretKey);
+    } else {
+      await prefs.setString(_kDanmakuAppSecretKey, _danmakuAppSecret);
+    }
+    await prefs.setDouble(_kDanmakuOpacityKey, _danmakuOpacity);
+    await prefs.setDouble(_kDanmakuScaleKey, _danmakuScale);
+    await prefs.setDouble(_kDanmakuSpeedKey, _danmakuSpeed);
+    await prefs.setBool(_kDanmakuBoldKey, _danmakuBold);
+    await prefs.setInt(_kDanmakuMaxLinesKey, _danmakuMaxLines);
+    await prefs.setInt(_kDanmakuTopMaxLinesKey, _danmakuTopMaxLines);
+    await prefs.setInt(_kDanmakuBottomMaxLinesKey, _danmakuBottomMaxLines);
+    await prefs.setBool(
+      _kDanmakuRememberSelectedSourceKey,
+      _danmakuRememberSelectedSource,
+    );
+    if (_danmakuLastSelectedSourceName.isEmpty) {
+      await prefs.remove(_kDanmakuLastSelectedSourceNameKey);
+    } else {
+      await prefs.setString(
+        _kDanmakuLastSelectedSourceNameKey,
+        _danmakuLastSelectedSourceName,
+      );
+    }
+    await prefs.setBool(_kDanmakuMergeDuplicatesKey, _danmakuMergeDuplicates);
+    await prefs.setBool(_kDanmakuPreventOverlapKey, _danmakuPreventOverlap);
+    if (_danmakuBlockWords.trim().isEmpty) {
+      await prefs.remove(_kDanmakuBlockWordsKey);
+    } else {
+      await prefs.setString(_kDanmakuBlockWordsKey, _danmakuBlockWords);
+    }
+    await prefs.setString(_kDanmakuMatchModeKey, _danmakuMatchMode.id);
+    await prefs.setString(_kDanmakuChConvertKey, _danmakuChConvert.id);
+
+    await _persistServers(prefs);
+    if (_activeServerId == null) {
+      await prefs.remove(_kActiveServerIdKey);
+    } else {
+      await prefs.setString(_kActiveServerIdKey, _activeServerId!);
     }
 
     notifyListeners();
@@ -366,6 +897,7 @@ class AppState extends ChangeNotifier {
       };
       final server = ServerProfile(
         id: existingIndex >= 0 ? _servers[existingIndex].id : _randomId(),
+        username: username.trim(),
         name: name,
         remark: (remark ?? '').trim().isEmpty ? null : remark!.trim(),
         iconUrl: resolvedIconUrl,
@@ -447,12 +979,16 @@ class AppState extends ChangeNotifier {
 
   Future<void> updateServerMeta(
     String serverId, {
+    String? username,
     String? name,
     String? remark,
     String? iconUrl,
   }) async {
     final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
+    if (username != null) {
+      server.username = username.trim();
+    }
     if (name != null && name.trim().isNotEmpty) {
       server.name = name.trim();
     }
@@ -868,7 +1404,9 @@ class AppState extends ChangeNotifier {
         query: '',
         path: uri.path.replaceAll(RegExp(r'/+$'), ''),
       );
-      return normalized.toString().replaceAll(RegExp(r'/+$'), '');
+      var text = normalized.toString();
+      text = text.replaceAll(RegExp(r'[?#]+$'), '');
+      return text.replaceAll(RegExp(r'/+$'), '');
     } catch (_) {
       return raw.replaceAll(RegExp(r'/+$'), '');
     }
@@ -1128,11 +1666,99 @@ class AppState extends ChangeNotifier {
     return baseUrl;
   }
 
+  Future<AuthResult> _authenticateForBackup({
+    required String baseUrl,
+    required String username,
+    required String password,
+    required String deviceId,
+  }) async {
+    final raw = baseUrl.trim();
+    if (raw.isEmpty) throw const FormatException('Missing baseUrl');
+
+    Uri? uri;
+    try {
+      uri = Uri.parse(raw);
+    } catch (_) {}
+
+    if (uri == null || uri.host.isEmpty) {
+      try {
+        uri = Uri.parse('https://$raw');
+      } catch (_) {}
+    }
+
+    final scheme =
+        (uri != null && (uri.scheme == 'http' || uri.scheme == 'https'))
+            ? uri.scheme
+            : 'https';
+    final port = (uri != null && uri.hasPort) ? uri.port.toString() : null;
+
+    final hostOrUrl = (uri != null && uri.host.isNotEmpty)
+        ? uri.host +
+            ((uri.path.isNotEmpty && uri.path != '/') ? uri.path : '')
+        : raw;
+
+    final api = EmbyApi(hostOrUrl: hostOrUrl, preferredScheme: scheme, port: port);
+    return api.authenticate(
+      username: username,
+      password: password,
+      deviceId: deviceId,
+    );
+  }
+
   Future<void> _persistServers(SharedPreferences prefs) async {
     await prefs.setString(
       _kServersKey,
       jsonEncode(_servers.map((s) => s.toJson()).toList()),
     );
+  }
+
+  static Map<String, dynamic>? _coerceStringKeyedMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return null;
+  }
+
+  static int _readInt(dynamic value, {required int fallback}) {
+    if (value is int) return value;
+    if (value is num) return value.round();
+    if (value is String) return int.tryParse(value.trim()) ?? fallback;
+    return fallback;
+  }
+
+  static double _readDouble(dynamic value, {required double fallback}) {
+    if (value is double) return value;
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.trim()) ?? fallback;
+    return fallback;
+  }
+
+  static bool _readBool(dynamic value, {required bool fallback}) {
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) {
+      final v = value.trim().toLowerCase();
+      if (v == 'true' || v == '1' || v == 'yes' || v == 'y') return true;
+      if (v == 'false' || v == '0' || v == 'no' || v == 'n') return false;
+    }
+    return fallback;
+  }
+
+  static List<String> _readStringList(dynamic value) {
+    if (value is List) {
+      return value
+          .where((e) => e != null)
+          .map((e) => e.toString().trim())
+          .where((e) => e.isNotEmpty)
+          .toList();
+    }
+    if (value is String) {
+      final v = value.trim();
+      if (v.isEmpty) return const [];
+      return [v];
+    }
+    return const [];
   }
 }
 

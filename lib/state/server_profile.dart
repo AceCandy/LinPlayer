@@ -1,6 +1,7 @@
 class ServerProfile {
   ServerProfile({
     required this.id,
+    required this.username,
     required this.name,
     required this.baseUrl,
     required this.token,
@@ -15,6 +16,7 @@ class ServerProfile {
         customDomains = customDomains ?? <CustomDomain>[];
 
   final String id;
+  String username;
   String name;
   String? remark;
 
@@ -37,6 +39,7 @@ class ServerProfile {
 
   Map<String, dynamic> toJson() => {
         'id': id,
+        'username': username,
         'name': name,
         'remark': remark,
         'iconUrl': iconUrl,
@@ -51,6 +54,7 @@ class ServerProfile {
   factory ServerProfile.fromJson(Map<String, dynamic> json) {
     return ServerProfile(
       id: json['id'] as String? ?? '',
+      username: json['username'] as String? ?? '',
       name: json['name'] as String? ?? '',
       remark: json['remark'] as String?,
       iconUrl: json['iconUrl'] as String?,

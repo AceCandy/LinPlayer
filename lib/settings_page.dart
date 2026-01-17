@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 import 'package:url_launcher/url_launcher_string.dart';
@@ -16,6 +18,7 @@ import 'src/ui/glass_background.dart';
 import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';
 import 'state/preferences.dart';
+import 'state/server_profile.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.appState});
@@ -25,6 +28,8 @@ class SettingsPage extends StatefulWidget {
   @override
   State<SettingsPage> createState() => _SettingsPageState();
 }
+
+enum _BackupIoAction { file, clipboard }
 
 class _SettingsPageState extends State<SettingsPage> {
   static const _donateUrl = 'https://afdian.com/a/zzzwannasleep';
@@ -50,6 +55,658 @@ class _SettingsPageState extends State<SettingsPage> {
         _currentVersionFull = AppUpdateService.packageVersionFull(info);
       });
     } catch (_) {}
+  }
+
+  String _backupFileName() {
+    final now = DateTime.now();
+    String pad2(int v) => v.toString().padLeft(2, '0');
+    final y = now.year.toString().padLeft(4, '0');
+    final m = pad2(now.month);
+    final d = pad2(now.day);
+    final hh = pad2(now.hour);
+    final mm = pad2(now.minute);
+    final ss = pad2(now.second);
+    return 'linplayer_backup_${y}${m}${d}_${hh}${mm}${ss}.json';
+  }
+
+  Future<T> _runWithBlockingDialog<T>(
+    BuildContext context,
+    Future<T> Function() action, {
+    required String title,
+    String subtitle = '请稍候…',
+  }) async {
+    final nav = Navigator.of(context);
+    showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => AlertDialog(
+        title: Text(title),
+        content: Row(
+          children: [
+            const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            ),
+            const SizedBox(width: 12),
+            Expanded(child: Text(subtitle)),
+          ],
+        ),
+      ),
+    );
+    try {
+      return await action();
+    } finally {
+      if (context.mounted) nav.pop();
+    }
+  }
+
+  Future<BackupServerSecretMode?> _askBackupMode(BuildContext context) async {
+    BackupServerSecretMode selected = BackupServerSecretMode.password;
+    return showDialog<BackupServerSecretMode>(
+      context: context,
+      builder: (dctx) => StatefulBuilder(
+        builder: (dctx, setState) => AlertDialog(
+          title: const Text('导出方式'),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              RadioListTile<BackupServerSecretMode>(
+                value: BackupServerSecretMode.password,
+                groupValue: selected,
+                onChanged: (v) =>
+                    setState(() => selected = v ?? BackupServerSecretMode.password),
+                title: const Text('账号迁移（不导出 token）'),
+                subtitle: const Text('导入时会重新登录，需联网；需要输入账号密码'),
+              ),
+              RadioListTile<BackupServerSecretMode>(
+                value: BackupServerSecretMode.token,
+                groupValue: selected,
+                onChanged: (v) =>
+                    setState(() => selected = v ?? BackupServerSecretMode.password),
+                title: const Text('会话迁移（导出 token）'),
+                subtitle: const Text('导入无需重新登录；适合离线迁移'),
+              ),
+            ],
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(selected),
+              child: const Text('继续'),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Future<String?> _askBackupPassphrase(
+    BuildContext context, {
+    required String title,
+    required bool confirm,
+  }) async {
+    final passCtrl = TextEditingController();
+    final confirmCtrl = TextEditingController();
+    bool show = false;
+    String? error;
+
+    try {
+      return await showDialog<String>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dctx) => StatefulBuilder(
+          builder: (dctx, setState) => AlertDialog(
+            title: Text(title),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: passCtrl,
+                  obscureText: !show,
+                  decoration: InputDecoration(
+                    labelText: '备份密码',
+                    errorText: error,
+                    suffixIcon: IconButton(
+                      tooltip: show ? '隐藏' : '显示',
+                      icon: Icon(
+                        show
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () => setState(() => show = !show),
+                    ),
+                  ),
+                ),
+                if (confirm) ...[
+                  const SizedBox(height: 10),
+                  TextField(
+                    controller: confirmCtrl,
+                    obscureText: !show,
+                    decoration: const InputDecoration(labelText: '确认备份密码'),
+                  ),
+                ],
+                const SizedBox(height: 10),
+                Text(
+                  '提示：备份密码越强，越不容易被暴力破解。',
+                  style: Theme.of(dctx).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(dctx).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final p = passCtrl.text;
+                  if (p.trim().length < 6) {
+                    setState(() => error = '备份密码至少 6 位');
+                    return;
+                  }
+                  if (confirm && p != confirmCtrl.text) {
+                    setState(() => error = '两次输入不一致');
+                    return;
+                  }
+                  Navigator.of(dctx).pop(p);
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      passCtrl.dispose();
+      confirmCtrl.dispose();
+    }
+  }
+
+  Future<BackupServerLogin?> _askServerLoginForBackup(
+    BuildContext context,
+    ServerProfile server,
+  ) async {
+    final userCtrl = TextEditingController(text: server.username.trim());
+    final pwdCtrl = TextEditingController();
+    bool show = false;
+    String? error;
+
+    try {
+      return await showDialog<BackupServerLogin>(
+        context: context,
+        barrierDismissible: false,
+        builder: (dctx) => StatefulBuilder(
+          builder: (dctx, setState) => AlertDialog(
+            title: Text('服务器：${server.name}'),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  server.baseUrl,
+                  style: Theme.of(dctx).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(dctx).colorScheme.onSurfaceVariant,
+                      ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: userCtrl,
+                  decoration: InputDecoration(
+                    labelText: '用户名',
+                    errorText: error,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: pwdCtrl,
+                  obscureText: !show,
+                  decoration: InputDecoration(
+                    labelText: '密码（可为空）',
+                    suffixIcon: IconButton(
+                      tooltip: show ? '隐藏' : '显示',
+                      icon: Icon(
+                        show
+                            ? Icons.visibility_off_outlined
+                            : Icons.visibility_outlined,
+                      ),
+                      onPressed: () => setState(() => show = !show),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () {
+                  final u = userCtrl.text.trim();
+                  if (u.isEmpty) {
+                    setState(() => error = '请输入用户名');
+                    return;
+                  }
+                  Navigator.of(dctx).pop(
+                    BackupServerLogin(username: u, password: pwdCtrl.text),
+                  );
+                },
+                child: const Text('确定'),
+              ),
+            ],
+          ),
+        ),
+      );
+    } finally {
+      userCtrl.dispose();
+      pwdCtrl.dispose();
+    }
+  }
+
+  Future<Map<String, BackupServerLogin>?> _collectServerLogins(
+    BuildContext context,
+  ) async {
+    final result = <String, BackupServerLogin>{};
+    for (final server in widget.appState.servers) {
+      final login = await _askServerLoginForBackup(context, server);
+      if (login == null) return null;
+      result[server.id] = login;
+      if (login.username.trim() != server.username.trim()) {
+        // ignore: unawaited_futures
+        widget.appState.updateServerMeta(server.id, username: login.username);
+      }
+    }
+    return result;
+  }
+
+  int? _peekBackupVersion(String raw) {
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return null;
+      final v = decoded['version'];
+      if (v is int) return v;
+      if (v is num) return v.round();
+      if (v is String) return int.tryParse(v.trim());
+      return null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> _importBackupRaw(BuildContext context, String raw) async {
+    final version = _peekBackupVersion(raw);
+    if (version == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('导入失败：不是有效的备份文件')),
+      );
+      return;
+    }
+
+    String? passphrase;
+    if (version == 2) {
+      passphrase = await _askBackupPassphrase(
+        context,
+        title: '输入备份密码',
+        confirm: false,
+      );
+      if (passphrase == null) return;
+    } else if (version == 1) {
+      final ok = await showDialog<bool>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: const Text('旧版备份'),
+          content: const Text(
+            '检测到旧版备份（未加密，包含 token）。\n建议在原设备重新导出加密备份再导入。',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(true),
+              child: const Text('继续导入'),
+            ),
+          ],
+        ),
+      );
+      if (ok != true) return;
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：不支持的备份版本：$version')),
+      );
+      return;
+    }
+
+    try {
+      await _runWithBlockingDialog(
+        context,
+        () async {
+          await widget.appState.importBackupJson(
+            raw,
+            passphrase: passphrase,
+          );
+          await _postImportApplySideEffects();
+        },
+        title: '正在导入备份',
+        subtitle: '解密/登录中…',
+      );
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('导入成功')),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _exportPlainBackup(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('导出免密码备份'),
+        content: const Text(
+          '免密码备份不加密，文件会包含 token 等敏感信息。\n'
+          '任何拿到备份文件的人都可能直接登录你的服务器。\n\n'
+          '仅建议在自己设备之间离线传输（U 盘/局域网），不要上传网盘/聊天软件。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final json = widget.appState.exportBackupJson(pretty: true);
+
+    final action = await showDialog<_BackupIoAction>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('导出免密码备份'),
+        content: const Text('选择导出方式：'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.clipboard),
+            child: const Text('复制'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.file),
+            child: const Text('保存为文件'),
+          ),
+        ],
+      ),
+    );
+
+    if (action == null) return;
+
+    try {
+      switch (action) {
+        case _BackupIoAction.clipboard:
+          await Clipboard.setData(ClipboardData(text: json));
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已复制备份到剪贴板')),
+          );
+          return;
+        case _BackupIoAction.file:
+          final path = await FilePicker.platform.saveFile(
+            dialogTitle: '保存备份文件',
+            fileName: _backupFileName(),
+            type: FileType.custom,
+            allowedExtensions: const ['json'],
+          );
+          if (path == null || path.trim().isEmpty) return;
+          final normalized = path.toLowerCase().endsWith('.json')
+              ? path
+              : '$path.json';
+          await File(normalized).writeAsString(json, flush: true);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已导出备份文件')),
+          );
+          return;
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _exportEncryptedBackup(BuildContext context) async {
+    final mode = await _askBackupMode(context);
+    if (mode == null) return;
+
+    final passphrase = await _askBackupPassphrase(
+      context,
+      title: '设置备份密码',
+      confirm: true,
+    );
+    if (passphrase == null) return;
+
+    Map<String, BackupServerLogin>? logins;
+    if (mode == BackupServerSecretMode.password &&
+        widget.appState.servers.isNotEmpty) {
+      logins = await _collectServerLogins(context);
+      if (logins == null) return;
+    }
+
+    final action = await showDialog<_BackupIoAction>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('导出加密备份'),
+        content: const Text(
+          '将导出加密备份（包含全部设置与 Emby 服务器）。\n请妥善保存备份文件与备份密码。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.clipboard),
+            child: const Text('复制'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.file),
+            child: const Text('保存为文件'),
+          ),
+        ],
+      ),
+    );
+
+    if (action == null) return;
+
+    try {
+      final json = await _runWithBlockingDialog(
+        context,
+        () => widget.appState.exportEncryptedBackupJson(
+          passphrase: passphrase,
+          mode: mode,
+          serverLogins: logins,
+          pretty: true,
+        ),
+        title: '正在生成备份',
+        subtitle: '加密中…',
+      );
+
+      switch (action) {
+        case _BackupIoAction.clipboard:
+          await Clipboard.setData(ClipboardData(text: json));
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已复制备份到剪贴板')),
+          );
+          return;
+        case _BackupIoAction.file:
+          final path = await FilePicker.platform.saveFile(
+            dialogTitle: '保存备份文件',
+            fileName: _backupFileName(),
+            type: FileType.custom,
+            allowedExtensions: const ['json'],
+          );
+          if (path == null || path.trim().isEmpty) return;
+          final normalized = path.toLowerCase().endsWith('.json')
+              ? path
+              : '$path.json';
+          await File(normalized).writeAsString(json, flush: true);
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('已导出备份文件')),
+          );
+          return;
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导出失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _importBackup(BuildContext context) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('导入备份'),
+        content: const Text(
+          '将覆盖本机全部设置与 Emby 服务器列表。\n建议先导出备份再导入。',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(true),
+            child: const Text('继续'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+
+    final action = await showDialog<_BackupIoAction>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('选择导入方式'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('取消'),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.clipboard),
+            child: const Text('从文本导入'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(_BackupIoAction.file),
+            child: const Text('从文件导入'),
+          ),
+        ],
+      ),
+    );
+    if (action == null) return;
+
+    switch (action) {
+      case _BackupIoAction.file:
+        await _importBackupFromFile(context);
+        return;
+      case _BackupIoAction.clipboard:
+        await _importBackupFromText(context);
+        return;
+    }
+  }
+
+  Future<void> _postImportApplySideEffects() async {
+    CoverCacheManager.setUnlimited(widget.appState.unlimitedCoverCache);
+    if (AppIconService.isSupported) {
+      await AppIconService.setIconId(widget.appState.appIconId);
+    }
+  }
+
+  Future<void> _importBackupFromFile(BuildContext context) async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: '选择备份文件',
+        allowMultiple: false,
+        withData: false,
+        type: FileType.custom,
+        allowedExtensions: const ['json'],
+      );
+      final path = result?.files.single.path;
+      if (path == null || path.trim().isEmpty) return;
+
+      final raw = await File(path).readAsString();
+      if (!context.mounted) return;
+      await _importBackupRaw(context, raw);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _importBackupFromText(BuildContext context) async {
+    final ctrl = TextEditingController();
+    try {
+      final raw = await showDialog<String>(
+        context: context,
+        builder: (dctx) => AlertDialog(
+          title: const Text('从文本导入'),
+          content: TextField(
+            controller: ctrl,
+            maxLines: 12,
+            minLines: 6,
+            decoration: const InputDecoration(
+              hintText: '粘贴导出的 JSON 文本',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dctx).pop(ctrl.text),
+              child: const Text('导入'),
+            ),
+          ],
+        ),
+      );
+      if (raw == null || raw.trim().isEmpty) return;
+
+      if (!context.mounted) return;
+      await _importBackupRaw(context, raw);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
+    } finally {
+      ctrl.dispose();
+    }
   }
 
   bool _isTv(BuildContext context) =>
@@ -706,6 +1363,43 @@ class _SettingsPageState extends State<SettingsPage> {
                               },
                             ),
                           ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 12),
+                  _Section(
+                    title: '备份与迁移',
+                    subtitle: '跨设备同步设置/服务器',
+                    enableBlur: enableBlur,
+                    child: Column(
+                      children: [
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.upload_file_outlined),
+                          title: const Text('导出备份（免密码）'),
+                          subtitle: const Text('不加密：导出全部设置与服务器 token'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _exportPlainBackup(context),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.lock_outline),
+                          title: const Text('导出加密备份（推荐）'),
+                          subtitle: const Text('需要备份密码：可选导出账号密码/会话 token'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _exportEncryptedBackup(context),
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading:
+                              const Icon(Icons.download_for_offline_outlined),
+                          title: const Text('导入备份'),
+                          subtitle: const Text('覆盖本机全部设置与 Emby 服务器列表'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: () => _importBackup(context),
                         ),
                       ],
                     ),
