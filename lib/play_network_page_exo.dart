@@ -5,6 +5,8 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
+import 'package:video_player_android/exo_tracks.dart' as vp_android;
+import 'package:video_player_platform_interface/video_player_platform_interface.dart';
 
 import 'play_network_page.dart';
 import 'services/emby_api.dart';
@@ -721,6 +723,182 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
       );
   }
 
+  String _audioTrackTitle(VideoAudioTrack t) {
+    final label = (t.label ?? '').trim();
+    if (label.isNotEmpty) return label;
+    final lang = (t.language ?? '').trim();
+    if (lang.isNotEmpty) return lang;
+    return '音轨 ${t.id}';
+  }
+
+  String _audioTrackSubtitle(VideoAudioTrack t) {
+    final parts = <String>[];
+    final codec = (t.codec ?? '').trim();
+    if (codec.isNotEmpty) parts.add(codec);
+    if (t.channelCount != null && t.channelCount! > 0) {
+      parts.add('${t.channelCount}ch');
+    }
+    if (t.sampleRate != null && t.sampleRate! > 0) {
+      parts.add('${t.sampleRate}Hz');
+    }
+    if (t.bitrate != null && t.bitrate! > 0) {
+      parts.add('${(t.bitrate! / 1000).round()} kbps');
+    }
+    return parts.join('  ');
+  }
+
+  Future<void> _showAudioTracks(BuildContext context) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final platform = VideoPlayerPlatform.instance;
+    if (!platform.isAudioTrackSupportAvailable()) {
+      _showNotSupported('音轨切换');
+      return;
+    }
+
+    late final List<VideoAudioTrack> tracks;
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      tracks = await platform.getAudioTracks(controller.playerId);
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('获取音轨失败：$e')),
+      );
+      return;
+    }
+
+    if (!context.mounted) return;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        if (tracks.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('暂无音轨'),
+          );
+        }
+        return ListView(
+          children: tracks
+              .map(
+                (t) => ListTile(
+                  title: Text(_audioTrackTitle(t)),
+                  subtitle: Text(_audioTrackSubtitle(t)),
+                  trailing: t.isSelected ? const Icon(Icons.check) : null,
+                  onTap: () async {
+                    Navigator.of(ctx).pop();
+                    try {
+                      // ignore: invalid_use_of_visible_for_testing_member
+                      await platform.selectAudioTrack(controller.playerId, t.id);
+                    } catch (e) {
+                      if (!context.mounted) return;
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        SnackBar(content: Text('切换音轨失败：$e')),
+                      );
+                    }
+                  },
+                ),
+              )
+              .toList(),
+        );
+      },
+    );
+  }
+
+  String _subtitleTrackTitle(vp_android.ExoPlayerSubtitleTrackData t) {
+    final label = (t.label ?? '').trim();
+    if (label.isNotEmpty) return label;
+    final lang = (t.language ?? '').trim();
+    if (lang.isNotEmpty) return lang;
+    return '字幕 ${t.groupIndex}_${t.trackIndex}';
+  }
+
+  String _subtitleTrackSubtitle(vp_android.ExoPlayerSubtitleTrackData t) {
+    final parts = <String>[];
+    final codec = (t.codec ?? '').trim();
+    final mime = (t.mimeType ?? '').trim();
+    if (codec.isNotEmpty) parts.add(codec);
+    if (mime.isNotEmpty) parts.add(mime);
+    return parts.join('  ');
+  }
+
+  Future<void> _showSubtitleTracks(BuildContext context) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final api = vp_android.VideoPlayerInstanceApi(
+      // ignore: invalid_use_of_visible_for_testing_member
+      messageChannelSuffix: controller.playerId.toString(),
+    );
+
+    late final vp_android.NativeSubtitleTrackData data;
+    try {
+      data = await api.getSubtitleTracks();
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('获取字幕失败：$e')),
+      );
+      return;
+    }
+
+    final tracks =
+        data.exoPlayerTracks ?? const <vp_android.ExoPlayerSubtitleTrackData>[];
+    final anySelected = tracks.any((e) => e.isSelected);
+
+    if (!context.mounted) return;
+    showModalBottomSheet(
+      context: context,
+      builder: (ctx) {
+        if (tracks.isEmpty) {
+          return const Padding(
+            padding: EdgeInsets.all(16),
+            child: Text('暂无字幕'),
+          );
+        }
+
+        return ListView(
+          children: [
+            ListTile(
+              title: const Text('关闭'),
+              trailing: anySelected ? null : const Icon(Icons.check),
+              onTap: () async {
+                Navigator.of(ctx).pop();
+                try {
+                  await api.deselectSubtitleTrack();
+                } catch (e) {
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(content: Text('关闭字幕失败：$e')),
+                  );
+                }
+              },
+            ),
+            ...tracks.map(
+              (t) => ListTile(
+                title: Text(_subtitleTrackTitle(t)),
+                subtitle: Text(_subtitleTrackSubtitle(t)),
+                trailing: t.isSelected ? const Icon(Icons.check) : null,
+                onTap: () async {
+                  Navigator.of(ctx).pop();
+                  try {
+                    await api.selectSubtitleTrack(t.groupIndex, t.trackIndex);
+                  } catch (e) {
+                    if (!context.mounted) return;
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(content: Text('切换字幕失败：$e')),
+                    );
+                  }
+                },
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
   String get _orientationTooltip {
     switch (_orientationMode) {
       case _OrientationMode.auto:
@@ -828,12 +1006,12 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
           IconButton(
             tooltip: '音轨',
             icon: const Icon(Icons.audiotrack),
-            onPressed: () => _showNotSupported('播放中切换音轨'),
+            onPressed: () => _showAudioTracks(context),
           ),
           IconButton(
             tooltip: '字幕',
             icon: const Icon(Icons.subtitles),
-            onPressed: () => _showNotSupported('播放中切换字幕'),
+            onPressed: () => _showSubtitleTracks(context),
           ),
           IconButton(
             tooltip: '弹幕',

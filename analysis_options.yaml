@@ -9,4 +9,5 @@ linter:
 analyzer:
   exclude:
     - packages/media_kit_patched/**
+    - packages/video_player_android_patched/**
     - tmp_play.dart
