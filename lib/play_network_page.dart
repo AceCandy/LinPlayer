@@ -13,8 +13,10 @@ import 'play_network_page_exo.dart';
 import 'services/dandanplay_api.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'state/anime4k_preferences.dart';
 import 'state/danmaku_preferences.dart';
 import 'state/preferences.dart';
+import 'src/player/anime4k.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
 import 'src/player/playback_controls.dart';
@@ -57,6 +59,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   bool _loading = true;
   String? _playError;
   late bool _hwdecOn;
+  late Anime4kPreset _anime4kPreset;
   Tracks _tracks = const Tracks();
   StreamSubscription<String>? _errorSub;
   String? _resolvedStream;
@@ -122,6 +125,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       _embyApi = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     }
     _hwdecOn = widget.appState.preferHardwareDecode;
+    _anime4kPreset = widget.appState.anime4kPreset;
     _danmakuEnabled = widget.appState.danmakuEnabled;
     _danmakuOpacity = widget.appState.danmakuOpacity;
     _danmakuScale = widget.appState.danmakuScale;
@@ -204,9 +208,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         externalMpvPath: widget.appState.externalMpvPath,
       );
       if (_playerService.isExternalPlayback) {
-        _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
-         return;
-       }
+        _playError =
+            _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
+        return;
+      }
+
+      try {
+        await Anime4k.apply(_playerService.player, _anime4kPreset);
+      } catch (_) {
+        _anime4kPreset = Anime4kPreset.off;
+        // ignore: unawaited_futures
+        widget.appState.setAnime4kPreset(Anime4kPreset.off);
+      }
       final start = _overrideStartPosition ?? widget.startPosition;
       final resumeImmediately =
           _overrideResumeImmediately || widget.resumeImmediately;
@@ -285,6 +298,19 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       _errorSub?.cancel();
       _errorSub = _playerService.player.stream.error.listen((message) {
         if (!mounted) return;
+        final lower = message.toLowerCase();
+        final isShaderError = lower.contains('glsl') || lower.contains('shader');
+        if (!_anime4kPreset.isOff && isShaderError) {
+          setState(() => _anime4kPreset = Anime4kPreset.off);
+          // ignore: unawaited_futures
+          widget.appState.setAnime4kPreset(Anime4kPreset.off);
+          // ignore: unawaited_futures
+          Anime4k.clear(_playerService.player);
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('Anime4K 加载失败，已自动关闭')),
+          );
+          return;
+        }
         setState(() => _playError = message);
       });
       if (!_deferProgressReporting) {
@@ -1391,6 +1417,17 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
               },
             ),
           IconButton(
+            tooltip: _anime4kPreset.isOff
+                ? 'Anime4K'
+                : 'Anime4K: ${_anime4kPreset.label}',
+            icon: Icon(
+              _anime4kPreset.isOff
+                  ? Icons.auto_fix_high_outlined
+                  : Icons.auto_fix_high,
+            ),
+            onPressed: _showAnime4kSheet,
+          ),
+          IconButton(
             tooltip: '音轨',
             icon: const Icon(Icons.audiotrack),
             onPressed: () => _showAudioTracks(context),
@@ -1631,6 +1668,66 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         ],
       ),
     );
+  }
+
+  Future<void> _showAnime4kSheet() async {
+    final selected = await showModalBottomSheet<Anime4kPreset>(
+      context: context,
+      showDragHandle: true,
+      builder: (ctx) {
+        final current = _anime4kPreset;
+        return SafeArea(
+          child: ListView(
+            children: [
+              const ListTile(title: Text('Anime4K（M）')),
+              for (final preset in Anime4kPreset.values)
+                ListTile(
+                  leading: Icon(
+                    preset == current
+                        ? Icons.check_circle
+                        : Icons.circle_outlined,
+                  ),
+                  title: Text(preset.label),
+                  subtitle: Text(preset.description),
+                  onTap: () => Navigator.of(ctx).pop(preset),
+                ),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    if (selected == null || selected == _anime4kPreset) return;
+
+    setState(() => _anime4kPreset = selected);
+    // ignore: unawaited_futures
+    widget.appState.setAnime4kPreset(selected);
+
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      return;
+    }
+
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      await Anime4k.apply(_playerService.player, selected);
+      if (!mounted) return;
+      final text = selected.isOff ? '已关闭 Anime4K' : '已启用 Anime4K：${selected.label}';
+      messenger.showSnackBar(
+        SnackBar(content: Text(text)),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _anime4kPreset = Anime4kPreset.off);
+      // ignore: unawaited_futures
+      widget.appState.setAnime4kPreset(Anime4kPreset.off);
+      try {
+        await Anime4k.clear(_playerService.player);
+      } catch (_) {}
+      messenger.showSnackBar(
+        const SnackBar(content: Text('Anime4K 初始化失败')),
+      );
+    }
   }
 
   void _showAudioTracks(BuildContext context) {

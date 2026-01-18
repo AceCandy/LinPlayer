@@ -5,6 +5,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backup_crypto.dart';
 import '../services/emby_api.dart';
+import 'anime4k_preferences.dart';
 import 'danmaku_preferences.dart';
 import 'local_playback_handoff.dart';
 import 'preferences.dart';
@@ -71,6 +72,7 @@ class AppState extends ChangeNotifier {
   static const _kUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
   static const _kEnableBlurEffectsKey = 'enableBlurEffects_v1';
   static const _kExternalMpvPathKey = 'externalMpvPath_v1';
+  static const _kAnime4kPresetKey = 'anime4kPreset_v1';
   static const _kDanmakuEnabledKey = 'danmakuEnabled_v1';
   static const _kDanmakuLoadModeKey = 'danmakuLoadMode_v1';
   static const _kDanmakuApiUrlsKey = 'danmakuApiUrls_v1';
@@ -123,6 +125,7 @@ class AppState extends ChangeNotifier {
   bool _unlimitedCoverCache = false;
   bool _enableBlurEffects = true;
   String _externalMpvPath = '';
+  Anime4kPreset _anime4kPreset = Anime4kPreset.off;
   bool _danmakuEnabled = true;
   DanmakuLoadMode _danmakuLoadMode = DanmakuLoadMode.local;
   List<String> _danmakuApiUrls = ['https://api.dandanplay.net'];
@@ -188,6 +191,7 @@ class AppState extends ChangeNotifier {
   bool get unlimitedCoverCache => _unlimitedCoverCache;
   bool get enableBlurEffects => _enableBlurEffects;
   String get externalMpvPath => _externalMpvPath;
+  Anime4kPreset get anime4kPreset => _anime4kPreset;
   bool get danmakuEnabled => _danmakuEnabled;
   DanmakuLoadMode get danmakuLoadMode => _danmakuLoadMode;
   List<String> get danmakuApiUrls => List.unmodifiable(_danmakuApiUrls);
@@ -269,6 +273,7 @@ class AppState extends ChangeNotifier {
     _unlimitedCoverCache = prefs.getBool(_kUnlimitedCoverCacheKey) ?? false;
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _externalMpvPath = prefs.getString(_kExternalMpvPathKey) ?? '';
+    _anime4kPreset = anime4kPresetFromId(prefs.getString(_kAnime4kPresetKey));
 
     _danmakuEnabled = prefs.getBool(_kDanmakuEnabledKey) ?? true;
     _danmakuLoadMode =
@@ -393,6 +398,7 @@ class AppState extends ChangeNotifier {
         'unlimitedCoverCache': _unlimitedCoverCache,
         'enableBlurEffects': _enableBlurEffects,
         'externalMpvPath': _externalMpvPath,
+        'anime4kPreset': _anime4kPreset.id,
         'serverIconLibraryUrls': _serverIconLibraryUrls,
         'danmaku': {
           'enabled': _danmakuEnabled,
@@ -665,6 +671,8 @@ class AppState extends ChangeNotifier {
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextExternalMpvPath =
         (data['externalMpvPath'] ?? '').toString().trim();
+    final nextAnime4kPreset =
+        anime4kPresetFromId(data['anime4kPreset']?.toString());
     final nextServerIconLibraryUrls = () {
       final list = _readStringList(data['serverIconLibraryUrls']);
       final seen = <String>{};
@@ -754,6 +762,7 @@ class AppState extends ChangeNotifier {
     _unlimitedCoverCache = nextUnlimitedCoverCache;
     _enableBlurEffects = nextEnableBlurEffects;
     _externalMpvPath = nextExternalMpvPath;
+    _anime4kPreset = nextAnime4kPreset;
     _serverIconLibraryUrls = nextServerIconLibraryUrls;
     _danmakuEnabled = nextDanmakuEnabled;
     _danmakuLoadMode = nextDanmakuLoadMode;
@@ -817,6 +826,12 @@ class AppState extends ChangeNotifier {
       await prefs.remove(_kExternalMpvPathKey);
     } else {
       await prefs.setString(_kExternalMpvPathKey, _externalMpvPath);
+    }
+
+    if (_anime4kPreset.isOff) {
+      await prefs.remove(_kAnime4kPresetKey);
+    } else {
+      await prefs.setString(_kAnime4kPresetKey, _anime4kPreset.id);
     }
 
     if (_serverIconLibraryUrls.isEmpty) {
@@ -1541,6 +1556,18 @@ class AppState extends ChangeNotifier {
       await prefs.remove(_kExternalMpvPathKey);
     } else {
       await prefs.setString(_kExternalMpvPathKey, p);
+    }
+    notifyListeners();
+  }
+
+  Future<void> setAnime4kPreset(Anime4kPreset preset) async {
+    if (_anime4kPreset == preset) return;
+    _anime4kPreset = preset;
+    final prefs = await SharedPreferences.getInstance();
+    if (_anime4kPreset.isOff) {
+      await prefs.remove(_kAnime4kPresetKey);
+    } else {
+      await prefs.setString(_kAnime4kPresetKey, _anime4kPreset.id);
     }
     notifyListeners();
   }
