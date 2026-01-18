@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'src/player/playback_controls.dart';
 
 class ExoPlayNetworkPage extends StatefulWidget {
   const ExoPlayNetworkPage({
@@ -40,10 +41,12 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
   bool _loading = true;
   String? _playError;
+  String? _resolvedStream;
   bool _buffering = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   DateTime? _lastUiTickAt;
+  _OrientationMode _orientationMode = _OrientationMode.auto;
 
   String? _playSessionId;
   String? _mediaSourceId;
@@ -84,14 +87,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     super.dispose();
   }
 
-  String _fmt(Duration d) {
-    String two(int v) => v.toString().padLeft(2, '0');
-    final h = d.inHours;
-    final m = d.inMinutes.remainder(60);
-    final s = d.inSeconds.remainder(60);
-    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
-  }
-
   Future<void> _init() async {
     _uiTimer?.cancel();
     _uiTimer = null;
@@ -106,6 +101,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
     _playSessionId = null;
     _mediaSourceId = null;
+    _resolvedStream = null;
 
     final prev = _controller;
     _controller = null;
@@ -121,6 +117,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
         throw Exception('Exo 内核仅支持 Android');
       }
       final streamUrl = await _buildStreamUrl();
+      _resolvedStream = streamUrl;
       final controller = VideoPlayerController.networkUrl(
         Uri.parse(streamUrl),
         httpHeaders: {
@@ -128,6 +125,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
           'X-Emby-Authorization':
               'MediaBrowser Client="LinPlayer", Device="Flutter", DeviceId="${widget.appState.deviceId}", Version="1.0.0"',
         },
+        // Use platform view on Android to avoid color issues with some HDR/Dolby Vision sources.
+        // (Texture-based rendering may show green/purple tint on certain P8 files.)
+        viewType: VideoViewType.platformView,
       );
       _controller = controller;
       await controller.initialize();
@@ -419,13 +419,99 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     } catch (_) {}
   }
 
+  void _showNotSupported(String feature) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text('Exo 内核暂不支持：$feature')),
+      );
+  }
+
+  String get _orientationTooltip {
+    switch (_orientationMode) {
+      case _OrientationMode.auto:
+        return '自动旋转';
+      case _OrientationMode.landscape:
+        return '锁定横屏';
+      case _OrientationMode.portrait:
+        return '锁定竖屏';
+    }
+  }
+
+  IconData get _orientationIcon {
+    switch (_orientationMode) {
+      case _OrientationMode.auto:
+        return Icons.screen_rotation;
+      case _OrientationMode.landscape:
+        return Icons.screen_lock_landscape;
+      case _OrientationMode.portrait:
+        return Icons.screen_lock_portrait;
+    }
+  }
+
+  Future<void> _cycleOrientationMode() async {
+    final next = switch (_orientationMode) {
+      _OrientationMode.auto => _OrientationMode.landscape,
+      _OrientationMode.landscape => _OrientationMode.portrait,
+      _OrientationMode.portrait => _OrientationMode.auto,
+    };
+
+    if (mounted) {
+      setState(() => _orientationMode = next);
+      ScaffoldMessenger.of(context)
+        ..hideCurrentSnackBar()
+        ..showSnackBar(
+          SnackBar(
+            content: Text(_orientationTooltip),
+            duration: const Duration(milliseconds: 800),
+          ),
+        );
+    } else {
+      _orientationMode = next;
+    }
+
+    await _applyOrientationForMode();
+  }
+
+  Future<void> _applyOrientationForMode() async {
+    if (!_shouldControlSystemUi) return;
+
+    List<DeviceOrientation>? orientations;
+    switch (_orientationMode) {
+      case _OrientationMode.landscape:
+        orientations = const [
+          DeviceOrientation.landscapeLeft,
+          DeviceOrientation.landscapeRight,
+        ];
+        break;
+      case _OrientationMode.portrait:
+        orientations = const [DeviceOrientation.portraitUp];
+        break;
+      case _OrientationMode.auto:
+        orientations = const [];
+        break;
+    }
+
+    try {
+      await SystemChrome.setPreferredOrientations(orientations);
+    } catch (_) {}
+  }
+
   @override
   Widget build(BuildContext context) {
     final controller = _controller;
     final isReady = controller != null && controller.value.isInitialized;
+    final controlsEnabled = isReady && !_loading && _playError == null;
+    final stream = _resolvedStream;
 
     return Scaffold(
+      backgroundColor: Colors.black,
+      extendBodyBehindAppBar: true,
       appBar: AppBar(
+        backgroundColor: Colors.transparent,
+        elevation: 0,
+        foregroundColor: Colors.white,
         title: Text(widget.title),
         centerTitle: true,
         actions: [
@@ -434,146 +520,150 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
             icon: const Icon(Icons.refresh),
             onPressed: _loading ? null : _init,
           ),
+          if (stream != null && stream.isNotEmpty)
+            IconButton(
+              tooltip: '复制链接',
+              icon: const Icon(Icons.link),
+              onPressed: () async {
+                await Clipboard.setData(ClipboardData(text: stream));
+                if (!context.mounted) return;
+                ScaffoldMessenger.of(context).showSnackBar(
+                  const SnackBar(content: Text('已复制播放链接')),
+                );
+              },
+            ),
+          IconButton(
+            tooltip: '音轨',
+            icon: const Icon(Icons.audiotrack),
+            onPressed: () => _showNotSupported('播放中切换音轨'),
+          ),
+          IconButton(
+            tooltip: '字幕',
+            icon: const Icon(Icons.subtitles),
+            onPressed: () => _showNotSupported('播放中切换字幕'),
+          ),
+          IconButton(
+            tooltip: '弹幕',
+            icon: const Icon(Icons.comment_outlined),
+            onPressed: () => _showNotSupported('弹幕'),
+          ),
+          IconButton(
+            tooltip: '软/硬解切换',
+            icon: const Icon(Icons.memory),
+            onPressed: () => _showNotSupported('软/硬解切换'),
+          ),
+          IconButton(
+            tooltip: _orientationTooltip,
+            icon: Icon(_orientationIcon),
+            onPressed: _cycleOrientationMode,
+          ),
         ],
       ),
-      body: _loading
-          ? const Center(child: CircularProgressIndicator())
-          : _playError != null
-              ? Center(child: Text(_playError!))
-              : Padding(
-                  padding: const EdgeInsets.all(12),
-                  child: Column(
-                    children: [
-                      Expanded(
-                        child: Stack(
-                          children: [
-                            Center(
-                              child: isReady
-                                  ? AspectRatio(
-                                      aspectRatio:
-                                          controller.value.aspectRatio == 0
-                                              ? 16 / 9
-                                              : controller.value.aspectRatio,
-                                      child: VideoPlayer(controller),
-                                    )
-                                  : const SizedBox.shrink(),
-                            ),
-                            if (_buffering)
-                              const Positioned.fill(
-                                child: ColoredBox(
-                                  color: Colors.black26,
-                                  child: Center(
-                                      child: CircularProgressIndicator()),
-                                ),
-                              ),
-                          ],
+      body: Column(
+        children: [
+          Expanded(
+            child: Container(
+              color: Colors.black,
+              child: isReady
+                  ? Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        Center(
+                          child: AspectRatio(
+                            aspectRatio: controller.value.aspectRatio == 0
+                                ? 16 / 9
+                                : controller.value.aspectRatio,
+                            child: VideoPlayer(controller),
+                          ),
                         ),
-                      ),
-                      const SizedBox(height: 12),
-                      Row(
-                        children: [
-                          Text(_fmt(_position)),
-                          Expanded(
-                            child: Slider(
-                              value: _duration.inMilliseconds == 0
-                                  ? 0
-                                  : _position.inMilliseconds
-                                      .clamp(0, _duration.inMilliseconds)
-                                      .toDouble(),
-                              min: 0,
-                              max: _duration.inMilliseconds
-                                  .toDouble()
-                                  .clamp(1, double.infinity),
-                              onChanged: isReady
-                                  ? (v) => setState(() => _position =
-                                      Duration(milliseconds: v.round()))
-                                  : null,
-                              onChangeEnd: isReady
-                                  ? (v) async {
-                                      await controller.seekTo(
-                                        Duration(milliseconds: v.round()),
-                                      );
-                                      _maybeReportPlaybackProgress(
-                                        Duration(milliseconds: v.round()),
-                                        force: true,
-                                      );
-                                    }
-                                  : null,
+                        if (_buffering)
+                          const Positioned.fill(
+                            child: ColoredBox(
+                              color: Colors.black26,
+                              child: Center(child: CircularProgressIndicator()),
                             ),
                           ),
-                          Text(_fmt(_duration)),
-                        ],
-                      ),
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.center,
-                        children: [
-                          IconButton(
-                            tooltip: '后退 10 秒',
-                            icon: const Icon(Icons.replay_10),
-                            onPressed: isReady
-                                ? () async {
-                                    final target =
-                                        _position - const Duration(seconds: 10);
-                                    await controller.seekTo(
-                                      target < Duration.zero
-                                          ? Duration.zero
-                                          : target,
-                                    );
-                                    _maybeReportPlaybackProgress(
-                                      controller.value.position,
-                                      force: true,
-                                    );
-                                  }
-                                : null,
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: SafeArea(
+                            top: false,
+                            left: false,
+                            right: false,
+                            minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                            child: PlaybackControls(
+                              enabled: controlsEnabled,
+                              position: _position,
+                              duration: _duration,
+                              isPlaying: _isPlaying,
+                              onSeek: (pos) async {
+                                await controller.seekTo(pos);
+                                _maybeReportPlaybackProgress(pos, force: true);
+                                if (mounted) setState(() {});
+                              },
+                              onPlay: () async {
+                                await controller.play();
+                                _maybeReportPlaybackProgress(
+                                  controller.value.position,
+                                  force: true,
+                                );
+                                if (mounted) setState(() {});
+                              },
+                              onPause: () async {
+                                await controller.pause();
+                                _maybeReportPlaybackProgress(
+                                  controller.value.position,
+                                  force: true,
+                                );
+                                if (mounted) setState(() {});
+                              },
+                              onSeekBackward: () async {
+                                final target =
+                                    _position - const Duration(seconds: 10);
+                                final pos = target < Duration.zero
+                                    ? Duration.zero
+                                    : target;
+                                await controller.seekTo(pos);
+                                _maybeReportPlaybackProgress(
+                                  controller.value.position,
+                                  force: true,
+                                );
+                                if (mounted) setState(() {});
+                              },
+                              onSeekForward: () async {
+                                final d = _duration;
+                                final target =
+                                    _position + const Duration(seconds: 10);
+                                final pos = (d > Duration.zero && target > d)
+                                    ? d
+                                    : target;
+                                await controller.seekTo(pos);
+                                _maybeReportPlaybackProgress(
+                                  controller.value.position,
+                                  force: true,
+                                );
+                                if (mounted) setState(() {});
+                              },
+                            ),
                           ),
-                          IconButton(
-                            tooltip: _isPlaying ? '暂停' : '播放',
-                            icon: Icon(_isPlaying
-                                ? Icons.pause_circle
-                                : Icons.play_circle),
-                            iconSize: 44,
-                            onPressed: isReady
-                                ? () async {
-                                    if (_isPlaying) {
-                                      await controller.pause();
-                                    } else {
-                                      await controller.play();
-                                    }
-                                    _maybeReportPlaybackProgress(
-                                      controller.value.position,
-                                      force: true,
-                                    );
-                                    if (mounted) setState(() {});
-                                  }
-                                : null,
+                        ),
+                      ],
+                    )
+                  : _playError != null
+                      ? Center(
+                          child: Text(
+                            _playError!,
+                            style: const TextStyle(color: Colors.redAccent),
+                            textAlign: TextAlign.center,
                           ),
-                          IconButton(
-                            tooltip: '前进 10 秒',
-                            icon: const Icon(Icons.forward_10),
-                            onPressed: isReady
-                                ? () async {
-                                    final target =
-                                        _position + const Duration(seconds: 10);
-                                    await controller.seekTo(
-                                      target > _duration ? _duration : target,
-                                    );
-                                    _maybeReportPlaybackProgress(
-                                      controller.value.position,
-                                      force: true,
-                                    );
-                                  }
-                                : null,
-                          ),
-                        ],
-                      ),
-                      const SizedBox(height: 8),
-                      const Text(
-                        'Exo 内核为 Android 兼容性模式：部分高级功能（音轨/字幕切换、弹幕等）暂不可用。',
-                        textAlign: TextAlign.center,
-                      ),
-                    ],
-                  ),
-                ),
+                        )
+                      : const Center(child: CircularProgressIndicator()),
+            ),
+          ),
+          if (_loading) const LinearProgressIndicator(),
+        ],
+      ),
     );
   }
 }
+
+enum _OrientationMode { auto, landscape, portrait }

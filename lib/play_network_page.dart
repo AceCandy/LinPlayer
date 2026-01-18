@@ -15,6 +15,7 @@ import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
+import 'src/player/playback_controls.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/track_preferences.dart';
 
@@ -88,6 +89,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   int _nextDanmakuIndex = 0;
   Duration _lastPosition = Duration.zero;
   bool _danmakuPaused = false;
+  DateTime? _lastUiTickAt;
 
   @override
   void initState() {
@@ -139,6 +141,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     _progressReportInFlight = false;
     _nextDanmakuIndex = 0;
     _danmakuKey.currentState?.clear();
+    _lastUiTickAt = null;
     try {
       final streamUrl = await _buildStreamUrl();
       _resolvedStream = streamUrl;
@@ -188,11 +191,20 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         }
         _drainDanmaku(pos);
         _maybeReportPlaybackProgress(pos);
+
+        final now = DateTime.now();
+        final shouldRebuild = _lastUiTickAt == null ||
+            now.difference(_lastUiTickAt!) >= const Duration(milliseconds: 250);
+        if (shouldRebuild) {
+          _lastUiTickAt = now;
+          setState(() {});
+        }
       });
       _playingSub = _playerService.player.stream.playing.listen((playing) {
         if (!mounted) return;
         _applyDanmakuPauseState(_buffering || !playing);
         _maybeReportPlaybackProgress(_lastPosition, force: true);
+        setState(() {});
       });
       _applyDanmakuPauseState(_buffering || !_playerService.isPlaying);
       _completedSub = _playerService.player.stream.completed.listen((value) {
@@ -1016,6 +1028,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   @override
   Widget build(BuildContext context) {
     final initialized = _playerService.isInitialized;
+    final controlsEnabled = initialized && !_loading && _playError == null;
+    final duration = initialized ? _playerService.duration : Duration.zero;
+    final isPlaying = initialized ? _playerService.isPlaying : false;
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
@@ -1025,6 +1040,22 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         foregroundColor: Colors.white,
         title: Text(widget.title),
         actions: [
+          IconButton(
+            tooltip: '重新加载',
+            icon: const Icon(Icons.refresh),
+            onPressed: _loading
+                ? null
+                : () async {
+                    setState(() {
+                      _loading = true;
+                      _playError = null;
+                    });
+                    try {
+                      await _playerService.dispose();
+                    } catch (_) {}
+                    await _init();
+                  },
+          ),
           if (_resolvedStream != null)
             IconButton(
               tooltip: '复制链接',
@@ -1085,7 +1116,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                   ? Stack(
                       fit: StackFit.expand,
                       children: [
-                        Video(controller: _playerService.controller),
+                        Video(
+                          controller: _playerService.controller,
+                          controls: NoVideoControls,
+                        ),
                         Positioned.fill(
                           child: DanmakuStage(
                             key: _danmakuKey,
@@ -1120,6 +1154,55 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                               ],
                             ),
                           ),
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: SafeArea(
+                            top: false,
+                            left: false,
+                            right: false,
+                            minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                            child: PlaybackControls(
+                              enabled: controlsEnabled,
+                              position: _lastPosition,
+                              duration: duration,
+                              isPlaying: isPlaying,
+                              onSeek: (pos) async {
+                                await _playerService.seek(pos);
+                                _lastPosition = pos;
+                                _syncDanmakuCursor(pos);
+                                _maybeReportPlaybackProgress(pos, force: true);
+                                if (mounted) setState(() {});
+                              },
+                              onPlay: () => _playerService.play(),
+                              onPause: () => _playerService.pause(),
+                              onSeekBackward: () async {
+                                final target =
+                                    _lastPosition - const Duration(seconds: 10);
+                                final pos = target < Duration.zero
+                                    ? Duration.zero
+                                    : target;
+                                await _playerService.seek(pos);
+                                _lastPosition = pos;
+                                _syncDanmakuCursor(pos);
+                                _maybeReportPlaybackProgress(pos, force: true);
+                                if (mounted) setState(() {});
+                              },
+                              onSeekForward: () async {
+                                final d = duration;
+                                final target =
+                                    _lastPosition + const Duration(seconds: 10);
+                                final pos = (d > Duration.zero && target > d)
+                                    ? d
+                                    : target;
+                                await _playerService.seek(pos);
+                                _lastPosition = pos;
+                                _syncDanmakuCursor(pos);
+                                _maybeReportPlaybackProgress(pos, force: true);
+                                if (mounted) setState(() {});
+                              },
+                            ),
+                          ),
+                        ),
                       ],
                     )
                   : _playError != null

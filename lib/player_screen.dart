@@ -13,6 +13,7 @@ import 'player_service.dart';
 import 'services/dandanplay_api.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
+import 'src/player/playback_controls.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/track_preferences.dart';
 import 'state/app_state.dart';
@@ -199,11 +200,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
         setState(() => _playError = message);
       });
       _bufferingSub = _playerService.player.stream.buffering.listen((value) {
+        if (!mounted) return;
         _buffering = value;
         _applyDanmakuPauseState(_buffering || !_playerService.isPlaying);
+        setState(() {});
       });
       _playingSub = _playerService.player.stream.playing.listen((playing) {
+        if (!mounted) return;
         _applyDanmakuPauseState(_buffering || !playing);
+        setState(() {});
       });
       _applyDanmakuPauseState(_buffering || !_playerService.isPlaying);
       _duration = _playerService.duration;
@@ -823,7 +828,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ? Stack(
                       fit: StackFit.expand,
                       children: [
-                        Video(controller: _playerService.controller),
+                        Video(
+                          controller: _playerService.controller,
+                          controls: NoVideoControls,
+                        ),
                         Positioned.fill(
                           child: DanmakuStage(
                             key: _danmakuKey,
@@ -838,6 +846,60 @@ class _PlayerScreenState extends State<PlayerScreen> {
                             preventOverlap: _danmakuPreventOverlap,
                           ),
                         ),
+                        if (_buffering)
+                          const Positioned.fill(
+                            child: ColoredBox(
+                              color: Colors.black54,
+                              child: Center(child: CircularProgressIndicator()),
+                            ),
+                          ),
+                        Align(
+                          alignment: Alignment.bottomCenter,
+                          child: SafeArea(
+                            top: false,
+                            left: false,
+                            right: false,
+                            minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                            child: PlaybackControls(
+                              enabled: _playerService.isInitialized &&
+                                  _playError == null,
+                              position: _position,
+                              duration: _duration,
+                              isPlaying: _playerService.isPlaying,
+                              onSeek: (pos) async {
+                                await _playerService.seek(pos);
+                                _position = pos;
+                                _syncDanmakuCursor(pos);
+                                if (mounted) setState(() {});
+                              },
+                              onPlay: () => _playerService.play(),
+                              onPause: () => _playerService.pause(),
+                              onSeekBackward: () async {
+                                final target =
+                                    _position - const Duration(seconds: 10);
+                                final pos = target < Duration.zero
+                                    ? Duration.zero
+                                    : target;
+                                await _playerService.seek(pos);
+                                _position = pos;
+                                _syncDanmakuCursor(pos);
+                                if (mounted) setState(() {});
+                              },
+                              onSeekForward: () async {
+                                final d = _duration;
+                                final target =
+                                    _position + const Duration(seconds: 10);
+                                final pos = (d > Duration.zero && target > d)
+                                    ? d
+                                    : target;
+                                await _playerService.seek(pos);
+                                _position = pos;
+                                _syncDanmakuCursor(pos);
+                                if (mounted) setState(() {});
+                              },
+                            ),
+                          ),
+                        ),
                       ],
                     )
                   : _playError != null
@@ -850,38 +912,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       : const Center(child: Text('选择一个视频播放')),
             ),
           ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-            children: [
-              IconButton(
-                icon: const Icon(Icons.replay_10),
-                onPressed: !_playerService.isInitialized
-                    ? null
-                    : () {
-                        final newPos = _position - const Duration(seconds: 10);
-                        _playerService.seek(newPos);
-                      },
-              ),
-              IconButton(
-                icon: const Icon(Icons.forward_10),
-                onPressed: !_playerService.isInitialized
-                    ? null
-                    : () {
-                        final newPos = _position + const Duration(seconds: 10);
-                        _playerService.seek(newPos);
-                      },
-              ),
-            ],
-          ),
-          if (_playerService.isInitialized)
-            Slider(
-              value: _position.inMilliseconds
-                  .toDouble()
-                  .clamp(0, _duration.inMilliseconds + 1),
-              max: (_playerService.duration.inMilliseconds + 1).toDouble(),
-              onChanged: (v) =>
-                  _playerService.seek(Duration(milliseconds: v.toInt())),
-            ),
+          const SizedBox(height: 8),
           const Padding(
             padding: EdgeInsets.all(8.0),
             child: Text(
