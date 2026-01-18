@@ -74,6 +74,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   VideoParams? _lastVideoParams;
   _OrientationMode _orientationMode = _OrientationMode.auto;
   String? _lastOrientationKey;
+  Duration? _resumeHintPosition;
+  bool _showResumeHint = false;
+  Timer? _resumeHintTimer;
+  bool _deferProgressReporting = false;
 
   final GlobalKey<DanmakuStageState> _danmakuKey =
       GlobalKey<DanmakuStageState>();
@@ -144,6 +148,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     _nextDanmakuIndex = 0;
     _danmakuKey.currentState?.clear();
     _lastUiTickAt = null;
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
+    _resumeHintPosition = null;
+    _showResumeHint = false;
+    _deferProgressReporting = false;
     try {
       final streamUrl = await _buildStreamUrl();
       _resolvedStream = streamUrl;
@@ -162,21 +171,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       );
       if (_playerService.isExternalPlayback) {
         _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
-        return;
-      }
+         return;
+       }
       final start = widget.startPosition;
       if (start != null && start > Duration.zero) {
-        final total = _playerService.duration;
-        Duration safeStart = start;
-        if (total > Duration.zero && start >= total) {
-          final rewind = total - const Duration(seconds: 5);
-          safeStart = rewind > Duration.zero ? rewind : Duration.zero;
-        }
-        try {
-          final seekFuture = _playerService.seek(safeStart);
-          await seekFuture.timeout(const Duration(seconds: 3));
-          _lastPosition = safeStart;
-        } catch (_) {}
+        _resumeHintPosition = _safeSeekTarget(start, _playerService.duration);
+        _showResumeHint = true;
+        _deferProgressReporting = true;
       }
       _tracks = _playerService.player.state.tracks;
       _maybeApplyInitialTracks(_tracks);
@@ -241,14 +242,22 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         if (!mounted) return;
         setState(() => _playError = message);
       });
-      // ignore: unawaited_futures
-      _reportPlaybackStartBestEffort();
+      if (!_deferProgressReporting) {
+        // ignore: unawaited_futures
+        _reportPlaybackStartBestEffort();
+      }
       _maybeAutoLoadOnlineDanmaku();
     } catch (e) {
       _playError = e.toString();
+      _resumeHintPosition = null;
+      _showResumeHint = false;
+      _deferProgressReporting = false;
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+        if (_showResumeHint && _resumeHintPosition != null) {
+          _startResumeHintTimer();
+        }
       }
     }
   }
@@ -759,6 +768,65 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
 
   int _toTicks(Duration d) => d.inMicroseconds * 10;
 
+  static String _fmtClock(Duration d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
+
+  Duration _safeSeekTarget(Duration target, Duration total) {
+    if (target <= Duration.zero) return Duration.zero;
+    if (total <= Duration.zero) return target;
+    if (target < total) return target;
+    final rewind = total - const Duration(seconds: 5);
+    return rewind > Duration.zero ? rewind : Duration.zero;
+  }
+
+  void _startResumeHintTimer() {
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      if (!_showResumeHint) return;
+      _showResumeHint = false;
+      final shouldStartReporting = _deferProgressReporting;
+      _deferProgressReporting = false;
+      if (shouldStartReporting) {
+        // ignore: unawaited_futures
+        _reportPlaybackStartBestEffort();
+        _maybeReportPlaybackProgress(_lastPosition, force: true);
+      }
+      setState(() {});
+    });
+  }
+
+  Future<void> _resumeToHistoryPosition() async {
+    final target = _resumeHintPosition;
+    if (target == null || target <= Duration.zero) return;
+    if (!_playerService.isInitialized) return;
+
+    final safeTarget = _safeSeekTarget(target, _playerService.duration);
+    try {
+      final seekFuture = _playerService.seek(safeTarget);
+      await seekFuture.timeout(const Duration(seconds: 3));
+      _lastPosition = safeTarget;
+      _syncDanmakuCursor(safeTarget);
+    } catch (_) {}
+
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
+    _showResumeHint = false;
+    final shouldStartReporting = _deferProgressReporting;
+    _deferProgressReporting = false;
+    if (shouldStartReporting) {
+      // ignore: unawaited_futures
+      _reportPlaybackStartBestEffort();
+      _maybeReportPlaybackProgress(_lastPosition, force: true);
+    }
+    if (mounted) setState(() {});
+  }
+
   Future<void> _reportPlaybackStartBestEffort() async {
     if (_reportedStart || _reportedStop) return;
     final api = _embyApi;
@@ -794,6 +862,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
 
   void _maybeReportPlaybackProgress(Duration position, {bool force = false}) {
     if (_reportedStop) return;
+    if (_deferProgressReporting) return;
     if (_progressReportInFlight) return;
     final api = _embyApi;
     if (api == null) return;
@@ -1030,6 +1099,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     _reportPlaybackStoppedBestEffort();
     // ignore: unawaited_futures
     _exitImmersiveMode();
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
     _errorSub?.cancel();
     _bufferingSub?.cancel();
     _bufferingPctSub?.cancel();
@@ -1168,6 +1239,51 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                                     ),
                                   ),
                               ],
+                            ),
+                          ),
+                        if (controlsEnabled &&
+                            _showResumeHint &&
+                            _resumeHintPosition != null)
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: SafeArea(
+                              bottom: false,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                child: Material(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(999),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: _resumeToHistoryPosition,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.history,
+                                            size: 18,
+                                            color: Colors.white,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '跳转到 ${_fmtClock(_resumeHintPosition!)} 继续观看',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         Align(

@@ -49,6 +49,10 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   Duration _duration = Duration.zero;
   DateTime? _lastUiTickAt;
   _OrientationMode _orientationMode = _OrientationMode.auto;
+  Duration? _resumeHintPosition;
+  bool _showResumeHint = false;
+  Timer? _resumeHintTimer;
+  bool _deferProgressReporting = false;
 
   String? _playSessionId;
   String? _mediaSourceId;
@@ -79,6 +83,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   void dispose() {
     _uiTimer?.cancel();
     _uiTimer = null;
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
     // ignore: unawaited_futures
     _reportPlaybackStoppedBestEffort();
     // ignore: unawaited_futures
@@ -104,6 +110,11 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     _playSessionId = null;
     _mediaSourceId = null;
     _resolvedStream = null;
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
+    _resumeHintPosition = null;
+    _showResumeHint = false;
+    _deferProgressReporting = false;
 
     final prev = _controller;
     _controller = null;
@@ -135,17 +146,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
       await controller.initialize();
       final start = widget.startPosition;
       if (start != null && start > Duration.zero) {
-        final total = controller.value.duration;
-        Duration safeStart = start;
-        if (total > Duration.zero && start >= total) {
-          final rewind = total - const Duration(seconds: 5);
-          safeStart = rewind > Duration.zero ? rewind : Duration.zero;
-        }
-        try {
-          final seekFuture = controller.seekTo(safeStart);
-          await seekFuture.timeout(const Duration(seconds: 3));
-          _position = safeStart;
-        } catch (_) {}
+        _resumeHintPosition = _safeSeekTarget(start, controller.value.duration);
+        _showResumeHint = true;
+        _deferProgressReporting = true;
       }
       await controller.play();
 
@@ -177,13 +180,21 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
         }
       });
 
-      // ignore: unawaited_futures
-      _reportPlaybackStartBestEffort();
+      if (!_deferProgressReporting) {
+        // ignore: unawaited_futures
+        _reportPlaybackStartBestEffort();
+      }
     } catch (e) {
       _playError = e.toString();
+      _resumeHintPosition = null;
+      _showResumeHint = false;
+      _deferProgressReporting = false;
     } finally {
       if (mounted) {
         setState(() => _loading = false);
+        if (_showResumeHint && _resumeHintPosition != null) {
+          _startResumeHintTimer();
+        }
       }
     }
   }
@@ -260,6 +271,66 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
   int _toTicks(Duration d) => d.inMicroseconds * 10;
 
+  static String _fmtClock(Duration d) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    final h = d.inHours;
+    final m = d.inMinutes.remainder(60);
+    final s = d.inSeconds.remainder(60);
+    return h > 0 ? '${two(h)}:${two(m)}:${two(s)}' : '${two(m)}:${two(s)}';
+  }
+
+  Duration _safeSeekTarget(Duration target, Duration total) {
+    if (target <= Duration.zero) return Duration.zero;
+    if (total <= Duration.zero) return target;
+    if (target < total) return target;
+    final rewind = total - const Duration(seconds: 5);
+    return rewind > Duration.zero ? rewind : Duration.zero;
+  }
+
+  void _startResumeHintTimer() {
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      if (!_showResumeHint) return;
+      _showResumeHint = false;
+      final shouldStartReporting = _deferProgressReporting;
+      _deferProgressReporting = false;
+      if (shouldStartReporting) {
+        // ignore: unawaited_futures
+        _reportPlaybackStartBestEffort();
+        _maybeReportPlaybackProgress(_position, force: true);
+      }
+      setState(() {});
+    });
+  }
+
+  Future<void> _resumeToHistoryPosition() async {
+    final controller = _controller;
+    final target = _resumeHintPosition;
+    if (controller == null) return;
+    if (target == null || target <= Duration.zero) return;
+    if (!controller.value.isInitialized) return;
+
+    final safeTarget = _safeSeekTarget(target, controller.value.duration);
+    try {
+      final seekFuture = controller.seekTo(safeTarget);
+      await seekFuture.timeout(const Duration(seconds: 3));
+      _position = safeTarget;
+    } catch (_) {}
+
+    _resumeHintTimer?.cancel();
+    _resumeHintTimer = null;
+    _showResumeHint = false;
+    final shouldStartReporting = _deferProgressReporting;
+    _deferProgressReporting = false;
+    if (shouldStartReporting) {
+      // ignore: unawaited_futures
+      _reportPlaybackStartBestEffort();
+      _maybeReportPlaybackProgress(_position, force: true);
+    }
+    if (mounted) setState(() {});
+  }
+
   Future<void> _reportPlaybackStartBestEffort() async {
     if (_reportedStart || _reportedStop) return;
     final api = _embyApi;
@@ -295,6 +366,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
   void _maybeReportPlaybackProgress(Duration position, {bool force = false}) {
     if (_reportedStop) return;
+    if (_deferProgressReporting) return;
     if (_progressReportInFlight) return;
     final api = _embyApi;
     if (api == null) return;
@@ -597,6 +669,51 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
                             child: ColoredBox(
                               color: Colors.black26,
                               child: Center(child: CircularProgressIndicator()),
+                            ),
+                          ),
+                        if (controlsEnabled &&
+                            _showResumeHint &&
+                            _resumeHintPosition != null)
+                          Align(
+                            alignment: Alignment.topCenter,
+                            child: SafeArea(
+                              bottom: false,
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(vertical: 12),
+                                child: Material(
+                                  color: Colors.black54,
+                                  borderRadius: BorderRadius.circular(999),
+                                  clipBehavior: Clip.antiAlias,
+                                  child: InkWell(
+                                    onTap: _resumeToHistoryPosition,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.history,
+                                            size: 18,
+                                            color: Colors.white,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '跳转到 ${_fmtClock(_resumeHintPosition!)} 继续观看',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                        ],
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
                             ),
                           ),
                         Align(
