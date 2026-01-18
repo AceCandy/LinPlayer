@@ -91,6 +91,7 @@ class AppState extends ChangeNotifier {
   static const _kDanmakuBlockWordsKey = 'danmakuBlockWords_v1';
   static const _kDanmakuMatchModeKey = 'danmakuMatchMode_v1';
   static const _kDanmakuChConvertKey = 'danmakuChConvert_v1';
+  static const _kServerIconLibraryUrlsKey = 'serverIconLibraryUrls_v1';
 
   final List<ServerProfile> _servers = [];
   String? _activeServerId;
@@ -124,6 +125,7 @@ class AppState extends ChangeNotifier {
   bool _danmakuEnabled = true;
   DanmakuLoadMode _danmakuLoadMode = DanmakuLoadMode.local;
   List<String> _danmakuApiUrls = ['https://api.dandanplay.net'];
+  List<String> _serverIconLibraryUrls = const [];
   String _danmakuAppId = '';
   String _danmakuAppSecret = '';
   double _danmakuOpacity = 1.0;
@@ -187,6 +189,8 @@ class AppState extends ChangeNotifier {
   bool get danmakuEnabled => _danmakuEnabled;
   DanmakuLoadMode get danmakuLoadMode => _danmakuLoadMode;
   List<String> get danmakuApiUrls => List.unmodifiable(_danmakuApiUrls);
+  List<String> get serverIconLibraryUrls =>
+      List.unmodifiable(_serverIconLibraryUrls);
   String get danmakuAppId => _danmakuAppId;
   String get danmakuAppSecret => _danmakuAppSecret;
   double get danmakuOpacity => _danmakuOpacity;
@@ -263,6 +267,17 @@ class AppState extends ChangeNotifier {
           .map(_normalizeDanmakuApiUrl)
           .where((e) => e.isNotEmpty)
           .toList();
+    }
+
+    final rawIconLibraryUrls =
+        prefs.getStringList(_kServerIconLibraryUrlsKey);
+    if (rawIconLibraryUrls != null) {
+      final seen = <String>{};
+      _serverIconLibraryUrls = rawIconLibraryUrls
+          .map(_normalizeServerIconLibraryUrl)
+          .where((e) => e.isNotEmpty)
+          .where((e) => seen.add(e.toLowerCase()))
+          .toList(growable: false);
     }
     _danmakuAppId = prefs.getString(_kDanmakuAppIdKey) ?? '';
     _danmakuAppSecret = prefs.getString(_kDanmakuAppSecretKey) ?? '';
@@ -366,6 +381,7 @@ class AppState extends ChangeNotifier {
         'unlimitedCoverCache': _unlimitedCoverCache,
         'enableBlurEffects': _enableBlurEffects,
         'externalMpvPath': _externalMpvPath,
+        'serverIconLibraryUrls': _serverIconLibraryUrls,
         'danmaku': {
           'enabled': _danmakuEnabled,
           'loadMode': _danmakuLoadMode.id,
@@ -637,6 +653,15 @@ class AppState extends ChangeNotifier {
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextExternalMpvPath =
         (data['externalMpvPath'] ?? '').toString().trim();
+    final nextServerIconLibraryUrls = () {
+      final list = _readStringList(data['serverIconLibraryUrls']);
+      final seen = <String>{};
+      return list
+          .map(_normalizeServerIconLibraryUrl)
+          .where((e) => e.isNotEmpty)
+          .where((e) => seen.add(e.toLowerCase()))
+          .toList(growable: false);
+    }();
 
     final nextDanmakuEnabled =
         _readBool(danmakuMap['enabled'], fallback: true);
@@ -717,6 +742,7 @@ class AppState extends ChangeNotifier {
     _unlimitedCoverCache = nextUnlimitedCoverCache;
     _enableBlurEffects = nextEnableBlurEffects;
     _externalMpvPath = nextExternalMpvPath;
+    _serverIconLibraryUrls = nextServerIconLibraryUrls;
     _danmakuEnabled = nextDanmakuEnabled;
     _danmakuLoadMode = nextDanmakuLoadMode;
     _danmakuApiUrls = nextDanmakuApiUrls.isEmpty
@@ -779,6 +805,15 @@ class AppState extends ChangeNotifier {
       await prefs.remove(_kExternalMpvPathKey);
     } else {
       await prefs.setString(_kExternalMpvPathKey, _externalMpvPath);
+    }
+
+    if (_serverIconLibraryUrls.isEmpty) {
+      await prefs.remove(_kServerIconLibraryUrlsKey);
+    } else {
+      await prefs.setStringList(
+        _kServerIconLibraryUrlsKey,
+        _serverIconLibraryUrls,
+      );
     }
 
     await prefs.setBool(_kDanmakuEnabledKey, _danmakuEnabled);
@@ -1459,6 +1494,24 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  static String _normalizeServerIconLibraryUrl(String url) {
+    final raw = url.trim();
+    if (raw.isEmpty) return '';
+    try {
+      var uri = Uri.parse(raw);
+      if (!uri.hasScheme) {
+        uri = Uri.parse('https://$raw');
+      }
+      if (uri.scheme != 'http' && uri.scheme != 'https') return '';
+      uri = uri.replace(fragment: '');
+      var text = uri.toString();
+      text = text.replaceAll(RegExp(r'[?#]+$'), '');
+      return text;
+    } catch (_) {
+      return '';
+    }
+  }
+
   Future<void> setEnableBlurEffects(bool enabled) async {
     if (_enableBlurEffects == enabled) return;
     _enableBlurEffects = enabled;
@@ -1527,6 +1580,49 @@ class AppState extends ChangeNotifier {
     final item = next.removeAt(oldIndex);
     next.insert(newIndex.clamp(0, next.length), item);
     await setDanmakuApiUrls(next);
+  }
+
+  Future<void> setServerIconLibraryUrls(List<String> urls) async {
+    final seen = <String>{};
+    final normalized = urls
+        .map(_normalizeServerIconLibraryUrl)
+        .where((e) => e.isNotEmpty)
+        .where((e) => seen.add(e.toLowerCase()))
+        .toList(growable: false);
+    _serverIconLibraryUrls = normalized;
+    final prefs = await SharedPreferences.getInstance();
+    if (normalized.isEmpty) {
+      await prefs.remove(_kServerIconLibraryUrlsKey);
+    } else {
+      await prefs.setStringList(_kServerIconLibraryUrlsKey, normalized);
+    }
+    notifyListeners();
+  }
+
+  Future<bool> addServerIconLibraryUrl(String url) async {
+    final u = _normalizeServerIconLibraryUrl(url);
+    if (u.isEmpty) return false;
+    final exists = _serverIconLibraryUrls.any(
+      (e) => e.toLowerCase() == u.toLowerCase(),
+    );
+    if (exists) return false;
+    await setServerIconLibraryUrls([..._serverIconLibraryUrls, u]);
+    return true;
+  }
+
+  Future<void> removeServerIconLibraryUrlAt(int index) async {
+    if (index < 0 || index >= _serverIconLibraryUrls.length) return;
+    final next = [..._serverIconLibraryUrls]..removeAt(index);
+    await setServerIconLibraryUrls(next);
+  }
+
+  Future<void> reorderServerIconLibraryUrls(int oldIndex, int newIndex) async {
+    if (oldIndex < 0 || oldIndex >= _serverIconLibraryUrls.length) return;
+    final next = [..._serverIconLibraryUrls];
+    if (newIndex > oldIndex) newIndex -= 1;
+    final item = next.removeAt(oldIndex);
+    next.insert(newIndex.clamp(0, next.length), item);
+    await setServerIconLibraryUrls(next);
   }
 
   Future<void> setDanmakuAppId(String id) async {

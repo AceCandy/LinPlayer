@@ -31,6 +31,10 @@ void main() {
     expect(appState.unlimitedCoverCache, isTrue);
     expect(appState.enableBlurEffects, isFalse);
     expect(appState.externalMpvPath, 'C:\\\\mpv\\\\mpv.exe');
+    expect(appState.serverIconLibraryUrls, const [
+      'https://example.com/icons.json',
+      'http://foo.bar/iconlib.json?token=1',
+    ]);
 
     expect(appState.danmakuEnabled, isTrue);
     expect(appState.danmakuApiUrls.first, 'https://api.dandanplay.net');
@@ -59,6 +63,10 @@ void main() {
     expect(reloaded.servers.length, 2);
     expect(reloaded.activeServerId, 'srv_1');
     expect(reloaded.activeServer?.name, 'Home');
+    expect(reloaded.serverIconLibraryUrls, const [
+      'https://example.com/icons.json',
+      'http://foo.bar/iconlib.json?token=1',
+    ]);
   });
 
   test('Encrypted backup (token mode) roundtrip', () async {
@@ -83,6 +91,10 @@ void main() {
     expect(restored.playerCore, PlayerCore.exo);
     expect(restored.servers.length, 2);
     expect(restored.activeServerId, 'srv_1');
+    expect(restored.serverIconLibraryUrls, const [
+      'https://example.com/icons.json',
+      'http://foo.bar/iconlib.json?token=1',
+    ]);
   });
 
   test('Encrypted backup (password mode) imports via authenticator', () async {
@@ -123,6 +135,10 @@ void main() {
     expect(restored.activeServerId, 'srv_1');
     expect(restored.servers.firstWhere((s) => s.id == 'srv_1').token, 'token_demo');
     expect(restored.servers.firstWhere((s) => s.id == 'srv_2').token, 'token_demo2');
+    expect(restored.serverIconLibraryUrls, const [
+      'https://example.com/icons.json',
+      'http://foo.bar/iconlib.json?token=1',
+    ]);
   });
 }
 
@@ -147,6 +163,11 @@ Map<String, dynamic> _sampleBackup() {
       'unlimitedCoverCache': true,
       'enableBlurEffects': false,
       'externalMpvPath': 'C:\\\\mpv\\\\mpv.exe',
+      'serverIconLibraryUrls': const [
+        'https://example.com/icons.json#v1',
+        'example.com/icons.json',
+        'http://foo.bar/iconlib.json?token=1#abc',
+      ],
       'danmaku': {
         'enabled': true,
         'loadMode': 'online',
