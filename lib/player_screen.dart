@@ -18,6 +18,7 @@ import 'src/player/danmaku_stage.dart';
 import 'src/player/anime4k.dart';
 import 'src/player/thumbnail_generator.dart';
 import 'src/player/track_preferences.dart';
+import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';
 import 'state/anime4k_preferences.dart';
 import 'state/danmaku_preferences.dart';
@@ -913,85 +914,91 @@ class _PlayerScreenState extends State<PlayerScreen> {
         : 'LinPlayer';
 
     _isTvDevice = _isTv(context);
+    final enableBlur =
+        !_isTvDevice && (widget.appState?.enableBlurEffects ?? true);
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(currentFileName),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: '选集',
-            icon: const Icon(Icons.playlist_play),
-            onPressed: () {
-              showModalBottomSheet(
-                context: context,
-                builder: (ctx) => ListView.builder(
-                  itemCount: _playlist.length,
-                  itemBuilder: (_, i) {
-                    final f = _playlist[i];
-                    return ListTile(
-                      title: Text(f.name),
-                      trailing: i == _currentlyPlayingIndex
-                          ? const Icon(Icons.play_arrow)
-                          : null,
-                      onTap: () {
-                        Navigator.of(ctx).pop();
-                        _playFile(f, i);
-                      },
-                    );
-                  },
-                ),
-              );
-            },
-          ),
-          IconButton(
-            tooltip: _anime4kPreset.isOff
-                ? 'Anime4K'
-                : 'Anime4K: ${_anime4kPreset.label}',
-            icon: Icon(
-              _anime4kPreset.isOff
-                  ? Icons.auto_fix_high_outlined
-                  : Icons.auto_fix_high,
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          title: Text(currentFileName),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: '选集',
+              icon: const Icon(Icons.playlist_play),
+              onPressed: () {
+                showModalBottomSheet(
+                  context: context,
+                  builder: (ctx) => ListView.builder(
+                    itemCount: _playlist.length,
+                    itemBuilder: (_, i) {
+                      final f = _playlist[i];
+                      return ListTile(
+                        title: Text(f.name),
+                        trailing: i == _currentlyPlayingIndex
+                            ? const Icon(Icons.play_arrow)
+                            : null,
+                        onTap: () {
+                          Navigator.of(ctx).pop();
+                          _playFile(f, i);
+                        },
+                      );
+                    },
+                  ),
+                );
+              },
             ),
-            onPressed: _showAnime4kSheet,
-          ),
-          IconButton(
-            tooltip: '音轨',
-            icon: const Icon(Icons.audiotrack),
-            onPressed: () => _showAudioTracks(context),
-          ),
-          IconButton(
-            tooltip: '字幕',
-            icon: const Icon(Icons.subtitles),
-            onPressed: () => _showSubtitleTracks(context),
-          ),
-          IconButton(
-            tooltip: '弹幕',
-            icon: const Icon(Icons.comment_outlined),
-            onPressed: _showDanmakuSheet,
-          ),
-          IconButton(
-            tooltip: _hwdecOn ? '切换软解' : '切换硬解',
-            icon: Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
-            onPressed: () {
-              setState(() => _hwdecOn = !_hwdecOn);
-              if (_currentlyPlayingIndex >= 0 && _playlist.isNotEmpty) {
-                _playFile(
-                    _playlist[_currentlyPlayingIndex], _currentlyPlayingIndex);
-              }
-            },
-          ),
-          IconButton(
-            tooltip: _orientationTooltip,
-            icon: Icon(_orientationIcon),
-            onPressed: _cycleOrientationMode,
-          ),
-          IconButton(
-            icon: const Icon(Icons.folder_open),
-            onPressed: _pickFile,
-          ),
-        ],
+            IconButton(
+              tooltip: _anime4kPreset.isOff
+                  ? 'Anime4K'
+                  : 'Anime4K: ${_anime4kPreset.label}',
+              icon: Icon(
+                _anime4kPreset.isOff
+                    ? Icons.auto_fix_high_outlined
+                    : Icons.auto_fix_high,
+              ),
+              onPressed: _showAnime4kSheet,
+            ),
+            IconButton(
+              tooltip: '音轨',
+              icon: const Icon(Icons.audiotrack),
+              onPressed: () => _showAudioTracks(context),
+            ),
+            IconButton(
+              tooltip: '字幕',
+              icon: const Icon(Icons.subtitles),
+              onPressed: () => _showSubtitleTracks(context),
+            ),
+            IconButton(
+              tooltip: '弹幕',
+              icon: const Icon(Icons.comment_outlined),
+              onPressed: _showDanmakuSheet,
+            ),
+            IconButton(
+              tooltip: _hwdecOn ? '切换软解' : '切换硬解',
+              icon:
+                  Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
+              onPressed: () {
+                setState(() => _hwdecOn = !_hwdecOn);
+                if (_currentlyPlayingIndex >= 0 && _playlist.isNotEmpty) {
+                  _playFile(_playlist[_currentlyPlayingIndex],
+                      _currentlyPlayingIndex);
+                }
+              },
+            ),
+            IconButton(
+              tooltip: _orientationTooltip,
+              icon: Icon(_orientationIcon),
+              onPressed: _cycleOrientationMode,
+            ),
+            IconButton(
+              icon: const Icon(Icons.folder_open),
+              onPressed: _pickFile,
+            ),
+          ],
+        ),
       ),
       body: Column(
         children: [

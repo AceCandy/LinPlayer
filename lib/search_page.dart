@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'services/emby_api.dart';
 import 'show_detail_page.dart';
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'src/ui/ui_scale.dart';
 import 'state/app_state.dart';
 
@@ -139,6 +140,7 @@ class _SearchPageState extends State<SearchPage> {
   Widget build(BuildContext context) {
     final uiScale = context.uiScale;
     final isTv = _isTv(context);
+    final enableBlur = !isTv && widget.appState.enableBlurEffects;
     final maxCrossAxisExtent = (isTv ? 160.0 : 180.0) * uiScale;
 
     final query = _controller.text.trim();
@@ -197,32 +199,35 @@ class _SearchPageState extends State<SearchPage> {
           );
 
     return Scaffold(
-      appBar: AppBar(
-        titleSpacing: 0,
-        title: Padding(
-          padding: const EdgeInsets.only(right: 12),
-          child: TextField(
-            controller: _controller,
-            autofocus: true,
-            decoration: const InputDecoration(
-              hintText: '搜索剧名',
-              border: InputBorder.none,
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          titleSpacing: 0,
+          title: Padding(
+            padding: const EdgeInsets.only(right: 12),
+            child: TextField(
+              controller: _controller,
+              autofocus: true,
+              decoration: const InputDecoration(
+                hintText: '搜索剧名',
+                border: InputBorder.none,
+              ),
+              textInputAction: TextInputAction.search,
+              onChanged: (v) => _scheduleSearch(v),
+              onSubmitted: (v) => _scheduleSearch(v, immediate: true),
             ),
-            textInputAction: TextInputAction.search,
-            onChanged: (v) => _scheduleSearch(v),
-            onSubmitted: (v) => _scheduleSearch(v, immediate: true),
           ),
+          actions: [
+            IconButton(
+              tooltip: '清空',
+              icon: const Icon(Icons.clear),
+              onPressed: () {
+                _controller.clear();
+                _scheduleSearch('', immediate: true);
+              },
+            ),
+          ],
         ),
-        actions: [
-          IconButton(
-            tooltip: '清空',
-            icon: const Icon(Icons.clear),
-            onPressed: () {
-              _controller.clear();
-              _scheduleSearch('', immediate: true);
-            },
-          ),
-        ],
       ),
       body: body,
     );
@@ -263,7 +268,8 @@ class _SearchGridItem extends StatelessWidget {
     final year = _yearOf();
     final rating = item.communityRating;
 
-    final badge = item.type == 'Movie' ? '电影' : (item.type == 'Series' ? '剧集' : '');
+    final badge =
+        item.type == 'Movie' ? '电影' : (item.type == 'Series' ? '剧集' : '');
 
     return MediaPosterTile(
       title: item.name,

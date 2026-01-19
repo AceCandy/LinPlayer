@@ -5,6 +5,7 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'library_items_page.dart';
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'src/ui/ui_scale.dart';
 
 class LibraryPage extends StatefulWidget {
@@ -30,32 +31,36 @@ class _LibraryPageState extends State<LibraryPage> {
     return AnimatedBuilder(
       animation: widget.appState,
       builder: (context, _) {
+        final enableBlur = !_isTv(context) && widget.appState.enableBlurEffects;
         final libs = widget.appState.libraries
             .where((l) =>
                 _showHidden ? true : !widget.appState.isLibraryHidden(l.id))
             .toList();
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('媒体库'),
-            actions: [
-              IconButton(
-                icon: const Icon(Icons.sort_by_alpha),
-                tooltip: '名称排序',
-                onPressed: widget.appState.sortLibrariesByName,
-              ),
-              IconButton(
-                icon:
-                    Icon(_showHidden ? Icons.visibility : Icons.visibility_off),
-                tooltip: _showHidden ? '隐藏已隐藏的库' : '显示已隐藏的库',
-                onPressed: () => setState(() => _showHidden = !_showHidden),
-              ),
-              IconButton(
-                icon: const Icon(Icons.refresh),
-                onPressed: widget.appState.isLoading
-                    ? null
-                    : () => widget.appState.refreshLibraries(),
-              ),
-            ],
+          appBar: GlassAppBar(
+            enableBlur: enableBlur,
+            child: AppBar(
+              title: const Text('媒体库'),
+              actions: [
+                IconButton(
+                  icon: const Icon(Icons.sort_by_alpha),
+                  tooltip: '名称排序',
+                  onPressed: widget.appState.sortLibrariesByName,
+                ),
+                IconButton(
+                  icon: Icon(
+                      _showHidden ? Icons.visibility : Icons.visibility_off),
+                  tooltip: _showHidden ? '隐藏已隐藏的库' : '显示已隐藏的库',
+                  onPressed: () => setState(() => _showHidden = !_showHidden),
+                ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: widget.appState.isLoading
+                      ? null
+                      : () => widget.appState.refreshLibraries(),
+                ),
+              ],
+            ),
           ),
           body: widget.appState.isLoading
               ? const Center(child: CircularProgressIndicator())

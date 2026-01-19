@@ -8,6 +8,7 @@ import 'play_network_page.dart';
 import 'play_network_page_exo.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/app_style.dart';
+import 'src/ui/glass_blur.dart';
 
 class ShowDetailPage extends StatefulWidget {
   const ShowDetailPage({
@@ -606,9 +607,13 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     if (_loading) {
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     if (_error != null || _detail == null) {
       return Scaffold(
-        appBar: AppBar(title: Text(widget.title)),
+        appBar: GlassAppBar(
+          enableBlur: enableBlur,
+          child: AppBar(title: Text(widget.title)),
+        ),
         body: Center(child: Text(_error ?? '加载失败')),
       );
     }
@@ -687,7 +692,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       UiTemplate.mangaStoryboard => Colors.black.withValues(
           alpha: isDark ? 0.76 : 0.66,
         ),
-      UiTemplate.proTool => Colors.black.withValues(alpha: isDark ? 0.68 : 0.58),
+      UiTemplate.proTool =>
+        Colors.black.withValues(alpha: isDark ? 0.68 : 0.58),
       UiTemplate.minimalCovers =>
         Colors.black.withValues(alpha: isDark ? 0.64 : 0.55),
     };
@@ -731,12 +737,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(item.name,
-                              style: theme
-                                  .textTheme
-                                  .headlineSmall
-                                  ?.copyWith(
-                                      color: Colors.white,
-                                      fontWeight: FontWeight.w700)),
+                              style: theme.textTheme.headlineSmall?.copyWith(
+                                  color: Colors.white,
+                                  fontWeight: FontWeight.w700)),
                           const SizedBox(height: 8),
                           Wrap(
                             spacing: 8,
@@ -947,12 +950,13 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                   )
                                 : null;
                             final date = (s.premiereDate ?? '').trim();
-                            final parsed = date.isEmpty
-                                ? null
-                                : DateTime.tryParse(date);
+                            final parsed =
+                                date.isEmpty ? null : DateTime.tryParse(date);
                             final year = parsed != null
                                 ? parsed.year.toString()
-                                : (date.length >= 4 ? date.substring(0, 4) : '');
+                                : (date.length >= 4
+                                    ? date.substring(0, 4)
+                                    : '');
                             final badge = s.type == 'Movie'
                                 ? '电影'
                                 : (s.type == 'Series' ? '剧集' : '');
@@ -1072,8 +1076,12 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
   @override
   Widget build(BuildContext context) {
     final seasonName = _detailSeason?.name ?? widget.season.name;
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     return Scaffold(
-      appBar: AppBar(title: Text(seasonName)),
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(title: Text(seasonName)),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -1288,8 +1296,12 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   @override
   Widget build(BuildContext context) {
     final ep = widget.episode;
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     return Scaffold(
-      appBar: AppBar(title: Text(ep.name)),
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(title: Text(ep.name)),
+      ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
@@ -1314,7 +1326,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                             ? '继续播放（${_fmtClock(_ticksToDuration(_detail!.playbackPositionTicks))}）'
                             : '播放',
                         onTap: () {
-                          final start = (_detail?.playbackPositionTicks ?? 0) > 0
+                          final start = (_detail?.playbackPositionTicks ?? 0) >
+                                  0
                               ? _ticksToDuration(_detail!.playbackPositionTicks)
                               : null;
                           final useExoCore = !kIsWeb &&
@@ -1667,9 +1680,8 @@ Widget _playButton(BuildContext context,
               style: theme.textTheme.titleSmall?.copyWith(
                     color: fg,
                     fontWeight: FontWeight.w800,
-                    letterSpacing: style.template == UiTemplate.neonHud
-                        ? 0.25
-                        : null,
+                    letterSpacing:
+                        style.template == UiTemplate.neonHud ? 0.25 : null,
                   ) ??
                   TextStyle(
                     color: fg,

@@ -147,23 +147,29 @@ class AppTheme {
         template == UiTemplate.washiWatercolor;
 
     final appBarBg = glassSurfaces
-        ? scheme.surface.withValues(alpha: isDark ? 0.72 : 0.88)
+        ? scheme.surface.withValues(alpha: isDark ? 0.64 : 0.82)
         : scheme.surface;
     final navBarBg = glassSurfaces
-        ? scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.80 : 0.90)
+        ? scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.70 : 0.82)
         : scheme.surfaceContainerHigh;
     final surfaceHigh = glassSurfaces
-        ? scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.72 : 0.86)
+        ? scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.62 : 0.78)
         : scheme.surfaceContainerHigh;
     final outline =
         scheme.outlineVariant.withValues(alpha: isDark ? 0.42 : 0.7);
     final outlineSoft =
         scheme.outlineVariant.withValues(alpha: isDark ? 0.36 : 0.55);
+    final glassOutline =
+        scheme.outlineVariant.withValues(alpha: isDark ? 0.30 : 0.48);
 
     final cardSide = switch (template) {
       UiTemplate.neonHud => BorderSide(
           color: scheme.primary.withValues(alpha: isDark ? 0.55 : 0.70),
           width: style.borderWidth + 0.2,
+        ),
+      UiTemplate.candyGlass => BorderSide(
+          color: glassOutline,
+          width: style.borderWidth,
         ),
       UiTemplate.pixelArcade => BorderSide(
           color: scheme.secondary.withValues(alpha: isDark ? 0.50 : 0.70),
@@ -179,6 +185,10 @@ class AppTheme {
         ),
       UiTemplate.stickerJournal => BorderSide(
           color: scheme.secondary.withValues(alpha: isDark ? 0.35 : 0.55),
+          width: style.borderWidth,
+        ),
+      UiTemplate.washiWatercolor => BorderSide(
+          color: glassOutline,
           width: style.borderWidth,
         ),
       _ => BorderSide.none,
@@ -294,13 +304,11 @@ class AppTheme {
                 width: style.borderWidth,
               ),
             UiTemplate.pixelArcade => BorderSide(
-                color:
-                    scheme.secondary.withValues(alpha: isDark ? 0.45 : 0.65),
+                color: scheme.secondary.withValues(alpha: isDark ? 0.45 : 0.65),
                 width: style.borderWidth + 0.4,
               ),
             UiTemplate.mangaStoryboard => BorderSide(
-                color:
-                    scheme.onSurface.withValues(alpha: isDark ? 0.45 : 0.65),
+                color: scheme.onSurface.withValues(alpha: isDark ? 0.45 : 0.65),
                 width: style.borderWidth + 0.5,
               ),
             _ => BorderSide.none,

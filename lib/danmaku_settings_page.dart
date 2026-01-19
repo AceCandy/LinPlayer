@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';
 
@@ -197,9 +198,12 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                 .clamp(0, 40);
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('弹幕'),
-            centerTitle: true,
+          appBar: GlassAppBar(
+            enableBlur: enableBlur,
+            child: AppBar(
+              title: const Text('弹幕'),
+              centerTitle: true,
+            ),
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),

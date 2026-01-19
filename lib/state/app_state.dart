@@ -119,7 +119,7 @@ class AppState extends ChangeNotifier {
   double _uiScaleFactor = 1.0;
   bool _useDynamicColor = true;
   bool _compactMode = _defaultCompactModeForPlatform();
-  UiTemplate _uiTemplate = UiTemplate.minimalCovers;
+  UiTemplate _uiTemplate = UiTemplate.candyGlass;
   bool _preferHardwareDecode = true;
   PlayerCore _playerCore = PlayerCore.mpv;
   String _preferredAudioLang = '';

@@ -14,6 +14,7 @@ import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'show_detail_page.dart';
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'src/ui/theme_sheet.dart';
 
 class HomePage extends StatefulWidget {
@@ -437,6 +438,8 @@ class _HomePageState extends State<HomePage> {
             (defaultTargetPlatform == TargetPlatform.windows ||
                 defaultTargetPlatform == TargetPlatform.linux ||
                 defaultTargetPlatform == TargetPlatform.macOS);
+        final blurAllowed = !isTv;
+        final enableBlur = blurAllowed && widget.appState.enableBlurEffects;
         final useExoCore = !kIsWeb &&
             defaultTargetPlatform == TargetPlatform.android &&
             widget.appState.playerCore == PlayerCore.exo;
@@ -458,37 +461,41 @@ class _HomePageState extends State<HomePage> {
         ];
 
         final appBar = _index == 0
-            ? AppBar(
-                title: Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
-                actions: [
-                  IconButton(
-                    icon: const Icon(Icons.video_library_outlined),
-                    tooltip: '媒体库',
-                    onPressed: () {
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) =>
-                              LibraryPage(appState: widget.appState),
-                        ),
-                      );
-                    },
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.alt_route_outlined),
-                    tooltip: '线路',
-                    onPressed: _showRoutePicker,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.palette_outlined),
-                    tooltip: '主题',
-                    onPressed: _showThemeSheet,
-                  ),
-                  IconButton(
-                    icon: const Icon(Icons.storage_outlined),
-                    tooltip: '服务器',
-                    onPressed: _switchServer,
-                  ),
-                ],
+            ? GlassAppBar(
+                enableBlur: enableBlur,
+                child: AppBar(
+                  title:
+                      Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
+                  actions: [
+                    IconButton(
+                      icon: const Icon(Icons.video_library_outlined),
+                      tooltip: '媒体库',
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                LibraryPage(appState: widget.appState),
+                          ),
+                        );
+                      },
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.alt_route_outlined),
+                      tooltip: '线路',
+                      onPressed: _showRoutePicker,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.palette_outlined),
+                      tooltip: '主题',
+                      onPressed: _showThemeSheet,
+                    ),
+                    IconButton(
+                      icon: const Icon(Icons.storage_outlined),
+                      tooltip: '服务器',
+                      onPressed: _switchServer,
+                    ),
+                  ],
+                ),
               )
             : null;
 
@@ -497,24 +504,27 @@ class _HomePageState extends State<HomePage> {
             appBar: appBar,
             body: Row(
               children: [
-                NavigationRail(
-                  selectedIndex: _index,
-                  onDestinationSelected: (i) => setState(() => _index = i),
-                  labelType: NavigationRailLabelType.all,
-                  destinations: const [
-                    NavigationRailDestination(
-                      icon: Icon(Icons.home_outlined),
-                      label: Text('首页'),
-                    ),
-                    NavigationRailDestination(
-                      icon: Icon(Icons.folder_open),
-                      label: Text('本地'),
-                    ),
-                    NavigationRailDestination(
-                      icon: Icon(Icons.settings_outlined),
-                      label: Text('设置'),
-                    ),
-                  ],
+                GlassNavigationBar(
+                  enableBlur: enableBlur,
+                  child: NavigationRail(
+                    selectedIndex: _index,
+                    onDestinationSelected: (i) => setState(() => _index = i),
+                    labelType: NavigationRailLabelType.all,
+                    destinations: const [
+                      NavigationRailDestination(
+                        icon: Icon(Icons.home_outlined),
+                        label: Text('首页'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.folder_open),
+                        label: Text('本地'),
+                      ),
+                      NavigationRailDestination(
+                        icon: Icon(Icons.settings_outlined),
+                        label: Text('设置'),
+                      ),
+                    ],
+                  ),
                 ),
                 const VerticalDivider(width: 1),
                 Expanded(child: pages[_index]),
@@ -525,16 +535,20 @@ class _HomePageState extends State<HomePage> {
         return Scaffold(
           appBar: appBar,
           body: pages[_index],
-          bottomNavigationBar: NavigationBar(
-            selectedIndex: _index,
-            onDestinationSelected: (i) => setState(() => _index = i),
-            destinations: const [
-              NavigationDestination(
-                  icon: Icon(Icons.home_outlined), label: '首页'),
-              NavigationDestination(icon: Icon(Icons.folder_open), label: '本地'),
-              NavigationDestination(
-                  icon: Icon(Icons.settings_outlined), label: '设置'),
-            ],
+          bottomNavigationBar: GlassNavigationBar(
+            enableBlur: enableBlur,
+            child: NavigationBar(
+              selectedIndex: _index,
+              onDestinationSelected: (i) => setState(() => _index = i),
+              destinations: const [
+                NavigationDestination(
+                    icon: Icon(Icons.home_outlined), label: '首页'),
+                NavigationDestination(
+                    icon: Icon(Icons.folder_open), label: '本地'),
+                NavigationDestination(
+                    icon: Icon(Icons.settings_outlined), label: '设置'),
+              ],
+            ),
           ),
         );
       },
@@ -1552,12 +1566,11 @@ class _HomeSectionHeader extends StatelessWidget {
         UiTemplate.stickerJournal => Container(
             padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
             decoration: BoxDecoration(
-              color:
-                  scheme.secondaryContainer.withValues(alpha: isDark ? 0.55 : 0.8),
+              color: scheme.secondaryContainer
+                  .withValues(alpha: isDark ? 0.55 : 0.8),
               borderRadius: BorderRadius.circular(14),
               border: Border.all(
-                color:
-                    scheme.secondary.withValues(alpha: isDark ? 0.35 : 0.55),
+                color: scheme.secondary.withValues(alpha: isDark ? 0.35 : 0.55),
               ),
             ),
             child: Text(
@@ -1592,8 +1605,7 @@ class _HomeSectionHeader extends StatelessWidget {
               color: scheme.surface.withValues(alpha: isDark ? 0.5 : 0.7),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color:
-                    scheme.secondary.withValues(alpha: isDark ? 0.65 : 0.8),
+                color: scheme.secondary.withValues(alpha: isDark ? 0.65 : 0.8),
                 width: 1.4,
               ),
             ),
@@ -1610,8 +1622,7 @@ class _HomeSectionHeader extends StatelessWidget {
               color: scheme.surface.withValues(alpha: isDark ? 0.55 : 0.85),
               borderRadius: BorderRadius.circular(10),
               border: Border.all(
-                color:
-                    scheme.onSurface.withValues(alpha: isDark ? 0.65 : 0.85),
+                color: scheme.onSurface.withValues(alpha: isDark ? 0.65 : 0.85),
                 width: 1.5,
               ),
             ),
@@ -1648,8 +1659,8 @@ class _HomeSectionHeader extends StatelessWidget {
               Expanded(
                 child: switch (template) {
                   UiTemplate.stickerJournal => Container(
-                      padding:
-                          const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 10, vertical: 6),
                       decoration: BoxDecoration(
                         color: scheme.surface.withValues(
                           alpha: isDark ? 0.28 : 0.45,

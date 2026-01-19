@@ -5,6 +5,7 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'show_detail_page.dart';
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'src/ui/ui_scale.dart';
 
 class LibraryItemsPage extends StatefulWidget {
@@ -80,11 +81,15 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
     final items = widget.appState.getItems(widget.parentId);
     final uiScale = context.uiScale;
     final isTv = _isTv(context);
+    final enableBlur = !isTv && widget.appState.enableBlurEffects;
     final maxCrossAxisExtent = (isTv ? 160.0 : 180.0) * uiScale;
 
     return Scaffold(
-      appBar: AppBar(
-        title: Text(widget.title),
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          title: Text(widget.title),
+        ),
       ),
       body: items.isEmpty && _loadingMore
           ? const Center(child: CircularProgressIndicator())

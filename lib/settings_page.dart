@@ -15,6 +15,7 @@ import 'services/cover_cache_manager.dart';
 import 'services/stream_cache.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/app_components.dart';
+import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';
 import 'state/preferences.dart';
@@ -1006,9 +1007,12 @@ class _SettingsPageState extends State<SettingsPage> {
         final enableBlur = blurAllowed && appState.enableBlurEffects;
 
         return Scaffold(
-          appBar: AppBar(
-            title: const Text('设置'),
-            centerTitle: true,
+          appBar: GlassAppBar(
+            enableBlur: enableBlur,
+            child: AppBar(
+              title: const Text('设置'),
+              centerTitle: true,
+            ),
           ),
           body: ListView(
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),

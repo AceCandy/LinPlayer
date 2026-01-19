@@ -23,6 +23,7 @@ import 'src/player/playback_controls.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/thumbnail_generator.dart';
 import 'src/player/track_preferences.dart';
+import 'src/ui/glass_blur.dart';
 
 class PlayNetworkPage extends StatefulWidget {
   const PlayNetworkPage({
@@ -211,8 +212,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         externalMpvPath: widget.appState.externalMpvPath,
       );
       if (_playerService.isExternalPlayback) {
-        _playError =
-            _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
+        _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
         return;
       }
 
@@ -302,7 +302,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       _errorSub = _playerService.player.stream.error.listen((message) {
         if (!mounted) return;
         final lower = message.toLowerCase();
-        final isShaderError = lower.contains('glsl') || lower.contains('shader');
+        final isShaderError =
+            lower.contains('glsl') || lower.contains('shader');
         if (!_anime4kPreset.isOff && isShaderError) {
           setState(() => _anime4kPreset = Anime4kPreset.off);
           // ignore: unawaited_futures
@@ -783,7 +784,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       if (_selectedAudioStreamIndex != null) {
         params['AudioStreamIndex'] = _selectedAudioStreamIndex.toString();
       }
-      if (_selectedSubtitleStreamIndex != null && _selectedSubtitleStreamIndex! >= 0) {
+      if (_selectedSubtitleStreamIndex != null &&
+          _selectedSubtitleStreamIndex! >= 0) {
         params['SubtitleStreamIndex'] = _selectedSubtitleStreamIndex.toString();
       }
       return uri.replace(queryParameters: params).toString();
@@ -870,9 +872,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   }
 
   static String _mediaSourceTitle(Map<String, dynamic> ms) {
-    return (ms['Name'] as String?) ??
-        (ms['Container'] as String?) ??
-        '默认版本';
+    return (ms['Name'] as String?) ?? (ms['Container'] as String?) ?? '默认版本';
   }
 
   static String _mediaSourceSubtitle(Map<String, dynamic> ms) {
@@ -1292,7 +1292,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
           isTv: widget.isTv,
           startPosition: pos,
           resumeImmediately: true,
-          mediaSourceId: _selectedMediaSourceId ?? _mediaSourceId ?? widget.mediaSourceId,
+          mediaSourceId:
+              _selectedMediaSourceId ?? _mediaSourceId ?? widget.mediaSourceId,
           audioStreamIndex: _selectedAudioStreamIndex,
           subtitleStreamIndex: _selectedSubtitleStreamIndex,
         ),
@@ -1311,7 +1312,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         final token = widget.appState.token!;
         final userId = widget.appState.userId!;
         final api = _embyApi ??
-            EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+            EmbyApi(
+                hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
         final info = await api.fetchPlaybackInfo(
           token: token,
           baseUrl: base,
@@ -1352,7 +1354,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                   ),
                   title: Text(_mediaSourceTitle(ms)),
                   subtitle: Text(_mediaSourceSubtitle(ms)),
-                  onTap: () => Navigator.of(ctx).pop(ms['Id']?.toString() ?? ''),
+                  onTap: () =>
+                      Navigator.of(ctx).pop(ms['Id']?.toString() ?? ''),
                 ),
             ],
           ),
@@ -1382,92 +1385,97 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     final controlsEnabled = initialized && !_loading && _playError == null;
     final duration = initialized ? _playerService.duration : Duration.zero;
     final isPlaying = initialized ? _playerService.isPlaying : false;
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        title: Text(widget.title),
-        actions: [
-          IconButton(
-            tooltip: '重新加载',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading
-                ? null
-                : () async {
-                    setState(() {
-                      _loading = true;
-                      _playError = null;
-                    });
-                    try {
-                      await _playerService.dispose();
-                    } catch (_) {}
-                    await _init();
-                  },
-          ),
-          if (_resolvedStream != null)
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: Colors.white,
+          title: Text(widget.title),
+          actions: [
             IconButton(
-              tooltip: '复制链接',
-              icon: const Icon(Icons.link),
+              tooltip: '重新加载',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loading
+                  ? null
+                  : () async {
+                      setState(() {
+                        _loading = true;
+                        _playError = null;
+                      });
+                      try {
+                        await _playerService.dispose();
+                      } catch (_) {}
+                      await _init();
+                    },
+            ),
+            if (_resolvedStream != null)
+              IconButton(
+                tooltip: '复制链接',
+                icon: const Icon(Icons.link),
+                onPressed: () async {
+                  final text = _resolvedStream;
+                  if (text == null || text.isEmpty) return;
+                  await Clipboard.setData(ClipboardData(text: text));
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('已复制播放链接')),
+                  );
+                },
+              ),
+            IconButton(
+              tooltip: _anime4kPreset.isOff
+                  ? 'Anime4K'
+                  : 'Anime4K: ${_anime4kPreset.label}',
+              icon: Icon(
+                _anime4kPreset.isOff
+                    ? Icons.auto_fix_high_outlined
+                    : Icons.auto_fix_high,
+              ),
+              onPressed: _showAnime4kSheet,
+            ),
+            IconButton(
+              tooltip: '音轨',
+              icon: const Icon(Icons.audiotrack),
+              onPressed: () => _showAudioTracks(context),
+            ),
+            IconButton(
+              tooltip: '字幕',
+              icon: const Icon(Icons.subtitles),
+              onPressed: () => _showSubtitleTracks(context),
+            ),
+            IconButton(
+              tooltip: '弹幕',
+              icon: const Icon(Icons.comment_outlined),
+              onPressed: _showDanmakuSheet,
+            ),
+            IconButton(
+              tooltip: _hwdecOn ? '切换软解' : '切换硬解',
+              icon:
+                  Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
               onPressed: () async {
-                final text = _resolvedStream;
-                if (text == null || text.isEmpty) return;
-                await Clipboard.setData(ClipboardData(text: text));
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制播放链接')),
-                );
+                setState(() {
+                  _hwdecOn = !_hwdecOn;
+                  _loading = true;
+                  _playError = null;
+                });
+                try {
+                  await _playerService.dispose();
+                } catch (_) {}
+                await _init();
               },
             ),
-          IconButton(
-            tooltip: _anime4kPreset.isOff
-                ? 'Anime4K'
-                : 'Anime4K: ${_anime4kPreset.label}',
-            icon: Icon(
-              _anime4kPreset.isOff
-                  ? Icons.auto_fix_high_outlined
-                  : Icons.auto_fix_high,
+            IconButton(
+              tooltip: _orientationTooltip,
+              icon: Icon(_orientationIcon),
+              onPressed: _cycleOrientationMode,
             ),
-            onPressed: _showAnime4kSheet,
-          ),
-          IconButton(
-            tooltip: '音轨',
-            icon: const Icon(Icons.audiotrack),
-            onPressed: () => _showAudioTracks(context),
-          ),
-          IconButton(
-            tooltip: '字幕',
-            icon: const Icon(Icons.subtitles),
-            onPressed: () => _showSubtitleTracks(context),
-          ),
-          IconButton(
-            tooltip: '弹幕',
-            icon: const Icon(Icons.comment_outlined),
-            onPressed: _showDanmakuSheet,
-          ),
-          IconButton(
-            tooltip: _hwdecOn ? '切换软解' : '切换硬解',
-            icon: Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
-            onPressed: () async {
-              setState(() {
-                _hwdecOn = !_hwdecOn;
-                _loading = true;
-                _playError = null;
-              });
-              try {
-                await _playerService.dispose();
-              } catch (_) {}
-              await _init();
-            },
-          ),
-          IconButton(
-            tooltip: _orientationTooltip,
-            icon: Icon(_orientationIcon),
-            onPressed: _cycleOrientationMode,
-          ),
-        ],
+          ],
+        ),
       ),
       body: Column(
         children: [
@@ -1717,7 +1725,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     try {
       await Anime4k.apply(_playerService.player, selected);
       if (!mounted) return;
-      final text = selected.isOff ? '已关闭 Anime4K' : '已启用 Anime4K：${selected.label}';
+      final text =
+          selected.isOff ? '已关闭 Anime4K' : '已启用 Anime4K：${selected.label}';
       messenger.showSnackBar(
         SnackBar(content: Text(text)),
       );

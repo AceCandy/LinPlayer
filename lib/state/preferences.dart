@@ -41,7 +41,7 @@ UiTemplate uiTemplateFromId(String? id) {
     case 'pro':
       return UiTemplate.proTool;
     default:
-      return UiTemplate.minimalCovers;
+      return UiTemplate.candyGlass;
   }
 }
 

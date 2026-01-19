@@ -13,6 +13,7 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'src/player/playback_controls.dart';
+import 'src/ui/glass_blur.dart';
 
 class ExoPlayNetworkPage extends StatefulWidget {
   const ExoPlayNetworkPage({
@@ -180,7 +181,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
         final token = widget.appState.token!;
         final userId = widget.appState.userId!;
         final api = _embyApi ??
-            EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+            EmbyApi(
+                hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
         final info = await api.fetchPlaybackInfo(
           token: token,
           baseUrl: base,
@@ -221,7 +223,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
                   ),
                   title: Text(_mediaSourceTitle(ms)),
                   subtitle: Text(_mediaSourceSubtitle(ms)),
-                  onTap: () => Navigator.of(ctx).pop(ms['Id']?.toString() ?? ''),
+                  onTap: () =>
+                      Navigator.of(ctx).pop(ms['Id']?.toString() ?? ''),
                 ),
             ],
           ),
@@ -376,7 +379,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
       if (_selectedAudioStreamIndex != null) {
         params['AudioStreamIndex'] = _selectedAudioStreamIndex.toString();
       }
-      if (_selectedSubtitleStreamIndex != null && _selectedSubtitleStreamIndex! >= 0) {
+      if (_selectedSubtitleStreamIndex != null &&
+          _selectedSubtitleStreamIndex! >= 0) {
         params['SubtitleStreamIndex'] = _selectedSubtitleStreamIndex.toString();
       }
       return uri.replace(queryParameters: params).toString();
@@ -459,9 +463,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   }
 
   static String _mediaSourceTitle(Map<String, dynamic> ms) {
-    return (ms['Name'] as String?) ??
-        (ms['Container'] as String?) ??
-        '默认版本';
+    return (ms['Name'] as String?) ?? (ms['Container'] as String?) ?? '默认版本';
   }
 
   static String _mediaSourceSubtitle(Map<String, dynamic> ms) {
@@ -790,7 +792,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
                     Navigator.of(ctx).pop();
                     try {
                       // ignore: invalid_use_of_visible_for_testing_member
-                      await platform.selectAudioTrack(controller.playerId, t.id);
+                      await platform.selectAudioTrack(
+                          controller.playerId, t.id);
                     } catch (e) {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -975,60 +978,64 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     final isReady = controller != null && controller.value.isInitialized;
     final controlsEnabled = isReady && !_loading && _playError == null;
     final stream = _resolvedStream;
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
 
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: AppBar(
-        backgroundColor: Colors.transparent,
-        elevation: 0,
-        foregroundColor: Colors.white,
-        title: Text(widget.title),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: '重新加载',
-            icon: const Icon(Icons.refresh),
-            onPressed: _loading ? null : _init,
-          ),
-          if (stream != null && stream.isNotEmpty)
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          backgroundColor: Colors.transparent,
+          elevation: 0,
+          foregroundColor: Colors.white,
+          title: Text(widget.title),
+          centerTitle: true,
+          actions: [
             IconButton(
-              tooltip: '复制链接',
-              icon: const Icon(Icons.link),
-              onPressed: () async {
-                await Clipboard.setData(ClipboardData(text: stream));
-                if (!context.mounted) return;
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(content: Text('已复制播放链接')),
-                );
-              },
+              tooltip: '重新加载',
+              icon: const Icon(Icons.refresh),
+              onPressed: _loading ? null : _init,
             ),
-          IconButton(
-            tooltip: '音轨',
-            icon: const Icon(Icons.audiotrack),
-            onPressed: () => _showAudioTracks(context),
-          ),
-          IconButton(
-            tooltip: '字幕',
-            icon: const Icon(Icons.subtitles),
-            onPressed: () => _showSubtitleTracks(context),
-          ),
-          IconButton(
-            tooltip: '弹幕',
-            icon: const Icon(Icons.comment_outlined),
-            onPressed: () => _showNotSupported('弹幕'),
-          ),
-          IconButton(
-            tooltip: '软/硬解切换',
-            icon: const Icon(Icons.memory),
-            onPressed: () => _showNotSupported('软/硬解切换'),
-          ),
-          IconButton(
-            tooltip: _orientationTooltip,
-            icon: Icon(_orientationIcon),
-            onPressed: _cycleOrientationMode,
-          ),
-        ],
+            if (stream != null && stream.isNotEmpty)
+              IconButton(
+                tooltip: '复制链接',
+                icon: const Icon(Icons.link),
+                onPressed: () async {
+                  await Clipboard.setData(ClipboardData(text: stream));
+                  if (!context.mounted) return;
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('已复制播放链接')),
+                  );
+                },
+              ),
+            IconButton(
+              tooltip: '音轨',
+              icon: const Icon(Icons.audiotrack),
+              onPressed: () => _showAudioTracks(context),
+            ),
+            IconButton(
+              tooltip: '字幕',
+              icon: const Icon(Icons.subtitles),
+              onPressed: () => _showSubtitleTracks(context),
+            ),
+            IconButton(
+              tooltip: '弹幕',
+              icon: const Icon(Icons.comment_outlined),
+              onPressed: () => _showNotSupported('弹幕'),
+            ),
+            IconButton(
+              tooltip: '软/硬解切换',
+              icon: const Icon(Icons.memory),
+              onPressed: () => _showNotSupported('软/硬解切换'),
+            ),
+            IconButton(
+              tooltip: _orientationTooltip,
+              icon: Icon(_orientationIcon),
+              onPressed: _cycleOrientationMode,
+            ),
+          ],
+        ),
       ),
       body: Column(
         children: [

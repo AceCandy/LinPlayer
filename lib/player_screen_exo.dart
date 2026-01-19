@@ -13,6 +13,7 @@ import 'state/app_state.dart';
 import 'state/local_playback_handoff.dart';
 import 'state/preferences.dart';
 import 'src/player/playback_controls.dart';
+import 'src/ui/glass_blur.dart';
 
 class ExoPlayerScreen extends StatefulWidget {
   const ExoPlayerScreen({super.key, required this.appState});
@@ -517,6 +518,11 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final isTv = defaultTargetPlatform == TargetPlatform.android &&
+        MediaQuery.of(context).orientation == Orientation.landscape &&
+        MediaQuery.of(context).size.shortestSide >= 720;
+    final enableBlur = !isTv && widget.appState.enableBlurEffects;
+
     final fileName = _currentIndex >= 0 && _currentIndex < _playlist.length
         ? _playlist[_currentIndex].name
         : '本地播放（Exo）';
@@ -534,69 +540,72 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen> {
 
     return Scaffold(
       backgroundColor: Colors.black,
-      appBar: AppBar(
-        title: Text(fileName),
-        centerTitle: true,
-        actions: [
-          IconButton(
-            tooltip: '选择文件',
-            icon: const Icon(Icons.folder_open),
-            onPressed: _pickFiles,
-          ),
-          IconButton(
-            tooltip: '选集',
-            icon: const Icon(Icons.playlist_play),
-            onPressed: _playlist.isEmpty
-                ? null
-                : () {
-                    showModalBottomSheet(
-                      context: context,
-                      builder: (ctx) => ListView.builder(
-                        itemCount: _playlist.length,
-                        itemBuilder: (_, i) {
-                          final f = _playlist[i];
-                          return ListTile(
-                            title: Text(f.name),
-                            trailing: i == _currentIndex
-                                ? const Icon(Icons.play_arrow)
-                                : null,
-                            onTap: () {
-                              Navigator.of(ctx).pop();
-                              // ignore: unawaited_futures
-                              _playFile(f, i);
-                            },
-                          );
-                        },
-                      ),
-                    );
-                  },
-          ),
-          IconButton(
-            tooltip: '音轨',
-            icon: const Icon(Icons.audiotrack),
-            onPressed: () => _showAudioTracks(context),
-          ),
-          IconButton(
-            tooltip: '字幕',
-            icon: const Icon(Icons.subtitles),
-            onPressed: () => _showSubtitleTracks(context),
-          ),
-          IconButton(
-            tooltip: '弹幕',
-            icon: const Icon(Icons.comment_outlined),
-            onPressed: () => _showNotSupported('弹幕'),
-          ),
-          IconButton(
-            tooltip: '软/硬解切换',
-            icon: const Icon(Icons.memory),
-            onPressed: () => _showNotSupported('软/硬解切换'),
-          ),
-          IconButton(
-            tooltip: _orientationTooltip,
-            icon: Icon(_orientationIcon),
-            onPressed: _cycleOrientationMode,
-          ),
-        ],
+      appBar: GlassAppBar(
+        enableBlur: enableBlur,
+        child: AppBar(
+          title: Text(fileName),
+          centerTitle: true,
+          actions: [
+            IconButton(
+              tooltip: '选择文件',
+              icon: const Icon(Icons.folder_open),
+              onPressed: _pickFiles,
+            ),
+            IconButton(
+              tooltip: '选集',
+              icon: const Icon(Icons.playlist_play),
+              onPressed: _playlist.isEmpty
+                  ? null
+                  : () {
+                      showModalBottomSheet(
+                        context: context,
+                        builder: (ctx) => ListView.builder(
+                          itemCount: _playlist.length,
+                          itemBuilder: (_, i) {
+                            final f = _playlist[i];
+                            return ListTile(
+                              title: Text(f.name),
+                              trailing: i == _currentIndex
+                                  ? const Icon(Icons.play_arrow)
+                                  : null,
+                              onTap: () {
+                                Navigator.of(ctx).pop();
+                                // ignore: unawaited_futures
+                                _playFile(f, i);
+                              },
+                            );
+                          },
+                        ),
+                      );
+                    },
+            ),
+            IconButton(
+              tooltip: '音轨',
+              icon: const Icon(Icons.audiotrack),
+              onPressed: () => _showAudioTracks(context),
+            ),
+            IconButton(
+              tooltip: '字幕',
+              icon: const Icon(Icons.subtitles),
+              onPressed: () => _showSubtitleTracks(context),
+            ),
+            IconButton(
+              tooltip: '弹幕',
+              icon: const Icon(Icons.comment_outlined),
+              onPressed: () => _showNotSupported('弹幕'),
+            ),
+            IconButton(
+              tooltip: '软/硬解切换',
+              icon: const Icon(Icons.memory),
+              onPressed: () => _showNotSupported('软/硬解切换'),
+            ),
+            IconButton(
+              tooltip: _orientationTooltip,
+              icon: Icon(_orientationIcon),
+              onPressed: _cycleOrientationMode,
+            ),
+          ],
+        ),
       ),
       body: Column(
         children: [
