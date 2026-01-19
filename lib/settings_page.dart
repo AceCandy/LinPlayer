@@ -1105,6 +1105,16 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
+                      value: appState.showHomeLibraryQuickAccess,
+                      onChanged: (v) =>
+                          appState.setShowHomeLibraryQuickAccess(v),
+                      title: const Text('首页媒体库快捷栏'),
+                      subtitle:
+                          const Text('在首页“继续观看”下方显示媒体库快速访问栏'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
                       value: appState.enableBlurEffects,
                       onChanged: blurAllowed
                           ? (v) => appState.setEnableBlurEffects(v)

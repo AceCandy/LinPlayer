@@ -611,6 +611,8 @@ class _HomeBody extends StatelessWidget {
           const SizedBox(height: 8),
           _RandomRecommendSection(appState: appState, isTv: isTv),
           _ContinueWatchingSection(appState: appState, isTv: isTv),
+          if (appState.showHomeLibraryQuickAccess)
+            _LibraryQuickAccessSection(appState: appState, isTv: isTv),
           if (loading) const LinearProgressIndicator(),
           for (final sec in sections)
             if (sec.items.isNotEmpty) ...[
@@ -1011,6 +1013,170 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
               ],
             );
           },
+        );
+      },
+    );
+  }
+}
+
+class _LibraryQuickAccessSection extends StatefulWidget {
+  const _LibraryQuickAccessSection({required this.appState, required this.isTv});
+
+  final AppState appState;
+  final bool isTv;
+
+  @override
+  State<_LibraryQuickAccessSection> createState() =>
+      _LibraryQuickAccessSectionState();
+}
+
+class _LibraryQuickAccessSectionState extends State<_LibraryQuickAccessSection> {
+  final ScrollController _controller = ScrollController();
+
+  bool get _showDesktopArrows {
+    if (widget.isTv) return false;
+    if (kIsWeb) return false;
+    final platform = defaultTargetPlatform;
+    return platform == TargetPlatform.windows ||
+        platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.linux;
+  }
+
+  void _scrollBy(double delta) {
+    if (!_controller.hasClients) return;
+    final max = _controller.position.maxScrollExtent;
+    final target = (_controller.offset + delta).clamp(0.0, max);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final baseUrl = widget.appState.baseUrl;
+    final token = widget.appState.token;
+    if (baseUrl == null || token == null) return const SizedBox.shrink();
+
+    final libs = widget.appState.libraries
+        .where((l) => !widget.appState.isLibraryHidden(l.id))
+        .toList(growable: false);
+    if (libs.isEmpty) return const SizedBox.shrink();
+
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        const padding = 14.0;
+        const spacing = 10.0;
+        final visible = (constraints.maxWidth / 240).clamp(1.8, 6.0);
+        final itemWidth =
+            (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
+                visible;
+        final imageHeight = itemWidth * 9 / 16;
+        final listHeight = imageHeight + 44;
+        final totalContentWidth =
+            libs.length * itemWidth + (libs.length - 1) * spacing;
+        final viewportWidth = constraints.maxWidth - padding * 2;
+        final canScroll = totalContentWidth > viewportWidth + 0.5;
+        final scrollStep = itemWidth + spacing;
+
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _HomeSectionHeader(
+              template: widget.appState.uiTemplate,
+              title: '媒体库',
+              count: 0,
+              onTap: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => LibraryPage(appState: widget.appState),
+                  ),
+                );
+              },
+            ),
+            SizedBox(
+              height: listHeight,
+              child: Stack(
+                children: [
+                  ListView.separated(
+                    controller: _controller,
+                    cacheExtent: 0,
+                    padding: const EdgeInsets.symmetric(horizontal: padding),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: libs.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: spacing),
+                    itemBuilder: (context, index) {
+                      final lib = libs[index];
+                      final imageUrl = EmbyApi.imageUrl(
+                        baseUrl: baseUrl,
+                        itemId: lib.id,
+                        token: token,
+                        maxWidth: 640,
+                      );
+                      return SizedBox(
+                        width: itemWidth,
+                        child: MediaBackdropTile(
+                          title: lib.name,
+                          imageUrl: imageUrl,
+                          onTap: () {
+                            Navigator.of(context).push(
+                              MaterialPageRoute(
+                                builder: (_) => LibraryItemsPage(
+                                  appState: widget.appState,
+                                  parentId: lib.id,
+                                  title: lib.name,
+                                  isTv: widget.isTv,
+                                ),
+                              ),
+                            );
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                  if (_showDesktopArrows && canScroll) ...[
+                    Positioned(
+                      left: 2,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: IconButton(
+                            tooltip: '向左',
+                            onPressed: () => _scrollBy(-scrollStep),
+                            icon: const Icon(Icons.chevron_left),
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 2,
+                      top: 0,
+                      bottom: 0,
+                      child: Center(
+                        child: Material(
+                          color: Colors.transparent,
+                          child: IconButton(
+                            tooltip: '向右',
+                            onPressed: () => _scrollBy(scrollStep),
+                            icon: const Icon(Icons.chevron_right),
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ],
+              ),
+            ),
+          ],
         );
       },
     );

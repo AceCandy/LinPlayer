@@ -30,6 +30,7 @@ void main() {
     expect(appState.mpvCacheSizeMb, 900);
     expect(appState.unlimitedStreamCache, isTrue);
     expect(appState.enableBlurEffects, isFalse);
+    expect(appState.showHomeLibraryQuickAccess, isFalse);
     expect(appState.externalMpvPath, 'C:\\\\mpv\\\\mpv.exe');
     expect(appState.serverIconLibraryUrls, const [
       'https://example.com/icons.json',
@@ -60,6 +61,7 @@ void main() {
     expect(reloaded.themeMode, ThemeMode.dark);
     expect(reloaded.uiScaleFactor, closeTo(1.25, 0.0001));
     expect(reloaded.uiTemplate, UiTemplate.washiWatercolor);
+    expect(reloaded.showHomeLibraryQuickAccess, isFalse);
     expect(reloaded.servers.length, 2);
     expect(reloaded.activeServerId, 'srv_1');
     expect(reloaded.activeServer?.name, 'Home');
@@ -88,6 +90,7 @@ void main() {
     expect(restored.uiScaleFactor, closeTo(1.25, 0.0001));
     expect(restored.useDynamicColor, isFalse);
     expect(restored.uiTemplate, UiTemplate.washiWatercolor);
+    expect(restored.showHomeLibraryQuickAccess, isFalse);
     expect(restored.playerCore, PlayerCore.exo);
     expect(restored.servers.length, 2);
     expect(restored.activeServerId, 'srv_1');
@@ -164,6 +167,7 @@ Map<String, dynamic> _sampleBackup() {
       'mpvCacheSizeMb': 900,
       'unlimitedCoverCache': true,
       'enableBlurEffects': false,
+      'showHomeLibraryQuickAccess': false,
       'externalMpvPath': 'C:\\\\mpv\\\\mpv.exe',
       'serverIconLibraryUrls': const [
         'https://example.com/icons.json#v1',

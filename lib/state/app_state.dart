@@ -101,6 +101,8 @@ class AppState extends ChangeNotifier {
   static const _kDanmakuMatchModeKey = 'danmakuMatchMode_v1';
   static const _kDanmakuChConvertKey = 'danmakuChConvert_v1';
   static const _kServerIconLibraryUrlsKey = 'serverIconLibraryUrls_v1';
+  static const _kShowHomeLibraryQuickAccessKey =
+      'showHomeLibraryQuickAccess_v1';
 
   final List<ServerProfile> _servers = [];
   String? _activeServerId;
@@ -131,6 +133,7 @@ class AppState extends ChangeNotifier {
   int _mpvCacheSizeMb = 500;
   bool _unlimitedStreamCache = false;
   bool _enableBlurEffects = true;
+  bool _showHomeLibraryQuickAccess = true;
   String _externalMpvPath = '';
   Anime4kPreset _anime4kPreset = Anime4kPreset.off;
   bool _danmakuEnabled = true;
@@ -211,6 +214,7 @@ class AppState extends ChangeNotifier {
   int get mpvCacheSizeMb => _mpvCacheSizeMb;
   bool get unlimitedStreamCache => _unlimitedStreamCache;
   bool get enableBlurEffects => _enableBlurEffects;
+  bool get showHomeLibraryQuickAccess => _showHomeLibraryQuickAccess;
   String get externalMpvPath => _externalMpvPath;
   Anime4kPreset get anime4kPreset => _anime4kPreset;
   bool get danmakuEnabled => _danmakuEnabled;
@@ -308,6 +312,8 @@ class AppState extends ChangeNotifier {
       await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
     }
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
+    _showHomeLibraryQuickAccess =
+        prefs.getBool(_kShowHomeLibraryQuickAccessKey) ?? true;
     _externalMpvPath = prefs.getString(_kExternalMpvPathKey) ?? '';
     _anime4kPreset = anime4kPresetFromId(prefs.getString(_kAnime4kPresetKey));
 
@@ -435,6 +441,7 @@ class AppState extends ChangeNotifier {
         'mpvCacheSizeMb': _mpvCacheSizeMb,
         'unlimitedStreamCache': _unlimitedStreamCache,
         'enableBlurEffects': _enableBlurEffects,
+        'showHomeLibraryQuickAccess': _showHomeLibraryQuickAccess,
         'externalMpvPath': _externalMpvPath,
         'anime4kPreset': _anime4kPreset.id,
         'serverIconLibraryUrls': _serverIconLibraryUrls,
@@ -718,6 +725,8 @@ class AppState extends ChangeNotifier {
     );
     final nextEnableBlurEffects =
         _readBool(data['enableBlurEffects'], fallback: true);
+    final nextShowHomeLibraryQuickAccess =
+        _readBool(data['showHomeLibraryQuickAccess'], fallback: true);
     final nextExternalMpvPath =
         (data['externalMpvPath'] ?? '').toString().trim();
     final nextAnime4kPreset =
@@ -810,6 +819,7 @@ class AppState extends ChangeNotifier {
     _mpvCacheSizeMb = nextMpvCacheSizeMb;
     _unlimitedStreamCache = nextUnlimitedStreamCache;
     _enableBlurEffects = nextEnableBlurEffects;
+    _showHomeLibraryQuickAccess = nextShowHomeLibraryQuickAccess;
     _externalMpvPath = nextExternalMpvPath;
     _anime4kPreset = nextAnime4kPreset;
     _serverIconLibraryUrls = nextServerIconLibraryUrls;
@@ -871,6 +881,10 @@ class AppState extends ChangeNotifier {
     await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
     await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
     await prefs.setBool(_kEnableBlurEffectsKey, _enableBlurEffects);
+    await prefs.setBool(
+      _kShowHomeLibraryQuickAccessKey,
+      _showHomeLibraryQuickAccess,
+    );
 
     if (_externalMpvPath.isEmpty) {
       await prefs.remove(_kExternalMpvPathKey);
@@ -1628,6 +1642,14 @@ class AppState extends ChangeNotifier {
     _enableBlurEffects = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kEnableBlurEffectsKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setShowHomeLibraryQuickAccess(bool enabled) async {
+    if (_showHomeLibraryQuickAccess == enabled) return;
+    _showHomeLibraryQuickAccess = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kShowHomeLibraryQuickAccessKey, enabled);
     notifyListeners();
   }
 
