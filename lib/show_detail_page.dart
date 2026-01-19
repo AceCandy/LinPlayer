@@ -427,7 +427,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       },
     );
 
-    if (!mounted) return;
+    if (!context.mounted) return;
     if (selectedEp == null) return;
 
     Navigator.of(context).push(
