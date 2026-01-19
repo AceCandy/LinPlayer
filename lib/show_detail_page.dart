@@ -98,6 +98,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                     sizeBytes: null,
                     container: null,
                     providerIds: const {},
+                    seriesId: widget.itemId,
                     seriesName: detail.name,
                     seasonName: '第1季',
                     seasonNumber: 1,

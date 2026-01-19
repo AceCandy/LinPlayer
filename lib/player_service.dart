@@ -4,6 +4,7 @@ import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'services/stream_cache.dart';
 import 'src/external_player/external_mpv_launcher.dart';
 
 class PlayerService {
@@ -50,6 +51,8 @@ class PlayerService {
     required bool isNetwork,
     required int mpvCacheSizeMb,
     required bool dolbyVisionMode,
+    required bool unlimitedStreamCache,
+    required int? networkStreamSizeBytes,
   }) {
     final platform = defaultTargetPlatform;
     final isAndroid = !kIsWeb && platform == TargetPlatform.android;
@@ -61,9 +64,17 @@ class PlayerService {
     //   cache smaller to avoid excessive memory usage.
     final cacheMb = mpvCacheSizeMb.clamp(200, 2048);
     final bufferSize = _mb(cacheMb);
-    final networkDemuxerMaxBytes = bufferSize;
-    final networkDemuxerMaxBackBytes =
-        (bufferSize ~/ 4).clamp(_mb(32), _mb(256)).toInt();
+
+    final effectiveStreamBytes = (unlimitedStreamCache && isNetwork)
+        ? (networkStreamSizeBytes != null && networkStreamSizeBytes > 0
+            ? networkStreamSizeBytes
+            : _mb(8192))
+        : bufferSize;
+    final networkDemuxerMaxBytes = effectiveStreamBytes;
+    final networkDemuxerMaxBackBytes = (bufferSize ~/ 4)
+        .clamp(_mb(32), _mb(256))
+        .clamp(0, networkDemuxerMaxBytes)
+        .toInt();
 
     return PlayerConfiguration(
       osc: false,
@@ -92,8 +103,12 @@ class PlayerService {
         if (dolbyVisionMode && isAndroid) 'gpu-context=android',
         if (dolbyVisionMode && isAndroid) 'gpu-api=opengl',
         if (dolbyVisionMode) 'target-colorspace-hint=auto',
-        // Avoid on-disk cache writes for network streams; prefer RAM cache + tuned demuxer buffer.
-        if (isNetwork) 'cache-on-disk=no',
+        if (isNetwork && unlimitedStreamCache) ...[
+          'cache-on-disk=yes',
+          'cache-dir=${StreamCache.directory.path}',
+        ],
+        // Default: avoid on-disk cache writes for network streams; prefer RAM cache + tuned demuxer buffer.
+        if (isNetwork && !unlimitedStreamCache) 'cache-on-disk=no',
         if (isNetwork) 'demuxer-max-bytes=$networkDemuxerMaxBytes',
         if (isNetwork) 'demuxer-max-back-bytes=$networkDemuxerMaxBackBytes',
         // Reduce stutter on Windows by forcing a D3D11 GPU context for `vo=gpu`.
@@ -212,6 +227,8 @@ class PlayerService {
     bool isTv = false,
     bool hardwareDecode = true,
     int mpvCacheSizeMb = 500,
+    bool unlimitedStreamCache = false,
+    int? networkStreamSizeBytes,
     bool dolbyVisionMode = false,
     String? externalMpvPath,
   }) async {
@@ -220,12 +237,17 @@ class PlayerService {
     _externalPlaybackMessage = null;
     MediaKit.ensureInitialized();
     final isNetwork = networkUrl != null && networkUrl.isNotEmpty;
+    if (isNetwork && unlimitedStreamCache) {
+      await StreamCache.ensureDirectory();
+    }
     final player = Player(
       configuration: _config(
         hardwareDecode: hardwareDecode,
         isNetwork: isNetwork,
         mpvCacheSizeMb: mpvCacheSizeMb,
         dolbyVisionMode: dolbyVisionMode,
+        unlimitedStreamCache: unlimitedStreamCache,
+        networkStreamSizeBytes: networkStreamSizeBytes,
       ),
     );
     final controller = VideoController(
@@ -304,6 +326,8 @@ class PlayerService {
               isTv: isTv,
               hardwareDecode: false,
               mpvCacheSizeMb: mpvCacheSizeMb,
+              unlimitedStreamCache: unlimitedStreamCache,
+              networkStreamSizeBytes: networkStreamSizeBytes,
               dolbyVisionMode: true,
             );
           }

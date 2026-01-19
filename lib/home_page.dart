@@ -625,11 +625,18 @@ class _ContinueWatchingSection extends StatefulWidget {
 
 class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
   Future<List<MediaItem>>? _future;
+  final ScrollController _controller = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _future = _fetch();
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
 
   Future<List<MediaItem>> _fetch({bool forceRefresh = false}) {
@@ -662,6 +669,26 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
     }
     if (e > 0) return 'E${e.toString().padLeft(2, '0')}';
     return 'S${s.toString().padLeft(2, '0')}';
+  }
+
+  bool get _showDesktopArrows {
+    if (widget.isTv) return false;
+    if (kIsWeb) return false;
+    final platform = defaultTargetPlatform;
+    return platform == TargetPlatform.windows ||
+        platform == TargetPlatform.macOS ||
+        platform == TargetPlatform.linux;
+  }
+
+  void _scrollBy(double delta) {
+    if (!_controller.hasClients) return;
+    final max = _controller.position.maxScrollExtent;
+    final target = (_controller.offset + delta).clamp(0.0, max);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   @override
@@ -734,6 +761,11 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                     visible;
             final imageHeight = itemWidth * 9 / 16;
             final listHeight = imageHeight + 46;
+            final totalContentWidth =
+                maxCount * itemWidth + (maxCount - 1) * spacing;
+            final viewportWidth = constraints.maxWidth - padding * 2;
+            final canScroll = totalContentWidth > viewportWidth + 0.5;
+            final scrollStep = itemWidth + spacing;
 
             return Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -760,14 +792,20 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                 ),
                 SizedBox(
                   height: listHeight,
-                  child: ListView.separated(
-                    cacheExtent: 0,
-                    padding: const EdgeInsets.symmetric(horizontal: padding),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: maxCount,
-                    separatorBuilder: (_, __) => const SizedBox(width: spacing),
-                    itemBuilder: (context, index) {
-                      final item = items[index];
+                  child: Stack(
+                    children: [
+                      ListView.separated(
+                        controller: _controller,
+                        cacheExtent: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: padding,
+                        ),
+                        scrollDirection: Axis.horizontal,
+                        itemCount: maxCount,
+                        separatorBuilder: (_, __) =>
+                            const SizedBox(width: spacing),
+                        itemBuilder: (context, index) {
+                          final item = items[index];
                       final isEpisode = item.type.toLowerCase() == 'episode';
                       final title = isEpisode && item.seriesName.isNotEmpty
                           ? item.seriesName
@@ -875,7 +913,41 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                           ),
                         ),
                       );
-                    },
+                        },
+                      ),
+                      if (_showDesktopArrows && canScroll) ...[
+                        Positioned(
+                          left: 2,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: IconButton(
+                                tooltip: '向左',
+                                onPressed: () => _scrollBy(-scrollStep),
+                                icon: const Icon(Icons.chevron_left),
+                              ),
+                            ),
+                          ),
+                        ),
+                        Positioned(
+                          right: 2,
+                          top: 0,
+                          bottom: 0,
+                          child: Center(
+                            child: Material(
+                              color: Colors.transparent,
+                              child: IconButton(
+                                tooltip: '向右',
+                                onPressed: () => _scrollBy(scrollStep),
+                                icon: const Icon(Icons.chevron_right),
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ),
               ],

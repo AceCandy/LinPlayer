@@ -7,7 +7,6 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'home_page.dart';
 import 'server_page.dart';
-import 'services/cover_cache_manager.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'src/ui/app_theme.dart';
@@ -29,7 +28,6 @@ void main() async {
 
   final appState = AppState();
   await appState.loadFromStorage();
-  CoverCacheManager.setUnlimited(appState.unlimitedCoverCache);
 
   // Best-effort: request the highest refresh rate on Android devices.
   await HighRefreshRate.apply();

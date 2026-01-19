@@ -63,6 +63,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   Tracks _tracks = const Tracks();
   StreamSubscription<String>? _errorSub;
   String? _resolvedStream;
+  int? _resolvedStreamSizeBytes;
   StreamSubscription<bool>? _bufferingSub;
   StreamSubscription<double>? _bufferingPctSub;
   StreamSubscription<Duration>? _posSub;
@@ -205,6 +206,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
         isTv: widget.isTv,
         hardwareDecode: _hwdecOn,
         mpvCacheSizeMb: widget.appState.mpvCacheSizeMb,
+        unlimitedStreamCache: widget.appState.unlimitedStreamCache,
+        networkStreamSizeBytes: _resolvedStreamSizeBytes,
         externalMpvPath: widget.appState.externalMpvPath,
       );
       if (_playerService.isExternalPlayback) {
@@ -772,6 +775,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     final userId = widget.appState.userId!;
     _playSessionId = null;
     _mediaSourceId = null;
+    _resolvedStreamSizeBytes = null;
     String applyQueryPrefs(String url) {
       final uri = Uri.parse(url);
       final params = Map<String, String>.from(uri.queryParameters);
@@ -817,6 +821,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
       }
       _playSessionId = info.playSessionId;
       _mediaSourceId = (ms?['Id'] as String?) ?? info.mediaSourceId;
+      _resolvedStreamSizeBytes = _asInt(ms?['Size']);
       final directStreamUrl = ms?['DirectStreamUrl'] as String?;
       if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
         return resolve(directStreamUrl);

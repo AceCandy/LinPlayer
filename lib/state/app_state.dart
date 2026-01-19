@@ -69,7 +69,10 @@ class AppState extends ChangeNotifier {
   static const _kAppIconIdKey = 'appIconId_v1';
   static const _kServerListLayoutKey = 'serverListLayout_v1';
   static const _kMpvCacheSizeMbKey = 'mpvCacheSizeMb_v1';
-  static const _kUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
+  static const _kUnlimitedStreamCacheKey = 'unlimitedStreamCache_v1';
+  // Legacy key (<= 1.0.0): was used for "unlimited cover cache", but the intent
+  // is actually "unlimited stream cache". We still read it for migration.
+  static const _kLegacyUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
   static const _kEnableBlurEffectsKey = 'enableBlurEffects_v1';
   static const _kExternalMpvPathKey = 'externalMpvPath_v1';
   static const _kAnime4kPresetKey = 'anime4kPreset_v1';
@@ -122,7 +125,7 @@ class AppState extends ChangeNotifier {
   String _appIconId = 'default';
   ServerListLayout _serverListLayout = ServerListLayout.grid;
   int _mpvCacheSizeMb = 500;
-  bool _unlimitedCoverCache = false;
+  bool _unlimitedStreamCache = false;
   bool _enableBlurEffects = true;
   String _externalMpvPath = '';
   Anime4kPreset _anime4kPreset = Anime4kPreset.off;
@@ -188,7 +191,7 @@ class AppState extends ChangeNotifier {
   String get appIconId => _appIconId;
   ServerListLayout get serverListLayout => _serverListLayout;
   int get mpvCacheSizeMb => _mpvCacheSizeMb;
-  bool get unlimitedCoverCache => _unlimitedCoverCache;
+  bool get unlimitedStreamCache => _unlimitedStreamCache;
   bool get enableBlurEffects => _enableBlurEffects;
   String get externalMpvPath => _externalMpvPath;
   Anime4kPreset get anime4kPreset => _anime4kPreset;
@@ -270,7 +273,15 @@ class AppState extends ChangeNotifier {
       _mpvCacheSizeMb = _mpvCacheSizeMb.clamp(200, 2048);
       await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
     }
-    _unlimitedCoverCache = prefs.getBool(_kUnlimitedCoverCacheKey) ?? false;
+    final hasNewStreamCacheKey =
+        prefs.containsKey(_kUnlimitedStreamCacheKey);
+    _unlimitedStreamCache = hasNewStreamCacheKey
+        ? (prefs.getBool(_kUnlimitedStreamCacheKey) ?? false)
+        : (prefs.getBool(_kLegacyUnlimitedCoverCacheKey) ?? false);
+    if (!hasNewStreamCacheKey &&
+        prefs.containsKey(_kLegacyUnlimitedCoverCacheKey)) {
+      await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
+    }
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _externalMpvPath = prefs.getString(_kExternalMpvPathKey) ?? '';
     _anime4kPreset = anime4kPresetFromId(prefs.getString(_kAnime4kPresetKey));
@@ -395,7 +406,7 @@ class AppState extends ChangeNotifier {
         'appIconId': _appIconId,
         'serverListLayout': _serverListLayout.id,
         'mpvCacheSizeMb': _mpvCacheSizeMb,
-        'unlimitedCoverCache': _unlimitedCoverCache,
+        'unlimitedStreamCache': _unlimitedStreamCache,
         'enableBlurEffects': _enableBlurEffects,
         'externalMpvPath': _externalMpvPath,
         'anime4kPreset': _anime4kPreset.id,
@@ -665,8 +676,12 @@ class AppState extends ChangeNotifier {
 
     final nextMpvCacheSizeMb =
         _readInt(data['mpvCacheSizeMb'], fallback: 500).clamp(200, 2048);
-    final nextUnlimitedCoverCache =
-        _readBool(data['unlimitedCoverCache'], fallback: false);
+    final nextUnlimitedStreamCache = _readBool(
+      data.containsKey('unlimitedStreamCache')
+          ? data['unlimitedStreamCache']
+          : data['unlimitedCoverCache'],
+      fallback: false,
+    );
     final nextEnableBlurEffects =
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextExternalMpvPath =
@@ -759,7 +774,7 @@ class AppState extends ChangeNotifier {
     }
     _serverListLayout = nextServerListLayout;
     _mpvCacheSizeMb = nextMpvCacheSizeMb;
-    _unlimitedCoverCache = nextUnlimitedCoverCache;
+    _unlimitedStreamCache = nextUnlimitedStreamCache;
     _enableBlurEffects = nextEnableBlurEffects;
     _externalMpvPath = nextExternalMpvPath;
     _anime4kPreset = nextAnime4kPreset;
@@ -819,7 +834,7 @@ class AppState extends ChangeNotifier {
     await prefs.setString(_kAppIconIdKey, _appIconId);
     await prefs.setString(_kServerListLayoutKey, _serverListLayout.id);
     await prefs.setInt(_kMpvCacheSizeMbKey, _mpvCacheSizeMb);
-    await prefs.setBool(_kUnlimitedCoverCacheKey, _unlimitedCoverCache);
+    await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
     await prefs.setBool(_kEnableBlurEffectsKey, _enableBlurEffects);
 
     if (_externalMpvPath.isEmpty) {
@@ -1257,9 +1272,28 @@ class AppState extends ChangeNotifier {
       token: token!,
       baseUrl: baseUrl!,
       userId: userId!,
-      limit: 20,
+      // Fetch more than we show because we de-duplicate per series (episodes) & may
+      // otherwise end up with too few unique shows.
+      limit: 60,
     );
-    return res.items;
+
+    final seen = <String>{};
+    final deduped = <MediaItem>[];
+    for (final item in res.items) {
+      final type = item.type.toLowerCase().trim();
+      final key = type == 'episode'
+          ? ((item.seriesId ?? '').trim().isNotEmpty
+              ? 'series:${item.seriesId}'
+              : (item.seriesName.trim().isNotEmpty
+                  ? 'seriesName:${item.seriesName.trim()}'
+                  : 'item:${item.id}'))
+          : 'item:${item.id}';
+      if (seen.add(key)) {
+        deduped.add(item);
+      }
+      if (deduped.length >= 20) break;
+    }
+    return deduped;
   }
 
   Future<void> setBaseUrl(String url) async {
@@ -1492,11 +1526,11 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> setUnlimitedCoverCache(bool enabled) async {
-    if (_unlimitedCoverCache == enabled) return;
-    _unlimitedCoverCache = enabled;
+  Future<void> setUnlimitedStreamCache(bool enabled) async {
+    if (_unlimitedStreamCache == enabled) return;
+    _unlimitedStreamCache = enabled;
     final prefs = await SharedPreferences.getInstance();
-    await prefs.setBool(_kUnlimitedCoverCacheKey, enabled);
+    await prefs.setBool(_kUnlimitedStreamCacheKey, enabled);
     notifyListeners();
   }
 

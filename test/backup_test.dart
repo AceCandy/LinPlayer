@@ -28,7 +28,7 @@ void main() {
     expect(appState.appIconId, 'pink');
     expect(appState.serverListLayout, ServerListLayout.list);
     expect(appState.mpvCacheSizeMb, 900);
-    expect(appState.unlimitedCoverCache, isTrue);
+    expect(appState.unlimitedStreamCache, isTrue);
     expect(appState.enableBlurEffects, isFalse);
     expect(appState.externalMpvPath, 'C:\\\\mpv\\\\mpv.exe');
     expect(appState.serverIconLibraryUrls, const [

@@ -12,6 +12,7 @@ import 'package:url_launcher/url_launcher_string.dart';
 import 'danmaku_settings_page.dart';
 import 'services/app_update_service.dart';
 import 'services/cover_cache_manager.dart';
+import 'services/stream_cache.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/frosted_card.dart';
 import 'src/ui/glass_background.dart';
@@ -647,7 +648,6 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   Future<void> _postImportApplySideEffects() async {
-    CoverCacheManager.setUnlimited(widget.appState.unlimitedCoverCache);
     if (AppIconService.isSupported) {
       await AppIconService.setIconId(widget.appState.appIconId);
     }
@@ -792,11 +792,11 @@ class _SettingsPageState extends State<SettingsPage> {
     );
   }
 
-  Future<bool> _confirmEnableUnlimitedCoverCache(BuildContext context) async {
+  Future<bool> _confirmEnableUnlimitedStreamCache(BuildContext context) async {
     final ok = await showDialog<bool>(
       context: context,
       barrierDismissible: false,
-      builder: (_) => const _UnlimitedCoverCacheConfirmDialog(),
+      builder: (_) => const _UnlimitedStreamCacheConfirmDialog(),
     );
     return ok == true;
   }
@@ -1478,24 +1478,66 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                         const Divider(height: 1),
                         SwitchListTile(
-                          value: appState.unlimitedCoverCache,
+                          value: appState.unlimitedStreamCache,
                           onChanged: (v) async {
                             if (v) {
                               final confirmed =
-                                  await _confirmEnableUnlimitedCoverCache(
+                                  await _confirmEnableUnlimitedStreamCache(
                                 context,
                               );
                               if (!confirmed) return;
                             }
-                            CoverCacheManager.setUnlimited(v);
-                            await appState.setUnlimitedCoverCache(v);
+                            await appState.setUnlimitedStreamCache(v);
                           },
                           secondary: const Icon(Icons.all_inclusive),
-                          title: const Text('不限制封面缓存'),
+                          title: const Text('不限制视频流缓存'),
                           subtitle: const Text(
-                            '开启后封面/随机推荐图片将持续缓存，容易被误判为下载，请谨慎使用。',
+                            '开启后在线播放会尽量缓存到结束，容易被误判为下载，请谨慎使用。',
                           ),
                           contentPadding: EdgeInsets.zero,
+                        ),
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.delete_outline),
+                          title: const Text('清理视频流缓存'),
+                          subtitle: const Text('删除本地缓存的视频流数据'),
+                          onTap: () async {
+                            final confirmed = await showDialog<bool>(
+                              context: context,
+                              builder: (dctx) => AlertDialog(
+                                title: const Text('清理视频流缓存'),
+                                content: const Text(
+                                  '将删除已缓存的视频流数据，下次播放时会重新缓存。',
+                                ),
+                                actions: [
+                                  TextButton(
+                                    onPressed: () =>
+                                        Navigator.of(dctx).pop(false),
+                                    child: const Text('取消'),
+                                  ),
+                                  FilledButton(
+                                    onPressed: () =>
+                                        Navigator.of(dctx).pop(true),
+                                    child: const Text('清理'),
+                                  ),
+                                ],
+                              ),
+                            );
+                            if (confirmed != true) return;
+                            try {
+                              await StreamCache.clear();
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                const SnackBar(content: Text('已清理视频流缓存')),
+                              );
+                            } catch (e) {
+                              if (!context.mounted) return;
+                              ScaffoldMessenger.of(context).showSnackBar(
+                                SnackBar(content: Text('清理失败：$e')),
+                              );
+                            }
+                          },
                         ),
                         const Divider(height: 1),
                         ListTile(
@@ -1667,16 +1709,16 @@ class _UpdateProgressDialogState extends State<_UpdateProgressDialog> {
   }
 }
 
-class _UnlimitedCoverCacheConfirmDialog extends StatefulWidget {
-  const _UnlimitedCoverCacheConfirmDialog();
+class _UnlimitedStreamCacheConfirmDialog extends StatefulWidget {
+  const _UnlimitedStreamCacheConfirmDialog();
 
   @override
-  State<_UnlimitedCoverCacheConfirmDialog> createState() =>
-      _UnlimitedCoverCacheConfirmDialogState();
+  State<_UnlimitedStreamCacheConfirmDialog> createState() =>
+      _UnlimitedStreamCacheConfirmDialogState();
 }
 
-class _UnlimitedCoverCacheConfirmDialogState
-    extends State<_UnlimitedCoverCacheConfirmDialog> {
+class _UnlimitedStreamCacheConfirmDialogState
+    extends State<_UnlimitedStreamCacheConfirmDialog> {
   static const _waitSeconds = 3;
   int _remaining = _waitSeconds;
   Timer? _timer;

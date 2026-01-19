@@ -52,6 +52,7 @@ class MediaItem {
   final int? sizeBytes;
   final String? container;
   final Map<String, String> providerIds;
+  final String? seriesId;
   final String seriesName;
   final String seasonName;
   final int? seasonNumber;
@@ -72,6 +73,7 @@ class MediaItem {
     required this.sizeBytes,
     required this.container,
     required this.providerIds,
+    required this.seriesId,
     required this.seriesName,
     required this.seasonName,
     required this.seasonNumber,
@@ -97,6 +99,7 @@ class MediaItem {
               (key, value) => MapEntry(key.toString(), value.toString()),
             ) ??
             const {},
+        seriesId: json['SeriesId'] as String?,
         seriesName: json['SeriesName'] as String? ?? '',
         seasonName: json['SeasonName'] as String? ?? '',
         seasonNumber: json['ParentIndexNumber'] as int?,
@@ -573,7 +576,7 @@ class EmbyApi {
         '&SortBy=DatePlayed'
         '&SortOrder=Descending'
         '&Limit=$limit'
-        '&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,UserData');
+        '&Fields=Overview,ParentId,SeriesId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,UserData');
     final resp = await _client.get(url, headers: _jsonHeaders(token: token));
     if (resp.statusCode != 200) {
       throw Exception('获取继续观看失败（${resp.statusCode}）');
