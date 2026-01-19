@@ -1091,15 +1091,15 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 onPressed: _selectedSeason == null
                                     ? null
                                     : () => _pickEpisode(context),
-                                child: Row(
+                                child: const Row(
                                   mainAxisAlignment: MainAxisAlignment.center,
                                   children: [
-                                    const Icon(Icons.format_list_numbered,
+                                    Icon(Icons.format_list_numbered,
                                         size: 18),
-                                    const SizedBox(width: 8),
-                                    const Text('选集'),
-                                    const SizedBox(width: 4),
-                                    const Icon(Icons.arrow_drop_down),
+                                    SizedBox(width: 8),
+                                    Text('选集'),
+                                    SizedBox(width: 4),
+                                    Icon(Icons.arrow_drop_down),
                                   ],
                                 ),
                               ),
