@@ -753,6 +753,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
 
+    // ignore: invalid_use_of_visible_for_testing_member
+    final playerId = controller.playerId;
+
     final platform = VideoPlayerPlatform.instance;
     if (!platform.isAudioTrackSupportAvailable()) {
       _showNotSupported('音轨切换');
@@ -761,8 +764,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
     late final List<VideoAudioTrack> tracks;
     try {
-      // ignore: invalid_use_of_visible_for_testing_member
-      tracks = await platform.getAudioTracks(controller.playerId);
+      tracks = await platform.getAudioTracks(playerId);
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -791,9 +793,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
                   onTap: () async {
                     Navigator.of(ctx).pop();
                     try {
-                      // ignore: invalid_use_of_visible_for_testing_member
-                      await platform.selectAudioTrack(
-                          controller.playerId, t.id);
+                      await platform.selectAudioTrack(playerId, t.id);
                     } catch (e) {
                       if (!context.mounted) return;
                       ScaffoldMessenger.of(context).showSnackBar(
@@ -830,9 +830,11 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
 
+    // ignore: invalid_use_of_visible_for_testing_member
+    final playerId = controller.playerId;
+
     final api = vp_android.VideoPlayerInstanceApi(
-      // ignore: invalid_use_of_visible_for_testing_member
-      messageChannelSuffix: controller.playerId.toString(),
+      messageChannelSuffix: playerId.toString(),
     );
 
     late final vp_android.NativeSubtitleTrackData data;

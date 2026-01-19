@@ -22,9 +22,7 @@ bool _usesGlassSurfaces(UiTemplate template) {
 
 BorderRadius _borderRadiusOf(ShapeBorder? shape, TextDirection textDirection) {
   if (shape is RoundedRectangleBorder) {
-    final resolved = shape.borderRadius.resolve(textDirection);
-    if (resolved is BorderRadius) return resolved;
-    return resolved as BorderRadius;
+    return shape.borderRadius.resolve(textDirection);
   }
   return BorderRadius.zero;
 }
