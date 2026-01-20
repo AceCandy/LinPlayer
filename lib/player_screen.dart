@@ -18,6 +18,7 @@ import 'src/player/danmaku_stage.dart';
 import 'src/player/anime4k.dart';
 import 'src/player/thumbnail_generator.dart';
 import 'src/player/track_preferences.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';
 import 'state/anime4k_preferences.dart';
@@ -221,10 +222,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+  bool _isTv(BuildContext context) => DeviceType.isTv;
 
   Future<void> _pickFile() async {
     final result = await FilePicker.platform.pickFiles(

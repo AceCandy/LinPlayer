@@ -19,6 +19,7 @@ import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/playback_controls.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/glass_blur.dart';
 
 class ExoPlayerScreen extends StatefulWidget {
@@ -981,9 +982,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final isTv = defaultTargetPlatform == TargetPlatform.android &&
-        MediaQuery.of(context).orientation == Orientation.landscape &&
-        MediaQuery.of(context).size.shortestSide >= 720;
+    final isTv = DeviceType.isTv;
     final enableBlur = !isTv && widget.appState.enableBlurEffects;
 
     final fileName = _currentIndex >= 0 && _currentIndex < _playlist.length

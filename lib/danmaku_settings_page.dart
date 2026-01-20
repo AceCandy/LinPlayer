@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
+import 'src/device/device_type.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';
@@ -36,10 +36,7 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
   double? _topMaxLinesDraft;
   double? _bottomMaxLinesDraft;
 
-  bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+  bool _isTv(BuildContext context) => DeviceType.isTv;
 
   @override
   void initState() {

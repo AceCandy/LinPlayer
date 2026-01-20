@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:dynamic_color/dynamic_color.dart';
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:package_info_plus/package_info_plus.dart';
@@ -10,6 +9,7 @@ import 'home_page.dart';
 import 'server_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/app_theme.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/app_style.dart';
@@ -21,6 +21,7 @@ void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   // Ensure native media backends (mpv) are ready before any player is created.
   MediaKit.ensureInitialized();
+  await DeviceType.init();
 
   try {
     final info = await PackageInfo.fromPlatform();
@@ -177,9 +178,7 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                     ? mediaQuery.textScaler
                     : TextScaler.linear(userScale * scale);
 
-                final isTv = defaultTargetPlatform == TargetPlatform.android &&
-                    mediaQuery.orientation == Orientation.landscape &&
-                    mediaQuery.size.shortestSide >= 720;
+                final isTv = DeviceType.isTv;
 
                 final style = scaledTheme.extension<AppStyle>();
                 final hasBackdrop = style != null &&

@@ -1,6 +1,5 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'server_text_import_sheet.dart';
@@ -8,6 +7,7 @@ import 'services/website_metadata.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'state/server_profile.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/server_icon_picker.dart';
 import 'src/ui/theme_sheet.dart';
 import 'src/ui/ui_scale.dart';
@@ -22,10 +22,7 @@ class ServerPage extends StatefulWidget {
 }
 
 class _ServerPageState extends State<ServerPage> {
-  bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+  bool _isTv(BuildContext context) => DeviceType.isTv;
 
   Future<void> _showAddServerSheet() async {
     await showModalBottomSheet<void>(

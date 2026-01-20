@@ -1,13 +1,17 @@
 package com.example.lin_player
 
+import android.app.UiModeManager
 import android.content.ComponentName
+import android.content.Context
 import android.content.pm.PackageManager
+import android.content.res.Configuration
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
 class MainActivity : FlutterActivity() {
     private val channelName = "linplayer/app_icon"
+    private val deviceChannelName = "linplayer/device"
 
     private data class Alias(
         val id: String,
@@ -41,6 +45,22 @@ class MainActivity : FlutterActivity() {
                 else -> result.notImplemented()
             }
         }
+
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, deviceChannelName).setMethodCallHandler { call, result ->
+            when (call.method) {
+                "isAndroidTv" -> result.success(isAndroidTv())
+                else -> result.notImplemented()
+            }
+        }
+    }
+
+    private fun isAndroidTv(): Boolean {
+        val uiModeManager = getSystemService(Context.UI_MODE_SERVICE) as? UiModeManager
+        if (uiModeManager?.currentModeType == Configuration.UI_MODE_TYPE_TELEVISION) return true
+
+        val pm = applicationContext.packageManager
+        return pm.hasSystemFeature(PackageManager.FEATURE_TELEVISION) ||
+            pm.hasSystemFeature(PackageManager.FEATURE_LEANBACK)
     }
 
     private fun setIconId(id: String) {

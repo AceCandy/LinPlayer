@@ -130,7 +130,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     _selectedAudioStreamIndex = widget.audioStreamIndex;
     _selectedSubtitleStreamIndex = widget.subtitleStreamIndex;
     // ignore: unawaited_futures
-    _enterImmersiveMode();
+    _exitImmersiveMode();
     _init();
   }
 
@@ -145,7 +145,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     // ignore: unawaited_futures
     _reportPlaybackStoppedBestEffort();
     // ignore: unawaited_futures
-    _exitImmersiveMode();
+    _exitImmersiveMode(resetOrientations: true);
     // ignore: unawaited_futures
     _controller?.dispose();
     _controller = null;
@@ -663,6 +663,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     if (!_controlsVisible) {
       setState(() => _controlsVisible = true);
     }
+    // ignore: unawaited_futures
+    _exitImmersiveMode();
     if (scheduleHide) _scheduleControlsHide();
   }
 
@@ -673,6 +675,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     _controlsHideTimer = Timer(_controlsAutoHideDelay, () {
       if (!mounted || _isScrubbing) return;
       setState(() => _controlsVisible = false);
+      // ignore: unawaited_futures
+      _enterImmersiveMode();
     });
   }
 
@@ -1260,7 +1264,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     } catch (_) {}
   }
 
-  Future<void> _exitImmersiveMode() async {
+  Future<void> _exitImmersiveMode({bool resetOrientations = false}) async {
     if (!_shouldControlSystemUi) return;
     try {
       await SystemChrome.setEnabledSystemUIMode(
@@ -1268,6 +1272,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
         overlays: SystemUiOverlay.values,
       );
     } catch (_) {}
+    if (!resetOrientations) return;
     try {
       await SystemChrome.setPreferredOrientations(const []);
     } catch (_) {}
@@ -1542,9 +1547,18 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     return Scaffold(
       backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
-      appBar: GlassAppBar(
-        enableBlur: enableBlur,
-        child: AppBar(
+      appBar: PreferredSize(
+        preferredSize: _controlsVisible
+            ? const Size.fromHeight(kToolbarHeight)
+            : Size.zero,
+        child: AnimatedOpacity(
+          opacity: _controlsVisible ? 1 : 0,
+          duration: const Duration(milliseconds: 200),
+          child: IgnorePointer(
+            ignoring: !_controlsVisible,
+            child: GlassAppBar(
+              enableBlur: enableBlur,
+              child: AppBar(
           backgroundColor: Colors.transparent,
           elevation: 0,
           foregroundColor: Colors.white,
@@ -1594,6 +1608,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
               onPressed: _cycleOrientationMode,
             ),
           ],
+        ),
+      ),
+          ),
         ),
       ),
       body: Column(

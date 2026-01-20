@@ -14,6 +14,7 @@ import 'server_text_import_sheet.dart';
 import 'services/app_update_service.dart';
 import 'services/cover_cache_manager.dart';
 import 'services/stream_cache.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/app_icon_service.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/glass_blur.dart';
@@ -726,9 +727,7 @@ class _SettingsPageState extends State<SettingsPage> {
   }
 
   bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+      DeviceType.isTv;
 
   List<DropdownMenuItem<String>> _audioLangItems(String current) {
     final base = <MapEntry<String, String>>[
@@ -1015,6 +1014,9 @@ class _SettingsPageState extends State<SettingsPage> {
         final appState = widget.appState;
         final blurAllowed = !isTv;
         final enableBlur = blurAllowed && appState.enableBlurEffects;
+        final trailingMaxWidth = (MediaQuery.sizeOf(context).width * 0.45)
+            .clamp(140.0, 260.0)
+            .toDouble();
 
         return Scaffold(
           appBar: GlassAppBar(
@@ -1151,8 +1153,9 @@ class _SettingsPageState extends State<SettingsPage> {
                       leading: const Icon(Icons.dashboard_customize_outlined),
                       title: const Text('UI 模板'),
                       subtitle: const Text('不同风格/布局（手机 + 桌面）'),
-                      trailing: SizedBox(
-                        width: 240,
+                      trailing: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: trailingMaxWidth),
                         child: DropdownButtonHideUnderline(
                           child: DropdownButton<UiTemplate>(
                             value: appState.uiTemplate,
@@ -1196,8 +1199,11 @@ class _SettingsPageState extends State<SettingsPage> {
                         leading: const Icon(Icons.memory_outlined),
                         title: const Text('播放器内核'),
                         subtitle: const Text('Exo 更适合部分杜比视界 P8 片源（偏紫/偏绿）'),
-                        trailing: DropdownButtonHideUnderline(
-                          child: DropdownButton<PlayerCore>(
+                        trailing: ConstrainedBox(
+                          constraints:
+                              BoxConstraints(maxWidth: trailingMaxWidth),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<PlayerCore>(
                             value: appState.playerCore,
                             items: [
                               DropdownMenuItem(
@@ -1220,6 +1226,7 @@ class _SettingsPageState extends State<SettingsPage> {
                               );
                             },
                           ),
+                        ),
                         ),
                       ),
                       const Divider(height: 1),
@@ -1310,8 +1317,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.audiotrack),
                       title: const Text('优先音轨'),
-                      trailing: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
+                      trailing: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: trailingMaxWidth),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
                           value: appState.preferredAudioLang,
                           items: _audioLangItems(appState.preferredAudioLang),
                           onChanged: (v) async {
@@ -1330,14 +1340,18 @@ class _SettingsPageState extends State<SettingsPage> {
                           },
                         ),
                       ),
+                      ),
                     ),
                     const Divider(height: 1),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.subtitles_outlined),
                       title: const Text('优先字幕'),
-                      trailing: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
+                      trailing: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: trailingMaxWidth),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
                           value: appState.preferredSubtitleLang,
                           items: _subtitleLangItems(
                               appState.preferredSubtitleLang),
@@ -1356,6 +1370,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             await appState.setPreferredSubtitleLang(v);
                           },
                         ),
+                      ),
                       ),
                     ),
                     const Divider(height: 1),
@@ -1383,21 +1398,25 @@ class _SettingsPageState extends State<SettingsPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.video_file_outlined),
                       title: const Text('优先视频版本'),
-                      trailing: DropdownButtonHideUnderline(
-                        child: DropdownButton<VideoVersionPreference>(
-                          value: appState.preferredVideoVersion,
-                          items: VideoVersionPreference.values
-                              .map(
-                                (p) => DropdownMenuItem(
-                                  value: p,
-                                  child: Text(p.label),
-                                ),
-                              )
-                              .toList(),
-                          onChanged: (v) {
-                            if (v == null) return;
-                            appState.setPreferredVideoVersion(v);
-                          },
+                      trailing: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: trailingMaxWidth),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<VideoVersionPreference>(
+                            value: appState.preferredVideoVersion,
+                            items: VideoVersionPreference.values
+                                .map(
+                                  (p) => DropdownMenuItem(
+                                    value: p,
+                                    child: Text(p.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) {
+                              if (v == null) return;
+                              appState.setPreferredVideoVersion(v);
+                            },
+                          ),
                         ),
                       ),
                     ),
@@ -1462,8 +1481,11 @@ class _SettingsPageState extends State<SettingsPage> {
                       subtitle: Text(AppIconService.isSupported
                           ? '切换后可能需要等待桌面刷新'
                           : '仅 Android 支持'),
-                      trailing: DropdownButtonHideUnderline(
-                        child: DropdownButton<String>(
+                      trailing: ConstrainedBox(
+                        constraints:
+                            BoxConstraints(maxWidth: trailingMaxWidth),
+                        child: DropdownButtonHideUnderline(
+                          child: DropdownButton<String>(
                           value: appState.appIconId,
                           items: const [
                             DropdownMenuItem(
@@ -1489,6 +1511,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   await appState.setAppIconId(v);
                                 },
                         ),
+                      ),
                       ),
                     ),
                     const Divider(height: 1),
@@ -1830,7 +1853,11 @@ class _Section extends StatelessWidget {
             ),
           ],
           const SizedBox(height: 8),
-          child,
+          DefaultTextStyle.merge(
+            maxLines: 2,
+            overflow: TextOverflow.ellipsis,
+            child: child,
+          ),
         ],
       ),
     );

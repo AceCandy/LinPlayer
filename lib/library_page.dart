@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'package:flutter/foundation.dart';
 
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'library_items_page.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/glass_blur.dart';
 import 'src/ui/ui_scale.dart';
@@ -20,10 +20,7 @@ class LibraryPage extends StatefulWidget {
 class _LibraryPageState extends State<LibraryPage> {
   bool _showHidden = false;
 
-  bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+  bool _isTv(BuildContext context) => DeviceType.isTv;
 
   @override
   Widget build(BuildContext context) {

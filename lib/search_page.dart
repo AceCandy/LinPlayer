@@ -1,10 +1,10 @@
 import 'dart:async';
 
-import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
 import 'services/emby_api.dart';
 import 'show_detail_page.dart';
+import 'src/device/device_type.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/glass_blur.dart';
 import 'src/ui/ui_scale.dart';
@@ -49,10 +49,7 @@ class _SearchPageState extends State<SearchPage> {
     super.dispose();
   }
 
-  bool _isTv(BuildContext context) =>
-      defaultTargetPlatform == TargetPlatform.android &&
-      MediaQuery.of(context).orientation == Orientation.landscape &&
-      MediaQuery.of(context).size.shortestSide >= 720;
+  bool _isTv(BuildContext context) => DeviceType.isTv;
 
   void _scheduleSearch(String query, {bool immediate = false}) {
     _debounce?.cancel();
