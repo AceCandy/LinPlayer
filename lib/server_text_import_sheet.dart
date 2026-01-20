@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 
 import 'services/server_share_text_parser.dart';
 import 'state/app_state.dart';
+import 'src/ui/server_icon_picker.dart';
 
 class ServerTextImportSheet extends StatefulWidget {
   const ServerTextImportSheet({super.key, required this.appState});
@@ -34,6 +35,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
     for (final g in _groups) {
       g.usernameCtrl.dispose();
       g.passwordCtrl.dispose();
+      g.remarkCtrl.dispose();
     }
     _groups = [];
   }
@@ -49,17 +51,14 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
       return;
     }
     _rawCtrl.text = text;
-    _parse();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      const SnackBar(content: Text('已粘贴')),
+    );
   }
 
-  void _parse() {
-    _rawFocus.unfocus();
-
-    final parsed = ServerShareTextParser.parse(_rawCtrl.text);
-
-    _disposeGroups();
+  List<_ImportGroupDraft> _buildDrafts(List<ServerShareTextGroup> parsed) {
     final drafts = <_ImportGroupDraft>[];
-
     final defaultUsername = widget.appState.activeServer?.username.trim() ?? '';
     for (final g in parsed) {
       if (g.lines.isEmpty) continue;
@@ -86,19 +85,36 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
           selected: true,
           usernameCtrl: TextEditingController(text: defaultUsername),
           passwordCtrl: TextEditingController(text: g.password),
+          remarkCtrl: TextEditingController(),
           lines: lineDrafts,
           primaryUrl: primaryUrl,
         ),
       );
     }
+    return drafts;
+  }
 
-    setState(() => _groups = drafts);
+  void _parse({required bool append}) {
+    _rawFocus.unfocus();
 
-    if (drafts.isEmpty) {
+    final parsed = ServerShareTextParser.parse(_rawCtrl.text);
+    if (parsed.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('未解析到服务器地址')),
       );
+      return;
     }
+
+    final drafts = _buildDrafts(parsed);
+
+    if (!append) {
+      _disposeGroups();
+      setState(() => _groups = drafts);
+      return;
+    }
+
+    setState(() => _groups = [..._groups, ...drafts]);
+    _rawCtrl.clear();
   }
 
   void _clear() {
@@ -165,6 +181,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                 final uri = Uri.tryParse(primaryUrl);
                 final scheme =
                     (uri?.scheme.toLowerCase() == 'http') ? 'http' : 'https';
+                final remark = g.remarkCtrl.text.trim();
 
                 await widget.appState.addServer(
                   hostOrUrl: primaryUrl,
@@ -173,8 +190,8 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                   username: g.usernameCtrl.text.trim(),
                   password: g.passwordCtrl.text,
                   displayName: null,
-                  remark: null,
-                  iconUrl: null,
+                  remark: remark.isEmpty ? null : remark,
+                  iconUrl: g.iconUrl,
                 );
 
                 final err = widget.appState.error;
@@ -278,8 +295,16 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                       label: const Text('粘贴'),
                     ),
                     const SizedBox(width: 8),
+                    OutlinedButton.icon(
+                      onPressed:
+                          _importing ? null : () => _parse(append: true),
+                      icon: const Icon(Icons.playlist_add_outlined),
+                      label: const Text('追加解析'),
+                    ),
+                    const SizedBox(width: 8),
                     FilledButton.icon(
-                      onPressed: _importing ? null : _parse,
+                      onPressed:
+                          _importing ? null : () => _parse(append: false),
                       icon: const Icon(Icons.auto_fix_high_outlined),
                       label: const Text('解析'),
                     ),
@@ -292,7 +317,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                   maxLines: 7,
                   decoration: const InputDecoration(
                     labelText: '导入信息',
-                    hintText: '粘贴“目前线路 & 用户密码…”等内容，然后点“解析”。',
+                    hintText: '粘贴“目前线路 & 用户密码…”等内容，点“解析”或“追加解析”。',
                     border: OutlineInputBorder(),
                   ),
                 ),
@@ -319,6 +344,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                           child: _GroupCard(
                             index: entry.key,
                             group: entry.value,
+                            appState: widget.appState,
                             onChanged: () => setState(() {}),
                           ),
                         ),
@@ -357,11 +383,13 @@ class _GroupCard extends StatefulWidget {
   const _GroupCard({
     required this.index,
     required this.group,
+    required this.appState,
     required this.onChanged,
   });
 
   final int index;
   final _ImportGroupDraft group;
+  final AppState appState;
   final VoidCallback onChanged;
 
   @override
@@ -369,6 +397,26 @@ class _GroupCard extends StatefulWidget {
 }
 
 class _GroupCardState extends State<_GroupCard> {
+  Future<void> _pickIconFromLibrary(_ImportGroupDraft g) async {
+    final pickedUrl = await showModalBottomSheet<String?>(
+      context: context,
+      isScrollControlled: true,
+      showDragHandle: true,
+      builder: (ctx) => ServerIconLibrarySheet(
+        appState: widget.appState,
+        selectedUrl: g.iconUrl,
+      ),
+    );
+    if (!mounted || pickedUrl == null) return;
+    setState(() => g.iconUrl = pickedUrl.trim().isEmpty ? null : pickedUrl.trim());
+    widget.onChanged();
+  }
+
+  void _clearIcon(_ImportGroupDraft g) {
+    setState(() => g.iconUrl = null);
+    widget.onChanged();
+  }
+
   @override
   Widget build(BuildContext context) {
     final g = widget.group;
@@ -439,6 +487,55 @@ class _GroupCardState extends State<_GroupCard> {
               ),
             ),
             const SizedBox(height: 10),
+            TextField(
+              controller: g.remarkCtrl,
+              decoration: const InputDecoration(
+                labelText: '备注（可选）',
+                hintText: '例如：移动网络 / 备用 / 挂梯…',
+              ),
+            ),
+            const SizedBox(height: 10),
+            Row(
+              children: [
+                ServerIconAvatar(
+                  iconUrl: g.iconUrl,
+                  name: g.displayName,
+                  radius: 16,
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      const Text('服务器图标（可选）'),
+                      const SizedBox(height: 2),
+                      Text(
+                        (g.iconUrl == null || g.iconUrl!.trim().isEmpty)
+                            ? '未设置'
+                            : '已设置',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
+                    ],
+                  ),
+                ),
+                IconButton(
+                  tooltip: '从图标库选择',
+                  onPressed: () => _pickIconFromLibrary(g),
+                  icon: const Icon(Icons.collections_outlined),
+                ),
+                IconButton(
+                  tooltip: '清除图标',
+                  onPressed: () => _clearIcon(g),
+                  icon: const Icon(Icons.close),
+                ),
+              ],
+            ),
+            const SizedBox(height: 10),
             ListTile(
               contentPadding: EdgeInsets.zero,
               title: const Text('登录线路'),
@@ -507,16 +604,20 @@ class _ImportGroupDraft {
   bool selected;
   final TextEditingController usernameCtrl;
   final TextEditingController passwordCtrl;
+  final TextEditingController remarkCtrl;
   final List<_ImportLineDraft> lines;
   String primaryUrl;
+  String? iconUrl;
   bool passwordVisible = false;
 
   _ImportGroupDraft({
     required this.selected,
     required this.usernameCtrl,
     required this.passwordCtrl,
+    required this.remarkCtrl,
     required this.lines,
     required this.primaryUrl,
+    this.iconUrl,
   });
 
   String get displayName {
