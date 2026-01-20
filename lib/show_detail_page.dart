@@ -1408,7 +1408,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                 minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
                 child: _floatingPlaybackSettingsDock(
                   context,
-                  playInfo!,
+                  playInfo,
                   enableBlur: enableBlur,
                 ),
               ),
