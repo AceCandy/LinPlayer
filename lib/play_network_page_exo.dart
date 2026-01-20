@@ -15,6 +15,7 @@ import 'services/emby_api.dart';
 import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';
 import 'state/preferences.dart';
+import 'state/server_profile.dart';
 import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
 import 'src/player/danmaku_stage.dart';
@@ -27,6 +28,7 @@ class ExoPlayNetworkPage extends StatefulWidget {
     required this.title,
     required this.itemId,
     required this.appState,
+    this.server,
     this.isTv = false,
     this.startPosition,
     this.resumeImmediately = false,
@@ -38,6 +40,7 @@ class ExoPlayNetworkPage extends StatefulWidget {
   final String title;
   final String itemId;
   final AppState appState;
+  final ServerProfile? server;
   final bool isTv;
   final Duration? startPosition;
   final bool resumeImmediately;
@@ -110,10 +113,14 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
   bool get _isPlaying => _controller?.value.isPlaying ?? false;
 
+  String? get _baseUrl => widget.server?.baseUrl ?? widget.appState.baseUrl;
+  String? get _token => widget.server?.token ?? widget.appState.token;
+  String? get _userId => widget.server?.userId ?? widget.appState.userId;
+
   @override
   void initState() {
     super.initState();
-    final baseUrl = widget.appState.baseUrl;
+    final baseUrl = _baseUrl;
     if (baseUrl != null && baseUrl.trim().isNotEmpty) {
       _embyApi = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     }
@@ -377,7 +384,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   }
 
   Map<String, String> _embyHeaders() => {
-        'X-Emby-Token': widget.appState.token!,
+        'X-Emby-Token': _token!,
         'X-Emby-Authorization':
             'MediaBrowser Client="LinPlayer", Device="Flutter", DeviceId="${widget.appState.deviceId}", Version="1.0.0"',
       };
@@ -703,6 +710,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
           title: widget.title,
           itemId: widget.itemId,
           appState: widget.appState,
+          server: widget.server,
           isTv: widget.isTv,
           startPosition: pos,
           resumeImmediately: true,
@@ -722,12 +730,11 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     var sources = _availableMediaSources;
     if (sources.isEmpty) {
       try {
-        final base = widget.appState.baseUrl!;
-        final token = widget.appState.token!;
-        final userId = widget.appState.userId!;
+        final base = _baseUrl!;
+        final token = _token!;
+        final userId = _userId!;
         final api = _embyApi ??
-            EmbyApi(
-                hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+            EmbyApi(hostOrUrl: base, preferredScheme: 'https');
         final info = await api.fetchPlaybackInfo(
           token: token,
           baseUrl: base,
@@ -926,9 +933,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   }
 
   Future<String> _buildStreamUrl() async {
-    final base = widget.appState.baseUrl!;
-    final token = widget.appState.token!;
-    final userId = widget.appState.userId!;
+    final base = _baseUrl!;
+    final token = _token!;
+    final userId = _userId!;
     _playSessionId = null;
     _mediaSourceId = null;
 
@@ -953,8 +960,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
     try {
       final api = _embyApi ??
-          EmbyApi(
-              hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+          EmbyApi(hostOrUrl: base, preferredScheme: 'https');
       final info = await api.fetchPlaybackInfo(
         token: token,
         baseUrl: base,
@@ -1105,9 +1111,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     if (_reportedStart || _reportedStop) return;
     final api = _embyApi;
     if (api == null) return;
-    final baseUrl = widget.appState.baseUrl;
-    final token = widget.appState.token;
-    final userId = widget.appState.userId;
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
     if (baseUrl == null || baseUrl.isEmpty || token == null || token.isEmpty) {
       return;
     }
@@ -1140,9 +1146,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     if (_progressReportInFlight) return;
     final api = _embyApi;
     if (api == null) return;
-    final baseUrl = widget.appState.baseUrl;
-    final token = widget.appState.token;
-    final userId = widget.appState.userId;
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
     if (baseUrl == null || baseUrl.isEmpty || token == null || token.isEmpty) {
       return;
     }
@@ -1204,9 +1210,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
 
     final api = _embyApi;
     if (api == null) return;
-    final baseUrl = widget.appState.baseUrl;
-    final token = widget.appState.token;
-    final userId = widget.appState.userId;
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
     if (baseUrl == null || baseUrl.isEmpty || token == null || token.isEmpty) {
       return;
     }

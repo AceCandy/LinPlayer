@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'state/server_profile.dart';
 import 'state/preferences.dart';
 import 'play_network_page.dart';
 import 'play_network_page_exo.dart';
@@ -17,12 +18,14 @@ class ShowDetailPage extends StatefulWidget {
     required this.itemId,
     required this.title,
     required this.appState,
+    this.server,
     this.isTv = false,
   });
 
   final String itemId;
   final String title;
   final AppState appState;
+  final ServerProfile? server;
   final bool isTv;
 
   @override
@@ -46,6 +49,10 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
   int? _selectedAudioStreamIndex; // null = default
   int? _selectedSubtitleStreamIndex; // null = default, -1 = off
 
+  String? get _baseUrl => widget.server?.baseUrl ?? widget.appState.baseUrl;
+  String? get _token => widget.server?.token ?? widget.appState.token;
+  String? get _userId => widget.server?.userId ?? widget.appState.userId;
+
   @override
   void initState() {
     super.initState();
@@ -57,22 +64,31 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       _loading = true;
       _error = null;
     });
-    final api =
-        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) {
+      setState(() {
+        _error = '未连接服务器';
+      });
+      return;
+    }
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     try {
       final detail = await api.fetchItemDetail(
-        token: widget.appState.token!,
-        baseUrl: widget.appState.baseUrl!,
-        userId: widget.appState.userId!,
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
         itemId: widget.itemId,
       );
       final isSeries = detail.type.toLowerCase() == 'series';
 
       final seasons = isSeries
           ? await api.fetchSeasons(
-              token: widget.appState.token!,
-              baseUrl: widget.appState.baseUrl!,
-              userId: widget.appState.userId!,
+              token: token,
+              baseUrl: baseUrl,
+              userId: userId,
               seriesId: widget.itemId,
             )
           : PagedResult<MediaItem>(const [], 0);
@@ -133,9 +149,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         if (selectedSeasonId.isNotEmpty) {
           try {
             final eps = await api.fetchEpisodes(
-              token: widget.appState.token!,
-              baseUrl: widget.appState.baseUrl!,
-              userId: widget.appState.userId!,
+              token: token,
+              baseUrl: baseUrl,
+              userId: userId,
               seasonId: selectedSeasonId,
             );
             final items = List<MediaItem>.from(eps.items);
@@ -152,9 +168,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       PagedResult<MediaItem> similar = PagedResult(const [], 0);
       try {
         similar = await api.fetchSimilar(
-          token: widget.appState.token!,
-          baseUrl: widget.appState.baseUrl!,
-          userId: widget.appState.userId!,
+          token: token,
+          baseUrl: baseUrl,
+          userId: userId,
           itemId: widget.itemId,
           limit: 12,
         );
@@ -168,9 +184,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       if (!isSeries) {
         try {
           playInfo = await api.fetchPlaybackInfo(
-            token: widget.appState.token!,
-            baseUrl: widget.appState.baseUrl!,
-            userId: widget.appState.userId!,
+            token: token,
+            baseUrl: baseUrl,
+            userId: userId,
             deviceId: widget.appState.deviceId,
             itemId: widget.itemId,
           );
@@ -194,8 +210,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         }
         try {
           chaps = await api.fetchChapters(
-            token: widget.appState.token!,
-            baseUrl: widget.appState.baseUrl!,
+            token: token,
+            baseUrl: baseUrl,
             itemId: widget.itemId,
           );
         } catch (_) {
@@ -204,16 +220,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       }
       _album = [
         EmbyApi.imageUrl(
-          baseUrl: widget.appState.baseUrl!,
+          baseUrl: baseUrl,
           itemId: widget.itemId,
-          token: widget.appState.token!,
+          token: token,
           imageType: 'Primary',
           maxWidth: 800,
         ),
         EmbyApi.imageUrl(
-          baseUrl: widget.appState.baseUrl!,
+          baseUrl: baseUrl,
           itemId: widget.itemId,
-          token: widget.appState.token!,
+          token: token,
           imageType: 'Backdrop',
           maxWidth: 1200,
         ),
@@ -274,12 +290,16 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
   Future<List<MediaItem>> _episodesForSeason(MediaItem season) async {
     final cached = _episodesCache[season.id];
     if (cached != null) return cached;
-    final api =
-        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) return const [];
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     final eps = await api.fetchEpisodes(
-      token: widget.appState.token!,
-      baseUrl: widget.appState.baseUrl!,
-      userId: widget.appState.userId!,
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
       seasonId: season.id,
     );
     final items = List<MediaItem>.from(eps.items);
@@ -436,6 +456,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         builder: (_) => EpisodeDetailPage(
           episode: selectedEp,
           appState: widget.appState,
+          server: widget.server,
           isTv: widget.isTv,
         ),
       ),
@@ -968,9 +989,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         ? Duration(microseconds: item.runTimeTicks! ~/ 10)
         : null;
     final hero = EmbyApi.imageUrl(
-      baseUrl: widget.appState.baseUrl!,
+      baseUrl: _baseUrl!,
       itemId: item.id,
-      token: widget.appState.token!,
+      token: _token!,
       imageType: 'Primary',
       maxWidth: 1200,
     );
@@ -1134,6 +1155,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                               builder: (_) => EpisodeDetailPage(
                                 episode: _featuredEpisode!,
                                 appState: widget.appState,
+                                server: widget.server,
                                 isTv: widget.isTv,
                               ),
                             ),
@@ -1164,6 +1186,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       title: item.name,
                                       itemId: item.id,
                                       appState: widget.appState,
+                                      server: widget.server,
                                       isTv: widget.isTv,
                                       startPosition: start,
                                       mediaSourceId: _selectedMediaSourceId,
@@ -1176,6 +1199,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       title: item.name,
                                       itemId: item.id,
                                       appState: widget.appState,
+                                      server: widget.server,
                                       isTv: widget.isTv,
                                       startPosition: start,
                                       mediaSourceId: _selectedMediaSourceId,
@@ -1249,7 +1273,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                       const SizedBox(height: 16),
                     ],
                     if (item.people.isNotEmpty) ...[
-                      _peopleSection(context, item.people, widget.appState),
+                      _peopleSection(
+                        context,
+                        item.people,
+                        baseUrl: _baseUrl!,
+                        token: _token!,
+                      ),
                       const SizedBox(height: 16),
                     ],
                     if (_album.isNotEmpty) ...[
@@ -1299,9 +1328,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             final s = _seasons[index];
                             final label = _seasonLabel(s, index);
                             final img = EmbyApi.imageUrl(
-                              baseUrl: widget.appState.baseUrl!,
+                              baseUrl: _baseUrl!,
                               itemId: s.hasImage ? s.id : item.id,
-                              token: widget.appState.token!,
+                              token: _token!,
                               maxWidth: widget.isTv ? 600 : 400,
                             );
                             return SizedBox(
@@ -1315,6 +1344,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       builder: (_) => SeasonEpisodesPage(
                                         season: s,
                                         appState: widget.appState,
+                                        server: widget.server,
                                         isTv: widget.isTv,
                                         isVirtual: _seasonsVirtual,
                                       ),
@@ -1343,9 +1373,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             final s = _similar[index];
                             final img = s.hasImage
                                 ? EmbyApi.imageUrl(
-                                    baseUrl: widget.appState.baseUrl!,
+                                    baseUrl: _baseUrl!,
                                     itemId: s.id,
-                                    token: widget.appState.token!,
+                                    token: _token!,
                                     maxWidth: 400,
                                   )
                                 : null;
@@ -1377,6 +1407,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                         itemId: s.id,
                                         title: s.name,
                                         appState: widget.appState,
+                                        server: widget.server,
                                         isTv: widget.isTv,
                                       ),
                                     ),
@@ -1424,12 +1455,14 @@ class SeasonEpisodesPage extends StatefulWidget {
     super.key,
     required this.season,
     required this.appState,
+    this.server,
     this.isTv = false,
     this.isVirtual = false,
   });
 
   final MediaItem season;
   final AppState appState;
+  final ServerProfile? server;
   final bool isTv;
   final bool isVirtual;
 
@@ -1443,6 +1476,10 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
   String? _error;
   MediaItem? _detailSeason;
 
+  String? get _baseUrl => widget.server?.baseUrl ?? widget.appState.baseUrl;
+  String? get _token => widget.server?.token ?? widget.appState.token;
+  String? get _userId => widget.server?.userId ?? widget.appState.userId;
+
   @override
   void initState() {
     super.initState();
@@ -1454,13 +1491,20 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
       _loading = true;
       _error = null;
     });
-    final api =
-        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) {
+      setState(() => _error = '未连接服务器');
+      return;
+    }
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     try {
       final eps = await api.fetchEpisodes(
-        token: widget.appState.token!,
-        baseUrl: widget.appState.baseUrl!,
-        userId: widget.appState.userId!,
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
         seasonId: widget.season.id,
       );
       final items = List<MediaItem>.from(eps.items);
@@ -1473,9 +1517,9 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
       if (!widget.isVirtual) {
         try {
           detail = await api.fetchItemDetail(
-            token: widget.appState.token!,
-            baseUrl: widget.appState.baseUrl!,
-            userId: widget.appState.userId!,
+            token: token,
+            baseUrl: baseUrl,
+            userId: userId,
             itemId: widget.season.id,
           );
         } catch (_) {}
@@ -1522,9 +1566,9 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                 microseconds: (e.runTimeTicks! / 10).round())
                             : null;
                         final img = EmbyApi.imageUrl(
-                          baseUrl: widget.appState.baseUrl!,
+                          baseUrl: _baseUrl!,
                           itemId: e.hasImage ? e.id : widget.season.id,
-                          token: widget.appState.token!,
+                          token: _token!,
                           maxWidth: widget.isTv ? 900 : 700,
                         );
                         return Card(
@@ -1536,6 +1580,7 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                   builder: (_) => EpisodeDetailPage(
                                     episode: e,
                                     appState: widget.appState,
+                                    server: widget.server,
                                     isTv: widget.isTv,
                                   ),
                                 ),
@@ -1635,11 +1680,13 @@ class EpisodeDetailPage extends StatefulWidget {
     super.key,
     required this.episode,
     required this.appState,
+    this.server,
     this.isTv = false,
   });
 
   final MediaItem episode;
   final AppState appState;
+  final ServerProfile? server;
   final bool isTv;
 
   @override
@@ -1654,6 +1701,10 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   MediaItem? _detail;
   List<ChapterInfo> _chapters = [];
 
+  String? get _baseUrl => widget.server?.baseUrl ?? widget.appState.baseUrl;
+  String? get _token => widget.server?.token ?? widget.appState.token;
+  String? get _userId => widget.server?.userId ?? widget.appState.userId;
+
   @override
   void initState() {
     super.initState();
@@ -1665,19 +1716,26 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       _loading = true;
       _error = null;
     });
-    final api =
-        EmbyApi(hostOrUrl: widget.appState.baseUrl!, preferredScheme: 'https');
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) {
+      setState(() => _error = '未连接服务器');
+      return;
+    }
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
     try {
       final detail = await api.fetchItemDetail(
-        token: widget.appState.token!,
-        baseUrl: widget.appState.baseUrl!,
-        userId: widget.appState.userId!,
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
         itemId: widget.episode.id,
       );
       final info = await api.fetchPlaybackInfo(
-        token: widget.appState.token!,
-        baseUrl: widget.appState.baseUrl!,
-        userId: widget.appState.userId!,
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
         deviceId: widget.appState.deviceId,
         itemId: widget.episode.id,
       );
@@ -1691,8 +1749,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       List<ChapterInfo> chaps = const [];
       try {
         chaps = await api.fetchChapters(
-          token: widget.appState.token!,
-          baseUrl: widget.appState.baseUrl!,
+          token: token,
+          baseUrl: baseUrl,
           itemId: widget.episode.id,
         );
       } catch (_) {
@@ -1758,6 +1816,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                       title: ep.name,
                                       itemId: ep.id,
                                       appState: widget.appState,
+                                      server: widget.server,
                                       isTv: widget.isTv,
                                       startPosition: start,
                                       mediaSourceId: _preferredMediaSourceId,
@@ -1766,6 +1825,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                       title: ep.name,
                                       itemId: ep.id,
                                       appState: widget.appState,
+                                      server: widget.server,
                                       isTv: widget.isTv,
                                       startPosition: start,
                                       mediaSourceId: _preferredMediaSourceId,
@@ -1777,7 +1837,11 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                       const SizedBox(height: 16),
                       if (_detail?.people.isNotEmpty == true)
                         _peopleSection(
-                            context, _detail!.people, widget.appState),
+                          context,
+                          _detail!.people,
+                          baseUrl: _baseUrl!,
+                          token: _token!,
+                        ),
                       if (_playInfo != null) ...[
                         const SizedBox(height: 16),
                         _mediaInfo(context, _playInfo!),
@@ -2115,7 +2179,11 @@ Widget _playButton(BuildContext context,
 }
 
 Widget _peopleSection(
-    BuildContext context, List<MediaPerson> people, AppState appState) {
+  BuildContext context,
+  List<MediaPerson> people, {
+  required String baseUrl,
+  required String token,
+}) {
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -2130,9 +2198,9 @@ Widget _peopleSection(
           itemBuilder: (context, index) {
             final p = people[index];
             final img = EmbyApi.personImageUrl(
-              baseUrl: appState.baseUrl ?? '',
+              baseUrl: baseUrl,
               personId: p.id,
-              token: appState.token ?? '',
+              token: token,
               maxWidth: 200,
             );
             return Column(

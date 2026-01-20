@@ -4,6 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 
+import 'aggregate_service_page.dart';
 import 'library_page.dart';
 import 'library_items_page.dart';
 import 'player_screen.dart';
@@ -30,7 +31,7 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _index = 0; // 0 home, 1 local, 2 settings
+  int _index = 0; // 0 home, 1 aggregate, 2 local, 3 settings
   bool _loading = true;
 
   @override
@@ -458,6 +459,7 @@ class _HomePageState extends State<HomePage> {
             isTv: isTv,
             showSearchBar: true,
           ),
+          AggregateServicePage(appState: widget.appState),
           useExoCore
               ? ExoPlayerScreen(appState: widget.appState)
               : PlayerScreen(appState: widget.appState),
@@ -544,6 +546,10 @@ class _HomePageState extends State<HomePage> {
                         label: Text('首页'),
                       ),
                       NavigationRailDestination(
+                        icon: Icon(Icons.hub_outlined),
+                        label: Text('聚合'),
+                      ),
+                      NavigationRailDestination(
                         icon: Icon(Icons.folder_open),
                         label: Text('本地'),
                       ),
@@ -575,6 +581,8 @@ class _HomePageState extends State<HomePage> {
                   destinations: const [
                     NavigationDestination(
                         icon: Icon(Icons.home_outlined), label: '首页'),
+                    NavigationDestination(
+                        icon: Icon(Icons.hub_outlined), label: '聚合'),
                     NavigationDestination(
                         icon: Icon(Icons.folder_open), label: '本地'),
                     NavigationDestination(
@@ -871,9 +879,11 @@ class _FloatingBottomNav extends StatelessWidget {
           children: [
             buildButton(index: 0, icon: Icons.home_outlined, tooltip: '首页'),
             const SizedBox(width: 14),
-            buildButton(index: 1, icon: Icons.folder_open, tooltip: '本地'),
+            buildButton(index: 1, icon: Icons.hub_outlined, tooltip: '聚合'),
             const SizedBox(width: 14),
-            buildButton(index: 2, icon: Icons.settings_outlined, tooltip: '设置'),
+            buildButton(index: 2, icon: Icons.folder_open, tooltip: '本地'),
+            const SizedBox(width: 14),
+            buildButton(index: 3, icon: Icons.settings_outlined, tooltip: '设置'),
           ],
         ),
       ),
