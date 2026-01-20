@@ -1,19 +1,51 @@
-# LinPlayer
+<div align="center">
+  <img src="assets/app_icon.jpg" width="120" alt="LinPlayer" />
+  <h1>LinPlayer</h1>
+  <p>跨平台（Windows / macOS / Linux / Android / Android TV）本地 + Emby 媒体播放器</p>
+  <p>
+    <a href="#download">下载</a> ·
+    <a href="#features">特性</a> ·
+    <a href="#quickstart">快速上手</a> ·
+    <a href="#build">构建与运行</a> ·
+    <a href="docs/ARCHITECTURE.md">源码导览</a>
+  </p>
+</div>
 
-跨平台（Windows / macOS / Linux / Android / Android TV）本地与 Emby 媒体播放器。支持继续观看、最新电影/剧集推荐、媒体库分层浏览、在线播放与本地播放。
+A cross-platform local & Emby media player built with Flutter.
 
-## 特性
-- 登录 Emby：支持 http/https 与自定义端口；未部署扩展线路服务也能正常使用（线路列表为空但播放/浏览可用）。
-- 首页（类似 Emby）：继续观看 / 最新电影 / 最新剧集 横向卡片流，点击即播或进入详情。
-- 媒体库浏览：库 → Series/Season → Episode，电影直接播放；搜索框+无限下拉懒加载，防内存暴涨。
-- 封面与简介：库/剧集/季/集均展示海报和概要。播放链接自动携带 MediaSourceId，避免 404。
-- 响应式缩放：在竖屏平板/手机上自动放大 UI（文本/图标/间距），避免 UI 过小；大屏横屏基本保持原比例。
-- 双主题：Material 3，跟随系统明/暗色；桌面/手机卡片带轻量毛玻璃；Android TV 自动关闭毛玻璃，使用简洁卡片防卡顿。
-- 本地播放器：原生文件选择与播放功能保留。
-- 弹幕：支持本地 XML 与在线弹幕（弹弹play 开放平台 API 兼容服务），可在设置中调整样式。
-- 构建：Android 同时支持 32 位和 64 位；Windows 打包附带运行时与 DLL。
+---
 
-## 快速上手
+## <a id="download"></a>下载
+
+从 GitHub Releases 下载：
+- **latest**：稳定版
+- **nightly**：每日构建（产物会覆盖同名资产）
+
+链接：[Releases](../../releases)
+
+| 平台 | 产物文件（Release Assets） | 备注 |
+| --- | --- | --- |
+| Android / Android TV | `LinPlayer-Android.apk`（通用）<br/>`LinPlayer-Android-arm64-v8a.apk`<br/>`LinPlayer-Android-armeabi-v7a.apk` | TV 可直接安装通用版或对应 ABI 版本 |
+| Windows (x64) | `LinPlayer-Windows-Setup-x64.exe` | Inno Setup 安装包 |
+| macOS | `LinPlayer-macOS-arm64.dmg`<br/>`LinPlayer-macOS-x86_64.dmg` | Apple Silicon / Intel |
+| iOS | `LinPlayer-iOS-unsigned.ipa` | 未签名 IPA，需要自行签名/侧载 |
+| Linux | （暂无 CI 产物） | 可自行 `flutter build linux` |
+
+> 说明：本项目为非官方客户端，与 Emby / 弹弹play 无官方隶属关系。
+
+## <a id="features"></a>特性
+
+- Emby 登录：支持 http/https 与自定义端口；未部署扩展线路服务也能使用（线路列表为空但播放/浏览可用）。
+- 首页推荐（类似 Emby）：继续观看 / 最新电影 / 最新剧集 横向卡片流，点击即播或进详情。
+- 媒体库分层：库 → Series/Season → Episode；电影可直接播放；搜索支持无限下拉懒加载。
+- 播放链接更稳：自动携带 `MediaSourceId`，减少 404。
+- 响应式缩放：竖屏平板/手机自动放大 UI（文本/图标/间距），避免 UI 过小。
+- Material 3 双主题：跟随系统明/暗色；桌面/手机轻量毛玻璃；Android TV 默认关闭毛玻璃，减少卡顿。
+- 本地播放：保留原生文件选择与播放。
+- 弹幕：支持本地 XML 与在线弹幕（兼容弹弹play API v2），支持样式调节。
+- 构建产物：Android 同时支持 32 位与 64 位；Windows 打包附带运行时与 DLL。
+
+## <a id="quickstart"></a>快速上手
 1. 启动应用，进入「连接服务器」页：
    - 选择协议：http / https（默认 https）。
    - 填写服务器地址（域名或 IP）。
@@ -55,6 +87,8 @@
 - 目前在线弹幕按「弹弹play API v2」实现；其它弹幕服务器仅当实现了同样的接口（如 `/api/v2/match`、`/api/v2/comment/{episodeId}`）才能直接作为弹幕源使用。
 
 ## 构建与运行
+<a id="build"></a>
+
 ```bash
 # 依赖
 flutter pub get
