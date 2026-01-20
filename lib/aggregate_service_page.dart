@@ -1175,7 +1175,7 @@ class _AggregateWorkDetailPageState extends State<_AggregateWorkDetailPage> {
 
                         final latest =
                             await widget.resolveLatestEpisode(server, item.id);
-                        if (!mounted) return;
+                        if (!context.mounted) return;
                         if (latest == null) {
                           Navigator.of(context).push(
                             MaterialPageRoute(
