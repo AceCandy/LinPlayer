@@ -446,6 +446,10 @@ class _HomePageState extends State<HomePage> {
             defaultTargetPlatform == TargetPlatform.android &&
             widget.appState.playerCore == PlayerCore.exo;
         final template = widget.appState.uiTemplate;
+        final usesGlassSurfaces = template == UiTemplate.candyGlass ||
+            template == UiTemplate.stickerJournal ||
+            template == UiTemplate.neonHud ||
+            template == UiTemplate.washiWatercolor;
         final useRail = isDesktop &&
             (template == UiTemplate.proTool || template == UiTemplate.neonHud);
         final pages = [
@@ -466,25 +470,38 @@ class _HomePageState extends State<HomePage> {
             ? GlassAppBar(
                 enableBlur: enableBlur,
                 child: AppBar(
-                   title:
-                       Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
-                   actions: [
-                     IconButton(
-                       icon: const Icon(Icons.search),
-                       tooltip: '搜索',
-                       onPressed: () {
-                         Navigator.of(context).push(
-                           MaterialPageRoute(
-                             builder: (_) => SearchPage(appState: widget.appState),
-                           ),
-                         );
-                       },
-                     ),
-                     IconButton(
-                       icon: const Icon(Icons.video_library_outlined),
-                       tooltip: '媒体库',
-                       onPressed: () {
-                         Navigator.of(context).push(
+                  centerTitle: false,
+                  title: _ServerGlassButton(
+                    enableBlur: enableBlur,
+                    useGlass: usesGlassSurfaces,
+                    serverName:
+                        widget.appState.activeServer?.name ?? 'LinPlayer',
+                    iconUrl: widget.appState.activeServer?.iconUrl,
+                    onTap:
+                        widget.appState.hasActiveServer ? _switchServer : null,
+                  ),
+                  actions: [
+                    _GlassActionIconButton(
+                      icon: Icons.search,
+                      tooltip: '搜索',
+                      enableBlur: enableBlur,
+                      useGlass: usesGlassSurfaces,
+                      onPressed: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                SearchPage(appState: widget.appState),
+                          ),
+                        );
+                      },
+                    ),
+                    _GlassActionIconButton(
+                      icon: Icons.video_library_outlined,
+                      tooltip: '媒体库',
+                      enableBlur: enableBlur,
+                      useGlass: usesGlassSurfaces,
+                      onPressed: () {
+                        Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) =>
                                 LibraryPage(appState: widget.appState),
@@ -492,21 +509,21 @@ class _HomePageState extends State<HomePage> {
                         );
                       },
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.alt_route_outlined),
+                    _GlassActionIconButton(
+                      icon: Icons.alt_route_outlined,
                       tooltip: '线路',
+                      enableBlur: enableBlur,
+                      useGlass: usesGlassSurfaces,
                       onPressed: _showRoutePicker,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.palette_outlined),
+                    _GlassActionIconButton(
+                      icon: Icons.palette_outlined,
                       tooltip: '主题',
+                      enableBlur: enableBlur,
+                      useGlass: usesGlassSurfaces,
                       onPressed: _showThemeSheet,
                     ),
-                    IconButton(
-                      icon: const Icon(Icons.storage_outlined),
-                      tooltip: '服务器',
-                      onPressed: _switchServer,
-                    ),
+                    const SizedBox(width: 4),
                   ],
                 ),
               )
@@ -576,6 +593,203 @@ class _HomePageState extends State<HomePage> {
   }
 }
 
+class _GlassActionIconButton extends StatelessWidget {
+  const _GlassActionIconButton({
+    required this.icon,
+    required this.tooltip,
+    required this.enableBlur,
+    required this.useGlass,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String tooltip;
+  final bool enableBlur;
+  final bool useGlass;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final enabled = onPressed != null;
+
+    final bg =
+        scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.72 : 0.92);
+    final fg =
+        enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.38);
+    final shadowColor = scheme.shadow.withValues(alpha: isDark ? 0.30 : 0.16);
+
+    Widget child = Material(
+      color: bg,
+      shape: const CircleBorder(),
+      elevation: enabled ? 8 : 0,
+      shadowColor: shadowColor,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: const CircleBorder(),
+        onTap: onPressed,
+        child: Center(child: Icon(icon, color: fg, size: 20)),
+      ),
+    );
+
+    if (useGlass && enableBlur) {
+      child = ClipOval(
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: child,
+        ),
+      );
+    }
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: tooltip,
+      child: Tooltip(
+        message: tooltip,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 4),
+          child: SizedBox(width: 40, height: 40, child: child),
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerGlassButton extends StatelessWidget {
+  const _ServerGlassButton({
+    required this.serverName,
+    required this.iconUrl,
+    required this.onTap,
+    required this.enableBlur,
+    required this.useGlass,
+  });
+
+  final String serverName;
+  final String? iconUrl;
+  final VoidCallback? onTap;
+  final bool enableBlur;
+  final bool useGlass;
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final enabled = onTap != null;
+
+    final bg =
+        scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.74 : 0.94);
+    final fg =
+        enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.38);
+    final shadowColor = scheme.shadow.withValues(alpha: isDark ? 0.30 : 0.16);
+    final radius = BorderRadius.circular(999);
+
+    Widget child = Material(
+      color: bg,
+      shape: const StadiumBorder(),
+      elevation: enabled ? 10 : 0,
+      shadowColor: shadowColor,
+      clipBehavior: Clip.antiAlias,
+      child: InkWell(
+        customBorder: const StadiumBorder(),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              _ServerIconAvatar(iconUrl: iconUrl, name: serverName, radius: 12),
+              const SizedBox(width: 8),
+              Flexible(
+                child: Text(
+                  serverName,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    fontWeight: FontWeight.w700,
+                    color: fg,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 4),
+              Icon(Icons.swap_horiz, size: 18, color: fg),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (useGlass && enableBlur) {
+      child = ClipRRect(
+        borderRadius: radius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: child,
+        ),
+      );
+    }
+
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: '服务器',
+      child: Tooltip(
+        message: '服务器',
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 220),
+          child: child,
+        ),
+      ),
+    );
+  }
+}
+
+class _ServerIconAvatar extends StatelessWidget {
+  const _ServerIconAvatar({
+    required this.iconUrl,
+    required this.name,
+    required this.radius,
+  });
+
+  final String? iconUrl;
+  final String name;
+  final double radius;
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final initial = name.trim().isNotEmpty ? name.trim()[0].toUpperCase() : '?';
+    final url = (iconUrl ?? '').trim();
+    final backgroundColor = scheme.primary.withValues(alpha: 0.14);
+
+    Widget fallback() => CircleAvatar(
+          radius: radius,
+          backgroundColor: backgroundColor,
+          child: Text(
+            initial,
+            style: const TextStyle(fontWeight: FontWeight.w700),
+          ),
+        );
+
+    if (url.isEmpty) return fallback();
+
+    return CachedNetworkImage(
+      imageUrl: url,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': EmbyApi.userAgent},
+      imageBuilder: (_, provider) => CircleAvatar(
+        radius: radius,
+        backgroundColor: backgroundColor,
+        backgroundImage: provider,
+      ),
+      placeholder: (_, __) => fallback(),
+      errorWidget: (_, __, ___) => fallback(),
+    );
+  }
+}
+
 class _FloatingBottomNav extends StatelessWidget {
   const _FloatingBottomNav({
     required this.selectedIndex,
@@ -611,8 +825,7 @@ class _FloatingBottomNav extends StatelessWidget {
           : scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.78 : 0.92);
       final fg = selected ? scheme.onPrimary : scheme.onSurfaceVariant;
       final elevation = selected ? 10.0 : 5.0;
-      final shadowColor =
-          scheme.shadow.withValues(alpha: isDark ? 0.32 : 0.18);
+      final shadowColor = scheme.shadow.withValues(alpha: isDark ? 0.32 : 0.18);
 
       Widget child = Material(
         color: bg,
@@ -660,8 +873,7 @@ class _FloatingBottomNav extends StatelessWidget {
             const SizedBox(width: 14),
             buildButton(index: 1, icon: Icons.folder_open, tooltip: '本地'),
             const SizedBox(width: 14),
-            buildButton(
-                index: 2, icon: Icons.settings_outlined, tooltip: '设置'),
+            buildButton(index: 2, icon: Icons.settings_outlined, tooltip: '设置'),
           ],
         ),
       ),
@@ -1133,7 +1345,8 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
 }
 
 class _LibraryQuickAccessSection extends StatefulWidget {
-  const _LibraryQuickAccessSection({required this.appState, required this.isTv});
+  const _LibraryQuickAccessSection(
+      {required this.appState, required this.isTv});
 
   final AppState appState;
   final bool isTv;
@@ -1143,7 +1356,8 @@ class _LibraryQuickAccessSection extends StatefulWidget {
       _LibraryQuickAccessSectionState();
 }
 
-class _LibraryQuickAccessSectionState extends State<_LibraryQuickAccessSection> {
+class _LibraryQuickAccessSectionState
+    extends State<_LibraryQuickAccessSection> {
   final ScrollController _controller = ScrollController();
 
   bool get _showDesktopArrows {
