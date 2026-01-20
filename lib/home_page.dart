@@ -466,14 +466,25 @@ class _HomePageState extends State<HomePage> {
             ? GlassAppBar(
                 enableBlur: enableBlur,
                 child: AppBar(
-                  title:
-                      Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
-                  actions: [
-                    IconButton(
-                      icon: const Icon(Icons.video_library_outlined),
-                      tooltip: '媒体库',
-                      onPressed: () {
-                        Navigator.of(context).push(
+                   title:
+                       Text(widget.appState.activeServer?.name ?? 'LinPlayer'),
+                   actions: [
+                     IconButton(
+                       icon: const Icon(Icons.search),
+                       tooltip: '搜索',
+                       onPressed: () {
+                         Navigator.of(context).push(
+                           MaterialPageRoute(
+                             builder: (_) => SearchPage(appState: widget.appState),
+                           ),
+                         );
+                       },
+                     ),
+                     IconButton(
+                       icon: const Icon(Icons.video_library_outlined),
+                       tooltip: '媒体库',
+                       onPressed: () {
+                         Navigator.of(context).push(
                           MaterialPageRoute(
                             builder: (_) =>
                                 LibraryPage(appState: widget.appState),

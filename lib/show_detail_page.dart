@@ -8,6 +8,7 @@ import 'play_network_page.dart';
 import 'play_network_page_exo.dart';
 import 'src/ui/app_components.dart';
 import 'src/ui/app_style.dart';
+import 'src/ui/frosted_card.dart';
 import 'src/ui/glass_blur.dart';
 
 class ShowDetailPage extends StatefulWidget {
@@ -611,6 +612,123 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     return parts.isEmpty ? '直连播放' : parts.join(' / ');
   }
 
+  Widget _floatingPlaybackSettingsDock(
+    BuildContext context,
+    PlaybackInfoResult info, {
+    required bool enableBlur,
+  }) {
+    final ms = _findMediaSource(info, _selectedMediaSourceId);
+    if (ms == null) return const SizedBox.shrink();
+
+    final audioStreams = _streamsOfType(ms, 'Audio');
+    final subtitleStreams = _streamsOfType(ms, 'Subtitle');
+
+    final defaultAudio = _defaultStream(audioStreams);
+    final selectedAudio = _selectedAudioStreamIndex != null
+        ? audioStreams.firstWhere(
+            (s) => _asInt(s['Index']) == _selectedAudioStreamIndex,
+            orElse: () => defaultAudio ?? const <String, dynamic>{},
+          )
+        : defaultAudio;
+
+    final audioText = selectedAudio != null && selectedAudio.isNotEmpty
+        ? _streamLabel(selectedAudio, includeCodec: false) +
+            (selectedAudio == defaultAudio ? ' (默认)' : '')
+        : '默认';
+
+    final defaultSub = _defaultStream(subtitleStreams);
+    final Map<String, dynamic>? selectedSub;
+    if (_selectedSubtitleStreamIndex == -1) {
+      selectedSub = null;
+    } else if (_selectedSubtitleStreamIndex != null) {
+      selectedSub = subtitleStreams.firstWhere(
+        (s) => _asInt(s['Index']) == _selectedSubtitleStreamIndex,
+        orElse: () => defaultSub ?? const <String, dynamic>{},
+      );
+    } else {
+      selectedSub = defaultSub;
+    }
+
+    final hasSubs = subtitleStreams.isNotEmpty;
+    final subtitleText = _selectedSubtitleStreamIndex == -1
+        ? '关闭'
+        : selectedSub != null && selectedSub.isNotEmpty
+            ? _streamLabel(selectedSub, includeCodec: false)
+            : hasSubs
+                ? '默认'
+                : '关闭';
+
+    final scheme = Theme.of(context).colorScheme;
+    final disabledColor = scheme.onSurface.withValues(alpha: 0.38);
+
+    const radius = 24.0;
+    final dividerColor = scheme.outlineVariant.withValues(alpha: 0.35);
+
+    Widget divider() => Container(width: 1, height: 26, color: dividerColor);
+
+    Widget segment({
+      required IconData icon,
+      required String tooltip,
+      required VoidCallback? onTap,
+      required BorderRadius borderRadius,
+    }) {
+      final enabled = onTap != null;
+      return Tooltip(
+        message: tooltip,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: borderRadius,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            child: Icon(
+              icon,
+              size: 20,
+              color: enabled ? scheme.onSurface : disabledColor,
+            ),
+          ),
+        ),
+      );
+    }
+
+    return FrostedCard(
+      enableBlur: enableBlur,
+      borderRadius: radius,
+      padding: EdgeInsets.zero,
+      child: Material(
+        type: MaterialType.transparency,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            segment(
+              icon: Icons.video_file_outlined,
+              tooltip:
+                  '版本：${_mediaSourceTitle(ms)}\n${_mediaSourceSubtitle(ms)}',
+              onTap: () => _pickMediaSource(context, info),
+              borderRadius:
+                  const BorderRadius.horizontal(left: Radius.circular(radius)),
+            ),
+            divider(),
+            segment(
+              icon: Icons.audiotrack,
+              tooltip: '音轨：$audioText',
+              onTap:
+                  audioStreams.isEmpty ? null : () => _pickAudioStream(context, ms),
+              borderRadius: BorderRadius.zero,
+            ),
+            divider(),
+            segment(
+              icon: Icons.subtitles,
+              tooltip: '字幕：$subtitleText',
+              onTap: hasSubs ? () => _pickSubtitleStream(context, ms) : null,
+              borderRadius:
+                  const BorderRadius.horizontal(right: Radius.circular(radius)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _moviePlaybackOptionsCard(
       BuildContext context, PlaybackInfoResult info) {
     final ms = _findMediaSource(info, _selectedMediaSourceId);
@@ -841,6 +959,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     }
     final item = _detail!;
     final isSeries = item.type.toLowerCase() == 'series';
+    final playInfo = _playInfo;
+    final showFloatingSettings = !widget.isTv &&
+        !isSeries &&
+        playInfo != null &&
+        _findMediaSource(playInfo, _selectedMediaSourceId) != null;
     final runtime = item.runTimeTicks != null
         ? Duration(microseconds: item.runTimeTicks! ~/ 10)
         : null;
@@ -936,10 +1059,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     }
 
     return Scaffold(
-      body: RefreshIndicator(
-        onRefresh: _load,
-        child: CustomScrollView(
-          slivers: [
+      body: Stack(
+        children: [
+          RefreshIndicator(
+            onRefresh: _load,
+            child: CustomScrollView(
+              slivers: [
             SliverAppBar(
               pinned: true,
               expandedHeight: 320,
@@ -1016,9 +1141,10 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                         },
                       ),
                     if (!isSeries) ...[
-                      if (_playInfo != null)
-                        _moviePlaybackOptionsCard(context, _playInfo!),
-                      if (_playInfo != null) const SizedBox(height: 12),
+                      if (playInfo != null && !showFloatingSettings)
+                        _moviePlaybackOptionsCard(context, playInfo),
+                      if (playInfo != null && !showFloatingSettings)
+                        const SizedBox(height: 12),
                       _playButton(
                         context,
                         label: item.playbackPositionTicks > 0
@@ -1264,12 +1390,30 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                     ],
                     const SizedBox(height: 16),
                     _externalLinksSection(context, item, widget.appState),
+                    if (showFloatingSettings) const SizedBox(height: 88),
                   ],
                 ),
               ),
             ),
-          ],
-        ),
+              ],
+            ),
+          ),
+          if (showFloatingSettings)
+            Align(
+              alignment: Alignment.bottomCenter,
+              child: SafeArea(
+                top: false,
+                left: false,
+                right: false,
+                minimum: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+                child: _floatingPlaybackSettingsDock(
+                  context,
+                  playInfo!,
+                  enableBlur: enableBlur,
+                ),
+              ),
+            ),
+        ],
       ),
     );
   }
