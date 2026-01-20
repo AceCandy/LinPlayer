@@ -472,10 +472,14 @@ class EmbyApi {
     bool excludeFolders = true,
     String? sortBy,
     String sortOrder = 'Descending',
+    String? fields,
   }) async {
+    final resolvedFields = (fields == null || fields.trim().isEmpty)
+        ? 'Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate'
+        : fields.trim();
     final params = <String>[
       if (parentId != null && parentId.isNotEmpty) 'ParentId=$parentId',
-      'Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate',
+      'Fields=$resolvedFields',
       'StartIndex=$startIndex',
       'Limit=$limit',
       'Recursive=$recursive',

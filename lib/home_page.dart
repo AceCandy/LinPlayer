@@ -990,11 +990,398 @@ class _HomeBody extends StatelessWidget {
                     padding: EdgeInsets.all(24),
                     child: Center(child: Text('暂无可展示内容')),
                   ),
+                const SizedBox(height: 8),
+                _MediaStatsSection(appState: appState, isTv: isTv),
               ],
             ),
           ),
         ),
       ],
+    );
+  }
+}
+
+@immutable
+class _MediaStats {
+  final int movieCount;
+  final int seriesCount;
+  final int tvEpisodeCount;
+
+  const _MediaStats({
+    required this.movieCount,
+    required this.seriesCount,
+    required this.tvEpisodeCount,
+  });
+
+  int get totalEpisodes => movieCount + tvEpisodeCount;
+}
+
+class _MediaStatsSection extends StatefulWidget {
+  const _MediaStatsSection({required this.appState, required this.isTv});
+
+  final AppState appState;
+  final bool isTv;
+
+  @override
+  State<_MediaStatsSection> createState() => _MediaStatsSectionState();
+}
+
+class _MediaStatsSectionState extends State<_MediaStatsSection> {
+  Future<_MediaStats>? _future;
+
+  @override
+  void initState() {
+    super.initState();
+    _future = _fetch();
+  }
+
+  Future<_MediaStats> _fetch() async {
+    final baseUrl = widget.appState.baseUrl;
+    final token = widget.appState.token;
+    final userId = widget.appState.userId;
+    if (baseUrl == null || token == null || userId == null) {
+      return const _MediaStats(movieCount: 0, seriesCount: 0, tvEpisodeCount: 0);
+    }
+
+    final api = EmbyApi(hostOrUrl: baseUrl, preferredScheme: 'https');
+
+    const fields =
+        'ProviderIds,SeriesId,SeriesName,SeasonName,ParentIndexNumber,IndexNumber,PremiereDate';
+    const pageSize = 500;
+
+    Future<void> scan({
+      required String includeItemTypes,
+      required void Function(MediaItem item) onItem,
+    }) async {
+      var startIndex = 0;
+      while (true) {
+        final res = await api.fetchItems(
+          token: token,
+          baseUrl: baseUrl,
+          userId: userId,
+          includeItemTypes: includeItemTypes,
+          recursive: true,
+          excludeFolders: false,
+          startIndex: startIndex,
+          limit: pageSize,
+          fields: fields,
+        );
+
+        for (final item in res.items) {
+          onItem(item);
+        }
+
+        startIndex += res.items.length;
+        if (startIndex >= res.total || res.items.isEmpty) break;
+      }
+    }
+
+    final movieKeys = <String>{};
+    final seriesKeys = <String>{};
+    final episodeKeys = <String>{};
+
+    await scan(
+      includeItemTypes: 'Movie,Series',
+      onItem: (item) {
+        final type = item.type.toLowerCase().trim();
+        if (type == 'movie') {
+          movieKeys.add(_movieKey(item));
+        } else if (type == 'series') {
+          seriesKeys.add(_seriesKey(item));
+        }
+      },
+    );
+
+    await scan(
+      includeItemTypes: 'Episode',
+      onItem: (item) => episodeKeys.add(_episodeKey(item)),
+    );
+
+    return _MediaStats(
+      movieCount: movieKeys.length,
+      seriesCount: seriesKeys.length,
+      tvEpisodeCount: episodeKeys.length,
+    );
+  }
+
+  void _reload() {
+    setState(() => _future = _fetch());
+  }
+
+  static String _normalize(String raw) {
+    final v = raw.trim().toLowerCase();
+    if (v.isEmpty) return '';
+    return v.replaceAll(RegExp(r'\\s+'), ' ');
+  }
+
+  static String _yearOf(String? premiereDate) {
+    final d = (premiereDate ?? '').trim();
+    if (d.isEmpty) return '';
+    final parsed = DateTime.tryParse(d);
+    if (parsed != null) return parsed.year.toString();
+    return d.length >= 4 ? d.substring(0, 4) : '';
+  }
+
+  static String? _providerId(MediaItem item, String key) {
+    final direct = item.providerIds[key];
+    if (direct != null && direct.trim().isNotEmpty) return direct.trim();
+
+    final lowered = key.toLowerCase();
+    for (final entry in item.providerIds.entries) {
+      if (entry.key.toLowerCase() == lowered && entry.value.trim().isNotEmpty) {
+        return entry.value.trim();
+      }
+    }
+
+    return null;
+  }
+
+  static String _providerKey(MediaItem item, List<String> preferredKeys) {
+    for (final key in preferredKeys) {
+      final id = _providerId(item, key);
+      if (id != null) return '${key.toLowerCase()}:$id';
+    }
+
+    for (final entry in item.providerIds.entries) {
+      final id = entry.value.trim();
+      if (id.isEmpty) continue;
+      return '${entry.key.toLowerCase()}:$id';
+    }
+
+    return '';
+  }
+
+  static String _movieKey(MediaItem item) {
+    final pid = _providerKey(item, const ['Tmdb', 'Imdb']);
+    if (pid.isNotEmpty) return 'movie:$pid';
+    final name = _normalize(item.name);
+    final year = _yearOf(item.premiereDate);
+    return year.isEmpty ? 'movie:name:$name' : 'movie:name:$name|y:$year';
+  }
+
+  static String _seriesKey(MediaItem item) {
+    final pid = _providerKey(item, const ['Tvdb', 'Tmdb', 'Imdb']);
+    if (pid.isNotEmpty) return 'series:$pid';
+    final name = _normalize(item.name);
+    final year = _yearOf(item.premiereDate);
+    return year.isEmpty ? 'series:name:$name' : 'series:name:$name|y:$year';
+  }
+
+  static String _episodeKey(MediaItem item) {
+    final pid = _providerKey(item, const ['Tvdb', 'Tmdb', 'Imdb']);
+    if (pid.isNotEmpty) return 'episode:$pid';
+
+    final seriesId = (item.seriesId ?? '').trim();
+    final seriesName = _normalize(item.seriesName);
+    final seasonName = _normalize(item.seasonName);
+    final season = item.seasonNumber;
+    final episode = item.episodeNumber;
+    final name = _normalize(item.name);
+
+    if (seriesId.isNotEmpty && season != null && episode != null) {
+      return 'episode:seriesId:$seriesId|s:$season|e:$episode';
+    }
+    if (seriesName.isNotEmpty && season != null && episode != null) {
+      return 'episode:seriesName:$seriesName|s:$season|e:$episode';
+    }
+    if (seriesId.isNotEmpty && seasonName.isNotEmpty && name.isNotEmpty) {
+      return 'episode:seriesId:$seriesId|sn:$seasonName|n:$name';
+    }
+    if (seriesName.isNotEmpty && seasonName.isNotEmpty && name.isNotEmpty) {
+      return 'episode:seriesName:$seriesName|sn:$seasonName|n:$name';
+    }
+    if (seriesId.isNotEmpty && name.isNotEmpty) {
+      return 'episode:seriesId:$seriesId|n:$name';
+    }
+    if (seriesName.isNotEmpty && name.isNotEmpty) {
+      return 'episode:seriesName:$seriesName|n:$name';
+    }
+
+    return 'episode:id:${item.id}';
+  }
+
+  Widget _statCard({
+    required IconData icon,
+    required String label,
+    required Widget value,
+    required Color accent,
+    required bool enableBlur,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    return AppPanel(
+      enableBlur: enableBlur,
+      padding: const EdgeInsets.fromLTRB(12, 12, 12, 12),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 34,
+                height: 34,
+                decoration: BoxDecoration(
+                  color: accent.withValues(alpha: isDark ? 0.20 : 0.14),
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, color: accent, size: 20),
+              ),
+              const SizedBox(width: 10),
+              Expanded(
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: scheme.onSurfaceVariant,
+                    fontWeight: FontWeight.w700,
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 10),
+          DefaultTextStyle.merge(
+            style: theme.textTheme.titleLarge?.copyWith(
+              fontWeight: FontWeight.w800,
+              letterSpacing: 0.2,
+            ),
+            child: value,
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
+
+    return FutureBuilder<_MediaStats>(
+      future: _future,
+      builder: (context, snap) {
+        final stats = snap.data;
+        final loading = snap.connectionState == ConnectionState.waiting;
+        final hasError = !loading && snap.hasError;
+
+        Widget valueText(String text) => Text(
+              text,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            );
+
+        Widget loadingValue() => const SizedBox(
+              width: 18,
+              height: 18,
+              child: CircularProgressIndicator(strokeWidth: 2),
+            );
+
+        Widget valueOrLoading(String text) =>
+            loading ? loadingValue() : valueText(text);
+
+        final movieText =
+            stats == null ? '—' : '${stats.movieCount.toString()} 部';
+        final seriesText =
+            stats == null ? '—' : '${stats.seriesCount.toString()} 部';
+        final totalText =
+            stats == null ? '—' : '${stats.totalEpisodes.toString()} 集';
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      '媒体统计',
+                      style: theme.textTheme.titleMedium,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '刷新',
+                    onPressed: loading ? null : _reload,
+                    icon: const Icon(Icons.refresh),
+                  ),
+                ],
+              ),
+              if (hasError)
+                Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          '媒体统计加载失败',
+                          style: theme.textTheme.bodyMedium?.copyWith(
+                            color: theme.colorScheme.onSurfaceVariant,
+                          ),
+                        ),
+                      ),
+                      TextButton.icon(
+                        onPressed: _reload,
+                        icon: const Icon(Icons.refresh),
+                        label: const Text('重试'),
+                      ),
+                    ],
+                  ),
+                ),
+              LayoutBuilder(
+                builder: (context, constraints) {
+                  const spacing = 10.0;
+                  final maxWidth = constraints.maxWidth;
+                  final columns = maxWidth >= 620 ? 3 : 2;
+                  final cardWidth =
+                      (maxWidth - spacing * (columns - 1)) / columns;
+
+                  return Wrap(
+                    spacing: spacing,
+                    runSpacing: spacing,
+                    children: [
+                      SizedBox(
+                        width: cardWidth,
+                        child: _statCard(
+                          icon: Icons.movie_outlined,
+                          label: '电影',
+                          value: valueOrLoading(movieText),
+                          accent: theme.colorScheme.primary,
+                          enableBlur: enableBlur,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _statCard(
+                          icon: Icons.live_tv_outlined,
+                          label: '电视剧',
+                          value: valueOrLoading(seriesText),
+                          accent: theme.colorScheme.secondary,
+                          enableBlur: enableBlur,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _statCard(
+                          icon: Icons.confirmation_number_outlined,
+                          label: '总集数',
+                          value: valueOrLoading(totalText),
+                          accent: theme.colorScheme.tertiary,
+                          enableBlur: enableBlur,
+                        ),
+                      ),
+                    ],
+                  );
+                },
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
