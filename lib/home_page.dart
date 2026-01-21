@@ -1003,17 +1003,17 @@ class _HomeBody extends StatelessWidget {
 
 @immutable
 class _MediaStats {
-  final int movieCount;
-  final int seriesCount;
-  final int tvEpisodeCount;
+  final int? movieCount;
+  final int? seriesCount;
+  final int? episodeSingleCount;
+  final int? episodeMultiCount;
 
   const _MediaStats({
     required this.movieCount,
     required this.seriesCount,
-    required this.tvEpisodeCount,
+    required this.episodeSingleCount,
+    required this.episodeMultiCount,
   });
-
-  int get totalEpisodes => movieCount + tvEpisodeCount;
 }
 
 class _MediaStatsSection extends StatefulWidget {
@@ -1040,7 +1040,12 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
     final token = widget.appState.token;
     final userId = widget.appState.userId;
     if (baseUrl == null || token == null || userId == null) {
-      return const _MediaStats(movieCount: 0, seriesCount: 0, tvEpisodeCount: 0);
+      return const _MediaStats(
+        movieCount: 0,
+        seriesCount: 0,
+        episodeSingleCount: 0,
+        episodeMultiCount: 0,
+      );
     }
 
     final api = EmbyApi(
@@ -1049,62 +1054,84 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
       apiPrefix: widget.appState.apiPrefix,
     );
 
-    const fields =
-        'ProviderIds,SeriesId,SeriesName,SeasonName,ParentIndexNumber,IndexNumber,PremiereDate';
-    const pageSize = 500;
-
-    Future<void> scan({
-      required String includeItemTypes,
-      required void Function(MediaItem item) onItem,
-    }) async {
-      var startIndex = 0;
-      while (true) {
+    Future<int?> quickTotal(String includeItemTypes) async {
+      try {
         final res = await api.fetchItems(
           token: token,
           baseUrl: baseUrl,
           userId: userId,
           includeItemTypes: includeItemTypes,
           recursive: true,
-          excludeFolders: false,
+          startIndex: 0,
+          limit: 1,
+        );
+        return res.total;
+      } catch (_) {
+        return null;
+      }
+    }
+
+    int? movieCount;
+    int? seriesCount;
+    int? episodeMultiCount;
+
+    try {
+      final counts = await api.fetchItemCounts(
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
+      );
+      movieCount = counts.movieCount;
+      seriesCount = counts.seriesCount;
+      episodeMultiCount = counts.episodeCount;
+    } catch (_) {}
+
+    movieCount ??= await quickTotal('Movie');
+    seriesCount ??= await quickTotal('Series');
+    episodeMultiCount ??= await quickTotal('Episode');
+
+    int? episodeSingleCount;
+    int? scannedEpisodeTotal;
+    try {
+      const fields =
+          'ProviderIds,SeriesId,SeriesName,SeasonName,ParentIndexNumber,IndexNumber,Name';
+      const pageSize = 500;
+      final episodeKeys = <String>{};
+
+      var startIndex = 0;
+      while (true) {
+        final res = await api.fetchItems(
+          token: token,
+          baseUrl: baseUrl,
+          userId: userId,
+          includeItemTypes: 'Episode',
+          recursive: true,
           startIndex: startIndex,
           limit: pageSize,
           fields: fields,
         );
+        scannedEpisodeTotal = res.total;
 
         for (final item in res.items) {
-          onItem(item);
+          episodeKeys.add(_episodeKey(item));
         }
 
         startIndex += res.items.length;
         if (startIndex >= res.total || res.items.isEmpty) break;
       }
+
+      episodeSingleCount = episodeKeys.length;
+    } catch (_) {
+      episodeSingleCount = null;
     }
 
-    final movieKeys = <String>{};
-    final seriesKeys = <String>{};
-    final episodeKeys = <String>{};
-
-    await scan(
-      includeItemTypes: 'Movie,Series',
-      onItem: (item) {
-        final type = item.type.toLowerCase().trim();
-        if (type == 'movie') {
-          movieKeys.add(_movieKey(item));
-        } else if (type == 'series') {
-          seriesKeys.add(_seriesKey(item));
-        }
-      },
-    );
-
-    await scan(
-      includeItemTypes: 'Episode',
-      onItem: (item) => episodeKeys.add(_episodeKey(item)),
-    );
+    episodeMultiCount ??= scannedEpisodeTotal;
 
     return _MediaStats(
-      movieCount: movieKeys.length,
-      seriesCount: seriesKeys.length,
-      tvEpisodeCount: episodeKeys.length,
+      movieCount: movieCount,
+      seriesCount: seriesCount,
+      episodeSingleCount: episodeSingleCount,
+      episodeMultiCount: episodeMultiCount,
     );
   }
 
@@ -1287,34 +1314,21 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
             loading ? loadingValue() : valueText(text);
 
         final movieText =
-            stats == null ? '—' : '${stats.movieCount.toString()} 部';
+            stats?.movieCount == null ? '—' : '${stats!.movieCount} 部';
         final seriesText =
-            stats == null ? '—' : '${stats.seriesCount.toString()} 部';
-        final totalText =
-            stats == null ? '—' : '${stats.totalEpisodes.toString()} 集';
+            stats?.seriesCount == null ? '—' : '${stats!.seriesCount} 部';
+        final episodeSingleText = stats?.episodeSingleCount == null
+            ? '—'
+            : '${stats!.episodeSingleCount} 集';
+        final episodeMultiText = stats?.episodeMultiCount == null
+            ? '—'
+            : '${stats!.episodeMultiCount} 集';
 
         return Padding(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      '媒体统计',
-                      style: theme.textTheme.titleMedium,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '刷新',
-                    onPressed: loading ? null : _reload,
-                    icon: const Icon(Icons.refresh),
-                  ),
-                ],
-              ),
               if (hasError)
                 Padding(
                   padding: const EdgeInsets.only(bottom: 8),
@@ -1322,7 +1336,7 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
                     children: [
                       Expanded(
                         child: Text(
-                          '媒体统计加载失败',
+                          '统计加载失败',
                           style: theme.textTheme.bodyMedium?.copyWith(
                             color: theme.colorScheme.onSurfaceVariant,
                           ),
@@ -1340,7 +1354,8 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
                 builder: (context, constraints) {
                   const spacing = 10.0;
                   final maxWidth = constraints.maxWidth;
-                  final columns = maxWidth >= 620 ? 3 : 2;
+                  final columns =
+                      maxWidth >= 860 ? 4 : (maxWidth >= 620 ? 3 : 2);
                   final cardWidth =
                       (maxWidth - spacing * (columns - 1)) / columns;
 
@@ -1371,16 +1386,34 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
                       SizedBox(
                         width: cardWidth,
                         child: _statCard(
-                          icon: Icons.confirmation_number_outlined,
-                          label: '总集数',
-                          value: valueOrLoading(totalText),
+                          icon: Icons.filter_1_outlined,
+                          label: '剧集数量（单版本）',
+                          value: valueOrLoading(episodeSingleText),
                           accent: theme.colorScheme.tertiary,
+                          enableBlur: enableBlur,
+                        ),
+                      ),
+                      SizedBox(
+                        width: cardWidth,
+                        child: _statCard(
+                          icon: Icons.layers_outlined,
+                          label: '剧集数量（多版本）',
+                          value: valueOrLoading(episodeMultiText),
+                          accent: theme.colorScheme.inversePrimary,
                           enableBlur: enableBlur,
                         ),
                       ),
                     ],
                   );
                 },
+              ),
+              Align(
+                alignment: Alignment.centerRight,
+                child: IconButton(
+                  tooltip: '刷新',
+                  onPressed: loading ? null : _reload,
+                  icon: const Icon(Icons.refresh),
+                ),
               ),
             ],
           ),
@@ -1545,6 +1578,8 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
           builder: (context, constraints) {
             const padding = 14.0;
             const spacing = 10.0;
+            final compact = constraints.maxWidth < 600;
+            final titleMaxLines = compact ? 2 : 1;
             final visible = (constraints.maxWidth / 280).clamp(1.4, 4.5);
             final maxCount = items.length < 12 ? items.length : 12;
 
@@ -1552,7 +1587,7 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                 (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
                     visible;
             final imageHeight = itemWidth * 9 / 16;
-            final listHeight = imageHeight + 46;
+            final listHeight = imageHeight + (titleMaxLines == 2 ? 64 : 46);
             final totalContentWidth =
                 maxCount * itemWidth + (maxCount - 1) * spacing;
             final viewportWidth = constraints.maxWidth - padding * 2;
@@ -1600,27 +1635,27 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                           final item = items[index];
                           final isEpisode =
                               item.type.toLowerCase() == 'episode';
-                          final title = isEpisode && item.seriesName.isNotEmpty
-                              ? item.seriesName
-                              : item.name;
+                          final title = item.name;
                           final pos =
                               _ticksToDuration(item.playbackPositionTicks);
                           final tag = isEpisode ? _episodeTag(item) : '';
                           final sub = [
+                            if (isEpisode && item.seriesName.isNotEmpty)
+                              item.seriesName,
                             if (tag.isNotEmpty) tag,
                             if (pos > Duration.zero) '观看到 ${_fmt(pos)}',
                           ].join(' · ');
 
-                           final img = item.hasImage
-                               ? EmbyApi.imageUrl(
-                                   baseUrl: widget.appState.baseUrl!,
-                                   itemId: item.id,
-                                   token: widget.appState.token!,
-                                   apiPrefix: widget.appState.apiPrefix,
-                                   imageType: 'Primary',
-                                   maxWidth: 640,
-                                 )
-                               : null;
+                          final img = item.hasImage
+                              ? EmbyApi.imageUrl(
+                                  baseUrl: widget.appState.baseUrl!,
+                                  itemId: item.id,
+                                  token: widget.appState.token!,
+                                  apiPrefix: widget.appState.apiPrefix,
+                                  imageType: 'Primary',
+                                  maxWidth: 640,
+                                )
+                              : null;
 
                           return SizedBox(
                             width: itemWidth,
@@ -1684,7 +1719,7 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                                   const SizedBox(height: 6),
                                   Text(
                                     title,
-                                    maxLines: 1,
+                                    maxLines: titleMaxLines,
                                     overflow: TextOverflow.ellipsis,
                                     style: theme.textTheme.bodyMedium?.copyWith(
                                       fontWeight: FontWeight.w700,
@@ -1852,13 +1887,13 @@ class _LibraryQuickAccessSectionState
                     separatorBuilder: (_, __) => const SizedBox(width: spacing),
                     itemBuilder: (context, index) {
                       final lib = libs[index];
-                       final imageUrl = EmbyApi.imageUrl(
-                         baseUrl: baseUrl,
-                         itemId: lib.id,
-                         token: token,
-                         apiPrefix: widget.appState.apiPrefix,
-                         maxWidth: 640,
-                       );
+                      final imageUrl = EmbyApi.imageUrl(
+                        baseUrl: baseUrl,
+                        itemId: lib.id,
+                        token: token,
+                        apiPrefix: widget.appState.apiPrefix,
+                        maxWidth: 640,
+                      );
                       return SizedBox(
                         width: itemWidth,
                         child: MediaBackdropTile(
@@ -1953,26 +1988,26 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
     // Pre-cache banner images to avoid reloading when swiping back & forth.
     final urls = <String>{};
     for (final item in picked) {
-        urls.add(
-          EmbyApi.imageUrl(
-            baseUrl: baseUrl,
-            itemId: item.id,
-            token: token,
-            apiPrefix: widget.appState.apiPrefix,
-            imageType: 'Backdrop',
-            maxWidth: 1280,
-          ),
-        );
-        urls.add(
-          EmbyApi.imageUrl(
-            baseUrl: baseUrl,
-            itemId: item.id,
-            token: token,
-            apiPrefix: widget.appState.apiPrefix,
-            imageType: 'Primary',
-            maxWidth: 720,
-          ),
-        );
+      urls.add(
+        EmbyApi.imageUrl(
+          baseUrl: baseUrl,
+          itemId: item.id,
+          token: token,
+          apiPrefix: widget.appState.apiPrefix,
+          imageType: 'Backdrop',
+          maxWidth: 1280,
+        ),
+      );
+      urls.add(
+        EmbyApi.imageUrl(
+          baseUrl: baseUrl,
+          itemId: item.id,
+          token: token,
+          apiPrefix: widget.appState.apiPrefix,
+          imageType: 'Primary',
+          maxWidth: 720,
+        ),
+      );
     }
     _lastImageUrls = urls;
     if (!mounted) return picked;
@@ -2031,7 +2066,8 @@ class _RandomRecommendSectionState extends State<_RandomRecommendSection> {
             defaultTargetPlatform == TargetPlatform.windows ||
             defaultTargetPlatform == TargetPlatform.linux ||
             defaultTargetPlatform == TargetPlatform.macOS;
-        const bannerAspectRatio = 32 / 9;
+        final width = MediaQuery.sizeOf(context).width;
+        final bannerAspectRatio = width < 600 ? 16 / 9 : 32 / 9;
 
         if (!loading && snap.hasError && items.isEmpty) {
           return Padding(

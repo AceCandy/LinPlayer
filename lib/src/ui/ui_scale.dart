@@ -15,15 +15,18 @@ class UiScaleScope extends InheritedWidget {
   /// UI scale factor based on the current logical screen width.
   ///
   /// - Landscape tablets typically end up at `1.0`.
-  /// - Portrait tablets / phones scale up (clamped) to avoid tiny UI.
+  /// - Phones are slightly compact by default to avoid oversized UI.
   static double autoScaleFor(BuildContext context) {
     final width = MediaQuery.sizeOf(context).width;
     if (width <= 0) return 1.0;
 
-    const referenceWidth = 1000.0;
-    const minScale = 1.0;
-    const maxScale = 1.3;
-    return (referenceWidth / width).clamp(minScale, maxScale).toDouble();
+    // Phones: keep things a bit smaller so more content fits.
+    if (width < 420) return 0.92;
+    if (width < 520) return 0.95;
+    if (width < 600) return 0.98;
+
+    // Tablets / desktop: use the designed scale.
+    return 1.0;
   }
 
   @override

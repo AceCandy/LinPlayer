@@ -1289,10 +1289,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
   Future<void> _exitImmersiveMode({bool resetOrientations = false}) async {
     if (!_shouldControlSystemUi) return;
     try {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.manual,
-        overlays: SystemUiOverlay.values,
-      );
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } catch (_) {}
     if (!resetOrientations) return;
     try {
@@ -1581,57 +1578,108 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
             child: GlassAppBar(
               enableBlur: enableBlur,
               child: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: Colors.white,
-          title: Text(widget.title),
-          centerTitle: true,
-          actions: [
-            IconButton(
-              tooltip: '重新加载',
-              icon: const Icon(Icons.refresh),
-              onPressed: _loading ? null : _init,
-            ),
-            if (stream != null && stream.isNotEmpty)
-              IconButton(
-                tooltip: '复制链接',
-                icon: const Icon(Icons.link),
-                onPressed: () async {
-                  await Clipboard.setData(ClipboardData(text: stream));
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制播放链接')),
-                  );
-                },
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                shadowColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                forceMaterialTransparency: true,
+                title: Text(widget.title),
+                centerTitle: true,
+                actions: [
+                  IconButton(
+                    tooltip: '重新加载',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loading ? null : _init,
+                  ),
+                  if (stream != null && stream.isNotEmpty)
+                    IconButton(
+                      tooltip: '复制链接',
+                      icon: const Icon(Icons.link),
+                      onPressed: () async {
+                        await Clipboard.setData(ClipboardData(text: stream));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('已复制播放链接')),
+                        );
+                      },
+                    ),
+                  IconButton(
+                    tooltip: '音轨',
+                    icon: const Icon(Icons.audiotrack),
+                    onPressed: () => _showAudioTracks(context),
+                  ),
+                  IconButton(
+                    tooltip: '字幕',
+                    icon: const Icon(Icons.subtitles),
+                    onPressed: () => _showSubtitleTracks(context),
+                  ),
+                  IconButton(
+                    tooltip: '弹幕',
+                    icon: const Icon(Icons.comment_outlined),
+                    onPressed: _showDanmakuSheet,
+                  ),
+                  IconButton(
+                    tooltip: '软/硬解切换',
+                    icon: const Icon(Icons.memory),
+                    onPressed: () => _showNotSupported('软/硬解切换'),
+                  ),
+                  IconButton(
+                    tooltip: _orientationTooltip,
+                    icon: Icon(_orientationIcon),
+                    onPressed: _cycleOrientationMode,
+                  ),
+                  PopupMenuButton<_PlayerMenuAction>(
+                    tooltip: '更多',
+                    icon: const Icon(Icons.more_vert),
+                    color: const Color(0xFF202020),
+                    onSelected: (action) async {
+                      switch (action) {
+                        case _PlayerMenuAction.switchCore:
+                          await _switchCore();
+                          break;
+                        case _PlayerMenuAction.switchVersion:
+                          await _switchVersion();
+                          break;
+                      }
+                    },
+                    itemBuilder: (ctx) {
+                      final scheme = Theme.of(ctx).colorScheme;
+                      return [
+                        PopupMenuItem(
+                          value: _PlayerMenuAction.switchVersion,
+                          child: Row(
+                            children: [
+                              Icon(Icons.video_file_outlined,
+                                  color: scheme.primary),
+                              const SizedBox(width: 10),
+                              const Text(
+                                '版本选择',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                        PopupMenuItem(
+                          value: _PlayerMenuAction.switchCore,
+                          child: Row(
+                            children: [
+                              Icon(Icons.tune, color: scheme.secondary),
+                              const SizedBox(width: 10),
+                              const Text(
+                                '切换内核',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ];
+                    },
+                  ),
+                ],
               ),
-            IconButton(
-              tooltip: '音轨',
-              icon: const Icon(Icons.audiotrack),
-              onPressed: () => _showAudioTracks(context),
             ),
-            IconButton(
-              tooltip: '字幕',
-              icon: const Icon(Icons.subtitles),
-              onPressed: () => _showSubtitleTracks(context),
-            ),
-            IconButton(
-              tooltip: '弹幕',
-              icon: const Icon(Icons.comment_outlined),
-              onPressed: _showDanmakuSheet,
-            ),
-            IconButton(
-              tooltip: '软/硬解切换',
-              icon: const Icon(Icons.memory),
-              onPressed: () => _showNotSupported('软/硬解切换'),
-            ),
-            IconButton(
-              tooltip: _orientationTooltip,
-              icon: Icon(_orientationIcon),
-              onPressed: _cycleOrientationMode,
-            ),
-          ],
-        ),
-      ),
           ),
         ),
       ),
@@ -1744,8 +1792,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
                                     position: _position,
                                     duration: _duration,
                                     isPlaying: _isPlaying,
-                                    onSwitchCore: _switchCore,
-                                    onSwitchVersion: _switchVersion,
                                     onScrubStart: _onScrubStart,
                                     onScrubEnd: _onScrubEnd,
                                     onSeek: (pos) async {
@@ -1834,5 +1880,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage> {
     );
   }
 }
+
+enum _PlayerMenuAction { switchCore, switchVersion }
 
 enum _OrientationMode { auto, landscape, portrait }

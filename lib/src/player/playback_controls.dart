@@ -58,6 +58,50 @@ class PlaybackControls extends StatefulWidget {
 
 enum _PlaybackMenuAction { switchCore, switchVersion }
 
+class _RingThumbShape extends SliderComponentShape {
+  const _RingThumbShape({
+    required this.radius,
+    required this.ringWidth,
+    required this.ringColor,
+  });
+
+  final double radius;
+  final double ringWidth;
+  final Color ringColor;
+
+  @override
+  Size getPreferredSize(bool isEnabled, bool isDiscrete) =>
+      Size.fromRadius(radius + ringWidth);
+
+  @override
+  void paint(
+    PaintingContext context,
+    Offset center, {
+    required Animation<double> activationAnimation,
+    required Animation<double> enableAnimation,
+    required bool isDiscrete,
+    required TextPainter labelPainter,
+    required RenderBox parentBox,
+    required SliderThemeData sliderTheme,
+    required TextDirection textDirection,
+    required double value,
+    required double textScaleFactor,
+    required Size sizeWithOverflow,
+  }) {
+    final canvas = context.canvas;
+    final fill = sliderTheme.thumbColor ?? Colors.white;
+
+    final fillPaint = Paint()..color = fill;
+    canvas.drawCircle(center, radius, fillPaint);
+
+    final ringPaint = Paint()
+      ..color = ringColor
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = ringWidth;
+    canvas.drawCircle(center, radius, ringPaint);
+  }
+}
+
 class _PlaybackControlsState extends State<PlaybackControls> {
   double? _scrubMs;
   Uint8List? _thumbnailBytes;
@@ -91,7 +135,8 @@ class _PlaybackControlsState extends State<PlaybackControls> {
     final cb = widget.onRequestThumbnail;
     if (cb == null) return;
     final ms = _quantizeMs(rawMs.round());
-    if (_thumbnailKeyMs == ms && (_thumbnailBytes != null || _thumbnailLoading)) {
+    if (_thumbnailKeyMs == ms &&
+        (_thumbnailBytes != null || _thumbnailLoading)) {
       return;
     }
 
@@ -103,7 +148,8 @@ class _PlaybackControlsState extends State<PlaybackControls> {
       _thumbnailLoading = true;
     });
 
-    _thumbnailDebounceTimer = Timer(const Duration(milliseconds: 120), () async {
+    _thumbnailDebounceTimer =
+        Timer(const Duration(milliseconds: 120), () async {
       Uint8List? bytes;
       try {
         bytes = await Future<Uint8List?>.sync(
@@ -144,36 +190,37 @@ class _PlaybackControlsState extends State<PlaybackControls> {
     final style = theme.extension<AppStyle>() ?? const AppStyle();
     final template = style.template;
 
+    const baseBg = Color(0x66000000);
     final bg = widget.backgroundColor ??
         switch (template) {
           UiTemplate.neonHud => Color.lerp(
-              const Color(0xCC000000),
+              baseBg,
               scheme.primary.withValues(alpha: 0.85),
               0.18,
             )!,
           UiTemplate.pixelArcade => Color.lerp(
-              const Color(0xCC000000),
+              baseBg,
               scheme.secondary.withValues(alpha: 0.85),
               0.14,
             )!,
           UiTemplate.stickerJournal => Color.lerp(
-              const Color(0xCC000000),
+              baseBg,
               scheme.secondary.withValues(alpha: 0.75),
               0.10,
             )!,
           UiTemplate.candyGlass => Color.lerp(
-              const Color(0xCC000000),
+              baseBg,
               scheme.primary.withValues(alpha: 0.70),
               0.10,
             )!,
           UiTemplate.washiWatercolor => Color.lerp(
-              const Color(0xCC000000),
+              baseBg,
               scheme.tertiary.withValues(alpha: 0.70),
               0.08,
             )!,
-          UiTemplate.mangaStoryboard => const Color(0xD0000000),
-          UiTemplate.proTool => const Color(0xCC000000),
-          UiTemplate.minimalCovers => const Color(0xC8000000),
+          UiTemplate.mangaStoryboard => const Color(0x78000000),
+          UiTemplate.proTool => baseBg,
+          UiTemplate.minimalCovers => const Color(0x70000000),
         };
 
     final radius = switch (template) {
@@ -245,11 +292,20 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                       final showPreview = widget.onRequestThumbnail != null &&
                           _scrubMs != null &&
                           constraints.maxWidth > 0;
+
+                      final ringColor = accent.computeLuminance() > 0.6
+                          ? Colors.black
+                          : Colors.white;
                       final sliderTheme = SliderTheme.of(context).copyWith(
-                        trackHeight: 3,
+                        trackHeight: 4,
                         overlayShape: SliderComponentShape.noOverlay,
                         activeTrackColor: accent,
                         thumbColor: accent,
+                        thumbShape: _RingThumbShape(
+                          radius: 7,
+                          ringWidth: 2,
+                          ringColor: ringColor,
+                        ),
                       );
 
                       final bubbleWidth = math.min(160.0, constraints.maxWidth);
@@ -258,13 +314,13 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                       final ratio = maxMs <= 0
                           ? 0.0
                           : (displayMs / maxMs).clamp(0.0, 1.0);
-                      final bubbleLeft = (ratio * constraints.maxWidth) -
-                          (bubbleWidth / 2);
+                      final bubbleLeft =
+                          (ratio * constraints.maxWidth) - (bubbleWidth / 2);
                       final bubbleLeftClamped = bubbleLeft
                           .clamp(
-                        0.0,
-                        math.max(0.0, constraints.maxWidth - bubbleWidth),
-                      )
+                            0.0,
+                            math.max(0.0, constraints.maxWidth - bubbleWidth),
+                          )
                           .toDouble();
 
                       return SizedBox(
@@ -279,7 +335,9 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                                 child: Slider(
                                   value: displayMs,
                                   min: 0,
-                                  max: maxMs.toDouble().clamp(1, double.infinity),
+                                  max: maxMs
+                                      .toDouble()
+                                      .clamp(1, double.infinity),
                                   onChangeStart: !enabled
                                       ? null
                                       : (v) {
@@ -341,7 +399,8 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                                               child: SizedBox(
                                                 width: 18,
                                                 height: 18,
-                                                child: CircularProgressIndicator(
+                                                child:
+                                                    CircularProgressIndicator(
                                                   strokeWidth: 2,
                                                   color: Colors.white70,
                                                 ),
@@ -446,8 +505,7 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                           value: _PlaybackMenuAction.switchVersion,
                           child: Row(
                             children: [
-                              Icon(Icons.video_file_outlined,
-                                  color: accent),
+                              Icon(Icons.video_file_outlined, color: accent),
                               const SizedBox(width: 10),
                               const Text(
                                 '切换版本',

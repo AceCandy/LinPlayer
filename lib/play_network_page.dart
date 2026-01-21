@@ -1132,10 +1132,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
   Future<void> _exitImmersiveMode({bool resetOrientations = false}) async {
     if (!_shouldControlSystemUi) return;
     try {
-      await SystemChrome.setEnabledSystemUIMode(
-        SystemUiMode.manual,
-        overlays: SystemUiOverlay.values,
-      );
+      await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } catch (_) {}
     if (!resetOrientations) return;
     try {
@@ -1427,18 +1424,79 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
             child: GlassAppBar(
               enableBlur: enableBlur,
               child: AppBar(
-          backgroundColor: Colors.transparent,
-          elevation: 0,
-          foregroundColor: Colors.white,
-          title: Text(widget.title),
-          actions: [
-            IconButton(
-              tooltip: '重新加载',
-              icon: const Icon(Icons.refresh),
-              onPressed: _loading
-                  ? null
-                  : () async {
+                backgroundColor: Colors.transparent,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                scrolledUnderElevation: 0,
+                shadowColor: Colors.transparent,
+                surfaceTintColor: Colors.transparent,
+                forceMaterialTransparency: true,
+                title: Text(widget.title),
+                actions: [
+                  IconButton(
+                    tooltip: '重新加载',
+                    icon: const Icon(Icons.refresh),
+                    onPressed: _loading
+                        ? null
+                        : () async {
+                            setState(() {
+                              _loading = true;
+                              _playError = null;
+                            });
+                            try {
+                              await _playerService.dispose();
+                            } catch (_) {}
+                            await _init();
+                          },
+                  ),
+                  if (_resolvedStream != null)
+                    IconButton(
+                      tooltip: '复制链接',
+                      icon: const Icon(Icons.link),
+                      onPressed: () async {
+                        final text = _resolvedStream;
+                        if (text == null || text.isEmpty) return;
+                        await Clipboard.setData(ClipboardData(text: text));
+                        if (!context.mounted) return;
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          const SnackBar(content: Text('已复制播放链接')),
+                        );
+                      },
+                    ),
+                  IconButton(
+                    tooltip: _anime4kPreset.isOff
+                        ? 'Anime4K'
+                        : 'Anime4K: ${_anime4kPreset.label}',
+                    icon: Icon(
+                      _anime4kPreset.isOff
+                          ? Icons.auto_fix_high_outlined
+                          : Icons.auto_fix_high,
+                    ),
+                    onPressed: _showAnime4kSheet,
+                  ),
+                  IconButton(
+                    tooltip: '音轨',
+                    icon: const Icon(Icons.audiotrack),
+                    onPressed: () => _showAudioTracks(context),
+                  ),
+                  IconButton(
+                    tooltip: '字幕',
+                    icon: const Icon(Icons.subtitles),
+                    onPressed: () => _showSubtitleTracks(context),
+                  ),
+                  IconButton(
+                    tooltip: '弹幕',
+                    icon: const Icon(Icons.comment_outlined),
+                    onPressed: _showDanmakuSheet,
+                  ),
+                  IconButton(
+                    tooltip: _hwdecOn ? '切换软解' : '切换硬解',
+                    icon: Icon(_hwdecOn
+                        ? Icons.memory
+                        : Icons.settings_backup_restore),
+                    onPressed: () async {
                       setState(() {
+                        _hwdecOn = !_hwdecOn;
                         _loading = true;
                         _playError = null;
                       });
@@ -1447,71 +1505,64 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                       } catch (_) {}
                       await _init();
                     },
-            ),
-            if (_resolvedStream != null)
-              IconButton(
-                tooltip: '复制链接',
-                icon: const Icon(Icons.link),
-                onPressed: () async {
-                  final text = _resolvedStream;
-                  if (text == null || text.isEmpty) return;
-                  await Clipboard.setData(ClipboardData(text: text));
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('已复制播放链接')),
-                  );
-                },
+                  ),
+                  IconButton(
+                    tooltip: _orientationTooltip,
+                    icon: Icon(_orientationIcon),
+                    onPressed: _cycleOrientationMode,
+                  ),
+                  PopupMenuButton<_PlayerMenuAction>(
+                    tooltip: '更多',
+                    icon: const Icon(Icons.more_vert),
+                    color: const Color(0xFF202020),
+                    onSelected: (action) async {
+                      switch (action) {
+                        case _PlayerMenuAction.switchCore:
+                          await _switchCore();
+                          break;
+                        case _PlayerMenuAction.switchVersion:
+                          await _switchVersion();
+                          break;
+                      }
+                    },
+                    itemBuilder: (ctx) {
+                      final scheme = Theme.of(ctx).colorScheme;
+                      return [
+                        PopupMenuItem(
+                          value: _PlayerMenuAction.switchVersion,
+                          child: Row(
+                            children: [
+                              Icon(Icons.video_file_outlined,
+                                  color: scheme.primary),
+                              const SizedBox(width: 10),
+                              const Text(
+                                '版本选择',
+                                style: TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
+                        ),
+                        if (!kIsWeb &&
+                            defaultTargetPlatform == TargetPlatform.android)
+                          PopupMenuItem(
+                            value: _PlayerMenuAction.switchCore,
+                            child: Row(
+                              children: [
+                                Icon(Icons.tune, color: scheme.secondary),
+                                const SizedBox(width: 10),
+                                const Text(
+                                  '切换内核',
+                                  style: TextStyle(color: Colors.white),
+                                ),
+                              ],
+                            ),
+                          ),
+                      ];
+                    },
+                  ),
+                ],
               ),
-            IconButton(
-              tooltip: _anime4kPreset.isOff
-                  ? 'Anime4K'
-                  : 'Anime4K: ${_anime4kPreset.label}',
-              icon: Icon(
-                _anime4kPreset.isOff
-                    ? Icons.auto_fix_high_outlined
-                    : Icons.auto_fix_high,
-              ),
-              onPressed: _showAnime4kSheet,
             ),
-            IconButton(
-              tooltip: '音轨',
-              icon: const Icon(Icons.audiotrack),
-              onPressed: () => _showAudioTracks(context),
-            ),
-            IconButton(
-              tooltip: '字幕',
-              icon: const Icon(Icons.subtitles),
-              onPressed: () => _showSubtitleTracks(context),
-            ),
-            IconButton(
-              tooltip: '弹幕',
-              icon: const Icon(Icons.comment_outlined),
-              onPressed: _showDanmakuSheet,
-            ),
-            IconButton(
-              tooltip: _hwdecOn ? '切换软解' : '切换硬解',
-              icon:
-                  Icon(_hwdecOn ? Icons.memory : Icons.settings_backup_restore),
-              onPressed: () async {
-                setState(() {
-                  _hwdecOn = !_hwdecOn;
-                  _loading = true;
-                  _playError = null;
-                });
-                try {
-                  await _playerService.dispose();
-                } catch (_) {}
-                await _init();
-              },
-            ),
-            IconButton(
-              tooltip: _orientationTooltip,
-              icon: Icon(_orientationIcon),
-              onPressed: _cycleOrientationMode,
-            ),
-          ],
-        ),
-      ),
           ),
         ),
       ),
@@ -1638,12 +1689,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
                                         : (pos) => _thumbnailer!.getThumbnail(
                                               pos,
                                             ),
-                                    onSwitchCore: (!kIsWeb &&
-                                            defaultTargetPlatform ==
-                                                TargetPlatform.android)
-                                        ? _switchCore
-                                        : null,
-                                    onSwitchVersion: _switchVersion,
                                     onScrubStart: _onScrubStart,
                                     onScrubEnd: _onScrubEnd,
                                     onSeek: (pos) async {
@@ -1843,5 +1888,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage> {
     );
   }
 }
+
+enum _PlayerMenuAction { switchCore, switchVersion }
 
 enum _OrientationMode { auto, landscape, portrait }

@@ -127,6 +127,24 @@ class PagedResult<T> {
   PagedResult(this.items, this.total);
 }
 
+class ItemCounts {
+  final int movieCount;
+  final int seriesCount;
+  final int episodeCount;
+
+  const ItemCounts({
+    required this.movieCount,
+    required this.seriesCount,
+    required this.episodeCount,
+  });
+
+  factory ItemCounts.fromJson(Map<String, dynamic> json) => ItemCounts(
+        movieCount: json['MovieCount'] as int? ?? 0,
+        seriesCount: json['SeriesCount'] as int? ?? 0,
+        episodeCount: json['EpisodeCount'] as int? ?? 0,
+      );
+}
+
 class MediaPerson {
   final String name;
   final String role;
@@ -231,7 +249,8 @@ class EmbyApi {
     final fixedPrefix = _normalizeApiPrefix(apiPrefix);
     final prefixPart = fixedPrefix.isEmpty ? '' : '/$fixedPrefix';
 
-    final fixedPath = path.trim().startsWith('/') ? path.trim() : '/${path.trim()}';
+    final fixedPath =
+        path.trim().startsWith('/') ? path.trim() : '/${path.trim()}';
     return '$base$prefixPart$fixedPath';
   }
 
@@ -291,8 +310,9 @@ class EmbyApi {
     // Users often paste the web UI url: /web or /web/index.html.
     while (segments.isNotEmpty) {
       final last = segments.last.toLowerCase();
-      final secondLast =
-          segments.length >= 2 ? segments[segments.length - 2].toLowerCase() : null;
+      final secondLast = segments.length >= 2
+          ? segments[segments.length - 2].toLowerCase()
+          : null;
 
       if (secondLast == 'web' && last == 'index.html') {
         segments.removeLast();
@@ -393,43 +413,43 @@ class EmbyApi {
         final url = Uri.parse(
           _apiUrlWithPrefix(base, prefix, 'Users/AuthenticateByName'),
         );
-      final body = jsonEncode({
-        'Username': username,
-        'Pw': password,
-        'Password': password,
-      });
+        final body = jsonEncode({
+          'Username': username,
+          'Pw': password,
+          'Password': password,
+        });
 
-      try {
-        final resp = await _client.post(
-          url,
-          headers: _authHeader(deviceId: deviceId),
-          body: body,
-        );
-        if (resp.statusCode != 200) {
-          errors.add('${url.toString()}: HTTP ${resp.statusCode}');
-          continue;
+        try {
+          final resp = await _client.post(
+            url,
+            headers: _authHeader(deviceId: deviceId),
+            body: body,
+          );
+          if (resp.statusCode != 200) {
+            errors.add('${url.toString()}: HTTP ${resp.statusCode}');
+            continue;
+          }
+          final map = jsonDecode(resp.body) as Map<String, dynamic>;
+          final token = map['AccessToken'] as String?;
+          final userId =
+              (map['User'] as Map<String, dynamic>?)?['Id'] as String? ?? '';
+          if (token == null || token.isEmpty) {
+            errors.add('${url.origin}: 未返回 token');
+            continue;
+          }
+          return AuthResult(
+            token: token,
+            baseUrlUsed: base,
+            userId: userId,
+            apiPrefixUsed: _normalizeApiPrefix(prefix),
+          );
+        } catch (e) {
+          if (e is SocketException) {
+            errors.add('${url.origin}: DNS/网络不可达 (${e.message})');
+          } else {
+            errors.add('${url.origin}: $e');
+          }
         }
-        final map = jsonDecode(resp.body) as Map<String, dynamic>;
-        final token = map['AccessToken'] as String?;
-        final userId =
-            (map['User'] as Map<String, dynamic>?)?['Id'] as String? ?? '';
-        if (token == null || token.isEmpty) {
-          errors.add('${url.origin}: 未返回 token');
-          continue;
-        }
-        return AuthResult(
-          token: token,
-          baseUrlUsed: base,
-          userId: userId,
-          apiPrefixUsed: _normalizeApiPrefix(prefix),
-        );
-      } catch (e) {
-        if (e is SocketException) {
-          errors.add('${url.origin}: DNS/网络不可达 (${e.message})');
-        } else {
-          errors.add('${url.origin}: $e');
-        }
-      }
       }
     }
     throw Exception('登录失败：${errors.join(" | ")}');
@@ -511,6 +531,35 @@ class EmbyApi {
         .map((e) => LibraryInfo.fromJson(e as Map<String, dynamic>))
         .toList();
     return items;
+  }
+
+  Future<ItemCounts> fetchItemCounts({
+    required String token,
+    required String baseUrl,
+    required String userId,
+  }) async {
+    final candidates = <String>[
+      'Items/Counts?UserId=$userId',
+      'Users/$userId/Items/Counts',
+    ];
+
+    http.Response? lastResp;
+    for (final path in candidates) {
+      try {
+        final url = Uri.parse(_apiUrl(baseUrl, path));
+        final resp =
+            await _client.get(url, headers: _jsonHeaders(token: token));
+        lastResp = resp;
+        if (resp.statusCode != 200) continue;
+        final map = jsonDecode(resp.body) as Map<String, dynamic>;
+        return ItemCounts.fromJson(map);
+      } catch (_) {
+        continue;
+      }
+    }
+
+    final code = lastResp?.statusCode;
+    throw Exception('获取媒体统计失败${code == null ? '' : '（$code）'}');
   }
 
   Future<PagedResult<MediaItem>> fetchItems({
