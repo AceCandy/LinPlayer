@@ -209,8 +209,12 @@ class EmbyApi {
 
   static String _normalizeApiPrefix(String raw) {
     var v = raw.trim();
-    while (v.startsWith('/')) v = v.substring(1);
-    while (v.endsWith('/')) v = v.substring(0, v.length - 1);
+    while (v.startsWith('/')) {
+      v = v.substring(1);
+    }
+    while (v.endsWith('/')) {
+      v = v.substring(0, v.length - 1);
+    }
     return v;
   }
 

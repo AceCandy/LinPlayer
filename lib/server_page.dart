@@ -1084,7 +1084,7 @@ class _AddServerSheetState extends State<_AddServerSheet> {
                             _plexServers.isNotEmpty) ...[
                           const SizedBox(height: 10),
                           DropdownButtonFormField<PlexResource>(
-                            value: _selectedPlexServer,
+                            initialValue: _selectedPlexServer,
                             items: _plexServers
                                 .map(
                                   (r) => DropdownMenuItem<PlexResource>(
