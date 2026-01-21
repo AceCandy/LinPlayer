@@ -370,13 +370,11 @@ class _SliderTile extends StatelessWidget {
 class _Section extends StatelessWidget {
   const _Section({
     required this.title,
-    this.subtitle,
     required this.child,
     required this.enableBlur,
   });
 
   final String title;
-  final String? subtitle;
   final Widget child;
   final bool enableBlur;
 
@@ -395,15 +393,6 @@ class _Section extends StatelessWidget {
                 .titleMedium
                 ?.copyWith(fontWeight: FontWeight.w700),
           ),
-          if ((subtitle ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 2),
-            Text(
-              subtitle!.trim(),
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: Theme.of(context).colorScheme.onSurfaceVariant,
-                  ),
-            ),
-          ],
           const SizedBox(height: 8),
           child,
         ],
