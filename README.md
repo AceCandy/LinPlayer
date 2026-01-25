@@ -3,6 +3,13 @@
   <h1>LinPlayer</h1>
   <p>跨平台（Windows / macOS / Linux / Android / Android TV）本地 + Emby/Jellyfin + WebDAV 媒体播放器（含 Plex PIN 登录）</p>
   <p>
+    <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" />
+    <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Android%20%7C%20Android%20TV-informational" />
+    <img alt="Sources" src="https://img.shields.io/badge/Sources-Local%20%7C%20Emby%2FJellyfin%20%7C%20WebDAV-informational" />
+    <img alt="Player" src="https://img.shields.io/badge/Player-MPV%20%7C%20Exo-informational" />
+    <img alt="Danmaku" src="https://img.shields.io/badge/Danmaku-Local%20XML%20%7C%20Dandanplay-informational" />
+  </p>
+  <p>
     <a href="#download">下载</a> ·
     <a href="#features">特性</a> ·
     <a href="#quickstart">快速上手</a> ·
@@ -21,7 +28,7 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 - **latest**：稳定版
 - **nightly**：每日构建（产物会覆盖同名资产）
 
-链接：[Releases](../../releases)
+下载入口：[latest](../../releases/latest) / [nightly](../../releases/tag/nightly) / [Releases](../../releases)
 
 | 平台 | 产物文件（Release Assets） | 备注 |
 | --- | --- | --- |
@@ -108,12 +115,14 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 - 目前在线弹幕按「弹弹play API v2」实现；其它弹幕服务器仅当实现了同样的接口（如 `/api/v2/match`、`/api/v2/comment/{episodeId}`）才能直接作为弹幕源使用。
   - 示例（自建/第三方服务）：`https://github.com/huangxd-/danmu_api`、`https://github.com/l429609201/misaka_danmu_server`
 
-## 构建与运行
-<a id="build"></a>
+## <a id="build"></a>构建与运行
 
 ```bash
 # 依赖
 flutter pub get
+
+# 运行（当前平台）
+flutter run
 
 # 生成应用图标（仅当你替换了 assets/app_icon.jpg）
 dart run flutter_launcher_icons
@@ -127,6 +136,15 @@ flutter build apk --split-per-abi
 
 # Windows
 flutter build windows --release
+
+# macOS
+flutter build macos --release
+
+# iOS（无签名）
+flutter build ios --release --no-codesign
+
+# Linux
+flutter build linux --release
 ```
 
 > Windows 本地构建如果提示 “Building with plugins requires symlink support”，请先在系统设置中开启「开发者模式」。
