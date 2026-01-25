@@ -290,8 +290,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     } catch (_) {
       // Optional: if this fails, we simply hide the entry point.
     } finally {
-      if (!mounted) return;
-      setState(() => _episodePickerItemLoading = false);
+      if (mounted) {
+        setState(() => _episodePickerItemLoading = false);
+      }
     }
   }
 
@@ -411,8 +412,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       if (!mounted) return;
       setState(() => _episodePickerError = e.toString());
     } finally {
-      if (!mounted) return;
-      setState(() => _episodePickerLoading = false);
+      if (mounted) {
+        setState(() => _episodePickerLoading = false);
+      }
     }
   }
 
