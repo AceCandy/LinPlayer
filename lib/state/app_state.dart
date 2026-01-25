@@ -6,6 +6,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backup_crypto.dart';
 import '../services/emby_api.dart';
+import '../services/webdav_api.dart';
 import 'anime4k_preferences.dart';
 import 'danmaku_preferences.dart';
 import 'interaction_preferences.dart';
@@ -215,8 +216,13 @@ class AppState extends ChangeNotifier {
   String? get activeServerId => _activeServerId;
   ServerProfile? get activeServer =>
       _servers.firstWhereOrNull((s) => s.id == _activeServerId);
+
+  /// Whether there is an active server profile selected (any type).
+  bool get hasActiveServerProfile => activeServer != null && baseUrl != null;
+
   bool get hasActiveServer =>
       activeServer != null &&
+      activeServer!.serverType.isEmbyLike &&
       baseUrl != null &&
       token != null &&
       userId != null;
@@ -1442,11 +1448,122 @@ class AppState extends ChangeNotifier {
     }
   }
 
+  Future<void> addWebDavServer({
+    required String baseUrl,
+    required String username,
+    required String password,
+    String? displayName,
+    String? remark,
+    String? iconUrl,
+    bool activate = true,
+  }) async {
+    _loading = true;
+    _error = null;
+    notifyListeners();
+
+    final fixedUsername = username.trim();
+    final fixedRemark = (remark ?? '').trim();
+    final fixedIconUrl = iconUrl?.trim();
+    final fixedName = (displayName ?? '').trim();
+
+    Uri baseUri;
+    try {
+      baseUri = WebDavApi.normalizeBaseUri(baseUrl);
+    } catch (e) {
+      _error = e.toString();
+      _loading = false;
+      notifyListeners();
+      return;
+    }
+    final fixedBaseUrl = baseUri.toString();
+
+    final name =
+        fixedName.isNotEmpty ? fixedName : _suggestServerName(fixedBaseUrl);
+
+    final existingIndex = _servers.indexWhere(
+      (s) =>
+          s.serverType == MediaServerType.webdav &&
+          s.baseUrl == fixedBaseUrl &&
+          s.username == fixedUsername,
+    );
+
+    final resolvedIconUrl = switch (fixedIconUrl) {
+      null => existingIndex >= 0 ? _servers[existingIndex].iconUrl : null,
+      _ => fixedIconUrl.isEmpty ? null : fixedIconUrl,
+    };
+
+    final server = ServerProfile(
+      id: existingIndex >= 0 ? _servers[existingIndex].id : _randomId(),
+      serverType: MediaServerType.webdav,
+      username: fixedUsername,
+      name: name,
+      remark: fixedRemark.isEmpty ? null : fixedRemark,
+      iconUrl: resolvedIconUrl,
+      baseUrl: fixedBaseUrl,
+      token: password,
+      userId: '',
+      apiPrefix: '',
+      lastErrorCode: null,
+      lastErrorMessage: null,
+      hiddenLibraries:
+          existingIndex >= 0 ? _servers[existingIndex].hiddenLibraries : null,
+      domainRemarks:
+          existingIndex >= 0 ? _servers[existingIndex].domainRemarks : null,
+      customDomains:
+          existingIndex >= 0 ? _servers[existingIndex].customDomains : null,
+    );
+
+    var shouldActivate = activate;
+
+    try {
+      final api = WebDavApi(
+        baseUri: baseUri,
+        username: fixedUsername,
+        password: password,
+      );
+      await api.validateRoot();
+    } catch (e) {
+      final msg = e.toString();
+      server.lastErrorCode = _extractHttpStatusCode(msg);
+      server.lastErrorMessage = msg;
+      _error = msg;
+      shouldActivate = false;
+    }
+
+    try {
+      if (existingIndex >= 0) {
+        _servers[existingIndex] = server;
+      } else {
+        _servers.add(server);
+      }
+
+      final prefs = await SharedPreferences.getInstance();
+      await _persistServers(prefs);
+
+      if (!shouldActivate) return;
+
+      _activeServerId = server.id;
+      _domains = [];
+      _libraries = [];
+      _itemsCache.clear();
+      _itemsTotal.clear();
+      _homeSections.clear();
+      _randomRecommendations = null;
+      _randomRecommendationsInFlight = null;
+      _continueWatching = null;
+      _continueWatchingInFlight = null;
+      await prefs.setString(_kActiveServerIdKey, server.id);
+    } finally {
+      _loading = false;
+      notifyListeners();
+    }
+  }
+
   Future<void> enterServer(String serverId) async {
     final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
 
-    if (!server.serverType.isEmbyLike) {
+    if (server.serverType == MediaServerType.plex) {
       _error = '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。';
       notifyListeners();
       return;
@@ -1469,6 +1586,8 @@ class AppState extends ChangeNotifier {
       await prefs.setString(_kActiveServerIdKey, serverId);
       notifyListeners();
     }
+
+    if (!server.serverType.isEmbyLike) return;
 
     await refreshDomains();
     await refreshLibraries();

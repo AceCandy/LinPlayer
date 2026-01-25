@@ -2,6 +2,7 @@ enum MediaServerType {
   emby,
   jellyfin,
   plex,
+  webdav,
 }
 
 MediaServerType mediaServerTypeFromId(String? id) {
@@ -10,6 +11,8 @@ MediaServerType mediaServerTypeFromId(String? id) {
       return MediaServerType.jellyfin;
     case 'plex':
       return MediaServerType.plex;
+    case 'webdav':
+      return MediaServerType.webdav;
     case 'emby':
     default:
       return MediaServerType.emby;
@@ -25,6 +28,8 @@ extension MediaServerTypeX on MediaServerType {
         return 'jellyfin';
       case MediaServerType.plex:
         return 'plex';
+      case MediaServerType.webdav:
+        return 'webdav';
     }
   }
 
@@ -36,10 +41,13 @@ extension MediaServerTypeX on MediaServerType {
         return 'Jellyfin';
       case MediaServerType.plex:
         return 'Plex';
+      case MediaServerType.webdav:
+        return 'WebDAV';
     }
   }
 
   bool get isEmbyLike =>
       this == MediaServerType.emby || this == MediaServerType.jellyfin;
-}
 
+  bool get isWebDav => this == MediaServerType.webdav;
+}

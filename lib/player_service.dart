@@ -267,7 +267,24 @@ class PlayerService {
     _externalPlayback = false;
     _externalPlaybackMessage = null;
     MediaKit.ensureInitialized();
-    final isNetwork = networkUrl != null && networkUrl.isNotEmpty;
+
+    var effectivePath = path;
+    var effectiveNetworkUrl = networkUrl;
+
+    if ((effectiveNetworkUrl == null || effectiveNetworkUrl.trim().isEmpty) &&
+        effectivePath != null &&
+        effectivePath.trim().isNotEmpty) {
+      final uri = Uri.tryParse(effectivePath.trim());
+      if (uri != null &&
+          (uri.scheme == 'http' || uri.scheme == 'https') &&
+          uri.host.isNotEmpty) {
+        effectiveNetworkUrl = effectivePath.trim();
+        effectivePath = null;
+      }
+    }
+
+    final isNetwork =
+        effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty;
     if (isNetwork && unlimitedStreamCache) {
       await StreamCache.ensureDirectory();
     }
@@ -297,10 +314,10 @@ class PlayerService {
     });
 
     try {
-      if (networkUrl != null && networkUrl.isNotEmpty) {
-        await player.open(Media(networkUrl, httpHeaders: httpHeaders));
-      } else if (path != null && path.isNotEmpty) {
-        await player.open(Media(path));
+      if (effectiveNetworkUrl != null && effectiveNetworkUrl.isNotEmpty) {
+        await player.open(Media(effectiveNetworkUrl, httpHeaders: httpHeaders));
+      } else if (effectivePath != null && effectivePath.isNotEmpty) {
+        await player.open(Media(effectivePath));
       } else {
         throw Exception('No media source provided');
       }

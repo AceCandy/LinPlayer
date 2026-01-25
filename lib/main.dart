@@ -7,8 +7,10 @@ import 'package:package_info_plus/package_info_plus.dart';
 
 import 'home_page.dart';
 import 'server_page.dart';
+import 'webdav_home_page.dart';
 import 'services/emby_api.dart';
 import 'state/app_state.dart';
+import 'state/media_server_type.dart';
 import 'src/device/device_type.dart';
 import 'src/ui/app_theme.dart';
 import 'src/ui/app_icon_service.dart';
@@ -77,7 +79,16 @@ class _LinPlayerAppState extends State<LinPlayerApp>
       animation: widget.appState,
       builder: (context, _) {
         final appState = widget.appState;
-        final isLoggedIn = appState.hasActiveServer;
+        final active = appState.activeServer;
+        final home = switch (active?.serverType) {
+          null => ServerPage(appState: appState),
+          _ when !appState.hasActiveServerProfile =>
+            ServerPage(appState: appState),
+          _ when active!.serverType == MediaServerType.webdav =>
+            WebDavHomePage(appState: appState),
+          _ when appState.hasActiveServer => HomePage(appState: appState),
+          _ => ServerPage(appState: appState),
+        };
         return DynamicColorBuilder(
           builder: (lightDynamic, darkDynamic) {
             final useDynamic = appState.useDynamicColor;
@@ -207,9 +218,7 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                   ),
                 );
               },
-              home: isLoggedIn
-                  ? HomePage(appState: appState)
-                  : ServerPage(appState: appState),
+              home: home,
             );
           },
         );
