@@ -1,2 +1,6 @@
 export 'src/messages.g.dart'
-    show ExoPlayerSubtitleTrackData, NativeSubtitleTrackData, VideoPlayerInstanceApi;
+    show
+        ExoPlayerSubtitleTrackData,
+        NativeSubtitleTrackData,
+        SubtitleStyleMessage,
+        VideoPlayerInstanceApi;

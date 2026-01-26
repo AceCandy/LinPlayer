@@ -7,6 +7,13 @@ package io.flutter.plugins.videoplayer;
 import static androidx.media3.common.Player.REPEAT_MODE_ALL;
 import static androidx.media3.common.Player.REPEAT_MODE_OFF;
 
+import android.graphics.Typeface;
+import android.net.Uri;
+import android.os.Handler;
+import android.os.Looper;
+import android.util.TypedValue;
+import android.view.View;
+import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.media3.common.AudioAttributes;
@@ -17,10 +24,13 @@ import androidx.media3.common.PlaybackParameters;
 import androidx.media3.common.TrackGroup;
 import androidx.media3.common.TrackSelectionOverride;
 import androidx.media3.common.Tracks;
+import androidx.media3.common.text.Cue;
+import androidx.media3.common.text.CueGroup;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import androidx.media3.exoplayer.trackselection.DefaultTrackSelector;
 import io.flutter.view.TextureRegistry.SurfaceProducer;
+import java.io.File;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -36,6 +46,27 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
   @NonNull protected ExoPlayer exoPlayer;
   // TODO: Migrate to stable API, see https://github.com/flutter/flutter/issues/147039.
   @UnstableApi @Nullable protected DefaultTrackSelector trackSelector;
+
+  // Subtitle state for LinPlayer.
+  @NonNull private final Handler mainHandler = new Handler(Looper.getMainLooper());
+  @Nullable private TextView platformSubtitleView;
+  @NonNull private String subtitleText = "";
+  @Nullable private Runnable pendingSubtitleUpdate;
+  private long subtitleDelayMs = 0;
+  private double subtitleFontSize = 18.0;
+  private double subtitleBottomPadding = 24.0;
+  private boolean subtitleBold = false;
+  private boolean disposed = false;
+
+  @NonNull
+  private final androidx.media3.common.Player.Listener subtitleListener =
+      new androidx.media3.common.Player.Listener() {
+        @Override
+        public void onCues(@NonNull CueGroup cueGroup) {
+          final String text = cueGroupToText(cueGroup);
+          scheduleSubtitleUpdate(text);
+        }
+      };
 
   /** A closure-compatible signature since {@link java.util.function.Supplier} is API level 24. */
   public interface ExoPlayerProvider {
@@ -76,6 +107,7 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
     exoPlayer.setMediaItem(mediaItem);
     exoPlayer.prepare();
     exoPlayer.addListener(createExoPlayerEventListener(exoPlayer, surfaceProducer));
+    exoPlayer.addListener(subtitleListener);
     setAudioAttributes(exoPlayer, options.mixWithOthers);
   }
 
@@ -342,7 +374,166 @@ public abstract class VideoPlayer implements VideoPlayerInstanceApi {
             .build());
   }
 
+  @Override
+  public @NonNull String getSubtitleText() {
+    return subtitleText;
+  }
+
+  @Override
+  public void setSubtitleDelay(long delayMs) {
+    subtitleDelayMs = Math.max(-60000, Math.min(60000, delayMs));
+  }
+
+  @Override
+  public void setSubtitleStyle(@NonNull SubtitleStyleMessage style) {
+    subtitleFontSize = Math.max(8.0, Math.min(96.0, style.getFontSize()));
+    subtitleBottomPadding = Math.max(0.0, Math.min(500.0, style.getBottomPadding()));
+    subtitleBold = style.getBold();
+    final TextView view = platformSubtitleView;
+    if (view != null) {
+      mainHandler.post(() -> applySubtitleStyle(view));
+    }
+  }
+
+  @UnstableApi
+  @Override
+  public void addSubtitleSource(
+      @NonNull String uri, @Nullable String mimeType, @Nullable String language, @Nullable String label) {
+    final MediaItem current = exoPlayer.getCurrentMediaItem();
+    if (current == null) {
+      throw new IllegalStateException("Cannot add subtitle source: no media item loaded");
+    }
+
+    final Uri subtitleUri = toAndroidUri(uri);
+    final String resolvedMimeType =
+        (mimeType != null && !mimeType.trim().isEmpty()) ? mimeType : guessSubtitleMimeType(uri);
+
+    final MediaItem.SubtitleConfiguration.Builder subBuilder =
+        new MediaItem.SubtitleConfiguration.Builder(subtitleUri);
+    if (resolvedMimeType != null && !resolvedMimeType.trim().isEmpty()) {
+      subBuilder.setMimeType(resolvedMimeType);
+    }
+    if (language != null && !language.trim().isEmpty()) {
+      subBuilder.setLanguage(language);
+    }
+    if (label != null && !label.trim().isEmpty()) {
+      subBuilder.setLabel(label);
+    }
+    subBuilder.setSelectionFlags(C.SELECTION_FLAG_DEFAULT);
+    final MediaItem.SubtitleConfiguration sub = subBuilder.build();
+
+    final List<MediaItem.SubtitleConfiguration> subs = new ArrayList<>();
+    if (current.localConfiguration != null && current.localConfiguration.subtitleConfigurations != null) {
+      subs.addAll(current.localConfiguration.subtitleConfigurations);
+    }
+    subs.add(sub);
+
+    final long pos = exoPlayer.getCurrentPosition();
+    final boolean playWhenReady = exoPlayer.getPlayWhenReady();
+
+    final MediaItem updated = current.buildUpon().setSubtitleConfigurations(subs).build();
+    exoPlayer.setMediaItem(updated, pos);
+    exoPlayer.prepare();
+    exoPlayer.setPlayWhenReady(playWhenReady);
+
+    // Ensure subtitles are enabled.
+    if (trackSelector != null) {
+      trackSelector.setParameters(trackSelector.buildUponParameters().setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false).build());
+    }
+  }
+
+  public void setPlatformSubtitleView(@Nullable TextView view) {
+    platformSubtitleView = view;
+    if (view == null) return;
+    mainHandler.post(
+        () -> {
+          applySubtitleStyle(view);
+          updateSubtitleText(subtitleText);
+        });
+  }
+
+  private void scheduleSubtitleUpdate(@NonNull String text) {
+    if (disposed) return;
+    final long delay = Math.max(0, subtitleDelayMs);
+    final Runnable task = () -> updateSubtitleText(text);
+    final Runnable prev = pendingSubtitleUpdate;
+    pendingSubtitleUpdate = task;
+    if (prev != null) {
+      mainHandler.removeCallbacks(prev);
+    }
+    if (delay <= 0) {
+      mainHandler.post(task);
+    } else {
+      mainHandler.postDelayed(task, delay);
+    }
+  }
+
+  private void updateSubtitleText(@NonNull String text) {
+    if (disposed) return;
+    subtitleText = text;
+    final TextView view = platformSubtitleView;
+    if (view == null) return;
+    view.setText(text);
+    view.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+  }
+
+  private void applySubtitleStyle(@NonNull TextView view) {
+    final float sizeSp = (float) subtitleFontSize;
+    view.setTextSize(TypedValue.COMPLEX_UNIT_SP, sizeSp);
+    view.setTypeface(view.getTypeface(), subtitleBold ? Typeface.BOLD : Typeface.NORMAL);
+
+    final float density = view.getResources().getDisplayMetrics().density;
+    final int left = Math.round(24f * density);
+    final int top = Math.round(8f * density);
+    final int right = Math.round(24f * density);
+    final int bottom = Math.round((float) subtitleBottomPadding * density);
+    view.setPadding(left, top, right, bottom);
+  }
+
+  @NonNull
+  private static Uri toAndroidUri(@NonNull String uriOrPath) {
+    final String trimmed = uriOrPath.trim();
+    final Uri parsed = Uri.parse(trimmed);
+    if (parsed.getScheme() == null || parsed.getScheme().isEmpty()) {
+      return Uri.fromFile(new File(trimmed));
+    }
+    return parsed;
+  }
+
+  @Nullable
+  private static String guessSubtitleMimeType(@NonNull String uriOrPath) {
+    final String lower = uriOrPath.toLowerCase();
+    if (lower.endsWith(".srt")) return "application/x-subrip";
+    if (lower.endsWith(".vtt")) return "text/vtt";
+    if (lower.endsWith(".ass") || lower.endsWith(".ssa")) return "text/x-ssa";
+    if (lower.endsWith(".ttml") || lower.endsWith(".xml")) return "application/ttml+xml";
+    return null;
+  }
+
+  @NonNull
+  private static String cueGroupToText(@NonNull CueGroup cueGroup) {
+    final StringBuilder sb = new StringBuilder();
+    for (final Cue cue : cueGroup.cues) {
+      if (cue.text == null) {
+        continue;
+      }
+      final String line = cue.text.toString().trim();
+      if (line.isEmpty()) {
+        continue;
+      }
+      if (sb.length() > 0) {
+        sb.append('\n');
+      }
+      sb.append(line);
+    }
+    return sb.toString();
+  }
+
   public void dispose() {
+    disposed = true;
+    mainHandler.removeCallbacksAndMessages(null);
+    exoPlayer.removeListener(subtitleListener);
+    platformSubtitleView = null;
     if (disposeHandler != null) {
       disposeHandler.onDispose();
     }

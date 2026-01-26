@@ -17,27 +17,29 @@ import androidx.annotation.OptIn;
 import androidx.media3.common.util.UnstableApi;
 import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugin.platform.PlatformView;
+import io.flutter.plugins.videoplayer.VideoPlayer;
 
 /**
  * A class used to create a native video view that can be embedded in a Flutter app. It wraps an
  * {@link ExoPlayer} instance and displays its video content.
  */
 public final class PlatformVideoView implements PlatformView {
+  @NonNull private final VideoPlayer videoPlayer;
   @NonNull private final ExoPlayer exoPlayer;
   @NonNull private final FrameLayout containerView;
   @NonNull private final SurfaceView surfaceView;
   @NonNull private final TextView subtitleView;
-  @NonNull private final androidx.media3.common.Player.Listener subtitleListener;
 
   /**
    * Constructs a new PlatformVideoView.
    *
    * @param context The context in which the view is running.
-   * @param exoPlayer The ExoPlayer instance used to play the video.
+   * @param videoPlayer The VideoPlayer instance used to play the video.
    */
   @OptIn(markerClass = UnstableApi.class)
-  public PlatformVideoView(@NonNull Context context, @NonNull ExoPlayer exoPlayer) {
-    this.exoPlayer = exoPlayer;
+  public PlatformVideoView(@NonNull Context context, @NonNull VideoPlayer videoPlayer) {
+    this.videoPlayer = videoPlayer;
+    this.exoPlayer = videoPlayer.getExoPlayer();
     containerView = new FrameLayout(context);
     surfaceView = new SurfaceView(context);
     containerView.addView(
@@ -58,6 +60,7 @@ public final class PlatformVideoView implements PlatformView {
             FrameLayout.LayoutParams.MATCH_PARENT,
             FrameLayout.LayoutParams.WRAP_CONTENT,
             android.view.Gravity.BOTTOM | android.view.Gravity.CENTER_HORIZONTAL));
+    videoPlayer.setPlatformSubtitleView(subtitleView);
 
     if (Build.VERSION.SDK_INT == Build.VERSION_CODES.P) {
       // Workaround for rendering issues on Android 9 (API 28).
@@ -75,17 +78,6 @@ public final class PlatformVideoView implements PlatformView {
       }
       exoPlayer.setVideoSurfaceView(surfaceView);
     }
-
-    subtitleListener =
-        new androidx.media3.common.Player.Listener() {
-          @Override
-          public void onCues(@NonNull androidx.media3.common.text.CueGroup cueGroup) {
-            final String text = cueGroupToText(cueGroup);
-            subtitleView.setText(text);
-            subtitleView.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
-          }
-        };
-    exoPlayer.addListener(subtitleListener);
   }
 
   private void setupSurfaceWithCallback(@NonNull ExoPlayer exoPlayer) {
@@ -127,25 +119,7 @@ public final class PlatformVideoView implements PlatformView {
   /** Disposes of the resources used by this PlatformView. */
   @Override
   public void dispose() {
-    exoPlayer.removeListener(subtitleListener);
+    videoPlayer.setPlatformSubtitleView(null);
     surfaceView.getHolder().getSurface().release();
-  }
-
-  private static String cueGroupToText(@NonNull androidx.media3.common.text.CueGroup cueGroup) {
-    final StringBuilder sb = new StringBuilder();
-    for (final androidx.media3.common.text.Cue cue : cueGroup.cues) {
-      if (cue.text == null) {
-        continue;
-      }
-      final String line = cue.text.toString().trim();
-      if (line.isEmpty()) {
-        continue;
-      }
-      if (sb.length() > 0) {
-        sb.append('\n');
-      }
-      sb.append(line);
-    }
-    return sb.toString();
   }
 }

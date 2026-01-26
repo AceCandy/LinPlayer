@@ -350,6 +350,46 @@ data class NativeSubtitleTrackData (
 }
 
 /**
+ * Subtitle style configuration used by LinPlayer.
+ *
+ * Generated class from Pigeon that represents data sent in messages.
+ */
+data class SubtitleStyleMessage (
+  /** Font size in logical pixels (maps to Android sp). */
+  val fontSize: Double,
+  /** Bottom padding in logical pixels (maps to Android dp). */
+  val bottomPadding: Double,
+  val bold: Boolean
+)
+ {
+  companion object {
+    fun fromList(pigeonVar_list: List<Any?>): SubtitleStyleMessage {
+      val fontSize = pigeonVar_list[0] as Double
+      val bottomPadding = pigeonVar_list[1] as Double
+      val bold = pigeonVar_list[2] as Boolean
+      return SubtitleStyleMessage(fontSize, bottomPadding, bold)
+    }
+  }
+  fun toList(): List<Any?> {
+    return listOf(
+      fontSize,
+      bottomPadding,
+      bold,
+    )
+  }
+  override fun equals(other: Any?): Boolean {
+    if (other !is SubtitleStyleMessage) {
+      return false
+    }
+    if (this === other) {
+      return true
+    }
+    return MessagesPigeonUtils.deepEquals(toList(), other.toList())  }
+
+  override fun hashCode(): Int = toList().hashCode()
+}
+
+/**
  * Information passed to the platform view creation.
  *
  * Generated class from Pigeon that represents data sent in messages.
@@ -668,35 +708,40 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
       }
       137.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlatformVideoViewCreationParams.fromList(it)
+          SubtitleStyleMessage.fromList(it)
         }
       }
       138.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          CreationOptions.fromList(it)
+          PlatformVideoViewCreationParams.fromList(it)
         }
       }
       139.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          TexturePlayerIds.fromList(it)
+          CreationOptions.fromList(it)
         }
       }
       140.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          PlaybackState.fromList(it)
+          TexturePlayerIds.fromList(it)
         }
       }
       141.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          AudioTrackMessage.fromList(it)
+          PlaybackState.fromList(it)
         }
       }
       142.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
-          ExoPlayerAudioTrackData.fromList(it)
+          AudioTrackMessage.fromList(it)
         }
       }
       143.toByte() -> {
+        return (readValue(buffer) as? List<Any?>)?.let {
+          ExoPlayerAudioTrackData.fromList(it)
+        }
+      }
+      144.toByte() -> {
         return (readValue(buffer) as? List<Any?>)?.let {
           NativeAudioTrackData.fromList(it)
         }
@@ -738,32 +783,36 @@ private open class MessagesPigeonCodec : StandardMessageCodec() {
         stream.write(136)
         writeValue(stream, value.toList())
       }
-      is PlatformVideoViewCreationParams -> {
+      is SubtitleStyleMessage -> {
         stream.write(137)
         writeValue(stream, value.toList())
       }
-      is CreationOptions -> {
+      is PlatformVideoViewCreationParams -> {
         stream.write(138)
         writeValue(stream, value.toList())
       }
-      is TexturePlayerIds -> {
+      is CreationOptions -> {
         stream.write(139)
         writeValue(stream, value.toList())
       }
-      is PlaybackState -> {
+      is TexturePlayerIds -> {
         stream.write(140)
         writeValue(stream, value.toList())
       }
-      is AudioTrackMessage -> {
+      is PlaybackState -> {
         stream.write(141)
         writeValue(stream, value.toList())
       }
-      is ExoPlayerAudioTrackData -> {
+      is AudioTrackMessage -> {
         stream.write(142)
         writeValue(stream, value.toList())
       }
-      is NativeAudioTrackData -> {
+      is ExoPlayerAudioTrackData -> {
         stream.write(143)
+        writeValue(stream, value.toList())
+      }
+      is NativeAudioTrackData -> {
+        stream.write(144)
         writeValue(stream, value.toList())
       }
       else -> super.writeValue(stream, value)
@@ -926,6 +975,14 @@ interface VideoPlayerInstanceApi {
   fun selectSubtitleTrack(groupIndex: Long, trackIndex: Long)
   /** Disables subtitle track selection. */
   fun deselectSubtitleTrack()
+  /** Returns the current subtitle text (for texture view overlay). */
+  fun getSubtitleText(): String
+  /** Sets subtitle delay in milliseconds. Negative values may be ignored. */
+  fun setSubtitleDelay(delayMs: Long)
+  /** Sets subtitle view style (platform view only). */
+  fun setSubtitleStyle(style: SubtitleStyleMessage)
+  /** Adds an external subtitle source (e.g. .srt/.ass/.vtt) to the current media item. */
+  fun addSubtitleSource(uri: String, mimeType: String?, language: String?, label: String?)
 
   companion object {
     /** The codec used by VideoPlayerInstanceApi. */
@@ -1144,6 +1201,78 @@ interface VideoPlayerInstanceApi {
           channel.setMessageHandler { _, reply ->
             val wrapped: List<Any?> = try {
               api.deselectSubtitleTrack()
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.getSubtitleText$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { _, reply ->
+            val wrapped: List<Any?> = try {
+              listOf(api.getSubtitleText())
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.setSubtitleDelay$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val delayMsArg = args[0] as Long
+            val wrapped: List<Any?> = try {
+              api.setSubtitleDelay(delayMsArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.setSubtitleStyle$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val styleArg = args[0] as SubtitleStyleMessage
+            val wrapped: List<Any?> = try {
+              api.setSubtitleStyle(styleArg)
+              listOf(null)
+            } catch (exception: Throwable) {
+              MessagesPigeonUtils.wrapError(exception)
+            }
+            reply.reply(wrapped)
+          }
+        } else {
+          channel.setMessageHandler(null)
+        }
+      }
+      run {
+        val channel = BasicMessageChannel<Any?>(binaryMessenger, "dev.flutter.pigeon.video_player_android.VideoPlayerInstanceApi.addSubtitleSource$separatedMessageChannelSuffix", codec)
+        if (api != null) {
+          channel.setMessageHandler { message, reply ->
+            val args = message as List<Any?>
+            val uriArg = args[0] as String
+            val mimeTypeArg = args[1] as String?
+            val languageArg = args[2] as String?
+            val labelArg = args[3] as String?
+            val wrapped: List<Any?> = try {
+              api.addSubtitleSource(uriArg, mimeTypeArg, languageArg, labelArg)
               listOf(null)
             } catch (exception: Throwable) {
               MessagesPigeonUtils.wrapError(exception)

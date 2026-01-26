@@ -89,6 +89,23 @@ class NativeSubtitleTrackData {
   List<ExoPlayerSubtitleTrackData>? exoPlayerTracks;
 }
 
+/// Subtitle style configuration used by LinPlayer.
+class SubtitleStyleMessage {
+  SubtitleStyleMessage({
+    required this.fontSize,
+    required this.bottomPadding,
+    required this.bold,
+  });
+
+  /// Font size in logical pixels (maps to Android sp).
+  double fontSize;
+
+  /// Bottom padding in logical pixels (maps to Android dp).
+  double bottomPadding;
+
+  bool bold;
+}
+
 /// Information passed to the platform view creation.
 class PlatformVideoViewCreationParams {
   const PlatformVideoViewCreationParams({required this.playerId});
@@ -230,6 +247,18 @@ abstract class VideoPlayerInstanceApi {
 
   /// Disables subtitle track selection.
   void deselectSubtitleTrack();
+
+  /// Returns the current subtitle text (for texture view overlay).
+  String getSubtitleText();
+
+  /// Sets subtitle delay in milliseconds. Negative values may be ignored.
+  void setSubtitleDelay(int delayMs);
+
+  /// Sets subtitle view style (platform view only).
+  void setSubtitleStyle(SubtitleStyleMessage style);
+
+  /// Adds an external subtitle source (e.g. .srt/.ass/.vtt) to the current media item.
+  void addSubtitleSource(String uri, String? mimeType, String? language, String? label);
 }
 
 @EventChannelApi()

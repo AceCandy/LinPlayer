@@ -59,6 +59,14 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
 
   VideoViewType _viewType = VideoViewType.platformView;
 
+  // Subtitle options (EXO).
+  double _subtitleDelaySeconds = 0.0;
+  double _subtitleFontSize = 18.0;
+  int _subtitlePositionStep = 5; // 0..20, maps to padding-bottom in 5px steps.
+  bool _subtitleBold = false;
+  String _subtitleText = '';
+  bool _subtitlePollInFlight = false;
+
   final GlobalKey<DanmakuStageState> _danmakuKey =
       GlobalKey<DanmakuStageState>();
   final List<DanmakuSource> _danmakuSources = [];
@@ -1112,6 +1120,60 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
     return parts.join('  ');
   }
 
+  double get _subtitleBottomPadding =>
+      (_subtitlePositionStep.clamp(0, 20) * 5.0).clamp(0.0, 200.0).toDouble();
+
+  Future<void> _applyExoSubtitleOptions() async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    // ignore: invalid_use_of_visible_for_testing_member
+    final playerId = controller.playerId;
+
+    final api = vp_android.VideoPlayerInstanceApi(
+      messageChannelSuffix: playerId.toString(),
+    );
+
+    try {
+      await api.setSubtitleDelay((_subtitleDelaySeconds * 1000).round());
+    } catch (_) {}
+
+    try {
+      await api.setSubtitleStyle(
+        vp_android.SubtitleStyleMessage(
+          fontSize: _subtitleFontSize.clamp(8.0, 96.0),
+          bottomPadding: _subtitleBottomPadding,
+          bold: _subtitleBold,
+        ),
+      );
+    } catch (_) {}
+  }
+
+  Future<void> _pollSubtitleText() async {
+    if (_subtitlePollInFlight) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (_isAndroid && _viewType != VideoViewType.textureView) return;
+
+    _subtitlePollInFlight = true;
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final playerId = controller.playerId;
+      final api = vp_android.VideoPlayerInstanceApi(
+        messageChannelSuffix: playerId.toString(),
+      );
+      final text = await api.getSubtitleText();
+      if (!mounted) return;
+      if (text != _subtitleText) {
+        setState(() => _subtitleText = text);
+      }
+    } catch (_) {
+      // ignore
+    } finally {
+      _subtitlePollInFlight = false;
+    }
+  }
+
   Future<void> _showSubtitleTracks(BuildContext context) async {
     final controller = _controller;
     if (controller == null || !controller.value.isInitialized) return;
@@ -1123,9 +1185,14 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
       messageChannelSuffix: playerId.toString(),
     );
 
-    late final vp_android.NativeSubtitleTrackData data;
+    Future<List<vp_android.ExoPlayerSubtitleTrackData>> fetchTracks() async {
+      final data = await api.getSubtitleTracks();
+      return data.exoPlayerTracks ?? const <vp_android.ExoPlayerSubtitleTrackData>[];
+    }
+
+    late List<vp_android.ExoPlayerSubtitleTrackData> tracks;
     try {
-      data = await api.getSubtitleTracks();
+      tracks = await fetchTracks();
     } catch (e) {
       if (!context.mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -1134,57 +1201,320 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
       return;
     }
 
-    final tracks =
-        data.exoPlayerTracks ?? const <vp_android.ExoPlayerSubtitleTrackData>[];
-    final anySelected = tracks.any((e) => e.isSelected);
-
     if (!context.mounted) return;
-    showModalBottomSheet(
+    showModalBottomSheet<void>(
       context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
       builder: (ctx) {
-        if (tracks.isEmpty) {
-          return const Padding(
-            padding: EdgeInsets.all(16),
-            child: Text('暂无字幕'),
+        var tracksExpanded = true;
+        final messenger = ScaffoldMessenger.of(context);
+
+        IconButton miniIconButton({
+          required VoidCallback? onPressed,
+          required IconData icon,
+          String? tooltip,
+        }) {
+          return IconButton(
+            onPressed: onPressed,
+            tooltip: tooltip,
+            icon: Icon(icon),
+            padding: EdgeInsets.zero,
+            visualDensity: VisualDensity.compact,
+            constraints: const BoxConstraints.tightFor(width: 34, height: 34),
           );
         }
 
-        return ListView(
-          children: [
-            ListTile(
-              title: const Text('关闭'),
-              trailing: anySelected ? null : const Icon(Icons.check),
-              onTap: () async {
-                Navigator.of(ctx).pop();
-                try {
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            String selectedKey = 'off';
+            for (final t in tracks) {
+              if (t.isSelected) {
+                selectedKey = '${t.groupIndex}_${t.trackIndex}';
+                break;
+              }
+            }
+
+            Future<void> refreshTracks() async {
+              try {
+                tracks = await fetchTracks();
+                setSheetState(() {});
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('获取字幕失败：$e')),
+                );
+              }
+            }
+
+            Future<void> selectTrackKey(String key) async {
+              try {
+                if (key == 'off') {
                   await api.deselectSubtitleTrack();
-                } catch (e) {
-                  if (!context.mounted) return;
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('关闭字幕失败：$e')),
-                  );
+                } else {
+                  final parts = key.split('_');
+                  final g = int.parse(parts[0]);
+                  final t = int.parse(parts[1]);
+                  await api.selectSubtitleTrack(g, t);
                 }
-              },
-            ),
-            ...tracks.map(
-              (t) => ListTile(
-                title: Text(_subtitleTrackTitle(t)),
-                subtitle: Text(_subtitleTrackSubtitle(t)),
-                trailing: t.isSelected ? const Icon(Icons.check) : null,
-                onTap: () async {
-                  Navigator.of(ctx).pop();
-                  try {
-                    await api.selectSubtitleTrack(t.groupIndex, t.trackIndex);
-                  } catch (e) {
-                    if (!context.mounted) return;
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(content: Text('切换字幕失败：$e')),
-                    );
-                  }
-                },
+                await refreshTracks();
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('切换字幕失败：$e')),
+                );
+              }
+            }
+
+            Future<void> pickAndAddSubtitle() async {
+              final result = await FilePicker.platform.pickFiles(
+                type: FileType.custom,
+                allowedExtensions: const ['srt', 'ass', 'ssa', 'vtt', 'sub'],
+              );
+              if (result == null || result.files.isEmpty) return;
+              final f = result.files.first;
+              final path = (f.path ?? '').trim();
+              if (path.isEmpty) {
+                messenger.showSnackBar(
+                  const SnackBar(content: Text('无法读取字幕文件路径')),
+                );
+                return;
+              }
+              try {
+                await api.addSubtitleSource(path, null, null, f.name);
+                await refreshTracks();
+              } catch (e) {
+                messenger.showSnackBar(
+                  SnackBar(content: Text('添加字幕失败：$e')),
+                );
+              }
+            }
+
+            Future<void> editSubtitleDelay() async {
+              final controller = TextEditingController(
+                text: _subtitleDelaySeconds.toStringAsFixed(1),
+              );
+              final value = await showDialog<double>(
+                context: ctx,
+                builder: (dctx) => AlertDialog(
+                  title: const Text('字幕同步'),
+                  content: TextField(
+                    controller: controller,
+                    keyboardType: const TextInputType.numberWithOptions(
+                      decimal: true,
+                      signed: false,
+                    ),
+                    decoration: const InputDecoration(
+                      hintText: '单位：秒，例如 0.5',
+                    ),
+                  ),
+                  actions: [
+                    TextButton(
+                      onPressed: () => Navigator.of(dctx).pop(),
+                      child: const Text('取消'),
+                    ),
+                    TextButton(
+                      onPressed: () {
+                        final v = double.tryParse(controller.text.trim());
+                        Navigator.of(dctx).pop(v);
+                      },
+                      child: const Text('确定'),
+                    ),
+                  ],
+                ),
+              );
+              if (value == null) return;
+              setState(() => _subtitleDelaySeconds = value.clamp(0.0, 60.0));
+              await _applyExoSubtitleOptions();
+              setSheetState(() {});
+            }
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: ListView(
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            '字幕',
+                            style: Theme.of(context).textTheme.titleLarge,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭',
+                          icon: const Icon(Icons.close),
+                          onPressed: () => Navigator.of(ctx).pop(),
+                        ),
+                      ],
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      leading: const Icon(Icons.closed_caption_outlined),
+                      title: const Text('轨道'),
+                      trailing: IconButton(
+                        icon: Icon(
+                          tracksExpanded
+                              ? Icons.expand_less
+                              : Icons.expand_more,
+                        ),
+                        onPressed: () {
+                          tracksExpanded = !tracksExpanded;
+                          setSheetState(() {});
+                        },
+                      ),
+                    ),
+                    if (tracksExpanded) ...[
+                      RadioGroup<String>(
+                        groupValue: selectedKey,
+                        onChanged: (value) {
+                          if (value == null) return;
+                          // ignore: unawaited_futures
+                          selectTrackKey(value);
+                        },
+                        child: Column(
+                          children: [
+                            const RadioListTile<String>(
+                              value: 'off',
+                              title: Text('关闭'),
+                              contentPadding: EdgeInsets.zero,
+                              dense: true,
+                            ),
+                            if (tracks.isEmpty)
+                              const Padding(
+                                padding: EdgeInsets.fromLTRB(40, 0, 0, 8),
+                                child: Text('暂无字幕'),
+                              ),
+                            for (final t in tracks)
+                              RadioListTile<String>(
+                                value: '${t.groupIndex}_${t.trackIndex}',
+                                title: Text(_subtitleTrackTitle(t)),
+                                subtitle: Text(_subtitleTrackSubtitle(t)),
+                                contentPadding: EdgeInsets.zero,
+                                dense: true,
+                              ),
+                          ],
+                        ),
+                      ),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.add),
+                        title: const Text('添加字幕'),
+                        onTap: pickAndAddSubtitle,
+                      ),
+                    ],
+                    const Divider(height: 1),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('字幕同步'),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          miniIconButton(
+                            onPressed: () async {
+                              setState(() {
+                                _subtitleDelaySeconds =
+                                    (_subtitleDelaySeconds - 0.1)
+                                        .clamp(0.0, 60.0)
+                                        .toDouble();
+                              });
+                              await _applyExoSubtitleOptions();
+                              setSheetState(() {});
+                            },
+                            icon: Icons.remove,
+                            tooltip: '-0.1s',
+                          ),
+                          Text('${_subtitleDelaySeconds.toStringAsFixed(1)}s'),
+                          miniIconButton(
+                            onPressed: () async {
+                              setState(() {
+                                _subtitleDelaySeconds =
+                                    (_subtitleDelaySeconds + 0.1)
+                                        .clamp(0.0, 60.0)
+                                        .toDouble();
+                              });
+                              await _applyExoSubtitleOptions();
+                              setSheetState(() {});
+                            },
+                            icon: Icons.add,
+                            tooltip: '+0.1s',
+                          ),
+                          const SizedBox(width: 6),
+                          miniIconButton(
+                            onPressed: editSubtitleDelay,
+                            icon: Icons.edit_outlined,
+                            tooltip: '输入',
+                          ),
+                          miniIconButton(
+                            onPressed: () async {
+                              setState(() => _subtitleDelaySeconds = 0.0);
+                              await _applyExoSubtitleOptions();
+                              setSheetState(() {});
+                            },
+                            icon: Icons.history,
+                            tooltip: '重置',
+                          ),
+                        ],
+                      ),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('字幕大小'),
+                      subtitle: Slider(
+                        value: _subtitleFontSize.clamp(12.0, 60.0),
+                        min: 12.0,
+                        max: 60.0,
+                        divisions: 48,
+                        onChanged: (v) {
+                          setState(() => _subtitleFontSize = v);
+                          setSheetState(() {});
+                        },
+                        onChangeEnd: (_) async {
+                          await _applyExoSubtitleOptions();
+                          setSheetState(() {});
+                        },
+                      ),
+                      trailing: Text('${_subtitleFontSize.round()}'),
+                    ),
+                    ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('字幕位置'),
+                      subtitle: Slider(
+                        value: _subtitlePositionStep.toDouble().clamp(0, 20),
+                        min: 0,
+                        max: 20,
+                        divisions: 20,
+                        onChanged: (v) {
+                          setState(() => _subtitlePositionStep = v.round());
+                          setSheetState(() {});
+                        },
+                        onChangeEnd: (_) async {
+                          await _applyExoSubtitleOptions();
+                          setSheetState(() {});
+                        },
+                      ),
+                      trailing: Text('$_subtitlePositionStep'),
+                    ),
+                    SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
+                      title: const Text('粗体'),
+                      value: _subtitleBold,
+                      onChanged: (v) async {
+                        setState(() => _subtitleBold = v);
+                        await _applyExoSubtitleOptions();
+                        setSheetState(() {});
+                      },
+                    ),
+                    const ListTile(
+                      contentPadding: EdgeInsets.zero,
+                      enabled: false,
+                      title: Text('强制覆盖 ASS/SSA 字幕'),
+                      subtitle: Text('仅 MPV 支持'),
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ],
+            );
+          },
         );
       },
     );
@@ -1358,6 +1688,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
       _duration = Duration.zero;
       _controlsVisible = true;
       _isScrubbing = false;
+      _subtitleText = '';
+      _subtitlePollInFlight = false;
       if (resetDanmaku) {
         _nextDanmakuIndex = 0;
         _danmakuSources.clear();
@@ -1406,6 +1738,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
       _controller = controller;
       await controller.initialize();
       await _applyOrientationForMode();
+      await _applyExoSubtitleOptions();
       if (startPosition != null && startPosition > Duration.zero) {
         final d = controller.value.duration;
         final target =
@@ -1461,6 +1794,10 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
 
         _applyDanmakuPauseState(_buffering || !v.isPlaying);
         _drainDanmaku(_position);
+        if (!_isAndroid || _viewType == VideoViewType.textureView) {
+          // ignore: unawaited_futures
+          _pollSubtitleText();
+        }
         final shouldRebuild = _lastUiTickAt == null ||
             now.difference(_lastUiTickAt!) >= const Duration(milliseconds: 250);
         if (shouldRebuild) {
@@ -1659,6 +1996,60 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                               preventOverlap: _danmakuPreventOverlap,
                             ),
                           ),
+                          if ((!_isAndroid ||
+                                  _viewType == VideoViewType.textureView) &&
+                              _subtitleText.trim().isNotEmpty)
+                            Positioned.fill(
+                              child: IgnorePointer(
+                                child: Align(
+                                  alignment: Alignment.bottomCenter,
+                                  child: Padding(
+                                    padding: EdgeInsets.fromLTRB(
+                                      16,
+                                      0,
+                                      16,
+                                      _subtitleBottomPadding,
+                                    ),
+                                    child: DecoratedBox(
+                                      decoration: BoxDecoration(
+                                        color: Colors.black.withValues(
+                                          alpha: 0.55,
+                                        ),
+                                        borderRadius: BorderRadius.circular(6),
+                                      ),
+                                      child: Padding(
+                                        padding: const EdgeInsets.symmetric(
+                                          horizontal: 8,
+                                          vertical: 4,
+                                        ),
+                                        child: Text(
+                                          _subtitleText.trim(),
+                                          textAlign: TextAlign.center,
+                                          style: TextStyle(
+                                            height: 1.4,
+                                            fontSize: _subtitleFontSize.clamp(
+                                              12.0,
+                                              60.0,
+                                            ),
+                                            fontWeight: _subtitleBold
+                                                ? FontWeight.w600
+                                                : FontWeight.normal,
+                                            color: Colors.white,
+                                            shadows: const [
+                                              Shadow(
+                                                blurRadius: 6,
+                                                offset: Offset(2, 2),
+                                                color: Colors.black,
+                                              ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
                           if (_screenBrightness < 0.999)
                             Positioned.fill(
                               child: IgnorePointer(

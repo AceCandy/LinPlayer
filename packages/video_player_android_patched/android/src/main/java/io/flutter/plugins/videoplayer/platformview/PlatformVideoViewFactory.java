@@ -7,7 +7,6 @@ package io.flutter.plugins.videoplayer.platformview;
 import android.content.Context;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.media3.exoplayer.ExoPlayer;
 import io.flutter.plugin.platform.PlatformView;
 import io.flutter.plugin.platform.PlatformViewFactory;
 import io.flutter.plugins.videoplayer.AndroidVideoPlayerApi;
@@ -62,8 +61,6 @@ public class PlatformVideoViewFactory extends PlatformViewFactory {
     final Long playerId = params.getPlayerId();
 
     final VideoPlayer player = videoPlayerProvider.getVideoPlayer(playerId);
-    final ExoPlayer exoPlayer = player.getExoPlayer();
-
-    return new PlatformVideoView(context, exoPlayer);
+    return new PlatformVideoView(context, player);
   }
 }
