@@ -1424,8 +1424,6 @@ class _PlayerScreenState extends State<PlayerScreen>
         : 'LinPlayer';
 
     _isTvDevice = _isTv(context);
-    final enableBlur =
-        !_isTvDevice && (widget.appState?.enableBlurEffects ?? true);
 
     final remoteEnabled =
         _isTvDevice || (widget.appState?.forceRemoteControlKeys ?? false);
@@ -1478,7 +1476,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             child: IgnorePointer(
               ignoring: _fullScreen && !_controlsVisible,
               child: GlassAppBar(
-                enableBlur: enableBlur,
+                enableBlur: false,
                 child: AppBar(
                   backgroundColor: _fullScreen ? Colors.transparent : null,
                   foregroundColor: _fullScreen ? Colors.white : null,

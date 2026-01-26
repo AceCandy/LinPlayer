@@ -1845,7 +1845,6 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
   @override
   Widget build(BuildContext context) {
     final isTv = DeviceType.isTv;
-    final enableBlur = !isTv && widget.appState.enableBlurEffects;
 
     final fileName = _currentIndex >= 0 && _currentIndex < _playlist.length
         ? _playlist[_currentIndex].name
@@ -1912,7 +1911,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
             child: IgnorePointer(
               ignoring: _fullScreen && !_controlsVisible,
               child: GlassAppBar(
-                enableBlur: enableBlur,
+                enableBlur: false,
                 child: AppBar(
                   backgroundColor: _fullScreen ? Colors.transparent : null,
                   foregroundColor: _fullScreen ? Colors.white : null,
