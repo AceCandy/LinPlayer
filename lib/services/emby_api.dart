@@ -914,17 +914,46 @@ class EmbyApi {
     required String userId,
     required String deviceId,
     required String itemId,
+    bool exoPlayer = false,
   }) async {
-    final deviceProfile = {
-      "Name": "LinPlayer",
-      "MaxStreamingBitrate": 120000000,
-      "DirectPlayProfiles": [
-        {"Container": "mp4,mkv,mov,avi,ts,flv,webm", "Type": "Video"},
-        {"Container": "mp3,aac,flac,wav,ogg", "Type": "Audio"}
-      ],
-      "TranscodingProfiles": [],
-      "DeviceId": deviceId,
-    };
+    final deviceProfile = exoPlayer
+        ? {
+            "Name": "LinPlayer-Exo",
+            "MaxStreamingBitrate": 120000000,
+            "DirectPlayProfiles": [
+              {
+                "Container": "mp4,mkv,mov,avi,ts,flv,webm",
+                "Type": "Video",
+                "AudioCodec": "aac,mp3",
+              },
+              {
+                "Container": "mp3,aac,m4a",
+                "Type": "Audio",
+                "AudioCodec": "aac,mp3",
+              },
+            ],
+            "TranscodingProfiles": [
+              {
+                "Container": "ts",
+                "Type": "Video",
+                "Protocol": "hls",
+                "VideoCodec": "h264",
+                "AudioCodec": "aac",
+                "Context": "Streaming",
+              },
+            ],
+            "DeviceId": deviceId,
+          }
+        : {
+            "Name": "LinPlayer",
+            "MaxStreamingBitrate": 120000000,
+            "DirectPlayProfiles": [
+              {"Container": "mp4,mkv,mov,avi,ts,flv,webm", "Type": "Video"},
+              {"Container": "mp3,aac,flac,wav,ogg", "Type": "Audio"}
+            ],
+            "TranscodingProfiles": [],
+            "DeviceId": deviceId,
+          };
 
     Future<http.Response> postReq() => _client.post(
           Uri.parse(_apiUrl(baseUrl, 'Items/$itemId/PlaybackInfo')),

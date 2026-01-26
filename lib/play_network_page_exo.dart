@@ -1842,6 +1842,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
           userId: userId,
           deviceId: widget.appState.deviceId,
           itemId: widget.itemId,
+          exoPlayer: true,
         );
         sources = info.mediaSources.cast<Map<String, dynamic>>();
         _availableMediaSources = List<Map<String, dynamic>>.from(sources);
@@ -2117,6 +2118,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         userId: userId,
         deviceId: widget.appState.deviceId,
         itemId: widget.itemId,
+        exoPlayer: true,
       );
       final sources = info.mediaSources.cast<Map<String, dynamic>>();
       _availableMediaSources = List<Map<String, dynamic>>.from(sources);
@@ -2134,9 +2136,22 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       }
       _playSessionId = info.playSessionId;
       _mediaSourceId = (ms?['Id'] as String?) ?? info.mediaSourceId;
-      final directStreamUrl = ms?['DirectStreamUrl'] as String?;
+      final directStreamUrl = (ms?['DirectStreamUrl'] as String?)?.trim();
+      final transcodingUrl = (ms?['TranscodingUrl'] as String?)?.trim();
+      final supportsDirectPlay = ms?['SupportsDirectPlay'] == true;
+      final supportsDirectStream = ms?['SupportsDirectStream'] == true;
+
+      if (!supportsDirectPlay &&
+          !supportsDirectStream &&
+          transcodingUrl != null &&
+          transcodingUrl.isNotEmpty) {
+        return resolve(transcodingUrl);
+      }
       if (directStreamUrl != null && directStreamUrl.isNotEmpty) {
         return resolve(directStreamUrl);
+      }
+      if (transcodingUrl != null && transcodingUrl.isNotEmpty) {
+        return resolve(transcodingUrl);
       }
       final mediaSourceId = (ms?['Id'] as String?) ?? info.mediaSourceId;
       return applyQueryPrefs(
