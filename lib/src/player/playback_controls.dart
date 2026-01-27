@@ -21,6 +21,7 @@ class PlaybackControls extends StatefulWidget {
     required this.onPause,
     required this.onSeekBackward,
     required this.onSeekForward,
+    this.playPauseFocusNode,
     this.heatmap,
     this.showHeatmap = false,
     this.seekBackwardSeconds = 10,
@@ -51,6 +52,11 @@ class PlaybackControls extends StatefulWidget {
   final FutureOr<void> Function() onPause;
   final FutureOr<void> Function() onSeekBackward;
   final FutureOr<void> Function() onSeekForward;
+
+  /// Optional focus node for the play/pause (primary action) button.
+  ///
+  /// Useful for TV/D-pad navigation to programmatically move focus into controls.
+  final FocusNode? playPauseFocusNode;
 
   /// Optional heatmap values along the progress bar.
   ///
@@ -794,6 +800,7 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                       ),
                       IconButton(
                         tooltip: widget.isPlaying ? '暂停' : '播放',
+                        focusNode: widget.playPauseFocusNode,
                         icon: Icon(
                           widget.isPlaying
                               ? Icons.pause_circle

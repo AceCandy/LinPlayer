@@ -109,6 +109,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   VideoParams? _lastVideoParams;
   _OrientationMode _orientationMode = _OrientationMode.auto;
   String? _lastOrientationKey;
+  bool _remoteEnabled = false;
+  final FocusNode _tvSurfaceFocusNode =
+      FocusNode(debugLabel: 'network_player_tv_surface');
+  final FocusNode _tvPlayPauseFocusNode =
+      FocusNode(debugLabel: 'network_player_tv_play_pause');
   Duration? _resumeHintPosition;
   bool _showResumeHint = false;
   Timer? _resumeHintTimer;
@@ -1077,7 +1082,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                         ),
                         Expanded(
                           child: FutureBuilder<List<MediaItem>>(
-                            future: _episodesFutureForSeasonId(selectedSeason.id),
+                            future:
+                                _episodesFutureForSeasonId(selectedSeason.id),
                             builder: (ctx, snapshot) {
                               if (snapshot.connectionState !=
                                   ConnectionState.done) {
@@ -1104,7 +1110,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                         onPressed: () => setState(() {
                                           final season = selectedSeason;
                                           if (season == null) return;
-                                          _episodeEpisodesCache.remove(season.id);
+                                          _episodeEpisodesCache
+                                              .remove(season.id);
                                           _episodeEpisodesFutureCache
                                               .remove(season.id);
                                         }),
@@ -2022,6 +2029,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       // ignore: unawaited_futures
       thumb.dispose();
     }
+    _tvSurfaceFocusNode.dispose();
+    _tvPlayPauseFocusNode.dispose();
     _playerService.dispose();
     super.dispose();
   }
@@ -2047,7 +2056,12 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     }
     // ignore: unawaited_futures
     _exitImmersiveMode();
-    if (scheduleHide) _scheduleControlsHide();
+    if (scheduleHide && !_remoteEnabled) {
+      _scheduleControlsHide();
+    } else {
+      _controlsHideTimer?.cancel();
+      _controlsHideTimer = null;
+    }
   }
 
   void _toggleControls() {
@@ -2060,14 +2074,42 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     setState(() => _controlsVisible = false);
     // ignore: unawaited_futures
     _enterImmersiveMode();
+    if (_remoteEnabled) _focusTvSurface();
+  }
+
+  void _focusTvSurface() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      FocusScope.of(context).requestFocus(_tvSurfaceFocusNode);
+    });
+  }
+
+  void _focusTvPlayPause() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      if (!_controlsVisible) return;
+      FocusScope.of(context).requestFocus(_tvPlayPauseFocusNode);
+    });
+  }
+
+  void _hideControlsForRemote() {
+    _controlsHideTimer?.cancel();
+    _controlsHideTimer = null;
+    if (_controlsVisible) {
+      setState(() => _controlsVisible = false);
+    }
+    // ignore: unawaited_futures
+    _enterImmersiveMode();
+    _focusTvSurface();
   }
 
   void _scheduleControlsHide() {
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
+    if (_remoteEnabled) return;
     if (!_controlsVisible || _isScrubbing) return;
     _controlsHideTimer = Timer(_controlsAutoHideDelay, () {
-      if (!mounted || _isScrubbing) return;
+      if (!mounted || _isScrubbing || _remoteEnabled) return;
       setState(() => _controlsVisible = false);
       // ignore: unawaited_futures
       _enterImmersiveMode();
@@ -2511,16 +2553,34 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final isPlaying = initialized ? _playerService.isPlaying : false;
     final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     final remoteEnabled = widget.isTv || widget.appState.forceRemoteControlKeys;
+    _remoteEnabled = remoteEnabled;
 
     return Focus(
-      autofocus: true,
+      focusNode: _tvSurfaceFocusNode,
+      autofocus: remoteEnabled,
       canRequestFocus: remoteEnabled,
+      skipTraversal: true,
       onKeyEvent: (node, event) {
         if (!remoteEnabled) return KeyEventResult.ignored;
-        if (!controlsEnabled) return KeyEventResult.ignored;
+        if (!node.hasPrimaryFocus) return KeyEventResult.ignored;
         if (event is! KeyDownEvent) return KeyEventResult.ignored;
 
         final key = event.logicalKey;
+        if (key == LogicalKeyboardKey.arrowUp) {
+          _showControls(scheduleHide: false);
+          _focusTvPlayPause();
+          return KeyEventResult.handled;
+        }
+        if (key == LogicalKeyboardKey.arrowDown) {
+          if (_controlsVisible) {
+            _hideControlsForRemote();
+            return KeyEventResult.handled;
+          }
+          return KeyEventResult.ignored;
+        }
+
+        if (!controlsEnabled) return KeyEventResult.ignored;
+
         if (key == LogicalKeyboardKey.space ||
             key == LogicalKeyboardKey.enter ||
             key == LogicalKeyboardKey.select) {
@@ -2710,7 +2770,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                           Video(
                             controller: _playerService.controller,
                             controls: NoVideoControls,
-                            subtitleViewConfiguration: _subtitleViewConfiguration,
+                            subtitleViewConfiguration:
+                                _subtitleViewConfiguration,
                           ),
                           Positioned.fill(
                             child: DanmakuStage(
@@ -2924,8 +2985,33 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                   ignoring: !_controlsVisible,
                                   child: Listener(
                                     onPointerDown: (_) => _showControls(),
+                                    child: Focus(
+                                      canRequestFocus: false,
+                                      onKeyEvent: (node, event) {
+                                        if (!_remoteEnabled) {
+                                          return KeyEventResult.ignored;
+                                        }
+                                        if (event is! KeyDownEvent) {
+                                          return KeyEventResult.ignored;
+                                        }
+                                        if (event.logicalKey ==
+                                            LogicalKeyboardKey.arrowDown) {
+                                          final moved = FocusScope.of(context)
+                                              .focusInDirection(
+                                            TraversalDirection.down,
+                                          );
+                                          if (moved) {
+                                            return KeyEventResult.handled;
+                                          }
+                                          _hideControlsForRemote();
+                                          return KeyEventResult.handled;
+                                        }
+                                        return KeyEventResult.ignored;
+                                      },
                                       child: PlaybackControls(
                                         enabled: controlsEnabled,
+                                        playPauseFocusNode:
+                                            _tvPlayPauseFocusNode,
                                         position: _lastPosition,
                                         buffered: _lastBuffer,
                                         duration: duration,
@@ -2933,89 +3019,92 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                         heatmap: _danmakuHeatmap,
                                         showHeatmap: _danmakuShowHeatmap &&
                                             _danmakuHeatmap.isNotEmpty,
-                                      seekBackwardSeconds: _seekBackSeconds,
-                                      seekForwardSeconds: _seekForwardSeconds,
-                                      showSystemTime: widget
-                                          .appState.showSystemTimeInControls,
-                                      showBattery:
-                                          widget.appState.showBatteryInControls,
-                                      showBufferSpeed:
-                                          widget.appState.showBufferSpeed,
-                                      buffering: _buffering,
-                                      bufferSpeedX: _bufferSpeedX,
-                                      onRequestThumbnail: _thumbnailer == null
-                                          ? null
-                                          : (pos) => _thumbnailer!.getThumbnail(
-                                                pos,
-                                              ),
-                                      onOpenEpisodePicker:
-                                          _canShowEpisodePickerButton
-                                              ? _toggleEpisodePicker
-                                              : null,
-                                      onScrubStart: _onScrubStart,
-                                      onScrubEnd: _onScrubEnd,
-                                      onSeek: (pos) async {
-                                        await _playerService.seek(
-                                          pos,
-                                          flushBuffer: _flushBufferOnSeek,
-                                        );
-                                        _lastPosition = pos;
-                                        _syncDanmakuCursor(pos);
-                                        _maybeReportPlaybackProgress(
-                                          pos,
-                                          force: true,
-                                        );
-                                        if (mounted) setState(() {});
-                                      },
-                                      onPlay: () {
-                                        _showControls();
-                                        return _playerService.play();
-                                      },
-                                      onPause: () {
-                                        _showControls();
-                                        return _playerService.pause();
-                                      },
-                                      onSeekBackward: () async {
-                                        _showControls();
-                                        final target = _lastPosition -
-                                            Duration(seconds: _seekBackSeconds);
-                                        final pos = target < Duration.zero
-                                            ? Duration.zero
-                                            : target;
-                                        await _playerService.seek(
-                                          pos,
-                                          flushBuffer: _flushBufferOnSeek,
-                                        );
-                                        _lastPosition = pos;
-                                        _syncDanmakuCursor(pos);
-                                        _maybeReportPlaybackProgress(
-                                          pos,
-                                          force: true,
-                                        );
-                                        if (mounted) setState(() {});
-                                      },
-                                      onSeekForward: () async {
-                                        _showControls();
-                                        final d = duration;
-                                        final target = _lastPosition +
-                                            Duration(
-                                                seconds: _seekForwardSeconds);
-                                        final pos =
-                                            (d > Duration.zero && target > d)
-                                                ? d
-                                                : target;
-                                        await _playerService.seek(
-                                          pos,
-                                          flushBuffer: _flushBufferOnSeek,
-                                        );
-                                        _lastPosition = pos;
-                                        _syncDanmakuCursor(pos);
-                                        _maybeReportPlaybackProgress(
-                                          pos,
-                                          force: true,
-                                        );
-                                        if (mounted) setState(() {});
-                                      },
+                                        seekBackwardSeconds: _seekBackSeconds,
+                                        seekForwardSeconds: _seekForwardSeconds,
+                                        showSystemTime: widget
+                                            .appState.showSystemTimeInControls,
+                                        showBattery: widget
+                                            .appState.showBatteryInControls,
+                                        showBufferSpeed:
+                                            widget.appState.showBufferSpeed,
+                                        buffering: _buffering,
+                                        bufferSpeedX: _bufferSpeedX,
+                                        onRequestThumbnail: _thumbnailer == null
+                                            ? null
+                                            : (pos) =>
+                                                _thumbnailer!.getThumbnail(
+                                                  pos,
+                                                ),
+                                        onOpenEpisodePicker:
+                                            _canShowEpisodePickerButton
+                                                ? _toggleEpisodePicker
+                                                : null,
+                                        onScrubStart: _onScrubStart,
+                                        onScrubEnd: _onScrubEnd,
+                                        onSeek: (pos) async {
+                                          await _playerService.seek(
+                                            pos,
+                                            flushBuffer: _flushBufferOnSeek,
+                                          );
+                                          _lastPosition = pos;
+                                          _syncDanmakuCursor(pos);
+                                          _maybeReportPlaybackProgress(
+                                            pos,
+                                            force: true,
+                                          );
+                                          if (mounted) setState(() {});
+                                        },
+                                        onPlay: () {
+                                          _showControls();
+                                          return _playerService.play();
+                                        },
+                                        onPause: () {
+                                          _showControls();
+                                          return _playerService.pause();
+                                        },
+                                        onSeekBackward: () async {
+                                          _showControls();
+                                          final target = _lastPosition -
+                                              Duration(
+                                                  seconds: _seekBackSeconds);
+                                          final pos = target < Duration.zero
+                                              ? Duration.zero
+                                              : target;
+                                          await _playerService.seek(
+                                            pos,
+                                            flushBuffer: _flushBufferOnSeek,
+                                          );
+                                          _lastPosition = pos;
+                                          _syncDanmakuCursor(pos);
+                                          _maybeReportPlaybackProgress(
+                                            pos,
+                                            force: true,
+                                          );
+                                          if (mounted) setState(() {});
+                                        },
+                                        onSeekForward: () async {
+                                          _showControls();
+                                          final d = duration;
+                                          final target = _lastPosition +
+                                              Duration(
+                                                  seconds: _seekForwardSeconds);
+                                          final pos =
+                                              (d > Duration.zero && target > d)
+                                                  ? d
+                                                  : target;
+                                          await _playerService.seek(
+                                            pos,
+                                            flushBuffer: _flushBufferOnSeek,
+                                          );
+                                          _lastPosition = pos;
+                                          _syncDanmakuCursor(pos);
+                                          _maybeReportPlaybackProgress(
+                                            pos,
+                                            force: true,
+                                          );
+                                          if (mounted) setState(() {});
+                                        },
+                                      ),
                                     ),
                                   ),
                                 ),
@@ -3425,7 +3514,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('强制覆盖 ASS/SSA 字幕'),
-                      subtitle: Text(_subtitleAssOverrideForce ? 'Force' : 'No'),
+                      subtitle:
+                          Text(_subtitleAssOverrideForce ? 'Force' : 'No'),
                       onTap: pickAssOverride,
                     ),
                   ],
