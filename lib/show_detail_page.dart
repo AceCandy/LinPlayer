@@ -61,6 +61,45 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     _load();
   }
 
+  Future<void> _refreshProgressAfterReturn(
+      {Duration delay = const Duration(milliseconds: 350)}) async {
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) return;
+
+    final api = EmbyApi(
+      hostOrUrl: baseUrl,
+      preferredScheme: 'https',
+      apiPrefix: widget.server?.apiPrefix ?? widget.appState.apiPrefix,
+      serverType: widget.server?.serverType ?? widget.appState.serverType,
+      deviceId: widget.appState.deviceId,
+    );
+
+    final before = _detail?.playbackPositionTicks;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final attemptDelay =
+          attempt == 0 ? delay : const Duration(milliseconds: 300);
+      if (attemptDelay > Duration.zero) {
+        await Future<void>.delayed(attemptDelay);
+      }
+
+      try {
+        final detail = await api.fetchItemDetail(
+          token: token,
+          baseUrl: baseUrl,
+          userId: userId,
+          itemId: widget.itemId,
+        );
+        if (!mounted) return;
+        setState(() => _detail = detail);
+        if (before == null || detail.playbackPositionTicks != before) return;
+      } catch (_) {
+        // Best-effort refresh. Keep existing state on failure.
+      }
+    }
+  }
+
   Future<void> _load() async {
     setState(() {
       _loading = true;
@@ -1191,7 +1230,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             label: item.playbackPositionTicks > 0
                                 ? '继续播放（${_fmtClock(_ticksToDuration(item.playbackPositionTicks))}）'
                                 : '播放',
-                            onTap: () {
+                            onTap: () async {
                               final start = item.playbackPositionTicks > 0
                                   ? _ticksToDuration(item.playbackPositionTicks)
                                   : null;
@@ -1199,7 +1238,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                   defaultTargetPlatform ==
                                       TargetPlatform.android &&
                                   widget.appState.playerCore == PlayerCore.exo;
-                              Navigator.of(context).push(
+                              await Navigator.of(context).push(
                                 MaterialPageRoute(
                                   builder: (_) => useExoCore
                                       ? ExoPlayNetworkPage(
@@ -1230,6 +1269,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                         ),
                                 ),
                               );
+                              if (!mounted) return;
+                              await _refreshProgressAfterReturn();
                             },
                           ),
                         ],
@@ -1738,7 +1779,9 @@ class EpisodeDetailPage extends StatefulWidget {
 
 class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   PlaybackInfoResult? _playInfo;
-  String? _preferredMediaSourceId;
+  String? _selectedMediaSourceId;
+  int? _selectedAudioStreamIndex; // null = default
+  int? _selectedSubtitleStreamIndex; // null = default, -1 = off
   String? _error;
   bool _loading = true;
   MediaItem? _detail;
@@ -1760,6 +1803,45 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _refreshProgressAfterReturn(
+      {Duration delay = const Duration(milliseconds: 350)}) async {
+    final baseUrl = _baseUrl;
+    final token = _token;
+    final userId = _userId;
+    if (baseUrl == null || token == null || userId == null) return;
+
+    final api = EmbyApi(
+      hostOrUrl: baseUrl,
+      preferredScheme: 'https',
+      apiPrefix: widget.server?.apiPrefix ?? widget.appState.apiPrefix,
+      serverType: widget.server?.serverType ?? widget.appState.serverType,
+      deviceId: widget.appState.deviceId,
+    );
+
+    final before = _detail?.playbackPositionTicks;
+    for (var attempt = 0; attempt < 3; attempt++) {
+      final attemptDelay =
+          attempt == 0 ? delay : const Duration(milliseconds: 300);
+      if (attemptDelay > Duration.zero) {
+        await Future<void>.delayed(attemptDelay);
+      }
+
+      try {
+        final detail = await api.fetchItemDetail(
+          token: token,
+          baseUrl: baseUrl,
+          userId: userId,
+          itemId: widget.episode.id,
+        );
+        if (!mounted) return;
+        setState(() => _detail = detail);
+        if (before == null || detail.playbackPositionTicks != before) return;
+      } catch (_) {
+        // Best-effort refresh. Keep existing state on failure.
+      }
+    }
   }
 
   Future<void> _load() async {
@@ -1831,6 +1913,43 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
               sources,
               widget.appState.preferredVideoVersion,
             );
+
+      final serverId = widget.server?.id ?? widget.appState.activeServerId;
+      final seriesId = resolvedSeriesId.trim();
+
+      String? selectedMediaSourceId = _selectedMediaSourceId;
+      if ((selectedMediaSourceId ?? '').trim().isEmpty &&
+          serverId != null &&
+          serverId.trim().isNotEmpty &&
+          seriesId.isNotEmpty &&
+          sources.isNotEmpty) {
+        final idx = widget.appState
+            .seriesMediaSourceIndex(serverId: serverId.trim(), seriesId: seriesId);
+        if (idx != null && idx >= 0 && idx < sources.length) {
+          selectedMediaSourceId = sources[idx]['Id']?.toString();
+        }
+      }
+      selectedMediaSourceId = (selectedMediaSourceId ?? '').trim();
+      if (selectedMediaSourceId.isEmpty) {
+        selectedMediaSourceId = (preferred ?? '').trim();
+      }
+      if (selectedMediaSourceId.isEmpty && sources.isNotEmpty) {
+        selectedMediaSourceId = (sources.first['Id']?.toString() ?? '').trim();
+      }
+      if (selectedMediaSourceId.isEmpty) selectedMediaSourceId = null;
+
+      int? selectedAudioStreamIndex = _selectedAudioStreamIndex;
+      int? selectedSubtitleStreamIndex = _selectedSubtitleStreamIndex;
+      if (serverId != null &&
+          serverId.trim().isNotEmpty &&
+          seriesId.isNotEmpty) {
+        selectedAudioStreamIndex ??= widget.appState
+            .seriesAudioStreamIndex(serverId: serverId.trim(), seriesId: seriesId);
+        selectedSubtitleStreamIndex ??= widget.appState.seriesSubtitleStreamIndex(
+          serverId: serverId.trim(),
+          seriesId: seriesId,
+        );
+      }
       List<ChapterInfo> chaps = const [];
       try {
         chaps = await api.fetchChapters(
@@ -1846,13 +1965,301 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         _playInfo = info;
         _detail = detail;
         _chapters = chaps;
-        _preferredMediaSourceId = preferred;
+        _selectedMediaSourceId = selectedMediaSourceId;
+        _selectedAudioStreamIndex = selectedAudioStreamIndex;
+        _selectedSubtitleStreamIndex = selectedSubtitleStreamIndex;
       });
     } catch (e) {
       setState(() => _error = e.toString());
     } finally {
       if (mounted) setState(() => _loading = false);
     }
+  }
+
+  String _mediaSourceSubtitle(Map<String, dynamic> ms) {
+    final size = ms['Size'];
+    final sizeGb =
+        size is num ? (size / (1024 * 1024 * 1024)).toStringAsFixed(1) : null;
+    final bitrate = _ShowDetailPageState._asInt(ms['Bitrate']);
+    final bitrateMbps =
+        bitrate != null ? (bitrate / 1000000).toStringAsFixed(1) : null;
+
+    final videoStreams = _ShowDetailPageState._streamsOfType(ms, 'Video');
+    final video = videoStreams.isNotEmpty ? videoStreams.first : null;
+    final height = _ShowDetailPageState._asInt(video?['Height']);
+    final vCodec =
+        (ms['VideoCodec'] as String?) ?? (video?['Codec'] as String?);
+
+    final parts = <String>[];
+    if (height != null) parts.add('${height}p');
+    if (vCodec != null && vCodec.isNotEmpty) parts.add(vCodec.toUpperCase());
+    if (sizeGb != null) parts.add('$sizeGb GB');
+    if (bitrateMbps != null) parts.add('$bitrateMbps Mbps');
+    return parts.isEmpty ? '直连播放' : parts.join(' / ');
+  }
+
+  Widget _episodePlaybackOptionsCard(
+      BuildContext context, PlaybackInfoResult info) {
+    final ms = _ShowDetailPageState._findMediaSource(info, _selectedMediaSourceId);
+    if (ms == null) return const SizedBox.shrink();
+
+    final audioStreams = _ShowDetailPageState._streamsOfType(ms, 'Audio');
+    final subtitleStreams = _ShowDetailPageState._streamsOfType(ms, 'Subtitle');
+
+    final defaultAudio = _ShowDetailPageState._defaultStream(audioStreams);
+    final selectedAudio = _selectedAudioStreamIndex != null
+        ? audioStreams.firstWhere(
+            (s) =>
+                _ShowDetailPageState._asInt(s['Index']) == _selectedAudioStreamIndex,
+            orElse: () => defaultAudio ?? const <String, dynamic>{},
+          )
+        : defaultAudio;
+
+    final defaultSub = _ShowDetailPageState._defaultStream(subtitleStreams);
+    final Map<String, dynamic>? selectedSub;
+    if (_selectedSubtitleStreamIndex == -1) {
+      selectedSub = null;
+    } else if (_selectedSubtitleStreamIndex != null) {
+      selectedSub = subtitleStreams.firstWhere(
+        (s) =>
+            _ShowDetailPageState._asInt(s['Index']) == _selectedSubtitleStreamIndex,
+        orElse: () => defaultSub ?? const <String, dynamic>{},
+      );
+    } else {
+      selectedSub = defaultSub;
+    }
+
+    final hasSubs = subtitleStreams.isNotEmpty;
+    final subtitleText = _selectedSubtitleStreamIndex == -1
+        ? '关闭'
+        : selectedSub != null && selectedSub.isNotEmpty
+            ? _ShowDetailPageState._streamLabel(selectedSub, includeCodec: false)
+            : hasSubs
+                ? '默认'
+                : '关闭';
+
+    final audioText = selectedAudio != null && selectedAudio.isNotEmpty
+        ? _ShowDetailPageState._streamLabel(selectedAudio, includeCodec: false) +
+            (selectedAudio == defaultAudio ? ' (默认)' : '')
+        : '默认';
+
+    final theme = Theme.of(context);
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Card(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              ListTile(
+                leading: const Icon(Icons.video_file),
+                title: Text(_ShowDetailPageState._mediaSourceTitle(ms)),
+                subtitle: Text(_mediaSourceSubtitle(ms)),
+                trailing: const Icon(Icons.arrow_drop_down),
+                onTap: () => _pickMediaSource(context, info),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.audiotrack),
+                title: Text(audioText),
+                trailing: const Icon(Icons.arrow_drop_down),
+                onTap: audioStreams.isEmpty
+                    ? null
+                    : () => _pickAudioStream(context, ms),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                leading: const Icon(Icons.subtitles),
+                title: Text(subtitleText),
+                trailing: const Icon(Icons.arrow_drop_down),
+                onTap: hasSubs ? () => _pickSubtitleStream(context, ms) : null,
+              ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          '提示：以上选择会应用到本剧后续集数',
+          style: theme.textTheme.bodySmall?.copyWith(
+            color: theme.colorScheme.onSurfaceVariant,
+          ),
+        ),
+      ],
+    );
+  }
+
+  Future<void> _pickMediaSource(
+      BuildContext context, PlaybackInfoResult info) async {
+    final sources = info.mediaSources.cast<Map<String, dynamic>>();
+    if (sources.isEmpty) return;
+
+    final current = (_selectedMediaSourceId ?? '').trim();
+    final selected = await showModalBottomSheet<String>(
+      context: context,
+      builder: (ctx) {
+        return SafeArea(
+          child: ListView(
+            children: [
+              const ListTile(title: Text('版本选择')),
+              ...sources.map((ms) {
+                final id = (ms['Id']?.toString() ?? '').trim();
+                final selectedNow = id.isNotEmpty && id == current;
+                return ListTile(
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  title: Text(_ShowDetailPageState._mediaSourceTitle(ms)),
+                  subtitle: Text(_mediaSourceSubtitle(ms)),
+                  onTap: id.isEmpty ? null : () => Navigator.of(ctx).pop(id),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    final picked = (selected ?? '').trim();
+    if (picked.isEmpty || picked == current) return;
+
+    setState(() {
+      _selectedMediaSourceId = picked;
+    });
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    final idx =
+        sources.indexWhere((ms) => (ms['Id']?.toString() ?? '').trim() == picked);
+    if (idx < 0) return;
+    unawaited(
+      widget.appState.setSeriesMediaSourceIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        mediaSourceIndex: idx,
+      ),
+    );
+  }
+
+  Future<void> _pickAudioStream(
+      BuildContext context, Map<String, dynamic> ms) async {
+    final audioStreams = _ShowDetailPageState._streamsOfType(ms, 'Audio');
+    if (audioStreams.isEmpty) return;
+
+    final selected = await showModalBottomSheet<int?>(
+      context: context,
+      builder: (ctx) {
+        final def = _ShowDetailPageState._defaultStream(audioStreams);
+        final defIndex = _ShowDetailPageState._asInt(def?['Index']);
+        return SafeArea(
+          child: ListView(
+            children: [
+              const ListTile(title: Text('音轨选择')),
+              ListTile(
+                leading: Icon(_selectedAudioStreamIndex == null
+                    ? Icons.check
+                    : Icons.circle_outlined),
+                title: const Text('默认'),
+                onTap: () => Navigator.of(ctx).pop(null),
+              ),
+              ...audioStreams.map((s) {
+                final idx = _ShowDetailPageState._asInt(s['Index']);
+                final selectedNow = idx != null && idx == _selectedAudioStreamIndex;
+                final title =
+                    _ShowDetailPageState._streamLabel(s, includeCodec: false);
+                return ListTile(
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  title: Text(idx == defIndex ? '$title (默认)' : title),
+                  subtitle: (s['Codec'] as String?)?.isNotEmpty == true
+                      ? Text(s['Codec'] as String)
+                      : null,
+                  onTap: idx == null ? null : () => Navigator.of(ctx).pop(idx),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _selectedAudioStreamIndex = selected);
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    unawaited(
+      widget.appState.setSeriesAudioStreamIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        audioStreamIndex: selected,
+      ),
+    );
+  }
+
+  Future<void> _pickSubtitleStream(
+      BuildContext context, Map<String, dynamic> ms) async {
+    final subtitleStreams = _ShowDetailPageState._streamsOfType(ms, 'Subtitle');
+    if (subtitleStreams.isEmpty) return;
+
+    final selected = await showModalBottomSheet<int?>(
+      context: context,
+      builder: (ctx) {
+        final def = _ShowDetailPageState._defaultStream(subtitleStreams);
+        final defIndex = _ShowDetailPageState._asInt(def?['Index']);
+        final isOff = _selectedSubtitleStreamIndex == -1;
+        final isDefault = _selectedSubtitleStreamIndex == null;
+        return SafeArea(
+          child: ListView(
+            children: [
+              const ListTile(title: Text('字幕选择')),
+              ListTile(
+                leading: Icon(isOff ? Icons.check : Icons.circle_outlined),
+                title: const Text('关闭'),
+                onTap: () => Navigator.of(ctx).pop(-1),
+              ),
+              ListTile(
+                leading: Icon(isDefault ? Icons.check : Icons.circle_outlined),
+                title: const Text('默认'),
+                onTap: () => Navigator.of(ctx).pop(null),
+              ),
+              ...subtitleStreams.map((s) {
+                final idx = _ShowDetailPageState._asInt(s['Index']);
+                final selectedNow =
+                    idx != null && idx == _selectedSubtitleStreamIndex;
+                final title =
+                    _ShowDetailPageState._streamLabel(s, includeCodec: false);
+                return ListTile(
+                  leading: Icon(
+                      selectedNow ? Icons.check_circle : Icons.circle_outlined),
+                  title: Text(idx == defIndex ? '$title (默认)' : title),
+                  subtitle: (s['Codec'] as String?)?.isNotEmpty == true
+                      ? Text(s['Codec'] as String)
+                      : null,
+                  onTap: idx == null ? null : () => Navigator.of(ctx).pop(idx),
+                );
+              }),
+            ],
+          ),
+        );
+      },
+    );
+
+    if (!mounted) return;
+    setState(() => _selectedSubtitleStreamIndex = selected);
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    unawaited(
+      widget.appState.setSeriesSubtitleStreamIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        subtitleStreamIndex: selected,
+      ),
+    );
   }
 
   @override
@@ -1880,14 +2287,14 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                         Text(_detail!.overview),
                       const SizedBox(height: 12),
                       if (_playInfo != null)
-                        _mediaSourcesSection(context, _playInfo!),
+                        _episodePlaybackOptionsCard(context, _playInfo!),
                       const SizedBox(height: 12),
                       _playButton(
                         context,
                         label: (_detail?.playbackPositionTicks ?? 0) > 0
                             ? '继续播放（${_fmtClock(_ticksToDuration(_detail!.playbackPositionTicks))}）'
                             : '播放',
-                        onTap: () {
+                        onTap: () async {
                           final start = (_detail?.playbackPositionTicks ?? 0) >
                                   0
                               ? _ticksToDuration(_detail!.playbackPositionTicks)
@@ -1895,7 +2302,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                           final useExoCore = !kIsWeb &&
                               defaultTargetPlatform == TargetPlatform.android &&
                               widget.appState.playerCore == PlayerCore.exo;
-                          Navigator.of(context).push(
+                          await Navigator.of(context).push(
                             MaterialPageRoute(
                               builder: (_) => useExoCore
                                   ? ExoPlayNetworkPage(
@@ -1904,8 +2311,12 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                       appState: widget.appState,
                                       server: widget.server,
                                       isTv: widget.isTv,
+                                      seriesId: _seriesId,
                                       startPosition: start,
-                                      mediaSourceId: _preferredMediaSourceId,
+                                      mediaSourceId: _selectedMediaSourceId,
+                                      audioStreamIndex: _selectedAudioStreamIndex,
+                                      subtitleStreamIndex:
+                                          _selectedSubtitleStreamIndex,
                                     )
                                   : PlayNetworkPage(
                                       title: ep.name,
@@ -1913,11 +2324,17 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                       appState: widget.appState,
                                       server: widget.server,
                                       isTv: widget.isTv,
+                                      seriesId: _seriesId,
                                       startPosition: start,
-                                      mediaSourceId: _preferredMediaSourceId,
+                                      mediaSourceId: _selectedMediaSourceId,
+                                      audioStreamIndex: _selectedAudioStreamIndex,
+                                      subtitleStreamIndex:
+                                          _selectedSubtitleStreamIndex,
                                     ),
                             ),
                           );
+                          if (!mounted) return;
+                          await _refreshProgressAfterReturn();
                         },
                       ),
                       const SizedBox(height: 16),
@@ -2786,31 +3203,6 @@ Widget _peopleSection(
           },
         ),
       ),
-    ],
-  );
-}
-
-Widget _mediaSourcesSection(BuildContext context, PlaybackInfoResult info) {
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-      Text('版本', style: Theme.of(context).textTheme.titleMedium),
-      const SizedBox(height: 6),
-      ...info.mediaSources.map((ms) {
-        final map = ms as Map<String, dynamic>;
-        final name = map['Name'] ?? map['Container'] ?? '默认';
-        final size = map['Size'] != null
-            ? ' · ${(map['Size'] / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB'
-            : '';
-        final vc = map['VideoCodec'] ?? '';
-        final ac = map['AudioCodec'] ?? '';
-        return Card(
-          child: ListTile(
-            title: Text('$name$size'),
-            subtitle: Text('$vc  $ac'),
-          ),
-        );
-      }),
     ],
   );
 }

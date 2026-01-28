@@ -88,6 +88,26 @@ class WebDavApi {
     return uri.replace(path: path);
   }
 
+  static Uri _ensureNonEmptyPath(Uri uri) {
+    if (uri.path.isNotEmpty) return uri;
+    return uri.replace(path: '/');
+  }
+
+  static Uri _toggleTrailingSlash(Uri uri) {
+    var path = uri.path;
+    if (path.isEmpty) path = '/';
+    if (path == '/') return uri.replace(path: '/');
+
+    if (path.endsWith('/')) {
+      while (path.endsWith('/') && path != '/') {
+        path = path.substring(0, path.length - 1);
+      }
+    } else {
+      path = '$path/';
+    }
+    return uri.replace(path: path);
+  }
+
   static String _normalizePathForCompare(String path) {
     var p = path;
     if (p.isEmpty) p = '/';
@@ -116,39 +136,64 @@ class WebDavApi {
     required int depth,
     Duration timeout = const Duration(seconds: 10),
   }) async {
-    final target = _ensureDirUri(uri);
-    final res = await _send(
-      'PROPFIND',
-      target,
-      headers: {
-        'Depth': depth.toString(),
-        HttpHeaders.contentTypeHeader: 'application/xml; charset=utf-8',
-      },
-      bodyBytes: utf8.encode(_propfindAllProp),
-      timeout: timeout,
+    final original = _ensureNonEmptyPath(uri);
+    final alt = _toggleTrailingSlash(original);
+    final candidates = <Uri>[
+      original,
+      if (alt.toString() != original.toString()) alt,
+    ];
+
+    final errors = <Object>[];
+
+    for (final target in candidates) {
+      try {
+        final res = await _send(
+          'PROPFIND',
+          target,
+          headers: {
+            'Depth': depth.toString(),
+            HttpHeaders.contentTypeHeader: 'application/xml; charset=utf-8',
+          },
+          bodyBytes: utf8.encode(_propfindAllProp),
+          timeout: timeout,
+        );
+
+        final status = res.statusCode;
+        if (status != 207 && status != 200) {
+          throw WebDavApiException(
+              'PROPFIND failed ($status): ${target.toString()}');
+        }
+
+        final text = utf8.decode(res.bodyBytes, allowMalformed: true);
+        try {
+          return XmlDocument.parse(text);
+        } catch (e) {
+          throw WebDavApiException('Invalid WebDAV XML: $e');
+        }
+      } catch (e) {
+        errors.add(e);
+        if (candidates.length <= 1 || target == candidates.last) break;
+      }
+    }
+
+    if (errors.length == 1) {
+      // ignore: only_throw_errors
+      throw errors.single;
+    }
+    throw WebDavApiException(
+      'PROPFIND failed for ${candidates.map((u) => u.toString()).join(' / ')}: '
+      '${errors.map((e) => e.toString()).join(' | ')}',
     );
-
-    final status = res.statusCode;
-    if (status != 207 && status != 200) {
-      throw WebDavApiException(
-          'PROPFIND failed ($status): ${target.toString()}');
-    }
-
-    final text = utf8.decode(res.bodyBytes, allowMalformed: true);
-    try {
-      return XmlDocument.parse(text);
-    } catch (e) {
-      throw WebDavApiException('Invalid WebDAV XML: $e');
-    }
   }
 
   Future<List<WebDavEntry>> listDirectory(
     Uri dirUri, {
     Duration timeout = const Duration(seconds: 12),
   }) async {
-    final requestUri = _ensureDirUri(dirUri);
+    final requestUriRaw = _ensureNonEmptyPath(dirUri);
+    final requestUri = _ensureDirUri(requestUriRaw);
     final doc = await propfind(
-      requestUri,
+      requestUriRaw,
       depth: 1,
       timeout: timeout,
     );

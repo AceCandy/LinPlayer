@@ -36,8 +36,9 @@ class PlayNetworkPage extends StatefulWidget {
     required this.appState,
     this.server,
     this.isTv = false,
+    this.seriesId,
     this.startPosition,
-    this.resumeImmediately = false,
+    this.resumeImmediately = true,
     this.mediaSourceId,
     this.audioStreamIndex,
     this.subtitleStreamIndex,
@@ -48,6 +49,7 @@ class PlayNetworkPage extends StatefulWidget {
   final AppState appState;
   final ServerProfile? server;
   final bool isTv;
+  final String? seriesId;
   final Duration? startPosition;
   final bool resumeImmediately;
   final String? mediaSourceId;
@@ -117,6 +119,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   Duration? _resumeHintPosition;
   bool _showResumeHint = false;
   Timer? _resumeHintTimer;
+  Duration? _startOverHintPosition;
+  bool _showStartOverHint = false;
+  Timer? _startOverHintTimer;
   bool _deferProgressReporting = false;
 
   static const Duration _gestureOverlayAutoHideDelay =
@@ -208,6 +213,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _selectedMediaSourceId = widget.mediaSourceId;
     _selectedAudioStreamIndex = widget.audioStreamIndex;
     _selectedSubtitleStreamIndex = widget.subtitleStreamIndex;
+    final sid = (widget.seriesId ?? '').trim();
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    if (serverId != null && serverId.isNotEmpty && sid.isNotEmpty) {
+      _selectedAudioStreamIndex ??= widget.appState
+          .seriesAudioStreamIndex(serverId: serverId, seriesId: sid);
+      _selectedSubtitleStreamIndex ??= widget.appState
+          .seriesSubtitleStreamIndex(serverId: serverId, seriesId: sid);
+    }
     // ignore: unawaited_futures
     _exitImmersiveMode();
     _init();
@@ -248,14 +261,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _progressReportInFlight = false;
     _nextDanmakuIndex = 0;
     _danmakuKey.currentState?.clear();
-    _lastUiTickAt = null;
-    _resumeHintTimer?.cancel();
-    _resumeHintTimer = null;
-    _resumeHintPosition = null;
-    _showResumeHint = false;
-    _deferProgressReporting = false;
-    _controlsVisible = true;
-    _isScrubbing = false;
+      _lastUiTickAt = null;
+      _resumeHintTimer?.cancel();
+      _resumeHintTimer = null;
+      _resumeHintPosition = null;
+      _showResumeHint = false;
+      _startOverHintTimer?.cancel();
+      _startOverHintTimer = null;
+      _startOverHintPosition = null;
+      _showStartOverHint = false;
+      _deferProgressReporting = false;
+      _controlsVisible = true;
+      _isScrubbing = false;
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
     try {
@@ -315,6 +332,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
           await _playerService.seek(target, flushBuffer: _flushBufferOnSeek);
           _lastPosition = target;
           _syncDanmakuCursor(target);
+          if (target > Duration.zero) {
+            _startOverHintPosition = target;
+            _showStartOverHint = true;
+          }
         } else {
           _resumeHintPosition = target;
           _showResumeHint = true;
@@ -433,12 +454,17 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       _playError = e.toString();
       _resumeHintPosition = null;
       _showResumeHint = false;
+      _startOverHintPosition = null;
+      _showStartOverHint = false;
       _deferProgressReporting = false;
     } finally {
       if (mounted) {
         setState(() => _loading = false);
         if (_showResumeHint && _resumeHintPosition != null) {
           _startResumeHintTimer();
+        }
+        if (_showStartOverHint && _startOverHintPosition != null) {
+          _startStartOverHintTimer();
         }
         _scheduleControlsHide();
       }
@@ -872,6 +898,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     }
 
     setState(() => _episodePickerVisible = false);
+    final ticks = episode.playbackPositionTicks;
+    final start = ticks > 0 ? Duration(microseconds: (ticks / 10).round()) : null;
+    final episodeSeriesId = (episode.seriesId ?? '').trim();
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => PlayNetworkPage(
@@ -880,6 +909,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
           appState: widget.appState,
           server: widget.server,
           isTv: widget.isTv,
+          seriesId: episodeSeriesId.isNotEmpty ? episodeSeriesId : widget.seriesId,
+          startPosition: start,
+          resumeImmediately: true,
+          audioStreamIndex: _selectedAudioStreamIndex,
+          subtitleStreamIndex: _selectedSubtitleStreamIndex,
         ),
       ),
     );
@@ -1600,12 +1634,33 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       _availableMediaSources = List<Map<String, dynamic>>.from(sources);
       Map<String, dynamic>? ms;
       if (sources.isNotEmpty) {
-        final selectedId = _selectedMediaSourceId;
-        if (selectedId != null && selectedId.isNotEmpty) {
+        var selectedId = (_selectedMediaSourceId ?? '').trim();
+        if (selectedId.isEmpty) {
+          final sid = (widget.seriesId ?? '').trim();
+          final serverId = widget.server?.id ?? widget.appState.activeServerId;
+          if (serverId != null && serverId.isNotEmpty && sid.isNotEmpty) {
+            final idx = widget.appState
+                .seriesMediaSourceIndex(serverId: serverId, seriesId: sid);
+            if (idx != null && idx >= 0 && idx < sources.length) {
+              selectedId = (sources[idx]['Id'] as String? ?? '').trim();
+            }
+          }
+        }
+        if (selectedId.isEmpty) {
+          final preferredId = _pickPreferredMediaSourceId(
+            sources,
+            widget.appState.preferredVideoVersion,
+          );
+          if (preferredId != null && preferredId.trim().isNotEmpty) {
+            selectedId = preferredId.trim();
+          }
+        }
+        if (selectedId.isNotEmpty) {
           ms = sources.firstWhere(
             (s) => (s['Id'] as String? ?? '') == selectedId,
             orElse: () => sources.first,
           );
+          _selectedMediaSourceId = selectedId;
         } else {
           ms = sources.first;
         }
@@ -1664,6 +1719,115 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     return (ms['Name'] as String?) ?? (ms['Container'] as String?) ?? '默认版本';
   }
 
+  static String? _pickPreferredMediaSourceId(
+    List<Map<String, dynamic>> sources,
+    VideoVersionPreference pref,
+  ) {
+    if (sources.isEmpty) return null;
+    if (pref == VideoVersionPreference.defaultVersion) return null;
+
+    int heightOf(Map<String, dynamic> ms) {
+      final videos = _streamsOfType(ms, 'Video');
+      final video = videos.isNotEmpty ? videos.first : null;
+      return _asInt(video?['Height']) ?? 0;
+    }
+
+    int bitrateOf(Map<String, dynamic> ms) => _asInt(ms['Bitrate']) ?? 0;
+
+    String videoCodecOf(Map<String, dynamic> ms) {
+      final msCodec = (ms['VideoCodec'] as String?)?.trim();
+      if (msCodec != null && msCodec.isNotEmpty) return msCodec.toLowerCase();
+      final videos = _streamsOfType(ms, 'Video');
+      final v = videos.isNotEmpty ? videos.first : null;
+      final codec = (v?['Codec'] as String?)?.trim() ?? '';
+      return codec.toLowerCase();
+    }
+
+    bool isHevc(Map<String, dynamic> ms) {
+      final c = videoCodecOf(ms);
+      return c.contains('hevc') ||
+          c.contains('h265') ||
+          c.contains('h.265') ||
+          c.contains('x265');
+    }
+
+    bool isAvc(Map<String, dynamic> ms) {
+      final c = videoCodecOf(ms);
+      return c.contains('avc') ||
+          c.contains('h264') ||
+          c.contains('h.264') ||
+          c.contains('x264');
+    }
+
+    Map<String, dynamic>? pickBest(
+      List<Map<String, dynamic>> list, {
+      required int Function(Map<String, dynamic> ms) primary,
+      required int Function(Map<String, dynamic> ms) secondary,
+      required bool higherIsBetter,
+    }) {
+      if (list.isEmpty) return null;
+      Map<String, dynamic> chosen = list.first;
+      var bestPrimary = primary(chosen);
+      var bestSecondary = secondary(chosen);
+      for (final ms in list.skip(1)) {
+        final p = primary(ms);
+        final s = secondary(ms);
+        final better = higherIsBetter
+            ? (p > bestPrimary || (p == bestPrimary && s > bestSecondary))
+            : (p < bestPrimary || (p == bestPrimary && s < bestSecondary));
+        if (better) {
+          chosen = ms;
+          bestPrimary = p;
+          bestSecondary = s;
+        }
+      }
+      return chosen;
+    }
+
+    Map<String, dynamic>? chosen;
+    switch (pref) {
+      case VideoVersionPreference.highestResolution:
+        chosen = pickBest(
+          sources,
+          primary: heightOf,
+          secondary: bitrateOf,
+          higherIsBetter: true,
+        );
+        break;
+      case VideoVersionPreference.lowestBitrate:
+        chosen = pickBest(
+          sources,
+          primary: (ms) => bitrateOf(ms) == 0 ? 1 << 30 : bitrateOf(ms),
+          secondary: heightOf,
+          higherIsBetter: false,
+        );
+        break;
+      case VideoVersionPreference.preferHevc:
+        final hevc = sources.where(isHevc).toList();
+        chosen = pickBest(
+          hevc.isNotEmpty ? hevc : sources,
+          primary: heightOf,
+          secondary: bitrateOf,
+          higherIsBetter: true,
+        );
+        break;
+      case VideoVersionPreference.preferAvc:
+        final avc = sources.where(isAvc).toList();
+        chosen = pickBest(
+          avc.isNotEmpty ? avc : sources,
+          primary: heightOf,
+          secondary: bitrateOf,
+          higherIsBetter: true,
+        );
+        break;
+      case VideoVersionPreference.defaultVersion:
+        break;
+    }
+
+    final id = chosen?['Id']?.toString();
+    return (id == null || id.trim().isEmpty) ? null : id.trim();
+  }
+
   static String _mediaSourceSubtitle(Map<String, dynamic> ms) {
     final size = ms['Size'];
     final sizeGb =
@@ -1709,6 +1873,37 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       }
       setState(() {});
     });
+  }
+
+  void _startStartOverHintTimer() {
+    _startOverHintTimer?.cancel();
+    _startOverHintTimer = Timer(const Duration(seconds: 5), () {
+      if (!mounted) return;
+      if (!_showStartOverHint) return;
+      _showStartOverHint = false;
+      setState(() {});
+    });
+  }
+
+  Future<void> _restartFromBeginning() async {
+    if (!_playerService.isInitialized) return;
+    _showControls(scheduleHide: false);
+
+    try {
+      await _playerService.seek(
+        Duration.zero,
+        flushBuffer: _flushBufferOnSeek,
+      );
+    } catch (_) {}
+
+    _lastPosition = Duration.zero;
+    _syncDanmakuCursor(Duration.zero);
+    _maybeReportPlaybackProgress(_lastPosition, force: true);
+
+    _startOverHintTimer?.cancel();
+    _startOverHintTimer = null;
+    _showStartOverHint = false;
+    if (mounted) setState(() {});
   }
 
   Future<void> _resumeToHistoryPosition() async {
@@ -2011,6 +2206,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _exitImmersiveMode(resetOrientations: true);
     _resumeHintTimer?.cancel();
     _resumeHintTimer = null;
+    _startOverHintTimer?.cancel();
+    _startOverHintTimer = null;
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
     _gestureOverlayTimer?.cancel();
@@ -2450,6 +2647,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
           appState: widget.appState,
           server: widget.server,
           isTv: widget.isTv,
+          seriesId: widget.seriesId,
           startPosition: pos,
           resumeImmediately: true,
           mediaSourceId:
@@ -2532,6 +2730,24 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     if (!mounted) return;
     if (selected == null || selected.trim().isEmpty) return;
     if (selected.trim() == current) return;
+
+    final sid = (widget.seriesId ?? '').trim();
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    if (serverId != null && serverId.isNotEmpty && sid.isNotEmpty) {
+      final idx = sources.indexWhere(
+        (ms) => (ms['Id']?.toString() ?? '') == selected.trim(),
+      );
+      if (idx >= 0) {
+        // ignore: unawaited_futures
+        unawaited(
+          widget.appState.setSeriesMediaSourceIndex(
+            serverId: serverId,
+            seriesId: sid,
+            mediaSourceIndex: idx,
+          ),
+        );
+      }
+    }
 
     setState(() {
       _selectedMediaSourceId = selected.trim();
@@ -2965,6 +3181,87 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                             ),
                                           ],
                                         ),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (controlsEnabled &&
+                              _showStartOverHint &&
+                              _startOverHintPosition != null)
+                            Align(
+                              alignment: Alignment.topCenter,
+                              child: SafeArea(
+                                bottom: false,
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.symmetric(vertical: 12),
+                                  child: Material(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(999),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.history,
+                                            size: 18,
+                                            color: Colors.white,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Text(
+                                            '已从 ${_fmtClock(_startOverHintPosition!)} 继续播放',
+                                            style: const TextStyle(
+                                              color: Colors.white,
+                                              fontSize: 13,
+                                            ),
+                                          ),
+                                          const SizedBox(width: 10),
+                                          InkWell(
+                                            onTap: _restartFromBeginning,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white.withValues(
+                                                    alpha: 0.18),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.replay,
+                                                    size: 18,
+                                                    color: Colors.white,
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Text(
+                                                    '从头开始',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                        ],
                                       ),
                                     ),
                                   ),

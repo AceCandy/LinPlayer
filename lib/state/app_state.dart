@@ -69,6 +69,58 @@ class MediaStats {
   });
 }
 
+@immutable
+class SeriesPlaybackOverride {
+  final int? mediaSourceIndex;
+  final int? audioStreamIndex;
+  final int? subtitleStreamIndex; // -1 = off
+
+  const SeriesPlaybackOverride({
+    this.mediaSourceIndex,
+    this.audioStreamIndex,
+    this.subtitleStreamIndex,
+  });
+
+  bool get isEmpty =>
+      mediaSourceIndex == null &&
+      audioStreamIndex == null &&
+      subtitleStreamIndex == null;
+
+  Map<String, dynamic> toJson() => {
+        'mediaSourceIndex': mediaSourceIndex,
+        'audioStreamIndex': audioStreamIndex,
+        'subtitleStreamIndex': subtitleStreamIndex,
+      };
+
+  static int? _readIntOpt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
+  factory SeriesPlaybackOverride.fromJson(Map<String, dynamic> json) {
+    return SeriesPlaybackOverride(
+      mediaSourceIndex: _readIntOpt(json['mediaSourceIndex']),
+      audioStreamIndex: _readIntOpt(json['audioStreamIndex']),
+      subtitleStreamIndex: _readIntOpt(json['subtitleStreamIndex']),
+    );
+  }
+
+  @override
+  bool operator ==(Object other) {
+    return other is SeriesPlaybackOverride &&
+        other.mediaSourceIndex == mediaSourceIndex &&
+        other.audioStreamIndex == audioStreamIndex &&
+        other.subtitleStreamIndex == subtitleStreamIndex;
+  }
+
+  @override
+  int get hashCode =>
+      Object.hash(mediaSourceIndex, audioStreamIndex, subtitleStreamIndex);
+}
+
 class AppState extends ChangeNotifier {
   static const _kBackupType = 'lin_player_backup';
   static const _kBackupSchemaVersionV1 = 1;
@@ -86,6 +138,7 @@ class AppState extends ChangeNotifier {
   static const _kPreferredAudioLangKey = 'preferredAudioLang_v1';
   static const _kPreferredSubtitleLangKey = 'preferredSubtitleLang_v1';
   static const _kPreferredVideoVersionKey = 'preferredVideoVersion_v1';
+  static const _kSeriesPlaybackOverridesKey = 'seriesPlaybackOverrides_v1';
   static const _kAppIconIdKey = 'appIconId_v1';
   static const _kServerListLayoutKey = 'serverListLayout_v1';
   static const _kMpvCacheSizeMbKey = 'mpvCacheSizeMb_v1';
@@ -234,6 +287,8 @@ class AppState extends ChangeNotifier {
   Future<void>? _homeInFlight;
   final Map<String, int> _seriesEpisodeCountCache = {};
   final Map<String, Future<int?>> _seriesEpisodeCountInFlight = {};
+  final Map<String, Map<String, SeriesPlaybackOverride>> _seriesPlaybackOverrides =
+      {};
 
   static String _librariesCacheKey(String serverId) =>
       '$_kServerLibrariesCachePrefix$serverId';
@@ -616,6 +671,40 @@ class AppState extends ChangeNotifier {
   int get seekForwardSeconds => _seekForwardSeconds;
   bool get forceRemoteControlKeys => _forceRemoteControlKeys;
 
+  SeriesPlaybackOverride? seriesPlaybackOverride({
+    required String serverId,
+    required String seriesId,
+  }) {
+    final sid = serverId.trim();
+    final id = seriesId.trim();
+    if (sid.isEmpty || id.isEmpty) return null;
+    return _seriesPlaybackOverrides[sid]?[id];
+  }
+
+  int? seriesMediaSourceIndex({
+    required String serverId,
+    required String seriesId,
+  }) {
+    return seriesPlaybackOverride(serverId: serverId, seriesId: seriesId)
+        ?.mediaSourceIndex;
+  }
+
+  int? seriesAudioStreamIndex({
+    required String serverId,
+    required String seriesId,
+  }) {
+    return seriesPlaybackOverride(serverId: serverId, seriesId: seriesId)
+        ?.audioStreamIndex;
+  }
+
+  int? seriesSubtitleStreamIndex({
+    required String serverId,
+    required String seriesId,
+  }) {
+    return seriesPlaybackOverride(serverId: serverId, seriesId: seriesId)
+        ?.subtitleStreamIndex;
+  }
+
   void setLocalPlaybackHandoff(LocalPlaybackHandoff? handoff) {
     _localPlaybackHandoff = handoff;
   }
@@ -796,6 +885,37 @@ class AppState extends ChangeNotifier {
     _forceRemoteControlKeys =
         prefs.getBool(_kForceRemoteControlKeysKey) ?? false;
 
+    _seriesPlaybackOverrides.clear();
+    final rawSeriesOverrides = prefs.getString(_kSeriesPlaybackOverridesKey);
+    if (rawSeriesOverrides != null && rawSeriesOverrides.trim().isNotEmpty) {
+      try {
+        final decoded = jsonDecode(rawSeriesOverrides);
+        final map = _coerceStringKeyedMap(decoded);
+        if (map != null) {
+          for (final serverEntry in map.entries) {
+            final serverId = serverEntry.key.toString().trim();
+            final seriesMap = _coerceStringKeyedMap(serverEntry.value);
+            if (serverId.isEmpty || seriesMap == null) continue;
+
+            final bySeries = <String, SeriesPlaybackOverride>{};
+            for (final seriesEntry in seriesMap.entries) {
+              final seriesId = seriesEntry.key.toString().trim();
+              final overrideMap = _coerceStringKeyedMap(seriesEntry.value);
+              if (seriesId.isEmpty || overrideMap == null) continue;
+              final override = SeriesPlaybackOverride.fromJson(overrideMap);
+              if (override.isEmpty) continue;
+              bySeries[seriesId] = override;
+            }
+            if (bySeries.isNotEmpty) {
+              _seriesPlaybackOverrides[serverId] = bySeries;
+            }
+          }
+        }
+      } catch (_) {
+        // ignore broken storage
+      }
+    }
+
     final rawServers = prefs.getString(_kServersKey);
     _servers.clear();
     if (rawServers != null && rawServers.trim().isNotEmpty) {
@@ -926,6 +1046,12 @@ class AppState extends ChangeNotifier {
           'seekForwardSeconds': _seekForwardSeconds,
           'forceRemoteControlKeys': _forceRemoteControlKeys,
         },
+        'seriesPlaybackOverrides': _seriesPlaybackOverrides.map(
+          (serverId, seriesMap) => MapEntry(
+            serverId,
+            seriesMap.map((seriesId, ov) => MapEntry(seriesId, ov.toJson())),
+          ),
+        ),
         'activeServerId': _activeServerId,
         'servers': _servers.map((s) => s.toJson()).toList(),
       },
@@ -1216,6 +1342,30 @@ class AppState extends ChangeNotifier {
           .toList(growable: false);
     }();
 
+    final nextSeriesPlaybackOverrides = () {
+      final raw = _coerceStringKeyedMap(data['seriesPlaybackOverrides']);
+      if (raw == null) return <String, Map<String, SeriesPlaybackOverride>>{};
+      final out = <String, Map<String, SeriesPlaybackOverride>>{};
+      for (final serverEntry in raw.entries) {
+        final serverId = serverEntry.key.toString().trim();
+        final seriesMap = _coerceStringKeyedMap(serverEntry.value);
+        if (serverId.isEmpty || seriesMap == null) continue;
+        final bySeries = <String, SeriesPlaybackOverride>{};
+        for (final seriesEntry in seriesMap.entries) {
+          final seriesId = seriesEntry.key.toString().trim();
+          final overrideMap = _coerceStringKeyedMap(seriesEntry.value);
+          if (seriesId.isEmpty || overrideMap == null) continue;
+          final ov = SeriesPlaybackOverride.fromJson(overrideMap);
+          if (ov.isEmpty) continue;
+          bySeries[seriesId] = ov;
+        }
+        if (bySeries.isNotEmpty) {
+          out[serverId] = bySeries;
+        }
+      }
+      return out;
+    }();
+
     final nextDanmakuEnabled = _readBool(danmakuMap['enabled'], fallback: true);
     final nextDanmakuLoadMode =
         danmakuLoadModeFromId(danmakuMap['loadMode']?.toString());
@@ -1386,6 +1536,9 @@ class AppState extends ChangeNotifier {
     _seekBackwardSeconds = nextSeekBackwardSeconds;
     _seekForwardSeconds = nextSeekForwardSeconds;
     _forceRemoteControlKeys = nextForceRemoteControlKeys;
+    _seriesPlaybackOverrides
+      ..clear()
+      ..addAll(nextSeriesPlaybackOverrides);
 
     _servers
       ..clear()
@@ -1518,6 +1671,7 @@ class AppState extends ChangeNotifier {
     await prefs.setInt(_kSeekBackwardSecondsKey, _seekBackwardSeconds);
     await prefs.setInt(_kSeekForwardSecondsKey, _seekForwardSeconds);
     await prefs.setBool(_kForceRemoteControlKeysKey, _forceRemoteControlKeys);
+    await _persistSeriesPlaybackOverrides(prefs);
 
     await _persistServers(prefs);
     if (_activeServerId == null) {
@@ -3152,6 +3306,100 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> _setSeriesPlaybackOverride(
+    String serverId,
+    String seriesId,
+    SeriesPlaybackOverride next,
+  ) async {
+    final current = _seriesPlaybackOverrides[serverId]?[seriesId];
+    if (current == next) return;
+
+    if (next.isEmpty) {
+      final bySeries = _seriesPlaybackOverrides[serverId];
+      bySeries?.remove(seriesId);
+      if (bySeries != null && bySeries.isEmpty) {
+        _seriesPlaybackOverrides.remove(serverId);
+      }
+    } else {
+      final bySeries = _seriesPlaybackOverrides.putIfAbsent(
+        serverId,
+        () => <String, SeriesPlaybackOverride>{},
+      );
+      bySeries[seriesId] = next;
+    }
+
+    final prefs = await SharedPreferences.getInstance();
+    await _persistSeriesPlaybackOverrides(prefs);
+    notifyListeners();
+  }
+
+  Future<void> setSeriesMediaSourceIndex({
+    required String serverId,
+    required String seriesId,
+    required int? mediaSourceIndex,
+  }) async {
+    final sid = serverId.trim();
+    final id = seriesId.trim();
+    if (sid.isEmpty || id.isEmpty) return;
+    final safeIndex = (mediaSourceIndex != null && mediaSourceIndex >= 0)
+        ? mediaSourceIndex
+        : null;
+    final current = seriesPlaybackOverride(serverId: sid, seriesId: id) ??
+        const SeriesPlaybackOverride();
+    final next = SeriesPlaybackOverride(
+      mediaSourceIndex: safeIndex,
+      audioStreamIndex: current.audioStreamIndex,
+      subtitleStreamIndex: current.subtitleStreamIndex,
+    );
+    await _setSeriesPlaybackOverride(sid, id, next);
+  }
+
+  Future<void> setSeriesAudioStreamIndex({
+    required String serverId,
+    required String seriesId,
+    required int? audioStreamIndex,
+  }) async {
+    final sid = serverId.trim();
+    final id = seriesId.trim();
+    if (sid.isEmpty || id.isEmpty) return;
+    final current = seriesPlaybackOverride(serverId: sid, seriesId: id) ??
+        const SeriesPlaybackOverride();
+    final next = SeriesPlaybackOverride(
+      mediaSourceIndex: current.mediaSourceIndex,
+      audioStreamIndex: audioStreamIndex,
+      subtitleStreamIndex: current.subtitleStreamIndex,
+    );
+    await _setSeriesPlaybackOverride(sid, id, next);
+  }
+
+  Future<void> setSeriesSubtitleStreamIndex({
+    required String serverId,
+    required String seriesId,
+    required int? subtitleStreamIndex,
+  }) async {
+    final sid = serverId.trim();
+    final id = seriesId.trim();
+    if (sid.isEmpty || id.isEmpty) return;
+    final current = seriesPlaybackOverride(serverId: sid, seriesId: id) ??
+        const SeriesPlaybackOverride();
+    final next = SeriesPlaybackOverride(
+      mediaSourceIndex: current.mediaSourceIndex,
+      audioStreamIndex: current.audioStreamIndex,
+      subtitleStreamIndex: subtitleStreamIndex,
+    );
+    await _setSeriesPlaybackOverride(sid, id, next);
+  }
+
+  Future<void> clearSeriesPlaybackOverride({
+    required String serverId,
+    required String seriesId,
+  }) async {
+    final sid = serverId.trim();
+    final id = seriesId.trim();
+    if (sid.isEmpty || id.isEmpty) return;
+    await _setSeriesPlaybackOverride(sid, id, const SeriesPlaybackOverride());
+  }
+
   static ThemeMode _decodeThemeMode(String? raw) {
     switch (raw) {
       case 'light':
@@ -3226,6 +3474,22 @@ class AppState extends ChangeNotifier {
       _kServersKey,
       jsonEncode(_servers.map((s) => s.toJson()).toList()),
     );
+  }
+
+  Future<void> _persistSeriesPlaybackOverrides(SharedPreferences prefs) async {
+    if (_seriesPlaybackOverrides.isEmpty) {
+      await prefs.remove(_kSeriesPlaybackOverridesKey);
+      return;
+    }
+    final json = jsonEncode(
+      _seriesPlaybackOverrides.map(
+        (serverId, seriesMap) => MapEntry(
+          serverId,
+          seriesMap.map((seriesId, ov) => MapEntry(seriesId, ov.toJson())),
+        ),
+      ),
+    );
+    await prefs.setString(_kSeriesPlaybackOverridesKey, json);
   }
 
   static Map<String, dynamic>? _coerceStringKeyedMap(dynamic value) {
