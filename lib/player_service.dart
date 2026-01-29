@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
 import 'package:media_kit/media_kit.dart';
@@ -145,6 +146,66 @@ class PlayerService {
       final s = value?.toString().trim();
       if (s == null || s.isEmpty) return null;
       return s;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static double? _asDouble(dynamic value) {
+    if (value is num) return value.toDouble();
+    if (value is String) return double.tryParse(value.trim());
+    return null;
+  }
+
+  static double? _readMpvNodeNumber(dynamic node, String key) {
+    if (node == null) return null;
+
+    if (node is Map) {
+      final direct = node[key];
+      final directNum = _asDouble(direct);
+      if (directNum != null) return directNum;
+
+      for (final entry in node.entries) {
+        if (entry.key?.toString() == key) {
+          return _asDouble(entry.value);
+        }
+      }
+      return null;
+    }
+
+    if (node is String) {
+      final s = node.trim();
+      if (s.isEmpty) return null;
+      final directNum = double.tryParse(s);
+      if (directNum != null) return directNum;
+      try {
+        return _readMpvNodeNumber(jsonDecode(s), key);
+      } catch (_) {
+        return null;
+      }
+    }
+
+    return null;
+  }
+
+  Future<double?> queryNetworkInputRateBytesPerSecond() async {
+    final player = _player;
+    if (player == null) return null;
+
+    final platform = player.platform as dynamic;
+
+    try {
+      final state = await platform.getProperty('demuxer-cache-state');
+      final rate = _readMpvNodeNumber(state, 'raw-input-rate') ??
+          _readMpvNodeNumber(state, 'raw_input_rate') ??
+          _readMpvNodeNumber(state, 'cache-speed') ??
+          _readMpvNodeNumber(state, 'cache_speed');
+      if (rate != null) return rate;
+    } catch (_) {}
+
+    try {
+      final rate = await platform.getProperty('cache-speed');
+      return _asDouble(rate);
     } catch (_) {
       return null;
     }

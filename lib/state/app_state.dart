@@ -890,7 +890,7 @@ class AppState extends ChangeNotifier {
     _showBufferSpeed = prefs.getBool(_kShowBufferSpeedKey) ?? true;
     _bufferSpeedRefreshSeconds =
         (prefs.getDouble(_kBufferSpeedRefreshSecondsKey) ?? 0.5)
-            .clamp(0.1, 3.0)
+            .clamp(0.2, 3.0)
             .toDouble();
     _showBatteryInControls = prefs.getBool(_kShowBatteryInControlsKey) ?? false;
     _seekBackwardSeconds =
@@ -1464,7 +1464,7 @@ class AppState extends ChangeNotifier {
         _readBool(interactionMap['showBufferSpeed'], fallback: true);
     final nextBufferSpeedRefreshSeconds =
         _readDouble(interactionMap['bufferSpeedRefreshSeconds'], fallback: 0.5)
-            .clamp(0.1, 3.0)
+            .clamp(0.2, 3.0)
             .toDouble();
     final nextShowBatteryInControls =
         _readBool(interactionMap['showBatteryInControls'], fallback: false);
@@ -3321,7 +3321,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setBufferSpeedRefreshSeconds(double seconds) async {
-    final v = seconds.clamp(0.1, 3.0).toDouble();
+    final v = seconds.clamp(0.2, 3.0).toDouble();
     if ((_bufferSpeedRefreshSeconds - v).abs() < 0.0001) return;
     _bufferSpeedRefreshSeconds = v;
     final prefs = await SharedPreferences.getInstance();

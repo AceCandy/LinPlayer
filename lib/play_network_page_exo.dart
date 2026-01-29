@@ -22,6 +22,7 @@ import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/playback_controls.dart';
+import 'src/player/net_speed.dart';
 import 'src/ui/glass_blur.dart';
 
 class ExoPlayNetworkPage extends StatefulWidget {
@@ -70,6 +71,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
   DateTime? _lastBufferedAt;
   Duration _bufferSpeedSampleEnd = Duration.zero;
   double? _bufferSpeedX;
+  double? _netSpeedBytesPerSecond;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   DateTime? _lastUiTickAt;
@@ -2095,6 +2097,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     _lastBufferedAt = null;
     _bufferSpeedSampleEnd = Duration.zero;
     _bufferSpeedX = null;
+    _netSpeedBytesPerSecond = null;
     _nextDanmakuIndex = 0;
     _danmakuKey.currentState?.clear();
     _danmakuSources.clear();
@@ -2208,36 +2211,44 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         _lastBufferedEnd = bufferedEnd;
 
         if (widget.appState.showBufferSpeed) {
-          if (_buffering) {
-            final refreshSeconds = widget.appState.bufferSpeedRefreshSeconds
-                .clamp(0.1, 3.0)
-                .toDouble();
-            final refreshMs = (refreshSeconds * 1000).round();
+          final refreshSeconds = widget.appState.bufferSpeedRefreshSeconds
+              .clamp(0.2, 3.0)
+              .toDouble();
+          final refreshMs = (refreshSeconds * 1000).round();
 
-            final prevAt = _lastBufferedAt;
-            if (prevAt == null) {
-              _bufferSpeedX = null;
+          final prevAt = _lastBufferedAt;
+          if (prevAt == null) {
+            _bufferSpeedX = null;
+            _netSpeedBytesPerSecond = null;
+            _lastBufferedAt = now;
+            _bufferSpeedSampleEnd = bufferedEnd;
+          } else {
+            final dtMs = now.difference(prevAt).inMilliseconds;
+            if (dtMs >= refreshMs) {
+              final deltaMs =
+                  (bufferedEnd - _bufferSpeedSampleEnd).inMilliseconds;
               _lastBufferedAt = now;
               _bufferSpeedSampleEnd = bufferedEnd;
-            } else {
-              final dtMs = now.difference(prevAt).inMilliseconds;
-              if (dtMs >= refreshMs) {
-                final deltaMs =
-                    (bufferedEnd - _bufferSpeedSampleEnd).inMilliseconds;
-                _lastBufferedAt = now;
-                _bufferSpeedSampleEnd = bufferedEnd;
-                _bufferSpeedX =
-                    (dtMs > 0 && deltaMs >= 0) ? (deltaMs / dtMs) : null;
+              _bufferSpeedX =
+                  (dtMs > 0 && deltaMs >= 0) ? (deltaMs / dtMs) : null;
+
+              final bitrate = _currentMediaSourceBitrateBitsPerSecond();
+              final x = _bufferSpeedX;
+              if (bitrate != null && bitrate > 0 && x != null) {
+                final speed = x * bitrate / 8.0;
+                final prev = _netSpeedBytesPerSecond;
+                _netSpeedBytesPerSecond =
+                    prev == null ? speed : (prev * 0.7 + speed * 0.3);
+              } else {
+                _netSpeedBytesPerSecond = null;
               }
             }
-          } else {
-            _bufferSpeedX = null;
-            _lastBufferedAt = null;
-            _bufferSpeedSampleEnd = bufferedEnd;
           }
         } else {
           _bufferSpeedX = null;
+          _netSpeedBytesPerSecond = null;
           _lastBufferedAt = null;
+          _bufferSpeedSampleEnd = bufferedEnd;
         }
 
         _applyDanmakuPauseState(_buffering || !_isPlaying);
@@ -2410,6 +2421,23 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     if (value is num) return value.toInt();
     if (value is String) return int.tryParse(value);
     return null;
+  }
+
+  int? _currentMediaSourceBitrateBitsPerSecond() {
+    final sources = _availableMediaSources;
+    if (sources.isEmpty) return null;
+
+    final id = (_mediaSourceId ?? _selectedMediaSourceId ?? '').trim();
+    final ms = id.isEmpty
+        ? sources.first
+        : sources.firstWhere(
+            (s) => (s['Id']?.toString() ?? '').trim() == id,
+            orElse: () => sources.first,
+          );
+
+    final bitrate = _asInt(ms['Bitrate']);
+    if (bitrate == null || bitrate <= 0) return null;
+    return bitrate;
   }
 
   static List<Map<String, dynamic>> _streamsOfType(
@@ -3728,9 +3756,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                           padding:
                                               const EdgeInsets.only(top: 12),
                                           child: Text(
-                                            _bufferSpeedX == null
-                                                ? '缓冲速度：—'
-                                                : '缓冲速度：${_bufferSpeedX!.clamp(0.0, 99.0).toStringAsFixed(1)}x',
+                                            '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
                                             style: const TextStyle(
                                               color: Colors.white,
                                             ),
@@ -3738,6 +3764,19 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                         ),
                                     ],
                                   ),
+                                ),
+                              ),
+                            ),
+                          if (widget.appState.showBufferSpeed)
+                            Positioned(
+                              left: 12,
+                              bottom: _controlsVisible ? 88 : 12,
+                              child: SafeArea(
+                                top: false,
+                                right: false,
+                                child: NetSpeedBadge(
+                                  text:
+                                      '网速 ${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
                                 ),
                               ),
                             ),

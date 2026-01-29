@@ -18,6 +18,7 @@ import 'src/player/playback_controls.dart';
 import 'src/player/danmaku_stage.dart';
 import 'src/player/anime4k.dart';
 import 'src/player/thumbnail_generator.dart';
+import 'src/player/net_speed.dart';
 import 'src/player/track_preferences.dart';
 import 'src/device/device_type.dart';
 import 'src/ui/glass_blur.dart';
@@ -102,6 +103,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   DateTime? _lastBufferAt;
   Duration _lastBufferSample = Duration.zero;
   double? _bufferSpeedX;
+  bool _isNetworkPlayback = false;
+  Timer? _netSpeedTimer;
+  bool _netSpeedPollInFlight = false;
+  double? _netSpeedBytesPerSecond;
   bool _exitInProgress = false;
   bool _allowRoutePop = false;
 
@@ -188,6 +193,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     _controlsHideTimer = null;
     _gestureOverlayTimer?.cancel();
     _gestureOverlayTimer = null;
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
     _posSub?.cancel();
     _errorSub?.cancel();
     _videoParamsSub?.cancel();
@@ -210,6 +217,60 @@ class _PlayerScreenState extends State<PlayerScreen>
     _tvPlayPauseFocusNode.dispose();
     _playerService.dispose();
     super.dispose();
+  }
+
+  void _scheduleNetSpeedTick() {
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
+
+    if (!_isNetworkPlayback) return;
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      if (_netSpeedBytesPerSecond != null && mounted) {
+        setState(() => _netSpeedBytesPerSecond = null);
+      }
+      return;
+    }
+
+    final refreshSeconds = (widget.appState?.bufferSpeedRefreshSeconds ?? 0.5)
+        .clamp(0.2, 3.0)
+        .toDouble();
+    final refreshMs = (refreshSeconds * 1000).round();
+
+    _netSpeedTimer = Timer(Duration(milliseconds: refreshMs), () async {
+      if (!mounted) return;
+      await _pollNetSpeed();
+      if (!mounted) return;
+      _scheduleNetSpeedTick();
+    });
+  }
+
+  Future<void> _pollNetSpeed() async {
+    if (_netSpeedPollInFlight) return;
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      if (_netSpeedBytesPerSecond != null && mounted) {
+        setState(() => _netSpeedBytesPerSecond = null);
+      }
+      return;
+    }
+
+    _netSpeedPollInFlight = true;
+    try {
+      final rate = await _playerService.queryNetworkInputRateBytesPerSecond();
+      if (!mounted) return;
+      final next = (rate != null && rate.isFinite) ? rate : null;
+      if (next == null) {
+        if (_netSpeedBytesPerSecond != null) {
+          setState(() => _netSpeedBytesPerSecond = null);
+        }
+        return;
+      }
+
+      final prev = _netSpeedBytesPerSecond;
+      final smoothed = prev == null ? next : (prev * 0.7 + next * 0.3);
+      setState(() => _netSpeedBytesPerSecond = smoothed);
+    } finally {
+      _netSpeedPollInFlight = false;
+    }
   }
 
   Future<void> _requestExitThenPop() async {
@@ -793,6 +854,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     Duration? startPosition,
     bool? autoPlay,
   }) async {
+    final rawPath = (file.path ?? '').trim();
+    final uri = Uri.tryParse(rawPath);
+    final isHttpUrl = uri != null &&
+        (uri.scheme == 'http' || uri.scheme == 'https') &&
+        uri.host.isNotEmpty;
+    final isNetwork = kIsWeb || isHttpUrl;
+
     setState(() {
       _currentlyPlayingIndex = index;
       _playError = null;
@@ -816,6 +884,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       _danmakuHeatmap = const [];
       _controlsVisible = true;
       _isScrubbing = false;
+      _isNetworkPlayback = isNetwork;
+      _netSpeedBytesPerSecond = null;
     });
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
@@ -840,6 +910,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     _lastBufferAt = null;
     _lastBufferSample = Duration.zero;
     _bufferSpeedX = null;
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
+    _netSpeedPollInFlight = false;
+    _netSpeedBytesPerSecond = null;
     try {
       await _playerService.dispose();
     } catch (_) {}
@@ -849,13 +923,6 @@ class _PlayerScreenState extends State<PlayerScreen>
     _thumbnailer = null;
 
     try {
-      final rawPath = (file.path ?? '').trim();
-      final uri = Uri.tryParse(rawPath);
-      final isHttpUrl = uri != null &&
-          (uri.scheme == 'http' || uri.scheme == 'https') &&
-          uri.host.isNotEmpty;
-      final isNetwork = kIsWeb || isHttpUrl;
-
       await _playerService.initialize(
         isNetwork ? null : rawPath,
         networkUrl: isNetwork ? rawPath : null,
@@ -873,6 +940,10 @@ class _PlayerScreenState extends State<PlayerScreen>
             _playerService.externalPlaybackMessage ?? '已使用外部播放器播放');
         return;
       }
+
+      // ignore: unawaited_futures
+      _pollNetSpeed();
+      _scheduleNetSpeedTick();
 
       try {
         await Anime4k.apply(_playerService.player, _anime4kPreset);
@@ -927,7 +998,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
         final now = DateTime.now();
         final refreshSeconds = (appState?.bufferSpeedRefreshSeconds ?? 0.5)
-            .clamp(0.1, 3.0)
+            .clamp(0.2, 3.0)
             .toDouble();
         final refreshMs = (refreshSeconds * 1000).round();
 
@@ -1782,19 +1853,18 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 child: ColoredBox(
                                   color: Colors.black54,
                                   child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const CircularProgressIndicator(),
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const CircularProgressIndicator(),
                                         if ((widget.appState?.showBufferSpeed ??
-                                            false))
+                                                false) &&
+                                            _isNetworkPlayback)
                                           Padding(
                                             padding:
                                                 const EdgeInsets.only(top: 12),
                                             child: Text(
-                                              _bufferSpeedX == null
-                                                  ? '缓冲速度：—'
-                                                  : '缓冲速度：${_bufferSpeedX!.clamp(0.0, 99.0).toStringAsFixed(1)}x',
+                                              '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
                                               style: const TextStyle(
                                                 color: Colors.white,
                                               ),
@@ -1802,6 +1872,20 @@ class _PlayerScreenState extends State<PlayerScreen>
                                           ),
                                       ],
                                     ),
+                                  ),
+                                ),
+                              ),
+                            if ((widget.appState?.showBufferSpeed ?? false) &&
+                                _isNetworkPlayback)
+                              Positioned(
+                                left: 12,
+                                bottom: _controlsVisible ? 88 : 12,
+                                child: SafeArea(
+                                  top: false,
+                                  right: false,
+                                  child: NetSpeedBadge(
+                                    text:
+                                        '网速 ${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
                                   ),
                                 ),
                               ),

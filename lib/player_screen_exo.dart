@@ -1913,7 +1913,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
         if (widget.appState.showBufferSpeed) {
           if (_buffering) {
             final refreshSeconds = widget.appState.bufferSpeedRefreshSeconds
-                .clamp(0.1, 3.0)
+                .clamp(0.2, 3.0)
                 .toDouble();
             final refreshMs = (refreshSeconds * 1000).round();
 

@@ -69,7 +69,7 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
         final bufferSpeedRefreshSeconds =
             (_bufferSpeedRefreshSecondsDraft ??
                     appState.bufferSpeedRefreshSeconds)
-                .clamp(0.1, 3.0)
+                .clamp(0.2, 3.0)
                 .toDouble();
 
         return Scaffold(
@@ -215,18 +215,19 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                     SwitchListTile(
                       value: appState.showBufferSpeed,
                       onChanged: (v) => appState.setShowBufferSpeed(v),
-                      title: const Text('显示缓冲速度'),
+                      title: const Text('显示网速'),
+                      subtitle: const Text('在线播放时在播放页左下角常驻显示网络缓冲速度'),
                       contentPadding: EdgeInsets.zero,
                     ),
                     const Divider(height: 1),
                     _SliderTile(
                       leading: const Icon(Icons.timer_outlined),
-                      title: const Text('缓冲速度刷新间隔 (秒)'),
-                      subtitle: const Text('0.1 - 3.0，默认 0.5'),
+                      title: const Text('网速刷新间隔 (秒)'),
+                      subtitle: const Text('0.2 - 3.0，默认 0.5'),
                       value: bufferSpeedRefreshSeconds,
-                      min: 0.1,
+                      min: 0.2,
                       max: 3.0,
-                      divisions: 29,
+                      divisions: 28,
                       trailing:
                           Text('${bufferSpeedRefreshSeconds.toStringAsFixed(1)}s'),
                       sliderTheme: _sliderTheme(context),

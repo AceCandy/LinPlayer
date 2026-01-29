@@ -24,6 +24,7 @@ import 'src/player/danmaku.dart';
 import 'src/player/danmaku_processing.dart';
 import 'src/player/playback_controls.dart';
 import 'src/player/danmaku_stage.dart';
+import 'src/player/net_speed.dart';
 import 'src/player/thumbnail_generator.dart';
 import 'src/player/track_preferences.dart';
 import 'src/ui/glass_blur.dart';
@@ -93,6 +94,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   DateTime? _lastBufferAt;
   Duration _lastBufferSample = Duration.zero;
   double? _bufferSpeedX;
+  Timer? _netSpeedTimer;
+  bool _netSpeedPollInFlight = false;
+  double? _netSpeedBytesPerSecond;
   bool _appliedAudioPref = false;
   bool _appliedSubtitlePref = false;
   String? _playSessionId;
@@ -252,6 +256,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _lastBufferAt = null;
     _lastBufferSample = Duration.zero;
     _bufferSpeedX = null;
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
+    _netSpeedPollInFlight = false;
+    _netSpeedBytesPerSecond = null;
     _appliedAudioPref = false;
     _appliedSubtitlePref = false;
     _playSessionId = null;
@@ -313,6 +321,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
         return;
       }
+
+      // ignore: unawaited_futures
+      _pollNetSpeed();
+      _scheduleNetSpeedTick();
 
       try {
         await Anime4k.apply(_playerService.player, _anime4kPreset);
@@ -382,7 +394,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
 
         final now = DateTime.now();
         final refreshSeconds = widget.appState.bufferSpeedRefreshSeconds
-            .clamp(0.1, 3.0)
+            .clamp(0.2, 3.0)
             .toDouble();
         final refreshMs = (refreshSeconds * 1000).round();
 
@@ -2317,6 +2329,58 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     await _applyOrientationForMode(videoParams: _lastVideoParams);
   }
 
+  void _scheduleNetSpeedTick() {
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
+
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      if (_netSpeedBytesPerSecond != null && mounted) {
+        setState(() => _netSpeedBytesPerSecond = null);
+      }
+      return;
+    }
+
+    final refreshSeconds =
+        widget.appState.bufferSpeedRefreshSeconds.clamp(0.2, 3.0).toDouble();
+    final refreshMs = (refreshSeconds * 1000).round();
+
+    _netSpeedTimer = Timer(Duration(milliseconds: refreshMs), () async {
+      if (!mounted) return;
+      await _pollNetSpeed();
+      if (!mounted) return;
+      _scheduleNetSpeedTick();
+    });
+  }
+
+  Future<void> _pollNetSpeed() async {
+    if (_netSpeedPollInFlight) return;
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      if (_netSpeedBytesPerSecond != null && mounted) {
+        setState(() => _netSpeedBytesPerSecond = null);
+      }
+      return;
+    }
+
+    _netSpeedPollInFlight = true;
+    try {
+      final rate = await _playerService.queryNetworkInputRateBytesPerSecond();
+      if (!mounted) return;
+      final next = (rate != null && rate.isFinite) ? rate : null;
+      if (next == null) {
+        if (_netSpeedBytesPerSecond != null) {
+          setState(() => _netSpeedBytesPerSecond = null);
+        }
+        return;
+      }
+
+      final prev = _netSpeedBytesPerSecond;
+      final smoothed = prev == null ? next : (prev * 0.7 + next * 0.3);
+      setState(() => _netSpeedBytesPerSecond = smoothed);
+    } finally {
+      _netSpeedPollInFlight = false;
+    }
+  }
+
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
@@ -2332,6 +2396,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _controlsHideTimer = null;
     _gestureOverlayTimer?.cancel();
     _gestureOverlayTimer = null;
+    _netSpeedTimer?.cancel();
+    _netSpeedTimer = null;
     _errorSub?.cancel();
     _bufferingSub?.cancel();
     _bufferingPctSub?.cancel();
@@ -3163,15 +3229,26 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                         top: _bufferingPct != null ? 6 : 12,
                                       ),
                                       child: Text(
-                                        _bufferSpeedX == null
-                                            ? '缓冲速度：—'
-                                            : '缓冲速度：${_bufferSpeedX!.clamp(0.0, 99.0).toStringAsFixed(1)}x',
+                                        '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
                                         style: const TextStyle(
                                           color: Colors.white,
                                         ),
                                       ),
                                     ),
                                 ],
+                              ),
+                            ),
+                          if (widget.appState.showBufferSpeed)
+                            Positioned(
+                              left: 12,
+                              bottom: _controlsVisible ? 88 : 12,
+                              child: SafeArea(
+                                top: false,
+                                right: false,
+                                child: NetSpeedBadge(
+                                  text:
+                                      '网速 ${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
+                                ),
                               ),
                             ),
                           Positioned.fill(
