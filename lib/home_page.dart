@@ -978,7 +978,8 @@ class _HomeBody extends StatelessWidget {
               padding: EdgeInsets.only(bottom: bottomPadding),
               children: [
                 const SizedBox(height: 8),
-                _RandomRecommendSection(appState: appState, isTv: isTv),
+                if (appState.showHomeRandomRecommendations)
+                  _RandomRecommendSection(appState: appState, isTv: isTv),
                 _ContinueWatchingSection(appState: appState, isTv: isTv),
                 if (appState.showHomeLibraryQuickAccess)
                   _LibraryQuickAccessSection(appState: appState, isTv: isTv),

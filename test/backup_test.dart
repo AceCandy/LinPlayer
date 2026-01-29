@@ -31,6 +31,7 @@ void main() {
     expect(appState.unlimitedStreamCache, isTrue);
     expect(appState.enableBlurEffects, isFalse);
     expect(appState.showHomeLibraryQuickAccess, isFalse);
+    expect(appState.showHomeRandomRecommendations, isFalse);
     expect(appState.autoUpdateEnabled, isTrue);
     expect(appState.externalMpvPath, 'C:\\\\mpv\\\\mpv.exe');
     expect(appState.serverIconLibraryUrls, const [
@@ -65,6 +66,7 @@ void main() {
     expect(reloaded.uiScaleFactor, closeTo(1.25, 0.0001));
     expect(reloaded.uiTemplate, UiTemplate.washiWatercolor);
     expect(reloaded.showHomeLibraryQuickAccess, isFalse);
+    expect(reloaded.showHomeRandomRecommendations, isFalse);
     expect(reloaded.autoUpdateEnabled, isTrue);
     expect(reloaded.danmakuMergeRelated, isFalse);
     expect(reloaded.danmakuShowHeatmap, isFalse);
@@ -98,6 +100,7 @@ void main() {
     expect(restored.uiTemplate, UiTemplate.washiWatercolor);
     expect(restored.autoUpdateEnabled, isTrue);
     expect(restored.showHomeLibraryQuickAccess, isFalse);
+    expect(restored.showHomeRandomRecommendations, isFalse);
     expect(restored.playerCore, PlayerCore.exo);
     expect(restored.servers.length, 2);
     expect(restored.activeServerId, 'srv_1');
@@ -176,6 +179,7 @@ Map<String, dynamic> _sampleBackup() {
       'unlimitedCoverCache': true,
       'enableBlurEffects': false,
       'showHomeLibraryQuickAccess': false,
+      'showHomeRandomRecommendations': false,
       'autoUpdateEnabled': true,
       'externalMpvPath': 'C:\\\\mpv\\\\mpv.exe',
       'serverIconLibraryUrls': const [

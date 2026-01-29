@@ -955,6 +955,15 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
+                      value: appState.showHomeRandomRecommendations,
+                      onChanged: (v) =>
+                          appState.setShowHomeRandomRecommendations(v),
+                      title: const Text('首页随机推荐'),
+                      subtitle: const Text('在首页显示“随机推荐”栏目'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
                       value: appState.enableBlurEffects,
                       onChanged: blurAllowed
                           ? (v) => appState.setEnableBlurEffects(v)

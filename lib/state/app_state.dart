@@ -178,6 +178,8 @@ class AppState extends ChangeNotifier {
   static const _kServerIconLibraryUrlsKey = 'serverIconLibraryUrls_v1';
   static const _kShowHomeLibraryQuickAccessKey =
       'showHomeLibraryQuickAccess_v1';
+  static const _kShowHomeRandomRecommendationsKey =
+      'showHomeRandomRecommendations_v1';
   static const _kAutoUpdateEnabledKey = 'autoUpdateEnabled_v1';
   static const _kAutoUpdateLastCheckedAtMsKey = 'autoUpdateLastCheckedAtMs_v1';
 
@@ -237,6 +239,7 @@ class AppState extends ChangeNotifier {
   bool _unlimitedStreamCache = false;
   bool _enableBlurEffects = true;
   bool _showHomeLibraryQuickAccess = true;
+  bool _showHomeRandomRecommendations = true;
   bool _autoUpdateEnabled = false;
   int _autoUpdateLastCheckedAtMs = 0;
   String _externalMpvPath = '';
@@ -628,6 +631,7 @@ class AppState extends ChangeNotifier {
   bool get unlimitedStreamCache => _unlimitedStreamCache;
   bool get enableBlurEffects => _enableBlurEffects;
   bool get showHomeLibraryQuickAccess => _showHomeLibraryQuickAccess;
+  bool get showHomeRandomRecommendations => _showHomeRandomRecommendations;
   bool get autoUpdateEnabled => _autoUpdateEnabled;
   DateTime? get autoUpdateLastCheckedAt => _autoUpdateLastCheckedAtMs <= 0
       ? null
@@ -798,6 +802,8 @@ class AppState extends ChangeNotifier {
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _showHomeLibraryQuickAccess =
         prefs.getBool(_kShowHomeLibraryQuickAccessKey) ?? true;
+    _showHomeRandomRecommendations =
+        prefs.getBool(_kShowHomeRandomRecommendationsKey) ?? true;
     _autoUpdateEnabled = prefs.getBool(_kAutoUpdateEnabledKey) ?? false;
     _autoUpdateLastCheckedAtMs =
         prefs.getInt(_kAutoUpdateLastCheckedAtMsKey) ?? 0;
@@ -1010,6 +1016,7 @@ class AppState extends ChangeNotifier {
         'unlimitedStreamCache': _unlimitedStreamCache,
         'enableBlurEffects': _enableBlurEffects,
         'showHomeLibraryQuickAccess': _showHomeLibraryQuickAccess,
+        'showHomeRandomRecommendations': _showHomeRandomRecommendations,
         'autoUpdateEnabled': _autoUpdateEnabled,
         'externalMpvPath': _externalMpvPath,
         'anime4kPreset': _anime4kPreset.id,
@@ -1339,6 +1346,8 @@ class AppState extends ChangeNotifier {
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextShowHomeLibraryQuickAccess =
         _readBool(data['showHomeLibraryQuickAccess'], fallback: true);
+    final nextShowHomeRandomRecommendations =
+        _readBool(data['showHomeRandomRecommendations'], fallback: true);
     final nextAutoUpdateEnabled =
         _readBool(data['autoUpdateEnabled'], fallback: false);
     final nextExternalMpvPath =
@@ -1511,6 +1520,7 @@ class AppState extends ChangeNotifier {
     _unlimitedStreamCache = nextUnlimitedStreamCache;
     _enableBlurEffects = nextEnableBlurEffects;
     _showHomeLibraryQuickAccess = nextShowHomeLibraryQuickAccess;
+    _showHomeRandomRecommendations = nextShowHomeRandomRecommendations;
     _autoUpdateEnabled = nextAutoUpdateEnabled;
     _externalMpvPath = nextExternalMpvPath;
     _anime4kPreset = nextAnime4kPreset;
@@ -1606,6 +1616,10 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(
       _kShowHomeLibraryQuickAccessKey,
       _showHomeLibraryQuickAccess,
+    );
+    await prefs.setBool(
+      _kShowHomeRandomRecommendationsKey,
+      _showHomeRandomRecommendations,
     );
     await prefs.setBool(_kAutoUpdateEnabledKey, _autoUpdateEnabled);
 
@@ -2895,6 +2909,14 @@ class AppState extends ChangeNotifier {
     _showHomeLibraryQuickAccess = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kShowHomeLibraryQuickAccessKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setShowHomeRandomRecommendations(bool enabled) async {
+    if (_showHomeRandomRecommendations == enabled) return;
+    _showHomeRandomRecommendations = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kShowHomeRandomRecommendationsKey, enabled);
     notifyListeners();
   }
 
