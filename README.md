@@ -261,6 +261,18 @@ flutter build linux --release
 - `lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
 - `lib/state/app_state.dart` 状态/登录/缓存
 
+## TODO（多产品 + TV 内置代理）
+- [x] 产品轴：`APP_PRODUCT` + `AppConfig`（标题 / UA / repo）
+- [x] Server Adapter（骨架）：接口 + factory + Lin/Emos/UHD adapter 占位
+- [x] Feature Flags（骨架）：每产品允许的服务器类型
+- [ ] Server Adapter（收口）：UI 不再直接依赖具体 API（只依赖 adapter/interface）
+- [ ] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）
+- [ ] TV 内置代理 MVP：mihomo start/stop/status（仅 Android TV）
+- [ ] 代理面板：metacubexd 打包/解压 + 本地 WebView 打开
+- [ ] 走代理：App HTTP（`HttpClientFactory`）+ 播放器网络流（mpv 参数注入）
+- [ ] 构建产物：Android flavors（lin/emos/uhd）+ 其他平台 `--dart-define`
+- [ ] 合规：确认 mihomo / metacubexd 许可证与分发声明
+
 ## 鸣谢与参考
 
 ### 引用 / 上游

@@ -14,6 +14,9 @@
 .idea/
 .vscode/
 
+# API clients
+*.postman_collection.json
+
 # Flutter/Dart specific
 .dart_tool/
 .flutter-plugins
