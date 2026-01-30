@@ -1,9 +1,8 @@
 <div align="center">
   <img src="assets/app_icon.jpg" width="120" alt="LinPlayer" />
-  <h1>LinPlayer （半成品 没有完工！ 不建议现在下载！）
-  如果想要体验可以去releases里面的nightly找最新的安装包体验！
-  最近重构ing 不会发版</h1>
+  <h1>LinPlayer（重构中 / WIP）</h1>
   <p>跨平台（Windows / macOS / Linux / Android / Android TV）本地 + Emby/Jellyfin + WebDAV 媒体播放器（含 Plex PIN 登录）</p>
+  <p><b>注意</b>：当前处于架构级重构期，功能与兼容性会频繁变化，问题较多；建议先观望，等待稳定后再使用。</p>
   <p>
     <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" />
     <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Android%20%7C%20Android%20TV-informational" />
@@ -12,6 +11,7 @@
     <img alt="Danmaku" src="https://img.shields.io/badge/Danmaku-Local%20XML%20%7C%20Dandanplay-informational" />
   </p>
   <p>
+    <a href="#refactor">重构说明</a> ·
     <a href="#download">下载</a> ·
     <a href="#features">特性</a> ·
     <a href="#quickstart">快速上手</a> ·
@@ -26,11 +26,32 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 ---
 
+## <a id="refactor"></a>重构说明（请等待稳定）
+
+本项目正在进行架构级重构，目标是把目前偏“单体堆叠”的实现，逐步演进为 **边界清晰、模块可复用、平台差异可控** 的播放器工程。
+
+### 变成什么样子（目标形态）
+- **模块化**：把通用能力（网络/状态/播放器配置/通用 UI 基建等）沉淀为可复用模块；平台相关实现集中在平台层。
+- **适配层收口**：通过 `Server Adapter` 把服务端差异收敛到少数实现里，UI 不再到处直接依赖具体 API 类。
+- **可选能力可插拔（TV）**：Android TV 提供可选的 **内置代理（mihomo）+ 管理面板（metacubexd）**，并让 App HTTP + 播放器网络流按需走代理（路线图见 `docs/TV_PROXY_ROADMAP.md`）。
+
+### 为什么要模块化（目的）
+- **降低耦合与回归成本**：减少“改一处炸一片”，让核心逻辑更容易定位/测试/复用。
+- **让重构可渐进**：优先加“收口点/插槽”，再逐步迁移实现，避免一次性大改导致难以回滚。
+- **控制平台差异**：Android TV/桌面/移动端的差异集中处理，不在业务与 UI 层散落大量 `if (platform...)`。
+
+### 当前阶段的预期（重要）
+> 重构期会有很多问题：功能/设置项/交互可能频繁调整；nightly 可能出现闪退、播放失败、UI/性能问题等。
+>
+> 如果你只是想“稳定可用”，建议先等待；如果你愿意帮忙定位问题，请使用 nightly 并提供复现步骤与日志/截图。
+
 ## <a id="download"></a>下载
 
 从 GitHub Releases 下载：
 - **latest**：稳定版
 - **nightly**：每日构建（产物会覆盖同名资产）
+
+> 当前重构期建议以 nightly 为主；latest 可能滞后或暂停更新。
 
 下载入口：[latest](../../releases/latest) / [nightly](../../releases/tag/nightly) / [Releases](../../releases)
 
@@ -46,24 +67,36 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 ## <a id="features"></a>特性
 
-- Emby/Jellyfin 登录：支持 http/https 与自定义端口；若未部署（可选的）线路扩展服务，线路列表可能为空，但播放/浏览可用。
-- WebDAV（只读）：支持“像服务器一样”添加与切换；支持目录浏览 + 播放（含 Range），兼容 Basic/Digest 等常见鉴权；无需登录 Emby/Jellyfin 也可使用。
-- Plex 登录（PIN）：支持浏览器授权获取 Token，并从账号资源列表中选择服务器保存（当前仅保存登录信息，暂不支持浏览/播放）。
-- 首页推荐（类似 Emby）：继续观看 / 最新电影 / 最新剧集 横向卡片流，点击即播或进详情。
-- 首页媒体库：进入服务器后自动刷新媒体库并缓存，减少偶发不显示；后续打开更快，同时在浏览首页时后台渐进更新。
-- 首页媒体统计：底部统计卡片三项同排；进入服务器后仅首次自动刷新一次，滚动不会重复刷新（仍可手动刷新）。
-- 剧集集数徽标：剧集海报右上角展示全季总集数（与评分徽标同尺寸）。
-- 单集详情增强：从「继续观看」进入集详情页时，会展示该剧其它季/其它集（支持选季 / 选集 / 查看全部）。
-- 媒体库分层：库 → Series/Season → Episode；电影可直接播放；搜索支持无限下拉懒加载。
-- 搜索页：支持历史搜索记录（本地持久化），默认显示前 6 条，点击「更多」展开全部。
+> 说明：重构期间部分功能/交互可能临时调整，以 nightly 实际表现为准。
+
+### 媒体源
+- 本地播放：原生文件选择与播放。
+- Emby/Jellyfin：支持 http/https 与自定义端口；可选的线路扩展服务未部署时，线路列表可能为空，但播放/浏览可用。
+- WebDAV（只读）：支持“像服务器一样”添加与切换；支持目录浏览 + 播放（含 Range），兼容 Basic/Digest 等常见鉴权。
+- Plex（PIN 登录）：支持浏览器授权获取 Token，并从账号资源列表中选择服务器保存（当前仅保存登录信息，暂不支持浏览/播放）。
+
+### 播放与体验
+- 播放器：默认 MPV（`media_kit`），Android 可选 Exo（Media3 / ExoPlayer）。
 - 播放链接更稳：自动携带 `MediaSourceId`，减少 404。
-- 播放缓冲：总缓冲大小可调（200-2048MB）+ 预设（拖动秒开/均衡/稳定优先）+ 自定义回退比例（0-30%）+ 跳转时清空旧缓冲。
-- 响应式缩放：竖屏平板/手机自动放大 UI（文本/图标/间距），避免 UI 过小。
-- Material 3 双主题：跟随系统明/暗色；桌面/手机轻量毛玻璃；Android TV 默认关闭毛玻璃，减少卡顿。
-- 本地播放：保留原生文件选择与播放。
+- 缓冲策略：总预算（200–2048MB）+ 预设（拖动秒开/均衡/稳定优先）+ 自定义回退比例（0–30%）+ 跳转时清空旧缓冲。
 - Anime4K（MPV shader）：内置 Anime4K GLSL 预设，播放页一键开关/切换（仅 MPV 内核有效）。
-- 弹幕：支持本地 XML 与在线弹幕（兼容弹弹play API v2），支持样式调节。
-- 构建产物：Android 同时支持 32 位与 64 位；Windows 打包附带运行时与 DLL。
+
+### UI 与交互
+- 首页推荐：继续观看 / 最新电影 / 最新剧集 卡片流；点击即播或进详情。
+- 媒体库与缓存：自动刷新并缓存，减少偶发不显示；浏览首页时后台渐进更新。
+- 搜索：历史搜索记录本地持久化；支持无限下拉懒加载。
+- 自适应缩放：竖屏平板/手机自动放大 UI（文本/图标/间距）。
+- Material 3：跟随系统明/暗色；桌面/手机轻量毛玻璃；Android TV 默认关闭毛玻璃以减少卡顿。
+
+### Android TV
+- 遥控器方向键/确认键完整可用（播放页支持快进/快退与控制栏聚焦）。
+- 规划中：TV 内置代理（mihomo）+ 管理面板（metacubexd）（详见 `docs/TV_PROXY_ROADMAP.md`）。
+
+### 弹幕
+- 本地 XML + 在线弹幕（兼容弹弹play API v2），支持样式调节。
+
+### 构建与分发
+- Android 同时支持 32 位与 64 位；Windows 打包附带运行时与 DLL。
 
 ## <a id="quickstart"></a>快速上手
 1. 启动应用，进入「连接服务器」页（未登录也可用）：
@@ -213,6 +246,7 @@ flutter build linux --release
 
 ## 源码导览
 - 目录结构、核心模块、Emby 接口与播放链路：`docs/ARCHITECTURE.md`
+- TV 内置代理路线图：`docs/TV_PROXY_ROADMAP.md`
 
 ## UI 自适应（开发者）
 - 全局缩放逻辑在 `lib/src/ui/ui_scale.dart`；应用入口通过 `MaterialApp.builder` 统一应用缩放（文本/图标/部分组件尺寸）。
@@ -262,11 +296,14 @@ flutter build linux --release
 - `lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
 - `lib/state/app_state.dart` 状态/登录/缓存
 
-## TODO（TV 内置代理）
+## TODO（重构路线图）
+- [ ] 模块化：沉淀通用能力为可复用模块（逐步从 `lib/` 抽离到 `packages/`）
+- [ ] Server Adapter（收口）：UI 不再直接依赖具体 API（只依赖 adapter/interface）
+- [ ] 网络收口：统一 HTTP client 创建入口（为代理/证书/重试/超时等打基础）
 - [ ] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）
 - [ ] TV 内置代理 MVP：mihomo start/stop/status（仅 Android TV）
 - [ ] 代理面板：metacubexd 打包/解压 + 本地 WebView 打开
-- [ ] 走代理：App HTTP（`HttpClientFactory`）+ 播放器网络流（mpv 参数注入）
+- [ ] 走代理：App HTTP + 播放器网络流（mpv 参数注入）
 - [ ] 合规：确认 mihomo / metacubexd 许可证与分发声明
 
 ## 鸣谢与参考
