@@ -1,6 +1,7 @@
-import '../app_config/app_config.dart';
-import '../app_config/app_product.dart';
-import '../state/media_server_type.dart';
+import 'package:lin_player_core/app_config/app_config.dart';
+import 'package:lin_player_core/app_config/app_product.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
+
 import 'emos/emos_adapter.dart';
 import 'lin/lin_emby_adapter.dart';
 import 'server_adapter.dart';

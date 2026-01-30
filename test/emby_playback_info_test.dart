@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:lin_player/services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 void main() {
   test('fetchPlaybackInfo uses Exo device profile when requested', () async {
@@ -62,4 +62,3 @@ void main() {
     expect(video['AudioCodec'], 'aac,mp3');
   });
 }
-

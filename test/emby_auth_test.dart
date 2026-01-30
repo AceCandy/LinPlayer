@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:http/testing.dart';
 
-import 'package:lin_player/services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 void main() {
   test('authenticate prefers root base when user input ends with /emby', () async {

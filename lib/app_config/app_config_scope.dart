@@ -1,6 +1,6 @@
 import 'package:flutter/widgets.dart';
 
-import 'app_config.dart';
+import 'package:lin_player_core/app_config/app_config.dart';
 
 class AppConfigScope extends InheritedWidget {
   const AppConfigScope({

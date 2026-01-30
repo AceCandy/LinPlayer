@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'state/app_state.dart';
 import 'library_items_page.dart';
 import 'src/device/device_type.dart';

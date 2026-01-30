@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lin_player/services/server_share_text_parser.dart';
+import 'package:lin_player_server_api/services/server_share_text_parser.dart';
 
 void main() {
   test('parse share text with per-line ports', () {
@@ -81,4 +81,3 @@ cf线路: https://mecf.mebimmer.de
     expect(g.lines.first.selectedByDefault, isTrue);
   });
 }
-

@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
-import '../state/media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
 
 class DomainInfo {
   final String name;

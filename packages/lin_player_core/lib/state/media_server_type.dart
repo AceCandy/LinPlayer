@@ -51,3 +51,4 @@ extension MediaServerTypeX on MediaServerType {
 
   bool get isWebDav => this == MediaServerType.webdav;
 }
+

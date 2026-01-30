@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:url_launcher/url_launcher_string.dart';
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'server_adapters/server_access.dart';
 import 'state/app_state.dart';
 import 'state/server_profile.dart';

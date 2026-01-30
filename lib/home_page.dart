@@ -14,7 +14,7 @@ import 'player_screen_exo.dart';
 import 'search_page.dart';
 import 'settings_page.dart';
 import 'services/cover_cache_manager.dart';
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'state/app_state.dart';
 import 'state/preferences.dart';
 import 'state/route_entries.dart';

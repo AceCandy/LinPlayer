@@ -4,7 +4,7 @@ import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
 import 'services/cover_cache_manager.dart';
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'server_adapters/server_access.dart';
 import 'show_detail_page.dart';
 import 'src/device/device_type.dart';

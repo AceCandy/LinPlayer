@@ -12,7 +12,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'player_service.dart';
 import 'play_network_page_exo.dart';
 import 'services/dandanplay_api.dart';
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'server_adapters/server_access.dart';
 import 'state/app_state.dart';
 import 'state/anime4k_preferences.dart';

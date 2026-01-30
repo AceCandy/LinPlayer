@@ -1,0 +1,15 @@
+name: lin_player_server_api
+description: Server/network APIs used by LinPlayer (Emby/Jellyfin/Plex/WebDAV etc).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  lin_player_core:
+    path: ../lin_player_core
+  http: ^1.2.2
+  crypto: ^3.0.3
+  xml: ^6.5.0
+

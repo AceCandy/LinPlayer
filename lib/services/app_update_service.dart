@@ -5,7 +5,7 @@ import 'dart:io';
 import 'package:http/http.dart' as http;
 import 'package:package_info_plus/package_info_plus.dart';
 
-import 'emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 typedef DownloadProgressCallback = void Function(
     int receivedBytes, int totalBytes);

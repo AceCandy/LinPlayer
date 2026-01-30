@@ -12,8 +12,11 @@
 - `assets/`：项目资源（目前主要用于应用图标）。
   - `assets/app_icon.jpg`：图标源文件。
   - `assets/README.md`：图标生成说明（`dart run flutter_launcher_icons`）。
-- `lib/`：Flutter 应用代码（UI、状态、Emby/Jellyfin API 封装、Plex PIN 登录封装、播放器封装）。
-- `packages/`：项目内置/改造后的依赖。
+- `lib/`：Flutter 应用代码（UI、状态、页面编排、播放器封装等）。
+- `packages/`：项目内置/改造后的依赖与可复用模块（模块化拆分进行中）。
+  - `packages/lin_player_core/`：纯 Dart 核心定义（AppConfig / FeatureFlags / MediaServerType 等）。
+  - `packages/lin_player_server_api/`：服务端/网络 API（Emby/Jellyfin、WebDAV、Plex 等）。
+  - `packages/lin_player_server_adapters/`：服务端适配层（UI 只依赖 adapter 接口）。
   - `packages/media_kit_patched/`：对 `media_kit` 的小改造版本，用于更细粒度传递 mpv 参数（见下文）。
   - `packages/video_player_android_patched/`：对 `video_player_android` 的改造版本，用于 Exo 内核的字幕轨道枚举/选择与 platformView 字幕渲染（见下文）。
 - `android/`、`ios/`、`macos/`、`windows/`、`linux/`：Flutter 各平台宿主工程（应用名、图标、打包配置都在这里落地）。
@@ -70,7 +73,7 @@
   - 角色：弹幕偏好枚举与序列化（本地/在线）。
 
 ### Emby/Jellyfin 接口封装（HTTP）
-- `lib/services/emby_api.dart`
+- `packages/lin_player_server_api/lib/services/emby_api.dart`
   - 角色：封装 Emby/Jellyfin 常用接口 + 必要的 Header（`X-Emby-Token`、`X-Emby-Authorization`、`User-Agent`）。
   - 主要方法（对应 UI/状态层调用）：
     - `authenticate(username, password, deviceId)`：
@@ -93,7 +96,7 @@
     - 统一生成封面/人物图片 URL（UI 用 `CachedNetworkImage` 加载）。
 
 ### Plex 接口封装（PIN 登录）
-- `lib/services/plex_api.dart`
+- `packages/lin_player_server_api/lib/services/plex_api.dart`
   - 角色：封装 Plex PIN 登录与资源列表接口（plex.tv API v2），用于在 App 内完成“账号授权 → 选择服务器 → 保存”。
   - 主要方法：
     - `createPin()`：创建 PIN（返回 `id/code/expiresAt`）。
@@ -208,8 +211,8 @@
 ## 你要改哪里？（常见改动入口）
 
 - **改 UI/交互**：优先看 `lib/home_page.dart`、`lib/show_detail_page.dart`、`lib/play_network_page.dart`。
-- **改 Emby/Jellyfin 接口/字段**：`lib/services/emby_api.dart`（必要时同步调整 `MediaItem` 字段解析）。
-- **改 Plex PIN 登录/资源列表**：`lib/services/plex_api.dart`、`lib/server_page.dart`。
+- **改 Emby/Jellyfin 接口/字段**：`packages/lin_player_server_api/lib/services/emby_api.dart`（必要时同步调整 `MediaItem` 字段解析）。
+- **改 Plex PIN 登录/资源列表**：`packages/lin_player_server_api/lib/services/plex_api.dart`、`lib/server_page.dart`。
 - **改缓存/状态/持久化**：`lib/state/app_state.dart`。
 - **调播放器体验（硬解/缓冲/参数）**：`lib/player_service.dart`。
 - **改主题/视觉规范**：`lib/src/ui/app_theme.dart`。

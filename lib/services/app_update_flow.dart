@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:open_filex/open_filex.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
-import '../app_config/app_config.dart';
+import 'package:lin_player_core/app_config/app_config.dart';
 import '../state/app_state.dart';
 import 'app_update_service.dart';
 

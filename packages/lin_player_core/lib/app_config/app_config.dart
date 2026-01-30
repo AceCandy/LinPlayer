@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 import 'app_feature_flags.dart';
 import 'app_product.dart';
@@ -60,3 +60,4 @@ class AppConfig {
   @override
   int get hashCode => Object.hash(product, githubOwner, githubRepo, features);
 }
+

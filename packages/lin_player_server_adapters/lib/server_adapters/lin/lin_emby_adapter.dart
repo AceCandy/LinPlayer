@@ -1,5 +1,6 @@
-import '../../services/emby_api.dart';
-import '../../state/media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
+
 import '../server_adapter.dart';
 
 class LinEmbyAdapter implements MediaServerAdapter {
@@ -285,3 +286,4 @@ class LinEmbyAdapter implements MediaServerAdapter {
     );
   }
 }
+

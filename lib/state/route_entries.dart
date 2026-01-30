@@ -1,4 +1,4 @@
-import '../services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 typedef RouteEntry = ({DomainInfo domain, bool isCustom});
 
@@ -18,4 +18,3 @@ List<RouteEntry> buildRouteEntries({
     for (final d in pluginDomains) (domain: d, isCustom: false),
   ];
 }
-

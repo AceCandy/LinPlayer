@@ -1,5 +1,5 @@
-import '../services/emby_api.dart';
-import '../state/media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 class ServerAuthSession {
   const ServerAuthSession({
@@ -122,3 +122,4 @@ abstract class MediaServerAdapter {
     bool? played,
   });
 }
+

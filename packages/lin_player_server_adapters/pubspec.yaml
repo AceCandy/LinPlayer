@@ -1,0 +1,14 @@
+name: lin_player_server_adapters
+description: Server adapter layer for LinPlayer (binds UI to concrete server APIs).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  lin_player_core:
+    path: ../lin_player_core
+  lin_player_server_api:
+    path: ../lin_player_server_api
+

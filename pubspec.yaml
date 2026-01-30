@@ -10,6 +10,13 @@ environment:
 dependencies:
   flutter:
     sdk: flutter
+
+  lin_player_core:
+    path: packages/lin_player_core
+  lin_player_server_api:
+    path: packages/lin_player_server_api
+  lin_player_server_adapters:
+    path: packages/lin_player_server_adapters
   
   file_picker: ^8.0.0+1
   http: ^1.2.2

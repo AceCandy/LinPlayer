@@ -1,8 +1,8 @@
 import '../state/app_state.dart';
-import '../state/media_server_type.dart';
 import '../state/server_profile.dart';
-import 'server_adapter.dart';
-import 'server_adapter_factory.dart';
+
+import 'package:lin_player_core/state/media_server_type.dart';
+import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 
 class ServerAccess {
   const ServerAccess({required this.adapter, required this.auth});

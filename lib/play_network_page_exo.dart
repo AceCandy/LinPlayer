@@ -12,7 +12,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 
 import 'play_network_page.dart';
 import 'services/dandanplay_api.dart';
-import 'services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'server_adapters/server_access.dart';
 import 'state/app_state.dart';
 import 'state/danmaku_preferences.dart';

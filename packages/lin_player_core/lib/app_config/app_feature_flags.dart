@@ -1,4 +1,4 @@
-import 'package:flutter/foundation.dart';
+import 'package:meta/meta.dart';
 
 import '../state/media_server_type.dart';
 import 'app_product.dart';
@@ -17,7 +17,7 @@ class AppFeatureFlags {
   @override
   bool operator ==(Object other) {
     return other is AppFeatureFlags &&
-        setEquals(other.allowedServerTypes, allowedServerTypes);
+        _setEquals(other.allowedServerTypes, allowedServerTypes);
   }
 
   @override
@@ -26,6 +26,9 @@ class AppFeatureFlags {
       ..sort((a, b) => a.index.compareTo(b.index));
     return Object.hashAll(sorted);
   }
+
+  static bool _setEquals<T>(Set<T> a, Set<T> b) =>
+      a.length == b.length && a.containsAll(b);
 
   static AppFeatureFlags forProduct(AppProduct product) {
     switch (product) {
@@ -43,3 +46,4 @@ class AppFeatureFlags {
     }
   }
 }
+

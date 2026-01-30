@@ -5,8 +5,8 @@ import 'package:flutter/material.dart';
 
 import 'player_screen.dart';
 import 'player_screen_exo.dart';
-import 'services/webdav_api.dart';
-import 'services/webdav_proxy.dart';
+import 'package:lin_player_server_api/services/webdav_api.dart';
+import 'package:lin_player_server_api/services/webdav_proxy.dart';
 import 'src/device/device_type.dart';
 import 'src/ui/glass_blur.dart';
 import 'state/app_state.dart';

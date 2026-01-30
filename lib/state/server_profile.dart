@@ -1,4 +1,4 @@
-import 'media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
 
 class ServerProfile {
   ServerProfile({

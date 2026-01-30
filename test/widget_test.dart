@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lin_player/app_config/app_config.dart';
 import 'package:lin_player/app_config/app_config_scope.dart';
 import 'package:lin_player/main.dart';
+import 'package:lin_player_core/app_config/app_config.dart';
 import 'package:lin_player/state/app_state.dart';
-import 'package:lin_player/state/media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
 import 'package:lin_player/state/server_profile.dart';
 
 void main() {

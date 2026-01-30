@@ -1,6 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lin_player/services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'package:lin_player/state/route_entries.dart';
 
 void main() {

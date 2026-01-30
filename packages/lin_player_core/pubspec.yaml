@@ -1,0 +1,11 @@
+name: lin_player_core
+description: Core domain & configuration for LinPlayer (shared, UI-agnostic).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+
+dependencies:
+  meta: ^1.12.0
+

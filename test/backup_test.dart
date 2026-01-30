@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
-import 'package:lin_player/services/emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 import 'package:lin_player/state/app_state.dart';
 import 'package:lin_player/state/preferences.dart';
 import 'package:lin_player/state/server_profile.dart';

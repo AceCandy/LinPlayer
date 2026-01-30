@@ -3,7 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 
-import 'services/server_share_text_parser.dart';
+import 'package:lin_player_server_api/services/server_share_text_parser.dart';
 import 'state/app_state.dart';
 import 'state/server_profile.dart';
 import 'src/ui/server_icon_picker.dart';

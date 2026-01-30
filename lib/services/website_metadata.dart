@@ -6,7 +6,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 import 'package:http/io_client.dart';
 
-import 'emby_api.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
 
 class WebsiteMetadata {
   const WebsiteMetadata({

@@ -6,14 +6,14 @@ import 'package:flutter/material.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../services/backup_crypto.dart';
-import '../services/emby_api.dart';
-import '../services/webdav_api.dart';
-import '../server_adapters/server_adapter_factory.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
+import 'package:lin_player_server_api/services/webdav_api.dart';
+import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'anime4k_preferences.dart';
 import 'danmaku_preferences.dart';
 import 'interaction_preferences.dart';
 import 'local_playback_handoff.dart';
-import 'media_server_type.dart';
+import 'package:lin_player_core/state/media_server_type.dart';
 import 'preferences.dart';
 import 'server_profile.dart';
 

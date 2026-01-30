@@ -245,8 +245,12 @@ flutter build linux --release
   - 如果 nightly 的资产文件名与预期不同（例如 Android 可能是 `app-release.apk`），工作流会自动兼容并上传到 `latest`。
 
 ## 源码导览
-- 目录结构、核心模块、Emby 接口与播放链路：`docs/ARCHITECTURE.md`
-- TV 内置代理路线图：`docs/TV_PROXY_ROADMAP.md`
+- 架构/目录结构/播放链路：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- 模块化（packages）：
+  - [packages/lin_player_core/README.md](packages/lin_player_core/README.md)：基础定义（AppConfig / MediaServerType 等）
+  - [packages/lin_player_server_api/README.md](packages/lin_player_server_api/README.md)：服务端/网络 API（Emby/WebDAV/Plex）
+  - [packages/lin_player_server_adapters/README.md](packages/lin_player_server_adapters/README.md)：Server Adapter 适配层（UI 只依赖接口）
+- TV 内置代理路线图：[docs/TV_PROXY_ROADMAP.md](docs/TV_PROXY_ROADMAP.md)
 
 ## UI 自适应（开发者）
 - 全局缩放逻辑在 `lib/src/ui/ui_scale.dart`；应用入口通过 `MaterialApp.builder` 统一应用缩放（文本/图标/部分组件尺寸）。
@@ -287,17 +291,18 @@ flutter build linux --release
 - `lib/play_network_page.dart` Emby 在线播放
 - `lib/player_screen.dart` 本地播放器
 - `lib/player_service.dart` 播放器封装（mpv 参数、硬解/软解）
-- `lib/services/emby_api.dart` Emby API 封装
-- `lib/services/webdav_api.dart` WebDAV API（PROPFIND/鉴权解析）
-- `lib/services/webdav_proxy.dart` WebDAV 本地回环代理（Range 转发）
-- `lib/services/plex_api.dart` Plex PIN 登录/资源列表 API 封装
+- `packages/lin_player_server_api/lib/services/emby_api.dart` Emby API 封装
+- `packages/lin_player_server_api/lib/services/webdav_api.dart` WebDAV API（PROPFIND/鉴权解析）
+- `packages/lin_player_server_api/lib/services/webdav_proxy.dart` WebDAV 本地回环代理（Range 转发）
+- `packages/lin_player_server_api/lib/services/plex_api.dart` Plex PIN 登录/资源列表 API 封装
 - `lib/services/dandanplay_api.dart` 在线弹幕（弹弹play API v2）封装
 - `lib/src/player/danmaku.dart` 弹幕解析（本地 XML / 在线列表）
 - `lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
 - `lib/state/app_state.dart` 状态/登录/缓存
 
 ## TODO（重构路线图）
-- [ ] 模块化：沉淀通用能力为可复用模块（逐步从 `lib/` 抽离到 `packages/`）
+- [x] 模块化（基础拆分）：提取 `lin_player_core` / `lin_player_server_api` / `lin_player_server_adapters`（见 `packages/`）
+- [ ] 模块化（下一步）：继续抽离 state / player / UI 基建等通用能力
 - [ ] Server Adapter（收口）：UI 不再直接依赖具体 API（只依赖 adapter/interface）
 - [ ] 网络收口：统一 HTTP client 创建入口（为代理/证书/重试/超时等打基础）
 - [ ] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）

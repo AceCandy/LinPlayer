@@ -26,6 +26,9 @@
 .pub/
 build/
 
+# Monorepo internal packages (lockfiles are for apps, not libs)
+packages/**/pubspec.lock
+
 # Do not track the Flutter SDK if it's placed inside the project
 # Only ignore a top-level Flutter SDK folder, not platform sources like windows/flutter
 /flutter/

@@ -2,7 +2,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:lin_player/services/webdav_api.dart';
+import 'package:lin_player_server_api/services/webdav_api.dart';
 
 class _RealHttpOverrides extends HttpOverrides {}
 
