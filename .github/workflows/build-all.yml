@@ -82,77 +82,7 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
-            # Decode keystore from GitHub Secrets.
-            #
-            # A surprising number of copy/paste flows introduce:
-            # - Unicode whitespace (NBSP, line separators, etc.)
-            # - surrounding quotes
-            # - literal "\n" sequences
-            #
-            # GNU `base64` is strict about non-base64 bytes, so do normalization in Python.
-            python3 - <<'PY'
-          import base64
-          import os
-          import re
-          import sys
-          
-          raw = os.environ.get("ANDROID_KEYSTORE_BASE64", "")
-          raw_len = len(raw)
-          if not raw:
-            sys.stderr.write("ANDROID_KEYSTORE_BASE64 is empty.\n")
-            sys.exit(1)
-          
-          s = raw.strip()
-          
-          # Strip a single pair of surrounding quotes if present.
-          if len(s) >= 2 and s[0] == s[-1] and s[0] in ("'", '"'):
-            s = s[1:-1]
-          
-          # Strip common wrappers.
-          m = re.match(r"^data:.*?;base64,(.*)$", s, flags=re.DOTALL)
-          if m:
-            s = m.group(1)
-          s = re.sub(r"-{5}BEGIN [^-]+-{5}", "", s)
-          s = re.sub(r"-{5}END [^-]+-{5}", "", s)
-          
-          # Handle literal backslash escapes (common when pasting from JSON/env files).
-          s = s.replace("\\n", "").replace("\\r", "")
-          
-          # Remove all whitespace + common zero-width copy/paste characters.
-          zero_width = {"\u200b", "\u200c", "\u200d", "\ufeff", "\u2060"}
-          s = "".join(ch for ch in s if (not ch.isspace()) and (ch not in zero_width))
-          
-          # Support base64url just in case.
-          s = s.replace("-", "+").replace("_", "/")
-
-          # Add padding if missing.
-          clean_len = len(s)
-          pad_needed = (-clean_len) % 4
-          s += "=" * pad_needed
-
-          if re.search(r"[^A-Za-z0-9+/=]", s):
-            sys.stderr.write(f"ANDROID_KEYSTORE_BASE64 normalization stats: raw_len={raw_len}, clean_len={clean_len}, pad={pad_needed}\n")
-            sys.stderr.write(
-              "ANDROID_KEYSTORE_BASE64 contains non-base64 characters after normalization. "
-              "Re-generate the secret from the raw keystore bytes and paste the plain base64 string.\n"
-            )
-            sys.exit(1)
-
-          try:
-            data = base64.b64decode(s, validate=True)
-          except Exception as e:
-            sys.stderr.write(f"ANDROID_KEYSTORE_BASE64 normalization stats: raw_len={raw_len}, clean_len={clean_len}, pad={pad_needed}\n")
-            sys.stderr.write(f"Failed to decode ANDROID_KEYSTORE_BASE64 ({type(e).__name__}: {e}).\n")
-            sys.exit(1)
-          
-          if len(data) < 32:
-            sys.stderr.write("Decoded keystore is unexpectedly small; refusing to continue.\n")
-            sys.exit(1)
-          
-          os.makedirs("android", exist_ok=True)
-          with open("android/release.keystore", "wb") as f:
-            f.write(data)
-          PY
+            python3 .github/scripts/decode_android_keystore.py android/release.keystore
 
             # key.properties is read from android/app via rootProject.file("key.properties"),
             # and storeFile is resolved relative to android/app (Gradle ':app' module).
@@ -164,26 +94,11 @@ jobs:
 
             # Fail fast with a clear error if the keystore/password/alias don't actually work,
             # instead of spending minutes on a build just to fail at :app:packageRelease.
-            "$JAVA_HOME/bin/keytool" -list \
-              -keystore android/release.keystore \
-              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-              -alias "$ANDROID_KEY_ALIAS" \
-              >/dev/null
-
-            TMP_DIR="$(mktemp -d)"
-            echo "ok" > "$TMP_DIR/ok.txt"
-            "$JAVA_HOME/bin/jar" cf "$TMP_DIR/ok.jar" -C "$TMP_DIR" ok.txt
-            "$JAVA_HOME/bin/jarsigner" \
-              -keystore android/release.keystore \
-              -storepass "$ANDROID_KEYSTORE_PASSWORD" \
-              -keypass "$ANDROID_KEY_PASSWORD" \
-              "$TMP_DIR/ok.jar" \
-              "$ANDROID_KEY_ALIAS" \
-              >/dev/null
-            "$JAVA_HOME/bin/jarsigner" -verify "$TMP_DIR/ok.jar" >/dev/null
-            rm -rf "$TMP_DIR"
-
-            echo "Android signing keystore verified (alias=$ANDROID_KEY_ALIAS)."
+            bash .github/scripts/verify_android_signing.sh \
+              android/release.keystore \
+              "$ANDROID_KEYSTORE_PASSWORD" \
+              "$ANDROID_KEY_PASSWORD" \
+              "$ANDROID_KEY_ALIAS"
           else
             if [[ "${LINPLAYER_ALLOW_CI_DEBUG_SIGNING:-}" =~ ^(1|true|yes)$ ]]; then
               echo "No ANDROID_KEYSTORE_BASE64 secret set; proceeding with debug signing (NOT OTA-safe)."
