@@ -1272,9 +1272,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                   final epNo = e.episodeNumber ?? (index + 1);
                                   final isCurrent = e.id == widget.itemId;
                                   final access = _serverAccess;
-                                  final img = access == null
-                                      ? null
-                                      : access.adapter.imageUrl(
+                                  final img = access?.adapter.imageUrl(
                                           access.auth,
                                           itemId: e.hasImage
                                               ? e.id
@@ -1699,8 +1697,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     try {
       final access = _serverAccess;
       if (access == null) throw Exception('Not connected');
-      final info = await access.adapter
-          .fetchPlaybackInfo(access.auth, itemId: widget.itemId);
+      final info =
+          await access.adapter.fetchPlaybackInfo(access.auth, itemId: widget.itemId);
       final sources = info.mediaSources.cast<Map<String, dynamic>>();
       _availableMediaSources = List<Map<String, dynamic>>.from(sources);
       Map<String, dynamic>? ms;
@@ -2765,8 +2763,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       try {
         final access = _serverAccess;
         if (access == null) throw Exception('Not connected');
-        final info = await access.adapter
-            .fetchPlaybackInfo(access.auth, itemId: widget.itemId);
+        final info =
+            await access.adapter.fetchPlaybackInfo(access.auth, itemId: widget.itemId);
         sources = info.mediaSources.cast<Map<String, dynamic>>();
         _availableMediaSources = List<Map<String, dynamic>>.from(sources);
       } catch (_) {
@@ -3076,7 +3074,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                 _subtitleViewConfiguration,
                           ),
                           Positioned.fill(
-                            child: DanmakuStage(
+                              child: DanmakuStage(
                               key: _danmakuKey,
                               enabled: _danmakuEnabled,
                               opacity: _danmakuOpacity,

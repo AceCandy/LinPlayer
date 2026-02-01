@@ -1,10 +1,8 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
 
 import 'package:lin_player_server_api/network/lin_http_client.dart';
 
@@ -146,9 +144,7 @@ class WebsiteMetadataService {
 
   static String? _fallbackFavicon(Uri baseUrl) {
     try {
-      return baseUrl
-          .replace(path: '/favicon.ico', query: '', fragment: '')
-          .toString();
+      return baseUrl.replace(path: '/favicon.ico', query: '', fragment: '').toString();
     } catch (_) {
       return null;
     }
@@ -191,9 +187,10 @@ class WebsiteMetadataService {
       final raw = m.group(1);
       if (raw == null || raw.isEmpty) return m.group(0) ?? '';
       try {
-        final value = raw.startsWith('x') || raw.startsWith('X')
-            ? int.parse(raw.substring(1), radix: 16)
-            : int.parse(raw, radix: 10);
+        final value =
+            raw.startsWith('x') || raw.startsWith('X')
+                ? int.parse(raw.substring(1), radix: 16)
+                : int.parse(raw, radix: 10);
         return String.fromCharCode(value);
       } catch (_) {
         return m.group(0) ?? '';

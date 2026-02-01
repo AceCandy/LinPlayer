@@ -74,9 +74,7 @@ class _LibraryPageState extends State<LibraryPage> {
                         itemCount: libs.length,
                         itemBuilder: (context, index) {
                           final LibraryInfo lib = libs[index];
-                          final imageUrl = access == null
-                              ? ''
-                              : access.adapter.imageUrl(
+                          final imageUrl = access?.adapter.imageUrl(
                                   access.auth,
                                   itemId: lib.id,
                                   maxWidth: 400,

@@ -429,8 +429,10 @@ class _HomePageState extends State<HomePage> {
                               await widget.appState.setBaseUrl(d.url);
                               // Best-effort: reload content after line switch.
                               // ignore: unawaited_futures
-                              widget.appState.refreshLibraries().then((_) =>
-                                  widget.appState.loadHome(forceRefresh: true));
+                              widget.appState
+                                  .refreshLibraries()
+                                  .then((_) => widget.appState
+                                      .loadHome(forceRefresh: true));
                               if (ctx.mounted) Navigator.of(ctx).pop();
                             },
                           );
@@ -1504,8 +1506,7 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
                                                   CoverCacheManager.instance,
                                               httpHeaders: {
                                                 'User-Agent':
-                                                    LinHttpClientFactory
-                                                        .userAgent
+                                                    LinHttpClientFactory.userAgent
                                               },
                                               fit: BoxFit.cover,
                                               placeholder: (_, __) =>
@@ -1701,9 +1702,7 @@ class _LibraryQuickAccessSectionState
                     separatorBuilder: (_, __) => const SizedBox(width: spacing),
                     itemBuilder: (context, index) {
                       final lib = libs[index];
-                      final imageUrl = access == null
-                          ? ''
-                          : access.adapter.imageUrl(
+                      final imageUrl = access?.adapter.imageUrl(
                               access.auth,
                               itemId: lib.id,
                               maxWidth: 640,

@@ -872,9 +872,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                   final epNo = e.episodeNumber ?? (index + 1);
                                   final isCurrent = e.id == widget.itemId;
                                   final access = _serverAccess;
-                                  final img = access == null
-                                      ? null
-                                      : access.adapter.imageUrl(
+                                  final img = access?.adapter.imageUrl(
                                           access.auth,
                                           itemId: e.hasImage
                                               ? e.id

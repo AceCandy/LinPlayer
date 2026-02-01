@@ -3,7 +3,6 @@ import 'dart:convert';
 import 'dart:io';
 
 import 'package:http/http.dart' as http;
-import 'package:http/io_client.dart';
 
 import 'package:lin_player_server_api/network/lin_http_client.dart';
 
@@ -66,12 +65,14 @@ class ServerIconLibrary {
       throw FormatException('Only http/https is supported: $url');
     }
 
-    final response = await _client.get(
-      uri,
-      headers: const {
-        'Accept': 'application/json,text/plain,*/*',
-      },
-    ).timeout(timeout, onTimeout: () {
+    final response = await _client
+        .get(
+          uri,
+          headers: const {
+            'Accept': 'application/json,text/plain,*/*',
+          },
+        )
+        .timeout(timeout, onTimeout: () {
       throw TimeoutException('Timeout fetching $url');
     });
 
@@ -83,8 +84,7 @@ class ServerIconLibrary {
     }
 
     final decoded = jsonDecode(response.body);
-    return _parseDecoded(decoded,
-        fallbackName: uri.host.isEmpty ? url : uri.host);
+    return _parseDecoded(decoded, fallbackName: uri.host.isEmpty ? url : uri.host);
   }
 
   factory ServerIconLibrary.fromJson(Map<String, dynamic> json) {
