@@ -11,6 +11,11 @@ on:
       build_number:
         description: Build number (integer)
         required: true
+      allow_debug_signing:
+        description: Allow Android debug signing in CI (NOT OTA-safe). Only use if ANDROID_KEYSTORE_* secrets are not configured yet.
+        type: boolean
+        required: false
+        default: false
 
 concurrency:
   group: nightly-release
@@ -22,6 +27,7 @@ jobs:
     runs-on: ubuntu-latest
     env:
       PUB_CACHE: /home/runner/.pub-cache
+      LINPLAYER_ALLOW_CI_DEBUG_SIGNING: ${{ github.event.inputs.allow_debug_signing }}
     steps:
       - name: Check out code
         uses: actions/checkout@v4
@@ -77,18 +83,21 @@ jobs:
           set -euo pipefail
           if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/release.keystore
-            # Path is resolved from android/app (Gradle ':app' module).
-            echo "ANDROID_KEYSTORE_FILE=../release.keystore" >> "$GITHUB_ENV"
-            echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
-            echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
+
+            # key.properties is read from android/app via rootProject.file("key.properties"),
+            # and storeFile is resolved relative to android/app (Gradle ':app' module).
+            printf "storePassword=%s\nkeyPassword=%s\nkeyAlias=%s\nstoreFile=../release.keystore\n" \
+              "$ANDROID_KEYSTORE_PASSWORD" \
+              "$ANDROID_KEY_PASSWORD" \
+              "$ANDROID_KEY_ALIAS" \
+              > android/key.properties
           else
             if [[ "${LINPLAYER_ALLOW_CI_DEBUG_SIGNING:-}" =~ ^(1|true|yes)$ ]]; then
               echo "No ANDROID_KEYSTORE_BASE64 secret set; proceeding with debug signing (NOT OTA-safe)."
             else
               echo "No ANDROID_KEYSTORE_BASE64 secret set; refusing to build release APKs in CI." >&2
               echo "OTA upgrades require a stable signing key. Configure ANDROID_KEYSTORE_* secrets/env vars," >&2
-              echo "or set LINPLAYER_ALLOW_CI_DEBUG_SIGNING=true to force debug signing (not OTA-safe)." >&2
+              echo "or re-run this workflow with allow_debug_signing=true to force debug signing (not OTA-safe)." >&2
               exit 1
             fi
           fi
@@ -553,72 +562,6 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: bash .github/scripts/compute_version.sh
-
-      - name: Prepare preview tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          if [[ "$BUILD_NAME" == v* ]]; then
-            PREVIEW_TAG="${BUILD_NAME}-preview.${BUILD_NUMBER}"
-          else
-            PREVIEW_TAG="v${BUILD_NAME}-preview.${BUILD_NUMBER}"
-          fi
-          echo "PREVIEW_TAG=$PREVIEW_TAG" >> "$GITHUB_ENV"
-          echo "Preview tag: $PREVIEW_TAG"
-
-      - name: Create or verify preview tag
-        shell: bash
-        run: |
-          set -euo pipefail
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-
-          git fetch --tags --force
-
-          if git rev-parse -q --verify "refs/tags/$PREVIEW_TAG" >/dev/null; then
-            EXISTING_SHA="$(git rev-parse "refs/tags/${PREVIEW_TAG}^{}")"
-            if [[ "$EXISTING_SHA" != "$GITHUB_SHA" ]]; then
-              echo "Tag $PREVIEW_TAG already exists at $EXISTING_SHA; expected $GITHUB_SHA." >&2
-              exit 1
-            fi
-            echo "Tag $PREVIEW_TAG already exists; leaving as-is."
-          else
-            git tag "$PREVIEW_TAG" "$GITHUB_SHA"
-            git push origin "refs/tags/${PREVIEW_TAG}"
-          fi
-
-      - name: Create or update preview release
-        shell: bash
-        run: |
-          set -euo pipefail
-          NOTES="$(cat <<EOF
-          Preview build
-
-          - Version: ${VERSION_FULL}
-          - Commit: ${GITHUB_SHA}
-          - Date (UTC): $(date -u '+%Y-%m-%d %H:%M:%S')
-          EOF
-          )"
-
-          if gh release view "$PREVIEW_TAG" >/dev/null 2>&1; then
-            gh release edit "$PREVIEW_TAG" --title "Preview (${VERSION_FULL})" --notes "$NOTES"
-          else
-            gh release create "$PREVIEW_TAG" --title "Preview (${VERSION_FULL})" --notes "$NOTES" --prerelease
-          fi
-
-      - name: Upload preview assets (overwrite)
-        shell: bash
-        run: |
-          set -euo pipefail
-
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-Android-APKs/app-arm64-v8a-release.apk#LinPlayer-Android-arm64-v8a.apk" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-Android-APKs/app-armeabi-v7a-release.apk#LinPlayer-Android-armeabi-v7a.apk" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-Android-APKs/app-release.apk#LinPlayer-Android.apk" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-Windows-Setup/LinPlayer-Setup-x64.exe#LinPlayer-Windows-Setup-x64.exe" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-Linux-Tarball-x86_64/LinPlayer-Linux-x86_64.tar.gz#LinPlayer-Linux-x86_64.tar.gz" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-iOS-Unsigned-IPA/LinPlayer-iOS-unsigned.ipa#LinPlayer-iOS-unsigned.ipa" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-macOS-DMG-arm64/LinPlayer-macOS-arm64.dmg#LinPlayer-macOS-arm64.dmg" --clobber
-          gh release upload "$PREVIEW_TAG" "dist/LinPlayer-macOS-DMG-x86_64/LinPlayer-macOS-x86_64.dmg#LinPlayer-macOS-x86_64.dmg" --clobber
 
       - name: Update nightly tag
         shell: bash
