@@ -1711,7 +1711,7 @@ class _LibraryQuickAccessSectionState
                         width: itemWidth,
                         child: MediaBackdropTile(
                           title: lib.name,
-                          imageUrl: imageUrl,
+                          imageUrl: imageUrl ?? '',
                           onTap: () {
                             Navigator.of(context).push(
                               MaterialPageRoute(

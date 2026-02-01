@@ -11,6 +11,7 @@ import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import 'danmaku_settings_page.dart';
@@ -18,6 +19,9 @@ import 'interaction_settings_page.dart';
 import 'server_text_import_sheet.dart';
 import 'services/app_update_flow.dart';
 import 'services/app_update_service.dart';
+import 'services/built_in_proxy/built_in_proxy_service.dart';
+import 'services/tv_remote/tv_remote_service.dart';
+import 'tv_proxy_panel_page.dart';
 
 class SettingsPage extends StatefulWidget {
   const SettingsPage({super.key, required this.appState});
@@ -39,11 +43,59 @@ class _SettingsPageState extends State<SettingsPage> {
   double? _uiScaleDraft;
   bool _checkingUpdate = false;
   String _currentVersionFull = '';
+  bool _tvRemoteBusy = false;
+  bool _tvProxyBusy = false;
+  final ScrollController _scrollController = ScrollController();
+  VoidCallback? _primaryFocusListener;
+  Timer? _focusEnsureTimer;
 
   @override
   void initState() {
     super.initState();
     _loadPackageInfo();
+    _attachTvFocusAutoScroll();
+    if (DeviceType.isTv) {
+      unawaited(BuiltInProxyService.instance.refresh());
+    }
+  }
+
+  void _attachTvFocusAutoScroll() {
+    if (!DeviceType.isTv) return;
+
+    _primaryFocusListener = () {
+      if (!mounted) return;
+
+      final focusContext = FocusManager.instance.primaryFocus?.context;
+      if (focusContext == null) return;
+      if (focusContext.findAncestorStateOfType<_SettingsPageState>() != this) {
+        return;
+      }
+
+      _focusEnsureTimer?.cancel();
+      _focusEnsureTimer = Timer(const Duration(milliseconds: 10), () {
+        if (!mounted) return;
+        final ctx = FocusManager.instance.primaryFocus?.context;
+        if (ctx == null) return;
+        if (ctx.findAncestorStateOfType<_SettingsPageState>() != this) return;
+        Scrollable.ensureVisible(
+          ctx,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+        );
+      });
+    };
+    FocusManager.instance.addListener(_primaryFocusListener!);
+  }
+
+  @override
+  void dispose() {
+    _focusEnsureTimer?.cancel();
+    if (_primaryFocusListener != null) {
+      FocusManager.instance.removeListener(_primaryFocusListener!);
+    }
+    _scrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPackageInfo() async {
@@ -821,6 +873,187 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _setTvRemoteEnabled(BuildContext context, bool enabled) async {
+    if (_tvRemoteBusy) return;
+    setState(() => _tvRemoteBusy = true);
+
+    try {
+      await widget.appState.setTvRemoteEnabled(enabled);
+      if (enabled) {
+        await TvRemoteService.instance.start(appState: widget.appState);
+      } else {
+        await TvRemoteService.instance.stop();
+      }
+    } catch (e) {
+      if (enabled) {
+        // ignore: unawaited_futures
+        widget.appState.setTvRemoteEnabled(false);
+        // ignore: unawaited_futures
+        TvRemoteService.instance.stop();
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('手机扫码控制切换失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tvRemoteBusy = false);
+    }
+  }
+
+  Future<void> _showTvRemoteQrDialog(BuildContext context) async {
+    final url = TvRemoteService.instance.firstRemoteUrl;
+    if (url == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未获取到局域网地址，请检查网络连接后重试')),
+      );
+      return;
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('手机扫码控制'),
+        content: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                padding: const EdgeInsets.all(10),
+                decoration: BoxDecoration(
+                  color: Colors.white,
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                child: QrImageView(
+                  data: url.toString(),
+                  size: 240,
+                ),
+              ),
+              const SizedBox(height: 12),
+              SelectableText(
+                url.toString(),
+                style: Theme.of(dctx).textTheme.bodySmall,
+              ),
+              const SizedBox(height: 8),
+              Text(
+                '手机与 TV 在同一局域网即可打开',
+                style: Theme.of(dctx).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(dctx).colorScheme.onSurfaceVariant,
+                    ),
+              ),
+            ],
+          ),
+        ),
+        actions: [
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(),
+            child: const Text('关闭'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Future<void> _setTvBuiltInProxyEnabled(
+    BuildContext context,
+    bool enabled,
+  ) async {
+    if (_tvProxyBusy) return;
+    setState(() => _tvProxyBusy = true);
+
+    try {
+      await widget.appState.setTvBuiltInProxyEnabled(enabled);
+      if (enabled) {
+        await BuiltInProxyService.instance.start();
+      } else {
+        await BuiltInProxyService.instance.stop();
+      }
+    } catch (e) {
+      if (enabled) {
+        // ignore: unawaited_futures
+        widget.appState.setTvBuiltInProxyEnabled(false);
+        // ignore: unawaited_futures
+        BuiltInProxyService.instance.stop();
+      }
+      if (context.mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('内置代理切换失败：$e')),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _tvProxyBusy = false);
+    }
+  }
+
+  Future<void> _importMihomoBinary(BuildContext context) async {
+    if (_tvProxyBusy) return;
+    setState(() => _tvProxyBusy = true);
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        dialogTitle: '选择 mihomo 可执行文件',
+        allowMultiple: false,
+        withData: false,
+      );
+      final path = result?.files.single.path;
+      if (path == null || path.trim().isEmpty) return;
+
+      await BuiltInProxyService.instance.installFromFile(path);
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('mihomo 已导入')),
+      );
+
+      if (widget.appState.tvBuiltInProxyEnabled) {
+        try {
+          await BuiltInProxyService.instance.start();
+        } catch (e) {
+          if (!context.mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(content: Text('启动失败：$e')),
+          );
+        }
+      }
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('导入失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _tvProxyBusy = false);
+    }
+  }
+
+  Future<void> _openBuiltInProxyPanel(BuildContext context) async {
+    if (_tvProxyBusy) return;
+    setState(() => _tvProxyBusy = true);
+    try {
+      await BuiltInProxyService.instance.start();
+      final status = BuiltInProxyService.instance.status;
+      if (status.uiPath == null || status.uiPath!.trim().isEmpty) {
+        if (!context.mounted) return;
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未内置代理面板资源（metacubexd）')),
+        );
+        return;
+      }
+
+      if (!context.mounted) return;
+      final url = Uri.parse(
+          'http://127.0.0.1:${BuiltInProxyService.controllerPort}/ui/');
+      await Navigator.of(context).push(
+        MaterialPageRoute(builder: (_) => TvProxyPanelPage(url: url)),
+      );
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('打开代理面板失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _tvProxyBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isTv = _isTv(context);
@@ -850,8 +1083,156 @@ class _SettingsPageState extends State<SettingsPage> {
             ),
           ),
           body: ListView(
+            controller: _scrollController,
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
+              if (isTv) ...[
+                _Section(
+                  title: 'TV 专区',
+                  subtitle: '遥控/扫码输入/内置代理',
+                  enableBlur: enableBlur,
+                  child: AnimatedBuilder(
+                    animation: Listenable.merge([
+                      TvRemoteService.instance,
+                      BuiltInProxyService.instance,
+                    ]),
+                    builder: (context, _) {
+                      final remote = TvRemoteService.instance;
+                      final enabled = appState.tvRemoteEnabled;
+                      final running = remote.isRunning;
+                      final url = remote.firstRemoteUrl;
+
+                      final proxy = BuiltInProxyService.instance;
+                      final proxyStatus = proxy.status;
+                      final proxyEnabled = appState.tvBuiltInProxyEnabled;
+
+                      final statusText = !enabled
+                          ? '开启后在手机扫码输入链接/账号/密码'
+                          : (running
+                              ? (url == null
+                                  ? '已开启：未获取到局域网地址，请检查网络'
+                                  : '已开启：${url.host}:${url.port}')
+                              : '已开启：启动中…');
+
+                      final addressText = !enabled
+                          ? '未开启'
+                          : (url?.toString() ?? '未获取到局域网地址');
+
+                      final proxyStatusText = proxyStatus.isSupported
+                          ? proxyStatus.message
+                          : '仅 Android TV 支持';
+
+                      return Column(
+                        children: [
+                          SwitchListTile(
+                            autofocus: true,
+                            contentPadding: EdgeInsets.zero,
+                            secondary: const Icon(Icons.qr_code_2_outlined),
+                            title: const Text('手机扫码控制'),
+                            subtitle: Text(statusText),
+                            value: enabled,
+                            onChanged: _tvRemoteBusy
+                                ? null
+                                : (v) => _setTvRemoteEnabled(context, v),
+                          ),
+                          if (enabled) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.link_outlined),
+                              title: const Text('配对地址'),
+                              subtitle: Text(addressText),
+                              trailing: url == null
+                                  ? null
+                                  : IconButton(
+                                      tooltip: '显示二维码',
+                                      onPressed: () =>
+                                          _showTvRemoteQrDialog(context),
+                                      icon: const Icon(Icons.qr_code),
+                                    ),
+                            ),
+                          ],
+                          const Divider(height: 1),
+                          SwitchListTile(
+                            contentPadding: EdgeInsets.zero,
+                            secondary: const Icon(Icons.shield_outlined),
+                            title: const Text('内置代理（mihomo）'),
+                            subtitle: Text(proxyStatusText),
+                            value: proxyEnabled,
+                            onChanged: _tvProxyBusy
+                                ? null
+                                : (v) => _setTvBuiltInProxyEnabled(context, v),
+                          ),
+                          if (proxyEnabled) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.web_outlined),
+                              title: const Text('代理面板（metacubexd）'),
+                              subtitle: Text(
+                                proxyStatus.uiPath == null
+                                    ? '未内置面板资源'
+                                    : '本机打开：127.0.0.1:${BuiltInProxyService.controllerPort}/ui/',
+                              ),
+                              trailing: FilledButton(
+                                onPressed: _tvProxyBusy
+                                    ? null
+                                    : () => _openBuiltInProxyPanel(context),
+                                child: const Text('打开'),
+                              ),
+                              onTap: _tvProxyBusy
+                                  ? null
+                                  : () => _openBuiltInProxyPanel(context),
+                            ),
+                          ],
+                          if (proxyStatus.state == BuiltInProxyState.notInstalled ||
+                              proxyStatus.state == BuiltInProxyState.error)
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.file_open_outlined),
+                              title: const Text('手动导入 mihomo（可选）'),
+                              subtitle: const Text('需要与设备 ABI 匹配（通常 arm64-v8a）'),
+                              trailing: FilledButton(
+                                onPressed: _tvProxyBusy
+                                    ? null
+                                    : () => _importMihomoBinary(context),
+                                child: const Text('导入'),
+                              ),
+                              onTap: _tvProxyBusy
+                                  ? null
+                                  : () => _importMihomoBinary(context),
+                            ),
+                          if (proxyStatus.configPath != null) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.description_outlined),
+                              title: const Text('代理配置文件'),
+                              subtitle: Text(proxyStatus.configPath!),
+                              trailing: IconButton(
+                                tooltip: '刷新状态',
+                                onPressed: () =>
+                                    BuiltInProxyService.instance.refresh(),
+                                icon: const Icon(Icons.refresh),
+                              ),
+                            ),
+                          ],
+                          if (proxyStatus.uiPath != null) ...[
+                            const Divider(height: 1),
+                            ListTile(
+                              contentPadding: EdgeInsets.zero,
+                              leading: const Icon(Icons.folder_outlined),
+                              title: const Text('面板资源目录'),
+                              subtitle: Text(proxyStatus.uiPath!),
+                            ),
+                          ],
+                        ],
+                      );
+                    },
+                  ),
+                ),
+                const SizedBox(height: 12),
+              ],
               _Section(
                 title: '外观',
                 subtitle: blurAllowed

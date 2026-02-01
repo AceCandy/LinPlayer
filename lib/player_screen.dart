@@ -14,6 +14,8 @@ import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:media_kit_video/media_kit_video.dart';
 
+import 'services/built_in_proxy/built_in_proxy_service.dart';
+
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
     super.key,
@@ -908,6 +910,26 @@ class _PlayerScreenState extends State<PlayerScreen>
     _thumbnailer = null;
 
     try {
+      final builtInProxyEnabled =
+          isTv && (widget.appState?.tvBuiltInProxyEnabled ?? false);
+      final builtInProxy = BuiltInProxyService.instance;
+      if (builtInProxyEnabled) {
+        try {
+          await builtInProxy.start();
+        } catch (_) {}
+      }
+
+      final proxyReady = builtInProxyEnabled &&
+          builtInProxy.status.state == BuiltInProxyState.running;
+
+      final httpProxy = (proxyReady && isNetwork)
+          ? (() {
+              final uri = Uri.tryParse(rawPath);
+              if (uri == null) return null;
+              return BuiltInProxyService.proxyUrlForUri(uri);
+            })()
+          : null;
+
       await _playerService.initialize(
         isNetwork ? null : rawPath,
         networkUrl: isNetwork ? rawPath : null,
@@ -918,6 +940,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         unlimitedStreamCache: widget.appState?.unlimitedStreamCache ?? false,
         networkStreamSizeBytes: (isNetwork && file.size > 0) ? file.size : null,
         externalMpvPath: widget.appState?.externalMpvPath,
+        httpProxy: httpProxy,
       );
       if (!mounted) return;
       if (_playerService.isExternalPlayback) {
@@ -1015,7 +1038,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       _applyDanmakuPauseState(_buffering || !_playerService.isPlaying);
       _duration = _playerService.duration;
       if (!kIsWeb && rawPath.isNotEmpty) {
-        _thumbnailer = MediaKitThumbnailGenerator(media: Media(rawPath));
+        _thumbnailer = MediaKitThumbnailGenerator(
+          media: Media(rawPath),
+          httpProxy: httpProxy,
+        );
       }
       if (startPosition != null && startPosition > Duration.zero) {
         final d = _duration;

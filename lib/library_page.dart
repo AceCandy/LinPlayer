@@ -81,7 +81,7 @@ class _LibraryPageState extends State<LibraryPage> {
                                 );
                           return MediaBackdropTile(
                             title: lib.name,
-                            imageUrl: imageUrl,
+                            imageUrl: imageUrl ?? '',
                             onTap: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(

@@ -16,6 +16,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'play_network_page_exo.dart';
 import 'server_adapters/server_access.dart';
+import 'services/built_in_proxy/built_in_proxy_service.dart';
 
 class PlayNetworkPage extends StatefulWidget {
   const PlayNetworkPage({
@@ -268,8 +269,17 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     try {
       await _thumbnailer?.dispose();
     } catch (_) {}
-    _thumbnailer = null;
+      _thumbnailer = null;
     try {
+      final builtInProxyEnabled =
+          widget.isTv && widget.appState.tvBuiltInProxyEnabled;
+      final builtInProxy = BuiltInProxyService.instance;
+      if (builtInProxyEnabled) {
+        try {
+          await builtInProxy.start();
+        } catch (_) {}
+      }
+
       final streamUrl = await _buildStreamUrl();
       _resolvedStream = streamUrl;
       final access = _serverAccess;
@@ -278,9 +288,19 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         return;
       }
       final embyHeaders = access.adapter.buildStreamHeaders(access.auth);
+      final proxyReady = builtInProxyEnabled &&
+          builtInProxy.status.state == BuiltInProxyState.running;
+      final httpProxy = (proxyReady && streamUrl.isNotEmpty)
+          ? (() {
+              final uri = Uri.tryParse(streamUrl);
+              if (uri == null) return null;
+              return BuiltInProxyService.proxyUrlForUri(uri);
+            })()
+          : null;
       if (!kIsWeb && streamUrl.isNotEmpty) {
         _thumbnailer = MediaKitThumbnailGenerator(
           media: Media(streamUrl, httpHeaders: embyHeaders),
+          httpProxy: httpProxy,
         );
       }
       await _playerService.initialize(
@@ -294,6 +314,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         unlimitedStreamCache: widget.appState.unlimitedStreamCache,
         networkStreamSizeBytes: _resolvedStreamSizeBytes,
         externalMpvPath: widget.appState.externalMpvPath,
+        httpProxy: httpProxy,
       );
       if (_playerService.isExternalPlayback) {
         _playError = _playerService.externalPlaybackMessage ?? '已使用外部播放器播放';
@@ -914,10 +935,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final theme = Theme.of(context);
     final accent = theme.colorScheme.secondary;
     final showCover = widget.appState.episodePickerShowCover;
-
-    final baseUrl = _baseUrl;
-    final token = _token;
-    final apiPrefix = widget.server?.apiPrefix ?? widget.appState.apiPrefix;
 
     final seasons = _episodeSeasons;
     final selectedSeasonId = _episodeSelectedSeasonId;

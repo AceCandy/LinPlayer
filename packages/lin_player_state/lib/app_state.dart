@@ -205,6 +205,9 @@ class AppState extends ChangeNotifier {
   static const _kSeekBackwardSecondsKey = 'seekBackwardSeconds_v1';
   static const _kSeekForwardSecondsKey = 'seekForwardSeconds_v1';
   static const _kForceRemoteControlKeysKey = 'forceRemoteControlKeys_v1';
+  // TV-only features.
+  static const _kTvRemoteEnabledKey = 'tvRemoteEnabled_v1';
+  static const _kTvBuiltInProxyEnabledKey = 'tvBuiltInProxyEnabled_v1';
   static const _kEpisodePickerShowCoverKey = 'episodePickerShowCover_v1';
 
   final List<ServerProfile> _servers = [];
@@ -286,6 +289,8 @@ class AppState extends ChangeNotifier {
   int _seekBackwardSeconds = 10;
   int _seekForwardSeconds = 20;
   bool _forceRemoteControlKeys = false;
+  bool _tvRemoteEnabled = false;
+  bool _tvBuiltInProxyEnabled = false;
   bool _episodePickerShowCover = true;
   LocalPlaybackHandoff? _localPlaybackHandoff;
   bool _loading = false;
@@ -680,6 +685,8 @@ class AppState extends ChangeNotifier {
   int get seekBackwardSeconds => _seekBackwardSeconds;
   int get seekForwardSeconds => _seekForwardSeconds;
   bool get forceRemoteControlKeys => _forceRemoteControlKeys;
+  bool get tvRemoteEnabled => _tvRemoteEnabled;
+  bool get tvBuiltInProxyEnabled => _tvBuiltInProxyEnabled;
   bool get episodePickerShowCover => _episodePickerShowCover;
 
   SeriesPlaybackOverride? seriesPlaybackOverride({
@@ -900,6 +907,9 @@ class AppState extends ChangeNotifier {
         (prefs.getInt(_kSeekForwardSecondsKey) ?? 20).clamp(1, 120);
     _forceRemoteControlKeys =
         prefs.getBool(_kForceRemoteControlKeysKey) ?? false;
+    _tvRemoteEnabled = prefs.getBool(_kTvRemoteEnabledKey) ?? false;
+    _tvBuiltInProxyEnabled =
+        prefs.getBool(_kTvBuiltInProxyEnabledKey) ?? false;
     _episodePickerShowCover =
         prefs.getBool(_kEpisodePickerShowCoverKey) ?? true;
 
@@ -1066,6 +1076,10 @@ class AppState extends ChangeNotifier {
           'seekForwardSeconds': _seekForwardSeconds,
           'forceRemoteControlKeys': _forceRemoteControlKeys,
           'episodePickerShowCover': _episodePickerShowCover,
+        },
+        'tv': {
+          'remoteEnabled': _tvRemoteEnabled,
+          'builtInProxyEnabled': _tvBuiltInProxyEnabled,
         },
         'seriesPlaybackOverrides': _seriesPlaybackOverrides.map(
           (serverId, seriesMap) => MapEntry(
@@ -1298,6 +1312,7 @@ class AppState extends ChangeNotifier {
     final danmakuMap = _coerceStringKeyedMap(data['danmaku']) ?? const {};
     final interactionMap =
         _coerceStringKeyedMap(data['interaction']) ?? const {};
+    final tvMap = _coerceStringKeyedMap(data['tv']) ?? const {};
     final doubleTapMap =
         _coerceStringKeyedMap(interactionMap['doubleTap']) ?? const {};
 
@@ -1477,6 +1492,10 @@ class AppState extends ChangeNotifier {
             .clamp(1, 120);
     final nextForceRemoteControlKeys =
         _readBool(interactionMap['forceRemoteControlKeys'], fallback: false);
+    final nextTvRemoteEnabled =
+        _readBool(tvMap['remoteEnabled'], fallback: false);
+    final nextTvBuiltInProxyEnabled =
+        _readBool(tvMap['builtInProxyEnabled'], fallback: false);
     final nextEpisodePickerShowCover =
         _readBool(interactionMap['episodePickerShowCover'], fallback: true);
 
@@ -1567,6 +1586,8 @@ class AppState extends ChangeNotifier {
     _seekBackwardSeconds = nextSeekBackwardSeconds;
     _seekForwardSeconds = nextSeekForwardSeconds;
     _forceRemoteControlKeys = nextForceRemoteControlKeys;
+    _tvRemoteEnabled = nextTvRemoteEnabled;
+    _tvBuiltInProxyEnabled = nextTvBuiltInProxyEnabled;
     _episodePickerShowCover = nextEpisodePickerShowCover;
     _seriesPlaybackOverrides
       ..clear()
@@ -1711,6 +1732,8 @@ class AppState extends ChangeNotifier {
     await prefs.setInt(_kSeekBackwardSecondsKey, _seekBackwardSeconds);
     await prefs.setInt(_kSeekForwardSecondsKey, _seekForwardSeconds);
     await prefs.setBool(_kForceRemoteControlKeysKey, _forceRemoteControlKeys);
+    await prefs.setBool(_kTvRemoteEnabledKey, _tvRemoteEnabled);
+    await prefs.setBool(_kTvBuiltInProxyEnabledKey, _tvBuiltInProxyEnabled);
     await prefs.setBool(_kEpisodePickerShowCoverKey, _episodePickerShowCover);
     await _persistSeriesPlaybackOverrides(prefs);
 
@@ -3343,6 +3366,22 @@ class AppState extends ChangeNotifier {
     _forceRemoteControlKeys = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kForceRemoteControlKeysKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setTvRemoteEnabled(bool enabled) async {
+    if (_tvRemoteEnabled == enabled) return;
+    _tvRemoteEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kTvRemoteEnabledKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setTvBuiltInProxyEnabled(bool enabled) async {
+    if (_tvBuiltInProxyEnabled == enabled) return;
+    _tvBuiltInProxyEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kTvBuiltInProxyEnabledKey, enabled);
     notifyListeners();
   }
 

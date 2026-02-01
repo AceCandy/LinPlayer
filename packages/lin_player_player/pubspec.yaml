@@ -22,3 +22,7 @@ dependencies:
     path: ../lin_player_ui
   media_kit: ^1.1.11
   media_kit_video: ^1.1.11
+
+dependency_overrides:
+  media_kit:
+    path: ../media_kit_patched

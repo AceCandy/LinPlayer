@@ -515,10 +515,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     final accent = theme.colorScheme.secondary;
     final showCover = widget.appState.episodePickerShowCover;
 
-    final baseUrl = _baseUrl;
-    final token = _token;
-    final apiPrefix = widget.server?.apiPrefix ?? widget.appState.apiPrefix;
-
     final seasons = _episodeSeasons;
     final selectedSeasonId = _episodeSelectedSeasonId;
     MediaItem? selectedSeason;

@@ -9,6 +9,16 @@ class DeviceType {
 
   static bool get isTv => _isTv;
 
+  static Future<String?> primaryAbi() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+    try {
+      final v = await _channel.invokeMethod<String>('primaryAbi');
+      return (v ?? '').trim().isEmpty ? null : v!.trim();
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<int?> batteryLevel() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
 

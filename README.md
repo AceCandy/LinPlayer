@@ -1,8 +1,8 @@
 <div align="center">
   <img src="assets/app_icon.jpg" width="120" alt="LinPlayer" />
-  <h1>LinPlayer（重构中 / WIP）</h1>
-  <p>跨平台（Windows / macOS / Linux / Android / Android TV）本地 + Emby/Jellyfin + WebDAV 媒体播放器（含 Plex PIN 登录）</p>
-  <p><b>注意</b>：当前处于架构级重构期，功能与兼容性会频繁变化，问题较多；建议先观望，等待稳定后再使用。</p>
+  <h1>LinPlayer</h1>
+  <p>跨平台媒体播放器：本地 / Emby / Jellyfin / WebDAV（含 Plex PIN 登录）</p>
+  <p><sub>Windows / macOS / Linux / Android / Android TV · 重构中 / WIP</sub></p>
   <p>
     <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" />
     <img alt="Platforms" src="https://img.shields.io/badge/Platforms-Windows%20%7C%20macOS%20%7C%20Android%20%7C%20Android%20TV-informational" />
@@ -24,7 +24,23 @@
 
 A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter (with Plex PIN flow for adding servers).
 
+> [!WARNING]
+> 当前处于架构级重构期，功能与兼容性可能频繁变化；如追求稳定可用，建议先观望等待稳定版。
+> 如愿意协助测试，请优先使用 nightly 并提交复现步骤与日志/截图。
+
 ---
+
+<details>
+<summary><b>目录</b></summary>
+
+- [重构说明](#refactor)
+- [下载](#download)
+- [特性](#features)
+- [快速上手](#quickstart)
+- [Android TV 使用说明](#tv)
+- [构建与运行](#build)
+
+</details>
 
 ## <a id="refactor"></a>重构说明（请等待稳定）
 
@@ -69,6 +85,13 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 > 说明：重构期间部分功能/交互可能临时调整，以 nightly 实际表现为准。
 
+### 亮点
+- 本地 + Emby/Jellyfin + WebDAV：一套 UI 统一体验
+- 播放器：MPV（跨平台）+ Android 可切换 Exo（Media3）
+- Android TV：遥控/焦点优化 + 手机扫码输入
+- TV 内置代理：mihomo + metacubexd 面板（App HTTP + MPV 可按需走代理）
+- 弹幕：本地 XML + 在线弹幕（弹弹play API v2）
+
 ### 媒体源
 - 本地播放：原生文件选择与播放。
 - Emby/Jellyfin：支持 http/https 与自定义端口；可选的线路扩展服务未部署时，线路列表可能为空，但播放/浏览可用。
@@ -90,7 +113,8 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 ### Android TV
 - 遥控器方向键/确认键完整可用（播放页支持快进/快退与控制栏聚焦）。
-- 规划中：TV 内置代理（mihomo）+ 管理面板（metacubexd）（详见 `docs/TV_PROXY_ROADMAP.md`）。
+- 手机扫码输入：设置 → TV 专区 → 开启「手机扫码控制」，扫码后可在手机端填写服务器地址/账号/密码并直接添加到 TV。
+- TV 内置代理：设置 → TV 专区 → 内置代理（mihomo）+ 代理面板（metacubexd），并让 App HTTP + MPV 走代理（路线图见 `docs/TV_PROXY_ROADMAP.md`）。
 
 ### 弹幕
 - 本地 XML + 在线弹幕（兼容弹弹play API v2），支持样式调节。
@@ -126,6 +150,24 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 ### 全局导航
 - ↑ ↓ ← →：移动焦点（高亮）
 - 确认键（OK / Enter）：点击/选择当前焦点项
+
+### 手机扫码输入（TV）
+- 进入「设置 → TV 专区」
+  - 开启「手机扫码控制」
+  - 点击「配对地址」右侧二维码图标，在手机上扫码打开
+- 手机与 TV 需在同一局域网。
+- 在手机页面填写服务器信息并提交：TV 端会自动添加服务器（无需在 TV 上输入）。
+
+### TV 内置代理（mihomo）+ 面板（metacubexd）
+- 进入「设置 → TV 专区」
+  - 开启「内置代理（mihomo）」：启动/停止/状态（Android TV）
+  - 「代理面板（metacubexd）」→ 打开：本地 WebView 打开面板
+- 走代理范围：
+  - App HTTP：通过 `HttpClient.findProxy` 走 mixed 代理（对 `127.0.0.1`/局域网地址自动 DIRECT）
+  - 播放器网络流（MPV）：注入 mpv `http-proxy=http://127.0.0.1:7890`（对局域网地址自动不注入）
+- 端口（本机回环）：mixed `127.0.0.1:7890`，external-controller `127.0.0.1:9090`（面板：`/ui/`）
+- 配置文件：设置页会显示 `config.yaml` 路径（仅监听 `127.0.0.1`）。
+- 安全默认：`allow-lan=false` + `bind-address=127.0.0.1`，不会暴露到局域网；初始配置为 DIRECT（无订阅/节点）。
 
 ### 播放页（本地播放 / Emby 在线播放）
 - 焦点在视频画面时：
@@ -187,6 +229,14 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
   - 示例（自建/第三方服务）：`https://github.com/huangxd-/danmu_api`、`https://github.com/l429609201/misaka_danmu_server`
 
 ## <a id="build"></a>构建与运行
+
+> 建议使用 Flutter stable 3.x，并先运行 `flutter doctor -v` 确认环境正常。
+
+> 构建/更新 TV 内置代理资源（mihomo + metacubexd）（可选，仅 Android TV 用）：
+>
+> ```powershell
+> powershell -NoProfile -ExecutionPolicy Bypass -File tool/fetch_tv_proxy_assets.ps1
+> ```
 
 ```bash
 # 依赖
@@ -258,10 +308,20 @@ flutter build linux --release
 - TV 内置代理路线图：[docs/TV_PROXY_ROADMAP.md](docs/TV_PROXY_ROADMAP.md)
 
 ## UI 自适应（开发者）
+
+<details>
+<summary><b>展开</b></summary>
+
 - 全局缩放逻辑在 `packages/lin_player_ui/lib/src/ui/ui_scale.dart`；应用入口通过 `MaterialApp.builder` 统一应用缩放（文本/图标/部分组件尺寸）。
 - 如果你新增了包含“固定尺寸”的页面（尤其是 `GridView` 的 `maxCrossAxisExtent`），建议显式乘上 `context.uiScale`，避免竖屏/小屏出现卡片过小。
 
+</details>
+
 ## 自定义 mpv 参数（进阶）
+
+<details>
+<summary><b>展开</b></summary>
+
 - 工程内已内置 `packages/media_kit_patched`，在 `pubspec.yaml` 通过 `dependency_overrides` 覆盖原包。
 - `PlayerConfiguration` 新增 `extraMpvOptions` 列表，可直接传入 mpv 的原生参数（形如 `key=value`，无 `=` 时默认视为 `key=yes`）。示例：
   ```dart
@@ -277,12 +337,17 @@ flutter build linux --release
 - TV 和桌面可按需分别传入不同配置，现有播放器创建处已支持该字段。
 - 播放页右上角提供“硬解/软解”切换，切换后会重新初始化播放器并应用 `hwdec` 参数。
 
+</details>
+
 ## 常见问题
 - DNS 解析失败 / Host lookup：请确认域名在设备浏览器可访问；必要时改填 IP 或切换 http/端口（如 8096/8920）。
 - 电影或剧集 404：已使用 MediaSourceId 的播放 URL；若仍异常，请确认服务器对应条目可在网页端播放。
 - 线路列表为空：未部署 `emby_ext_domains` 时属正常，不影响媒体库与播放。
 
 ## 目录导航
+
+<details>
+<summary><b>展开：App / packages 目录索引</b></summary>
 
 ### App（Flutter / `lib/`）
 - `lib/main.dart` 应用入口（初始化、主题、路由）
@@ -314,15 +379,17 @@ flutter build linux --release
 - `packages/media_kit_patched/` mpv/media_kit 的本地改造版本
 - `packages/video_player_android_patched/` Exo/video_player_android 的本地改造版本
 
+</details>
+
 ## TODO（重构路线图）
 - [x] 模块化（基础拆分）：提取 `lin_player_core` / `lin_player_server_api` / `lin_player_server_adapters`（见 `packages/`）
 - [x] 模块化（下一步）：继续抽离 state / player / UI 基建等通用能力（已拆分出 `lin_player_prefs` / `lin_player_ui` / `lin_player_player` / `lin_player_state`）
 - [x] Server Adapter（收口）：UI 不再直接依赖具体 API（只依赖 adapter/interface）
 - [x] 网络收口：统一 HTTP client 创建入口（为代理/证书/重试/超时等打基础）
-- [ ] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）
-- [ ] TV 内置代理 MVP：mihomo start/stop/status（仅 Android TV）
-- [ ] 代理面板：metacubexd 打包/解压 + 本地 WebView 打开
-- [ ] 走代理：App HTTP + 播放器网络流（mpv 参数注入）
+- [x] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）
+- [x] TV 内置代理 MVP：mihomo start/stop/status（仅 Android TV）
+- [x] 代理面板：metacubexd 打包/解压 + 本地 WebView 打开
+- [x] 走代理：App HTTP + 播放器网络流（mpv 参数注入）
 - [ ] 合规：确认 mihomo / metacubexd 许可证与分发声明
 
 ## 鸣谢与参考

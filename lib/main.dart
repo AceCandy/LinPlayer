@@ -13,6 +13,8 @@ import 'home_page.dart';
 import 'server_page.dart';
 import 'webdav_home_page.dart';
 import 'services/app_update_flow.dart';
+import 'services/built_in_proxy/built_in_proxy_service.dart';
+import 'services/tv_remote/tv_remote_service.dart';
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -46,6 +48,19 @@ void main() async {
   // Best-effort: keep launcher icon in sync with settings (Android only).
   // ignore: unawaited_futures
   AppIconService.setIconId(appState.appIconId);
+
+  if (DeviceType.isTv && appState.tvRemoteEnabled) {
+    unawaited(TvRemoteService.instance.start(appState: appState));
+  }
+  if (DeviceType.isTv && appState.tvBuiltInProxyEnabled) {
+    unawaited(() async {
+      try {
+        await BuiltInProxyService.instance.start();
+      } catch (_) {
+        // Best-effort; detailed error is shown in Settings -> TV.
+      }
+    }());
+  }
   runApp(AppConfigScope(
     config: appConfig,
     child: LinPlayerApp(appState: appState),

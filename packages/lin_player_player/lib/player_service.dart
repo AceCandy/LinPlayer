@@ -61,6 +61,7 @@ class PlayerService {
     required bool hdrMode,
     required bool unlimitedStreamCache,
     required int? networkStreamSizeBytes,
+    required String? httpProxy,
   }) {
     final platform = defaultTargetPlatform;
     final isAndroid = !kIsWeb && platform == TargetPlatform.android;
@@ -108,6 +109,8 @@ class PlayerService {
       ],
       extraMpvOptions: [
         'tls-verify=no',
+        if (isNetwork && (httpProxy ?? '').trim().isNotEmpty)
+          'http-proxy=${httpProxy!.trim()}',
         if (useGpuNext) 'gpu-context=android',
         if (useGpuNext) 'gpu-api=opengl',
         if (dolbyVisionMode || hdrMode) 'target-colorspace-hint=yes',
@@ -327,6 +330,7 @@ class PlayerService {
     bool dolbyVisionMode = false,
     bool hdrMode = false,
     String? externalMpvPath,
+    String? httpProxy,
   }) async {
     await dispose();
     _externalPlayback = false;
@@ -363,6 +367,7 @@ class PlayerService {
         hdrMode: hdrMode,
         unlimitedStreamCache: unlimitedStreamCache,
         networkStreamSizeBytes: networkStreamSizeBytes,
+        httpProxy: httpProxy,
       ),
     );
     final controller = VideoController(

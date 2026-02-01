@@ -6,6 +6,7 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.BatteryManager
+import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
@@ -51,6 +52,7 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "isAndroidTv" -> result.success(isAndroidTv())
                 "batteryLevel" -> result.success(batteryLevel())
+                "primaryAbi" -> result.success(primaryAbi())
                 else -> result.notImplemented()
             }
         }
@@ -70,6 +72,14 @@ class MainActivity : FlutterActivity() {
         val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         if (level < 0) return null
         return level
+    }
+
+    private fun primaryAbi(): String? {
+        val abis = Build.SUPPORTED_ABIS
+        if (abis.isEmpty()) return null
+        val v = abis[0].trim()
+        if (v.isEmpty()) return null
+        return v
     }
 
     private fun setIconId(id: String) {

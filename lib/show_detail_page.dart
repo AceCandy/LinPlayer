@@ -1355,13 +1355,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                               itemBuilder: (context, index) {
                                 final s = _seasons[index];
                                 final label = _seasonLabel(s, index);
-                                final img = access == null
-                                    ? null
-                                    : access.adapter.imageUrl(
-                                        access.auth,
-                                        itemId: s.hasImage ? s.id : item.id,
-                                        maxWidth: widget.isTv ? 600 : 400,
-                                      );
+                                final img = access?.adapter.imageUrl(
+                                  access.auth,
+                                  itemId: s.hasImage ? s.id : item.id,
+                                  maxWidth: widget.isTv ? 600 : 400,
+                                );
                                 return SizedBox(
                                   width: widget.isTv ? 200 : 140,
                                   child: MediaPosterTile(
@@ -2606,8 +2604,12 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     if (!mounted ||
         !context.mounted ||
         selectedEp == null ||
-        selectedEp.id.isEmpty) return;
-    if (selectedEp.id == widget.episode.id) return;
+        selectedEp.id.isEmpty) {
+      return;
+    }
+    if (selectedEp.id == widget.episode.id) {
+      return;
+    }
     Navigator.of(context).pushReplacement(
       MaterialPageRoute(
         builder: (_) => EpisodeDetailPage(

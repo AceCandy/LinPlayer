@@ -61,11 +61,20 @@ class LinHttpClientConfig {
 /// - basic timeouts / connection limits
 class LinHttpClientFactory {
   static LinHttpClientConfig _config = const LinHttpClientConfig();
+  static LinProxyResolver? _runtimeProxyResolver;
 
   static LinHttpClientConfig get config => _config;
 
   static void configure(LinHttpClientConfig config) {
     _config = config;
+  }
+
+  /// Set or clear a process-wide proxy resolver.
+  ///
+  /// This is evaluated dynamically for every request, so clients created before
+  /// enabling/disabling the proxy will also pick up changes.
+  static void setRuntimeProxyResolver(LinProxyResolver? resolver) {
+    _runtimeProxyResolver = resolver;
   }
 
   static String get userAgent => _config.userAgent;
@@ -92,9 +101,11 @@ class LinHttpClientFactory {
       client.maxConnectionsPerHost = c.maxConnectionsPerHost!;
     }
 
-    if (c.proxyResolver != null) {
-      client.findProxy = c.proxyResolver!;
-    }
+    client.findProxy = (Uri uri) {
+      final resolver = _runtimeProxyResolver ?? c.proxyResolver;
+      if (resolver != null) return resolver(uri);
+      return HttpClient.findProxyFromEnvironment(uri);
+    };
 
     final badCert = c.badCertificateCallback;
     if (badCert != null) {

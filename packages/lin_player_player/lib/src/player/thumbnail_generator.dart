@@ -10,10 +10,12 @@ import 'package:media_kit/media_kit.dart';
 class MediaKitThumbnailGenerator {
   MediaKitThumbnailGenerator({
     required this.media,
+    this.httpProxy,
     this.maxCacheEntries = 120,
   });
 
   final Media media;
+  final String? httpProxy;
   final int maxCacheEntries;
 
   Player? _player;
@@ -23,7 +25,8 @@ class MediaKitThumbnailGenerator {
   final Map<int, Future<Uint8List?>> _inFlight = {};
 
   PlayerConfiguration _config() {
-    return const PlayerConfiguration(
+    final proxy = (httpProxy ?? '').trim();
+    return PlayerConfiguration(
       osc: false,
       title: 'LinPlayer Thumbnail',
       logLevel: MPVLogLevel.warn,
@@ -46,6 +49,7 @@ class MediaKitThumbnailGenerator {
       ],
       extraMpvOptions: [
         'tls-verify=no',
+        if (proxy.isNotEmpty) 'http-proxy=$proxy',
         // Smaller frames for faster scrubbing previews.
         'vf=scale=320:-2',
         // Avoid decoding audio/subtitles.
