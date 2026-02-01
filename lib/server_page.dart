@@ -131,8 +131,16 @@ class _ServerPageState extends State<ServerPage> {
                         ),
                         IconButton(
                           tooltip: '主题',
-                          onPressed: () =>
-                              showThemeSheet(context, widget.appState),
+                          onPressed: () => showThemeSheet(
+                            context,
+                            listenable: widget.appState,
+                            themeMode: () => widget.appState.themeMode,
+                            setThemeMode: widget.appState.setThemeMode,
+                            useDynamicColor: () => widget.appState.useDynamicColor,
+                            setUseDynamicColor: widget.appState.setUseDynamicColor,
+                            uiTemplate: () => widget.appState.uiTemplate,
+                            setUiTemplate: widget.appState.setUiTemplate,
+                          ),
                           icon: const Icon(Icons.palette_outlined),
                         ),
                         IconButton(
@@ -783,7 +791,11 @@ class _AddServerSheetState extends State<_AddServerSheet> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (ctx) => ServerIconLibrarySheet(
-        appState: widget.appState,
+        urlsListenable: widget.appState,
+        getLibraryUrls: () => widget.appState.serverIconLibraryUrls,
+        addLibraryUrl: widget.appState.addServerIconLibraryUrl,
+        removeLibraryUrlAt: widget.appState.removeServerIconLibraryUrlAt,
+        reorderLibraryUrls: widget.appState.reorderServerIconLibraryUrls,
         selectedUrl: _iconUrl,
       ),
     );
@@ -1495,7 +1507,11 @@ class _EditServerSheetState extends State<_EditServerSheet> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (ctx) => ServerIconLibrarySheet(
-        appState: widget.appState,
+        urlsListenable: widget.appState,
+        getLibraryUrls: () => widget.appState.serverIconLibraryUrls,
+        addLibraryUrl: widget.appState.addServerIconLibraryUrl,
+        removeLibraryUrlAt: widget.appState.removeServerIconLibraryUrlAt,
+        reorderLibraryUrls: widget.appState.reorderServerIconLibraryUrls,
         selectedUrl: _iconUrl,
       ),
     );

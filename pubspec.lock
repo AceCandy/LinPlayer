@@ -311,6 +311,20 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  lin_player_player:
+    dependency: "direct main"
+    description:
+      path: "packages/lin_player_player"
+      relative: true
+    source: path
+    version: "0.0.1"
+  lin_player_prefs:
+    dependency: "direct main"
+    description:
+      path: "packages/lin_player_prefs"
+      relative: true
+    source: path
+    version: "0.0.1"
   lin_player_server_adapters:
     dependency: "direct main"
     description:
@@ -322,6 +336,20 @@ packages:
     dependency: "direct main"
     description:
       path: "packages/lin_player_server_api"
+      relative: true
+    source: path
+    version: "0.0.1"
+  lin_player_state:
+    dependency: "direct main"
+    description:
+      path: "packages/lin_player_state"
+      relative: true
+    source: path
+    version: "0.0.1"
+  lin_player_ui:
+    dependency: "direct main"
+    description:
+      path: "packages/lin_player_ui"
       relative: true
     source: path
     version: "0.0.1"

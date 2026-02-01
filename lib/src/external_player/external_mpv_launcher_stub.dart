@@ -1,7 +1,2 @@
-Future<bool> launchExternalMpv({
-  String? executablePath,
-  required String source,
-  Map<String, String>? httpHeaders,
-}) async {
-  return false;
-}
+export 'package:lin_player_player/src/external_player/external_mpv_launcher_stub.dart';
+

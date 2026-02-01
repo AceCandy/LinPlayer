@@ -248,12 +248,17 @@ flutter build linux --release
 - 架构/目录结构/播放链路：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - 模块化（packages）：
   - [packages/lin_player_core/README.md](packages/lin_player_core/README.md)：基础定义（AppConfig / MediaServerType 等）
+  - [packages/lin_player_prefs/README.md](packages/lin_player_prefs/README.md)：偏好设置定义（UI 模板/播放器设置枚举等）
   - [packages/lin_player_server_api/README.md](packages/lin_player_server_api/README.md)：服务端/网络 API（Emby/WebDAV/Plex）
   - [packages/lin_player_server_adapters/README.md](packages/lin_player_server_adapters/README.md)：Server Adapter 适配层（UI 只依赖接口）
+  - [packages/lin_player_ui/README.md](packages/lin_player_ui/README.md)：UI 基建（主题/样式/玻璃效果/图标库等）
+  - [packages/lin_player_player/README.md](packages/lin_player_player/README.md)：播放器模块（PlayerService/弹幕/播放控制等）
+  - [packages/lin_player_state/README.md](packages/lin_player_state/README.md)：全局状态与持久化（AppState/ServerProfile/备份等）
+  - [packages/README.md](packages/README.md)：模块索引（推荐）
 - TV 内置代理路线图：[docs/TV_PROXY_ROADMAP.md](docs/TV_PROXY_ROADMAP.md)
 
 ## UI 自适应（开发者）
-- 全局缩放逻辑在 `lib/src/ui/ui_scale.dart`；应用入口通过 `MaterialApp.builder` 统一应用缩放（文本/图标/部分组件尺寸）。
+- 全局缩放逻辑在 `packages/lin_player_ui/lib/src/ui/ui_scale.dart`；应用入口通过 `MaterialApp.builder` 统一应用缩放（文本/图标/部分组件尺寸）。
 - 如果你新增了包含“固定尺寸”的页面（尤其是 `GridView` 的 `maxCrossAxisExtent`），建议显式乘上 `context.uiScale`，避免竖屏/小屏出现卡片过小。
 
 ## 自定义 mpv 参数（进阶）
@@ -292,22 +297,26 @@ flutter build linux --release
 - `lib/danmaku_settings_page.dart` 弹幕设置页（本地/在线、样式、在线源管理）
 - `lib/play_network_page.dart` Emby 在线播放
 - `lib/player_screen.dart` 本地播放器
-- `lib/player_service.dart` 播放器封装（mpv 参数、硬解/软解）
-- `lib/services/dandanplay_api.dart` 在线弹幕（弹弹play API v2）封装
-- `lib/src/player/danmaku.dart` 弹幕解析（本地 XML / 在线列表）
-- `lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
-- `lib/state/app_state.dart` 状态/登录/缓存
+- `packages/lin_player_player/lib/player_service.dart` 播放器封装（mpv 参数、硬解/软解）
+- `packages/lin_player_player/lib/dandanplay_api.dart` 在线弹幕（弹弹play API v2）封装
+- `packages/lin_player_player/lib/src/player/danmaku.dart` 弹幕解析（本地 XML / 在线列表）
+- `packages/lin_player_player/lib/src/player/danmaku_stage.dart` 弹幕渲染（覆盖层）
+- `packages/lin_player_state/lib/app_state.dart` 状态/登录/缓存
 
 ### 模块（`packages/`）
 - `packages/lin_player_core/README.md` 核心定义（AppConfig / FeatureFlags / MediaServerType 等）
+- `packages/lin_player_prefs/README.md` 偏好设置定义（UI 模板/播放器设置枚举等）
 - `packages/lin_player_server_api/README.md` 服务端/网络 API（Emby/WebDAV/Plex）
 - `packages/lin_player_server_adapters/README.md` Server Adapter 适配层（UI 只依赖接口）
+- `packages/lin_player_ui/README.md` UI 基建（主题/样式/玻璃效果/图标库等）
+- `packages/lin_player_player/README.md` 播放器模块（PlayerService/弹幕/播放控制等）
+- `packages/lin_player_state/README.md` 全局状态与持久化（AppState/ServerProfile/备份等）
 - `packages/media_kit_patched/` mpv/media_kit 的本地改造版本
 - `packages/video_player_android_patched/` Exo/video_player_android 的本地改造版本
 
 ## TODO（重构路线图）
 - [x] 模块化（基础拆分）：提取 `lin_player_core` / `lin_player_server_api` / `lin_player_server_adapters`（见 `packages/`）
-- [ ] 模块化（下一步）：继续抽离 state / player / UI 基建等通用能力
+- [ ] 模块化（下一步）：继续抽离 state / player / UI 基建等通用能力（已拆分出 `lin_player_prefs` / `lin_player_ui` / `lin_player_player` / `lin_player_state`）
 - [ ] Server Adapter（收口）：UI 不再直接依赖具体 API（只依赖 adapter/interface）
 - [ ] 网络收口：统一 HTTP client 创建入口（为代理/证书/重试/超时等打基础）
 - [ ] TV 形态：设置页 TV 专区 + 遥控/焦点优化（`DeviceType.isTv`）

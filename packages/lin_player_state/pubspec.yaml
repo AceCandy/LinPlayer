@@ -1,0 +1,23 @@
+name: lin_player_state
+description: Global app state & persistence for LinPlayer (stores, models, backup).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  cryptography: ^2.7.0
+  shared_preferences: ^2.2.3
+  lin_player_core:
+    path: ../lin_player_core
+  lin_player_prefs:
+    path: ../lin_player_prefs
+  lin_player_server_api:
+    path: ../lin_player_server_api
+  lin_player_server_adapters:
+    path: ../lin_player_server_adapters
+

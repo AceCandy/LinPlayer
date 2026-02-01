@@ -12,11 +12,15 @@
 - `assets/`：项目资源（目前主要用于应用图标）。
   - `assets/app_icon.jpg`：图标源文件。
   - `assets/README.md`：图标生成说明（`dart run flutter_launcher_icons`）。
-- `lib/`：Flutter 应用代码（UI、状态、页面编排、播放器封装等）。
+- `lib/`：Flutter 应用代码（页面编排/路由/少量 glue；通用 state/ui/player 已逐步抽到 `packages/`，`lib/` 下保留部分 re-export 便于渐进迁移）。
 - `packages/`：项目内置/改造后的依赖与可复用模块（模块化拆分进行中）。
   - `packages/lin_player_core/`：纯 Dart 核心定义（AppConfig / FeatureFlags / MediaServerType 等）。
+  - `packages/lin_player_prefs/`：偏好设置定义（UI 模板、播放器设置枚举等）。
   - `packages/lin_player_server_api/`：服务端/网络 API（Emby/Jellyfin、WebDAV、Plex 等）。
   - `packages/lin_player_server_adapters/`：服务端适配层（UI 只依赖 adapter 接口）。
+  - `packages/lin_player_ui/`：UI 基建（主题/样式/玻璃效果/图标库等可复用组件）。
+  - `packages/lin_player_player/`：播放器模块（PlayerService、弹幕、播放控制等通用能力）。
+  - `packages/lin_player_state/`：全局状态与持久化（AppState、ServerProfile、备份等）。
   - `packages/media_kit_patched/`：对 `media_kit` 的小改造版本，用于更细粒度传递 mpv 参数（见下文）。
   - `packages/video_player_android_patched/`：对 `video_player_android` 的改造版本，用于 Exo 内核的字幕轨道枚举/选择与 platformView 字幕渲染（见下文）。
 - `android/`、`ios/`、`macos/`、`windows/`、`linux/`：Flutter 各平台宿主工程（应用名、图标、打包配置都在这里落地）。
@@ -47,7 +51,7 @@
     - `HomePage`（已选择服务器）
 
 ### 全局状态（数据源）
-- `lib/state/app_state.dart`
+- `packages/lin_player_state/lib/app_state.dart`
   - 角色：全局 Store（`ChangeNotifier`），负责：
     - 服务器列表/当前服务器（`ServerProfile`）
     - Emby 线路（`DomainInfo`）、媒体库（`LibraryInfo`）
@@ -61,7 +65,7 @@
     - `enterServer(serverId)`：切换服务器并刷新线路/媒体库/首页区块。
     - `loadItems(...)`：拉取分页列表并写入缓存（用于库列表、搜索等）。
     - `loadHome()`：按媒体库拉取最新条目，组成首页区块。
-- `lib/state/server_profile.dart`
+- `packages/lin_player_state/lib/server_profile.dart`
   - 角色：单个服务器配置与用户偏好。
   - 字段：
     - `serverType/apiPrefix`：服务器类型与 API 前缀（Emby 常见为 `emby`，Jellyfin 常见为空字符串）。
@@ -69,7 +73,7 @@
     - `hiddenLibraries`：隐藏的媒体库（长按媒体库卡片切换）
     - `domainRemarks`：线路备注（可选）
     - `plexMachineIdentifier`：Plex 服务器机器标识（可选，用于后续匹配/识别）
-- `lib/state/danmaku_preferences.dart`
+- `packages/lin_player_prefs/lib/danmaku_preferences.dart`
   - 角色：弹幕偏好枚举与序列化（本地/在线）。
 
 ### Emby/Jellyfin 接口封装（HTTP）
@@ -106,7 +110,7 @@
   - UI 集成：`lib/server_page.dart` 中选择 Plex 后可用“账号登录（推荐）”走浏览器授权，或在“手动添加”里登录获取 Token 并填入。
 
 ### 在线弹幕接口封装（弹弹play）
-- `lib/services/dandanplay_api.dart`
+- `packages/lin_player_player/lib/dandanplay_api.dart`
   - 角色：封装弹弹play API v2 的匹配与弹幕下载（`/api/v2/match`、`/api/v2/comment/{episodeId}`）。
   - 鉴权：
     - 优先使用开放平台签名头：`X-AppId` / `X-Timestamp` / `X-Signature`。
@@ -116,7 +120,7 @@
 ### 播放器封装与播放链路
 
 #### 1) 播放器封装
-- `lib/player_service.dart`
+- `packages/lin_player_player/lib/player_service.dart`
   - 角色：对 `media_kit`/`media_kit_video` 的轻量封装，屏蔽初始化/销毁细节。
   - `PlayerConfiguration` 关键点：
     - `hwdec=auto` / `hwdec=no`：硬解/软解切换。
@@ -125,9 +129,9 @@
   - 注意：该配置依赖 `packages/media_kit_patched` 暴露的 `extraMpvOptions`（用于传入 mpv 原生参数）。
 
 #### 1.5) 画质增强（Anime4K）
-- `lib/src/player/anime4k.dart`：通过 mpv `glsl-shaders` 管线加载 Anime4K 预设（仅 MPV 内核）。
+- `packages/lin_player_player/lib/src/player/anime4k.dart`：通过 mpv `glsl-shaders` 管线加载 Anime4K 预设（仅 MPV 内核）。
 - Shader 资源位于 `assets/shaders/anime4k/`（来自 Anime4K：`https://github.com/bloc97/Anime4K`；具体版本与 License 见该目录 `README.md` / `LICENSE`）。
-- 预设枚举与说明：`lib/state/anime4k_preferences.dart`。
+- 预设枚举与说明：`packages/lin_player_prefs/lib/anime4k_preferences.dart`。
 
 #### 2) 本地播放（文件）
 - `lib/player_screen.dart`
@@ -172,7 +176,7 @@
 - `lib/library_items_page.dart`：媒体库内容列表（分页加载、进入详情）。
 - `lib/show_detail_page.dart`：详情页（Series/Season/Episode 结构、相似推荐、章节、播放入口与可选媒体源/音轨/字幕）。
 - `lib/danmaku_settings_page.dart`：弹幕设置页（本地/在线、在线源管理、样式设置）。
-- `lib/src/ui/`：UI 基础设施
+- `packages/lin_player_ui/lib/src/ui/`：UI 基础设施
   - `app_theme.dart`：Material 3 主题与动态取色。
   - `theme_sheet.dart`：主题设置弹窗。
   - `ui_scale.dart`：按屏幕宽度计算 UI 缩放系数（用于竖屏平板/手机避免 UI 过小）。
@@ -213,9 +217,9 @@
 - **改 UI/交互**：优先看 `lib/home_page.dart`、`lib/show_detail_page.dart`、`lib/play_network_page.dart`。
 - **改 Emby/Jellyfin 接口/字段**：`packages/lin_player_server_api/lib/services/emby_api.dart`（必要时同步调整 `MediaItem` 字段解析）。
 - **改 Plex PIN 登录/资源列表**：`packages/lin_player_server_api/lib/services/plex_api.dart`、`lib/server_page.dart`。
-- **改缓存/状态/持久化**：`lib/state/app_state.dart`。
-- **调播放器体验（硬解/缓冲/参数）**：`lib/player_service.dart`。
-- **改主题/视觉规范**：`lib/src/ui/app_theme.dart`。
+- **改缓存/状态/持久化**：`packages/lin_player_state/lib/app_state.dart`。
+- **调播放器体验（硬解/缓冲/参数）**：`packages/lin_player_player/lib/player_service.dart`。
+- **改主题/视觉规范**：`packages/lin_player_ui/lib/src/ui/app_theme.dart`。
 
 ## 参考项目（灵感/对照实现）
 

@@ -400,7 +400,11 @@ class _GroupCardState extends State<_GroupCard> {
       isScrollControlled: true,
       showDragHandle: true,
       builder: (ctx) => ServerIconLibrarySheet(
-        appState: widget.appState,
+        urlsListenable: widget.appState,
+        getLibraryUrls: () => widget.appState.serverIconLibraryUrls,
+        addLibraryUrl: widget.appState.addServerIconLibraryUrl,
+        removeLibraryUrlAt: widget.appState.removeServerIconLibraryUrlAt,
+        reorderLibraryUrls: widget.appState.reorderServerIconLibraryUrls,
         selectedUrl: g.iconUrl,
       ),
     );

@@ -1,0 +1,23 @@
+name: lin_player_player
+description: Player foundations for LinPlayer (mpv/exo helpers, danmaku, playback utilities).
+version: 0.0.1
+publish_to: "none"
+
+environment:
+  sdk: ">=3.0.0 <4.0.0"
+  flutter: ">=3.0.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+  crypto: ^3.0.3
+  http: ^1.2.2
+  lin_player_core:
+    path: ../lin_player_core
+  lin_player_prefs:
+    path: ../lin_player_prefs
+  lin_player_ui:
+    path: ../lin_player_ui
+  media_kit: ^1.1.11
+  media_kit_video: ^1.1.11
+

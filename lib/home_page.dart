@@ -454,7 +454,16 @@ class _HomePageState extends State<HomePage> {
     );
   }
 
-  Future<void> _showThemeSheet() => showThemeSheet(context, widget.appState);
+  Future<void> _showThemeSheet() => showThemeSheet(
+        context,
+        listenable: widget.appState,
+        themeMode: () => widget.appState.themeMode,
+        setThemeMode: widget.appState.setThemeMode,
+        useDynamicColor: () => widget.appState.useDynamicColor,
+        setUseDynamicColor: widget.appState.setUseDynamicColor,
+        uiTemplate: () => widget.appState.uiTemplate,
+        setUiTemplate: widget.appState.setUiTemplate,
+      );
 
   Future<void> _switchServer() => widget.appState.leaveServer();
 

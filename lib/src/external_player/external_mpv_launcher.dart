@@ -1,2 +1,2 @@
-export 'external_mpv_launcher_stub.dart'
-    if (dart.library.io) 'external_mpv_launcher_io.dart';
+export 'package:lin_player_player/src/external_player/external_mpv_launcher.dart';
+
