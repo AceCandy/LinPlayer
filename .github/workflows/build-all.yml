@@ -82,7 +82,12 @@ jobs:
         run: |
           set -euo pipefail
           if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
-            echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/release.keystore
+            # GitHub Secrets can preserve CRLF/newlines depending on how the value was pasted.
+            # Normalize the string before decoding to avoid "base64: invalid input".
+            if ! printf '%s' "$ANDROID_KEYSTORE_BASE64" | tr -d $' \t\r\n' | base64 --decode > android/release.keystore; then
+              echo "Failed to decode ANDROID_KEYSTORE_BASE64 (expected raw base64 of the keystore file)." >&2
+              exit 1
+            fi
 
             # key.properties is read from android/app via rootProject.file("key.properties"),
             # and storeFile is resolved relative to android/app (Gradle ':app' module).
@@ -353,20 +358,24 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Harden curl downloads (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ci-bin"
+          cat > "$RUNNER_TEMP/ci-bin/curl" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec /usr/bin/curl --retry-all-errors --http1.1 "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/ci-bin/curl"
+          echo "PATH=$RUNNER_TEMP/ci-bin:$PATH" >> "$GITHUB_ENV"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-
-      - name: Cache Flutter pub packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.PUB_CACHE }}
-            .dart_tool
-          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+          cache: true
 
       - name: Get Flutter dependencies
         run: flutter pub get
@@ -464,20 +473,24 @@ jobs:
       - name: Check out code
         uses: actions/checkout@v4
 
+      - name: Harden curl downloads (macOS)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ci-bin"
+          cat > "$RUNNER_TEMP/ci-bin/curl" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec /usr/bin/curl --retry-all-errors --http1.1 "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/ci-bin/curl"
+          echo "PATH=$RUNNER_TEMP/ci-bin:$PATH" >> "$GITHUB_ENV"
+
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           channel: stable
-
-      - name: Cache Flutter pub packages
-        uses: actions/cache@v4
-        with:
-          path: |
-            ${{ env.PUB_CACHE }}
-            .dart_tool
-          key: ${{ runner.os }}-pub-${{ hashFiles('pubspec.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-pub-
+          cache: true
 
       - name: Enable macOS desktop support
         run: flutter config --enable-macos-desktop
