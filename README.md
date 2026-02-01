@@ -79,6 +79,12 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 | iOS | `LinPlayer-iOS-unsigned.ipa` | 未签名 IPA，需要自行签名/侧载 |
 | Linux (x86_64) | `LinPlayer-Linux-x86_64.tar.gz` | 解压后：`cd LinPlayer && ./LinPlayer` |
 
+### 升级/更新（覆盖安装，不丢配置）
+- App 内：设置 →「检查更新」/「自动更新」（会下载对应安装包并引导安装）。
+- Windows：直接运行新的 `LinPlayer-Windows-Setup-x64.exe` 覆盖安装即可（不要先卸载）。
+- Android：直接安装新版 APK 覆盖安装即可；如提示“签名不一致/无法安装”，说明不是同一签名，需卸载重装（会清空数据），建议先在「设置 → 备份与迁移」导出备份。
+- 发版注意：不要更改包名（`applicationId` / `PRODUCT_BUNDLE_IDENTIFIER` / `APPLICATION_ID`）或签名证书，否则无法 OTA 覆盖安装；Android 签名配置见 `docs/ANDROID_SIGNING.md`。
+
 > 说明：本项目为非官方客户端，与 Emby / Jellyfin / Plex / 弹弹play 无官方隶属关系。
 
 ## <a id="features"></a>特性

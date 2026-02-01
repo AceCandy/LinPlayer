@@ -66,7 +66,7 @@ jobs:
       - name: Flutter tests
         run: flutter test
 
-      - name: Configure Android release signing (optional)
+      - name: Configure Android release signing (OTA-safe)
         shell: bash
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -77,12 +77,20 @@ jobs:
           set -euo pipefail
           if [[ -n "${ANDROID_KEYSTORE_BASE64:-}" ]]; then
             echo "$ANDROID_KEYSTORE_BASE64" | base64 -d > android/release.keystore
-            echo "ANDROID_KEYSTORE_FILE=android/release.keystore" >> "$GITHUB_ENV"
+            # Path is resolved from android/app (Gradle ':app' module).
+            echo "ANDROID_KEYSTORE_FILE=../release.keystore" >> "$GITHUB_ENV"
             echo "ANDROID_KEYSTORE_PASSWORD=$ANDROID_KEYSTORE_PASSWORD" >> "$GITHUB_ENV"
             echo "ANDROID_KEY_ALIAS=$ANDROID_KEY_ALIAS" >> "$GITHUB_ENV"
             echo "ANDROID_KEY_PASSWORD=$ANDROID_KEY_PASSWORD" >> "$GITHUB_ENV"
           else
-            echo "No ANDROID_KEYSTORE_BASE64 secret set; APKs will be signed with debug key."
+            if [[ "${LINPLAYER_ALLOW_CI_DEBUG_SIGNING:-}" =~ ^(1|true|yes)$ ]]; then
+              echo "No ANDROID_KEYSTORE_BASE64 secret set; proceeding with debug signing (NOT OTA-safe)."
+            else
+              echo "No ANDROID_KEYSTORE_BASE64 secret set; refusing to build release APKs in CI." >&2
+              echo "OTA upgrades require a stable signing key. Configure ANDROID_KEYSTORE_* secrets/env vars," >&2
+              echo "or set LINPLAYER_ALLOW_CI_DEBUG_SIGNING=true to force debug signing (not OTA-safe)." >&2
+              exit 1
+            fi
           fi
 
       - name: Build APKs (split + universal)

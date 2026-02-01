@@ -13,6 +13,11 @@ android {
     compileSdk = flutter.compileSdkVersion
     ndkVersion = flutter.ndkVersion
 
+    val isCi = System.getenv("CI")?.trim()?.lowercase() == "true"
+    val allowCiDebugSigning =
+        System.getenv("LINPLAYER_ALLOW_CI_DEBUG_SIGNING")?.trim()?.lowercase()
+            ?.let { it == "1" || it == "true" || it == "yes" } ?: false
+
     val keystoreProperties = Properties()
     val keystorePropertiesFile = rootProject.file("key.properties")
     if (keystorePropertiesFile.exists()) {
@@ -72,8 +77,14 @@ android {
 
     buildTypes {
         release {
-            signingConfig =
-                releaseSigningConfig ?: signingConfigs.getByName("debug")
+            if (isCi && releaseSigningConfig == null && !allowCiDebugSigning) {
+                throw GradleException(
+                    "Android release signing is not configured. " +
+                        "OTA upgrades require a stable signing key; configure ANDROID_KEYSTORE_* secrets/env vars " +
+                        "or set LINPLAYER_ALLOW_CI_DEBUG_SIGNING=true to force debug signing (not OTA-safe).",
+                )
+            }
+            signingConfig = releaseSigningConfig ?: signingConfigs.getByName("debug")
         }
     }
 }
