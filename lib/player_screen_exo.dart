@@ -2078,8 +2078,9 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
               _tvOkLongPressTimer = Timer(_tvOkLongPressDelay, () {
                 if (!mounted) return;
                 final controller = _controller;
-                if (controller == null || !controller.value.isInitialized)
+                if (controller == null || !controller.value.isInitialized) {
                   return;
+                }
 
                 final base =
                     _tvOkLongPressBaseRate ?? controller.value.playbackSpeed;
