@@ -9,18 +9,20 @@
 <body>
   <div id="status">连接中…</div>
   <input type="text" id="textfield" placeholder="(可选) 输入字符：仅做简单尝试"><br><br>
-  <div id="trackpad"></div><br>
-  <img width="360" src="images/buttons.png" usemap="#image-map" alt="Remote buttons">
+  <div id="trackpad"></div>
 
-  <map name="image-map">
-    <area alt="Up" title="Up" href="#" onclick="up(); return false;" coords="126,3,236,102" shape="rect">
-    <area alt="Down" title="Down" href="#" onclick="down(); return false;" coords="232,313,129,210" shape="rect">
-    <area alt="Right" title="Right" href="#" onclick="right(); return false;" coords="235,101,339,208" shape="rect">
-    <area alt="Left" title="Left" href="#" onclick="left(); return false;" coords="20,104,125,208" shape="rect">
-    <area alt="Back" title="Back" href="#" onclick="back(); return false;" coords="22,344,124,446" shape="rect">
-    <area alt="Home" title="Home" href="#" onclick="home(); return false;" coords="126,340,239,445" shape="rect">
-    <area alt="OK" title="OK" href="#" onclick="enter(); return false;" coords="126,102,234,210" shape="rect">
-  </map>
+  <div class="pad" aria-label="Remote buttons">
+    <button class="btn up" type="button" onclick="up();">↑</button>
+    <button class="btn left" type="button" onclick="left();">←</button>
+    <button class="btn ok" type="button" onclick="enter();">OK</button>
+    <button class="btn right" type="button" onclick="right();">→</button>
+    <button class="btn down" type="button" onclick="down();">↓</button>
+  </div>
+
+  <div class="row">
+    <button class="btn wide" type="button" onclick="back();">Back</button>
+    <button class="btn wide" type="button" onclick="home();">Home</button>
+  </div>
 
   <script src="remote.js"></script>
 </body>

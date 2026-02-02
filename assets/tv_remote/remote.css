@@ -11,6 +11,7 @@ body {
   border-radius: 14px;
   border: 1px solid rgba(127,127,127,0.35);
   background: rgba(127,127,127,0.06);
+  margin-bottom: 12px;
 }
 
 #status {
@@ -28,5 +29,50 @@ body {
   box-sizing: border-box;
   background: transparent;
   color: inherit;
+  margin-bottom: 12px;
 }
 
+.pad {
+  width: 360px;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1fr;
+  grid-template-rows: 1fr 1fr 1fr;
+  gap: 10px;
+  user-select: none;
+}
+
+.pad .btn {
+  height: 56px;
+  border-radius: 14px;
+  border: 1px solid rgba(127,127,127,0.35);
+  background: rgba(127,127,127,0.08);
+  color: inherit;
+  font-size: 18px;
+  font-weight: 700;
+}
+
+.pad .btn:active { transform: scale(0.99); }
+
+.pad .up { grid-column: 2; grid-row: 1; }
+.pad .left { grid-column: 1; grid-row: 2; }
+.pad .ok { grid-column: 2; grid-row: 2; font-size: 16px; }
+.pad .right { grid-column: 3; grid-row: 2; }
+.pad .down { grid-column: 2; grid-row: 3; }
+
+.row {
+  width: 360px;
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.row .btn.wide {
+  height: 48px;
+  border-radius: 14px;
+  border: 1px solid rgba(127,127,127,0.35);
+  background: rgba(127,127,127,0.06);
+  color: inherit;
+  font-size: 14px;
+  font-weight: 700;
+}

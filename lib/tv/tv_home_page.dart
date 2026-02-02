@@ -6,7 +6,6 @@ import 'package:lin_player_state/lin_player_state.dart';
 import '../home_page.dart';
 import '../library_page.dart';
 import '../search_page.dart';
-import '../server_page.dart';
 import '../settings_page.dart';
 import '../webdav_home_page.dart';
 import '../services/built_in_proxy/built_in_proxy_service.dart';
@@ -26,7 +25,7 @@ class TvHomePage extends StatelessWidget {
   Widget _pickActiveServerHome() {
     final active = appState.activeServer;
     if (active == null || !appState.hasActiveServerProfile) {
-      return ServerPage(appState: appState);
+      return TvOnboardingPage(appState: appState);
     }
     if (active.serverType == MediaServerType.webdav) {
       return WebDavHomePage(appState: appState);
@@ -95,7 +94,8 @@ class TvHomePage extends StatelessWidget {
                           title: '服务器',
                           subtitle: '添加/切换/管理',
                           icon: Icons.dns_outlined,
-                          onPressed: () => _push(context, ServerPage(appState: appState)),
+                          onPressed: () =>
+                              _push(context, TvOnboardingPage(appState: appState)),
                         ),
                         TvActionCard(
                           title: '媒体库',

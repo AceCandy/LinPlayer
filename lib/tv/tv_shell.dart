@@ -5,6 +5,7 @@ import 'package:lin_player_state/lin_player_state.dart';
 import '../home_page.dart';
 import '../server_page.dart';
 import '../webdav_home_page.dart';
+import 'tv_onboarding_page.dart';
 
 class TvShell extends StatelessWidget {
   const TvShell({super.key, required this.appState});
@@ -15,7 +16,7 @@ class TvShell extends StatelessWidget {
   Widget build(BuildContext context) {
     final active = appState.activeServer;
     if (active == null || !appState.hasActiveServerProfile) {
-      return ServerPage(appState: appState);
+      return TvOnboardingPage(appState: appState);
     }
     if (active.serverType == MediaServerType.webdav) {
       return WebDavHomePage(appState: appState);
