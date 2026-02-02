@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:lin_player_core/app_config/app_config.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
+import 'package:lin_player_server_api/services/server_share_text_parser.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
@@ -177,6 +178,50 @@ class TvRemoteService extends ChangeNotifier {
         return;
       }
 
+      if (path == '/api/parseShareText') {
+        if (request.method.toUpperCase() != 'POST') {
+          response.statusCode = HttpStatus.methodNotAllowed;
+          response.headers.set(HttpHeaders.allowHeader, 'POST');
+          return;
+        }
+
+        final raw = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(raw);
+        final map =
+            decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
+        if (map == null) {
+          response.statusCode = HttpStatus.badRequest;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.write(jsonEncode({'ok': false, 'error': 'invalid json'}));
+          return;
+        }
+
+        final token = (map['token'] ?? '').toString().trim();
+        if (!_checkToken(token)) {
+          response.statusCode = HttpStatus.unauthorized;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.write(jsonEncode({'ok': false, 'error': 'unauthorized'}));
+          return;
+        }
+
+        final text = (map['text'] ?? '').toString();
+        final result = _handleParseShareText(text);
+        response.statusCode = HttpStatus.ok;
+        response.headers.set(
+          HttpHeaders.contentTypeHeader,
+          'application/json; charset=utf-8',
+        );
+        response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+        response.write(jsonEncode(result));
+        return;
+      }
+
       response.statusCode = HttpStatus.notFound;
       response.headers
           .set(HttpHeaders.contentTypeHeader, 'text/plain; charset=utf-8');
@@ -307,6 +352,19 @@ class TvRemoteService extends ChangeNotifier {
       return fallback;
     }
 
+    List<CustomDomain> readCustomDomains(dynamic v) {
+      if (v is! List) return const [];
+      final out = <CustomDomain>[];
+      for (final e in v) {
+        if (e is! Map) continue;
+        final name = (e['name'] ?? '').toString().trim();
+        final url = (e['url'] ?? '').toString().trim();
+        if (url.isEmpty) continue;
+        out.add(CustomDomain(name: name.isEmpty ? url : name, url: url));
+      }
+      return out;
+    }
+
     final typeRaw = (map['type'] ?? '').toString().trim().toLowerCase();
     final baseUrl = (map['baseUrl'] ?? '').toString().trim();
     final schemeRaw = (map['scheme'] ?? 'https').toString().trim().toLowerCase();
@@ -318,6 +376,7 @@ class TvRemoteService extends ChangeNotifier {
     final remark = (map['remark'] ?? '').toString().trim();
     final iconUrl = (map['iconUrl'] ?? '').toString().trim();
     final activate = readBool(map['activate'], fallback: true);
+    final customDomains = readCustomDomains(map['customDomains']);
 
     if (baseUrl.isEmpty) {
       return {'ok': false, 'error': 'missing baseUrl'};
@@ -379,6 +438,7 @@ class TvRemoteService extends ChangeNotifier {
           displayName: displayName.isEmpty ? null : displayName,
           remark: remark.isEmpty ? null : remark,
           iconUrl: iconUrl.isEmpty ? null : iconUrl,
+          customDomains: customDomains.isEmpty ? null : customDomains,
           activate: activate,
         );
       }
@@ -388,6 +448,33 @@ class TvRemoteService extends ChangeNotifier {
       }
 
       return {'ok': true};
+    } catch (e) {
+      return {'ok': false, 'error': e.toString()};
+    }
+  }
+
+  Map<String, dynamic> _handleParseShareText(String raw) {
+    try {
+      final groups = ServerShareTextParser.parse(raw);
+      return {
+        'ok': true,
+        'groups': groups
+            .map(
+              (g) => {
+                'password': g.password,
+                'lines': g.lines
+                    .map(
+                      (l) => {
+                        'name': l.name,
+                        'url': l.url,
+                        'selectedByDefault': l.selectedByDefault,
+                      },
+                    )
+                    .toList(growable: false),
+              },
+            )
+            .toList(growable: false),
+      };
     } catch (e) {
       return {'ok': false, 'error': e.toString()};
     }

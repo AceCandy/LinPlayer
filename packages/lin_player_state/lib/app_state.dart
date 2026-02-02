@@ -764,7 +764,7 @@ class AppState extends ChangeNotifier {
 
     _themeMode = _decodeThemeMode(prefs.getString(_kThemeModeKey));
     _uiScaleFactor =
-        ((prefs.getDouble(_kUiScaleFactorKey) ?? 1.0).clamp(0.5, 2.0))
+        ((prefs.getDouble(_kUiScaleFactorKey) ?? 1.0).clamp(0.25, 2.0))
             .toDouble();
     _useDynamicColor = prefs.getBool(_kDynamicColorKey) ?? true;
     _compactMode =
@@ -1328,7 +1328,7 @@ class AppState extends ChangeNotifier {
 
     final nextThemeMode = _decodeThemeMode(data['themeMode']?.toString());
     final nextUiScale = _readDouble(data['uiScaleFactor'], fallback: 1.0)
-        .clamp(0.5, 2.0)
+        .clamp(0.25, 2.0)
         .toDouble();
     final nextUseDynamic = _readBool(data['useDynamicColor'], fallback: true);
     final nextCompactMode = _readBool(
@@ -2735,7 +2735,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setUiScaleFactor(double factor) async {
-    final v = factor.clamp(0.5, 2.0).toDouble();
+    final v = factor.clamp(0.25, 2.0).toDouble();
     if (_uiScaleFactor == v) return;
     _uiScaleFactor = v;
     final prefs = await SharedPreferences.getInstance();

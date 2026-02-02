@@ -1261,7 +1261,7 @@ class _SettingsPageState extends State<SettingsPage> {
                         builder: (context) {
                           final value =
                               (_uiScaleDraft ?? appState.uiScaleFactor)
-                                  .clamp(0.5, 2.0)
+                                  .clamp(0.25, 2.0)
                                   .toDouble();
                           return Column(
                             crossAxisAlignment: CrossAxisAlignment.start,
@@ -1270,7 +1270,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                 children: [
                                   Expanded(
                                     child: Text(
-                                      '当前：${value.toStringAsFixed(2)}x（0.5-2.0）',
+                                      '当前：${value.toStringAsFixed(2)}x（0.25-2.0）',
                                     ),
                                   ),
                                   TextButton(
@@ -1286,9 +1286,9 @@ class _SettingsPageState extends State<SettingsPage> {
                               ),
                               Slider(
                                 value: value,
-                                min: 0.5,
+                                min: 0.25,
                                 max: 2.0,
-                                divisions: 15,
+                                divisions: 35,
                                 label: '${value.toStringAsFixed(2)}x',
                                 onChanged: (v) =>
                                     setState(() => _uiScaleDraft = v),

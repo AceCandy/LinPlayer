@@ -149,7 +149,7 @@ class _LinPlayerAppState extends State<LinPlayerApp>
 
                 final scale = (UiScaleScope.autoScaleFor(context) *
                         appState.uiScaleFactor)
-                    .clamp(0.5, 2.0)
+                    .clamp(0.25, 2.0)
                     .toDouble();
 
                 EdgeInsetsGeometry? scaleInsets(EdgeInsetsGeometry? insets) {

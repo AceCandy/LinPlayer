@@ -46,13 +46,13 @@ function sendCommand(name, payload = {}) {
 }
 
 // D-pad style commands
-let left = () => sendCommand('nav.left');
-let right = () => sendCommand('nav.right');
-let up = () => sendCommand('nav.up');
-let down = () => sendCommand('nav.down');
-let enter = () => sendCommand('nav.select');
-let back = () => sendCommand('nav.back');
-let home = () => sendCommand('nav.home');
+function left() { sendCommand('nav.left'); }
+function right() { sendCommand('nav.right'); }
+function up() { sendCommand('nav.up'); }
+function down() { sendCommand('nav.down'); }
+function enter() { sendCommand('nav.select'); }
+function back() { sendCommand('nav.back'); }
+function home() { sendCommand('nav.home'); }
 
 connect();
 
@@ -66,4 +66,3 @@ if (textfield) {
     }
   });
 }
-
