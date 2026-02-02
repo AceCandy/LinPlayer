@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
-import 'dart:typed_data';
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 import 'package:lin_player_prefs/preferences.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
@@ -233,6 +233,12 @@ class _PlaybackControlsState extends State<PlaybackControls> {
   Timer? _batteryTimer;
   int? _batteryLevel;
 
+  final FocusNode _tvProgressFocusNode =
+      FocusNode(debugLabel: 'PlaybackControls.progress');
+  Timer? _tvScrubEndTimer;
+  double? _tvPendingScrubMs;
+  bool _tvProgressFocused = false;
+
   static String _fmt(Duration d) {
     String two(int v) => v.toString().padLeft(2, '0');
     final h = d.inHours;
@@ -405,6 +411,81 @@ class _PlaybackControlsState extends State<PlaybackControls> {
     _thumbnailLoading = false;
   }
 
+  double _tvProgressStepMs(int direction) {
+    final seconds = (direction < 0
+            ? widget.seekBackwardSeconds
+            : widget.seekForwardSeconds)
+        .clamp(1, 300);
+    return (seconds * 1000).toDouble();
+  }
+
+  void _scheduleTvScrubCommit(double valueMs) {
+    _tvPendingScrubMs = valueMs;
+    _tvScrubEndTimer?.cancel();
+    _tvScrubEndTimer = Timer(const Duration(milliseconds: 180), () {
+      final v = _tvPendingScrubMs;
+      _tvPendingScrubMs = null;
+      if (!mounted || v == null) return;
+      widget.onScrubEnd?.call();
+      setState(() => _scrubMs = null);
+      _clearThumbnail();
+      unawaited(_call1(widget.onSeek, Duration(milliseconds: v.round())));
+    });
+  }
+
+  void _commitTvScrubNow() {
+    final v = _tvPendingScrubMs ?? _scrubMs;
+    if (v == null) return;
+    _tvPendingScrubMs = null;
+    _tvScrubEndTimer?.cancel();
+    _tvScrubEndTimer = null;
+    widget.onScrubEnd?.call();
+    if (mounted) setState(() => _scrubMs = null);
+    _clearThumbnail();
+    unawaited(_call1(widget.onSeek, Duration(milliseconds: v.round())));
+  }
+
+  void _tvNudgeProgress(int direction, {required int maxMs}) {
+    if (!widget.enabled) return;
+    if (maxMs <= 0) return;
+
+    final step = _tvProgressStepMs(direction);
+    final current = (_scrubMs ?? widget.position.inMilliseconds.toDouble())
+        .clamp(0.0, maxMs.toDouble())
+        .toDouble();
+    final next = (current + direction * step)
+        .clamp(0.0, maxMs.toDouble())
+        .toDouble();
+
+    if (_scrubMs == null) widget.onScrubStart?.call();
+    if (!mounted) return;
+    setState(() => _scrubMs = next);
+    _scheduleThumbnailRequest(next);
+    _scheduleTvScrubCommit(next);
+  }
+
+  KeyEventResult _onTvProgressKeyEvent(
+    FocusNode node,
+    KeyEvent event, {
+    required int maxMs,
+  }) {
+    if (!widget.enabled) return KeyEventResult.ignored;
+    if (event is! KeyDownEvent && event is! KeyRepeatEvent) {
+      return KeyEventResult.ignored;
+    }
+
+    final key = event.logicalKey;
+    if (key == LogicalKeyboardKey.arrowLeft) {
+      _tvNudgeProgress(-1, maxMs: maxMs);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.arrowRight) {
+      _tvNudgeProgress(1, maxMs: maxMs);
+      return KeyEventResult.handled;
+    }
+    return KeyEventResult.ignored;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -465,6 +546,9 @@ class _PlaybackControlsState extends State<PlaybackControls> {
     _clockTimer = null;
     _batteryTimer?.cancel();
     _batteryTimer = null;
+    _tvScrubEndTimer?.cancel();
+    _tvScrubEndTimer = null;
+    _tvProgressFocusNode.dispose();
     super.dispose();
   }
 
@@ -709,41 +793,132 @@ class _PlaybackControlsState extends State<PlaybackControls> {
                               alignment: Alignment.bottomCenter,
                               child: SliderTheme(
                                 data: sliderTheme,
-                                child: Slider(
-                                  value: displayMs,
-                                  min: 0,
-                                  max: maxMs
-                                      .toDouble()
-                                      .clamp(1, double.infinity),
-                                  secondaryTrackValue: math
-                                      .max(0, widget.buffered.inMilliseconds)
-                                      .clamp(0, maxMs)
-                                      .toDouble(),
-                                  onChangeStart: !enabled
-                                      ? null
-                                      : (v) {
-                                          widget.onScrubStart?.call();
-                                          setState(() => _scrubMs = v);
-                                          _scheduleThumbnailRequest(v);
-                                        },
-                                  onChanged: !enabled
-                                      ? null
-                                      : (v) {
-                                          setState(() => _scrubMs = v);
-                                          _scheduleThumbnailRequest(v);
-                                        },
-                                  onChangeEnd: !enabled
-                                      ? null
-                                      : (v) async {
-                                          widget.onScrubEnd?.call();
-                                          setState(() => _scrubMs = null);
-                                          _clearThumbnail();
-                                          await _call1(
-                                            widget.onSeek,
-                                            Duration(milliseconds: v.round()),
+                                child: DeviceType.isTv
+                                    ? Focus(
+                                        focusNode: _tvProgressFocusNode,
+                                        onFocusChange: (focused) {
+                                          if (!focused) _commitTvScrubNow();
+                                          if (_tvProgressFocused == focused) {
+                                            return;
+                                          }
+                                          setState(
+                                            () => _tvProgressFocused = focused,
                                           );
                                         },
-                                ),
+                                        onKeyEvent: (node, event) =>
+                                            _onTvProgressKeyEvent(
+                                          node,
+                                          event,
+                                          maxMs: maxMs,
+                                        ),
+                                        child: AnimatedContainer(
+                                          duration:
+                                              const Duration(milliseconds: 120),
+                                          curve: Curves.easeOut,
+                                          decoration: BoxDecoration(
+                                            borderRadius:
+                                                BorderRadius.circular(10),
+                                            border: Border.all(
+                                              color: _tvProgressFocused
+                                                  ? accent
+                                                  : Colors.transparent,
+                                              width: 2,
+                                            ),
+                                          ),
+                                          child: Focus(
+                                            descendantsAreFocusable: false,
+                                            child: Slider(
+                                              value: displayMs,
+                                              min: 0,
+                                              max: maxMs
+                                                  .toDouble()
+                                                  .clamp(1, double.infinity),
+                                              secondaryTrackValue: math
+                                                  .max(0, widget.buffered
+                                                      .inMilliseconds)
+                                                  .clamp(0, maxMs)
+                                                  .toDouble(),
+                                              onChangeStart: !enabled
+                                                  ? null
+                                                  : (v) {
+                                                      widget.onScrubStart
+                                                          ?.call();
+                                                      setState(
+                                                        () => _scrubMs = v,
+                                                      );
+                                                      _scheduleThumbnailRequest(
+                                                        v,
+                                                      );
+                                                    },
+                                              onChanged: !enabled
+                                                  ? null
+                                                  : (v) {
+                                                      setState(
+                                                        () => _scrubMs = v,
+                                                      );
+                                                      _scheduleThumbnailRequest(
+                                                        v,
+                                                      );
+                                                    },
+                                              onChangeEnd: !enabled
+                                                  ? null
+                                                  : (v) async {
+                                                      widget.onScrubEnd
+                                                          ?.call();
+                                                      setState(
+                                                        () => _scrubMs = null,
+                                                      );
+                                                      _clearThumbnail();
+                                                      await _call1(
+                                                        widget.onSeek,
+                                                        Duration(
+                                                            milliseconds:
+                                                                v.round()),
+                                                      );
+                                                    },
+                                            ),
+                                          ),
+                                        ),
+                                      )
+                                    : Slider(
+                                        value: displayMs,
+                                        min: 0,
+                                        max: maxMs
+                                            .toDouble()
+                                            .clamp(1, double.infinity),
+                                        secondaryTrackValue: math
+                                            .max(
+                                              0,
+                                              widget.buffered.inMilliseconds,
+                                            )
+                                            .clamp(0, maxMs)
+                                            .toDouble(),
+                                        onChangeStart: !enabled
+                                            ? null
+                                            : (v) {
+                                                widget.onScrubStart?.call();
+                                                setState(() => _scrubMs = v);
+                                                _scheduleThumbnailRequest(v);
+                                              },
+                                        onChanged: !enabled
+                                            ? null
+                                            : (v) {
+                                                setState(() => _scrubMs = v);
+                                                _scheduleThumbnailRequest(v);
+                                              },
+                                        onChangeEnd: !enabled
+                                            ? null
+                                            : (v) async {
+                                                widget.onScrubEnd?.call();
+                                                setState(() => _scrubMs = null);
+                                                _clearThumbnail();
+                                                await _call1(
+                                                  widget.onSeek,
+                                                  Duration(
+                                                      milliseconds: v.round()),
+                                                );
+                                              },
+                                      ),
                               ),
                             ),
                             if (showPreview)

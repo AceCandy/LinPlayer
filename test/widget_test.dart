@@ -53,7 +53,7 @@ class _FakeAppState extends AppState {
   String? lastPassword;
 
   @override
-  Future<void> addServer({
+  Future<String?> addServer({
     required String hostOrUrl,
     required String scheme,
     String? port,
@@ -68,5 +68,6 @@ class _FakeAppState extends AppState {
   }) async {
     addServerCalled = true;
     lastPassword = password;
+    return 'fake_server_id';
   }
 }

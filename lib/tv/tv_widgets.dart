@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:lin_player_ui/lin_player_ui.dart';
 
 class TvActionCard extends StatefulWidget {
   const TvActionCard({
@@ -29,6 +30,12 @@ class _TvActionCardState extends State<TvActionCard> {
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
     final colorScheme = theme.colorScheme;
+    final uiScale = context.uiScale;
+
+    final radius = (18 * uiScale).clamp(12.0, 22.0);
+    final contentPadding = (16 * uiScale).clamp(12.0, 18.0);
+    final iconSize = (28 * uiScale).clamp(18.0, 32.0);
+    final subtitleSpacing = (6 * uiScale).clamp(4.0, 8.0);
 
     final enabled = widget.enabled && widget.onPressed != null;
     final borderColor = _focused
@@ -51,23 +58,23 @@ class _TvActionCardState extends State<TvActionCard> {
           curve: Curves.easeOut,
           decoration: BoxDecoration(
             color: bg,
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(radius),
             border: Border.all(
               width: _focused ? 2.0 : 1.0,
               color: enabled ? borderColor : borderColor.withValues(alpha: 0.4),
             ),
           ),
           child: InkWell(
-            borderRadius: BorderRadius.circular(18),
+            borderRadius: BorderRadius.circular(radius),
             onTap: enabled ? widget.onPressed : null,
             child: Padding(
-              padding: const EdgeInsets.all(16),
+              padding: EdgeInsets.all(contentPadding),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Icon(
                     widget.icon,
-                    size: 28,
+                    size: iconSize,
                     color: enabled
                         ? colorScheme.onSurface
                         : colorScheme.onSurface.withValues(alpha: 0.55),
@@ -85,7 +92,7 @@ class _TvActionCardState extends State<TvActionCard> {
                     ),
                   ),
                   if ((widget.subtitle ?? '').trim().isNotEmpty) ...[
-                    const SizedBox(height: 6),
+                    SizedBox(height: subtitleSpacing),
                     Text(
                       widget.subtitle!,
                       maxLines: 2,
@@ -107,4 +114,3 @@ class _TvActionCardState extends State<TvActionCard> {
     );
   }
 }
-

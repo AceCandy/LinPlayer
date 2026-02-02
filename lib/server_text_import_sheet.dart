@@ -153,6 +153,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
 
     final results = <String>[];
     var success = 0;
+    String? firstAddedServerId;
 
     String progressText = '';
     var started = false;
@@ -187,7 +188,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                     .map((l) => CustomDomain(name: l.name, url: l.url))
                     .toList(growable: false);
 
-                await widget.appState.addServer(
+                final addedId = await widget.appState.addServer(
                   hostOrUrl: primaryUrl,
                   scheme: scheme,
                   port: null,
@@ -206,6 +207,7 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
                   continue;
                 }
                 success++;
+                firstAddedServerId ??= addedId;
                 results.add('成功 $display');
               }
 
@@ -260,7 +262,18 @@ class _ServerTextImportSheetState extends State<ServerTextImportSheet> {
       ),
     );
 
-    if (success > 0 && mounted) Navigator.of(context).pop();
+    if (success > 0 && mounted) {
+      final appState = widget.appState;
+      Navigator.of(context).pop();
+      if (DeviceType.isTv && firstAddedServerId != null) {
+        unawaited(
+          Future<void>.delayed(
+            const Duration(milliseconds: 10),
+            () => appState.enterServer(firstAddedServerId!),
+          ),
+        );
+      }
+    }
   }
 
   @override

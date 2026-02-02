@@ -151,7 +151,7 @@ class _LinPlayerAppState extends State<LinPlayerApp>
 
                 final scale = (UiScaleScope.autoScaleFor(context) *
                         appState.uiScaleFactor *
-                        (isTv ? 0.5 : 1.0))
+                        (isTv ? 0.75 : 1.0))
                     .clamp(0.25, 2.0)
                     .toDouble();
 

@@ -1782,7 +1782,7 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> addServer({
+  Future<String?> addServer({
     required String hostOrUrl,
     required String scheme,
     String? port,
@@ -1799,6 +1799,8 @@ class AppState extends ChangeNotifier {
     _error = null;
     notifyListeners();
 
+    String? serverId;
+
     final fixedUsername = username.trim();
     final fixedRemark = (remark ?? '').trim();
     final fixedIconUrl = iconUrl?.trim();
@@ -1807,7 +1809,7 @@ class AppState extends ChangeNotifier {
     try {
       if (!serverType.isEmbyLike) {
         _error = '当前版本仅支持 Emby/Jellyfin 登录；Plex 请用 Plex 登录入口添加。';
-        return;
+        return null;
       }
       final adapter = ServerAdapterFactory.forLogin(
         serverType: serverType,
@@ -1874,11 +1876,12 @@ class AppState extends ChangeNotifier {
       } else {
         _servers.add(server);
       }
+      serverId = server.id;
 
       final prefs = await SharedPreferences.getInstance();
       await _persistServers(prefs);
 
-      if (!activate) return;
+      if (!activate) return serverId;
 
       try {
         final linesFuture = adapter.fetchDomains(auth, allowFailure: true);
@@ -1921,6 +1924,7 @@ class AppState extends ChangeNotifier {
         final s = _servers[existingIndex];
         s.lastErrorCode = code;
         s.lastErrorMessage = msg;
+        serverId = s.id;
       } else {
         final name = fixedDisplayName.isNotEmpty
             ? fixedDisplayName
@@ -1945,6 +1949,7 @@ class AppState extends ChangeNotifier {
           _mergeCustomDomains(server, customDomains);
         }
         _servers.add(server);
+        serverId = server.id;
       }
 
       final prefs = await SharedPreferences.getInstance();
@@ -1953,6 +1958,8 @@ class AppState extends ChangeNotifier {
       _loading = false;
       notifyListeners();
     }
+
+    return serverId;
   }
 
   Future<void> addPlexServer({

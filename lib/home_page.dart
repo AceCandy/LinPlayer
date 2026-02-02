@@ -506,22 +506,6 @@ class _HomePageState extends State<HomePage> {
               onRefresh: () => _load(forceRefresh: true),
               isTv: true,
               showSearchBar: false,
-              onOpenSearch: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => SearchPage(appState: widget.appState),
-                  ),
-                );
-              },
-              onOpenLibrary: () {
-                Navigator.of(context).push(
-                  MaterialPageRoute(
-                    builder: (_) => LibraryPage(appState: widget.appState),
-                  ),
-                );
-              },
-              onOpenRoutePicker: _showRoutePicker,
-              onOpenThemeSheet: _showThemeSheet,
             ),
             AggregateServicePage(appState: widget.appState),
             SettingsPage(appState: widget.appState),
@@ -540,7 +524,14 @@ class _HomePageState extends State<HomePage> {
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
                     child: _TvTopNavBar(
                       selectedIndex: selectedIndex,
-                      onSelected: (i) => setState(() => _index = i),
+                      onSelected: (i) {
+                        if (_index == i) return;
+                        setState(() => _index = i);
+                        WidgetsBinding.instance.addPostFrameCallback((_) {
+                          FocusManager.instance.primaryFocus
+                              ?.focusInDirection(TraversalDirection.down);
+                        });
+                      },
                       serverName: widget.appState.activeServer?.name ??
                           AppConfigScope.of(context).displayName,
                       iconUrl: widget.appState.activeServer?.iconUrl,
@@ -780,6 +771,7 @@ class _TvTopNavBar extends StatelessWidget {
         ),
         const SizedBox(width: 16),
         _TvTopNavItem(
+          autofocus: selectedIndex == 0,
           selected: selectedIndex == 0,
           icon: Icons.home_outlined,
           label: '首页',
@@ -787,6 +779,7 @@ class _TvTopNavBar extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         _TvTopNavItem(
+          autofocus: selectedIndex == 1,
           selected: selectedIndex == 1,
           icon: Icons.hub_outlined,
           label: '聚合',
@@ -794,6 +787,7 @@ class _TvTopNavBar extends StatelessWidget {
         ),
         const SizedBox(width: 10),
         _TvTopNavItem(
+          autofocus: selectedIndex == 2,
           selected: selectedIndex == 2,
           icon: Icons.settings_outlined,
           label: '设置',
@@ -810,12 +804,14 @@ class _TvTopNavItem extends StatefulWidget {
     required this.icon,
     required this.label,
     required this.onTap,
+    this.autofocus = false,
   });
 
   final bool selected;
   final IconData icon;
   final String label;
   final VoidCallback onTap;
+  final bool autofocus;
 
   @override
   State<_TvTopNavItem> createState() => _TvTopNavItemState();
@@ -843,6 +839,7 @@ class _TvTopNavItemState extends State<_TvTopNavItem> {
     final borderColor = _focused ? scheme.primary : Colors.transparent;
 
     return FocusableActionDetector(
+      autofocus: widget.autofocus,
       onFocusChange: _onFocusChange,
       child: AnimatedContainer(
         duration: const Duration(milliseconds: 120),
@@ -862,151 +859,7 @@ class _TvTopNavItemState extends State<_TvTopNavItem> {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(widget.icon, size: 18, color: fg),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.label,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
-                      color: fg,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TvQuickActionsRow extends StatelessWidget {
-  const _TvQuickActionsRow({
-    required this.onOpenSearch,
-    required this.onOpenLibrary,
-    required this.onOpenRoutePicker,
-    required this.onOpenThemeSheet,
-  });
-
-  final VoidCallback? onOpenSearch;
-  final VoidCallback? onOpenLibrary;
-  final Future<void> Function()? onOpenRoutePicker;
-  final Future<void> Function()? onOpenThemeSheet;
-
-  @override
-  Widget build(BuildContext context) {
-    final children = <Widget>[];
-
-    if (onOpenSearch != null) {
-      children.add(
-        _TvPillButton(
-          icon: Icons.search,
-          label: '搜索',
-          onTap: onOpenSearch,
-        ),
-      );
-    }
-    if (onOpenLibrary != null) {
-      children.add(
-        _TvPillButton(
-          icon: Icons.video_library_outlined,
-          label: '媒体库',
-          onTap: onOpenLibrary,
-        ),
-      );
-    }
-    if (onOpenRoutePicker != null) {
-      children.add(
-        _TvPillButton(
-          icon: Icons.alt_route_outlined,
-          label: '线路',
-          onTap: () => unawaited(onOpenRoutePicker!()),
-        ),
-      );
-    }
-    if (onOpenThemeSheet != null) {
-      children.add(
-        _TvPillButton(
-          icon: Icons.palette_outlined,
-          label: '主题',
-          onTap: () => unawaited(onOpenThemeSheet!()),
-        ),
-      );
-    }
-
-    if (children.isEmpty) return const SizedBox.shrink();
-
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
-      child: Wrap(
-        spacing: 10,
-        runSpacing: 10,
-        children: children,
-      ),
-    );
-  }
-}
-
-class _TvPillButton extends StatefulWidget {
-  const _TvPillButton({
-    required this.icon,
-    required this.label,
-    required this.onTap,
-  });
-
-  final IconData icon;
-  final String label;
-  final VoidCallback? onTap;
-
-  @override
-  State<_TvPillButton> createState() => _TvPillButtonState();
-}
-
-class _TvPillButtonState extends State<_TvPillButton> {
-  bool _focused = false;
-
-  void _onFocusChange(bool v) {
-    if (_focused == v) return;
-    setState(() => _focused = v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDark = scheme.brightness == Brightness.dark;
-    final enabled = widget.onTap != null;
-
-    final bg = _focused
-        ? scheme.primary.withValues(alpha: isDark ? 0.18 : 0.12)
-        : scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.62 : 0.86);
-    final borderColor = _focused ? scheme.primary : Colors.transparent;
-    final fg =
-        enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.45);
-
-    return FocusableActionDetector(
-      enabled: enabled,
-      onFocusChange: _onFocusChange,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: borderColor, width: 2),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            customBorder: const StadiumBorder(),
-            onTap: widget.onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(widget.icon, size: 18, color: fg),
+                  Icon(widget.icon, color: fg),
                   const SizedBox(width: 8),
                   Text(
                     widget.label,
@@ -1322,10 +1175,6 @@ class _HomeBody extends StatelessWidget {
     required this.onRefresh,
     required this.isTv,
     required this.showSearchBar,
-    this.onOpenSearch,
-    this.onOpenLibrary,
-    this.onOpenRoutePicker,
-    this.onOpenThemeSheet,
   });
 
   final AppState appState;
@@ -1333,10 +1182,6 @@ class _HomeBody extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final bool isTv;
   final bool showSearchBar;
-  final VoidCallback? onOpenSearch;
-  final VoidCallback? onOpenLibrary;
-  final Future<void> Function()? onOpenRoutePicker;
-  final Future<void> Function()? onOpenThemeSheet;
 
   @override
   Widget build(BuildContext context) {
@@ -1383,12 +1228,6 @@ class _HomeBody extends StatelessWidget {
               children: [
                 const SizedBox(height: 8),
                 if (isTv) ...[
-                  _TvQuickActionsRow(
-                    onOpenSearch: onOpenSearch,
-                    onOpenLibrary: onOpenLibrary,
-                    onOpenRoutePicker: onOpenRoutePicker,
-                    onOpenThemeSheet: onOpenThemeSheet,
-                  ),
                   _LibraryQuickAccessSection(appState: appState, isTv: true),
                   _ContinueWatchingSection(appState: appState, isTv: true),
                 ] else ...[
@@ -2097,76 +1936,17 @@ class _LibraryQuickAccessSectionState
         const spacing = 10.0;
         final access = resolveServerAccess(appState: widget.appState);
 
-        if (widget.isTv) {
-          final cols = (constraints.maxWidth / 240).floor().clamp(4, 8);
-          final maxItems = cols * 3;
-          final shown =
-              libs.length <= maxItems ? libs : libs.sublist(0, maxItems);
-
-          return Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              _HomeSectionHeader(
-                template: widget.appState.uiTemplate,
-                title: '媒体库',
-                count: 0,
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => LibraryPage(appState: widget.appState),
-                    ),
-                  );
-                },
-              ),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: padding),
-                child: GridView.builder(
-                  shrinkWrap: true,
-                  physics: const NeverScrollableScrollPhysics(),
-                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                    crossAxisCount: cols,
-                    mainAxisSpacing: spacing,
-                    crossAxisSpacing: spacing,
-                    childAspectRatio: 1.35,
-                  ),
-                  itemCount: shown.length,
-                  itemBuilder: (context, index) {
-                    final lib = shown[index];
-                    final imageUrl = access?.adapter.imageUrl(
-                      access.auth,
-                      itemId: lib.id,
-                      maxWidth: 640,
-                    );
-                    return MediaBackdropTile(
-                      title: lib.name,
-                      imageUrl: imageUrl ?? '',
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) => LibraryItemsPage(
-                              appState: widget.appState,
-                              parentId: lib.id,
-                              title: lib.name,
-                              isTv: widget.isTv,
-                            ),
-                          ),
-                        );
-                      },
-                    );
-                  },
-                ),
-              ),
-              const SizedBox(height: 8),
-            ],
-          );
-        }
-
-        final visible = (constraints.maxWidth / 240).clamp(1.8, 6.0);
+        final uiScale = context.uiScale;
+        final baseWidth = widget.isTv ? (280 * uiScale) : 240.0;
+        final visible = (constraints.maxWidth / baseWidth).clamp(
+          widget.isTv ? 4.0 : 1.8,
+          widget.isTv ? 8.0 : 6.0,
+        );
         final itemWidth =
             (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
                 visible;
         final imageHeight = itemWidth * 9 / 16;
-        final listHeight = imageHeight + 44;
+        final listHeight = imageHeight + (widget.isTv ? 50 : 44);
         final totalContentWidth =
             libs.length * itemWidth + (libs.length - 1) * spacing;
         final viewportWidth = constraints.maxWidth - padding * 2;

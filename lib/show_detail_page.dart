@@ -389,7 +389,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         return SafeArea(
           child: DraggableScrollableSheet(
             expand: false,
-            initialChildSize: widget.isTv ? 0.9 : 0.75,
+            initialChildSize: widget.isTv ? 0.5 : 0.75,
             minChildSize: 0.4,
             maxChildSize: 0.95,
             builder: (ctx, controller) {
@@ -1346,7 +1346,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                               style: Theme.of(context).textTheme.titleMedium),
                           const SizedBox(height: 8),
                           SizedBox(
-                            height: widget.isTv ? 260 : 220,
+                            height: 220,
                             child: ListView.separated(
                               scrollDirection: Axis.horizontal,
                               itemCount: _seasons.length,
@@ -1358,10 +1358,10 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 final img = access?.adapter.imageUrl(
                                   access.auth,
                                   itemId: s.hasImage ? s.id : item.id,
-                                  maxWidth: widget.isTv ? 600 : 400,
+                                  maxWidth: 400,
                                 );
                                 return SizedBox(
-                                  width: widget.isTv ? 200 : 140,
+                                  width: 140,
                                   child: MediaPosterTile(
                                     title: label,
                                     imageUrl: img,
@@ -1606,7 +1606,7 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                             : access.adapter.imageUrl(
                                 access.auth,
                                 itemId: e.hasImage ? e.id : widget.season.id,
-                                maxWidth: widget.isTv ? 900 : 700,
+                                maxWidth: 700,
                               );
                         return Card(
                           clipBehavior: Clip.antiAlias,
@@ -1633,7 +1633,7 @@ class _SeasonEpisodesPageState extends State<SeasonEpisodesPage> {
                                         CrossAxisAlignment.start,
                                     children: [
                                       SizedBox(
-                                        width: widget.isTv ? 260 : 170,
+                                        width: 170,
                                         child: AspectRatio(
                                           aspectRatio: 16 / 9,
                                           child: ClipRRect(
@@ -2336,7 +2336,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                               ),
                               const SizedBox(width: 12),
                                 SizedBox(
-                                  width: widget.isTv ? 170 : 140,
+                                  width: 140,
                                   child: OutlinedButton.icon(
                                     onPressed:
                                         _markBusy ? null : _toggleEpisodePlayedMark,
@@ -2611,7 +2611,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         return SafeArea(
           child: DraggableScrollableSheet(
             expand: false,
-            initialChildSize: widget.isTv ? 0.9 : 0.75,
+            initialChildSize: widget.isTv ? 0.5 : 0.75,
             minChildSize: 0.4,
             maxChildSize: 0.95,
             builder: (ctx, controller) {
@@ -2796,7 +2796,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
             ),
           ),
           SizedBox(
-            height: widget.isTv ? 230 : 200,
+            height: 200,
             child: FutureBuilder<List<MediaItem>>(
               future: _episodesForSeason(season),
               builder: (ctx, snapshot) {
@@ -2828,10 +2828,10 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                         : access.adapter.imageUrl(
                             access.auth,
                             itemId: e.hasImage ? e.id : season.id,
-                            maxWidth: widget.isTv ? 900 : 640,
+                            maxWidth: 640,
                           );
                     return SizedBox(
-                      width: widget.isTv ? 360 : 260,
+                      width: 260,
                       child: MediaBackdropTile(
                         title: _episodeLabel(e, index),
                         subtitle: isCurrent ? '当前' : '第$epNo集',

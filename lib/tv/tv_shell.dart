@@ -14,9 +14,13 @@ class TvShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (appState.servers.isEmpty) {
+      return TvOnboardingPage(appState: appState);
+    }
+
     final active = appState.activeServer;
     if (active == null || !appState.hasActiveServerProfile) {
-      return TvOnboardingPage(appState: appState);
+      return ServerPage(appState: appState);
     }
     if (active.serverType == MediaServerType.webdav) {
       return WebDavHomePage(appState: appState);
