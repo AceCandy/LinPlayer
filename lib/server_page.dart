@@ -130,8 +130,10 @@ class _ServerPageState extends State<ServerPage> {
                             listenable: widget.appState,
                             themeMode: () => widget.appState.themeMode,
                             setThemeMode: widget.appState.setThemeMode,
-                            useDynamicColor: () => widget.appState.useDynamicColor,
-                            setUseDynamicColor: widget.appState.setUseDynamicColor,
+                            useDynamicColor: () =>
+                                widget.appState.useDynamicColor,
+                            setUseDynamicColor:
+                                widget.appState.setUseDynamicColor,
                             uiTemplate: () => widget.appState.uiTemplate,
                             setUiTemplate: widget.appState.setUiTemplate,
                           ),
@@ -153,21 +155,22 @@ class _ServerPageState extends State<ServerPage> {
                       child: LinearProgressIndicator(),
                     ),
                   ),
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-                    child: Card(
-                      clipBehavior: Clip.antiAlias,
-                      child: ListTile(
-                        leading: const Icon(Icons.folder_open),
-                        title: const Text('本地播放'),
-                        subtitle: const Text('无需登录，直接播放本地文件'),
-                        trailing: const Icon(Icons.chevron_right),
-                        onTap: loading ? null : _openLocalPlayer,
+                if (!isTv)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+                      child: Card(
+                        clipBehavior: Clip.antiAlias,
+                        child: ListTile(
+                          leading: const Icon(Icons.folder_open),
+                          title: const Text('本地播放'),
+                          subtitle: const Text('无需登录，直接播放本地文件'),
+                          trailing: const Icon(Icons.chevron_right),
+                          onTap: loading ? null : _openLocalPlayer,
+                        ),
                       ),
                     ),
                   ),
-                ),
                 if (servers.isEmpty)
                   const SliverFillRemaining(
                     hasScrollBody: false,

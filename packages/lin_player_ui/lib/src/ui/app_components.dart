@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 
+import '../device/device_type.dart';
 import '../services/cover_cache_manager.dart';
 import 'package:lin_player_server_api/network/lin_http_client.dart';
 import 'package:lin_player_prefs/preferences.dart';
@@ -209,7 +210,7 @@ class MediaLabelBadge extends StatelessWidget {
   }
 }
 
-class MediaPosterTile extends StatelessWidget {
+class MediaPosterTile extends StatefulWidget {
   const MediaPosterTile({
     super.key,
     required this.title,
@@ -230,6 +231,32 @@ class MediaPosterTile extends StatelessWidget {
   final String? badgeText;
   final Widget? topRightBadge;
   final int titleMaxLines;
+
+  @override
+  State<MediaPosterTile> createState() => _MediaPosterTileState();
+}
+
+class _MediaPosterTileState extends State<MediaPosterTile> {
+  bool _focused = false;
+
+  void _onFocusChange(bool focused) {
+    if (!DeviceType.isTv) return;
+
+    if (focused) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+
+    if (_focused == focused) return;
+    setState(() => _focused = focused);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -292,9 +319,9 @@ class MediaPosterTile extends StatelessWidget {
       _ => null,
     };
 
-    final image = imageUrl != null
+    final image = widget.imageUrl != null
         ? CachedNetworkImage(
-            imageUrl: imageUrl!,
+            imageUrl: widget.imageUrl!,
             cacheManager: CoverCacheManager.instance,
             httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
             fit: BoxFit.cover,
@@ -304,7 +331,7 @@ class MediaPosterTile extends StatelessWidget {
           )
         : const ColoredBox(color: Colors.black26, child: Icon(Icons.image));
 
-    final badge = (badgeText ?? '').trim();
+    final badge = (widget.badgeText ?? '').trim();
 
     final poster = DecoratedBox(
       decoration: BoxDecoration(
@@ -335,71 +362,95 @@ class MediaPosterTile extends StatelessWidget {
                   child: CustomPaint(painter: framePainter),
                 ),
               ),
-            if (rating != null || badge.isNotEmpty)
+            if (widget.rating != null || badge.isNotEmpty)
               Positioned(
                 left: 6,
                 top: 6,
                 child: Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (rating != null) RatingBadge(rating: rating!),
-                    if (rating != null && badge.isNotEmpty)
+                    if (widget.rating != null)
+                      RatingBadge(rating: widget.rating!),
+                    if (widget.rating != null && badge.isNotEmpty)
                       const SizedBox(width: 6),
                     if (badge.isNotEmpty) MediaLabelBadge(text: badge),
                   ],
                 ),
               ),
-            if (topRightBadge != null)
+            if (widget.topRightBadge != null)
               Positioned(
                 right: 6,
                 top: 6,
-                child: topRightBadge!,
+                child: widget.topRightBadge!,
               ),
           ],
         ),
       ),
     );
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(posterRadius),
-      onTap: onTap,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.center,
-        children: [
-          Expanded(child: poster),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            style: theme.textTheme.bodySmall?.copyWith(
-              fontWeight: FontWeight.w700,
-              letterSpacing: style.template == UiTemplate.neonHud ? 0.15 : null,
-            ),
-            textAlign: TextAlign.center,
-            maxLines: math.max(1, titleMaxLines),
-            overflow: TextOverflow.ellipsis,
-          ),
-          if ((year ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 2),
+    final tile = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(posterRadius),
+        onTap: widget.onTap,
+        onFocusChange: _onFocusChange,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(child: poster),
+            const SizedBox(height: 6),
             Text(
-              year!.trim(),
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+              widget.title,
+              style: theme.textTheme.bodySmall?.copyWith(
+                fontWeight: FontWeight.w700,
                 letterSpacing:
-                    style.template == UiTemplate.neonHud ? 0.25 : null,
+                    style.template == UiTemplate.neonHud ? 0.15 : null,
               ),
               textAlign: TextAlign.center,
-              maxLines: 1,
+              maxLines: math.max(1, widget.titleMaxLines),
               overflow: TextOverflow.ellipsis,
             ),
+            if ((widget.year ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                widget.year!.trim(),
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing:
+                      style.template == UiTemplate.neonHud ? 0.25 : null,
+                ),
+                textAlign: TextAlign.center,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+              ),
+            ],
           ],
-        ],
+        ),
       ),
+    );
+
+    if (!DeviceType.isTv) return tile;
+
+    final bg = _focused
+        ? scheme.primary.withValues(alpha: isDark ? 0.16 : 0.12)
+        : Colors.transparent;
+    final border = _focused ? scheme.primary : Colors.transparent;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(math.max(10.0, posterRadius)),
+        border: Border.all(color: border, width: 2),
+      ),
+      child: tile,
     );
   }
 }
 
-class MediaBackdropTile extends StatelessWidget {
+class MediaBackdropTile extends StatefulWidget {
   const MediaBackdropTile({
     super.key,
     required this.title,
@@ -412,10 +463,36 @@ class MediaBackdropTile extends StatelessWidget {
 
   final String title;
   final String? subtitle;
-  final String imageUrl;
+  final String? imageUrl;
   final String? badgeText;
   final VoidCallback onTap;
   final VoidCallback? onLongPress;
+
+  @override
+  State<MediaBackdropTile> createState() => _MediaBackdropTileState();
+}
+
+class _MediaBackdropTileState extends State<MediaBackdropTile> {
+  bool _focused = false;
+
+  void _onFocusChange(bool focused) {
+    if (!DeviceType.isTv) return;
+
+    if (focused) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+
+    if (_focused == focused) return;
+    setState(() => _focused = focused);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -465,22 +542,30 @@ class MediaBackdropTile extends StatelessWidget {
       _ => null,
     };
 
-    final image = CachedNetworkImage(
-      imageUrl: imageUrl,
-      cacheManager: CoverCacheManager.instance,
-      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
-      fit: BoxFit.cover,
-      placeholder: (_, __) => const ColoredBox(
-        color: Colors.black12,
-        child: Center(child: Icon(Icons.image_outlined)),
-      ),
-      errorWidget: (_, __, ___) => const ColoredBox(
-        color: Colors.black26,
-        child: Center(child: Icon(Icons.broken_image_outlined)),
-      ),
-    );
+    final imageUrl = (widget.imageUrl ?? '').trim();
+    final hasImage = imageUrl.isNotEmpty;
 
-    final badge = (badgeText ?? '').trim();
+    final image = hasImage
+        ? CachedNetworkImage(
+            imageUrl: imageUrl,
+            cacheManager: CoverCacheManager.instance,
+            httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+            fit: BoxFit.cover,
+            placeholder: (_, __) => const ColoredBox(
+              color: Colors.black12,
+              child: Center(child: Icon(Icons.image_outlined)),
+            ),
+            errorWidget: (_, __, ___) => const ColoredBox(
+              color: Colors.black26,
+              child: Center(child: Icon(Icons.broken_image_outlined)),
+            ),
+          )
+        : const ColoredBox(
+            color: Colors.black26,
+            child: Center(child: Icon(Icons.image_outlined)),
+          );
+
+    final badge = (widget.badgeText ?? '').trim();
 
     final cover = DecoratedBox(
       decoration: BoxDecoration(
@@ -504,38 +589,61 @@ class MediaBackdropTile extends StatelessWidget {
       ),
     );
 
-    return InkWell(
-      borderRadius: BorderRadius.circular(radius),
-      onTap: onTap,
-      onLongPress: onLongPress,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(aspectRatio: 16 / 9, child: cover),
-          const SizedBox(height: 6),
-          Text(
-            title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: theme.textTheme.bodyMedium?.copyWith(
-              fontWeight: FontWeight.w800,
-              letterSpacing: style.template == UiTemplate.neonHud ? 0.15 : null,
-            ),
-          ),
-          if ((subtitle ?? '').trim().isNotEmpty) ...[
-            const SizedBox(height: 2),
+    final tile = Material(
+      color: Colors.transparent,
+      child: InkWell(
+        borderRadius: BorderRadius.circular(radius),
+        onTap: widget.onTap,
+        onLongPress: widget.onLongPress,
+        onFocusChange: _onFocusChange,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(aspectRatio: 16 / 9, child: cover),
+            const SizedBox(height: 6),
             Text(
-              subtitle!.trim(),
+              widget.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
-              style: theme.textTheme.labelSmall?.copyWith(
-                color: scheme.onSurfaceVariant,
-                fontWeight: FontWeight.w600,
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w800,
+                letterSpacing:
+                    style.template == UiTemplate.neonHud ? 0.15 : null,
               ),
             ),
+            if ((widget.subtitle ?? '').trim().isNotEmpty) ...[
+              const SizedBox(height: 2),
+              Text(
+                widget.subtitle!.trim(),
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.labelSmall?.copyWith(
+                  color: scheme.onSurfaceVariant,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+            ],
           ],
-        ],
+        ),
       ),
+    );
+
+    if (!DeviceType.isTv) return tile;
+
+    final bg = _focused
+        ? scheme.primary.withValues(alpha: isDark ? 0.16 : 0.12)
+        : Colors.transparent;
+    final border = _focused ? scheme.primary : Colors.transparent;
+
+    return AnimatedContainer(
+      duration: const Duration(milliseconds: 120),
+      curve: Curves.easeOut,
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(math.max(10.0, radius)),
+        border: Border.all(color: border, width: 2),
+      ),
+      child: tile,
     );
   }
 }

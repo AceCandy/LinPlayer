@@ -681,7 +681,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.opacity_outlined),
                     title: const Text('不透明度'),
-                    subtitle: Slider(
+                    subtitle: AppSlider(
                       value: _danmakuOpacity,
                       min: 0.2,
                       max: 1.0,
@@ -1581,7 +1581,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕大小'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitleFontSize.clamp(12.0, 60.0),
                         min: 12.0,
                         max: 60.0,
@@ -1600,7 +1600,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕位置'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitlePositionStep.toDouble().clamp(0, 20),
                         min: 0,
                         max: 20,
@@ -1910,7 +1910,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
         _position = v.position;
         _duration = v.duration;
 
-        if (_orientationMode == _OrientationMode.auto && _shouldControlSystemUi) {
+        if (_orientationMode == _OrientationMode.auto &&
+            _shouldControlSystemUi) {
           final last = _lastAutoOrientationApplyAt;
           if (last == null ||
               now.difference(last) >= const Duration(seconds: 1)) {
@@ -2077,7 +2078,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
               _tvOkLongPressTimer = Timer(_tvOkLongPressDelay, () {
                 if (!mounted) return;
                 final controller = _controller;
-                if (controller == null || !controller.value.isInitialized) return;
+                if (controller == null || !controller.value.isInitialized)
+                  return;
 
                 final base =
                     _tvOkLongPressBaseRate ?? controller.value.playbackSpeed;
@@ -2090,8 +2092,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                 controller.setPlaybackSpeed(targetRate);
                 _setGestureOverlay(
                   icon: Icons.speed,
-                  text:
-                      '倍速 ×${(targetRate / base).toStringAsFixed(2)}',
+                  text: '倍速 ×${(targetRate / base).toStringAsFixed(2)}',
                 );
               });
               return KeyEventResult.handled;

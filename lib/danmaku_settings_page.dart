@@ -398,11 +398,12 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                       divisions: _fontSizeMax - _fontSizeMin,
                       trailing: Text('$fontSize'),
                       sliderTheme: _sliderTheme(context, showTicks: true),
-                      onChanged: (v) =>
-                          setState(() => _scaleDraft = v / _baseDanmakuFontSize),
+                      onChanged: (v) => setState(
+                          () => _scaleDraft = v / _baseDanmakuFontSize),
                       onChangeEnd: (v) async {
                         setState(() => _scaleDraft = null);
-                        await appState.setDanmakuScale(v / _baseDanmakuFontSize);
+                        await appState
+                            .setDanmakuScale(v / _baseDanmakuFontSize);
                       },
                     ),
                     const Divider(height: 1),
@@ -663,7 +664,7 @@ class _SliderTile extends StatelessWidget {
       title: title,
       subtitle: SliderTheme(
         data: sliderTheme,
-        child: Slider(
+        child: AppSlider(
           value: value.clamp(min, max),
           min: min,
           max: max,

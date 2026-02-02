@@ -63,11 +63,10 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
             (_seekForwardDraft ?? appState.seekForwardSeconds.toDouble())
                 .round()
                 .clamp(1, 120);
-        final bufferSpeedRefreshSeconds =
-            (_bufferSpeedRefreshSecondsDraft ??
-                    appState.bufferSpeedRefreshSeconds)
-                .clamp(0.2, 3.0)
-                .toDouble();
+        final bufferSpeedRefreshSeconds = (_bufferSpeedRefreshSecondsDraft ??
+                appState.bufferSpeedRefreshSeconds)
+            .clamp(0.2, 3.0)
+            .toDouble();
 
         return Scaffold(
           appBar: GlassAppBar(
@@ -225,8 +224,8 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                       min: 0.2,
                       max: 3.0,
                       divisions: 28,
-                      trailing:
-                          Text('${bufferSpeedRefreshSeconds.toStringAsFixed(1)}s'),
+                      trailing: Text(
+                          '${bufferSpeedRefreshSeconds.toStringAsFixed(1)}s'),
                       sliderTheme: _sliderTheme(context),
                       onChanged: (v) =>
                           setState(() => _bufferSpeedRefreshSecondsDraft = v),
@@ -375,7 +374,7 @@ class _SliderTile extends StatelessWidget {
           if (subtitle != null) subtitle!,
           SliderTheme(
             data: sliderTheme,
-            child: Slider(
+            child: AppSlider(
               value: value.clamp(min, max),
               min: min,
               max: max,

@@ -282,7 +282,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     try {
       await _thumbnailer?.dispose();
     } catch (_) {}
-      _thumbnailer = null;
+    _thumbnailer = null;
     try {
       final builtInProxyEnabled =
           widget.isTv && widget.appState.tvBuiltInProxyEnabled;
@@ -577,8 +577,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     }
 
     try {
-      final chapters =
-          await access.adapter.fetchChapters(access.auth, itemId: widget.itemId);
+      final chapters = await access.adapter
+          .fetchChapters(access.auth, itemId: widget.itemId);
       if (!mounted || seq != _introSeq) return;
       final ts = _introFromChapters(chapters);
       if (ts == null) return;
@@ -1759,7 +1759,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.opacity_outlined),
                     title: const Text('不透明度'),
-                    subtitle: Slider(
+                    subtitle: AppSlider(
                       value: _danmakuOpacity,
                       min: 0.2,
                       max: 1.0,
@@ -1825,8 +1825,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     try {
       final access = _serverAccess;
       if (access == null) throw Exception('Not connected');
-      final info =
-          await access.adapter.fetchPlaybackInfo(access.auth, itemId: widget.itemId);
+      final info = await access.adapter
+          .fetchPlaybackInfo(access.auth, itemId: widget.itemId);
       final sources = info.mediaSources.cast<Map<String, dynamic>>();
       _availableMediaSources = List<Map<String, dynamic>>.from(sources);
       Map<String, dynamic>? ms;
@@ -2893,8 +2893,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       try {
         final access = _serverAccess;
         if (access == null) throw Exception('Not connected');
-        final info =
-            await access.adapter.fetchPlaybackInfo(access.auth, itemId: widget.itemId);
+        final info = await access.adapter
+            .fetchPlaybackInfo(access.auth, itemId: widget.itemId);
         sources = info.mediaSources.cast<Map<String, dynamic>>();
         _availableMediaSources = List<Map<String, dynamic>>.from(sources);
       } catch (_) {
@@ -3040,8 +3040,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
               _playerService.player.setRate(targetRate);
               _setGestureOverlay(
                 icon: Icons.speed,
-                text:
-                    '倍速 ×${(targetRate / base).toStringAsFixed(2)}',
+                text: '倍速 ×${(targetRate / base).toStringAsFixed(2)}',
               );
             });
             return KeyEventResult.handled;
@@ -3252,7 +3251,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                 _subtitleViewConfiguration,
                           ),
                           Positioned.fill(
-                              child: DanmakuStage(
+                            child: DanmakuStage(
                               key: _danmakuKey,
                               enabled: _danmakuEnabled,
                               opacity: _danmakuOpacity,
@@ -3445,10 +3444,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                           const SizedBox(width: 6),
                                           Builder(builder: (context) {
                                             final end = _introTimestamps?.end;
-                                            final endText =
-                                                (end != null && end > Duration.zero)
-                                                    ? '（至 ${_fmtClock(end)}）'
-                                                    : '';
+                                            final endText = (end != null &&
+                                                    end > Duration.zero)
+                                                ? '（至 ${_fmtClock(end)}）'
+                                                : '';
                                             return Text(
                                               '检测到片头$endText',
                                               style: const TextStyle(
@@ -4170,7 +4169,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕大小'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitleFontSize.clamp(12.0, 60.0),
                         min: 12.0,
                         max: 60.0,
@@ -4185,7 +4184,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕位置'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitlePositionStep.toDouble().clamp(0, 20),
                         min: 0,
                         max: 20,
@@ -4280,9 +4279,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     try {
       await platform.setProperty(
         'sub-margin-y',
-        (_subtitlePositionStep.clamp(0, 20) * 5.0)
-            .clamp(0.0, 200.0)
-            .round(),
+        (_subtitlePositionStep.clamp(0, 20) * 5.0).clamp(0.0, 200.0).round(),
       );
     } catch (_) {}
     try {

@@ -1114,9 +1114,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                   : '已开启：${url.host}:${url.port}')
                               : '已开启：启动中…');
 
-                      final addressText = !enabled
-                          ? '未开启'
-                          : (url?.toString() ?? '未获取到局域网地址');
+                      final addressText =
+                          !enabled ? '未开启' : (url?.toString() ?? '未获取到局域网地址');
 
                       final proxyStatusText = proxyStatus.isSupported
                           ? proxyStatus.message
@@ -1185,13 +1184,15 @@ class _SettingsPageState extends State<SettingsPage> {
                                   : () => _openBuiltInProxyPanel(context),
                             ),
                           ],
-                          if (proxyStatus.state == BuiltInProxyState.notInstalled ||
+                          if (proxyStatus.state ==
+                                  BuiltInProxyState.notInstalled ||
                               proxyStatus.state == BuiltInProxyState.error)
                             ListTile(
                               contentPadding: EdgeInsets.zero,
                               leading: const Icon(Icons.file_open_outlined),
                               title: const Text('手动导入 mihomo（可选）'),
-                              subtitle: const Text('需要与设备 ABI 匹配（通常 arm64-v8a）'),
+                              subtitle:
+                                  const Text('需要与设备 ABI 匹配（通常 arm64-v8a）'),
                               trailing: FilledButton(
                                 onPressed: _tvProxyBusy
                                     ? null
@@ -1284,7 +1285,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ),
                                 ],
                               ),
-                              Slider(
+                              AppSlider(
                                 value: value,
                                 min: 0.25,
                                 max: 2.0,
@@ -1479,7 +1480,7 @@ class _SettingsPageState extends State<SettingsPage> {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text('当前：${cacheMb}MB（200-2048MB，默认500MB）'),
-                              Slider(
+                              AppSlider(
                                 value: cacheMb.toDouble(),
                                 min: 200,
                                 max: 2048,
@@ -1574,7 +1575,7 @@ class _SettingsPageState extends State<SettingsPage> {
                                   ),
                                 ],
                               ),
-                              Slider(
+                              AppSlider(
                                 value: split.backRatio,
                                 min: 0.0,
                                 max: 0.30,
@@ -2039,7 +2040,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.info_outline),
                       title: const Text('关于'),
-                      subtitle: Text('${appConfig.displayName} (${appConfig.repoUrl})'),
+                      subtitle: Text(
+                          '${appConfig.displayName} (${appConfig.repoUrl})'),
                       trailing: const Icon(Icons.open_in_new),
                       onTap: () async {
                         final ok = await launchUrlString(appConfig.repoUrl);

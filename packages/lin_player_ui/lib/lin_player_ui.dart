@@ -11,6 +11,7 @@ export 'src/services/server_icon_library.dart';
 export 'src/services/website_metadata.dart';
 export 'src/ui/app_components.dart';
 export 'src/ui/app_icon_service.dart';
+export 'src/ui/app_slider.dart';
 export 'src/ui/app_style.dart';
 export 'src/ui/app_theme.dart';
 export 'src/ui/episode_count_badge.dart';

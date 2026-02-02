@@ -731,8 +731,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     _longPressStartPos = details.localPosition;
     final player = _playerService.player;
     _longPressBaseRate = player.state.rate;
-    final targetRate =
-        (_longPressBaseRate! * _longPressMultiplier).clamp(0.25, 5.0).toDouble();
+    final targetRate = (_longPressBaseRate! * _longPressMultiplier)
+        .clamp(0.25, 5.0)
+        .toDouble();
     // ignore: unawaited_futures
     player.setRate(targetRate);
     _setGestureOverlay(
@@ -1573,7 +1574,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     contentPadding: EdgeInsets.zero,
                     leading: const Icon(Icons.opacity_outlined),
                     title: const Text('不透明度'),
-                    subtitle: Slider(
+                    subtitle: AppSlider(
                       value: _danmakuOpacity,
                       min: 0.2,
                       max: 1.0,
@@ -1720,9 +1721,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                 if (!_playerService.isInitialized) return;
                 final base =
                     _tvOkLongPressBaseRate ?? _playerService.player.state.rate;
-                final targetRate = (base * _longPressMultiplier)
-                    .clamp(0.25, 5.0)
-                    .toDouble();
+                final targetRate =
+                    (base * _longPressMultiplier).clamp(0.25, 5.0).toDouble();
                 _tvOkLongPressTriggered = true;
                 // ignore: unawaited_futures
                 _playerService.player.setRate(targetRate);
@@ -1933,10 +1933,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 child: ColoredBox(
                                   color: Colors.black54,
                                   child: Center(
-                                      child: Column(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          const CircularProgressIndicator(),
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const CircularProgressIndicator(),
                                         if ((widget.appState?.showBufferSpeed ??
                                                 false) &&
                                             _isNetworkPlayback)
@@ -2603,7 +2603,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕大小'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitleFontSize.clamp(12.0, 60.0),
                         min: 12.0,
                         max: 60.0,
@@ -2618,7 +2618,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text('字幕位置'),
-                      subtitle: Slider(
+                      subtitle: AppSlider(
                         value: _subtitlePositionStep.toDouble().clamp(0, 20),
                         min: 0,
                         max: 20,
@@ -2713,9 +2713,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     try {
       await platform.setProperty(
         'sub-margin-y',
-        (_subtitlePositionStep.clamp(0, 20) * 5.0)
-            .clamp(0.0, 200.0)
-            .round(),
+        (_subtitlePositionStep.clamp(0, 20) * 5.0).clamp(0.0, 200.0).round(),
       );
     } catch (_) {}
     try {

@@ -147,8 +147,11 @@ class _LinPlayerAppState extends State<LinPlayerApp>
               builder: (context, child) {
                 if (child == null) return const SizedBox.shrink();
 
+                final isTv = DeviceType.isTv;
+
                 final scale = (UiScaleScope.autoScaleFor(context) *
-                        appState.uiScaleFactor)
+                        appState.uiScaleFactor *
+                        (isTv ? 0.5 : 1.0))
                     .clamp(0.25, 2.0)
                     .toDouble();
 
@@ -225,8 +228,6 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                 final textScaler = scale == 1.0
                     ? mediaQuery.textScaler
                     : TextScaler.linear(userScale * scale);
-
-                final isTv = DeviceType.isTv;
 
                 final style = scaledTheme.extension<AppStyle>();
                 final hasBackdrop = style != null &&

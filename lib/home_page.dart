@@ -29,7 +29,9 @@ class HomePage extends StatefulWidget {
 }
 
 class _HomePageState extends State<HomePage> {
-  int _index = 0; // 0 home, 1 aggregate, 2 local, 3 settings
+  // TV: 0 home, 1 aggregate, 2 settings.
+  // Other platforms: 0 home, 1 aggregate, 2 local, 3 settings.
+  int _index = 0;
   bool _loading = true;
 
   @override
@@ -429,10 +431,8 @@ class _HomePageState extends State<HomePage> {
                               await widget.appState.setBaseUrl(d.url);
                               // Best-effort: reload content after line switch.
                               // ignore: unawaited_futures
-                              widget.appState
-                                  .refreshLibraries()
-                                  .then((_) => widget.appState
-                                      .loadHome(forceRefresh: true));
+                              widget.appState.refreshLibraries().then((_) =>
+                                  widget.appState.loadHome(forceRefresh: true));
                               if (ctx.mounted) Navigator.of(ctx).pop();
                             },
                           );
@@ -497,6 +497,70 @@ class _HomePageState extends State<HomePage> {
               : PlayerScreen(appState: widget.appState),
           SettingsPage(appState: widget.appState),
         ];
+
+        if (isTv) {
+          final tvPages = [
+            _HomeBody(
+              appState: widget.appState,
+              loading: _loading,
+              onRefresh: () => _load(forceRefresh: true),
+              isTv: true,
+              showSearchBar: false,
+              onOpenSearch: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => SearchPage(appState: widget.appState),
+                  ),
+                );
+              },
+              onOpenLibrary: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(
+                    builder: (_) => LibraryPage(appState: widget.appState),
+                  ),
+                );
+              },
+              onOpenRoutePicker: _showRoutePicker,
+              onOpenThemeSheet: _showThemeSheet,
+            ),
+            AggregateServicePage(appState: widget.appState),
+            SettingsPage(appState: widget.appState),
+          ];
+
+          final selectedIndex = _index < 0
+              ? 0
+              : (_index >= tvPages.length ? tvPages.length - 1 : _index);
+
+          return Scaffold(
+            body: Column(
+              children: [
+                SafeArea(
+                  bottom: false,
+                  child: Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
+                    child: _TvTopNavBar(
+                      selectedIndex: selectedIndex,
+                      onSelected: (i) => setState(() => _index = i),
+                      serverName: widget.appState.activeServer?.name ??
+                          AppConfigScope.of(context).displayName,
+                      iconUrl: widget.appState.activeServer?.iconUrl,
+                      onTapServer: widget.appState.hasActiveServer
+                          ? _switchServer
+                          : null,
+                    ),
+                  ),
+                ),
+                Expanded(
+                  child: MediaQuery.removePadding(
+                    context: context,
+                    removeTop: true,
+                    child: tvPages[selectedIndex],
+                  ),
+                ),
+              ],
+            ),
+          );
+        }
 
         final appBar = _index == 0
             ? AppBar(
@@ -603,33 +667,360 @@ class _HomePageState extends State<HomePage> {
           extendBody: _index == 0,
           appBar: appBar,
           body: pages[_index],
-          bottomNavigationBar: isTv
-              ? NavigationBar(
-                  backgroundColor: Colors.transparent,
-                  surfaceTintColor: Colors.transparent,
-                  shadowColor: Colors.transparent,
-                  elevation: 0,
-                  selectedIndex: _index,
-                  onDestinationSelected: (i) => setState(() => _index = i),
-                  destinations: const [
-                    NavigationDestination(
-                        icon: Icon(Icons.home_outlined), label: '首页'),
-                    NavigationDestination(
-                        icon: Icon(Icons.hub_outlined), label: '聚合'),
-                    NavigationDestination(
-                        icon: Icon(Icons.folder_open), label: '本地'),
-                    NavigationDestination(
-                        icon: Icon(Icons.settings_outlined), label: '设置'),
-                  ],
-                )
-              : _FloatingBottomNav(
-                  selectedIndex: _index,
-                  onSelected: (i) => setState(() => _index = i),
-                  enableBlur: enableBlur,
-                  template: template,
-                ),
+          bottomNavigationBar: _FloatingBottomNav(
+            selectedIndex: _index,
+            onSelected: (i) => setState(() => _index = i),
+            enableBlur: enableBlur,
+            template: template,
+          ),
         );
       },
+    );
+  }
+}
+
+class _TvFocusable extends StatefulWidget {
+  const _TvFocusable({
+    required this.borderRadius,
+    required this.child,
+    required this.onTap,
+  });
+
+  final BorderRadius borderRadius;
+  final Widget child;
+  final VoidCallback onTap;
+
+  @override
+  State<_TvFocusable> createState() => _TvFocusableState();
+}
+
+class _TvFocusableState extends State<_TvFocusable> {
+  bool _focused = false;
+
+  void _onFocusChange(bool v) {
+    if (v) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        Scrollable.ensureVisible(
+          context,
+          alignment: 0.5,
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+    if (_focused == v) return;
+    setState(() => _focused = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    final bg = _focused
+        ? scheme.primary.withValues(alpha: isDark ? 0.16 : 0.12)
+        : Colors.transparent;
+    final borderColor = _focused ? scheme.primary : Colors.transparent;
+
+    return FocusableActionDetector(
+      onFocusChange: _onFocusChange,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: widget.borderRadius,
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder:
+                RoundedRectangleBorder(borderRadius: widget.borderRadius),
+            onTap: widget.onTap,
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvTopNavBar extends StatelessWidget {
+  const _TvTopNavBar({
+    required this.selectedIndex,
+    required this.onSelected,
+    required this.serverName,
+    required this.iconUrl,
+    required this.onTapServer,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onSelected;
+  final String serverName;
+  final String? iconUrl;
+  final VoidCallback? onTapServer;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: _ServerGlassButton(
+              serverName: serverName,
+              iconUrl: iconUrl,
+              onTap: onTapServer,
+              enableBlur: false,
+              useGlass: false,
+            ),
+          ),
+        ),
+        const SizedBox(width: 16),
+        _TvTopNavItem(
+          selected: selectedIndex == 0,
+          icon: Icons.home_outlined,
+          label: '首页',
+          onTap: () => onSelected(0),
+        ),
+        const SizedBox(width: 10),
+        _TvTopNavItem(
+          selected: selectedIndex == 1,
+          icon: Icons.hub_outlined,
+          label: '聚合',
+          onTap: () => onSelected(1),
+        ),
+        const SizedBox(width: 10),
+        _TvTopNavItem(
+          selected: selectedIndex == 2,
+          icon: Icons.settings_outlined,
+          label: '设置',
+          onTap: () => onSelected(2),
+        ),
+      ],
+    );
+  }
+}
+
+class _TvTopNavItem extends StatefulWidget {
+  const _TvTopNavItem({
+    required this.selected,
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final bool selected;
+  final IconData icon;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  State<_TvTopNavItem> createState() => _TvTopNavItemState();
+}
+
+class _TvTopNavItemState extends State<_TvTopNavItem> {
+  bool _focused = false;
+
+  void _onFocusChange(bool v) {
+    if (_focused == v) return;
+    setState(() => _focused = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    final selected = widget.selected;
+    final bg = selected
+        ? scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16)
+        : scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.60 : 0.78);
+    final fg = selected ? scheme.onSurface : scheme.onSurface;
+    final borderColor = _focused ? scheme.primary : Colors.transparent;
+
+    return FocusableActionDetector(
+      onFocusChange: _onFocusChange,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(widget.icon, size: 18, color: fg),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: fg,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _TvQuickActionsRow extends StatelessWidget {
+  const _TvQuickActionsRow({
+    required this.onOpenSearch,
+    required this.onOpenLibrary,
+    required this.onOpenRoutePicker,
+    required this.onOpenThemeSheet,
+  });
+
+  final VoidCallback? onOpenSearch;
+  final VoidCallback? onOpenLibrary;
+  final Future<void> Function()? onOpenRoutePicker;
+  final Future<void> Function()? onOpenThemeSheet;
+
+  @override
+  Widget build(BuildContext context) {
+    final children = <Widget>[];
+
+    if (onOpenSearch != null) {
+      children.add(
+        _TvPillButton(
+          icon: Icons.search,
+          label: '搜索',
+          onTap: onOpenSearch,
+        ),
+      );
+    }
+    if (onOpenLibrary != null) {
+      children.add(
+        _TvPillButton(
+          icon: Icons.video_library_outlined,
+          label: '媒体库',
+          onTap: onOpenLibrary,
+        ),
+      );
+    }
+    if (onOpenRoutePicker != null) {
+      children.add(
+        _TvPillButton(
+          icon: Icons.alt_route_outlined,
+          label: '线路',
+          onTap: () => unawaited(onOpenRoutePicker!()),
+        ),
+      );
+    }
+    if (onOpenThemeSheet != null) {
+      children.add(
+        _TvPillButton(
+          icon: Icons.palette_outlined,
+          label: '主题',
+          onTap: () => unawaited(onOpenThemeSheet!()),
+        ),
+      );
+    }
+
+    if (children.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(14, 2, 14, 10),
+      child: Wrap(
+        spacing: 10,
+        runSpacing: 10,
+        children: children,
+      ),
+    );
+  }
+}
+
+class _TvPillButton extends StatefulWidget {
+  const _TvPillButton({
+    required this.icon,
+    required this.label,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onTap;
+
+  @override
+  State<_TvPillButton> createState() => _TvPillButtonState();
+}
+
+class _TvPillButtonState extends State<_TvPillButton> {
+  bool _focused = false;
+
+  void _onFocusChange(bool v) {
+    if (_focused == v) return;
+    setState(() => _focused = v);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final enabled = widget.onTap != null;
+
+    final bg = _focused
+        ? scheme.primary.withValues(alpha: isDark ? 0.18 : 0.12)
+        : scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.62 : 0.86);
+    final borderColor = _focused ? scheme.primary : Colors.transparent;
+    final fg =
+        enabled ? scheme.onSurface : scheme.onSurface.withValues(alpha: 0.45);
+
+    return FocusableActionDetector(
+      enabled: enabled,
+      onFocusChange: _onFocusChange,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 120),
+        curve: Curves.easeOut,
+        decoration: BoxDecoration(
+          color: bg,
+          borderRadius: BorderRadius.circular(999),
+          border: Border.all(color: borderColor, width: 2),
+        ),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            customBorder: const StadiumBorder(),
+            onTap: widget.onTap,
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(widget.icon, size: 18, color: fg),
+                  const SizedBox(width: 8),
+                  Text(
+                    widget.label,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                      color: fg,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
     );
   }
 }
@@ -931,6 +1322,10 @@ class _HomeBody extends StatelessWidget {
     required this.onRefresh,
     required this.isTv,
     required this.showSearchBar,
+    this.onOpenSearch,
+    this.onOpenLibrary,
+    this.onOpenRoutePicker,
+    this.onOpenThemeSheet,
   });
 
   final AppState appState;
@@ -938,6 +1333,10 @@ class _HomeBody extends StatelessWidget {
   final Future<void> Function() onRefresh;
   final bool isTv;
   final bool showSearchBar;
+  final VoidCallback? onOpenSearch;
+  final VoidCallback? onOpenLibrary;
+  final Future<void> Function()? onOpenRoutePicker;
+  final Future<void> Function()? onOpenThemeSheet;
 
   @override
   Widget build(BuildContext context) {
@@ -949,7 +1348,7 @@ class _HomeBody extends StatelessWidget {
       }
     }
 
-    final bottomPadding = isTv ? 90.0 : 120.0;
+    final bottomPadding = isTv ? 24.0 : 120.0;
 
     return Column(
       children: [
@@ -983,11 +1382,22 @@ class _HomeBody extends StatelessWidget {
               padding: EdgeInsets.only(bottom: bottomPadding),
               children: [
                 const SizedBox(height: 8),
-                if (appState.showHomeRandomRecommendations)
-                  _RandomRecommendSection(appState: appState, isTv: isTv),
-                _ContinueWatchingSection(appState: appState, isTv: isTv),
-                if (appState.showHomeLibraryQuickAccess)
-                  _LibraryQuickAccessSection(appState: appState, isTv: isTv),
+                if (isTv) ...[
+                  _TvQuickActionsRow(
+                    onOpenSearch: onOpenSearch,
+                    onOpenLibrary: onOpenLibrary,
+                    onOpenRoutePicker: onOpenRoutePicker,
+                    onOpenThemeSheet: onOpenThemeSheet,
+                  ),
+                  _LibraryQuickAccessSection(appState: appState, isTv: true),
+                  _ContinueWatchingSection(appState: appState, isTv: true),
+                ] else ...[
+                  if (appState.showHomeRandomRecommendations)
+                    _RandomRecommendSection(appState: appState, isTv: false),
+                  _ContinueWatchingSection(appState: appState, isTv: false),
+                  if (appState.showHomeLibraryQuickAccess)
+                    _LibraryQuickAccessSection(appState: appState, isTv: false),
+                ],
                 if (loading) const LinearProgressIndicator(),
                 for (final sec in sections)
                   if (sec.items.isNotEmpty) ...[
@@ -1395,7 +1805,9 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
             final access = resolveServerAccess(appState: widget.appState);
             final compact = constraints.maxWidth < 600;
             final titleMaxLines = compact ? 2 : 1;
-            final visible = (constraints.maxWidth / 280).clamp(1.4, 4.5);
+            final uiScale = context.uiScale;
+            final baseWidth = widget.isTv ? (280 * uiScale) : 280.0;
+            final visible = (constraints.maxWidth / baseWidth).clamp(1.4, 7.0);
             final maxCount = items.length < 12 ? items.length : 12;
 
             final itemWidth =
@@ -1472,90 +1884,112 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
 
                           return SizedBox(
                             width: itemWidth,
-                            child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
-                              onTap: () {
-                                Navigator.of(context).push(
-                                  MaterialPageRoute(
-                                    builder: (_) => isEpisode
-                                        ? EpisodeDetailPage(
-                                            episode: item,
-                                            appState: widget.appState,
-                                            isTv: widget.isTv,
-                                          )
-                                        : ShowDetailPage(
-                                            itemId: item.id,
-                                            title: item.name,
-                                            appState: widget.appState,
-                                            isTv: widget.isTv,
-                                          ),
-                                  ),
-                                );
-                              },
-                              child: Column(
-                                crossAxisAlignment: CrossAxisAlignment.start,
-                                children: [
-                                  AspectRatio(
-                                    aspectRatio: 16 / 9,
-                                    child: ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
-                                      child: img != null
-                                          ? CachedNetworkImage(
-                                              imageUrl: img,
-                                              cacheManager:
-                                                  CoverCacheManager.instance,
-                                              httpHeaders: {
-                                                'User-Agent':
-                                                    LinHttpClientFactory.userAgent
-                                              },
-                                              fit: BoxFit.cover,
-                                              placeholder: (_, __) =>
-                                                  const ColoredBox(
-                                                color: Colors.black12,
-                                                child: Center(
-                                                    child: Icon(Icons.image)),
-                                              ),
-                                              errorWidget: (_, __, ___) =>
-                                                  const ColoredBox(
-                                                color: Colors.black12,
-                                                child: Center(
-                                                    child: Icon(
-                                                        Icons.broken_image)),
-                                              ),
+                            child: Builder(
+                              builder: (context) {
+                                void onTap() {
+                                  Navigator.of(context).push(
+                                    MaterialPageRoute(
+                                      builder: (_) => isEpisode
+                                          ? EpisodeDetailPage(
+                                              episode: item,
+                                              appState: widget.appState,
+                                              isTv: widget.isTv,
                                             )
-                                          : const ColoredBox(
-                                              color: Colors.black12,
-                                              child: Center(
-                                                  child: Icon(Icons.image)),
+                                          : ShowDetailPage(
+                                              itemId: item.id,
+                                              title: item.name,
+                                              appState: widget.appState,
+                                              isTv: widget.isTv,
                                             ),
                                     ),
-                                  ),
-                                  const SizedBox(height: 6),
-                                  Text(
-                                    title,
-                                    maxLines: titleMaxLines,
-                                    overflow: TextOverflow.ellipsis,
-                                    style: theme.textTheme.bodyMedium?.copyWith(
-                                      fontWeight: FontWeight.w700,
-                                    ),
-                                  ),
-                                  if (sub.isNotEmpty)
-                                    Padding(
-                                      padding: const EdgeInsets.only(top: 2),
-                                      child: Text(
-                                        sub,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: theme.textTheme.labelSmall
-                                            ?.copyWith(
-                                          color: theme
-                                              .colorScheme.onSurfaceVariant,
-                                          fontWeight: FontWeight.w600,
-                                        ),
+                                  );
+                                }
+
+                                final content = Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    AspectRatio(
+                                      aspectRatio: 16 / 9,
+                                      child: ClipRRect(
+                                        borderRadius: BorderRadius.circular(12),
+                                        child: img != null
+                                            ? CachedNetworkImage(
+                                                imageUrl: img,
+                                                cacheManager:
+                                                    CoverCacheManager.instance,
+                                                httpHeaders: {
+                                                  'User-Agent':
+                                                      LinHttpClientFactory
+                                                          .userAgent
+                                                },
+                                                fit: BoxFit.cover,
+                                                placeholder: (_, __) =>
+                                                    const ColoredBox(
+                                                  color: Colors.black12,
+                                                  child: Center(
+                                                    child: Icon(Icons.image),
+                                                  ),
+                                                ),
+                                                errorWidget: (_, __, ___) =>
+                                                    const ColoredBox(
+                                                  color: Colors.black12,
+                                                  child: Center(
+                                                    child: Icon(
+                                                      Icons.broken_image,
+                                                    ),
+                                                  ),
+                                                ),
+                                              )
+                                            : const ColoredBox(
+                                                color: Colors.black12,
+                                                child: Center(
+                                                  child: Icon(Icons.image),
+                                                ),
+                                              ),
                                       ),
                                     ),
-                                ],
-                              ),
+                                    const SizedBox(height: 6),
+                                    Text(
+                                      title,
+                                      maxLines: titleMaxLines,
+                                      overflow: TextOverflow.ellipsis,
+                                      style:
+                                          theme.textTheme.bodyMedium?.copyWith(
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if (sub.isNotEmpty)
+                                      Padding(
+                                        padding: const EdgeInsets.only(top: 2),
+                                        child: Text(
+                                          sub,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.labelSmall
+                                              ?.copyWith(
+                                            color: theme
+                                                .colorScheme.onSurfaceVariant,
+                                            fontWeight: FontWeight.w600,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                );
+
+                                if (!widget.isTv) {
+                                  return InkWell(
+                                    borderRadius: BorderRadius.circular(12),
+                                    onTap: onTap,
+                                    child: content,
+                                  );
+                                }
+
+                                return _TvFocusable(
+                                  borderRadius: BorderRadius.circular(12),
+                                  onTap: onTap,
+                                  child: content,
+                                );
+                              },
                             ),
                           );
                         },
@@ -1662,6 +2096,71 @@ class _LibraryQuickAccessSectionState
         const padding = 14.0;
         const spacing = 10.0;
         final access = resolveServerAccess(appState: widget.appState);
+
+        if (widget.isTv) {
+          final cols = (constraints.maxWidth / 240).floor().clamp(4, 8);
+          final maxItems = cols * 3;
+          final shown =
+              libs.length <= maxItems ? libs : libs.sublist(0, maxItems);
+
+          return Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _HomeSectionHeader(
+                template: widget.appState.uiTemplate,
+                title: '媒体库',
+                count: 0,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => LibraryPage(appState: widget.appState),
+                    ),
+                  );
+                },
+              ),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: padding),
+                child: GridView.builder(
+                  shrinkWrap: true,
+                  physics: const NeverScrollableScrollPhysics(),
+                  gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                    crossAxisCount: cols,
+                    mainAxisSpacing: spacing,
+                    crossAxisSpacing: spacing,
+                    childAspectRatio: 1.35,
+                  ),
+                  itemCount: shown.length,
+                  itemBuilder: (context, index) {
+                    final lib = shown[index];
+                    final imageUrl = access?.adapter.imageUrl(
+                      access.auth,
+                      itemId: lib.id,
+                      maxWidth: 640,
+                    );
+                    return MediaBackdropTile(
+                      title: lib.name,
+                      imageUrl: imageUrl ?? '',
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) => LibraryItemsPage(
+                              appState: widget.appState,
+                              parentId: lib.id,
+                              title: lib.name,
+                              isTv: widget.isTv,
+                            ),
+                          ),
+                        );
+                      },
+                    );
+                  },
+                ),
+              ),
+              const SizedBox(height: 8),
+            ],
+          );
+        }
+
         final visible = (constraints.maxWidth / 240).clamp(1.8, 6.0);
         final itemWidth =
             (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
@@ -1703,10 +2202,10 @@ class _LibraryQuickAccessSectionState
                     itemBuilder: (context, index) {
                       final lib = libs[index];
                       final imageUrl = access?.adapter.imageUrl(
-                              access.auth,
-                              itemId: lib.id,
-                              maxWidth: 640,
-                            );
+                        access.auth,
+                        itemId: lib.id,
+                        maxWidth: 640,
+                      );
                       return SizedBox(
                         width: itemWidth,
                         child: MediaBackdropTile(
@@ -2470,7 +2969,9 @@ class _HomeSectionCarousel extends StatelessWidget {
       builder: (context, constraints) {
         const padding = 14.0;
         const spacing = 8.0;
-        final visible = (constraints.maxWidth / 180).clamp(2.2, 8.0);
+        final uiScale = context.uiScale;
+        final baseWidth = isTv ? (180 * uiScale) : 180.0;
+        final visible = (constraints.maxWidth / baseWidth).clamp(2.2, 12.0);
         final maxCount = items.length < _maxItems ? items.length : _maxItems;
 
         final itemWidth =
