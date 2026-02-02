@@ -1,0 +1,32 @@
+/* Based on synamedia-senza/remote (ISC) */
+
+body {
+  font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+  margin: 16px;
+}
+
+#trackpad {
+  width: 360px;
+  height: 240px;
+  border-radius: 14px;
+  border: 1px solid rgba(127,127,127,0.35);
+  background: rgba(127,127,127,0.06);
+}
+
+#status {
+  font-size: 12px;
+  opacity: 0.8;
+  margin: 0 0 10px 0;
+}
+
+#textfield {
+  width: 360px;
+  font-size: 16px;
+  padding: 10px;
+  border-radius: 12px;
+  border: 1px solid rgba(127,127,127,0.35);
+  box-sizing: border-box;
+  background: transparent;
+  color: inherit;
+}
+

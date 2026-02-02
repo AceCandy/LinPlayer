@@ -86,3 +86,4 @@ flutter:
   assets:
     - assets/shaders/anime4k/
     - assets/tv_proxy/
+    - assets/tv_remote/

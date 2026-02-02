@@ -4,10 +4,13 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:lin_player_core/app_config/app_config.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:package_info_plus/package_info_plus.dart';
+
+import 'tv_remote_command_dispatcher.dart';
 
 class TvRemoteService extends ChangeNotifier {
   TvRemoteService._();
@@ -15,6 +18,7 @@ class TvRemoteService extends ChangeNotifier {
   static final TvRemoteService instance = TvRemoteService._();
 
   HttpServer? _server;
+  final Set<WebSocket> _wsClients = <WebSocket>{};
   String? _token;
   List<InternetAddress> _ipv4 = const [];
 
@@ -60,6 +64,12 @@ class TvRemoteService extends ChangeNotifier {
     _token = null;
     _ipv4 = const [];
     _appState = null;
+    for (final ws in _wsClients.toList(growable: false)) {
+      try {
+        await ws.close();
+      } catch (_) {}
+    }
+    _wsClients.clear();
     try {
       await server.close(force: true);
     } catch (_) {}
@@ -75,10 +85,23 @@ class TvRemoteService extends ChangeNotifier {
   }
 
   Future<void> _handle(HttpRequest request) async {
+    final path = request.uri.path;
+    if (path == '/ws') {
+      await _handleWebSocket(request);
+      return;
+    }
+
     final response = request.response;
     try {
-      final path = request.uri.path;
+      if (request.method.toUpperCase() == 'GET') {
+        final assetPath = _resolveAssetPath(path);
+        if (assetPath != null) {
+          final served = await _tryServeAsset(response, assetPath);
+          if (served) return;
+        }
+      }
 
+      // Fallback for older builds or if assets are missing.
       if (path == '/' || path == '/index.html') {
         response.statusCode = HttpStatus.ok;
         response.headers
@@ -170,6 +193,103 @@ class TvRemoteService extends ChangeNotifier {
     }
   }
 
+  static String? _resolveAssetPath(String requestPath) {
+    var path = requestPath.trim();
+    if (path.isEmpty) return null;
+    if (!path.startsWith('/')) path = '/$path';
+    if (path.contains('..')) return null;
+    if (path == '/ws') return null;
+    if (path.startsWith('/api/')) return null;
+
+    // Friendly aliases.
+    if (path == '/' || path == '/index.html') return 'assets/tv_remote/index.html';
+    if (path == '/setup' || path == '/setup.html') return 'assets/tv_remote/setup.html';
+    if (path == '/remote' || path == '/remote.html') return 'assets/tv_remote/remote.html';
+
+    // Direct mapping to bundled assets.
+    final relative = path.substring(1);
+    return 'assets/tv_remote/$relative';
+  }
+
+  static String _contentTypeForAsset(String assetPath) {
+    final p = assetPath.toLowerCase();
+    if (p.endsWith('.html')) return 'text/html; charset=utf-8';
+    if (p.endsWith('.css')) return 'text/css; charset=utf-8';
+    if (p.endsWith('.js')) return 'application/javascript; charset=utf-8';
+    if (p.endsWith('.json')) return 'application/json; charset=utf-8';
+    if (p.endsWith('.png')) return 'image/png';
+    if (p.endsWith('.jpg') || p.endsWith('.jpeg')) return 'image/jpeg';
+    if (p.endsWith('.svg')) return 'image/svg+xml; charset=utf-8';
+    return 'application/octet-stream';
+  }
+
+  Future<bool> _tryServeAsset(HttpResponse response, String assetPath) async {
+    ByteData data;
+    try {
+      data = await rootBundle.load(assetPath);
+    } catch (_) {
+      return false;
+    }
+
+    response.statusCode = HttpStatus.ok;
+    response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+    response.headers.set(HttpHeaders.contentTypeHeader, _contentTypeForAsset(assetPath));
+    response.add(data.buffer.asUint8List());
+    return true;
+  }
+
+  Future<void> _handleWebSocket(HttpRequest request) async {
+    final response = request.response;
+    final token = request.uri.queryParameters['token'] ?? '';
+    if (!_checkToken(token)) {
+      response.statusCode = HttpStatus.unauthorized;
+      response.headers
+          .set(HttpHeaders.contentTypeHeader, 'text/plain; charset=utf-8');
+      response.write('unauthorized');
+      await response.close();
+      return;
+    }
+
+    WebSocket ws;
+    try {
+      ws = await WebSocketTransformer.upgrade(request);
+    } catch (e) {
+      try {
+        response.statusCode = HttpStatus.badRequest;
+        response.headers
+            .set(HttpHeaders.contentTypeHeader, 'text/plain; charset=utf-8');
+        response.write('upgrade failed: $e');
+        await response.close();
+      } catch (_) {}
+      return;
+    }
+
+    _wsClients.add(ws);
+    ws.listen(
+      (event) => _onWsEvent(event),
+      onDone: () => _wsClients.remove(ws),
+      onError: (_) => _wsClients.remove(ws),
+      cancelOnError: true,
+    );
+  }
+
+  void _onWsEvent(dynamic event) {
+    if (event is! String) return;
+    try {
+      final decoded = jsonDecode(event);
+      final map = decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
+      if (map == null) return;
+
+      final type = (map['type'] ?? '').toString().trim();
+      if (type != 'command') return;
+      final name = (map['name'] ?? '').toString().trim();
+      if (name.isEmpty) return;
+      TvRemoteCommandDispatcher.instance.dispatch(name, map);
+    } catch (_) {
+      // ignore invalid messages
+    }
+  }
+
   Future<Map<String, dynamic>> _handleAddServer(Map<String, dynamic> map) async {
     final appState = _appState;
     if (appState == null) {
@@ -196,6 +316,7 @@ class TvRemoteService extends ChangeNotifier {
     final password = (map['password'] ?? '').toString();
     final displayName = (map['displayName'] ?? '').toString().trim();
     final remark = (map['remark'] ?? '').toString().trim();
+    final iconUrl = (map['iconUrl'] ?? '').toString().trim();
     final activate = readBool(map['activate'], fallback: true);
 
     if (baseUrl.isEmpty) {
@@ -214,12 +335,15 @@ class TvRemoteService extends ChangeNotifier {
         if (username.trim().isEmpty) {
           return {'ok': false, 'error': 'missing username'};
         }
+        final uri = _buildBaseUri(baseUrl, scheme: scheme, portText: port);
+        if (uri == null) return {'ok': false, 'error': 'invalid url'};
         await appState.addWebDavServer(
-          baseUrl: baseUrl,
+          baseUrl: uri.toString(),
           username: username.trim(),
           password: password,
           displayName: displayName.isEmpty ? null : displayName,
           remark: remark.isEmpty ? null : remark,
+          iconUrl: iconUrl.isEmpty ? null : iconUrl,
           activate: activate,
         );
       } else if (type == MediaServerType.plex) {
@@ -227,11 +351,14 @@ class TvRemoteService extends ChangeNotifier {
         if (token.isEmpty) {
           return {'ok': false, 'error': 'missing token'};
         }
+        final uri = _buildBaseUri(baseUrl, scheme: scheme, portText: port);
+        if (uri == null) return {'ok': false, 'error': 'invalid url'};
         await appState.addPlexServer(
-          baseUrl: baseUrl,
+          baseUrl: uri.toString(),
           token: token,
           displayName: displayName.isEmpty ? null : displayName,
           remark: remark.isEmpty ? null : remark,
+          iconUrl: iconUrl.isEmpty ? null : iconUrl,
         );
       } else {
         if (username.trim().isEmpty) {
@@ -251,6 +378,7 @@ class TvRemoteService extends ChangeNotifier {
           password: password,
           displayName: displayName.isEmpty ? null : displayName,
           remark: remark.isEmpty ? null : remark,
+          iconUrl: iconUrl.isEmpty ? null : iconUrl,
           activate: activate,
         );
       }
@@ -263,6 +391,29 @@ class TvRemoteService extends ChangeNotifier {
     } catch (e) {
       return {'ok': false, 'error': e.toString()};
     }
+  }
+
+  static Uri? _buildBaseUri(
+    String baseUrl, {
+    required String scheme,
+    required String portText,
+  }) {
+    final raw = baseUrl.trim();
+    if (raw.isEmpty) return null;
+
+    final withScheme = raw.contains('://') ? raw : '$scheme://$raw';
+    final parsed = Uri.tryParse(withScheme);
+    if (parsed == null || !parsed.hasScheme || parsed.host.isEmpty) return null;
+
+    var uri = parsed;
+    final p = int.tryParse(portText.trim());
+    if (p != null && p > 0 && p <= 65535) {
+      uri = uri.replace(port: p);
+    }
+    if (uri.path.isEmpty) {
+      uri = uri.replace(path: '/');
+    }
+    return uri.replace(query: '', fragment: '');
   }
 
   bool _checkToken(String token) {

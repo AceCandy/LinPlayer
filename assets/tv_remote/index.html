@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="zh">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>LinPlayer TV 配对</title>
+    <style>
+      :root { color-scheme: light dark; }
+      body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+      .wrap { max-width: 860px; margin: 0 auto; }
+      .card { border: 1px solid rgba(127,127,127,0.35); border-radius: 14px; padding: 16px; background: rgba(127,127,127,0.06); }
+      h1 { font-size: 18px; margin: 0 0 6px 0; }
+      .muted { opacity: 0.75; font-size: 12px; }
+      .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-top: 14px; }
+      a.btn {
+        display: block; padding: 14px 14px; border-radius: 14px;
+        border: 1px solid rgba(127,127,127,0.35);
+        text-decoration: none; color: inherit;
+        background: rgba(127,127,127,0.08);
+      }
+      a.btn:active { transform: scale(0.99); }
+      .title { font-weight: 700; }
+      .desc { margin-top: 4px; font-size: 13px; opacity: 0.8; }
+      code { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 12px; }
+      @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    </style>
+  </head>
+  <body>
+    <div class="wrap">
+      <div class="card">
+        <h1>LinPlayer · TV 配对</h1>
+        <div class="muted" id="info">正在连接…</div>
+
+        <div class="grid">
+          <a class="btn" id="setupLink" href="#">
+            <div class="title">添加服务器</div>
+            <div class="desc">填写 Emby/Jellyfin/WebDAV 的地址/账号/密码</div>
+          </a>
+          <a class="btn" id="remoteLink" href="#">
+            <div class="title">遥控 TV</div>
+            <div class="desc">方向键 / 确认 / 返回</div>
+          </a>
+        </div>
+
+        <div class="muted" style="margin-top: 14px;">
+          提示：手机与 TV 需在同一局域网。链接包含一次性 token，请勿外泄。
+        </div>
+      </div>
+    </div>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const token = params.get('token') || '';
+
+      const setupLink = document.getElementById('setupLink');
+      const remoteLink = document.getElementById('remoteLink');
+      setupLink.href = '/setup.html?token=' + encodeURIComponent(token);
+      remoteLink.href = '/remote.html?token=' + encodeURIComponent(token);
+
+      const infoEl = document.getElementById('info');
+      const loadInfo = async () => {
+        if (!token) {
+          infoEl.textContent = '缺少 token：请重新扫码打开。';
+          return;
+        }
+        try {
+          const res = await fetch('/api/info?token=' + encodeURIComponent(token), { cache: 'no-store' });
+          const data = await res.json();
+          if (!data.ok) throw new Error(data.error || 'unknown');
+          const app = data.app || {};
+          const server = data.server || {};
+          infoEl.textContent =
+            `${app.name || 'LinPlayer'} ${app.version || ''}` +
+            (server.activeServerName ? ` · 当前：${server.activeServerName}` : '');
+        } catch (e) {
+          infoEl.textContent = '连接失败：' + e;
+        }
+      };
+      loadInfo();
+    </script>
+  </body>
+</html>
+

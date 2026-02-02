@@ -14,7 +14,11 @@ import 'server_page.dart';
 import 'webdav_home_page.dart';
 import 'services/app_update_flow.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
+import 'services/tv_remote/tv_remote_command_dispatcher.dart';
 import 'services/tv_remote/tv_remote_service.dart';
+import 'tv/tv_shell.dart';
+
+final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -43,6 +47,8 @@ void main() async {
   final appState = AppState();
   await appState.loadFromStorage();
 
+  TvRemoteCommandDispatcher.instance.bindNavigatorKey(_rootNavigatorKey);
+
   // Best-effort: request the highest refresh rate on Android devices.
   await HighRefreshRate.apply();
   // Best-effort: keep launcher icon in sync with settings (Android only).
@@ -51,6 +57,9 @@ void main() async {
 
   if (DeviceType.isTv && appState.tvRemoteEnabled) {
     unawaited(TvRemoteService.instance.start(appState: appState));
+  }
+  if (DeviceType.isTv) {
+    unawaited(BuiltInProxyService.instance.refresh());
   }
   if (DeviceType.isTv && appState.tvBuiltInProxyEnabled) {
     unawaited(() async {
@@ -105,19 +114,22 @@ class _LinPlayerAppState extends State<LinPlayerApp>
         final appConfig = AppConfigScope.of(context);
         final appState = widget.appState;
         final active = appState.activeServer;
-        final home = switch (active?.serverType) {
-          null => ServerPage(appState: appState),
-          _ when !appState.hasActiveServerProfile =>
-            ServerPage(appState: appState),
-          _ when active!.serverType == MediaServerType.webdav =>
-            WebDavHomePage(appState: appState),
-          _ when appState.hasActiveServer => HomePage(appState: appState),
-          _ => ServerPage(appState: appState),
-        };
+        final home = DeviceType.isTv
+            ? TvShell(appState: appState)
+            : switch (active?.serverType) {
+                null => ServerPage(appState: appState),
+                _ when !appState.hasActiveServerProfile =>
+                  ServerPage(appState: appState),
+                _ when active!.serverType == MediaServerType.webdav =>
+                  WebDavHomePage(appState: appState),
+                _ when appState.hasActiveServer => HomePage(appState: appState),
+                _ => ServerPage(appState: appState),
+              };
         return DynamicColorBuilder(
           builder: (lightDynamic, darkDynamic) {
             final useDynamic = appState.useDynamicColor;
             return MaterialApp(
+              navigatorKey: _rootNavigatorKey,
               key: ValueKey<String>('nav:${appState.activeServerId ?? 'none'}'),
               title: appConfig.displayName,
               debugShowCheckedModeBanner: false,

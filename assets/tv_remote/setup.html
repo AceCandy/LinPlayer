@@ -1,0 +1,154 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinPlayer TV · 添加服务器</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+    .card { max-width: 860px; margin: 0 auto; padding: 16px; border: 1px solid rgba(127,127,127,0.35); border-radius: 12px; background: rgba(127,127,127,0.06); }
+    h1 { font-size: 18px; margin: 0 0 8px 0; }
+    .muted { opacity: 0.75; font-size: 12px; }
+    label { display: block; margin: 10px 0 6px; font-size: 13px; }
+    input, select, textarea, button { width: 100%; padding: 10px; font-size: 16px; border-radius: 10px; border: 1px solid rgba(127,127,127,0.35); box-sizing: border-box; background: transparent; color: inherit; }
+    button { margin-top: 12px; cursor: pointer; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; opacity: 0.85; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LinPlayer · TV 添加服务器</h1>
+    <div class="muted" id="info">正在连接…</div>
+
+    <hr style="opacity:0.25; margin: 14px 0;" />
+
+    <form id="addServerForm">
+      <label>类型</label>
+      <select id="type">
+        <option value="emby">Emby</option>
+        <option value="jellyfin">Jellyfin</option>
+        <option value="webdav">WebDAV</option>
+      </select>
+
+      <label>地址（host/path 或完整 URL）</label>
+      <input id="baseUrl" placeholder="例如：https://example.com 或 192.168.1.2:8096 或 192.168.1.2/dav" autocomplete="off" />
+
+      <div class="row">
+        <div>
+          <label>Scheme（如未写在地址里）</label>
+          <select id="scheme">
+            <option value="https" selected>https</option>
+            <option value="http">http</option>
+          </select>
+        </div>
+        <div>
+          <label>端口（可选）</label>
+          <input id="port" placeholder="例如：8096" inputmode="numeric" autocomplete="off" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>账号（Emby/Jellyfin/WebDAV）</label>
+          <input id="username" autocomplete="username" />
+        </div>
+        <div>
+          <label>密码</label>
+          <input id="password" type="password" autocomplete="current-password" />
+        </div>
+      </div>
+
+      <div class="row">
+        <div>
+          <label>显示名（可选）</label>
+          <input id="displayName" autocomplete="off" />
+        </div>
+        <div>
+          <label>备注（可选）</label>
+          <input id="remark" autocomplete="off" />
+        </div>
+      </div>
+
+      <label>图标 URL（可选）</label>
+      <input id="iconUrl" placeholder="例如：https://example.com/favicon.ico" autocomplete="off" />
+
+      <label style="display:flex; align-items:center; gap:10px; margin-top: 12px;">
+        <input id="activate" type="checkbox" checked style="width: 20px; height: 20px; margin: 0;" />
+        添加后设为当前服务器
+      </label>
+
+      <button type="submit">添加到 TV</button>
+    </form>
+
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || '';
+    const logEl = document.getElementById('log');
+    const infoEl = document.getElementById('info');
+    const log = (s) => { logEl.textContent = (new Date().toLocaleTimeString()) + ' ' + s + '\n' + logEl.textContent; };
+
+    const api = async (path, body) => {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return await res.json();
+    };
+
+    const loadInfo = async () => {
+      if (!token) {
+        infoEl.textContent = '缺少 token：请重新扫码打开。';
+        return;
+      }
+      try {
+        const res = await fetch('/api/info?token=' + encodeURIComponent(token), { cache: 'no-store' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        const app = data.app || {};
+        const server = data.server || {};
+        infoEl.textContent = `${app.name || 'LinPlayer'} ${app.version || ''}` +
+          (server.activeServerName ? ` · 当前：${server.activeServerName}` : '');
+      } catch (e) {
+        infoEl.textContent = '连接失败：' + e;
+      }
+    };
+    loadInfo();
+
+    document.getElementById('addServerForm').addEventListener('submit', async (e) => {
+      e.preventDefault();
+      if (!token) { log('缺少 token'); return; }
+
+      const payload = {
+        token,
+        type: document.getElementById('type').value,
+        baseUrl: document.getElementById('baseUrl').value,
+        scheme: document.getElementById('scheme').value,
+        port: document.getElementById('port').value,
+        username: document.getElementById('username').value,
+        password: document.getElementById('password').value,
+        displayName: document.getElementById('displayName').value,
+        remark: document.getElementById('remark').value,
+        iconUrl: document.getElementById('iconUrl').value,
+        activate: document.getElementById('activate').checked,
+      };
+
+      log('提交中…');
+      try {
+        const data = await api('/api/addServer', payload);
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        log('成功：已添加到 TV');
+      } catch (e) {
+        log('失败：' + e);
+      }
+    });
+  </script>
+</body>
+</html>
+
