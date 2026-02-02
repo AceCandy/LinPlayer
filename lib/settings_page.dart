@@ -1879,6 +1879,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     const Divider(height: 1),
                     SwitchListTile(
+                      value: appState.autoSkipIntro,
+                      onChanged: (v) async {
+                        await appState.setAutoSkipIntro(v);
+                      },
+                      secondary: const Icon(Icons.skip_next_outlined),
+                      title: const Text('自动跳过片头'),
+                      subtitle: const Text(
+                        '服务器支持片头数据时，在片头段会提示是否跳过。',
+                      ),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
                       value: appState.unlimitedStreamCache,
                       onChanged: (v) async {
                         if (v) {

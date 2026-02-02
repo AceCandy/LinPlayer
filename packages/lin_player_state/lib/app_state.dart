@@ -147,6 +147,7 @@ class AppState extends ChangeNotifier {
   static const _kPlaybackBufferBackRatioKey = 'playbackBufferBackRatio_v1';
   static const _kFlushBufferOnSeekKey = 'flushBufferOnSeek_v1';
   static const _kUnlimitedStreamCacheKey = 'unlimitedStreamCache_v1';
+  static const _kAutoSkipIntroKey = 'autoSkipIntro_v1';
   // Legacy key (<= 1.0.0): was used for "unlimited cover cache", but the intent
   // is actually "unlimited stream cache". We still read it for migration.
   static const _kLegacyUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
@@ -243,6 +244,7 @@ class AppState extends ChangeNotifier {
   double _playbackBufferBackRatio = 0.05;
   bool _flushBufferOnSeek = true;
   bool _unlimitedStreamCache = false;
+  bool _autoSkipIntro = false;
   bool _enableBlurEffects = true;
   bool _showHomeLibraryQuickAccess = true;
   bool _showHomeRandomRecommendations = true;
@@ -637,6 +639,7 @@ class AppState extends ChangeNotifier {
   double get playbackBufferBackRatio => _playbackBufferBackRatio;
   bool get flushBufferOnSeek => _flushBufferOnSeek;
   bool get unlimitedStreamCache => _unlimitedStreamCache;
+  bool get autoSkipIntro => _autoSkipIntro;
   bool get enableBlurEffects => _enableBlurEffects;
   bool get showHomeLibraryQuickAccess => _showHomeLibraryQuickAccess;
   bool get showHomeRandomRecommendations => _showHomeRandomRecommendations;
@@ -809,6 +812,7 @@ class AppState extends ChangeNotifier {
         prefs.containsKey(_kLegacyUnlimitedCoverCacheKey)) {
       await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
     }
+    _autoSkipIntro = prefs.getBool(_kAutoSkipIntroKey) ?? false;
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _showHomeLibraryQuickAccess =
         prefs.getBool(_kShowHomeLibraryQuickAccessKey) ?? true;
@@ -1028,6 +1032,7 @@ class AppState extends ChangeNotifier {
         'playbackBufferBackRatio': _playbackBufferBackRatio,
         'flushBufferOnSeek': _flushBufferOnSeek,
         'unlimitedStreamCache': _unlimitedStreamCache,
+        'autoSkipIntro': _autoSkipIntro,
         'enableBlurEffects': _enableBlurEffects,
         'showHomeLibraryQuickAccess': _showHomeLibraryQuickAccess,
         'showHomeRandomRecommendations': _showHomeRandomRecommendations,
@@ -1363,6 +1368,7 @@ class AppState extends ChangeNotifier {
           : data['unlimitedCoverCache'],
       fallback: false,
     );
+    final nextAutoSkipIntro = _readBool(data['autoSkipIntro'], fallback: false);
     final nextEnableBlurEffects =
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextShowHomeLibraryQuickAccess =
@@ -1546,6 +1552,7 @@ class AppState extends ChangeNotifier {
     _playbackBufferBackRatio = nextPlaybackBufferBackRatio;
     _flushBufferOnSeek = nextFlushBufferOnSeek;
     _unlimitedStreamCache = nextUnlimitedStreamCache;
+    _autoSkipIntro = nextAutoSkipIntro;
     _enableBlurEffects = nextEnableBlurEffects;
     _showHomeLibraryQuickAccess = nextShowHomeLibraryQuickAccess;
     _showHomeRandomRecommendations = nextShowHomeRandomRecommendations;
@@ -1642,6 +1649,7 @@ class AppState extends ChangeNotifier {
     );
     await prefs.setBool(_kFlushBufferOnSeekKey, _flushBufferOnSeek);
     await prefs.setBool(_kUnlimitedStreamCacheKey, _unlimitedStreamCache);
+    await prefs.setBool(_kAutoSkipIntroKey, _autoSkipIntro);
     await prefs.setBool(_kEnableBlurEffectsKey, _enableBlurEffects);
     await prefs.setBool(
       _kShowHomeLibraryQuickAccessKey,
@@ -2874,6 +2882,14 @@ class AppState extends ChangeNotifier {
     _unlimitedStreamCache = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kUnlimitedStreamCacheKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setAutoSkipIntro(bool enabled) async {
+    if (_autoSkipIntro == enabled) return;
+    _autoSkipIntro = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kAutoSkipIntroKey, enabled);
     notifyListeners();
   }
 

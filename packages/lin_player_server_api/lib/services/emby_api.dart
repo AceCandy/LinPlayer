@@ -224,6 +224,47 @@ class ChapterInfo {
       );
 }
 
+class IntroTimestamps {
+  final int startTicks;
+  final int endTicks;
+
+  const IntroTimestamps({required this.startTicks, required this.endTicks});
+
+  Duration get start => Duration(microseconds: (startTicks / 10).round());
+  Duration get end => Duration(microseconds: (endTicks / 10).round());
+
+  bool get isValid => startTicks >= 0 && endTicks > startTicks;
+
+  static int? _readTicks(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value.trim());
+    return null;
+  }
+
+  static IntroTimestamps? tryParse(Map<String, dynamic> json) {
+    final start = _readTicks(
+      json['IntroStartPositionTicks'] ??
+          json['IntroStartTicks'] ??
+          json['IntroStart'] ??
+          json['StartPositionTicks'] ??
+          json['StartTicks'] ??
+          json['Start'],
+    );
+    final end = _readTicks(
+      json['IntroEndPositionTicks'] ??
+          json['IntroEndTicks'] ??
+          json['IntroEnd'] ??
+          json['EndPositionTicks'] ??
+          json['EndTicks'] ??
+          json['End'],
+    );
+    if (start == null || end == null) return null;
+    final out = IntroTimestamps(startTicks: start, endTicks: end);
+    return out.isValid ? out : null;
+  }
+}
+
 class PlaybackInfoResult {
   final String playSessionId;
   final String mediaSourceId;
@@ -1273,6 +1314,44 @@ class EmbyApi {
     return list
         .map((e) => ChapterInfo.fromJson(e as Map<String, dynamic>))
         .toList();
+  }
+
+  Future<IntroTimestamps?> fetchIntroTimestamps({
+    required String token,
+    required String baseUrl,
+    required String itemId,
+    String? userId,
+  }) async {
+    final headers = _jsonHeaders(token: token, userId: userId);
+    final uid = (userId ?? '').trim();
+
+    Uri withUser(Uri uri) {
+      if (uid.isEmpty) return uri;
+      final params = <String, String>{...uri.queryParameters, 'UserId': uid};
+      return uri.replace(queryParameters: params);
+    }
+
+    final candidates = [
+      'Episodes/$itemId/IntroTimestamps',
+      'Items/$itemId/IntroTimestamps',
+      'Videos/$itemId/IntroTimestamps',
+    ];
+
+    for (final path in candidates) {
+      final uri = withUser(Uri.parse(_apiUrl(baseUrl, path)));
+      final resp = await _client.get(uri, headers: headers);
+      if (resp.statusCode == 404) continue;
+      if (resp.statusCode == 204) return null;
+      if (resp.statusCode != 200) {
+        throw Exception('获取片头信息失败(${resp.statusCode})');
+      }
+      final decoded = jsonDecode(resp.body);
+      final map = decoded is Map<String, dynamic> ? decoded : null;
+      if (map == null) return null;
+      return IntroTimestamps.tryParse(map);
+    }
+
+    return null;
   }
 
   Future<PagedResult<MediaItem>> fetchSimilar({

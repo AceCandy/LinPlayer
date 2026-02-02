@@ -451,7 +451,7 @@ class _AggregateSearchTabStateful extends StatefulWidget {
 class _AggregateSearchTabStatefulState
     extends State<_AggregateSearchTabStateful> {
   static const _searchLimitPerServer = 40;
-  static const _debounceMs = 280;
+  static const _debounceMs = 1500;
 
   final TextEditingController _controller = TextEditingController();
   Timer? _debounce;

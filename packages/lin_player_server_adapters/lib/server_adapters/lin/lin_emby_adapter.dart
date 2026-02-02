@@ -251,6 +251,19 @@ class LinEmbyAdapter implements MediaServerAdapter {
   }
 
   @override
+  Future<IntroTimestamps?> fetchIntroTimestamps(
+    ServerAuthSession auth, {
+    required String itemId,
+  }) {
+    return _apiFor(auth).fetchIntroTimestamps(
+      token: auth.token,
+      baseUrl: auth.baseUrl,
+      itemId: itemId,
+      userId: auth.userId,
+    );
+  }
+
+  @override
   Future<void> reportPlaybackStart(
     ServerAuthSession auth, {
     required String itemId,

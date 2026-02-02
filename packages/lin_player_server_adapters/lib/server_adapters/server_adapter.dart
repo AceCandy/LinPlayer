@@ -108,6 +108,11 @@ abstract class MediaServerAdapter {
     required String itemId,
   });
 
+  Future<IntroTimestamps?> fetchIntroTimestamps(
+    ServerAuthSession auth, {
+    required String itemId,
+  });
+
   Future<void> reportPlaybackStart(
     ServerAuthSession auth, {
     required String itemId,

@@ -78,11 +78,12 @@ class PlayerService {
     final effectiveStreamBytes = (unlimitedStreamCache && isNetwork)
         ? (networkStreamSizeBytes != null && networkStreamSizeBytes > 0
             ? networkStreamSizeBytes
-            : _mb(8192))
+            : _mb(32768))
         : bufferSize;
     final networkDemuxerMaxBytes = effectiveStreamBytes;
-    final networkDemuxerMaxBackBytes =
-        split.backBytes.clamp(0, networkDemuxerMaxBytes).toInt();
+    final networkDemuxerMaxBackBytes = (unlimitedStreamCache && isNetwork)
+        ? networkDemuxerMaxBytes
+        : split.backBytes.clamp(0, networkDemuxerMaxBytes).toInt();
     _demuxerMaxBackBytes = networkDemuxerMaxBackBytes;
 
     return PlayerConfiguration(

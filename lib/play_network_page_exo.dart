@@ -79,6 +79,11 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
   Timer? _startOverHintTimer;
   bool _deferProgressReporting = false;
 
+  IntroTimestamps? _introTimestamps;
+  int _introSeq = 0;
+  bool _skipIntroPromptVisible = false;
+  bool _skipIntroHandled = false;
+
   static const Duration _gestureOverlayAutoHideDelay =
       Duration(milliseconds: 800);
   Timer? _gestureOverlayTimer;
@@ -1009,6 +1014,121 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     if (kIsWeb) return;
     // ignore: unawaited_futures
     _loadOnlineDanmakuForNetwork(showToast: false);
+  }
+
+  static bool _looksLikeIntroChapterName(String raw) {
+    final name = raw.trim().toLowerCase();
+    if (name.isEmpty) return false;
+    if (name.contains('片头')) return true;
+    if (name.contains('intro') || name.contains('opening')) return true;
+    if (RegExp(r'\bop\b').hasMatch(name)) return true;
+    return false;
+  }
+
+  static IntroTimestamps? _introFromChapters(List<ChapterInfo> chapters) {
+    if (chapters.length < 2) return null;
+    final sorted = List<ChapterInfo>.from(chapters)
+      ..sort((a, b) => a.startTicks.compareTo(b.startTicks));
+    for (var i = 0; i < sorted.length - 1; i++) {
+      final cur = sorted[i];
+      if (!_looksLikeIntroChapterName(cur.name)) continue;
+      final next = sorted[i + 1];
+      final intro = IntroTimestamps(
+        startTicks: cur.startTicks,
+        endTicks: next.startTicks,
+      );
+      if (!intro.isValid) continue;
+      if (intro.end - intro.start > const Duration(minutes: 10)) continue;
+      return intro;
+    }
+    return null;
+  }
+
+  Future<void> _loadIntroTimestampsBestEffort() async {
+    if (!widget.appState.autoSkipIntro) return;
+    final access = _serverAccess;
+    if (access == null) return;
+
+    final seq = _introSeq;
+
+    try {
+      final ts = await access.adapter.fetchIntroTimestamps(
+        access.auth,
+        itemId: widget.itemId,
+      );
+      if (!mounted || seq != _introSeq) return;
+      if (ts != null && ts.isValid) {
+        _introTimestamps = ts;
+        _maybeUpdateSkipIntroPrompt(_position);
+        return;
+      }
+    } catch (_) {
+      // Ignore unsupported endpoints or transient errors.
+    }
+
+    try {
+      final chapters =
+          await access.adapter.fetchChapters(access.auth, itemId: widget.itemId);
+      if (!mounted || seq != _introSeq) return;
+      final ts = _introFromChapters(chapters);
+      if (ts == null) return;
+      _introTimestamps = ts;
+      _maybeUpdateSkipIntroPrompt(_position);
+    } catch (_) {
+      // Ignore chapter failures.
+    }
+  }
+
+  void _maybeUpdateSkipIntroPrompt(Duration pos) {
+    if (_skipIntroHandled ||
+        !_skipIntroPromptVisible && !widget.appState.autoSkipIntro) {
+      return;
+    }
+
+    final ts = _introTimestamps;
+    if (ts == null || !ts.isValid || !widget.appState.autoSkipIntro) {
+      if (_skipIntroPromptVisible) {
+        setState(() => _skipIntroPromptVisible = false);
+      }
+      return;
+    }
+
+    final start = ts.start;
+    final end = ts.end;
+    if (pos > end) {
+      if (_skipIntroPromptVisible) {
+        setState(() => _skipIntroPromptVisible = false);
+      }
+      _skipIntroHandled = true;
+      return;
+    }
+
+    final inIntro = pos >= start && pos <= end;
+    if (inIntro && !_skipIntroPromptVisible) {
+      setState(() => _skipIntroPromptVisible = true);
+    } else if (!inIntro && _skipIntroPromptVisible) {
+      setState(() => _skipIntroPromptVisible = false);
+    }
+  }
+
+  void _dismissSkipIntroPrompt() {
+    if (_skipIntroHandled) return;
+    _skipIntroHandled = true;
+    if (_skipIntroPromptVisible) {
+      setState(() => _skipIntroPromptVisible = false);
+    }
+  }
+
+  Future<void> _skipIntro() async {
+    final ts = _introTimestamps;
+    final controller = _controller;
+    if (ts == null || !ts.isValid || controller == null) return;
+
+    _skipIntroHandled = true;
+    if (mounted) setState(() => _skipIntroPromptVisible = false);
+
+    final target = _safeSeekTarget(ts.end, controller.value.duration);
+    await controller.seekTo(target);
   }
 
   Future<void> _loadOnlineDanmakuForNetwork({bool showToast = true}) async {
@@ -2062,6 +2182,10 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     _startOverHintPosition = null;
     _showStartOverHint = false;
     _deferProgressReporting = false;
+    _introSeq++;
+    _introTimestamps = null;
+    _skipIntroPromptVisible = false;
+    _skipIntroHandled = false;
     _controlsVisible = true;
     _isScrubbing = false;
     _subtitleText = '';
@@ -2192,6 +2316,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         }
 
         _maybeReportPlaybackProgress(_position);
+        _maybeUpdateSkipIntroPrompt(_position);
 
         if (!_reportedStop &&
             _duration > Duration.zero &&
@@ -2210,6 +2335,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       });
 
       _maybeAutoLoadOnlineDanmaku();
+      // ignore: unawaited_futures
+      _loadIntroTimestampsBestEffort();
 
       if (!_deferProgressReporting) {
         // ignore: unawaited_futures
@@ -3419,7 +3546,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     final controller = _controller;
     final isReady = controller != null && controller.value.isInitialized;
     final controlsEnabled = isReady && !_loading && _playError == null;
-    final stream = _resolvedStream;
     final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
 
     final remoteEnabled = widget.isTv || widget.appState.forceRemoteControlKeys;
@@ -3579,19 +3705,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                         icon: const Icon(Icons.refresh),
                         onPressed: _loading ? null : _init,
                       ),
-                      if (stream != null && stream.isNotEmpty)
-                        IconButton(
-                          tooltip: '复制链接',
-                          icon: const Icon(Icons.link),
-                          onPressed: () async {
-                            await Clipboard.setData(
-                                ClipboardData(text: stream));
-                            if (!context.mounted) return;
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('已复制播放链接')),
-                            );
-                          },
-                        ),
                       IconButton(
                         tooltip: '音轨',
                         icon: const Icon(Icons.audiotrack),
@@ -3896,6 +4009,118 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                           ),
                                         ),
                                       ],
+                                    ),
+                                  ),
+                                ),
+                              ),
+                            ),
+                          if (_skipIntroPromptVisible)
+                            Align(
+                              alignment: Alignment.topRight,
+                              child: SafeArea(
+                                bottom: false,
+                                child: Padding(
+                                  padding:
+                                      const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                                  child: Material(
+                                    color: Colors.black54,
+                                    borderRadius: BorderRadius.circular(999),
+                                    clipBehavior: Clip.antiAlias,
+                                    child: Padding(
+                                      padding: const EdgeInsets.symmetric(
+                                        horizontal: 12,
+                                        vertical: 10,
+                                      ),
+                                      child: Row(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const Icon(
+                                            Icons.skip_next,
+                                            size: 18,
+                                            color: Colors.white,
+                                          ),
+                                          const SizedBox(width: 6),
+                                          Builder(builder: (context) {
+                                            final end = _introTimestamps?.end;
+                                            final endText =
+                                                (end != null && end > Duration.zero)
+                                                    ? '（至 ${_fmtClock(end)}）'
+                                                    : '';
+                                            return Text(
+                                              '检测到片头$endText',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                                fontSize: 13,
+                                              ),
+                                            );
+                                          }),
+                                          const SizedBox(width: 10),
+                                          InkWell(
+                                            onTap: _skipIntro,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.18),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: const Row(
+                                                mainAxisSize: MainAxisSize.min,
+                                                children: [
+                                                  Icon(
+                                                    Icons.fast_forward,
+                                                    size: 18,
+                                                    color: Colors.white,
+                                                  ),
+                                                  SizedBox(width: 4),
+                                                  Text(
+                                                    '跳过',
+                                                    style: TextStyle(
+                                                      color: Colors.white,
+                                                      fontSize: 13,
+                                                      fontWeight:
+                                                          FontWeight.w600,
+                                                    ),
+                                                  ),
+                                                ],
+                                              ),
+                                            ),
+                                          ),
+                                          const SizedBox(width: 6),
+                                          InkWell(
+                                            onTap: _dismissSkipIntroPrompt,
+                                            borderRadius:
+                                                BorderRadius.circular(999),
+                                            child: Container(
+                                              padding:
+                                                  const EdgeInsets.symmetric(
+                                                horizontal: 10,
+                                                vertical: 6,
+                                              ),
+                                              decoration: BoxDecoration(
+                                                color: Colors.white
+                                                    .withValues(alpha: 0.12),
+                                                borderRadius:
+                                                    BorderRadius.circular(999),
+                                              ),
+                                              child: const Text(
+                                                '不跳过',
+                                                style: TextStyle(
+                                                  color: Colors.white,
+                                                  fontSize: 13,
+                                                ),
+                                              ),
+                                            ),
+                                          ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),
