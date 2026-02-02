@@ -75,10 +75,11 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 | 平台 | 产物文件（Release Assets） | 备注 |
 | --- | --- | --- |
-| Android / Android TV | `LinPlayer-Android.apk`（通用）<br/>`LinPlayer-Android-arm64-v8a.apk`<br/>`LinPlayer-Android-armeabi-v7a.apk` | TV 可直接安装通用版或对应 ABI 版本 |
+| Android / Android TV | `LinPlayer-Android.apk`（通用）<br/>`LinPlayer-Android-arm64-v8a.apk`<br/>`LinPlayer-Android-TV.apk` | TV 可直接安装通用版或对应 ABI 版本 |
 | Windows (x64) | `LinPlayer-Windows-Setup-x64.exe` | Inno Setup 安装包 |
 | macOS | `LinPlayer-macOS-arm64.dmg`<br/>`LinPlayer-macOS-x86_64.dmg` | Apple Silicon / Intel |
 | iOS | `LinPlayer-iOS-unsigned.ipa` | 未签名 IPA，需要自行签名/侧载 |
+| Apple TV (tvOS) | `LinPlayer-AppleTV-unsigned.ipa` | 可选/实验性：需在 CI 启用 AppleTV 构建 |
 | Linux (x86_64) | `LinPlayer-Linux-x86_64.tar.gz` | 解压后：`cd LinPlayer && ./LinPlayer` |
 
 ### 升级/更新（覆盖安装，不丢配置）

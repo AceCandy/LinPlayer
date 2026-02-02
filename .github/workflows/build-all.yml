@@ -1,6 +1,7 @@
 # Build all platform packages and publish a nightly release in one workflow run.
 
 name: Build Nightly (All Packages)
+run-name: Nightly (${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
 
 on:
   workflow_dispatch:
@@ -11,6 +12,11 @@ on:
       build_number:
         description: Build number (integer)
         required: true
+      build_appletv:
+        description: Build Apple TV (tvOS) package (experimental; requires custom tvOS host app/engine)
+        type: boolean
+        required: false
+        default: false
       allow_debug_signing:
         description: Allow Android debug signing in CI (NOT OTA-safe). Only use if ANDROID_KEYSTORE_* secrets are not configured yet.
         type: boolean
@@ -23,7 +29,7 @@ concurrency:
 
 jobs:
   build-android:
-    name: Build Android APK
+    name: Build Android APK (v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: ubuntu-latest
     env:
       PUB_CACHE: /home/runner/.pub-cache
@@ -49,6 +55,18 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: bash .github/scripts/compute_version.sh
+      
+      - name: Write build summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Android build"
+            echo ""
+            echo "- Version: \`${VERSION_FULL}\`"
+            echo "- Build name: \`${BUILD_NAME}\`"
+            echo "- Build number: \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Cache Flutter pub packages
         uses: actions/cache@v4
@@ -119,10 +137,11 @@ jobs:
           mkdir -p "$OUT_DIR"
 
           flutter build apk --release --split-per-abi --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          cp -v build/app/outputs/flutter-apk/app-*-release.apk "$OUT_DIR/"
+          cp -v build/app/outputs/flutter-apk/app-arm64-v8a-release.apk "$OUT_DIR/LinPlayer-Android-arm64-v8a.apk"
+          cp -v build/app/outputs/flutter-apk/app-armeabi-v7a-release.apk "$OUT_DIR/LinPlayer-Android-TV.apk"
 
           flutter build apk --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
-          cp -v build/app/outputs/flutter-apk/app-release.apk "$OUT_DIR/"
+          cp -v build/app/outputs/flutter-apk/app-release.apk "$OUT_DIR/LinPlayer-Android.apk"
 
           echo "--- Staged APKs ---"
           ls -la "$OUT_DIR"
@@ -130,11 +149,11 @@ jobs:
       - name: Upload APK artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-Android-APKs
+          name: LinPlayer-Android-APKs-${{ env.VERSION_FULL }}
           path: build/ci-android-apks/*.apk
 
   build-windows:
-    name: Build Windows Setup (x64)
+    name: Build Windows Setup (x64, v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: windows-latest
     env:
       PUB_CACHE: C:\Users\runneradmin\AppData\Local\Pub\Cache
@@ -170,6 +189,18 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: .github/scripts/compute_version.ps1
+      
+      - name: Write build summary
+        shell: pwsh
+        run: |
+          $lines = @(
+            '### Windows build',
+            '',
+            ('- Version: `{0}`' -f $env:VERSION_FULL),
+            ('- Build name: `{0}`' -f $env:BUILD_NAME),
+            ('- Build number: `{0}`' -f $env:BUILD_NUMBER)
+          )
+          $lines | Out-File -FilePath $env:GITHUB_STEP_SUMMARY -Encoding utf8 -Append
 
       - name: Enable Windows desktop support
         run: flutter config --enable-windows-desktop
@@ -254,15 +285,24 @@ jobs:
           if (-not (Test-Path $iscc)) { throw "ISCC.exe not found." }
 
           & $iscc ".github/installer/windows/linplayer.iss"
+      
+      - name: Rename installer for distribution
+        shell: pwsh
+        run: |
+          if (Test-Path "LinPlayer-Setup-x64.exe") {
+            Rename-Item -Path "LinPlayer-Setup-x64.exe" -NewName "LinPlayer-Windows-Setup-x64.exe" -Force
+          } elseif (-not (Test-Path "LinPlayer-Windows-Setup-x64.exe")) {
+            throw "Installer output not found."
+          }
 
       - name: Upload Windows installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-Windows-Setup
-          path: LinPlayer-Setup-x64.exe
+          name: LinPlayer-Windows-Setup-${{ env.VERSION_FULL }}
+          path: LinPlayer-Windows-Setup-x64.exe
 
   build-linux:
-    name: Build Linux Tarball (x86_64)
+    name: Build Linux Tarball (x86_64, v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: ubuntu-latest
     env:
       PUB_CACHE: /home/runner/.pub-cache
@@ -316,6 +356,18 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: bash .github/scripts/compute_version.sh
+      
+      - name: Write build summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Linux build"
+            echo ""
+            echo "- Version: \`${VERSION_FULL}\`"
+            echo "- Build name: \`${BUILD_NAME}\`"
+            echo "- Build number: \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build Linux app
         shell: bash
@@ -349,11 +401,11 @@ jobs:
       - name: Upload Linux tarball artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-Linux-Tarball-x86_64
+          name: LinPlayer-Linux-Tarball-x86_64-${{ env.VERSION_FULL }}
           path: LinPlayer-Linux-x86_64.tar.gz
 
   build-ios:
-    name: Build iOS Unsigned IPA
+    name: Build iOS Unsigned IPA (v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: macos-latest
     env:
       PUB_CACHE: /Users/runner/.pub-cache
@@ -392,6 +444,18 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: bash .github/scripts/compute_version.sh
+      
+      - name: Write build summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### iOS build"
+            echo ""
+            echo "- Version: \`${VERSION_FULL}\`"
+            echo "- Build name: \`${BUILD_NAME}\`"
+            echo "- Build number: \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build iOS app (no codesign)
         shell: bash
@@ -456,11 +520,11 @@ jobs:
       - name: Upload unsigned IPA artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-iOS-Unsigned-IPA
+          name: LinPlayer-iOS-Unsigned-IPA-${{ env.VERSION_FULL }}
           path: LinPlayer-iOS-unsigned.ipa
 
   build-macos:
-    name: Build macOS DMG (${{ matrix.arch }})
+    name: Build macOS DMG (${{ matrix.arch }}, v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
@@ -510,6 +574,18 @@ jobs:
           BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
           BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
         run: bash .github/scripts/compute_version.sh
+      
+      - name: Write build summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### macOS build (${{ matrix.arch }})"
+            echo ""
+            echo "- Version: \`${VERSION_FULL}\`"
+            echo "- Build name: \`${BUILD_NAME}\`"
+            echo "- Build number: \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Build macOS app
         run: flutter build macos --release --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
@@ -536,11 +612,146 @@ jobs:
       - name: Upload DMG artifact
         uses: actions/upload-artifact@v4
         with:
-          name: LinPlayer-macOS-DMG-${{ matrix.arch }}
+          name: LinPlayer-macOS-DMG-${{ matrix.arch }}-${{ env.VERSION_FULL }}
           path: LinPlayer-macOS-${{ matrix.arch }}.dmg
+  
+  build-appletv:
+    name: Build Apple TV (tvOS) (v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
+    runs-on: ${{ matrix.runner }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(github.event.inputs.build_appletv == 'true' && '[{"runner":"macos-latest","enabled":true}]' || '[{"runner":"ubuntu-latest","enabled":false}]') }}
+    steps:
+      - name: Apple TV build disabled
+        if: ${{ !matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Apple TV (tvOS)"
+            echo ""
+            echo "- Status: disabled (\`build_appletv=false\`)"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Check out code
+        if: ${{ matrix.enabled }}
+        uses: actions/checkout@v4
+
+      - name: Harden curl downloads (macOS)
+        if: ${{ matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/ci-bin"
+          cat > "$RUNNER_TEMP/ci-bin/curl" <<'EOF'
+          #!/usr/bin/env bash
+          set -euo pipefail
+          exec /usr/bin/curl --retry-all-errors --http1.1 "$@"
+          EOF
+          chmod +x "$RUNNER_TEMP/ci-bin/curl"
+          echo "PATH=$RUNNER_TEMP/ci-bin:$PATH" >> "$GITHUB_ENV"
+
+      - name: Set up Flutter
+        if: ${{ matrix.enabled }}
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+
+      - name: Compute build version
+        if: ${{ matrix.enabled }}
+        shell: bash
+        env:
+          BUILD_NAME_INPUT: ${{ github.event.inputs.build_name }}
+          BUILD_NUMBER_INPUT: ${{ github.event.inputs.build_number }}
+        run: bash .github/scripts/compute_version.sh
+      
+      - name: Write build summary
+        if: ${{ matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          {
+            echo "### Apple TV (tvOS) build"
+            echo ""
+            echo "- Version: \`${VERSION_FULL}\`"
+            echo "- Build name: \`${BUILD_NAME}\`"
+            echo "- Build number: \`${BUILD_NUMBER}\`"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify tvOS scaffold exists
+        if: ${{ matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! -d "tvos" ]]; then
+            echo "Missing tvOS scaffold: expected a top-level tvos/ directory." >&2
+            echo "Flutter stable does not ship tvOS support; you must provide a custom tvOS host app/engine to build Apple TV." >&2
+            exit 1
+          fi
+
+      - name: Build Apple TV app (no codesign)
+        if: ${{ matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if [[ -d "ios" ]]; then
+            mv ios ios-iphone
+          fi
+          mv tvos ios
+          restore() {
+            if [[ -d "ios" ]]; then
+              mv ios tvos
+            fi
+            if [[ -d "ios-iphone" ]]; then
+              mv ios-iphone ios
+            fi
+          }
+          trap restore EXIT
+
+          flutter pub get
+          dart run flutter_launcher_icons
+
+          # Note: Flutter stable does not officially support tvOS. This build requires a custom
+          # tvOS host app + engine setup under tvos/ that can be built via flutter build ios.
+          flutter build ios --release --no-codesign --build-name "$BUILD_NAME" --build-number "$BUILD_NUMBER"
+
+      - name: Package unsigned IPA
+        if: ${{ matrix.enabled }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          APP_PATH="$(find build/ios -maxdepth 6 -type d -name '*.app' 2>/dev/null | grep -v RunnerTests | head -n 1 || true)"
+          if [[ -z "${APP_PATH:-}" ]]; then
+            ARCHIVE_PATH="$(find build/ios -maxdepth 6 -type d -name '*.xcarchive' 2>/dev/null | head -n 1 || true)"
+            if [[ -n "${ARCHIVE_PATH:-}" ]]; then
+              APP_PATH="$(find "$ARCHIVE_PATH/Products/Applications" -maxdepth 1 -type d -name '*.app' 2>/dev/null | head -n 1 || true)"
+            fi
+          fi
+
+          if [[ -z "${APP_PATH:-}" || ! -d "$APP_PATH" ]]; then
+            echo "Could not find built .app under build/ios." >&2
+            find build/ios -maxdepth 4 -print || true
+            exit 1
+          fi
+
+          rm -rf Payload
+          mkdir -p Payload
+          cp -R "$APP_PATH" Payload/
+          /usr/bin/zip -qry LinPlayer-AppleTV-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA artifact
+        if: ${{ matrix.enabled }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: LinPlayer-AppleTV-Unsigned-IPA-${{ env.VERSION_FULL }}
+          path: LinPlayer-AppleTV-unsigned.ipa
 
   publish-nightly:
-    name: Publish Nightly Release
+    name: Publish Nightly Release (v${{ github.event.inputs.build_name }}+${{ github.event.inputs.build_number }})
     runs-on: ubuntu-latest
     needs:
       - build-android
@@ -548,6 +759,7 @@ jobs:
       - build-linux
       - build-ios
       - build-macos
+      - build-appletv
     permissions:
       contents: write
     env:
@@ -562,6 +774,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           path: dist
+          merge-multiple: true
 
       - name: Ensure GitHub CLI is available
         shell: bash
@@ -612,11 +825,16 @@ jobs:
         run: |
           set -euo pipefail
 
-          gh release upload nightly "dist/LinPlayer-Android-APKs/app-arm64-v8a-release.apk#LinPlayer-Android-arm64-v8a.apk" --clobber
-          gh release upload nightly "dist/LinPlayer-Android-APKs/app-armeabi-v7a-release.apk#LinPlayer-Android-armeabi-v7a.apk" --clobber
-          gh release upload nightly "dist/LinPlayer-Android-APKs/app-release.apk#LinPlayer-Android.apk" --clobber
-          gh release upload nightly "dist/LinPlayer-Windows-Setup/LinPlayer-Setup-x64.exe#LinPlayer-Windows-Setup-x64.exe" --clobber
-          gh release upload nightly "dist/LinPlayer-Linux-Tarball-x86_64/LinPlayer-Linux-x86_64.tar.gz#LinPlayer-Linux-x86_64.tar.gz" --clobber
-          gh release upload nightly "dist/LinPlayer-iOS-Unsigned-IPA/LinPlayer-iOS-unsigned.ipa#LinPlayer-iOS-unsigned.ipa" --clobber
-          gh release upload nightly "dist/LinPlayer-macOS-DMG-arm64/LinPlayer-macOS-arm64.dmg#LinPlayer-macOS-arm64.dmg" --clobber
-          gh release upload nightly "dist/LinPlayer-macOS-DMG-x86_64/LinPlayer-macOS-x86_64.dmg#LinPlayer-macOS-x86_64.dmg" --clobber
+          gh release upload nightly "dist/LinPlayer-Android-arm64-v8a.apk" --clobber
+          gh release upload nightly "dist/LinPlayer-Android-TV.apk" --clobber
+          gh release upload nightly "dist/LinPlayer-Android.apk" --clobber
+          gh release upload nightly "dist/LinPlayer-Windows-Setup-x64.exe" --clobber
+          gh release upload nightly "dist/LinPlayer-Linux-x86_64.tar.gz" --clobber
+          gh release upload nightly "dist/LinPlayer-iOS-unsigned.ipa" --clobber
+          gh release upload nightly "dist/LinPlayer-macOS-arm64.dmg" --clobber
+          gh release upload nightly "dist/LinPlayer-macOS-x86_64.dmg" --clobber
+
+          # Apple TV (tvOS) is optional/experimental.
+          if [[ -f "dist/LinPlayer-AppleTV-unsigned.ipa" ]]; then
+            gh release upload nightly "dist/LinPlayer-AppleTV-unsigned.ipa" --clobber
+          fi
