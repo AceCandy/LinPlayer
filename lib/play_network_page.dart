@@ -3149,7 +3149,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                 ],
                               ),
                             ),
-                          if (widget.appState.showBufferSpeed)
+                          // Net speed is rendered inside PlaybackControls so it hides with controls.
+                          if (false)
                             Positioned(
                               left: 12,
                               bottom: _controlsVisible ? 88 : 12,
@@ -3462,6 +3463,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                             widget.appState.showBufferSpeed,
                                         buffering: _buffering,
                                         bufferSpeedX: _bufferSpeedX,
+                                        netSpeedBytesPerSecond:
+                                            _netSpeedBytesPerSecond,
                                         onRequestThumbnail: _thumbnailer == null
                                             ? null
                                             : (pos) =>

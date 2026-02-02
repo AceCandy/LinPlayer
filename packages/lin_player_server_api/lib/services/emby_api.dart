@@ -532,11 +532,22 @@ class EmbyApi {
             '${_preferredScheme == 'http' ? 'https' : 'http'}://$hostPart$pathPart'
           ];
 
-    // de-dup
+    // De-dup while interleaving variants across schemes, so we don't spend
+    // multiple timeouts on a wrong scheme before trying the fallback.
+    final expanded = withPort
+        .map((c) => _expandAuthBaseVariants(c).toList(growable: false))
+        .toList(growable: false);
+
     final seen = <String>{};
     final result = <String>[];
-    for (final c in withPort) {
-      for (final v in _expandAuthBaseVariants(c)) {
+    var maxLen = 0;
+    for (final list in expanded) {
+      if (list.length > maxLen) maxLen = list.length;
+    }
+    for (var i = 0; i < maxLen; i++) {
+      for (final list in expanded) {
+        if (i >= list.length) continue;
+        final v = list[i];
         if (seen.add(v)) result.add(v);
       }
     }
@@ -565,11 +576,14 @@ class EmbyApi {
         });
 
         try {
-          final resp = await _client.post(
-            url,
-            headers: _authHeader(deviceId: deviceId, serverType: serverType),
-            body: body,
-          );
+          final resp = await _client
+              .post(
+                url,
+                headers:
+                    _authHeader(deviceId: deviceId, serverType: serverType),
+                body: body,
+              )
+              .timeout(const Duration(seconds: 6));
           if (resp.statusCode != 200) {
             errors.add('${url.toString()}: HTTP ${resp.statusCode}');
             continue;

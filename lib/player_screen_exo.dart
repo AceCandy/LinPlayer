@@ -50,6 +50,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
   DateTime? _lastUiTickAt;
   _OrientationMode _orientationMode = _OrientationMode.auto;
   String? _lastOrientationKey;
+  DateTime? _lastAutoOrientationApplyAt;
   bool _remoteEnabled = false;
   final FocusNode _tvSurfaceFocusNode =
       FocusNode(debugLabel: 'exo_player_tv_surface');
@@ -1735,6 +1736,11 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
           }
         }
         if (aspect <= 0) return;
+
+        final rotation = controller.value.rotationCorrection;
+        if (rotation == 90 || rotation == 270) {
+          aspect = 1.0 / aspect;
+        }
         orientations = aspect < 1.0
             ? const [DeviceOrientation.portraitUp]
             : const [
@@ -1894,6 +1900,16 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
         _buffering = v.isBuffering;
         _position = v.position;
         _duration = v.duration;
+
+        if (_orientationMode == _OrientationMode.auto && _shouldControlSystemUi) {
+          final last = _lastAutoOrientationApplyAt;
+          if (last == null ||
+              now.difference(last) >= const Duration(seconds: 1)) {
+            _lastAutoOrientationApplyAt = now;
+            // ignore: unawaited_futures
+            _applyOrientationForMode();
+          }
+        }
 
         var bufferedEnd = Duration.zero;
         for (final r in v.buffered) {

@@ -7,6 +7,8 @@ import 'package:flutter/material.dart';
 import 'package:lin_player_prefs/preferences.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
 
+import 'net_speed.dart';
+
 class PlaybackControls extends StatefulWidget {
   const PlaybackControls({
     super.key,
@@ -32,6 +34,7 @@ class PlaybackControls extends StatefulWidget {
     this.showBufferSpeed = false,
     this.buffering = false,
     this.bufferSpeedX,
+    this.netSpeedBytesPerSecond,
     this.onScrubStart,
     this.onScrubEnd,
     this.onRequestThumbnail,
@@ -80,6 +83,7 @@ class PlaybackControls extends StatefulWidget {
   final bool showBufferSpeed;
   final bool buffering;
   final double? bufferSpeedX;
+  final double? netSpeedBytesPerSecond;
 
   final VoidCallback? onScrubStart;
   final VoidCallback? onScrubEnd;
@@ -555,6 +559,7 @@ class _PlaybackControlsState extends State<PlaybackControls> {
     final showSpeedButton =
         widget.playbackRate != null && widget.onSetPlaybackRate != null;
 
+    final leadingStatusChips = <Widget>[];
     final statusChips = <Widget>[];
     Widget chip({required IconData icon, required String text}) {
       return Container(
@@ -580,6 +585,13 @@ class _PlaybackControlsState extends State<PlaybackControls> {
       );
     }
 
+    if (widget.showBufferSpeed && widget.netSpeedBytesPerSecond != null) {
+      final speed = widget.netSpeedBytesPerSecond!;
+      final text = formatBytesPerSecond(speed);
+      leadingStatusChips.add(
+        chip(icon: Icons.download_outlined, text: '网速 $text'),
+      );
+    }
     if (widget.showSystemTime) {
       statusChips.add(chip(icon: Icons.schedule, text: _fmtTime(_now)));
     }
@@ -609,14 +621,28 @@ class _PlaybackControlsState extends State<PlaybackControls> {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            if (statusChips.isNotEmpty) ...[
-              Align(
-                alignment: Alignment.centerRight,
-                child: Wrap(
-                  spacing: 6,
-                  runSpacing: 6,
-                  children: statusChips,
-                ),
+            if (leadingStatusChips.isNotEmpty || statusChips.isNotEmpty) ...[
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Expanded(
+                    child: Wrap(
+                      alignment: WrapAlignment.start,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: leadingStatusChips,
+                    ),
+                  ),
+                  if (statusChips.isNotEmpty) ...[
+                    const SizedBox(width: 8),
+                    Wrap(
+                      alignment: WrapAlignment.end,
+                      spacing: 6,
+                      runSpacing: 6,
+                      children: statusChips,
+                    ),
+                  ],
+                ],
               ),
               const SizedBox(height: 6),
             ],

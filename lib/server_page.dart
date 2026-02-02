@@ -981,12 +981,9 @@ class _AddServerSheetState extends State<_AddServerSheet> {
       );
     } else {
       // Emby/Jellyfin
-      // Auto-complete scheme if user only typed host/path.
       final hostInput = _hostCtrl.text.trim();
-      final hostOrUrl =
-          hostInput.contains('://') ? hostInput : '$_scheme://$hostInput';
       await widget.appState.addServer(
-        hostOrUrl: hostOrUrl,
+        hostOrUrl: hostInput,
         scheme: _scheme,
         port: _portCtrl.text.trim().isEmpty ? null : _portCtrl.text.trim(),
         serverType: _serverType,

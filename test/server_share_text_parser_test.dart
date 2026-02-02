@@ -80,4 +80,20 @@ cf线路: https://mecf.mebimmer.de
     expect(g.lines.first.name, 'cf线路');
     expect(g.lines.first.selectedByDefault, isTrue);
   });
+
+  test('parse share text without schemes', () {
+    const raw = '''
+Line A: www.example.com 443
+Line B: 192.168.1.10:8096
+Line C: https\uFF1A//foo.bar/baz
+''';
+
+    final groups = ServerShareTextParser.parse(raw);
+    expect(groups, hasLength(1));
+
+    final urls = groups.single.lines.map((l) => l.url).toSet();
+    expect(urls, contains('https://www.example.com'));
+    expect(urls, contains('http://192.168.1.10:8096'));
+    expect(urls, contains('https://foo.bar/baz'));
+  });
 }

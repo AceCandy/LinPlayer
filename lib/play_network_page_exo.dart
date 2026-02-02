@@ -69,6 +69,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
   Duration _duration = Duration.zero;
   DateTime? _lastUiTickAt;
   _OrientationMode _orientationMode = _OrientationMode.auto;
+  String? _lastOrientationKey;
+  DateTime? _lastAutoOrientationApplyAt;
   Duration? _resumeHintPosition;
   bool _showResumeHint = false;
   Timer? _resumeHintTimer;
@@ -2102,36 +2104,30 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       );
       _controller = controller;
       await controller.initialize();
+      await _applyOrientationForMode();
       await _applyExoSubtitleOptions();
       final start = _overrideStartPosition ?? widget.startPosition;
       final resumeImmediately =
           _overrideResumeImmediately || widget.resumeImmediately;
       _overrideStartPosition = null;
       _overrideResumeImmediately = false;
+      Duration? resumeTarget;
       if (start != null && start > Duration.zero) {
         final target = _safeSeekTarget(start, controller.value.duration);
         _deferProgressReporting = true;
         if (resumeImmediately) {
-          final ok = await _seekToPositionBestEffort(controller, target);
-          final applied = controller.value.position;
-          _position = applied;
-          _syncDanmakuCursor(applied);
-          if (ok) {
-            _deferProgressReporting = false;
-            if (applied > Duration.zero) {
-              _startOverHintPosition = applied;
-              _showStartOverHint = true;
-            }
-          } else {
-            _resumeHintPosition = target;
-            _showResumeHint = true;
-          }
+          resumeTarget = target;
         } else {
           _resumeHintPosition = target;
           _showResumeHint = true;
         }
       }
       await controller.play();
+      if (resumeTarget != null) {
+        // Avoid blocking startup on long/unsupported seeks; seek after playback starts.
+        // ignore: unawaited_futures
+        _resumeToPositionAfterStart(controller, resumeTarget);
+      }
 
       _uiTimer = Timer.periodic(const Duration(milliseconds: 250), (_) {
         final c = _controller;
@@ -2141,6 +2137,16 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         _buffering = v.isBuffering;
         _position = v.position;
         _duration = v.duration;
+
+        if (_orientationMode == _OrientationMode.auto && _shouldControlSystemUi) {
+          final last = _lastAutoOrientationApplyAt;
+          if (last == null ||
+              now.difference(last) >= const Duration(seconds: 1)) {
+            _lastAutoOrientationApplyAt = now;
+            // ignore: unawaited_futures
+            _applyOrientationForMode();
+          }
+        }
 
         var bufferedEnd = Duration.zero;
         for (final r in v.buffered) {
@@ -2561,6 +2567,41 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     return _seekCloseEnough(controller.value.position, target);
   }
 
+  Future<void> _resumeToPositionAfterStart(
+    VideoPlayerController controller,
+    Duration target,
+  ) async {
+    final ok = await _seekToPositionBestEffort(controller, target);
+    if (!mounted) return;
+    if (_controller != controller) return;
+
+    final applied = controller.value.position;
+    _position = applied;
+    _syncDanmakuCursor(applied);
+
+    if (ok) {
+      final shouldStartReporting = _deferProgressReporting;
+      _deferProgressReporting = false;
+      if (applied > Duration.zero) {
+        _startOverHintPosition = applied;
+        _showStartOverHint = true;
+        _startStartOverHintTimer();
+      }
+      if (shouldStartReporting) {
+        // ignore: unawaited_futures
+        _reportPlaybackStartBestEffort();
+        _maybeReportPlaybackProgress(_position, force: true);
+      }
+      setState(() {});
+      return;
+    }
+
+    _resumeHintPosition = target;
+    _showResumeHint = true;
+    _startResumeHintTimer();
+    setState(() {});
+  }
+
   void _startResumeHintTimer() {
     _resumeHintTimer?.cancel();
     _resumeHintTimer = Timer(const Duration(seconds: 5), () {
@@ -2773,6 +2814,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       await SystemChrome.setEnabledSystemUIMode(SystemUiMode.edgeToEdge);
     } catch (_) {}
     if (!resetOrientations) return;
+    _lastOrientationKey = null;
     try {
       await SystemChrome.setPreferredOrientations(const []);
     } catch (_) {}
@@ -3350,10 +3392,34 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         orientations = const [DeviceOrientation.portraitUp];
         break;
       case _OrientationMode.auto:
-        orientations = const [];
+        final controller = _controller;
+        if (controller == null || !controller.value.isInitialized) return;
+        var aspect = controller.value.aspectRatio;
+        if (aspect <= 0) {
+          final size = controller.value.size;
+          if (size.width > 0 && size.height > 0) {
+            aspect = size.width / size.height;
+          }
+        }
+        if (aspect <= 0) return;
+
+        final rotation = controller.value.rotationCorrection;
+        if (rotation == 90 || rotation == 270) {
+          aspect = 1.0 / aspect;
+        }
+
+        orientations = aspect < 1.0
+            ? const [DeviceOrientation.portraitUp]
+            : const [
+                DeviceOrientation.landscapeLeft,
+                DeviceOrientation.landscapeRight,
+              ];
         break;
     }
 
+    final key = orientations.map((o) => o.name).join(',');
+    if (_lastOrientationKey == key) return;
+    _lastOrientationKey = key;
     try {
       await SystemChrome.setPreferredOrientations(orientations);
     } catch (_) {}
@@ -3663,7 +3729,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                 ),
                               ),
                             ),
-                          if (widget.appState.showBufferSpeed)
+                          // Net speed is rendered inside PlaybackControls so it hides with controls.
+                          if (false)
                             Positioned(
                               left: 12,
                               bottom: _controlsVisible ? 88 : 12,
@@ -3974,6 +4041,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                             widget.appState.showBufferSpeed,
                                         buffering: _buffering,
                                         bufferSpeedX: _bufferSpeedX,
+                                        netSpeedBytesPerSecond:
+                                            _netSpeedBytesPerSecond,
                                         onOpenEpisodePicker:
                                             _canShowEpisodePickerButton
                                                 ? _toggleEpisodePicker

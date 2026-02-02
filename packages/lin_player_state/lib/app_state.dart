@@ -1805,7 +1805,9 @@ class AppState extends ChangeNotifier {
 
       String? serverName;
       try {
-        serverName = await adapter.fetchServerName(auth);
+        serverName = await adapter
+            .fetchServerName(auth)
+            .timeout(const Duration(seconds: 2), onTimeout: () => null);
       } catch (_) {
         // best-effort
       }
@@ -1861,8 +1863,10 @@ class AppState extends ChangeNotifier {
       if (!activate) return;
 
       try {
-        final lines = await adapter.fetchDomains(auth, allowFailure: true);
-        final libs = await adapter.fetchLibraries(auth);
+        final linesFuture = adapter.fetchDomains(auth, allowFailure: true);
+        final libsFuture = adapter.fetchLibraries(auth);
+        final lines = await linesFuture;
+        final libs = await libsFuture;
 
         _activeServerId = server.id;
         _domains = lines;

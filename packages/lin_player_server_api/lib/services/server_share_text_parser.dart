@@ -27,6 +27,10 @@ class ServerShareTextParser {
       RegExp(r'用户密码\s*[:：]\s*([^\s\r\n]+)', multiLine: true);
   static final RegExp _portRe = RegExp(r'端口\s*[:：]\s*(\d{1,5})');
   static final RegExp _urlRe = RegExp(r'https?://[^\s]+', caseSensitive: false);
+  static final RegExp _hostTokenRe = RegExp(
+    r'(?:(?:\d{1,3}\.){3}\d{1,3}|(?:[a-zA-Z0-9-]+\.)+[a-zA-Z]{2,})(?::\d{1,5})?(?:/[^\s]*)?',
+    caseSensitive: false,
+  );
 
   static final Set<String> _denyHosts = {
     't.me',
@@ -38,7 +42,11 @@ class ServerShareTextParser {
   };
 
   static List<ServerShareTextGroup> parse(String raw) {
-    final text = raw.replaceAll('\r\n', '\n');
+    final text = raw
+        .replaceAll('\r\n', '\n')
+        // Normalize common fullwidth punctuation in share text.
+        .replaceAll('\uFF1A', ':') // ：
+        .replaceAll('\uFF0F', '/'); // ／
     final lines = text.split('\n');
 
     final groups = <_MutableGroup>[];
@@ -101,6 +109,47 @@ class ServerShareTextParser {
           );
         }
         // A label is assumed to only apply to the next URL line.
+        lastLabel = null;
+        continue;
+      }
+
+      final hostMatches = _hostTokenRe.allMatches(line).toList();
+      if (hostMatches.isNotEmpty) {
+        for (final m in hostMatches) {
+          final rawToken = m.group(0) ?? '';
+          final cleanedToken = _cleanUrlToken(rawToken);
+          if (cleanedToken.isEmpty) continue;
+
+          // Parse a host/path token by prepending a placeholder scheme.
+          final probe = Uri.tryParse('https://$cleanedToken');
+          if (probe == null ||
+              probe.host.trim().isEmpty ||
+              probe.host.contains('..')) {
+            continue;
+          }
+
+          final before = line.substring(0, m.start).trim();
+          final nameFromInline = _stripLabelPunctuation(before);
+          final name = nameFromInline.isNotEmpty
+              ? nameFromInline
+              : (lastLabel ?? '').trim();
+
+          final portAfter = _parsePortAfterUrl(line.substring(m.end));
+          final tokenPort = probe.hasPort ? probe.port : null;
+          final entryPort = tokenPort ?? portAfter;
+          final inferredScheme =
+              _defaultSchemeForPort(entryPort ?? current.globalPort);
+
+          current.entries.add(
+            _RawEntry(
+              name: name,
+              uri: probe.replace(scheme: inferredScheme, query: null, fragment: null),
+              hasPortHint: tokenPort != null || portAfter != null,
+              port: entryPort,
+            ),
+          );
+        }
+        // A label is assumed to only apply to the next host line.
         lastLabel = null;
         continue;
       }
@@ -210,6 +259,18 @@ class ServerShareTextParser {
     return port;
   }
 
+  static String _defaultSchemeForPort(int? port) {
+    switch (port) {
+      case 80:
+      case 8096:
+        return 'http';
+      case 443:
+      case 8920:
+        return 'https';
+    }
+    return 'https';
+  }
+
   static bool _isSkippableLabelNoise(String line) {
     final v = line.trim();
     if (v.isEmpty) return true;
@@ -286,4 +347,3 @@ class _MergedLine {
     required this.selectedByDefault,
   });
 }
-

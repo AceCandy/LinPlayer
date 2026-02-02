@@ -9,10 +9,12 @@ class ServerApiBootstrap {
     required String appVersion,
     required String defaultClientName,
     bool allowBadCertificates = true,
+    Duration connectionTimeout = const Duration(seconds: 6),
   }) {
     LinHttpClientFactory.configure(
       LinHttpClientFactory.config.copyWith(
         allowBadCertificates: allowBadCertificates,
+        connectionTimeout: connectionTimeout,
       ),
     );
     EmbyApi.setUserAgentProduct(userAgentProduct);

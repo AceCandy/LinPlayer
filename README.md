@@ -17,6 +17,8 @@
     <a href="#quickstart">快速上手</a> ·
     <a href="#tv">TV 使用说明</a> ·
     <a href="#build">构建与运行</a> ·
+    <a href="docs/SERVER_IMPORT.md">批量导入</a> ·
+    <a href="docs/ANDROID_SIGNING.md">Android 签名</a> ·
     <a href="docs/ARCHITECTURE.md">源码导览</a> ·
     <a href="docs/TV_PROXY_ROADMAP.md">TV 代理路线图</a>
   </p>
@@ -100,7 +102,7 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 
 ### 媒体源
 - 本地播放：原生文件选择与播放。
-- Emby/Jellyfin：支持 http/https 与自定义端口；可选的线路扩展服务未部署时，线路列表可能为空，但播放/浏览可用。
+- Emby/Jellyfin：支持 http/https 与自定义端口；可选的线路扩展服务未部署时，线路列表可能为空，但播放/浏览可用；支持从“分享文本”批量导入服务器（见 `docs/SERVER_IMPORT.md`）。
 - WebDAV（只读）：支持“像服务器一样”添加与切换；支持目录浏览 + 播放（含 Range），兼容 Basic/Digest 等常见鉴权。
 - Plex（PIN 登录）：支持浏览器授权获取 Token，并从账号资源列表中选择服务器保存（当前仅保存登录信息，暂不支持浏览/播放）。
 
@@ -132,6 +134,7 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 1. 启动应用，进入「连接服务器」页（未登录也可用）：
    - 点「本地播放」：直接进入本地播放器，选择本地文件播放。
    - 右上角 `+` 添加服务器：可选 Emby / Jellyfin / WebDAV / Plex（仅保存）。
+   - 批量导入（Emby/Jellyfin）：在「添加服务器」面板右上角点「批量导入」，粘贴分享文本一键解析导入（见 `docs/SERVER_IMPORT.md`）。
 2. 添加 Emby / Jellyfin：
    - 选择服务器类型：Emby / Jellyfin（默认 Emby）。
    - 选择协议：http / https（默认 https）。
@@ -197,6 +200,7 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 - Android 可选：Exo（Media3 / ExoPlayer，基于 `video_player`），在「设置 → 播放 → 播放器内核」切换。
 - Exo 更适合部分杜比视界 P8 片源（在 MPV 下可能出现偏紫/偏绿问题），并默认使用 `VideoViewType.platformView` 渲染。
 - Exo 内核支持音轨切换与字幕选择/关闭（本地播放与 Emby 在线播放均支持）。
+- 播放控制栏可选显示系统时间/电量/网速（设置 → 交互 → 控制栏显示项；网速仅对网络播放有效）。
 - 如遇到 Exo/platformView 兼容性或性能问题，可切回 MPV。
 
 ### 播放缓冲策略（统一）
@@ -237,6 +241,8 @@ A cross-platform local & Emby/Jellyfin & WebDAV media player built with Flutter 
 ## <a id="build"></a>构建与运行
 
 > 建议使用 Flutter stable 3.x，并先运行 `flutter doctor -v` 确认环境正常。
+
+> Android release 签名（保证 APK 可覆盖安装升级）见 `docs/ANDROID_SIGNING.md`。
 
 > 构建/更新 TV 内置代理资源（mihomo + metacubexd）（可选，仅 Android TV 用）：
 >
@@ -302,6 +308,8 @@ flutter build linux --release
 
 ## 源码导览
 - 架构/目录结构/播放链路：[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
+- Android 签名与 OTA 覆盖安装：[docs/ANDROID_SIGNING.md](docs/ANDROID_SIGNING.md)
+- 从分享文本批量导入服务器：[docs/SERVER_IMPORT.md](docs/SERVER_IMPORT.md)
 - 模块化（packages）：
   - [packages/lin_player_core/README.md](packages/lin_player_core/README.md)：基础定义（AppConfig / MediaServerType 等）
   - [packages/lin_player_prefs/README.md](packages/lin_player_prefs/README.md)：偏好设置定义（UI 模板/播放器设置枚举等）
@@ -349,6 +357,8 @@ flutter build linux --release
 - DNS 解析失败 / Host lookup：请确认域名在设备浏览器可访问；必要时改填 IP 或切换 http/端口（如 8096/8920）。
 - 电影或剧集 404：已使用 MediaSourceId 的播放 URL；若仍异常，请确认服务器对应条目可在网页端播放。
 - 线路列表为空：未部署 `emby_ext_domains` 时属正常，不影响媒体库与播放。
+- 批量导入解析不到服务器地址：请确认分享文本里包含 http(s) URL 或域名/IP（支持无 scheme，如 `example.com 443`；也支持 `端口: 443` 的全局端口行）；非线路链接（Telegram/仓库等）会默认不勾选。
+- 网速不显示：到「设置 → 交互」开启「显示网速」；网速仅对网络播放有效，显示位置在底部控制栏（随控制栏显隐）。
 
 ## 目录导航
 
