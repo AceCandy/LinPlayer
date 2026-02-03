@@ -243,6 +243,11 @@ class _LinPlayerAppState extends State<LinPlayerApp>
 
                 final tvBackgroundEnabled =
                     isTv && appState.tvBackgroundMode != TvBackgroundMode.none;
+                final effectiveTheme = tvBackgroundEnabled
+                    ? scaledTheme.copyWith(
+                        scaffoldBackgroundColor: Colors.transparent,
+                      )
+                    : scaledTheme;
 
                 final appChild = isTv
                     ? (tvBackgroundEnabled
@@ -266,14 +271,14 @@ class _LinPlayerAppState extends State<LinPlayerApp>
 
                 return UiScaleScope(
                   scale: scale,
-                  child: MediaQuery(
-                    data: mediaQuery.copyWith(textScaler: textScaler),
-                    child: Theme(
-                      data: scaledTheme,
-                      child: AppUpdateAutoChecker(
-                        appState: appState,
-                        child: appChild,
-                      ),
+                    child: MediaQuery(
+                      data: mediaQuery.copyWith(textScaler: textScaler),
+                      child: Theme(
+                        data: effectiveTheme,
+                        child: AppUpdateAutoChecker(
+                          appState: appState,
+                          child: appChild,
+                        ),
                     ),
                   ),
                 );

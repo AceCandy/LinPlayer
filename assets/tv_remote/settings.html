@@ -107,18 +107,39 @@
     </div>
 
     <h2>外观</h2>
-    <div class="row">
-      <div class="label">
-        <div class="title">紧凑模式</div>
-        <div class="desc" id="compactDesc">缩小控件间距与高度</div>
-      </div>
-      <div class="control small">
-        <input type="checkbox" id="compactMode" />
+    <div id="bgFxWrap">
+      <label>背景透明度：<span id="tvBackgroundOpacityLabel">100%</span></label>
+      <input type="range" id="tvBackgroundOpacity" min="0.0" max="1.0" step="0.05" />
+
+      <div id="bgBlurWrap">
+        <label>背景模糊：<span id="tvBackgroundBlurSigmaLabel">0</span></label>
+        <input type="range" id="tvBackgroundBlurSigma" min="0" max="30" step="1" />
       </div>
     </div>
 
     <label>UI 缩放：<span id="uiScaleLabel">1.00x</span></label>
     <input type="range" id="uiScaleFactor" min="0.25" max="2.0" step="0.05" />
+
+    <h2>播放</h2>
+    <div class="row">
+      <div class="label">
+        <div class="title">弹幕</div>
+        <div class="desc">TV 端弹幕开关</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="danmakuEnabled" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">
+        <div class="title">自动跳过片头</div>
+        <div class="desc">服务端支持片头数据时，在片头段会提示是否跳过</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="autoSkipIntro" />
+      </div>
+    </div>
 
     <h2>交互</h2>
     <div class="row">
@@ -192,10 +213,16 @@
       tvBackgroundRandomApiUrl: document.getElementById('tvBackgroundRandomApiUrl'),
       saveBgApiBtn: document.getElementById('saveBgApiBtn'),
       nextBgBtn: document.getElementById('nextBgBtn'),
-      compactMode: document.getElementById('compactMode'),
-      compactDesc: document.getElementById('compactDesc'),
+      bgFxWrap: document.getElementById('bgFxWrap'),
+      bgBlurWrap: document.getElementById('bgBlurWrap'),
+      tvBackgroundOpacity: document.getElementById('tvBackgroundOpacity'),
+      tvBackgroundOpacityLabel: document.getElementById('tvBackgroundOpacityLabel'),
+      tvBackgroundBlurSigma: document.getElementById('tvBackgroundBlurSigma'),
+      tvBackgroundBlurSigmaLabel: document.getElementById('tvBackgroundBlurSigmaLabel'),
       uiScaleFactor: document.getElementById('uiScaleFactor'),
       uiScaleLabel: document.getElementById('uiScaleLabel'),
+      danmakuEnabled: document.getElementById('danmakuEnabled'),
+      autoSkipIntro: document.getElementById('autoSkipIntro'),
       forceRemoteControlKeys: document.getElementById('forceRemoteControlKeys'),
     };
 
@@ -227,8 +254,10 @@
 
         const values = data.values || {};
         const options = data.options || {};
-        const constraints = (data.constraints || {}).uiScaleFactor || {};
-        const meta = data.meta || {};
+        const allConstraints = data.constraints || {};
+        const uiScaleConstraints = allConstraints.uiScaleFactor || {};
+        const tvBackgroundOpacityConstraints = allConstraints.tvBackgroundOpacity || {};
+        const tvBackgroundBlurSigmaConstraints = allConstraints.tvBackgroundBlurSigma || {};
 
         els.tvRemoteEnabled.checked = !!values.tvRemoteEnabled;
 
@@ -245,9 +274,13 @@
         const showColor = bgMode === 'solid';
         const showImage = bgMode === 'image';
         const showApi = bgMode === 'random';
+        const showBgFx = bgMode !== 'none';
+        const blurAllowed = showImage || showApi;
         els.bgColorWrap.style.display = showColor ? '' : 'none';
         els.bgImageRow.style.display = showImage ? '' : 'none';
         els.bgApiRow.style.display = showApi ? '' : 'none';
+        els.bgFxWrap.style.display = showBgFx ? '' : 'none';
+        els.bgBlurWrap.style.display = blurAllowed ? '' : 'none';
 
         const argbRaw = Number(values.tvBackgroundColor != null ? values.tvBackgroundColor : 0xFF0B0B0B);
         const argb = Number.isFinite(argbRaw) ? (argbRaw >>> 0) : 0xFF0B0B0B;
@@ -259,19 +292,33 @@
         els.tvBackgroundImage.value = String(values.tvBackgroundImage || '');
         els.tvBackgroundRandomApiUrl.value = String(values.tvBackgroundRandomApiUrl || '');
 
-        els.compactMode.checked = !!values.compactMode;
-        if (meta.compactModeLocked) {
-          els.compactMode.disabled = true;
-          els.compactDesc.textContent = '当前模板强制开启（不可关闭）';
-        } else {
-          els.compactMode.disabled = false;
-          els.compactDesc.textContent = '缩小控件间距与高度';
-        }
+        const bgOpacityMin = Number(tvBackgroundOpacityConstraints.min != null ? tvBackgroundOpacityConstraints.min : 0.0);
+        const bgOpacityMax = Number(tvBackgroundOpacityConstraints.max != null ? tvBackgroundOpacityConstraints.max : 1.0);
+        const bgOpacityStep = Number(tvBackgroundOpacityConstraints.step != null ? tvBackgroundOpacityConstraints.step : 0.05);
+        els.tvBackgroundOpacity.min = String(bgOpacityMin);
+        els.tvBackgroundOpacity.max = String(bgOpacityMax);
+        els.tvBackgroundOpacity.step = String(bgOpacityStep);
+        const bgOpacity = Number(values.tvBackgroundOpacity != null ? values.tvBackgroundOpacity : 1.0);
+        els.tvBackgroundOpacity.value = String(bgOpacity);
+        els.tvBackgroundOpacityLabel.textContent = Math.round(bgOpacity * 100) + '%';
+
+        const bgBlurMin = Number(tvBackgroundBlurSigmaConstraints.min != null ? tvBackgroundBlurSigmaConstraints.min : 0.0);
+        const bgBlurMax = Number(tvBackgroundBlurSigmaConstraints.max != null ? tvBackgroundBlurSigmaConstraints.max : 30.0);
+        const bgBlurStep = Number(tvBackgroundBlurSigmaConstraints.step != null ? tvBackgroundBlurSigmaConstraints.step : 1.0);
+        els.tvBackgroundBlurSigma.min = String(bgBlurMin);
+        els.tvBackgroundBlurSigma.max = String(bgBlurMax);
+        els.tvBackgroundBlurSigma.step = String(bgBlurStep);
+        const bgBlur = Number(values.tvBackgroundBlurSigma != null ? values.tvBackgroundBlurSigma : 0.0);
+        els.tvBackgroundBlurSigma.value = String(bgBlur);
+        els.tvBackgroundBlurSigmaLabel.textContent = String(Math.round(bgBlur));
+
+        els.danmakuEnabled.checked = !!values.danmakuEnabled;
+        els.autoSkipIntro.checked = !!values.autoSkipIntro;
         els.forceRemoteControlKeys.checked = !!values.forceRemoteControlKeys;
 
-        const min = Number(constraints.min != null ? constraints.min : 0.25);
-        const max = Number(constraints.max != null ? constraints.max : 2.0);
-        const step = Number(constraints.step != null ? constraints.step : 0.05);
+        const min = Number(uiScaleConstraints.min != null ? uiScaleConstraints.min : 0.25);
+        const max = Number(uiScaleConstraints.max != null ? uiScaleConstraints.max : 2.0);
+        const step = Number(uiScaleConstraints.step != null ? uiScaleConstraints.step : 0.05);
         els.uiScaleFactor.min = String(min);
         els.uiScaleFactor.max = String(max);
         els.uiScaleFactor.step = String(step);
@@ -342,8 +389,25 @@
     els.nextBgBtn.addEventListener('click', async () => {
       await save({ tvBackgroundRandomNext: true });
     });
-    els.compactMode.addEventListener('change', async (e) => {
-      await save({ compactMode: !!e.target.checked });
+    els.tvBackgroundOpacity.addEventListener('input', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      els.tvBackgroundOpacityLabel.textContent = Math.round(v * 100) + '%';
+    });
+    els.tvBackgroundOpacity.addEventListener('change', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      await save({ tvBackgroundOpacity: v });
+    });
+    els.tvBackgroundBlurSigma.addEventListener('input', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      els.tvBackgroundBlurSigmaLabel.textContent = String(Math.round(v));
+    });
+    els.tvBackgroundBlurSigma.addEventListener('change', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      await save({ tvBackgroundBlurSigma: v });
     });
     els.uiScaleFactor.addEventListener('input', async (e) => {
       const v = Number(e.target.value);
@@ -354,6 +418,12 @@
       const v = Number(e.target.value);
       if (!Number.isFinite(v)) return;
       await save({ uiScaleFactor: v });
+    });
+    els.danmakuEnabled.addEventListener('change', async (e) => {
+      await save({ danmakuEnabled: !!e.target.checked });
+    });
+    els.autoSkipIntro.addEventListener('change', async (e) => {
+      await save({ autoSkipIntro: !!e.target.checked });
     });
     els.forceRemoteControlKeys.addEventListener('change', async (e) => {
       await save({ forceRemoteControlKeys: !!e.target.checked });

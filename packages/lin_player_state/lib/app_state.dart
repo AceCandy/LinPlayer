@@ -214,6 +214,8 @@ class AppState extends ChangeNotifier {
   static const _kTvBackgroundImageKey = 'tvBackgroundImage_v1';
   static const _kTvBackgroundRandomApiUrlKey = 'tvBackgroundRandomApiUrl_v1';
   static const _kTvBackgroundRandomNonceKey = 'tvBackgroundRandomNonce_v1';
+  static const _kTvBackgroundOpacityKey = 'tvBackgroundOpacity_v1';
+  static const _kTvBackgroundBlurSigmaKey = 'tvBackgroundBlurSigma_v1';
   static const _kEpisodePickerShowTitleKey = 'episodePickerShowTitle_v1';
   // Legacy: migrated to [_kEpisodePickerShowTitleKey].
   static const _kEpisodePickerShowCoverKey = 'episodePickerShowCover_v1';
@@ -305,6 +307,8 @@ class AppState extends ChangeNotifier {
   String _tvBackgroundImage = '';
   String _tvBackgroundRandomApiUrl = 'https://bing.img.run/rand.php';
   int _tvBackgroundRandomNonce = 0;
+  double _tvBackgroundOpacity = 1.0;
+  double _tvBackgroundBlurSigma = 0.0;
   bool _episodePickerShowTitle = true;
   LocalPlaybackHandoff? _localPlaybackHandoff;
   bool _loading = false;
@@ -707,6 +711,8 @@ class AppState extends ChangeNotifier {
   String get tvBackgroundImage => _tvBackgroundImage;
   String get tvBackgroundRandomApiUrl => _tvBackgroundRandomApiUrl;
   int get tvBackgroundRandomNonce => _tvBackgroundRandomNonce;
+  double get tvBackgroundOpacity => _tvBackgroundOpacity;
+  double get tvBackgroundBlurSigma => _tvBackgroundBlurSigma;
   bool get episodePickerShowTitle => _episodePickerShowTitle;
 
   SeriesPlaybackOverride? seriesPlaybackOverride({
@@ -940,6 +946,14 @@ class AppState extends ChangeNotifier {
             _tvBackgroundRandomApiUrl;
     _tvBackgroundRandomNonce =
         prefs.getInt(_kTvBackgroundRandomNonceKey) ?? _tvBackgroundRandomNonce;
+    _tvBackgroundOpacity =
+        (prefs.getDouble(_kTvBackgroundOpacityKey) ?? _tvBackgroundOpacity)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    _tvBackgroundBlurSigma =
+        (prefs.getDouble(_kTvBackgroundBlurSigmaKey) ?? _tvBackgroundBlurSigma)
+            .clamp(0.0, 30.0)
+            .toDouble();
     _episodePickerShowTitle = prefs.getBool(_kEpisodePickerShowTitleKey) ??
         prefs.getBool(_kEpisodePickerShowCoverKey) ??
         true;
@@ -1119,6 +1133,8 @@ class AppState extends ChangeNotifier {
           'backgroundImage': _tvBackgroundImage,
           'backgroundRandomApiUrl': _tvBackgroundRandomApiUrl,
           'backgroundRandomNonce': _tvBackgroundRandomNonce,
+          'backgroundOpacity': _tvBackgroundOpacity,
+          'backgroundBlurSigma': _tvBackgroundBlurSigma,
         },
         'seriesPlaybackOverrides': _seriesPlaybackOverrides.map(
           (serverId, seriesMap) => MapEntry(
@@ -1546,6 +1562,14 @@ class AppState extends ChangeNotifier {
         tvMap['backgroundRandomApiUrl']?.toString() ?? '';
     final nextTvBackgroundRandomNonce =
         _readInt(tvMap['backgroundRandomNonce'], fallback: 0);
+    final nextTvBackgroundOpacity =
+        _readDouble(tvMap['backgroundOpacity'], fallback: 1.0)
+            .clamp(0.0, 1.0)
+            .toDouble();
+    final nextTvBackgroundBlurSigma =
+        _readDouble(tvMap['backgroundBlurSigma'], fallback: 0.0)
+            .clamp(0.0, 30.0)
+            .toDouble();
     final nextEpisodePickerShowTitle = _readBool(
       interactionMap['episodePickerShowTitle'] ??
           interactionMap['episodePickerShowCover'],
@@ -1649,6 +1673,8 @@ class AppState extends ChangeNotifier {
         ? _tvBackgroundRandomApiUrl
         : nextTvBackgroundRandomApiUrl.trim();
     _tvBackgroundRandomNonce = nextTvBackgroundRandomNonce;
+    _tvBackgroundOpacity = nextTvBackgroundOpacity;
+    _tvBackgroundBlurSigma = nextTvBackgroundBlurSigma;
     _episodePickerShowTitle = nextEpisodePickerShowTitle;
     _seriesPlaybackOverrides
       ..clear()
@@ -1802,6 +1828,8 @@ class AppState extends ChangeNotifier {
     await prefs.setString(
         _kTvBackgroundRandomApiUrlKey, _tvBackgroundRandomApiUrl);
     await prefs.setInt(_kTvBackgroundRandomNonceKey, _tvBackgroundRandomNonce);
+    await prefs.setDouble(_kTvBackgroundOpacityKey, _tvBackgroundOpacity);
+    await prefs.setDouble(_kTvBackgroundBlurSigmaKey, _tvBackgroundBlurSigma);
     await prefs.setBool(_kEpisodePickerShowTitleKey, _episodePickerShowTitle);
     // Legacy key for older builds.
     await prefs.setBool(_kEpisodePickerShowCoverKey, _episodePickerShowTitle);
@@ -3517,6 +3545,24 @@ class AppState extends ChangeNotifier {
     _tvBackgroundRandomNonce = (_tvBackgroundRandomNonce + 1) % 1000000000;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kTvBackgroundRandomNonceKey, _tvBackgroundRandomNonce);
+    notifyListeners();
+  }
+
+  Future<void> setTvBackgroundOpacity(double opacity) async {
+    final v = opacity.clamp(0.0, 1.0).toDouble();
+    if (_tvBackgroundOpacity == v) return;
+    _tvBackgroundOpacity = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kTvBackgroundOpacityKey, v);
+    notifyListeners();
+  }
+
+  Future<void> setTvBackgroundBlurSigma(double sigma) async {
+    final v = sigma.clamp(0.0, 30.0).toDouble();
+    if (_tvBackgroundBlurSigma == v) return;
+    _tvBackgroundBlurSigma = v;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setDouble(_kTvBackgroundBlurSigmaKey, v);
     notifyListeners();
   }
 

@@ -612,6 +612,8 @@ class TvRemoteService extends ChangeNotifier {
         'tvBackgroundImage': appState.tvBackgroundImage,
         'tvBackgroundRandomApiUrl': appState.tvBackgroundRandomApiUrl,
         'tvBackgroundRandomNonce': appState.tvBackgroundRandomNonce,
+        'tvBackgroundOpacity': appState.tvBackgroundOpacity,
+        'tvBackgroundBlurSigma': appState.tvBackgroundBlurSigma,
         'builtInProxySupported': proxy.isSupported,
         'builtInProxyStatus': {
           'state': proxy.state.name,
@@ -623,7 +625,8 @@ class TvRemoteService extends ChangeNotifier {
         },
         'forceRemoteControlKeys': appState.forceRemoteControlKeys,
         'uiScaleFactor': appState.uiScaleFactor,
-        'compactMode': appState.compactMode,
+        'autoSkipIntro': appState.autoSkipIntro,
+        'danmakuEnabled': appState.danmakuEnabled,
       },
       'options': {
         'tvBackgroundMode': TvBackgroundMode.values
@@ -632,9 +635,8 @@ class TvRemoteService extends ChangeNotifier {
       },
       'constraints': const {
         'uiScaleFactor': {'min': 0.25, 'max': 2.0, 'step': 0.05},
-      },
-      'meta': {
-        'compactModeLocked': appState.uiTemplate == UiTemplate.proTool,
+        'tvBackgroundOpacity': {'min': 0.0, 'max': 1.0, 'step': 0.05},
+        'tvBackgroundBlurSigma': {'min': 0.0, 'max': 30.0, 'step': 1.0},
       },
     };
   }
@@ -732,13 +734,6 @@ class TvRemoteService extends ChangeNotifier {
             }
             await appState.setUiScaleFactor(factor);
             break;
-          case 'compactMode':
-            if (appState.uiTemplate == UiTemplate.proTool) {
-              return {'ok': false, 'error': 'compactMode locked by template'};
-            }
-            final enabled = readBool(value, fallback: appState.compactMode);
-            await appState.setCompactMode(enabled);
-            break;
           case 'tvBackgroundMode':
             final mode =
                 tvBackgroundModeFromId((value ?? '').toString().trim());
@@ -766,6 +761,28 @@ class TvRemoteService extends ChangeNotifier {
             if (readBool(value, fallback: false)) {
               await appState.bumpTvBackgroundRandomNonce();
             }
+            break;
+          case 'tvBackgroundOpacity':
+            final opacity = readDouble(value);
+            if (opacity == null) {
+              return {'ok': false, 'error': 'invalid tvBackgroundOpacity'};
+            }
+            await appState.setTvBackgroundOpacity(opacity);
+            break;
+          case 'tvBackgroundBlurSigma':
+            final sigma = readDouble(value);
+            if (sigma == null) {
+              return {'ok': false, 'error': 'invalid tvBackgroundBlurSigma'};
+            }
+            await appState.setTvBackgroundBlurSigma(sigma);
+            break;
+          case 'autoSkipIntro':
+            final enabled = readBool(value, fallback: appState.autoSkipIntro);
+            await appState.setAutoSkipIntro(enabled);
+            break;
+          case 'danmakuEnabled':
+            final enabled = readBool(value, fallback: appState.danmakuEnabled);
+            await appState.setDanmakuEnabled(enabled);
             break;
           default:
             return {'ok': false, 'error': 'unknown key: $key'};

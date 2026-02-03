@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:ui';
 
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
@@ -14,6 +15,9 @@ class TvBackground extends StatelessWidget {
   Widget build(BuildContext context) {
     final mode = appState.tvBackgroundMode;
     final scheme = Theme.of(context).colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final opacity = appState.tvBackgroundOpacity.clamp(0.0, 1.0).toDouble();
+    final blurSigma = appState.tvBackgroundBlurSigma.clamp(0.0, 30.0).toDouble();
 
     Widget? backdrop;
     switch (mode) {
@@ -31,10 +35,29 @@ class TvBackground extends StatelessWidget {
       return const SizedBox.shrink();
     }
 
+    if (opacity < 1.0) {
+      backdrop = Opacity(opacity: opacity, child: backdrop);
+    }
+
+    final blurAllowed = mode == TvBackgroundMode.image ||
+        mode == TvBackgroundMode.randomApi;
+    if (blurAllowed && blurSigma > 0.0) {
+      backdrop = ImageFiltered(
+        imageFilter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+        child: backdrop,
+      );
+    }
+
+    final base = ColoredBox(color: scheme.surface);
+    final scrim = isDark ? Colors.black : Colors.white;
+    final topAlpha = isDark ? 0.18 : 0.10;
+    final bottomAlpha = isDark ? 0.40 : 0.22;
+
     return IgnorePointer(
       child: Stack(
         fit: StackFit.expand,
         children: [
+          base,
           backdrop,
           DecoratedBox(
             decoration: BoxDecoration(
@@ -42,13 +65,13 @@ class TvBackground extends StatelessWidget {
                 begin: Alignment.topCenter,
                 end: Alignment.bottomCenter,
                 colors: [
-                  Colors.black.withValues(alpha: 0.35),
-                  Colors.black.withValues(alpha: 0.55),
+                  scrim.withValues(alpha: topAlpha),
+                  scrim.withValues(alpha: bottomAlpha),
                 ],
               ),
             ),
           ),
-          ColoredBox(color: scheme.surface.withValues(alpha: 0.08)),
+          ColoredBox(color: scheme.surface.withValues(alpha: isDark ? 0.06 : 0.10)),
         ],
       ),
     );
@@ -57,7 +80,7 @@ class TvBackground extends StatelessWidget {
   Widget _buildRandomApi() {
     final base = appState.tvBackgroundRandomApiUrl.trim();
     if (base.isEmpty) {
-      return const ColoredBox(color: Color(0xFF0B0B0B));
+      return const SizedBox.shrink();
     }
     final nonce = appState.tvBackgroundRandomNonce;
     final sep = base.contains('?') ? '&' : '?';
@@ -68,7 +91,7 @@ class TvBackground extends StatelessWidget {
   Widget _buildImage(String raw) {
     final v = raw.trim();
     if (v.isEmpty) {
-      return const ColoredBox(color: Color(0xFF0B0B0B));
+      return const SizedBox.shrink();
     }
     final uri = Uri.tryParse(v);
     if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
@@ -77,7 +100,7 @@ class TvBackground extends StatelessWidget {
     return Image.file(
       File(v),
       fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => const ColoredBox(color: Color(0xFF0B0B0B)),
+      errorBuilder: (_, __, ___) => const SizedBox.shrink(),
     );
   }
 
@@ -87,8 +110,8 @@ class TvBackground extends StatelessWidget {
       fit: BoxFit.cover,
       fadeInDuration: const Duration(milliseconds: 180),
       fadeOutDuration: const Duration(milliseconds: 120),
-      placeholder: (_, __) => const ColoredBox(color: Color(0xFF0B0B0B)),
-      errorWidget: (_, __, ___) => const ColoredBox(color: Color(0xFF0B0B0B)),
+      placeholder: (_, __) => const SizedBox.shrink(),
+      errorWidget: (_, __, ___) => const SizedBox.shrink(),
     );
   }
 }

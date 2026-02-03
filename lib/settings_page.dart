@@ -41,6 +41,8 @@ class _SettingsPageState extends State<SettingsPage> {
   double? _mpvCacheDraftMb;
   double? _bufferBackRatioDraft;
   double? _uiScaleDraft;
+  double? _tvBackgroundOpacityDraft;
+  double? _tvBackgroundBlurSigmaDraft;
   bool _checkingUpdate = false;
   String _currentVersionFull = '';
   bool _tvRemoteBusy = false;
@@ -1126,8 +1128,9 @@ class _SettingsPageState extends State<SettingsPage> {
         BuiltInProxyService.instance.stop();
       }
       if (context.mounted) {
+        final msg = e is StateError ? e.message : e.toString();
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('内置代理切换失败：$e')),
+          SnackBar(content: Text('内置代理切换失败：$msg')),
         );
       }
     } finally {
@@ -1195,8 +1198,9 @@ class _SettingsPageState extends State<SettingsPage> {
       );
     } catch (e) {
       if (!context.mounted) return;
+      final msg = e is StateError ? e.message : e.toString();
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('打开代理面板失败：$e')),
+        SnackBar(content: Text('打开代理面板失败：$msg')),
       );
     } finally {
       if (mounted) setState(() => _tvProxyBusy = false);
@@ -1386,7 +1390,7 @@ class _SettingsPageState extends State<SettingsPage> {
               _Section(
                 title: '外观',
                 subtitle: isTv
-                    ? '自定义背景 / UI 缩放 / 紧凑模式'
+                    ? '自定义背景 / UI 缩放 / 模糊与透明度'
                     : blurAllowed
                         ? (enableBlur ? '手机/桌面启用毛玻璃等特效' : '已关闭毛玻璃特效（更流畅）')
                         : 'TV 端自动关闭高开销特效',
@@ -1491,6 +1495,132 @@ class _SettingsPageState extends State<SettingsPage> {
                           }
                         },
                       ),
+                      if (appState.tvBackgroundMode != TvBackgroundMode.none) ...[
+                        const Divider(height: 1),
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: const Icon(Icons.opacity_outlined),
+                          title: const Text('背景透明度'),
+                          subtitle: Builder(
+                            builder: (context) {
+                              final value =
+                                  (_tvBackgroundOpacityDraft ??
+                                          appState.tvBackgroundOpacity)
+                                      .clamp(0.0, 1.0)
+                                      .toDouble();
+                              final pct = (value * 100).round();
+                              return Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Row(
+                                    children: [
+                                      Expanded(
+                                        child: Text(
+                                          '当前：$pct%（0-100%）',
+                                        ),
+                                      ),
+                                      TextButton(
+                                        onPressed:
+                                            appState.tvBackgroundOpacity == 1.0
+                                                ? null
+                                                : () {
+                                                    setState(() =>
+                                                        _tvBackgroundOpacityDraft =
+                                                            null);
+                                                    // ignore: unawaited_futures
+                                                    appState
+                                                        .setTvBackgroundOpacity(
+                                                            1.0);
+                                                  },
+                                        child: const Text('重置'),
+                                      ),
+                                    ],
+                                  ),
+                                  AppSlider(
+                                    value: value,
+                                    min: 0.0,
+                                    max: 1.0,
+                                    divisions: 20,
+                                    label: '$pct%',
+                                    onChanged: (v) => setState(
+                                        () => _tvBackgroundOpacityDraft = v),
+                                    onChangeEnd: (v) {
+                                      setState(
+                                          () => _tvBackgroundOpacityDraft = null);
+                                      // ignore: unawaited_futures
+                                      appState.setTvBackgroundOpacity(v);
+                                    },
+                                  ),
+                                ],
+                              );
+                            },
+                          ),
+                        ),
+                        if (appState.tvBackgroundMode == TvBackgroundMode.image ||
+                            appState.tvBackgroundMode ==
+                                TvBackgroundMode.randomApi) ...[
+                          const Divider(height: 1),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.blur_on_outlined),
+                            title: const Text('背景模糊度'),
+                            subtitle: Builder(
+                              builder: (context) {
+                                final value =
+                                    (_tvBackgroundBlurSigmaDraft ??
+                                            appState.tvBackgroundBlurSigma)
+                                        .clamp(0.0, 30.0)
+                                        .toDouble();
+                                return Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Row(
+                                      children: [
+                                        Expanded(
+                                          child: Text(
+                                            '当前：${value.toStringAsFixed(0)}（0-30）',
+                                          ),
+                                        ),
+                                        TextButton(
+                                          onPressed: appState
+                                                      .tvBackgroundBlurSigma ==
+                                                  0.0
+                                              ? null
+                                              : () {
+                                                  setState(() =>
+                                                      _tvBackgroundBlurSigmaDraft =
+                                                          null);
+                                                  // ignore: unawaited_futures
+                                                  appState
+                                                      .setTvBackgroundBlurSigma(
+                                                          0.0);
+                                                },
+                                          child: const Text('重置'),
+                                        ),
+                                      ],
+                                    ),
+                                    AppSlider(
+                                      value: value,
+                                      min: 0.0,
+                                      max: 30.0,
+                                      divisions: 30,
+                                      label: value.toStringAsFixed(0),
+                                      onChanged: (v) => setState(() =>
+                                          _tvBackgroundBlurSigmaDraft = v),
+                                      onChangeEnd: (v) {
+                                        setState(() =>
+                                            _tvBackgroundBlurSigmaDraft = null);
+                                        // ignore: unawaited_futures
+                                        appState.setTvBackgroundBlurSigma(v);
+                                      },
+                                    ),
+                                  ],
+                                );
+                              },
+                            ),
+                          ),
+                        ],
+                      ],
                       const Divider(height: 1),
                     ],
                     if (!isTv) ...[
@@ -1560,7 +1690,8 @@ class _SettingsPageState extends State<SettingsPage> {
                       ),
                     ),
                     const Divider(height: 1),
-                    SwitchListTile(
+                    if (!isTv) ...[
+                      SwitchListTile(
                       value: appState.uiTemplate == UiTemplate.proTool
                           ? true
                           : appState.compactMode,
@@ -1574,8 +1705,9 @@ class _SettingsPageState extends State<SettingsPage> {
                             : '缩小控件间距与高度（手机开启会更小）',
                       ),
                       contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
+                      ),
+                      const Divider(height: 1),
+                    ],
                     SwitchListTile(
                       value: appState.showHomeLibraryQuickAccess,
                       onChanged: (v) =>
@@ -1584,15 +1716,17 @@ class _SettingsPageState extends State<SettingsPage> {
                       subtitle: const Text('在首页“继续观看”下方显示媒体库快速访问栏'),
                       contentPadding: EdgeInsets.zero,
                     ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.showHomeRandomRecommendations,
-                      onChanged: (v) =>
-                          appState.setShowHomeRandomRecommendations(v),
-                      title: const Text('首页随机推荐'),
-                      subtitle: const Text('在首页显示“随机推荐”栏目'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
+                    if (!isTv) ...[
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.showHomeRandomRecommendations,
+                        onChanged: (v) =>
+                            appState.setShowHomeRandomRecommendations(v),
+                        title: const Text('首页随机推荐'),
+                        subtitle: const Text('在首页显示“随机推荐”栏目'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
                     const Divider(height: 1),
                     SwitchListTile(
                       value: appState.enableBlurEffects,
@@ -1977,25 +2111,70 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                     const Divider(height: 1),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.comment_outlined),
-                      title: const Text('弹幕'),
-                      subtitle: Text(
-                        appState.danmakuLoadMode == DanmakuLoadMode.online
-                            ? '在线：${appState.danmakuApiUrls.isEmpty ? '未配置弹幕源' : appState.danmakuApiUrls.first}'
-                            : '本地弹幕',
+                    if (isTv) ...[
+                      SwitchListTile(
+                        value: appState.danmakuEnabled,
+                        onChanged: (v) => appState.setDanmakuEnabled(v),
+                        secondary: const Icon(Icons.comment_outlined),
+                        title: const Text('弹幕'),
+                        subtitle: Text(
+                          !appState.danmakuEnabled
+                              ? '已关闭'
+                              : (appState.danmakuLoadMode ==
+                                      DanmakuLoadMode.online
+                                  ? '在线：${appState.danmakuApiUrls.isEmpty ? '未配置弹幕源' : appState.danmakuApiUrls.first}'
+                                  : '本地弹幕'),
+                        ),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      trailing: const Icon(Icons.chevron_right),
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                DanmakuSettingsPage(appState: widget.appState),
-                          ),
-                        );
-                      },
-                    ),
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.tune_outlined),
+                        title: const Text('弹幕设置'),
+                        subtitle: const Text('弹幕源 / 样式 / 匹配'),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => DanmakuSettingsPage(
+                                  appState: widget.appState),
+                            ),
+                          );
+                        },
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.autoSkipIntro,
+                        onChanged: (v) => appState.setAutoSkipIntro(v),
+                        secondary: const Icon(Icons.skip_next_outlined),
+                        title: const Text('自动跳过片头'),
+                        subtitle: const Text(
+                          '服务器支持片头数据时，在片头段会提示是否跳过。',
+                        ),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ] else ...[
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.comment_outlined),
+                        title: const Text('弹幕'),
+                        subtitle: Text(
+                          appState.danmakuLoadMode == DanmakuLoadMode.online
+                              ? '在线：${appState.danmakuApiUrls.isEmpty ? '未配置弹幕源' : appState.danmakuApiUrls.first}'
+                              : '本地弹幕',
+                        ),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => DanmakuSettingsPage(
+                                  appState: widget.appState),
+                            ),
+                          );
+                        },
+                      ),
+                    ],
                     const Divider(height: 1),
                     ListTile(
                       contentPadding: EdgeInsets.zero,
@@ -2076,50 +2255,52 @@ class _SettingsPageState extends State<SettingsPage> {
                 enableBlur: enableBlur,
                 child: Column(
                   children: [
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.apps_outlined),
-                      title: const Text('应用图标'),
-                      subtitle: Text(AppIconService.isSupported
-                          ? '切换后可能需要等待桌面刷新'
-                          : '仅 Android 支持'),
-                      trailing: ConstrainedBox(
-                        constraints: BoxConstraints(maxWidth: trailingMaxWidth),
-                        child: DropdownButtonHideUnderline(
-                          child: DropdownButton<String>(
-                            value: appState.appIconId,
-                            items: const [
-                              DropdownMenuItem(
-                                  value: 'default', child: Text('默认')),
-                              DropdownMenuItem(
-                                  value: 'pink', child: Text('粉色')),
-                              DropdownMenuItem(
-                                  value: 'purple', child: Text('紫色')),
-                              DropdownMenuItem(
-                                  value: 'miku', child: Text('初音未来')),
-                            ],
-                            onChanged: !AppIconService.isSupported
-                                ? null
-                                : (v) async {
-                                    if (v == null) return;
-                                    final ok =
-                                        await AppIconService.setIconId(v);
-                                    if (!ok && context.mounted) {
-                                      ScaffoldMessenger.of(context)
-                                          .showSnackBar(
-                                        const SnackBar(
-                                            content:
-                                                Text('切换失败（可能不支持当前系统/桌面）')),
-                                      );
-                                      return;
-                                    }
-                                    await appState.setAppIconId(v);
-                                  },
+                    if (!isTv) ...[
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.apps_outlined),
+                        title: const Text('应用图标'),
+                        subtitle: Text(AppIconService.isSupported
+                            ? '切换后可能需要等待桌面刷新'
+                            : '仅 Android 支持'),
+                        trailing: ConstrainedBox(
+                          constraints: BoxConstraints(maxWidth: trailingMaxWidth),
+                          child: DropdownButtonHideUnderline(
+                            child: DropdownButton<String>(
+                              value: appState.appIconId,
+                              items: const [
+                                DropdownMenuItem(
+                                    value: 'default', child: Text('默认')),
+                                DropdownMenuItem(
+                                    value: 'pink', child: Text('粉色')),
+                                DropdownMenuItem(
+                                    value: 'purple', child: Text('紫色')),
+                                DropdownMenuItem(
+                                    value: 'miku', child: Text('初音未来')),
+                              ],
+                              onChanged: !AppIconService.isSupported
+                                  ? null
+                                  : (v) async {
+                                      if (v == null) return;
+                                      final ok =
+                                          await AppIconService.setIconId(v);
+                                      if (!ok && context.mounted) {
+                                        ScaffoldMessenger.of(context)
+                                            .showSnackBar(
+                                          const SnackBar(
+                                              content: Text(
+                                                  '切换失败（可能不支持当前系统/桌面）')),
+                                        );
+                                        return;
+                                      }
+                                      await appState.setAppIconId(v);
+                                    },
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                    const Divider(height: 1),
+                      const Divider(height: 1),
+                    ],
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.volunteer_activism_outlined),
@@ -2137,39 +2318,41 @@ class _SettingsPageState extends State<SettingsPage> {
                       },
                     ),
                     const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.autoSkipIntro,
-                      onChanged: (v) async {
-                        await appState.setAutoSkipIntro(v);
-                      },
-                      secondary: const Icon(Icons.skip_next_outlined),
-                      title: const Text('自动跳过片头'),
-                      subtitle: const Text(
-                        '服务器支持片头数据时，在片头段会提示是否跳过。',
+                    if (!isTv) ...[
+                      SwitchListTile(
+                        value: appState.autoSkipIntro,
+                        onChanged: (v) async {
+                          await appState.setAutoSkipIntro(v);
+                        },
+                        secondary: const Icon(Icons.skip_next_outlined),
+                        title: const Text('自动跳过片头'),
+                        subtitle: const Text(
+                          '服务器支持片头数据时，在片头段会提示是否跳过。',
+                        ),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.unlimitedStreamCache,
-                      onChanged: (v) async {
-                        if (v) {
-                          final confirmed =
-                              await _confirmEnableUnlimitedStreamCache(
-                            context,
-                          );
-                          if (!confirmed) return;
-                        }
-                        await appState.setUnlimitedStreamCache(v);
-                      },
-                      secondary: const Icon(Icons.all_inclusive),
-                      title: const Text('不限制视频流缓存'),
-                      subtitle: const Text(
-                        '开启后在线播放会尽量缓存到结束，容易被误判为下载，请谨慎使用。',
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.unlimitedStreamCache,
+                        onChanged: (v) async {
+                          if (v) {
+                            final confirmed =
+                                await _confirmEnableUnlimitedStreamCache(
+                              context,
+                            );
+                            if (!confirmed) return;
+                          }
+                          await appState.setUnlimitedStreamCache(v);
+                        },
+                        secondary: const Icon(Icons.all_inclusive),
+                        title: const Text('不限制视频流缓存'),
+                        subtitle: const Text(
+                          '开启后在线播放会尽量缓存到结束，容易被误判为下载，请谨慎使用。',
+                        ),
+                        contentPadding: EdgeInsets.zero,
                       ),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
+                      const Divider(height: 1),
+                    ],
                     ListTile(
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.delete_outline),
