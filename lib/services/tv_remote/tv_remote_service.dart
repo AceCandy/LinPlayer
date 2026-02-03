@@ -4,13 +4,16 @@ import 'dart:io';
 import 'dart:math';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:lin_player_core/app_config/app_config.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
+import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_server_api/services/server_share_text_parser.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
+import '../built_in_proxy/built_in_proxy_service.dart';
 import 'tv_remote_command_dispatcher.dart';
 
 class TvRemoteService extends ChangeNotifier {
@@ -122,8 +125,8 @@ class TvRemoteService extends ChangeNotifier {
           return;
         }
         response.statusCode = HttpStatus.ok;
-        response.headers
-            .set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+        response.headers.set(
+            HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
         response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
         response.write(
           jsonEncode({
@@ -151,11 +154,12 @@ class TvRemoteService extends ChangeNotifier {
 
         final raw = await utf8.decoder.bind(request).join();
         final decoded = jsonDecode(raw);
-        final map = decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
+        final map =
+            decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
         if (map == null) {
           response.statusCode = HttpStatus.badRequest;
-          response.headers
-              .set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+          response.headers.set(
+              HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
           response.write(jsonEncode({'ok': false, 'error': 'invalid json'}));
           return;
         }
@@ -163,16 +167,16 @@ class TvRemoteService extends ChangeNotifier {
         final token = (map['token'] ?? '').toString().trim();
         if (!_checkToken(token)) {
           response.statusCode = HttpStatus.unauthorized;
-          response.headers
-              .set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+          response.headers.set(
+              HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
           response.write(jsonEncode({'ok': false, 'error': 'unauthorized'}));
           return;
         }
 
         final result = await _handleAddServer(map);
         response.statusCode = HttpStatus.ok;
-        response.headers
-            .set(HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
+        response.headers.set(
+            HttpHeaders.contentTypeHeader, 'application/json; charset=utf-8');
         response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
         response.write(jsonEncode(result));
         return;
@@ -222,6 +226,104 @@ class TvRemoteService extends ChangeNotifier {
         return;
       }
 
+      if (path == '/api/settings') {
+        final method = request.method.toUpperCase();
+        if (method == 'GET') {
+          final token = request.uri.queryParameters['token'] ?? '';
+          if (!_checkToken(token)) {
+            response.statusCode = HttpStatus.unauthorized;
+            response.headers.set(
+              HttpHeaders.contentTypeHeader,
+              'application/json; charset=utf-8',
+            );
+            response.write(jsonEncode({'ok': false, 'error': 'unauthorized'}));
+            return;
+          }
+
+          final data = _buildSettingsPayload();
+          response.statusCode = HttpStatus.ok;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+          response.write(jsonEncode(data));
+          return;
+        }
+
+        if (method != 'POST') {
+          response.statusCode = HttpStatus.methodNotAllowed;
+          response.headers.set(HttpHeaders.allowHeader, 'GET, POST');
+          return;
+        }
+
+        final raw = await utf8.decoder.bind(request).join();
+        final decoded = jsonDecode(raw);
+        final map =
+            decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
+        if (map == null) {
+          response.statusCode = HttpStatus.badRequest;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.write(jsonEncode({'ok': false, 'error': 'invalid json'}));
+          return;
+        }
+
+        final token = (map['token'] ?? '').toString().trim();
+        if (!_checkToken(token)) {
+          response.statusCode = HttpStatus.unauthorized;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.write(jsonEncode({'ok': false, 'error': 'unauthorized'}));
+          return;
+        }
+
+        Map<String, dynamic> values = const {};
+        final v = map['values'];
+        if (v is Map) {
+          values = v.map((k, v) => MapEntry('$k', v));
+        } else if (map.containsKey('key')) {
+          final k = (map['key'] ?? '').toString().trim();
+          if (k.isNotEmpty) {
+            values = {k: map['value']};
+          }
+        }
+
+        if (values.isEmpty) {
+          response.statusCode = HttpStatus.badRequest;
+          response.headers.set(
+            HttpHeaders.contentTypeHeader,
+            'application/json; charset=utf-8',
+          );
+          response.write(jsonEncode({'ok': false, 'error': 'missing values'}));
+          return;
+        }
+
+        final result = await _handleUpdateSettings(values);
+        response.statusCode = HttpStatus.ok;
+        response.headers.set(
+          HttpHeaders.contentTypeHeader,
+          'application/json; charset=utf-8',
+        );
+        response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
+        response.write(jsonEncode(result));
+
+        if (result['stopTvRemote'] == true) {
+          // Best-effort: respond first, then shut down the server.
+          unawaited(
+            Future<void>(() async {
+              await Future<void>.delayed(const Duration(milliseconds: 60));
+              await stop();
+            }),
+          );
+        }
+        return;
+      }
+
       response.statusCode = HttpStatus.notFound;
       response.headers
           .set(HttpHeaders.contentTypeHeader, 'text/plain; charset=utf-8');
@@ -247,9 +349,18 @@ class TvRemoteService extends ChangeNotifier {
     if (path.startsWith('/api/')) return null;
 
     // Friendly aliases.
-    if (path == '/' || path == '/index.html') return 'assets/tv_remote/index.html';
-    if (path == '/setup' || path == '/setup.html') return 'assets/tv_remote/setup.html';
-    if (path == '/remote' || path == '/remote.html') return 'assets/tv_remote/remote.html';
+    if (path == '/' || path == '/index.html') {
+      return 'assets/tv_remote/index.html';
+    }
+    if (path == '/setup' || path == '/setup.html') {
+      return 'assets/tv_remote/setup.html';
+    }
+    if (path == '/remote' || path == '/remote.html') {
+      return 'assets/tv_remote/remote.html';
+    }
+    if (path == '/settings' || path == '/settings.html') {
+      return 'assets/tv_remote/settings.html';
+    }
 
     // Direct mapping to bundled assets.
     final relative = path.substring(1);
@@ -278,7 +389,8 @@ class TvRemoteService extends ChangeNotifier {
 
     response.statusCode = HttpStatus.ok;
     response.headers.set(HttpHeaders.cacheControlHeader, 'no-store');
-    response.headers.set(HttpHeaders.contentTypeHeader, _contentTypeForAsset(assetPath));
+    response.headers
+        .set(HttpHeaders.contentTypeHeader, _contentTypeForAsset(assetPath));
     response.add(data.buffer.asUint8List());
     return true;
   }
@@ -322,7 +434,8 @@ class TvRemoteService extends ChangeNotifier {
     if (event is! String) return;
     try {
       final decoded = jsonDecode(event);
-      final map = decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
+      final map =
+          decoded is Map ? decoded.map((k, v) => MapEntry('$k', v)) : null;
       if (map == null) return;
 
       final type = (map['type'] ?? '').toString().trim();
@@ -335,7 +448,8 @@ class TvRemoteService extends ChangeNotifier {
     }
   }
 
-  Future<Map<String, dynamic>> _handleAddServer(Map<String, dynamic> map) async {
+  Future<Map<String, dynamic>> _handleAddServer(
+      Map<String, dynamic> map) async {
     final appState = _appState;
     if (appState == null) {
       return {'ok': false, 'error': 'app not ready'};
@@ -367,7 +481,8 @@ class TvRemoteService extends ChangeNotifier {
 
     final typeRaw = (map['type'] ?? '').toString().trim().toLowerCase();
     final baseUrl = (map['baseUrl'] ?? '').toString().trim();
-    final schemeRaw = (map['scheme'] ?? 'https').toString().trim().toLowerCase();
+    final schemeRaw =
+        (map['scheme'] ?? 'https').toString().trim().toLowerCase();
     final scheme = schemeRaw == 'http' ? 'http' : 'https';
     final port = (map['port'] ?? '').toString().trim();
     final username = (map['username'] ?? '').toString();
@@ -478,6 +593,202 @@ class TvRemoteService extends ChangeNotifier {
     } catch (e) {
       return {'ok': false, 'error': e.toString()};
     }
+  }
+
+  Map<String, dynamic> _buildSettingsPayload() {
+    final appState = _appState;
+    if (appState == null) {
+      return {'ok': false, 'error': 'app not ready'};
+    }
+
+    String encodeThemeMode(ThemeMode mode) {
+      switch (mode) {
+        case ThemeMode.system:
+          return 'system';
+        case ThemeMode.light:
+          return 'light';
+        case ThemeMode.dark:
+          return 'dark';
+      }
+    }
+
+    final proxy = BuiltInProxyService.instance.status;
+
+    return {
+      'ok': true,
+      'values': {
+        'tvRemoteEnabled': appState.tvRemoteEnabled,
+        'tvBuiltInProxyEnabled': appState.tvBuiltInProxyEnabled,
+        'builtInProxySupported': proxy.isSupported,
+        'builtInProxyStatus': {
+          'state': proxy.state.name,
+          'message': proxy.message,
+          'installed': proxy.isInstalled,
+          'running': proxy.isRunning,
+          'mixedPort': proxy.mixedPort,
+          'controllerPort': proxy.controllerPort,
+        },
+        'forceRemoteControlKeys': appState.forceRemoteControlKeys,
+        'themeMode': encodeThemeMode(appState.themeMode),
+        'uiScaleFactor': appState.uiScaleFactor,
+        'uiTemplate': appState.uiTemplate.id,
+        'compactMode': appState.compactMode,
+        'useDynamicColor': appState.useDynamicColor,
+      },
+      'options': {
+        'themeMode': const [
+          {'id': 'system', 'label': '绯荤粺'},
+          {'id': 'light', 'label': '娴呰壊'},
+          {'id': 'dark', 'label': '娣辫壊'},
+        ],
+        'uiTemplate': UiTemplate.values
+            .map((t) => {'id': t.id, 'label': t.label})
+            .toList(growable: false),
+      },
+      'constraints': const {
+        'uiScaleFactor': {'min': 0.25, 'max': 2.0, 'step': 0.05},
+      },
+      'meta': {
+        'compactModeLocked': appState.uiTemplate == UiTemplate.proTool,
+      },
+    };
+  }
+
+  Future<Map<String, dynamic>> _handleUpdateSettings(
+    Map<String, dynamic> values,
+  ) async {
+    final appState = _appState;
+    if (appState == null) {
+      return {'ok': false, 'error': 'app not ready'};
+    }
+
+    bool readBool(dynamic v, {required bool fallback}) {
+      if (v is bool) return v;
+      if (v is num) return v != 0;
+      if (v is String) {
+        final s = v.trim().toLowerCase();
+        if (s == 'true' || s == '1' || s == 'yes' || s == 'y') return true;
+        if (s == 'false' || s == '0' || s == 'no' || s == 'n') return false;
+      }
+      return fallback;
+    }
+
+    double? readDouble(dynamic v) {
+      if (v is num) return v.toDouble();
+      if (v is String) return double.tryParse(v.trim());
+      return null;
+    }
+
+    ThemeMode? parseThemeMode(dynamic v) {
+      final s = (v ?? '').toString().trim().toLowerCase();
+      switch (s) {
+        case 'system':
+          return ThemeMode.system;
+        case 'light':
+          return ThemeMode.light;
+        case 'dark':
+          return ThemeMode.dark;
+        default:
+          return null;
+      }
+    }
+
+    bool stopTvRemote = false;
+
+    try {
+      for (final entry in values.entries) {
+        final key = entry.key.trim();
+        final value = entry.value;
+
+        switch (key) {
+          case 'tvRemoteEnabled':
+            final enabled = readBool(value, fallback: appState.tvRemoteEnabled);
+            await appState.setTvRemoteEnabled(enabled);
+            if (enabled) {
+              await start(appState: appState);
+            } else {
+              stopTvRemote = true;
+            }
+            break;
+          case 'tvBuiltInProxyEnabled':
+            final enabled =
+                readBool(value, fallback: appState.tvBuiltInProxyEnabled);
+            await appState.setTvBuiltInProxyEnabled(enabled);
+            if (enabled) {
+              await BuiltInProxyService.instance.start();
+            } else {
+              await BuiltInProxyService.instance.stop();
+            }
+            break;
+          case 'forceRemoteControlKeys':
+            final enabled =
+                readBool(value, fallback: appState.forceRemoteControlKeys);
+            await appState.setForceRemoteControlKeys(enabled);
+            break;
+          case 'themeMode':
+            final mode = parseThemeMode(value);
+            if (mode == null) {
+              return {'ok': false, 'error': 'invalid themeMode'};
+            }
+            await appState.setThemeMode(mode);
+            break;
+          case 'uiScaleFactor':
+            final factor = readDouble(value);
+            if (factor == null) {
+              return {'ok': false, 'error': 'invalid uiScaleFactor'};
+            }
+            await appState.setUiScaleFactor(factor);
+            break;
+          case 'uiTemplate':
+            final id = (value ?? '').toString().trim();
+            if (id.isEmpty) {
+              return {'ok': false, 'error': 'invalid uiTemplate'};
+            }
+            final template = uiTemplateFromId(id);
+            await appState.setUiTemplate(template);
+            break;
+          case 'compactMode':
+            if (appState.uiTemplate == UiTemplate.proTool) {
+              return {'ok': false, 'error': 'compactMode locked by template'};
+            }
+            final enabled = readBool(value, fallback: appState.compactMode);
+            await appState.setCompactMode(enabled);
+            break;
+          case 'useDynamicColor':
+            final enabled = readBool(value, fallback: appState.useDynamicColor);
+            await appState.setUseDynamicColor(enabled);
+            break;
+          default:
+            return {'ok': false, 'error': 'unknown key: $key'};
+        }
+      }
+    } catch (e) {
+      // Best-effort: keep state consistent with the in-app settings flow.
+      if (values.containsKey('tvBuiltInProxyEnabled') &&
+          readBool(values['tvBuiltInProxyEnabled'],
+              fallback: appState.tvBuiltInProxyEnabled)) {
+        unawaited(appState.setTvBuiltInProxyEnabled(false));
+        unawaited(BuiltInProxyService.instance.stop());
+      }
+      if (values.containsKey('tvRemoteEnabled') &&
+          readBool(
+            values['tvRemoteEnabled'],
+            fallback: appState.tvRemoteEnabled,
+          )) {
+        unawaited(appState.setTvRemoteEnabled(false));
+        stopTvRemote = true;
+      }
+      return {
+        'ok': false,
+        'error': e.toString(),
+        if (stopTvRemote) 'stopTvRemote': true,
+      };
+    }
+
+    return {
+      'ok': true,
+      if (stopTvRemote) 'stopTvRemote': true,
+    };
   }
 
   static Uri? _buildBaseUri(

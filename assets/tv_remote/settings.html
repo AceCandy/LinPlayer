@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>LinPlayer · TV 设置</title>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; margin: 16px; }
+    .card { max-width: 860px; margin: 0 auto; padding: 16px; border: 1px solid rgba(127,127,127,0.35); border-radius: 14px; background: rgba(127,127,127,0.06); }
+    h1 { font-size: 18px; margin: 0 0 6px 0; }
+    h2 { font-size: 14px; margin: 16px 0 8px 0; opacity: 0.9; }
+    .muted { opacity: 0.75; font-size: 12px; }
+    .nav { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 8px; }
+    .nav a { color: inherit; text-decoration: none; padding: 8px 10px; border-radius: 12px; border: 1px solid rgba(127,127,127,0.25); background: rgba(127,127,127,0.06); }
+    .nav a:active { transform: scale(0.99); }
+    .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    @media (max-width: 720px) { .grid { grid-template-columns: 1fr; } }
+    label { display: block; margin: 10px 0 6px; font-size: 13px; }
+    input, select, button { width: 100%; padding: 10px; font-size: 16px; border-radius: 10px; border: 1px solid rgba(127,127,127,0.35); box-sizing: border-box; background: transparent; color: inherit; }
+    input[type="checkbox"] { width: 20px; height: 20px; padding: 0; }
+    .row { display: flex; gap: 10px; align-items: center; padding: 10px 0; border-bottom: 1px solid rgba(127,127,127,0.18); }
+    .row:last-child { border-bottom: 0; }
+    .row .label { flex: 1; }
+    .row .label .title { font-weight: 700; }
+    .row .label .desc { font-size: 12px; opacity: 0.8; margin-top: 3px; }
+    .row .control { width: 220px; }
+    .row .control.small { width: 120px; }
+    .hint { font-size: 12px; opacity: 0.8; margin-top: 6px; }
+    pre { white-space: pre-wrap; word-break: break-word; font-size: 12px; opacity: 0.85; margin: 12px 0 0 0; }
+    .danger { color: #d14343; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>LinPlayer · TV 设置</h1>
+    <div class="muted" id="info">正在连接…</div>
+
+    <div class="nav">
+      <a id="homeLink" href="#">配对首页</a>
+      <a id="setupLink" href="#">添加服务器</a>
+      <a id="remoteLink" href="#">遥控 TV</a>
+    </div>
+
+    <hr style="opacity:0.25; margin: 14px 0;" />
+
+    <h2>TV 专区</h2>
+    <div class="row">
+      <div class="label">
+        <div class="title">手机扫码控制</div>
+        <div class="desc danger">关闭后会断开当前页面连接</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="tvRemoteEnabled" />
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">
+        <div class="title">内置代理（mihomo）</div>
+        <div class="desc" id="proxyDesc">仅 Android TV 支持</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="tvBuiltInProxyEnabled" />
+      </div>
+    </div>
+
+    <h2>外观</h2>
+    <div class="grid">
+      <div>
+        <label>主题</label>
+        <select id="themeMode"></select>
+      </div>
+      <div>
+        <label>UI 模板</label>
+        <select id="uiTemplate"></select>
+        <div class="hint" id="templateHint"></div>
+      </div>
+    </div>
+
+    <div class="row">
+      <div class="label">
+        <div class="title">紧凑模式</div>
+        <div class="desc" id="compactDesc">缩小控件间距与高度</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="compactMode" />
+      </div>
+    </div>
+
+    <label>UI 缩放：<span id="uiScaleLabel">1.00x</span></label>
+    <input type="range" id="uiScaleFactor" min="0.25" max="2.0" step="0.05" />
+
+    <div class="row">
+      <div class="label">
+        <div class="title">动态取色（Android 12+）</div>
+        <div class="desc">从系统壁纸提取配色（不支持设备会自动忽略）</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="useDynamicColor" />
+      </div>
+    </div>
+
+    <h2>交互</h2>
+    <div class="row">
+      <div class="label">
+        <div class="title">强制启用遥控器按键支持</div>
+        <div class="desc">非 TV 设备建议关闭；TV 设备保持开启即可</div>
+      </div>
+      <div class="control small">
+        <input type="checkbox" id="forceRemoteControlKeys" />
+      </div>
+    </div>
+
+    <pre id="log"></pre>
+  </div>
+
+  <script>
+    const params = new URLSearchParams(location.search);
+    const token = params.get('token') || '';
+
+    const logEl = document.getElementById('log');
+    const infoEl = document.getElementById('info');
+    const log = (s) => { logEl.textContent = (new Date().toLocaleTimeString()) + ' ' + s + '\n' + logEl.textContent; };
+
+    const homeLink = document.getElementById('homeLink');
+    const setupLink = document.getElementById('setupLink');
+    const remoteLink = document.getElementById('remoteLink');
+    homeLink.href = '/index.html?token=' + encodeURIComponent(token);
+    setupLink.href = '/setup.html?token=' + encodeURIComponent(token);
+    remoteLink.href = '/remote.html?token=' + encodeURIComponent(token);
+
+    const apiPost = async (path, body) => {
+      const res = await fetch(path, {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      return await res.json();
+    };
+
+    const loadInfo = async () => {
+      if (!token) {
+        infoEl.textContent = '缺少 token：请重新扫码打开。';
+        return;
+      }
+      try {
+        const res = await fetch('/api/info?token=' + encodeURIComponent(token), { cache: 'no-store' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        const app = data.app || {};
+        const server = data.server || {};
+        infoEl.textContent =
+          `${app.name || 'LinPlayer'} ${app.version || ''}` +
+          (server.activeServerName ? ` · 当前：${server.activeServerName}` : '');
+      } catch (e) {
+        infoEl.textContent = '连接失败：' + e;
+      }
+    };
+
+    const els = {
+      tvRemoteEnabled: document.getElementById('tvRemoteEnabled'),
+      tvBuiltInProxyEnabled: document.getElementById('tvBuiltInProxyEnabled'),
+      proxyDesc: document.getElementById('proxyDesc'),
+      themeMode: document.getElementById('themeMode'),
+      uiTemplate: document.getElementById('uiTemplate'),
+      templateHint: document.getElementById('templateHint'),
+      compactMode: document.getElementById('compactMode'),
+      compactDesc: document.getElementById('compactDesc'),
+      uiScaleFactor: document.getElementById('uiScaleFactor'),
+      uiScaleLabel: document.getElementById('uiScaleLabel'),
+      useDynamicColor: document.getElementById('useDynamicColor'),
+      forceRemoteControlKeys: document.getElementById('forceRemoteControlKeys'),
+    };
+
+    const setControlsDisabled = (disabled) => {
+      Object.values(els).forEach((el) => {
+        if (!el || !('disabled' in el)) return;
+        el.disabled = disabled;
+      });
+    };
+
+    const setSelectOptions = (selectEl, options) => {
+      selectEl.innerHTML = '';
+      (options || []).forEach((opt) => {
+        const o = document.createElement('option');
+        o.value = String(opt.id);
+        o.textContent = opt.label ? String(opt.label) : String(opt.id);
+        selectEl.appendChild(o);
+      });
+    };
+
+    let latest = null;
+    const loadSettings = async () => {
+      if (!token) return;
+      try {
+        const res = await fetch('/api/settings?token=' + encodeURIComponent(token), { cache: 'no-store' });
+        const data = await res.json();
+        if (!data.ok) throw new Error(data.error || 'unknown');
+        latest = data;
+
+        const values = data.values || {};
+        const options = data.options || {};
+        const constraints = (data.constraints || {}).uiScaleFactor || {};
+        const meta = data.meta || {};
+
+        els.tvRemoteEnabled.checked = !!values.tvRemoteEnabled;
+
+        const proxyStatus = values.builtInProxyStatus || {};
+        const proxySupported = !!values.builtInProxySupported;
+        els.tvBuiltInProxyEnabled.checked = !!values.tvBuiltInProxyEnabled;
+        els.tvBuiltInProxyEnabled.disabled = !proxySupported;
+        els.proxyDesc.textContent = proxySupported ? (proxyStatus.message || '支持') : '仅 Android TV 支持';
+
+        setSelectOptions(els.themeMode, options.themeMode || []);
+        els.themeMode.value = String(values.themeMode || 'system');
+
+        setSelectOptions(els.uiTemplate, options.uiTemplate || []);
+        els.uiTemplate.value = String(values.uiTemplate || '');
+
+        els.compactMode.checked = !!values.compactMode;
+        if (meta.compactModeLocked) {
+          els.compactMode.disabled = true;
+          els.compactDesc.textContent = '当前模板强制开启（不可关闭）';
+        } else {
+          els.compactMode.disabled = false;
+          els.compactDesc.textContent = '缩小控件间距与高度';
+        }
+
+        els.useDynamicColor.checked = !!values.useDynamicColor;
+        els.forceRemoteControlKeys.checked = !!values.forceRemoteControlKeys;
+
+        const min = Number(constraints.min != null ? constraints.min : 0.25);
+        const max = Number(constraints.max != null ? constraints.max : 2.0);
+        const step = Number(constraints.step != null ? constraints.step : 0.05);
+        els.uiScaleFactor.min = String(min);
+        els.uiScaleFactor.max = String(max);
+        els.uiScaleFactor.step = String(step);
+        const uiScale = Number(values.uiScaleFactor != null ? values.uiScaleFactor : 1.0);
+        els.uiScaleFactor.value = String(uiScale);
+        els.uiScaleLabel.textContent = uiScale.toFixed(2) + 'x';
+
+        els.templateHint.textContent = (els.uiTemplate.value === 'pro')
+          ? '专业工具模板：会强制开启紧凑模式'
+          : '';
+      } catch (e) {
+        log('读取设置失败：' + e);
+      }
+    };
+
+    let saving = false;
+    const save = async (values) => {
+      if (!token) { log('缺少 token'); return; }
+      if (saving) return;
+      saving = true;
+      setControlsDisabled(true);
+      try {
+        const res = await apiPost('/api/settings', { token, values });
+        if (!res.ok) throw new Error(res.error || 'unknown');
+        log('已保存');
+        if (res.stopTvRemote) {
+          log('已关闭“手机扫码控制”，页面即将断开');
+          return;
+        }
+        await loadSettings();
+      } catch (e) {
+        log('保存失败：' + e);
+        await loadSettings();
+      } finally {
+        saving = false;
+        setControlsDisabled(false);
+      }
+    };
+
+    els.tvRemoteEnabled.addEventListener('change', async (e) => {
+      const v = !!e.target.checked;
+      if (!v) {
+        const ok = confirm('关闭后将断开当前页面连接，确定要关闭吗？');
+        if (!ok) { await loadSettings(); return; }
+      }
+      await save({ tvRemoteEnabled: v });
+    });
+    els.tvBuiltInProxyEnabled.addEventListener('change', async (e) => {
+      await save({ tvBuiltInProxyEnabled: !!e.target.checked });
+    });
+    els.themeMode.addEventListener('change', async (e) => {
+      await save({ themeMode: String(e.target.value || 'system') });
+    });
+    els.uiTemplate.addEventListener('change', async (e) => {
+      await save({ uiTemplate: String(e.target.value || '') });
+    });
+    els.compactMode.addEventListener('change', async (e) => {
+      await save({ compactMode: !!e.target.checked });
+    });
+    els.uiScaleFactor.addEventListener('input', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      els.uiScaleLabel.textContent = v.toFixed(2) + 'x';
+    });
+    els.uiScaleFactor.addEventListener('change', async (e) => {
+      const v = Number(e.target.value);
+      if (!Number.isFinite(v)) return;
+      await save({ uiScaleFactor: v });
+    });
+    els.useDynamicColor.addEventListener('change', async (e) => {
+      await save({ useDynamicColor: !!e.target.checked });
+    });
+    els.forceRemoteControlKeys.addEventListener('change', async (e) => {
+      await save({ forceRemoteControlKeys: !!e.target.checked });
+    });
+
+    loadInfo();
+    loadSettings();
+  </script>
+</body>
+</html>

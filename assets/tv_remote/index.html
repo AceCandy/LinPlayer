@@ -40,6 +40,10 @@
             <div class="title">遥控 TV</div>
             <div class="desc">方向键 / 确认 / 返回</div>
           </a>
+          <a class="btn" id="settingsLink" href="#">
+            <div class="title">设置</div>
+            <div class="desc">调整 TV 端设置（UI/TV 专区等）</div>
+          </a>
         </div>
 
         <div class="muted" style="margin-top: 14px;">
@@ -54,8 +58,10 @@
 
       const setupLink = document.getElementById('setupLink');
       const remoteLink = document.getElementById('remoteLink');
+      const settingsLink = document.getElementById('settingsLink');
       setupLink.href = '/setup.html?token=' + encodeURIComponent(token);
       remoteLink.href = '/remote.html?token=' + encodeURIComponent(token);
+      settingsLink.href = '/settings.html?token=' + encodeURIComponent(token);
 
       const infoEl = document.getElementById('info');
       const loadInfo = async () => {
@@ -80,4 +86,3 @@
     </script>
   </body>
 </html>
-
