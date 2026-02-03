@@ -409,7 +409,6 @@ flutter build linux --release
 - [x] TV 内置代理 MVP：mihomo start/stop/status（仅 Android TV）
 - [x] 代理面板：metacubexd 打包/解压 + 本地 WebView 打开
 - [x] 走代理：App HTTP + 播放器网络流（mpv 参数注入）
-- [ ] 合规：确认 mihomo / metacubexd 许可证与分发声明
 
 ## Star History
 
