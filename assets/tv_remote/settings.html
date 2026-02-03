@@ -65,6 +65,17 @@
       </div>
     </div>
 
+    <div class="row" id="proxySubRow">
+      <div class="label">
+        <div class="title">订阅地址（可选）</div>
+        <div class="desc">保存后将写入 mihomo 配置（需重启内置代理生效）</div>
+      </div>
+      <div class="control" style="width: 360px;">
+        <input id="tvBuiltInProxySubscriptionUrl" placeholder="https://..." />
+        <button type="button" id="saveProxySubBtn" style="margin-top: 8px;">保存</button>
+      </div>
+    </div>
+
     <h2>背景</h2>
     <div class="grid">
       <div>
@@ -202,6 +213,9 @@
       tvRemoteEnabled: document.getElementById('tvRemoteEnabled'),
       tvBuiltInProxyEnabled: document.getElementById('tvBuiltInProxyEnabled'),
       proxyDesc: document.getElementById('proxyDesc'),
+      proxySubRow: document.getElementById('proxySubRow'),
+      tvBuiltInProxySubscriptionUrl: document.getElementById('tvBuiltInProxySubscriptionUrl'),
+      saveProxySubBtn: document.getElementById('saveProxySubBtn'),
       tvBackgroundMode: document.getElementById('tvBackgroundMode'),
       bgColorWrap: document.getElementById('bgColorWrap'),
       tvBackgroundColorPicker: document.getElementById('tvBackgroundColorPicker'),
@@ -266,6 +280,8 @@
         els.tvBuiltInProxyEnabled.checked = !!values.tvBuiltInProxyEnabled;
         els.tvBuiltInProxyEnabled.disabled = !proxySupported;
         els.proxyDesc.textContent = proxySupported ? (proxyStatus.message || '支持') : '仅 Android TV 支持';
+        els.proxySubRow.style.display = proxySupported ? '' : 'none';
+        els.tvBuiltInProxySubscriptionUrl.value = String(values.tvBuiltInProxySubscriptionUrl || '');
 
         setSelectOptions(els.tvBackgroundMode, options.tvBackgroundMode || []);
         const bgMode = String(values.tvBackgroundMode || 'none');
@@ -365,6 +381,11 @@
     });
     els.tvBuiltInProxyEnabled.addEventListener('change', async (e) => {
       await save({ tvBuiltInProxyEnabled: !!e.target.checked });
+    });
+    els.saveProxySubBtn.addEventListener('click', async () => {
+      await save({
+        tvBuiltInProxySubscriptionUrl: String(els.tvBuiltInProxySubscriptionUrl.value || '').trim(),
+      });
     });
     els.tvBackgroundMode.addEventListener('change', async (e) => {
       await save({ tvBackgroundMode: String(e.target.value || 'none') });

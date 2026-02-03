@@ -47,6 +47,7 @@ class _SettingsPageState extends State<SettingsPage> {
   String _currentVersionFull = '';
   bool _tvRemoteBusy = false;
   bool _tvProxyBusy = false;
+  String _tvProxySubscriptionUrl = '';
   final ScrollController _scrollController = ScrollController();
   VoidCallback? _primaryFocusListener;
   Timer? _focusEnsureTimer;
@@ -58,6 +59,7 @@ class _SettingsPageState extends State<SettingsPage> {
     _attachTvFocusAutoScroll();
     if (DeviceType.isTv) {
       unawaited(BuiltInProxyService.instance.refresh());
+      unawaited(_loadTvProxySubscriptionUrl());
     }
   }
 
@@ -107,6 +109,14 @@ class _SettingsPageState extends State<SettingsPage> {
       setState(() {
         _currentVersionFull = AppUpdateService.packageVersionFull(info);
       });
+    } catch (_) {}
+  }
+
+  Future<void> _loadTvProxySubscriptionUrl() async {
+    try {
+      final url = await BuiltInProxyService.instance.getSubscriptionUrl();
+      if (!mounted) return;
+      setState(() => _tvProxySubscriptionUrl = url);
     } catch (_) {}
   }
 
@@ -1207,6 +1217,60 @@ class _SettingsPageState extends State<SettingsPage> {
     }
   }
 
+  Future<void> _editTvProxySubscriptionUrl(BuildContext context) async {
+    if (_tvProxyBusy) return;
+
+    final controller = TextEditingController(text: _tvProxySubscriptionUrl);
+    final next = await showDialog<String>(
+      context: context,
+      builder: (dctx) => AlertDialog(
+        title: const Text('订阅地址'),
+        content: TextField(
+          controller: controller,
+          autofocus: true,
+          keyboardType: TextInputType.url,
+          textInputAction: TextInputAction.done,
+          decoration: const InputDecoration(
+            hintText: 'https://...',
+            helperText: '保存后将写入 mihomo 配置（需重启内置代理生效）',
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(dctx).pop(null),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(dctx).pop(controller.text.trim()),
+            child: const Text('保存'),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+
+    if (next == null) return;
+    setState(() => _tvProxyBusy = true);
+
+    try {
+      await BuiltInProxyService.instance.setSubscriptionUrl(next);
+      await BuiltInProxyService.instance.prepareConfig();
+      if (!mounted) return;
+      setState(() => _tvProxySubscriptionUrl = next);
+
+      final effective = next.trim();
+      final hint = effective.isEmpty ? '已清空订阅地址' : '已保存订阅地址（重启内置代理后生效）';
+      ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(hint)));
+    } catch (e) {
+      if (!context.mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('保存失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _tvProxyBusy = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final isTv = _isTv(context);
@@ -1314,6 +1378,32 @@ class _SettingsPageState extends State<SettingsPage> {
                             onChanged: _tvProxyBusy
                                 ? null
                                 : (v) => _setTvBuiltInProxyEnabled(context, v),
+                          ),
+                          const Divider(height: 1),
+                          ListTile(
+                            contentPadding: EdgeInsets.zero,
+                            leading: const Icon(Icons.link_outlined),
+                            title: const Text('订阅地址（可选）'),
+                            subtitle: Text(
+                              _tvProxySubscriptionUrl.trim().isEmpty
+                                  ? '未设置（将以 DIRECT 模式启动）'
+                                  : _tvProxySubscriptionUrl,
+                              maxLines: 2,
+                              overflow: TextOverflow.ellipsis,
+                            ),
+                            trailing: FilledButton(
+                              onPressed: _tvProxyBusy
+                                  ? null
+                                  : () => _editTvProxySubscriptionUrl(context),
+                              child: Text(
+                                _tvProxySubscriptionUrl.trim().isEmpty
+                                    ? '设置'
+                                    : '编辑',
+                              ),
+                            ),
+                            onTap: _tvProxyBusy
+                                ? null
+                                : () => _editTvProxySubscriptionUrl(context),
                           ),
                           if (proxyEnabled) ...[
                             const Divider(height: 1),
@@ -1495,7 +1585,8 @@ class _SettingsPageState extends State<SettingsPage> {
                           }
                         },
                       ),
-                      if (appState.tvBackgroundMode != TvBackgroundMode.none) ...[
+                      if (appState.tvBackgroundMode !=
+                          TvBackgroundMode.none) ...[
                         const Divider(height: 1),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -1503,11 +1594,10 @@ class _SettingsPageState extends State<SettingsPage> {
                           title: const Text('背景透明度'),
                           subtitle: Builder(
                             builder: (context) {
-                              final value =
-                                  (_tvBackgroundOpacityDraft ??
-                                          appState.tvBackgroundOpacity)
-                                      .clamp(0.0, 1.0)
-                                      .toDouble();
+                              final value = (_tvBackgroundOpacityDraft ??
+                                      appState.tvBackgroundOpacity)
+                                  .clamp(0.0, 1.0)
+                                  .toDouble();
                               final pct = (value * 100).round();
                               return Column(
                                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -1545,8 +1635,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                     onChanged: (v) => setState(
                                         () => _tvBackgroundOpacityDraft = v),
                                     onChangeEnd: (v) {
-                                      setState(
-                                          () => _tvBackgroundOpacityDraft = null);
+                                      setState(() =>
+                                          _tvBackgroundOpacityDraft = null);
                                       // ignore: unawaited_futures
                                       appState.setTvBackgroundOpacity(v);
                                     },
@@ -1556,7 +1646,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             },
                           ),
                         ),
-                        if (appState.tvBackgroundMode == TvBackgroundMode.image ||
+                        if (appState.tvBackgroundMode ==
+                                TvBackgroundMode.image ||
                             appState.tvBackgroundMode ==
                                 TvBackgroundMode.randomApi) ...[
                           const Divider(height: 1),
@@ -1566,11 +1657,10 @@ class _SettingsPageState extends State<SettingsPage> {
                             title: const Text('背景模糊度'),
                             subtitle: Builder(
                               builder: (context) {
-                                final value =
-                                    (_tvBackgroundBlurSigmaDraft ??
-                                            appState.tvBackgroundBlurSigma)
-                                        .clamp(0.0, 30.0)
-                                        .toDouble();
+                                final value = (_tvBackgroundBlurSigmaDraft ??
+                                        appState.tvBackgroundBlurSigma)
+                                    .clamp(0.0, 30.0)
+                                    .toDouble();
                                 return Column(
                                   crossAxisAlignment: CrossAxisAlignment.start,
                                   children: [
@@ -1582,19 +1672,19 @@ class _SettingsPageState extends State<SettingsPage> {
                                           ),
                                         ),
                                         TextButton(
-                                          onPressed: appState
-                                                      .tvBackgroundBlurSigma ==
-                                                  0.0
-                                              ? null
-                                              : () {
-                                                  setState(() =>
-                                                      _tvBackgroundBlurSigmaDraft =
-                                                          null);
-                                                  // ignore: unawaited_futures
-                                                  appState
-                                                      .setTvBackgroundBlurSigma(
-                                                          0.0);
-                                                },
+                                          onPressed:
+                                              appState.tvBackgroundBlurSigma ==
+                                                      0.0
+                                                  ? null
+                                                  : () {
+                                                      setState(() =>
+                                                          _tvBackgroundBlurSigmaDraft =
+                                                              null);
+                                                      // ignore: unawaited_futures
+                                                      appState
+                                                          .setTvBackgroundBlurSigma(
+                                                              0.0);
+                                                    },
                                           child: const Text('重置'),
                                         ),
                                       ],
@@ -1692,19 +1782,19 @@ class _SettingsPageState extends State<SettingsPage> {
                     const Divider(height: 1),
                     if (!isTv) ...[
                       SwitchListTile(
-                      value: appState.uiTemplate == UiTemplate.proTool
-                          ? true
-                          : appState.compactMode,
-                      onChanged: appState.uiTemplate == UiTemplate.proTool
-                          ? null
-                          : (v) => appState.setCompactMode(v),
-                      title: const Text('紧凑模式'),
-                      subtitle: Text(
-                        appState.uiTemplate == UiTemplate.proTool
-                            ? '专业工具模板固定启用'
-                            : '缩小控件间距与高度（手机开启会更小）',
-                      ),
-                      contentPadding: EdgeInsets.zero,
+                        value: appState.uiTemplate == UiTemplate.proTool
+                            ? true
+                            : appState.compactMode,
+                        onChanged: appState.uiTemplate == UiTemplate.proTool
+                            ? null
+                            : (v) => appState.setCompactMode(v),
+                        title: const Text('紧凑模式'),
+                        subtitle: Text(
+                          appState.uiTemplate == UiTemplate.proTool
+                              ? '专业工具模板固定启用'
+                              : '缩小控件间距与高度（手机开启会更小）',
+                        ),
+                        contentPadding: EdgeInsets.zero,
                       ),
                       const Divider(height: 1),
                     ],
@@ -2264,7 +2354,8 @@ class _SettingsPageState extends State<SettingsPage> {
                             ? '切换后可能需要等待桌面刷新'
                             : '仅 Android 支持'),
                         trailing: ConstrainedBox(
-                          constraints: BoxConstraints(maxWidth: trailingMaxWidth),
+                          constraints:
+                              BoxConstraints(maxWidth: trailingMaxWidth),
                           child: DropdownButtonHideUnderline(
                             child: DropdownButton<String>(
                               value: appState.appIconId,
@@ -2288,8 +2379,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                         ScaffoldMessenger.of(context)
                                             .showSnackBar(
                                           const SnackBar(
-                                              content: Text(
-                                                  '切换失败（可能不支持当前系统/桌面）')),
+                                              content:
+                                                  Text('切换失败（可能不支持当前系统/桌面）')),
                                         );
                                         return;
                                       }

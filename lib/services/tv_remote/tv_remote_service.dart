@@ -239,7 +239,7 @@ class TvRemoteService extends ChangeNotifier {
             return;
           }
 
-          final data = _buildSettingsPayload();
+          final data = await _buildSettingsPayload();
           response.statusCode = HttpStatus.ok;
           response.headers.set(
             HttpHeaders.contentTypeHeader,
@@ -594,19 +594,22 @@ class TvRemoteService extends ChangeNotifier {
     }
   }
 
-  Map<String, dynamic> _buildSettingsPayload() {
+  Future<Map<String, dynamic>> _buildSettingsPayload() async {
     final appState = _appState;
     if (appState == null) {
       return {'ok': false, 'error': 'app not ready'};
     }
 
     final proxy = BuiltInProxyService.instance.status;
+    final subscriptionUrl =
+        await BuiltInProxyService.instance.getSubscriptionUrl();
 
     return {
       'ok': true,
       'values': {
         'tvRemoteEnabled': appState.tvRemoteEnabled,
         'tvBuiltInProxyEnabled': appState.tvBuiltInProxyEnabled,
+        'tvBuiltInProxySubscriptionUrl': subscriptionUrl,
         'tvBackgroundMode': appState.tvBackgroundMode.id,
         'tvBackgroundColor': appState.tvBackgroundColor,
         'tvBackgroundImage': appState.tvBackgroundImage,
@@ -721,6 +724,11 @@ class TvRemoteService extends ChangeNotifier {
             } else {
               await BuiltInProxyService.instance.stop();
             }
+            break;
+          case 'tvBuiltInProxySubscriptionUrl':
+            await BuiltInProxyService.instance
+                .setSubscriptionUrl((value ?? '').toString());
+            await BuiltInProxyService.instance.prepareConfig();
             break;
           case 'forceRemoteControlKeys':
             final enabled =
