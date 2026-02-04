@@ -522,6 +522,33 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     return (ms['Name'] as String?) ?? (ms['Container'] as String?) ?? '默认版本';
   }
 
+  static int _compareMediaSourcesByQuality(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+  ) {
+    int heightOf(Map<String, dynamic> ms) {
+      final videoStreams = _streamsOfType(ms, 'Video');
+      final video = videoStreams.isNotEmpty ? videoStreams.first : null;
+      return _asInt(video?['Height']) ?? 0;
+    }
+
+    int bitrateOf(Map<String, dynamic> ms) => _asInt(ms['Bitrate']) ?? 0;
+
+    int sizeOf(Map<String, dynamic> ms) {
+      final v = ms['Size'];
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
+
+    final h = heightOf(b) - heightOf(a);
+    if (h != 0) return h;
+    final br = bitrateOf(b) - bitrateOf(a);
+    if (br != 0) return br;
+    return sizeOf(b) - sizeOf(a);
+  }
+
   static String? _pickPreferredMediaSourceId(
     List<Map<String, dynamic>> sources,
     VideoVersionPreference pref,
@@ -841,6 +868,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     final sources = info.mediaSources.cast<Map<String, dynamic>>();
     if (sources.isEmpty) return;
 
+    final sortedSources = List<Map<String, dynamic>>.from(sources)
+      ..sort(_compareMediaSourcesByQuality);
+
     final selected = await showModalBottomSheet<String>(
       context: context,
       builder: (ctx) {
@@ -848,7 +878,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           child: ListView(
             children: [
               const ListTile(title: Text('版本选择')),
-              ...sources.map((ms) {
+              ...sortedSources.map((ms) {
                 final id = ms['Id'] as String? ?? '';
                 final selectedNow =
                     id.isNotEmpty && id == _selectedMediaSourceId;
@@ -2072,6 +2102,9 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     final sources = info.mediaSources.cast<Map<String, dynamic>>();
     if (sources.isEmpty) return;
 
+    final sortedSources = List<Map<String, dynamic>>.from(sources)
+      ..sort(_ShowDetailPageState._compareMediaSourcesByQuality);
+
     final current = (_selectedMediaSourceId ?? '').trim();
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -2080,7 +2113,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
           child: ListView(
             children: [
               const ListTile(title: Text('版本选择')),
-              ...sources.map((ms) {
+              ...sortedSources.map((ms) {
                 final id = (ms['Id']?.toString() ?? '').trim();
                 final selectedNow = id.isNotEmpty && id == current;
                 return ListTile(

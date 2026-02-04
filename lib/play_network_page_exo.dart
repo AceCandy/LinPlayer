@@ -2108,6 +2108,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     }
 
     final current = _mediaSourceId ?? _selectedMediaSourceId ?? '';
+    final sortedSources = List<Map<String, dynamic>>.from(sources)
+      ..sort(_compareMediaSourcesByQuality);
     if (!mounted) return;
     final selected = await showModalBottomSheet<String>(
       context: context,
@@ -2116,7 +2118,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
           child: ListView(
             children: [
               const ListTile(title: Text('版本选择')),
-              for (final ms in sources)
+              for (final ms in sortedSources)
                 ListTile(
                   leading: Icon(
                     (ms['Id']?.toString() ?? '') == current
@@ -2534,6 +2536,33 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
 
   static String _mediaSourceTitle(Map<String, dynamic> ms) {
     return (ms['Name'] as String?) ?? (ms['Container'] as String?) ?? '默认版本';
+  }
+
+  static int _compareMediaSourcesByQuality(
+    Map<String, dynamic> a,
+    Map<String, dynamic> b,
+  ) {
+    int heightOf(Map<String, dynamic> ms) {
+      final videos = _streamsOfType(ms, 'Video');
+      final video = videos.isNotEmpty ? videos.first : null;
+      return _asInt(video?['Height']) ?? 0;
+    }
+
+    int bitrateOf(Map<String, dynamic> ms) => _asInt(ms['Bitrate']) ?? 0;
+
+    int sizeOf(Map<String, dynamic> ms) {
+      final v = ms['Size'];
+      if (v is int) return v;
+      if (v is num) return v.toInt();
+      if (v is String) return int.tryParse(v) ?? 0;
+      return 0;
+    }
+
+    final h = heightOf(b) - heightOf(a);
+    if (h != 0) return h;
+    final br = bitrateOf(b) - bitrateOf(a);
+    if (br != 0) return br;
+    return sizeOf(b) - sizeOf(a);
   }
 
   static String? _pickPreferredMediaSourceId(

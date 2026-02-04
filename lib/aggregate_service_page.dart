@@ -1142,13 +1142,143 @@ class _AggregateWorkDetailPage extends StatefulWidget {
 
 class _AggregateWorkDetailPageState extends State<_AggregateWorkDetailPage> {
   String? _loadingKey;
+  final Map<String, Future<List<_MovieSourceInfo>?>> _movieSourcesFutures = {};
+  final Map<String, List<_MovieSourceInfo>?> _movieSourcesCache = {};
+
+  static int? _asInt(dynamic value) {
+    if (value is int) return value;
+    if (value is num) return value.toInt();
+    if (value is String) return int.tryParse(value);
+    return null;
+  }
+
+  static List<Map<String, dynamic>> _streamsOfType(
+      Map<String, dynamic> ms, String type) {
+    final streams = (ms['MediaStreams'] as List?) ?? const [];
+    return streams
+        .where((e) => (e as Map)['Type'] == type)
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+  }
+
+  static int _heightOf(Map<String, dynamic> ms) {
+    final videoStreams = _streamsOfType(ms, 'Video');
+    final video = videoStreams.isNotEmpty ? videoStreams.first : null;
+    return _asInt(video?['Height']) ?? 0;
+  }
+
+  static int _bitrateOf(Map<String, dynamic> ms) => _asInt(ms['Bitrate']) ?? 0;
+
+  static int _sizeOf(Map<String, dynamic> ms) {
+    final v = ms['Size'];
+    if (v is int) return v;
+    if (v is num) return v.toInt();
+    if (v is String) return int.tryParse(v) ?? 0;
+    return 0;
+  }
+
+  static int _compareMovieQuality(_MovieQualityInfo? a, _MovieQualityInfo? b) {
+    final aH = a?.height ?? 0;
+    final bH = b?.height ?? 0;
+    if (aH != bH) return aH.compareTo(bH);
+    final aB = a?.bitrate ?? 0;
+    final bB = b?.bitrate ?? 0;
+    if (aB != bB) return aB.compareTo(bB);
+    final aS = a?.sizeBytes ?? 0;
+    final bS = b?.sizeBytes ?? 0;
+    return aS.compareTo(bS);
+  }
+
+  static _MovieQualityInfo? _bestMovieQuality(List<_MovieSourceInfo>? sources) {
+    if (sources == null || sources.isEmpty) return null;
+    return sources.first.quality;
+  }
+
+  Future<List<_MovieSourceInfo>?> _fetchMovieSources(
+    ServerProfile server,
+    String itemId,
+  ) async {
+    final access =
+        resolveServerAccess(appState: widget.appState, server: server);
+    if (access == null) return null;
+    final info = await access.adapter.fetchPlaybackInfo(
+      access.auth,
+      itemId: itemId,
+      exoPlayer: false,
+    );
+    final rawSources = info.mediaSources.cast<Map<String, dynamic>>();
+    final sources =
+        rawSources.map((ms) => _MovieSourceInfo.fromMediaSource(ms)).toList();
+    sources.sort((a, b) {
+      final diff = _compareMovieQuality(b.quality, a.quality);
+      if (diff != 0) return diff;
+      return a.id.compareTo(b.id);
+    });
+    return sources;
+  }
+
+  Future<List<_MovieSourceInfo>?> _resolveMovieSources(
+    ServerProfile server,
+    String itemId,
+  ) {
+    final key = '${server.id}:$itemId';
+    final cached = _movieSourcesCache.containsKey(key);
+    if (cached) return Future.value(_movieSourcesCache[key]);
+    final existing = _movieSourcesFutures[key];
+    if (existing != null) return existing;
+
+    final future = _fetchMovieSources(server, itemId).then((value) {
+      _movieSourcesCache[key] = value;
+      return value;
+    }).catchError((_) {
+      _movieSourcesCache[key] = null;
+      return null;
+    });
+    _movieSourcesFutures[key] = future;
+    future.whenComplete(() {
+      if (mounted) setState(() {});
+    });
+    return future;
+  }
+
+  static String _fmtSizeBytes(int bytes) {
+    if (bytes <= 0) return '';
+    const gb = 1024 * 1024 * 1024;
+    const mb = 1024 * 1024;
+    if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+    return '${(bytes / mb).toStringAsFixed(0)} MB';
+  }
+
+  static String _fmtBitrate(int bitrate) {
+    if (bitrate <= 0) return '';
+    return '${(bitrate / 1000000).toStringAsFixed(1)} Mbps';
+  }
+
+  static String _fmtMovieQuality(_MovieQualityInfo? q) {
+    if (q == null) return '可用';
+    final parts = <String>[];
+    if (q.height > 0) parts.add('${q.height}p');
+    final size = _fmtSizeBytes(q.sizeBytes);
+    if (size.isNotEmpty) parts.add(size);
+    final br = _fmtBitrate(q.bitrate);
+    if (br.isNotEmpty) parts.add(br);
+    return parts.isEmpty ? '可用' : parts.join(' / ');
+  }
 
   @override
   Widget build(BuildContext context) {
     final isSeries = widget.group.type.toLowerCase() == 'series';
     final hits = List<_ServerSearchHit>.from(widget.group.hits);
     hits.sort((a, b) {
-      if (!isSeries) return a.server.name.compareTo(b.server.name);
+      if (!isSeries) {
+        final aKey = '${a.server.id}:${a.item.id}';
+        final bKey = '${b.server.id}:${b.item.id}';
+        final aQ = _bestMovieQuality(_movieSourcesCache[aKey]);
+        final bQ = _bestMovieQuality(_movieSourcesCache[bKey]);
+        final diff = _compareMovieQuality(bQ, aQ);
+        if (diff != 0) return diff;
+        return a.server.name.compareTo(b.server.name);
+      }
       final aKey = '${a.server.id}:${a.item.id}';
       final bKey = '${b.server.id}:${b.item.id}';
       final aScore = _AggregateSearchTabStatefulState._progressScore(
@@ -1201,7 +1331,32 @@ class _AggregateWorkDetailPageState extends State<_AggregateWorkDetailPage> {
                         );
                       },
                     )
-                  : const Text('可用'),
+                  : FutureBuilder<List<_MovieSourceInfo>?>(
+                      future: _resolveMovieSources(server, item.id),
+                      builder: (context, snap) {
+                        if (snap.connectionState == ConnectionState.waiting) {
+                          return const Text('获取参数信息…');
+                        }
+                        final sources =
+                            snap.data ?? _movieSourcesCache[rowKey];
+                        if (sources == null || sources.isEmpty) {
+                          return Text(_fmtMovieQuality(null));
+                        }
+                        if (sources.length == 1) {
+                          return Text(_fmtMovieQuality(sources.first.quality));
+                        }
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            for (var i = 0; i < sources.length; i++)
+                              Text(
+                                '${i + 1}. ${_fmtMovieQuality(sources[i].quality)}',
+                              ),
+                          ],
+                        );
+                      },
+                    ),
               trailing: busy
                   ? const SizedBox(
                       width: 16,
@@ -1267,5 +1422,50 @@ class _AggregateWorkDetailPageState extends State<_AggregateWorkDetailPage> {
         },
       ),
     );
+  }
+}
+
+class _MovieSourceInfo {
+  const _MovieSourceInfo({
+    required this.id,
+    required this.label,
+    required this.quality,
+  });
+
+  final String id;
+  final String label;
+  final _MovieQualityInfo quality;
+
+  factory _MovieSourceInfo.fromMediaSource(Map<String, dynamic> ms) {
+    final id = (ms['Id'] ?? '').toString();
+    final name = (ms['Name'] ?? '').toString().trim();
+    final container = (ms['Container'] ?? '').toString().trim();
+    final path = (ms['Path'] ?? '').toString().trim();
+    final label = name.isNotEmpty
+        ? name
+        : (container.isNotEmpty
+            ? container
+            : (path.isNotEmpty ? path.split(RegExp(r'[\\/]')).last : ''));
+    final quality = _MovieQualityInfo.fromMediaSource(ms);
+    return _MovieSourceInfo(id: id, label: label, quality: quality);
+  }
+}
+
+class _MovieQualityInfo {
+  const _MovieQualityInfo({
+    required this.height,
+    required this.bitrate,
+    required this.sizeBytes,
+  });
+
+  final int height;
+  final int bitrate;
+  final int sizeBytes;
+
+  factory _MovieQualityInfo.fromMediaSource(Map<String, dynamic> ms) {
+    final height = _AggregateWorkDetailPageState._heightOf(ms);
+    final bitrate = _AggregateWorkDetailPageState._bitrateOf(ms);
+    final sizeBytes = _AggregateWorkDetailPageState._sizeOf(ms);
+    return _MovieQualityInfo(height: height, bitrate: bitrate, sizeBytes: sizeBytes);
   }
 }
