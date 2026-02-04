@@ -5,6 +5,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.pm.PackageManager
 import android.content.res.Configuration
+import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.Build
 import io.flutter.embedding.android.FlutterActivity
@@ -59,6 +60,7 @@ class MainActivity : FlutterActivity() {
             when (call.method) {
                 "isAndroidTv" -> result.success(isAndroidTv())
                 "batteryLevel" -> result.success(batteryLevel())
+                "totalRxBytes" -> result.success(totalRxBytes())
                 "primaryAbi" -> result.success(primaryAbi())
                 "nativeLibraryDir" -> result.success(applicationInfo.nativeLibraryDir)
                 "setExecutable" -> {
@@ -189,6 +191,13 @@ class MainActivity : FlutterActivity() {
         val level = bm.getIntProperty(BatteryManager.BATTERY_PROPERTY_CAPACITY)
         if (level < 0) return null
         return level
+    }
+
+    private fun totalRxBytes(): Long? {
+        val v = TrafficStats.getTotalRxBytes()
+        if (v == TrafficStats.UNSUPPORTED.toLong()) return null
+        if (v < 0) return null
+        return v
     }
 
     private fun primaryAbi(): String? {

@@ -87,6 +87,18 @@ class DeviceType {
     }
   }
 
+  static Future<int?> totalRxBytes() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
+
+    try {
+      final v = await _channel.invokeMethod<int>('totalRxBytes');
+      if (v == null || v < 0) return null;
+      return v;
+    } catch (_) {
+      return null;
+    }
+  }
+
   static Future<void> init() async {
     if (_initialized) return;
     _initialized = true;

@@ -67,6 +67,9 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
   Duration _bufferSpeedSampleEnd = Duration.zero;
   double? _bufferSpeedX;
   double? _netSpeedBytesPerSecond;
+  int? _lastTotalRxBytes;
+  DateTime? _lastTotalRxAt;
+  bool _systemNetSpeedPollInFlight = false;
   Duration _position = Duration.zero;
   Duration _duration = Duration.zero;
   DateTime? _lastUiTickAt;
@@ -2313,6 +2316,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
             _netSpeedBytesPerSecond = null;
             _lastBufferedAt = now;
             _bufferSpeedSampleEnd = bufferedEnd;
+            _pollSystemNetSpeedOrFallback();
           } else {
             final dtMs = now.difference(prevAt).inMilliseconds;
             if (dtMs >= refreshMs) {
@@ -2323,16 +2327,15 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
               _bufferSpeedX =
                   (dtMs > 0 && deltaMs >= 0) ? (deltaMs / dtMs) : null;
 
+              double? fallbackSpeed;
               final bitrate = _currentMediaSourceBitrateBitsPerSecond();
               final x = _bufferSpeedX;
               if (bitrate != null && bitrate > 0 && x != null) {
-                final speed = x * bitrate / 8.0;
-                final prev = _netSpeedBytesPerSecond;
-                _netSpeedBytesPerSecond =
-                    prev == null ? speed : (prev * 0.7 + speed * 0.3);
-              } else {
-                _netSpeedBytesPerSecond = null;
+                fallbackSpeed = x * bitrate / 8.0;
               }
+              _pollSystemNetSpeedOrFallback(
+                fallbackBytesPerSecond: fallbackSpeed,
+              );
             }
           }
         } else {
@@ -2340,6 +2343,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
           _netSpeedBytesPerSecond = null;
           _lastBufferedAt = null;
           _bufferSpeedSampleEnd = bufferedEnd;
+          _lastTotalRxBytes = null;
+          _lastTotalRxAt = null;
         }
 
         _applyDanmakuPauseState(_buffering || !_isPlaying);
@@ -2523,6 +2528,72 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     final bitrate = _asInt(ms['Bitrate']);
     if (bitrate == null || bitrate <= 0) return null;
     return bitrate;
+  }
+
+  void _pollSystemNetSpeedOrFallback({double? fallbackBytesPerSecond}) {
+    if (_systemNetSpeedPollInFlight) return;
+    _systemNetSpeedPollInFlight = true;
+
+    DeviceType.totalRxBytes().then((totalRx) {
+      if (!mounted) return;
+      final sampleAt = DateTime.now();
+
+      double? systemSpeed;
+      if (totalRx != null) {
+        final prevBytes = _lastTotalRxBytes;
+        final prevAt = _lastTotalRxAt;
+        _lastTotalRxBytes = totalRx;
+        _lastTotalRxAt = sampleAt;
+
+        if (prevBytes != null && prevAt != null) {
+          final dtMs = sampleAt.difference(prevAt).inMilliseconds;
+          final delta = totalRx - prevBytes;
+          if (dtMs > 0 && delta >= 0) {
+            systemSpeed = delta * 1000.0 / dtMs;
+          }
+        }
+      } else {
+        _lastTotalRxBytes = null;
+        _lastTotalRxAt = null;
+      }
+
+      final next = (systemSpeed != null && systemSpeed.isFinite)
+          ? systemSpeed
+          : (fallbackBytesPerSecond != null && fallbackBytesPerSecond.isFinite
+              ? fallbackBytesPerSecond
+              : null);
+
+      if (next == null) {
+        if (_netSpeedBytesPerSecond != null) {
+          setState(() => _netSpeedBytesPerSecond = null);
+        }
+        return;
+      }
+
+      final prev = _netSpeedBytesPerSecond;
+      final smoothed = prev == null ? next : (prev * 0.7 + next * 0.3);
+      setState(() => _netSpeedBytesPerSecond = smoothed);
+    }).catchError((_) {
+      if (!mounted) return;
+      _lastTotalRxBytes = null;
+      _lastTotalRxAt = null;
+
+      final next = (fallbackBytesPerSecond != null && fallbackBytesPerSecond.isFinite)
+          ? fallbackBytesPerSecond
+          : null;
+      if (next == null) {
+        if (_netSpeedBytesPerSecond != null) {
+          setState(() => _netSpeedBytesPerSecond = null);
+        }
+        return;
+      }
+
+      final prev = _netSpeedBytesPerSecond;
+      final smoothed = prev == null ? next : (prev * 0.7 + next * 0.3);
+      setState(() => _netSpeedBytesPerSecond = smoothed);
+    }).whenComplete(() {
+      _systemNetSpeedPollInFlight = false;
+    });
   }
 
   static List<Map<String, dynamic>> _streamsOfType(

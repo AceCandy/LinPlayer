@@ -86,6 +86,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   Timer? _netSpeedTimer;
   bool _netSpeedPollInFlight = false;
   double? _netSpeedBytesPerSecond;
+  int? _lastTotalRxBytes;
+  DateTime? _lastTotalRxAt;
   bool _appliedAudioPref = false;
   bool _appliedSubtitlePref = false;
   PageRoute<dynamic>? _route;
@@ -2422,6 +2424,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _netSpeedTimer = null;
 
     if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      _lastTotalRxBytes = null;
+      _lastTotalRxAt = null;
       if (_netSpeedBytesPerSecond != null && mounted) {
         setState(() => _netSpeedBytesPerSecond = null);
       }
@@ -2443,6 +2447,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   Future<void> _pollNetSpeed() async {
     if (_netSpeedPollInFlight) return;
     if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      _lastTotalRxBytes = null;
+      _lastTotalRxAt = null;
       if (_netSpeedBytesPerSecond != null && mounted) {
         setState(() => _netSpeedBytesPerSecond = null);
       }
@@ -2451,6 +2457,29 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
 
     _netSpeedPollInFlight = true;
     try {
+      final totalRx = await DeviceType.totalRxBytes();
+      final sampleAt = DateTime.now();
+      if (totalRx != null) {
+        final prevBytes = _lastTotalRxBytes;
+        final prevAt = _lastTotalRxAt;
+        _lastTotalRxBytes = totalRx;
+        _lastTotalRxAt = sampleAt;
+
+        if (prevBytes != null && prevAt != null) {
+          final dtMs = sampleAt.difference(prevAt).inMilliseconds;
+          final delta = totalRx - prevBytes;
+          if (dtMs > 0 && delta >= 0) {
+            final next = delta * 1000.0 / dtMs;
+            final prev = _netSpeedBytesPerSecond;
+            final smoothed = prev == null ? next : (prev * 0.7 + next * 0.3);
+            if (mounted) {
+              setState(() => _netSpeedBytesPerSecond = smoothed);
+            }
+            return;
+          }
+        }
+      }
+
       final rate = await _playerService.queryNetworkInputRateBytesPerSecond();
       if (!mounted) return;
       final next = (rate != null && rate.isFinite) ? rate : null;

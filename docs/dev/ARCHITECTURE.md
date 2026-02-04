@@ -129,6 +129,10 @@
     - 网络播放时增大 forward cache、限制 back cache，减少内存占用与回退卡顿。
     - Windows 上设置 `gpu-context=d3d11`，降低 `vo=gpu` 的卡顿概率。
   - 注意：该配置依赖 `packages/media_kit_patched` 暴露的 `extraMpvOptions`（用于传入 mpv 原生参数）。
+- `packages/lin_player_player/lib/src/player/playback_controls.dart`
+  - 角色：播放控制条（进度条、快捷快进/快退、菜单与状态 chips）。
+  - 状态 chips：缓冲速度、网速、系统时间、电量等（由设置项控制）。
+  - 网速（“网速”chip）：Android 优先显示**系统下载速率（RX）**（`TrafficStats.getTotalRxBytes()` 采样计算）；不可用时回退到播放器统计/缓冲估算（不同内核实现略有差异）。
 
 #### 1.5) 画质增强（Anime4K）
 - `packages/lin_player_player/lib/src/player/anime4k.dart`：通过 mpv `glsl-shaders` 管线加载 Anime4K 预设（仅 MPV 内核）。
@@ -139,6 +143,9 @@
 - `lib/player_screen.dart`
   - `FilePicker` 选择本地视频 → `PlayerService.initialize(path)`。
   - 支持：播放列表、进度条、10s 快进/快退、音轨/字幕切换、硬解/软解切换。
+  - 字幕默认策略：当用户没有显式选择字幕时，默认优先匹配**简体中文**字幕（`zhs/chs/zh-Hans/zh-CN/简体/简中` 等）。
+  - 字幕渲染（MPV）：通过 `media_kit_video` 的 `SubtitleView`（`Video.subtitleViewConfiguration`）显示字幕，避免“选择了字幕但不显示”的问题，并支持字号/位置/延迟/加粗/ASS override 等调整。
+  - 页面生命周期：播放页被覆盖（push 到新路由）时会主动释放播放器，避免后台继续播放/缓冲（`RouteObserver + RouteAware.didPushNext`）。
   - 弹幕：
     - `Video` 上方叠加 `DanmakuStage`（覆盖层渲染）。
     - 支持本地 XML 加载与在线加载（在线匹配使用文件名前 16MB 的 MD5 + 文件名）。
@@ -152,6 +159,8 @@
     3. 监听 buffering / error / tracks：
        - UI 展示缓冲进度。
        - 初始音轨/字幕偏好只应用一次（避免 tracks 更新时反复覆盖）。
+  - 字幕默认策略：当用户没有显式选择字幕时，默认优先匹配**简体中文**字幕；用户手动选择/关闭后会记忆并尊重该选择。
+  - 页面生命周期：播放页被覆盖（push 到新路由）时会主动释放播放器，避免返回首页仍继续播放/缓冲（`RouteObserver + RouteAware.didPushNext`）。
   - 弹幕：
     - `Video` 上方叠加 `DanmakuStage`（覆盖层渲染）。
     - 在线匹配默认仅使用标题/文件名（无法获取文件 Hash 时准确度可能下降）。
@@ -166,6 +175,8 @@
     - 字幕：通过本项目对 `video_player_android` 的补丁接口（支持枚举/选择/关闭）。
 - 在线播放：`lib/play_network_page_exo.dart`
   - 仍通过 Emby 的 `AudioStreamIndex/SubtitleStreamIndex` 把“默认音轨/字幕”写入 URL；播放过程中也可再次切换。
+  - 网速显示：优先显示系统下载速率（RX）；若系统统计不可用，则按“缓冲速度 × 码率”进行估算。
+  - 页面生命周期：播放页被覆盖（push 到新路由）时会主动释放播放器，避免后台继续播放/缓冲（`RouteObserver + RouteAware.didPushNext`）。
 - 实现与维护：
   - `packages/video_player_android_patched/lib/exo_tracks.dart`：对外暴露 Pigeon 生成的 Exo 字幕相关 API，避免直接 `import` 依赖包的 `lib/src`。
   - `packages/video_player_android_patched/android/.../PlatformVideoView.java`：Android 侧监听 `Player.Listener.onCues` 并叠加 `TextView` 显示字幕。
@@ -177,6 +188,7 @@
 - `lib/library_page.dart`：媒体库列表（刷新、排序、显示/隐藏库）。
 - `lib/library_items_page.dart`：媒体库内容列表（分页加载、进入详情）。
 - `lib/show_detail_page.dart`：详情页（Series/Season/Episode 结构、相似推荐、章节、播放入口与可选媒体源/音轨/字幕）。
+- `lib/aggregate_service_page.dart`：聚合搜索（跨服务器）。同一作品按“服务器”聚合；电影会额外展示分辨率/码率/大小，并按 `分辨率 → 码率 → 大小` 从大到小排序；同一服务器的多个版本也按同样规则展示。
 - `lib/danmaku_settings_page.dart`：弹幕设置页（本地/在线、在线源管理、样式设置）。
 - `packages/lin_player_ui/lib/src/ui/`：UI 基础设施
   - `app_theme.dart`：Material 3 主题与动态取色。
@@ -199,6 +211,7 @@
 
 ### 列表与搜索
 - `AppState.loadItems(...)` → `EmbyApi.fetchItems(...)` → 写入 `_itemsCache/_itemsTotal` → UI 通过 `AnimatedBuilder` 刷新。
+- 聚合搜索：`AggregateServicePage` 并行请求各服务器搜索结果 → 按作品聚合 →（电影详情页）再调用 `fetchPlaybackInfo` 解析 `MediaSources`，用于展示分辨率/码率/大小，并按 `分辨率 → 码率 → 大小` 从大到小排序。
 
 ### 播放（网络）
 - 详情/列表点击播放 → `PlayNetworkPage`
@@ -213,6 +226,10 @@
   - iOS 应用名：`ios/Runner/Info.plist`
   - macOS 应用名：`macos/Runner/Configs/AppInfo.xcconfig`
   - Windows exe 名/图标：`windows/CMakeLists.txt`、`windows/runner/Runner.rc`
+
+Android 额外平台通道（MethodChannel）：
+- `linplayer/device`（`DeviceType`）：`isAndroidTv`、`batteryLevel`、`totalRxBytes`（系统网速）、`primaryAbi`、`nativeLibraryDir`、`setExecutable`、`setHttpProxy`
+- `linplayer/app_icon`（`AppIconService`）：动态切换桌面图标
 
 ## 你要改哪里？（常见改动入口）
 
