@@ -42,7 +42,7 @@ export default {
           {
             error: 'missing_worker_secret',
             message:
-              'Set credentials via DANDANPLAY_CREDENTIALS or DANDANPLAY_APP_ID + DANDANPLAY_APP_SECRET(S).',
+              'Set DANDANPLAY_APP_ID and DANDANPLAY_APP_SECRET (one or multiple secrets split by newline/comma).',
           },
           500,
         ),
@@ -142,53 +142,11 @@ export default {
 };
 
 function readCredentials(env) {
-  const fromJson = parseCredentialsJson(env.DANDANPLAY_CREDENTIALS);
-  if (fromJson.length > 0) return dedupeCredentials(fromJson);
-
-  const fromIndexed = readIndexedCredentials(env);
-  if (fromIndexed.length > 0) return dedupeCredentials(fromIndexed);
-
   const appId = normalizeString(env.DANDANPLAY_APP_ID);
-  const multiSecrets = splitSecrets(env.DANDANPLAY_APP_SECRETS);
-  if (appId && multiSecrets.length > 0) {
-    return dedupeCredentials(
-      multiSecrets.map((secret) => ({ appId, appSecret: secret })),
-    );
-  }
-
-  const singleSecret = normalizeString(env.DANDANPLAY_APP_SECRET);
-  if (appId && singleSecret) {
-    return [{ appId, appSecret: singleSecret }];
-  }
-
-  return [];
-}
-
-function parseCredentialsJson(rawValue) {
-  const raw = normalizeString(rawValue);
-  if (!raw) return [];
-  try {
-    const parsed = JSON.parse(raw);
-    if (!Array.isArray(parsed)) return [];
-    return parsed
-      .map((it) => ({
-        appId: normalizeString(it?.appId),
-        appSecret: normalizeString(it?.appSecret),
-      }))
-      .filter((it) => it.appId && it.appSecret);
-  } catch (_) {
-    return [];
-  }
-}
-
-function readIndexedCredentials(env) {
-  const out = [];
-  for (let i = 1; i <= 16; i++) {
-    const appId = normalizeString(env[`DANDANPLAY_APP_ID_${i}`]);
-    const appSecret = normalizeString(env[`DANDANPLAY_APP_SECRET_${i}`]);
-    if (appId && appSecret) out.push({ appId, appSecret });
-  }
-  return out;
+  if (!appId) return [];
+  const secrets = splitSecrets(env.DANDANPLAY_APP_SECRET);
+  if (secrets.length === 0) return [];
+  return dedupeCredentials(secrets.map((secret) => ({ appId, appSecret: secret })));
 }
 
 function splitSecrets(rawValue) {

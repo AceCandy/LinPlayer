@@ -152,6 +152,20 @@ class DandanplayCommentResponse {
   }
 }
 
+class DandanplaySearchEpisodeResult {
+  final int episodeId;
+  final String animeTitle;
+  final String episodeTitle;
+  final int? episodeNumber;
+
+  const DandanplaySearchEpisodeResult({
+    required this.episodeId,
+    required this.animeTitle,
+    required this.episodeTitle,
+    this.episodeNumber,
+  });
+}
+
 class DandanplayApiClient {
   DandanplayApiClient({
     required this.baseUrl,
@@ -234,7 +248,7 @@ class DandanplayApiClient {
     if (resp.statusCode != 200) {
       final err = resp.headers['x-error-message'];
       throw Exception(
-          '匹配失败(${resp.statusCode})${err == null || err.isEmpty ? '' : '：$err'}');
+          '闁告牕缍婇崢銈嗗緞鏉堫偉袝(${resp.statusCode})${err == null || err.isEmpty ? '' : '闁?err'}');
     }
     final map = jsonDecode(resp.body) as Map<String, dynamic>;
     return DandanplayMatchResponse.fromJson(map);
@@ -258,13 +272,108 @@ class DandanplayApiClient {
     if (resp.statusCode != 200 && resp.statusCode != 302) {
       final err = resp.headers['x-error-message'];
       throw Exception(
-          '获取弹幕失败(${resp.statusCode})${err == null || err.isEmpty ? '' : '：$err'}');
+          '闁兼儳鍢茶ぐ鍥ь嚕閻熸壆顔庡鎯扮簿鐟?${resp.statusCode})${err == null || err.isEmpty ? '' : '闁?err'}');
     }
     final map = jsonDecode(resp.body) as Map<String, dynamic>;
     return DandanplayCommentResponse.fromJson(map);
   }
 
+  Future<List<DandanplaySearchEpisodeResult>> searchEpisodes({
+    required String anime,
+    int? episode,
+  }) async {
+    final q = anime.trim();
+    if (q.isEmpty) return const [];
+
+    final query = <String, String>{'anime': q};
+    if (episode != null && episode > 0) {
+      query['episode'] = episode.toString();
+    }
+
+    final uri = _buildUri('/api/v2/search/episodes', query: query);
+    final resp = await _get(uri);
+    if (resp.statusCode != 200) return const [];
+
+    final decoded = jsonDecode(resp.body);
+    return _extractSearchEpisodes(decoded);
+  }
+
+  List<DandanplaySearchEpisodeResult> _extractSearchEpisodes(dynamic decoded) {
+    final out = <DandanplaySearchEpisodeResult>[];
+
+    void walk(dynamic node, {String animeHint = ''}) {
+      if (node is List) {
+        for (final item in node) {
+          walk(item, animeHint: animeHint);
+        }
+        return;
+      }
+      if (node is! Map) return;
+
+      final map = node.cast<dynamic, dynamic>();
+      final animeTitle = _firstNonEmptyString(
+        map['animeTitle'],
+        map['animeName'],
+        map['anime'],
+        map['title'],
+        animeHint,
+      );
+
+      final episodeId = _asInt(
+            map['episodeId'] ?? map['id'] ?? map['episodeID'],
+          ) ??
+          0;
+      if (episodeId > 0) {
+        final episodeTitle = _firstNonEmptyString(
+          map['episodeTitle'],
+          map['name'],
+          map['title'],
+        );
+        final episodeNumber = _asInt(
+          map['episode'] ?? map['episodeNumber'] ?? map['ep'] ?? map['sort'],
+        );
+        out.add(
+          DandanplaySearchEpisodeResult(
+            episodeId: episodeId,
+            animeTitle: animeTitle,
+            episodeTitle: episodeTitle,
+            episodeNumber: episodeNumber,
+          ),
+        );
+      }
+
+      for (final value in map.values) {
+        if (value is List || value is Map) {
+          walk(value, animeHint: animeTitle.isEmpty ? animeHint : animeTitle);
+        }
+      }
+    }
+
+    walk(decoded);
+    final uniq = <int, DandanplaySearchEpisodeResult>{};
+    for (final item in out) {
+      uniq[item.episodeId] = item;
+    }
+    return uniq.values.toList(growable: false);
+  }
+
   void close() => _client.close();
+}
+
+int? _asInt(dynamic value) {
+  if (value == null) return null;
+  if (value is int) return value;
+  if (value is num) return value.toInt();
+  return int.tryParse(value.toString().trim());
+}
+
+String _firstNonEmptyString(dynamic a, [dynamic b, dynamic c, dynamic d, dynamic e]) {
+  final values = [a, b, c, d, e];
+  for (final v in values) {
+    final s = (v ?? '').toString().trim();
+    if (s.isNotEmpty) return s;
+  }
+  return '';
 }
 
 String stripFileExtension(String name) {
@@ -294,6 +403,77 @@ String stripFileExtension(String name) {
   };
   if (!known.contains(ext)) return v;
   return v.substring(0, idx);
+}
+
+class _SearchHint {
+  final String keyword;
+  final int? episodeHint;
+
+  const _SearchHint({required this.keyword, required this.episodeHint});
+}
+
+_SearchHint _buildSearchHint(String inputName) {
+  final normalized = inputName.replaceAll('_', ' ').trim();
+  int? episodeHint;
+
+  final se = RegExp(
+    r'\bS\d{1,2}\s*E(\d{1,3})\b',
+    caseSensitive: false,
+  ).firstMatch(normalized);
+  if (se != null) {
+    episodeHint = int.tryParse(se.group(1)!);
+  } else {
+    final ep = RegExp(
+      r'\bEP?\s*\.?-?\s*(\d{1,3})\b',
+      caseSensitive: false,
+    ).firstMatch(normalized);
+    if (ep != null) {
+      episodeHint = int.tryParse(ep.group(1)!);
+    }
+  }
+
+  var keyword = normalized
+      .replaceAll(
+        RegExp(r'\bS\d{1,2}\s*E\d{1,3}\b', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(
+        RegExp(r'\bEP?\s*\.?-?\s*\d{1,3}\b', caseSensitive: false),
+        ' ',
+      )
+      .replaceAll(RegExp(r'\[[^\]]*]'), ' ')
+      .replaceAll(RegExp(r'\([^)]*\)'), ' ')
+      .replaceAll(
+        RegExp(
+          r'\b(2160p|1080p|720p|x265|x264|hevc|av1|web-?dl|webrip|bluray|bdrip|aac|flac|ac3|dts)\b',
+          caseSensitive: false,
+        ),
+        ' ',
+      )
+      .replaceAll(RegExp(r'\s+'), ' ')
+      .trim();
+  if (keyword.length > 80) {
+    keyword = keyword.substring(0, 80).trim();
+  }
+
+  return _SearchHint(keyword: keyword, episodeHint: episodeHint);
+}
+
+DandanplaySearchEpisodeResult _pickSearchCandidate(
+  List<DandanplaySearchEpisodeResult> candidates,
+  int? episodeHint,
+) {
+  if (candidates.isEmpty) {
+    throw StateError('candidates must not be empty');
+  }
+  if (episodeHint != null && episodeHint > 0) {
+    for (final item in candidates) {
+      if (item.episodeNumber != null && item.episodeNumber == episodeHint) {
+        return item;
+      }
+    }
+  }
+  return candidates.first;
 }
 
 Future<List<DanmakuSource>> loadOnlineDanmakuSources({
@@ -351,29 +531,48 @@ Future<List<DanmakuSource>> loadOnlineDanmakuSources({
         videoDurationSeconds: videoDurationSeconds,
         matchMode: resolvedMode,
       );
-      if (!match.success || match.errorCode != 0) continue;
-      if (match.matches.isEmpty) continue;
+      DandanplayMatchResult? pickedFromMatch;
+      DandanplaySearchEpisodeResult? pickedFromSearch;
+      if (match.success && match.errorCode == 0 && match.matches.isNotEmpty) {
+        pickedFromMatch = match.matches.first;
+      } else {
+        final hint = _buildSearchHint(cleanedName);
+        if (hint.keyword.isNotEmpty) {
+          final candidates = await client.searchEpisodes(
+            anime: hint.keyword,
+            episode: hint.episodeHint,
+          );
+          if (candidates.isNotEmpty) {
+            pickedFromSearch = _pickSearchCandidate(candidates, hint.episodeHint);
+          }
+        }
+      }
+      if (pickedFromMatch == null && pickedFromSearch == null) continue;
 
-      final picked = match.matches.first;
+      final episodeId = pickedFromMatch?.episodeId ?? pickedFromSearch!.episodeId;
+      final shiftSeconds = pickedFromMatch?.shiftSeconds ?? 0;
       final comments = await client.getComments(
-        episodeId: picked.episodeId,
+        episodeId: episodeId,
         withRelated: mergeRelated,
         chConvert: chConvert.apiValue,
       );
 
       final items = DanmakuParser.parseDandanplayComments(
         comments.comments,
-        shiftSeconds: picked.shiftSeconds,
+        shiftSeconds: shiftSeconds,
       );
       if (items.isEmpty) continue;
 
       final host = Uri.tryParse(inputBaseUrl)?.host ?? inputBaseUrl;
+      final animeTitle =
+          (pickedFromMatch?.animeTitle ?? pickedFromSearch?.animeTitle ?? '').trim();
+      final episodeTitle =
+          (pickedFromMatch?.episodeTitle ?? pickedFromSearch?.episodeTitle ?? '').trim();
       final title =
-          '${picked.animeTitle.isEmpty ? '未知作品' : picked.animeTitle} ${picked.episodeTitle}'
-              .trim();
+          '${animeTitle.isEmpty ? 'Unknown' : animeTitle} $episodeTitle'.trim();
       sources.add(
         DanmakuSource(
-          name: '在线($host)：$title',
+          name: 'online($host): $title',
           items: items,
         ),
       );

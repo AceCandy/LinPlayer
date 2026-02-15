@@ -136,14 +136,12 @@ Behavior:
 
 If you have two (or more) app secrets, Worker can balance requests and auto-fallback.
 
-### Recommended (same AppId + multiple secrets)
-
-Set:
+Set only:
 
 1. Secret: `DANDANPLAY_APP_ID`
-2. Secret: `DANDANPLAY_APP_SECRETS` (comma or newline separated)
+2. Secret: `DANDANPLAY_APP_SECRET` (single value or multiple values split by newline/comma)
 
-Example `DANDANPLAY_APP_SECRETS` value:
+Example `DANDANPLAY_APP_SECRET` value:
 
 ```text
 secret_a
@@ -156,23 +154,7 @@ or:
 secret_a,secret_b
 ```
 
-### Alternative (multiple AppId/AppSecret pairs)
-
-Option A: one JSON secret
-
-1. Secret: `DANDANPLAY_CREDENTIALS`
-
-Example:
-
-```json
-[{"appId":"id1","appSecret":"secret1"},{"appId":"id2","appSecret":"secret2"}]
-```
-
-Option B: indexed secrets
-
-1. Secret: `DANDANPLAY_APP_ID_1`, `DANDANPLAY_APP_SECRET_1`
-2. Secret: `DANDANPLAY_APP_ID_2`, `DANDANPLAY_APP_SECRET_2`
-3. ... up to 16 pairs
+Other credential variable names are ignored by this Worker.
 
 ### Strategy
 
