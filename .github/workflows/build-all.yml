@@ -618,6 +618,22 @@ jobs:
             gh release create nightly --title "Nightly (${VERSION_FULL})" --notes "$NOTES" --prerelease
           fi
 
+      - name: Purge old nightly assets (LinPlayer-*)
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t old_ids < <(
+            gh api "repos/${GITHUB_REPOSITORY}/releases/tags/nightly" \
+              --jq '.assets[] | select(.name | startswith("LinPlayer-")) | .id'
+          )
+          if [[ ${#old_ids[@]} -eq 0 ]]; then
+            echo "No existing LinPlayer-* assets to purge."
+            exit 0
+          fi
+          for id in "${old_ids[@]}"; do
+            gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$id"
+          done
+
       - name: Upload release assets (overwrite)
         shell: bash
         run: |
