@@ -18,11 +18,11 @@ if ([string]::IsNullOrWhiteSpace($buildName)) {
   $buildName = '0.1.0'
 }
 
-if ([string]::IsNullOrWhiteSpace($buildNumber) -and -not [string]::IsNullOrWhiteSpace($rawVersion) -and ($rawVersion -match '\+')) {
-  $buildNumber = ($rawVersion -split '\+')[-1]
-}
 if ([string]::IsNullOrWhiteSpace($buildNumber)) {
   $buildNumber = $env:GITHUB_RUN_NUMBER
+}
+if ([string]::IsNullOrWhiteSpace($buildNumber) -and -not [string]::IsNullOrWhiteSpace($rawVersion) -and ($rawVersion -match '\+')) {
+  $buildNumber = ($rawVersion -split '\+')[-1]
 }
 if ([string]::IsNullOrWhiteSpace($buildNumber)) {
   $buildNumber = '1'

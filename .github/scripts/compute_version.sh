@@ -12,11 +12,14 @@ if [[ -z "${build_name:-}" ]]; then
   build_name="0.1.0"
 fi
 
+if [[ -z "${build_number:-}" ]]; then
+  build_number="${GITHUB_RUN_NUMBER:-}"
+fi
 if [[ -z "${build_number:-}" && -n "${raw_version:-}" && "${raw_version}" == *"+"* ]]; then
   build_number="${raw_version##*+}"
 fi
 if [[ -z "${build_number:-}" ]]; then
-  build_number="${GITHUB_RUN_NUMBER:-1}"
+  build_number="1"
 fi
 
 if ! [[ "$build_number" =~ ^[0-9]+$ ]]; then
