@@ -1,0 +1,9 @@
+name = "linplayer-dandanplay-proxy"
+main = "src/index.js"
+compatibility_date = "2026-02-15"
+workers_dev = true
+
+[vars]
+UPSTREAM_ORIGIN = "https://api.dandanplay.net"
+ALLOW_ORIGIN = "*"
+LOAD_BALANCE_STRATEGY = "random"

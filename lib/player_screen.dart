@@ -1333,22 +1333,6 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
       return;
     }
-
-    final hasOfficial = appState.danmakuApiUrls.any((u) {
-      final host = Uri.tryParse(u)?.host.toLowerCase() ?? '';
-      return host == 'api.dandanplay.net';
-    });
-    final hasCreds = appState.danmakuAppId.trim().isNotEmpty &&
-        appState.danmakuAppSecret.trim().isNotEmpty;
-
-    if (hasOfficial && !hasCreds && showToast && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('使用官方弹弹play源时通常需要配置 AppId/AppSecret（设置-弹幕）'),
-        ),
-      );
-    }
-
     try {
       final size = await File(path).length();
       final hash = await _computeFileHash16M(path);

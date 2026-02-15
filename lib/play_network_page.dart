@@ -677,21 +677,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       return;
     }
 
-    final hasOfficial = appState.danmakuApiUrls.any((u) {
-      final host = Uri.tryParse(u)?.host.toLowerCase() ?? '';
-      return host == 'api.dandanplay.net';
-    });
-    final hasCreds = appState.danmakuAppId.trim().isNotEmpty &&
-        appState.danmakuAppSecret.trim().isNotEmpty;
-
-    if (hasOfficial && !hasCreds && showToast && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('使用官方弹弹play源时通常需要配置 AppId/AppSecret（设置-弹幕）'),
-        ),
-      );
-    }
-
     var fileName = widget.title;
     int fileSizeBytes = 0;
     int videoDurationSeconds = 0;
@@ -879,6 +864,29 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       }
       return;
     }
+
+    var fileName = widget.title;
+    int fileSizeBytes = 0;
+    int videoDurationSeconds = 0;
+    try {
+      final access =
+          resolveServerAccess(appState: appState, server: widget.server);
+      if (access != null) {
+        final item = await access.adapter
+            .fetchItemDetail(access.auth, itemId: widget.itemId);
+        fileName = _buildDanmakuMatchName(item);
+        fileSizeBytes = item.sizeBytes ?? 0;
+        final ticks = item.runTimeTicks ?? 0;
+        if (ticks > 0) {
+          videoDurationSeconds = (ticks / 10000000).round().clamp(0, 1 << 31);
+        }
+      }
+    } catch (_) {}
+
+    if (videoDurationSeconds <= 0) {
+      videoDurationSeconds = _playerService.duration.inSeconds;
+    }
+
     try {
       final detail = await access.adapter
           .fetchItemDetail(access.auth, itemId: widget.itemId);

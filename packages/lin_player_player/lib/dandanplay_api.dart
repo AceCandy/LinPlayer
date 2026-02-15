@@ -7,6 +7,74 @@ import 'package:lin_player_server_api/network/lin_http_client.dart';
 import 'src/player/danmaku.dart';
 import 'package:lin_player_prefs/danmaku_preferences.dart';
 
+const String _kOfficialDandanplayHost = 'api.dandanplay.net';
+const String _kBuiltInDandanplayProxyRaw = String.fromEnvironment(
+  'LINPLAYER_DANDANPLAY_PROXY_URL',
+  defaultValue: '',
+);
+
+String get builtInDandanplayProxyUrl =>
+    normalizeDanmakuApiBaseUrl(_kBuiltInDandanplayProxyRaw);
+
+bool get hasBuiltInDandanplayProxy => builtInDandanplayProxyUrl.isNotEmpty;
+
+bool isOfficialDandanplayUrl(String url) {
+  final host = Uri.tryParse(url.trim())?.host.toLowerCase() ?? '';
+  return host == _kOfficialDandanplayHost;
+}
+
+bool shouldUseBuiltInProxyForOfficialUrl({
+  required String inputBaseUrl,
+  required String appId,
+  required String appSecret,
+}) {
+  if (!isOfficialDandanplayUrl(inputBaseUrl)) return false;
+  if (!hasBuiltInDandanplayProxy) return false;
+  return !_hasClientCredentials(appId: appId, appSecret: appSecret);
+}
+
+String resolveEffectiveDanmakuApiBaseUrl({
+  required String inputBaseUrl,
+  required String appId,
+  required String appSecret,
+}) {
+  if (shouldUseBuiltInProxyForOfficialUrl(
+    inputBaseUrl: inputBaseUrl,
+    appId: appId,
+    appSecret: appSecret,
+  )) {
+    return builtInDandanplayProxyUrl;
+  }
+  return normalizeDanmakuApiBaseUrl(inputBaseUrl);
+}
+
+String normalizeDanmakuApiBaseUrl(String baseUrl) {
+  final v = baseUrl.trim();
+  if (v.isEmpty) return '';
+  final uri = Uri.tryParse(v);
+  if (uri == null || uri.host.isEmpty) return v;
+
+  var path = uri.path.replaceAll(RegExp(r'/+$'), '');
+  if (path.toLowerCase().endsWith('/api/v2')) {
+    path = path.substring(0, path.length - '/api/v2'.length);
+  }
+
+  return uri
+      .replace(
+        path: path,
+        query: null,
+        fragment: '',
+      )
+      .toString();
+}
+
+bool _hasClientCredentials({
+  required String appId,
+  required String appSecret,
+}) {
+  return appId.trim().isNotEmpty && appSecret.trim().isNotEmpty;
+}
+
 class DandanplayMatchResult {
   final int episodeId;
   final int animeId;
@@ -101,7 +169,7 @@ class DandanplayApiClient {
   bool get _hasAuth => appId.trim().isNotEmpty && appSecret.trim().isNotEmpty;
 
   Uri _buildUri(String apiPath, {Map<String, String>? query}) {
-    final base = Uri.parse(baseUrl);
+    final base = Uri.parse(normalizeDanmakuApiBaseUrl(baseUrl));
     final basePath = base.path.replaceAll(RegExp(r'/+$'), '');
     final path = '$basePath$apiPath';
     return base.replace(
@@ -253,12 +321,27 @@ Future<List<DanmakuSource>> loadOnlineDanmakuSources({
   final sources = <DanmakuSource>[];
   final errors = <String>[];
   for (final rawUrl in apiUrls) {
-    final baseUrl = rawUrl.trim();
-    if (baseUrl.isEmpty) continue;
-    final client = DandanplayApiClient(
-      baseUrl: baseUrl,
+    final inputBaseUrl = rawUrl.trim();
+    if (inputBaseUrl.isEmpty) continue;
+    final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
+      inputBaseUrl: inputBaseUrl,
       appId: appId,
       appSecret: appSecret,
+    );
+    if (baseUrl.isEmpty) continue;
+
+    final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
+      inputBaseUrl: inputBaseUrl,
+      appId: appId,
+      appSecret: appSecret,
+    );
+    final effectiveAppId = useBuiltInProxy ? '' : appId;
+    final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;
+
+    final client = DandanplayApiClient(
+      baseUrl: baseUrl,
+      appId: effectiveAppId,
+      appSecret: effectiveAppSecret,
     );
     try {
       final match = await client.match(
@@ -284,7 +367,7 @@ Future<List<DanmakuSource>> loadOnlineDanmakuSources({
       );
       if (items.isEmpty) continue;
 
-      final host = Uri.tryParse(baseUrl)?.host ?? baseUrl;
+      final host = Uri.tryParse(inputBaseUrl)?.host ?? inputBaseUrl;
       final title =
           '${picked.animeTitle.isEmpty ? '未知作品' : picked.animeTitle} ${picked.episodeTitle}'
               .trim();
@@ -296,7 +379,7 @@ Future<List<DanmakuSource>> loadOnlineDanmakuSources({
       );
     } catch (e) {
       if (errors.length < 5) {
-        errors.add('[$baseUrl] $e');
+        errors.add('[$inputBaseUrl] $e');
       }
     } finally {
       client.close();

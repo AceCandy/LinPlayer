@@ -59,3 +59,8 @@ android/app/src/main/assets/flutter_assets/
 
 # Web
 web/
+
+# Cloudflare Workers
+workers/**/node_modules/
+workers/**/.wrangler/
+workers/**/.dev.vars
