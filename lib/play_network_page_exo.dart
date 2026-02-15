@@ -351,29 +351,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       return;
     }
 
-    var fileName = widget.title;
-    int fileSizeBytes = 0;
-    int videoDurationSeconds = 0;
-    try {
-      final access = _serverAccess;
-      if (access != null) {
-        final item = await access.adapter.fetchItemDetail(
-          access.auth,
-          itemId: widget.itemId,
-        );
-        fileName = _buildDanmakuMatchName(item);
-        fileSizeBytes = item.sizeBytes ?? 0;
-        final ticks = item.runTimeTicks ?? 0;
-        if (ticks > 0) {
-          videoDurationSeconds = (ticks / 10000000).round().clamp(0, 1 << 31);
-        }
-      }
-    } catch (_) {}
-
-    if (videoDurationSeconds <= 0) {
-      videoDurationSeconds = _duration.inSeconds;
-    }
-
     try {
       final detail = await access.adapter
           .fetchItemDetail(access.auth, itemId: widget.itemId);
