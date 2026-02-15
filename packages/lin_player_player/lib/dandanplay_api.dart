@@ -166,6 +166,34 @@ class DandanplaySearchEpisodeResult {
   });
 }
 
+class DandanplaySearchCandidate {
+  final String inputBaseUrl;
+  final String sourceHost;
+  final int episodeId;
+  final String animeTitle;
+  final String episodeTitle;
+  final int? episodeNumber;
+
+  const DandanplaySearchCandidate({
+    required this.inputBaseUrl,
+    required this.sourceHost,
+    required this.episodeId,
+    required this.animeTitle,
+    required this.episodeTitle,
+    this.episodeNumber,
+  });
+}
+
+class DandanplaySearchInputHint {
+  final String keyword;
+  final int? episodeHint;
+
+  const DandanplaySearchInputHint({
+    required this.keyword,
+    required this.episodeHint,
+  });
+}
+
 class DandanplayApiClient {
   DandanplayApiClient({
     required this.baseUrl,
@@ -474,6 +502,134 @@ DandanplaySearchEpisodeResult _pickSearchCandidate(
     }
   }
   return candidates.first;
+}
+
+Future<List<DandanplaySearchCandidate>> searchOnlineDanmakuCandidates({
+  required List<String> apiUrls,
+  required String keyword,
+  int? episodeHint,
+  String appId = '',
+  String appSecret = '',
+}) async {
+  final q = keyword.trim();
+  if (q.isEmpty) return const [];
+
+  final out = <DandanplaySearchCandidate>[];
+  final dedupe = <String>{};
+
+  for (final rawUrl in apiUrls) {
+    final inputBaseUrl = rawUrl.trim();
+    if (inputBaseUrl.isEmpty) continue;
+
+    final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
+      inputBaseUrl: inputBaseUrl,
+      appId: appId,
+      appSecret: appSecret,
+    );
+    if (baseUrl.isEmpty) continue;
+
+    final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
+      inputBaseUrl: inputBaseUrl,
+      appId: appId,
+      appSecret: appSecret,
+    );
+    final effectiveAppId = useBuiltInProxy ? '' : appId;
+    final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;
+    final host = Uri.tryParse(inputBaseUrl)?.host ?? inputBaseUrl;
+
+    final client = DandanplayApiClient(
+      baseUrl: baseUrl,
+      appId: effectiveAppId,
+      appSecret: effectiveAppSecret,
+    );
+    try {
+      final episodes = await client.searchEpisodes(
+        anime: q,
+        episode: (episodeHint != null && episodeHint > 0) ? episodeHint : null,
+      );
+      for (final ep in episodes) {
+        if (ep.episodeId <= 0) continue;
+        final key = '$inputBaseUrl#${ep.episodeId}';
+        if (!dedupe.add(key)) continue;
+        out.add(
+          DandanplaySearchCandidate(
+            inputBaseUrl: inputBaseUrl,
+            sourceHost: host,
+            episodeId: ep.episodeId,
+            animeTitle: ep.animeTitle,
+            episodeTitle: ep.episodeTitle,
+            episodeNumber: ep.episodeNumber,
+          ),
+        );
+      }
+    } catch (_) {
+      // Ignore a single source failure and continue searching others.
+    } finally {
+      client.close();
+    }
+  }
+
+  return out;
+}
+
+Future<DanmakuSource?> loadOnlineDanmakuByEpisodeId({
+  required String apiUrl,
+  required int episodeId,
+  required String sourceHost,
+  required String title,
+  DanmakuChConvert chConvert = DanmakuChConvert.off,
+  bool mergeRelated = true,
+  String appId = '',
+  String appSecret = '',
+}) async {
+  if (episodeId <= 0) return null;
+
+  final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
+    inputBaseUrl: apiUrl,
+    appId: appId,
+    appSecret: appSecret,
+  );
+  if (baseUrl.isEmpty) return null;
+
+  final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
+    inputBaseUrl: apiUrl,
+    appId: appId,
+    appSecret: appSecret,
+  );
+  final effectiveAppId = useBuiltInProxy ? '' : appId;
+  final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;
+  final client = DandanplayApiClient(
+    baseUrl: baseUrl,
+    appId: effectiveAppId,
+    appSecret: effectiveAppSecret,
+  );
+  try {
+    final comments = await client.getComments(
+      episodeId: episodeId,
+      withRelated: mergeRelated,
+      chConvert: chConvert.apiValue,
+    );
+    final items = DanmakuParser.parseDandanplayComments(
+      comments.comments,
+      shiftSeconds: 0,
+    );
+    if (items.isEmpty) return null;
+    final normalizedTitle = title.trim().isEmpty ? 'Episode $episodeId' : title.trim();
+    return DanmakuSource(
+      name: 'online($sourceHost): $normalizedTitle',
+      items: items,
+    );
+  } finally {
+    client.close();
+  }
+}
+
+DandanplaySearchInputHint suggestDandanplaySearchInput(String rawName) {
+  final hint = _buildSearchHint(rawName);
+  return DandanplaySearchInputHint(
+    keyword: hint.keyword,
+    episodeHint: hint.episodeHint,
+  );
 }
 
 Future<List<DanmakuSource>> loadOnlineDanmakuSources({

@@ -16,6 +16,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 
 import 'services/app_route_observer.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
+import 'widgets/danmaku_manual_search_dialog.dart';
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
@@ -1390,6 +1391,104 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _manualMatchOnlineDanmakuForCurrent({
+    bool showToast = true,
+  }) async {
+    final appState = widget.appState;
+    if (appState == null) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('未找到应用设置，无法加载在线弹幕')),
+        );
+      }
+      return;
+    }
+    if (appState.danmakuApiUrls.isEmpty) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('请先在设置-弹幕中添加在线弹幕源')),
+        );
+      }
+      return;
+    }
+    if (_currentlyPlayingIndex < 0 || _currentlyPlayingIndex >= _playlist.length) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('当前没有可匹配的视频')),
+        );
+      }
+      return;
+    }
+
+    final currentName = _playlist[_currentlyPlayingIndex].name;
+    final hint = suggestDandanplaySearchInput(stripFileExtension(currentName));
+    final candidate = await showDanmakuManualSearchDialog(
+      context: context,
+      apiUrls: appState.danmakuApiUrls,
+      appId: appState.danmakuAppId,
+      appSecret: appState.danmakuAppSecret,
+      initialKeyword: hint.keyword.isEmpty ? stripFileExtension(currentName) : hint.keyword,
+      initialEpisodeHint: hint.episodeHint,
+    );
+    if (!mounted || candidate == null) return;
+
+    try {
+      final title = '${candidate.animeTitle} ${candidate.episodeTitle}'.trim();
+      final source = await loadOnlineDanmakuByEpisodeId(
+        apiUrl: candidate.inputBaseUrl,
+        episodeId: candidate.episodeId,
+        sourceHost: candidate.sourceHost,
+        title: title,
+        chConvert: appState.danmakuChConvert,
+        mergeRelated: appState.danmakuMergeRelated,
+        appId: appState.danmakuAppId,
+        appSecret: appState.danmakuAppSecret,
+      );
+      if (!mounted) return;
+      if (source == null) {
+        if (showToast) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('该条目未返回可用弹幕')),
+          );
+        }
+        return;
+      }
+
+      final processed = processDanmakuSources(
+        [source],
+        blockWords: appState.danmakuBlockWords,
+        mergeDuplicates: appState.danmakuMergeDuplicates,
+      );
+      if (processed.isEmpty) {
+        if (showToast) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('弹幕已加载但被过滤规则全部移除')),
+          );
+        }
+        return;
+      }
+
+      setState(() {
+        _danmakuSources.addAll(processed);
+        _danmakuSourceIndex = _danmakuSources.length - 1;
+        _danmakuEnabled = true;
+        _rebuildDanmakuHeatmap();
+        _syncDanmakuCursor(_position);
+      });
+      if (showToast) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('已手动匹配并加载弹幕：$title')),
+        );
+      }
+    } catch (e) {
+      if (showToast && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('手动匹配加载失败：$e')),
+        );
+      }
+    }
+  }
+
   void _syncDanmakuCursor(Duration position) {
     if (_danmakuSourceIndex < 0 ||
         _danmakuSourceIndex >= _danmakuSources.length) {
@@ -1488,6 +1587,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       showDragHandle: true,
       builder: (ctx) {
         var onlineLoading = false;
+        var manualLoading = false;
         return StatefulBuilder(
           builder: (context, setSheetState) {
             final hasSources = _danmakuSources.isNotEmpty;
@@ -1543,6 +1643,35 @@ class _PlayerScreenState extends State<PlayerScreen>
                               )
                             : const Icon(Icons.cloud_download_outlined),
                         label: const Text('在线'),
+                      ),
+                      const SizedBox(width: 8),
+                      TextButton.icon(
+                        onPressed: manualLoading ||
+                                onlineLoading ||
+                                _currentlyPlayingIndex < 0 ||
+                                _currentlyPlayingIndex >= _playlist.length
+                            ? null
+                            : () async {
+                                manualLoading = true;
+                                setSheetState(() {});
+                                try {
+                                  await _manualMatchOnlineDanmakuForCurrent(
+                                    showToast: true,
+                                  );
+                                } finally {
+                                  manualLoading = false;
+                                  setSheetState(() {});
+                                }
+                              },
+                        icon: manualLoading
+                            ? const SizedBox(
+                                width: 18,
+                                height: 18,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              )
+                            : const Icon(Icons.search),
+                        label: const Text('手动'),
                       ),
                     ],
                   ),
