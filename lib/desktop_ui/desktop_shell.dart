@@ -83,7 +83,7 @@ class _DesktopWorkspace extends StatefulWidget {
 
 class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   _DesktopSection _section = _DesktopSection.library;
-  bool _sidebarCollapsed = false;
+  bool _sidebarCollapsed = true;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   int _refreshSignal = 0;
@@ -108,6 +108,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   }
 
   void _handleSidebarSelection(String id) {
+    _hideSidebar();
     switch (id) {
       case 'library':
         setState(() => _section = _DesktopSection.library);
@@ -131,6 +132,11 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
 
   void _toggleSidebar() {
     setState(() => _sidebarCollapsed = !_sidebarCollapsed);
+  }
+
+  void _hideSidebar() {
+    if (_sidebarCollapsed) return;
+    setState(() => _sidebarCollapsed = true);
   }
 
   void _openDetail(MediaItem item) {
@@ -309,7 +315,9 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                 child: FocusTraversalManager(
                   child: WindowPaddingContainer(
                     child: DesktopNavigationLayout(
-                      sidebarWidth: _sidebarCollapsed ? 96 : 264,
+                      sidebarWidth: 264,
+                      sidebarVisible: !_sidebarCollapsed,
+                      onDismissSidebar: _hideSidebar,
                       sidebar: DesktopSidebar(
                         destinations: <DesktopSidebarDestination>[
                           const DesktopSidebarDestination(
@@ -346,6 +354,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                       ),
                       topBar: DesktopTopBar(
                         title: title,
+                        showSearch: _section != _DesktopSection.library,
                         showBack: _section == _DesktopSection.detail,
                         onBack: () => setState(
                           () => _section = _DesktopSection.library,

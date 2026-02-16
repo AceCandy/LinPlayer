@@ -11,6 +11,7 @@ class DesktopTopBar extends StatelessWidget {
     required this.searchController,
     required this.onSearchSubmitted,
     required this.onSearchChanged,
+    this.showSearch = true,
     this.showBack = false,
     this.onBack,
     this.onToggleSidebar,
@@ -23,6 +24,7 @@ class DesktopTopBar extends StatelessWidget {
   final TextEditingController searchController;
   final ValueChanged<String> onSearchSubmitted;
   final ValueChanged<String> onSearchChanged;
+  final bool showSearch;
   final bool showBack;
   final VoidCallback? onBack;
   final VoidCallback? onToggleSidebar;
@@ -67,29 +69,31 @@ class DesktopTopBar extends StatelessWidget {
                   _LogoBadge(theme: desktopTheme),
                   const SizedBox(width: 12),
                   Expanded(
-                    child: Row(
-                      children: [
-                        Flexible(
-                          flex: 3,
-                          child: Text(
-                            title,
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: titleStyle,
-                          ),
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          flex: 5,
-                          child: _SearchInput(
-                            controller: searchController,
-                            hintText: searchHint,
-                            onSubmitted: onSearchSubmitted,
-                            onChanged: onSearchChanged,
-                          ),
-                        ),
-                      ],
-                    ),
+                    child: showSearch
+                        ? Row(
+                            children: [
+                              Flexible(
+                                flex: 3,
+                                child: Text(
+                                  title,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: titleStyle,
+                                ),
+                              ),
+                              const SizedBox(width: 16),
+                              Expanded(
+                                flex: 5,
+                                child: _SearchInput(
+                                  controller: searchController,
+                                  hintText: searchHint,
+                                  onSubmitted: onSearchSubmitted,
+                                  onChanged: onSearchChanged,
+                                ),
+                              ),
+                            ],
+                          )
+                        : const Center(child: _TopPillTabs()),
                   ),
                   const SizedBox(width: 10),
                   _TopIconButton(
@@ -189,24 +193,14 @@ class _LogoBadge extends StatelessWidget {
   Widget build(BuildContext context) {
     return Row(
       children: [
-        Container(
-          width: 28,
-          height: 28,
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(9),
-            gradient: const LinearGradient(
-              begin: Alignment.topLeft,
-              end: Alignment.bottomRight,
-              colors: [Color(0xFF2D8CFF), Color(0xFF1598B8)],
-            ),
-          ),
-          alignment: Alignment.center,
-          child: const Text(
-            'L',
-            style: TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w800,
+        ClipRRect(
+          borderRadius: BorderRadius.circular(9),
+          child: SizedBox(
+            width: 28,
+            height: 28,
+            child: Image.asset(
+              'assets/app_icon.jpg',
+              fit: BoxFit.cover,
             ),
           ),
         ),
@@ -221,6 +215,55 @@ class _LogoBadge extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+class _TopPillTabs extends StatelessWidget {
+  const _TopPillTabs();
+
+  @override
+  Widget build(BuildContext context) {
+    final desktopTheme = DesktopThemeExtension.of(context);
+    return Container(
+      padding: const EdgeInsets.all(4),
+      decoration: BoxDecoration(
+        color: Colors.black.withValues(alpha: 0.42),
+        borderRadius: BorderRadius.circular(999),
+        border: Border.all(color: desktopTheme.border),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
+            decoration: BoxDecoration(
+              color: desktopTheme.accent,
+              borderRadius: BorderRadius.circular(999),
+            ),
+            child: const Text(
+              'Home',
+              style: TextStyle(
+                color: Colors.white,
+                fontSize: 12,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+          ),
+          const SizedBox(width: 6),
+          const Padding(
+            padding: EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              'Favorites',
+              style: TextStyle(
+                color: Color(0xFFC4CDDB),
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

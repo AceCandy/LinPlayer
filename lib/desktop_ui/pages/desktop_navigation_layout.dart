@@ -8,17 +8,22 @@ class DesktopNavigationLayout extends StatelessWidget {
     required this.sidebar,
     required this.topBar,
     required this.content,
+    this.sidebarVisible = false,
+    this.onDismissSidebar,
     this.sidebarWidth = 264,
   });
 
   final Widget sidebar;
   final Widget topBar;
   final Widget content;
+  final bool sidebarVisible;
+  final VoidCallback? onDismissSidebar;
   final double sidebarWidth;
 
   @override
   Widget build(BuildContext context) {
     final desktopTheme = DesktopThemeExtension.of(context);
+    final showSidebar = sidebarVisible && sidebarWidth > 0;
 
     return Stack(
       children: [
@@ -51,24 +56,31 @@ class DesktopNavigationLayout extends StatelessWidget {
             color: desktopTheme.focus.withValues(alpha: 0.08),
           ),
         ),
-        Row(
+        Column(
           children: [
-            SizedBox(
+            topBar,
+            const SizedBox(height: 14),
+            Expanded(child: content),
+          ],
+        ),
+        if (showSidebar)
+          Positioned.fill(
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onDismissSidebar,
+              child: ColoredBox(
+                color: Colors.black.withValues(alpha: 0.26),
+              ),
+            ),
+          ),
+        if (showSidebar)
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SizedBox(
               width: sidebarWidth,
               child: sidebar,
             ),
-            const SizedBox(width: 18),
-            Expanded(
-              child: Column(
-                children: [
-                  topBar,
-                  const SizedBox(height: 14),
-                  Expanded(child: content),
-                ],
-              ),
-            ),
-          ],
-        ),
+          ),
       ],
     );
   }
