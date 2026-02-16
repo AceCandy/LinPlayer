@@ -12,6 +12,81 @@ import 'server_adapters/server_access.dart';
 import 'play_network_page.dart';
 import 'play_network_page_exo.dart';
 
+class _DetailUiTokens {
+  static const pagePadding = EdgeInsets.fromLTRB(20, 74, 20, 24);
+  static const sectionGap = 16.0;
+  static const sectionTitleGap = 8.0;
+  static const panelPadding = EdgeInsets.all(16);
+  static const cardRadius = 12.0;
+  static const heroPosterRadius = 14.0;
+  static const actionRadius = 999.0;
+  static const horizontalGap = 12.0;
+  static const horizontalEpisodeCardWidth = 288.0;
+  static const horizontalEpisodeStripHeight = 206.0;
+}
+
+Widget _sectionTitle(
+  BuildContext context,
+  String title, {
+  Widget? trailing,
+}) {
+  final text = Text(
+    title,
+    style: Theme.of(context).textTheme.titleMedium?.copyWith(
+          fontWeight: FontWeight.w700,
+        ),
+  );
+  if (trailing == null) return text;
+  return Row(
+    children: [
+      Expanded(child: text),
+      const SizedBox(width: _DetailUiTokens.sectionTitleGap),
+      trailing,
+    ],
+  );
+}
+
+Widget _detailActionButton(
+  BuildContext context, {
+  required IconData icon,
+  required String label,
+  required VoidCallback? onTap,
+  bool primary = false,
+}) {
+  final scheme = Theme.of(context).colorScheme;
+  final fg = primary ? scheme.onPrimaryContainer : Colors.white;
+  final bg =
+      primary ? scheme.primaryContainer : Colors.black.withValues(alpha: 0.28);
+  return InkWell(
+    borderRadius: BorderRadius.circular(_DetailUiTokens.actionRadius),
+    onTap: onTap,
+    child: Ink(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
+      decoration: BoxDecoration(
+        color: bg,
+        borderRadius: BorderRadius.circular(_DetailUiTokens.actionRadius),
+        border: Border.all(
+          color: Colors.white.withValues(alpha: primary ? 0 : 0.22),
+        ),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: fg),
+          const SizedBox(width: 6),
+          Text(
+            label,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: fg,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ],
+      ),
+    ),
+  );
+}
+
 class ShowDetailPage extends StatefulWidget {
   const ShowDetailPage({
     super.key,
@@ -592,38 +667,12 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     required VoidCallback? onTap,
     bool primary = false,
   }) {
-    final scheme = Theme.of(context).colorScheme;
-    final fg = primary ? scheme.onPrimaryContainer : Colors.white;
-    final bg = primary
-        ? scheme.primaryContainer
-        : Colors.black.withValues(alpha: 0.28);
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
+    return _detailActionButton(
+      context,
+      icon: icon,
+      label: label,
       onTap: onTap,
-      child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: primary ? 0 : 0.22),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: fg),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: fg,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
-        ),
-      ),
+      primary: primary,
     );
   }
 
@@ -650,24 +699,24 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                 icon: const Icon(Icons.home),
               ),
               IconButton(
-                onPressed: () => _showTopActionHint('鑿滃崟'),
+                onPressed: () => _showTopActionHint('菜单'),
                 icon: const Icon(Icons.menu),
               ),
               const Spacer(),
               IconButton(
-                onPressed: () => _showTopActionHint('鎶曞睆'),
+                onPressed: () => _showTopActionHint('投屏'),
                 icon: const Icon(Icons.cast),
               ),
               IconButton(
-                onPressed: () => _showTopActionHint('鎼滅储'),
+                onPressed: () => _showTopActionHint('搜索'),
                 icon: const Icon(Icons.search),
               ),
               IconButton(
-                onPressed: () => _showTopActionHint('鐢ㄦ埛'),
+                onPressed: () => _showTopActionHint('用户'),
                 icon: const Icon(Icons.person),
               ),
               IconButton(
-                onPressed: () => _showTopActionHint('璁剧疆'),
+                onPressed: () => _showTopActionHint('设置'),
                 icon: const Icon(Icons.settings),
               ),
             ],
@@ -696,7 +745,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           );
     final year = _yearText(item);
     final meta = <String>[
-      if (item.communityRating != null) '鈽?${item.communityRating!.toStringAsFixed(1)}',
+      if (item.communityRating != null)
+        '★ ${item.communityRating!.toStringAsFixed(1)}',
       if (year.isNotEmpty) year,
       'MBS',
       'SG-PG13',
@@ -713,7 +763,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             padding: const EdgeInsets.all(4),
             decoration: BoxDecoration(
               color: Colors.pinkAccent.withValues(alpha: 0.82),
-              borderRadius: BorderRadius.circular(16),
+              borderRadius:
+                  BorderRadius.circular(_DetailUiTokens.heroPosterRadius),
               boxShadow: [
                 BoxShadow(
                   color: Colors.black.withValues(alpha: 0.25),
@@ -723,7 +774,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
               ],
             ),
             child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
+              borderRadius: BorderRadius.circular(_DetailUiTokens.cardRadius),
               child: AspectRatio(
                 aspectRatio: 2 / 3,
                 child: posterUrl.isEmpty
@@ -824,7 +875,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             _heroActionButton(
               context,
               icon: Icons.play_arrow,
-              label: '鎾斁',
+              label: '播放',
               primary: true,
               onTap: isSeries
                   ? (_featuredEpisode == null
@@ -847,8 +898,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             _heroActionButton(
               context,
               icon: Icons.more_horiz,
-              label: '鏇村',
-              onTap: () => _showTopActionHint('鏇村'),
+              label: '更多',
+              onTap: () => _showTopActionHint('更多'),
             ),
           ],
         ),
@@ -913,7 +964,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
 
     return AppPanel(
       enableBlur: !widget.isTv && widget.appState.enableBlurEffects,
-      padding: const EdgeInsets.all(16),
+      padding: _DetailUiTokens.panelPadding,
       child: wide
           ? Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -953,7 +1004,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         }
         if (snapshot.hasError) {
           return Text(
-            '鍔犺浇鍓ч泦澶辫触锛?{snapshot.error}',
+            '加载剧集失败：${snapshot.error}',
             style: Theme.of(context).textTheme.bodySmall,
           );
         }
@@ -970,20 +1021,18 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         return Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Text(
-              '灏氭湭瑙傜湅',
-              style: Theme.of(context).textTheme.titleMedium,
-            ),
+            _sectionTitle(context, '尚未观看'),
             const SizedBox(height: 8),
             SizedBox(
-              height: 204,
+              height: _DetailUiTokens.horizontalEpisodeStripHeight,
               child: _withHorizontalEdgeFade(
                 context,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 2),
                   itemCount: unwatched.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 12),
+                  separatorBuilder: (_, __) =>
+                      const SizedBox(width: _DetailUiTokens.horizontalGap),
                   itemBuilder: (context, index) {
                     final ep = unwatched[index];
                     final epNo = ep.episodeNumber ?? (index + 1);
@@ -999,19 +1048,21 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           );
                     return _HoverScale(
                       child: SizedBox(
-                        width: 264,
+                        width: _DetailUiTokens.horizontalEpisodeCardWidth,
                         child: Material(
                           color: Colors.transparent,
                           child: InkWell(
                             onTap: () => _openEpisode(context, ep),
-                            borderRadius: BorderRadius.circular(12),
+                            borderRadius:
+                                BorderRadius.circular(_DetailUiTokens.cardRadius),
                             child: Ink(
                               decoration: BoxDecoration(
                                 color: Theme.of(context)
                                     .colorScheme
                                     .surfaceContainerHighest
                                     .withValues(alpha: 0.28),
-                                borderRadius: BorderRadius.circular(12),
+                                borderRadius:
+                                    BorderRadius.circular(_DetailUiTokens.cardRadius),
                                 border: Border.all(
                                   color: Theme.of(context)
                                       .colorScheme
@@ -1024,7 +1075,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 children: [
                                   ClipRRect(
                                     borderRadius: const BorderRadius.vertical(
-                                      top: Radius.circular(12),
+                                      top: Radius.circular(
+                                          _DetailUiTokens.cardRadius),
                                     ),
                                     child: AspectRatio(
                                       aspectRatio: 16 / 9,
@@ -1116,6 +1168,57 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           ],
         );
       },
+    );
+  }
+
+  Widget _seasonEpisodeControlPanel(
+    BuildContext context, {
+    required bool enableBlur,
+  }) {
+    if (_seasons.isEmpty) return const SizedBox.shrink();
+    return AppPanel(
+      enableBlur: enableBlur,
+      padding: const EdgeInsets.all(12),
+      child: Row(
+        children: [
+          Expanded(
+            child: OutlinedButton(
+              onPressed: () => _pickSeason(context),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  const Icon(Icons.layers_outlined, size: 18),
+                  const SizedBox(width: 8),
+                  Flexible(
+                    child: Text(
+                      '季：${_selectedSeasonLabel()}',
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  const SizedBox(width: 4),
+                  const Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+          ),
+          const SizedBox(width: 12),
+          Expanded(
+            child: OutlinedButton(
+              onPressed: _selectedSeason == null ? null : () => _pickEpisode(context),
+              child: const Row(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(Icons.format_list_numbered, size: 18),
+                  SizedBox(width: 8),
+                  Text('选集'),
+                  SizedBox(width: 4),
+                  Icon(Icons.arrow_drop_down),
+                ],
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -1831,7 +1934,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 children: [
                                   if (item.communityRating != null)
                                     _pill(context,
-                                        '鈽?${item.communityRating!.toStringAsFixed(1)}'),
+                                        '★ ${item.communityRating!.toStringAsFixed(1)}'),
                                   if (item.premiereDate != null)
                                     _pill(context,
                                         item.premiereDate!.split('T').first),
@@ -1878,8 +1981,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       ? _toggleLocalFavorite
                                       : null,
                                   tooltip: _localFavorite
-                                      ? 'Remove local favorite'
-                                      : 'Add local favorite',
+                                      ? '已本地收藏'
+                                      : '添加到本地收藏',
                                   icon: Icon(
                                     _localFavorite
                                         ? Icons.star
@@ -1899,7 +2002,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                 ),
                 SliverToBoxAdapter(
                   child: Padding(
-                    padding: const EdgeInsets.all(16),
+                    padding: _DetailUiTokens.panelPadding,
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -1915,7 +2018,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           _playButton(
                             context,
                             label:
-                                '鎾斁 S${_featuredEpisode!.seasonNumber ?? 1}:E${_featuredEpisode!.episodeNumber ?? 1}',
+                                '播放 S${_featuredEpisode!.seasonNumber ?? 1}:E${_featuredEpisode!.episodeNumber ?? 1}',
                             onTap: () {
                               Navigator.of(context).push(
                                 MaterialPageRoute(
@@ -1938,7 +2041,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             context,
                             label: item.playbackPositionTicks > 0
                                 ? '继续播放（${_fmtClock(_ticksToDuration(item.playbackPositionTicks))}）'
-                                : '鎾斁',
+                                : '播放',
                             onTap: () async {
                               final start = item.playbackPositionTicks > 0
                                   ? _ticksToDuration(item.playbackPositionTicks)
@@ -1983,114 +2086,15 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             },
                           ),
                         ],
-                        if (widget.itemId.isEmpty && isSeries && _seasons.isNotEmpty) ...[
+                        if (isSeries && _seasons.isNotEmpty) ...[
                           const SizedBox(height: 12),
-                          AppPanel(
+                          _seasonEpisodeControlPanel(
+                            context,
                             enableBlur: enableBlur,
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _pickSeason(context),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.layers_outlined,
-                                            size: 18),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            '瀛ｏ細${_selectedSeasonLabel()}',
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        const Icon(Icons.arrow_drop_down),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: _selectedSeason == null
-                                        ? null
-                                        : () => _pickEpisode(context),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.format_list_numbered,
-                                            size: 18),
-                                        SizedBox(width: 8),
-                                        Text('閫夐泦'),
-                                        SizedBox(width: 4),
-                                        Icon(Icons.arrow_drop_down),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
                           ),
                           const SizedBox(height: 12),
                         ] else
                           const SizedBox(height: 12),
-                        if (isSeries && _seasons.isNotEmpty) ...[
-                          AppPanel(
-                            enableBlur: enableBlur,
-                            padding: const EdgeInsets.all(12),
-                            child: Row(
-                              children: [
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: () => _pickSeason(context),
-                                    child: Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        const Icon(Icons.layers_outlined,
-                                            size: 18),
-                                        const SizedBox(width: 8),
-                                        Flexible(
-                                          child: Text(
-                                            '瀛ｏ細${_selectedSeasonLabel()}',
-                                            overflow: TextOverflow.ellipsis,
-                                          ),
-                                        ),
-                                        const SizedBox(width: 4),
-                                        const Icon(Icons.arrow_drop_down),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                                const SizedBox(width: 12),
-                                Expanded(
-                                  child: OutlinedButton(
-                                    onPressed: _selectedSeason == null
-                                        ? null
-                                        : () => _pickEpisode(context),
-                                    child: const Row(
-                                      mainAxisAlignment:
-                                          MainAxisAlignment.center,
-                                      children: [
-                                        Icon(Icons.format_list_numbered,
-                                            size: 18),
-                                        SizedBox(width: 8),
-                                        Text('閫夐泦'),
-                                        SizedBox(width: 4),
-                                        Icon(Icons.arrow_drop_down),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ],
-                            ),
-                          ),
-                          const SizedBox(height: 12),
-                        ],
                         if (isSeries) ...[
                           _unwatchedEpisodesSection(
                             context,
@@ -2116,8 +2120,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           const SizedBox(height: 16),
                         ],
                         if (widget.itemId.isEmpty && _album.isNotEmpty) ...[
-                          Text('鐩稿唽',
-                              style: Theme.of(context).textTheme.titleMedium),
+                          _sectionTitle(context, '相册'),
                           const SizedBox(height: 8),
                           SizedBox(
                             height: 140,
@@ -2208,8 +2211,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           const SizedBox(height: 16),
                         ],
                         if (_seasons.isNotEmpty) ...[
-                          Text('鍏ㄩ儴鍓у',
-                              style: Theme.of(context).textTheme.titleMedium),
+                          _sectionTitle(context, '全部剧季'),
                           const SizedBox(height: 8),
                           Column(
                             children: _seasons.asMap().entries.map((entry) {
@@ -2329,8 +2331,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           ),
                         ],
                         if (widget.itemId.isEmpty && _similar.isNotEmpty) ...[
-                          Text('鏇村绫讳技',
-                              style: Theme.of(context).textTheme.titleMedium),
+                          _sectionTitle(context, '更多类似'),
                           const SizedBox(height: 8),
                           SizedBox(
                             height: 240,
@@ -2360,8 +2361,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                         ? date.substring(0, 4)
                                         : '');
                                 final badge = s.type == 'Movie'
-                                    ? '鐢靛奖'
-                                    : (s.type == 'Series' ? '鍓ч泦' : '');
+                                    ? '电影'
+                                    : (s.type == 'Series' ? '剧集' : '');
 
                                 return _HoverScale(
                                   child: SizedBox(
@@ -2395,8 +2396,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           ),
                         ],
                         if (_similar.isNotEmpty) ...[
-                          Text('鏇村绫讳技',
-                              style: Theme.of(context).textTheme.titleMedium),
+                          _sectionTitle(context, '更多类似'),
                           const SizedBox(height: 8),
                           SizedBox(
                             height: 240,
@@ -2426,8 +2426,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                           ? date.substring(0, 4)
                                           : '');
                                   final badge = s.type == 'Movie'
-                                      ? '鐢靛奖'
-                                      : (s.type == 'Series' ? '鍓ч泦' : '');
+                                      ? '电影'
+                                      : (s.type == 'Series' ? '剧集' : '');
 
                                   return _HoverScale(
                                     child: SizedBox(
@@ -3405,42 +3405,22 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     required VoidCallback? onTap,
     bool primary = false,
   }) {
-    final scheme = Theme.of(context).colorScheme;
-    final fg = primary ? scheme.onPrimaryContainer : Colors.white;
-    final bg = primary
-        ? scheme.primaryContainer
-        : Colors.black.withValues(alpha: 0.28);
-    return InkWell(
-      borderRadius: BorderRadius.circular(999),
+    return _detailActionButton(
+      context,
+      icon: icon,
+      label: label,
       onTap: onTap,
-      child: Ink(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 10),
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(
-            color: Colors.white.withValues(alpha: primary ? 0 : 0.22),
-          ),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Icon(icon, size: 18, color: fg),
-            const SizedBox(width: 6),
-            Text(
-              label,
-              style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                    color: fg,
-                    fontWeight: FontWeight.w700,
-                  ),
-            ),
-          ],
-        ),
-      ),
+      primary: primary,
     );
   }
 
   Widget _episodeTopNavOverlay() {
+    void showHint(String label) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('$label 功能待接入')),
+      );
+    }
+
     return SafeArea(
       bottom: false,
       child: Padding(
@@ -3469,19 +3449,19 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
               ),
               const Spacer(),
               IconButton(
-                onPressed: () {},
+                onPressed: () => showHint('投屏'),
                 icon: const Icon(Icons.cast),
               ),
               IconButton(
-                onPressed: () {},
+                onPressed: () => showHint('搜索'),
                 icon: const Icon(Icons.search),
               ),
               IconButton(
-                onPressed: () {},
+                onPressed: () => showHint('用户'),
                 icon: const Icon(Icons.person),
               ),
               IconButton(
-                onPressed: () {},
+                onPressed: () => showHint('设置'),
                 icon: const Icon(Icons.settings),
               ),
             ],
@@ -3574,18 +3554,19 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
             onRefresh: _load,
             child: SingleChildScrollView(
               physics: const AlwaysScrollableScrollPhysics(),
-              padding: const EdgeInsets.fromLTRB(20, 74, 20, 24),
+              padding: _DetailUiTokens.pagePadding,
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   AppPanel(
                     enableBlur: enableBlur,
-                    padding: const EdgeInsets.all(16),
+                    padding: _DetailUiTokens.panelPadding,
                     child: LayoutBuilder(
                       builder: (context, c) {
                         final wide = c.maxWidth >= 1000;
                         final poster = ClipRRect(
-                          borderRadius: BorderRadius.circular(12),
+                          borderRadius:
+                              BorderRadius.circular(_DetailUiTokens.cardRadius),
                           child: AspectRatio(
                             aspectRatio: 16 / 9,
                             child: thumbUrl.isEmpty
@@ -3614,9 +3595,9 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                           children: [
                             Text(
                               seriesTitle,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineMedium
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .headlineSmall
                                   ?.copyWith(
                                     color: Colors.white,
                                     fontWeight: FontWeight.w800,
@@ -3656,7 +3637,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                   )
                                   .toList(),
                             ),
-                            const SizedBox(height: 10),
+                            const SizedBox(height: 12),
                             Text(
                               '视频：${_currentVideoText()}',
                               style: Theme.of(context).textTheme.bodyMedium?.copyWith(
@@ -3829,7 +3810,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                   const SizedBox(height: 16),
                   if ((_seriesId ?? '').trim().isNotEmpty) ...[
                     _otherEpisodesSection(context),
-                    const SizedBox(height: 16),
+                    const SizedBox(height: _DetailUiTokens.sectionGap),
                   ],
                   _externalLinksSection(context, ep, widget.appState),
                   if (_playInfo != null) ...[
@@ -3845,7 +3826,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                     ),
                   ],
                   if (_detail?.people.isNotEmpty == true && access != null) ...[
-                    const SizedBox(height: 16),
+                    const SizedBox(height: _DetailUiTokens.sectionGap),
                     _castSection(
                       context,
                       _detail!.people,
@@ -3853,8 +3834,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                     ),
                   ],
                   if (_chapters.isNotEmpty) ...[
-                    const SizedBox(height: 16),
-                    Text('章节', style: Theme.of(context).textTheme.titleMedium),
+                    const SizedBox(height: _DetailUiTokens.sectionGap),
+                    _sectionTitle(context, '章节'),
                     const SizedBox(height: 8),
                     Wrap(
                       spacing: 8,
@@ -4193,43 +4174,45 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
 
   Widget _otherEpisodesSection(BuildContext context) {
     final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
     final season = _selectedSeason;
     final seasonText = _selectedSeasonLabel();
     final epAccess =
         resolveServerAccess(appState: widget.appState, server: widget.server);
+    final controls = Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: [
+        FilledButton.tonalIcon(
+          onPressed: season == null ? null : () => _openSeasonEpisodesPage(context, season),
+          icon: const Icon(Icons.grid_view_rounded, size: 16),
+          label: const Text('查看全部'),
+        ),
+        FilledButton.tonalIcon(
+          onPressed: _seasons.isEmpty ? null : () => _pickSeason(context),
+          icon: const Icon(Icons.layers_outlined, size: 16),
+          label: const Text('切换季'),
+        ),
+        FilledButton.tonalIcon(
+          onPressed: season == null ? null : () => _pickEpisode(context),
+          icon: const Icon(Icons.format_list_numbered, size: 16),
+          label: const Text('选集'),
+        ),
+      ],
+    );
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Row(
-          children: [
-            Expanded(
-              child: Text(
-                '更多来自：$seasonText',
-                style: theme.textTheme.titleMedium,
-              ),
-            ),
-            TextButton(
-              onPressed: season == null
-                  ? null
-                  : () => _openSeasonEpisodesPage(context, season),
-              child: const Text('查看全部'),
-            ),
-            TextButton(
-              onPressed: _seasons.isEmpty ? null : () => _pickSeason(context),
-              child: const Text('切换季'),
-            ),
-            TextButton(
-              onPressed: season == null ? null : () => _pickEpisode(context),
-              child: const Text('选集'),
-            ),
-          ],
-        ),
+        _sectionTitle(context, '更多来自：$seasonText'),
+        const SizedBox(height: 8),
+        controls,
         if (_seriesError != null) ...[
-          const SizedBox(height: 4),
+          const SizedBox(height: 8),
           Text(
             '加载剧集失败：$_seriesError',
             style: theme.textTheme.bodySmall?.copyWith(
-              color: theme.colorScheme.error,
+              color: scheme.error,
             ),
           ),
         ],
@@ -4241,7 +4224,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
           ),
         if (season != null)
           SizedBox(
-            height: 200,
+            height: _DetailUiTokens.horizontalEpisodeStripHeight,
             child: FutureBuilder<List<MediaItem>>(
               future: _episodesForSeason(season),
               builder: (ctx, snapshot) {
@@ -4260,7 +4243,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                   child: ListView.separated(
                     scrollDirection: Axis.horizontal,
                     itemCount: eps.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(width: _DetailUiTokens.horizontalGap),
                     itemBuilder: (context, index) {
                       final e = eps[index];
                       final isCurrent = e.id == widget.episode.id;
@@ -4274,11 +4258,12 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                             );
                       return _HoverScale(
                         child: SizedBox(
-                          width: 280,
+                          width: _DetailUiTokens.horizontalEpisodeCardWidth,
                           child: Material(
                             color: Colors.transparent,
                             child: InkWell(
-                              borderRadius: BorderRadius.circular(12),
+                              borderRadius:
+                                  BorderRadius.circular(_DetailUiTokens.cardRadius),
                               onTap: () {
                                 if (isCurrent) return;
                                 Navigator.of(context).pushReplacement(
@@ -4294,11 +4279,12 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                               },
                               child: Ink(
                                 decoration: BoxDecoration(
-                                  borderRadius: BorderRadius.circular(12),
+                                  borderRadius:
+                                      BorderRadius.circular(_DetailUiTokens.cardRadius),
                                   border: Border.all(
                                     color: isCurrent
-                                        ? Colors.lightGreenAccent
-                                        : Colors.white.withValues(alpha: 0.2),
+                                        ? scheme.primary
+                                        : Colors.white.withValues(alpha: 0.24),
                                     width: isCurrent ? 1.4 : 1.0,
                                   ),
                                 ),
@@ -4306,7 +4292,8 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                   fit: StackFit.expand,
                                   children: [
                                     ClipRRect(
-                                      borderRadius: BorderRadius.circular(12),
+                                      borderRadius:
+                                          BorderRadius.circular(_DetailUiTokens.cardRadius),
                                       child: img.isEmpty
                                           ? const ColoredBox(color: Colors.black26)
                                           : Image.network(
@@ -4783,7 +4770,7 @@ Widget _peopleSection(
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('婕旇亴浜哄憳', style: Theme.of(context).textTheme.titleMedium),
+      _sectionTitle(context, '演职人员'),
       const SizedBox(height: 8),
       SizedBox(
         height: 150,
@@ -4813,7 +4800,14 @@ Widget _peopleSection(
                     ),
                     const SizedBox(height: 6),
                     Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-                    Text(p.role, style: Theme.of(context).textTheme.bodySmall),
+                    Text(
+                      p.role,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                            color: Colors.white70,
+                          ),
+                    ),
                   ],
                 ),
               );
@@ -4833,7 +4827,7 @@ Widget _castSection(
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('婕旇亴浜哄憳', style: Theme.of(context).textTheme.titleMedium),
+      _sectionTitle(context, '演职人员'),
       const SizedBox(height: 8),
       SizedBox(
         height: 162,
@@ -4915,7 +4909,7 @@ Widget _mediaInfo(
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('媒体源信息', style: Theme.of(context).textTheme.titleMedium),
+      _sectionTitle(context, '媒体源信息'),
       const SizedBox(height: 8),
       Wrap(
         spacing: 12,
@@ -5023,18 +5017,25 @@ int _gcd(int a, int b) {
 }
 
 Widget _infoCard(String title, String body) => SizedBox(
-      width: 220,
-      child: Card(
-        child: Padding(
-          padding: const EdgeInsets.all(12),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(title, style: const TextStyle(fontWeight: FontWeight.w700)),
-              const SizedBox(height: 8),
-              Text(body, style: const TextStyle(fontSize: 12)),
-            ],
-          ),
+      width: 240,
+      child: AppPanel(
+        enableBlur: true,
+        padding: const EdgeInsets.all(12),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              title,
+              style: const TextStyle(fontWeight: FontWeight.w700),
+            ),
+            const SizedBox(height: 8),
+            Text(
+              body.isEmpty ? '无' : body,
+              style: const TextStyle(fontSize: 12, height: 1.4),
+              maxLines: 18,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ],
         ),
       ),
     );
@@ -5074,7 +5075,7 @@ Widget _externalLinksSection(
   final links = <({String label, String url, IconData icon})>[
     if (imdbUrl.isNotEmpty) (label: 'IMDb', url: imdbUrl, icon: Icons.movie),
     if (tmdbUrl.isNotEmpty)
-      (label: 'TMDB', url: tmdbUrl, icon: Icons.local_movies),
+      (label: 'TheMovieDb', url: tmdbUrl, icon: Icons.local_movies),
     if (traktUrl.isNotEmpty) (label: 'Trakt', url: traktUrl, icon: Icons.link),
   ];
   if (links.isEmpty) return const SizedBox.shrink();
@@ -5091,7 +5092,7 @@ Widget _externalLinksSection(
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
-      Text('数据库链接', style: Theme.of(context).textTheme.titleMedium),
+      _sectionTitle(context, '数据库链接'),
       const SizedBox(height: 8),
       Wrap(
         spacing: 8,
@@ -5101,6 +5102,8 @@ Widget _externalLinksSection(
               (link) => ActionChip(
                 avatar: Icon(link.icon, size: 18),
                 label: Text(link.label),
+                backgroundColor:
+                    Theme.of(context).colorScheme.surface.withValues(alpha: 0.7),
                 onPressed: () => openExternal(link.url),
               ),
             )
