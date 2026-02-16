@@ -41,6 +41,8 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
   final Set<String> _favoriteItemIds = <String>{};
   final Map<String, bool> _playedOverrides = <String, bool>{};
   final Set<String> _updatingPlayedIds = <String>{};
+  String? _selectedLibraryId;
+  String? _selectedMediaItemId;
 
   @override
   void initState() {
@@ -448,6 +450,7 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
   }
 
   Future<void> _openItemDetail(MediaItem item) async {
+    _focusMediaItem(item.id);
     final isEpisode = item.type.toLowerCase() == 'episode';
     await Navigator.of(context).push(
       MaterialPageRoute(
@@ -466,6 +469,7 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
   }
 
   Future<void> _openLibraryItems(String parentId, String title) async {
+    _focusLibrary(parentId);
     await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => LibraryItemsPage(
@@ -476,6 +480,16 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
         ),
       ),
     );
+  }
+
+  void _focusLibrary(String libraryId) {
+    if (_selectedLibraryId == libraryId) return;
+    setState(() => _selectedLibraryId = libraryId);
+  }
+
+  void _focusMediaItem(String itemId) {
+    if (_selectedMediaItemId == itemId) return;
+    setState(() => _selectedMediaItemId = itemId);
   }
 
   void _toggleFavorite(String itemId) {
@@ -695,15 +709,6 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
     return 14;
   }
 
-  int _libraryColumns(double width) {
-    if (width >= 1600) return 8;
-    if (width >= 1280) return 6;
-    if (width >= 960) return 5;
-    if (width >= 768) return 4;
-    if (width >= 560) return 3;
-    return 2;
-  }
-
   String? _itemImageUrl(
     ServerAccess? access,
     MediaItem item, {
@@ -720,6 +725,47 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
       imageType: imageType,
       maxWidth: maxWidth,
     );
+  }
+
+  List<String> _itemImageCandidates(
+    ServerAccess? access,
+    MediaItem item, {
+    int? maxWidth,
+  }) {
+    if (access == null) return const [];
+    final ids = <String>{
+      item.id,
+      if ((item.parentId ?? '').trim().isNotEmpty) item.parentId!.trim(),
+      if ((item.seriesId ?? '').trim().isNotEmpty) item.seriesId!.trim(),
+    };
+    final urls = <String>{};
+    for (final id in ids) {
+      urls.add(
+        access.adapter.imageUrl(
+          access.auth,
+          itemId: id,
+          imageType: 'Backdrop',
+          maxWidth: maxWidth,
+        ),
+      );
+      urls.add(
+        access.adapter.imageUrl(
+          access.auth,
+          itemId: id,
+          imageType: 'Primary',
+          maxWidth: maxWidth,
+        ),
+      );
+      urls.add(
+        access.adapter.imageUrl(
+          access.auth,
+          itemId: id,
+          imageType: 'Thumb',
+          maxWidth: maxWidth,
+        ),
+      );
+    }
+    return urls.toList(growable: false);
   }
 
   String? _libraryImageUrl(
@@ -779,6 +825,15 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
       [Color(0xFF78350F), Color(0xFFF59E0B)],
       [Color(0xFF0F172A), Color(0xFF475569)],
     ];
+    final width = MediaQuery.of(context).size.width;
+    final cardWidth = width >= 1600
+        ? 260.0
+        : width >= 1280
+            ? 240.0
+            : width >= 960
+                ? 220.0
+                : 200.0;
+    final listHeight = cardWidth * 9 / 16;
 
     return Padding(
       padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
@@ -787,35 +842,32 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
         children: [
           const _SectionTitleBar(title: '媒体库'),
           const SizedBox(height: 16),
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final columns = _libraryColumns(constraints.maxWidth);
-              return GridView.builder(
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                itemCount: libraries.length,
-                gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: columns,
-                  mainAxisSpacing: 16,
-                  crossAxisSpacing: 16,
-                  childAspectRatio: 16 / 9,
+          _HorizontalCarousel(
+            height: listHeight,
+            itemCount: libraries.length,
+            separatorWidth: 16,
+            scrollStep: cardWidth * 2.4,
+            itemBuilder: (context, index) {
+              final library = libraries[index];
+              final colors = palettes[index % palettes.length];
+              return SizedBox(
+                width: cardWidth,
+                child: _LibraryCard(
+                  title: library.name,
+                  subtitle: _librarySubtitle(library),
+                  icon: _libraryIcon(library),
+                  imageUrl: _libraryImageUrl(
+                    access,
+                    library,
+                    maxWidth: 900,
+                  ),
+                  palette: colors,
+                  selected: _selectedLibraryId == library.id,
+                  onHoverChanged: (hovered) {
+                    if (hovered) _focusLibrary(library.id);
+                  },
+                  onTap: () => _openLibraryItems(library.id, library.name),
                 ),
-                itemBuilder: (context, index) {
-                  final library = libraries[index];
-                  final colors = palettes[index % palettes.length];
-                  return _LibraryCard(
-                    title: library.name,
-                    subtitle: _librarySubtitle(library),
-                    icon: _libraryIcon(library),
-                    imageUrl: _libraryImageUrl(
-                      access,
-                      library,
-                      maxWidth: 900,
-                    ),
-                    palette: colors,
-                    onTap: () => _openLibraryItems(library.id, library.name),
-                  );
-                },
               );
             },
           ),
@@ -918,44 +970,50 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
                     : () => _reloadContinueWatching(forceRefresh: true),
               ),
               const SizedBox(height: 14),
-              SizedBox(
+              _HorizontalCarousel(
                 height: listHeight,
-                child: ListView.separated(
-                  scrollDirection: Axis.horizontal,
-                  itemCount: items.length,
-                  separatorBuilder: (_, __) => const SizedBox(width: 16),
-                  itemBuilder: (context, index) {
-                    final item = items[index];
-                    final played = _isPlayed(item);
-                    final progress = (() {
-                      final total = item.runTimeTicks ?? 0;
-                      if (total <= 0) return 0.0;
-                      final ratio = item.playbackPositionTicks / total;
-                      return ratio.clamp(0.0, 1.0);
-                    })();
+                itemCount: items.length,
+                separatorWidth: 16,
+                scrollStep: cardWidth * 2.2,
+                itemBuilder: (context, index) {
+                  final item = items[index];
+                  final played = _isPlayed(item);
+                  final progress = (() {
+                    final total = item.runTimeTicks ?? 0;
+                    if (total <= 0) return 0.0;
+                    final ratio = item.playbackPositionTicks / total;
+                    return ratio.clamp(0.0, 1.0);
+                  })();
+                  final imageCandidates = _itemImageCandidates(
+                    access,
+                    item,
+                    maxWidth: 900,
+                  );
 
-                    return SizedBox(
-                      width: cardWidth,
-                      child: _ContinueWatchingCard(
-                        title: item.name,
-                        subtitle: _continueSubtitle(item),
-                        imageUrl: _itemImageUrl(
-                          access,
-                          item,
-                          imageType: 'Backdrop',
-                          maxWidth: 900,
-                        ),
-                        progress: progress,
-                        played: played,
-                        favorite: _isFavorite(item.id),
-                        updatingPlayed: _updatingPlayedIds.contains(item.id),
-                        onTap: () => _openItemDetail(item),
-                        onTogglePlayed: () => _togglePlayed(item),
-                        onToggleFavorite: () => _toggleFavorite(item.id),
-                      ),
-                    );
-                  },
-                ),
+                  return SizedBox(
+                    width: cardWidth,
+                    child: _ContinueWatchingCard(
+                      title: item.name,
+                      subtitle: _continueSubtitle(item),
+                      imageUrl:
+                          imageCandidates.isEmpty ? null : imageCandidates.first,
+                      fallbackImageUrls: imageCandidates.length > 1
+                          ? imageCandidates.sublist(1)
+                          : const <String>[],
+                      progress: progress,
+                      played: played,
+                      favorite: _isFavorite(item.id),
+                      selected: _selectedMediaItemId == item.id,
+                      onHoverChanged: (hovered) {
+                        if (hovered) _focusMediaItem(item.id);
+                      },
+                      updatingPlayed: _updatingPlayedIds.contains(item.id),
+                      onTap: () => _openItemDetail(item),
+                      onTogglePlayed: () => _togglePlayed(item),
+                      onToggleFavorite: () => _toggleFavorite(item.id),
+                    ),
+                  );
+                },
               ),
             ],
           ),
@@ -993,34 +1051,36 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
                 : () => _openLibraryItems(libraryId, entry.displayName),
           ),
           const SizedBox(height: 12),
-          SizedBox(
+          _HorizontalCarousel(
             height: sectionHeight,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              itemCount: entry.items.length,
-              separatorBuilder: (_, __) => const SizedBox(width: 14),
-              itemBuilder: (context, index) {
-                final item = entry.items[index];
-                return SizedBox(
-                  width: posterWidth,
-                  child: _PosterCard(
-                    title: item.name,
-                    meta: _itemMeta(item),
-                    imageUrl: _itemImageUrl(
-                      access,
-                      item,
-                      imageType: 'Primary',
-                      maxWidth: 600,
-                    ),
-                    badgeText: _itemBadge(item),
-                    badgeColor: _badgeColor(item),
-                    favorite: _isFavorite(item.id),
-                    onTap: () => _openItemDetail(item),
-                    onToggleFavorite: () => _toggleFavorite(item.id),
+            itemCount: entry.items.length,
+            separatorWidth: 14,
+            scrollStep: posterWidth * 4.5,
+            itemBuilder: (context, index) {
+              final item = entry.items[index];
+              return SizedBox(
+                width: posterWidth,
+                child: _PosterCard(
+                  title: item.name,
+                  meta: _itemMeta(item),
+                  imageUrl: _itemImageUrl(
+                    access,
+                    item,
+                    imageType: 'Primary',
+                    maxWidth: 600,
                   ),
-                );
-              },
-            ),
+                  badgeText: _itemBadge(item),
+                  badgeColor: _badgeColor(item),
+                  favorite: _isFavorite(item.id),
+                  selected: _selectedMediaItemId == item.id,
+                  onHoverChanged: (hovered) {
+                    if (hovered) _focusMediaItem(item.id);
+                  },
+                  onTap: () => _openItemDetail(item),
+                  onToggleFavorite: () => _toggleFavorite(item.id),
+                ),
+              );
+            },
           ),
         ],
       ),
@@ -1043,7 +1103,9 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
 
         final emptyState = !_bootstrapping &&
             visibleEntries.isEmpty &&
-            (_selectedTab == _DesktopHomeTab.favorites || visibleLibraries.isEmpty);
+            (_selectedTab == _DesktopHomeTab.favorites
+                ? _favoriteItemIds.isEmpty
+                : visibleLibraries.isEmpty);
 
         return Scaffold(
           backgroundColor: const Color(0xFF06080D),
@@ -1448,6 +1510,187 @@ class _SectionTitleBar extends StatelessWidget {
   }
 }
 
+class _HorizontalCarousel extends StatefulWidget {
+  const _HorizontalCarousel({
+    required this.height,
+    required this.itemCount,
+    required this.itemBuilder,
+    this.separatorWidth = 12,
+    this.scrollStep = 320,
+  });
+
+  final double height;
+  final int itemCount;
+  final IndexedWidgetBuilder itemBuilder;
+  final double separatorWidth;
+  final double scrollStep;
+
+  @override
+  State<_HorizontalCarousel> createState() => _HorizontalCarouselState();
+}
+
+class _HorizontalCarouselState extends State<_HorizontalCarousel> {
+  late final ScrollController _controller = ScrollController()
+    ..addListener(_updateArrowState);
+  bool _canScrollLeft = false;
+  bool _canScrollRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
+  }
+
+  @override
+  void didUpdateWidget(covariant _HorizontalCarousel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updateArrowState());
+  }
+
+  @override
+  void dispose() {
+    _controller
+      ..removeListener(_updateArrowState)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _updateArrowState() {
+    if (!_controller.hasClients) {
+      if (_canScrollLeft || _canScrollRight) {
+        setState(() {
+          _canScrollLeft = false;
+          _canScrollRight = false;
+        });
+      }
+      return;
+    }
+    final pos = _controller.position;
+    final canLeft = pos.pixels > 4;
+    final canRight = pos.pixels < pos.maxScrollExtent - 4;
+    if (canLeft == _canScrollLeft && canRight == _canScrollRight) return;
+    setState(() {
+      _canScrollLeft = canLeft;
+      _canScrollRight = canRight;
+    });
+  }
+
+  void _scrollBy(double delta) {
+    if (!_controller.hasClients) return;
+    final pos = _controller.position;
+    final target = (pos.pixels + delta).clamp(0.0, pos.maxScrollExtent);
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 280),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: widget.height,
+      child: Stack(
+        children: [
+          Positioned.fill(
+            child: ListView.separated(
+              controller: _controller,
+              scrollDirection: Axis.horizontal,
+              physics: const BouncingScrollPhysics(),
+              itemCount: widget.itemCount,
+              separatorBuilder: (_, __) =>
+                  SizedBox(width: widget.separatorWidth),
+              itemBuilder: widget.itemBuilder,
+            ),
+          ),
+          if (_canScrollLeft)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: _CarouselArrowButton(
+                  icon: Icons.chevron_left_rounded,
+                  alignment: Alignment.centerLeft,
+                  onTap: () => _scrollBy(-widget.scrollStep),
+                ),
+              ),
+            ),
+          if (_canScrollRight)
+            Positioned.fill(
+              child: Align(
+                alignment: Alignment.centerRight,
+                child: _CarouselArrowButton(
+                  icon: Icons.chevron_right_rounded,
+                  alignment: Alignment.centerRight,
+                  onTap: () => _scrollBy(widget.scrollStep),
+                ),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _CarouselArrowButton extends StatelessWidget {
+  const _CarouselArrowButton({
+    required this.icon,
+    required this.alignment,
+    required this.onTap,
+  });
+
+  final IconData icon;
+  final Alignment alignment;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final isLeft = alignment == Alignment.centerLeft;
+    return Container(
+      width: 56,
+      alignment: alignment,
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: isLeft ? Alignment.centerLeft : Alignment.centerRight,
+          end: isLeft ? Alignment.centerRight : Alignment.centerLeft,
+          colors: [
+            const Color(0xFF05070B).withValues(alpha: 0.70),
+            const Color(0xFF05070B).withValues(alpha: 0.0),
+          ],
+        ),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6),
+        child: Material(
+          color: Colors.transparent,
+          child: InkWell(
+            onTap: onTap,
+            borderRadius: BorderRadius.circular(18),
+            child: Ink(
+              width: 32,
+              height: 32,
+              decoration: BoxDecoration(
+                color: Colors.black.withValues(alpha: 0.56),
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: Colors.white.withValues(alpha: 0.28),
+                ),
+                boxShadow: [
+                  BoxShadow(
+                    color: const Color(0xAA020617).withValues(alpha: 0.55),
+                    blurRadius: 8,
+                    spreadRadius: 1,
+                  ),
+                ],
+              ),
+              child: Icon(icon, color: Colors.white, size: 20),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _LibraryCard extends StatelessWidget {
   const _LibraryCard({
     required this.title,
@@ -1455,6 +1698,8 @@ class _LibraryCard extends StatelessWidget {
     required this.icon,
     required this.imageUrl,
     required this.palette,
+    required this.selected,
+    this.onHoverChanged,
     required this.onTap,
   });
 
@@ -1463,6 +1708,8 @@ class _LibraryCard extends StatelessWidget {
   final IconData icon;
   final String? imageUrl;
   final List<Color> palette;
+  final bool selected;
+  final ValueChanged<bool>? onHoverChanged;
   final VoidCallback onTap;
 
   @override
@@ -1472,69 +1719,92 @@ class _LibraryCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(14),
       hoverScale: 1.03,
       pressedScale: 0.98,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(14),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                  colors: palette,
+      onHoverChanged: onHoverChanged,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF38BDF8)
+                : Colors.white.withValues(alpha: 0.10),
+            width: selected ? 1.5 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xAA38BDF8).withValues(alpha: 0.35),
+                    blurRadius: 24,
+                    spreadRadius: 2,
+                  ),
+                ]
+              : const [],
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(14),
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.topLeft,
+                    end: Alignment.bottomRight,
+                    colors: palette,
+                  ),
                 ),
               ),
-            ),
-            _CoverImage(
-              imageUrl: imageUrl,
-              fit: BoxFit.cover,
-              fallback: const SizedBox.shrink(),
-            ),
-            DecoratedBox(
-              decoration: BoxDecoration(
-                gradient: LinearGradient(
-                  begin: Alignment.centerLeft,
-                  end: Alignment.centerRight,
-                  colors: [
-                    Colors.black.withValues(alpha: 0.58),
-                    Colors.black.withValues(alpha: 0.10),
+              _CoverImage(
+                imageUrl: imageUrl,
+                fit: BoxFit.cover,
+                fallback: const SizedBox.shrink(),
+              ),
+              DecoratedBox(
+                decoration: BoxDecoration(
+                  gradient: LinearGradient(
+                    begin: Alignment.centerLeft,
+                    end: Alignment.centerRight,
+                    colors: [
+                      Colors.black.withValues(alpha: 0.58),
+                      Colors.black.withValues(alpha: 0.10),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Icon(icon, color: Colors.white, size: 26),
+                    const Spacer(),
+                    Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        color: Colors.white.withValues(alpha: 0.72),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        color: Colors.white,
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                      ),
+                    ),
                   ],
                 ),
               ),
-            ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(12, 10, 12, 10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Icon(icon, color: Colors.white, size: 26),
-                  const Spacer(),
-                  Text(
-                    subtitle,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: TextStyle(
-                      color: Colors.white.withValues(alpha: 0.72),
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      color: Colors.white,
-                      fontSize: 15,
-                      fontWeight: FontWeight.w700,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -1546,9 +1816,12 @@ class _ContinueWatchingCard extends StatefulWidget {
     required this.title,
     required this.subtitle,
     required this.imageUrl,
+    this.fallbackImageUrls = const <String>[],
     required this.progress,
     required this.played,
     required this.favorite,
+    required this.selected,
+    this.onHoverChanged,
     required this.updatingPlayed,
     required this.onTap,
     required this.onTogglePlayed,
@@ -1558,9 +1831,12 @@ class _ContinueWatchingCard extends StatefulWidget {
   final String title;
   final String subtitle;
   final String? imageUrl;
+  final List<String> fallbackImageUrls;
   final double progress;
   final bool played;
   final bool favorite;
+  final bool selected;
+  final ValueChanged<bool>? onHoverChanged;
   final bool updatingPlayed;
   final VoidCallback onTap;
   final VoidCallback onTogglePlayed;
@@ -1580,135 +1856,163 @@ class _ContinueWatchingCardState extends State<_ContinueWatchingCard> {
       borderRadius: BorderRadius.circular(12),
       hoverScale: 1.02,
       pressedScale: 0.985,
-      onHoverChanged: (value) => setState(() => _hovered = value),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _CoverImage(
-                    imageUrl: widget.imageUrl,
-                    fit: BoxFit.cover,
+      onHoverChanged: (value) {
+        setState(() => _hovered = value);
+        widget.onHoverChanged?.call(value);
+      },
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: widget.selected
+                ? const Color(0xFF38BDF8)
+                : Colors.white.withValues(alpha: 0.08),
+            width: widget.selected ? 1.5 : 1,
+          ),
+          boxShadow: widget.selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xAA38BDF8).withValues(alpha: 0.35),
+                    blurRadius: 22,
+                    spreadRadius: 2,
                   ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          Colors.black.withValues(alpha: 0.05),
-                          Colors.black.withValues(alpha: 0.45),
-                        ],
+                ]
+              : const [],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 16 / 9,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CoverImage(
+                      imageUrl: widget.imageUrl,
+                      fallbackImageUrls: widget.fallbackImageUrls,
+                      fit: BoxFit.cover,
+                    ),
+                    DecoratedBox(
+                      decoration: BoxDecoration(
+                        gradient: LinearGradient(
+                          begin: Alignment.topCenter,
+                          end: Alignment.bottomCenter,
+                          colors: [
+                            Colors.black.withValues(alpha: 0.05),
+                            Colors.black.withValues(alpha: 0.45),
+                          ],
+                        ),
                       ),
                     ),
-                  ),
-                  Center(
-                    child: AnimatedOpacity(
-                      opacity: _hovered ? 1 : 0,
-                      duration: const Duration(milliseconds: 180),
-                      curve: Curves.easeOutCubic,
-                      child: Container(
-                        width: 56,
-                        height: 56,
-                        decoration: BoxDecoration(
-                          color: Colors.black.withValues(alpha: 0.5),
-                          shape: BoxShape.circle,
-                          border: Border.all(
-                            color: Colors.white.withValues(alpha: 0.55),
-                          ),
-                        ),
-                        child: const Icon(
-                          Icons.play_arrow_rounded,
-                          color: Colors.white,
-                          size: 32,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    right: 8,
-                    bottom: 14,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        _OverlayCircleButton(
-                          icon: widget.updatingPlayed
-                              ? Icons.sync_rounded
-                              : Icons.check_rounded,
-                          active: widget.played,
-                          activeColor: const Color(0xFFEF4444),
-                          onTap:
-                              widget.updatingPlayed ? null : widget.onTogglePlayed,
-                        ),
-                        const SizedBox(width: 8),
-                        _OverlayCircleButton(
-                          icon: widget.favorite
-                              ? Icons.favorite_rounded
-                              : Icons.favorite_border_rounded,
-                          active: widget.favorite,
-                          activeColor: const Color(0xFFEF4444),
-                          onTap: widget.onToggleFavorite,
-                        ),
-                      ],
-                    ),
-                  ),
-                  Positioned(
-                    left: 0,
-                    right: 0,
-                    bottom: 0,
-                    child: SizedBox(
-                      height: 4,
-                      child: Stack(
-                        children: [
-                          Container(
-                            color: Colors.white.withValues(alpha: 0.26),
-                          ),
-                          FractionallySizedBox(
-                            alignment: Alignment.centerLeft,
-                            widthFactor: widget.progress.clamp(0.0, 1.0),
-                            child: Container(
-                              color: const Color(0xFF10B981),
+                    Center(
+                      child: AnimatedOpacity(
+                        opacity: _hovered ? 1 : 0,
+                        duration: const Duration(milliseconds: 180),
+                        curve: Curves.easeOutCubic,
+                        child: Container(
+                          width: 56,
+                          height: 56,
+                          decoration: BoxDecoration(
+                            color: Colors.black.withValues(alpha: 0.5),
+                            shape: BoxShape.circle,
+                            border: Border.all(
+                              color: Colors.white.withValues(alpha: 0.55),
                             ),
                           ),
+                          child: const Icon(
+                            Icons.play_arrow_rounded,
+                            color: Colors.white,
+                            size: 32,
+                          ),
+                        ),
+                      ),
+                    ),
+                    Positioned(
+                      right: 8,
+                      bottom: 14,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          _OverlayCircleButton(
+                            icon: widget.updatingPlayed
+                                ? Icons.sync_rounded
+                                : Icons.check_rounded,
+                            active: widget.played,
+                            activeColor: const Color(0xFFEF4444),
+                            onTap: widget.updatingPlayed
+                                ? null
+                                : widget.onTogglePlayed,
+                          ),
+                          const SizedBox(width: 8),
+                          _OverlayCircleButton(
+                            icon: widget.favorite
+                                ? Icons.favorite_rounded
+                                : Icons.favorite_border_rounded,
+                            active: widget.favorite,
+                            activeColor: const Color(0xFFEF4444),
+                            onTap: widget.onToggleFavorite,
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            widget.title,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          if (widget.subtitle.trim().isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(top: 2),
-              child: Text(
-                widget.subtitle,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  color: Color(0xFFB6BDC8),
-                  fontSize: 12,
-                  fontWeight: FontWeight.w500,
+                    Positioned(
+                      left: 0,
+                      right: 0,
+                      bottom: 0,
+                      child: SizedBox(
+                        height: 4,
+                        child: Stack(
+                          children: [
+                            Container(
+                              color: Colors.white.withValues(alpha: 0.26),
+                            ),
+                            FractionallySizedBox(
+                              alignment: Alignment.centerLeft,
+                              widthFactor: widget.progress.clamp(0.0, 1.0),
+                              child: Container(
+                                color: const Color(0xFF10B981),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
             ),
-        ],
+            const SizedBox(height: 8),
+            Text(
+              widget.title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            if (widget.subtitle.trim().isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 2),
+                child: Text(
+                  widget.subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(
+                    color: Color(0xFFB6BDC8),
+                    fontSize: 12,
+                    fontWeight: FontWeight.w500,
+                  ),
+                ),
+              ),
+          ],
+        ),
       ),
     );
   }
@@ -1764,6 +2068,8 @@ class _PosterCard extends StatelessWidget {
     required this.badgeText,
     required this.badgeColor,
     required this.favorite,
+    required this.selected,
+    this.onHoverChanged,
     required this.onTap,
     required this.onToggleFavorite,
   });
@@ -1774,6 +2080,8 @@ class _PosterCard extends StatelessWidget {
   final String? badgeText;
   final Color badgeColor;
   final bool favorite;
+  final bool selected;
+  final ValueChanged<bool>? onHoverChanged;
   final VoidCallback onTap;
   final VoidCallback onToggleFavorite;
 
@@ -1784,88 +2092,112 @@ class _PosterCard extends StatelessWidget {
       borderRadius: BorderRadius.circular(12),
       hoverScale: 1.03,
       pressedScale: 0.98,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 2 / 3,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(12),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  _CoverImage(
-                    imageUrl: imageUrl,
-                    fit: BoxFit.cover,
+      onHoverChanged: onHoverChanged,
+      child: AnimatedContainer(
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOutCubic,
+        padding: const EdgeInsets.all(2),
+        decoration: BoxDecoration(
+          borderRadius: BorderRadius.circular(14),
+          border: Border.all(
+            color: selected
+                ? const Color(0xFF38BDF8)
+                : Colors.white.withValues(alpha: 0.08),
+            width: selected ? 1.5 : 1,
+          ),
+          boxShadow: selected
+              ? [
+                  BoxShadow(
+                    color: const Color(0xAA38BDF8).withValues(alpha: 0.35),
+                    blurRadius: 22,
+                    spreadRadius: 2,
                   ),
-                  if (badgeText != null)
-                    Positioned(
-                      top: 8,
-                      right: 8,
-                      child: _PosterBadge(
-                        text: badgeText!,
-                        color: badgeColor,
-                      ),
+                ]
+              : const [],
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 2 / 3,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(12),
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    _CoverImage(
+                      imageUrl: imageUrl,
+                      fit: BoxFit.cover,
                     ),
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: Material(
-                      color: Colors.transparent,
-                      child: InkWell(
-                        onTap: onToggleFavorite,
-                        borderRadius: BorderRadius.circular(16),
-                        child: Ink(
-                          width: 28,
-                          height: 28,
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.55),
-                            shape: BoxShape.circle,
-                            border: Border.all(
-                              color: Colors.white.withValues(alpha: 0.25),
+                    if (badgeText != null)
+                      Positioned(
+                        top: 8,
+                        right: 8,
+                        child: _PosterBadge(
+                          text: badgeText!,
+                          color: badgeColor,
+                        ),
+                      ),
+                    Positioned(
+                      right: 8,
+                      bottom: 8,
+                      child: Material(
+                        color: Colors.transparent,
+                        child: InkWell(
+                          onTap: onToggleFavorite,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Ink(
+                            width: 28,
+                            height: 28,
+                            decoration: BoxDecoration(
+                              color: Colors.black.withValues(alpha: 0.55),
+                              shape: BoxShape.circle,
+                              border: Border.all(
+                                color: Colors.white.withValues(alpha: 0.25),
+                              ),
                             ),
-                          ),
-                          child: Icon(
-                            favorite
-                                ? Icons.favorite_rounded
-                                : Icons.favorite_border_rounded,
-                            color: favorite
-                                ? const Color(0xFFEF4444)
-                                : Colors.white,
-                            size: 16,
+                            child: Icon(
+                              favorite
+                                  ? Icons.favorite_rounded
+                                  : Icons.favorite_border_rounded,
+                              color: favorite
+                                  ? const Color(0xFFEF4444)
+                                  : Colors.white,
+                              size: 16,
+                            ),
                           ),
                         ),
                       ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
-          ),
-          const SizedBox(height: 8),
-          Text(
-            title,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Colors.white,
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              height: 1.25,
+            const SizedBox(height: 8),
+            Text(
+              title,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Colors.white,
+                fontSize: 14,
+                fontWeight: FontWeight.w600,
+                height: 1.25,
+              ),
             ),
-          ),
-          const SizedBox(height: 3),
-          Text(
-            meta,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-              color: Color(0xFF9CA3AF),
-              fontSize: 12,
-              fontWeight: FontWeight.w500,
+            const SizedBox(height: 3),
+            Text(
+              meta,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: Color(0xFF9CA3AF),
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }
@@ -2051,21 +2383,62 @@ class _GlowBlob extends StatelessWidget {
   }
 }
 
-class _CoverImage extends StatelessWidget {
+class _CoverImage extends StatefulWidget {
   const _CoverImage({
     required this.imageUrl,
     required this.fit,
+    this.fallbackImageUrls = const <String>[],
     this.fallback,
   });
 
   final String? imageUrl;
   final BoxFit fit;
+  final List<String> fallbackImageUrls;
   final Widget? fallback;
 
   @override
+  State<_CoverImage> createState() => _CoverImageState();
+}
+
+class _CoverImageState extends State<_CoverImage> {
+  late List<String> _candidates;
+  int _currentIndex = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    _resetCandidates();
+  }
+
+  @override
+  void didUpdateWidget(covariant _CoverImage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.imageUrl != widget.imageUrl ||
+        !listEquals(oldWidget.fallbackImageUrls, widget.fallbackImageUrls)) {
+      _resetCandidates();
+    }
+  }
+
+  void _resetCandidates() {
+    final merged = <String>{};
+    final primary = (widget.imageUrl ?? '').trim();
+    if (primary.isNotEmpty) merged.add(primary);
+    for (final candidate in widget.fallbackImageUrls) {
+      final value = candidate.trim();
+      if (value.isNotEmpty) merged.add(value);
+    }
+    _candidates = merged.toList(growable: false);
+    _currentIndex = 0;
+  }
+
+  void _switchToNextCandidate() {
+    if (_currentIndex >= _candidates.length - 1) return;
+    setState(() => _currentIndex += 1);
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final url = (imageUrl ?? '').trim();
-    final placeHolder = fallback ??
+    final placeHolder = widget.fallback ??
         const ColoredBox(
           color: Color(0xFF1B1E24),
           child: Center(
@@ -2076,14 +2449,22 @@ class _CoverImage extends StatelessWidget {
             ),
           ),
         );
-    if (url.isEmpty) return placeHolder;
+    if (_candidates.isEmpty) return placeHolder;
+    final activeUrl = _candidates[_currentIndex];
     return CachedNetworkImage(
-      imageUrl: url,
-      fit: fit,
+      imageUrl: activeUrl,
+      fit: widget.fit,
       cacheManager: CoverCacheManager.instance,
       httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
       placeholder: (_, __) => placeHolder,
-      errorWidget: (_, __, ___) => placeHolder,
+      errorWidget: (_, __, ___) {
+        if (_currentIndex < _candidates.length - 1) {
+          WidgetsBinding.instance.addPostFrameCallback((_) {
+            if (mounted) _switchToNextCandidate();
+          });
+        }
+        return placeHolder;
+      },
       fadeInDuration: const Duration(milliseconds: 220),
     );
   }
