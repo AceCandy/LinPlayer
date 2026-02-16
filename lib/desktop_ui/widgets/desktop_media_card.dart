@@ -45,79 +45,104 @@ class DesktopMediaCard extends StatelessWidget {
       width: width,
       child: HoverEffectWrapper(
         onTap: onTap,
-        borderRadius: BorderRadius.circular(14),
+        borderRadius: BorderRadius.circular(16),
+        hoverScale: 1.05,
         child: DecoratedBox(
           decoration: BoxDecoration(
             color: desktopTheme.surfaceElevated,
-            borderRadius: BorderRadius.circular(14),
+            borderRadius: BorderRadius.circular(16),
             border: Border.all(color: desktopTheme.border),
-          ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              AspectRatio(
-                aspectRatio: imageAspectRatio,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    ClipRRect(
-                      borderRadius: const BorderRadius.vertical(
-                        top: Radius.circular(14),
-                      ),
-                      child: _CardImage(
-                        imageUrl: imageUrl,
-                        title: item.name,
-                      ),
-                    ),
-                    Positioned(
-                      top: 10,
-                      left: 10,
-                      child: _TypePill(label: mediaTypeLabel(item)),
-                    ),
-                    if (showProgress && progress > 0)
-                      Positioned(
-                        left: 0,
-                        right: 0,
-                        bottom: 0,
-                        child: LinearProgressIndicator(
-                          value: progress,
-                          minHeight: 3,
-                          backgroundColor: Colors.black.withValues(alpha: 0.36),
-                        ),
-                      ),
-                  ],
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(10, 10, 10, 12),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      item.name.trim().isEmpty ? 'Untitled' : item.name,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: TextStyle(
-                        color: desktopTheme.textPrimary,
-                        fontWeight: FontWeight.w600,
-                      ),
-                    ),
-                    if (subtitle.trim().isNotEmpty) ...[
-                      const SizedBox(height: 5),
-                      Text(
-                        subtitle,
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: TextStyle(
-                          color: desktopTheme.textMuted,
-                          fontSize: 12,
-                        ),
-                      ),
-                    ],
-                  ],
-                ),
+            boxShadow: [
+              BoxShadow(
+                color: Colors.black.withValues(alpha: 0.34),
+                blurRadius: 18,
+                offset: const Offset(0, 10),
               ),
             ],
+          ),
+          child: AspectRatio(
+            aspectRatio: imageAspectRatio,
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                _CardImage(
+                  imageUrl: imageUrl,
+                  title: item.name,
+                ),
+                Positioned(
+                  top: 10,
+                  left: 10,
+                  child: _TypePill(label: mediaTypeLabel(item)),
+                ),
+                Positioned(
+                  top: 10,
+                  right: 10,
+                  child: _StatusBadge(played: item.played),
+                ),
+                Positioned.fill(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      gradient: LinearGradient(
+                        begin: Alignment.topCenter,
+                        end: Alignment.bottomCenter,
+                        colors: [
+                          Colors.transparent,
+                          Colors.black.withValues(alpha: 0.82),
+                        ],
+                        stops: const [0.48, 1],
+                      ),
+                    ),
+                  ),
+                ),
+                Positioned(
+                  left: 12,
+                  right: 12,
+                  bottom: showProgress && progress > 0 ? 18 : 12,
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        item.name.trim().isEmpty ? 'Untitled' : item.name,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w700,
+                          fontSize: 14,
+                          height: 1.2,
+                        ),
+                      ),
+                      if (subtitle.trim().isNotEmpty) ...[
+                        const SizedBox(height: 5),
+                        Text(
+                          subtitle,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            color: Color(0xFFD0DBEA),
+                            fontSize: 12,
+                            fontWeight: FontWeight.w500,
+                          ),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+                if (showProgress && progress > 0)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: LinearProgressIndicator(
+                      value: progress,
+                      minHeight: 4,
+                      backgroundColor: Colors.black.withValues(alpha: 0.38),
+                      color: desktopTheme.accent,
+                    ),
+                  ),
+              ],
+            ),
           ),
         ),
       ),
@@ -218,6 +243,31 @@ class _TypePill extends StatelessWidget {
             fontWeight: FontWeight.w600,
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _StatusBadge extends StatelessWidget {
+  const _StatusBadge({required this.played});
+
+  final bool played;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 22,
+      height: 22,
+      decoration: BoxDecoration(
+        color: played
+            ? const Color(0xFFE7F2FF)
+            : Colors.white.withValues(alpha: 0.86),
+        borderRadius: BorderRadius.circular(999),
+      ),
+      child: Icon(
+        played ? Icons.check_rounded : Icons.play_arrow_rounded,
+        size: 14,
+        color: const Color(0xFF0B172B),
       ),
     );
   }

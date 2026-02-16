@@ -12,6 +12,7 @@ import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
 import '../server_page.dart';
 import '../settings_page.dart';
+import 'mock/desktop_ui_preview_page.dart';
 import 'pages/desktop_detail_page.dart';
 import 'pages/desktop_library_page.dart';
 import 'pages/desktop_navigation_layout.dart';
@@ -30,6 +31,10 @@ class DesktopShell extends StatelessWidget {
   const DesktopShell({super.key, required this.appState});
 
   final AppState appState;
+  static const bool uiPreviewMode = bool.fromEnvironment(
+    'LINPLAYER_DESKTOP_UI_PREVIEW',
+    defaultValue: false,
+  );
 
   static bool get isDesktopTarget =>
       !kIsWeb &&
@@ -38,6 +43,9 @@ class DesktopShell extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (uiPreviewMode) {
+      return const DesktopUiPreviewPage();
+    }
     return AnimatedBuilder(
       animation: appState,
       builder: (context, _) {
@@ -75,6 +83,7 @@ class _DesktopWorkspace extends StatefulWidget {
 
 class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   _DesktopSection _section = _DesktopSection.library;
+  bool _sidebarCollapsed = false;
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
   int _refreshSignal = 0;
@@ -118,6 +127,10 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         }
         break;
     }
+  }
+
+  void _toggleSidebar() {
+    setState(() => _sidebarCollapsed = !_sidebarCollapsed);
   }
 
   void _openDetail(MediaItem item) {
@@ -296,6 +309,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                 child: FocusTraversalManager(
                   child: WindowPaddingContainer(
                     child: DesktopNavigationLayout(
+                      sidebarWidth: _sidebarCollapsed ? 96 : 264,
                       sidebar: DesktopSidebar(
                         destinations: <DesktopSidebarDestination>[
                           const DesktopSidebarDestination(
@@ -328,6 +342,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                         selectedId: selectedSidebarId,
                         onSelected: _handleSidebarSelection,
                         serverLabel: widget.appState.activeServer?.name,
+                        collapsed: _sidebarCollapsed,
                       ),
                       topBar: DesktopTopBar(
                         title: title,
@@ -335,6 +350,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                         onBack: () => setState(
                           () => _section = _DesktopSection.library,
                         ),
+                        onToggleSidebar: _toggleSidebar,
                         searchController: _searchController,
                         onSearchChanged: _handleSearchChanged,
                         onSearchSubmitted: _handleSearchSubmitted,

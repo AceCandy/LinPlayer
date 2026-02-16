@@ -27,6 +27,9 @@ class DesktopActionButtonGroup extends StatelessWidget {
           style: FilledButton.styleFrom(
             backgroundColor: desktopTheme.accent,
             foregroundColor: Colors.white,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
             padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
           ),
           icon: const Icon(Icons.play_arrow_rounded),
@@ -40,7 +43,10 @@ class DesktopActionButtonGroup extends StatelessWidget {
           style: OutlinedButton.styleFrom(
             foregroundColor: desktopTheme.textPrimary,
             side: BorderSide(color: desktopTheme.border),
-            backgroundColor: desktopTheme.surfaceElevated,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
+            backgroundColor: Colors.white.withValues(alpha: 0.10),
             padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 14),
           ),
           icon: Icon(
@@ -51,6 +57,19 @@ class DesktopActionButtonGroup extends StatelessWidget {
             isFavorite ? 'Favorited' : 'Favorite',
             style: const TextStyle(fontWeight: FontWeight.w600),
           ),
+        ),
+        OutlinedButton(
+          onPressed: () {},
+          style: OutlinedButton.styleFrom(
+            foregroundColor: desktopTheme.textPrimary,
+            side: BorderSide(color: desktopTheme.border),
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(999),
+            ),
+            backgroundColor: Colors.white.withValues(alpha: 0.10),
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+          ),
+          child: const Icon(Icons.more_horiz_rounded),
         ),
       ],
     );

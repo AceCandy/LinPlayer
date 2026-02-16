@@ -25,12 +25,14 @@ class DesktopSidebar extends StatelessWidget {
     required this.selectedId,
     required this.onSelected,
     this.serverLabel,
+    this.collapsed = false,
   });
 
   final List<DesktopSidebarDestination> destinations;
   final String selectedId;
   final ValueChanged<String> onSelected;
   final String? serverLabel;
+  final bool collapsed;
 
   @override
   Widget build(BuildContext context) {
@@ -38,37 +40,76 @@ class DesktopSidebar extends StatelessWidget {
 
     return DecoratedBox(
       decoration: BoxDecoration(
-        color: desktopTheme.sidebarColor,
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [
+            desktopTheme.sidebarColor,
+            desktopTheme.sidebarColor.withValues(alpha: 0.86),
+          ],
+        ),
         borderRadius: BorderRadius.circular(18),
         border: Border.all(color: desktopTheme.border),
       ),
       child: Padding(
-        padding: const EdgeInsets.fromLTRB(12, 16, 12, 12),
+        padding: EdgeInsets.fromLTRB(
+          collapsed ? 10 : 12,
+          14,
+          collapsed ? 10 : 12,
+          12,
+        ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          crossAxisAlignment:
+              collapsed ? CrossAxisAlignment.center : CrossAxisAlignment.start,
           children: [
-            Row(
-              children: [
-                Container(
-                  width: 10,
-                  height: 10,
-                  decoration: BoxDecoration(
-                    color: desktopTheme.accent,
-                    borderRadius: BorderRadius.circular(999),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Text(
-                  'LinPlayer Desktop',
-                  style: TextStyle(
-                    color: desktopTheme.textPrimary,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.2,
-                  ),
-                ),
-              ],
+            AnimatedSwitcher(
+              duration: const Duration(milliseconds: 200),
+              child: collapsed
+                  ? Container(
+                      key: const ValueKey<String>('collapsed-logo'),
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        borderRadius: BorderRadius.circular(10),
+                        gradient: const LinearGradient(
+                          begin: Alignment.topLeft,
+                          end: Alignment.bottomRight,
+                          colors: [Color(0xFF2D8CFF), Color(0xFF1696BB)],
+                        ),
+                      ),
+                      alignment: Alignment.center,
+                      child: const Text(
+                        'L',
+                        style: TextStyle(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    )
+                  : Row(
+                      key: const ValueKey<String>('expanded-logo'),
+                      children: [
+                        Container(
+                          width: 10,
+                          height: 10,
+                          decoration: BoxDecoration(
+                            color: desktopTheme.accent,
+                            borderRadius: BorderRadius.circular(999),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        Text(
+                          'LinPlayer Desktop',
+                          style: TextStyle(
+                            color: desktopTheme.textPrimary,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.2,
+                          ),
+                        ),
+                      ],
+                    ),
             ),
-            const SizedBox(height: 18),
+            const SizedBox(height: 14),
             Expanded(
               child: ListView.separated(
                 itemCount: destinations.length,
@@ -82,18 +123,20 @@ class DesktopSidebar extends StatelessWidget {
                         icon: item.icon,
                         label: item.label,
                         selected: selectedId == item.id,
+                        collapsed: collapsed,
                         onTap: () => onSelected(item.id),
                       ),
                     ),
                   );
                 },
-                separatorBuilder: (_, __) => const SizedBox(height: 6),
+                separatorBuilder: (_, __) => const SizedBox(height: 8),
               ),
             ),
-            if ((serverLabel ?? '').trim().isNotEmpty)
+            if ((serverLabel ?? '').trim().isNotEmpty && !collapsed)
               Container(
                 width: double.infinity,
-                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
                 decoration: BoxDecoration(
                   color: desktopTheme.surface,
                   borderRadius: BorderRadius.circular(12),

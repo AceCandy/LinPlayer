@@ -33,17 +33,17 @@ class DesktopThemeExtension extends ThemeExtension<DesktopThemeExtension> {
   factory DesktopThemeExtension.fallback(Brightness brightness) {
     if (brightness == Brightness.dark) {
       return const DesktopThemeExtension(
-        background: Color(0xFF0A101A),
-        backgroundGradientStart: Color(0xFF0A101A),
-        backgroundGradientEnd: Color(0xFF101B2A),
-        sidebarColor: Color(0xFF0D1624),
-        surface: Color(0xCC111B2A),
-        surfaceElevated: Color(0xE619273A),
-        border: Color(0x335B6A7D),
-        textPrimary: Color(0xFFF1F5FB),
-        textMuted: Color(0xFFA3AFBF),
+        background: Color(0xFF070B12),
+        backgroundGradientStart: Color(0xFF070B12),
+        backgroundGradientEnd: Color(0xFF0F1724),
+        sidebarColor: Color(0xFF0B1320),
+        surface: Color(0xC5111A29),
+        surfaceElevated: Color(0xD51A263B),
+        border: Color(0x335A6B84),
+        textPrimary: Color(0xFFF0F5FC),
+        textMuted: Color(0xFFA2AFC2),
         accent: Color(0xFF2D8CFF),
-        hover: Color(0x2A7FB0FF),
+        hover: Color(0x3687B4FF),
         focus: Color(0xFF79B6FF),
       );
     }
@@ -89,7 +89,8 @@ class DesktopThemeExtension extends ThemeExtension<DesktopThemeExtension> {
       background: background ?? this.background,
       backgroundGradientStart:
           backgroundGradientStart ?? this.backgroundGradientStart,
-      backgroundGradientEnd: backgroundGradientEnd ?? this.backgroundGradientEnd,
+      backgroundGradientEnd:
+          backgroundGradientEnd ?? this.backgroundGradientEnd,
       sidebarColor: sidebarColor ?? this.sidebarColor,
       surface: surface ?? this.surface,
       surfaceElevated: surfaceElevated ?? this.surfaceElevated,
@@ -112,16 +113,17 @@ class DesktopThemeExtension extends ThemeExtension<DesktopThemeExtension> {
     }
     return DesktopThemeExtension(
       background: Color.lerp(background, other.background, t) ?? background,
-      backgroundGradientStart:
-          Color.lerp(backgroundGradientStart, other.backgroundGradientStart, t) ??
-              backgroundGradientStart,
+      backgroundGradientStart: Color.lerp(
+              backgroundGradientStart, other.backgroundGradientStart, t) ??
+          backgroundGradientStart,
       backgroundGradientEnd:
           Color.lerp(backgroundGradientEnd, other.backgroundGradientEnd, t) ??
               backgroundGradientEnd,
-      sidebarColor: Color.lerp(sidebarColor, other.sidebarColor, t) ?? sidebarColor,
+      sidebarColor:
+          Color.lerp(sidebarColor, other.sidebarColor, t) ?? sidebarColor,
       surface: Color.lerp(surface, other.surface, t) ?? surface,
-      surfaceElevated:
-          Color.lerp(surfaceElevated, other.surfaceElevated, t) ?? surfaceElevated,
+      surfaceElevated: Color.lerp(surfaceElevated, other.surfaceElevated, t) ??
+          surfaceElevated,
       border: Color.lerp(border, other.border, t) ?? border,
       textPrimary: Color.lerp(textPrimary, other.textPrimary, t) ?? textPrimary,
       textMuted: Color.lerp(textMuted, other.textMuted, t) ?? textMuted,

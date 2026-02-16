@@ -10,7 +10,7 @@ class DesktopHorizontalSection extends StatelessWidget {
     this.subtitle,
     this.trailing,
     this.emptyLabel = 'No items yet',
-    this.spacing = 14,
+    this.spacing = 16,
     this.viewportHeight = 380,
   });
 
@@ -39,7 +39,7 @@ class DesktopHorizontalSection extends StatelessWidget {
                     title,
                     style: TextStyle(
                       color: desktopTheme.textPrimary,
-                      fontSize: 22,
+                      fontSize: 24,
                       fontWeight: FontWeight.w700,
                     ),
                   ),
@@ -49,14 +49,25 @@ class DesktopHorizontalSection extends StatelessWidget {
                       subtitle!,
                       style: TextStyle(
                         color: desktopTheme.textMuted,
-                        fontSize: 13,
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w500,
                       ),
                     ),
                   ],
                 ],
               ),
             ),
-            if (trailing != null) trailing!,
+            if (trailing != null)
+              trailing!
+            else
+              Text(
+                'View More',
+                style: TextStyle(
+                  color: desktopTheme.textMuted,
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
           ],
         ),
         const SizedBox(height: 16),
@@ -70,6 +81,7 @@ class DesktopHorizontalSection extends StatelessWidget {
                   ),
                 )
               : ListView.separated(
+                  clipBehavior: Clip.none,
                   scrollDirection: Axis.horizontal,
                   itemCount: children.length,
                   itemBuilder: (context, index) => children[index],

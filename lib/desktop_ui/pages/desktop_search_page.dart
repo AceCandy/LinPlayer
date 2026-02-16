@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
@@ -154,12 +155,12 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
           final available = constraints.maxWidth;
           final crossAxisCount = (available / 230).floor().clamp(2, 8).toInt();
           return GridView.builder(
-            padding: const EdgeInsets.all(16),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
             gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
               crossAxisCount: crossAxisCount,
-              mainAxisSpacing: 16,
+              mainAxisSpacing: 18,
               crossAxisSpacing: 16,
-              childAspectRatio: 0.55,
+              childAspectRatio: 0.62,
             ),
             itemCount: _results.length,
             itemBuilder: (context, index) {
@@ -176,23 +177,65 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
       );
     }
 
-    return DecoratedBox(
-      decoration: BoxDecoration(
-        color: desktopTheme.surface.withValues(alpha: 0.72),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: desktopTheme.border),
-      ),
-      child: Stack(
-        children: [
-          Positioned.fill(child: body),
-          if (_loading && _results.isNotEmpty)
-            const Positioned(
-              left: 0,
-              right: 0,
-              top: 0,
-              child: LinearProgressIndicator(minHeight: 2),
-            ),
-        ],
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(20),
+      child: BackdropFilter(
+        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+        child: DecoratedBox(
+          decoration: BoxDecoration(
+            color: desktopTheme.surface.withValues(alpha: 0.66),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: desktopTheme.border),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        query.isEmpty ? 'Search' : 'Results for "$query"',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          color: desktopTheme.textPrimary,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (query.isNotEmpty)
+                      Text(
+                        '${_results.length} items',
+                        style: TextStyle(
+                          color: desktopTheme.textMuted,
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+              const SizedBox(height: 4),
+              Expanded(
+                child: Stack(
+                  children: [
+                    Positioned.fill(child: body),
+                    if (_loading && _results.isNotEmpty)
+                      const Positioned(
+                        left: 0,
+                        right: 0,
+                        top: 0,
+                        child: LinearProgressIndicator(minHeight: 2),
+                      ),
+                  ],
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }
