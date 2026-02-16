@@ -1067,7 +1067,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         if (snapshot.hasError) {
           return Text(
             '加载剧集失败：${snapshot.error}',
-            style: Theme.of(context).textTheme.bodySmall,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                ),
           );
         }
 
@@ -1076,7 +1078,9 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         if (unwatched.isEmpty) {
           return Text(
             '暂无未观看剧集',
-            style: Theme.of(context).textTheme.bodySmall,
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: Colors.white70,
+                ),
           );
         }
 
@@ -1119,17 +1123,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 BorderRadius.circular(_DetailUiTokens.cardRadius),
                             child: Ink(
                               decoration: BoxDecoration(
-                                color: Theme.of(context)
-                                    .colorScheme
-                                    .surfaceContainerHighest
-                                    .withValues(alpha: 0.28),
+                                color: Colors.black.withValues(alpha: 0.26),
                                 borderRadius:
                                     BorderRadius.circular(_DetailUiTokens.cardRadius),
                                 border: Border.all(
-                                  color: Theme.of(context)
-                                      .colorScheme
-                                      .outlineVariant
-                                      .withValues(alpha: 0.35),
+                                  color: Colors.white.withValues(alpha: 0.22),
                                 ),
                               ),
                               child: Column(
@@ -1197,7 +1195,8 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                           'S$seasonNo:E$epNo',
                                           style: Theme.of(context)
                                               .textTheme
-                                              .labelMedium,
+                                              .labelMedium
+                                              ?.copyWith(color: Colors.white70),
                                         ),
                                         const SizedBox(height: 4),
                                         Text(
@@ -1210,6 +1209,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                               .textTheme
                                               .bodyMedium
                                               ?.copyWith(
+                                                color: Colors.white,
                                                 fontWeight: FontWeight.w600,
                                               ),
                                         ),
@@ -1238,6 +1238,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     required bool enableBlur,
   }) {
     if (_seasons.isEmpty) return const SizedBox.shrink();
+    final outlinedStyle = OutlinedButton.styleFrom(
+      foregroundColor: Colors.white,
+      side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w600),
+    );
     return _detailGlassPanel(
       enableBlur: enableBlur,
       padding: const EdgeInsets.all(12),
@@ -1245,6 +1250,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         children: [
           Expanded(
             child: OutlinedButton(
+              style: outlinedStyle,
               onPressed: () => _pickSeason(context),
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1266,6 +1272,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           const SizedBox(width: 12),
           Expanded(
             child: OutlinedButton(
+              style: outlinedStyle,
               onPressed: _selectedSeason == null ? null : () => _pickEpisode(context),
               child: const Row(
                 mainAxisAlignment: MainAxisAlignment.center,
@@ -1642,32 +1649,39 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             (selectedAudio == defaultAudio ? ' (默认)' : '')
         : '默认';
 
-    return Card(
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+    return _detailGlassPanel(
+      enableBlur: !widget.isTv && widget.appState.enableBlurEffects,
+      radius: 16,
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
           ListTile(
-            leading: const Icon(Icons.video_file),
-            title: Text(_mediaSourceTitle(ms)),
-            subtitle: Text(_mediaSourceSubtitle(ms)),
-            trailing: const Icon(Icons.arrow_drop_down),
+            leading: const Icon(Icons.video_file, color: Colors.white),
+            title: Text(
+              _mediaSourceTitle(ms),
+              style: const TextStyle(color: Colors.white),
+            ),
+            subtitle: Text(
+              _mediaSourceSubtitle(ms),
+              style: const TextStyle(color: Colors.white70),
+            ),
+            trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
             onTap: () => _pickMediaSource(context, info),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.20)),
           ListTile(
-            leading: const Icon(Icons.audiotrack),
-            title: Text(audioText),
-            trailing: const Icon(Icons.arrow_drop_down),
+            leading: const Icon(Icons.audiotrack, color: Colors.white),
+            title: Text(audioText, style: const TextStyle(color: Colors.white)),
+            trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
             onTap: audioStreams.isEmpty
                 ? null
                 : () => _pickAudioStream(context, ms),
           ),
-          const Divider(height: 1),
+          Divider(height: 1, color: Colors.white.withValues(alpha: 0.20)),
           ListTile(
-            leading: const Icon(Icons.subtitles),
-            title: Text(subtitleText),
-            trailing: const Icon(Icons.arrow_drop_down),
+            leading: const Icon(Icons.subtitles, color: Colors.white),
+            title: Text(subtitleText, style: const TextStyle(color: Colors.white)),
+            trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
             onTap: hasSubs ? () => _pickSubtitleStream(context, ms) : null,
           ),
         ],
@@ -2198,8 +2212,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           const SizedBox(height: 16),
                         ],
                         if (widget.itemId.isEmpty && _seasons.isNotEmpty) ...[
-                          Text('全部剧季',
-                              style: Theme.of(context).textTheme.titleMedium),
+                          _sectionTitle(context, '全部剧季'),
                           const SizedBox(height: 8),
                           SizedBox(
                             height: 220,
@@ -2351,12 +2364,15 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                                   .textTheme
                                                   .titleMedium
                                                   ?.copyWith(
+                                                    color: Colors.white,
                                                     fontWeight: FontWeight.w700,
                                                   ),
                                             ),
                                           ),
                                           const Icon(
-                                              Icons.chevron_right_rounded),
+                                            Icons.chevron_right_rounded,
+                                            color: Colors.white70,
+                                          ),
                                         ],
                                       ),
                                     ),
@@ -3045,36 +3061,43 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         : '默认';
 
     final theme = Theme.of(context);
+    final dividerColor = Colors.white.withValues(alpha: 0.20);
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Card(
-          shape:
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        _detailGlassPanel(
+          enableBlur: !widget.isTv && widget.appState.enableBlurEffects,
+          radius: 16,
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
               ListTile(
-                leading: const Icon(Icons.video_file),
-                title: Text(_ShowDetailPageState._mediaSourceTitle(ms)),
-                subtitle: Text(_mediaSourceSubtitle(ms)),
-                trailing: const Icon(Icons.arrow_drop_down),
+                leading: const Icon(Icons.video_file, color: Colors.white),
+                title: Text(
+                  _ShowDetailPageState._mediaSourceTitle(ms),
+                  style: const TextStyle(color: Colors.white),
+                ),
+                subtitle: Text(
+                  _mediaSourceSubtitle(ms),
+                  style: const TextStyle(color: Colors.white70),
+                ),
+                trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
                 onTap: () => _pickMediaSource(context, info),
               ),
-              const Divider(height: 1),
+              Divider(height: 1, color: dividerColor),
               ListTile(
-                leading: const Icon(Icons.audiotrack),
-                title: Text(audioText),
-                trailing: const Icon(Icons.arrow_drop_down),
+                leading: const Icon(Icons.audiotrack, color: Colors.white),
+                title: Text(audioText, style: const TextStyle(color: Colors.white)),
+                trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
                 onTap: audioStreams.isEmpty
                     ? null
                     : () => _pickAudioStream(context, ms),
               ),
-              const Divider(height: 1),
+              Divider(height: 1, color: dividerColor),
               ListTile(
-                leading: const Icon(Icons.subtitles),
-                title: Text(subtitleText),
-                trailing: const Icon(Icons.arrow_drop_down),
+                leading: const Icon(Icons.subtitles, color: Colors.white),
+                title: Text(subtitleText, style: const TextStyle(color: Colors.white)),
+                trailing: const Icon(Icons.arrow_drop_down, color: Colors.white70),
                 onTap: hasSubs ? () => _pickSubtitleStream(context, ms) : null,
               ),
             ],
@@ -3084,7 +3107,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         Text(
           '提示：以上选择会应用到本剧后续集数',
           style: theme.textTheme.bodySmall?.copyWith(
-            color: theme.colorScheme.onSurfaceVariant,
+            color: Colors.white70,
           ),
         ),
       ],
@@ -4134,21 +4157,30 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     final seasonText = _selectedSeasonLabel();
     final epAccess =
         resolveServerAccess(appState: widget.appState, server: widget.server);
+    final controlStyle = FilledButton.styleFrom(
+      foregroundColor: Colors.white,
+      backgroundColor: Colors.black.withValues(alpha: 0.28),
+      side: BorderSide(color: Colors.white.withValues(alpha: 0.24)),
+      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+    );
     final controls = Wrap(
       spacing: 8,
       runSpacing: 8,
       children: [
         FilledButton.tonalIcon(
+          style: controlStyle,
           onPressed: season == null ? null : () => _openSeasonEpisodesPage(context, season),
           icon: const Icon(Icons.grid_view_rounded, size: 16),
           label: const Text('查看全部'),
         ),
         FilledButton.tonalIcon(
+          style: controlStyle,
           onPressed: _seasons.isEmpty ? null : () => _pickSeason(context),
           icon: const Icon(Icons.layers_outlined, size: 16),
           label: const Text('切换季'),
         ),
         FilledButton.tonalIcon(
+          style: controlStyle,
           onPressed: season == null ? null : () => _pickEpisode(context),
           icon: const Icon(Icons.format_list_numbered, size: 16),
           label: const Text('选集'),
@@ -4187,11 +4219,21 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                   return const Center(child: CircularProgressIndicator());
                 }
                 if (snapshot.hasError) {
-                  return Center(child: Text('加载剧集失败：${snapshot.error}'));
+                  return Center(
+                    child: Text(
+                      '加载剧集失败：${snapshot.error}',
+                      style: const TextStyle(color: Colors.white70),
+                    ),
+                  );
                 }
                 final eps = snapshot.data ?? const [];
                 if (eps.isEmpty) {
-                  return const Center(child: Text('暂无剧集'));
+                  return const Center(
+                    child: Text(
+                      '暂无剧集',
+                      style: TextStyle(color: Colors.white70),
+                    ),
+                  );
                 }
                 return _withHorizontalEdgeFade(
                   context,
@@ -4356,13 +4398,14 @@ Widget _chaptersSection(BuildContext context, List<ChapterInfo> chapters) {
         itemCount: chapters.length,
         itemBuilder: (context, index) {
           final c = chapters[index];
-          return Card(
-            clipBehavior: Clip.antiAlias,
+          return _detailGlassPanel(
+            radius: 12,
+            enableBlur: true,
             child: Padding(
               padding: const EdgeInsets.all(12),
               child: Row(
                 children: [
-                  const Icon(Icons.menu_book, size: 28),
+                  const Icon(Icons.menu_book, size: 28, color: Colors.white70),
                   const SizedBox(width: 10),
                   Expanded(
                     child: Column(
@@ -4373,11 +4416,14 @@ Widget _chaptersSection(BuildContext context, List<ChapterInfo> chapters) {
                           c.name.isNotEmpty ? c.name : 'Chapter ${index + 1}',
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(color: Colors.white),
                         ),
                         const SizedBox(height: 4),
                         Text(
                           _fmt(c.start),
-                          style: Theme.of(context).textTheme.bodySmall,
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Colors.white70,
+                              ),
                         ),
                       ],
                     ),
@@ -4418,85 +4464,10 @@ Widget _pill(BuildContext context, String text) {
 Widget _playButton(BuildContext context,
     {required String label, required VoidCallback onTap}) {
   final theme = Theme.of(context);
-  final scheme = theme.colorScheme;
-  final style = theme.extension<AppStyle>() ?? const AppStyle();
-  final isDark = scheme.brightness == Brightness.dark;
-
-  final radius = switch (style.template) {
-    UiTemplate.neonHud => 14.0,
-    UiTemplate.pixelArcade => 12.0,
-    UiTemplate.mangaStoryboard => 12.0,
-    UiTemplate.proTool => 16.0,
-    UiTemplate.stickerJournal => 20.0,
-    _ => 30.0,
-  };
-
-  final (Color bg, Color fg, BorderSide border, Color glow) =
-      switch (style.template) {
-    UiTemplate.neonHud => (
-        scheme.surface.withValues(alpha: isDark ? 0.55 : 0.90),
-        scheme.primary,
-        BorderSide(
-          color: scheme.primary.withValues(alpha: isDark ? 0.85 : 0.95),
-          width: 1.4,
-        ),
-        scheme.primary.withValues(alpha: isDark ? 0.22 : 0.14),
-      ),
-    UiTemplate.pixelArcade => (
-        scheme.surface.withValues(alpha: isDark ? 0.70 : 0.92),
-        scheme.secondary,
-        BorderSide(
-          color: scheme.secondary.withValues(alpha: isDark ? 0.85 : 0.95),
-          width: 1.8,
-        ),
-        Colors.transparent,
-      ),
-    UiTemplate.mangaStoryboard => (
-        scheme.surface,
-        scheme.onSurface,
-        BorderSide(
-          color: scheme.onSurface.withValues(alpha: isDark ? 0.70 : 0.90),
-          width: 1.8,
-        ),
-        Colors.transparent,
-      ),
-    UiTemplate.stickerJournal => (
-        scheme.secondaryContainer,
-        scheme.onSecondaryContainer,
-        BorderSide(
-          color: scheme.secondary.withValues(alpha: isDark ? 0.55 : 0.75),
-          width: 1.2,
-        ),
-        Colors.transparent,
-      ),
-    UiTemplate.candyGlass => (
-        scheme.primaryContainer,
-        scheme.onPrimaryContainer,
-        BorderSide.none,
-        Colors.transparent,
-      ),
-    UiTemplate.washiWatercolor => (
-        scheme.primaryContainer,
-        scheme.onPrimaryContainer,
-        BorderSide.none,
-        Colors.transparent,
-      ),
-    UiTemplate.proTool => (
-        scheme.surfaceContainerHigh,
-        scheme.onSurface,
-        BorderSide(
-          color: scheme.outlineVariant.withValues(alpha: isDark ? 0.55 : 0.70),
-          width: 1.1,
-        ),
-        Colors.transparent,
-      ),
-    UiTemplate.minimalCovers => (
-        scheme.primaryContainer,
-        scheme.onPrimaryContainer,
-        BorderSide.none,
-        Colors.transparent,
-      ),
-  };
+  const radius = 30.0;
+  final bg = const Color(0xFF1F9F75).withValues(alpha: 0.86);
+  const fg = Colors.white;
+  final glow = const Color(0xFF1F9F75).withValues(alpha: 0.24);
 
   return Material(
     color: Colors.transparent,
@@ -4509,8 +4480,7 @@ Widget _playButton(BuildContext context,
         decoration: BoxDecoration(
           color: bg,
           borderRadius: BorderRadius.circular(radius),
-          border:
-              border == BorderSide.none ? null : Border.fromBorderSide(border),
+          border: null,
           boxShadow: glow == Colors.transparent
               ? null
               : [
@@ -4525,18 +4495,16 @@ Widget _playButton(BuildContext context,
           mainAxisAlignment: MainAxisAlignment.center,
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.play_arrow, color: fg),
+            const Icon(Icons.play_arrow, color: Colors.white),
             const SizedBox(width: 6),
             Text(
               label,
               style: theme.textTheme.titleSmall?.copyWith(
                     color: fg,
                     fontWeight: FontWeight.w800,
-                    letterSpacing:
-                        style.template == UiTemplate.neonHud ? 0.25 : null,
                   ) ??
-                  TextStyle(
-                    color: fg,
+                  const TextStyle(
+                    color: Colors.white,
                     fontWeight: FontWeight.w800,
                     fontSize: 16,
                   ),
@@ -4553,7 +4521,9 @@ Widget _withHorizontalEdgeFade(
   required Widget child,
   double fadeWidth = 18,
 }) {
-  final background = Theme.of(context).scaffoldBackgroundColor;
+  final isDark = Theme.of(context).brightness == Brightness.dark;
+  final background =
+      Colors.black.withValues(alpha: isDark ? 0.42 : 0.34);
   return Stack(
     children: [
       Positioned.fill(child: child),
@@ -4645,11 +4615,8 @@ Widget _peopleSection(
   List<MediaPerson> people, {
   required ServerAccess access,
 }) {
-  final scheme = Theme.of(context).colorScheme;
-  final avatarBg = scheme.surfaceContainerHighest.withValues(
-    alpha: scheme.brightness == Brightness.dark ? 0.55 : 0.88,
-  );
-  final roleColor = scheme.onSurfaceVariant;
+  final avatarBg = Colors.white.withValues(alpha: 0.14);
+  const roleColor = Colors.white70;
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -4682,7 +4649,12 @@ Widget _peopleSection(
                           : null,
                     ),
                     const SizedBox(height: 6),
-                    Text(p.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+                    Text(
+                      p.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(color: Colors.white),
+                    ),
                     Text(
                       p.role,
                       maxLines: 1,
@@ -4707,11 +4679,8 @@ Widget _castSection(
   List<MediaPerson> people, {
   required ServerAccess access,
 }) {
-  final scheme = Theme.of(context).colorScheme;
-  final avatarBg = scheme.surfaceContainerHighest.withValues(
-    alpha: scheme.brightness == Brightness.dark ? 0.55 : 0.88,
-  );
-  final roleColor = scheme.onSurfaceVariant;
+  final avatarBg = Colors.white.withValues(alpha: 0.14);
+  const roleColor = Colors.white70;
   return Column(
     crossAxisAlignment: CrossAxisAlignment.start,
     children: [
@@ -4751,6 +4720,7 @@ Widget _castSection(
                         maxLines: 1,
                         overflow: TextOverflow.ellipsis,
                         textAlign: TextAlign.center,
+                        style: const TextStyle(color: Colors.white),
                       ),
                       Text(
                         p.role,
