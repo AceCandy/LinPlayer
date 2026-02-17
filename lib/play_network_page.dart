@@ -380,8 +380,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       final cloudStart = _overrideStartPosition ?? widget.startPosition;
       final localStart = await _readLocalProgressDuration();
       Duration? start = cloudStart;
-      if (localStart != null &&
-          (start == null || localStart > start)) {
+      if (localStart != null && (start == null || localStart > start)) {
         start = localStart;
       }
       final resumeImmediately =
@@ -848,7 +847,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       });
 
       if (showToast) {
-        final displayTitle = title.isEmpty ? 'episodeId=${candidate.episodeId}' : title;
+        final displayTitle =
+            title.isEmpty ? 'episodeId=${candidate.episodeId}' : title;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已手动匹配并加载弹幕：$displayTitle')),
         );
@@ -2020,8 +2020,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   int _toTicks(Duration d) => d.inMicroseconds * 10;
 
   String get _localProgressKey {
-    final serverId = (widget.server?.id ?? widget.appState.activeServerId ?? '')
-        .trim();
+    final serverId =
+        (widget.server?.id ?? widget.appState.activeServerId ?? '').trim();
     final base = _baseUrl ?? '';
     final scope = serverId.isNotEmpty ? serverId : base;
     final normalized = scope.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
@@ -2378,10 +2378,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     if (_reportedStop) return;
     _reportedStop = true;
 
-    final access = _serverAccess;
-    if (access == null) return;
-    if (access.auth.baseUrl.isEmpty || access.auth.token.isEmpty) return;
-
     final pos =
         _playerService.isInitialized ? _playerService.position : _lastPosition;
     final dur = _playerService.duration;
@@ -2390,6 +2386,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final ticks = _toTicks(pos);
     _persistLocalProgress(pos, force: true);
     await _flushPendingLocalProgress();
+
+    final access = _serverAccess;
+    if (access == null ||
+        access.auth.baseUrl.isEmpty ||
+        access.auth.token.isEmpty) {
+      if (played) {
+        await _clearLocalProgress();
+      }
+      return;
+    }
 
     try {
       final ps = _playSessionId;
