@@ -11,15 +11,20 @@ class DesktopTopBar extends StatelessWidget {
   const DesktopTopBar({
     super.key,
     required this.title,
+    required this.serverName,
     required this.searchController,
     required this.onSearchSubmitted,
     required this.onSearchChanged,
+    this.movieCount,
+    this.seriesCount,
+    this.statsLoading = false,
     this.language = DesktopUiLanguage.zhCn,
     this.showSearch = true,
     this.showBack = false,
     this.onBack,
     this.onToggleSidebar,
     this.onRefresh,
+    this.onOpenRouteManager,
     this.onOpenSettings,
     this.homeTab = DesktopHomeTab.home,
     this.onHomeTabChanged,
@@ -27,15 +32,20 @@ class DesktopTopBar extends StatelessWidget {
   });
 
   final String title;
+  final String serverName;
   final TextEditingController searchController;
   final ValueChanged<String> onSearchSubmitted;
   final ValueChanged<String> onSearchChanged;
+  final int? movieCount;
+  final int? seriesCount;
+  final bool statsLoading;
   final DesktopUiLanguage language;
   final bool showSearch;
   final bool showBack;
   final VoidCallback? onBack;
   final VoidCallback? onToggleSidebar;
   final VoidCallback? onRefresh;
+  final VoidCallback? onOpenRouteManager;
   final VoidCallback? onOpenSettings;
   final DesktopHomeTab homeTab;
   final ValueChanged<DesktopHomeTab>? onHomeTabChanged;
@@ -79,7 +89,7 @@ class DesktopTopBar extends StatelessWidget {
               child: Row(
                 children: [
                   SizedBox(
-                    width: 280,
+                    width: 560,
                     child: Row(
                       children: [
                         _HeaderIconButton(
@@ -94,6 +104,17 @@ class DesktopTopBar extends StatelessWidget {
                         ),
                         const SizedBox(width: 10),
                         _LogoBadge(theme: theme),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          child: _ServerSummaryBadge(
+                            language: language,
+                            serverName: serverName,
+                            movieCount: movieCount,
+                            seriesCount: seriesCount,
+                            statsLoading: statsLoading,
+                            theme: theme,
+                          ),
+                        ),
                       ],
                     ),
                   ),
@@ -137,8 +158,12 @@ class DesktopTopBar extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           _HeaderIconButton(
-                            icon: Icons.person_outline_rounded,
-                            tooltip: _t(zh: '\u7528\u6237', en: 'Profile'),
+                            icon: Icons.alt_route_rounded,
+                            tooltip: _t(
+                              zh: '\u7ebf\u8def\u7ba1\u7406',
+                              en: 'Route Manager',
+                            ),
+                            onTap: onOpenRouteManager,
                             color: iconColor,
                           ),
                           const SizedBox(width: 6),
@@ -166,6 +191,87 @@ class DesktopTopBar extends StatelessWidget {
             ),
           ),
         ),
+      ),
+    );
+  }
+}
+
+class _ServerSummaryBadge extends StatelessWidget {
+  const _ServerSummaryBadge({
+    required this.language,
+    required this.serverName,
+    required this.movieCount,
+    required this.seriesCount,
+    required this.statsLoading,
+    required this.theme,
+  });
+
+  final DesktopUiLanguage language;
+  final String serverName;
+  final int? movieCount;
+  final int? seriesCount;
+  final bool statsLoading;
+  final DesktopThemeExtension theme;
+
+  String _t({
+    required String zh,
+    required String en,
+  }) {
+    return language.pick(zh: zh, en: en);
+  }
+
+  String _countText(int? value) {
+    if (value != null) return '$value';
+    return statsLoading ? '...' : '--';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final normalizedName = serverName.trim();
+    final title = normalizedName.isEmpty
+        ? _t(zh: '\u672a\u547d\u540d\u670d\u52a1\u5668', en: 'Unnamed server')
+        : normalizedName;
+    final summary = '${_t(zh: '\u7535\u5f71', en: 'Movies')} '
+        '${_countText(movieCount)} | '
+        '${_t(zh: '\u5267\u96c6', en: 'Series')} '
+        '${_countText(seriesCount)}';
+
+    return Container(
+      height: 42,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: theme.surfaceElevated.withValues(alpha: 0.55),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: theme.border.withValues(alpha: 0.68)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: theme.textPrimary,
+              fontSize: 13,
+              height: 1.0,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+          const SizedBox(height: 4),
+          Text(
+            summary,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: theme.textMuted,
+              fontSize: 11.5,
+              height: 1.0,
+              fontWeight: FontWeight.w500,
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -276,7 +382,7 @@ class _LogoBadge extends StatelessWidget {
         ),
         const SizedBox(width: 8),
         Text(
-          'LinPlayer\u25c6',
+          'LinPlayer',
           style: TextStyle(
             color: theme.textPrimary,
             fontSize: 24,
