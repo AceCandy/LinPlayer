@@ -100,6 +100,28 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     super.dispose();
   }
 
+  TextTheme _stripTextDecorations(TextTheme textTheme) {
+    TextStyle? clear(TextStyle? style) =>
+        style?.copyWith(decoration: TextDecoration.none);
+    return textTheme.copyWith(
+      displayLarge: clear(textTheme.displayLarge),
+      displayMedium: clear(textTheme.displayMedium),
+      displaySmall: clear(textTheme.displaySmall),
+      headlineLarge: clear(textTheme.headlineLarge),
+      headlineMedium: clear(textTheme.headlineMedium),
+      headlineSmall: clear(textTheme.headlineSmall),
+      titleLarge: clear(textTheme.titleLarge),
+      titleMedium: clear(textTheme.titleMedium),
+      titleSmall: clear(textTheme.titleSmall),
+      bodyLarge: clear(textTheme.bodyLarge),
+      bodyMedium: clear(textTheme.bodyMedium),
+      bodySmall: clear(textTheme.bodySmall),
+      labelLarge: clear(textTheme.labelLarge),
+      labelMedium: clear(textTheme.labelMedium),
+      labelSmall: clear(textTheme.labelSmall),
+    );
+  }
+
   ThemeData _withDesktopTheme(ThemeData base) {
     final fallback = DesktopThemeExtension.fallback(base.brightness);
     final existing = base.extension<DesktopThemeExtension>();
@@ -122,6 +144,8 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
       scaffoldBackgroundColor: desktopTheme.background,
       canvasColor: desktopTheme.background,
       cardColor: desktopTheme.surface,
+      textTheme: _stripTextDecorations(base.textTheme),
+      primaryTextTheme: _stripTextDecorations(base.primaryTextTheme),
       extensions: extensions,
     );
   }
@@ -340,129 +364,133 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
 
     return Theme(
       data: themed,
-      child: Builder(
-        builder: (context) {
-          final desktopTheme = DesktopThemeExtension.of(context);
-          final isDetailSection = _section == _DesktopSection.detail;
-          const detailBackground = Color(0xFFF5F5F5);
-          final title = switch (_section) {
-            _DesktopSection.library => _uiLanguage.pick(
-                zh: _homeTab == DesktopHomeTab.home
-                    ? '\u4e3b\u9875'
-                    : '\u559c\u6b22',
-                en: _homeTab == DesktopHomeTab.home ? 'Home' : 'Favorites',
-              ),
-            _DesktopSection.search => _uiLanguage.pick(
-                zh: '\u641c\u7d22',
-                en: 'Search',
-              ),
-            _DesktopSection.detail => _detailViewModel?.detail.name ??
-                _uiLanguage.pick(
-                  zh: '\u8be6\u60c5',
-                  en: 'Media Detail',
+      child: DefaultTextStyle.merge(
+        style: const TextStyle(decoration: TextDecoration.none),
+        child: Builder(
+          builder: (context) {
+            final desktopTheme = DesktopThemeExtension.of(context);
+            final isDetailSection = _section == _DesktopSection.detail;
+            const detailBackground = Color(0xFFF5F5F5);
+            final title = switch (_section) {
+              _DesktopSection.library => _uiLanguage.pick(
+                  zh: _homeTab == DesktopHomeTab.home
+                      ? '\u4e3b\u9875'
+                      : '\u559c\u6b22',
+                  en: _homeTab == DesktopHomeTab.home ? 'Home' : 'Favorites',
                 ),
-          };
-          final selectedSidebarId = switch (_section) {
-            _DesktopSection.library => 'library',
-            _DesktopSection.search => 'search',
-            _DesktopSection.detail => 'detail',
-          };
+              _DesktopSection.search => _uiLanguage.pick(
+                  zh: '\u641c\u7d22',
+                  en: 'Search',
+                ),
+              _DesktopSection.detail => _detailViewModel?.detail.name ??
+                  _uiLanguage.pick(
+                    zh: '\u8be6\u60c5',
+                    en: 'Media Detail',
+                  ),
+            };
+            final selectedSidebarId = switch (_section) {
+              _DesktopSection.library => 'library',
+              _DesktopSection.search => 'search',
+              _DesktopSection.detail => 'detail',
+            };
 
-          return ColoredBox(
-            color: isDetailSection ? detailBackground : desktopTheme.background,
-            child: SafeArea(
-              child: DesktopShortcutWrapper(
-                child: FocusTraversalManager(
-                  child: WindowPaddingContainer(
-                    child: DesktopNavigationLayout(
-                      backgroundStartColor:
-                          isDetailSection ? detailBackground : null,
-                      backgroundEndColor:
-                          isDetailSection ? detailBackground : null,
-                      sidebarWidth: 264,
-                      sidebarVisible: !_sidebarCollapsed,
-                      onDismissSidebar: _hideSidebar,
-                      sidebar: DesktopSidebar(
-                        destinations: <DesktopSidebarDestination>[
-                          DesktopSidebarDestination(
-                            id: 'library',
-                            label: _uiLanguage.pick(
-                              zh: '\u5a92\u4f53\u5e93',
-                              en: 'Library',
+            return ColoredBox(
+              color:
+                  isDetailSection ? detailBackground : desktopTheme.background,
+              child: SafeArea(
+                child: DesktopShortcutWrapper(
+                  child: FocusTraversalManager(
+                    child: WindowPaddingContainer(
+                      child: DesktopNavigationLayout(
+                        backgroundStartColor:
+                            isDetailSection ? detailBackground : null,
+                        backgroundEndColor:
+                            isDetailSection ? detailBackground : null,
+                        sidebarWidth: 264,
+                        sidebarVisible: !_sidebarCollapsed,
+                        onDismissSidebar: _hideSidebar,
+                        sidebar: DesktopSidebar(
+                          destinations: <DesktopSidebarDestination>[
+                            DesktopSidebarDestination(
+                              id: 'library',
+                              label: _uiLanguage.pick(
+                                zh: '\u5a92\u4f53\u5e93',
+                                en: 'Library',
+                              ),
+                              icon: Icons.video_library_outlined,
                             ),
-                            icon: Icons.video_library_outlined,
-                          ),
-                          DesktopSidebarDestination(
-                            id: 'search',
-                            label: _uiLanguage.pick(
-                              zh: '\u641c\u7d22',
-                              en: 'Search',
+                            DesktopSidebarDestination(
+                              id: 'search',
+                              label: _uiLanguage.pick(
+                                zh: '\u641c\u7d22',
+                                en: 'Search',
+                              ),
+                              icon: Icons.search_rounded,
                             ),
-                            icon: Icons.search_rounded,
-                          ),
-                          DesktopSidebarDestination(
-                            id: 'detail',
-                            label: _uiLanguage.pick(
-                              zh: '\u8be6\u60c5',
-                              en: 'Detail',
+                            DesktopSidebarDestination(
+                              id: 'detail',
+                              label: _uiLanguage.pick(
+                                zh: '\u8be6\u60c5',
+                                en: 'Detail',
+                              ),
+                              icon: Icons.movie_outlined,
+                              enabled: _detailViewModel != null,
                             ),
-                            icon: Icons.movie_outlined,
-                            enabled: _detailViewModel != null,
-                          ),
-                          DesktopSidebarDestination(
-                            id: 'servers',
-                            label: _uiLanguage.pick(
-                              zh: '\u670d\u52a1\u5668',
-                              en: 'Servers',
+                            DesktopSidebarDestination(
+                              id: 'servers',
+                              label: _uiLanguage.pick(
+                                zh: '\u670d\u52a1\u5668',
+                                en: 'Servers',
+                              ),
+                              icon: Icons.storage_outlined,
                             ),
-                            icon: Icons.storage_outlined,
-                          ),
-                          DesktopSidebarDestination(
-                            id: 'settings',
-                            label: _uiLanguage.pick(
-                              zh: '\u8bbe\u7f6e',
-                              en: 'Settings',
+                            DesktopSidebarDestination(
+                              id: 'settings',
+                              label: _uiLanguage.pick(
+                                zh: '\u8bbe\u7f6e',
+                                en: 'Settings',
+                              ),
+                              icon: Icons.settings_outlined,
                             ),
-                            icon: Icons.settings_outlined,
-                          ),
-                        ],
-                        selectedId: selectedSidebarId,
-                        onSelected: _handleSidebarSelection,
-                        serverLabel: widget.appState.activeServer?.name,
-                        collapsed: _sidebarCollapsed,
-                      ),
-                      topBar: DesktopTopBar(
-                        title: title,
-                        language: _uiLanguage,
-                        showSearch: _section != _DesktopSection.library,
-                        homeTab: _homeTab,
-                        onHomeTabChanged: _handleHomeTabChanged,
-                        showBack: _section == _DesktopSection.detail,
-                        onBack: () => setState(
-                          () => _section = _DesktopSection.library,
+                          ],
+                          selectedId: selectedSidebarId,
+                          onSelected: _handleSidebarSelection,
+                          serverLabel: widget.appState.activeServer?.name,
+                          collapsed: _sidebarCollapsed,
                         ),
-                        onToggleSidebar: _toggleSidebar,
-                        searchController: _searchController,
-                        onSearchChanged: _handleSearchChanged,
-                        onSearchSubmitted: _handleSearchSubmitted,
-                        onRefresh: _refreshCurrentPage,
-                        onOpenSettings: _openDesktopUiSettings,
-                        searchHint: _uiLanguage.pick(
-                          zh: '\u641c\u7d22\u5267\u96c6\u6216\u7535\u5f71',
-                          en: 'Search series or movies',
+                        topBar: DesktopTopBar(
+                          title: title,
+                          language: _uiLanguage,
+                          showSearch: _section != _DesktopSection.library,
+                          homeTab: _homeTab,
+                          onHomeTabChanged: _handleHomeTabChanged,
+                          showBack: _section == _DesktopSection.detail,
+                          onBack: () => setState(
+                            () => _section = _DesktopSection.library,
+                          ),
+                          onToggleSidebar: _toggleSidebar,
+                          searchController: _searchController,
+                          onSearchChanged: _handleSearchChanged,
+                          onSearchSubmitted: _handleSearchSubmitted,
+                          onRefresh: _refreshCurrentPage,
+                          onOpenSettings: _openDesktopUiSettings,
+                          searchHint: _uiLanguage.pick(
+                            zh: '\u641c\u7d22\u5267\u96c6\u6216\u7535\u5f71',
+                            en: 'Search series or movies',
+                          ),
                         ),
-                      ),
-                      content: AnimatedSwitcher(
-                        duration: const Duration(milliseconds: 180),
-                        child: _buildContent(),
+                        content: AnimatedSwitcher(
+                          duration: const Duration(milliseconds: 180),
+                          child: _buildContent(),
+                        ),
                       ),
                     ),
                   ),
                 ),
               ),
-            ),
-          );
-        },
+            );
+          },
+        ),
       ),
     );
   }
