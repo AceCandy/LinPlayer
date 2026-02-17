@@ -10,7 +10,6 @@ import 'package:lin_player_state/lin_player_state.dart';
 
 import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
-import '../server_page.dart';
 import '../settings_page.dart';
 import 'mock/desktop_ui_preview_page.dart';
 import 'models/desktop_ui_language.dart';
@@ -150,27 +149,69 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     );
   }
 
-  void _handleSidebarSelection(String id) {
+  void _handleServerSelected(String serverId) {
     _hideSidebar();
-    switch (id) {
-      case 'library':
-        setState(() => _section = _DesktopSection.library);
-        break;
-      case 'search':
-        setState(() => _section = _DesktopSection.search);
-        break;
-      case 'servers':
-        unawaited(_openServerManager());
-        break;
-      case 'settings':
-        unawaited(_openDesktopUiSettings());
-        break;
-      case 'detail':
-        if (_detailViewModel != null) {
-          setState(() => _section = _DesktopSection.detail);
-        }
-        break;
+    if (_section != _DesktopSection.library) {
+      setState(() => _section = _DesktopSection.library);
     }
+    if (serverId == widget.appState.activeServerId) return;
+    unawaited(widget.appState.enterServer(serverId));
+  }
+
+  List<DesktopSidebarServer> _buildSidebarServers() {
+    final activeServerId = widget.appState.activeServerId;
+    return widget.appState.servers
+        .map(
+          (server) => DesktopSidebarServer(
+            id: server.id,
+            name: server.name.trim().isEmpty ? server.baseUrl : server.name,
+            subtitle: _buildServerSubtitle(
+              server,
+              isActive: activeServerId == server.id,
+            ),
+            serverType: server.serverType,
+            iconUrl: server.iconUrl,
+          ),
+        )
+        .toList(growable: false);
+  }
+
+  String _buildServerSubtitle(
+    ServerProfile server, {
+    required bool isActive,
+  }) {
+    final remark = (server.remark ?? '').trim();
+    final host = _extractServerHost(server.baseUrl);
+    final baseSubtitle = remark.isNotEmpty
+        ? remark
+        : (host.isNotEmpty
+            ? '${server.serverType.label} · $host'
+            : server.serverType.label);
+    if (!isActive) return baseSubtitle;
+    return _uiLanguage.pick(
+      zh: '当前连接 · $baseSubtitle',
+      en: 'Current · $baseSubtitle',
+    );
+  }
+
+  String _extractServerHost(String baseUrl) {
+    final raw = baseUrl.trim();
+    if (raw.isEmpty) return '';
+
+    Uri? uri;
+    try {
+      uri = Uri.parse(raw);
+    } catch (_) {}
+
+    if (uri == null || uri.host.trim().isEmpty) {
+      try {
+        uri = Uri.parse('https://$raw');
+      } catch (_) {}
+    }
+
+    if (uri == null || uri.host.trim().isEmpty) return raw;
+    final host = uri.host.trim();
+    return uri.hasPort ? '$host:${uri.port}' : host;
   }
 
   void _handleHomeTabChanged(DesktopHomeTab tab) {
@@ -293,17 +334,6 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     setState(() => _uiLanguage = selected);
   }
 
-  Future<void> _openServerManager() async {
-    await Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ServerPage(
-          appState: widget.appState,
-          desktopLayout: true,
-        ),
-      ),
-    );
-  }
-
   void _handleSearchChanged(String value) {
     _searchQuery = value;
   }
@@ -388,11 +418,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                     en: 'Media Detail',
                   ),
             };
-            final selectedSidebarId = switch (_section) {
-              _DesktopSection.library => 'library',
-              _DesktopSection.search => 'search',
-              _DesktopSection.detail => 'detail',
-            };
+            final sidebarServers = _buildSidebarServers();
 
             return ColoredBox(
               color:
@@ -410,52 +436,9 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                         sidebarVisible: !_sidebarCollapsed,
                         onDismissSidebar: _hideSidebar,
                         sidebar: DesktopSidebar(
-                          destinations: <DesktopSidebarDestination>[
-                            DesktopSidebarDestination(
-                              id: 'library',
-                              label: _uiLanguage.pick(
-                                zh: '\u5a92\u4f53\u5e93',
-                                en: 'Library',
-                              ),
-                              icon: Icons.video_library_outlined,
-                            ),
-                            DesktopSidebarDestination(
-                              id: 'search',
-                              label: _uiLanguage.pick(
-                                zh: '\u641c\u7d22',
-                                en: 'Search',
-                              ),
-                              icon: Icons.search_rounded,
-                            ),
-                            DesktopSidebarDestination(
-                              id: 'detail',
-                              label: _uiLanguage.pick(
-                                zh: '\u8be6\u60c5',
-                                en: 'Detail',
-                              ),
-                              icon: Icons.movie_outlined,
-                              enabled: _detailViewModel != null,
-                            ),
-                            DesktopSidebarDestination(
-                              id: 'servers',
-                              label: _uiLanguage.pick(
-                                zh: '\u670d\u52a1\u5668',
-                                en: 'Servers',
-                              ),
-                              icon: Icons.storage_outlined,
-                            ),
-                            DesktopSidebarDestination(
-                              id: 'settings',
-                              label: _uiLanguage.pick(
-                                zh: '\u8bbe\u7f6e',
-                                en: 'Settings',
-                              ),
-                              icon: Icons.settings_outlined,
-                            ),
-                          ],
-                          selectedId: selectedSidebarId,
-                          onSelected: _handleSidebarSelection,
-                          serverLabel: widget.appState.activeServer?.name,
+                          servers: sidebarServers,
+                          selectedServerId: widget.appState.activeServerId,
+                          onSelected: _handleServerSelected,
                           collapsed: _sidebarCollapsed,
                         ),
                         topBar: DesktopTopBar(
