@@ -117,8 +117,12 @@ class AppTheme {
     TextStyle? scale(TextStyle? style) {
       if (style == null) return null;
       final size = style.fontSize;
-      if (size == null) return style;
-      return style.copyWith(fontSize: size * (effectiveCompact ? 0.90 : 0.92));
+      final scaled = size == null
+          ? style
+          : style.copyWith(fontSize: size * (effectiveCompact ? 0.90 : 0.92));
+      return scaled.copyWith(
+        decoration: TextDecoration.none,
+      );
     }
 
     final textTheme = base.textTheme.copyWith(

@@ -303,7 +303,12 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                       data: effectiveTheme,
                       child: AppUpdateAutoChecker(
                         appState: appState,
-                        child: appChild,
+                        child: DefaultTextStyle.merge(
+                          style: const TextStyle(
+                            decoration: TextDecoration.none,
+                          ),
+                          child: appChild,
+                        ),
                       ),
                     ),
                   ),
