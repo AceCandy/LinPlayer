@@ -80,7 +80,6 @@ class DesktopTopBar extends StatelessWidget {
               colors: [background, background2],
             ),
             borderRadius: BorderRadius.circular(14),
-            border: Border.all(color: theme.border.withValues(alpha: 0.8)),
           ),
           child: SizedBox(
             height: 60,

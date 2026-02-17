@@ -22,7 +22,9 @@ class DesktopMediaCard extends StatefulWidget {
     this.showMeta = true,
     this.showBadge = true,
     this.isFavorite = false,
+    this.titleOverride,
     this.subtitleOverride,
+    this.subtitleMaxLines = 1,
     this.badgeText,
   });
 
@@ -39,7 +41,9 @@ class DesktopMediaCard extends StatefulWidget {
   final bool showMeta;
   final bool showBadge;
   final bool isFavorite;
+  final String? titleOverride;
   final String? subtitleOverride;
+  final int subtitleMaxLines;
   final String? badgeText;
 
   @override
@@ -58,6 +62,10 @@ class _DesktopMediaCardState extends State<DesktopMediaCard> {
     final imageUrl = _imageUrl();
     final progress = mediaProgress(widget.item);
     final subtitle = widget.subtitleOverride ?? _defaultSubtitle(widget.item);
+    final customTitle = (widget.titleOverride ?? '').trim();
+    final title = customTitle.isEmpty
+        ? (widget.item.name.trim().isEmpty ? 'Untitled' : widget.item.name)
+        : customTitle;
     final badge = (widget.badgeText ?? _defaultBadge(widget.item)).trim();
 
     return SizedBox(
@@ -219,7 +227,7 @@ class _DesktopMediaCardState extends State<DesktopMediaCard> {
           if (widget.showMeta) ...[
             const SizedBox(height: 8),
             Text(
-              widget.item.name.trim().isEmpty ? 'Untitled' : widget.item.name,
+              title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
@@ -231,7 +239,7 @@ class _DesktopMediaCardState extends State<DesktopMediaCard> {
             const SizedBox(height: 4),
             Text(
               subtitle,
-              maxLines: 1,
+              maxLines: widget.subtitleMaxLines.clamp(1, 3),
               overflow: TextOverflow.ellipsis,
               style: TextStyle(
                 color: theme.textMuted,

@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:cached_network_image/cached_network_image.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
@@ -217,6 +218,46 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
         .toList(growable: false);
   }
 
+  String _continueTitle(MediaItem item) {
+    final type = item.type.trim().toLowerCase();
+    if (type == 'episode') {
+      final seriesName = item.seriesName.trim();
+      if (seriesName.isNotEmpty) return seriesName;
+    }
+    final name = item.name.trim();
+    return name.isEmpty ? '--' : name;
+  }
+
+  String _continueSubtitle(MediaItem item) {
+    final time = _formatTicksShort(item.playbackPositionTicks);
+    final type = item.type.trim().toLowerCase();
+    if (type == 'episode') {
+      final season = (item.seasonNumber ?? 0).clamp(0, 999);
+      final episode = (item.episodeNumber ?? 0).clamp(0, 999);
+      if (season > 0 && episode > 0) {
+        final mark = 'S${season.toString().padLeft(2, '0')}'
+            'E${episode.toString().padLeft(2, '0')}';
+        return '$mark | $time';
+      }
+    }
+    return time;
+  }
+
+  String _formatTicksShort(int ticks) {
+    if (ticks <= 0) return '00:00';
+    final duration = Duration(seconds: ticks ~/ 10000000);
+    final hours = duration.inHours;
+    final minutes = duration.inMinutes.remainder(60);
+    final seconds = duration.inSeconds.remainder(60);
+    if (hours > 0) {
+      return '${hours.toString().padLeft(2, '0')}:'
+          '${minutes.toString().padLeft(2, '0')}:'
+          '${seconds.toString().padLeft(2, '0')}';
+    }
+    return '${duration.inMinutes.toString().padLeft(2, '0')}:'
+        '${seconds.toString().padLeft(2, '0')}';
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -254,7 +295,6 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
             libraries: libraries,
             appState: widget.appState,
             access: access,
-            onOpenItem: widget.onOpenItem,
             language: widget.language,
           ),
           const SizedBox(height: 32),
@@ -276,11 +316,7 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
             ..add(const SizedBox(height: 32))
             ..add(
               _PosterRailSection(
-                prefixTitle: _t(
-                  language: widget.language,
-                  zh: '\u6700\u65b0',
-                  en: 'Latest',
-                ),
+                prefixTitle: '',
                 highlightedTitle: library.name.trim().isEmpty
                     ? _t(
                         language: widget.language,
@@ -393,11 +429,7 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
           return const SizedBox.shrink();
         }
         return _PosterRailSection(
-          prefixTitle: _t(
-            language: widget.language,
-            zh: '\u6700\u65b0',
-            en: 'Latest',
-          ),
+          prefixTitle: '',
           highlightedTitle: _t(
             language: widget.language,
             zh: '\u7ee7\u7eed\u89c2\u770b',
@@ -411,6 +443,13 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
           onOpenItem: widget.onOpenItem,
           isFavorite: _isFavorite,
           onToggleFavorite: _toggleFavorite,
+          cardWidth: 224,
+          cardImageAspectRatio: 16 / 9,
+          railHeight: 242,
+          showCardBadge: false,
+          titleBuilder: _continueTitle,
+          subtitleBuilder: _continueSubtitle,
+          subtitleMaxLines: 2,
           showProgress: true,
           onViewAllTap: items.isEmpty
               ? null
@@ -486,20 +525,63 @@ class _DecorativeBackground extends StatelessWidget {
   }
 }
 
-class _MediaCategorySection extends StatelessWidget {
+class _MediaCategorySection extends StatefulWidget {
   const _MediaCategorySection({
     required this.libraries,
     required this.appState,
     required this.access,
-    required this.onOpenItem,
     required this.language,
   });
 
   final List<LibraryInfo> libraries;
   final AppState appState;
   final ServerAccess? access;
-  final ValueChanged<MediaItem> onOpenItem;
   final DesktopUiLanguage language;
+
+  @override
+  State<_MediaCategorySection> createState() => _MediaCategorySectionState();
+}
+
+class _MediaCategorySectionState extends State<_MediaCategorySection> {
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_controller.hasClients) return;
+    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+        ? event.scrollDelta.dy
+        : event.scrollDelta.dx;
+    if (delta == 0) return;
+    final target = (_controller.offset + delta).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    _controller.jumpTo(target);
+  }
+
+  void _centerLibraryCard({
+    required int index,
+    required double cardWidth,
+    required double spacing,
+  }) {
+    if (!_controller.hasClients) return;
+    final viewport = _controller.position.viewportDimension;
+    final itemCenter = index * (cardWidth + spacing) + (cardWidth / 2);
+    final target = (itemCenter - (viewport / 2)).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 260),
+      curve: Curves.easeOutCubic,
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -509,9 +591,9 @@ class _MediaCategorySection extends StatelessWidget {
       children: [
         Text(
           _t(
-            language: language,
-            zh: '\u6211\u7684\u5a92\u4f53',
-            en: 'My Media',
+            language: widget.language,
+            zh: '\u5a92\u4f53\u5e93',
+            en: 'Libraries',
           ),
           style: TextStyle(
             color: theme.textPrimary,
@@ -520,10 +602,10 @@ class _MediaCategorySection extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 16),
-        if (libraries.isEmpty)
+        if (widget.libraries.isEmpty)
           Text(
             _t(
-              language: language,
+              language: widget.language,
               zh: '\u6682\u65e0\u5206\u7c7b',
               en: 'No categories',
             ),
@@ -532,28 +614,45 @@ class _MediaCategorySection extends StatelessWidget {
         else
           LayoutBuilder(
             builder: (context, constraints) {
-              final maxWidth = constraints.maxWidth;
               const spacing = 16.0;
-              final columns = (maxWidth / (140 + spacing)).floor().clamp(3, 8);
-              final cardWidth = ((maxWidth - (columns - 1) * spacing) / columns)
-                  .clamp(120.0, 160.0);
-              final cardHeight = cardWidth / 1.4;
+              final cardWidth =
+                  (constraints.maxWidth * 0.2).clamp(156.0, 220.0);
+              final cardHeight = cardWidth / 1.62;
 
-              return Wrap(
-                spacing: spacing,
-                runSpacing: spacing,
-                children: libraries.map((library) {
-                  final preview = appState.getHome('lib_${library.id}');
-                  return _CategoryCard(
-                    width: cardWidth,
-                    height: cardHeight,
-                    library: library,
-                    preview: preview,
-                    access: access,
-                    onOpenItem: onOpenItem,
-                    language: language,
-                  );
-                }).toList(growable: false),
+              return SizedBox(
+                height: cardHeight,
+                child: Listener(
+                  onPointerSignal: _onPointerSignal,
+                  child: ListView.separated(
+                    controller: _controller,
+                    scrollDirection: Axis.horizontal,
+                    physics: const BouncingScrollPhysics(),
+                    itemCount: widget.libraries.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: spacing),
+                    itemBuilder: (context, index) {
+                      final library = widget.libraries[index];
+                      final preview =
+                          widget.appState.getHome('lib_${library.id}');
+                      return _CategoryCard(
+                        width: cardWidth,
+                        height: cardHeight,
+                        library: library,
+                        preview: preview,
+                        access: widget.access,
+                        language: widget.language,
+                        onTap: preview.isEmpty
+                            ? null
+                            : () {
+                                _centerLibraryCard(
+                                  index: index,
+                                  cardWidth: cardWidth,
+                                  spacing: spacing,
+                                );
+                              },
+                      );
+                    },
+                  ),
+                ),
               );
             },
           ),
@@ -569,8 +668,8 @@ class _CategoryCard extends StatelessWidget {
     required this.library,
     required this.preview,
     required this.access,
-    required this.onOpenItem,
     required this.language,
+    this.onTap,
   });
 
   final double width;
@@ -578,8 +677,8 @@ class _CategoryCard extends StatelessWidget {
   final LibraryInfo library;
   final List<MediaItem> preview;
   final ServerAccess? access;
-  final ValueChanged<MediaItem> onOpenItem;
   final DesktopUiLanguage language;
+  final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
@@ -638,7 +737,7 @@ class _CategoryCard extends StatelessWidget {
       width: width,
       height: height,
       borderRadius: 8,
-      onTap: preview.isEmpty ? null : () => onOpenItem(preview.first),
+      onTap: onTap,
       child: Stack(
         fit: StackFit.expand,
         children: [
@@ -715,6 +814,13 @@ class _PosterRailSection extends StatelessWidget {
     required this.isFavorite,
     required this.onToggleFavorite,
     this.onViewAllTap,
+    this.cardWidth = 160,
+    this.cardImageAspectRatio = 2 / 3,
+    this.railHeight = 294,
+    this.showCardBadge = true,
+    this.titleBuilder,
+    this.subtitleBuilder,
+    this.subtitleMaxLines = 1,
     this.showProgress = false,
   });
 
@@ -728,11 +834,19 @@ class _PosterRailSection extends StatelessWidget {
   final bool Function(String itemId) isFavorite;
   final ValueChanged<String> onToggleFavorite;
   final VoidCallback? onViewAllTap;
+  final double cardWidth;
+  final double cardImageAspectRatio;
+  final double railHeight;
+  final bool showCardBadge;
+  final String Function(MediaItem item)? titleBuilder;
+  final String Function(MediaItem item)? subtitleBuilder;
+  final int subtitleMaxLines;
   final bool showProgress;
 
   @override
   Widget build(BuildContext context) {
     final theme = DesktopThemeExtension.of(context);
+    final trimmedPrefix = prefixTitle.trim();
     final sectionTitle = highlightedTitle.trim().isEmpty
         ? _t(language: language, zh: '\u5206\u533a', en: 'Section')
         : highlightedTitle;
@@ -753,11 +867,15 @@ class _PosterRailSection extends StatelessWidget {
                     fontWeight: FontWeight.w700,
                   ),
                   children: [
-                    TextSpan(text: prefixTitle),
-                    const TextSpan(text: '  '),
+                    if (trimmedPrefix.isNotEmpty) TextSpan(text: trimmedPrefix),
+                    if (trimmedPrefix.isNotEmpty) const TextSpan(text: '  '),
                     TextSpan(
                       text: sectionTitle,
-                      style: TextStyle(color: theme.textMuted),
+                      style: TextStyle(
+                        color: trimmedPrefix.isEmpty
+                            ? theme.textPrimary
+                            : theme.textMuted,
+                      ),
                     ),
                   ],
                 ),
@@ -776,7 +894,7 @@ class _PosterRailSection extends StatelessWidget {
         const SizedBox(height: 16),
         if (loading)
           SizedBox(
-            height: 294,
+            height: railHeight,
             child: Center(
               child: Text(
                 _t(
@@ -789,7 +907,7 @@ class _PosterRailSection extends StatelessWidget {
           )
         else if (items.isEmpty)
           SizedBox(
-            height: 294,
+            height: railHeight,
             child: Center(
               child: Text(
                 _t(
@@ -802,7 +920,7 @@ class _PosterRailSection extends StatelessWidget {
           )
         else
           SizedBox(
-            height: 294,
+            height: railHeight,
             child: ListView.separated(
               scrollDirection: Axis.horizontal,
               itemCount: items.length,
@@ -811,10 +929,14 @@ class _PosterRailSection extends StatelessWidget {
                 return DesktopMediaCard(
                   item: item,
                   access: access,
-                  width: 160,
-                  imageAspectRatio: 2 / 3,
+                  width: cardWidth,
+                  imageAspectRatio: cardImageAspectRatio,
                   showProgress: showProgress,
+                  showBadge: showCardBadge,
                   isFavorite: isFavorite(item.id),
+                  titleOverride: titleBuilder?.call(item),
+                  subtitleOverride: subtitleBuilder?.call(item),
+                  subtitleMaxLines: subtitleMaxLines,
                   onTap: () => onOpenItem(item),
                   onToggleFavorite: () => onToggleFavorite(item.id),
                 );

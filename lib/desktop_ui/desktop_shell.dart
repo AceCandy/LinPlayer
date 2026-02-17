@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
 import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
@@ -94,6 +95,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   MediaStats? _mediaStats;
   bool _loadingMediaStats = false;
   int _mediaStatsRequestVersion = 0;
+  double _topBarVisibility = 1.0;
 
   @override
   void initState() {
@@ -160,8 +162,11 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
 
   void _handleServerSelected(String serverId) {
     _hideSidebar();
-    if (_section != _DesktopSection.library) {
-      setState(() => _section = _DesktopSection.library);
+    if (_section != _DesktopSection.library || _topBarVisibility < 1.0) {
+      setState(() {
+        _section = _DesktopSection.library;
+        _topBarVisibility = 1.0;
+      });
     }
     if (serverId == widget.appState.activeServerId) return;
     unawaited(widget.appState.enterServer(serverId));
@@ -246,6 +251,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     setState(() {
       _homeTab = tab;
       _section = _DesktopSection.library;
+      _topBarVisibility = 1.0;
     });
   }
 
@@ -264,6 +270,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     setState(() {
       _detailViewModel = next;
       _section = _DesktopSection.detail;
+      _topBarVisibility = 1.0;
     });
     unawaited(next.load(forceRefresh: true));
   }
@@ -643,7 +650,44 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         selection: TextSelection.collapsed(offset: _searchQuery.length),
       );
       _section = _DesktopSection.search;
+      _topBarVisibility = 1.0;
     });
+  }
+
+  bool _handleContentScrollNotification(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final axis = axisDirectionToAxis(notification.metrics.axisDirection);
+    if (axis != Axis.vertical) return false;
+
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta ?? 0;
+      if (delta.abs() < 0.4) return false;
+      final next =
+          (_topBarVisibility - (delta / 150)).clamp(0.0, 1.0).toDouble();
+      if ((next - _topBarVisibility).abs() > 0.005 && mounted) {
+        setState(() => _topBarVisibility = next);
+      }
+      return false;
+    }
+
+    if (notification is ScrollEndNotification) {
+      final snap = _topBarVisibility > 0.58 ? 1.0 : 0.0;
+      if ((snap - _topBarVisibility).abs() > 0.005 && mounted) {
+        setState(() => _topBarVisibility = snap);
+      }
+      return false;
+    }
+
+    if (notification is UserScrollNotification) {
+      if (notification.direction == ScrollDirection.forward &&
+          notification.metrics.pixels <= 0 &&
+          _topBarVisibility < 1.0 &&
+          mounted) {
+        setState(() => _topBarVisibility = 1.0);
+      }
+    }
+
+    return false;
   }
 
   Widget _buildContent() {
@@ -749,9 +793,10 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                           homeTab: _homeTab,
                           onHomeTabChanged: _handleHomeTabChanged,
                           showBack: _section == _DesktopSection.detail,
-                          onBack: () => setState(
-                            () => _section = _DesktopSection.library,
-                          ),
+                          onBack: () => setState(() {
+                            _section = _DesktopSection.library;
+                            _topBarVisibility = 1.0;
+                          }),
                           onToggleSidebar: _toggleSidebar,
                           searchController: _searchController,
                           onSearchChanged: _handleSearchChanged,
@@ -766,8 +811,12 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                         ),
                         content: AnimatedSwitcher(
                           duration: const Duration(milliseconds: 180),
-                          child: _buildContent(),
+                          child: NotificationListener<ScrollNotification>(
+                            onNotification: _handleContentScrollNotification,
+                            child: _buildContent(),
+                          ),
                         ),
+                        topBarVisibility: _topBarVisibility,
                       ),
                     ),
                   ),

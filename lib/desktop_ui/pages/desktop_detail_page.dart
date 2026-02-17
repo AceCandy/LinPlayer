@@ -219,6 +219,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         final item = vm.detail;
         final detailType = item.type.trim().toLowerCase();
         final isEpisode = detailType == 'episode';
+        final isMovie = detailType == 'movie';
+        final showTrackSelectors = isEpisode || isMovie;
 
         if (vm.loading && vm.error == null && item.id.isEmpty) {
           return const Center(child: CircularProgressIndicator());
@@ -230,7 +232,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         );
         final links = _buildExternalLinks(item);
         final watched = _playedOverride ?? item.played;
-        final showMediaInfo = detailType == 'episode' || detailType == 'movie';
+        final showMediaInfo = showTrackSelectors;
 
         return DecoratedBox(
           decoration: BoxDecoration(color: colors.background),
@@ -245,7 +247,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
                     watched: watched,
                     isFavorite: vm.favorite,
                     trackState: trackState,
-                    showTrackSelectors: isEpisode,
+                    showTrackSelectors: showTrackSelectors,
                     onPlay: widget.onPlayPressed,
                     onToggleFavorite: vm.toggleFavorite,
                     onToggleWatched: () {
@@ -290,19 +292,21 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
                 ),
               ],
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 24),
-                  child: _SeasonEpisodesSection(
-                    title: _seasonSectionTitle(item, isEpisode),
-                    episodes: vm.episodes,
-                    currentItemId: item.id,
-                    access: vm.access,
-                    onTap: widget.onOpenItem,
+              if (!isMovie) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _SeasonEpisodesSection(
+                      title: _seasonSectionTitle(item, isEpisode),
+                      episodes: vm.episodes,
+                      currentItemId: item.id,
+                      access: vm.access,
+                      onTap: widget.onOpenItem,
+                    ),
                   ),
                 ),
-              ),
-              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              ],
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -1273,7 +1277,28 @@ class _EpisodeHorizontalList extends StatefulWidget {
 }
 
 class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
+  static const double _kCardWidth = 200;
+  static const double _kCardSpacing = 16;
   final ScrollController _controller = ScrollController();
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _centerCurrentEpisode(animate: false);
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant _EpisodeHorizontalList oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.currentItemId != widget.currentItemId ||
+        oldWidget.episodes.length != widget.episodes.length) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        _centerCurrentEpisode();
+      });
+    }
+  }
 
   @override
   void dispose() {
@@ -1294,6 +1319,34 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
     _controller.jumpTo(target);
   }
 
+  void _centerCurrentEpisode({bool animate = true}) {
+    if (!_controller.hasClients) return;
+    final index =
+        widget.episodes.indexWhere((entry) => entry.id == widget.currentItemId);
+    if (index < 0) return;
+    _centerIndex(index, animate: animate);
+  }
+
+  void _centerIndex(int index, {bool animate = true}) {
+    if (!_controller.hasClients) return;
+    final viewport = _controller.position.viewportDimension;
+    final itemCenter =
+        index * (_kCardWidth + _kCardSpacing) + (_kCardWidth / 2);
+    final target = (itemCenter - (viewport / 2)).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    if (animate) {
+      _controller.animateTo(
+        target,
+        duration: const Duration(milliseconds: 260),
+        curve: Curves.easeOutCubic,
+      );
+      return;
+    }
+    _controller.jumpTo(target);
+  }
+
   @override
   Widget build(BuildContext context) {
     return SizedBox(
@@ -1304,7 +1357,7 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
           controller: _controller,
           scrollDirection: Axis.horizontal,
           itemCount: widget.episodes.length,
-          separatorBuilder: (_, __) => const SizedBox(width: 16),
+          separatorBuilder: (_, __) => const SizedBox(width: _kCardSpacing),
           itemBuilder: (context, index) {
             final episode = widget.episodes[index];
             final imageUrls = _episodeImageCandidates(
@@ -1315,7 +1368,12 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
               item: episode,
               imageUrls: imageUrls,
               isCurrent: episode.id == widget.currentItemId,
-              onTap: widget.onTap == null ? null : () => widget.onTap!(episode),
+              onTap: widget.onTap == null
+                  ? null
+                  : () {
+                      _centerIndex(index);
+                      widget.onTap!(episode);
+                    },
             );
           },
         ),
