@@ -8,6 +8,8 @@ class DesktopNavigationLayout extends StatelessWidget {
     required this.sidebar,
     required this.topBar,
     required this.content,
+    this.backgroundStartColor,
+    this.backgroundEndColor,
     this.sidebarVisible = false,
     this.onDismissSidebar,
     this.sidebarWidth = 264,
@@ -16,6 +18,8 @@ class DesktopNavigationLayout extends StatelessWidget {
   final Widget sidebar;
   final Widget topBar;
   final Widget content;
+  final Color? backgroundStartColor;
+  final Color? backgroundEndColor;
   final bool sidebarVisible;
   final VoidCallback? onDismissSidebar;
   final double sidebarWidth;
@@ -23,6 +27,9 @@ class DesktopNavigationLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final desktopTheme = DesktopThemeExtension.of(context);
+    final backgroundStart = backgroundStartColor ?? desktopTheme.background;
+    final backgroundEnd =
+        backgroundEndColor ?? desktopTheme.backgroundGradientEnd;
     final showSidebar = sidebarVisible && sidebarWidth > 0;
     final screenWidth = MediaQuery.sizeOf(context).width;
     final horizontalPadding = screenWidth >= 1120 ? 40.0 : 24.0;
@@ -35,8 +42,8 @@ class DesktopNavigationLayout extends StatelessWidget {
               begin: Alignment.topLeft,
               end: Alignment.bottomRight,
               colors: [
-                desktopTheme.background,
-                desktopTheme.backgroundGradientEnd,
+                backgroundStart,
+                backgroundEnd,
               ],
             ),
           ),

@@ -343,6 +343,8 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
       child: Builder(
         builder: (context) {
           final desktopTheme = DesktopThemeExtension.of(context);
+          final isDetailSection = _section == _DesktopSection.detail;
+          const detailBackground = Color(0xFFF5F5F5);
           final title = switch (_section) {
             _DesktopSection.library => _uiLanguage.pick(
                 zh: _homeTab == DesktopHomeTab.home
@@ -367,12 +369,16 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
           };
 
           return ColoredBox(
-            color: desktopTheme.background,
+            color: isDetailSection ? detailBackground : desktopTheme.background,
             child: SafeArea(
               child: DesktopShortcutWrapper(
                 child: FocusTraversalManager(
                   child: WindowPaddingContainer(
                     child: DesktopNavigationLayout(
+                      backgroundStartColor:
+                          isDetailSection ? detailBackground : null,
+                      backgroundEndColor:
+                          isDetailSection ? detailBackground : null,
                       sidebarWidth: 264,
                       sidebarVisible: !_sidebarCollapsed,
                       onDismissSidebar: _hideSidebar,

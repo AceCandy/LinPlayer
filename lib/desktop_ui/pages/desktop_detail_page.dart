@@ -232,108 +232,103 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         final showMediaInfo = detailType == 'episode' || detailType == 'movie';
 
         return DecoratedBox(
-          decoration: BoxDecoration(
-            color: _EpisodeDetailColors.background,
-            borderRadius: BorderRadius.circular(18),
-            border: Border.all(color: _EpisodeDetailColors.border),
-          ),
-          child: ClipRRect(
-            borderRadius: BorderRadius.circular(18),
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
-                    child: _HeroPanel(
-                      item: item,
-                      access: vm.access,
-                      watched: watched,
-                      isFavorite: vm.favorite,
-                      trackState: trackState,
-                      onPlay: widget.onPlayPressed,
-                      onToggleFavorite: vm.toggleFavorite,
-                      onToggleWatched: () {
-                        setState(() => _playedOverride = !watched);
-                      },
-                      onLaunchExternalMpv: () {
-                        unawaited(
-                          _launchExternalMpv(
-                            item: item,
-                            trackState: trackState,
-                          ),
-                        );
-                      },
-                      onSelectVideo: (value) {
-                        setState(() {
-                          _selectedMediaSourceId = value;
-                          _selectedAudioStreamIndex = null;
-                          _selectedSubtitleStreamIndex = -1;
-                        });
-                      },
-                      onSelectAudio: (value) {
-                        setState(() {
-                          _selectedAudioStreamIndex = int.tryParse(value);
-                        });
-                      },
-                      onSelectSubtitle: (value) {
-                        setState(() {
-                          _selectedSubtitleStreamIndex =
-                              value == 'off' ? -1 : (int.tryParse(value) ?? -1);
-                        });
-                      },
-                    ),
+          decoration:
+              const BoxDecoration(color: _EpisodeDetailColors.background),
+          child: CustomScrollView(
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 22, 24, 0),
+                  child: _HeroPanel(
+                    item: item,
+                    access: vm.access,
+                    watched: watched,
+                    isFavorite: vm.favorite,
+                    trackState: trackState,
+                    showTrackSelectors: isEpisode,
+                    onPlay: widget.onPlayPressed,
+                    onToggleFavorite: vm.toggleFavorite,
+                    onToggleWatched: () {
+                      setState(() => _playedOverride = !watched);
+                    },
+                    onLaunchExternalMpv: () {
+                      unawaited(
+                        _launchExternalMpv(
+                          item: item,
+                          trackState: trackState,
+                        ),
+                      );
+                    },
+                    onSelectVideo: (value) {
+                      setState(() {
+                        _selectedMediaSourceId = value;
+                        _selectedAudioStreamIndex = null;
+                        _selectedSubtitleStreamIndex = -1;
+                      });
+                    },
+                    onSelectAudio: (value) {
+                      setState(() {
+                        _selectedAudioStreamIndex = int.tryParse(value);
+                      });
+                    },
+                    onSelectSubtitle: (value) {
+                      setState(() {
+                        _selectedSubtitleStreamIndex =
+                            value == 'off' ? -1 : (int.tryParse(value) ?? -1);
+                      });
+                    },
                   ),
                 ),
-                if ((vm.error ?? '').trim().isNotEmpty) ...[
-                  const SliverToBoxAdapter(child: SizedBox(height: 16)),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _ErrorBanner(message: vm.error!),
-                    ),
-                  ),
-                ],
-                const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              ),
+              if ((vm.error ?? '').trim().isNotEmpty) ...[
+                const SliverToBoxAdapter(child: SizedBox(height: 16)),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: _SeasonEpisodesSection(
-                      title: _seasonSectionTitle(item, isEpisode),
-                      episodes: vm.episodes,
-                      currentItemId: item.id,
-                      access: vm.access,
-                      onTap: widget.onOpenItem,
-                    ),
+                    child: _ErrorBanner(message: vm.error!),
                   ),
                 ),
+              ],
+              const SliverToBoxAdapter(child: SizedBox(height: 24)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _SeasonEpisodesSection(
+                    title: _seasonSectionTitle(item, isEpisode),
+                    episodes: vm.episodes,
+                    currentItemId: item.id,
+                    access: vm.access,
+                    onTap: widget.onOpenItem,
+                  ),
+                ),
+              ),
+              const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24),
+                  child: _ExternalLinksSection(
+                    links: links,
+                    onOpenLink: _openExternalLink,
+                  ),
+                ),
+              ),
+              if (showMediaInfo) ...[
                 const SliverToBoxAdapter(child: SizedBox(height: 20)),
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
-                    child: _ExternalLinksSection(
-                      links: links,
-                      onOpenLink: _openExternalLink,
+                    child: _MediaInfoSection(
+                      item: item,
+                      selectedSource: trackState.selectedSource,
+                      selectedAudio: trackState.selectedAudio,
+                      selectedSubtitle: trackState.selectedSubtitle,
+                      subtitleStreams: trackState.subtitleStreams,
                     ),
                   ),
                 ),
-                if (showMediaInfo) ...[
-                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 24),
-                      child: _MediaInfoSection(
-                        item: item,
-                        selectedSource: trackState.selectedSource,
-                        selectedAudio: trackState.selectedAudio,
-                        selectedSubtitle: trackState.selectedSubtitle,
-                        subtitleStreams: trackState.subtitleStreams,
-                      ),
-                    ),
-                  ),
-                ],
-                const SliverToBoxAdapter(child: SizedBox(height: 28)),
               ],
-            ),
+              const SliverToBoxAdapter(child: SizedBox(height: 28)),
+            ],
           ),
         );
       },
@@ -455,6 +450,7 @@ class _HeroPanel extends StatelessWidget {
     required this.watched,
     required this.isFavorite,
     required this.trackState,
+    required this.showTrackSelectors,
     required this.onPlay,
     required this.onToggleFavorite,
     required this.onToggleWatched,
@@ -469,6 +465,7 @@ class _HeroPanel extends StatelessWidget {
   final bool watched;
   final bool isFavorite;
   final _TrackSelectionState trackState;
+  final bool showTrackSelectors;
   final VoidCallback? onPlay;
   final VoidCallback? onToggleFavorite;
   final VoidCallback onToggleWatched;
@@ -594,6 +591,7 @@ class _HeroPanel extends StatelessWidget {
                               watched: watched,
                               isFavorite: isFavorite,
                               trackState: trackState,
+                              showTrackSelectors: showTrackSelectors,
                               onPlay: onPlay,
                               onToggleFavorite: onToggleFavorite,
                               onToggleWatched: onToggleWatched,
@@ -623,6 +621,7 @@ class _HeroPanel extends StatelessWidget {
                                 watched: watched,
                                 isFavorite: isFavorite,
                                 trackState: trackState,
+                                showTrackSelectors: showTrackSelectors,
                                 onPlay: onPlay,
                                 onToggleFavorite: onToggleFavorite,
                                 onToggleWatched: onToggleWatched,
@@ -653,6 +652,7 @@ class _HeroInfoColumn extends StatelessWidget {
     required this.watched,
     required this.isFavorite,
     required this.trackState,
+    required this.showTrackSelectors,
     required this.onPlay,
     required this.onToggleFavorite,
     required this.onToggleWatched,
@@ -669,6 +669,7 @@ class _HeroInfoColumn extends StatelessWidget {
   final bool watched;
   final bool isFavorite;
   final _TrackSelectionState trackState;
+  final bool showTrackSelectors;
   final VoidCallback? onPlay;
   final VoidCallback? onToggleFavorite;
   final VoidCallback onToggleWatched;
@@ -711,38 +712,40 @@ class _HeroInfoColumn extends StatelessWidget {
             for (final item in metadata) _MetaInfoLabel(item: item),
           ],
         ),
-        const SizedBox(height: 18),
-        Wrap(
-          spacing: 12,
-          runSpacing: 12,
-          children: [
-            _TechDropdown(
-              label: '\u89c6\u9891',
-              value: trackState.videoDisplay,
-              icon: Icons.videocam_outlined,
-              options: trackState.videoOptions,
-              selectedValue: trackState.selectedVideoValue,
-              onSelected: onSelectVideo,
-            ),
-            _TechDropdown(
-              label: '\u97f3\u9891',
-              value: trackState.audioDisplay,
-              icon: Icons.audiotrack_outlined,
-              options: trackState.audioOptions,
-              selectedValue: trackState.selectedAudioValue,
-              onSelected: onSelectAudio,
-            ),
-            _TechDropdown(
-              label: '\u5b57\u5e55',
-              value: trackState.subtitleDisplay,
-              icon: Icons.subtitles_outlined,
-              options: trackState.subtitleOptions,
-              selectedValue: trackState.selectedSubtitleValue,
-              onSelected: onSelectSubtitle,
-            ),
-          ],
-        ),
-        const SizedBox(height: 22),
+        if (showTrackSelectors) ...[
+          const SizedBox(height: 18),
+          Wrap(
+            spacing: 12,
+            runSpacing: 12,
+            children: [
+              _TechDropdown(
+                label: '\u89c6\u9891',
+                value: trackState.videoDisplay,
+                icon: Icons.videocam_outlined,
+                options: trackState.videoOptions,
+                selectedValue: trackState.selectedVideoValue,
+                onSelected: onSelectVideo,
+              ),
+              _TechDropdown(
+                label: '\u97f3\u9891',
+                value: trackState.audioDisplay,
+                icon: Icons.audiotrack_outlined,
+                options: trackState.audioOptions,
+                selectedValue: trackState.selectedAudioValue,
+                onSelected: onSelectAudio,
+              ),
+              _TechDropdown(
+                label: '\u5b57\u5e55',
+                value: trackState.subtitleDisplay,
+                icon: Icons.subtitles_outlined,
+                options: trackState.subtitleOptions,
+                selectedValue: trackState.selectedSubtitleValue,
+                onSelected: onSelectSubtitle,
+              ),
+            ],
+          ),
+        ],
+        SizedBox(height: showTrackSelectors ? 22 : 18),
         _ActionButtons(
           watched: watched,
           isFavorite: isFavorite,
@@ -1513,7 +1516,7 @@ class _ExternalLinksSection extends StatelessWidget {
                 .map(
                   (link) => _ExternalLinkButton(
                     label: link.label,
-                    iconUrl: link.iconUrl,
+                    iconAssetPath: link.iconAssetPath,
                     enabled: link.url.isNotEmpty,
                     onTap: link.url.isEmpty ? null : () => onOpenLink(link.url),
                   ),
@@ -1529,13 +1532,13 @@ class _ExternalLinksSection extends StatelessWidget {
 class _ExternalLinkButton extends StatefulWidget {
   const _ExternalLinkButton({
     required this.label,
-    this.iconUrl,
+    this.iconAssetPath,
     required this.enabled,
     this.onTap,
   });
 
   final String label;
-  final String? iconUrl;
+  final String? iconAssetPath;
   final bool enabled;
   final VoidCallback? onTap;
 
@@ -1577,7 +1580,7 @@ class _ExternalLinkButtonState extends State<_ExternalLinkButton> {
             children: [
               _ExternalLinkIcon(
                 label: widget.label,
-                iconUrl: widget.iconUrl,
+                iconAssetPath: widget.iconAssetPath,
               ),
               const SizedBox(width: 8),
               Text(
@@ -1599,15 +1602,15 @@ class _ExternalLinkButtonState extends State<_ExternalLinkButton> {
 class _ExternalLinkIcon extends StatelessWidget {
   const _ExternalLinkIcon({
     required this.label,
-    this.iconUrl,
+    this.iconAssetPath,
   });
 
   final String label;
-  final String? iconUrl;
+  final String? iconAssetPath;
 
   @override
   Widget build(BuildContext context) {
-    final url = (iconUrl ?? '').trim();
+    final assetPath = (iconAssetPath ?? '').trim();
     final normalizedLabel = label.trim();
     final fallbackText =
         normalizedLabel.isEmpty ? '?' : normalizedLabel.substring(0, 1);
@@ -1616,10 +1619,10 @@ class _ExternalLinkIcon extends StatelessWidget {
       child: SizedBox(
         width: 16,
         height: 16,
-        child: url.isEmpty
+        child: assetPath.isEmpty
             ? _ExternalLinkIconFallback(text: fallbackText)
-            : Image.network(
-                url,
+            : Image.asset(
+                assetPath,
                 fit: BoxFit.cover,
                 errorBuilder: (_, __, ___) {
                   return _ExternalLinkIconFallback(text: fallbackText);
@@ -1954,12 +1957,12 @@ class _ExternalLink {
   const _ExternalLink({
     required this.label,
     required this.url,
-    required this.iconUrl,
+    required this.iconAssetPath,
   });
 
   final String label;
   final String url;
-  final String iconUrl;
+  final String iconAssetPath;
 }
 
 class _EpisodeDetailColors {
@@ -2085,17 +2088,17 @@ List<_ExternalLink> _buildExternalLinks(MediaItem item) {
     _ExternalLink(
       label: 'IMDb',
       url: imdbUrl,
-      iconUrl: 'https://www.imdb.com/favicon.ico',
+      iconAssetPath: 'imdb.png',
     ),
     _ExternalLink(
       label: 'Trakt',
       url: traktUrl,
-      iconUrl: 'https://trakt.tv/favicon.ico',
+      iconAssetPath: 'trakt.png',
     ),
     _ExternalLink(
       label: 'TMDB',
       url: tmdbUrl,
-      iconUrl: 'https://www.themoviedb.org/favicon.ico',
+      iconAssetPath: 'TMDB.png',
     ),
   ];
 }
