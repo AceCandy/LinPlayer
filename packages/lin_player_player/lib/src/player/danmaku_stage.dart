@@ -60,7 +60,7 @@ class DanmakuStageState extends State<DanmakuStage>
   int _bottomRowCursor = 0;
   List<_StaticDanmaku?> _bottomRowLast = const [];
 
-  static double _clampSpeed(double v) => v.clamp(0.4, 2.5).toDouble();
+  static double _clampSpeed(double v) => v.clamp(0.1, 3.0).toDouble();
   static double _clampTimeScale(double v) => v.clamp(0.25, 4.0).toDouble();
 
   double get _effectiveTimeScale => _clampTimeScale(widget.timeScale);
@@ -149,16 +149,16 @@ class DanmakuStageState extends State<DanmakuStage>
     if (!widget.enabled) return;
     if (_width <= 0 || _height <= 0) return;
 
-    final scale = widget.scale.clamp(0.5, 1.6);
+    final scale = widget.scale.clamp(0.1, 3.0);
     final fontSize = _baseFontSize * scale;
     final lineHeight = fontSize + _lineGap;
 
     final totalRows = math.max(1, (_height / lineHeight).floor());
-    final cappedTotalRows = math.min(totalRows, 80);
+    final cappedTotalRows = math.min(totalRows, 200);
 
-    final desiredTopRows = widget.topMaxLines.clamp(0, 80);
-    final desiredBottomRows = widget.bottomMaxLines.clamp(0, 80);
-    final desiredScrollRows = widget.scrollMaxLines.clamp(0, 80);
+    final desiredTopRows = widget.topMaxLines.clamp(0, 200);
+    final desiredBottomRows = widget.bottomMaxLines.clamp(0, 200);
+    final desiredScrollRows = widget.scrollMaxLines.clamp(0, 200);
 
     final topRows = math.min(cappedTotalRows, desiredTopRows);
     final bottomRows = math.min(cappedTotalRows - topRows, desiredBottomRows);

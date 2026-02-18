@@ -280,9 +280,9 @@ class AppState extends ChangeNotifier {
   double _danmakuScale = 1.0;
   double _danmakuSpeed = 1.0;
   bool _danmakuBold = true;
-  int _danmakuMaxLines = 10;
-  int _danmakuTopMaxLines = 0;
-  int _danmakuBottomMaxLines = 0;
+  int _danmakuMaxLines = 30;
+  int _danmakuTopMaxLines = 30;
+  int _danmakuBottomMaxLines = 30;
   bool _danmakuRememberSelectedSource = false;
   String _danmakuLastSelectedSourceName = '';
   bool _danmakuMergeDuplicates = false;
@@ -946,18 +946,18 @@ class AppState extends ChangeNotifier {
     _danmakuAppId = prefs.getString(_kDanmakuAppIdKey) ?? '';
     _danmakuAppSecret = prefs.getString(_kDanmakuAppSecretKey) ?? '';
     _danmakuOpacity = (prefs.getDouble(_kDanmakuOpacityKey) ?? 1.0)
-        .clamp(0.2, 1.0)
+        .clamp(0.0, 1.0)
         .toDouble();
     _danmakuScale =
-        (prefs.getDouble(_kDanmakuScaleKey) ?? 1.0).clamp(0.5, 1.6).toDouble();
+        (prefs.getDouble(_kDanmakuScaleKey) ?? 1.0).clamp(0.1, 3.0).toDouble();
     _danmakuSpeed =
-        (prefs.getDouble(_kDanmakuSpeedKey) ?? 1.0).clamp(0.4, 2.5).toDouble();
+        (prefs.getDouble(_kDanmakuSpeedKey) ?? 1.0).clamp(0.1, 3.0).toDouble();
     _danmakuBold = prefs.getBool(_kDanmakuBoldKey) ?? true;
-    _danmakuMaxLines = (prefs.getInt(_kDanmakuMaxLinesKey) ?? 10).clamp(1, 40);
+    _danmakuMaxLines = (prefs.getInt(_kDanmakuMaxLinesKey) ?? 30).clamp(10, 200);
     _danmakuTopMaxLines =
-        (prefs.getInt(_kDanmakuTopMaxLinesKey) ?? 0).clamp(0, 40);
+        (prefs.getInt(_kDanmakuTopMaxLinesKey) ?? 30).clamp(10, 200);
     _danmakuBottomMaxLines =
-        (prefs.getInt(_kDanmakuBottomMaxLinesKey) ?? 0).clamp(0, 40);
+        (prefs.getInt(_kDanmakuBottomMaxLinesKey) ?? 30).clamp(10, 200);
     _danmakuRememberSelectedSource =
         prefs.getBool(_kDanmakuRememberSelectedSourceKey) ?? false;
     _danmakuLastSelectedSourceName =
@@ -1565,21 +1565,21 @@ class AppState extends ChangeNotifier {
     final nextDanmakuAppSecret =
         (danmakuMap['appSecret'] ?? '').toString().trim();
     final nextDanmakuOpacity = _readDouble(danmakuMap['opacity'], fallback: 1.0)
-        .clamp(0.2, 1.0)
+        .clamp(0.0, 1.0)
         .toDouble();
     final nextDanmakuScale = _readDouble(danmakuMap['scale'], fallback: 1.0)
-        .clamp(0.5, 1.6)
+        .clamp(0.1, 3.0)
         .toDouble();
     final nextDanmakuSpeed = _readDouble(danmakuMap['speed'], fallback: 1.0)
-        .clamp(0.4, 2.5)
+        .clamp(0.1, 3.0)
         .toDouble();
     final nextDanmakuBold = _readBool(danmakuMap['bold'], fallback: true);
     final nextDanmakuMaxLines =
-        _readInt(danmakuMap['maxLines'], fallback: 10).clamp(1, 40);
+        _readInt(danmakuMap['maxLines'], fallback: 30).clamp(10, 200);
     final nextDanmakuTopMaxLines =
-        _readInt(danmakuMap['topMaxLines'], fallback: 0).clamp(0, 40);
+        _readInt(danmakuMap['topMaxLines'], fallback: 30).clamp(10, 200);
     final nextDanmakuBottomMaxLines =
-        _readInt(danmakuMap['bottomMaxLines'], fallback: 0).clamp(0, 40);
+        _readInt(danmakuMap['bottomMaxLines'], fallback: 30).clamp(10, 200);
     final nextDanmakuRememberSelectedSource =
         _readBool(danmakuMap['rememberSelectedSource'], fallback: false);
     final nextDanmakuLastSelectedSourceName =
@@ -3646,7 +3646,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuOpacity(double opacity) async {
-    final v = opacity.clamp(0.2, 1.0).toDouble();
+    final v = opacity.clamp(0.0, 1.0).toDouble();
     if ((_danmakuOpacity - v).abs() < 0.001) return;
     _danmakuOpacity = v;
     final prefs = await SharedPreferences.getInstance();
@@ -3655,7 +3655,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuScale(double scale) async {
-    final v = scale.clamp(0.5, 1.6).toDouble();
+    final v = scale.clamp(0.1, 3.0).toDouble();
     if ((_danmakuScale - v).abs() < 0.001) return;
     _danmakuScale = v;
     final prefs = await SharedPreferences.getInstance();
@@ -3664,7 +3664,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuSpeed(double speed) async {
-    final v = speed.clamp(0.4, 2.5).toDouble();
+    final v = speed.clamp(0.1, 3.0).toDouble();
     if ((_danmakuSpeed - v).abs() < 0.001) return;
     _danmakuSpeed = v;
     final prefs = await SharedPreferences.getInstance();
@@ -3681,7 +3681,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuMaxLines(int lines) async {
-    final v = lines.clamp(1, 40);
+    final v = lines.clamp(10, 200);
     if (_danmakuMaxLines == v) return;
     _danmakuMaxLines = v;
     final prefs = await SharedPreferences.getInstance();
@@ -3690,7 +3690,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuTopMaxLines(int lines) async {
-    final v = lines.clamp(0, 40);
+    final v = lines.clamp(10, 200);
     if (_danmakuTopMaxLines == v) return;
     _danmakuTopMaxLines = v;
     final prefs = await SharedPreferences.getInstance();
@@ -3699,7 +3699,7 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> setDanmakuBottomMaxLines(int lines) async {
-    final v = lines.clamp(0, 40);
+    final v = lines.clamp(10, 200);
     if (_danmakuBottomMaxLines == v) return;
     _danmakuBottomMaxLines = v;
     final prefs = await SharedPreferences.getInstance();
