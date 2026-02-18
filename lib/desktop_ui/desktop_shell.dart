@@ -8,6 +8,7 @@ import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 
+import '../server_adapters/server_access.dart';
 import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
 import '../settings_page.dart';
@@ -260,14 +261,14 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         return AlertDialog(
           title: Text(
             _uiLanguage.pick(
-              zh: '修改图标',
+              zh: '淇敼鍥炬爣',
               en: 'Edit icon',
             ),
           ),
           content: TextField(
             controller: iconCtrl,
             decoration: InputDecoration(
-              labelText: _uiLanguage.pick(zh: '图标地址', en: 'Icon URL'),
+              labelText: _uiLanguage.pick(zh: '鍥炬爣鍦板潃', en: 'Icon URL'),
               hintText: 'https://example.com/icon.png',
             ),
             keyboardType: TextInputType.url,
@@ -275,16 +276,16 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
           actions: [
             TextButton(
               onPressed: iconCtrl.clear,
-              child: Text(_uiLanguage.pick(zh: '清空', en: 'Clear')),
+              child: Text(_uiLanguage.pick(zh: '娓呯┖', en: 'Clear')),
             ),
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
+              child: Text(_uiLanguage.pick(zh: '鍙栨秷', en: 'Cancel')),
             ),
             FilledButton(
               onPressed: () =>
                   Navigator.of(dialogContext).pop(iconCtrl.text.trim()),
-              child: Text(_uiLanguage.pick(zh: '保存', en: 'Save')),
+              child: Text(_uiLanguage.pick(zh: '淇濆瓨', en: 'Save')),
             ),
           ],
         );
@@ -308,24 +309,24 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         return AlertDialog(
           title: Text(
             _uiLanguage.pick(
-              zh: '修改备注',
+              zh: '淇敼澶囨敞',
               en: 'Edit remark',
             ),
           ),
           content: TextField(
             controller: remarkCtrl,
             decoration: InputDecoration(
-              labelText: _uiLanguage.pick(zh: '备注', en: 'Remark'),
+              labelText: _uiLanguage.pick(zh: '澶囨敞', en: 'Remark'),
             ),
           ),
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
+              child: Text(_uiLanguage.pick(zh: '鍙栨秷', en: 'Cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(remarkCtrl.text),
-              child: Text(_uiLanguage.pick(zh: '保存', en: 'Save')),
+              child: Text(_uiLanguage.pick(zh: '淇濆瓨', en: 'Save')),
             ),
           ],
         );
@@ -346,7 +347,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     final passwordCtrl = TextEditingController();
     final showUsername = server.serverType != MediaServerType.plex;
     final secretLabel = _uiLanguage.pick(
-      zh: server.serverType == MediaServerType.plex ? '令牌' : '密码',
+      zh: server.serverType == MediaServerType.plex ? '浠ょ墝' : '瀵嗙爜',
       en: server.serverType == MediaServerType.plex ? 'Token' : 'Password',
     );
 
@@ -359,7 +360,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
             return AlertDialog(
               title: Text(
                 _uiLanguage.pick(
-                  zh: '修改密码',
+                  zh: '淇敼瀵嗙爜',
                   en: 'Edit password',
                 ),
               ),
@@ -381,7 +382,8 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                     decoration: InputDecoration(
                       labelText: secretLabel,
                       suffixIcon: IconButton(
-                        tooltip: _uiLanguage.pick(zh: '显示/隐藏', en: 'Show/Hide'),
+                        tooltip:
+                            _uiLanguage.pick(zh: '鏄剧ず/闅愯棌', en: 'Show/Hide'),
                         onPressed: () =>
                             setDialogState(() => obscure = !obscure),
                         icon: Icon(
@@ -397,14 +399,14 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
               actions: [
                 TextButton(
                   onPressed: () => Navigator.of(dialogContext).pop(),
-                  child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
+                  child: Text(_uiLanguage.pick(zh: '鍙栨秷', en: 'Cancel')),
                 ),
                 FilledButton(
                   onPressed: () => Navigator.of(dialogContext).pop({
                     'username': usernameCtrl.text.trim(),
                     'password': passwordCtrl.text,
                   }),
-                  child: Text(_uiLanguage.pick(zh: '保存', en: 'Save')),
+                  child: Text(_uiLanguage.pick(zh: '淇濆瓨', en: 'Save')),
                 ),
               ],
             );
@@ -419,7 +421,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
 
     final nextPassword = (payload['password'] ?? '').trim();
     if (nextPassword.isEmpty) {
-      _showInfo(_uiLanguage.pick(zh: '密码不能为空', en: 'Password is required'));
+      _showInfo(_uiLanguage.pick(zh: '瀵嗙爜涓嶈兘涓虹┖', en: 'Password is required'));
       return;
     }
 
@@ -447,24 +449,108 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   Future<void> _editServerRoute(String serverId) async {
     final server = _serverById(serverId);
     if (server == null) return;
+    await _openServerRouteManager(serverId);
+  }
 
-    final routeCtrl = TextEditingController(text: server.baseUrl);
-    final result = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: Text(
-            _uiLanguage.pick(
-              zh: '修改线路',
-              en: 'Edit route',
-            ),
-          ),
-          content: TextField(
-            controller: routeCtrl,
-            keyboardType: TextInputType.url,
-            decoration: InputDecoration(
-              labelText: _uiLanguage.pick(zh: '线路地址', en: 'Route URL'),
-              hintText: 'https://emby.example.com:8920',
+  Future<void> _openServerRouteManager(String serverId) async {
+    final server = _serverById(serverId);
+    if (server == null) return;
+
+    final desktopTheme = DesktopThemeExtension.of(context);
+    final isDark = Theme.of(context).brightness == Brightness.dark;
+    final sheetBackground = desktopTheme.surface.withValues(
+      alpha: isDark ? 0.95 : 0.98,
+    );
+
+    final canLoadPluginRoutes = server.serverType.isEmbyLike;
+    var pluginDomains = <DomainInfo>[];
+    var loadingDomains = false;
+    var domainError = '';
+
+    Future<void> refreshPluginDomains(StateSetter setSheetState) async {
+      if (!canLoadPluginRoutes) return;
+      final currentServer = _serverById(serverId);
+      if (currentServer == null) return;
+      final access = resolveServerAccess(
+        appState: widget.appState,
+        server: currentServer,
+      );
+      if (access == null) {
+        setSheetState(() {
+          loadingDomains = false;
+          pluginDomains = const <DomainInfo>[];
+          domainError = '';
+        });
+        return;
+      }
+
+      setSheetState(() {
+        loadingDomains = true;
+        domainError = '';
+      });
+
+      try {
+        final domains = await access.adapter.fetchDomains(
+          access.auth,
+          allowFailure: true,
+        );
+        setSheetState(() {
+          pluginDomains = domains;
+          loadingDomains = false;
+        });
+      } catch (e) {
+        setSheetState(() {
+          loadingDomains = false;
+          domainError = e.toString();
+        });
+      }
+    }
+
+    Future<Map<String, String>?> showRouteEditor({
+      required String titleZh,
+      required String titleEn,
+      String initialName = '',
+      String initialUrl = '',
+      String initialRemark = '',
+    }) async {
+      final nameCtrl = TextEditingController(text: initialName);
+      final urlCtrl = TextEditingController(text: initialUrl);
+      final remarkCtrl = TextEditingController(text: initialRemark);
+
+      final result = await showDialog<Map<String, String>>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_uiLanguage.pick(zh: titleZh, en: titleEn)),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: InputDecoration(
+                    labelText: _uiLanguage.pick(zh: '名称', en: 'Name'),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: urlCtrl,
+                  keyboardType: TextInputType.url,
+                  decoration: InputDecoration(
+                    labelText: _uiLanguage.pick(zh: '地址', en: 'URL'),
+                    hintText: 'https://emby.example.com:8920',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: remarkCtrl,
+                  decoration: InputDecoration(
+                    labelText: _uiLanguage.pick(
+                      zh: '备注（可选）',
+                      en: 'Remark (optional)',
+                    ),
+                  ),
+                ),
+              ],
             ),
           ),
           actions: [
@@ -473,30 +559,370 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
               child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
             ),
             FilledButton(
-              onPressed: () =>
-                  Navigator.of(dialogContext).pop(routeCtrl.text.trim()),
+              onPressed: () => Navigator.of(dialogContext).pop({
+                'name': nameCtrl.text.trim(),
+                'url': urlCtrl.text.trim(),
+                'remark': remarkCtrl.text.trim(),
+              }),
               child: Text(_uiLanguage.pick(zh: '保存', en: 'Save')),
             ),
           ],
+        ),
+      );
+      nameCtrl.dispose();
+      urlCtrl.dispose();
+      remarkCtrl.dispose();
+      return result;
+    }
+
+    Future<String?> showRemarkEditor(String currentRemark) async {
+      final remarkCtrl = TextEditingController(text: currentRemark);
+      final result = await showDialog<String>(
+        context: context,
+        builder: (dialogContext) => AlertDialog(
+          title: Text(_uiLanguage.pick(zh: '线路备注', en: 'Route remark')),
+          content: TextField(
+            controller: remarkCtrl,
+            decoration: InputDecoration(
+              labelText: _uiLanguage.pick(zh: '备注', en: 'Remark'),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(remarkCtrl.text),
+              child: Text(_uiLanguage.pick(zh: '保存', en: 'Save')),
+            ),
+          ],
+        ),
+      );
+      remarkCtrl.dispose();
+      return result;
+    }
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      backgroundColor: sheetBackground,
+      builder: (sheetContext) {
+        var requestedPluginDomains = false;
+        return StatefulBuilder(
+          builder: (context, setSheetState) {
+            if (!requestedPluginDomains && canLoadPluginRoutes) {
+              requestedPluginDomains = true;
+              unawaited(refreshPluginDomains(setSheetState));
+            }
+
+            final currentServer = _serverById(serverId);
+            if (currentServer == null) {
+              return SafeArea(
+                child: Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    _uiLanguage.pick(
+                      zh: '服务器不存在或已被删除',
+                      en: 'Server not found',
+                    ),
+                  ),
+                ),
+              );
+            }
+
+            final customEntries = widget.appState
+                .customDomainsOfServer(serverId)
+                .map((d) => DomainInfo(name: d.name, url: d.url))
+                .toList(growable: false);
+            final entries = buildRouteEntries(
+              currentUrl: currentServer.baseUrl,
+              customEntries: customEntries,
+              pluginDomains: pluginDomains,
+            );
+
+            return SafeArea(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Expanded(
+                          child: Text(
+                            _uiLanguage.pick(
+                              zh: '修改线路',
+                              en: 'Manage routes',
+                            ),
+                            style: const TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                            ),
+                          ),
+                        ),
+                        IconButton(
+                          tooltip:
+                              _uiLanguage.pick(zh: '添加自定义线路', en: 'Add route'),
+                          onPressed: () async {
+                            final result = await showRouteEditor(
+                              titleZh: '添加自定义线路',
+                              titleEn: 'Add custom route',
+                            );
+                            if (result == null) return;
+                            try {
+                              await widget.appState.addCustomDomainForServer(
+                                serverId: serverId,
+                                name: result['name'] ?? '',
+                                url: result['url'] ?? '',
+                                remark: (result['remark'] ?? '').trim().isEmpty
+                                    ? null
+                                    : (result['remark'] ?? '').trim(),
+                              );
+                              setSheetState(() {});
+                            } catch (e) {
+                              _showInfo(e.toString());
+                            }
+                          },
+                          icon: const Icon(Icons.add),
+                        ),
+                        IconButton(
+                          tooltip: _uiLanguage.pick(zh: '刷新', en: 'Refresh'),
+                          onPressed: canLoadPluginRoutes && !loadingDomains
+                              ? () => unawaited(
+                                    refreshPluginDomains(setSheetState),
+                                  )
+                              : null,
+                          icon: loadingDomains
+                              ? const SizedBox(
+                                  width: 16,
+                                  height: 16,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.refresh),
+                        ),
+                      ],
+                    ),
+                    if (domainError.trim().isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        domainError,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Theme.of(context).colorScheme.error,
+                        ),
+                      ),
+                    ],
+                    const SizedBox(height: 4),
+                    if (entries.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 16),
+                        child: Text(
+                          _uiLanguage.pick(
+                            zh: '暂无可用线路',
+                            en: 'No routes available',
+                          ),
+                        ),
+                      )
+                    else
+                      Flexible(
+                        child: ListView.separated(
+                          shrinkWrap: true,
+                          itemCount: entries.length,
+                          separatorBuilder: (_, __) => const Divider(height: 1),
+                          itemBuilder: (context, index) {
+                            final entry = entries[index];
+                            final route = entry.domain;
+                            final selected = route.url == currentServer.baseUrl;
+                            final remark = widget.appState
+                                    .serverDomainRemark(serverId, route.url) ??
+                                '';
+
+                            return ListTile(
+                              dense: true,
+                              contentPadding: EdgeInsets.zero,
+                              title: Text(
+                                route.name.trim().isEmpty
+                                    ? route.url
+                                    : route.name.trim(),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              subtitle: Text(
+                                [
+                                  if (remark.trim().isNotEmpty) remark.trim(),
+                                  route.url,
+                                ].join(' | '),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                              trailing: Row(
+                                mainAxisSize: MainAxisSize.min,
+                                children: [
+                                  IconButton(
+                                    tooltip: _uiLanguage.pick(
+                                      zh: '修改备注',
+                                      en: 'Edit remark',
+                                    ),
+                                    icon: const Icon(Icons.edit_outlined),
+                                    onPressed: () async {
+                                      final value =
+                                          await showRemarkEditor(remark);
+                                      if (value == null) return;
+                                      await widget.appState
+                                          .setServerDomainRemark(
+                                        serverId,
+                                        route.url,
+                                        value,
+                                      );
+                                      setSheetState(() {});
+                                    },
+                                  ),
+                                  if (entry.isCustom)
+                                    PopupMenuButton<String>(
+                                      tooltip: _uiLanguage.pick(
+                                          zh: '更多', en: 'More'),
+                                      onSelected: (action) async {
+                                        if (action == 'edit') {
+                                          final result = await showRouteEditor(
+                                            titleZh: '编辑自定义线路',
+                                            titleEn: 'Edit custom route',
+                                            initialName: route.name,
+                                            initialUrl: route.url,
+                                            initialRemark: remark,
+                                          );
+                                          if (result == null) return;
+                                          try {
+                                            await widget.appState
+                                                .updateCustomDomainForServer(
+                                              serverId,
+                                              oldUrl: route.url,
+                                              name: result['name'] ?? '',
+                                              url: result['url'] ?? '',
+                                              remark: (result['remark'] ?? '')
+                                                      .trim()
+                                                      .isEmpty
+                                                  ? null
+                                                  : (result['remark'] ?? '')
+                                                      .trim(),
+                                            );
+                                            setSheetState(() {});
+                                          } catch (e) {
+                                            _showInfo(e.toString());
+                                          }
+                                          return;
+                                        }
+
+                                        if (action == 'delete') {
+                                          final confirmed =
+                                              await showDialog<bool>(
+                                            context: context,
+                                            builder: (dialogContext) =>
+                                                AlertDialog(
+                                              title: Text(_uiLanguage.pick(
+                                                zh: '删除线路？',
+                                                en: 'Delete route?',
+                                              )),
+                                              content: Text(
+                                                _uiLanguage.pick(
+                                                  zh: '将删除“${route.name}”。',
+                                                  en: 'This will remove "${route.name}".',
+                                                ),
+                                              ),
+                                              actions: [
+                                                TextButton(
+                                                  onPressed: () => Navigator.of(
+                                                          dialogContext)
+                                                      .pop(false),
+                                                  child: Text(_uiLanguage.pick(
+                                                      zh: '取消', en: 'Cancel')),
+                                                ),
+                                                FilledButton(
+                                                  onPressed: () => Navigator.of(
+                                                          dialogContext)
+                                                      .pop(true),
+                                                  child: Text(_uiLanguage.pick(
+                                                      zh: '删除', en: 'Delete')),
+                                                ),
+                                              ],
+                                            ),
+                                          );
+                                          if (confirmed != true) return;
+                                          await widget.appState
+                                              .removeCustomDomainForServer(
+                                            serverId,
+                                            route.url,
+                                          );
+                                          setSheetState(() {});
+                                        }
+                                      },
+                                      itemBuilder: (context) => [
+                                        PopupMenuItem(
+                                          value: 'edit',
+                                          child: Text(_uiLanguage.pick(
+                                            zh: '编辑',
+                                            en: 'Edit',
+                                          )),
+                                        ),
+                                        PopupMenuItem(
+                                          value: 'delete',
+                                          child: Text(_uiLanguage.pick(
+                                            zh: '删除',
+                                            en: 'Delete',
+                                          )),
+                                        ),
+                                      ],
+                                      child:
+                                          const Icon(Icons.more_horiz_rounded),
+                                    ),
+                                  if (selected)
+                                    Icon(
+                                      Icons.check,
+                                      color: desktopTheme.accent,
+                                    ),
+                                ],
+                              ),
+                              onTap: () async {
+                                if (selected) return;
+                                try {
+                                  await widget.appState.updateServerRoute(
+                                    serverId,
+                                    url: route.url,
+                                  );
+
+                                  if (serverId ==
+                                          widget.appState.activeServerId &&
+                                      currentServer.serverType.isEmbyLike) {
+                                    await widget.appState.refreshDomains();
+                                    await widget.appState.refreshLibraries();
+                                    await widget.appState.loadHome(
+                                      forceRefresh: true,
+                                    );
+                                    await _loadMediaStats(forceRefresh: true);
+                                    await refreshPluginDomains(setSheetState);
+                                  } else {
+                                    setSheetState(() {});
+                                  }
+                                } catch (e) {
+                                  _showInfo(e.toString());
+                                }
+                              },
+                            );
+                          },
+                        ),
+                      ),
+                  ],
+                ),
+              ),
+            );
+          },
         );
       },
     );
-    routeCtrl.dispose();
-    if (result == null) return;
-
-    try {
-      await widget.appState.updateServerRoute(serverId, url: result);
-      if (serverId == widget.appState.activeServerId &&
-          server.serverType.isEmbyLike) {
-        await widget.appState.refreshDomains();
-        await widget.appState.refreshLibraries();
-        await widget.appState.loadHome(forceRefresh: true);
-        await _loadMediaStats(forceRefresh: true);
-      }
-      _showInfo(_uiLanguage.pick(zh: '线路已更新', en: 'Route updated'));
-    } catch (e) {
-      _showInfo(e.toString());
-    }
   }
 
   Future<void> _deleteServer(String serverId) async {
@@ -508,7 +934,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
       builder: (dialogContext) {
         return AlertDialog(
           title: Text(_uiLanguage.pick(
-            zh: '删除服务器？',
+            zh: '鍒犻櫎鏈嶅姟鍣紵',
             en: 'Delete server?',
           )),
           content: Text(
@@ -520,11 +946,11 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
           actions: [
             TextButton(
               onPressed: () => Navigator.of(dialogContext).pop(false),
-              child: Text(_uiLanguage.pick(zh: '取消', en: 'Cancel')),
+              child: Text(_uiLanguage.pick(zh: '鍙栨秷', en: 'Cancel')),
             ),
             FilledButton(
               onPressed: () => Navigator.of(dialogContext).pop(true),
-              child: Text(_uiLanguage.pick(zh: '删除', en: 'Delete')),
+              child: Text(_uiLanguage.pick(zh: '鍒犻櫎', en: 'Delete')),
             ),
           ],
         );
@@ -533,7 +959,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     if (confirmed != true) return;
 
     await widget.appState.removeServer(serverId);
-    _showInfo(_uiLanguage.pick(zh: '服务器已删除', en: 'Server deleted'));
+    _showInfo(_uiLanguage.pick(zh: '鏈嶅姟鍣ㄥ凡鍒犻櫎', en: 'Server deleted'));
   }
 
   Future<void> _loadMediaStats({bool forceRefresh = false}) async {

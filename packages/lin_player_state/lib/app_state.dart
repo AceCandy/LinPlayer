@@ -831,7 +831,11 @@ class AppState extends ChangeNotifier {
       final name = _libraries
           .firstWhere(
             (l) => l.id == libId,
-            orElse: () => LibraryInfo(id: libId, name: '未知媒体库', type: ''),
+            orElse: () => LibraryInfo(
+              id: libId,
+              name: 'Unknown library',
+              type: '',
+            ),
           )
           .name;
       yield HomeEntry(key: entry.key, displayName: name, items: entry.value);
@@ -1997,7 +2001,8 @@ class AppState extends ChangeNotifier {
 
     try {
       if (!serverType.isEmbyLike) {
-        _error = '当前版本仅支持 Emby/Jellyfin 登录；Plex 请用 Plex 登录入口添加。';
+        _error =
+            'Current version only supports Emby/Jellyfin login. Use Plex login to add Plex.';
         return null;
       }
       final adapter = ServerAdapterFactory.forLogin(
@@ -2346,7 +2351,8 @@ class AppState extends ChangeNotifier {
     if (server == null) return;
 
     if (server.serverType == MediaServerType.plex) {
-      _error = '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。';
+      _error =
+          '${server.serverType.label} is currently not supported for browsing/playback (saved for login info only).';
       notifyListeners();
       return;
     }
@@ -2626,7 +2632,7 @@ class AppState extends ChangeNotifier {
     String sortOrder = 'Descending',
   }) async {
     if (baseUrl == null || token == null || userId == null) {
-      throw Exception('未选择服务器');
+      throw Exception('No server selected');
     }
     final api = EmbyApi(
       hostOrUrl: baseUrl!,
@@ -2891,16 +2897,29 @@ class AppState extends ChangeNotifier {
   Future<void> setBaseUrl(String url) async {
     final server = activeServer;
     if (server == null) return;
-    server.baseUrl = url;
-    final prefs = await SharedPreferences.getInstance();
-    await _persistServers(prefs);
-    notifyListeners();
+    await updateServerRoute(server.id, url: url);
   }
 
   String? domainRemark(String url) => activeServer?.domainRemarks[url];
 
   Future<void> setDomainRemark(String url, String? remark) async {
     final server = activeServer;
+    if (server == null) return;
+    await setServerDomainRemark(server.id, url, remark);
+  }
+
+  String? serverDomainRemark(String serverId, String url) {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
+    if (server == null) return null;
+    return server.domainRemarks[url];
+  }
+
+  Future<void> setServerDomainRemark(
+    String serverId,
+    String url,
+    String? remark,
+  ) async {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
     final v = (remark ?? '').trim();
     if (v.isEmpty) {
@@ -2916,6 +2935,12 @@ class AppState extends ChangeNotifier {
   List<CustomDomain> get customDomains =>
       activeServer?.customDomains ?? const <CustomDomain>[];
 
+  List<CustomDomain> customDomainsOfServer(String serverId) {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
+    if (server == null) return const <CustomDomain>[];
+    return server.customDomains.toList(growable: false);
+  }
+
   static String _normalizeUrl(String raw, {String defaultScheme = 'https'}) {
     final v = raw.trim();
     if (v.isEmpty) return '';
@@ -2930,7 +2955,7 @@ class AppState extends ChangeNotifier {
 
     final patterns = <RegExp>[
       RegExp(r'HTTP\s+(\d{3})', caseSensitive: false),
-      RegExp(r'[（(](\d{3})[)）]'),
+      RegExp(r'[\(\[](\d{3})[\)\]]'),
     ];
 
     for (final re in patterns) {
@@ -3037,10 +3062,26 @@ class AppState extends ChangeNotifier {
   }) async {
     final server = activeServer;
     if (server == null) return;
+    await addCustomDomainForServer(
+      serverId: server.id,
+      name: name,
+      url: url,
+      remark: remark,
+    );
+  }
+
+  Future<void> addCustomDomainForServer({
+    required String serverId,
+    required String name,
+    required String url,
+    String? remark,
+  }) async {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
+    if (server == null) return;
 
     final fixedUrl = _normalizeUrl(url, defaultScheme: 'https');
     if (!_isValidHttpUrl(fixedUrl)) {
-      throw Exception('线路地址不合法：$url');
+      throw Exception('绾胯矾鍦板潃涓嶅悎娉曪細$url');
     }
 
     final fixedName = name.trim().isEmpty ? fixedUrl : name.trim();
@@ -3065,10 +3106,28 @@ class AppState extends ChangeNotifier {
   }) async {
     final server = activeServer;
     if (server == null) return;
+    await updateCustomDomainForServer(
+      server.id,
+      oldUrl: oldUrl,
+      name: name,
+      url: url,
+      remark: remark,
+    );
+  }
+
+  Future<void> updateCustomDomainForServer(
+    String serverId, {
+    required String oldUrl,
+    required String name,
+    required String url,
+    String? remark,
+  }) async {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
+    if (server == null) return;
 
     final fixedUrl = _normalizeUrl(url, defaultScheme: 'https');
     if (!_isValidHttpUrl(fixedUrl)) {
-      throw Exception('线路地址不合法：$url');
+      throw Exception('绾胯矾鍦板潃涓嶅悎娉曪細$url');
     }
 
     final fixedName = name.trim().isEmpty ? fixedUrl : name.trim();
@@ -3096,6 +3155,12 @@ class AppState extends ChangeNotifier {
 
   Future<void> removeCustomDomain(String url) async {
     final server = activeServer;
+    if (server == null) return;
+    await removeCustomDomainForServer(server.id, url);
+  }
+
+  Future<void> removeCustomDomainForServer(String serverId, String url) async {
+    final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
 
     server.customDomains.removeWhere((d) => d.url == url);
