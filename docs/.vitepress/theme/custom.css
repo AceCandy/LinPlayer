@@ -1,0 +1,10 @@
+:root {
+  --vp-c-brand-1: #02569b;
+  --vp-c-brand-2: #0b7bdc;
+  --vp-c-brand-3: #7bc5ff;
+}
+
+.VPHomeHero .text {
+  max-width: 18ch;
+}
+

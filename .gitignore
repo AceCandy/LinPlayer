@@ -64,3 +64,9 @@ web/
 workers/**/node_modules/
 workers/**/.wrangler/
 workers/**/.dev.vars
+
+# VitePress (docs wiki)
+docs/node_modules/
+docs/.vitepress/cache/
+docs/.vitepress/dist/
+docs/.vitepress/.temp/

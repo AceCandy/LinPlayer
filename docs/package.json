@@ -1,0 +1,17 @@
+{
+  "name": "linplayer-wiki",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "dev": "vitepress dev --host",
+    "build": "vitepress build",
+    "preview": "vitepress preview --host"
+  },
+  "devDependencies": {
+    "vitepress": "^1.0.0"
+  }
+}
+

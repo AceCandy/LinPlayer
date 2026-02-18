@@ -68,8 +68,11 @@
 
 ## <a id="docs"></a>文档
 
+- Wiki（VitePress）：https://linplayer.902541.xyz
+- 本地预览 Wiki：`cd docs && npm install && npm run dev`
 - 用户文档：`docs/SERVER_IMPORT.md`
 - 开发者文档：`docs/dev/README.md`
+- 部署 Wiki（Cloudflare Pages）：`docs/deploy/cloudflare-pages.md`
 
 ## <a id="star-history"></a>Star History
 
