@@ -4179,6 +4179,33 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   static const Duration _desktopAnimDuration = Duration(milliseconds: 220);
 
   void _toggleDesktopPanel(_DesktopSidePanel panel) {
+    if (panel == _DesktopSidePanel.line) {
+      // ignore: unawaited_futures
+      unawaited(_showDesktopRouteSheet());
+      return;
+    }
+    if (panel == _DesktopSidePanel.audio) {
+      _showAudioTracks(context);
+      return;
+    }
+    if (panel == _DesktopSidePanel.subtitle) {
+      _showSubtitleTracks(context);
+      return;
+    }
+    if (panel == _DesktopSidePanel.danmaku) {
+      // ignore: unawaited_futures
+      unawaited(_showDanmakuSheet());
+      return;
+    }
+    if (panel == _DesktopSidePanel.none) {
+      setState(() {
+        _desktopSidePanel = _DesktopSidePanel.none;
+        _desktopSpeedPanelVisible = false;
+      });
+      _scheduleControlsHide();
+      return;
+    }
+
     final next = _desktopSidePanel == panel ? _DesktopSidePanel.none : panel;
     setState(() {
       _desktopSidePanel = next;
@@ -4187,10 +4214,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     if (next == _DesktopSidePanel.episode) {
       // ignore: unawaited_futures
       unawaited(_ensureEpisodePickerLoaded());
-    } else if (next == _DesktopSidePanel.line &&
-        _availableMediaSources.isEmpty) {
-      // ignore: unawaited_futures
-      unawaited(_loadDesktopLineSources());
     }
     if (next == _DesktopSidePanel.none) {
       _scheduleControlsHide();
@@ -4212,6 +4235,225 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     } finally {
       if (mounted) setState(() => _desktopLineLoading = false);
     }
+  }
+
+  String? get _playbackServerId =>
+      widget.server?.id ?? widget.appState.activeServerId;
+
+  String? _playbackDomainRemark(String url) {
+    final serverId = _playbackServerId;
+    if (serverId == null || serverId.isEmpty) {
+      return widget.appState.domainRemark(url);
+    }
+    return widget.appState.serverDomainRemark(serverId, url);
+  }
+
+  Future<List<RouteEntry>> _resolveDesktopRouteEntries({
+    bool forceRefresh = false,
+  }) async {
+    final serverId = _playbackServerId;
+    final usingActiveServer = serverId == null ||
+        serverId.isEmpty ||
+        serverId == widget.appState.activeServerId;
+
+    final customDomains = (serverId == null || serverId.isEmpty)
+        ? widget.appState.customDomains
+        : widget.appState.customDomainsOfServer(serverId);
+    final customEntries = customDomains
+        .map((d) => DomainInfo(name: d.name, url: d.url))
+        .toList(growable: false);
+
+    List<DomainInfo> pluginDomains = const [];
+    if (usingActiveServer) {
+      if (forceRefresh || widget.appState.domains.isEmpty) {
+        await widget.appState.refreshDomains();
+      }
+      pluginDomains = List<DomainInfo>.from(widget.appState.domains);
+    } else {
+      final access = _serverAccess;
+      if (access != null) {
+        try {
+          pluginDomains = List<DomainInfo>.from(
+            await access.adapter.fetchDomains(access.auth, allowFailure: true),
+          );
+        } catch (_) {}
+      }
+    }
+
+    return buildRouteEntries(
+      currentUrl: _baseUrl,
+      customEntries: customEntries,
+      pluginDomains: pluginDomains,
+    );
+  }
+
+  Future<void> _switchPlaybackRoute(String url) async {
+    final nextUrl = url.trim();
+    if (nextUrl.isEmpty) return;
+    final currentUrl = (_baseUrl ?? '').trim();
+    if (currentUrl == nextUrl) return;
+    final serverId = _playbackServerId;
+    if (serverId == null || serverId.isEmpty) return;
+
+    final resumePos =
+        _playerService.isInitialized ? _lastPosition : Duration.zero;
+    _maybeReportPlaybackProgress(resumePos, force: true);
+
+    try {
+      await widget.appState.updateServerRoute(serverId, url: nextUrl);
+      _serverAccess =
+          resolveServerAccess(appState: widget.appState, server: widget.server);
+      if (!mounted) return;
+      setState(() {
+        _availableMediaSources = const [];
+        _overrideStartPosition = resumePos;
+        _overrideResumeImmediately = true;
+        _desktopSidePanel = _DesktopSidePanel.none;
+        _desktopSpeedPanelVisible = false;
+        _loading = true;
+        _playError = null;
+      });
+      await _init();
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('线路切换失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _showDesktopRouteSheet() async {
+    if (!mounted) return;
+    _showControls(scheduleHide: false);
+    Future<List<RouteEntry>> entriesFuture = _resolveDesktopRouteEntries();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return SizedBox(
+                height: math.min(MediaQuery.sizeOf(context).height * 0.72, 620),
+                child: FutureBuilder<List<RouteEntry>>(
+                  future: entriesFuture,
+                  builder: (context, snapshot) {
+                    final loading =
+                        snapshot.connectionState != ConnectionState.done;
+                    final entries = snapshot.data ?? const <RouteEntry>[];
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 10, 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '线路切换',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '刷新线路',
+                                onPressed: loading
+                                    ? null
+                                    : () {
+                                        setSheetState(() {
+                                          entriesFuture =
+                                              _resolveDesktopRouteEntries(
+                                            forceRefresh: true,
+                                          );
+                                        });
+                                      },
+                                icon: const Icon(Icons.refresh),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        if (loading)
+                          const Expanded(
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else if (entries.isEmpty)
+                          const Expanded(
+                            child: Center(child: Text('当前服务器暂无可用线路')),
+                          )
+                        else
+                          Expanded(
+                            child: ListView.separated(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              itemCount: entries.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 6),
+                              itemBuilder: (context, index) {
+                                final entry = entries[index];
+                                final d = entry.domain;
+                                final selected =
+                                    (_baseUrl ?? '').trim() == d.url;
+                                final name = d.name.trim().isEmpty
+                                    ? d.url
+                                    : d.name.trim();
+                                final remark = _playbackDomainRemark(d.url);
+                                return ListTile(
+                                  dense: true,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  title: Text(
+                                    name,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: (remark ?? '').trim().isEmpty
+                                      ? Text(
+                                          d.url,
+                                          maxLines: 1,
+                                          overflow: TextOverflow.ellipsis,
+                                        )
+                                      : Column(
+                                          crossAxisAlignment:
+                                              CrossAxisAlignment.start,
+                                          children: [
+                                            Text(
+                                              remark!.trim(),
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                            Text(
+                                              d.url,
+                                              maxLines: 1,
+                                              overflow: TextOverflow.ellipsis,
+                                            ),
+                                          ],
+                                        ),
+                                  trailing: selected
+                                      ? const Icon(Icons.check_circle_rounded)
+                                      : null,
+                                  onTap: () async {
+                                    Navigator.of(ctx).pop();
+                                    await _switchPlaybackRoute(d.url);
+                                  },
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
   }
 
   String _desktopEpisodeMark(
@@ -4543,33 +4785,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                           ),
                         ),
                         Align(
-                          alignment: Alignment.centerRight,
-                          child: AnimatedSlide(
-                            duration: _desktopAnimDuration,
-                            curve: Curves.easeOutCubic,
-                            offset: (_controlsVisible &&
-                                    _desktopSidePanel != _DesktopSidePanel.none)
-                                ? Offset.zero
-                                : const Offset(1, 0),
-                            child: AnimatedOpacity(
-                              duration: _desktopAnimDuration,
-                              opacity: (_controlsVisible &&
-                                      _desktopSidePanel !=
-                                          _DesktopSidePanel.none)
-                                  ? 1
-                                  : 0,
-                              child: IgnorePointer(
-                                ignoring: !_controlsVisible ||
-                                    _desktopSidePanel == _DesktopSidePanel.none,
-                                child: _buildDesktopSidePanel(
-                                  context,
-                                  isDark: isDark,
-                                ),
-                              ),
-                            ),
-                          ),
-                        ),
-                        Align(
                           alignment: Alignment.bottomCenter,
                           child: AnimatedOpacity(
                             opacity: _controlsVisible ? 1 : 0,
@@ -4582,6 +4797,38 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                 controlsEnabled: controlsEnabled,
                                 duration: duration,
                                 isPlaying: isPlaying,
+                              ),
+                            ),
+                          ),
+                        ),
+                        Align(
+                          alignment: Alignment.centerRight,
+                          child: Padding(
+                            padding: const EdgeInsets.fromLTRB(0, 56, 0, 124),
+                            child: AnimatedSlide(
+                              duration: _desktopAnimDuration,
+                              curve: Curves.easeOutCubic,
+                              offset: (_controlsVisible &&
+                                      _desktopSidePanel !=
+                                          _DesktopSidePanel.none)
+                                  ? Offset.zero
+                                  : const Offset(1, 0),
+                              child: AnimatedOpacity(
+                                duration: _desktopAnimDuration,
+                                opacity: (_controlsVisible &&
+                                        _desktopSidePanel !=
+                                            _DesktopSidePanel.none)
+                                    ? 1
+                                    : 0,
+                                child: IgnorePointer(
+                                  ignoring: !_controlsVisible ||
+                                      _desktopSidePanel ==
+                                          _DesktopSidePanel.none,
+                                  child: _buildDesktopSidePanel(
+                                    context,
+                                    isDark: isDark,
+                                  ),
+                                ),
                               ),
                             ),
                           ),
@@ -4612,16 +4859,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     required bool controlsEnabled,
   }) {
     final panelColor =
-        isDark ? const Color(0xB8111214) : const Color(0xEAF9FAFD);
+        isDark ? const Color(0x4D111214) : const Color(0x4DFFFFFF);
     final panelBorder = isDark
-        ? Colors.white.withValues(alpha: 0.14)
-        : Colors.black.withValues(alpha: 0.08);
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.04);
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.white70 : Colors.black54;
 
     return _buildDesktopGlassPanel(
       context: context,
-      blurSigma: 14,
+      blurSigma: 8,
       color: panelColor,
       borderRadius: BorderRadius.circular(18),
       borderColor: panelBorder,
@@ -4659,13 +4906,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                         const EdgeInsets.symmetric(horizontal: 10, vertical: 7),
                     decoration: BoxDecoration(
                       color: isDark
-                          ? Colors.black.withValues(alpha: 0.36)
-                          : Colors.black.withValues(alpha: 0.04),
+                          ? Colors.black.withValues(alpha: 0.12)
+                          : Colors.black.withValues(alpha: 0.02),
                       borderRadius: BorderRadius.circular(12),
                       border: Border.all(
                         color: isDark
-                            ? Colors.white.withValues(alpha: 0.12)
-                            : Colors.black.withValues(alpha: 0.08),
+                            ? Colors.white.withValues(alpha: 0.08)
+                            : Colors.black.withValues(alpha: 0.04),
                       ),
                     ),
                     child: Text(
@@ -4682,9 +4929,12 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     isDark: isDark,
                     icon: Icons.route_outlined,
                     label: '切换线路',
-                    active: _desktopSidePanel == _DesktopSidePanel.line,
+                    active: false,
                     onTap: controlsEnabled
-                        ? () => _toggleDesktopPanel(_DesktopSidePanel.line)
+                        ? () {
+                            // ignore: unawaited_futures
+                            unawaited(_showDesktopRouteSheet());
+                          }
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -4693,9 +4943,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     isDark: isDark,
                     icon: Icons.audiotrack_outlined,
                     label: '音轨选择',
-                    active: _desktopSidePanel == _DesktopSidePanel.audio,
+                    active: false,
                     onTap: controlsEnabled
-                        ? () => _toggleDesktopPanel(_DesktopSidePanel.audio)
+                        ? () => _showAudioTracks(context)
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -4704,9 +4954,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     isDark: isDark,
                     icon: Icons.subtitles_outlined,
                     label: '字幕选择',
-                    active: _desktopSidePanel == _DesktopSidePanel.subtitle,
+                    active: false,
                     onTap: controlsEnabled
-                        ? () => _toggleDesktopPanel(_DesktopSidePanel.subtitle)
+                        ? () => _showSubtitleTracks(context)
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -4715,9 +4965,12 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     isDark: isDark,
                     icon: Icons.comment_outlined,
                     label: '弹幕',
-                    active: _desktopSidePanel == _DesktopSidePanel.danmaku,
+                    active: false,
                     onTap: controlsEnabled
-                        ? () => _toggleDesktopPanel(_DesktopSidePanel.danmaku)
+                        ? () {
+                            // ignore: unawaited_futures
+                            unawaited(_showDanmakuSheet());
+                          }
                         : null,
                   ),
                   const SizedBox(width: 8),
@@ -4752,11 +5005,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         : (isDark ? Colors.white70 : Colors.black54);
     final bg = active
         ? (isDark
-            ? Colors.white.withValues(alpha: 0.22)
-            : Colors.black.withValues(alpha: 0.12))
+            ? Colors.white.withValues(alpha: 0.10)
+            : Colors.black.withValues(alpha: 0.05))
         : (isDark
-            ? Colors.black.withValues(alpha: 0.26)
-            : Colors.black.withValues(alpha: 0.04));
+            ? Colors.black.withValues(alpha: 0.10)
+            : Colors.black.withValues(alpha: 0.015));
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -4769,8 +5022,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.12)
-                  : Colors.black.withValues(alpha: 0.08),
+                  ? Colors.white.withValues(alpha: 0.08)
+                  : Colors.black.withValues(alpha: 0.04),
             ),
           ),
           child: Row(
@@ -5716,15 +5969,20 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final iconColor = isDark ? Colors.white : Colors.black87;
     final secondaryIconColor = isDark ? Colors.white70 : Colors.black54;
     final panelColor =
-        isDark ? const Color(0xB1121418) : const Color(0xECFBFCFF);
+        isDark ? const Color(0x4A121418) : const Color(0x52FFFFFF);
     final panelBorder = isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.black.withValues(alpha: 0.08);
+        ? Colors.white.withValues(alpha: 0.08)
+        : Colors.black.withValues(alpha: 0.04);
     final timelineActive = isDark ? Colors.white : Colors.black87;
-    final timelineBuffered = Colors.white.withValues(alpha: 0.34);
+    final timelineBuffered = isDark
+        ? Colors.white.withValues(alpha: 0.88)
+        : Colors.black.withValues(alpha: 0.48);
     final timelineInactive = isDark
-        ? Colors.white.withValues(alpha: 0.16)
-        : Colors.black.withValues(alpha: 0.10);
+        ? Colors.white.withValues(alpha: 0.24)
+        : Colors.black.withValues(alpha: 0.18);
+    final bufferedMs = math
+        .max(_lastBuffer.inMilliseconds, sliderValueMs)
+        .clamp(0, sliderMaxMs);
     final rate =
         _playerService.isInitialized ? _playerService.player.state.rate : 1.0;
     final speedHint = '${rate.toStringAsFixed(2)}x';
@@ -5752,12 +6010,12 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                 Expanded(
                   child: SliderTheme(
                     data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
+                      trackHeight: 5,
                       activeTrackColor: timelineActive,
                       secondaryActiveTrackColor: timelineBuffered,
                       inactiveTrackColor: timelineInactive,
                       thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 6),
+                          const RoundSliderThumbShape(enabledThumbRadius: 5),
                       overlayShape:
                           const RoundSliderOverlayShape(overlayRadius: 12),
                     ),
@@ -5765,9 +6023,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       min: 0,
                       max: sliderMaxMs.toDouble(),
                       value: sliderValueMs.toDouble(),
-                      secondaryTrackValue: _lastBuffer.inMilliseconds
-                          .clamp(0, sliderMaxMs)
-                          .toDouble(),
+                      secondaryTrackValue: bufferedMs.toDouble(),
                       onChangeStart:
                           sliderEnabled ? (_) => _onScrubStart() : null,
                       onChanged: sliderEnabled
