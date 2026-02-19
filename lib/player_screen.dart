@@ -417,10 +417,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.linux);
 
-  Duration get _activeControlsAutoHideDelay =>
-      _isDesktopCinematicMode
-          ? _desktopControlsAutoHideDelay
-          : _controlsAutoHideDelay;
+  Duration get _activeControlsAutoHideDelay => _isDesktopCinematicMode
+      ? _desktopControlsAutoHideDelay
+      : _controlsAutoHideDelay;
 
   bool get _desktopBarsHovered =>
       _desktopTopBarHovered || _desktopBottomBarHovered;
@@ -437,8 +436,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     required bool hover,
   }) {
     if (!_isDesktopCinematicMode) return;
-    final changed =
-        top ? _desktopTopBarHovered != hover : _desktopBottomBarHovered != hover;
+    final changed = top
+        ? _desktopTopBarHovered != hover
+        : _desktopBottomBarHovered != hover;
     if (!changed) return;
 
     setState(() {
@@ -1493,8 +1493,6 @@ class _PlayerScreenState extends State<PlayerScreen>
         matchMode: appState.danmakuMatchMode,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
         throwIfEmpty: showToast,
       );
       if (!mounted) return;
@@ -1558,7 +1556,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       }
       return;
     }
-    if (_currentlyPlayingIndex < 0 || _currentlyPlayingIndex >= _playlist.length) {
+    if (_currentlyPlayingIndex < 0 ||
+        _currentlyPlayingIndex >= _playlist.length) {
       if (showToast && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(content: Text('当前没有可匹配的视频')),
@@ -1572,9 +1571,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     final candidate = await showDanmakuManualSearchDialog(
       context: context,
       apiUrls: appState.danmakuApiUrls,
-      appId: appState.danmakuAppId,
-      appSecret: appState.danmakuAppSecret,
-      initialKeyword: hint.keyword.isEmpty ? stripFileExtension(currentName) : hint.keyword,
+      initialKeyword:
+          hint.keyword.isEmpty ? stripFileExtension(currentName) : hint.keyword,
       initialEpisodeHint: null,
     );
     if (!mounted || candidate == null) return;
@@ -1588,8 +1586,6 @@ class _PlayerScreenState extends State<PlayerScreen>
         title: title,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
       );
       if (!mounted) return;
       if (source == null) {
@@ -2103,469 +2099,506 @@ class _PlayerScreenState extends State<PlayerScreen>
           return KeyEventResult.ignored;
         },
         child: Scaffold(
-          backgroundColor: useDesktopCinematic
-              ? Colors.transparent
-              : Colors.black,
+          backgroundColor:
+              useDesktopCinematic ? Colors.transparent : Colors.black,
           extendBodyBehindAppBar: _fullScreen && !useDesktopCinematic,
           appBar: useDesktopCinematic
               ? null
               : PreferredSize(
-            preferredSize: _fullScreen
-                ? (_controlsVisible
-                    ? const Size.fromHeight(kToolbarHeight)
-                    : Size.zero)
-                : const Size.fromHeight(kToolbarHeight),
-            child: AnimatedOpacity(
-              opacity: (!_fullScreen || _controlsVisible) ? 1 : 0,
-              duration: const Duration(milliseconds: 200),
-              child: IgnorePointer(
-                ignoring: _fullScreen && !_controlsVisible,
-                child: SafeArea(
-                  top: false,
-                  bottom: false,
-                  child: GlassAppBar(
-                    enableBlur: false,
-                    child: AppBar(
-                      backgroundColor: _fullScreen ? Colors.transparent : null,
-                      foregroundColor: _fullScreen ? Colors.white : null,
-                      elevation: _fullScreen ? 0 : null,
-                      scrolledUnderElevation: _fullScreen ? 0 : null,
-                      shadowColor: _fullScreen ? Colors.transparent : null,
-                      surfaceTintColor: _fullScreen ? Colors.transparent : null,
-                      forceMaterialTransparency: _fullScreen,
-                      title: Text(currentFileName),
-                      centerTitle: true,
-                      actions: [
-                        IconButton(
-                          tooltip: '选集',
-                          icon: const Icon(Icons.playlist_play),
-                          onPressed: () => _showPlaylistSheet(context),
-                        ),
-                        IconButton(
-                          tooltip: _anime4kPreset.isOff
-                              ? 'Anime4K'
-                              : 'Anime4K: ${_anime4kPreset.label}',
-                          icon: Icon(
-                            _anime4kPreset.isOff
-                                ? Icons.auto_fix_high_outlined
-                                : Icons.auto_fix_high,
+                  preferredSize: _fullScreen
+                      ? (_controlsVisible
+                          ? const Size.fromHeight(kToolbarHeight)
+                          : Size.zero)
+                      : const Size.fromHeight(kToolbarHeight),
+                  child: AnimatedOpacity(
+                    opacity: (!_fullScreen || _controlsVisible) ? 1 : 0,
+                    duration: const Duration(milliseconds: 200),
+                    child: IgnorePointer(
+                      ignoring: _fullScreen && !_controlsVisible,
+                      child: SafeArea(
+                        top: false,
+                        bottom: false,
+                        child: GlassAppBar(
+                          enableBlur: false,
+                          child: AppBar(
+                            backgroundColor:
+                                _fullScreen ? Colors.transparent : null,
+                            foregroundColor: _fullScreen ? Colors.white : null,
+                            elevation: _fullScreen ? 0 : null,
+                            scrolledUnderElevation: _fullScreen ? 0 : null,
+                            shadowColor:
+                                _fullScreen ? Colors.transparent : null,
+                            surfaceTintColor:
+                                _fullScreen ? Colors.transparent : null,
+                            forceMaterialTransparency: _fullScreen,
+                            title: Text(currentFileName),
+                            centerTitle: true,
+                            actions: [
+                              IconButton(
+                                tooltip: '选集',
+                                icon: const Icon(Icons.playlist_play),
+                                onPressed: () => _showPlaylistSheet(context),
+                              ),
+                              IconButton(
+                                tooltip: _anime4kPreset.isOff
+                                    ? 'Anime4K'
+                                    : 'Anime4K: ${_anime4kPreset.label}',
+                                icon: Icon(
+                                  _anime4kPreset.isOff
+                                      ? Icons.auto_fix_high_outlined
+                                      : Icons.auto_fix_high,
+                                ),
+                                onPressed: _showAnime4kSheet,
+                              ),
+                              IconButton(
+                                tooltip: '音轨',
+                                icon: const Icon(Icons.audiotrack),
+                                onPressed: () => _showAudioTracks(context),
+                              ),
+                              IconButton(
+                                tooltip: '字幕',
+                                icon: const Icon(Icons.subtitles),
+                                onPressed: () => _showSubtitleTracks(context),
+                              ),
+                              IconButton(
+                                tooltip: '弹幕',
+                                icon: const Icon(Icons.comment_outlined),
+                                onPressed: _showDanmakuSheet,
+                              ),
+                              IconButton(
+                                tooltip: _hwdecOn ? '切换软解' : '切换硬解',
+                                icon: Icon(_hwdecOn
+                                    ? Icons.memory
+                                    : Icons.settings_backup_restore),
+                                onPressed: _toggleHardwareDecode,
+                              ),
+                              IconButton(
+                                tooltip: _orientationTooltip,
+                                icon: Icon(_orientationIcon),
+                                onPressed: _cycleOrientationMode,
+                              ),
+                              IconButton(
+                                icon: const Icon(Icons.folder_open),
+                                onPressed: _pickFile,
+                              ),
+                            ],
                           ),
-                          onPressed: _showAnime4kSheet,
                         ),
-                        IconButton(
-                          tooltip: '音轨',
-                          icon: const Icon(Icons.audiotrack),
-                          onPressed: () => _showAudioTracks(context),
-                        ),
-                        IconButton(
-                          tooltip: '字幕',
-                          icon: const Icon(Icons.subtitles),
-                          onPressed: () => _showSubtitleTracks(context),
-                        ),
-                        IconButton(
-                          tooltip: '弹幕',
-                          icon: const Icon(Icons.comment_outlined),
-                          onPressed: _showDanmakuSheet,
-                        ),
-                        IconButton(
-                          tooltip: _hwdecOn ? '切换软解' : '切换硬解',
-                          icon: Icon(_hwdecOn
-                              ? Icons.memory
-                              : Icons.settings_backup_restore),
-                          onPressed: _toggleHardwareDecode,
-                        ),
-                        IconButton(
-                          tooltip: _orientationTooltip,
-                          icon: Icon(_orientationIcon),
-                          onPressed: _cycleOrientationMode,
-                        ),
-                        IconButton(
-                          icon: const Icon(Icons.folder_open),
-                          onPressed: _pickFile,
-                        ),
-                      ],
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ),
-          ),
           body: useDesktopCinematic
               ? _buildDesktopCinematicBody(
                   context,
                   currentFileName: currentFileName,
                 )
               : Column(
-            children: [
-              wrapVideo(
-                Container(
-                  color: Colors.black,
-                  child: _playerService.isInitialized
-                      ? Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            Video(
-                              key: ValueKey(_playerService.controller),
-                              controller: _playerService.controller,
-                              controls: NoVideoControls,
-                              subtitleViewConfiguration:
-                                  _subtitleViewConfiguration,
-                            ),
-                            Positioned.fill(
-                              child: DanmakuStage(
-                                key: _danmakuKey,
-                                enabled: _danmakuEnabled,
-                                opacity: _danmakuOpacity,
-                                scale: _danmakuScale,
-                                speed: _danmakuSpeed,
-                                timeScale: _playerService.player.state.rate,
-                                bold: _danmakuBold,
-                                scrollMaxLines: _danmakuMaxLines,
-                                topMaxLines: _danmakuTopMaxLines,
-                                bottomMaxLines: _danmakuBottomMaxLines,
-                                preventOverlap: _danmakuPreventOverlap,
-                              ),
-                            ),
-                            if (_screenBrightness < 0.999)
-                              Positioned.fill(
-                                child: IgnorePointer(
-                                  child: ColoredBox(
-                                    color: Colors.black.withValues(
-                                      alpha: (1.0 - _screenBrightness)
-                                          .clamp(0.0, 0.8)
-                                          .toDouble(),
+                  children: [
+                    wrapVideo(
+                      Container(
+                        color: Colors.black,
+                        child: _playerService.isInitialized
+                            ? Stack(
+                                fit: StackFit.expand,
+                                children: [
+                                  Video(
+                                    key: ValueKey(_playerService.controller),
+                                    controller: _playerService.controller,
+                                    controls: NoVideoControls,
+                                    subtitleViewConfiguration:
+                                        _subtitleViewConfiguration,
+                                  ),
+                                  Positioned.fill(
+                                    child: DanmakuStage(
+                                      key: _danmakuKey,
+                                      enabled: _danmakuEnabled,
+                                      opacity: _danmakuOpacity,
+                                      scale: _danmakuScale,
+                                      speed: _danmakuSpeed,
+                                      timeScale:
+                                          _playerService.player.state.rate,
+                                      bold: _danmakuBold,
+                                      scrollMaxLines: _danmakuMaxLines,
+                                      topMaxLines: _danmakuTopMaxLines,
+                                      bottomMaxLines: _danmakuBottomMaxLines,
+                                      preventOverlap: _danmakuPreventOverlap,
                                     ),
                                   ),
-                                ),
-                              ),
-                            if (_buffering)
-                              Positioned.fill(
-                                child: ColoredBox(
-                                  color: Colors.black54,
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const CircularProgressIndicator(),
-                                        if ((widget.appState?.showBufferSpeed ??
-                                                false) &&
-                                            _isNetworkPlayback)
-                                          Padding(
-                                            padding:
-                                                const EdgeInsets.only(top: 12),
-                                            child: Text(
-                                              '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
+                                  if (_screenBrightness < 0.999)
+                                    Positioned.fill(
+                                      child: IgnorePointer(
+                                        child: ColoredBox(
+                                          color: Colors.black.withValues(
+                                            alpha: (1.0 - _screenBrightness)
+                                                .clamp(0.0, 0.8)
+                                                .toDouble(),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  if (_buffering)
+                                    Positioned.fill(
+                                      child: ColoredBox(
+                                        color: Colors.black54,
+                                        child: Center(
+                                          child: Column(
+                                            mainAxisSize: MainAxisSize.min,
+                                            children: [
+                                              const CircularProgressIndicator(),
+                                              if ((widget.appState
+                                                          ?.showBufferSpeed ??
+                                                      false) &&
+                                                  _isNetworkPlayback)
+                                                Padding(
+                                                  padding:
+                                                      const EdgeInsets.only(
+                                                          top: 12),
+                                                  child: Text(
+                                                    '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
+                                                    style: const TextStyle(
+                                                      color: Colors.white,
+                                                    ),
+                                                  ),
+                                                ),
+                                            ],
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Positioned.fill(
+                                    child: LayoutBuilder(
+                                      builder: (ctx, constraints) {
+                                        final w = constraints.maxWidth;
+                                        final h = constraints.maxHeight;
+                                        final sideDragEnabled =
+                                            _gestureBrightnessEnabled ||
+                                                _gestureVolumeEnabled;
+                                        return GestureDetector(
+                                          behavior: HitTestBehavior.translucent,
+                                          onTap: _toggleControls,
+                                          onDoubleTapDown: _gesturesEnabled
+                                              ? (d) => _doubleTapDownPosition =
+                                                  d.localPosition
+                                              : null,
+                                          onDoubleTap: _gesturesEnabled
+                                              ? () {
+                                                  final pos =
+                                                      _doubleTapDownPosition ??
+                                                          Offset(w / 2, 0);
+                                                  // ignore: unawaited_futures
+                                                  _handleDoubleTap(pos, w);
+                                                }
+                                              : null,
+                                          onHorizontalDragStart:
+                                              (_gesturesEnabled &&
+                                                      _gestureSeekEnabled)
+                                                  ? _onSeekDragStart
+                                                  : null,
+                                          onHorizontalDragUpdate:
+                                              (_gesturesEnabled &&
+                                                      _gestureSeekEnabled)
+                                                  ? (d) => _onSeekDragUpdate(
+                                                        d,
+                                                        width: w,
+                                                        duration: _duration,
+                                                      )
+                                                  : null,
+                                          onHorizontalDragEnd:
+                                              (_gesturesEnabled &&
+                                                      _gestureSeekEnabled)
+                                                  ? _onSeekDragEnd
+                                                  : null,
+                                          onVerticalDragStart:
+                                              (_gesturesEnabled &&
+                                                      sideDragEnabled)
+                                                  ? (d) => _onSideDragStart(d,
+                                                      width: w)
+                                                  : null,
+                                          onVerticalDragUpdate:
+                                              (_gesturesEnabled &&
+                                                      sideDragEnabled)
+                                                  ? (d) => _onSideDragUpdate(d,
+                                                      height: h)
+                                                  : null,
+                                          onVerticalDragEnd:
+                                              (_gesturesEnabled &&
+                                                      sideDragEnabled)
+                                                  ? _onSideDragEnd
+                                                  : null,
+                                          onLongPressStart: (_gesturesEnabled &&
+                                                  _gestureLongPressEnabled)
+                                              ? _onLongPressStart
+                                              : null,
+                                          onLongPressMoveUpdate:
+                                              (_gesturesEnabled &&
+                                                      _gestureLongPressEnabled &&
+                                                      _longPressSlideEnabled)
+                                                  ? (d) =>
+                                                      _onLongPressMoveUpdate(
+                                                        d,
+                                                        height: h,
+                                                      )
+                                                  : null,
+                                          onLongPressEnd: (_gesturesEnabled &&
+                                                  _gestureLongPressEnabled)
+                                              ? _onLongPressEnd
+                                              : null,
+                                          child: const SizedBox.expand(),
+                                        );
+                                      },
+                                    ),
+                                  ),
+                                  if (_gestureOverlayText != null)
+                                    Center(
+                                      child: IgnorePointer(
+                                        child: Material(
+                                          color: Colors.black54,
+                                          borderRadius:
+                                              BorderRadius.circular(12),
+                                          child: Padding(
+                                            padding: const EdgeInsets.symmetric(
+                                              horizontal: 14,
+                                              vertical: 10,
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: [
+                                                Icon(
+                                                  _gestureOverlayIcon ??
+                                                      Icons.info_outline,
+                                                  size: 20,
+                                                  color: Colors.white,
+                                                ),
+                                                const SizedBox(width: 8),
+                                                Text(
+                                                  _gestureOverlayText!,
+                                                  style: const TextStyle(
+                                                    color: Colors.white,
+                                                    fontSize: 13,
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  Align(
+                                    alignment: Alignment.bottomCenter,
+                                    child: SafeArea(
+                                      top: false,
+                                      minimum: const EdgeInsets.fromLTRB(
+                                          12, 0, 12, 12),
+                                      child: AnimatedOpacity(
+                                        opacity: _controlsVisible ? 1 : 0,
+                                        duration:
+                                            const Duration(milliseconds: 200),
+                                        child: IgnorePointer(
+                                          ignoring: !_controlsVisible,
+                                          child: Listener(
+                                            onPointerDown: (_) =>
+                                                _showControls(),
+                                            child: Focus(
+                                              canRequestFocus: false,
+                                              onKeyEvent: (node, event) {
+                                                if (!_remoteEnabled) {
+                                                  return KeyEventResult.ignored;
+                                                }
+                                                if (event is! KeyDownEvent) {
+                                                  return KeyEventResult.ignored;
+                                                }
+                                                if (event.logicalKey ==
+                                                    LogicalKeyboardKey
+                                                        .arrowDown) {
+                                                  final moved =
+                                                      FocusScope.of(context)
+                                                          .focusInDirection(
+                                                    TraversalDirection.down,
+                                                  );
+                                                  if (moved) {
+                                                    return KeyEventResult
+                                                        .handled;
+                                                  }
+                                                  _hideControlsForRemote();
+                                                  return KeyEventResult.handled;
+                                                }
+                                                return KeyEventResult.ignored;
+                                              },
+                                              child: PlaybackControls(
+                                                enabled: _playerService
+                                                        .isInitialized &&
+                                                    _playError == null,
+                                                playPauseFocusNode:
+                                                    _tvPlayPauseFocusNode,
+                                                position: _position,
+                                                buffered: _lastBuffer,
+                                                duration: _duration,
+                                                isPlaying:
+                                                    _playerService.isPlaying,
+                                                playbackRate: _playerService
+                                                    .player.state.rate,
+                                                onSetPlaybackRate:
+                                                    (rate) async {
+                                                  _showControls();
+                                                  if (!_playerService
+                                                      .isInitialized) {
+                                                    return;
+                                                  }
+                                                  await _playerService.player
+                                                      .setRate(rate);
+                                                  if (mounted) setState(() {});
+                                                },
+                                                heatmap: _danmakuHeatmap,
+                                                showHeatmap:
+                                                    _danmakuShowHeatmap &&
+                                                        _danmakuHeatmap
+                                                            .isNotEmpty,
+                                                seekBackwardSeconds:
+                                                    _seekBackSeconds,
+                                                seekForwardSeconds:
+                                                    _seekForwardSeconds,
+                                                showSystemTime: widget.appState
+                                                        ?.showSystemTimeInControls ??
+                                                    false,
+                                                showBattery: widget.appState
+                                                        ?.showBatteryInControls ??
+                                                    false,
+                                                showBufferSpeed: widget.appState
+                                                        ?.showBufferSpeed ??
+                                                    false,
+                                                buffering: _buffering,
+                                                bufferSpeedX: _bufferSpeedX,
+                                                netSpeedBytesPerSecond:
+                                                    _netSpeedBytesPerSecond,
+                                                onRequestThumbnail:
+                                                    _thumbnailer == null
+                                                        ? null
+                                                        : (pos) => _thumbnailer!
+                                                                .getThumbnail(
+                                                              pos,
+                                                            ),
+                                                onSwitchCore: (!kIsWeb &&
+                                                        defaultTargetPlatform ==
+                                                            TargetPlatform
+                                                                .android &&
+                                                        widget.appState != null)
+                                                    ? _switchCore
+                                                    : null,
+                                                onScrubStart: _onScrubStart,
+                                                onScrubEnd: _onScrubEnd,
+                                                onSeek: (pos) async {
+                                                  await _playerService.seek(
+                                                    pos,
+                                                    flushBuffer:
+                                                        _flushBufferOnSeek,
+                                                  );
+                                                  _position = pos;
+                                                  _syncDanmakuCursor(pos);
+                                                  if (mounted) setState(() {});
+                                                },
+                                                onPlay: () {
+                                                  _showControls();
+                                                  return _playerService.play();
+                                                },
+                                                onPause: () {
+                                                  _showControls();
+                                                  return _playerService.pause();
+                                                },
+                                                onSeekBackward: () async {
+                                                  _showControls();
+                                                  final target = _position -
+                                                      Duration(
+                                                          seconds:
+                                                              _seekBackSeconds);
+                                                  final pos =
+                                                      target < Duration.zero
+                                                          ? Duration.zero
+                                                          : target;
+                                                  await _playerService.seek(
+                                                    pos,
+                                                    flushBuffer:
+                                                        _flushBufferOnSeek,
+                                                  );
+                                                  _position = pos;
+                                                  _syncDanmakuCursor(pos);
+                                                  if (mounted) setState(() {});
+                                                },
+                                                onSeekForward: () async {
+                                                  _showControls();
+                                                  final d = _duration;
+                                                  final target = _position +
+                                                      Duration(
+                                                          seconds:
+                                                              _seekForwardSeconds);
+                                                  final pos =
+                                                      (d > Duration.zero &&
+                                                              target > d)
+                                                          ? d
+                                                          : target;
+                                                  await _playerService.seek(
+                                                    pos,
+                                                    flushBuffer:
+                                                        _flushBufferOnSeek,
+                                                  );
+                                                  _position = pos;
+                                                  _syncDanmakuCursor(pos);
+                                                  if (mounted) setState(() {});
+                                                },
                                               ),
                                             ),
                                           ),
-                                      ],
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            Positioned.fill(
-                              child: LayoutBuilder(
-                                builder: (ctx, constraints) {
-                                  final w = constraints.maxWidth;
-                                  final h = constraints.maxHeight;
-                                  final sideDragEnabled =
-                                      _gestureBrightnessEnabled ||
-                                          _gestureVolumeEnabled;
-                                  return GestureDetector(
-                                    behavior: HitTestBehavior.translucent,
-                                    onTap: _toggleControls,
-                                    onDoubleTapDown: _gesturesEnabled
-                                        ? (d) => _doubleTapDownPosition =
-                                            d.localPosition
-                                        : null,
-                                    onDoubleTap: _gesturesEnabled
-                                        ? () {
-                                            final pos =
-                                                _doubleTapDownPosition ??
-                                                    Offset(w / 2, 0);
-                                            // ignore: unawaited_futures
-                                            _handleDoubleTap(pos, w);
-                                          }
-                                        : null,
-                                    onHorizontalDragStart: (_gesturesEnabled &&
-                                            _gestureSeekEnabled)
-                                        ? _onSeekDragStart
-                                        : null,
-                                    onHorizontalDragUpdate: (_gesturesEnabled &&
-                                            _gestureSeekEnabled)
-                                        ? (d) => _onSeekDragUpdate(
-                                              d,
-                                              width: w,
-                                              duration: _duration,
-                                            )
-                                        : null,
-                                    onHorizontalDragEnd: (_gesturesEnabled &&
-                                            _gestureSeekEnabled)
-                                        ? _onSeekDragEnd
-                                        : null,
-                                    onVerticalDragStart: (_gesturesEnabled &&
-                                            sideDragEnabled)
-                                        ? (d) => _onSideDragStart(d, width: w)
-                                        : null,
-                                    onVerticalDragUpdate: (_gesturesEnabled &&
-                                            sideDragEnabled)
-                                        ? (d) => _onSideDragUpdate(d, height: h)
-                                        : null,
-                                    onVerticalDragEnd:
-                                        (_gesturesEnabled && sideDragEnabled)
-                                            ? _onSideDragEnd
-                                            : null,
-                                    onLongPressStart: (_gesturesEnabled &&
-                                            _gestureLongPressEnabled)
-                                        ? _onLongPressStart
-                                        : null,
-                                    onLongPressMoveUpdate: (_gesturesEnabled &&
-                                            _gestureLongPressEnabled &&
-                                            _longPressSlideEnabled)
-                                        ? (d) => _onLongPressMoveUpdate(
-                                              d,
-                                              height: h,
-                                            )
-                                        : null,
-                                    onLongPressEnd: (_gesturesEnabled &&
-                                            _gestureLongPressEnabled)
-                                        ? _onLongPressEnd
-                                        : null,
-                                    child: const SizedBox.expand(),
-                                  );
-                                },
-                              ),
-                            ),
-                            if (_gestureOverlayText != null)
-                              Center(
-                                child: IgnorePointer(
-                                  child: Material(
-                                    color: Colors.black54,
-                                    borderRadius: BorderRadius.circular(12),
-                                    child: Padding(
-                                      padding: const EdgeInsets.symmetric(
-                                        horizontal: 14,
-                                        vertical: 10,
-                                      ),
-                                      child: Row(
-                                        mainAxisSize: MainAxisSize.min,
-                                        children: [
-                                          Icon(
-                                            _gestureOverlayIcon ??
-                                                Icons.info_outline,
-                                            size: 20,
-                                            color: Colors.white,
-                                          ),
-                                          const SizedBox(width: 8),
-                                          Text(
-                                            _gestureOverlayText!,
-                                            style: const TextStyle(
-                                              color: Colors.white,
-                                              fontSize: 13,
-                                            ),
-                                          ),
-                                        ],
-                                      ),
-                                    ),
-                                  ),
-                                ),
-                              ),
-                            Align(
-                              alignment: Alignment.bottomCenter,
-                              child: SafeArea(
-                                top: false,
-                                minimum:
-                                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                                child: AnimatedOpacity(
-                                  opacity: _controlsVisible ? 1 : 0,
-                                  duration: const Duration(milliseconds: 200),
-                                  child: IgnorePointer(
-                                    ignoring: !_controlsVisible,
-                                    child: Listener(
-                                      onPointerDown: (_) => _showControls(),
-                                      child: Focus(
-                                        canRequestFocus: false,
-                                        onKeyEvent: (node, event) {
-                                          if (!_remoteEnabled) {
-                                            return KeyEventResult.ignored;
-                                          }
-                                          if (event is! KeyDownEvent) {
-                                            return KeyEventResult.ignored;
-                                          }
-                                          if (event.logicalKey ==
-                                              LogicalKeyboardKey.arrowDown) {
-                                            final moved = FocusScope.of(context)
-                                                .focusInDirection(
-                                              TraversalDirection.down,
-                                            );
-                                            if (moved) {
-                                              return KeyEventResult.handled;
-                                            }
-                                            _hideControlsForRemote();
-                                            return KeyEventResult.handled;
-                                          }
-                                          return KeyEventResult.ignored;
-                                        },
-                                        child: PlaybackControls(
-                                          enabled:
-                                              _playerService.isInitialized &&
-                                                  _playError == null,
-                                          playPauseFocusNode:
-                                              _tvPlayPauseFocusNode,
-                                          position: _position,
-                                          buffered: _lastBuffer,
-                                          duration: _duration,
-                                          isPlaying: _playerService.isPlaying,
-                                          playbackRate:
-                                              _playerService.player.state.rate,
-                                          onSetPlaybackRate: (rate) async {
-                                            _showControls();
-                                            if (!_playerService.isInitialized) {
-                                              return;
-                                            }
-                                            await _playerService.player
-                                                .setRate(rate);
-                                            if (mounted) setState(() {});
-                                          },
-                                          heatmap: _danmakuHeatmap,
-                                          showHeatmap: _danmakuShowHeatmap &&
-                                              _danmakuHeatmap.isNotEmpty,
-                                          seekBackwardSeconds: _seekBackSeconds,
-                                          seekForwardSeconds:
-                                              _seekForwardSeconds,
-                                          showSystemTime: widget.appState
-                                                  ?.showSystemTimeInControls ??
-                                              false,
-                                          showBattery: widget.appState
-                                                  ?.showBatteryInControls ??
-                                              false,
-                                          showBufferSpeed: widget
-                                                  .appState?.showBufferSpeed ??
-                                              false,
-                                          buffering: _buffering,
-                                          bufferSpeedX: _bufferSpeedX,
-                                          netSpeedBytesPerSecond:
-                                              _netSpeedBytesPerSecond,
-                                          onRequestThumbnail: _thumbnailer ==
-                                                  null
-                                              ? null
-                                              : (pos) =>
-                                                  _thumbnailer!.getThumbnail(
-                                                    pos,
-                                                  ),
-                                          onSwitchCore: (!kIsWeb &&
-                                                  defaultTargetPlatform ==
-                                                      TargetPlatform.android &&
-                                                  widget.appState != null)
-                                              ? _switchCore
-                                              : null,
-                                          onScrubStart: _onScrubStart,
-                                          onScrubEnd: _onScrubEnd,
-                                          onSeek: (pos) async {
-                                            await _playerService.seek(
-                                              pos,
-                                              flushBuffer: _flushBufferOnSeek,
-                                            );
-                                            _position = pos;
-                                            _syncDanmakuCursor(pos);
-                                            if (mounted) setState(() {});
-                                          },
-                                          onPlay: () {
-                                            _showControls();
-                                            return _playerService.play();
-                                          },
-                                          onPause: () {
-                                            _showControls();
-                                            return _playerService.pause();
-                                          },
-                                          onSeekBackward: () async {
-                                            _showControls();
-                                            final target = _position -
-                                                Duration(
-                                                    seconds: _seekBackSeconds);
-                                            final pos = target < Duration.zero
-                                                ? Duration.zero
-                                                : target;
-                                            await _playerService.seek(
-                                              pos,
-                                              flushBuffer: _flushBufferOnSeek,
-                                            );
-                                            _position = pos;
-                                            _syncDanmakuCursor(pos);
-                                            if (mounted) setState(() {});
-                                          },
-                                          onSeekForward: () async {
-                                            _showControls();
-                                            final d = _duration;
-                                            final target = _position +
-                                                Duration(
-                                                    seconds:
-                                                        _seekForwardSeconds);
-                                            final pos = (d > Duration.zero &&
-                                                    target > d)
-                                                ? d
-                                                : target;
-                                            await _playerService.seek(
-                                              pos,
-                                              flushBuffer: _flushBufferOnSeek,
-                                            );
-                                            _position = pos;
-                                            _syncDanmakuCursor(pos);
-                                            if (mounted) setState(() {});
-                                          },
                                         ),
                                       ),
                                     ),
                                   ),
+                                ],
+                              )
+                            : _playError != null
+                                ? Center(
+                                    child: Text(
+                                      '播放失败：$_playError',
+                                      style: const TextStyle(
+                                          color: Colors.redAccent),
+                                    ),
+                                  )
+                                : const Center(child: Text('选择一个视频播放')),
+                      ),
+                    ),
+                    if (!_fullScreen) const SizedBox(height: 8),
+                    if (!_fullScreen)
+                      const Padding(
+                        padding: EdgeInsets.all(8.0),
+                        child: Text(
+                          '播放列表',
+                          style: TextStyle(
+                              fontSize: 18, fontWeight: FontWeight.bold),
+                        ),
+                      ),
+                    if (!_fullScreen)
+                      Expanded(
+                        child: ListView.builder(
+                          itemCount: _playlist.length,
+                          itemBuilder: (context, index) {
+                            final file = _playlist[index];
+                            final isPlaying = index == _currentlyPlayingIndex;
+                            return ListTile(
+                              leading: Icon(isPlaying
+                                  ? Icons.play_circle_filled
+                                  : Icons.movie),
+                              title: Text(
+                                file.name,
+                                style: TextStyle(
+                                  color: isPlaying ? Colors.blue : null,
                                 ),
                               ),
-                            ),
-                          ],
-                        )
-                      : _playError != null
-                          ? Center(
-                              child: Text(
-                                '播放失败：$_playError',
-                                style: const TextStyle(color: Colors.redAccent),
-                              ),
-                            )
-                          : const Center(child: Text('选择一个视频播放')),
-                ),
-              ),
-              if (!_fullScreen) const SizedBox(height: 8),
-              if (!_fullScreen)
-                const Padding(
-                  padding: EdgeInsets.all(8.0),
-                  child: Text(
-                    '播放列表',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
-                  ),
-                ),
-              if (!_fullScreen)
-                Expanded(
-                  child: ListView.builder(
-                    itemCount: _playlist.length,
-                    itemBuilder: (context, index) {
-                      final file = _playlist[index];
-                      final isPlaying = index == _currentlyPlayingIndex;
-                      return ListTile(
-                        leading: Icon(
-                            isPlaying ? Icons.play_circle_filled : Icons.movie),
-                        title: Text(
-                          file.name,
-                          style: TextStyle(
-                            color: isPlaying ? Colors.blue : null,
-                          ),
+                              onTap: () => _playFile(file, index),
+                            );
+                          },
                         ),
-                        onTap: () => _playFile(file, index),
-                      );
-                    },
-                  ),
+                      ),
+                  ],
                 ),
-            ],
-          ),
         ),
       ),
     );
@@ -2576,7 +2609,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     required String currentFileName,
   }) {
     final isDark = Theme.of(context).brightness == Brightness.dark;
-    final shellColor = isDark ? const Color(0xB017191D) : const Color(0xD9FFFFFF);
+    final shellColor =
+        isDark ? const Color(0xB017191D) : const Color(0xD9FFFFFF);
     final shellBorder = isDark
         ? Colors.white.withValues(alpha: 0.1)
         : Colors.black.withValues(alpha: 0.08);
@@ -2602,7 +2636,8 @@ class _PlayerScreenState extends State<PlayerScreen>
               blurSigma: _desktopFullscreen ? 0 : 14,
               color: _desktopFullscreen ? Colors.transparent : shellColor,
               borderRadius: shellRadius,
-              borderColor: _desktopFullscreen ? Colors.transparent : shellBorder,
+              borderColor:
+                  _desktopFullscreen ? Colors.transparent : shellBorder,
               child: Padding(
                 padding: _desktopFullscreen
                     ? EdgeInsets.zero
@@ -2621,7 +2656,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Widget _buildDesktopBackdrop({required bool isDark}) {
-    final background = isDark ? const Color(0xFF060607) : const Color(0xFFF2F4F7);
+    final background =
+        isDark ? const Color(0xFF060607) : const Color(0xFFF2F4F7);
     final centerGlowA = isDark
         ? const Color(0xFF3A4F7C).withValues(alpha: 0.42)
         : const Color(0xFFA8BCE8).withValues(alpha: 0.52);
@@ -2686,7 +2722,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }) {
     final textTheme = Theme.of(context).textTheme;
     final frameRadius = _desktopFullscreen ? 0.0 : 30.0;
-    final panelColor = isDark ? const Color(0x99111113) : const Color(0xD9FFFFFF);
+    final panelColor =
+        isDark ? const Color(0x99111113) : const Color(0xD9FFFFFF);
     final panelBorder = isDark
         ? Colors.white.withValues(alpha: 0.14)
         : Colors.black.withValues(alpha: 0.08);
@@ -2800,9 +2837,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                             (_gesturesEnabled && _gestureSeekEnabled)
                                 ? _onSeekDragEnd
                                 : null,
-                        onVerticalDragStart: (_gesturesEnabled && sideDragEnabled)
-                            ? (d) => _onSideDragStart(d, width: w)
-                            : null,
+                        onVerticalDragStart:
+                            (_gesturesEnabled && sideDragEnabled)
+                                ? (d) => _onSideDragStart(d, width: w)
+                                : null,
                         onVerticalDragUpdate:
                             (_gesturesEnabled && sideDragEnabled)
                                 ? (d) => _onSideDragUpdate(d, height: h)
@@ -2895,7 +2933,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       child: IgnorePointer(
                         ignoring: !_controlsVisible,
                         child: Listener(
-                          onPointerDown: (_) => _showControls(scheduleHide: false),
+                          onPointerDown: (_) =>
+                              _showControls(scheduleHide: false),
                           child: _buildDesktopTopStatusBar(
                             context,
                             isDark: isDark,
@@ -2926,7 +2965,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                         duration: const Duration(milliseconds: 160),
                         child: IgnorePointer(
                           ignoring: _desktopSidePanel == _DesktopSidePanel.none,
-                          child: _buildDesktopSidePanel(context, isDark: isDark),
+                          child:
+                              _buildDesktopSidePanel(context, isDark: isDark),
                         ),
                       ),
                     ),
@@ -2949,7 +2989,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       child: IgnorePointer(
                         ignoring: !_controlsVisible,
                         child: Listener(
-                          onPointerDown: (_) => _showControls(scheduleHide: false),
+                          onPointerDown: (_) =>
+                              _showControls(scheduleHide: false),
                           child: _buildDesktopPlaybackControls(
                             context,
                             isDark: isDark,
@@ -2989,30 +3030,31 @@ class _PlayerScreenState extends State<PlayerScreen>
     final dividerColor = isDark
         ? Colors.white.withValues(alpha: 0.14)
         : Colors.black.withValues(alpha: 0.1);
-    final rate = _playerService.isInitialized ? _playerService.player.state.rate : 1.0;
+    final rate =
+        _playerService.isInitialized ? _playerService.player.state.rate : 1.0;
     final rightActionEnabled = enabled && _playlist.isNotEmpty;
     final speedHint = '${_fmtRate(rate)}x';
 
     return Padding(
       padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
       child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.transparent),
-              ),
-              child: Row(
-                children: [
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.transparent),
+            ),
+            child: Row(
+              children: [
                 Text(
                   _fmtClock(_position),
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: secondaryIconColor,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
+                    color: secondaryIconColor,
+                    fontFeatures: const [FontFeature.tabularFigures()],
+                  ),
                 ),
                 const SizedBox(width: 10),
                 Expanded(
@@ -3034,7 +3076,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                       secondaryTrackValue: _lastBuffer.inMilliseconds
                           .clamp(0, sliderMaxMs)
                           .toDouble(),
-                      onChangeStart: sliderEnabled ? (_) => _onScrubStart() : null,
+                      onChangeStart:
+                          sliderEnabled ? (_) => _onScrubStart() : null,
                       onChanged: sliderEnabled
                           ? (value) => setState(
                                 () => _position =
@@ -3062,102 +3105,104 @@ class _PlayerScreenState extends State<PlayerScreen>
                 Text(
                   _fmtClock(_duration),
                   style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                        color: secondaryIconColor,
-                        fontFeatures: const [FontFeature.tabularFigures()],
-                      ),
-                ),
-                ],
-              ),
-            ),
-            if (_desktopSpeedPanelVisible) ...[
-              const SizedBox(height: 8),
-              Align(
-                alignment: Alignment.centerRight,
-                child: Container(
-                  width: 290,
-                  padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
-                  decoration: BoxDecoration(
-                    color: isDark
-                        ? Colors.black.withValues(alpha: 0.42)
-                        : Colors.black.withValues(alpha: 0.04),
-                    borderRadius: BorderRadius.circular(12),
-                    border: Border.all(color: dividerColor),
+                    color: secondaryIconColor,
+                    fontFeatures: const [FontFeature.tabularFigures()],
                   ),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Row(
+                ),
+              ],
+            ),
+          ),
+          if (_desktopSpeedPanelVisible) ...[
+            const SizedBox(height: 8),
+            Align(
+              alignment: Alignment.centerRight,
+              child: Container(
+                width: 290,
+                padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
+                decoration: BoxDecoration(
+                  color: isDark
+                      ? Colors.black.withValues(alpha: 0.42)
+                      : Colors.black.withValues(alpha: 0.04),
+                  borderRadius: BorderRadius.circular(12),
+                  border: Border.all(color: dividerColor),
+                ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '倍速',
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: secondaryIconColor,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          speedHint,
+                          style:
+                              Theme.of(context).textTheme.labelMedium?.copyWith(
+                                    color: iconColor,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                        ),
+                      ],
+                    ),
+                    Slider(
+                      min: 0.1,
+                      max: 5.0,
+                      divisions: 49,
+                      value: rate.clamp(0.1, 5.0).toDouble(),
+                      onChanged: !enabled
+                          ? null
+                          : (value) {
+                              // ignore: unawaited_futures
+                              _playerService.player.setRate(value);
+                              setState(() {});
+                            },
+                    ),
+                    DefaultTextStyle(
+                      style: Theme.of(context).textTheme.labelSmall!.copyWith(
+                            color: secondaryIconColor,
+                          ),
+                      child: const Row(
                         children: [
-                          Text(
-                            '倍速',
-                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: secondaryIconColor,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                          ),
-                          const Spacer(),
-                          Text(
-                            speedHint,
-                            style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                                  color: iconColor,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                          ),
+                          Text('0.1x'),
+                          Spacer(),
+                          Text('0.5x'),
+                          Spacer(),
+                          Text('1x'),
+                          Spacer(),
+                          Text('2x'),
+                          Spacer(),
+                          Text('3x'),
+                          Spacer(),
+                          Text('5x'),
                         ],
                       ),
-                      Slider(
-                        min: 0.1,
-                        max: 5.0,
-                        divisions: 49,
-                        value: rate.clamp(0.1, 5.0).toDouble(),
-                        onChanged: !enabled
-                            ? null
-                            : (value) {
-                                // ignore: unawaited_futures
-                                _playerService.player.setRate(value);
-                                setState(() {});
-                              },
-                      ),
-                      DefaultTextStyle(
-                        style: Theme.of(context).textTheme.labelSmall!.copyWith(
-                              color: secondaryIconColor,
-                            ),
-                        child: const Row(
-                          children: [
-                            Text('0.1x'),
-                            Spacer(),
-                            Text('0.5x'),
-                            Spacer(),
-                            Text('1x'),
-                            Spacer(),
-                            Text('2x'),
-                            Spacer(),
-                            Text('3x'),
-                            Spacer(),
-                            Text('5x'),
-                          ],
-                        ),
-                      ),
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
               ),
-            ],
-            const SizedBox(height: 8),
-            Container(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              decoration: BoxDecoration(
-                color: Colors.transparent,
-                borderRadius: BorderRadius.circular(16),
-                border: Border.all(color: Colors.transparent),
-              ),
-              child: Row(
-                children: [
-                  const SizedBox(width: 156),
-                  Expanded(
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.center,
-                      children: [
+            ),
+          ],
+          const SizedBox(height: 8),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+            decoration: BoxDecoration(
+              color: Colors.transparent,
+              borderRadius: BorderRadius.circular(16),
+              border: Border.all(color: Colors.transparent),
+            ),
+            child: Row(
+              children: [
+                const SizedBox(width: 156),
+                Expanded(
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
                       _desktopControlButton(
                         context,
                         isDark: isDark,
@@ -3182,8 +3227,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                             : Icons.play_arrow_rounded,
                         tooltip: _playerService.isPlaying ? '暂停' : '播放',
                         emphasized: true,
-                        onTap:
-                            enabled ? () => _togglePlayPause(showOverlay: false) : null,
+                        onTap: enabled
+                            ? () => _togglePlayPause(showOverlay: false)
+                            : null,
                       ),
                       const SizedBox(width: 8),
                       _desktopControlButton(
@@ -3201,14 +3247,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                               }
                             : null,
                       ),
-                      ],
-                    ),
+                    ],
                   ),
-                  SizedBox(
-                    width: 236,
-                    child: Row(
-                      mainAxisAlignment: MainAxisAlignment.end,
-                      children: [
+                ),
+                SizedBox(
+                  width: 236,
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
                       OutlinedButton.icon(
                         style: OutlinedButton.styleFrom(
                           visualDensity: VisualDensity.compact,
@@ -3240,8 +3286,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                       ),
                       const SizedBox(width: 4),
                       IconButton(
-                        tooltip:
-                            _desktopFullscreen ? 'Exit fullscreen' : 'Fullscreen',
+                        tooltip: _desktopFullscreen
+                            ? 'Exit fullscreen'
+                            : 'Fullscreen',
                         onPressed: enabled ? _toggleDesktopFullscreen : null,
                         icon: Icon(
                           _desktopFullscreen
@@ -3259,7 +3306,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                           side: BorderSide(color: dividerColor),
                         ),
                         onPressed: rightActionEnabled
-                            ? () => _toggleDesktopPanel(_DesktopSidePanel.episode)
+                            ? () =>
+                                _toggleDesktopPanel(_DesktopSidePanel.episode)
                             : null,
                         icon: Icon(
                           _desktopSidePanel == _DesktopSidePanel.episode
@@ -3268,14 +3316,14 @@ class _PlayerScreenState extends State<PlayerScreen>
                           color: iconColor,
                         ),
                       ),
-                      ],
-                    ),
+                    ],
                   ),
-                ],
-              ),
+                ),
+              ],
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
     );
   }
 
@@ -3806,7 +3854,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       if (!appState.danmakuRememberSelectedSource) return;
       final idx = _danmakuSourceIndex;
       if (idx < 0 || idx >= _danmakuSources.length) return;
-      await appState.setDanmakuLastSelectedSourceName(_danmakuSources[idx].name);
+      await appState
+          .setDanmakuLastSelectedSourceName(_danmakuSources[idx].name);
     }
 
     return ListView(
@@ -3852,10 +3901,10 @@ class _PlayerScreenState extends State<PlayerScreen>
             const SizedBox(width: 8),
             Expanded(
               child: OutlinedButton.icon(
-                onPressed:
-                    (_desktopDanmakuOnlineLoading || _desktopDanmakuManualLoading)
-                        ? null
-                        : manualSearch,
+                onPressed: (_desktopDanmakuOnlineLoading ||
+                        _desktopDanmakuManualLoading)
+                    ? null
+                    : manualSearch,
                 icon: _desktopDanmakuManualLoading
                     ? const SizedBox(
                         width: 16,
@@ -3979,7 +4028,8 @@ class _PlayerScreenState extends State<PlayerScreen>
             divisions: 190,
             value: _danmakuBottomMaxLines.clamp(10, 200).toDouble(),
             label: '$_danmakuBottomMaxLines',
-            onChanged: (v) => setState(() => _danmakuBottomMaxLines = v.round()),
+            onChanged: (v) =>
+                setState(() => _danmakuBottomMaxLines = v.round()),
             onChangeEnd: (v) {
               if (appState != null) {
                 // ignore: unawaited_futures
@@ -4146,8 +4196,8 @@ class _PlayerScreenState extends State<PlayerScreen>
               const SizedBox(width: 8),
               IconButton(
                 tooltip: _desktopEpisodeGridMode ? '切换为列表' : '切换为方块',
-                onPressed: () =>
-                    setState(() => _desktopEpisodeGridMode = !_desktopEpisodeGridMode),
+                onPressed: () => setState(
+                    () => _desktopEpisodeGridMode = !_desktopEpisodeGridMode),
                 icon: Icon(
                   _desktopEpisodeGridMode ? Icons.view_agenda : Icons.grid_view,
                 ),
@@ -4193,7 +4243,10 @@ class _PlayerScreenState extends State<PlayerScreen>
                           child: Center(
                             child: Text(
                               info.mark,
-                              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                              style: Theme.of(context)
+                                  .textTheme
+                                  .labelLarge
+                                  ?.copyWith(
                                     fontWeight: FontWeight.w700,
                                   ),
                             ),
@@ -4275,14 +4328,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                                       style: Theme.of(context)
                                           .textTheme
                                           .labelMedium
-                                          ?.copyWith(fontWeight: FontWeight.w700),
+                                          ?.copyWith(
+                                              fontWeight: FontWeight.w700),
                                     ),
                                     const SizedBox(height: 2),
                                     Text(
                                       info.title,
                                       maxLines: 2,
                                       overflow: TextOverflow.ellipsis,
-                                      style: Theme.of(context).textTheme.bodySmall,
+                                      style:
+                                          Theme.of(context).textTheme.bodySmall,
                                     ),
                                   ],
                                 ),
@@ -4320,7 +4375,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         autoPlay: wasPlaying,
       );
 
-      if (!mounted || !_playerService.isInitialized || _playError != null) return;
+      if (!mounted || !_playerService.isInitialized || _playError != null)
+        return;
       if (resumePosition <= Duration.zero) return;
 
       final deadline = DateTime.now().add(const Duration(seconds: 2));
@@ -4330,7 +4386,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         await Future<void>.delayed(const Duration(milliseconds: 120));
       }
 
-      if (!mounted || !_playerService.isInitialized || _playError != null) return;
+      if (!mounted || !_playerService.isInitialized || _playError != null)
+        return;
       if (_duration <= Duration.zero) return;
 
       final target = _safeSeekTarget(resumePosition, _duration);
@@ -4356,7 +4413,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     BuildContext context, {
     required bool isDark,
   }) {
-    if (_currentlyPlayingIndex < 0 || _currentlyPlayingIndex >= _playlist.length) {
+    if (_currentlyPlayingIndex < 0 ||
+        _currentlyPlayingIndex >= _playlist.length) {
       return const Center(child: Text('当前没有可切换线路'));
     }
     final lineIndexes = _desktopLineIndexesForCurrent();
@@ -4380,7 +4438,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         final selected = index == _currentlyPlayingIndex;
         final info = _desktopEpisodeInfoForIndex(index);
         return ListTile(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          shape:
+              RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           tileColor: isDark
               ? Colors.white.withValues(alpha: selected ? 0.16 : 0.06)
               : Colors.black.withValues(alpha: selected ? 0.1 : 0.04),
@@ -4421,7 +4480,8 @@ class _PlayerScreenState extends State<PlayerScreen>
         lineKey: 'unknown',
       );
     }
-    return _desktopEpisodeInfoForFile(_playlist[index].name, fallbackEpisode: index + 1);
+    return _desktopEpisodeInfoForFile(_playlist[index].name,
+        fallbackEpisode: index + 1);
   }
 
   _DesktopEpisodeInfo _desktopEpisodeInfoForFile(
@@ -4454,9 +4514,8 @@ class _PlayerScreenState extends State<PlayerScreen>
       episode = int.tryParse(seMatch.group(2) ?? '') ?? episode;
       title = normalized.replaceRange(seMatch.start, seMatch.end, ' ');
     } else {
-      final seasonMatch =
-          RegExp(r'season\s*(\d{1,3})', caseSensitive: false)
-              .firstMatch(normalized);
+      final seasonMatch = RegExp(r'season\s*(\d{1,3})', caseSensitive: false)
+          .firstMatch(normalized);
       if (seasonMatch != null) {
         season = int.tryParse(seasonMatch.group(1) ?? '') ?? 1;
       }
@@ -4482,8 +4541,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     final s = season.clamp(1, 999);
     final e = episode.clamp(1, 999);
-    final mark = 'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
-    final key = '${s.toString().padLeft(3, '0')}_${e.toString().padLeft(3, '0')}';
+    final mark =
+        'S${s.toString().padLeft(2, '0')}E${e.toString().padLeft(2, '0')}';
+    final key =
+        '${s.toString().padLeft(3, '0')}_${e.toString().padLeft(3, '0')}';
     return _DesktopEpisodeInfo(
       season: s,
       episode: e,
@@ -4512,7 +4573,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   List<int> _desktopLineIndexesForCurrent() {
-    if (_currentlyPlayingIndex < 0 || _currentlyPlayingIndex >= _playlist.length) {
+    if (_currentlyPlayingIndex < 0 ||
+        _currentlyPlayingIndex >= _playlist.length) {
       return const <int>[];
     }
     final current = _desktopEpisodeInfoForIndex(_currentlyPlayingIndex);
@@ -4629,8 +4691,9 @@ class _PlayerScreenState extends State<PlayerScreen>
               final f = _playlist[i];
               return ListTile(
                 title: Text(f.name),
-                trailing:
-                    i == _currentlyPlayingIndex ? const Icon(Icons.play_arrow) : null,
+                trailing: i == _currentlyPlayingIndex
+                    ? const Icon(Icons.play_arrow)
+                    : null,
                 onTap: () {
                   Navigator.of(ctx).pop();
                   _playFile(f, i);

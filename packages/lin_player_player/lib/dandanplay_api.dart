@@ -25,23 +25,17 @@ bool isOfficialDandanplayUrl(String url) {
 
 bool shouldUseBuiltInProxyForOfficialUrl({
   required String inputBaseUrl,
-  required String appId,
-  required String appSecret,
 }) {
   if (!isOfficialDandanplayUrl(inputBaseUrl)) return false;
   if (!hasBuiltInDandanplayProxy) return false;
-  return !_hasClientCredentials(appId: appId, appSecret: appSecret);
+  return true;
 }
 
 String resolveEffectiveDanmakuApiBaseUrl({
   required String inputBaseUrl,
-  required String appId,
-  required String appSecret,
 }) {
   if (shouldUseBuiltInProxyForOfficialUrl(
     inputBaseUrl: inputBaseUrl,
-    appId: appId,
-    appSecret: appSecret,
   )) {
     return builtInDandanplayProxyUrl;
   }
@@ -66,13 +60,6 @@ String normalizeDanmakuApiBaseUrl(String baseUrl) {
         fragment: '',
       )
       .toString();
-}
-
-bool _hasClientCredentials({
-  required String appId,
-  required String appSecret,
-}) {
-  return appId.trim().isNotEmpty && appSecret.trim().isNotEmpty;
 }
 
 class DandanplayMatchResult {
@@ -427,7 +414,12 @@ class DandanplayApiClient {
 
     if (_isAuthFailureStatus(resp.statusCode)) {
       if (isOfficialDandanplayUrl(baseUrl) && !_hasAuth) {
-        sb.write(' 提示：官方API已强制鉴权，请在弹幕设置中填写AppId/AppSecret，或使用代理/自建danmu_api。');
+        if (hasBuiltInDandanplayProxy) {
+          sb.write(' 提示：官方API已强制鉴权，请检查内置弹弹代理是否可用，或改用自建danmu_api。');
+        } else {
+          sb.write(
+              ' 提示：官方API已强制鉴权，请使用后端代理（如设置LINPLAYER_DANDANPLAY_PROXY_URL）或改用自建danmu_api。');
+        }
       } else if (resp.headers['x-error-message'] == 'Invalid Timestamp') {
         sb.write(' 提示：请检查系统时间是否准确。');
       } else if (!isOfficialDandanplayUrl(baseUrl)) {
@@ -783,15 +775,11 @@ Future<List<DandanplaySearchCandidate>> searchOnlineDanmakuCandidates({
 
     final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
       inputBaseUrl: inputBaseUrl,
-      appId: appId,
-      appSecret: appSecret,
     );
     if (baseUrl.isEmpty) continue;
 
     final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
       inputBaseUrl: inputBaseUrl,
-      appId: appId,
-      appSecret: appSecret,
     );
     final effectiveAppId = useBuiltInProxy ? '' : appId;
     final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;
@@ -851,15 +839,11 @@ Future<DanmakuSource?> loadOnlineDanmakuByEpisodeId({
 
   final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
     inputBaseUrl: apiUrl,
-    appId: appId,
-    appSecret: appSecret,
   );
   if (baseUrl.isEmpty) return null;
 
   final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
     inputBaseUrl: apiUrl,
-    appId: appId,
-    appSecret: appSecret,
   );
   final effectiveAppId = useBuiltInProxy ? '' : appId;
   final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;
@@ -927,15 +911,11 @@ Future<List<DanmakuSource>> loadOnlineDanmakuSources({
     if (inputBaseUrl.isEmpty) continue;
     final baseUrl = resolveEffectiveDanmakuApiBaseUrl(
       inputBaseUrl: inputBaseUrl,
-      appId: appId,
-      appSecret: appSecret,
     );
     if (baseUrl.isEmpty) continue;
 
     final useBuiltInProxy = shouldUseBuiltInProxyForOfficialUrl(
       inputBaseUrl: inputBaseUrl,
-      appId: appId,
-      appSecret: appSecret,
     );
     final effectiveAppId = useBuiltInProxy ? '' : appId;
     final effectiveAppSecret = useBuiltInProxy ? '' : appSecret;

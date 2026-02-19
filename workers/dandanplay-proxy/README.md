@@ -6,7 +6,7 @@ This Worker keeps `AppSecret` on server-side and signs requests for DandanPlay.
 
 - Do not expose `AppSecret` inside client apps.
 - Keep LinPlayer default source as official `https://api.dandanplay.net`.
-- Internally reroute official requests to this Worker when user credentials are empty.
+- Internally reroute official requests to this Worker (client does not store AppSecret).
 
 This Worker only proxies DandanPlay requests. Other danmaku servers (for example
 `danmu_api` and `misaka_danmu_server`) should still be called directly by client.
@@ -128,8 +128,7 @@ flutter build <platform> --dart-define=LINPLAYER_DANDANPLAY_PROXY_URL=https://<w
 
 Behavior:
 
-- Official source + empty credentials: routed to Worker internally
-- Official source + user credentials: direct official call
+- Official source: routed to Worker internally
 - Non-official source: direct call
 
 ## Multi-secret load balancing

@@ -1,10 +1,7 @@
-import 'dart:async';
-
 import 'package:flutter/material.dart';
 import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
-import 'package:url_launcher/url_launcher_string.dart';
 
 class DanmakuSettingsPage extends StatefulWidget {
   const DanmakuSettingsPage({super.key, required this.appState});
@@ -16,7 +13,6 @@ class DanmakuSettingsPage extends StatefulWidget {
 }
 
 class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
-  static const _openPlatformUrl = 'https://doc.dandanplay.com/open/';
   static const double _baseDanmakuFontSize = 18.0;
   static const int _fontSizeMin = 9;
   static const int _fontSizeMax = 29;
@@ -40,12 +36,7 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
   }
 
   final TextEditingController _apiUrlCtrl = TextEditingController();
-  final TextEditingController _appIdCtrl = TextEditingController();
-  final TextEditingController _appSecretCtrl = TextEditingController();
   final TextEditingController _blockWordsCtrl = TextEditingController();
-
-  Timer? _credDebounce;
-  bool _showSecret = false;
 
   double? _opacityDraft;
   double? _scaleDraft;
@@ -57,18 +48,8 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
   bool _isTv(BuildContext context) => DeviceType.isTv;
 
   @override
-  void initState() {
-    super.initState();
-    _appIdCtrl.text = widget.appState.danmakuAppId;
-    _appSecretCtrl.text = widget.appState.danmakuAppSecret;
-  }
-
-  @override
   void dispose() {
-    _credDebounce?.cancel();
     _apiUrlCtrl.dispose();
-    _appIdCtrl.dispose();
-    _appSecretCtrl.dispose();
     _blockWordsCtrl.dispose();
     super.dispose();
   }
@@ -92,14 +73,6 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
       activeTickMarkColor: cs.primary.withValues(alpha: 0.75),
       inactiveTickMarkColor: cs.onSurface.withValues(alpha: 0.25),
     );
-  }
-
-  void _scheduleSaveCreds() {
-    _credDebounce?.cancel();
-    _credDebounce = Timer(const Duration(milliseconds: 500), () {
-      widget.appState.setDanmakuAppId(_appIdCtrl.text);
-      widget.appState.setDanmakuAppSecret(_appSecretCtrl.text);
-    });
   }
 
   Future<void> _addApiUrl() async {
@@ -538,6 +511,18 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                         ),
                       ],
                     ),
+                    const SizedBox(height: 8),
+                    Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '提示：官方 api.dandanplay.net 需要后端签名鉴权，请使用签名代理或自建弹幕源。',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: Theme.of(context)
+                                  .colorScheme
+                                  .onSurfaceVariant,
+                            ),
+                      ),
+                    ),
                     const SizedBox(height: 10),
                     if (appState.danmakuApiUrls.isEmpty)
                       const Padding(
@@ -576,50 +561,6 @@ class _DanmakuSettingsPageState extends State<DanmakuSettingsPage> {
                           );
                         },
                       ),
-                    const Divider(height: 16),
-                    ListTile(
-                      contentPadding: EdgeInsets.zero,
-                      leading: const Icon(Icons.vpn_key_outlined),
-                      title: const Text('弹弹play 开放平台凭证（可选）'),
-                      subtitle: const Text('使用官方源时通常需要配置 AppId/AppSecret'),
-                      trailing: TextButton(
-                        onPressed: () async {
-                          final ok = await launchUrlString(_openPlatformUrl);
-                          if (!ok && context.mounted) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('无法打开链接')),
-                            );
-                          }
-                        },
-                        child: const Text('说明'),
-                      ),
-                    ),
-                    TextField(
-                      controller: _appIdCtrl,
-                      decoration: const InputDecoration(
-                        labelText: 'AppId',
-                      ),
-                      onChanged: (_) => _scheduleSaveCreds(),
-                    ),
-                    const SizedBox(height: 8),
-                    TextField(
-                      controller: _appSecretCtrl,
-                      decoration: InputDecoration(
-                        labelText: 'AppSecret',
-                        suffixIcon: IconButton(
-                          tooltip: _showSecret ? '隐藏' : '显示',
-                          icon: Icon(
-                            _showSecret
-                                ? Icons.visibility_off_outlined
-                                : Icons.visibility_outlined,
-                          ),
-                          onPressed: () =>
-                              setState(() => _showSecret = !_showSecret),
-                        ),
-                      ),
-                      obscureText: !_showSecret,
-                      onChanged: (_) => _scheduleSaveCreds(),
-                    ),
                   ],
                 ),
               ),

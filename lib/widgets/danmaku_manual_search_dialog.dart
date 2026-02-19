@@ -4,8 +4,8 @@ import 'package:lin_player_player/lin_player_player.dart';
 Future<DandanplaySearchCandidate?> showDanmakuManualSearchDialog({
   required BuildContext context,
   required List<String> apiUrls,
-  required String appId,
-  required String appSecret,
+  String appId = '',
+  String appSecret = '',
   required String initialKeyword,
   int? initialEpisodeHint,
 }) async {
@@ -49,7 +49,8 @@ Future<DandanplaySearchCandidate?> showDanmakuManualSearchDialog({
       final results = await searchOnlineDanmakuCandidates(
         apiUrls: apiUrls,
         keyword: keyword,
-        episodeHint: (episodeHint != null && episodeHint > 0) ? episodeHint : null,
+        episodeHint:
+            (episodeHint != null && episodeHint > 0) ? episodeHint : null,
         appId: appId,
         appSecret: appSecret,
       );
@@ -158,7 +159,8 @@ Future<DandanplaySearchCandidate?> showDanmakuManualSearchDialog({
                         ? const Center(child: Text('无可选条目'))
                         : ListView.separated(
                             itemCount: candidates.length,
-                            separatorBuilder: (_, __) => const Divider(height: 1),
+                            separatorBuilder: (_, __) =>
+                                const Divider(height: 1),
                             itemBuilder: (context, index) {
                               final c = candidates[index];
                               final title =
@@ -170,7 +172,9 @@ Future<DandanplaySearchCandidate?> showDanmakuManualSearchDialog({
                               return ListTile(
                                 dense: true,
                                 title: Text(
-                                  title.isEmpty ? 'episodeId=${c.episodeId}' : title,
+                                  title.isEmpty
+                                      ? 'episodeId=${c.episodeId}'
+                                      : title,
                                   maxLines: 1,
                                   overflow: TextOverflow.ellipsis,
                                 ),

@@ -1202,8 +1202,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         matchMode: appState.danmakuMatchMode,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
         throwIfEmpty: showToast,
       );
       if (!mounted) return;
@@ -1281,8 +1279,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     final candidate = await showDanmakuManualSearchDialog(
       context: context,
       apiUrls: appState.danmakuApiUrls,
-      appId: appState.danmakuAppId,
-      appSecret: appState.danmakuAppSecret,
       initialKeyword: hint.keyword.isEmpty ? fallbackKeyword : hint.keyword,
       initialEpisodeHint: null,
     );
@@ -1297,8 +1293,6 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         title: title,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
       );
       if (!mounted) return;
       if (source == null) {

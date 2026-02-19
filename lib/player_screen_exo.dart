@@ -436,8 +436,6 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
         matchMode: appState.danmakuMatchMode,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
         throwIfEmpty: showToast,
       );
       if (!mounted) return;
@@ -511,8 +509,6 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
     final candidate = await showDanmakuManualSearchDialog(
       context: context,
       apiUrls: appState.danmakuApiUrls,
-      appId: appState.danmakuAppId,
-      appSecret: appState.danmakuAppSecret,
       initialKeyword: hint.keyword.isEmpty ? fallbackKeyword : hint.keyword,
       initialEpisodeHint: null,
     );
@@ -527,8 +523,6 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
         title: title,
         chConvert: appState.danmakuChConvert,
         mergeRelated: appState.danmakuMergeRelated,
-        appId: appState.danmakuAppId,
-        appSecret: appState.danmakuAppSecret,
       );
       if (!mounted) return;
       if (source == null) {
@@ -566,7 +560,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
       if (!mounted) return;
 
       if (showToast) {
-        final displayTitle = title.isEmpty ? 'episodeId=${candidate.episodeId}' : title;
+        final displayTitle =
+            title.isEmpty ? 'episodeId=${candidate.episodeId}' : title;
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(content: Text('已手动匹配并加载弹幕：$displayTitle')),
         );
@@ -1411,7 +1406,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
     } catch (_) {}
   }
 
-  Future<void> _maybeAutoSelectSubtitleTrack(VideoPlayerController controller) async {
+  Future<void> _maybeAutoSelectSubtitleTrack(
+      VideoPlayerController controller) async {
     if (!_isAndroid) return;
 
     final prefRaw = widget.appState.preferredSubtitleLang.trim();
@@ -1433,7 +1429,8 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
     late final List<vp_android.ExoPlayerSubtitleTrackData> tracks;
     try {
       final data = await api.getSubtitleTracks();
-      tracks = data.exoPlayerTracks ?? const <vp_android.ExoPlayerSubtitleTrackData>[];
+      tracks = data.exoPlayerTracks ??
+          const <vp_android.ExoPlayerSubtitleTrackData>[];
     } catch (_) {
       return;
     }
@@ -1441,8 +1438,7 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
     if (tracks.isEmpty) return;
     if (tracks.any((t) => t.isSelected)) return;
 
-    final isDefaultPref =
-        prefRaw.isEmpty || prefRaw.toLowerCase() == 'default';
+    final isDefaultPref = prefRaw.isEmpty || prefRaw.toLowerCase() == 'default';
     final primaryPref = isDefaultPref ? 'zhs' : prefRaw;
 
     vp_android.ExoPlayerSubtitleTrackData? picked;
