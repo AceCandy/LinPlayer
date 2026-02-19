@@ -12,7 +12,7 @@
 ## 稳定版（latest）
 
 - Release：[`latest`](https://github.com/zzzwannasleep/LinPlayer/releases/tag/latest)
-- 版本：`0.9.1+66`
+- 版本：`0.9.2+67`
 - 发布时间（UTC）：`2026-01-15 09:28:17 UTC`
 
 | 平台 | 直链 | 反代 |
