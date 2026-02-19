@@ -65,14 +65,12 @@ class ServerIconLibrary {
       throw FormatException('Only http/https is supported: $url');
     }
 
-    final response = await _client
-        .get(
-          uri,
-          headers: const {
-            'Accept': 'application/json,text/plain,*/*',
-          },
-        )
-        .timeout(timeout, onTimeout: () {
+    final response = await _client.get(
+      uri,
+      headers: const {
+        'Accept': 'application/json,text/plain,*/*',
+      },
+    ).timeout(timeout, onTimeout: () {
       throw TimeoutException('Timeout fetching $url');
     });
 
@@ -84,24 +82,63 @@ class ServerIconLibrary {
     }
 
     final decoded = jsonDecode(response.body);
-    return _parseDecoded(decoded, fallbackName: uri.host.isEmpty ? url : uri.host);
+    return _parseDecoded(decoded,
+        fallbackName: uri.host.isEmpty ? url : uri.host);
   }
 
   factory ServerIconLibrary.fromJson(Map<String, dynamic> json) {
-    final icons = (json['icons'] as List?)
-            ?.whereType<Map>()
-            .map((e) => ServerIconEntry.fromJson(
-                  e.map((k, v) => MapEntry(k.toString(), v)),
-                ))
-            .where((e) => e.name.trim().isNotEmpty && e.url.trim().isNotEmpty)
-            .toList() ??
-        const <ServerIconEntry>[];
+    final name = (json['name'] ?? json['title'] ?? '').toString();
+    final description = (json['description'] ?? json['desc'] ?? '').toString();
+
+    final iconsRaw = _extractIconsRaw(json);
+    final icons = _parseIconsRawList(iconsRaw);
 
     return ServerIconLibrary(
-      name: json['name'] as String? ?? '',
-      description: json['description'] as String? ?? '',
+      name: name,
+      description: description,
       icons: icons,
     );
+  }
+
+  static Object? _extractIconsRaw(Map<String, dynamic> json) {
+    const keys = ['icons', 'data', 'list', 'items', 'result'];
+    for (final key in keys) {
+      final v = json[key];
+      if (v is List) return v;
+      if (v is Map) {
+        final map = v.map((k, v) => MapEntry(k.toString(), v));
+        for (final nestedKey in keys) {
+          final nested = map[nestedKey];
+          if (nested is List) return nested;
+        }
+      }
+    }
+    return null;
+  }
+
+  static List<ServerIconEntry> _parseIconsRawList(Object? raw) {
+    if (raw is! List) return const <ServerIconEntry>[];
+
+    final icons = <ServerIconEntry>[];
+    for (final item in raw) {
+      if (item is String) {
+        final url = item.trim();
+        if (url.isEmpty) continue;
+        final name = ServerIconEntry.deriveNameFromUrl(url);
+        if (name.isEmpty) continue;
+        icons.add(ServerIconEntry(name: name, url: url));
+        continue;
+      }
+
+      if (item is Map) {
+        final entry = ServerIconEntry.fromJson(
+          item.map((k, v) => MapEntry(k.toString(), v)),
+        );
+        if (entry.name.trim().isEmpty || entry.url.trim().isEmpty) continue;
+        icons.add(entry);
+      }
+    }
+    return icons;
   }
 
   static ServerIconLibrary _parseDecoded(
@@ -109,8 +146,13 @@ class ServerIconLibrary {
     required String fallbackName,
   }) {
     if (decoded is Map) {
-      return ServerIconLibrary.fromJson(
-        decoded.map((k, v) => MapEntry(k.toString(), v)),
+      final map = decoded.map((k, v) => MapEntry(k.toString(), v));
+      final parsed = ServerIconLibrary.fromJson(map);
+      if (parsed.name.trim().isNotEmpty) return parsed;
+      return ServerIconLibrary(
+        name: fallbackName,
+        description: parsed.description,
+        icons: parsed.icons,
       );
     }
     if (decoded is List) {
@@ -184,9 +226,35 @@ class ServerIconEntry {
   final String name;
   final String url;
 
-  factory ServerIconEntry.fromJson(Map<String, dynamic> json) =>
-      ServerIconEntry(
-        name: json['name'] as String? ?? '',
-        url: json['url'] as String? ?? '',
-      );
+  factory ServerIconEntry.fromJson(Map<String, dynamic> json) {
+    final name =
+        (json['name'] ?? json['title'] ?? json['label'] ?? json['text'] ?? '')
+            .toString();
+    final url = (json['url'] ??
+            json['icon'] ??
+            json['image'] ??
+            json['img'] ??
+            json['src'] ??
+            json['href'] ??
+            '')
+        .toString();
+    final fixedUrl = url.trim();
+    final fixedName = name.trim().isNotEmpty
+        ? name
+        : (fixedUrl.isEmpty ? '' : deriveNameFromUrl(fixedUrl));
+    return ServerIconEntry(name: fixedName, url: fixedUrl);
+  }
+
+  static String deriveNameFromUrl(String url) {
+    final raw = url.trim();
+    if (raw.isEmpty) return '';
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return raw;
+    if (uri.pathSegments.isNotEmpty) {
+      final last = uri.pathSegments.last.trim();
+      if (last.isNotEmpty) return last;
+    }
+    if (uri.host.trim().isNotEmpty) return uri.host.trim();
+    return raw;
+  }
 }

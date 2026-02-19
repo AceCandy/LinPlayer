@@ -7,6 +7,7 @@ import 'package:lin_player_core/state/media_server_type.dart';
 import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
+import 'package:lin_player_ui/lin_player_ui.dart';
 
 import '../server_adapters/server_access.dart';
 import '../play_network_page.dart';
@@ -275,6 +276,32 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
           ),
           actions: [
             TextButton(
+              onPressed: () async {
+                final pickedUrl = await showModalBottomSheet<String?>(
+                  context: context,
+                  isScrollControlled: true,
+                  showDragHandle: true,
+                  builder: (ctx) => ServerIconLibrarySheet(
+                    urlsListenable: widget.appState,
+                    getLibraryUrls: () => widget.appState.serverIconLibraryUrls,
+                    addLibraryUrl: widget.appState.addServerIconLibraryUrl,
+                    removeLibraryUrlAt:
+                        widget.appState.removeServerIconLibraryUrlAt,
+                    reorderLibraryUrls:
+                        widget.appState.reorderServerIconLibraryUrls,
+                    selectedUrl: iconCtrl.text,
+                  ),
+                );
+                if (pickedUrl == null) return;
+                final next = pickedUrl.trim();
+                iconCtrl.value = iconCtrl.value.copyWith(
+                  text: next,
+                  selection: TextSelection.collapsed(offset: next.length),
+                );
+              },
+              child: Text(_uiLanguage.pick(zh: '图标库', en: 'Library')),
+            ),
+            TextButton(
               onPressed: iconCtrl.clear,
               child: Text(_uiLanguage.pick(zh: '清空', en: 'Clear')),
             ),
@@ -358,12 +385,12 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         return StatefulBuilder(
           builder: (context, setDialogState) {
             return AlertDialog(
-                title: Text(
-                  _uiLanguage.pick(
-                    zh: '修改密码',
-                    en: 'Edit password',
-                  ),
+              title: Text(
+                _uiLanguage.pick(
+                  zh: '修改密码',
+                  en: 'Edit password',
                 ),
+              ),
               content: Column(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -382,8 +409,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                     decoration: InputDecoration(
                       labelText: secretLabel,
                       suffixIcon: IconButton(
-                        tooltip:
-                            _uiLanguage.pick(zh: '显示/隐藏', en: 'Show/Hide'),
+                        tooltip: _uiLanguage.pick(zh: '显示/隐藏', en: 'Show/Hide'),
                         onPressed: () =>
                             setDialogState(() => obscure = !obscure),
                         icon: Icon(

@@ -195,6 +195,9 @@ class AppState extends ChangeNotifier {
   static const _kServerContinueWatchingCachePrefix =
       'serverContinueWatchingCache_v1:';
 
+  static const String _kDefaultServerIconLibraryUrl =
+      'https://juhe.greentea520.xyz/share/78aspf.json';
+
   // Interaction & gestures (shared by MPV/Exo).
   static const _kGestureBrightnessKey = 'gestureBrightness_v1';
   static const _kGestureVolumeKey = 'gestureVolume_v1';
@@ -273,7 +276,7 @@ class AppState extends ChangeNotifier {
   bool _danmakuEnabled = true;
   DanmakuLoadMode _danmakuLoadMode = DanmakuLoadMode.online;
   List<String> _danmakuApiUrls = ['https://api.dandanplay.net'];
-  List<String> _serverIconLibraryUrls = const [];
+  List<String> _serverIconLibraryUrls = const [_kDefaultServerIconLibraryUrl];
   String _danmakuAppId = '';
   String _danmakuAppSecret = '';
   double _danmakuOpacity = 1.0;
@@ -953,7 +956,8 @@ class AppState extends ChangeNotifier {
     _danmakuSpeed =
         (prefs.getDouble(_kDanmakuSpeedKey) ?? 1.0).clamp(0.1, 3.0).toDouble();
     _danmakuBold = prefs.getBool(_kDanmakuBoldKey) ?? true;
-    _danmakuMaxLines = (prefs.getInt(_kDanmakuMaxLinesKey) ?? 30).clamp(10, 200);
+    _danmakuMaxLines =
+        (prefs.getInt(_kDanmakuMaxLinesKey) ?? 30).clamp(10, 200);
     _danmakuTopMaxLines =
         (prefs.getInt(_kDanmakuTopMaxLinesKey) ?? 30).clamp(10, 200);
     _danmakuBottomMaxLines =
@@ -1858,14 +1862,10 @@ class AppState extends ChangeNotifier {
       await prefs.setString(_kAnime4kPresetKey, _anime4kPreset.id);
     }
 
-    if (_serverIconLibraryUrls.isEmpty) {
-      await prefs.remove(_kServerIconLibraryUrlsKey);
-    } else {
-      await prefs.setStringList(
-        _kServerIconLibraryUrlsKey,
-        _serverIconLibraryUrls,
-      );
-    }
+    await prefs.setStringList(
+      _kServerIconLibraryUrlsKey,
+      _serverIconLibraryUrls,
+    );
 
     await prefs.setBool(_kDanmakuEnabledKey, _danmakuEnabled);
     await prefs.setString(_kDanmakuLoadModeKey, _danmakuLoadMode.id);
@@ -3585,11 +3585,7 @@ class AppState extends ChangeNotifier {
         .toList(growable: false);
     _serverIconLibraryUrls = normalized;
     final prefs = await SharedPreferences.getInstance();
-    if (normalized.isEmpty) {
-      await prefs.remove(_kServerIconLibraryUrlsKey);
-    } else {
-      await prefs.setStringList(_kServerIconLibraryUrlsKey, normalized);
-    }
+    await prefs.setStringList(_kServerIconLibraryUrlsKey, normalized);
     notifyListeners();
   }
 
