@@ -17,7 +17,8 @@ export default defineConfig({
 
   head: [
     ['meta', { name: 'theme-color', content: '#02569B' }],
-    ['link', { rel: 'icon', href: '/favicon.svg' }],
+    ['link', { rel: 'icon', type: 'image/jpeg', href: '/app_icon.jpg' }],
+    ['link', { rel: 'apple-touch-icon', href: '/app_icon.jpg' }],
   ],
 
   themeConfig: {
