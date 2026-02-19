@@ -2433,6 +2433,7 @@ class AppState extends ChangeNotifier {
     final server = _servers.firstWhereOrNull((s) => s.id == serverId);
     if (server == null) return;
 
+    final previousUrl = server.baseUrl.trim();
     final raw = url.trim();
     if (raw.isEmpty) {
       throw const FormatException('Missing route url');
@@ -2443,6 +2444,63 @@ class AppState extends ChangeNotifier {
         : _normalizeServerBaseUrl(_normalizeUrl(raw, defaultScheme: 'https'));
     if (!_isValidHttpUrl(fixedUrl)) {
       throw FormatException('Invalid route url: $raw');
+    }
+
+    final normalizedFixedUrl = fixedUrl.trim();
+    final normalizedPreviousUrl = server.serverType == MediaServerType.webdav
+        ? (() {
+            try {
+              return WebDavApi.normalizeBaseUri(previousUrl).toString().trim();
+            } catch (_) {
+              return previousUrl;
+            }
+          })()
+        : _normalizeServerBaseUrl(
+            _normalizeUrl(previousUrl, defaultScheme: 'https'),
+          ).trim();
+    final isSwitchingToCustomRoute = server.customDomains.any((d) {
+      final candidate = d.url.trim();
+      if (candidate.isEmpty) return false;
+      final normalized = server.serverType == MediaServerType.webdav
+          ? (() {
+              try {
+                return WebDavApi.normalizeBaseUri(candidate).toString().trim();
+              } catch (_) {
+                return candidate;
+              }
+            })()
+          : _normalizeServerBaseUrl(
+              _normalizeUrl(candidate, defaultScheme: 'https'),
+            ).trim();
+      return normalized == normalizedFixedUrl;
+    });
+    if (isSwitchingToCustomRoute &&
+        normalizedPreviousUrl.isNotEmpty &&
+        normalizedPreviousUrl != normalizedFixedUrl &&
+        _isValidHttpUrl(normalizedPreviousUrl)) {
+      final alreadyCustom = server.customDomains.any((d) {
+        final candidate = d.url.trim();
+        if (candidate.isEmpty) return false;
+        final normalized = server.serverType == MediaServerType.webdav
+            ? (() {
+                try {
+                  return WebDavApi.normalizeBaseUri(candidate)
+                      .toString()
+                      .trim();
+                } catch (_) {
+                  return candidate;
+                }
+              })()
+            : _normalizeServerBaseUrl(
+                _normalizeUrl(candidate, defaultScheme: 'https'),
+              ).trim();
+        return normalized == normalizedPreviousUrl;
+      });
+      if (!alreadyCustom) {
+        server.customDomains.add(
+          CustomDomain(name: normalizedPreviousUrl, url: normalizedPreviousUrl),
+        );
+      }
     }
 
     server.baseUrl = fixedUrl;

@@ -4,6 +4,7 @@ import 'dart:math' as math;
 import 'dart:ui';
 
 import 'package:crypto/crypto.dart';
+import 'package:desktop_drop/desktop_drop.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/foundation.dart' show kIsWeb, defaultTargetPlatform;
 import 'package:flutter/material.dart';
@@ -41,6 +42,28 @@ class _PlayerScreenState extends State<PlayerScreen>
   MediaKitThumbnailGenerator? _thumbnailer;
   final List<PlatformFile> _playlist = [];
   int _currentlyPlayingIndex = -1;
+  bool _localDragging = false;
+  bool _localScanning = false;
+  String? _localFolderPath;
+  List<String> _localFolderVideos = const [];
+  String? _localFolderScanError;
+
+  static const Set<String> _kLocalVideoExtensions = <String>{
+    '3gp',
+    'avi',
+    'flv',
+    'm2ts',
+    'm4v',
+    'mkv',
+    'mov',
+    'mp4',
+    'mpeg',
+    'mpg',
+    'mts',
+    'ts',
+    'webm',
+    'wmv',
+  };
   StreamSubscription<Duration>? _posSub;
   StreamSubscription<String>? _errorSub;
   StreamSubscription<VideoParams>? _videoParamsSub;
@@ -415,12 +438,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     _applyDanmakuPauseState(true);
   }
 
-  bool get _isDesktopCinematicMode =>
+  bool get _isDesktopPlatform =>
       !kIsWeb &&
-      !_fullScreen &&
       (defaultTargetPlatform == TargetPlatform.windows ||
           defaultTargetPlatform == TargetPlatform.macOS ||
           defaultTargetPlatform == TargetPlatform.linux);
+
+  bool get _isDesktopCinematicMode => _isDesktopPlatform && !_fullScreen;
 
   Duration get _activeControlsAutoHideDelay => _isDesktopCinematicMode
       ? _desktopControlsAutoHideDelay
@@ -1017,11 +1041,177 @@ class _PlayerScreenState extends State<PlayerScreen>
       allowMultiple: true,
       withData: kIsWeb,
     );
-    if (result != null) {
-      setState(() => _playlist.addAll(result.files));
-      if (_currentlyPlayingIndex == -1 && _playlist.isNotEmpty) {
-        _playFile(_playlist.first, 0);
+    if (result == null || result.files.isEmpty) return;
+
+    // In local playback, a single picked file usually implies a series folder.
+    // Auto-detect siblings in the same directory to populate the episode list.
+    final firstPath = (result.files.first.path ?? '').trim();
+    if (!kIsWeb &&
+        _isDesktopPlatform &&
+        _playlist.isEmpty &&
+        result.files.length == 1 &&
+        firstPath.isNotEmpty) {
+      await _openLocalVideoFromPath(firstPath);
+      return;
+    }
+
+    setState(() => _playlist.addAll(result.files));
+    if (_currentlyPlayingIndex == -1 && _playlist.isNotEmpty) {
+      _playFile(_playlist.first, 0);
+    }
+  }
+
+  static String _basename(String path) {
+    final normalized = path.replaceAll('/', Platform.pathSeparator);
+    final idx = normalized.lastIndexOf(Platform.pathSeparator);
+    return idx < 0 ? normalized : normalized.substring(idx + 1);
+  }
+
+  static bool _isVideoPath(String path) {
+    final dot = path.lastIndexOf('.');
+    if (dot < 0 || dot == path.length - 1) return false;
+    final ext = path.substring(dot + 1).toLowerCase();
+    return _kLocalVideoExtensions.contains(ext);
+  }
+
+  static bool _samePath(String a, String b) {
+    final pa = a.trim();
+    final pb = b.trim();
+    if (Platform.isWindows) {
+      return pa.toLowerCase() == pb.toLowerCase();
+    }
+    return pa == pb;
+  }
+
+  static int _compareNatural(String a, String b) {
+    final ra = RegExp(r'(\d+)|(\D+)');
+    final aa = ra.allMatches(a).map((m) => m.group(0)!).toList();
+    final bb = ra.allMatches(b).map((m) => m.group(0)!).toList();
+    final len = math.min(aa.length, bb.length);
+    for (var i = 0; i < len; i++) {
+      final x = aa[i];
+      final y = bb[i];
+      final nx = int.tryParse(x);
+      final ny = int.tryParse(y);
+      if (nx != null && ny != null) {
+        final byNum = nx.compareTo(ny);
+        if (byNum != 0) return byNum;
+        final byLen = x.length.compareTo(y.length);
+        if (byLen != 0) return byLen;
+        continue;
       }
+      final byStr = x.toLowerCase().compareTo(y.toLowerCase());
+      if (byStr != 0) return byStr;
+    }
+    return aa.length.compareTo(bb.length);
+  }
+
+  List<String> _scanVideoFilesInFolder(String folderPath) {
+    final dir = Directory(folderPath);
+    if (!dir.existsSync()) return const <String>[];
+    final out = <String>[];
+    for (final entity in dir.listSync(followLinks: false)) {
+      if (entity is! File) continue;
+      final path = entity.path;
+      if (!_isVideoPath(path)) continue;
+      out.add(path);
+    }
+    out.sort(
+      (a, b) => _compareNatural(
+        _basename(a).toLowerCase(),
+        _basename(b).toLowerCase(),
+      ),
+    );
+    return out;
+  }
+
+  Future<void> _setLocalFolder(String folderPath) async {
+    final path = folderPath.trim();
+    if (path.isEmpty) return;
+    setState(() {
+      _localScanning = true;
+      _localFolderPath = path;
+      _localFolderVideos = const <String>[];
+      _localFolderScanError = null;
+    });
+    try {
+      final videos = _scanVideoFilesInFolder(path);
+      if (!mounted) return;
+      setState(() {
+        _localFolderVideos = videos;
+        _localScanning = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _localFolderScanError = e.toString();
+        _localScanning = false;
+      });
+    }
+  }
+
+  Future<void> _pickLocalFolder() async {
+    final dir = await FilePicker.platform.getDirectoryPath();
+    if (dir == null || dir.trim().isEmpty) return;
+    await _setLocalFolder(dir);
+  }
+
+  Future<void> _pickAndOpenLocalVideo() async {
+    final result = await FilePicker.platform.pickFiles(
+      type: FileType.video,
+      allowMultiple: false,
+      withData: kIsWeb,
+    );
+    if (result == null || result.files.isEmpty) return;
+    final path = (result.files.first.path ?? '').trim();
+    if (path.isEmpty) return;
+    await _openLocalVideoFromPath(path);
+  }
+
+  Future<void> _openLocalVideoFromPath(String rawPath) async {
+    final path = rawPath.trim();
+    if (path.isEmpty) return;
+    final messenger = ScaffoldMessenger.of(context);
+    try {
+      final type = FileSystemEntity.typeSync(path);
+      if (type == FileSystemEntityType.directory) {
+        await _setLocalFolder(path);
+        return;
+      }
+      if (type != FileSystemEntityType.file) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('无法打开：文件不存在')),
+        );
+        return;
+      }
+      final folder = File(path).parent.path;
+      final siblings = _scanVideoFilesInFolder(folder);
+      final playlistPaths = siblings.isEmpty ? <String>[path] : siblings;
+      final files = playlistPaths.map((p) {
+        var size = 0;
+        try {
+          size = File(p).lengthSync();
+        } catch (_) {}
+        return PlatformFile(
+          name: _basename(p),
+          size: size < 0 ? 0 : size,
+          path: p,
+        );
+      }).toList();
+      final idx = playlistPaths.indexWhere((p) => _samePath(p, path));
+      if (!mounted) return;
+      setState(() {
+        _playlist
+          ..clear()
+          ..addAll(files);
+        _localFolderPath = folder;
+        _localFolderVideos = siblings;
+        _localFolderScanError = null;
+      });
+      final targetIndex = idx < 0 ? 0 : idx;
+      unawaited(_playFile(files[targetIndex], targetIndex));
+    } catch (e) {
+      messenger.showSnackBar(SnackBar(content: Text('打开失败：$e')));
     }
   }
 
@@ -2722,12 +2912,173 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Widget _buildDesktopLocalPicker(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final scheme = Theme.of(context).colorScheme;
+    final borderColor = _localDragging
+        ? scheme.primary.withValues(alpha: 0.9)
+        : Colors.white.withValues(alpha: 0.22);
+    final borderWidth = _localDragging ? 1.6 : 1.0;
+    final panelBg = Colors.black.withValues(alpha: 0.56);
+
+    Widget folderBlock() {
+      final folder = (_localFolderPath ?? '').trim();
+      if (folder.isEmpty && !_localScanning) return const SizedBox.shrink();
+      final title = folder.isEmpty ? '文件夹' : '文件夹：$folder';
+      return Padding(
+        padding: const EdgeInsets.only(top: 14),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Text(
+              title,
+              style: textTheme.bodySmall?.copyWith(color: Colors.white70),
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            const SizedBox(height: 8),
+            if (_localScanning)
+              const Center(child: CircularProgressIndicator())
+            else if ((_localFolderScanError ?? '').trim().isNotEmpty)
+              Text(
+                _localFolderScanError!.trim(),
+                style: textTheme.bodySmall?.copyWith(color: Colors.redAccent),
+                maxLines: 3,
+                overflow: TextOverflow.ellipsis,
+              )
+            else if (_localFolderVideos.isEmpty)
+              Text(
+                '未找到视频文件',
+                style: textTheme.bodySmall?.copyWith(color: Colors.white60),
+              )
+            else
+              ConstrainedBox(
+                constraints: const BoxConstraints(maxHeight: 260),
+                child: Scrollbar(
+                  thumbVisibility: true,
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _localFolderVideos.length,
+                    separatorBuilder: (_, __) => Divider(
+                        height: 1, color: Colors.white.withValues(alpha: 0.12)),
+                    itemBuilder: (ctx, i) {
+                      final path = _localFolderVideos[i];
+                      return ListTile(
+                        dense: true,
+                        visualDensity: VisualDensity.compact,
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(
+                          Icons.video_file_outlined,
+                          color: Colors.white70,
+                          size: 18,
+                        ),
+                        title: Text(
+                          _basename(path),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: textTheme.bodyMedium
+                              ?.copyWith(color: Colors.white),
+                        ),
+                        onTap: () => unawaited(_openLocalVideoFromPath(path)),
+                      );
+                    },
+                  ),
+                ),
+              ),
+          ],
+        ),
+      );
+    }
+
+    final panel = AnimatedContainer(
+      duration: const Duration(milliseconds: 160),
+      curve: Curves.easeOut,
+      padding: const EdgeInsets.fromLTRB(18, 18, 18, 14),
+      decoration: BoxDecoration(
+        color: panelBg,
+        borderRadius: BorderRadius.circular(18),
+        border: Border.all(color: borderColor, width: borderWidth),
+      ),
+      child: DefaultTextStyle.merge(
+        style: textTheme.bodyMedium?.copyWith(color: Colors.white),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(
+              _localDragging ? Icons.file_download_outlined : Icons.folder_open,
+              size: 44,
+              color: Colors.white.withValues(alpha: 0.88),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              '拖放视频文件到这里即可打开',
+              style: textTheme.titleSmall?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w700,
+              ),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 6),
+            Text(
+              '会自动探测同目录视频并加入选集',
+              style: textTheme.bodySmall?.copyWith(color: Colors.white70),
+              textAlign: TextAlign.center,
+            ),
+            const SizedBox(height: 14),
+            Wrap(
+              alignment: WrapAlignment.center,
+              spacing: 10,
+              runSpacing: 10,
+              children: [
+                OutlinedButton.icon(
+                  onPressed: _pickLocalFolder,
+                  icon: const Icon(Icons.folder_outlined),
+                  label: const Text('选择文件夹'),
+                ),
+                FilledButton.icon(
+                  onPressed: _pickAndOpenLocalVideo,
+                  icon: const Icon(Icons.video_file_outlined),
+                  label: const Text('选择视频'),
+                ),
+              ],
+            ),
+            folderBlock(),
+          ],
+        ),
+      ),
+    );
+
+    final content = ConstrainedBox(
+      constraints: const BoxConstraints(maxWidth: 720),
+      child: panel,
+    );
+
+    if (!_isDesktopPlatform) return content;
+    return DropTarget(
+      onDragEntered: (_) {
+        if (!mounted) return;
+        setState(() => _localDragging = true);
+      },
+      onDragExited: (_) {
+        if (!mounted) return;
+        setState(() => _localDragging = false);
+      },
+      onDragDone: (detail) {
+        if (!mounted) return;
+        setState(() => _localDragging = false);
+        if (detail.files.isEmpty) return;
+        final path = detail.files.first.path;
+        unawaited(_openLocalVideoFromPath(path));
+      },
+      child: content,
+    );
+  }
+
   Widget _buildDesktopVideoSurface(
     BuildContext context, {
     required bool isDark,
     required String currentFileName,
   }) {
-    final textTheme = Theme.of(context).textTheme;
     final frameRadius = _desktopFullscreen ? 0.0 : 30.0;
     final panelColor =
         isDark ? const Color(0x99111113) : const Color(0xD9FFFFFF);
@@ -2882,14 +3233,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ),
                 ),
               ] else ...[
-                Center(
-                  child: Text(
-                    'Open a media file to start playback',
-                    style: textTheme.bodyMedium?.copyWith(
-                      color: Colors.white70,
-                    ),
-                  ),
-                ),
+                Center(child: _buildDesktopLocalPicker(context)),
               ],
               if (_gestureOverlayText != null)
                 Center(
@@ -3961,7 +4305,9 @@ class _PlayerScreenState extends State<PlayerScreen>
           leading: const Icon(Icons.layers_outlined),
           title: const Text('弹幕源'),
           subtitle: Text(
-            selectedSource == null ? '未选择' : _danmakuSources[selectedSource].name,
+            selectedSource == null
+                ? '未选择'
+                : _danmakuSources[selectedSource].name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),

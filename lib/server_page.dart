@@ -279,13 +279,13 @@ class _ServerPageState extends State<ServerPage> {
                                   padding: EdgeInsets.only(
                                       bottom:
                                           index == servers.length - 1 ? 0 : 10),
-                                   child: _ServerListTile(
-                                     server: server,
-                                     active: isActive,
-                                     autofocus: isTv && isActive,
-                                     onTap: loading
-                                         ? null
-                                         : () async {
+                                  child: _ServerListTile(
+                                    server: server,
+                                    active: isActive,
+                                    autofocus: isTv && isActive,
+                                    onTap: loading
+                                        ? null
+                                        : () async {
                                             if (server.serverType ==
                                                 MediaServerType.plex) {
                                               ScaffoldMessenger.of(context)
@@ -423,6 +423,7 @@ class _ServerCardState extends State<_ServerCard> {
       autofocus: widget.autofocus,
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
+      onSecondaryTap: widget.onLongPress,
       onFocusChange: (v) => setState(() => _focused = v),
       onHover: (v) => setState(() => _hovered = v),
       child: AnimatedContainer(
@@ -551,6 +552,7 @@ class _ServerListTileState extends State<_ServerListTile> {
       autofocus: widget.autofocus,
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
+      onSecondaryTap: widget.onLongPress,
       onFocusChange: (v) => setState(() => _focused = v),
       onHover: (v) => setState(() => _hovered = v),
       child: AnimatedContainer(

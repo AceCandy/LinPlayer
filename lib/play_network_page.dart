@@ -1912,11 +1912,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                 _rebuildDanmakuHeatmap();
                                 _syncDanmakuCursor(_lastPosition);
                               });
-                              if (widget.appState.danmakuRememberSelectedSource &&
+                              if (widget
+                                      .appState.danmakuRememberSelectedSource &&
                                   picked >= 0 &&
                                   picked < _danmakuSources.length) {
                                 // ignore: unawaited_futures
-                                widget.appState.setDanmakuLastSelectedSourceName(
+                                widget.appState
+                                    .setDanmakuLastSelectedSourceName(
                                   _danmakuSources[picked].name,
                                 );
                               }
@@ -2854,6 +2856,54 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
 
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
+    }
+
+    final pressed = HardwareKeyboard.instance.logicalKeysPressed;
+    final hasModifier = pressed.contains(LogicalKeyboardKey.controlLeft) ||
+        pressed.contains(LogicalKeyboardKey.controlRight) ||
+        pressed.contains(LogicalKeyboardKey.metaLeft) ||
+        pressed.contains(LogicalKeyboardKey.metaRight) ||
+        pressed.contains(LogicalKeyboardKey.altLeft) ||
+        pressed.contains(LogicalKeyboardKey.altRight);
+    if (hasModifier) return KeyEventResult.ignored;
+
+    if (key == LogicalKeyboardKey.keyF) {
+      _showControls(scheduleHide: false);
+      _toggleDesktopFullscreen();
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyR) {
+      _showControls(scheduleHide: false);
+      // ignore: unawaited_futures
+      unawaited(_showDesktopRouteSheet());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyV) {
+      _showControls(scheduleHide: false);
+      // ignore: unawaited_futures
+      unawaited(_showDesktopVersionSheet());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyA) {
+      _showControls(scheduleHide: false);
+      _showAudioTracks(context);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyS) {
+      _showControls(scheduleHide: false);
+      _showSubtitleTracks(context);
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyD) {
+      _showControls(scheduleHide: false);
+      // ignore: unawaited_futures
+      unawaited(_showDanmakuSheet());
+      return KeyEventResult.handled;
+    }
+    if (key == LogicalKeyboardKey.keyE) {
+      _showControls(scheduleHide: false);
+      _toggleDesktopPanel(_DesktopSidePanel.episode);
+      return KeyEventResult.handled;
     }
 
     if (key == LogicalKeyboardKey.arrowLeft) {
@@ -4768,6 +4818,154 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     );
   }
 
+  Future<void> _showDesktopVersionSheet() async {
+    if (!mounted) return;
+    _showControls(scheduleHide: false);
+    Future<List<Map<String, dynamic>>> sourcesFuture =
+        _ensureMediaSourcesLoaded();
+
+    await showModalBottomSheet<void>(
+      context: context,
+      showDragHandle: true,
+      isScrollControlled: true,
+      builder: (ctx) {
+        return SafeArea(
+          child: StatefulBuilder(
+            builder: (context, setSheetState) {
+              return SizedBox(
+                height: math.min(MediaQuery.sizeOf(context).height * 0.72, 620),
+                child: FutureBuilder<List<Map<String, dynamic>>>(
+                  future: sourcesFuture,
+                  builder: (context, snapshot) {
+                    final loading =
+                        snapshot.connectionState != ConnectionState.done;
+                    final sources =
+                        snapshot.data ?? const <Map<String, dynamic>>[];
+                    final errorText =
+                        snapshot.hasError ? snapshot.error.toString() : '';
+                    final sortedSources =
+                        List<Map<String, dynamic>>.from(sources)
+                          ..sort(_compareMediaSourcesByQuality);
+                    final current =
+                        (_mediaSourceId ?? _selectedMediaSourceId ?? '').trim();
+                    final isDark =
+                        Theme.of(context).brightness == Brightness.dark;
+
+                    return Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.fromLTRB(16, 6, 10, 6),
+                          child: Row(
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  '版本选择',
+                                  style:
+                                      Theme.of(context).textTheme.titleMedium,
+                                ),
+                              ),
+                              IconButton(
+                                tooltip: '刷新版本',
+                                onPressed: loading
+                                    ? null
+                                    : () {
+                                        setSheetState(() {
+                                          sourcesFuture =
+                                              _ensureMediaSourcesLoaded(
+                                            forceRefresh: true,
+                                          );
+                                        });
+                                      },
+                                icon: const Icon(Icons.refresh),
+                              ),
+                            ],
+                          ),
+                        ),
+                        const Divider(height: 1),
+                        if (loading)
+                          const Expanded(
+                            child: Center(child: CircularProgressIndicator()),
+                          )
+                        else if (errorText.trim().isNotEmpty &&
+                            sortedSources.isEmpty)
+                          Expanded(
+                            child: Center(
+                              child: Text(
+                                errorText.trim(),
+                                textAlign: TextAlign.center,
+                              ),
+                            ),
+                          )
+                        else if (sortedSources.isEmpty)
+                          const Expanded(
+                            child: Center(child: Text('当前视频暂无可切换版本')),
+                          )
+                        else
+                          Expanded(
+                            child: ListView.separated(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 12,
+                                vertical: 8,
+                              ),
+                              itemCount: sortedSources.length,
+                              separatorBuilder: (_, __) =>
+                                  const SizedBox(height: 6),
+                              itemBuilder: (context, index) {
+                                final ms = sortedSources[index];
+                                final sourceId =
+                                    (ms['Id']?.toString() ?? '').trim();
+                                final selected =
+                                    sourceId.isNotEmpty && sourceId == current;
+                                return ListTile(
+                                  dense: true,
+                                  shape: RoundedRectangleBorder(
+                                    borderRadius: BorderRadius.circular(12),
+                                  ),
+                                  tileColor: isDark
+                                      ? Colors.white.withValues(
+                                          alpha: selected ? 0.16 : 0.06,
+                                        )
+                                      : Colors.black.withValues(
+                                          alpha: selected ? 0.1 : 0.04,
+                                        ),
+                                  title: Text(
+                                    _mediaSourceTitle(ms),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  subtitle: Text(
+                                    _mediaSourceSubtitle(ms),
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                  ),
+                                  trailing: selected
+                                      ? const Icon(Icons.check_circle_rounded)
+                                      : null,
+                                  onTap: sourceId.isEmpty
+                                      ? null
+                                      : () async {
+                                          Navigator.of(ctx).pop();
+                                          await _switchMediaSourceById(
+                                            sourceId,
+                                            knownSources: sources,
+                                          );
+                                        },
+                                );
+                              },
+                            ),
+                          ),
+                      ],
+                    );
+                  },
+                ),
+              );
+            },
+          ),
+        );
+      },
+    );
+  }
+
   String _desktopEpisodeMark(
     MediaItem episode, {
     int fallbackSeason = 1,
@@ -4788,6 +4986,35 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final mark =
         'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
     return '第${season.toString().padLeft(2, '0')}季  $mark  $title';
+  }
+
+  String _desktopRouteTooltipText() {
+    final url = (_baseUrl ?? '').trim();
+    if (url.isEmpty) return '未连接线路';
+    final remark = (_playbackDomainRemark(url) ?? '').trim();
+    if (remark.isEmpty) return url;
+    return '$remark\n$url';
+  }
+
+  String _desktopVersionTooltipText() {
+    final currentId = (_mediaSourceId ?? _selectedMediaSourceId ?? '').trim();
+    if (currentId.isEmpty) return '版本：默认';
+    if (_availableMediaSources.isEmpty) return '版本：点击加载';
+
+    Map<String, dynamic>? current;
+    for (final ms in _availableMediaSources) {
+      final id = (ms['Id']?.toString() ?? '').trim();
+      if (id == currentId) {
+        current = ms;
+        break;
+      }
+    }
+    if (current == null) return '版本：点击加载';
+
+    final title = _mediaSourceTitle(current);
+    final subtitle = _mediaSourceSubtitle(current).trim();
+    if (subtitle.isEmpty) return '版本：$title';
+    return '版本：$title\n$subtitle';
   }
 
   String _desktopNetSpeedMbPerSecondLabel() {
@@ -5279,10 +5506,26 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                     icon: switchingRoute ? Icons.sync : Icons.route_outlined,
                     label: switchingRoute ? '切换中' : '切换线路',
                     active: switchingRoute,
+                    tooltip: _desktopRouteTooltipText(),
                     onTap: controlsEnabled
                         ? () {
                             // ignore: unawaited_futures
                             unawaited(_showDesktopRouteSheet());
+                          }
+                        : null,
+                  ),
+                  const SizedBox(width: 8),
+                  _desktopTopActionChip(
+                    context,
+                    isDark: isDark,
+                    icon: Icons.video_file_outlined,
+                    label: '版本',
+                    active: (_selectedMediaSourceId ?? '').trim().isNotEmpty,
+                    tooltip: _desktopVersionTooltipText(),
+                    onTap: controlsEnabled
+                        ? () {
+                            // ignore: unawaited_futures
+                            unawaited(_showDesktopVersionSheet());
                           }
                         : null,
                   ),
@@ -5348,6 +5591,8 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     required String label,
     required VoidCallback? onTap,
     bool active = false,
+    String? tooltip,
+    double? maxLabelWidth,
   }) {
     final fg = active
         ? (isDark ? Colors.white : Colors.black87)
@@ -5355,11 +5600,27 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final bg = active
         ? (isDark
             ? Colors.white.withValues(alpha: 0.22)
-            : Colors.black.withValues(alpha: 0.14))
+            : Colors.white.withValues(alpha: 0.9))
         : (isDark
             ? Colors.black.withValues(alpha: 0.56)
             : Colors.white.withValues(alpha: 0.9));
-    return Material(
+    final labelText = Text(
+      label,
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+      style: Theme.of(context).textTheme.labelMedium?.copyWith(
+            color: fg,
+            fontWeight: FontWeight.w600,
+          ),
+    );
+    final labelWidget = maxLabelWidth == null
+        ? labelText
+        : ConstrainedBox(
+            constraints: BoxConstraints(maxWidth: maxLabelWidth),
+            child: labelText,
+          );
+
+    final chip = Material(
       color: Colors.transparent,
       child: InkWell(
         borderRadius: BorderRadius.circular(12),
@@ -5380,18 +5641,16 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             children: [
               Icon(icon, size: 16, color: fg),
               const SizedBox(width: 6),
-              Text(
-                label,
-                style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                      color: fg,
-                      fontWeight: FontWeight.w600,
-                    ),
-              ),
+              labelWidget,
             ],
           ),
         ),
       ),
     );
+
+    final tip = (tooltip ?? '').trim();
+    if (tip.isEmpty) return chip;
+    return Tooltip(message: tip, child: chip);
   }
 
   Widget _buildDesktopSidePanel(
@@ -5837,7 +6096,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
           leading: const Icon(Icons.layers_outlined),
           title: const Text('弹幕源'),
           subtitle: Text(
-            selectedSource == null ? '未选择' : _danmakuSources[selectedSource].name,
+            selectedSource == null
+                ? '未选择'
+                : _danmakuSources[selectedSource].name,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
           ),
