@@ -55,6 +55,11 @@ class Win32Window {
   // Return a RECT representing the bounds of the current client area.
   RECT GetClientArea();
 
+  // Toggle borderless fullscreen for the window (Windows only).
+  void SetBorderlessFullscreen(bool enabled);
+
+  bool IsBorderlessFullscreen() const;
+
  protected:
   // Processes and route salient window messages for mouse handling,
   // size change and DPI. Delegates handling of these to member overloads that
@@ -97,6 +102,12 @@ class Win32Window {
 
   // window handle for hosted content.
   HWND child_content_ = nullptr;
+
+  bool borderless_fullscreen_ = false;
+  bool has_saved_window_placement_ = false;
+  WINDOWPLACEMENT saved_window_placement_{};
+  LONG saved_style_ = 0;
+  LONG saved_ex_style_ = 0;
 };
 
 #endif  // RUNNER_WIN32_WINDOW_H_

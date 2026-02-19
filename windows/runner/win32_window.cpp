@@ -259,6 +259,54 @@ HWND Win32Window::GetHandle() {
   return window_handle_;
 }
 
+bool Win32Window::IsBorderlessFullscreen() const {
+  return borderless_fullscreen_;
+}
+
+void Win32Window::SetBorderlessFullscreen(bool enabled) {
+  if (!window_handle_) return;
+  if (enabled == borderless_fullscreen_) return;
+
+  if (enabled) {
+    saved_style_ = GetWindowLong(window_handle_, GWL_STYLE);
+    saved_ex_style_ = GetWindowLong(window_handle_, GWL_EXSTYLE);
+
+    saved_window_placement_.length = sizeof(WINDOWPLACEMENT);
+    has_saved_window_placement_ =
+        GetWindowPlacement(window_handle_, &saved_window_placement_);
+
+    SetWindowLong(window_handle_, GWL_STYLE,
+                  saved_style_ & ~WS_OVERLAPPEDWINDOW | WS_POPUP);
+    SetWindowLong(window_handle_, GWL_EXSTYLE,
+                  saved_ex_style_ &
+                      ~(WS_EX_DLGMODALFRAME | WS_EX_WINDOWEDGE |
+                        WS_EX_CLIENTEDGE | WS_EX_STATICEDGE));
+
+    MONITORINFO monitor_info;
+    monitor_info.cbSize = sizeof(monitor_info);
+    GetMonitorInfo(MonitorFromWindow(window_handle_, MONITOR_DEFAULTTONEAREST),
+                   &monitor_info);
+
+    SetWindowPos(
+        window_handle_, HWND_TOP, monitor_info.rcMonitor.left,
+        monitor_info.rcMonitor.top,
+        monitor_info.rcMonitor.right - monitor_info.rcMonitor.left,
+        monitor_info.rcMonitor.bottom - monitor_info.rcMonitor.top,
+        SWP_NOOWNERZORDER | SWP_FRAMECHANGED);
+    borderless_fullscreen_ = true;
+  } else {
+    SetWindowLong(window_handle_, GWL_STYLE, saved_style_);
+    SetWindowLong(window_handle_, GWL_EXSTYLE, saved_ex_style_);
+    if (has_saved_window_placement_) {
+      SetWindowPlacement(window_handle_, &saved_window_placement_);
+    }
+    SetWindowPos(window_handle_, nullptr, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOZORDER | SWP_NOOWNERZORDER |
+                     SWP_FRAMECHANGED);
+    borderless_fullscreen_ = false;
+  }
+}
+
 void Win32Window::SetQuitOnClose(bool quit_on_close) {
   quit_on_close_ = quit_on_close;
 }

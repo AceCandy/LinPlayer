@@ -39,11 +39,11 @@ class DanmakuStageState extends State<DanmakuStage>
   static const double _baseFontSize = 18.0;
   static const double _lineGap = 8.0;
   static const double _topPadding = 6.0;
-  static const double _scrollGapPx = 24.0;
-  static const double _scrollBaseSpeedPxPerSec = 140.0;
+  static const double _scrollGapPx = 16.0;
+  static const Duration _scrollBaseDuration = Duration(milliseconds: 8000);
   static const Duration _staticBaseDuration = Duration(milliseconds: 4000);
-  static const double _scrollMinDurationSec = 1.8;
-  static const double _scrollMaxDurationSec = 16.0;
+  static const double _scrollMinDurationSec = 1.2;
+  static const double _scrollMaxDurationSec = 20.0;
 
   final List<_FlyingDanmaku> _scrolling = [];
   final List<_StaticDanmaku> _static = [];
@@ -67,6 +67,13 @@ class DanmakuStageState extends State<DanmakuStage>
 
   double get _effectiveScrollSpeedMultiplier =>
       _clampSpeed(widget.speed) * _effectiveTimeScale;
+
+  Duration get _effectiveScrollDuration {
+    final scaledMs = (_scrollBaseDuration.inMilliseconds /
+            _effectiveScrollSpeedMultiplier)
+        .clamp(_scrollMinDurationSec * 1000, _scrollMaxDurationSec * 1000);
+    return Duration(milliseconds: scaledMs.round().toInt());
+  }
 
   Duration get _effectiveStaticDuration {
     final scaled = _staticBaseDuration.inMilliseconds / _effectiveTimeScale;
@@ -153,46 +160,69 @@ class DanmakuStageState extends State<DanmakuStage>
     final fontSize = _baseFontSize * scale;
     final lineHeight = fontSize + _lineGap;
 
-    final totalRows = math.max(1, (_height / lineHeight).floor());
-    final cappedTotalRows = math.min(totalRows, 200);
+    final totalRows =
+        math.min(math.max(1, (_height / lineHeight).floor()), 200);
 
     final desiredTopRows = widget.topMaxLines.clamp(0, 200);
     final desiredBottomRows = widget.bottomMaxLines.clamp(0, 200);
     final desiredScrollRows = widget.scrollMaxLines.clamp(0, 200);
 
-    // Allocate rows with scrolling as the primary layer. This keeps the danmaku
-    // behavior sane even when top/bottom limits are configured too large (e.g.
-    // 30/30/30 on a 1080p screen could otherwise leave 0 scrolling rows).
+    if (desiredScrollRows <= 0 && desiredTopRows <= 0 && desiredBottomRows <= 0) {
+      return;
+    }
+
     final reservedStaticMin =
         (desiredTopRows > 0 ? 1 : 0) + (desiredBottomRows > 0 ? 1 : 0);
-    final maxScrollRows = math.max(0, cappedTotalRows - reservedStaticMin);
+    final maxScrollRows = math.max(0, totalRows - reservedStaticMin);
     final scrollRows = math.min(maxScrollRows, desiredScrollRows);
-    final remaining = cappedTotalRows - scrollRows;
+    final remaining = totalRows - scrollRows;
 
     int topRows = 0;
     int bottomRows = 0;
-    if (remaining > 0 && (desiredTopRows > 0 || desiredBottomRows > 0)) {
-      if (desiredTopRows <= 0) {
-        bottomRows = math.min(remaining, desiredBottomRows);
-      } else if (desiredBottomRows <= 0) {
-        topRows = math.min(remaining, desiredTopRows);
+    if (remaining <= 0 || (desiredTopRows <= 0 && desiredBottomRows <= 0)) {
+      topRows = 0;
+      bottomRows = 0;
+    } else if (desiredTopRows <= 0) {
+      bottomRows = math.min(remaining, desiredBottomRows);
+    } else if (desiredBottomRows <= 0) {
+      topRows = math.min(remaining, desiredTopRows);
+    } else if (remaining == 1) {
+      if (desiredTopRows >= desiredBottomRows) {
+        topRows = 1;
       } else {
-        final desiredStaticTotal = desiredTopRows + desiredBottomRows;
-        topRows = ((remaining * desiredTopRows) / desiredStaticTotal)
-            .round()
-            .clamp(0, desiredTopRows);
-        bottomRows = math.min(remaining - topRows, desiredBottomRows);
+        bottomRows = 1;
+      }
+    } else {
+      topRows = 1;
+      bottomRows = 1;
+      var extra = remaining - 2;
+      if (extra > 0) {
+        final topExtraMax = math.max(0, desiredTopRows - topRows);
+        final bottomExtraMax = math.max(0, desiredBottomRows - bottomRows);
+        final extraMaxSum = topExtraMax + bottomExtraMax;
+        if (extraMaxSum > 0) {
+          var topExtra = ((extra * topExtraMax) / extraMaxSum)
+              .round()
+              .clamp(0, topExtraMax);
+          var bottomExtra = (extra - topExtra).clamp(0, bottomExtraMax);
 
-        // Try to give both top & bottom at least one row if we have room.
-        if (remaining >= 2) {
-          if (topRows == 0) {
-            topRows = 1;
-            bottomRows = math.min(remaining - topRows, desiredBottomRows);
+          var leftover = extra - topExtra - bottomExtra;
+          while (leftover > 0) {
+            if (topExtra < topExtraMax) {
+              topExtra++;
+              leftover--;
+              continue;
+            }
+            if (bottomExtra < bottomExtraMax) {
+              bottomExtra++;
+              leftover--;
+              continue;
+            }
+            break;
           }
-          if (bottomRows == 0) {
-            bottomRows = 1;
-            topRows = math.min(remaining - bottomRows, desiredTopRows);
-          }
+
+          topRows += topExtra;
+          bottomRows += bottomExtra;
         }
       }
     }
@@ -225,7 +255,7 @@ class DanmakuStageState extends State<DanmakuStage>
           item,
           fontSize: fontSize,
           lineHeight: lineHeight,
-          rowStart: cappedTotalRows - bottomRows,
+          rowStart: totalRows - bottomRows,
           rows: bottomRows,
           isBottom: true,
         );
@@ -248,6 +278,12 @@ class DanmakuStageState extends State<DanmakuStage>
       textDirection: TextDirection.ltr,
     )..layout();
     final textWidth = painter.width;
+    final duration = _effectiveScrollDuration;
+    final durationSec = duration.inMilliseconds / 1000.0;
+    if (durationSec <= 0) return;
+    final startX = _width + 12;
+    final distance = _width + textWidth + 24;
+    final speedNew = distance / durationSec;
 
     int pickedRow;
     if (widget.preventOverlap) {
@@ -260,7 +296,6 @@ class DanmakuStageState extends State<DanmakuStage>
         _scrollRowCursor = 0;
       }
 
-      final startX = _width + 12;
       var found = -1;
       for (var i = 0; i < rows; i++) {
         final row = (_scrollRowCursor + i) % rows;
@@ -270,8 +305,28 @@ class DanmakuStageState extends State<DanmakuStage>
           found = row;
           break;
         }
-        final rightEdge = last.left.value + last.textWidth;
-        if (rightEdge + _scrollGapPx <= startX) {
+        final lastRightEdge = last.left.value + last.textWidth;
+        final gapNow = startX - lastRightEdge;
+        if (gapNow < _scrollGapPx) continue;
+
+        final lastDuration = last.controller.duration;
+        if (lastDuration == null || lastDuration.inMilliseconds <= 0) {
+          found = row;
+          break;
+        }
+        final lastDistance = last.canvasWidth + last.textWidth + 24;
+        final lastDurationSec = lastDuration.inMilliseconds / 1000.0;
+        final speedLast = lastDistance / lastDurationSec;
+
+        if (speedNew <= speedLast) {
+          found = row;
+          break;
+        }
+
+        final progress = last.controller.value.clamp(0.0, 1.0);
+        final lastRemainingSec = (1.0 - progress) * lastDurationSec;
+        final gapEnd = gapNow - (speedNew - speedLast) * lastRemainingSec;
+        if (gapEnd >= _scrollGapPx) {
           found = row;
           break;
         }
@@ -284,16 +339,12 @@ class DanmakuStageState extends State<DanmakuStage>
     }
 
     final top = (rowStart + pickedRow) * lineHeight + _topPadding;
-    final distance = _width + textWidth + _scrollGapPx;
-    final seconds = (distance /
-            (_scrollBaseSpeedPxPerSec * _effectiveScrollSpeedMultiplier))
-        .clamp(_scrollMinDurationSec, _scrollMaxDurationSec);
     final controller = AnimationController(
       vsync: this,
-      duration: Duration(milliseconds: (seconds * 1000).round()),
+      duration: duration,
     );
     final animation = Tween<double>(
-      begin: _width + 12,
+      begin: startX,
       end: -textWidth - 12,
     ).animate(CurvedAnimation(parent: controller, curve: Curves.linear));
 
@@ -393,22 +444,7 @@ class DanmakuStageState extends State<DanmakuStage>
       vsync: this,
       duration: duration,
     );
-    final opacity = TweenSequence<double>([
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 0, end: 1)
-            .chain(CurveTween(curve: Curves.easeOut)),
-        weight: 10,
-      ),
-      TweenSequenceItem(
-        tween: ConstantTween<double>(1),
-        weight: 80,
-      ),
-      TweenSequenceItem(
-        tween: Tween<double>(begin: 1, end: 0)
-            .chain(CurveTween(curve: Curves.easeIn)),
-        weight: 10,
-      ),
-    ]).animate(controller);
+    final opacity = ConstantTween<double>(1).animate(controller);
 
     final floating = _StaticDanmaku(
       item: item,
@@ -454,17 +490,15 @@ class DanmakuStageState extends State<DanmakuStage>
   }
 
   void _rescaleActiveDanmaku() {
-    final speedMultiplier = _effectiveScrollSpeedMultiplier;
+    final scrollDuration = _effectiveScrollDuration;
     final staticDuration = _effectiveStaticDuration;
+    final scrollTotalMs =
+        scrollDuration.inMilliseconds.clamp(1, 1 << 31).toInt();
 
     for (final a in List<_FlyingDanmaku>.from(_scrolling)) {
       final controller = a.controller;
       if (controller.status == AnimationStatus.completed) continue;
-      final distance = a.canvasWidth + a.textWidth + _scrollGapPx;
-      final seconds = (distance / (_scrollBaseSpeedPxPerSec * speedMultiplier))
-          .clamp(_scrollMinDurationSec, _scrollMaxDurationSec);
-      final newTotalMs =
-          (seconds * 1000).round().clamp(1, 1 << 31).toInt();
+      final newTotalMs = scrollTotalMs;
 
       final progress = controller.value.clamp(0.0, 1.0);
       controller.duration = Duration(milliseconds: newTotalMs);

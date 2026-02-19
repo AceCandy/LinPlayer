@@ -20,6 +20,7 @@ import 'play_network_page_exo.dart';
 import 'server_adapters/server_access.dart';
 import 'services/app_route_observer.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
+import 'services/desktop_window.dart';
 import 'widgets/danmaku_manual_search_dialog.dart';
 import 'widgets/list_picker_dialog.dart';
 
@@ -2727,6 +2728,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
 
   @override
   void dispose() {
+    if (_desktopFullscreen) {
+      unawaited(DesktopWindow.setBorderlessFullscreen(false));
+    }
     if (_route != null) {
       appRouteObserver.unsubscribe(this);
       _route = null;
@@ -4419,6 +4423,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       _desktopSidePanel = _DesktopSidePanel.none;
       _desktopSpeedPanelVisible = false;
     });
+    unawaited(DesktopWindow.setBorderlessFullscreen(_desktopFullscreen));
     _showControls(scheduleHide: false);
   }
 
