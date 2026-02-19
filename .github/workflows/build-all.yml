@@ -771,3 +771,24 @@ jobs:
             gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/$id"
           done
 
+      - name: Update VitePress download page
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 .github/scripts/generate_download_page.py --repo "${GITHUB_REPOSITORY}" --out "docs/download.md"
+
+      - name: Commit download page (if changed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "$(git status --porcelain -- docs/download.md)" ]]; then
+            echo "No changes in docs/download.md"
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add docs/download.md
+          git commit -m "docs: update download page"
+          git push
+

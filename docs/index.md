@@ -10,6 +10,9 @@ hero:
       text: 快速开始
       link: /guide/quickstart
     - theme: alt
+      text: 下载
+      link: /download
+    - theme: alt
       text: GitHub
       link: https://github.com/zzzwannasleep/LinPlayer
 
@@ -25,7 +28,7 @@ features:
 ## 快速入口
 
 - 新手上手：`指南 → 快速开始`
+- 下载：`下载`
 - 从分享文本批量导入服务器：`文档 → 从分享文本导入服务器`
 - 二次开发 / 构建发布：`开发 → 开发者文档`
 - 部署本 Wiki（Cloudflare Pages + 自定义域名）：`部署 → Cloudflare Pages`
-

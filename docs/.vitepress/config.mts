@@ -25,6 +25,7 @@ export default defineConfig({
 
     nav: [
       { text: '指南', link: '/guide/quickstart' },
+      { text: '下载', link: '/download' },
       { text: '文档', link: '/SERVER_IMPORT' },
       { text: '开发', link: '/dev/' },
       { text: '部署', link: '/deploy/cloudflare-pages' },
@@ -62,6 +63,7 @@ export default defineConfig({
         {
           text: '文档',
           items: [
+            { text: '下载', link: '/download' },
             { text: '从分享文本导入服务器', link: '/SERVER_IMPORT' },
             { text: '开发者文档', link: '/dev/' },
           ],
@@ -85,4 +87,3 @@ export default defineConfig({
     },
   },
 })
-

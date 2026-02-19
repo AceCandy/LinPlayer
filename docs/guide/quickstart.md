@@ -2,7 +2,8 @@
 
 ## 下载
 
-- 进入 GitHub Releases 下载对应平台的安装包：`LinPlayer → Releases`
+- 推荐从本 Wiki 的「下载」页进入：`/download`
+- 也可以进入 GitHub Releases 下载对应平台的安装包：`LinPlayer → Releases`
 - Android / Android TV：通常优先选择 `arm64-v8a`
 
 ## 本地播放
@@ -31,4 +32,3 @@
 
 - TV 端：设置 → TV 专区 → 打开「内置代理（mihomo）」
 - 代理面板（metacubexd）：开启后可在 TV 本机访问 `http://127.0.0.1:9090/ui/`
-
