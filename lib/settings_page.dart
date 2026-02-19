@@ -1,4 +1,4 @@
-﻿import 'dart:async';
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -1088,15 +1088,17 @@ class _SettingsPageState extends State<SettingsPage> {
               const SizedBox(height: 12),
               FilledButton.tonalIcon(
                 onPressed: () async {
+                  final navigator = Navigator.of(dctx);
                   final result = await FilePicker.platform.pickFiles(
                     dialogTitle: '选择背景图片',
                     allowMultiple: false,
                     type: FileType.image,
                     withData: false,
                   );
+                  if (!navigator.mounted) return;
                   final path = result?.files.single.path;
                   if (path == null || path.trim().isEmpty) return;
-                  controller.text = path.trim();
+                  navigator.pop(path.trim());
                 },
                 icon: const Icon(Icons.folder_open_outlined),
                 label: const Text('选择本地图片'),
@@ -1541,8 +1543,7 @@ class _SettingsPageState extends State<SettingsPage> {
               ],
               _Section(
                 title: '外观',
-                subtitle:
-                    isTv ? '自定义背景 / UI 缩放 / 模糊与透明度' : '主题、缩放、背景与界面语言',
+                subtitle: isTv ? '自定义背景 / UI 缩放 / 模糊与透明度' : '主题、缩放、背景与界面语言',
                 enableBlur: enableBlur,
                 child: Column(
                   children: [
@@ -1878,7 +1879,9 @@ class _SettingsPageState extends State<SettingsPage> {
                         ),
                         onTap: () => _editDesktopBackgroundImage(context),
                       ),
-                      if (appState.desktopBackgroundImage.trim().isNotEmpty) ...[
+                      if (appState.desktopBackgroundImage
+                          .trim()
+                          .isNotEmpty) ...[
                         const Divider(height: 1),
                         ListTile(
                           contentPadding: EdgeInsets.zero,
@@ -1900,23 +1903,23 @@ class _SettingsPageState extends State<SettingsPage> {
                                         child: Text('当前：$pct%（0-100%）'),
                                       ),
                                       TextButton(
-                                        onPressed: ((appState
-                                                            .desktopBackgroundOpacity -
-                                                        1.0)
-                                                    .abs() <
-                                                0.001) &&
-                                                _desktopBackgroundOpacityDraft ==
-                                                    null
-                                            ? null
-                                            : () {
-                                                setState(() =>
-                                                    _desktopBackgroundOpacityDraft =
-                                                        null);
-                                                // ignore: unawaited_futures
-                                                appState
-                                                    .setDesktopBackgroundOpacity(
-                                                        1.0);
-                                              },
+                                        onPressed:
+                                            ((appState.desktopBackgroundOpacity -
+                                                                1.0)
+                                                            .abs() <
+                                                        0.001) &&
+                                                    _desktopBackgroundOpacityDraft ==
+                                                        null
+                                                ? null
+                                                : () {
+                                                    setState(() =>
+                                                        _desktopBackgroundOpacityDraft =
+                                                            null);
+                                                    // ignore: unawaited_futures
+                                                    appState
+                                                        .setDesktopBackgroundOpacity(
+                                                            1.0);
+                                                  },
                                         child: const Text('重置'),
                                       ),
                                     ],
@@ -1931,7 +1934,8 @@ class _SettingsPageState extends State<SettingsPage> {
                                         _desktopBackgroundOpacityDraft = v),
                                     onChangeEnd: (v) {
                                       setState(() =>
-                                          _desktopBackgroundOpacityDraft = null);
+                                          _desktopBackgroundOpacityDraft =
+                                              null);
                                       // ignore: unawaited_futures
                                       appState.setDesktopBackgroundOpacity(v);
                                     },
@@ -1963,23 +1967,23 @@ class _SettingsPageState extends State<SettingsPage> {
                                         ),
                                       ),
                                       TextButton(
-                                        onPressed: ((appState
-                                                            .desktopBackgroundBlurSigma -
-                                                        0.0)
-                                                    .abs() <
-                                                0.001) &&
-                                                _desktopBackgroundBlurSigmaDraft ==
-                                                    null
-                                            ? null
-                                            : () {
-                                                setState(() =>
-                                                    _desktopBackgroundBlurSigmaDraft =
-                                                        null);
-                                                // ignore: unawaited_futures
-                                                appState
-                                                    .setDesktopBackgroundBlurSigma(
-                                                        0.0);
-                                              },
+                                        onPressed:
+                                            ((appState.desktopBackgroundBlurSigma -
+                                                                0.0)
+                                                            .abs() <
+                                                        0.001) &&
+                                                    _desktopBackgroundBlurSigmaDraft ==
+                                                        null
+                                                ? null
+                                                : () {
+                                                    setState(() =>
+                                                        _desktopBackgroundBlurSigmaDraft =
+                                                            null);
+                                                    // ignore: unawaited_futures
+                                                    appState
+                                                        .setDesktopBackgroundBlurSigma(
+                                                            0.0);
+                                                  },
                                         child: const Text('重置'),
                                       ),
                                     ],

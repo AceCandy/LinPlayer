@@ -1621,9 +1621,13 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         child: Builder(
           builder: (context) {
             final desktopTheme = DesktopThemeExtension.of(context);
-            final isDark = Theme.of(context).brightness == Brightness.dark;
-            final hasCustomBackground =
-                widget.appState.desktopBackgroundImage.trim().isNotEmpty;
+            final desktopBackgroundImage =
+                widget.appState.desktopBackgroundImage.trim();
+            final desktopBackgroundOpacity = widget
+                .appState.desktopBackgroundOpacity
+                .clamp(0.0, 1.0)
+                .toDouble();
+            final hasCustomBackground = desktopBackgroundImage.isNotEmpty;
             final isDetailSection = _section == _DesktopSection.detail;
             final baseBackground = desktopTheme.background;
             final contentBackgroundStart = isDetailSection
@@ -1632,15 +1636,14 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
             final contentBackgroundEnd = isDetailSection
                 ? desktopTheme.background
                 : desktopTheme.backgroundGradientEnd;
+            final overlayAlpha = hasCustomBackground
+                ? (1.0 - desktopBackgroundOpacity).clamp(0.0, 1.0).toDouble()
+                : 1.0;
             final overlayBackgroundStart = hasCustomBackground
-                ? contentBackgroundStart.withValues(
-                    alpha: isDark ? 0.58 : 0.76,
-                  )
+                ? contentBackgroundStart.withValues(alpha: overlayAlpha)
                 : contentBackgroundStart;
             final overlayBackgroundEnd = hasCustomBackground
-                ? contentBackgroundEnd.withValues(
-                    alpha: isDark ? 0.64 : 0.82,
-                  )
+                ? contentBackgroundEnd.withValues(alpha: overlayAlpha)
                 : contentBackgroundEnd;
             final title = switch (_section) {
               _DesktopSection.library => _uiLanguage.pick(
