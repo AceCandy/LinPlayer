@@ -1,0 +1,7 @@
+<resources>
+    <style name="Theme.LinPlayerTvLegacy" parent="Theme.AppCompat.Light.NoActionBar">
+        <item name="android:windowBackground">@android:color/black</item>
+        <item name="android:textColor">@android:color/white</item>
+    </style>
+</resources>
+

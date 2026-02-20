@@ -1,0 +1,8 @@
+<resources>
+    <string name="app_name">LinPlayer TV Legacy</string>
+    <string name="subscription_hint">Subscription URL</string>
+    <string name="save_subscription">Save Subscription</string>
+    <string name="start_proxy">Start Proxy</string>
+    <string name="stop_proxy">Stop Proxy</string>
+    <string name="status_unknown">status: unknown</string>
+</resources>
