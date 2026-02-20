@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+/Tmp*.java
 .atom/
 .buildlog/
 .history
@@ -13,6 +14,11 @@
 *.iws
 .idea/
 .vscode/
+
+# Local caches (do not commit)
+.android/
+.gradle-dist/
+.gradle-home/
 
 # API clients
 *.postman_collection.json

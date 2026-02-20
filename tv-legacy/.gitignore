@@ -1,7 +1,9 @@
 .gradle/
+.android/
+.gradle-home/
+.gradle-dist/
 .idea/
 *.iml
 build/
 app/build/
 local.properties
-

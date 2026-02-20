@@ -15,12 +15,9 @@ import com.google.android.exoplayer2.ui.PlayerView;
 import com.google.android.exoplayer2.upstream.DataSource;
 import com.linplayer.tvlegacy.servers.ServerConfig;
 import com.linplayer.tvlegacy.servers.ServerStore;
-import java.io.IOException;
 import okhttp3.Credentials;
-import okhttp3.Interceptor;
-import okhttp3.OkHttpClient;
-import okhttp3.Request;
-import okhttp3.Response;
+import java.util.HashMap;
+import java.util.Map;
 
 public final class PlayerActivity extends AppCompatActivity {
     static final String EXTRA_URL = "url";
@@ -57,34 +54,19 @@ public final class PlayerActivity extends AppCompatActivity {
 
         PlayerView playerView = findViewById(R.id.player_view);
 
-        OkHttpClient playbackClient = NetworkClients.okHttp(this);
+        Map<String, String> playbackHeaders = null;
         ServerConfig active = ServerStore.getActive(this);
         if (active != null && active.isType("webdav")) {
             String base = normalizeBaseUrl(active.baseUrl);
             String play = url.trim();
             if (!base.isEmpty() && play.startsWith(base)) {
                 String auth = Credentials.basic(active.username, active.password);
-                playbackClient =
-                        playbackClient
-                                .newBuilder()
-                                .addInterceptor(
-                                        new Interceptor() {
-                                            @Override
-                                            public Response intercept(Chain chain)
-                                                    throws IOException {
-                                                Request r =
-                                                        chain.request()
-                                                                .newBuilder()
-                                                                .header("Authorization", auth)
-                                                                .build();
-                                                return chain.proceed(r);
-                                            }
-                                        })
-                                .build();
+                playbackHeaders = new HashMap<>(1);
+                playbackHeaders.put("Authorization", auth);
             }
         }
 
-        DataSource.Factory dataSourceFactory = ExoNetwork.dataSourceFactory(this, playbackClient);
+        DataSource.Factory dataSourceFactory = ExoNetwork.dataSourceFactory(this, playbackHeaders);
         DefaultMediaSourceFactory mediaSourceFactory = new DefaultMediaSourceFactory(dataSourceFactory);
         player =
                 new SimpleExoPlayer.Builder(this)
