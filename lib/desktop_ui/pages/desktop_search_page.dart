@@ -370,11 +370,45 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     }
 
     final servers = widget.appState.servers;
-    final activeServerId = widget.appState.activeServerId;
     if (servers.isEmpty) {
       setState(() {
         _loading = false;
         _error = _t(zh: '没有已配置的服务器', en: 'No servers configured');
+        _groups = const <_WorkGroup>[];
+        _serverErrors = const <String, String>{};
+      });
+      return;
+    }
+
+    final candidates = _aggregateSearchEnabled
+        ? servers
+            .where((server) => server.lastErrorCode == null)
+            .where((server) {
+              final baseUrl = server.baseUrl.trim();
+              final token = server.token.trim();
+              final userId = server.userId.trim();
+              return baseUrl.isNotEmpty && token.isNotEmpty && userId.isNotEmpty;
+            })
+            .toList(growable: false)
+        : (() {
+            final active = widget.appState.activeServer;
+            return active == null
+                ? const <ServerProfile>[]
+                : <ServerProfile>[active];
+          })();
+
+    if (candidates.isEmpty) {
+      setState(() {
+        _loading = false;
+        _error = _aggregateSearchEnabled
+            ? _t(
+                zh: '\u6ca1\u6709\u53ef\u7528\u7684\u670d\u52a1\u5668',
+                en: 'No available servers',
+              )
+            : _t(
+                zh: '\u672a\u52a0\u8f7d\u670d\u52a1\u5668',
+                en: 'No active server loaded',
+              );
         _groups = const <_WorkGroup>[];
         _serverErrors = const <String, String>{};
       });
@@ -391,8 +425,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     final serverErrors = <String, String>{};
 
     await Future.wait<void>(
-      servers.map((server) async {
-        if (!_aggregateSearchEnabled && server.id != activeServerId) return;
+      candidates.map((server) async {
         final baseUrl = server.baseUrl.trim();
         final token = server.token.trim();
         final userId = server.userId.trim();
@@ -439,16 +472,9 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     if (!mounted || seq != _searchSeq) return;
 
     if (hits.isEmpty) {
-      final missingActiveServer =
-          !_aggregateSearchEnabled && (activeServerId ?? '').trim().isEmpty;
       setState(() {
         _loading = false;
-        _error = missingActiveServer
-            ? _t(
-                zh: '\u672a\u52a0\u8f7d\u670d\u52a1\u5668',
-                en: 'No active server loaded',
-              )
-            : null;
+        _error = null;
         _groups = const <_WorkGroup>[];
         _serverErrors = serverErrors;
       });
@@ -495,12 +521,12 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
   Widget _buildAggregateToggleButton(DesktopThemeExtension theme) {
     final active = _aggregateSearchEnabled;
     final label = active
-        ? _t(zh: '\u805a\u5408\uff1a\u5f00', en: 'Aggregate: On')
-        : _t(zh: '\u805a\u5408\uff1a\u5173', en: 'Aggregate: Off');
+        ? _t(zh: '\u805a\u5408\u641c\u7d22\uff1a\u5f00', en: 'Aggregate: On')
+        : _t(zh: '\u805a\u5408\u641c\u7d22\uff1a\u5173', en: 'Aggregate: Off');
     final message = active
         ? _t(
-            zh: '\u5df2\u5f00\u542f\u805a\u5408\u641c\u7d22\uff0c\u68c0\u7d22\u6240\u6709\u670d\u52a1\u5668',
-            en: 'Aggregate search enabled (all servers)',
+            zh: '\u5df2\u5f00\u542f\u805a\u5408\u641c\u7d22\uff0c\u68c0\u7d22\u6240\u6709\u5df2\u6dfb\u52a0\u5e76\u4e14\u6b63\u5e38\u7684\u670d\u52a1\u5668',
+            en: 'Aggregate search enabled (all healthy servers)',
           )
         : _t(
             zh: '\u5df2\u5173\u95ed\u805a\u5408\u641c\u7d22\uff0c\u53ea\u68c0\u7d22\u5df2\u52a0\u8f7d\u7684\u670d\u52a1\u5668',

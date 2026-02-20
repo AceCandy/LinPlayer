@@ -47,6 +47,10 @@ jobs:
         with:
           build-root-directory: tv-legacy
 
+      - name: Make Gradle wrapper executable
+        shell: bash
+        run: chmod +x tv-legacy/gradlew
+
       - name: Assemble debug APK
         shell: bash
         run: |
@@ -69,4 +73,3 @@ jobs:
         with:
           name: LinPlayer-LowVersion-TV
           path: dist/LinPlayer-LowVersion-TV-*.apk
-

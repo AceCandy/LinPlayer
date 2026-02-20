@@ -140,11 +140,16 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
 
   Future<void> _onJumpSubmitted({
     required DesktopDetailViewModel vm,
+    required bool fromSeasonField,
   }) async {
     if (_jumpingToEpisode) return;
 
     final rawSeason = _jumpSeasonController.text.trim();
     final rawEpisode = _jumpEpisodeController.text.trim();
+    if (fromSeasonField && rawSeason.isNotEmpty && rawEpisode.isEmpty) {
+      FocusScope.of(context).requestFocus(_jumpEpisodeFocusNode);
+      return;
+    }
     if (rawSeason.isEmpty && rawEpisode.isEmpty) return;
 
     final seasonNo = int.tryParse(rawSeason);
@@ -180,25 +185,28 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
 
     final sortedSeasons = List<MediaItem>.from(seasons);
     sortedSeasons.sort((a, b) {
-      final aNo = a.seasonNumber ?? 0;
-      final bNo = b.seasonNumber ?? 0;
+      final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
+      final bNo = b.seasonNumber ?? b.episodeNumber ?? 0;
       final diff = aNo.compareTo(bNo);
       if (diff != 0) return diff;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
     });
 
     MediaItem? pickedSeason;
-    final desiredSeason = seasonNumber ?? 0;
-    if (desiredSeason > 0) {
+    if (seasonNumber != null) {
+      final desiredSeason = seasonNumber;
       for (final season in sortedSeasons) {
-        if ((season.seasonNumber ?? 0) == desiredSeason) {
+        final no = season.seasonNumber ?? season.episodeNumber ?? 0;
+        if (no == desiredSeason) {
           pickedSeason = season;
           break;
         }
       }
-      pickedSeason ??= desiredSeason <= sortedSeasons.length
-          ? sortedSeasons[desiredSeason - 1]
-          : null;
+      if (pickedSeason == null &&
+          desiredSeason > 0 &&
+          desiredSeason <= sortedSeasons.length) {
+        pickedSeason = sortedSeasons[desiredSeason - 1];
+      }
     } else {
       final current = vm.detail;
       final type = current.type.trim().toLowerCase();
@@ -289,7 +297,10 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
     required _EpisodeDetailColors colors,
     required DesktopDetailViewModel vm,
   }) {
-    final enabled = !_jumpingToEpisode && vm.access != null && vm.seasons.isNotEmpty;
+    final enabled = !_jumpingToEpisode &&
+        widget.onOpenItem != null &&
+        vm.access != null &&
+        vm.seasons.isNotEmpty;
     InputDecoration decoration({
       required String prefix,
       required String hint,
@@ -339,7 +350,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               focusNode: _jumpSeasonFocusNode,
               enabled: enabled,
               onSubmitted: (_) => unawaited(
-                _onJumpSubmitted(vm: vm),
+                _onJumpSubmitted(vm: vm, fromSeasonField: true),
               ),
               textInputAction: TextInputAction.next,
               keyboardType: TextInputType.number,
@@ -367,7 +378,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               focusNode: _jumpEpisodeFocusNode,
               enabled: enabled,
               onSubmitted: (_) => unawaited(
-                _onJumpSubmitted(vm: vm),
+                _onJumpSubmitted(vm: vm, fromSeasonField: false),
               ),
               textInputAction: TextInputAction.go,
               keyboardType: TextInputType.number,
@@ -1079,17 +1090,46 @@ class _HeroInfoColumn extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final colors = _EpisodeDetailColors.of(context);
-    final title = item.name.trim().isEmpty
-        ? _dtr(
-            language: language,
-            zh: '\u672a\u547d\u540d\u5267\u96c6',
-            en: 'Untitled Episode',
-          )
-        : item.name;
-    final subtitleLine = <String>[
-      if (episodeMark.trim().isNotEmpty) episodeMark.trim(),
-      if (subtitle.trim().isNotEmpty) subtitle.trim(),
-    ].join(' - ');
+    final type = item.type.trim().toLowerCase();
+    final rawTitle = item.name.trim();
+    final rawSeriesTitle = item.seriesName.trim();
+    final seasonNo = item.seasonNumber ?? item.episodeNumber ?? 0;
+
+    final title = (type == 'season' && rawSeriesTitle.isNotEmpty)
+        ? rawSeriesTitle
+        : (rawTitle.isEmpty
+            ? _dtr(
+                language: language,
+                zh: '\u672a\u547d\u540d\u5267\u96c6',
+                en: 'Untitled Episode',
+              )
+            : rawTitle);
+
+    final subtitleLine = (type == 'season' && rawSeriesTitle.isNotEmpty)
+        ? (() {
+            final labels = <String>[];
+            if (seasonNo > 0) {
+              labels.add(
+                _dtr(
+                  language: language,
+                  zh: '\u7b2c$seasonNo\u5b63',
+                  en: 'Season $seasonNo',
+                ),
+              );
+            }
+            final seasonName = rawTitle;
+            final computed = labels.isEmpty ? '' : labels.first;
+            if (seasonName.isNotEmpty &&
+                seasonName != rawSeriesTitle &&
+                seasonName.toLowerCase() != computed.toLowerCase()) {
+              labels.add(seasonName);
+            }
+            return labels.join(' \u00b7 ').trim();
+          })()
+        : <String>[
+            if (episodeMark.trim().isNotEmpty) episodeMark.trim(),
+            if (subtitle.trim().isNotEmpty) subtitle.trim(),
+          ].join(' - ');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -1707,8 +1747,8 @@ class _SeasonsSection extends StatelessWidget {
     final colors = _EpisodeDetailColors.of(context);
     final list = List<MediaItem>.from(seasons);
     list.sort((a, b) {
-      final aNo = a.seasonNumber ?? 0;
-      final bNo = b.seasonNumber ?? 0;
+      final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
+      final bNo = b.seasonNumber ?? b.episodeNumber ?? 0;
       final diff = aNo.compareTo(bNo);
       if (diff != 0) return diff;
       return a.name.toLowerCase().compareTo(b.name.toLowerCase());
@@ -1814,7 +1854,8 @@ class _SeasonHorizontalListState extends State<_SeasonHorizontalList> {
           separatorBuilder: (_, __) => const SizedBox(width: _kCardSpacing),
           itemBuilder: (context, index) {
             final season = widget.seasons[index];
-            final seasonNo = season.seasonNumber ?? (index + 1);
+            final seasonNo =
+                season.seasonNumber ?? season.episodeNumber ?? (index + 1);
             final label = _dtr(
               language: widget.language,
               zh: '\u7b2c$seasonNo\u5b63',
@@ -3008,7 +3049,9 @@ String _seasonSectionTitle(
 }) {
   final type = item.type.trim().toLowerCase();
   final season =
-      (type == 'episode' || type == 'season') ? (item.seasonNumber ?? 1) : 1;
+      (type == 'episode' || type == 'season')
+          ? (item.seasonNumber ?? item.episodeNumber ?? 1)
+          : 1;
   return _dtr(
     language: language,
     zh: '\u66f4\u591a\u6765\u81ea\uff1a\u7b2c $season \u5b63',

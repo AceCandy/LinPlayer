@@ -1,10 +1,19 @@
+import 'dart:async';
+import 'dart:convert';
+
 import 'package:flutter/foundation.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../server_adapters/server_access.dart';
 
 class DesktopDetailViewModel extends ChangeNotifier {
+  static const Duration _kSeasonsCacheTtl = Duration(days: 7);
+  static const Duration _kSeasonsCachePurgeThrottle = Duration(hours: 6);
+  static const String _kSeasonsCachePrefix = 'desktopSeasonsCache_v1:';
+  static int _seasonsCacheLastPurgeAtMs = 0;
+
   DesktopDetailViewModel({
     required this.appState,
     required MediaItem item,
@@ -26,6 +35,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
   String? _error;
   bool _favorite = false;
   ServerAccess? _access;
+  bool _disposed = false;
 
   MediaItem get detail => _detail;
   List<MediaItem> get seasons => _seasons;
@@ -40,7 +50,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
 
   void toggleFavorite() {
     _favorite = !_favorite;
-    notifyListeners();
+    _safeNotifyListeners();
   }
 
   String? itemImageUrl(
@@ -70,19 +80,192 @@ class DesktopDetailViewModel extends ChangeNotifier {
     );
   }
 
+  @override
+  void dispose() {
+    _disposed = true;
+    super.dispose();
+  }
+
+  void _safeNotifyListeners() {
+    if (_disposed) return;
+    notifyListeners();
+  }
+
+  static String _seasonsCacheKey({
+    required String serverId,
+    required String seriesId,
+  }) =>
+      '$_kSeasonsCachePrefix$serverId:$seriesId';
+
+  static String _resolveSeriesId(MediaItem item) {
+    final type = item.type.trim().toLowerCase();
+    if (type == 'series') return item.id.trim();
+
+    final seriesId = (item.seriesId ?? '').trim();
+    if (seriesId.isNotEmpty) return seriesId;
+
+    if (type == 'season') return (item.parentId ?? '').trim();
+    return '';
+  }
+
+  static int? _readIntOpt(dynamic value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is num) return value.round();
+    if (value is String) return int.tryParse(value.trim());
+    return int.tryParse(value.toString().trim());
+  }
+
+  static Map<String, dynamic>? _coerceStringKeyedMap(dynamic value) {
+    if (value is Map<String, dynamic>) return value;
+    if (value is Map) {
+      return value.map((k, v) => MapEntry(k.toString(), v));
+    }
+    return null;
+  }
+
+  static List<MediaItem> _sortSeasons(List<MediaItem> seasons) {
+    final mutable = List<MediaItem>.from(seasons);
+    mutable.sort((a, b) {
+      final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
+      final bNo = b.seasonNumber ?? b.episodeNumber ?? 0;
+      final diff = aNo.compareTo(bNo);
+      if (diff != 0) return diff;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return mutable;
+  }
+
+  static Future<void> _purgeExpiredSeasonCache() async {
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    if (nowMs - _seasonsCacheLastPurgeAtMs <=
+        _kSeasonsCachePurgeThrottle.inMilliseconds) {
+      return;
+    }
+    _seasonsCacheLastPurgeAtMs = nowMs;
+
+    final prefs = await SharedPreferences.getInstance();
+    final keys = prefs.getKeys();
+    if (keys.isEmpty) return;
+
+    for (final key in keys) {
+      if (!key.startsWith(_kSeasonsCachePrefix)) continue;
+      final raw = prefs.getString(key);
+      if (raw == null || raw.trim().isEmpty) {
+        await prefs.remove(key);
+        continue;
+      }
+
+      try {
+        final decoded = jsonDecode(raw);
+        if (decoded is! Map) {
+          await prefs.remove(key);
+          continue;
+        }
+        final lastAccessAtMs = _readIntOpt(decoded['lastAccessAtMs']) ?? 0;
+        if (lastAccessAtMs <= 0 ||
+            nowMs - lastAccessAtMs > _kSeasonsCacheTtl.inMilliseconds) {
+          await prefs.remove(key);
+        }
+      } catch (_) {
+        await prefs.remove(key);
+      }
+    }
+  }
+
+  static Future<List<MediaItem>?> _restoreSeasonsFromCache({
+    required String serverId,
+    required String seriesId,
+  }) async {
+    if (serverId.trim().isEmpty || seriesId.trim().isEmpty) return null;
+
+    final prefs = await SharedPreferences.getInstance();
+    final key = _seasonsCacheKey(serverId: serverId.trim(), seriesId: seriesId);
+    final raw = prefs.getString(key);
+    if (raw == null || raw.trim().isEmpty) return null;
+
+    try {
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) {
+        await prefs.remove(key);
+        return null;
+      }
+
+      final nowMs = DateTime.now().millisecondsSinceEpoch;
+      final lastAccessAtMs = _readIntOpt(decoded['lastAccessAtMs']) ?? 0;
+      if (lastAccessAtMs <= 0 ||
+          nowMs - lastAccessAtMs > _kSeasonsCacheTtl.inMilliseconds) {
+        await prefs.remove(key);
+        return null;
+      }
+
+      final items = decoded['items'];
+      if (items is! List) {
+        await prefs.remove(key);
+        return null;
+      }
+
+      final seasons = <MediaItem>[];
+      for (final entry in items) {
+        final map = _coerceStringKeyedMap(entry);
+        if (map == null) continue;
+        final item = MediaItem.fromJson(map);
+        if (item.id.trim().isEmpty) continue;
+        if (item.type.trim().toLowerCase() != 'season') continue;
+        seasons.add(item);
+      }
+
+      if (seasons.isEmpty) {
+        await prefs.remove(key);
+        return null;
+      }
+
+      final updated = <String, dynamic>{
+        'lastAccessAtMs': nowMs,
+        'items': seasons.map((e) => e.toJson()).toList(growable: false),
+      };
+      await prefs.setString(key, jsonEncode(updated));
+
+      return _sortSeasons(seasons);
+    } catch (_) {
+      await prefs.remove(key);
+      return null;
+    }
+  }
+
+  static Future<void> _persistSeasonsToCache({
+    required String serverId,
+    required String seriesId,
+    required List<MediaItem> seasons,
+  }) async {
+    if (serverId.trim().isEmpty || seriesId.trim().isEmpty) return;
+    if (seasons.isEmpty) return;
+
+    final prefs = await SharedPreferences.getInstance();
+    final key = _seasonsCacheKey(serverId: serverId.trim(), seriesId: seriesId);
+    final nowMs = DateTime.now().millisecondsSinceEpoch;
+    final data = <String, dynamic>{
+      'lastAccessAtMs': nowMs,
+      'items': seasons.map((e) => e.toJson()).toList(growable: false),
+    };
+    await prefs.setString(key, jsonEncode(data));
+  }
+
   Future<void> load({bool forceRefresh = false}) async {
     if (_loading && !forceRefresh) return;
 
     _loading = true;
     _error = null;
-    notifyListeners();
+    _safeNotifyListeners();
+
+    unawaited(_purgeExpiredSeasonCache());
 
     final currentAccess =
         resolveServerAccess(appState: appState, server: server);
     if (currentAccess == null) {
       _loading = false;
       _error = 'No active media server session';
-      notifyListeners();
+      _safeNotifyListeners();
       return;
     }
 
@@ -90,15 +273,35 @@ class DesktopDetailViewModel extends ChangeNotifier {
     _playbackInfo = null;
 
     try {
-      var detailItem = _seedItem;
-      try {
-        detailItem = await currentAccess.adapter.fetchItemDetail(
-          currentAccess.auth,
-          itemId: _seedItem.id,
-        );
-      } catch (_) {
-        // Keep seed item as fallback when detail API partially fails.
+      final cacheServerId =
+          (server?.id ?? appState.activeServerId ?? '').trim();
+      final seedSeriesId = _resolveSeriesId(_seedItem);
+      final cachedSeasonsFuture =
+          !forceRefresh && cacheServerId.isNotEmpty && seedSeriesId.isNotEmpty
+              ? _restoreSeasonsFromCache(
+                  serverId: cacheServerId,
+                  seriesId: seedSeriesId,
+                )
+              : Future<List<MediaItem>?>.value(null);
+
+      final detailFuture = currentAccess.adapter
+          .fetchItemDetail(
+            currentAccess.auth,
+            itemId: _seedItem.id,
+          )
+          .then<MediaItem>((value) => value)
+          .catchError((_) => _seedItem);
+
+      final cachedSeasons = await cachedSeasonsFuture;
+      if (cachedSeasons != null && cachedSeasons.isNotEmpty) {
+        _seasons = cachedSeasons;
+        _safeNotifyListeners();
       }
+
+      final detailItem = await detailFuture;
+      _detail = detailItem;
+      _people = detailItem.people;
+      _safeNotifyListeners();
 
       final similarFuture = currentAccess.adapter
           .fetchSimilar(
@@ -124,35 +327,60 @@ class DesktopDetailViewModel extends ChangeNotifier {
       final isSeason = type == 'season';
       final isEpisode = type == 'episode';
 
-      final seriesId = (isSeries
-              ? detailItem.id
-              : (detailItem.seriesId ?? '').trim().isNotEmpty
-                  ? detailItem.seriesId!.trim()
-                  : (isSeason ? (detailItem.parentId ?? '').trim() : ''))
-          .trim();
+      final seriesId = _resolveSeriesId(detailItem);
+      seasons = cachedSeasons ?? const <MediaItem>[];
 
-      if (seriesId.isNotEmpty) {
+      if (seasons.isEmpty &&
+          !forceRefresh &&
+          cacheServerId.isNotEmpty &&
+          seriesId.isNotEmpty &&
+          seriesId != seedSeriesId) {
+        final resolvedCached = await _restoreSeasonsFromCache(
+          serverId: cacheServerId,
+          seriesId: seriesId,
+        );
+        if (resolvedCached != null && resolvedCached.isNotEmpty) {
+          seasons = resolvedCached;
+          _seasons = seasons;
+          _safeNotifyListeners();
+        }
+      }
+
+      if ((forceRefresh || seasons.isEmpty) && seriesId.isNotEmpty) {
+        List<MediaItem> fetchedSeasons = const <MediaItem>[];
         try {
           final seasonResult = await currentAccess.adapter.fetchSeasons(
             currentAccess.auth,
             seriesId: seriesId,
           );
-          seasons = seasonResult.items
+          fetchedSeasons = seasonResult.items
               .where((s) => s.type.trim().toLowerCase() == 'season')
               .toList(growable: false);
         } catch (_) {
-          seasons = const <MediaItem>[];
+          fetchedSeasons = const <MediaItem>[];
         }
 
-        final mutable = List<MediaItem>.from(seasons);
-        mutable.sort((a, b) {
-          final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
-          final bNo = b.seasonNumber ?? b.episodeNumber ?? 0;
-          final diff = aNo.compareTo(bNo);
-          if (diff != 0) return diff;
-          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-        });
-        seasons = mutable;
+        fetchedSeasons = _sortSeasons(fetchedSeasons);
+        if (fetchedSeasons.isNotEmpty) {
+          seasons = fetchedSeasons;
+          _seasons = seasons;
+          _safeNotifyListeners();
+          if (cacheServerId.isNotEmpty) {
+            unawaited(
+              _persistSeasonsToCache(
+                serverId: cacheServerId,
+                seriesId: seriesId,
+                seasons: seasons,
+              ),
+            );
+          }
+        }
+      } else if (seasons.isNotEmpty) {
+        seasons = _sortSeasons(seasons);
+        if (!listEquals(_seasons, seasons)) {
+          _seasons = seasons;
+          _safeNotifyListeners();
+        }
       }
 
       if (seasons.isEmpty && seriesId.isNotEmpty) {
@@ -162,7 +390,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
           final sNo = detailItem.seasonNumber ?? 1;
           final seasonName = detailItem.seasonName.trim().isNotEmpty
               ? detailItem.seasonName.trim()
-              : 'Season $sNo';
+              : '第$sNo季';
           seasons = [
             MediaItem(
               id: detailItem.parentId!.trim(),
@@ -191,7 +419,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
           seasons = [
             MediaItem(
               id: seriesId,
-              name: 'Season 1',
+              name: '第1季',
               type: 'Season',
               overview: '',
               communityRating: null,
@@ -203,7 +431,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
               providerIds: const {},
               seriesId: seriesId,
               seriesName: detailItem.name,
-              seasonName: 'Season 1',
+              seasonName: '第1季',
               seasonNumber: 1,
               episodeNumber: null,
               hasImage: detailItem.hasImage,
@@ -213,6 +441,11 @@ class DesktopDetailViewModel extends ChangeNotifier {
             ),
           ];
         }
+      }
+
+      if (seasons.isNotEmpty && !listEquals(_seasons, seasons)) {
+        _seasons = seasons;
+        _safeNotifyListeners();
       }
 
       final seasonIdForEpisodes = (isSeason
@@ -249,19 +482,16 @@ class DesktopDetailViewModel extends ChangeNotifier {
       final similarItems = await similarFuture;
       final playbackInfo = await playbackFuture;
 
-      _detail = detailItem;
-      _seasons = seasons;
       _episodes = episodes;
       _similar =
           similarItems.where((item) => item.id != detailItem.id).toList();
-      _people = detailItem.people;
       _playbackInfo = playbackInfo;
     } catch (e) {
       _error = e.toString();
       _playbackInfo = null;
     } finally {
       _loading = false;
-      notifyListeners();
+      _safeNotifyListeners();
     }
   }
 }
