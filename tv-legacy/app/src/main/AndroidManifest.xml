@@ -26,6 +26,26 @@
             </intent-filter>
         </activity>
 
+        <activity
+            android:name=".SettingsActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".ShowDetailActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".EpisodeListActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".EpisodeDetailActivity"
+            android:exported="false" />
+
+        <activity
+            android:name=".PlayerActivity"
+            android:exported="false" />
+
         <service
             android:name=".ProxyService"
             android:exported="false" />

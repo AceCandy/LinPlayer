@@ -15,6 +15,12 @@ Open this folder (`tv-legacy/`) in Android Studio.
 
 - API / interfaces: `tv-legacy/API.md`
 
+## UI Pages (WIP)
+
+- Home: show grid → show details
+- Show details → episode list → episode details → player
+- Settings: proxy + subscription (UI to be refined later)
+
 Notes:
 - `local.properties` is intentionally not committed; Android Studio will generate it.
 - Place an `armeabi-v7a` mihomo binary at:

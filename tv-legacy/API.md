@@ -230,3 +230,39 @@ UI 入口：
 - `tvBuiltInProxySubscriptionUrl` → `subscription_url`
 
 > 该部分仅为接口约定草案；实现前需要确认安全模型（LAN 访问、token 生命周期、是否支持配对码等）。
+
+---
+
+## 10.（内部）媒体数据后端接口（给 TV UI 用）
+
+TV Legacy 的首页/详情页目前通过一个“媒体数据后端”抽象拿数据，目的：把 **UI** 和 **具体数据源实现**
+（Demo / Emby / Jellyfin / WebDAV / 自建 API）解耦，先把页面与播放链路跑通。
+
+入口：
+- `Backends.media(context)` → `MediaBackend`
+
+线程约定：
+- 后端在 IO 线程执行耗时工作；
+- `Callback<T>` 回调一律切回主线程（可直接更新 UI）。
+
+数据模型（MVP）：
+- `Show`：`id`, `title`, `overview`
+- `Episode`：`id`, `index`, `title`, `mediaUrl`
+
+接口（MVP）：
+- `listShows(cb)`：首页剧集列表
+- `getShow(showId, cb)`：剧详情信息
+- `listEpisodes(showId, cb)`：全集列表
+- `getEpisode(showId, episodeIndex, cb)`：单集信息（含播放 URL）
+
+实现：
+- 当前默认实现为 `DemoMediaBackend`（基于 `DemoData`），用于 UI/导航/播放骨架验证；
+- 未来替换真实实现时，网络请求必须复用 `NetworkClients.okHttp(context)`，以确保：
+  - 代理开关生效（走/不走 mihomo）
+  - UA 统一为 `LinPlayer/<versionName>`
+
+对应代码：
+- `tv-legacy/app/src/main/java/com/linplayer/tvlegacy/backend/MediaBackend.java`
+- `tv-legacy/app/src/main/java/com/linplayer/tvlegacy/backend/Backends.java`
+- `tv-legacy/app/src/main/java/com/linplayer/tvlegacy/backend/DemoMediaBackend.java`
+- `tv-legacy/app/src/main/java/com/linplayer/tvlegacy/NetworkClients.java`

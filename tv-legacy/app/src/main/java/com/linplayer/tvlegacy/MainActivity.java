@@ -6,13 +6,19 @@ import android.content.Intent;
 import android.content.IntentFilter;
 import android.os.Bundle;
 import android.widget.Button;
-import android.widget.EditText;
 import android.widget.TextView;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.content.ContextCompat;
+import androidx.recyclerview.widget.GridLayoutManager;
+import androidx.recyclerview.widget.RecyclerView;
+import com.linplayer.tvlegacy.backend.Backends;
+import com.linplayer.tvlegacy.backend.Callback;
+import java.util.List;
 
 public final class MainActivity extends AppCompatActivity {
+    private TextView proxyStatusText;
+
     private final BroadcastReceiver statusReceiver =
             new BroadcastReceiver() {
                 @Override
@@ -20,46 +26,72 @@ public final class MainActivity extends AppCompatActivity {
                     if (!ProxyService.ACTION_STATUS.equals(intent.getAction())) return;
                     String status = intent.getStringExtra(ProxyService.EXTRA_STATUS);
                     if (status == null) status = "unknown";
-                    TextView statusText = findViewById(R.id.status_text);
-                    statusText.setText(status);
+                    updateProxyStatus(status);
                 }
             };
 
     @Override
     protected void onCreate(@Nullable Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
-        setContentView(R.layout.activity_main);
+        setContentView(R.layout.activity_home);
 
-        TextView uaText = findViewById(R.id.ua_text);
-        uaText.setText(NetworkConfig.userAgent());
+        proxyStatusText = findViewById(R.id.proxy_status_text);
+        updateProxyStatus(AppPrefs.getLastStatus(this));
 
-        EditText subscriptionInput = findViewById(R.id.subscription_input);
-        subscriptionInput.setText(AppPrefs.getSubscriptionUrl(this));
+        Button settingsBtn = findViewById(R.id.btn_open_settings);
+        settingsBtn.setOnClickListener(v -> startActivity(new Intent(this, SettingsActivity.class)));
 
-        Button saveSubBtn = findViewById(R.id.btn_save_sub);
-        saveSubBtn.setOnClickListener(
-                v -> {
-                    String url = subscriptionInput.getText() != null ? subscriptionInput.getText().toString() : "";
-                    AppPrefs.setSubscriptionUrl(this, url);
-                    ProxyService.applyConfig(this);
-                });
+        RecyclerView showList = findViewById(R.id.show_list);
+        int spanCount = 5;
+        showList.setLayoutManager(new GridLayoutManager(this, spanCount));
+        int spacingPx = dpToPx(12);
+        showList.addItemDecoration(new GridSpacingItemDecoration(spanCount, spacingPx, true));
 
-        Button startBtn = findViewById(R.id.btn_start);
-        Button stopBtn = findViewById(R.id.btn_stop);
+        Backends.media(this)
+                .listShows(
+                        new Callback<List<Show>>() {
+                            @Override
+                            public void onSuccess(List<Show> shows) {
+                                if (isFinishing() || isDestroyed()) return;
+                                showList.setAdapter(
+                                        new ShowAdapter(
+                                                shows,
+                                                show -> {
+                                                    Intent i =
+                                                            new Intent(
+                                                                    MainActivity.this,
+                                                                    ShowDetailActivity.class);
+                                                    i.putExtra(
+                                                            ShowDetailActivity.EXTRA_SHOW_ID,
+                                                            show.id);
+                                                    startActivity(i);
+                                                }));
+                            }
 
-        startBtn.setOnClickListener(
-                v -> {
-                    AppPrefs.setProxyEnabled(this, true);
-                    ProxyService.start(this);
-                });
-        stopBtn.setOnClickListener(
-                v -> {
-                    AppPrefs.setProxyEnabled(this, false);
-                    ProxyService.stop(this);
-                });
+                            @Override
+                            public void onError(Throwable error) {
+                                if (isFinishing() || isDestroyed()) return;
+                                updateProxyStatus("load shows failed: " + error.getMessage());
+                            }
+                        });
 
-        TextView statusText = findViewById(R.id.status_text);
-        statusText.setText(AppPrefs.getLastStatus(this));
+        if (AppPrefs.isProxyEnabled(this)) {
+            ProxyService.start(this);
+        } else {
+            ProxyEnv.disable();
+        }
+    }
+
+    private void updateProxyStatus(String status) {
+        if (proxyStatusText == null) return;
+        boolean enabled = AppPrefs.isProxyEnabled(this);
+        String s = status != null ? status : "unknown";
+        proxyStatusText.setText("Proxy: " + (enabled ? "ON" : "OFF") + " · " + s);
+    }
+
+    private int dpToPx(int dp) {
+        float density = getResources().getDisplayMetrics().density;
+        return Math.round(dp * density);
     }
 
     @Override

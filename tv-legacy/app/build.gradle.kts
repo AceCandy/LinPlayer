@@ -33,6 +33,7 @@ android {
 dependencies {
     // UI (Java + XML/View)
     implementation("androidx.appcompat:appcompat:1.7.1")
+    implementation("androidx.recyclerview:recyclerview:1.3.2")
 
     // Networking (API 19 compatible)
     implementation("com.squareup.okhttp3:okhttp:3.12.13")
@@ -41,4 +42,3 @@ dependencies {
     implementation("com.google.android.exoplayer:exoplayer:2.19.1")
     implementation("com.google.android.exoplayer:extension-okhttp:2.19.1")
 }
-
