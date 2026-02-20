@@ -5,14 +5,21 @@ import 'dart:ui';
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lin_player_player/lin_player_player.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
+import 'package:lin_player_state/lin_player_state.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../server_adapters/server_access.dart';
 import '../models/desktop_ui_language.dart';
 import '../view_models/desktop_detail_view_model.dart';
 import '../widgets/desktop_media_meta.dart';
+
+typedef DesktopDetailOpenItem = void Function(
+  MediaItem item, [
+  ServerProfile? server,
+]);
 
 class DesktopDetailPage extends StatefulWidget {
   const DesktopDetailPage({
@@ -25,7 +32,7 @@ class DesktopDetailPage extends StatefulWidget {
 
   final DesktopDetailViewModel viewModel;
   final DesktopUiLanguage language;
-  final ValueChanged<MediaItem>? onOpenItem;
+  final DesktopDetailOpenItem? onOpenItem;
   final VoidCallback? onPlayPressed;
 
   @override
@@ -38,6 +45,12 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
   int _selectedSubtitleStreamIndex = -1;
   bool? _playedOverride;
   bool _launchingExternalMpv = false;
+  bool _jumpingToEpisode = false;
+
+  final TextEditingController _jumpSeasonController = TextEditingController();
+  final TextEditingController _jumpEpisodeController = TextEditingController();
+  final FocusNode _jumpSeasonFocusNode = FocusNode();
+  final FocusNode _jumpEpisodeFocusNode = FocusNode();
 
   String _t({
     required String zh,
@@ -66,6 +79,18 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
     _selectedAudioStreamIndex = null;
     _selectedSubtitleStreamIndex = -1;
     _playedOverride = null;
+    _jumpingToEpisode = false;
+    _jumpSeasonController.clear();
+    _jumpEpisodeController.clear();
+  }
+
+  @override
+  void dispose() {
+    _jumpSeasonController.dispose();
+    _jumpEpisodeController.dispose();
+    _jumpSeasonFocusNode.dispose();
+    _jumpEpisodeFocusNode.dispose();
+    super.dispose();
   }
 
   Future<void> _openExternalLink(String url) async {
@@ -104,6 +129,264 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
       );
     }
     return item;
+  }
+
+  String? _currentSeasonIdFor(MediaItem item, DesktopDetailViewModel vm) {
+    final type = item.type.trim().toLowerCase();
+    if (type == 'season') return item.id;
+    if (type == 'episode') return item.parentId;
+    return vm.seasons.isNotEmpty ? vm.seasons.first.id : null;
+  }
+
+  Future<void> _onJumpSubmitted({
+    required DesktopDetailViewModel vm,
+  }) async {
+    if (_jumpingToEpisode) return;
+
+    final rawSeason = _jumpSeasonController.text.trim();
+    final rawEpisode = _jumpEpisodeController.text.trim();
+    if (rawSeason.isEmpty && rawEpisode.isEmpty) return;
+
+    final seasonNo = int.tryParse(rawSeason);
+    final episodeNo = int.tryParse(rawEpisode);
+    await _jumpToSeasonEpisode(
+      vm: vm,
+      seasonNumber: seasonNo,
+      episodeNumber: episodeNo,
+    );
+  }
+
+  Future<void> _jumpToSeasonEpisode({
+    required DesktopDetailViewModel vm,
+    required int? seasonNumber,
+    required int? episodeNumber,
+  }) async {
+    final openItem = widget.onOpenItem;
+    if (openItem == null) return;
+
+    final access = vm.access;
+    if (access == null) {
+      _showMessage(_t(zh: '\u672a\u8fde\u63a5\u670d\u52a1\u5668', en: 'No server'));
+      return;
+    }
+
+    final seasons = vm.seasons;
+    if (seasons.isEmpty) {
+      _showMessage(
+        _t(zh: '\u6682\u65e0\u5b63\u5ea6\u4fe1\u606f', en: 'No seasons'),
+      );
+      return;
+    }
+
+    final sortedSeasons = List<MediaItem>.from(seasons);
+    sortedSeasons.sort((a, b) {
+      final aNo = a.seasonNumber ?? 0;
+      final bNo = b.seasonNumber ?? 0;
+      final diff = aNo.compareTo(bNo);
+      if (diff != 0) return diff;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    MediaItem? pickedSeason;
+    final desiredSeason = seasonNumber ?? 0;
+    if (desiredSeason > 0) {
+      for (final season in sortedSeasons) {
+        if ((season.seasonNumber ?? 0) == desiredSeason) {
+          pickedSeason = season;
+          break;
+        }
+      }
+      pickedSeason ??= desiredSeason <= sortedSeasons.length
+          ? sortedSeasons[desiredSeason - 1]
+          : null;
+    } else {
+      final current = vm.detail;
+      final type = current.type.trim().toLowerCase();
+      if (type == 'season') {
+        for (final season in sortedSeasons) {
+          if (season.id == current.id) {
+            pickedSeason = season;
+            break;
+          }
+        }
+      } else if (type == 'episode') {
+        final currentSeasonId = (current.parentId ?? '').trim();
+        for (final season in sortedSeasons) {
+          if (season.id == currentSeasonId) {
+            pickedSeason = season;
+            break;
+          }
+        }
+      } else {
+        pickedSeason = sortedSeasons.isNotEmpty ? sortedSeasons.first : null;
+      }
+    }
+
+    if (pickedSeason == null) {
+      _showMessage(
+        _t(
+          zh: '\u672a\u627e\u5230\u5bf9\u5e94\u7684\u5b63\u5ea6',
+          en: 'Season not found',
+        ),
+      );
+      return;
+    }
+
+    final desiredEpisode = episodeNumber ?? 0;
+    if (desiredEpisode <= 0) {
+      openItem(pickedSeason, vm.server);
+      return;
+    }
+
+    setState(() => _jumpingToEpisode = true);
+    try {
+      final res = await access.adapter.fetchEpisodes(
+        access.auth,
+        seasonId: pickedSeason.id,
+      );
+      final episodes = List<MediaItem>.from(res.items);
+      episodes.sort((a, b) {
+        final aNo = a.episodeNumber ?? 0;
+        final bNo = b.episodeNumber ?? 0;
+        final diff = aNo.compareTo(bNo);
+        if (diff != 0) return diff;
+        return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+      });
+
+      MediaItem? pickedEpisode;
+      for (final ep in episodes) {
+        if ((ep.episodeNumber ?? 0) == desiredEpisode) {
+          pickedEpisode = ep;
+          break;
+        }
+      }
+
+      if (pickedEpisode == null) {
+        _showMessage(
+          _t(
+            zh: '\u672a\u627e\u5230\u7b2c $desiredEpisode \u96c6',
+            en: 'Episode $desiredEpisode not found',
+          ),
+        );
+        return;
+      }
+
+      _jumpEpisodeController.clear();
+      openItem(pickedEpisode, vm.server);
+    } catch (e) {
+      _showMessage(
+        _t(
+          zh: '\u8df3\u8f6c\u5931\u8d25\uff1a$e',
+          en: 'Jump failed: $e',
+        ),
+      );
+    } finally {
+      if (mounted) setState(() => _jumpingToEpisode = false);
+    }
+  }
+
+  Widget _buildJumpFields({
+    required _EpisodeDetailColors colors,
+    required DesktopDetailViewModel vm,
+  }) {
+    final enabled = !_jumpingToEpisode && vm.access != null && vm.seasons.isNotEmpty;
+    InputDecoration decoration({
+      required String prefix,
+      required String hint,
+    }) {
+      return InputDecoration(
+        isDense: true,
+        hintText: hint,
+        hintStyle: TextStyle(
+          fontSize: 12,
+          color: colors.textTertiary,
+          fontWeight: FontWeight.w600,
+        ),
+        prefixText: prefix,
+        prefixStyle: TextStyle(
+          fontSize: 12,
+          color: colors.textTertiary,
+          fontWeight: FontWeight.w700,
+        ),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 9),
+        border: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: colors.border),
+        ),
+        enabledBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: colors.border),
+        ),
+        focusedBorder: OutlineInputBorder(
+          borderRadius: BorderRadius.circular(8),
+          borderSide: BorderSide(color: colors.primary, width: 1.4),
+        ),
+        fillColor: colors.surfaceHover,
+        filled: true,
+        counterText: '',
+      );
+    }
+
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        SizedBox(
+          width: 86,
+          child: Tooltip(
+            message: _t(zh: '\u8f93\u5165\u5b63\u5ea6\uff0c\u56de\u8f66\u8df3\u8f6c', en: 'Type season, press Enter'),
+            child: TextField(
+              controller: _jumpSeasonController,
+              focusNode: _jumpSeasonFocusNode,
+              enabled: enabled,
+              onSubmitted: (_) => unawaited(
+                _onJumpSubmitted(vm: vm),
+              ),
+              textInputAction: TextInputAction.next,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 3,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: decoration(
+                prefix: _dtr(language: widget.language, zh: '\u5b63', en: 'S'),
+                hint: _dtr(language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        SizedBox(
+          width: 86,
+          child: Tooltip(
+            message: _t(zh: '\u8f93\u5165\u96c6\u6570\uff0c\u56de\u8f66\u8df3\u8f6c', en: 'Type episode, press Enter'),
+            child: TextField(
+              controller: _jumpEpisodeController,
+              focusNode: _jumpEpisodeFocusNode,
+              enabled: enabled,
+              onSubmitted: (_) => unawaited(
+                _onJumpSubmitted(vm: vm),
+              ),
+              textInputAction: TextInputAction.go,
+              keyboardType: TextInputType.number,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              maxLength: 4,
+              style: TextStyle(
+                fontSize: 12.5,
+                color: colors.textPrimary,
+                fontWeight: FontWeight.w700,
+              ),
+              decoration: decoration(
+                prefix: _dtr(language: widget.language, zh: '\u96c6', en: 'E'),
+                hint: _dtr(language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
   }
 
   String _apiUrlWithPrefix({
@@ -336,20 +619,47 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               ],
               const SliverToBoxAdapter(child: SizedBox(height: 24)),
               if (!isMovie) ...[
+                if (vm.seasons.isNotEmpty) ...[
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: _SeasonsSection(
+                        title: _dtr(
+                          language: widget.language,
+                          zh: '\u5b63\u5ea6\u9009\u62e9',
+                          en: 'Seasons',
+                        ),
+                        seasons: vm.seasons,
+                        currentSeasonId: _currentSeasonIdFor(item, vm),
+                        access: vm.access,
+                        language: widget.language,
+                        onTap: widget.onOpenItem == null
+                            ? null
+                            : (season) => widget.onOpenItem!(season, vm.server),
+                      ),
+                    ),
+                  ),
+                  const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                ],
                 SliverToBoxAdapter(
                   child: Padding(
                     padding: const EdgeInsets.symmetric(horizontal: 24),
                     child: _SeasonEpisodesSection(
                       title: _seasonSectionTitle(
                         item,
-                        isEpisode,
                         language: widget.language,
                       ),
                       episodes: vm.episodes,
                       currentItemId: item.id,
                       access: vm.access,
                       language: widget.language,
-                      onTap: widget.onOpenItem,
+                      headerTrailing: _buildJumpFields(
+                        colors: colors,
+                        vm: vm,
+                      ),
+                      onTap: widget.onOpenItem == null
+                          ? null
+                          : (entry) => widget.onOpenItem!(entry, vm.server),
                     ),
                   ),
                 ),
@@ -1375,6 +1685,297 @@ class _TechDropdownState extends State<_TechDropdown> {
   }
 }
 
+class _SeasonsSection extends StatelessWidget {
+  const _SeasonsSection({
+    required this.title,
+    required this.seasons,
+    required this.currentSeasonId,
+    required this.access,
+    required this.language,
+    this.onTap,
+  });
+
+  final String title;
+  final List<MediaItem> seasons;
+  final String? currentSeasonId;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final list = List<MediaItem>.from(seasons);
+    list.sort((a, b) {
+      final aNo = a.seasonNumber ?? 0;
+      final bNo = b.seasonNumber ?? 0;
+      final diff = aNo.compareTo(bNo);
+      if (diff != 0) return diff;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+
+    return _SectionSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          if (list.isEmpty)
+            SizedBox(
+              height: 120,
+              child: Center(
+                child: Text(
+                  _dtr(
+                    language: language,
+                    zh: '\u6682\u65e0\u5b63\u5ea6',
+                    en: 'No seasons',
+                  ),
+                  style: TextStyle(color: colors.textSecondary),
+                ),
+              ),
+            )
+          else
+            _SeasonHorizontalList(
+              seasons: list,
+              currentSeasonId: currentSeasonId,
+              access: access,
+              language: language,
+              onTap: onTap,
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SeasonHorizontalList extends StatefulWidget {
+  const _SeasonHorizontalList({
+    required this.seasons,
+    required this.currentSeasonId,
+    required this.access,
+    required this.language,
+    this.onTap,
+  });
+
+  final List<MediaItem> seasons;
+  final String? currentSeasonId;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  State<_SeasonHorizontalList> createState() => _SeasonHorizontalListState();
+}
+
+class _SeasonHorizontalListState extends State<_SeasonHorizontalList> {
+  static const double _kPosterWidth = 124;
+  static const double _kPosterHeight = 174;
+  static const double _kCardSpacing = 14;
+  final ScrollController _controller = ScrollController();
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_controller.hasClients) return;
+    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+        ? event.scrollDelta.dy
+        : event.scrollDelta.dx;
+    if (delta == 0) return;
+    final target = (_controller.offset + delta).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    _controller.jumpTo(target);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: _kPosterHeight + 38,
+      child: Listener(
+        onPointerSignal: _onPointerSignal,
+        child: ListView.separated(
+          controller: _controller,
+          scrollDirection: Axis.horizontal,
+          itemCount: widget.seasons.length,
+          separatorBuilder: (_, __) => const SizedBox(width: _kCardSpacing),
+          itemBuilder: (context, index) {
+            final season = widget.seasons[index];
+            final seasonNo = season.seasonNumber ?? (index + 1);
+            final label = _dtr(
+              language: widget.language,
+              zh: '\u7b2c$seasonNo\u5b63',
+              en: 'Season $seasonNo',
+            );
+            final imageUrls = _seasonImageCandidates(
+              access: widget.access,
+              season: season,
+            );
+            final isCurrent = (widget.currentSeasonId ?? '').trim().isNotEmpty &&
+                season.id == widget.currentSeasonId;
+            return _SeasonPosterCard(
+              width: _kPosterWidth,
+              height: _kPosterHeight,
+              season: season,
+              label: label,
+              imageUrls: imageUrls,
+              isCurrent: isCurrent,
+              onTap: widget.onTap == null ? null : () => widget.onTap!(season),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+class _SeasonPosterCard extends StatefulWidget {
+  const _SeasonPosterCard({
+    required this.width,
+    required this.height,
+    required this.season,
+    required this.label,
+    required this.imageUrls,
+    required this.isCurrent,
+    this.onTap,
+  });
+
+  final double width;
+  final double height;
+  final MediaItem season;
+  final String label;
+  final List<String> imageUrls;
+  final bool isCurrent;
+  final VoidCallback? onTap;
+
+  @override
+  State<_SeasonPosterCard> createState() => _SeasonPosterCardState();
+}
+
+class _SeasonPosterCardState extends State<_SeasonPosterCard> {
+  bool _hovered = false;
+  int _imageIndex = 0;
+  bool _switchingImage = false;
+
+  @override
+  void didUpdateWidget(covariant _SeasonPosterCard oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.season.id != widget.season.id ||
+        oldWidget.imageUrls.join('|') != widget.imageUrls.join('|')) {
+      _imageIndex = 0;
+      _switchingImage = false;
+    }
+  }
+
+  Widget _buildImage() {
+    final urls = widget.imageUrls
+        .map((entry) => entry.trim())
+        .where((entry) => entry.isNotEmpty)
+        .toList(growable: false);
+    if (urls.isEmpty || _imageIndex >= urls.length) {
+      return const _FallbackImage(label: '');
+    }
+
+    final imageUrl = urls[_imageIndex];
+    return CachedNetworkImage(
+      key: ValueKey<String>('season-${widget.season.id}-$imageUrl'),
+      imageUrl: imageUrl,
+      fit: BoxFit.cover,
+      placeholder: (_, __) => const SizedBox.shrink(),
+      errorWidget: (_, __, ___) {
+        if (_imageIndex < urls.length - 1) {
+          if (!_switchingImage) {
+            _switchingImage = true;
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              if (!mounted) return;
+              setState(() {
+                _imageIndex += 1;
+                _switchingImage = false;
+              });
+            });
+          }
+          return const SizedBox.shrink();
+        }
+        return const _FallbackImage(label: '');
+      },
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final canTap = widget.onTap != null;
+    final borderColor = widget.isCurrent
+        ? colors.primary
+        : (_hovered ? colors.borderHover : colors.border);
+    final borderWidth = widget.isCurrent ? 2.0 : 1.0;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: canTap ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _hovered ? 1.02 : 1,
+          duration: const Duration(milliseconds: 130),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Container(
+                width: widget.width,
+                height: widget.height,
+                decoration: BoxDecoration(
+                  borderRadius: BorderRadius.circular(10),
+                  border: Border.all(color: borderColor, width: borderWidth),
+                  boxShadow: [
+                    BoxShadow(
+                      color: colors.shadow,
+                      blurRadius: 10,
+                      offset: Offset(0, 3),
+                    ),
+                  ],
+                ),
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(10),
+                  child: _buildImage(),
+                ),
+              ),
+              const SizedBox(height: 8),
+              Text(
+                widget.label,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: widget.isCurrent
+                      ? colors.textPrimary
+                      : colors.textSecondary,
+                  fontWeight:
+                      widget.isCurrent ? FontWeight.w700 : FontWeight.w600,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SeasonEpisodesSection extends StatelessWidget {
   const _SeasonEpisodesSection({
     required this.title,
@@ -1382,6 +1983,7 @@ class _SeasonEpisodesSection extends StatelessWidget {
     required this.currentItemId,
     required this.access,
     required this.language,
+    this.headerTrailing,
     this.onTap,
   });
 
@@ -1390,6 +1992,7 @@ class _SeasonEpisodesSection extends StatelessWidget {
   final String currentItemId;
   final ServerAccess? access;
   final DesktopUiLanguage language;
+  final Widget? headerTrailing;
   final ValueChanged<MediaItem>? onTap;
 
   @override
@@ -1399,13 +2002,26 @@ class _SeasonEpisodesSection extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            title,
-            style: TextStyle(
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              color: colors.textPrimary,
-            ),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.center,
+            children: [
+              Expanded(
+                child: Text(
+                  title,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.w700,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ),
+              if (headerTrailing != null) ...[
+                const SizedBox(width: 12),
+                headerTrailing!,
+              ],
+            ],
           ),
           const SizedBox(height: 16),
           if (episodes.isEmpty)
@@ -2387,11 +3003,12 @@ String _dtr({
 }
 
 String _seasonSectionTitle(
-  MediaItem item,
-  bool isEpisode, {
+  MediaItem item, {
   required DesktopUiLanguage language,
 }) {
-  final season = isEpisode ? (item.seasonNumber ?? 1) : 1;
+  final type = item.type.trim().toLowerCase();
+  final season =
+      (type == 'episode' || type == 'season') ? (item.seasonNumber ?? 1) : 1;
   return _dtr(
     language: language,
     zh: '\u66f4\u591a\u6765\u81ea\uff1a\u7b2c $season \u5b63',
@@ -2537,6 +3154,41 @@ List<_ExternalLink> _buildExternalLinks(MediaItem item) {
       iconAssetPath: 'TMDB.png',
     ),
   ];
+}
+
+List<String> _seasonImageCandidates({
+  required ServerAccess? access,
+  required MediaItem season,
+}) {
+  final currentAccess = access;
+  if (currentAccess == null) return const <String>[];
+  final urls = <String>[];
+
+  void addUrl({
+    required String itemId,
+    required String imageType,
+    required int maxWidth,
+  }) {
+    final id = itemId.trim();
+    if (id.isEmpty) return;
+    final url = currentAccess.adapter.imageUrl(
+      currentAccess.auth,
+      itemId: id,
+      imageType: imageType,
+      maxWidth: maxWidth,
+    );
+    if (url.trim().isEmpty || urls.contains(url)) return;
+    urls.add(url);
+  }
+
+  addUrl(itemId: season.id, imageType: 'Primary', maxWidth: 720);
+  addUrl(itemId: season.id, imageType: 'Thumb', maxWidth: 720);
+  addUrl(itemId: season.id, imageType: 'Backdrop', maxWidth: 1280);
+  addUrl(itemId: season.parentId ?? '', imageType: 'Primary', maxWidth: 720);
+  addUrl(itemId: season.seriesId ?? '', imageType: 'Primary', maxWidth: 720);
+  addUrl(itemId: season.seriesId ?? '', imageType: 'Backdrop', maxWidth: 1280);
+
+  return urls;
 }
 
 List<String> _episodeImageCandidates({

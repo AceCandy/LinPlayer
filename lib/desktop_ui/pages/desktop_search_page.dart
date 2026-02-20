@@ -83,6 +83,8 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
   int _searchSeq = 0;
   String _activeQuery = '';
 
+  bool _aggregateSearchEnabled = false;
+
   _DesktopAggregateSearchSortMode _sortMode =
       _DesktopAggregateSearchSortMode.episodeCountDesc;
 
@@ -346,6 +348,13 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     return groups;
   }
 
+  void _toggleAggregateSearch() {
+    setState(() => _aggregateSearchEnabled = !_aggregateSearchEnabled);
+    if (_activeQuery.isNotEmpty) {
+      unawaited(_search(_activeQuery));
+    }
+  }
+
   Future<void> _search(String raw) async {
     final query = raw.trim();
     final seq = ++_searchSeq;
@@ -361,6 +370,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     }
 
     final servers = widget.appState.servers;
+    final activeServerId = widget.appState.activeServerId;
     if (servers.isEmpty) {
       setState(() {
         _loading = false;
@@ -382,6 +392,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
 
     await Future.wait<void>(
       servers.map((server) async {
+        if (!_aggregateSearchEnabled && server.id != activeServerId) return;
         final baseUrl = server.baseUrl.trim();
         final token = server.token.trim();
         final userId = server.userId.trim();
@@ -428,9 +439,16 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
     if (!mounted || seq != _searchSeq) return;
 
     if (hits.isEmpty) {
+      final missingActiveServer =
+          !_aggregateSearchEnabled && (activeServerId ?? '').trim().isEmpty;
       setState(() {
         _loading = false;
-        _error = null;
+        _error = missingActiveServer
+            ? _t(
+                zh: '\u672a\u52a0\u8f7d\u670d\u52a1\u5668',
+                en: 'No active server loaded',
+              )
+            : null;
         _groups = const <_WorkGroup>[];
         _serverErrors = serverErrors;
       });
@@ -472,6 +490,65 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
         unawaited(_resolveSeriesMeta(hit.server, hit.item.id));
       }
     }
+  }
+
+  Widget _buildAggregateToggleButton(DesktopThemeExtension theme) {
+    final active = _aggregateSearchEnabled;
+    final label = active
+        ? _t(zh: '\u805a\u5408\uff1a\u5f00', en: 'Aggregate: On')
+        : _t(zh: '\u805a\u5408\uff1a\u5173', en: 'Aggregate: Off');
+    final message = active
+        ? _t(
+            zh: '\u5df2\u5f00\u542f\u805a\u5408\u641c\u7d22\uff0c\u68c0\u7d22\u6240\u6709\u670d\u52a1\u5668',
+            en: 'Aggregate search enabled (all servers)',
+          )
+        : _t(
+            zh: '\u5df2\u5173\u95ed\u805a\u5408\u641c\u7d22\uff0c\u53ea\u68c0\u7d22\u5df2\u52a0\u8f7d\u7684\u670d\u52a1\u5668',
+            en: 'Aggregate search disabled (active server only)',
+          );
+
+    final bg = Colors.white.withValues(alpha: active ? 0.10 : 0.06);
+    final borderColor = active
+        ? theme.focus.withValues(alpha: 0.85)
+        : theme.border.withValues(alpha: 0.66);
+    final iconColor = active ? theme.focus : theme.textMuted;
+
+    return Tooltip(
+      message: message,
+      child: HoverEffectWrapper(
+        borderRadius: BorderRadius.circular(18),
+        hoverScale: 1.01,
+        onTap: _toggleAggregateSearch,
+        child: Container(
+          height: 34,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: BorderRadius.circular(18),
+            border: Border.all(color: borderColor),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                active ? Icons.hub_rounded : Icons.hub_outlined,
+                size: 18,
+                color: iconColor,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                label,
+                style: TextStyle(
+                  color: active ? theme.textPrimary : theme.textMuted,
+                  fontSize: 12.5,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
   }
 
   Widget _buildFilterButton(DesktopThemeExtension theme, bool enabled) {
@@ -837,8 +914,10 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
-                        ),
                       ),
+                    ),
+                    _buildAggregateToggleButton(desktopTheme),
+                    const SizedBox(width: 10),
                     _buildFilterButton(desktopTheme, query.isNotEmpty),
                   ],
                 ),

@@ -120,8 +120,16 @@ class DesktopDetailViewModel extends ChangeNotifier {
       List<MediaItem> episodes = const <MediaItem>[];
 
       final type = detailItem.type.trim().toLowerCase();
-      final seriesId =
-          type == 'series' ? detailItem.id : (detailItem.seriesId ?? '').trim();
+      final isSeries = type == 'series';
+      final isSeason = type == 'season';
+      final isEpisode = type == 'episode';
+
+      final seriesId = (isSeries
+              ? detailItem.id
+              : (detailItem.seriesId ?? '').trim().isNotEmpty
+                  ? detailItem.seriesId!.trim()
+                  : (isSeason ? (detailItem.parentId ?? '').trim() : ''))
+          .trim();
 
       if (seriesId.isNotEmpty) {
         try {
@@ -129,32 +137,110 @@ class DesktopDetailViewModel extends ChangeNotifier {
             currentAccess.auth,
             seriesId: seriesId,
           );
-          seasons = seasonResult.items;
+          seasons = seasonResult.items
+              .where((s) => s.type.trim().toLowerCase() == 'season')
+              .toList(growable: false);
         } catch (_) {
           seasons = const <MediaItem>[];
         }
 
-        final firstSeasonId =
-            seasons.isNotEmpty ? seasons.first.id : detailItem.parentId;
-        if ((firstSeasonId ?? '').trim().isNotEmpty) {
-          try {
-            final episodeResult = await currentAccess.adapter.fetchEpisodes(
-              currentAccess.auth,
-              seasonId: firstSeasonId!.trim(),
-            );
-            episodes = episodeResult.items.take(24).toList(growable: false);
-          } catch (_) {
-            episodes = const <MediaItem>[];
-          }
+        final mutable = List<MediaItem>.from(seasons);
+        mutable.sort((a, b) {
+          final aNo = a.seasonNumber ?? a.episodeNumber ?? 0;
+          final bNo = b.seasonNumber ?? b.episodeNumber ?? 0;
+          final diff = aNo.compareTo(bNo);
+          if (diff != 0) return diff;
+          return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+        });
+        seasons = mutable;
+      }
+
+      if (seasons.isEmpty && seriesId.isNotEmpty) {
+        if (isSeason) {
+          seasons = [detailItem];
+        } else if (isEpisode && (detailItem.parentId ?? '').trim().isNotEmpty) {
+          final sNo = detailItem.seasonNumber ?? 1;
+          final seasonName = detailItem.seasonName.trim().isNotEmpty
+              ? detailItem.seasonName.trim()
+              : 'Season $sNo';
+          seasons = [
+            MediaItem(
+              id: detailItem.parentId!.trim(),
+              name: seasonName,
+              type: 'Season',
+              overview: '',
+              communityRating: null,
+              premiereDate: null,
+              genres: const [],
+              runTimeTicks: null,
+              sizeBytes: null,
+              container: null,
+              providerIds: const {},
+              seriesId: seriesId,
+              seriesName: detailItem.seriesName,
+              seasonName: seasonName,
+              seasonNumber: sNo,
+              episodeNumber: null,
+              hasImage: detailItem.hasImage,
+              playbackPositionTicks: 0,
+              people: const [],
+              parentId: seriesId,
+            ),
+          ];
+        } else if (isSeries) {
+          seasons = [
+            MediaItem(
+              id: seriesId,
+              name: 'Season 1',
+              type: 'Season',
+              overview: '',
+              communityRating: null,
+              premiereDate: null,
+              genres: const [],
+              runTimeTicks: null,
+              sizeBytes: null,
+              container: null,
+              providerIds: const {},
+              seriesId: seriesId,
+              seriesName: detailItem.name,
+              seasonName: 'Season 1',
+              seasonNumber: 1,
+              episodeNumber: null,
+              hasImage: detailItem.hasImage,
+              playbackPositionTicks: 0,
+              people: const [],
+              parentId: seriesId,
+            ),
+          ];
         }
-      } else if (type == 'episode' &&
-          (detailItem.parentId ?? '').trim().isNotEmpty) {
+      }
+
+      final seasonIdForEpisodes = (isSeason
+              ? detailItem.id.trim()
+              : isEpisode
+                  ? (detailItem.parentId ?? '').trim()
+                  : seasons.isNotEmpty
+                      ? seasons.first.id.trim()
+                      : isSeries
+                          ? detailItem.id.trim()
+                          : (detailItem.parentId ?? '').trim())
+          .trim();
+
+      if (seasonIdForEpisodes.isNotEmpty) {
         try {
           final episodeResult = await currentAccess.adapter.fetchEpisodes(
             currentAccess.auth,
-            seasonId: detailItem.parentId!.trim(),
+            seasonId: seasonIdForEpisodes,
           );
-          episodes = episodeResult.items.take(24).toList(growable: false);
+          final items = List<MediaItem>.from(episodeResult.items);
+          items.sort((a, b) {
+            final aNo = a.episodeNumber ?? 0;
+            final bNo = b.episodeNumber ?? 0;
+            final diff = aNo.compareTo(bNo);
+            if (diff != 0) return diff;
+            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+          });
+          episodes = items.take(24).toList(growable: false);
         } catch (_) {
           episodes = const <MediaItem>[];
         }
