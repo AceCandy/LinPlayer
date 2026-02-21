@@ -7,7 +7,7 @@ on:
   workflow_dispatch:
     inputs:
       version_full:
-        description: "Full version like 1.2.3+45 (overrides build_name/build_number)"
+        description: "Full version like 1.2.3+45 (or just 1.2.3 to override build_name)"
         type: string
         required: false
       build_name:

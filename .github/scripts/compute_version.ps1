@@ -5,14 +5,16 @@ $buildNumber = $env:BUILD_NUMBER_INPUT
 $versionFullInput = $env:VERSION_FULL_INPUT
 
 if (-not [string]::IsNullOrWhiteSpace($versionFullInput)) {
-  if ($versionFullInput -notmatch '\+') {
-    throw "VERSION_FULL_INPUT must look like 1.2.3+45 (got: $versionFullInput)"
-  }
-  $parts = $versionFullInput -split '\+', 2
-  $buildName = $parts[0]
-  $buildNumber = $parts[1]
-  if ([string]::IsNullOrWhiteSpace($buildName)) {
-    throw "VERSION_FULL_INPUT build name is empty (got: $versionFullInput)"
+  if ($versionFullInput -match '\+') {
+    $parts = $versionFullInput -split '\+', 2
+    $buildName = $parts[0]
+    $buildNumber = $parts[1]
+    if ([string]::IsNullOrWhiteSpace($buildName)) {
+      throw "VERSION_FULL_INPUT build name is empty (got: $versionFullInput)"
+    }
+  } else {
+    # Accept "1.2.3" and treat it as a build name override. buildNumber is resolved later.
+    $buildName = $versionFullInput
   }
 }
 
@@ -49,8 +51,16 @@ $appVersion = "$buildName.$buildNumber"
 
 Write-Host "Using version: $versionFull"
 
-Add-Content -Path $env:GITHUB_ENV -Value "BUILD_NAME=$buildName"
-Add-Content -Path $env:GITHUB_ENV -Value "BUILD_NUMBER=$buildNumber"
-Add-Content -Path $env:GITHUB_ENV -Value "VERSION_FULL=$versionFull"
-Add-Content -Path $env:GITHUB_ENV -Value "APP_VERSION=$appVersion"
-Add-Content -Path $env:GITHUB_ENV -Value "APP_VERSION_FULL=$versionFull"
+if (-not [string]::IsNullOrWhiteSpace($env:GITHUB_ENV)) {
+  Add-Content -Path $env:GITHUB_ENV -Value "BUILD_NAME=$buildName"
+  Add-Content -Path $env:GITHUB_ENV -Value "BUILD_NUMBER=$buildNumber"
+  Add-Content -Path $env:GITHUB_ENV -Value "VERSION_FULL=$versionFull"
+  Add-Content -Path $env:GITHUB_ENV -Value "APP_VERSION=$appVersion"
+  Add-Content -Path $env:GITHUB_ENV -Value "APP_VERSION_FULL=$versionFull"
+} else {
+  Write-Output "BUILD_NAME=$buildName"
+  Write-Output "BUILD_NUMBER=$buildNumber"
+  Write-Output "VERSION_FULL=$versionFull"
+  Write-Output "APP_VERSION=$appVersion"
+  Write-Output "APP_VERSION_FULL=$versionFull"
+}

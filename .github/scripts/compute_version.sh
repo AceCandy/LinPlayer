@@ -6,15 +6,16 @@ build_number="${BUILD_NUMBER_INPUT:-}"
 version_full_input="${VERSION_FULL_INPUT:-}"
 
 if [[ -n "${version_full_input:-}" ]]; then
-  if [[ "${version_full_input}" != *"+"* ]]; then
-    echo "VERSION_FULL_INPUT must look like 1.2.3+45 (got: ${version_full_input})" >&2
-    exit 1
-  fi
-  build_name="${version_full_input%%+*}"
-  build_number="${version_full_input##*+}"
-  if [[ -z "${build_name:-}" ]]; then
-    echo "VERSION_FULL_INPUT build name is empty (got: ${version_full_input})" >&2
-    exit 1
+  if [[ "${version_full_input}" == *"+"* ]]; then
+    build_name="${version_full_input%%+*}"
+    build_number="${version_full_input##*+}"
+    if [[ -z "${build_name:-}" ]]; then
+      echo "VERSION_FULL_INPUT build name is empty (got: ${version_full_input})" >&2
+      exit 1
+    fi
+  else
+    # Accept "1.2.3" and treat it as a build name override. build_number is resolved later.
+    build_name="${version_full_input}"
   fi
 fi
 
@@ -46,10 +47,20 @@ app_version="${build_name}.${build_number}"
 
 echo "Using version: ${version_full}"
 
-{
-  echo "BUILD_NAME=${build_name}"
-  echo "BUILD_NUMBER=${build_number}"
-  echo "VERSION_FULL=${version_full}"
-  echo "APP_VERSION=${app_version}"
-  echo "APP_VERSION_FULL=${version_full}"
-} >> "${GITHUB_ENV}"
+if [[ -n "${GITHUB_ENV:-}" ]]; then
+  {
+    echo "BUILD_NAME=${build_name}"
+    echo "BUILD_NUMBER=${build_number}"
+    echo "VERSION_FULL=${version_full}"
+    echo "APP_VERSION=${app_version}"
+    echo "APP_VERSION_FULL=${version_full}"
+  } >> "${GITHUB_ENV}"
+else
+  cat <<EOF
+BUILD_NAME=${build_name}
+BUILD_NUMBER=${build_number}
+VERSION_FULL=${version_full}
+APP_VERSION=${app_version}
+APP_VERSION_FULL=${version_full}
+EOF
+fi
