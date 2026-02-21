@@ -2872,6 +2872,12 @@ class AppState extends ChangeNotifier {
     if (a.playbackPositionTicks != b.playbackPositionTicks) {
       return a.playbackPositionTicks >= b.playbackPositionTicks ? a : b;
     }
+    final aType = a.type.toLowerCase().trim();
+    final bType = b.type.toLowerCase().trim();
+    if (aType == 'episode' && bType == 'episode') {
+      final orderDiff = _compareEpisodeOrder(a, b);
+      if (orderDiff != 0) return orderDiff > 0 ? a : b;
+    }
     return a;
   }
 
@@ -2906,7 +2912,9 @@ class AppState extends ChangeNotifier {
                   item.id.trim().isNotEmpty &&
                   local.id.trim().isNotEmpty &&
                   item.id.trim() != local.id.trim())
-              ? item
+              ? (item.playbackPositionTicks > 0 || local.playbackPositionTicks > 0)
+                  ? item
+                  : _pickPreferredContinueWatchingItem(item, local)
               : _pickPreferredContinueWatchingItem(item, local);
       if (used.add(key)) ordered.add(chosen);
       mergedByKey.remove(key);
@@ -3020,7 +3028,16 @@ class AppState extends ChangeNotifier {
 
     final type = item.type.toLowerCase().trim();
     if (type == 'episode') {
-      final next = await _tryResolveNextUpAfterEpisode(
+      MediaItem? next;
+      try {
+        next = await _tryResolveNextEpisodeAfterLatestPlayedEpisode(
+          episode: item,
+          playedEpisodeId: item.id,
+        );
+      } catch (_) {
+        next = null;
+      }
+      next ??= await _tryResolveNextUpAfterEpisode(
         episode: item,
         excludeItemId: item.id,
       );
@@ -3114,6 +3131,154 @@ class AppState extends ChangeNotifier {
       }
     } catch (_) {
       return null;
+    }
+
+    return null;
+  }
+
+  static const String _kContinueWatchingEpisodeFields =
+      'Overview,ParentId,SeriesId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,'
+      'ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,'
+      'UserData';
+
+  static int _normalizeSeasonNumber(MediaItem item) {
+    final season = item.seasonNumber;
+    if (season != null) return season;
+    return 1;
+  }
+
+  static int _normalizeEpisodeNumber(MediaItem item) {
+    return item.episodeNumber ?? 0;
+  }
+
+  static DateTime? _tryParsePremiereDate(MediaItem item) {
+    final raw = (item.premiereDate ?? '').trim();
+    if (raw.isEmpty) return null;
+    return DateTime.tryParse(raw);
+  }
+
+  static int _compareEpisodeOrder(MediaItem a, MediaItem b) {
+    final seasonDiff =
+        _normalizeSeasonNumber(a).compareTo(_normalizeSeasonNumber(b));
+    if (seasonDiff != 0) return seasonDiff;
+
+    final episodeDiff =
+        _normalizeEpisodeNumber(a).compareTo(_normalizeEpisodeNumber(b));
+    if (episodeDiff != 0) return episodeDiff;
+
+    final aDate = _tryParsePremiereDate(a);
+    final bDate = _tryParsePremiereDate(b);
+    if (aDate != null || bDate != null) {
+      if (aDate == null) return -1;
+      if (bDate == null) return 1;
+      final dateDiff = aDate.compareTo(bDate);
+      if (dateDiff != 0) return dateDiff;
+    }
+
+    final nameDiff =
+        a.name.toLowerCase().trim().compareTo(b.name.toLowerCase().trim());
+    if (nameDiff != 0) return nameDiff;
+
+    return a.id.trim().compareTo(b.id.trim());
+  }
+
+  Future<List<MediaItem>> _fetchSeriesEpisodesForContinueWatching({
+    required String seriesId,
+  }) async {
+    final baseUrl = this.baseUrl;
+    final token = this.token;
+    final userId = this.userId;
+    if (baseUrl == null || token == null || userId == null) return const [];
+
+    final resolvedSeriesId = seriesId.trim();
+    if (resolvedSeriesId.isEmpty) return const [];
+
+    final api = EmbyApi(
+      hostOrUrl: baseUrl,
+      preferredScheme: 'https',
+      apiPrefix: apiPrefix,
+      serverType: serverType,
+      deviceId: _deviceId,
+    );
+
+    const pageSize = 200;
+    var startIndex = 0;
+    final items = <MediaItem>[];
+    while (true) {
+      final res = await api.fetchItems(
+        token: token,
+        baseUrl: baseUrl,
+        userId: userId,
+        parentId: resolvedSeriesId,
+        includeItemTypes: 'Episode',
+        recursive: true,
+        excludeFolders: true,
+        startIndex: startIndex,
+        limit: pageSize,
+        sortBy: 'ParentIndexNumber,IndexNumber',
+        sortOrder: 'Ascending',
+        fields: _kContinueWatchingEpisodeFields,
+      );
+      if (res.items.isEmpty) break;
+
+      for (final item in res.items) {
+        if (item.id.trim().isEmpty) continue;
+        if (item.type.toLowerCase().trim() != 'episode') continue;
+        items.add(item);
+      }
+
+      startIndex += res.items.length;
+      if (res.items.length < pageSize) break;
+      if (startIndex >= res.total) break;
+      if (items.length >= res.total) break;
+      if (startIndex > 5000) break;
+    }
+
+    final seenIds = <String>{};
+    final deduped = <MediaItem>[];
+    for (final item in items) {
+      final id = item.id.trim();
+      if (id.isEmpty || !seenIds.add(id)) continue;
+      deduped.add(item);
+    }
+
+    deduped.sort(_compareEpisodeOrder);
+    return deduped;
+  }
+
+  Future<MediaItem?> _tryResolveNextEpisodeAfterLatestPlayedEpisode({
+    required MediaItem episode,
+    required String playedEpisodeId,
+  }) async {
+    final seriesId = (episode.seriesId ?? '').trim();
+    if (seriesId.isEmpty) return null;
+
+    final playedId = playedEpisodeId.trim();
+    final episodes = await _fetchSeriesEpisodesForContinueWatching(
+      seriesId: seriesId,
+    );
+    if (episodes.isEmpty) return null;
+
+    bool isPlayed(MediaItem item) {
+      if (item.played) return true;
+      final id = item.id.trim();
+      return id.isNotEmpty && id == playedId;
+    }
+
+    MediaItem? furthestPlayed;
+    for (final item in episodes) {
+      if (!isPlayed(item)) continue;
+      if (furthestPlayed == null ||
+          _compareEpisodeOrder(item, furthestPlayed) > 0) {
+        furthestPlayed = item;
+      }
+    }
+    furthestPlayed ??= episode;
+
+    for (final item in episodes) {
+      if (_compareEpisodeOrder(item, furthestPlayed) <= 0) continue;
+      if (isPlayed(item)) continue;
+      return item;
     }
 
     return null;
