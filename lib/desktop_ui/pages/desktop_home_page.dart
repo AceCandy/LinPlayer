@@ -20,6 +20,7 @@ import '../../server_page.dart';
 import '../../server_adapters/server_access.dart';
 import '../../settings_page.dart';
 import '../../show_detail_page.dart';
+import '../../services/app_route_observer.dart';
 import '../widgets/desktop_unified_background.dart';
 
 class DesktopHomePage extends StatefulWidget {
@@ -33,7 +34,8 @@ class DesktopHomePage extends StatefulWidget {
 
 enum _DesktopHomeTab { home, favorites }
 
-class _DesktopHomePageState extends State<DesktopHomePage> {
+class _DesktopHomePageState extends State<DesktopHomePage> with RouteAware {
+  PageRoute<dynamic>? _route;
   _DesktopHomeTab _selectedTab = _DesktopHomeTab.home;
   bool _bootstrapping = true;
   bool _refreshing = false;
@@ -51,6 +53,30 @@ class _DesktopHomePageState extends State<DesktopHomePage> {
     _continueWatchingFuture =
         widget.appState.loadContinueWatching(forceRefresh: false);
     unawaited(_refreshAll(showBusy: true, forceContinueRefresh: false));
+  }
+
+  @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute && route != _route) {
+      if (_route != null) appRouteObserver.unsubscribe(this);
+      _route = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    _reloadContinueWatching(forceRefresh: true);
+    unawaited(widget.appState.loadHome(forceRefresh: true));
+  }
+
+  @override
+  void dispose() {
+    if (_route != null) appRouteObserver.unsubscribe(this);
+    super.dispose();
   }
 
   Future<void> _refreshAll({

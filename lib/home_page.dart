@@ -19,6 +19,7 @@ import 'search_page.dart';
 import 'server_page.dart';
 import 'settings_page.dart';
 import 'server_adapters/server_access.dart';
+import 'services/app_route_observer.dart';
 import 'show_detail_page.dart';
 
 class HomePage extends StatefulWidget {
@@ -1600,7 +1601,9 @@ class _ContinueWatchingSection extends StatefulWidget {
       _ContinueWatchingSectionState();
 }
 
-class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
+class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
+    with RouteAware {
+  PageRoute<dynamic>? _route;
   Future<List<MediaItem>>? _future;
   final ScrollController _controller = ScrollController();
 
@@ -1611,7 +1614,25 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection> {
   }
 
   @override
+  void didChangeDependencies() {
+    super.didChangeDependencies();
+    final route = ModalRoute.of(context);
+    if (route is PageRoute && route != _route) {
+      if (_route != null) appRouteObserver.unsubscribe(this);
+      _route = route;
+      appRouteObserver.subscribe(this, route);
+    }
+  }
+
+  @override
+  void didPopNext() {
+    if (!mounted) return;
+    _reload();
+  }
+
+  @override
   void dispose() {
+    if (_route != null) appRouteObserver.unsubscribe(this);
     _controller.dispose();
     super.dispose();
   }
