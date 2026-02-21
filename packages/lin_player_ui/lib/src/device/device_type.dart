@@ -4,10 +4,18 @@ import 'package:flutter/services.dart';
 class DeviceType {
   static const MethodChannel _channel = MethodChannel('linplayer/device');
 
+  static const bool _forceTv = bool.fromEnvironment(
+    'LINPLAYER_FORCE_TV',
+    defaultValue: false,
+  );
+
   static bool _initialized = false;
   static bool _isTv = false;
 
-  static bool get isTv => _isTv;
+  static bool get isTv =>
+      !kIsWeb && defaultTargetPlatform == TargetPlatform.android
+          ? (_forceTv || _isTv)
+          : false;
 
   static Future<String?> primaryAbi() async {
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return null;
@@ -104,6 +112,10 @@ class DeviceType {
     _initialized = true;
 
     if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    if (_forceTv) {
+      _isTv = true;
+      return;
+    }
 
     try {
       final result = await _channel.invokeMethod<bool>('isAndroidTv');
