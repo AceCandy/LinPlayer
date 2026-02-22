@@ -12,6 +12,11 @@ Future<bool> launchExternalMpv({
     '--vo=gpu-next',
     '--hwdec=no',
     '--target-colorspace-hint=yes',
+    // Prefer maximum ASS/SSA compatibility for external playback too.
+    '--embeddedfonts=yes',
+    '--sub-ass=yes',
+    '--sub-ass-vsfilter-aspect-compat=yes',
+    '--sub-ass-vsfilter-blur-compat=yes',
   ];
 
   if (httpHeaders != null && httpHeaders.isNotEmpty) {

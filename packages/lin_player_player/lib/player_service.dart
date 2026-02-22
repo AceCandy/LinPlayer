@@ -66,6 +66,10 @@ class PlayerService {
     final platform = defaultTargetPlatform;
     final isAndroid = !kIsWeb && platform == TargetPlatform.android;
     final isWindows = !kIsWeb && platform == TargetPlatform.windows;
+    final isDesktop = !kIsWeb &&
+        (platform == TargetPlatform.windows ||
+            platform == TargetPlatform.linux ||
+            platform == TargetPlatform.macOS);
     final useGpuNext = isAndroid && (dolbyVisionMode || hdrMode);
 
     final cacheMb = mpvCacheSizeMb.clamp(200, 2048);
@@ -112,6 +116,12 @@ class PlayerService {
       extraMpvOptions: [
         'tls-verify=no',
         if (isAndroid) 'sub-fonts-dir=/system/fonts',
+        // Improve ASS/SSA effect subtitle compatibility on desktop (VSFilter-style scripts).
+        if (isDesktop) ...[
+          'embeddedfonts=yes',
+          'sub-ass-vsfilter-aspect-compat=yes',
+          'sub-ass-vsfilter-blur-compat=yes',
+        ],
         if (isNetwork && (httpProxy ?? '').trim().isNotEmpty)
           'http-proxy=${httpProxy!.trim()}',
         if (useGpuNext) 'gpu-context=android',

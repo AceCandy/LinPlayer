@@ -446,6 +446,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         widget.appState.setAnime4kPreset(Anime4kPreset.off);
       }
 
+      final injectedExternalSubtitleSelected =
+          await _tryInjectEmbyExternalSubtitlesIntoMpv(access: access);
+      if (injectedExternalSubtitleSelected) {
+        // If user explicitly selected an external subtitle stream index from PlaybackInfo,
+        // we already selected it via mpv `sub-add`. Avoid overriding it below.
+        _appliedSubtitlePref = true;
+      }
+
       await _applyMpvSubtitleOptions();
       final cloudStart = _overrideStartPosition ?? widget.startPosition;
       final remoteStart = await remoteStartFuture;
@@ -2103,6 +2111,313 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       );
       // 回退：无需 playbackInfo 的直链（部分服务器禁用该接口）
     }
+  }
+
+  Future<bool> _tryInjectEmbyExternalSubtitlesIntoMpv({
+    required ServerAccess access,
+  }) async {
+    if (kIsWeb) return false;
+    if (!_playerService.isInitialized || _playerService.isExternalPlayback) {
+      return false;
+    }
+
+    final sources = _availableMediaSources;
+    if (sources.isEmpty) return false;
+
+    final currentMediaSourceId = (_mediaSourceId ?? _selectedMediaSourceId ?? '')
+        .trim();
+    if (currentMediaSourceId.isEmpty) return false;
+
+    Map<String, dynamic>? ms;
+    for (final source in sources) {
+      final id = (source['Id']?.toString() ?? '').trim();
+      if (id == currentMediaSourceId) {
+        ms = source;
+        break;
+      }
+    }
+    ms ??= sources.first;
+
+    final subtitleStreams = _streamsOfType(ms, 'Subtitle');
+    if (subtitleStreams.isEmpty) return false;
+
+    final externalSubtitleStreams = subtitleStreams
+        .where((s) => _isEmbyExternalSubtitleStream(s))
+        .where((s) => _isTextSubtitleStream(s))
+        .toList(growable: false);
+    if (externalSubtitleStreams.isEmpty) return false;
+
+    final player = _playerService.player;
+    final platform = player.platform as dynamic;
+
+    final beforeCount = player.state.tracks.subtitle.length;
+    final selectedSubtitleIndex = _selectedSubtitleStreamIndex;
+    bool selectedExternalInjected = false;
+
+    for (final stream in externalSubtitleStreams) {
+      final index = _asInt(stream['Index']);
+      if (index == null || index < 0) continue;
+
+      final codec = (stream['Codec']?.toString() ?? '').trim().toLowerCase();
+      final format = _preferredSubtitleFormat(codec);
+      final url = _buildEmbySubtitleStreamUrl(
+        access.auth,
+        deliveryUrl: stream['DeliveryUrl']?.toString(),
+        itemId: widget.itemId,
+        mediaSourceId: currentMediaSourceId,
+        subtitleStreamIndex: index,
+        format: format,
+      );
+      if (url == null) continue;
+
+      final title = (stream['DisplayTitle']?.toString() ??
+              stream['Title']?.toString() ??
+              stream['Language']?.toString() ??
+              'Subtitle $index')
+          .trim();
+      final lang = (stream['Language']?.toString() ?? '').trim();
+      final command = <String>[
+        'sub-add',
+        url,
+        (selectedSubtitleIndex != null && selectedSubtitleIndex == index)
+            ? 'select'
+            : 'auto',
+        title.isEmpty ? 'external' : title,
+        lang.isEmpty ? 'auto' : lang,
+      ];
+
+      // Best effort: skip if a very similar track already exists to avoid duplicates.
+      final alreadyLoaded = player.state.tracks.subtitle.any((t) {
+        final tTitle = (t.title ?? '').trim();
+        final tLang = (t.language ?? '').trim();
+        final tCodec = (t.codec ?? '').trim().toLowerCase();
+        final titleOk = title.isNotEmpty && tTitle == title;
+        final langOk = lang.isNotEmpty && tLang == lang;
+        final codecOk = codec.isNotEmpty && tCodec == codec;
+        return titleOk && (lang.isEmpty || langOk) && (codec.isEmpty || codecOk);
+      });
+      if (alreadyLoaded) continue;
+
+      try {
+        await platform.command(command);
+        if (selectedSubtitleIndex != null && selectedSubtitleIndex == index) {
+          selectedExternalInjected = true;
+        }
+      } catch (_) {
+        // Ignore failures: subtitles are optional.
+      }
+    }
+
+    // Wait a moment for mpv to update `track-list` & propagate to Player.state.tracks.
+    try {
+      await player.stream.tracks
+          .firstWhere((t) => t.subtitle.length > beforeCount)
+          .timeout(const Duration(milliseconds: 800));
+    } catch (_) {}
+
+    // Synchronize Player.state.track.subtitle with actual mpv selection when we used `sub-add ... select`.
+    if (selectedExternalInjected) {
+      try {
+        final sid = await platform.getProperty('sid');
+        final sidStr = sid?.toString().trim();
+        if (sidStr != null && sidStr.isNotEmpty) {
+          for (final t in player.state.tracks.subtitle) {
+            if (t.id == sidStr) {
+              await player.setSubtitleTrack(t);
+              break;
+            }
+          }
+        }
+      } catch (_) {
+        // ignore
+      }
+    }
+
+    return selectedExternalInjected;
+  }
+
+  int? _tryMapMpvSubtitleTrackToEmbyStreamIndex(SubtitleTrack track) {
+    final sources = _availableMediaSources;
+    if (sources.isEmpty) return null;
+
+    final currentMediaSourceId = (_mediaSourceId ?? _selectedMediaSourceId ?? '')
+        .trim();
+    if (currentMediaSourceId.isEmpty) return null;
+
+    Map<String, dynamic>? ms;
+    for (final source in sources) {
+      final id = (source['Id']?.toString() ?? '').trim();
+      if (id == currentMediaSourceId) {
+        ms = source;
+        break;
+      }
+    }
+    if (ms == null) return null;
+
+    final subtitleStreams = _streamsOfType(ms, 'Subtitle');
+    if (subtitleStreams.isEmpty) return null;
+
+    final trackTitle = (track.title ?? '').trim();
+    final trackLang = (track.language ?? '').trim();
+    final trackCodec = _normalizeSubtitleCodec((track.codec ?? '').trim());
+    if (trackTitle.isEmpty && trackLang.isEmpty) return null;
+
+    int? bestIndex;
+    int bestScore = 0;
+
+    for (final stream in subtitleStreams) {
+      final index = _asInt(stream['Index']);
+      if (index == null || index < 0) continue;
+
+      final streamTitle = (stream['DisplayTitle']?.toString() ??
+              stream['Title']?.toString() ??
+              stream['Language']?.toString() ??
+              '')
+          .trim();
+      final streamLang = (stream['Language']?.toString() ?? '').trim();
+      final streamCodec =
+          _normalizeSubtitleCodec((stream['Codec']?.toString() ?? '').trim());
+
+      int score = 0;
+      if (trackTitle.isNotEmpty &&
+          streamTitle.isNotEmpty &&
+          trackTitle == streamTitle) {
+        score += 3;
+      }
+      if (trackLang.isNotEmpty && streamLang.isNotEmpty && trackLang == streamLang) {
+        score += 2;
+      }
+      if (trackCodec.isNotEmpty &&
+          streamCodec.isNotEmpty &&
+          trackCodec == streamCodec) {
+        score += 1;
+      }
+
+      if (score > bestScore) {
+        bestScore = score;
+        bestIndex = index;
+      }
+    }
+
+    // Require at least two strong signals (e.g. title+codec, lang+codec, title+lang).
+    if (bestScore >= 4) return bestIndex;
+    return null;
+  }
+
+  static bool _isEmbyExternalSubtitleStream(Map<String, dynamic> stream) {
+    if (stream['IsExternal'] == true) return true;
+    final method = (stream['DeliveryMethod']?.toString() ?? '').trim();
+    if (method.toLowerCase() == 'external') return true;
+    return false;
+  }
+
+  static bool _isTextSubtitleStream(Map<String, dynamic> stream) {
+    if (stream['IsTextSubtitleStream'] == true) return true;
+    if (stream['IsTextSubtitleStream'] == false) return false;
+
+    final codec = (stream['Codec']?.toString() ?? '').trim().toLowerCase();
+    if (codec.isEmpty) return true; // Assume text; mpv will validate.
+    const knownText = <String>[
+      'srt',
+      'subrip',
+      'ass',
+      'ssa',
+      'vtt',
+      'webvtt',
+    ];
+    return knownText.any((k) => codec.contains(k));
+  }
+
+  static String _preferredSubtitleFormat(String codec) {
+    final c = codec.trim().toLowerCase();
+    if (c.isEmpty) return 'srt';
+    if (c.contains('ass')) return 'ass';
+    if (c.contains('ssa')) return 'ssa';
+    if (c.contains('vtt')) return 'vtt';
+    if (c.contains('subrip') || c == 'srt') return 'srt';
+    // Fallback: keep server-provided codec if it looks safe; otherwise prefer srt.
+    final safe = RegExp(r'^[a-z0-9]{1,8}$');
+    return safe.hasMatch(c) ? c : 'srt';
+  }
+
+  static String _normalizeSubtitleCodec(String codec) {
+    final c = codec.trim().toLowerCase();
+    if (c.isEmpty) return '';
+    if (c.contains('subrip') || c == 'srt') return 'srt';
+    if (c.contains('webvtt') || c.contains('vtt')) return 'vtt';
+    if (c.contains('ass')) return 'ass';
+    if (c.contains('ssa')) return 'ssa';
+    return c;
+  }
+
+  static String _normalizeApiPrefix(String value) {
+    var v = value.trim();
+    while (v.startsWith('/')) {
+      v = v.substring(1);
+    }
+    while (v.endsWith('/')) {
+      v = v.substring(0, v.length - 1);
+    }
+    return v;
+  }
+
+  static String _apiUrlWithPrefix(
+    String baseUrl,
+    String apiPrefix,
+    String path,
+  ) {
+    var base = baseUrl.trim();
+    while (base.endsWith('/')) {
+      base = base.substring(0, base.length - 1);
+    }
+    final fixedPrefix = _normalizeApiPrefix(apiPrefix);
+    final prefixPart = fixedPrefix.isEmpty ? '' : '/$fixedPrefix';
+
+    final trimmedPath = path.trim();
+    final fixedPath = trimmedPath.startsWith('/') ? trimmedPath : '/$trimmedPath';
+
+    return '$base$prefixPart$fixedPath';
+  }
+
+  static String _appendApiKeyIfMissing(String url, String token) {
+    final t = token.trim();
+    if (t.isEmpty) return url;
+
+    final uri = Uri.tryParse(url);
+    if (uri == null) return url;
+    if (uri.queryParameters.containsKey('api_key')) return url;
+
+    final next = Map<String, String>.from(uri.queryParameters);
+    next['api_key'] = t;
+    return uri.replace(queryParameters: next).toString();
+  }
+
+  String? _buildEmbySubtitleStreamUrl(
+    ServerAuthSession auth, {
+    String? deliveryUrl,
+    required String itemId,
+    required String mediaSourceId,
+    required int subtitleStreamIndex,
+    required String format,
+  }) {
+    final id = itemId.trim();
+    final ms = mediaSourceId.trim();
+    if (id.isEmpty || ms.isEmpty) return null;
+
+    final candidate = (deliveryUrl ?? '').trim();
+    if (candidate.isNotEmpty) {
+      try {
+        final resolved = Uri.parse(auth.baseUrl).resolve(candidate).toString();
+        return _appendApiKeyIfMissing(resolved, auth.token);
+      } catch (_) {
+        // Fallback to constructed URL below.
+      }
+    }
+
+    final fmt = format.trim().isEmpty ? 'srt' : format.trim();
+    final path = 'Videos/$id/$ms/Subtitles/$subtitleStreamIndex/Stream.$fmt';
+    final url = _apiUrlWithPrefix(auth.baseUrl, auth.apiPrefix, path);
+    return _appendApiKeyIfMissing(url, auth.token);
   }
 
   int _toTicks(Duration d) => d.inMicroseconds * 10;
@@ -6198,6 +6513,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
           groupValue: value,
           onChanged: (next) {
             if (next == null) return;
+            if (next.id == 'no') {
+              _selectedSubtitleStreamIndex = -1;
+            } else if (next.id == 'auto') {
+              _selectedSubtitleStreamIndex = null;
+            } else {
+              _selectedSubtitleStreamIndex =
+                  _tryMapMpvSubtitleTrackToEmbyStreamIndex(next);
+            }
             _playerService.player.setSubtitleTrack(next);
             setState(() {});
           },
@@ -7715,8 +8038,14 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                         groupValue: current,
                         onChanged: (value) {
                           if (value == null) return;
-                          _selectedSubtitleStreamIndex =
-                              value.id == 'no' ? -1 : int.tryParse(value.id);
+                          if (value.id == 'no') {
+                            _selectedSubtitleStreamIndex = -1;
+                          } else if (value.id == 'auto') {
+                            _selectedSubtitleStreamIndex = null;
+                          } else {
+                            _selectedSubtitleStreamIndex =
+                                _tryMapMpvSubtitleTrackToEmbyStreamIndex(value);
+                          }
                           _playerService.player.setSubtitleTrack(value);
                           setSheetState(() {});
                         },
