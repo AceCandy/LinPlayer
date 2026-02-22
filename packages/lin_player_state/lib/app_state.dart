@@ -2881,6 +2881,18 @@ class AppState extends ChangeNotifier {
     return a;
   }
 
+  bool _shouldKeepLocalOnlyContinueWatchingEntryOnRefresh(MediaItem item) {
+    if (item.played) return false;
+    if (item.playbackPositionTicks > 0) return false;
+    if (item.id.trim().isEmpty) return false;
+
+    final type = item.type.toLowerCase().trim();
+    if (type != 'episode') return false;
+    final seriesId = (item.seriesId ?? '').trim();
+    final seriesName = item.seriesName.trim();
+    return seriesId.isNotEmpty || seriesName.isNotEmpty;
+  }
+
   List<MediaItem> _mergeContinueWatching(
     List<MediaItem> localItems,
     List<MediaItem> remoteItems, {
@@ -2918,13 +2930,29 @@ class AppState extends ChangeNotifier {
               : _pickPreferredContinueWatchingItem(item, local);
       if (used.add(key)) ordered.add(chosen);
       mergedByKey.remove(key);
-      if (ordered.length >= 20) return ordered;
+      if (ordered.length >= 20) break;
     }
 
     if (keepLocalOnly) {
       for (final entry in mergedByKey.entries) {
         if (used.add(entry.key)) ordered.add(entry.value);
         if (ordered.length >= 20) break;
+      }
+    } else {
+      for (final entry in mergedByKey.entries) {
+        if (!_shouldKeepLocalOnlyContinueWatchingEntryOnRefresh(entry.value)) {
+          continue;
+        }
+        if (used.contains(entry.key)) continue;
+
+        if (ordered.length >= 20 && ordered.isNotEmpty) {
+          final removedKey = _continueWatchingEntryKey(ordered.removeLast());
+          used.remove(removedKey);
+        }
+        if (ordered.length >= 20) break;
+
+        ordered.add(entry.value);
+        used.add(entry.key);
       }
     }
     return ordered;
