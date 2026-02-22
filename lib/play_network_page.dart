@@ -5619,13 +5619,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.white70 : Colors.black54;
     final chipBg = isDark
-        ? Colors.black.withValues(alpha: 0.56)
+        ? Colors.white.withValues(alpha: 0.10)
         : Colors.white.withValues(alpha: 0.9);
     final titleBg = isDark
-        ? Colors.black.withValues(alpha: 0.9)
+        ? Colors.white.withValues(alpha: 0.12)
         : Colors.white.withValues(alpha: 0.96);
     final chipBorder = isDark
-        ? Colors.white.withValues(alpha: 0.18)
+        ? Colors.white.withValues(alpha: 0.20)
         : Colors.black.withValues(alpha: 0.12);
     final switchingRoute = _desktopRouteSwitching;
 
@@ -5806,10 +5806,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         : (isDark ? Colors.white70 : Colors.black54);
     final bg = active
         ? (isDark
-            ? Colors.white.withValues(alpha: 0.22)
+            ? Colors.white.withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.9))
         : (isDark
-            ? Colors.black.withValues(alpha: 0.56)
+            ? Colors.white.withValues(alpha: 0.10)
             : Colors.white.withValues(alpha: 0.9));
     final labelText = Text(
       label,
@@ -5839,7 +5839,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.18)
+                  ? Colors.white.withValues(alpha: 0.20)
                   : Colors.black.withValues(alpha: 0.12),
             ),
           ),
@@ -6787,15 +6787,15 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final sliderValueMs = _lastPosition.inMilliseconds.clamp(0, sliderMaxMs);
     final sliderEnabled = controlsEnabled && duration > Duration.zero;
     final chipBg = isDark
-        ? Colors.black.withValues(alpha: 0.58)
+        ? Colors.white.withValues(alpha: 0.10)
         : Colors.white.withValues(alpha: 0.92);
     final chipBorder = isDark
-        ? Colors.white.withValues(alpha: 0.18)
+        ? Colors.white.withValues(alpha: 0.20)
         : Colors.black.withValues(alpha: 0.12);
     final iconColor = isDark ? Colors.white : Colors.black87;
     final secondaryIconColor = isDark ? Colors.white70 : Colors.black54;
     final panelBorder = isDark
-        ? Colors.white.withValues(alpha: 0.08)
+        ? Colors.white.withValues(alpha: 0.12)
         : Colors.black.withValues(alpha: 0.04);
     final timelineActive = isDark ? Colors.white : Colors.black87;
     final timelineBuffered = isDark
@@ -6901,7 +6901,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                 decoration: BoxDecoration(
                   color: isDark
-                      ? Colors.black.withValues(alpha: 0.42)
+                      ? Colors.white.withValues(alpha: 0.06)
                       : Colors.black.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: panelBorder),
@@ -7163,13 +7163,13 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final size = emphasized ? 54.0 : 46.0;
     final bg = emphasized
         ? (isDark
-            ? Colors.white.withValues(alpha: 0.2)
+            ? Colors.white.withValues(alpha: 0.20)
             : Colors.white.withValues(alpha: 0.96))
         : (isDark
-            ? Colors.black.withValues(alpha: 0.35)
+            ? Colors.white.withValues(alpha: 0.10)
             : Colors.white.withValues(alpha: 0.92));
     final border = isDark
-        ? Colors.white.withValues(alpha: emphasized ? 0.28 : 0.14)
+        ? Colors.white.withValues(alpha: emphasized ? 0.24 : 0.18)
         : Colors.black.withValues(alpha: emphasized ? 0.12 : 0.08);
     final iconColor = isDark ? Colors.white : Colors.black87;
 

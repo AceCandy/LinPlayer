@@ -3466,7 +3466,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     final sliderValueMs = _position.inMilliseconds.clamp(0, sliderMaxMs);
     final sliderEnabled = enabled && _duration > Duration.zero;
     final chipBg = isDark
-        ? Colors.black.withValues(alpha: 0.58)
+        ? Colors.white.withValues(alpha: 0.10)
         : Colors.white.withValues(alpha: 0.92);
     final timelineActive =
         isDark ? Colors.white.withValues(alpha: 0.92) : Colors.black87;
@@ -3570,7 +3570,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                 decoration: BoxDecoration(
                   color: isDark
-                      ? Colors.black.withValues(alpha: 0.42)
+                      ? Colors.white.withValues(alpha: 0.06)
                       : Colors.black.withValues(alpha: 0.04),
                   borderRadius: BorderRadius.circular(12),
                   border: Border.all(color: dividerColor),
@@ -3838,13 +3838,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     final titleColor = isDark ? Colors.white : Colors.black87;
     final subtitleColor = isDark ? Colors.white70 : Colors.black54;
     final chipBg = isDark
-        ? Colors.black.withValues(alpha: 0.56)
+        ? Colors.white.withValues(alpha: 0.10)
         : Colors.white.withValues(alpha: 0.9);
     final titleBg = isDark
-        ? Colors.black.withValues(alpha: 0.9)
+        ? Colors.white.withValues(alpha: 0.12)
         : Colors.white.withValues(alpha: 0.96);
     final chipBorder = isDark
-        ? Colors.white.withValues(alpha: 0.18)
+        ? Colors.white.withValues(alpha: 0.20)
         : Colors.black.withValues(alpha: 0.12);
     final hasCurrent = _currentlyPlayingIndex >= 0 &&
         _currentlyPlayingIndex < _playlist.length;
@@ -4011,10 +4011,10 @@ class _PlayerScreenState extends State<PlayerScreen>
         : (isDark ? Colors.white70 : Colors.black54);
     final bg = active
         ? (isDark
-            ? Colors.white.withValues(alpha: 0.22)
+            ? Colors.white.withValues(alpha: 0.18)
             : Colors.black.withValues(alpha: 0.12))
         : (isDark
-            ? Colors.black.withValues(alpha: 0.56)
+            ? Colors.white.withValues(alpha: 0.10)
             : Colors.white.withValues(alpha: 0.9));
     return Material(
       color: Colors.transparent,
@@ -4028,7 +4028,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
               color: isDark
-                  ? Colors.white.withValues(alpha: 0.18)
+                  ? Colors.white.withValues(alpha: 0.20)
                   : Colors.black.withValues(alpha: 0.12),
             ),
           ),
@@ -5107,10 +5107,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   }) {
     final bg = emphasized
         ? (isDark
-            ? Colors.black.withValues(alpha: 0.78)
+            ? Colors.white.withValues(alpha: 0.18)
             : Colors.white.withValues(alpha: 0.92))
         : (isDark
-            ? Colors.black.withValues(alpha: 0.62)
+            ? Colors.white.withValues(alpha: 0.10)
             : Colors.white.withValues(alpha: 0.88));
     final fg = emphasized
         ? (isDark ? Colors.white : Colors.black87)
@@ -5136,6 +5136,15 @@ class _PlayerScreenState extends State<PlayerScreen>
             decoration: BoxDecoration(
               color: bg,
               borderRadius: BorderRadius.circular(12),
+              border: Border.all(
+                color: isDark
+                    ? Colors.white.withValues(
+                        alpha: emphasized ? 0.24 : 0.18,
+                      )
+                    : Colors.black.withValues(
+                        alpha: emphasized ? 0.12 : 0.08,
+                      ),
+              ),
             ),
             child: Icon(icon, size: 20, color: fg),
           ),
