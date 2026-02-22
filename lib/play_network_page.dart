@@ -5053,14 +5053,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
 
   String _desktopTopCenterTitle() {
     final item = _episodePickerItem;
-    final title = (item?.name.trim().isNotEmpty ?? false)
+    final title = (item?.name ?? '').trim().isNotEmpty
         ? item!.name.trim()
         : widget.title.trim();
-    final season = (item?.seasonNumber ?? 1).clamp(1, 999);
-    final episode = (item?.episodeNumber ?? 1).clamp(1, 999);
+    if (item == null) return title;
+    if (item.type.trim().toLowerCase() != 'episode') return title;
+    final season = item.seasonNumber ?? 0;
+    final episode = item.episodeNumber ?? 0;
+    if (season <= 0 || episode <= 0) return title;
     final mark =
         'S${season.toString().padLeft(2, '0')}E${episode.toString().padLeft(2, '0')}';
-    return '第${season.toString().padLeft(2, '0')}季  $mark  $title';
+    if (title.isEmpty) return mark;
+    return '$mark $title';
   }
 
   String _desktopRouteTooltipText() {
@@ -5511,6 +5515,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     final chipBg = isDark
         ? Colors.black.withValues(alpha: 0.56)
         : Colors.white.withValues(alpha: 0.9);
+    final titleBg = isDark
+        ? Colors.black.withValues(alpha: 0.9)
+        : Colors.white.withValues(alpha: 0.96);
     final chipBorder = isDark
         ? Colors.white.withValues(alpha: 0.18)
         : Colors.black.withValues(alpha: 0.12);
@@ -5540,15 +5547,29 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                _desktopTopCenterTitle(),
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: titleColor,
-                      fontWeight: FontWeight.w700,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: titleBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: chipBorder),
                     ),
+                    child: Text(
+                      _desktopTopCenterTitle(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: titleColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),

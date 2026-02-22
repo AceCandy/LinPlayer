@@ -2203,12 +2203,17 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
   static const double _kCardWidth = 200;
   static const double _kCardSpacing = 16;
   final ScrollController _controller = ScrollController();
+  bool _canSlideLeft = false;
+  bool _canSlideRight = false;
 
   @override
   void initState() {
     super.initState();
+    _controller.addListener(_updateScrollButtons);
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       _centerCurrentEpisode(animate: false);
+      _updateScrollButtons();
     });
   }
 
@@ -2242,6 +2247,41 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
     _controller.jumpTo(target);
   }
 
+  void _updateScrollButtons() {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final canSlideLeft = position.pixels < position.maxScrollExtent - 0.5;
+    final canSlideRight = position.pixels > position.minScrollExtent + 0.5;
+    if (canSlideLeft == _canSlideLeft && canSlideRight == _canSlideRight) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _canSlideLeft = canSlideLeft;
+      _canSlideRight = canSlideRight;
+    });
+  }
+
+  double _slideDelta() {
+    if (!_controller.hasClients) return (_kCardWidth + _kCardSpacing) * 3;
+    final viewport = _controller.position.viewportDimension;
+    return math.max((_kCardWidth + _kCardSpacing) * 2, viewport * 0.85);
+  }
+
+  void _slideBy(double delta) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final target = (_controller.offset + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
   void _centerCurrentEpisode({bool animate = true}) {
     if (!_controller.hasClients) return;
     final index =
@@ -2272,35 +2312,83 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
 
   @override
   Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
     return SizedBox(
       height: 140,
-      child: Listener(
-        onPointerSignal: _onPointerSignal,
-        child: ListView.separated(
-          controller: _controller,
-          scrollDirection: Axis.horizontal,
-          itemCount: widget.episodes.length,
-          separatorBuilder: (_, __) => const SizedBox(width: _kCardSpacing),
-          itemBuilder: (context, index) {
-            final episode = widget.episodes[index];
-            final imageUrls = _episodeImageCandidates(
-              access: widget.access,
-              episode: episode,
-            );
-            return _EpisodeThumbnailCard(
-              item: episode,
-              imageUrls: imageUrls,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: _dtr(
               language: widget.language,
-              isCurrent: episode.id == widget.currentItemId,
-              onTap: widget.onTap == null
-                  ? null
-                  : () {
-                      _centerIndex(index);
-                      widget.onTap!(episode);
-                    },
-            );
-          },
-        ),
+              zh: '向左滑动',
+              en: 'Slide left',
+            ),
+            onPressed: _canSlideLeft ? () => _slideBy(_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Listener(
+              onPointerSignal: _onPointerSignal,
+              child: ListView.separated(
+                controller: _controller,
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.episodes.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: _kCardSpacing),
+                itemBuilder: (context, index) {
+                  final episode = widget.episodes[index];
+                  final imageUrls = _episodeImageCandidates(
+                    access: widget.access,
+                    episode: episode,
+                  );
+                  return _EpisodeThumbnailCard(
+                    item: episode,
+                    imageUrls: imageUrls,
+                    language: widget.language,
+                    isCurrent: episode.id == widget.currentItemId,
+                    onTap: widget.onTap == null
+                        ? null
+                        : () {
+                            _centerIndex(index);
+                            widget.onTap!(episode);
+                          },
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: _dtr(
+              language: widget.language,
+              zh: '向右滑动',
+              en: 'Slide right',
+            ),
+            onPressed: _canSlideRight ? () => _slideBy(-_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }

@@ -3717,6 +3717,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     final chipBg = isDark
         ? Colors.black.withValues(alpha: 0.56)
         : Colors.white.withValues(alpha: 0.9);
+    final titleBg = isDark
+        ? Colors.black.withValues(alpha: 0.9)
+        : Colors.white.withValues(alpha: 0.96);
     final chipBorder = isDark
         ? Colors.white.withValues(alpha: 0.18)
         : Colors.black.withValues(alpha: 0.12);
@@ -3726,7 +3729,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         ? _desktopEpisodeInfoForIndex(_currentlyPlayingIndex)
         : _desktopEpisodeInfoForFile(currentFileName);
     final centerText = hasCurrent
-        ? '第${info.season.toString().padLeft(2, '0')}季  ${info.mark}  ${info.title}'
+        ? '${info.mark} ${info.title}'.trim()
         : currentFileName;
     final canPop = Navigator.of(context).canPop();
     final netSpeed = _desktopNetSpeedMbPerSecondLabel();
@@ -3753,15 +3756,29 @@ class _PlayerScreenState extends State<PlayerScreen>
             ),
             const SizedBox(width: 6),
             Expanded(
-              child: Text(
-                centerText,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                textAlign: TextAlign.center,
-                style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                      color: titleColor,
-                      fontWeight: FontWeight.w700,
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                    decoration: BoxDecoration(
+                      color: titleBg,
+                      borderRadius: BorderRadius.circular(12),
+                      border: Border.all(color: chipBorder),
                     ),
+                    child: Text(
+                      centerText,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            color: titleColor,
+                            fontWeight: FontWeight.w700,
+                          ),
+                    ),
+                  ),
+                ),
               ),
             ),
             const SizedBox(width: 12),
