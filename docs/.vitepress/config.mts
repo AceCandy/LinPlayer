@@ -38,6 +38,7 @@ export default defineConfig({
           text: '指南',
           items: [
             { text: '快速开始', link: '/guide/quickstart' },
+            { text: '播放页操作', link: '/guide/playback' },
             { text: '界面一览', link: '/guide/ui' },
             { text: '常见问题', link: '/guide/faq' },
           ],

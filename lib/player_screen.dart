@@ -142,6 +142,10 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _desktopSpeedPanelVisible = false;
   bool _desktopLineSwitching = false;
   bool _desktopFullscreen = false;
+  _DesktopLevelTarget _desktopLevelTarget = _DesktopLevelTarget.volume;
+  _DesktopLevelTarget? _desktopLevelKeyLastTarget;
+  int _desktopLevelKeyLastDirection = 0;
+  final List<int> _desktopLevelKeyPressTimesMs = <int>[];
   int? _desktopSelectedSeason;
   bool _desktopDanmakuOnlineLoading = false;
   bool _desktopDanmakuManualLoading = false;
@@ -173,6 +177,9 @@ class _PlayerScreenState extends State<PlayerScreen>
   Offset? _longPressStartPos;
   static const Duration _desktopSecondarySpeedHoldDelay =
       Duration(milliseconds: 220);
+  static const Duration _desktopLevelKeyWindow = Duration(milliseconds: 650);
+  static const double _desktopLevelKeyBaseStep = 0.02;
+  static const double _desktopLevelKeyMaxStep = 0.12;
   Timer? _desktopSecondarySpeedTimer;
   int? _desktopSecondarySpeedPointer;
   double? _desktopSecondarySpeedBaseRate;
@@ -520,6 +527,31 @@ class _PlayerScreenState extends State<PlayerScreen>
       return KeyEventResult.ignored;
     }
 
+    if (key == LogicalKeyboardKey.arrowUp ||
+        key == LogicalKeyboardKey.arrowDown) {
+      if (event is KeyDownEvent || event is KeyRepeatEvent) {
+        final pressed = HardwareKeyboard.instance.logicalKeysPressed;
+        final hasModifier = pressed.contains(LogicalKeyboardKey.controlLeft) ||
+            pressed.contains(LogicalKeyboardKey.controlRight) ||
+            pressed.contains(LogicalKeyboardKey.metaLeft) ||
+            pressed.contains(LogicalKeyboardKey.metaRight) ||
+            pressed.contains(LogicalKeyboardKey.altLeft) ||
+            pressed.contains(LogicalKeyboardKey.altRight);
+        if (hasModifier) return KeyEventResult.ignored;
+
+        final shiftPressed = pressed.contains(LogicalKeyboardKey.shiftLeft) ||
+            pressed.contains(LogicalKeyboardKey.shiftRight);
+        final target = shiftPressed
+            ? _DesktopLevelTarget.brightness
+            : _desktopLevelTarget;
+        final direction = key == LogicalKeyboardKey.arrowUp ? 1 : -1;
+        _showControls();
+        _desktopAdjustLevelByKey(target: target, direction: direction);
+        return KeyEventResult.handled;
+      }
+      return KeyEventResult.ignored;
+    }
+
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
     }
@@ -547,6 +579,86 @@ class _PlayerScreenState extends State<PlayerScreen>
       return KeyEventResult.handled;
     }
     return KeyEventResult.ignored;
+  }
+
+  void _setDesktopLevelTarget(_DesktopLevelTarget target) {
+    if (_desktopLevelTarget == target) return;
+    setState(() => _desktopLevelTarget = target);
+  }
+
+  double _desktopCurrentVolume() {
+    final fallback = _playerVolume.clamp(0.0, 1.0).toDouble();
+    if (!_playerService.isInitialized) return fallback;
+    final v = _playerService.player.state.volume / 100;
+    if (!v.isFinite) return fallback;
+    return v.clamp(0.0, 1.0).toDouble();
+  }
+
+  double _desktopLevelKeyStep({
+    required _DesktopLevelTarget target,
+    required int direction,
+  }) {
+    final now = DateTime.now().millisecondsSinceEpoch;
+    if (_desktopLevelKeyLastTarget != target ||
+        _desktopLevelKeyLastDirection != direction) {
+      _desktopLevelKeyPressTimesMs.clear();
+      _desktopLevelKeyLastTarget = target;
+      _desktopLevelKeyLastDirection = direction;
+    }
+    _desktopLevelKeyPressTimesMs.removeWhere(
+      (t) => now - t > _desktopLevelKeyWindow.inMilliseconds,
+    );
+    _desktopLevelKeyPressTimesMs.add(now);
+    final count = _desktopLevelKeyPressTimesMs.length;
+    return math.min(_desktopLevelKeyBaseStep * count, _desktopLevelKeyMaxStep);
+  }
+
+  void _desktopSetVolume(double value, {bool showOverlay = true}) {
+    if (!_playerService.isInitialized) return;
+    final next = value.clamp(0.0, 1.0).toDouble();
+    final current = _desktopCurrentVolume();
+    if ((next - current).abs() < 0.0001) return;
+    setState(() {
+      _desktopLevelTarget = _DesktopLevelTarget.volume;
+      _playerVolume = next;
+    });
+    _playerService.player.setVolume(next * 100);
+    if (!showOverlay) return;
+    _setGestureOverlay(
+      icon: next == 0 ? Icons.volume_off : Icons.volume_up,
+      text: '音量 ${(100 * next).round()}%',
+    );
+    _hideGestureOverlay();
+  }
+
+  void _desktopSetBrightness(double value, {bool showOverlay = true}) {
+    final next = value.clamp(0.2, 1.0).toDouble();
+    if ((next - _screenBrightness).abs() < 0.0001) return;
+    setState(() {
+      _desktopLevelTarget = _DesktopLevelTarget.brightness;
+      _screenBrightness = next;
+    });
+    if (!showOverlay) return;
+    _setGestureOverlay(
+      icon: Icons.brightness_6_outlined,
+      text: '亮度 ${(100 * next).round()}%',
+    );
+    _hideGestureOverlay();
+  }
+
+  void _desktopAdjustLevelByKey({
+    required _DesktopLevelTarget target,
+    required int direction,
+  }) {
+    final step = _desktopLevelKeyStep(target: target, direction: direction);
+    switch (target) {
+      case _DesktopLevelTarget.volume:
+        _desktopSetVolume(_desktopCurrentVolume() + direction * step);
+        return;
+      case _DesktopLevelTarget.brightness:
+        _desktopSetBrightness(_screenBrightness + direction * step);
+        return;
+    }
   }
 
   void _showControls({bool scheduleHide = true}) {
@@ -3672,7 +3784,14 @@ class _PlayerScreenState extends State<PlayerScreen>
             ),
             child: Row(
               children: [
-                const SizedBox(width: 156),
+                SizedBox(
+                  width: 156,
+                  child: _buildDesktopVolumeBrightnessBars(
+                    context,
+                    isDark: isDark,
+                    enabled: enabled,
+                  ),
+                ),
                 Expanded(
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.center,
@@ -5097,6 +5216,120 @@ class _PlayerScreenState extends State<PlayerScreen>
     return indexes;
   }
 
+  Widget _buildDesktopVolumeBrightnessBars(
+    BuildContext context, {
+    required bool isDark,
+    required bool enabled,
+  }) {
+    final volume = _desktopCurrentVolume();
+    return Column(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        _desktopLevelBar(
+          context,
+          isDark: isDark,
+          enabled: enabled,
+          target: _DesktopLevelTarget.volume,
+          icon: volume <= 0.001 ? Icons.volume_off : Icons.volume_up,
+          value: volume,
+          min: 0.0,
+          max: 1.0,
+          onChanged: (v) => _desktopSetVolume(v),
+          tooltip: '音量（鼠标拖动 / ↑↓）',
+        ),
+        const SizedBox(height: 6),
+        _desktopLevelBar(
+          context,
+          isDark: isDark,
+          enabled: enabled,
+          target: _DesktopLevelTarget.brightness,
+          icon: Icons.brightness_6_outlined,
+          value: _screenBrightness,
+          min: 0.2,
+          max: 1.0,
+          onChanged: (v) => _desktopSetBrightness(v),
+          tooltip: '亮度（鼠标拖动 / ↑↓）',
+        ),
+      ],
+    );
+  }
+
+  Widget _desktopLevelBar(
+    BuildContext context, {
+    required bool isDark,
+    required bool enabled,
+    required _DesktopLevelTarget target,
+    required IconData icon,
+    required double value,
+    required double min,
+    required double max,
+    required ValueChanged<double> onChanged,
+    required String tooltip,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final active = _desktopLevelTarget == target;
+    final baseIconColor = active
+        ? (isDark ? Colors.white : Colors.black87)
+        : (isDark ? Colors.white70 : Colors.black54);
+    final iconColor =
+        enabled ? baseIconColor : baseIconColor.withValues(alpha: 0.4);
+    final activeTrackColor = active
+        ? scheme.primary.withValues(alpha: enabled ? 0.92 : 0.32)
+        : (isDark
+            ? Colors.white.withValues(alpha: enabled ? 0.55 : 0.22)
+            : Colors.black.withValues(alpha: enabled ? 0.38 : 0.18));
+    final inactiveTrackColor = isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.black.withValues(alpha: 0.12);
+    final thumbColor = active
+        ? scheme.primary.withValues(alpha: enabled ? 0.92 : 0.32)
+        : (isDark
+            ? Colors.white.withValues(alpha: enabled ? 0.70 : 0.30)
+            : Colors.black.withValues(alpha: enabled ? 0.35 : 0.18));
+
+    return Tooltip(
+      message: tooltip,
+      child: SizedBox(
+        height: 20,
+        child: MouseRegion(
+          onEnter: (_) => enabled ? _setDesktopLevelTarget(target) : null,
+          cursor: enabled ? SystemMouseCursors.click : SystemMouseCursors.basic,
+          child: Listener(
+            behavior: HitTestBehavior.translucent,
+            onPointerDown: enabled ? (_) => _setDesktopLevelTarget(target) : null,
+            child: Row(
+              children: [
+                Icon(icon, size: 16, color: iconColor),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: SliderTheme(
+                    data: SliderTheme.of(context).copyWith(
+                      trackHeight: 3,
+                      activeTrackColor: activeTrackColor,
+                      inactiveTrackColor: inactiveTrackColor,
+                      thumbColor: thumbColor,
+                      overlayColor: scheme.primary.withValues(alpha: 0.12),
+                      thumbShape:
+                          const RoundSliderThumbShape(enabledThumbRadius: 5),
+                      overlayShape:
+                          const RoundSliderOverlayShape(overlayRadius: 10),
+                    ),
+                    child: Slider(
+                      min: min,
+                      max: max,
+                      value: value.clamp(min, max).toDouble(),
+                      onChanged: enabled ? onChanged : null,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   Widget _desktopControlButton(
     BuildContext context, {
     required bool isDark,
@@ -5704,6 +5937,8 @@ class _PlayerScreenState extends State<PlayerScreen>
 enum _OrientationMode { auto, landscape, portrait }
 
 enum _GestureMode { none, brightness, volume, seek, speed }
+
+enum _DesktopLevelTarget { volume, brightness }
 
 enum _DesktopSidePanel { none, line, audio, subtitle, danmaku, episode }
 
