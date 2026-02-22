@@ -59,6 +59,10 @@ enum _LibraryItemsSortOrder {
   }
 }
 
+enum LibraryItemsPageResult {
+  openedItem,
+}
+
 class LibraryItemsPage extends StatefulWidget {
   const LibraryItemsPage({
     super.key,
@@ -66,12 +70,14 @@ class LibraryItemsPage extends StatefulWidget {
     required this.parentId,
     required this.title,
     this.isTv = false,
+    this.onOpenItem,
   });
 
   final AppState appState;
   final String parentId;
   final String title;
   final bool isTv;
+  final ValueChanged<MediaItem>? onOpenItem;
 
   @override
   State<LibraryItemsPage> createState() => _LibraryItemsPageState();
@@ -605,6 +611,16 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                   appState: widget.appState,
                   access: access,
                   onTap: () {
+                    final openItem = widget.onOpenItem;
+                    if (openItem != null) {
+                      openItem(item);
+                      if (Navigator.of(context).canPop()) {
+                        Navigator.of(context)
+                            .pop(LibraryItemsPageResult.openedItem);
+                      }
+                      return;
+                    }
+
                     Navigator.of(context).push(
                       MaterialPageRoute(
                         builder: (_) => ShowDetailPage(

@@ -22,6 +22,7 @@ class DesktopLibraryPage extends StatefulWidget {
     super.key,
     required this.appState,
     required this.onOpenItem,
+    this.onOpenLibraryItems,
     required this.activeTab,
     this.refreshSignal = 0,
     this.language = DesktopUiLanguage.zhCn,
@@ -29,6 +30,8 @@ class DesktopLibraryPage extends StatefulWidget {
 
   final AppState appState;
   final ValueChanged<MediaItem> onOpenItem;
+  final Future<void> Function(String parentId, String title)?
+      onOpenLibraryItems;
   final DesktopHomeTab activeTab;
   final int refreshSignal;
   final DesktopUiLanguage language;
@@ -143,6 +146,12 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
     required String parentId,
     required String title,
   }) async {
+    final delegate = widget.onOpenLibraryItems;
+    if (delegate != null) {
+      await delegate(parentId, title);
+      return;
+    }
+
     await Navigator.of(context).push(
       buildDesktopPageRoute(
         transition: DesktopPageTransitionStyle.push,
@@ -150,6 +159,7 @@ class _DesktopLibraryPageState extends State<DesktopLibraryPage> {
           appState: widget.appState,
           parentId: parentId,
           title: title,
+          onOpenItem: widget.onOpenItem,
         ),
       ),
     );

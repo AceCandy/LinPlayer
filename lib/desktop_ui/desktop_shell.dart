@@ -11,6 +11,7 @@ import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
 
 import '../server_adapters/server_access.dart';
+import '../library_items_page.dart';
 import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
 import '../settings_page.dart';
@@ -80,6 +81,26 @@ enum _DesktopSection { library, search, detail }
 
 enum _DesktopSectionTransition { push, pull, fade, flip, stack }
 
+class _DesktopDetailStackEntry {
+  const _DesktopDetailStackEntry({
+    required this.item,
+    required this.server,
+  });
+
+  final MediaItem item;
+  final ServerProfile? server;
+}
+
+class _DesktopLibraryItemsBackTarget {
+  const _DesktopLibraryItemsBackTarget({
+    required this.parentId,
+    required this.title,
+  });
+
+  final String parentId;
+  final String title;
+}
+
 class _DesktopBackIntent extends Intent {
   const _DesktopBackIntent();
 }
@@ -106,6 +127,8 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   String _searchQuery = '';
   int _refreshSignal = 0;
   DesktopDetailViewModel? _detailViewModel;
+  final List<_DesktopDetailStackEntry> _detailStack = <_DesktopDetailStackEntry>[];
+  _DesktopLibraryItemsBackTarget? _libraryItemsBackTarget;
   MediaStats? _mediaStats;
   bool _loadingMediaStats = false;
   int _mediaStatsRequestVersion = 0;
@@ -202,6 +225,10 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
         _topBarVisibility = 1.0;
       });
     }
+    _detailStack.clear();
+    _libraryItemsBackTarget = null;
+    _detailViewModel?.dispose();
+    _detailViewModel = null;
     if (serverId == widget.appState.activeServerId) return;
     unawaited(widget.appState.enterServer(serverId));
   }
@@ -1039,6 +1066,42 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     setState(() => _sidebarCollapsed = true);
   }
 
+  Future<void> _openLibraryItems(String parentId, String title) async {
+    final id = parentId.trim();
+    if (id.isEmpty) return;
+    final normalizedTitle = title.trim().isEmpty
+        ? _uiLanguage.pick(zh: '\u5a92\u4f53\u5e93', en: 'Library')
+        : title;
+
+    final target = _DesktopLibraryItemsBackTarget(
+      parentId: id,
+      title: normalizedTitle,
+    );
+    _libraryItemsBackTarget = target;
+
+    final result = await Navigator.of(context).push<LibraryItemsPageResult>(
+      buildDesktopPageRoute(
+        transition: DesktopPageTransitionStyle.push,
+        builder: (_) => LibraryItemsPage(
+          appState: widget.appState,
+          parentId: id,
+          title: normalizedTitle,
+          onOpenItem: (item) => _openDetailInternal(
+            item,
+            fromLibraryItems: true,
+          ),
+        ),
+      ),
+    );
+
+    if (!mounted) return;
+    if (result != LibraryItemsPageResult.openedItem &&
+        _libraryItemsBackTarget?.parentId == target.parentId &&
+        _libraryItemsBackTarget?.title == target.title) {
+      _libraryItemsBackTarget = null;
+    }
+  }
+
   void _onBackRequested() {
     unawaited(_handleBackRequested());
   }
@@ -1049,13 +1112,50 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
       return;
     }
 
+    if (_section == _DesktopSection.detail && _detailStack.isNotEmpty) {
+      final entry = _detailStack.removeLast();
+      _openDetailInternal(
+        entry.item,
+        server: entry.server,
+        pushHistory: false,
+        transition: _DesktopSectionTransition.pull,
+      );
+      return;
+    }
+
+    if (_section == _DesktopSection.detail &&
+        (_libraryItemsBackTarget?.parentId ?? '').trim().isNotEmpty) {
+      final target = _libraryItemsBackTarget!;
+      final canLeaveDetail = _sectionStack.length > 1;
+      if (canLeaveDetail) {
+        _detailViewModel?.dispose();
+        _detailViewModel = null;
+        _detailStack.clear();
+        setState(() {
+          _sectionTransition = _DesktopSectionTransition.pull;
+          _sectionStack.removeLast();
+          _section = _sectionStack.last;
+          _topBarVisibility = 1.0;
+        });
+      }
+      await _openLibraryItems(target.parentId, target.title);
+      return;
+    }
+
     if (_sectionStack.length > 1) {
+      final leavingDetail = _sectionStack.last == _DesktopSection.detail;
       setState(() {
         _sectionTransition = _DesktopSectionTransition.pull;
         _sectionStack.removeLast();
         _section = _sectionStack.last;
         _topBarVisibility = 1.0;
       });
+      if (leavingDetail) {
+        _detailViewModel?.dispose();
+        _detailViewModel = null;
+        _detailStack.clear();
+        _libraryItemsBackTarget = null;
+      }
       return;
     }
 
@@ -1063,6 +1163,45 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
   }
 
   void _openDetail(MediaItem item, [ServerProfile? server]) {
+    _openDetailInternal(item, server: server);
+  }
+
+  void _openDetailInternal(
+    MediaItem item, {
+    ServerProfile? server,
+    bool pushHistory = true,
+    bool fromLibraryItems = false,
+    _DesktopSectionTransition transition = _DesktopSectionTransition.push,
+  }) {
+    final itemId = item.id.trim();
+    if (itemId.isEmpty) return;
+
+    final currentVm = _detailViewModel;
+    final alreadyInDetail = _section == _DesktopSection.detail && currentVm != null;
+
+    if (alreadyInDetail && pushHistory) {
+      final currentItem = currentVm.detail;
+      final currentId = currentItem.id.trim();
+      if (currentId.isNotEmpty && currentId != itemId) {
+        _detailStack.add(
+          _DesktopDetailStackEntry(
+            item: currentItem,
+            server: currentVm.server,
+          ),
+        );
+        if (_detailStack.length > 32) {
+          _detailStack.removeAt(0);
+        }
+      }
+    }
+
+    if (!alreadyInDetail) {
+      _detailStack.clear();
+      if (!fromLibraryItems) {
+        _libraryItemsBackTarget = null;
+      }
+    }
+
     final next = DesktopDetailViewModel(
       appState: widget.appState,
       item: item,
@@ -1070,7 +1209,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     );
     _detailViewModel?.dispose();
     setState(() {
-      _sectionTransition = _DesktopSectionTransition.push;
+      _sectionTransition = transition;
       _detailViewModel = next;
       if (_sectionStack.isEmpty) {
         _sectionStack.add(_DesktopSection.detail);
@@ -1513,6 +1652,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
           appState: widget.appState,
           refreshSignal: _refreshSignal,
           onOpenItem: _openDetail,
+          onOpenLibraryItems: _openLibraryItems,
           activeTab: _homeTab,
           language: _uiLanguage,
         );
