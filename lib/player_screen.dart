@@ -3333,23 +3333,25 @@ class _PlayerScreenState extends State<PlayerScreen>
                   ),
                 if (_buffering)
                   Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black54,
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircularProgressIndicator(),
-                            if ((widget.appState?.showBufferSpeed ?? false) &&
-                                _isNetworkPlayback)
-                              Padding(
-                                padding: const EdgeInsets.only(top: 12),
-                                child: Text(
-                                  'Network: ${_netSpeedBytesPerSecond == null ? '--' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
-                                  style: const TextStyle(color: Colors.white),
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black54,
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(),
+                              if ((widget.appState?.showBufferSpeed ?? false) &&
+                                  _isNetworkPlayback)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 12),
+                                  child: Text(
+                                    'Network: ${_netSpeedBytesPerSecond == null ? '--' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
+                                    style: const TextStyle(color: Colors.white),
+                                  ),
                                 ),
-                              ),
-                          ],
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -4105,7 +4107,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                           ? Icons.auto_fix_high_outlined
                           : Icons.auto_fix_high,
                       label: 'Anime4K',
-                      onTap: _showAnime4kSheet,
+                      active: _desktopSidePanel == _DesktopSidePanel.anime4k ||
+                          !_anime4kPreset.isOff,
+                      onTap: () => _toggleDesktopPanel(_DesktopSidePanel.anime4k),
                     ),
                   ],
                 ),
@@ -4174,11 +4178,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     BuildContext context, {
     required bool isDark,
   }) {
-    final width = (MediaQuery.sizeOf(context).width * 0.34)
-        .clamp(360.0, 460.0)
+    final width = (MediaQuery.sizeOf(context).width * 0.30)
+        .clamp(320.0, 420.0)
         .toDouble();
     final panelColor =
-        isDark ? const Color(0xEE121417) : const Color(0xF3F9FAFD);
+        isDark ? const Color(0xD6121417) : const Color(0xE6F9FAFD);
     final panelBorder = isDark
         ? Colors.white.withValues(alpha: 0.16)
         : Colors.black.withValues(alpha: 0.08);
@@ -4210,6 +4214,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                   _buildDesktopEpisodePanel(context, isDark: isDark),
                 _DesktopSidePanel.line =>
                   _buildDesktopLinePanel(context, isDark: isDark),
+                _DesktopSidePanel.anime4k =>
+                  _buildDesktopAnime4kPanel(context, isDark: isDark),
                 _DesktopSidePanel.none => const SizedBox.shrink(),
               },
             ),
@@ -5254,6 +5260,70 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  Widget _buildDesktopAnime4kPanel(
+    BuildContext context, {
+    required bool isDark,
+  }) {
+    final selected = _anime4kPreset;
+    final scheme = Theme.of(context).colorScheme;
+    final messenger = ScaffoldMessenger.of(context);
+    final enabled = _playerService.isInitialized;
+
+    Future<void> applyPreset(Anime4kPreset preset) async {
+      if (preset == _anime4kPreset) return;
+      setState(() => _anime4kPreset = preset);
+      widget.appState?.setAnime4kPreset(preset);
+      if (!enabled) return;
+      try {
+        if (preset.isOff) {
+          await Anime4k.clear(_playerService.player);
+        } else {
+          await Anime4k.apply(_playerService.player, preset);
+        }
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _anime4kPreset = Anime4kPreset.off);
+        widget.appState?.setAnime4kPreset(Anime4kPreset.off);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Anime4K 初始化失败')),
+        );
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      children: [
+        for (final preset in Anime4kPreset.values)
+          ListTile(
+            dense: true,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            tileColor: isDark
+                ? Colors.white.withValues(
+                    alpha: preset == selected ? 0.16 : 0.06,
+                  )
+                : Colors.black.withValues(
+                    alpha: preset == selected ? 0.10 : 0.04,
+                  ),
+            leading: Icon(
+              preset == selected
+                  ? Icons.check_circle_rounded
+                  : Icons.circle_outlined,
+              color: preset == selected ? scheme.primary : null,
+            ),
+            title: Text(preset.label),
+            subtitle: Text(
+              preset.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => unawaited(applyPreset(preset)),
+          ),
+      ],
+    );
+  }
+
   Widget _desktopLevelBar(
     BuildContext context, {
     required bool isDark,
@@ -5940,7 +6010,7 @@ enum _GestureMode { none, brightness, volume, seek, speed }
 
 enum _DesktopLevelTarget { volume, brightness }
 
-enum _DesktopSidePanel { none, line, audio, subtitle, danmaku, episode }
+enum _DesktopSidePanel { none, line, audio, subtitle, danmaku, episode, anime4k }
 
 extension on _DesktopSidePanel {
   String get title {
@@ -5951,6 +6021,7 @@ extension on _DesktopSidePanel {
       _DesktopSidePanel.subtitle => '字幕选择',
       _DesktopSidePanel.danmaku => '弹幕',
       _DesktopSidePanel.episode => '选集',
+      _DesktopSidePanel.anime4k => 'Anime4K',
     };
   }
 }

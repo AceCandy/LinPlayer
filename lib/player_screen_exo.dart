@@ -2549,27 +2549,30 @@ class _ExoPlayerScreenState extends State<ExoPlayerScreen>
                               ),
                             if (_buffering)
                               Positioned.fill(
-                                child: ColoredBox(
-                                  color: Colors.black54,
-                                  child: Center(
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const CircularProgressIndicator(),
-                                        if (widget.appState.showBufferSpeed)
-                                          Padding(
-                                            padding:
-                                                const EdgeInsets.only(top: 12),
-                                            child: Text(
-                                              _bufferSpeedX == null
-                                                  ? '缓冲速度：—'
-                                                  : '缓冲速度：${_bufferSpeedX!.clamp(0.0, 99.0).toStringAsFixed(1)}x',
-                                              style: const TextStyle(
-                                                color: Colors.white,
+                                child: IgnorePointer(
+                                  child: ColoredBox(
+                                    color: Colors.black54,
+                                    child: Center(
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const CircularProgressIndicator(),
+                                          if (widget.appState.showBufferSpeed)
+                                            Padding(
+                                              padding: const EdgeInsets.only(
+                                                top: 12,
+                                              ),
+                                              child: Text(
+                                                _bufferSpeedX == null
+                                                    ? '缓冲速度：—'
+                                                    : '缓冲速度：${_bufferSpeedX!.clamp(0.0, 99.0).toStringAsFixed(1)}x',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                ),
                                               ),
                                             ),
-                                          ),
-                                      ],
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 ),

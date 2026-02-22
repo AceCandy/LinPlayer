@@ -196,10 +196,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   bool _desktopSpeedPanelVisible = false;
   bool _desktopDanmakuOnlineLoading = false;
   bool _desktopDanmakuManualLoading = false;
-  bool _desktopLineLoading = false;
+  bool _desktopVersionLoading = false;
   bool _desktopRouteSwitching = false;
   static const int _desktopRouteHistoryLimit = 5;
   final List<String> _desktopRouteHistory = <String>[];
+  Future<List<RouteEntry>>? _desktopRouteEntriesFuture;
   bool _desktopFullscreen = false;
   _DesktopLevelTarget _desktopLevelTarget = _DesktopLevelTarget.volume;
   _DesktopLevelTarget? _desktopLevelKeyLastTarget;
@@ -373,7 +374,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _desktopSpeedPanelVisible = false;
     _desktopDanmakuOnlineLoading = false;
     _desktopDanmakuManualLoading = false;
-    _desktopLineLoading = false;
+    _desktopVersionLoading = false;
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
     try {
@@ -3315,30 +3316,27 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     }
     if (key == LogicalKeyboardKey.keyR) {
       _showControls(scheduleHide: false);
-      // ignore: unawaited_futures
-      unawaited(_showDesktopRouteSheet());
+      _toggleDesktopPanel(_DesktopSidePanel.route);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyV) {
       _showControls(scheduleHide: false);
-      // ignore: unawaited_futures
-      unawaited(_showDesktopVersionSheet());
+      _toggleDesktopPanel(_DesktopSidePanel.version);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyA) {
       _showControls(scheduleHide: false);
-      _showAudioTracks(context);
+      _toggleDesktopPanel(_DesktopSidePanel.audio);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyS) {
       _showControls(scheduleHide: false);
-      _showSubtitleTracks(context);
+      _toggleDesktopPanel(_DesktopSidePanel.subtitle);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyD) {
       _showControls(scheduleHide: false);
-      // ignore: unawaited_futures
-      unawaited(_showDanmakuSheet());
+      _toggleDesktopPanel(_DesktopSidePanel.danmaku);
       return KeyEventResult.handled;
     }
     if (key == LogicalKeyboardKey.keyE) {
@@ -4407,38 +4405,40 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                     ),
                                   ),
                                 if (_buffering)
-                                  Container(
-                                    color: Colors.black54,
-                                    alignment: Alignment.center,
-                                    child: Column(
-                                      mainAxisSize: MainAxisSize.min,
-                                      children: [
-                                        const CircularProgressIndicator(),
-                                        if (_bufferingPct != null)
-                                          Padding(
-                                            padding:
-                                                const EdgeInsets.only(top: 12),
-                                            child: Text(
-                                              '缓冲中 ${(_bufferingPct! <= 1 ? _bufferingPct! * 100 : _bufferingPct!).clamp(0, 100).toStringAsFixed(0)}%',
-                                              style: const TextStyle(
-                                                  color: Colors.white),
-                                            ),
-                                          ),
-                                        if (widget.appState.showBufferSpeed)
-                                          Padding(
-                                            padding: EdgeInsets.only(
-                                              top: _bufferingPct != null
-                                                  ? 6
-                                                  : 12,
-                                            ),
-                                            child: Text(
-                                              '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
-                                              style: const TextStyle(
-                                                color: Colors.white,
+                                  IgnorePointer(
+                                    child: Container(
+                                      color: Colors.black54,
+                                      alignment: Alignment.center,
+                                      child: Column(
+                                        mainAxisSize: MainAxisSize.min,
+                                        children: [
+                                          const CircularProgressIndicator(),
+                                          if (_bufferingPct != null)
+                                            Padding(
+                                              padding:
+                                                  const EdgeInsets.only(top: 12),
+                                              child: Text(
+                                                '缓冲中 ${(_bufferingPct! <= 1 ? _bufferingPct! * 100 : _bufferingPct!).clamp(0, 100).toStringAsFixed(0)}%',
+                                                style: const TextStyle(
+                                                    color: Colors.white),
                                               ),
                                             ),
-                                          ),
-                                      ],
+                                          if (widget.appState.showBufferSpeed)
+                                            Padding(
+                                              padding: EdgeInsets.only(
+                                                top: _bufferingPct != null
+                                                    ? 6
+                                                    : 12,
+                                              ),
+                                              child: Text(
+                                                '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
+                                                style: const TextStyle(
+                                                  color: Colors.white,
+                                                ),
+                                              ),
+                                            ),
+                                        ],
+                                      ),
                                     ),
                                   ),
                                 Positioned.fill(
@@ -5025,19 +5025,6 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
   static const Duration _desktopAnimDuration = Duration(milliseconds: 220);
 
   void _toggleDesktopPanel(_DesktopSidePanel panel) {
-    if (panel == _DesktopSidePanel.line) {
-      // ignore: unawaited_futures
-      unawaited(_showDesktopRouteSheet());
-      return;
-    }
-    if (panel == _DesktopSidePanel.audio) {
-      _showAudioTracks(context);
-      return;
-    }
-    if (panel == _DesktopSidePanel.subtitle) {
-      _showSubtitleTracks(context);
-      return;
-    }
     if (panel == _DesktopSidePanel.none) {
       setState(() {
         _desktopSidePanel = _DesktopSidePanel.none;
@@ -5051,10 +5038,19 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     setState(() {
       _desktopSidePanel = next;
       _desktopSpeedPanelVisible = false;
+      if (next == _DesktopSidePanel.route) {
+        _desktopRouteEntriesFuture = _resolveDesktopRouteEntries();
+      }
     });
     if (next == _DesktopSidePanel.episode) {
       // ignore: unawaited_futures
       unawaited(_ensureEpisodePickerLoaded());
+    }
+    if (next == _DesktopSidePanel.version) {
+      if (_availableMediaSources.isEmpty) {
+        // ignore: unawaited_futures
+        unawaited(_loadDesktopVersionSources());
+      }
     }
     if (next == _DesktopSidePanel.none) {
       _scheduleControlsHide();
@@ -5073,9 +5069,9 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     _showControls(scheduleHide: false);
   }
 
-  Future<void> _loadDesktopLineSources({bool forceRefresh = false}) async {
-    if (_desktopLineLoading) return;
-    setState(() => _desktopLineLoading = true);
+  Future<void> _loadDesktopVersionSources({bool forceRefresh = false}) async {
+    if (_desktopVersionLoading) return;
+    setState(() => _desktopVersionLoading = true);
     try {
       final sources =
           await _ensureMediaSourcesLoaded(forceRefresh: forceRefresh);
@@ -5084,7 +5080,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     } catch (_) {
       // Keep current cache and show empty state.
     } finally {
-      if (mounted) setState(() => _desktopLineLoading = false);
+      if (mounted) setState(() => _desktopVersionLoading = false);
     }
   }
 
@@ -5271,6 +5267,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     }
   }
 
+  // ignore: unused_element
   Future<void> _showDesktopRouteSheet() async {
     if (!mounted) return;
     _showControls(scheduleHide: false);
@@ -5414,6 +5411,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     );
   }
 
+  // ignore: unused_element
   Future<void> _showDesktopVersionSheet() async {
     if (!mounted) return;
     _showControls(scheduleHide: false);
@@ -5800,19 +5798,21 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                   ),
                 if (_buffering)
                   Positioned.fill(
-                    child: ColoredBox(
-                      color: Colors.black54,
-                      child: Center(
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            const CircularProgressIndicator(),
-                            const SizedBox(height: 12),
-                            Text(
-                              '网速：${_desktopNetSpeedMbPerSecondLabel()}',
-                              style: const TextStyle(color: Colors.white),
-                            ),
-                          ],
+                    child: IgnorePointer(
+                      child: ColoredBox(
+                        color: Colors.black54,
+                        child: Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              const CircularProgressIndicator(),
+                              const SizedBox(height: 12),
+                              Text(
+                                '网速：${_desktopNetSpeedMbPerSecondLabel()}',
+                                style: const TextStyle(color: Colors.white),
+                              ),
+                            ],
+                          ),
                         ),
                       ),
                     ),
@@ -6141,13 +6141,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       isDark: isDark,
                       icon: switchingRoute ? Icons.sync : Icons.route_outlined,
                       label: switchingRoute ? '切换中' : '切换线路',
-                      active: switchingRoute,
+                      active: switchingRoute ||
+                          _desktopSidePanel == _DesktopSidePanel.route,
                       tooltip: _desktopRouteTooltipText(),
                       onTap: controlsEnabled
-                          ? () {
-                              // ignore: unawaited_futures
-                              unawaited(_showDesktopRouteSheet());
-                            }
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.route)
                           : null,
                     ),
                     const SizedBox(width: 8),
@@ -6156,13 +6154,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       isDark: isDark,
                       icon: Icons.video_file_outlined,
                       label: '版本',
-                      active: (_selectedMediaSourceId ?? '').trim().isNotEmpty,
+                      active: _desktopSidePanel == _DesktopSidePanel.version ||
+                          (_selectedMediaSourceId ?? '').trim().isNotEmpty,
                       tooltip: _desktopVersionTooltipText(),
                       onTap: controlsEnabled
-                          ? () {
-                              // ignore: unawaited_futures
-                              unawaited(_showDesktopVersionSheet());
-                            }
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.version)
                           : null,
                     ),
                     const SizedBox(width: 8),
@@ -6171,8 +6167,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       isDark: isDark,
                       icon: Icons.audiotrack_outlined,
                       label: '音轨选择',
-                      active: false,
-                      onTap: controlsEnabled ? () => _showAudioTracks(context) : null,
+                      active: _desktopSidePanel == _DesktopSidePanel.audio,
+                      onTap: controlsEnabled
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.audio)
+                          : null,
                     ),
                     const SizedBox(width: 8),
                     _desktopTopActionChip(
@@ -6180,9 +6178,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       isDark: isDark,
                       icon: Icons.subtitles_outlined,
                       label: '字幕选择',
-                      active: false,
-                      onTap:
-                          controlsEnabled ? () => _showSubtitleTracks(context) : null,
+                      active: _desktopSidePanel == _DesktopSidePanel.subtitle,
+                      onTap: controlsEnabled
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.subtitle)
+                          : null,
                     ),
                     const SizedBox(width: 8),
                     _desktopTopActionChip(
@@ -6190,12 +6189,10 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                       isDark: isDark,
                       icon: Icons.comment_outlined,
                       label: '弹幕',
-                      active: false,
+                      active: _desktopSidePanel == _DesktopSidePanel.danmaku ||
+                          _danmakuEnabled,
                       onTap: controlsEnabled
-                          ? () {
-                              // ignore: unawaited_futures
-                              unawaited(_showDanmakuSheet());
-                            }
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.danmaku)
                           : null,
                     ),
                     const SizedBox(width: 8),
@@ -6206,7 +6203,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                           ? Icons.auto_fix_high_outlined
                           : Icons.auto_fix_high,
                       label: 'Anime4K',
-                      onTap: controlsEnabled ? _showAnime4kSheet : null,
+                      active: _desktopSidePanel == _DesktopSidePanel.anime4k ||
+                          !_anime4kPreset.isOff,
+                      onTap: controlsEnabled
+                          ? () => _toggleDesktopPanel(_DesktopSidePanel.anime4k)
+                          : null,
                     ),
                   ],
                 ),
@@ -6291,11 +6292,11 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     BuildContext context, {
     required bool isDark,
   }) {
-    final width = (MediaQuery.sizeOf(context).width * 0.34)
-        .clamp(360.0, 480.0)
+    final width = (MediaQuery.sizeOf(context).width * 0.30)
+        .clamp(320.0, 420.0)
         .toDouble();
     final panelColor =
-        isDark ? const Color(0xEE121417) : const Color(0xF3F9FAFD);
+        isDark ? const Color(0xD6121417) : const Color(0xE6F9FAFD);
     final panelBorder = isDark
         ? Colors.white.withValues(alpha: 0.16)
         : Colors.black.withValues(alpha: 0.08);
@@ -6314,14 +6315,18 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             const Divider(height: 1),
             Expanded(
               child: switch (_desktopSidePanel) {
-                _DesktopSidePanel.line =>
-                  _buildDesktopLinePanel(context, isDark: isDark),
+                _DesktopSidePanel.route =>
+                  _buildDesktopRoutePanel(context, isDark: isDark),
+                _DesktopSidePanel.version =>
+                  _buildDesktopVersionPanel(context, isDark: isDark),
                 _DesktopSidePanel.audio =>
                   _buildDesktopAudioPanel(context, isDark: isDark),
                 _DesktopSidePanel.subtitle =>
                   _buildDesktopSubtitlePanel(context, isDark: isDark),
                 _DesktopSidePanel.danmaku =>
                   _buildDesktopDanmakuPanel(context, isDark: isDark),
+                _DesktopSidePanel.anime4k =>
+                  _buildDesktopAnime4kPanel(context, isDark: isDark),
                 _DesktopSidePanel.episode =>
                   _buildDesktopEpisodePanel(context, isDark: isDark),
                 _DesktopSidePanel.none => const SizedBox.shrink(),
@@ -6362,7 +6367,156 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     );
   }
 
-  Widget _buildDesktopLinePanel(
+  Widget _buildDesktopRoutePanel(
+    BuildContext context, {
+    required bool isDark,
+  }) {
+    final future = _desktopRouteEntriesFuture;
+    if (future == null) {
+      return Center(
+        child: OutlinedButton.icon(
+          onPressed: () {
+            setState(() {
+              _desktopRouteEntriesFuture = _resolveDesktopRouteEntries();
+            });
+          },
+          icon: const Icon(Icons.refresh),
+          label: const Text('加载线路'),
+        ),
+      );
+    }
+
+    final currentUrl = (_baseUrl ?? '').trim();
+    final currentRemark = (_playbackDomainRemark(currentUrl) ?? '').trim();
+    final currentLabel = currentUrl.isEmpty
+        ? '未连接线路'
+        : (currentRemark.isEmpty ? currentUrl : '$currentRemark\n$currentUrl');
+
+    return FutureBuilder<List<RouteEntry>>(
+      future: future,
+      builder: (context, snapshot) {
+        final loading = snapshot.connectionState != ConnectionState.done;
+        final entries = snapshot.data ?? const <RouteEntry>[];
+        final errorText = snapshot.hasError ? snapshot.error.toString() : '';
+
+        Color tileBg(bool selected) {
+          return isDark
+              ? Colors.white.withValues(alpha: selected ? 0.16 : 0.06)
+              : Colors.black.withValues(alpha: selected ? 0.10 : 0.04);
+        }
+
+        return ListView(
+          padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+          children: [
+            Text(
+              '当前线路',
+              style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                    fontWeight: FontWeight.w600,
+                  ),
+            ),
+            const SizedBox(height: 6),
+            Text(
+              currentLabel,
+              style: Theme.of(context).textTheme.bodySmall,
+            ),
+            const SizedBox(height: 10),
+            OutlinedButton.icon(
+              onPressed: loading
+                  ? null
+                  : () {
+                      setState(() {
+                        _desktopRouteEntriesFuture = _resolveDesktopRouteEntries(
+                          forceRefresh: true,
+                        );
+                      });
+                    },
+              icon: const Icon(Icons.refresh),
+              label: const Text('刷新线路'),
+            ),
+            const Divider(height: 20),
+            if (loading)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Center(child: CircularProgressIndicator()),
+              )
+            else if (errorText.trim().isNotEmpty && entries.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Center(
+                  child: Text(
+                    errorText.trim(),
+                    textAlign: TextAlign.center,
+                  ),
+                ),
+              )
+            else if (entries.isEmpty)
+              const Padding(
+                padding: EdgeInsets.only(top: 8),
+                child: Center(child: Text('当前服务端暂无可用线路')),
+              )
+            else
+              for (final entry in entries) ...[
+                Builder(
+                  builder: (context) {
+                    final d = entry.domain;
+                    final selected =
+                        currentUrl.isNotEmpty && currentUrl == d.url.trim();
+                    final name =
+                        d.name.trim().isEmpty ? d.url : d.name.trim();
+                    final remark = (_playbackDomainRemark(d.url) ?? '').trim();
+
+                    return ListTile(
+                      dense: true,
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      tileColor: tileBg(selected),
+                      title: Text(
+                        name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                      subtitle: remark.isEmpty
+                          ? Text(
+                              d.url,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                            )
+                          : Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  remark,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                                Text(
+                                  d.url,
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                ),
+                              ],
+                            ),
+                      trailing: selected
+                          ? const Icon(Icons.check_circle_rounded)
+                          : (entry.isCustom
+                              ? const Icon(Icons.bookmark_outline)
+                              : null),
+                      onTap: (selected || _desktopRouteSwitching)
+                          ? null
+                          : () => unawaited(_switchPlaybackRoute(d.url)),
+                    );
+                  },
+                ),
+                const SizedBox(height: 8),
+              ],
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _buildDesktopVersionPanel(
     BuildContext context, {
     required bool isDark,
   }) {
@@ -6371,7 +6525,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
         List<Map<String, dynamic>>.from(_availableMediaSources)
           ..sort(_compareMediaSourcesByQuality);
 
-    if (_desktopLineLoading) {
+    if (_desktopVersionLoading) {
       return const Center(child: CircularProgressIndicator());
     }
     if (sortedSources.length <= 1) {
@@ -6382,17 +6536,17 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             mainAxisSize: MainAxisSize.min,
             children: [
               const Text(
-                '当前剧集暂无可切换线路',
+                '当前视频暂无可切换版本',
                 textAlign: TextAlign.center,
               ),
               const SizedBox(height: 10),
               OutlinedButton.icon(
                 onPressed: () {
                   // ignore: unawaited_futures
-                  unawaited(_loadDesktopLineSources(forceRefresh: true));
+                  unawaited(_loadDesktopVersionSources(forceRefresh: true));
                 },
                 icon: const Icon(Icons.refresh),
-                label: const Text('刷新线路'),
+                label: const Text('刷新版本'),
               ),
             ],
           ),
@@ -6428,6 +6582,74 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                 },
         );
       },
+    );
+  }
+
+  Widget _buildDesktopAnime4kPanel(
+    BuildContext context, {
+    required bool isDark,
+  }) {
+    final selected = _anime4kPreset;
+    final scheme = Theme.of(context).colorScheme;
+    final messenger = ScaffoldMessenger.of(context);
+    final enabled = _playerService.isInitialized;
+
+    Future<void> applyPreset(Anime4kPreset preset) async {
+      if (preset == _anime4kPreset) return;
+      setState(() => _anime4kPreset = preset);
+      widget.appState.setAnime4kPreset(preset);
+      if (!enabled) return;
+
+      try {
+        if (preset.isOff) {
+          await Anime4k.clear(_playerService.player);
+        } else {
+          await Anime4k.apply(_playerService.player, preset);
+        }
+      } catch (_) {
+        if (!mounted) return;
+        setState(() => _anime4kPreset = Anime4kPreset.off);
+        widget.appState.setAnime4kPreset(Anime4kPreset.off);
+        messenger.showSnackBar(
+          const SnackBar(content: Text('Anime4K 初始化失败')),
+        );
+        try {
+          await Anime4k.clear(_playerService.player);
+        } catch (_) {}
+      }
+    }
+
+    return ListView(
+      padding: const EdgeInsets.fromLTRB(12, 10, 12, 12),
+      children: [
+        for (final preset in Anime4kPreset.values)
+          ListTile(
+            dense: true,
+            shape: RoundedRectangleBorder(
+              borderRadius: BorderRadius.circular(12),
+            ),
+            tileColor: isDark
+                ? Colors.white.withValues(
+                    alpha: preset == selected ? 0.16 : 0.06,
+                  )
+                : Colors.black.withValues(
+                    alpha: preset == selected ? 0.10 : 0.04,
+                  ),
+            leading: Icon(
+              preset == selected
+                  ? Icons.check_circle_rounded
+                  : Icons.circle_outlined,
+              color: preset == selected ? scheme.primary : null,
+            ),
+            title: Text(preset.label),
+            subtitle: Text(
+              preset.description,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+            ),
+            onTap: () => unawaited(applyPreset(preset)),
+          ),
+      ],
     );
   }
 
@@ -8271,16 +8493,27 @@ enum _GestureMode { none, brightness, volume, seek, speed }
 
 enum _DesktopLevelTarget { volume, brightness }
 
-enum _DesktopSidePanel { none, line, audio, subtitle, danmaku, episode }
+enum _DesktopSidePanel {
+  none,
+  route,
+  version,
+  audio,
+  subtitle,
+  danmaku,
+  anime4k,
+  episode
+}
 
 extension on _DesktopSidePanel {
   String get title {
     return switch (this) {
       _DesktopSidePanel.none => '',
-      _DesktopSidePanel.line => '线路切换',
+      _DesktopSidePanel.route => '线路选择',
+      _DesktopSidePanel.version => '版本选择',
       _DesktopSidePanel.audio => '音轨选择',
       _DesktopSidePanel.subtitle => '字幕选择',
       _DesktopSidePanel.danmaku => '弹幕',
+      _DesktopSidePanel.anime4k => 'Anime4K',
       _DesktopSidePanel.episode => '选集',
     };
   }

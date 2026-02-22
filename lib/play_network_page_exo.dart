@@ -4299,25 +4299,27 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                             ),
                           if (_buffering)
                             Positioned.fill(
-                              child: ColoredBox(
-                                color: Colors.black26,
-                                child: Center(
-                                  child: Column(
-                                    mainAxisSize: MainAxisSize.min,
-                                    children: [
-                                      const CircularProgressIndicator(),
-                                      if (widget.appState.showBufferSpeed)
-                                        Padding(
-                                          padding:
-                                              const EdgeInsets.only(top: 12),
-                                          child: Text(
-                                            '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
-                                            style: const TextStyle(
-                                              color: Colors.white,
+                              child: IgnorePointer(
+                                child: ColoredBox(
+                                  color: Colors.black26,
+                                  child: Center(
+                                    child: Column(
+                                      mainAxisSize: MainAxisSize.min,
+                                      children: [
+                                        const CircularProgressIndicator(),
+                                        if (widget.appState.showBufferSpeed)
+                                          Padding(
+                                            padding:
+                                                const EdgeInsets.only(top: 12),
+                                            child: Text(
+                                              '网速：${_netSpeedBytesPerSecond == null ? '—' : formatBytesPerSecond(_netSpeedBytesPerSecond!)}',
+                                              style: const TextStyle(
+                                                color: Colors.white,
+                                              ),
                                             ),
                                           ),
-                                        ),
-                                    ],
+                                      ],
+                                    ),
                                   ),
                                 ),
                               ),
