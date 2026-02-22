@@ -32,8 +32,19 @@ class ServerPage extends StatefulWidget {
 
 class _ServerPageState extends State<ServerPage> {
   int _desktopTabIndex = 0;
+  final List<bool> _desktopPagesBuilt = <bool>[true, false, false];
 
   bool _isTv(BuildContext context) => DeviceType.isTv;
+
+  void _selectDesktopTab(int index) {
+    if (index == _desktopTabIndex) return;
+    setState(() {
+      _desktopTabIndex = index;
+      if (index >= 0 && index < _desktopPagesBuilt.length) {
+        _desktopPagesBuilt[index] = true;
+      }
+    });
+  }
 
   Future<void> _openLocalPlayer() async {
     final useExoCore = !kIsWeb &&
@@ -84,6 +95,195 @@ class _ServerPageState extends State<ServerPage> {
     );
   }
 
+  Widget _buildServerListView(
+    BuildContext context, {
+    required List<ServerProfile> servers,
+    required bool loading,
+    required bool isTv,
+    required bool showInlineLocalEntry,
+    required bool isList,
+    required double maxCrossAxisExtent,
+  }) {
+    return CustomScrollView(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    '服务器',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w700,
+                          height: 1.1,
+                        ),
+                  ),
+                ),
+                IconButton(
+                  tooltip: isList ? '网格显示' : '条状显示',
+                  onPressed: loading
+                      ? null
+                      : () async {
+                          await widget.appState.setServerListLayout(
+                            isList ? ServerListLayout.grid : ServerListLayout.list,
+                          );
+                        },
+                  icon: Icon(isList
+                      ? Icons.grid_view_outlined
+                      : Icons.view_list_outlined),
+                ),
+                if (!isTv)
+                  IconButton(
+                    tooltip: '主题',
+                    onPressed: () => showThemeSheet(
+                      context,
+                      listenable: widget.appState,
+                      themeMode: () => widget.appState.themeMode,
+                      setThemeMode: widget.appState.setThemeMode,
+                      useDynamicColor: () => widget.appState.useDynamicColor,
+                      setUseDynamicColor: widget.appState.setUseDynamicColor,
+                      uiTemplate: () => widget.appState.uiTemplate,
+                      setUiTemplate: widget.appState.setUiTemplate,
+                    ),
+                    icon: const Icon(Icons.palette_outlined),
+                  ),
+                IconButton(
+                  tooltip: '添加服务器',
+                  onPressed: loading ? null : _showAddServerSheet,
+                  icon: const Icon(Icons.add),
+                ),
+              ],
+            ),
+          ),
+        ),
+        if (loading)
+          const SliverToBoxAdapter(
+            child: Padding(
+              padding: EdgeInsets.symmetric(horizontal: 20),
+              child: LinearProgressIndicator(),
+            ),
+          ),
+        if (!isTv && showInlineLocalEntry)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
+              child: Card(
+                clipBehavior: Clip.antiAlias,
+                child: ListTile(
+                  leading: const Icon(Icons.folder_open),
+                  title: const Text('本地播放'),
+                  subtitle: const Text('无需登录，直接播放本地文件'),
+                  trailing: const Icon(Icons.chevron_right),
+                  onTap: loading ? null : _openLocalPlayer,
+                ),
+              ),
+            ),
+          ),
+        if (servers.isEmpty)
+          const SliverFillRemaining(
+            hasScrollBody: false,
+            child: Center(
+              child: Padding(
+                padding: EdgeInsets.all(24),
+                child: Text('还没有服务器，点右上角“+”添加。'),
+              ),
+            ),
+          )
+        else
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
+            sliver: isList
+                ? SliverList(
+                    delegate: SliverChildBuilderDelegate(
+                      (context, index) {
+                        final server = servers[index];
+                        final isActive =
+                            server.id == widget.appState.activeServerId;
+                        return Padding(
+                          padding: EdgeInsets.only(
+                            bottom: index == servers.length - 1 ? 0 : 10,
+                          ),
+                          child: _ServerListTile(
+                            server: server,
+                            active: isActive,
+                            autofocus: isTv && isActive,
+                            onTap: loading
+                                ? null
+                                : () async {
+                                    if (server.serverType ==
+                                        MediaServerType.plex) {
+                                      ScaffoldMessenger.of(context).showSnackBar(
+                                        SnackBar(
+                                          content: Text(
+                                            '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。',
+                                          ),
+                                        ),
+                                      );
+                                      return;
+                                    }
+                                    if (server.id ==
+                                        widget.appState.activeServerId) {
+                                      await Navigator.of(context).maybePop();
+                                      return;
+                                    }
+                                    await widget.appState.enterServer(server.id);
+                                    if (!context.mounted) return;
+                                    await Navigator.of(context).maybePop();
+                                  },
+                            onLongPress: () => _showEditServerSheet(server),
+                          ),
+                        );
+                      },
+                      childCount: servers.length,
+                    ),
+                  )
+                : SliverGrid.builder(
+                    gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                      maxCrossAxisExtent: maxCrossAxisExtent,
+                      mainAxisSpacing: 8,
+                      crossAxisSpacing: 8,
+                      childAspectRatio: 1.2,
+                    ),
+                    itemCount: servers.length,
+                    itemBuilder: (context, index) {
+                      final server = servers[index];
+                      final isActive =
+                          server.id == widget.appState.activeServerId;
+                      return _ServerCard(
+                        server: server,
+                        active: isActive,
+                        autofocus: isTv && isActive,
+                        onTap: loading
+                            ? null
+                            : () async {
+                                if (server.serverType == MediaServerType.plex) {
+                                  ScaffoldMessenger.of(context).showSnackBar(
+                                    SnackBar(
+                                      content: Text(
+                                        '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。',
+                                      ),
+                                    ),
+                                  );
+                                  return;
+                                }
+                                if (server.id == widget.appState.activeServerId) {
+                                  await Navigator.of(context).maybePop();
+                                  return;
+                                }
+                                await widget.appState.enterServer(server.id);
+                                if (!context.mounted) return;
+                                await Navigator.of(context).maybePop();
+                              },
+                        onLongPress: () => _showEditServerSheet(server),
+                      );
+                    },
+                  ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return AnimatedBuilder(
@@ -103,16 +303,6 @@ class _ServerPageState extends State<ServerPage> {
               defaultTargetPlatform == TargetPlatform.android &&
               widget.appState.playerCore == PlayerCore.exo;
           final railExtended = MediaQuery.of(context).size.width >= 1280;
-          final pages = [
-            ServerPage(
-              appState: widget.appState,
-              showInlineLocalEntry: false,
-            ),
-            useExoCore
-                ? ExoPlayerScreen(appState: widget.appState)
-                : PlayerScreen(appState: widget.appState),
-            SettingsPage(appState: widget.appState),
-          ];
 
           return Scaffold(
             body: SafeArea(
@@ -120,8 +310,7 @@ class _ServerPageState extends State<ServerPage> {
                 children: [
                   NavigationRail(
                     selectedIndex: _desktopTabIndex,
-                    onDestinationSelected: (i) =>
-                        setState(() => _desktopTabIndex = i),
+                    onDestinationSelected: _selectDesktopTab,
                     extended: railExtended,
                     minExtendedWidth: 220,
                     leading: Padding(
@@ -161,7 +350,25 @@ class _ServerPageState extends State<ServerPage> {
                   Expanded(
                     child: IndexedStack(
                       index: _desktopTabIndex,
-                      children: pages,
+                      children: [
+                        _buildServerListView(
+                          context,
+                          servers: servers,
+                          loading: loading,
+                          isTv: isTv,
+                          showInlineLocalEntry: false,
+                          isList: isList,
+                          maxCrossAxisExtent: maxCrossAxisExtent,
+                        ),
+                        _desktopPagesBuilt[1]
+                            ? (useExoCore
+                                ? ExoPlayerScreen(appState: widget.appState)
+                                : PlayerScreen(appState: widget.appState))
+                            : const SizedBox.shrink(),
+                        _desktopPagesBuilt[2]
+                            ? SettingsPage(appState: widget.appState)
+                            : const SizedBox.shrink(),
+                      ],
                     ),
                   ),
                 ],
@@ -172,202 +379,14 @@ class _ServerPageState extends State<ServerPage> {
 
         return Scaffold(
           body: SafeArea(
-            child: CustomScrollView(
-              slivers: [
-                SliverToBoxAdapter(
-                  child: Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            '服务器',
-                            style: Theme.of(context)
-                                .textTheme
-                                .titleLarge
-                                ?.copyWith(
-                                  fontWeight: FontWeight.w700,
-                                  height: 1.1,
-                                ),
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: isList ? '网格显示' : '条状显示',
-                          onPressed: loading
-                              ? null
-                              : () async {
-                                  await widget.appState.setServerListLayout(
-                                    isList
-                                        ? ServerListLayout.grid
-                                        : ServerListLayout.list,
-                                  );
-                                },
-                          icon: Icon(isList
-                              ? Icons.grid_view_outlined
-                              : Icons.view_list_outlined),
-                        ),
-                        if (!isTv)
-                          IconButton(
-                            tooltip: '主题',
-                            onPressed: () => showThemeSheet(
-                              context,
-                              listenable: widget.appState,
-                              themeMode: () => widget.appState.themeMode,
-                              setThemeMode: widget.appState.setThemeMode,
-                              useDynamicColor: () =>
-                                  widget.appState.useDynamicColor,
-                              setUseDynamicColor:
-                                  widget.appState.setUseDynamicColor,
-                              uiTemplate: () => widget.appState.uiTemplate,
-                              setUiTemplate: widget.appState.setUiTemplate,
-                            ),
-                            icon: const Icon(Icons.palette_outlined),
-                          ),
-                        IconButton(
-                          tooltip: '添加服务器',
-                          onPressed: loading ? null : _showAddServerSheet,
-                          icon: const Icon(Icons.add),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (loading)
-                  const SliverToBoxAdapter(
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: 20),
-                      child: LinearProgressIndicator(),
-                    ),
-                  ),
-                if (!isTv && widget.showInlineLocalEntry)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 6, 16, 4),
-                      child: Card(
-                        clipBehavior: Clip.antiAlias,
-                        child: ListTile(
-                          leading: const Icon(Icons.folder_open),
-                          title: const Text('本地播放'),
-                          subtitle: const Text('无需登录，直接播放本地文件'),
-                          trailing: const Icon(Icons.chevron_right),
-                          onTap: loading ? null : _openLocalPlayer,
-                        ),
-                      ),
-                    ),
-                  ),
-                if (servers.isEmpty)
-                  const SliverFillRemaining(
-                    hasScrollBody: false,
-                    child: Center(
-                      child: Padding(
-                        padding: EdgeInsets.all(24),
-                        child: Text('还没有服务器，点右上角“+”添加。'),
-                      ),
-                    ),
-                  )
-                else
-                  SliverPadding(
-                    padding: const EdgeInsets.fromLTRB(16, 10, 16, 24),
-                    sliver: isList
-                        ? SliverList(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) {
-                                final server = servers[index];
-                                final isActive =
-                                    server.id == widget.appState.activeServerId;
-                                return Padding(
-                                  padding: EdgeInsets.only(
-                                      bottom:
-                                          index == servers.length - 1 ? 0 : 10),
-                                  child: _ServerListTile(
-                                    server: server,
-                                    active: isActive,
-                                    autofocus: isTv && isActive,
-                                    onTap: loading
-                                        ? null
-                                        : () async {
-                                            if (server.serverType ==
-                                                MediaServerType.plex) {
-                                              ScaffoldMessenger.of(context)
-                                                  .showSnackBar(
-                                                SnackBar(
-                                                  content: Text(
-                                                    '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。',
-                                                  ),
-                                                ),
-                                              );
-                                              return;
-                                            }
-                                            if (server.id ==
-                                                widget
-                                                    .appState.activeServerId) {
-                                              await Navigator.of(context)
-                                                  .maybePop();
-                                              return;
-                                            }
-                                            await widget.appState
-                                                .enterServer(server.id);
-                                            if (!context.mounted) return;
-                                            await Navigator.of(context)
-                                                .maybePop();
-                                          },
-                                    onLongPress: () =>
-                                        _showEditServerSheet(server),
-                                  ),
-                                );
-                              },
-                              childCount: servers.length,
-                            ),
-                          )
-                        : SliverGrid.builder(
-                            gridDelegate:
-                                SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: maxCrossAxisExtent,
-                              mainAxisSpacing: 8,
-                              crossAxisSpacing: 8,
-                              childAspectRatio: 1.2,
-                            ),
-                            itemCount: servers.length,
-                            itemBuilder: (context, index) {
-                              final server = servers[index];
-                              final isActive =
-                                  server.id == widget.appState.activeServerId;
-                              return _ServerCard(
-                                server: server,
-                                active: isActive,
-                                autofocus: isTv && isActive,
-                                onTap: loading
-                                    ? null
-                                    : () async {
-                                        if (server.serverType ==
-                                            MediaServerType.plex) {
-                                          ScaffoldMessenger.of(context)
-                                              .showSnackBar(
-                                            SnackBar(
-                                              content: Text(
-                                                '${server.serverType.label} 暂未支持浏览/播放（仅可保存登录信息）。',
-                                              ),
-                                            ),
-                                          );
-                                          return;
-                                        }
-                                        if (server.id ==
-                                            widget.appState.activeServerId) {
-                                          await Navigator.of(context)
-                                              .maybePop();
-                                          return;
-                                        }
-                                        await widget.appState
-                                            .enterServer(server.id);
-                                        if (!context.mounted) return;
-                                        await Navigator.of(context).maybePop();
-                                      },
-                                onLongPress: () => _showEditServerSheet(server),
-                              );
-                            },
-                          ),
-                  ),
-              ],
+            child: _buildServerListView(
+              context,
+              servers: servers,
+              loading: loading,
+              isTv: isTv,
+              showInlineLocalEntry: widget.showInlineLocalEntry,
+              isList: isList,
+              maxCrossAxisExtent: maxCrossAxisExtent,
             ),
           ),
         );

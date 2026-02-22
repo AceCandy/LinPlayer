@@ -309,7 +309,8 @@ class AppState extends ChangeNotifier {
   DoubleTapAction _doubleTapLeft = DoubleTapAction.seekBackward;
   DoubleTapAction _doubleTapCenter = DoubleTapAction.playPause;
   DoubleTapAction _doubleTapRight = DoubleTapAction.seekForward;
-  ReturnHomeBehavior _returnHomeBehavior = ReturnHomeBehavior.pause;
+  ReturnHomeBehavior _returnHomeBehavior =
+      _defaultReturnHomeBehaviorForPlatform();
   bool _showSystemTimeInControls = false;
   bool _showBufferSpeed = true;
   double _bufferSpeedRefreshSeconds = 0.5;
@@ -645,6 +646,21 @@ class AppState extends ChangeNotifier {
     return defaultTargetPlatform == TargetPlatform.windows ||
         defaultTargetPlatform == TargetPlatform.linux ||
         defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  static bool _isDesktopPlatform() {
+    if (kIsWeb) return false;
+    return defaultTargetPlatform == TargetPlatform.windows ||
+        defaultTargetPlatform == TargetPlatform.linux ||
+        defaultTargetPlatform == TargetPlatform.macOS;
+  }
+
+  static ReturnHomeBehavior _defaultReturnHomeBehaviorForPlatform() {
+    // Desktop users usually expect playback to continue when the window is
+    // unfocused/minimized.
+    return _isDesktopPlatform()
+        ? ReturnHomeBehavior.keepPlaying
+        : ReturnHomeBehavior.pause;
   }
 
   List<ServerProfile> get servers => List.unmodifiable(_servers);
@@ -1017,8 +1033,12 @@ class AppState extends ChangeNotifier {
           doubleTapActionFromId(prefs.getString(_kDoubleTapRightKey));
     }
 
-    _returnHomeBehavior =
-        returnHomeBehaviorFromId(prefs.getString(_kReturnHomeBehaviorKey));
+    if (prefs.containsKey(_kReturnHomeBehaviorKey)) {
+      _returnHomeBehavior =
+          returnHomeBehaviorFromId(prefs.getString(_kReturnHomeBehaviorKey));
+    } else {
+      _returnHomeBehavior = _defaultReturnHomeBehaviorForPlatform();
+    }
     _showSystemTimeInControls =
         prefs.getBool(_kShowSystemTimeInControlsKey) ?? false;
     _showBufferSpeed = prefs.getBool(_kShowBufferSpeedKey) ?? true;

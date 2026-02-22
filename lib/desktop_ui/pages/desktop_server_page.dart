@@ -20,6 +20,7 @@ class DesktopServerPage extends StatefulWidget {
 
 class _DesktopServerPageState extends State<DesktopServerPage> {
   int _index = 0; // 0 servers, 1 local, 2 settings
+  final List<bool> _built = <bool>[true, false, false];
 
   static const _tabs = <DesktopCinematicTab>[
     DesktopCinematicTab(label: 'Servers', icon: Icons.storage_outlined),
@@ -27,35 +28,48 @@ class _DesktopServerPageState extends State<DesktopServerPage> {
     DesktopCinematicTab(label: 'Settings', icon: Icons.settings_outlined),
   ];
 
+  void _selectTab(int index) {
+    if (index == _index) return;
+    setState(() {
+      _index = index;
+      if (index >= 0 && index < _built.length) {
+        _built[index] = true;
+      }
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     final useExoCore = !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         widget.appState.playerCore == PlayerCore.exo;
 
-    final pages = [
-      ServerPage(
-        appState: widget.appState,
-        showInlineLocalEntry: false,
-        desktopLayout: true,
-      ),
-      useExoCore
-          ? ExoPlayerScreen(appState: widget.appState)
-          : PlayerScreen(appState: widget.appState),
-      SettingsPage(appState: widget.appState),
-    ];
-
     return DesktopCinematicShell(
       appState: widget.appState,
       title: 'Workspace',
       tabs: _tabs,
       selectedIndex: _index,
-      onSelected: (index) => setState(() => _index = index),
+      onSelected: _selectTab,
       trailingLabel: widget.appState.activeServer?.name ?? 'No active server',
       trailingIcon: Icons.dns_outlined,
       child: IndexedStack(
         index: _index,
-        children: pages,
+        children: [
+          _built[0]
+              ? ServerPage(
+                  appState: widget.appState,
+                  showInlineLocalEntry: false,
+                )
+              : const SizedBox.shrink(),
+          _built[1]
+              ? (useExoCore
+                  ? ExoPlayerScreen(appState: widget.appState)
+                  : PlayerScreen(appState: widget.appState))
+              : const SizedBox.shrink(),
+          _built[2]
+              ? SettingsPage(appState: widget.appState)
+              : const SizedBox.shrink(),
+        ],
       ),
     );
   }
