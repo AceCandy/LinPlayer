@@ -1,6 +1,9 @@
 import 'dart:async';
 
 import 'package:dynamic_color/dynamic_color.dart';
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 import 'package:media_kit/media_kit.dart';
@@ -176,6 +179,10 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                 if (child == null) return const SizedBox.shrink();
 
                 final isTv = DeviceType.isTv;
+                final isDesktopPlatform = !kIsWeb &&
+                    (defaultTargetPlatform == TargetPlatform.windows ||
+                        defaultTargetPlatform == TargetPlatform.macOS ||
+                        defaultTargetPlatform == TargetPlatform.linux);
 
                 final scale = (UiScaleScope.autoScaleFor(context) *
                         appState.uiScaleFactor *
@@ -295,6 +302,36 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                             ],
                           ));
 
+                final shortcutWrappedChild = isDesktopPlatform
+                    ? Listener(
+                        behavior: HitTestBehavior.deferToChild,
+                        onPointerDown: (event) {
+                          final buttons = event.buttons;
+                          final backDown = (buttons & kBackMouseButton) != 0;
+                          final forwardDown =
+                              (buttons & kForwardMouseButton) != 0;
+                          if (!backDown && !forwardDown) return;
+
+                          final shortcuts = appState.desktopShortcutBindings;
+                          final nav = _rootNavigatorKey.currentState;
+                          if (nav == null) return;
+
+                          void handle(DesktopMouseSideButtonAction action) {
+                            if (action != DesktopMouseSideButtonAction.appBack) {
+                              return;
+                            }
+                            unawaited(nav.maybePop());
+                          }
+
+                          if (backDown) handle(shortcuts.mouseBackButtonAction);
+                          if (forwardDown) {
+                            handle(shortcuts.mouseForwardButtonAction);
+                          }
+                        },
+                        child: appChild,
+                      )
+                    : appChild;
+
                 return UiScaleScope(
                   scale: scale,
                   child: MediaQuery(
@@ -307,7 +344,7 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                           style: const TextStyle(
                             decoration: TextDecoration.none,
                           ),
-                          child: appChild,
+                          child: shortcutWrappedChild,
                         ),
                       ),
                     ),

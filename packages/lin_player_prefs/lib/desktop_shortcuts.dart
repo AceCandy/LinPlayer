@@ -288,6 +288,7 @@ String desktopKeyLabel(LogicalKeyboardKey key) {
 
 enum DesktopMouseSideButtonAction {
   none,
+  appBack,
   seekBackward,
   seekForward,
   playPause,
@@ -295,6 +296,8 @@ enum DesktopMouseSideButtonAction {
 
 DesktopMouseSideButtonAction desktopMouseSideButtonActionFromId(String? id) {
   switch ((id ?? '').trim()) {
+    case 'appBack':
+      return DesktopMouseSideButtonAction.appBack;
     case 'seekBackward':
       return DesktopMouseSideButtonAction.seekBackward;
     case 'seekForward':
@@ -312,6 +315,8 @@ extension DesktopMouseSideButtonActionX on DesktopMouseSideButtonAction {
     switch (this) {
       case DesktopMouseSideButtonAction.none:
         return 'none';
+      case DesktopMouseSideButtonAction.appBack:
+        return 'appBack';
       case DesktopMouseSideButtonAction.seekBackward:
         return 'seekBackward';
       case DesktopMouseSideButtonAction.seekForward:
@@ -325,6 +330,8 @@ extension DesktopMouseSideButtonActionX on DesktopMouseSideButtonAction {
     switch (this) {
       case DesktopMouseSideButtonAction.none:
         return '不处理';
+      case DesktopMouseSideButtonAction.appBack:
+        return '返回上一步';
       case DesktopMouseSideButtonAction.seekBackward:
         return '快退';
       case DesktopMouseSideButtonAction.seekForward:

@@ -3902,6 +3902,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
     void runAction(DesktopMouseSideButtonAction action) {
       switch (action) {
         case DesktopMouseSideButtonAction.none:
+        case DesktopMouseSideButtonAction.appBack:
           return;
         case DesktopMouseSideButtonAction.seekBackward:
           _showControls();

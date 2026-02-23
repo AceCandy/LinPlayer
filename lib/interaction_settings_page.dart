@@ -231,6 +231,7 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.mouse_outlined),
                         title: const Text('鼠标侧键（后退键）'),
+                        subtitle: const Text('支持：播放页操作 / 返回上一步（全局）'),
                         trailing: DropdownButtonHideUnderline(
                           child: DropdownButton<DesktopMouseSideButtonAction>(
                             value: desktopShortcuts.mouseBackButtonAction,
@@ -254,6 +255,7 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                         contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.mouse_outlined),
                         title: const Text('鼠标侧键（前进键）'),
+                        subtitle: const Text('支持：播放页操作 / 返回上一步（全局）'),
                         trailing: DropdownButtonHideUnderline(
                           child: DropdownButton<DesktopMouseSideButtonAction>(
                             value: desktopShortcuts.mouseForwardButtonAction,
