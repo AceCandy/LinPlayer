@@ -1521,86 +1521,95 @@ class _ActionButtons extends StatelessWidget {
       spacing: 12,
       runSpacing: 12,
       children: [
-        ElevatedButton.icon(
-          onPressed: onPlay,
-          icon: const Icon(
-            Icons.play_arrow_rounded,
-            size: _DetailActionButtonTokens.iconSize,
-          ),
-          label: Text(
-            _dtr(
-              language: language,
-              zh: '\u64ad\u653e',
-              en: 'Play',
+        SizedBox(
+          height: _DetailActionButtonTokens.height,
+          child: ElevatedButton.icon(
+            onPressed: onPlay,
+            icon: const Icon(
+              Icons.play_arrow_rounded,
+              size: _DetailActionButtonTokens.iconSize,
             ),
-          ),
-          style: ButtonStyle(
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered)) {
-                return colors.primaryHover;
-              }
-              return colors.primary;
-            }),
-            foregroundColor: const WidgetStatePropertyAll<Color>(Colors.white),
-            elevation: const WidgetStatePropertyAll<double>(0),
-            shape: WidgetStatePropertyAll(
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(
-                horizontal: 24,
-                vertical: _DetailActionButtonTokens.verticalPadding,
+            label: Text(
+              _dtr(
+                language: language,
+                zh: '\u64ad\u653e',
+                en: 'Play',
               ),
             ),
-            minimumSize: const WidgetStatePropertyAll(
-              Size(0, _DetailActionButtonTokens.height),
+            style: ButtonStyle(
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.hovered)) {
+                  return colors.primaryHover;
+                }
+                return colors.primary;
+              }),
+              foregroundColor: const WidgetStatePropertyAll<Color>(Colors.white),
+              elevation: const WidgetStatePropertyAll<double>(0),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              ),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(
+                  horizontal: 24,
+                  vertical: _DetailActionButtonTokens.verticalPadding,
+                ),
+              ),
+              minimumSize: const WidgetStatePropertyAll(
+                Size(0, _DetailActionButtonTokens.height),
+              ),
             ),
           ),
         ),
-        OutlinedButton.icon(
-          onPressed: onToggleWatched,
-          icon: const Icon(
-            Icons.check_rounded,
-            size: _DetailActionButtonTokens.iconSize,
-          ),
-          label: Text(
-            watched
-                ? _dtr(
-                    language: language,
-                    zh: '\u5df2\u64ad\u653e',
-                    en: 'Watched',
-                  )
-                : _dtr(
-                    language: language,
-                    zh: '\u6807\u8bb0\u5df2\u64ad\u653e',
-                    en: 'Mark watched',
-                  ),
-          ),
-          style: ButtonStyle(
-            side: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered)) {
-                return BorderSide(color: colors.successHoverBorder, width: 1.3);
-              }
-              return BorderSide(color: colors.success);
-            }),
-            foregroundColor: WidgetStatePropertyAll<Color>(colors.success),
-            backgroundColor: WidgetStateProperty.resolveWith((states) {
-              if (states.contains(WidgetState.hovered)) {
-                return colors.successHoverBackground;
-              }
-              return watched ? colors.successBackground : colors.surface;
-            }),
-            shape: WidgetStatePropertyAll(
-              RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        SizedBox(
+          height: _DetailActionButtonTokens.height,
+          child: OutlinedButton.icon(
+            onPressed: onToggleWatched,
+            icon: const Icon(
+              Icons.check_rounded,
+              size: _DetailActionButtonTokens.iconSize,
             ),
-            padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(
-                horizontal: 20,
-                vertical: _DetailActionButtonTokens.verticalPadding,
+            label: Text(
+              watched
+                  ? _dtr(
+                      language: language,
+                      zh: '\u5df2\u64ad\u653e',
+                      en: 'Watched',
+                    )
+                  : _dtr(
+                      language: language,
+                      zh: '\u6807\u8bb0\u5df2\u64ad\u653e',
+                      en: 'Mark watched',
+                    ),
+            ),
+            style: ButtonStyle(
+              side: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.hovered)) {
+                  return BorderSide(
+                    color: colors.successHoverBorder,
+                    width: 1.3,
+                  );
+                }
+                return BorderSide(color: colors.success);
+              }),
+              foregroundColor: WidgetStatePropertyAll<Color>(colors.success),
+              backgroundColor: WidgetStateProperty.resolveWith((states) {
+                if (states.contains(WidgetState.hovered)) {
+                  return colors.successHoverBackground;
+                }
+                return watched ? colors.successBackground : colors.surface;
+              }),
+              shape: WidgetStatePropertyAll(
+                RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               ),
-            ),
-            minimumSize: const WidgetStatePropertyAll(
-              Size(0, _DetailActionButtonTokens.height),
+              padding: const WidgetStatePropertyAll(
+                EdgeInsets.symmetric(
+                  horizontal: 20,
+                  vertical: _DetailActionButtonTokens.verticalPadding,
+                ),
+              ),
+              minimumSize: const WidgetStatePropertyAll(
+                Size(0, _DetailActionButtonTokens.height),
+              ),
             ),
           ),
         ),
@@ -1612,6 +1621,7 @@ class _ActionButtons extends StatelessWidget {
           onTap: onToggleFavorite,
         ),
         PopupMenuButton<String>(
+          padding: EdgeInsets.zero,
           tooltip: _dtr(
             language: language,
             zh: '\u66f4\u591a',
@@ -1715,6 +1725,7 @@ class _CircleIconButtonState extends State<_CircleIconButton> {
           duration: const Duration(milliseconds: 140),
           width: buttonSize,
           height: buttonSize,
+          alignment: Alignment.center,
           decoration: BoxDecoration(
             color: _hovered ? colors.surfaceHover : colors.surface,
             borderRadius: BorderRadius.circular(8),
