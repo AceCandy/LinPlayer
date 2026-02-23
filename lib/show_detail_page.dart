@@ -1238,10 +1238,13 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     required bool enableBlur,
   }) {
     if (_seasons.isEmpty) return const SizedBox.shrink();
+    final textTheme = Theme.of(context).textTheme;
     final outlinedStyle = OutlinedButton.styleFrom(
       foregroundColor: Colors.white,
       side: BorderSide(color: Colors.white.withValues(alpha: 0.28)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w600),
+      textStyle: (textTheme.labelLarge ?? const TextStyle()).copyWith(
+        fontWeight: FontWeight.w600,
+      ),
     );
     return _detailGlassPanel(
       enableBlur: enableBlur,
@@ -4161,6 +4164,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   Widget _otherEpisodesSection(BuildContext context) {
     final theme = Theme.of(context);
     final scheme = theme.colorScheme;
+    final textTheme = theme.textTheme;
     final season = _selectedSeason;
     final seasonText = _selectedSeasonLabel();
     final epAccess =
@@ -4169,7 +4173,9 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       foregroundColor: Colors.white,
       backgroundColor: Colors.black.withValues(alpha: 0.28),
       side: BorderSide(color: Colors.white.withValues(alpha: 0.24)),
-      textStyle: const TextStyle(fontWeight: FontWeight.w700),
+      textStyle: (textTheme.labelLarge ?? const TextStyle()).copyWith(
+        fontWeight: FontWeight.w700,
+      ),
     );
     final controls = Wrap(
       spacing: 8,

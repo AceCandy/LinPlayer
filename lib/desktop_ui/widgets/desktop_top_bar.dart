@@ -309,6 +309,8 @@ class _SearchCenter extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = DesktopThemeExtension.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final baseInputStyle = textTheme.bodyMedium ?? const TextStyle();
     return ConstrainedBox(
       constraints: const BoxConstraints(maxWidth: 720),
       child: Row(
@@ -334,11 +336,14 @@ class _SearchCenter extends StatelessWidget {
               onChanged: onChanged,
               onSubmitted: onSubmitted,
               textInputAction: TextInputAction.search,
-              style: TextStyle(color: theme.textPrimary, fontSize: 14),
+              style: baseInputStyle.copyWith(
+                color: theme.textPrimary,
+                fontSize: 14,
+              ),
               decoration: InputDecoration(
                 isDense: true,
                 hintText: hintText,
-                hintStyle: TextStyle(
+                hintStyle: baseInputStyle.copyWith(
                   color: theme.textMuted.withValues(alpha: 0.9),
                   fontSize: 13,
                 ),
@@ -524,6 +529,8 @@ class _TopPillActionButtonState extends State<_TopPillActionButton> {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final baseStyle = textTheme.labelLarge ?? const TextStyle();
     final enabled = widget.onTap != null;
     final scale = _pressed ? 0.96 : (_hovered ? 1.02 : 1.0);
     final slide = _pressed
@@ -562,7 +569,7 @@ class _TopPillActionButtonState extends State<_TopPillActionButton> {
                 child: AnimatedDefaultTextStyle(
                   duration: const Duration(milliseconds: 150),
                   curve: Curves.easeOutCubic,
-                  style: TextStyle(
+                  style: baseStyle.copyWith(
                     color: widget.active
                         ? widget.activeColor
                         : widget.inactiveColor,

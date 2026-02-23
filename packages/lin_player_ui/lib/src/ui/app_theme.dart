@@ -386,7 +386,9 @@ class AppTheme {
             _ => BorderSide.none,
           },
         ),
-        labelStyle: const TextStyle(fontWeight: FontWeight.w600),
+        labelStyle: (textTheme.labelLarge ?? const TextStyle()).copyWith(
+          fontWeight: FontWeight.w600,
+        ),
       ),
       inputDecorationTheme: base.inputDecorationTheme.copyWith(
         filled: true,

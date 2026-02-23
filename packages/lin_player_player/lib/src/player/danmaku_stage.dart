@@ -270,8 +270,10 @@ class DanmakuStageState extends State<DanmakuStage>
     required int rowStart,
     required int rows,
   }) {
+    final textTheme = Theme.of(context).textTheme;
+    final baseStyle = textTheme.bodyMedium ?? const TextStyle();
     final fontWeight = widget.bold ? FontWeight.w600 : FontWeight.w400;
-    final style = TextStyle(fontSize: fontSize, fontWeight: fontWeight);
+    final style = baseStyle.copyWith(fontSize: fontSize, fontWeight: fontWeight);
     final painter = TextPainter(
       text: TextSpan(text: item.text, style: style),
       maxLines: 1,
@@ -609,11 +611,13 @@ class _DanmakuText extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final textTheme = Theme.of(context).textTheme;
+    final baseStyle = textTheme.bodyMedium ?? const TextStyle();
     return Text(
       text,
       maxLines: 1,
       overflow: TextOverflow.clip,
-      style: TextStyle(
+      style: baseStyle.copyWith(
         fontSize: fontSize,
         color: Colors.white,
         fontWeight: bold ? FontWeight.w600 : FontWeight.w400,

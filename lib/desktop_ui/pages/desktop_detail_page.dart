@@ -384,6 +384,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         widget.onOpenItem != null &&
         vm.access != null &&
         vm.seasons.isNotEmpty;
+    final textTheme = Theme.of(context).textTheme;
+    final baseFieldStyle = textTheme.labelMedium ?? const TextStyle();
     InputDecoration decoration({
       required String prefix,
       required String hint,
@@ -391,13 +393,13 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
       return InputDecoration(
         isDense: true,
         hintText: hint,
-        hintStyle: TextStyle(
+        hintStyle: baseFieldStyle.copyWith(
           fontSize: 12,
           color: colors.textTertiary,
           fontWeight: FontWeight.w600,
         ),
         prefixText: prefix,
-        prefixStyle: TextStyle(
+        prefixStyle: baseFieldStyle.copyWith(
           fontSize: 12,
           color: colors.textTertiary,
           fontWeight: FontWeight.w700,
@@ -439,7 +441,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 3,
-              style: TextStyle(
+              style: baseFieldStyle.copyWith(
                 fontSize: 12.5,
                 color: colors.textPrimary,
                 fontWeight: FontWeight.w700,
@@ -467,7 +469,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               keyboardType: TextInputType.number,
               inputFormatters: [FilteringTextInputFormatter.digitsOnly],
               maxLength: 4,
-              style: TextStyle(
+              style: baseFieldStyle.copyWith(
                 fontSize: 12.5,
                 color: colors.textPrimary,
                 fontWeight: FontWeight.w700,

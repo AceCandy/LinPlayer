@@ -972,10 +972,16 @@ class _PosterRailSection extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = DesktopThemeExtension.of(context);
+    final textTheme = Theme.of(context).textTheme;
     final trimmedPrefix = prefixTitle.trim();
     final sectionTitle = highlightedTitle.trim().isEmpty
         ? _t(language: language, zh: '\u5206\u533a', en: 'Section')
         : highlightedTitle;
+    final baseTitleStyle = (textTheme.titleLarge ?? const TextStyle()).copyWith(
+      color: theme.textPrimary,
+      fontSize: 20,
+      fontWeight: FontWeight.w700,
+    );
 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -987,17 +993,13 @@ class _PosterRailSection extends StatelessWidget {
                 maxLines: 1,
                 overflow: TextOverflow.ellipsis,
                 text: TextSpan(
-                  style: TextStyle(
-                    color: theme.textPrimary,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                  ),
+                  style: baseTitleStyle,
                   children: [
                     if (trimmedPrefix.isNotEmpty) TextSpan(text: trimmedPrefix),
                     if (trimmedPrefix.isNotEmpty) const TextSpan(text: '  '),
                     TextSpan(
                       text: sectionTitle,
-                      style: TextStyle(
+                      style: baseTitleStyle.copyWith(
                         color: trimmedPrefix.isEmpty
                             ? theme.textPrimary
                             : theme.textMuted,
