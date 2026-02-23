@@ -24,6 +24,7 @@ class DesktopTopBar extends StatelessWidget {
     this.onBack,
     this.onToggleSidebar,
     this.onRefresh,
+    this.onOpenLibraryManager,
     this.onOpenRouteManager,
     this.onOpenSettings,
     this.homeTab = DesktopHomeTab.home,
@@ -45,6 +46,7 @@ class DesktopTopBar extends StatelessWidget {
   final VoidCallback? onBack;
   final VoidCallback? onToggleSidebar;
   final VoidCallback? onRefresh;
+  final VoidCallback? onOpenLibraryManager;
   final VoidCallback? onOpenRouteManager;
   final VoidCallback? onOpenSettings;
   final DesktopHomeTab homeTab;
@@ -157,6 +159,15 @@ class DesktopTopBar extends StatelessWidget {
                                 onSearchSubmitted(searchController.text),
                             color: iconColor,
                           ),
+                          if (onOpenLibraryManager != null) ...[
+                            const SizedBox(width: 6),
+                            _HeaderIconButton(
+                              icon: Icons.video_library_rounded,
+                              tooltip: _t(zh: '\u5a92\u4f53\u5e93', en: 'Libraries'),
+                              onTap: onOpenLibraryManager,
+                              color: iconColor,
+                            ),
+                          ],
                           const SizedBox(width: 6),
                           _HeaderIconButton(
                             icon: Icons.alt_route_rounded,

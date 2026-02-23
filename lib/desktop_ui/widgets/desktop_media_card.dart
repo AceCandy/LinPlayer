@@ -233,7 +233,7 @@ class _DesktopMediaCardState extends State<DesktopMediaCard> {
               style: TextStyle(
                 color: theme.textPrimary,
                 fontSize: 14,
-                fontWeight: FontWeight.w500,
+                fontWeight: FontWeight.w400,
               ),
             ),
             const SizedBox(height: 4),
@@ -400,7 +400,7 @@ class _ImageFallback extends StatelessWidget {
             textAlign: TextAlign.center,
             style: TextStyle(
               color: theme.textMuted,
-              fontWeight: FontWeight.w500,
+              fontWeight: FontWeight.w400,
               fontSize: 12,
             ),
           ),

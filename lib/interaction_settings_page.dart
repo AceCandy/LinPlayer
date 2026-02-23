@@ -1,6 +1,8 @@
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart' show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
@@ -17,6 +19,12 @@ class InteractionSettingsPage extends StatefulWidget {
 
 class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
   bool get _isTv => DeviceType.isTv;
+
+  bool get _isDesktopPlatform =>
+      !kIsWeb &&
+      (defaultTargetPlatform == TargetPlatform.windows ||
+          defaultTargetPlatform == TargetPlatform.macOS ||
+          defaultTargetPlatform == TargetPlatform.linux);
 
   double? _longPressMultiplierDraft;
   double? _bufferSpeedRefreshSecondsDraft;
@@ -52,6 +60,7 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
         final appState = widget.appState;
         final blurAllowed = !_isTv;
         final enableBlur = blurAllowed && appState.enableBlurEffects;
+        final desktopShortcuts = appState.desktopShortcutBindings;
 
         final longPressMultiplier =
             _longPressMultiplierDraft ?? appState.longPressSpeedMultiplier;
@@ -171,6 +180,108 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                   ],
                 ),
               ),
+              if (_isDesktopPlatform) ...[
+                const SizedBox(height: 12),
+                _Section(
+                  title: '桌面键盘/鼠标',
+                  enableBlur: enableBlur,
+                  child: Column(
+                    children: [
+                      Padding(
+                        padding: const EdgeInsets.only(bottom: 10),
+                        child: Text(
+                          '提示：点击条目后按下新的按键组合。按 Backspace / Delete 清除，按 Esc 取消。',
+                          style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                color: Theme.of(context)
+                                    .colorScheme
+                                    .onSurfaceVariant,
+                              ),
+                        ),
+                      ),
+                      for (final action in DesktopShortcutAction.values) ...[
+                        ListTile(
+                          contentPadding: EdgeInsets.zero,
+                          leading: Icon(_desktopShortcutIcon(action)),
+                          title: Text('${action.label}${action.hint}'),
+                          trailing: Text(
+                            desktopShortcuts.bindingOf(action)?.format() ??
+                                '未设置',
+                          ),
+                          onTap: () async {
+                            final current = desktopShortcuts.bindingOf(action);
+                            final next = await _pickDesktopKeyBinding(
+                              context,
+                              title: action.label,
+                              current: current,
+                            );
+                            if (!mounted) return;
+                            await appState.setDesktopShortcutKeyBinding(
+                              action,
+                              next,
+                            );
+                          },
+                        ),
+                        if (action != DesktopShortcutAction.values.last)
+                          const Divider(height: 1),
+                      ],
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.mouse_outlined),
+                        title: const Text('鼠标侧键（后退键）'),
+                        trailing: DropdownButtonHideUnderline(
+                          child: DropdownButton<DesktopMouseSideButtonAction>(
+                            value: desktopShortcuts.mouseBackButtonAction,
+                            items: DesktopMouseSideButtonAction.values
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(v.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) async {
+                              if (v == null) return;
+                              await appState.setDesktopMouseBackButtonAction(v);
+                            },
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.mouse_outlined),
+                        title: const Text('鼠标侧键（前进键）'),
+                        trailing: DropdownButtonHideUnderline(
+                          child: DropdownButton<DesktopMouseSideButtonAction>(
+                            value: desktopShortcuts.mouseForwardButtonAction,
+                            items: DesktopMouseSideButtonAction.values
+                                .map(
+                                  (v) => DropdownMenuItem(
+                                    value: v,
+                                    child: Text(v.label),
+                                  ),
+                                )
+                                .toList(),
+                            onChanged: (v) async {
+                              if (v == null) return;
+                              await appState
+                                  .setDesktopMouseForwardButtonAction(v);
+                            },
+                          ),
+                        ),
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.restart_alt_rounded),
+                        title: const Text('恢复默认快捷键'),
+                        onTap: () => appState.resetDesktopShortcutBindings(),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
               const SizedBox(height: 12),
               _Section(
                 title: '杂项',
@@ -331,6 +442,110 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
           },
         ),
       ),
+    );
+  }
+
+  static bool _isModifierKey(LogicalKeyboardKey key) {
+    return key == LogicalKeyboardKey.shiftLeft ||
+        key == LogicalKeyboardKey.shiftRight ||
+        key == LogicalKeyboardKey.controlLeft ||
+        key == LogicalKeyboardKey.controlRight ||
+        key == LogicalKeyboardKey.altLeft ||
+        key == LogicalKeyboardKey.altRight ||
+        key == LogicalKeyboardKey.metaLeft ||
+        key == LogicalKeyboardKey.metaRight;
+  }
+
+  IconData _desktopShortcutIcon(DesktopShortcutAction action) {
+    return switch (action) {
+      DesktopShortcutAction.playPause => Icons.play_arrow_rounded,
+      DesktopShortcutAction.seekBackward => Icons.replay_rounded,
+      DesktopShortcutAction.seekForward => Icons.forward_rounded,
+      DesktopShortcutAction.volumeUp ||
+      DesktopShortcutAction.volumeDown =>
+        Icons.volume_up_outlined,
+      DesktopShortcutAction.brightnessUp ||
+      DesktopShortcutAction.brightnessDown =>
+        Icons.brightness_6_outlined,
+      DesktopShortcutAction.toggleFullscreen => Icons.fullscreen_rounded,
+      DesktopShortcutAction.togglePanelRoute => Icons.alt_route_rounded,
+      DesktopShortcutAction.togglePanelVersion => Icons.layers_outlined,
+      DesktopShortcutAction.togglePanelAudio => Icons.audiotrack_rounded,
+      DesktopShortcutAction.togglePanelSubtitle =>
+        Icons.subtitles_outlined,
+      DesktopShortcutAction.togglePanelDanmaku => Icons.comment_outlined,
+      DesktopShortcutAction.togglePanelEpisode => Icons.list_alt_rounded,
+      DesktopShortcutAction.togglePanelAnime4k => Icons.auto_awesome_outlined,
+    };
+  }
+
+  Future<DesktopKeyBinding?> _pickDesktopKeyBinding(
+    BuildContext context, {
+    required String title,
+    required DesktopKeyBinding? current,
+  }) async {
+    return showDialog<DesktopKeyBinding?>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: Text('设置快捷键：$title'),
+          content: Focus(
+            autofocus: true,
+            skipTraversal: true,
+            onKeyEvent: (node, event) {
+              if (event is! KeyDownEvent) return KeyEventResult.ignored;
+              final key = event.logicalKey;
+              if (key == LogicalKeyboardKey.escape) {
+                Navigator.of(ctx).pop(current);
+                return KeyEventResult.handled;
+              }
+              if (key == LogicalKeyboardKey.backspace ||
+                  key == LogicalKeyboardKey.delete) {
+                Navigator.of(ctx).pop(null);
+                return KeyEventResult.handled;
+              }
+              if (_isModifierKey(key)) return KeyEventResult.handled;
+
+              final pressed = HardwareKeyboard.instance.logicalKeysPressed;
+              final ctrlPressed =
+                  pressed.contains(LogicalKeyboardKey.controlLeft) ||
+                      pressed.contains(LogicalKeyboardKey.controlRight);
+              final altPressed = pressed.contains(LogicalKeyboardKey.altLeft) ||
+                  pressed.contains(LogicalKeyboardKey.altRight);
+              final shiftPressed =
+                  pressed.contains(LogicalKeyboardKey.shiftLeft) ||
+                      pressed.contains(LogicalKeyboardKey.shiftRight);
+              final metaPressed =
+                  pressed.contains(LogicalKeyboardKey.metaLeft) ||
+                      pressed.contains(LogicalKeyboardKey.metaRight);
+              Navigator.of(ctx).pop(
+                DesktopKeyBinding(
+                  keyId: key.keyId,
+                  ctrl: ctrlPressed,
+                  alt: altPressed,
+                  shift: shiftPressed,
+                  meta: metaPressed,
+                ),
+              );
+              return KeyEventResult.handled;
+            },
+            child: Text(
+              '当前：${current?.format() ?? '未设置'}\n\n'
+              '按任意按键组合完成设置。',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(current),
+              child: const Text('取消'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(null),
+              child: const Text('清除'),
+            ),
+          ],
+        );
+      },
     );
   }
 }

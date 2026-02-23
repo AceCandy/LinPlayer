@@ -11,6 +11,7 @@ import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
 
 import '../server_adapters/server_access.dart';
+import '../library_page.dart';
 import '../library_items_page.dart';
 import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
@@ -1306,6 +1307,15 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
     );
   }
 
+  Future<void> _openLibraryManager() async {
+    await Navigator.of(context).push(
+      buildDesktopPageRoute(
+        transition: DesktopPageTransitionStyle.stack,
+        builder: (_) => LibraryPage(appState: widget.appState),
+      ),
+    );
+  }
+
   Future<void> _openRouteManager() async {
     if (widget.appState.domains.isEmpty && !widget.appState.isLoading) {
       unawaited(widget.appState.refreshDomains());
@@ -1866,6 +1876,7 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                               onSearchChanged: _handleSearchChanged,
                               onSearchSubmitted: _handleSearchSubmitted,
                               onRefresh: _refreshCurrentPage,
+                              onOpenLibraryManager: _openLibraryManager,
                               onOpenRouteManager: _openRouteManager,
                               onOpenSettings: _openSettings,
                               searchHint: _uiLanguage.pick(

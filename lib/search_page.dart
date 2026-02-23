@@ -182,11 +182,21 @@ class _SearchPageState extends State<SearchPage> {
 
       if (!mounted || seq != _searchSeq) return;
 
+      final hiddenLibraries =
+          widget.appState.activeServer?.hiddenLibraries ?? const <String>{};
+      final visibleItems = hiddenLibraries.isEmpty
+          ? fetched.items
+          : fetched.items.where((item) {
+              final parentId = (item.parentId ?? '').trim();
+              if (parentId.isEmpty) return true;
+              return !hiddenLibraries.contains(parentId);
+            }).toList(growable: false);
+
       final normalizedQuery = query.toLowerCase();
-      final exact = fetched.items
+      final exact = visibleItems
           .where((e) => e.name.trim().toLowerCase() == normalizedQuery)
           .toList(growable: false);
-      final results = exact.isNotEmpty ? exact : fetched.items;
+      final results = exact.isNotEmpty ? exact : visibleItems;
 
       setState(() {
         _results = results;

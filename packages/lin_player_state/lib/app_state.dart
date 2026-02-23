@@ -11,6 +11,7 @@ import 'package:lin_player_server_api/services/webdav_api.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_prefs/anime4k_preferences.dart';
 import 'package:lin_player_prefs/danmaku_preferences.dart';
+import 'package:lin_player_prefs/desktop_shortcuts.dart';
 import 'package:lin_player_prefs/interaction_preferences.dart';
 import 'local_playback_handoff.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
@@ -217,6 +218,7 @@ class AppState extends ChangeNotifier {
   static const _kSeekBackwardSecondsKey = 'seekBackwardSeconds_v1';
   static const _kSeekForwardSecondsKey = 'seekForwardSeconds_v1';
   static const _kForceRemoteControlKeysKey = 'forceRemoteControlKeys_v1';
+  static const _kDesktopShortcutBindingsKey = 'desktopShortcutBindings_v1';
   // TV-only features.
   static const _kTvRemoteEnabledKey = 'tvRemoteEnabled_v1';
   static const _kTvBuiltInProxyEnabledKey = 'tvBuiltInProxyEnabled_v1';
@@ -318,6 +320,8 @@ class AppState extends ChangeNotifier {
   int _seekBackwardSeconds = 10;
   int _seekForwardSeconds = 20;
   bool _forceRemoteControlKeys = false;
+  DesktopShortcutBindings _desktopShortcutBindings =
+      DesktopShortcutBindings.defaults;
   bool _tvRemoteEnabled = false;
   bool _tvBuiltInProxyEnabled = false;
   TvBackgroundMode _tvBackgroundMode = TvBackgroundMode.none;
@@ -791,6 +795,7 @@ class AppState extends ChangeNotifier {
   int get seekBackwardSeconds => _seekBackwardSeconds;
   int get seekForwardSeconds => _seekForwardSeconds;
   bool get forceRemoteControlKeys => _forceRemoteControlKeys;
+  DesktopShortcutBindings get desktopShortcutBindings => _desktopShortcutBindings;
   bool get tvRemoteEnabled => _tvRemoteEnabled;
   bool get tvBuiltInProxyEnabled => _tvBuiltInProxyEnabled;
   TvBackgroundMode get tvBackgroundMode => _tvBackgroundMode;
@@ -1053,6 +1058,19 @@ class AppState extends ChangeNotifier {
         (prefs.getInt(_kSeekForwardSecondsKey) ?? 20).clamp(1, 120);
     _forceRemoteControlKeys =
         prefs.getBool(_kForceRemoteControlKeysKey) ?? false;
+    final rawDesktopShortcuts = prefs.getString(_kDesktopShortcutBindingsKey);
+    if (rawDesktopShortcuts != null && rawDesktopShortcuts.trim().isNotEmpty) {
+      try {
+        _desktopShortcutBindings = DesktopShortcutBindings.fromJson(
+          jsonDecode(rawDesktopShortcuts),
+        );
+      } catch (_) {
+        _desktopShortcutBindings = DesktopShortcutBindings.defaults;
+        await prefs.remove(_kDesktopShortcutBindingsKey);
+      }
+    } else {
+      _desktopShortcutBindings = DesktopShortcutBindings.defaults;
+    }
     _tvRemoteEnabled = prefs.getBool(_kTvRemoteEnabledKey) ?? false;
     _tvBuiltInProxyEnabled = prefs.getBool(_kTvBuiltInProxyEnabledKey) ?? false;
     _tvBackgroundMode =
@@ -1245,6 +1263,7 @@ class AppState extends ChangeNotifier {
           'seekBackwardSeconds': _seekBackwardSeconds,
           'seekForwardSeconds': _seekForwardSeconds,
           'forceRemoteControlKeys': _forceRemoteControlKeys,
+          'desktopShortcuts': _desktopShortcutBindings.toJson(),
           'episodePickerShowTitle': _episodePickerShowTitle,
           // Legacy key for older backups.
           'episodePickerShowCover': _episodePickerShowTitle,
@@ -1687,6 +1706,8 @@ class AppState extends ChangeNotifier {
             .clamp(1, 120);
     final nextForceRemoteControlKeys =
         _readBool(interactionMap['forceRemoteControlKeys'], fallback: false);
+    final nextDesktopShortcutBindings =
+        DesktopShortcutBindings.fromJson(interactionMap['desktopShortcuts']);
     final nextTvRemoteEnabled =
         _readBool(tvMap['remoteEnabled'], fallback: false);
     final nextTvBuiltInProxyEnabled =
@@ -1808,6 +1829,7 @@ class AppState extends ChangeNotifier {
     _seekBackwardSeconds = nextSeekBackwardSeconds;
     _seekForwardSeconds = nextSeekForwardSeconds;
     _forceRemoteControlKeys = nextForceRemoteControlKeys;
+    _desktopShortcutBindings = nextDesktopShortcutBindings;
     _tvRemoteEnabled = nextTvRemoteEnabled;
     _tvBuiltInProxyEnabled = nextTvBuiltInProxyEnabled;
     _tvBackgroundMode = nextTvBackgroundMode;
@@ -1979,6 +2001,7 @@ class AppState extends ChangeNotifier {
     await prefs.setInt(_kSeekBackwardSecondsKey, _seekBackwardSeconds);
     await prefs.setInt(_kSeekForwardSecondsKey, _seekForwardSeconds);
     await prefs.setBool(_kForceRemoteControlKeysKey, _forceRemoteControlKeys);
+    await _persistDesktopShortcutBindings(prefs);
     await prefs.setBool(_kTvRemoteEnabledKey, _tvRemoteEnabled);
     await prefs.setBool(_kTvBuiltInProxyEnabledKey, _tvBuiltInProxyEnabled);
     await prefs.setString(_kTvBackgroundModeKey, _tvBackgroundMode.id);
@@ -4495,6 +4518,50 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setDesktopShortcutKeyBinding(
+    DesktopShortcutAction action,
+    DesktopKeyBinding? binding,
+  ) async {
+    if (_desktopShortcutBindings.bindingOf(action) == binding) return;
+    _desktopShortcutBindings =
+        _desktopShortcutBindings.copyWithKeyBinding(action, binding);
+    final prefs = await SharedPreferences.getInstance();
+    await _persistDesktopShortcutBindings(prefs);
+    notifyListeners();
+  }
+
+  Future<void> setDesktopMouseBackButtonAction(
+    DesktopMouseSideButtonAction action,
+  ) async {
+    if (_desktopShortcutBindings.mouseBackButtonAction == action) return;
+    _desktopShortcutBindings =
+        _desktopShortcutBindings.copyWithMouseBackButtonAction(action);
+    final prefs = await SharedPreferences.getInstance();
+    await _persistDesktopShortcutBindings(prefs);
+    notifyListeners();
+  }
+
+  Future<void> setDesktopMouseForwardButtonAction(
+    DesktopMouseSideButtonAction action,
+  ) async {
+    if (_desktopShortcutBindings.mouseForwardButtonAction == action) return;
+    _desktopShortcutBindings =
+        _desktopShortcutBindings.copyWithMouseForwardButtonAction(action);
+    final prefs = await SharedPreferences.getInstance();
+    await _persistDesktopShortcutBindings(prefs);
+    notifyListeners();
+  }
+
+  Future<void> resetDesktopShortcutBindings() async {
+    final current = jsonEncode(_desktopShortcutBindings.toJson());
+    final defaults = jsonEncode(DesktopShortcutBindings.defaults.toJson());
+    if (current == defaults) return;
+    _desktopShortcutBindings = DesktopShortcutBindings.defaults;
+    final prefs = await SharedPreferences.getInstance();
+    await _persistDesktopShortcutBindings(prefs);
+    notifyListeners();
+  }
+
   Future<void> setTvRemoteEnabled(bool enabled) async {
     if (_tvRemoteEnabled == enabled) return;
     _tvRemoteEnabled = enabled;
@@ -4777,6 +4844,16 @@ class AppState extends ChangeNotifier {
       ),
     );
     await prefs.setString(_kSeriesPlaybackOverridesKey, json);
+  }
+
+  Future<void> _persistDesktopShortcutBindings(SharedPreferences prefs) async {
+    final encoded = jsonEncode(_desktopShortcutBindings.toJson());
+    final defaultsEncoded = jsonEncode(DesktopShortcutBindings.defaults.toJson());
+    if (encoded == defaultsEncoded) {
+      await prefs.remove(_kDesktopShortcutBindingsKey);
+      return;
+    }
+    await prefs.setString(_kDesktopShortcutBindingsKey, encoded);
   }
 
   static Map<String, dynamic>? _coerceStringKeyedMap(dynamic value) {

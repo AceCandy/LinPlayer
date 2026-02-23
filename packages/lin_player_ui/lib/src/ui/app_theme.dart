@@ -1,3 +1,5 @@
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform, kIsWeb;
 import 'package:flutter/material.dart';
 
 import 'package:lin_player_prefs/preferences.dart';
@@ -5,6 +7,64 @@ import 'app_style.dart';
 
 /// Centralized theme (light/dark + optional Material You dynamic color).
 class AppTheme {
+  static const String _desktopAppFontFamily = 'Noto Sans SC';
+
+  static bool _isDesktopPlatform(TargetPlatform platform) {
+    if (kIsWeb) return false;
+    return switch (platform) {
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux =>
+        true,
+      _ => false,
+    };
+  }
+
+  static String? _desktopFontFamily(TargetPlatform platform) {
+    return switch (platform) {
+      // Desktop: use a bundled CJK+Latin font to keep glyphs & weights
+      // consistent across platforms.
+      TargetPlatform.windows ||
+      TargetPlatform.macOS ||
+      TargetPlatform.linux =>
+        _desktopAppFontFamily,
+      _ => null,
+    };
+  }
+
+  static List<String>? _desktopFontFallback(TargetPlatform platform) {
+    return switch (platform) {
+      TargetPlatform.windows => const <String>[
+          // System UI fallbacks (best-effort for rare missing glyphs).
+          'Segoe UI',
+          'Microsoft YaHei UI',
+          'Microsoft YaHei',
+          'Microsoft JhengHei UI',
+          'Microsoft JhengHei',
+          // Emoji / symbols.
+          'Segoe UI Emoji',
+          'Segoe UI Symbol',
+        ],
+      TargetPlatform.macOS => const <String>[
+          // System UI fallbacks (best-effort for rare missing glyphs).
+          '.SF NS Text',
+          'SF Pro Text',
+          'PingFang SC',
+          'Helvetica Neue',
+          // Emoji.
+          'Apple Color Emoji',
+        ],
+      TargetPlatform.linux => const <String>[
+          // System UI fallbacks (best-effort for rare missing glyphs).
+          'Noto Sans',
+          'DejaVu Sans',
+          // Emoji.
+          'Noto Color Emoji',
+        ],
+      _ => null,
+    };
+  }
+
   static ColorScheme _resolveScheme({
     required Brightness brightness,
     required UiTemplate template,
@@ -92,6 +152,12 @@ class AppTheme {
     required UiTemplate template,
     required bool compact,
   }) {
+    final platform = defaultTargetPlatform;
+    final useDesktopSystemFont = _isDesktopPlatform(platform);
+    final desktopFontFamily =
+        useDesktopSystemFont ? _desktopFontFamily(platform) : null;
+    final desktopFontFallback =
+        useDesktopSystemFont ? _desktopFontFallback(platform) : null;
     final isDark = scheme.brightness == Brightness.dark;
     final effectiveCompact = compact || template == UiTemplate.proTool;
     final style = _styleFor(
@@ -110,6 +176,8 @@ class AppTheme {
       materialTapTargetSize: effectiveCompact
           ? MaterialTapTargetSize.shrinkWrap
           : MaterialTapTargetSize.padded,
+      fontFamily: desktopFontFamily,
+      fontFamilyFallback: desktopFontFallback,
       extensions: <ThemeExtension<dynamic>>[style],
     );
 

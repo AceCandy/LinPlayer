@@ -673,24 +673,29 @@ class _AggregateSearchTabStatefulState
             return;
           }
 
-          final res = await access.adapter.fetchItems(
-            access.auth,
-            searchTerm: query,
-            includeItemTypes: 'Series,Movie',
-            recursive: true,
-            excludeFolders: false,
-            limit: _searchLimitPerServer,
-            sortBy: 'SortName',
-            sortOrder: 'Ascending',
-          );
-          for (final item in res.items) {
-            final t = item.type.toLowerCase();
-            if (t != 'series' && t != 'movie') continue;
-            hits.add(_ServerSearchHit(server: server, item: item));
-          }
-        } catch (e) {
-          serverErrors[server.id] = e.toString();
-        }
+           final res = await access.adapter.fetchItems(
+             access.auth,
+             searchTerm: query,
+             includeItemTypes: 'Series,Movie',
+             recursive: true,
+             excludeFolders: false,
+             limit: _searchLimitPerServer,
+             sortBy: 'SortName',
+             sortOrder: 'Ascending',
+           );
+           final hiddenLibraries = server.hiddenLibraries;
+           for (final item in res.items) {
+             final t = item.type.toLowerCase();
+             if (t != 'series' && t != 'movie') continue;
+             final parentId = (item.parentId ?? '').trim();
+             if (parentId.isNotEmpty && hiddenLibraries.contains(parentId)) {
+               continue;
+             }
+             hits.add(_ServerSearchHit(server: server, item: item));
+           }
+         } catch (e) {
+           serverErrors[server.id] = e.toString();
+         }
       }),
     );
 

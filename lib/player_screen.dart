@@ -137,7 +137,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   _DesktopSidePanel _desktopSidePanel = _DesktopSidePanel.none;
   bool _desktopTopBarHovered = false;
   bool _desktopBottomBarHovered = false;
-  bool _desktopSpaceKeyPressed = false;
+  bool _desktopPlayPauseKeyPressed = false;
   bool _desktopEpisodeGridMode = false;
   bool _desktopSpeedPanelVisible = false;
   bool _desktopLineSwitching = false;
@@ -506,57 +506,93 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (!_isDesktopCinematicMode || _remoteEnabled) {
       return KeyEventResult.ignored;
     }
+    final key = event.logicalKey;
+
+    final shortcuts =
+        widget.appState?.desktopShortcutBindings ?? DesktopShortcutBindings.defaults;
+    final playPauseBinding =
+        shortcuts.bindingOf(DesktopShortcutAction.playPause);
+
+    if (event is KeyUpEvent &&
+        playPauseBinding != null &&
+        key.keyId == playPauseBinding.keyId) {
+      _desktopPlayPauseKeyPressed = false;
+      return KeyEventResult.handled;
+    }
+
     if (_editableTextFocused || !_gesturesEnabled) {
       return KeyEventResult.ignored;
     }
 
-    final key = event.logicalKey;
-    if (key == LogicalKeyboardKey.space) {
+    final pressed = HardwareKeyboard.instance.logicalKeysPressed;
+    final ctrlPressed = pressed.contains(LogicalKeyboardKey.controlLeft) ||
+        pressed.contains(LogicalKeyboardKey.controlRight);
+    final altPressed = pressed.contains(LogicalKeyboardKey.altLeft) ||
+        pressed.contains(LogicalKeyboardKey.altRight);
+    final shiftPressed = pressed.contains(LogicalKeyboardKey.shiftLeft) ||
+        pressed.contains(LogicalKeyboardKey.shiftRight);
+    final metaPressed = pressed.contains(LogicalKeyboardKey.metaLeft) ||
+        pressed.contains(LogicalKeyboardKey.metaRight);
+
+    bool matches(DesktopShortcutAction action) {
+      final binding = shortcuts.bindingOf(action);
+      if (binding == null) return false;
+      return binding.matchesKey(
+        key: key,
+        ctrlPressed: ctrlPressed,
+        altPressed: altPressed,
+        shiftPressed: shiftPressed,
+        metaPressed: metaPressed,
+      );
+    }
+
+    if (matches(DesktopShortcutAction.playPause)) {
       if (event is KeyDownEvent) {
-        if (_desktopSpaceKeyPressed) return KeyEventResult.handled;
-        _desktopSpaceKeyPressed = true;
+        if (_desktopPlayPauseKeyPressed) return KeyEventResult.handled;
+        _desktopPlayPauseKeyPressed = true;
         _showControls();
         // ignore: unawaited_futures
         unawaited(_togglePlayPause(showOverlay: false));
-        return KeyEventResult.handled;
       }
-      if (event is KeyUpEvent) {
-        _desktopSpaceKeyPressed = false;
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
+      return KeyEventResult.handled;
     }
 
-    if (key == LogicalKeyboardKey.arrowUp ||
-        key == LogicalKeyboardKey.arrowDown) {
-      if (event is KeyDownEvent || event is KeyRepeatEvent) {
-        final pressed = HardwareKeyboard.instance.logicalKeysPressed;
-        final hasModifier = pressed.contains(LogicalKeyboardKey.controlLeft) ||
-            pressed.contains(LogicalKeyboardKey.controlRight) ||
-            pressed.contains(LogicalKeyboardKey.metaLeft) ||
-            pressed.contains(LogicalKeyboardKey.metaRight) ||
-            pressed.contains(LogicalKeyboardKey.altLeft) ||
-            pressed.contains(LogicalKeyboardKey.altRight);
-        if (hasModifier) return KeyEventResult.ignored;
-
-        final shiftPressed = pressed.contains(LogicalKeyboardKey.shiftLeft) ||
-            pressed.contains(LogicalKeyboardKey.shiftRight);
-        final target = shiftPressed
-            ? _DesktopLevelTarget.brightness
-            : _desktopLevelTarget;
-        final direction = key == LogicalKeyboardKey.arrowUp ? 1 : -1;
-        _showControls();
-        _desktopAdjustLevelByKey(target: target, direction: direction);
-        return KeyEventResult.handled;
-      }
-      return KeyEventResult.ignored;
+    final isDownOrRepeat = event is KeyDownEvent || event is KeyRepeatEvent;
+    if (isDownOrRepeat && matches(DesktopShortcutAction.volumeUp)) {
+      _showControls();
+      _desktopAdjustLevelByKey(target: _DesktopLevelTarget.volume, direction: 1);
+      return KeyEventResult.handled;
+    }
+    if (isDownOrRepeat && matches(DesktopShortcutAction.volumeDown)) {
+      _showControls();
+      _desktopAdjustLevelByKey(
+        target: _DesktopLevelTarget.volume,
+        direction: -1,
+      );
+      return KeyEventResult.handled;
+    }
+    if (isDownOrRepeat && matches(DesktopShortcutAction.brightnessUp)) {
+      _showControls();
+      _desktopAdjustLevelByKey(
+        target: _DesktopLevelTarget.brightness,
+        direction: 1,
+      );
+      return KeyEventResult.handled;
+    }
+    if (isDownOrRepeat && matches(DesktopShortcutAction.brightnessDown)) {
+      _showControls();
+      _desktopAdjustLevelByKey(
+        target: _DesktopLevelTarget.brightness,
+        direction: -1,
+      );
+      return KeyEventResult.handled;
     }
 
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
     }
 
-    if (key == LogicalKeyboardKey.arrowLeft) {
+    if (matches(DesktopShortcutAction.seekBackward)) {
       _showControls();
       // ignore: unawaited_futures
       unawaited(
@@ -567,7 +603,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
       return KeyEventResult.handled;
     }
-    if (key == LogicalKeyboardKey.arrowRight) {
+    if (matches(DesktopShortcutAction.seekForward)) {
       _showControls();
       // ignore: unawaited_futures
       unawaited(
@@ -578,6 +614,36 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
       return KeyEventResult.handled;
     }
+
+    if (matches(DesktopShortcutAction.toggleFullscreen)) {
+      _toggleDesktopFullscreen();
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelRoute)) {
+      _toggleDesktopPanel(_DesktopSidePanel.line);
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelAudio)) {
+      _toggleDesktopPanel(_DesktopSidePanel.audio);
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelSubtitle)) {
+      _toggleDesktopPanel(_DesktopSidePanel.subtitle);
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelDanmaku)) {
+      _toggleDesktopPanel(_DesktopSidePanel.danmaku);
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelEpisode)) {
+      _toggleDesktopPanel(_DesktopSidePanel.episode);
+      return KeyEventResult.handled;
+    }
+    if (matches(DesktopShortcutAction.togglePanelAnime4k)) {
+      _toggleDesktopPanel(_DesktopSidePanel.anime4k);
+      return KeyEventResult.handled;
+    }
+
     return KeyEventResult.ignored;
   }
 
@@ -1104,6 +1170,57 @@ class _PlayerScreenState extends State<PlayerScreen>
     _hideGestureOverlay();
   }
 
+  void _onDesktopMouseSideButtonPointerDown(
+    PointerDownEvent event, {
+    required bool gesturesEnabled,
+  }) {
+    if (!gesturesEnabled) return;
+    if (!_isDesktopPlatform) return;
+    if (!_gesturesEnabled) return;
+    if (_playerService.isExternalPlayback) return;
+
+    final shortcuts =
+        widget.appState?.desktopShortcutBindings ?? DesktopShortcutBindings.defaults;
+    final backDown = (event.buttons & kBackMouseButton) != 0;
+    final forwardDown = (event.buttons & kForwardMouseButton) != 0;
+    if (!backDown && !forwardDown) return;
+
+    void runAction(DesktopMouseSideButtonAction action) {
+      switch (action) {
+        case DesktopMouseSideButtonAction.none:
+          return;
+        case DesktopMouseSideButtonAction.seekBackward:
+          _showControls();
+          // ignore: unawaited_futures
+          unawaited(
+            _seekRelative(
+              Duration(seconds: -_seekBackSeconds),
+              showOverlay: false,
+            ),
+          );
+          return;
+        case DesktopMouseSideButtonAction.seekForward:
+          _showControls();
+          // ignore: unawaited_futures
+          unawaited(
+            _seekRelative(
+              Duration(seconds: _seekForwardSeconds),
+              showOverlay: false,
+            ),
+          );
+          return;
+        case DesktopMouseSideButtonAction.playPause:
+          _showControls();
+          // ignore: unawaited_futures
+          unawaited(_togglePlayPause(showOverlay: false));
+          return;
+      }
+    }
+
+    if (backDown) runAction(shortcuts.mouseBackButtonAction);
+    if (forwardDown) runAction(shortcuts.mouseForwardButtonAction);
+  }
+
   void _onDesktopSecondarySpeedPointerDown(
     PointerDownEvent event, {
     required bool gesturesEnabled,
@@ -1451,7 +1568,7 @@ class _PlayerScreenState extends State<PlayerScreen>
       _desktopSidePanel = _DesktopSidePanel.none;
       _desktopTopBarHovered = false;
       _desktopBottomBarHovered = false;
-      _desktopSpaceKeyPressed = false;
+      _desktopPlayPauseKeyPressed = false;
       _desktopSpeedPanelVisible = false;
       _desktopDanmakuOnlineLoading = false;
       _desktopDanmakuManualLoading = false;
@@ -2651,11 +2768,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                                         return Listener(
                                           behavior:
                                               HitTestBehavior.translucent,
-                                          onPointerDown: (e) =>
-                                              _onDesktopSecondarySpeedPointerDown(
-                                            e,
-                                            gesturesEnabled: _gesturesEnabled,
-                                          ),
+                                          onPointerDown: (e) {
+                                            _onDesktopMouseSideButtonPointerDown(
+                                              e,
+                                              gesturesEnabled: _gesturesEnabled,
+                                            );
+                                            _onDesktopSecondarySpeedPointerDown(
+                                              e,
+                                              gesturesEnabled: _gesturesEnabled,
+                                            );
+                                          },
                                           onPointerUp:
                                               _onDesktopSecondarySpeedPointerUp,
                                           onPointerCancel:
@@ -3365,11 +3487,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                           _gestureBrightnessEnabled || _gestureVolumeEnabled;
                       return Listener(
                         behavior: HitTestBehavior.translucent,
-                        onPointerDown: (e) =>
-                            _onDesktopSecondarySpeedPointerDown(
-                          e,
-                          gesturesEnabled: _gesturesEnabled,
-                        ),
+                        onPointerDown: (e) {
+                          _onDesktopMouseSideButtonPointerDown(
+                            e,
+                            gesturesEnabled: _gesturesEnabled,
+                          );
+                          _onDesktopSecondarySpeedPointerDown(
+                            e,
+                            gesturesEnabled: _gesturesEnabled,
+                          );
+                        },
                         onPointerUp: _onDesktopSecondarySpeedPointerUp,
                         onPointerCancel: _onDesktopSecondarySpeedPointerCancel,
                         child: GestureDetector(

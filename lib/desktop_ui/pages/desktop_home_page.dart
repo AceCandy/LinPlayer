@@ -2192,7 +2192,7 @@ class _ContinueWatchingCardState extends State<_ContinueWatchingCard> {
               style: TextStyle(
                 color: scheme.onSurface,
                 fontSize: 14,
-                fontWeight: FontWeight.w600,
+                fontWeight: FontWeight.w400,
               ),
             ),
             if (widget.subtitle.trim().isNotEmpty)
@@ -2205,7 +2205,7 @@ class _ContinueWatchingCardState extends State<_ContinueWatchingCard> {
                   style: TextStyle(
                     color: scheme.onSurfaceVariant,
                     fontSize: 12,
-                    fontWeight: FontWeight.w500,
+                    fontWeight: FontWeight.w400,
                   ),
                 ),
               ),

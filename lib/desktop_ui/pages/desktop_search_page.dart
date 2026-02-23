@@ -458,9 +458,14 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
             sortBy: 'SortName',
             sortOrder: 'Ascending',
           );
+          final hiddenLibraries = server.hiddenLibraries;
           for (final item in res.items) {
             final t = item.type.toLowerCase();
             if (t != 'series' && t != 'movie') continue;
+            final parentId = (item.parentId ?? '').trim();
+            if (parentId.isNotEmpty && hiddenLibraries.contains(parentId)) {
+              continue;
+            }
             hits.add(_ServerSearchHit(server: server, item: item));
           }
         } catch (e) {

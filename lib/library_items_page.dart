@@ -408,7 +408,7 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                   child: DefaultTextStyle.merge(
                     style: TextStyle(
                       color: theme.textTheme.bodyMedium?.color,
-                      fontSize: 13 * uiScale,
+                      fontSize: 13,
                     ),
                     child: child,
                   ),
