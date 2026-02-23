@@ -136,6 +136,9 @@ class LinEmbyAdapter implements MediaServerAdapter {
     String? sortBy,
     String sortOrder = 'Descending',
     String? fields,
+    List<String>? genres,
+    List<int>? years,
+    List<String>? personIds,
   }) {
     return _apiFor(auth).fetchItems(
       token: auth.token,
@@ -151,6 +154,9 @@ class LinEmbyAdapter implements MediaServerAdapter {
       sortBy: sortBy,
       sortOrder: sortOrder,
       fields: fields,
+      genres: genres,
+      years: years,
+      personIds: personIds,
     );
   }
 

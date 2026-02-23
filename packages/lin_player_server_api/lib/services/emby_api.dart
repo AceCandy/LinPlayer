@@ -804,6 +804,9 @@ class EmbyApi {
     String? sortBy,
     String sortOrder = 'Descending',
     String? fields,
+    List<String>? genres,
+    List<int>? years,
+    List<String>? personIds,
   }) async {
     final resolvedFields = (fields == null || fields.trim().isEmpty)
         ? 'Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate'
@@ -820,6 +823,29 @@ class EmbyApi {
     }
     if (includeItemTypes != null) {
       params.add('IncludeItemTypes=$includeItemTypes');
+    }
+    final resolvedGenres = genres
+        ?.map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toList(growable: false);
+    if (resolvedGenres != null && resolvedGenres.isNotEmpty) {
+      params.add('Genres=${Uri.encodeComponent(resolvedGenres.join('|'))}');
+    }
+    final resolvedYears = years
+        ?.where((value) => value > 0)
+        .toSet()
+        .toList(growable: false);
+    if (resolvedYears != null && resolvedYears.isNotEmpty) {
+      resolvedYears.sort();
+      params.add('Years=${resolvedYears.join(',')}');
+    }
+    final resolvedPersonIds = personIds
+        ?.map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (resolvedPersonIds != null && resolvedPersonIds.isNotEmpty) {
+      params.add('PersonIds=${Uri.encodeComponent(resolvedPersonIds.join(','))}');
     }
     if (sortBy != null && sortBy.isNotEmpty) {
       params.addAll(['SortBy=$sortBy', 'SortOrder=$sortOrder']);

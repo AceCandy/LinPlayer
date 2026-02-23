@@ -69,6 +69,9 @@ abstract class MediaServerAdapter {
     String? sortBy,
     String sortOrder = 'Descending',
     String? fields,
+    List<String>? genres,
+    List<int>? years,
+    List<String>? personIds,
   });
 
   Future<PagedResult<MediaItem>> fetchContinueWatching(

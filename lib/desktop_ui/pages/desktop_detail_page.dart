@@ -15,6 +15,8 @@ import 'package:url_launcher/url_launcher_string.dart';
 import '../../server_adapters/server_access.dart';
 import '../models/desktop_ui_language.dart';
 import '../view_models/desktop_detail_view_model.dart';
+import '../view_models/desktop_person_view_model.dart';
+import '../widgets/desktop_page_route.dart';
 import '../widgets/desktop_media_meta.dart';
 
 typedef DesktopDetailOpenItem = void Function(
@@ -758,6 +760,52 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
                         colors: colors,
                         vm: vm,
                       ),
+                      onTap: widget.onOpenItem == null
+                          ? null
+                          : (entry) => widget.onOpenItem!(entry, vm.server),
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              ],
+              if (vm.people.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _PeopleSection(
+                      people: vm.people,
+                      access: vm.access,
+                      language: widget.language,
+                      onTapPerson: (person) {
+                        final id = person.id.trim();
+                        if (id.isEmpty) return;
+                        Navigator.of(context).push(
+                          buildDesktopPageRoute(
+                            transition: DesktopPageTransitionStyle.push,
+                            builder: (_) => DesktopPersonPage(
+                              appState: vm.appState,
+                              server: vm.server,
+                              personId: id,
+                              seedName: person.name,
+                              language: widget.language,
+                              onOpenItem: widget.onOpenItem,
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+              ],
+              if (vm.similar.isNotEmpty) ...[
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _SimilarSection(
+                      items: vm.similar,
+                      access: vm.access,
+                      language: widget.language,
                       onTap: widget.onOpenItem == null
                           ? null
                           : (entry) => widget.onOpenItem!(entry, vm.server),
@@ -2620,6 +2668,809 @@ class _EpisodeThumbnailCardState extends State<_EpisodeThumbnailCard> {
   }
 }
 
+class _PeopleSection extends StatelessWidget {
+  const _PeopleSection({
+    required this.people,
+    required this.access,
+    required this.language,
+    this.onTapPerson,
+  });
+
+  final List<MediaPerson> people;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaPerson>? onTapPerson;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    return _GradientSectionSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _dtr(
+              language: language,
+              zh: '\u6f14\u804c\u4eba\u5458',
+              en: 'Cast & Crew',
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _PeopleHorizontalList(
+            people: people,
+            access: access,
+            language: language,
+            onTapPerson: onTapPerson,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PeopleHorizontalList extends StatefulWidget {
+  const _PeopleHorizontalList({
+    required this.people,
+    required this.access,
+    required this.language,
+    this.onTapPerson,
+  });
+
+  final List<MediaPerson> people;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaPerson>? onTapPerson;
+
+  @override
+  State<_PeopleHorizontalList> createState() => _PeopleHorizontalListState();
+}
+
+class _PeopleHorizontalListState extends State<_PeopleHorizontalList> {
+  static const double _kPosterWidth = 124;
+  static const double _kPosterHeight = 174;
+  static const double _kCardSpacing = 16;
+  final ScrollController _controller = ScrollController();
+  bool _canSlideLeft = false;
+  bool _canSlideRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_updateScrollButtons);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _updateScrollButtons();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_controller.hasClients) return;
+    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+        ? event.scrollDelta.dy
+        : event.scrollDelta.dx;
+    if (delta == 0) return;
+    final target = (_controller.offset + delta).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    _controller.jumpTo(target);
+  }
+
+  void _updateScrollButtons() {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final canSlideLeft = position.pixels < position.maxScrollExtent - 0.5;
+    final canSlideRight = position.pixels > position.minScrollExtent + 0.5;
+    if (canSlideLeft == _canSlideLeft && canSlideRight == _canSlideRight) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _canSlideLeft = canSlideLeft;
+      _canSlideRight = canSlideRight;
+    });
+  }
+
+  double _slideDelta() {
+    if (!_controller.hasClients) return (_kPosterWidth + _kCardSpacing) * 3;
+    final viewport = _controller.position.viewportDimension;
+    return math.max((_kPosterWidth + _kCardSpacing) * 2, viewport * 0.85);
+  }
+
+  void _slideBy(double delta) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final target = (_controller.offset + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    return SizedBox(
+      height: _kPosterHeight + 64,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: _dtr(
+              language: widget.language,
+              zh: '\u5411\u5de6\u6ed1\u52a8',
+              en: 'Slide left',
+            ),
+            onPressed: _canSlideLeft ? () => _slideBy(_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Listener(
+              onPointerSignal: _onPointerSignal,
+              child: ListView.separated(
+                controller: _controller,
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.people.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: _kCardSpacing),
+                itemBuilder: (context, index) {
+                  final person = widget.people[index];
+                  final access = widget.access;
+                  final imageUrl = access == null
+                      ? ''
+                      : access.adapter.personImageUrl(
+                          access.auth,
+                          personId: person.id,
+                          maxWidth: 520,
+                        );
+                  return _PersonCard(
+                    width: _kPosterWidth,
+                    height: _kPosterHeight,
+                    person: person,
+                    imageUrl: imageUrl,
+                    language: widget.language,
+                    onTap: widget.onTapPerson == null
+                        ? null
+                        : () => widget.onTapPerson!(person),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: _dtr(
+              language: widget.language,
+              zh: '\u5411\u53f3\u6ed1\u52a8',
+              en: 'Slide right',
+            ),
+            onPressed: _canSlideRight ? () => _slideBy(-_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PersonRoleParts {
+  const _PersonRoleParts({
+    required this.role,
+    required this.voice,
+  });
+
+  final String role;
+  final bool voice;
+}
+
+class _PersonCard extends StatefulWidget {
+  const _PersonCard({
+    required this.width,
+    required this.height,
+    required this.person,
+    required this.imageUrl,
+    required this.language,
+    this.onTap,
+  });
+
+  final double width;
+  final double height;
+  final MediaPerson person;
+  final String imageUrl;
+  final DesktopUiLanguage language;
+  final VoidCallback? onTap;
+
+  @override
+  State<_PersonCard> createState() => _PersonCardState();
+}
+
+class _PersonCardState extends State<_PersonCard> {
+  bool _hovered = false;
+
+  _PersonRoleParts _resolveRoleParts() {
+    final raw = widget.person.role.trim();
+    if (raw.isEmpty) return const _PersonRoleParts(role: '', voice: false);
+
+    final voicePattern =
+        RegExp(r'\\(\\s*voice\\s*\\)', caseSensitive: false);
+    final voice = voicePattern.hasMatch(raw);
+    final cleaned = raw.replaceAll(voicePattern, '').trim();
+    return _PersonRoleParts(role: cleaned, voice: voice);
+  }
+
+  String _roleLine(String role) {
+    if (role.trim().isEmpty) return '';
+    if (widget.person.type.trim().toLowerCase() == 'actor') {
+      final prefix = _dtr(
+        language: widget.language,
+        zh: '\u9970\u6f14: ',
+        en: 'As: ',
+      );
+      return '$prefix${role.trim()}';
+    }
+    return role.trim();
+  }
+
+  Widget _buildImage(String imageUrl) {
+    final trimmed = imageUrl.trim();
+    if (trimmed.isEmpty) return _PersonAvatarFallback(name: widget.person.name);
+    return CachedNetworkImage(
+      key: ValueKey<String>('person-${widget.person.id}-$trimmed'),
+      imageUrl: trimmed,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+      fit: BoxFit.cover,
+      placeholder: (_, __) => const SizedBox.shrink(),
+      errorWidget: (_, __, ___) =>
+          _PersonAvatarFallback(name: widget.person.name),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final parts = _resolveRoleParts();
+    final roleLine = _roleLine(parts.role);
+    final canTap = widget.onTap != null;
+    final borderColor = _hovered ? colors.borderHover : colors.border;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: canTap ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _hovered && canTap ? 1.02 : 1,
+          duration: const Duration(milliseconds: 130),
+          curve: Curves.easeOut,
+          child: SizedBox(
+            width: widget.width,
+            child: Column(
+              children: [
+                Container(
+                  width: widget.width,
+                  height: widget.height,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    border: Border.all(color: borderColor),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colors.shadow,
+                        blurRadius: 10,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: _buildImage(widget.imageUrl),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.person.name.trim().isEmpty ? '--' : widget.person.name,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+                if (roleLine.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    roleLine,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 11,
+                      color: colors.textSecondary,
+                    ),
+                  ),
+                ],
+                if (parts.voice) ...[
+                  const SizedBox(height: 2),
+                  Text(
+                    '(voice)',
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    textAlign: TextAlign.center,
+                    style: TextStyle(
+                      fontSize: 10,
+                      color: colors.textTertiary,
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PersonAvatarFallback extends StatelessWidget {
+  const _PersonAvatarFallback({required this.name});
+
+  final String name;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final trimmed = name.trim();
+    final letter = trimmed.isEmpty ? '?' : trimmed[0].toUpperCase();
+
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.fallbackImageStart,
+            colors.fallbackImageEnd,
+          ],
+        ),
+      ),
+      child: Center(
+        child: Text(
+          letter,
+          style: TextStyle(
+            fontSize: 20,
+            fontWeight: FontWeight.w800,
+            color: colors.textPrimary.withValues(alpha: 0.85),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SimilarSection extends StatelessWidget {
+  const _SimilarSection({
+    required this.items,
+    required this.access,
+    required this.language,
+    this.onTap,
+  });
+
+  final List<MediaItem> items;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    return _GradientSectionSurface(
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            _dtr(
+              language: language,
+              zh: '\u66f4\u591a\u7c7b\u4f3c',
+              en: 'More Like This',
+            ),
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              fontSize: 18,
+              fontWeight: FontWeight.w700,
+              color: colors.textPrimary,
+            ),
+          ),
+          const SizedBox(height: 16),
+          _SimilarHorizontalList(
+            items: items,
+            access: access,
+            language: language,
+            onTap: onTap,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SimilarHorizontalList extends StatefulWidget {
+  const _SimilarHorizontalList({
+    required this.items,
+    required this.access,
+    required this.language,
+    this.onTap,
+  });
+
+  final List<MediaItem> items;
+  final ServerAccess? access;
+  final DesktopUiLanguage language;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  State<_SimilarHorizontalList> createState() => _SimilarHorizontalListState();
+}
+
+class _SimilarHorizontalListState extends State<_SimilarHorizontalList> {
+  static const double _kCardWidth = 140;
+  static const double _kCardSpacing = 16;
+  final ScrollController _controller = ScrollController();
+  bool _canSlideLeft = false;
+  bool _canSlideRight = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller.addListener(_updateScrollButtons);
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      _updateScrollButtons();
+    });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _onPointerSignal(PointerSignalEvent event) {
+    if (event is! PointerScrollEvent || !_controller.hasClients) return;
+    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+        ? event.scrollDelta.dy
+        : event.scrollDelta.dx;
+    if (delta == 0) return;
+    final target = (_controller.offset + delta).clamp(
+      _controller.position.minScrollExtent,
+      _controller.position.maxScrollExtent,
+    );
+    _controller.jumpTo(target);
+  }
+
+  void _updateScrollButtons() {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final canSlideLeft = position.pixels < position.maxScrollExtent - 0.5;
+    final canSlideRight = position.pixels > position.minScrollExtent + 0.5;
+    if (canSlideLeft == _canSlideLeft && canSlideRight == _canSlideRight) {
+      return;
+    }
+    if (!mounted) return;
+    setState(() {
+      _canSlideLeft = canSlideLeft;
+      _canSlideRight = canSlideRight;
+    });
+  }
+
+  double _slideDelta() {
+    if (!_controller.hasClients) return (_kCardWidth + _kCardSpacing) * 3;
+    final viewport = _controller.position.viewportDimension;
+    return math.max((_kCardWidth + _kCardSpacing) * 2, viewport * 0.85);
+  }
+
+  void _slideBy(double delta) {
+    if (!_controller.hasClients) return;
+    final position = _controller.position;
+    final target = (_controller.offset + delta).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+    _controller.animateTo(
+      target,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final posterHeight = _kCardWidth * 3 / 2;
+    final listHeight = posterHeight + 52;
+
+    return SizedBox(
+      height: listHeight,
+      child: Row(
+        children: [
+          IconButton(
+            tooltip: _dtr(
+              language: widget.language,
+              zh: '\u5411\u5de6\u6ed1\u52a8',
+              en: 'Slide left',
+            ),
+            onPressed: _canSlideLeft ? () => _slideBy(_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_left_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Listener(
+              onPointerSignal: _onPointerSignal,
+              child: ListView.separated(
+                controller: _controller,
+                scrollDirection: Axis.horizontal,
+                itemCount: widget.items.length,
+                separatorBuilder: (_, __) =>
+                    const SizedBox(width: _kCardSpacing),
+                itemBuilder: (context, index) {
+                  final item = widget.items[index];
+                  return _SimilarPosterCard(
+                    width: _kCardWidth,
+                    item: item,
+                    access: widget.access,
+                    onTap: widget.onTap == null
+                        ? null
+                        : () => widget.onTap!(item),
+                  );
+                },
+              ),
+            ),
+          ),
+          const SizedBox(width: 8),
+          IconButton(
+            tooltip: _dtr(
+              language: widget.language,
+              zh: '\u5411\u53f3\u6ed1\u52a8',
+              en: 'Slide right',
+            ),
+            onPressed: _canSlideRight ? () => _slideBy(-_slideDelta()) : null,
+            icon: const Icon(Icons.chevron_right_rounded),
+            style: IconButton.styleFrom(
+              backgroundColor: colors.surface,
+              foregroundColor: colors.textSecondary,
+              disabledBackgroundColor: colors.surface,
+              disabledForegroundColor: colors.textTertiary,
+              side: BorderSide(color: colors.border),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(10),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _SimilarPosterCard extends StatefulWidget {
+  const _SimilarPosterCard({
+    required this.width,
+    required this.item,
+    required this.access,
+    this.onTap,
+  });
+
+  final double width;
+  final MediaItem item;
+  final ServerAccess? access;
+  final VoidCallback? onTap;
+
+  @override
+  State<_SimilarPosterCard> createState() => _SimilarPosterCardState();
+}
+
+class _SimilarPosterCardState extends State<_SimilarPosterCard> {
+  bool _hovered = false;
+
+  String _badgeText() {
+    final rating = widget.item.communityRating;
+    if (rating != null && rating.isFinite && rating > 0) {
+      final fixed = rating.toStringAsFixed(1);
+      return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
+    }
+
+    final type = widget.item.type.trim().toLowerCase();
+    if (type == 'episode') {
+      final no = widget.item.episodeNumber ?? 0;
+      if (no > 0) return '$no';
+    }
+    if (type == 'season') {
+      final no = widget.item.seasonNumber ?? 0;
+      if (no > 0) return '$no';
+    }
+    return '';
+  }
+
+  Widget _buildPosterImage(String? imageUrl) {
+    final trimmed = (imageUrl ?? '').trim();
+    if (trimmed.isEmpty) return _FallbackImage(label: widget.item.name);
+    return CachedNetworkImage(
+      key: ValueKey<String>('similar-${widget.item.id}-$trimmed'),
+      imageUrl: trimmed,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+      fit: BoxFit.cover,
+      placeholder: (_, __) => const SizedBox.shrink(),
+      errorWidget: (_, __, ___) => _FallbackImage(label: widget.item.name),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final canTap = widget.onTap != null;
+    final posterHeight = widget.width * 3 / 2;
+    final badgeText = _badgeText();
+
+    final posterUrl = widget.item.hasImage
+        ? _imageUrl(
+            access: widget.access,
+            item: widget.item,
+            type: 'Primary',
+            maxWidth: 520,
+          )
+        : null;
+
+    return MouseRegion(
+      onEnter: (_) => setState(() => _hovered = true),
+      onExit: (_) => setState(() => _hovered = false),
+      cursor: canTap ? SystemMouseCursors.click : SystemMouseCursors.basic,
+      child: GestureDetector(
+        onTap: widget.onTap,
+        child: AnimatedScale(
+          scale: _hovered && canTap ? 1.03 : 1,
+          duration: const Duration(milliseconds: 130),
+          curve: Curves.easeOut,
+          child: SizedBox(
+            width: widget.width,
+            child: Column(
+              children: [
+                Container(
+                  width: widget.width,
+                  height: posterHeight,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    boxShadow: [
+                      BoxShadow(
+                        color: colors.shadow,
+                        blurRadius: 12,
+                        offset: Offset(0, 3),
+                      ),
+                    ],
+                  ),
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    child: Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _buildPosterImage(posterUrl),
+                        if (badgeText.isNotEmpty)
+                          Positioned(
+                            top: 8,
+                            right: 8,
+                            child: _CornerBadge(text: badgeText),
+                          ),
+                      ],
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Text(
+                  widget.item.name.trim().isEmpty ? '--' : widget.item.name,
+                  maxLines: 2,
+                  overflow: TextOverflow.ellipsis,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    color: colors.textPrimary,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _CornerBadge extends StatelessWidget {
+  const _CornerBadge({required this.text});
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    return Container(
+      constraints: const BoxConstraints(minWidth: 24, minHeight: 24),
+      padding: const EdgeInsets.symmetric(horizontal: 6),
+      alignment: Alignment.center,
+      decoration: BoxDecoration(
+        color: colors.success,
+        borderRadius: BorderRadius.circular(999),
+        boxShadow: [
+          BoxShadow(
+            color: colors.shadow,
+            blurRadius: 10,
+            offset: Offset(0, 2),
+          ),
+        ],
+      ),
+      child: Text(
+        text,
+        maxLines: 1,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontSize: 11,
+          fontWeight: FontWeight.w800,
+          color: Colors.white,
+        ),
+      ),
+    );
+  }
+}
+
 class _ExternalLinksSection extends StatelessWidget {
   const _ExternalLinksSection({
     required this.links,
@@ -3004,6 +3855,33 @@ class _SectionSurface extends StatelessWidget {
       padding: const EdgeInsets.all(24),
       decoration: BoxDecoration(
         color: colors.surface,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+      ),
+      child: child,
+    );
+  }
+}
+
+class _GradientSectionSurface extends StatelessWidget {
+  const _GradientSectionSurface({required this.child});
+
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    return Container(
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topLeft,
+          end: Alignment.bottomRight,
+          colors: [
+            colors.heroFallbackStart,
+            colors.surface,
+          ],
+        ),
         borderRadius: BorderRadius.circular(12),
         border: Border.all(color: colors.border),
       ),
@@ -3799,4 +4677,440 @@ String? _imageUrl({
     imageType: type,
     maxWidth: maxWidth,
   );
+}
+
+class DesktopPersonPage extends StatefulWidget {
+  const DesktopPersonPage({
+    super.key,
+    required this.appState,
+    required this.personId,
+    this.seedName,
+    this.server,
+    this.language = DesktopUiLanguage.zhCn,
+    this.onOpenItem,
+  });
+
+  final AppState appState;
+  final String personId;
+  final String? seedName;
+  final ServerProfile? server;
+  final DesktopUiLanguage language;
+  final DesktopDetailOpenItem? onOpenItem;
+
+  @override
+  State<DesktopPersonPage> createState() => _DesktopPersonPageState();
+}
+
+class _DesktopPersonPageState extends State<DesktopPersonPage> {
+  late DesktopPersonViewModel _viewModel;
+
+  @override
+  void initState() {
+    super.initState();
+    _viewModel = DesktopPersonViewModel(
+      appState: widget.appState,
+      server: widget.server,
+      personId: widget.personId,
+      seedName: widget.seedName,
+    );
+    unawaited(_viewModel.load());
+  }
+
+  @override
+  void didUpdateWidget(covariant DesktopPersonPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.personId.trim() != widget.personId.trim() ||
+        oldWidget.server?.id != widget.server?.id ||
+        oldWidget.appState != widget.appState) {
+      final oldViewModel = _viewModel;
+      _viewModel = DesktopPersonViewModel(
+        appState: widget.appState,
+        server: widget.server,
+        personId: widget.personId,
+        seedName: widget.seedName,
+      );
+      unawaited(_viewModel.load(forceRefresh: true));
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        oldViewModel.dispose();
+      });
+    }
+  }
+
+  @override
+  void dispose() {
+    _viewModel.dispose();
+    super.dispose();
+  }
+
+  void _handleOpenItem(MediaItem item) {
+    final callback = widget.onOpenItem;
+    if (callback == null) return;
+    callback(item, widget.server);
+    Navigator.of(context).maybePop();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedBuilder(
+      animation: _viewModel,
+      builder: (context, _) {
+        final colors = _EpisodeDetailColors.of(context);
+        final title = _viewModel.displayName.trim().isEmpty
+            ? _dtr(language: widget.language, zh: '\u6f14\u5458', en: 'Person')
+            : _viewModel.displayName.trim();
+        final bio = (_viewModel.person?.overview ?? '').trim();
+        final access = _viewModel.access;
+        final portraitUrl = access == null
+            ? ''
+            : access.adapter.personImageUrl(
+                access.auth,
+                personId: widget.personId,
+                maxWidth: 920,
+              );
+
+        final credits = _viewModel.credits;
+        final loadingCredits = _viewModel.loading && credits.isEmpty;
+        final contentCredits = credits.take(48).toList(growable: false);
+
+        return Scaffold(
+          backgroundColor: colors.background,
+          body: SafeArea(
+            child: CustomScrollView(
+              slivers: [
+                SliverPersistentHeader(
+                  pinned: true,
+                  delegate: _PersonHeaderDelegate(
+                    title: title,
+                    biography: bio,
+                    portraitUrl: portraitUrl,
+                    language: widget.language,
+                    onBack: () => Navigator.of(context).maybePop(),
+                  ),
+                ),
+                if ((_viewModel.error ?? '').trim().isNotEmpty) ...[
+                  const SliverToBoxAdapter(child: SizedBox(height: 16)),
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 24),
+                      child: _ErrorBanner(message: _viewModel.error!.trim()),
+                    ),
+                  ),
+                ],
+                const SliverToBoxAdapter(child: SizedBox(height: 20)),
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 24),
+                    child: _GradientSectionSurface(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            _dtr(
+                              language: widget.language,
+                              zh: '\u51fa\u6f14\u4f5c\u54c1',
+                              en: 'Filmography',
+                            ),
+                            style: TextStyle(
+                              fontSize: 18,
+                              fontWeight: FontWeight.w700,
+                              color: colors.textPrimary,
+                            ),
+                          ),
+                          const SizedBox(height: 16),
+                          if (loadingCredits)
+                            const SizedBox(
+                              height: 180,
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else if (contentCredits.isEmpty)
+                            SizedBox(
+                              height: 180,
+                              child: Center(
+                                child: Text(
+                                  _dtr(
+                                    language: widget.language,
+                                    zh: '\u6682\u65e0\u76f8\u5173\u4f5c\u54c1',
+                                    en: 'No credits found',
+                                  ),
+                                  style:
+                                      TextStyle(color: colors.textSecondary),
+                                ),
+                              ),
+                            )
+                          else
+                            _SimilarHorizontalList(
+                              items: contentCredits,
+                              access: access,
+                              language: widget.language,
+                              onTap: widget.onOpenItem == null
+                                  ? null
+                                  : (entry) => _handleOpenItem(entry),
+                            ),
+                        ],
+                      ),
+                    ),
+                  ),
+                ),
+                const SliverToBoxAdapter(child: SizedBox(height: 28)),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+}
+
+class _PersonHeaderDelegate extends SliverPersistentHeaderDelegate {
+  _PersonHeaderDelegate({
+    required this.title,
+    required this.biography,
+    required this.portraitUrl,
+    required this.language,
+    required this.onBack,
+  });
+
+  final String title;
+  final String biography;
+  final String portraitUrl;
+  final DesktopUiLanguage language;
+  final VoidCallback onBack;
+
+  static const double _kMinHeight = 76;
+  static const double _kMaxHeight = 320;
+
+  @override
+  double get minExtent => _kMinHeight;
+
+  @override
+  double get maxExtent => _kMaxHeight;
+
+  @override
+  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+    final colors = _EpisodeDetailColors.of(context);
+    final t = (shrinkOffset / (maxExtent - minExtent)).clamp(0.0, 1.0);
+    final eased = Curves.easeOutCubic.transform(t);
+
+    final expandedOpacity = (1 - eased * 1.15).clamp(0.0, 1.0);
+    final collapsedOpacity = ((eased - 0.35) / 0.65).clamp(0.0, 1.0);
+
+    final displayBio = biography.trim().isEmpty
+        ? _dtr(
+            language: language,
+            zh: '\u6682\u65e0\u7b80\u4ecb\u3002',
+            en: 'No biography available.',
+          )
+        : biography.trim();
+
+    return ClipRect(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topLeft,
+            end: Alignment.bottomRight,
+            colors: [
+              colors.heroFallbackStart,
+              colors.background,
+            ],
+          ),
+        ),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Positioned.fill(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  color: colors.background.withValues(alpha: eased * 0.55),
+                ),
+              ),
+            ),
+            Positioned.fill(
+              child: Opacity(
+                opacity: expandedOpacity,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(24, _kMinHeight, 24, 18),
+                  child: LayoutBuilder(
+                    builder: (context, constraints) {
+                      final maxWidth = constraints.maxWidth;
+                      final verticalLayout = maxWidth < 820;
+                      final portraitWidth =
+                          verticalLayout ? 158.0 : 186.0;
+                      final portraitHeight = portraitWidth * 3 / 2;
+
+                      final portrait = _PersonPortraitCard(
+                        width: portraitWidth,
+                        height: portraitHeight,
+                        imageUrl: portraitUrl,
+                        label: title,
+                      );
+
+                      final titleWidget = Text(
+                        title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 32,
+                          fontWeight: FontWeight.w700,
+                          color: colors.textPrimary,
+                          height: 1.15,
+                        ),
+                      );
+
+                      final bioWidget = Text(
+                        displayBio,
+                        maxLines: verticalLayout ? 5 : 6,
+                        overflow: TextOverflow.ellipsis,
+                        style: TextStyle(
+                          fontSize: 15,
+                          color: colors.textBody,
+                          height: 1.6,
+                        ),
+                      );
+
+                      if (verticalLayout) {
+                        return Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            portrait,
+                            const SizedBox(height: 18),
+                            titleWidget,
+                            const SizedBox(height: 12),
+                            bioWidget,
+                          ],
+                        );
+                      }
+
+                      return Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          portrait,
+                          const SizedBox(width: 26),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                titleWidget,
+                                const SizedBox(height: 12),
+                                bioWidget,
+                              ],
+                            ),
+                          ),
+                        ],
+                      );
+                    },
+                  ),
+                ),
+              ),
+            ),
+            Align(
+              alignment: Alignment.topCenter,
+              child: Container(
+                height: _kMinHeight,
+                padding: const EdgeInsets.fromLTRB(14, 10, 14, 10),
+                child: Row(
+                  children: [
+                    IconButton(
+                      onPressed: onBack,
+                      icon: const Icon(Icons.arrow_back_rounded),
+                      tooltip: _dtr(
+                        language: language,
+                        zh: '\u8fd4\u56de',
+                        en: 'Back',
+                      ),
+                      style: IconButton.styleFrom(
+                        foregroundColor: colors.textPrimary,
+                        backgroundColor: colors.surface,
+                        side: BorderSide(color: colors.border),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(10),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Opacity(
+                        opacity: collapsedOpacity,
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontSize: 18,
+                            fontWeight: FontWeight.w700,
+                            color: colors.textPrimary,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  @override
+  bool shouldRebuild(covariant _PersonHeaderDelegate oldDelegate) {
+    return oldDelegate.title != title ||
+        oldDelegate.biography != biography ||
+        oldDelegate.portraitUrl != portraitUrl ||
+        oldDelegate.language != language;
+  }
+}
+
+class _PersonPortraitCard extends StatelessWidget {
+  const _PersonPortraitCard({
+    required this.width,
+    required this.height,
+    required this.imageUrl,
+    required this.label,
+  });
+
+  final double width;
+  final double height;
+  final String imageUrl;
+  final String label;
+
+  @override
+  Widget build(BuildContext context) {
+    final colors = _EpisodeDetailColors.of(context);
+    final trimmed = imageUrl.trim();
+
+    Widget child;
+    if (trimmed.isEmpty) {
+      child = _PersonAvatarFallback(name: label);
+    } else {
+      child = CachedNetworkImage(
+        imageUrl: trimmed,
+        cacheManager: CoverCacheManager.instance,
+        httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+        fit: BoxFit.cover,
+        placeholder: (_, __) => const SizedBox.shrink(),
+        errorWidget: (_, __, ___) => _PersonAvatarFallback(name: label),
+      );
+    }
+
+    return Container(
+      width: width,
+      height: height,
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: colors.border),
+        boxShadow: [
+          BoxShadow(
+            color: colors.shadow,
+            blurRadius: 18,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(12),
+        child: child,
+      ),
+    );
+  }
 }
