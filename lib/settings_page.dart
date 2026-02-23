@@ -922,25 +922,27 @@ class _SettingsPageState extends State<SettingsPage> {
             child: Column(
               mainAxisSize: MainAxisSize.min,
               children: [
-                RadioListTile<PlaybackProxyMode>(
-                  value: PlaybackProxyMode.system,
+                RadioGroup<PlaybackProxyMode>(
                   groupValue: mode,
                   onChanged: (v) => setState(() {
                     mode = v ?? PlaybackProxyMode.system;
                     hostPortError = null;
                   }),
-                  title: const Text('系统代理'),
-                  subtitle: const Text('跟随系统/环境变量代理设置（默认）'),
-                ),
-                RadioListTile<PlaybackProxyMode>(
-                  value: PlaybackProxyMode.custom,
-                  groupValue: mode,
-                  onChanged: (v) => setState(() {
-                    mode = v ?? PlaybackProxyMode.system;
-                    hostPortError = null;
-                  }),
-                  title: const Text('自定义代理'),
-                  subtitle: const Text('适用于需要手动指定代理的网络环境'),
+                  child: const Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      RadioListTile<PlaybackProxyMode>(
+                        value: PlaybackProxyMode.system,
+                        title: Text('系统代理'),
+                        subtitle: Text('跟随系统/环境变量代理设置（默认）'),
+                      ),
+                      RadioListTile<PlaybackProxyMode>(
+                        value: PlaybackProxyMode.custom,
+                        title: Text('自定义代理'),
+                        subtitle: Text('适用于需要手动指定代理的网络环境'),
+                      ),
+                    ],
+                  ),
                 ),
                 if (mode == PlaybackProxyMode.custom) ...[
                   const SizedBox(height: 12),
@@ -949,7 +951,7 @@ class _SettingsPageState extends State<SettingsPage> {
                       Expanded(
                         flex: 4,
                         child: DropdownButtonFormField<String>(
-                          value: scheme,
+                          initialValue: scheme,
                           decoration: const InputDecoration(
                             labelText: '类型',
                             isDense: true,
@@ -962,9 +964,9 @@ class _SettingsPageState extends State<SettingsPage> {
                                 ),
                               )
                               .toList(growable: false),
-                          onChanged: (v) => setState(() {
+                          onChanged: (v) {
                             scheme = (v ?? scheme).trim().toLowerCase();
-                          }),
+                          },
                         ),
                       ),
                       const SizedBox(width: 12),
