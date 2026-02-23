@@ -4,6 +4,7 @@ Future<bool> launchExternalMpv({
   String? executablePath,
   required String source,
   Map<String, String>? httpHeaders,
+  String? httpProxy,
 }) async {
   final specified = executablePath?.trim();
   final mpv = (specified != null && specified.isNotEmpty) ? specified : 'mpv';
@@ -18,6 +19,11 @@ Future<bool> launchExternalMpv({
     '--sub-ass-vsfilter-aspect-compat=yes',
     '--sub-ass-vsfilter-blur-compat=yes',
   ];
+
+  final proxy = (httpProxy ?? '').trim();
+  if (proxy.isNotEmpty) {
+    args.add('--http-proxy=$proxy');
+  }
 
   if (httpHeaders != null && httpHeaders.isNotEmpty) {
     final headerFields = httpHeaders.entries

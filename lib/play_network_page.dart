@@ -22,6 +22,7 @@ import 'server_adapters/server_access.dart';
 import 'services/app_route_observer.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
 import 'services/desktop_window.dart';
+import 'services/playback_proxy/playback_proxy.dart';
 import 'widgets/danmaku_manual_search_dialog.dart';
 import 'widgets/list_picker_dialog.dart';
 
@@ -404,11 +405,15 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
       final embyHeaders = access.adapter.buildStreamHeaders(access.auth);
       final proxyReady = builtInProxyEnabled &&
           builtInProxy.status.state == BuiltInProxyState.running;
-      final httpProxy = (proxyReady && streamUrl.isNotEmpty)
+      final httpProxy = streamUrl.isNotEmpty
           ? (() {
               final uri = Uri.tryParse(streamUrl);
               if (uri == null) return null;
-              return BuiltInProxyService.proxyUrlForUri(uri);
+              if (proxyReady) return BuiltInProxyService.proxyUrlForUri(uri);
+              return resolvePlaybackHttpProxyForUri(
+                appState: widget.appState,
+                uri: uri,
+              );
             })()
           : null;
       if (!kIsWeb && streamUrl.isNotEmpty) {

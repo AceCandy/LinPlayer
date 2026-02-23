@@ -151,6 +151,8 @@ class AppState extends ChangeNotifier {
   static const _kUnlimitedStreamCacheKey = 'unlimitedStreamCache_v1';
   static const _kAutoSkipIntroKey = 'autoSkipIntro_v1';
   static const _kMarkPlayedThresholdPercentKey = 'markPlayedThresholdPercent_v1';
+  static const _kPlaybackProxyModeKey = 'playbackProxyMode_v1';
+  static const _kPlaybackProxyUrlKey = 'playbackProxyUrl_v1';
   // Legacy key (<= 1.0.0): was used for "unlimited cover cache", but the intent
   // is actually "unlimited stream cache". We still read it for migration.
   static const _kLegacyUnlimitedCoverCacheKey = 'unlimitedCoverCache_v1';
@@ -268,6 +270,8 @@ class AppState extends ChangeNotifier {
   bool _unlimitedStreamCache = false;
   bool _autoSkipIntro = false;
   int _markPlayedThresholdPercent = 90;
+  PlaybackProxyMode _playbackProxyMode = PlaybackProxyMode.system;
+  String _playbackProxyUrl = '';
   bool _enableBlurEffects = true;
   String _desktopBackgroundImage = '';
   double _desktopBackgroundOpacity = 0.65;
@@ -742,6 +746,8 @@ class AppState extends ChangeNotifier {
   bool get unlimitedStreamCache => _unlimitedStreamCache;
   bool get autoSkipIntro => _autoSkipIntro;
   int get markPlayedThresholdPercent => _markPlayedThresholdPercent;
+  PlaybackProxyMode get playbackProxyMode => _playbackProxyMode;
+  String get playbackProxyUrl => _playbackProxyUrl;
   bool get enableBlurEffects => _enableBlurEffects;
   String get desktopBackgroundImage => _desktopBackgroundImage;
   double get desktopBackgroundOpacity => _desktopBackgroundOpacity;
@@ -942,6 +948,19 @@ class AppState extends ChangeNotifier {
         _markPlayedThresholdPercent,
       );
     }
+
+    _playbackProxyMode =
+        playbackProxyModeFromId(prefs.getString(_kPlaybackProxyModeKey));
+    final rawPlaybackProxyUrl = prefs.getString(_kPlaybackProxyUrlKey) ?? '';
+    _playbackProxyUrl = _normalizePlaybackProxyUrl(rawPlaybackProxyUrl);
+    if (_playbackProxyUrl.isEmpty) {
+      if (prefs.containsKey(_kPlaybackProxyUrlKey)) {
+        await prefs.remove(_kPlaybackProxyUrlKey);
+      }
+    } else if (_playbackProxyUrl != rawPlaybackProxyUrl.trim()) {
+      await prefs.setString(_kPlaybackProxyUrlKey, _playbackProxyUrl);
+    }
+
     _enableBlurEffects = prefs.getBool(_kEnableBlurEffectsKey) ?? true;
     _desktopBackgroundImage =
         prefs.getString(_kDesktopBackgroundImageKey) ?? '';
@@ -1210,6 +1229,8 @@ class AppState extends ChangeNotifier {
         'unlimitedStreamCache': _unlimitedStreamCache,
         'autoSkipIntro': _autoSkipIntro,
         'markPlayedThresholdPercent': _markPlayedThresholdPercent,
+        'playbackProxyMode': _playbackProxyMode.id,
+        'playbackProxyUrl': _playbackProxyUrl,
         'enableBlurEffects': _enableBlurEffects,
         'desktopBackgroundImage': _desktopBackgroundImage,
         'desktopBackgroundOpacity': _desktopBackgroundOpacity,
@@ -1562,6 +1583,10 @@ class AppState extends ChangeNotifier {
     final nextMarkPlayedThresholdPercent =
         _readInt(data['markPlayedThresholdPercent'], fallback: 90)
             .clamp(75, 100);
+    final nextPlaybackProxyMode =
+        playbackProxyModeFromId(data['playbackProxyMode']?.toString());
+    final nextPlaybackProxyUrl =
+        _normalizePlaybackProxyUrl(data['playbackProxyUrl']?.toString() ?? '');
     final nextEnableBlurEffects =
         _readBool(data['enableBlurEffects'], fallback: true);
     final nextDesktopBackgroundImage =
@@ -1778,6 +1803,8 @@ class AppState extends ChangeNotifier {
     _unlimitedStreamCache = nextUnlimitedStreamCache;
     _autoSkipIntro = nextAutoSkipIntro;
     _markPlayedThresholdPercent = nextMarkPlayedThresholdPercent;
+    _playbackProxyMode = nextPlaybackProxyMode;
+    _playbackProxyUrl = nextPlaybackProxyUrl;
     _enableBlurEffects = nextEnableBlurEffects;
     _desktopBackgroundImage = nextDesktopBackgroundImage;
     _desktopBackgroundOpacity = nextDesktopBackgroundOpacity;
@@ -1893,6 +1920,12 @@ class AppState extends ChangeNotifier {
       _kMarkPlayedThresholdPercentKey,
       _markPlayedThresholdPercent,
     );
+    await prefs.setString(_kPlaybackProxyModeKey, _playbackProxyMode.id);
+    if (_playbackProxyUrl.isEmpty) {
+      await prefs.remove(_kPlaybackProxyUrlKey);
+    } else {
+      await prefs.setString(_kPlaybackProxyUrlKey, _playbackProxyUrl);
+    }
     await prefs.setBool(_kEnableBlurEffectsKey, _enableBlurEffects);
     if (_desktopBackgroundImage.isEmpty) {
       await prefs.remove(_kDesktopBackgroundImageKey);
@@ -3976,6 +4009,27 @@ class AppState extends ChangeNotifier {
     notifyListeners();
   }
 
+  Future<void> setPlaybackProxyMode(PlaybackProxyMode mode) async {
+    if (_playbackProxyMode == mode) return;
+    _playbackProxyMode = mode;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setString(_kPlaybackProxyModeKey, mode.id);
+    notifyListeners();
+  }
+
+  Future<void> setPlaybackProxyUrl(String url) async {
+    final next = _normalizePlaybackProxyUrl(url);
+    if (_playbackProxyUrl == next) return;
+    _playbackProxyUrl = next;
+    final prefs = await SharedPreferences.getInstance();
+    if (next.isEmpty) {
+      await prefs.remove(_kPlaybackProxyUrlKey);
+    } else {
+      await prefs.setString(_kPlaybackProxyUrlKey, next);
+    }
+    notifyListeners();
+  }
+
   Future<void> setMarkPlayedThresholdPercent(int percent) async {
     final v = percent.clamp(75, 100);
     if (_markPlayedThresholdPercent == v) return;
@@ -3983,6 +4037,24 @@ class AppState extends ChangeNotifier {
     final prefs = await SharedPreferences.getInstance();
     await prefs.setInt(_kMarkPlayedThresholdPercentKey, v);
     notifyListeners();
+  }
+
+  static String _normalizePlaybackProxyUrl(String url) {
+    final raw = url.trim();
+    if (raw.isEmpty) return '';
+
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return '';
+
+    final scheme = uri.scheme.trim().toLowerCase();
+    const allowedSchemes = {'http', 'https', 'socks5', 'socks4'};
+    if (!allowedSchemes.contains(scheme)) return '';
+
+    final host = uri.host.trim();
+    final port = uri.port;
+    if (host.isEmpty || port <= 0 || port > 65535) return '';
+
+    return Uri(scheme: scheme, host: host, port: port).toString();
   }
 
   static String _normalizeDanmakuApiUrl(String url) {

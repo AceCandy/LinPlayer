@@ -199,12 +199,27 @@ enum PlaybackBufferPreset {
   custom,
 }
 
+enum PlaybackProxyMode {
+  system,
+  custom,
+}
+
 PlayerCore playerCoreFromId(String? id) {
   switch (id) {
     case 'exo':
       return PlayerCore.exo;
     default:
       return PlayerCore.mpv;
+  }
+}
+
+PlaybackProxyMode playbackProxyModeFromId(String? id) {
+  switch ((id ?? '').trim()) {
+    case 'custom':
+      return PlaybackProxyMode.custom;
+    case 'system':
+    default:
+      return PlaybackProxyMode.system;
   }
 }
 
@@ -280,6 +295,26 @@ extension PlaybackBufferPresetX on PlaybackBufferPreset {
         return 0.25;
       case PlaybackBufferPreset.custom:
         return null;
+    }
+  }
+}
+
+extension PlaybackProxyModeX on PlaybackProxyMode {
+  String get id {
+    switch (this) {
+      case PlaybackProxyMode.system:
+        return 'system';
+      case PlaybackProxyMode.custom:
+        return 'custom';
+    }
+  }
+
+  String get label {
+    switch (this) {
+      case PlaybackProxyMode.system:
+        return '系统代理';
+      case PlaybackProxyMode.custom:
+        return '自定义';
     }
   }
 }

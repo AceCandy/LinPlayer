@@ -791,6 +791,24 @@ class _SettingsPageState extends State<SettingsPage> {
 
   bool _isTv(BuildContext context) => DeviceType.isTv;
 
+  Widget _wrapDesktopSettingsBody({
+    required bool isDesktop,
+    required Widget child,
+  }) {
+    if (!isDesktop) return child;
+    return Scrollbar(
+      controller: _scrollController,
+      thumbVisibility: true,
+      child: Align(
+        alignment: Alignment.topCenter,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 980),
+          child: child,
+        ),
+      ),
+    );
+  }
+
   List<DropdownMenuItem<String>> _audioLangItems(String current) {
     final base = <MapEntry<String, String>>[
       const MapEntry('', '默认'),
@@ -857,6 +875,161 @@ class _SettingsPageState extends State<SettingsPage> {
             child: const Text('保存'),
           ),
         ],
+      ),
+    );
+  }
+
+  String _playbackProxySubtitle(AppState appState) {
+    final url = appState.playbackProxyUrl.trim();
+    return appState.playbackProxyMode == PlaybackProxyMode.system
+        ? '系统代理'
+        : (url.isEmpty ? '自定义：未填写' : '自定义：$url');
+  }
+
+  Future<void> _editPlaybackProxy(BuildContext context, AppState appState) async {
+    const supportedSchemes = ['http', 'https', 'socks5', 'socks4'];
+
+    PlaybackProxyMode mode = appState.playbackProxyMode;
+    String scheme = 'http';
+    final hostPortController = TextEditingController();
+    String? hostPortError;
+
+    final initialUrl = appState.playbackProxyUrl.trim();
+    final initialUri = Uri.tryParse(initialUrl);
+    if (initialUri != null &&
+        initialUri.host.trim().isNotEmpty &&
+        initialUri.port > 0) {
+      final s = initialUri.scheme.trim().toLowerCase();
+      if (supportedSchemes.contains(s)) {
+        scheme = s;
+      }
+      hostPortController.text = '${initialUri.host}:${initialUri.port}';
+    }
+
+    Uri? parseHostPort(String raw) {
+      final text = raw.trim();
+      if (text.isEmpty) return null;
+      if (text.contains('://')) return Uri.tryParse(text);
+      return Uri.tryParse('proxy://$text');
+    }
+
+    await showDialog<void>(
+      context: context,
+      builder: (dctx) => StatefulBuilder(
+        builder: (dctx, setState) => AlertDialog(
+          title: const Text('播放代理'),
+          content: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                RadioListTile<PlaybackProxyMode>(
+                  value: PlaybackProxyMode.system,
+                  groupValue: mode,
+                  onChanged: (v) => setState(() {
+                    mode = v ?? PlaybackProxyMode.system;
+                    hostPortError = null;
+                  }),
+                  title: const Text('系统代理'),
+                  subtitle: const Text('跟随系统/环境变量代理设置（默认）'),
+                ),
+                RadioListTile<PlaybackProxyMode>(
+                  value: PlaybackProxyMode.custom,
+                  groupValue: mode,
+                  onChanged: (v) => setState(() {
+                    mode = v ?? PlaybackProxyMode.system;
+                    hostPortError = null;
+                  }),
+                  title: const Text('自定义代理'),
+                  subtitle: const Text('适用于需要手动指定代理的网络环境'),
+                ),
+                if (mode == PlaybackProxyMode.custom) ...[
+                  const SizedBox(height: 12),
+                  Row(
+                    children: [
+                      Expanded(
+                        flex: 4,
+                        child: DropdownButtonFormField<String>(
+                          value: scheme,
+                          decoration: const InputDecoration(
+                            labelText: '类型',
+                            isDense: true,
+                          ),
+                          items: supportedSchemes
+                              .map(
+                                (s) => DropdownMenuItem(
+                                  value: s,
+                                  child: Text(s.toUpperCase()),
+                                ),
+                              )
+                              .toList(growable: false),
+                          onChanged: (v) => setState(() {
+                            scheme = (v ?? scheme).trim().toLowerCase();
+                          }),
+                        ),
+                      ),
+                      const SizedBox(width: 12),
+                      Expanded(
+                        flex: 7,
+                        child: TextField(
+                          controller: hostPortController,
+                          decoration: InputDecoration(
+                            labelText: '地址',
+                            hintText: 'IP:端口（例如 127.0.0.1:7890）',
+                            errorText: hostPortError,
+                            isDense: true,
+                          ),
+                          autofocus: true,
+                          onChanged: (_) => setState(() => hostPortError = null),
+                        ),
+                      ),
+                    ],
+                  ),
+                  const SizedBox(height: 10),
+                  const Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(
+                      '说明：仅对桌面端 MPV 的网络播放生效（http/https）。局域网/localhost 默认直连。',
+                      style: TextStyle(fontSize: 12),
+                    ),
+                  ),
+                ],
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dctx).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () async {
+                if (mode == PlaybackProxyMode.system) {
+                  await appState.setPlaybackProxyMode(PlaybackProxyMode.system);
+                  if (dctx.mounted) Navigator.of(dctx).pop();
+                  return;
+                }
+
+                final uri = parseHostPort(hostPortController.text);
+                final host = uri?.host.trim() ?? '';
+                final port = uri?.port ?? 0;
+                if (host.isEmpty || port <= 0 || port > 65535) {
+                  setState(() => hostPortError = '请输入正确的 IP:端口');
+                  return;
+                }
+
+                final url = Uri(
+                  scheme: scheme,
+                  host: host,
+                  port: port,
+                ).toString();
+                await appState.setPlaybackProxyUrl(url);
+                await appState.setPlaybackProxyMode(PlaybackProxyMode.custom);
+                if (dctx.mounted) Navigator.of(dctx).pop();
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -1364,10 +1537,12 @@ class _SettingsPageState extends State<SettingsPage> {
               centerTitle: true,
             ),
           ),
-          body: ListView(
-            controller: _scrollController,
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
-            children: [
+          body: _wrapDesktopSettingsBody(
+            isDesktop: isDesktop,
+            child: ListView(
+              controller: _scrollController,
+              padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
+              children: [
               if (isTv) ...[
                 _Section(
                   title: 'TV 专区',
@@ -2278,6 +2453,17 @@ class _SettingsPageState extends State<SettingsPage> {
                     if (isDesktop) ...[
                       ListTile(
                         contentPadding: EdgeInsets.zero,
+                        leading: const Icon(Icons.vpn_lock_outlined),
+                        title: const Text('播放代理'),
+                        subtitle: Text(_playbackProxySubtitle(appState)),
+                        trailing: const Icon(Icons.chevron_right),
+                        onTap: () {
+                          unawaited(_editPlaybackProxy(context, appState));
+                        },
+                      ),
+                      const Divider(height: 1),
+                      ListTile(
+                        contentPadding: EdgeInsets.zero,
                         leading: const Icon(Icons.open_in_new),
                         title: const Text('外部 MPV（PC）'),
                         subtitle: Text(
@@ -2731,7 +2917,8 @@ class _SettingsPageState extends State<SettingsPage> {
                   ],
                 ),
               ),
-            ],
+              ],
+            ),
           ),
         );
       },

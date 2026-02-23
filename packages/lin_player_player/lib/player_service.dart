@@ -424,6 +424,7 @@ class PlayerService {
                 executablePath: externalMpvPath,
                 source: source,
                 httpHeaders: httpHeaders,
+                httpProxy: httpProxy,
               );
               if (launched) {
                 _externalPlayback = true;

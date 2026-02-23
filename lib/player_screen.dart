@@ -20,6 +20,7 @@ import 'package:media_kit_video/media_kit_video.dart';
 import 'services/app_route_observer.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
 import 'services/desktop_window.dart';
+import 'services/playback_proxy/playback_proxy.dart';
 import 'widgets/danmaku_manual_search_dialog.dart';
 import 'widgets/list_picker_dialog.dart';
 
@@ -1633,11 +1634,14 @@ class _PlayerScreenState extends State<PlayerScreen>
       final proxyReady = builtInProxyEnabled &&
           builtInProxy.status.state == BuiltInProxyState.running;
 
-      final httpProxy = (proxyReady && isNetwork)
+      final httpProxy = isNetwork
           ? (() {
               final uri = Uri.tryParse(rawPath);
               if (uri == null) return null;
-              return BuiltInProxyService.proxyUrlForUri(uri);
+              if (proxyReady) return BuiltInProxyService.proxyUrlForUri(uri);
+              final appState = widget.appState;
+              if (appState == null) return null;
+              return resolvePlaybackHttpProxyForUri(appState: appState, uri: uri);
             })()
           : null;
 
