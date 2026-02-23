@@ -1144,7 +1144,8 @@ class _ServerIconAvatar extends StatelessWidget {
           backgroundColor: backgroundColor,
           child: Text(
             initial,
-            style: const TextStyle(fontWeight: FontWeight.w700),
+            style: (Theme.of(context).textTheme.titleSmall ?? const TextStyle())
+                .copyWith(fontWeight: FontWeight.w700),
           ),
         );
 

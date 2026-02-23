@@ -17,6 +17,8 @@ class DesktopActionButtonGroup extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final theme = DesktopThemeExtension.of(context);
+    final textTheme = Theme.of(context).textTheme;
+    final baseLabelStyle = textTheme.labelLarge ?? const TextStyle();
 
     return Wrap(
       spacing: 12,
@@ -33,9 +35,9 @@ class DesktopActionButtonGroup extends StatelessWidget {
             padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 14),
           ),
           icon: const Icon(Icons.play_arrow_rounded),
-          label: const Text(
+          label: Text(
             'Play',
-            style: TextStyle(fontWeight: FontWeight.w600),
+            style: baseLabelStyle.copyWith(fontWeight: FontWeight.w600),
           ),
         ),
         OutlinedButton.icon(
@@ -55,7 +57,7 @@ class DesktopActionButtonGroup extends StatelessWidget {
           ),
           label: Text(
             isFavorite ? 'Favorited' : 'Favorite',
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: baseLabelStyle.copyWith(fontWeight: FontWeight.w600),
           ),
         ),
         OutlinedButton(
