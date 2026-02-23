@@ -3708,6 +3708,63 @@ class _PlayerScreenState extends State<PlayerScreen>
     );
   }
 
+  _DesktopOverlayPalette _desktopOverlayPalette(
+    BuildContext context, {
+    required bool isDark,
+  }) {
+    final scheme = Theme.of(context).colorScheme;
+    final fg = isDark ? Colors.white : Colors.black87;
+    final fgSecondary = isDark ? Colors.white70 : Colors.black54;
+
+    final barBg = isDark
+        ? const Color(0xFF0B0C0E).withValues(alpha: 0.56)
+        : Colors.white.withValues(alpha: 0.56);
+    final barBorder = isDark
+        ? Colors.white.withValues(alpha: 0.14)
+        : Colors.black.withValues(alpha: 0.12);
+
+    final chipBg = isDark
+        ? Colors.black.withValues(alpha: 0.56)
+        : Colors.white.withValues(alpha: 0.74);
+    final chipBgActive = isDark
+        ? Colors.black.withValues(alpha: 0.64)
+        : Colors.white.withValues(alpha: 0.80);
+    final chipBgEmphasized = isDark
+        ? Colors.black.withValues(alpha: 0.72)
+        : Colors.white.withValues(alpha: 0.88);
+
+    final chipBorder = isDark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.black.withValues(alpha: 0.14);
+    final chipBorderActive =
+        scheme.primary.withValues(alpha: isDark ? 0.62 : 0.54);
+
+    final timelineActive = isDark
+        ? Colors.white.withValues(alpha: 0.92)
+        : Colors.black.withValues(alpha: 0.90);
+    final timelineBuffered = isDark
+        ? Colors.white.withValues(alpha: 0.60)
+        : Colors.black.withValues(alpha: 0.48);
+    final timelineInactive = isDark
+        ? Colors.white.withValues(alpha: 0.28)
+        : Colors.black.withValues(alpha: 0.22);
+
+    return _DesktopOverlayPalette(
+      barBg: barBg,
+      barBorder: barBorder,
+      chipBg: chipBg,
+      chipBgActive: chipBgActive,
+      chipBgEmphasized: chipBgEmphasized,
+      chipBorder: chipBorder,
+      chipBorderActive: chipBorderActive,
+      fg: fg,
+      fgSecondary: fgSecondary,
+      timelineActive: timelineActive,
+      timelineBuffered: timelineBuffered,
+      timelineInactive: timelineInactive,
+    );
+  }
+
   Widget _buildDesktopPlaybackControls(
     BuildContext context, {
     required bool isDark,
@@ -3716,99 +3773,104 @@ class _PlayerScreenState extends State<PlayerScreen>
     final sliderMaxMs = math.max(_duration.inMilliseconds, 1);
     final sliderValueMs = _position.inMilliseconds.clamp(0, sliderMaxMs);
     final sliderEnabled = enabled && _duration > Duration.zero;
-    final chipBg = isDark
-        ? Colors.white.withValues(alpha: 0.10)
-        : Colors.white.withValues(alpha: 0.92);
-    final timelineActive =
-        isDark ? Colors.white.withValues(alpha: 0.92) : Colors.black87;
-    final timelineBuffered =
-        isDark ? Colors.white.withValues(alpha: 0.45) : Colors.black38;
-    final timelineInactive =
-        isDark ? Colors.white.withValues(alpha: 0.2) : Colors.black12;
-    final iconColor = isDark ? Colors.white : Colors.black87;
-    final secondaryIconColor = isDark ? Colors.white70 : Colors.black54;
-    final dividerColor = isDark
-        ? Colors.white.withValues(alpha: 0.14)
-        : Colors.black.withValues(alpha: 0.1);
+    final palette = _desktopOverlayPalette(context, isDark: isDark);
+    final scheme = Theme.of(context).colorScheme;
+    final chipBg = palette.chipBg;
+    final timelineActive = palette.timelineActive;
+    final timelineBuffered = palette.timelineBuffered;
+    final timelineInactive = palette.timelineInactive;
+    final iconColor = palette.fg;
+    final secondaryIconColor = palette.fgSecondary;
+    final dividerColor = palette.chipBorder;
     final rate =
         _playerService.isInitialized ? _playerService.player.state.rate : 1.0;
     final rightActionEnabled = enabled && _playlist.isNotEmpty;
     final speedHint = '${_fmtRate(rate)}x';
 
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
-      child: Column(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            decoration: BoxDecoration(
-              color: Colors.transparent,
-              borderRadius: BorderRadius.circular(16),
-              border: Border.all(color: Colors.transparent),
-            ),
-            child: Row(
-              children: [
-                Text(
-                  _fmtClock(_position),
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: secondaryIconColor,
-                    fontFeatures: const [FontFeature.tabularFigures()],
-                  ),
-                ),
-                const SizedBox(width: 10),
-                Expanded(
-                  child: SliderTheme(
-                    data: SliderTheme.of(context).copyWith(
-                      trackHeight: 3,
-                      activeTrackColor: timelineActive,
-                      secondaryActiveTrackColor: timelineBuffered,
-                      inactiveTrackColor: timelineInactive,
-                      thumbShape:
-                          const RoundSliderThumbShape(enabledThumbRadius: 6),
-                      overlayShape:
-                          const RoundSliderOverlayShape(overlayRadius: 12),
-                    ),
-                    child: Slider(
-                      min: 0,
-                      max: sliderMaxMs.toDouble(),
-                      value: sliderValueMs.toDouble(),
-                      secondaryTrackValue: _lastBuffer.inMilliseconds
-                          .clamp(0, sliderMaxMs)
-                          .toDouble(),
-                      onChangeStart:
-                          sliderEnabled ? (_) => _onScrubStart() : null,
-                      onChanged: sliderEnabled
-                          ? (value) => setState(
-                                () => _position =
-                                    Duration(milliseconds: value.round()),
-                              )
-                          : null,
-                      onChangeEnd: sliderEnabled
-                          ? (value) async {
-                              final target =
-                                  Duration(milliseconds: value.round());
-                              await _playerService.seek(
-                                target,
-                                flushBuffer: _flushBufferOnSeek,
-                              );
-                              _position = target;
-                              _syncDanmakuCursor(target);
-                              _onScrubEnd();
-                              if (mounted) setState(() {});
-                            }
-                          : null,
+    return _buildDesktopGlassPanel(
+      context: context,
+      blurSigma: 18,
+      color: palette.barBg,
+      borderRadius: BorderRadius.circular(18),
+      borderColor: palette.barBorder,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(14, 8, 14, 10),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              decoration: BoxDecoration(
+                color: palette.chipBg,
+                borderRadius: BorderRadius.circular(16),
+                border: Border.all(color: palette.chipBorder),
+              ),
+              child: Row(
+                children: [
+                  Text(
+                    _fmtClock(_position),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: secondaryIconColor,
+                      fontFeatures: const [FontFeature.tabularFigures()],
                     ),
                   ),
-                ),
-                const SizedBox(width: 10),
-                Text(
-                  _fmtClock(_duration),
-                  style: Theme.of(context).textTheme.labelMedium?.copyWith(
-                    color: secondaryIconColor,
-                    fontFeatures: const [FontFeature.tabularFigures()],
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: SliderTheme(
+                      data: SliderTheme.of(context).copyWith(
+                        trackHeight: 4,
+                        activeTrackColor: timelineActive,
+                        secondaryActiveTrackColor: timelineBuffered,
+                        inactiveTrackColor: timelineInactive,
+                        thumbColor: timelineActive,
+                        overlayColor: scheme.primary.withValues(
+                          alpha: isDark ? 0.18 : 0.14,
+                        ),
+                        thumbShape:
+                            const RoundSliderThumbShape(enabledThumbRadius: 6),
+                        overlayShape:
+                            const RoundSliderOverlayShape(overlayRadius: 12),
+                      ),
+                      child: Slider(
+                        min: 0,
+                        max: sliderMaxMs.toDouble(),
+                        value: sliderValueMs.toDouble(),
+                        secondaryTrackValue: _lastBuffer.inMilliseconds
+                            .clamp(0, sliderMaxMs)
+                            .toDouble(),
+                        onChangeStart:
+                            sliderEnabled ? (_) => _onScrubStart() : null,
+                        onChanged: sliderEnabled
+                            ? (value) => setState(
+                                  () => _position =
+                                      Duration(milliseconds: value.round()),
+                                )
+                            : null,
+                        onChangeEnd: sliderEnabled
+                            ? (value) async {
+                                final target =
+                                    Duration(milliseconds: value.round());
+                                await _playerService.seek(
+                                  target,
+                                  flushBuffer: _flushBufferOnSeek,
+                                );
+                                _position = target;
+                                _syncDanmakuCursor(target);
+                                _onScrubEnd();
+                                if (mounted) setState(() {});
+                              }
+                            : null,
+                      ),
+                    ),
                   ),
-                ),
+                  const SizedBox(width: 10),
+                  Text(
+                    _fmtClock(_duration),
+                    style: Theme.of(context).textTheme.labelMedium?.copyWith(
+                      color: secondaryIconColor,
+                      fontFeatures: const [FontFeature.tabularFigures()],
+                    ),
+                  ),
               ],
             ),
           ),
@@ -3820,11 +3882,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                 width: 290,
                 padding: const EdgeInsets.fromLTRB(12, 10, 12, 8),
                 decoration: BoxDecoration(
-                  color: isDark
-                      ? Colors.white.withValues(alpha: 0.06)
-                      : Colors.black.withValues(alpha: 0.04),
+                  color: palette.chipBgActive,
                   borderRadius: BorderRadius.circular(12),
-                  border: Border.all(color: dividerColor),
+                  border: Border.all(color: palette.chipBorder),
                 ),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
@@ -3876,22 +3936,15 @@ class _PlayerScreenState extends State<PlayerScreen>
                                 vertical: 8,
                               ),
                               backgroundColor: (rate - option).abs() < 0.01
-                                  ? (isDark
-                                      ? Colors.white.withValues(alpha: 0.20)
-                                      : Theme.of(context)
-                                          .colorScheme
-                                          .primary
-                                          .withValues(alpha: 0.10))
-                                  : (isDark
-                                      ? Colors.white.withValues(alpha: 0.08)
-                                      : Colors.white.withValues(alpha: 0.92)),
+                                  ? palette.chipBgEmphasized
+                                  : palette.chipBg,
                               foregroundColor: (rate - option).abs() < 0.01
                                   ? iconColor
                                   : secondaryIconColor,
                               side: BorderSide(
                                 color: (rate - option).abs() < 0.01
-                                    ? Theme.of(context).colorScheme.primary
-                                    : dividerColor,
+                                    ? palette.chipBorderActive
+                                    : palette.chipBorder,
                               ),
                               shape: RoundedRectangleBorder(
                                 borderRadius: BorderRadius.circular(10),
@@ -4021,6 +4074,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                         tooltip: _desktopFullscreen
                             ? 'Exit fullscreen'
                             : 'Fullscreen',
+                        style: IconButton.styleFrom(
+                          visualDensity: VisualDensity.compact,
+                          backgroundColor: chipBg,
+                          foregroundColor: iconColor,
+                          side: BorderSide(color: dividerColor),
+                        ),
                         onPressed: enabled ? _toggleDesktopFullscreen : null,
                         icon: Icon(
                           _desktopFullscreen
@@ -4056,6 +4115,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           ),
         ],
       ),
+    ),
     );
   }
 
@@ -4093,17 +4153,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     required bool isDark,
     required String currentFileName,
   }) {
-    final titleColor = isDark ? Colors.white : Colors.black87;
-    final subtitleColor = isDark ? Colors.white70 : Colors.black54;
-    final chipBg = isDark
-        ? Colors.white.withValues(alpha: 0.10)
-        : Colors.white.withValues(alpha: 0.9);
-    final titleBg = isDark
-        ? Colors.white.withValues(alpha: 0.12)
-        : Colors.white.withValues(alpha: 0.96);
-    final chipBorder = isDark
-        ? Colors.white.withValues(alpha: 0.20)
-        : Colors.black.withValues(alpha: 0.12);
+    final palette = _desktopOverlayPalette(context, isDark: isDark);
+    final titleColor = palette.fg;
+    final subtitleColor = palette.fgSecondary;
+    final chipBg = palette.chipBg;
+    final titleBg = palette.chipBgEmphasized;
+    final chipBorder = palette.chipBorder;
     final hasCurrent = _currentlyPlayingIndex >= 0 &&
         _currentlyPlayingIndex < _playlist.length;
     final info = hasCurrent
@@ -4117,10 +4172,10 @@ class _PlayerScreenState extends State<PlayerScreen>
 
     return _buildDesktopGlassPanel(
       context: context,
-      blurSigma: 0,
-      color: Colors.transparent,
+      blurSigma: 18,
+      color: palette.barBg,
       borderRadius: BorderRadius.circular(18),
-      borderColor: Colors.transparent,
+      borderColor: palette.barBorder,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
         child: Row(
@@ -4266,16 +4321,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     required VoidCallback? onTap,
     bool active = false,
   }) {
-    final fg = active
-        ? (isDark ? Colors.white : Colors.black87)
-        : (isDark ? Colors.white70 : Colors.black54);
-    final bg = active
-        ? (isDark
-            ? Colors.white.withValues(alpha: 0.18)
-            : Colors.black.withValues(alpha: 0.12))
-        : (isDark
-            ? Colors.white.withValues(alpha: 0.10)
-            : Colors.white.withValues(alpha: 0.9));
+    final palette = _desktopOverlayPalette(context, isDark: isDark);
+    final fg = active ? palette.fg : palette.fgSecondary;
+    final bg = active ? palette.chipBgActive : palette.chipBg;
+    final borderColor = active ? palette.chipBorderActive : palette.chipBorder;
     return Material(
       color: Colors.transparent,
       child: InkWell(
@@ -4287,9 +4336,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             color: bg,
             borderRadius: BorderRadius.circular(12),
             border: Border.all(
-              color: isDark
-                  ? Colors.white.withValues(alpha: 0.20)
-                  : Colors.black.withValues(alpha: 0.12),
+              color: borderColor,
             ),
           ),
           child: Row(
@@ -5545,16 +5592,14 @@ class _PlayerScreenState extends State<PlayerScreen>
     required FutureOr<void> Function()? onTap,
     bool emphasized = false,
   }) {
-    final bg = emphasized
+    final palette = _desktopOverlayPalette(context, isDark: isDark);
+    final bg = emphasized ? palette.chipBgEmphasized : palette.chipBg;
+    final fg = emphasized ? palette.fg : palette.fgSecondary;
+    final borderColor = emphasized
         ? (isDark
-            ? Colors.white.withValues(alpha: 0.18)
-            : Colors.white.withValues(alpha: 0.92))
-        : (isDark
-            ? Colors.white.withValues(alpha: 0.10)
-            : Colors.white.withValues(alpha: 0.88));
-    final fg = emphasized
-        ? (isDark ? Colors.white : Colors.black87)
-        : (isDark ? Colors.white70 : Colors.black54);
+            ? Colors.white.withValues(alpha: 0.24)
+            : Colors.black.withValues(alpha: 0.18))
+        : palette.chipBorder;
 
     return Tooltip(
       message: tooltip,
@@ -5577,13 +5622,7 @@ class _PlayerScreenState extends State<PlayerScreen>
               color: bg,
               borderRadius: BorderRadius.circular(12),
               border: Border.all(
-                color: isDark
-                    ? Colors.white.withValues(
-                        alpha: emphasized ? 0.24 : 0.18,
-                      )
-                    : Colors.black.withValues(
-                        alpha: emphasized ? 0.12 : 0.08,
-                      ),
+                color: borderColor,
               ),
             ),
             child: Icon(icon, size: 20, color: fg),
@@ -6161,6 +6200,36 @@ extension on _DesktopSidePanel {
       _DesktopSidePanel.anime4k => 'Anime4K',
     };
   }
+}
+
+class _DesktopOverlayPalette {
+  const _DesktopOverlayPalette({
+    required this.barBg,
+    required this.barBorder,
+    required this.chipBg,
+    required this.chipBgActive,
+    required this.chipBgEmphasized,
+    required this.chipBorder,
+    required this.chipBorderActive,
+    required this.fg,
+    required this.fgSecondary,
+    required this.timelineActive,
+    required this.timelineBuffered,
+    required this.timelineInactive,
+  });
+
+  final Color barBg;
+  final Color barBorder;
+  final Color chipBg;
+  final Color chipBgActive;
+  final Color chipBgEmphasized;
+  final Color chipBorder;
+  final Color chipBorderActive;
+  final Color fg;
+  final Color fgSecondary;
+  final Color timelineActive;
+  final Color timelineBuffered;
+  final Color timelineInactive;
 }
 
 class _DesktopEpisodeInfo {

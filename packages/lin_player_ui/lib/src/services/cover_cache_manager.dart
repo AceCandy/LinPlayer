@@ -1,3 +1,4 @@
+import 'package:flutter/foundation.dart';
 import 'package:flutter_cache_manager/flutter_cache_manager.dart';
 
 class CoverCacheManager extends CacheManager {
@@ -5,7 +6,18 @@ class CoverCacheManager extends CacheManager {
 
   // Default behavior: limit cache size & auto-expire stale entries.
   static const _limitedStalePeriod = Duration(days: 30);
-  static const _limitedMaxObjects = 800;
+  static int get _limitedMaxObjects {
+    // Desktop targets can keep far more covers without storage pressure; a
+    // larger cache avoids frequent evictions when switching servers.
+    if (kIsWeb) return 800;
+    return switch (defaultTargetPlatform) {
+      TargetPlatform.windows ||
+      TargetPlatform.linux ||
+      TargetPlatform.macOS =>
+        8000,
+      _ => 800,
+    };
+  }
 
   // "Unlimited" is practically unlimited; still bounded by device storage.
   static const _unlimitedStalePeriod = Duration(days: 36500);

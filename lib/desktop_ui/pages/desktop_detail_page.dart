@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:lin_player_player/lin_player_player.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
+import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 
 import '../../server_adapters/server_access.dart';
@@ -1039,6 +1040,10 @@ class _HeroPanel extends StatelessWidget {
                           imageFilter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
                           child: CachedNetworkImage(
                             imageUrl: backdropUrl,
+                            cacheManager: CoverCacheManager.instance,
+                            httpHeaders: {
+                              'User-Agent': LinHttpClientFactory.userAgent,
+                            },
                             fit: BoxFit.cover,
                             errorWidget: (_, __, ___) =>
                                 const SizedBox.shrink(),
@@ -1349,6 +1354,8 @@ class _PosterCard extends StatelessWidget {
             ? _FallbackImage(label: fallbackLabel)
             : CachedNetworkImage(
                 imageUrl: imageUrl!,
+                cacheManager: CoverCacheManager.instance,
+                httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
                 fit: BoxFit.cover,
                 errorWidget: (_, __, ___) =>
                     _FallbackImage(label: fallbackLabel),
@@ -2021,6 +2028,8 @@ class _SeasonPosterCardState extends State<_SeasonPosterCard> {
     return CachedNetworkImage(
       key: ValueKey<String>('season-${widget.season.id}-$imageUrl'),
       imageUrl: imageUrl,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
       fit: BoxFit.cover,
       placeholder: (_, __) => const SizedBox.shrink(),
       errorWidget: (_, __, ___) {
@@ -2441,6 +2450,8 @@ class _EpisodeThumbnailCardState extends State<_EpisodeThumbnailCard> {
     return CachedNetworkImage(
       key: ValueKey<String>('episode-${widget.item.id}-$imageUrl'),
       imageUrl: imageUrl,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
       fit: BoxFit.cover,
       placeholder: (_, __) => const SizedBox.shrink(),
       errorWidget: (_, __, ___) {

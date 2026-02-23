@@ -1,6 +1,7 @@
 import 'package:cached_network_image/cached_network_image.dart';
 import 'package:flutter/material.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
+import 'package:lin_player_ui/lin_player_ui.dart';
 
 import '../../server_adapters/server_access.dart';
 import '../theme/desktop_theme_extension.dart';
@@ -357,6 +358,8 @@ class _CardImageState extends State<_CardImage> {
       return CachedNetworkImage(
         key: ValueKey<String>('${widget.title}-$imageUrl'),
         imageUrl: imageUrl,
+        cacheManager: CoverCacheManager.instance,
+        httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
         fit: BoxFit.cover,
         placeholder: (_, __) => const _ImageFallback(),
         errorWidget: (_, __, ___) {

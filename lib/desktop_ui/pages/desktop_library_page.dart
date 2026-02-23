@@ -5,6 +5,7 @@ import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
+import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 import '../../library_items_page.dart';
@@ -908,6 +909,8 @@ class _CategoryCoverImageState extends State<_CategoryCoverImage> {
     return CachedNetworkImage(
       key: ValueKey<String>('category-$imageUrl'),
       imageUrl: imageUrl,
+      cacheManager: CoverCacheManager.instance,
+      httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
       fit: BoxFit.cover,
       placeholder: (_, __) => widget.placeholder,
       errorWidget: (_, __, ___) {
