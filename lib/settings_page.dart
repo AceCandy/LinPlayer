@@ -913,127 +913,133 @@ class _SettingsPageState extends State<SettingsPage> {
       return Uri.tryParse('proxy://$text');
     }
 
-    await showDialog<void>(
-      context: context,
-      builder: (dctx) => StatefulBuilder(
-        builder: (dctx, setState) => AlertDialog(
-          title: const Text('播放代理'),
-          content: SingleChildScrollView(
-            child: Column(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                RadioGroup<PlaybackProxyMode>(
-                  groupValue: mode,
-                  onChanged: (v) => setState(() {
-                    mode = v ?? PlaybackProxyMode.system;
-                    hostPortError = null;
-                  }),
-                  child: const Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      RadioListTile<PlaybackProxyMode>(
-                        value: PlaybackProxyMode.system,
-                        title: Text('系统代理'),
-                        subtitle: Text('跟随系统/环境变量代理设置（默认）'),
-                      ),
-                      RadioListTile<PlaybackProxyMode>(
-                        value: PlaybackProxyMode.custom,
-                        title: Text('自定义代理'),
-                        subtitle: Text('适用于需要手动指定代理的网络环境'),
-                      ),
-                    ],
-                  ),
-                ),
-                if (mode == PlaybackProxyMode.custom) ...[
-                  const SizedBox(height: 12),
-                  Row(
-                    children: [
-                      Expanded(
-                        flex: 4,
-                        child: DropdownButtonFormField<String>(
-                          initialValue: scheme,
-                          decoration: const InputDecoration(
-                            labelText: '类型',
-                            isDense: true,
-                          ),
-                          items: supportedSchemes
-                              .map(
-                                (s) => DropdownMenuItem(
-                                  value: s,
-                                  child: Text(s.toUpperCase()),
-                                ),
-                              )
-                              .toList(growable: false),
-                          onChanged: (v) {
-                            scheme = (v ?? scheme).trim().toLowerCase();
-                          },
+    try {
+      await showDialog<void>(
+        context: context,
+        builder: (dctx) => StatefulBuilder(
+          builder: (dctx, setState) => AlertDialog(
+            title: const Text('播放代理'),
+            content: SingleChildScrollView(
+              child: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  RadioGroup<PlaybackProxyMode>(
+                    groupValue: mode,
+                    onChanged: (v) => setState(() {
+                      mode = v ?? PlaybackProxyMode.system;
+                      hostPortError = null;
+                    }),
+                    child: const Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        RadioListTile<PlaybackProxyMode>(
+                          value: PlaybackProxyMode.system,
+                          title: Text('系统代理'),
+                          subtitle: Text('跟随系统/环境变量代理设置（默认）'),
                         ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 7,
-                        child: TextField(
-                          controller: hostPortController,
-                          decoration: InputDecoration(
-                            labelText: '地址',
-                            hintText: 'IP:端口（例如 127.0.0.1:7890）',
-                            errorText: hostPortError,
-                            isDense: true,
-                          ),
-                          autofocus: true,
-                          onChanged: (_) => setState(() => hostPortError = null),
+                        RadioListTile<PlaybackProxyMode>(
+                          value: PlaybackProxyMode.custom,
+                          title: Text('自定义代理'),
+                          subtitle: Text('适用于需要手动指定代理的网络环境'),
                         ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 10),
-                  const Align(
-                    alignment: Alignment.centerLeft,
-                    child: Text(
-                      '说明：仅对桌面端 MPV 的网络播放生效（http/https）。局域网/localhost 默认直连。',
-                      style: TextStyle(fontSize: 12),
+                      ],
                     ),
                   ),
+                  if (mode == PlaybackProxyMode.custom) ...[
+                    const SizedBox(height: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          flex: 4,
+                          child: DropdownButtonFormField<String>(
+                            initialValue: scheme,
+                            decoration: const InputDecoration(
+                              labelText: '类型',
+                              isDense: true,
+                            ),
+                            items: supportedSchemes
+                                .map(
+                                  (s) => DropdownMenuItem(
+                                    value: s,
+                                    child: Text(s.toUpperCase()),
+                                  ),
+                                )
+                                .toList(growable: false),
+                            onChanged: (v) {
+                              scheme = (v ?? scheme).trim().toLowerCase();
+                            },
+                          ),
+                        ),
+                        const SizedBox(width: 12),
+                        Expanded(
+                          flex: 7,
+                          child: TextField(
+                            controller: hostPortController,
+                            decoration: InputDecoration(
+                              labelText: '地址',
+                              hintText: 'IP:端口（例如 127.0.0.1:7890）',
+                              errorText: hostPortError,
+                              isDense: true,
+                            ),
+                            autofocus: true,
+                            onChanged: (_) =>
+                                setState(() => hostPortError = null),
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 10),
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        '说明：仅对桌面端 MPV 的网络播放生效（http/https）。局域网/localhost 默认直连。',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dctx).pop(),
-              child: const Text('取消'),
-            ),
-            FilledButton(
-              onPressed: () async {
-                if (mode == PlaybackProxyMode.system) {
-                  await appState.setPlaybackProxyMode(PlaybackProxyMode.system);
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.of(dctx).pop(),
+                child: const Text('取消'),
+              ),
+              FilledButton(
+                onPressed: () async {
+                  if (mode == PlaybackProxyMode.system) {
+                    await appState
+                        .setPlaybackProxyMode(PlaybackProxyMode.system);
+                    if (dctx.mounted) Navigator.of(dctx).pop();
+                    return;
+                  }
+
+                  final uri = parseHostPort(hostPortController.text);
+                  final host = uri?.host.trim() ?? '';
+                  final port = uri?.port ?? 0;
+                  if (host.isEmpty || port <= 0 || port > 65535) {
+                    setState(() => hostPortError = '请输入正确的 IP:端口');
+                    return;
+                  }
+
+                  final url = Uri(
+                    scheme: scheme,
+                    host: host,
+                    port: port,
+                  ).toString();
+                  await appState.setPlaybackProxyUrl(url);
+                  await appState.setPlaybackProxyMode(PlaybackProxyMode.custom);
                   if (dctx.mounted) Navigator.of(dctx).pop();
-                  return;
-                }
-
-                final uri = parseHostPort(hostPortController.text);
-                final host = uri?.host.trim() ?? '';
-                final port = uri?.port ?? 0;
-                if (host.isEmpty || port <= 0 || port > 65535) {
-                  setState(() => hostPortError = '请输入正确的 IP:端口');
-                  return;
-                }
-
-                final url = Uri(
-                  scheme: scheme,
-                  host: host,
-                  port: port,
-                ).toString();
-                await appState.setPlaybackProxyUrl(url);
-                await appState.setPlaybackProxyMode(PlaybackProxyMode.custom);
-                if (dctx.mounted) Navigator.of(dctx).pop();
-              },
-              child: const Text('保存'),
-            ),
-          ],
+                },
+                child: const Text('保存'),
+              ),
+            ],
+          ),
         ),
-      ),
-    );
+      );
+    } finally {
+      hostPortController.dispose();
+    }
   }
 
   Future<bool> _confirmEnableUnlimitedStreamCache(BuildContext context) async {
