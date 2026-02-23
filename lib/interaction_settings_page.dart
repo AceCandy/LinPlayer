@@ -93,30 +93,32 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                 enableBlur: enableBlur,
                 child: Column(
                   children: [
-                    SwitchListTile(
-                      value: appState.gestureBrightness,
-                      onChanged: (v) => appState.setGestureBrightness(v),
-                      title: const Text('左侧屏幕上下拖动'),
-                      subtitle: const Text('以调整屏幕亮度'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.gestureVolume,
-                      onChanged: (v) => appState.setGestureVolume(v),
-                      title: const Text('右侧屏幕上下拖动'),
-                      subtitle: const Text('以调整音量'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.gestureSeek,
-                      onChanged: (v) => appState.setGestureSeek(v),
-                      title: const Text('横向滑动'),
-                      subtitle: const Text('调整视频进度'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
-                    const Divider(height: 1),
+                    if (!_isDesktopPlatform) ...[
+                      SwitchListTile(
+                        value: appState.gestureBrightness,
+                        onChanged: (v) => appState.setGestureBrightness(v),
+                        title: const Text('左侧屏幕上下拖动'),
+                        subtitle: const Text('以调整屏幕亮度'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.gestureVolume,
+                        onChanged: (v) => appState.setGestureVolume(v),
+                        title: const Text('右侧屏幕上下拖动'),
+                        subtitle: const Text('以调整音量'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.gestureSeek,
+                        onChanged: (v) => appState.setGestureSeek(v),
+                        title: const Text('横向滑动'),
+                        subtitle: const Text('调整视频进度'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                      const Divider(height: 1),
+                    ],
                     SwitchListTile(
                       value: appState.gestureLongPressSpeed,
                       onChanged: (v) => appState.setGestureLongPressSpeed(v),
@@ -190,7 +192,7 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                       Padding(
                         padding: const EdgeInsets.only(bottom: 10),
                         child: Text(
-                          '提示：点击条目后按下新的按键组合。按 Backspace / Delete 清除，按 Esc 取消。',
+                          '提示：仅桌面端播放页有效。点击条目后按下新的按键组合。按 Backspace / Delete 清除，按 Esc 取消。',
                           style: Theme.of(context).textTheme.bodySmall?.copyWith(
                                 color: Theme.of(context)
                                     .colorScheme
@@ -461,6 +463,9 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
       DesktopShortcutAction.playPause => Icons.play_arrow_rounded,
       DesktopShortcutAction.seekBackward => Icons.replay_rounded,
       DesktopShortcutAction.seekForward => Icons.forward_rounded,
+      DesktopShortcutAction.levelUp ||
+      DesktopShortcutAction.levelDown =>
+        Icons.swap_vert_rounded,
       DesktopShortcutAction.volumeUp ||
       DesktopShortcutAction.volumeDown =>
         Icons.volume_up_outlined,

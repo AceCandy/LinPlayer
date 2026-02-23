@@ -71,6 +71,7 @@
 - Wiki（VitePress）：https://linplayer.902541.xyz
 - 本地预览 Wiki：`cd docs && npm install && npm run dev`
 - 用户文档：`docs/SERVER_IMPORT.md`
+- 桌面端播放页快捷键 / 鼠标侧键：`docs/guide/playback.md`（可在设置 → 交互设置中自定义）
 - 开发者文档：`docs/dev/README.md`
 - 部署 Wiki（Cloudflare Pages）：`docs/deploy/cloudflare-pages.md`
 

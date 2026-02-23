@@ -5,6 +5,8 @@ enum DesktopShortcutAction {
   playPause,
   seekBackward,
   seekForward,
+  levelUp,
+  levelDown,
   volumeUp,
   volumeDown,
   brightnessUp,
@@ -27,6 +29,10 @@ DesktopShortcutAction? desktopShortcutActionTryFromId(String? id) {
       return DesktopShortcutAction.seekBackward;
     case 'seekForward':
       return DesktopShortcutAction.seekForward;
+    case 'levelUp':
+      return DesktopShortcutAction.levelUp;
+    case 'levelDown':
+      return DesktopShortcutAction.levelDown;
     case 'volumeUp':
       return DesktopShortcutAction.volumeUp;
     case 'volumeDown':
@@ -64,6 +70,10 @@ extension DesktopShortcutActionX on DesktopShortcutAction {
         return 'seekBackward';
       case DesktopShortcutAction.seekForward:
         return 'seekForward';
+      case DesktopShortcutAction.levelUp:
+        return 'levelUp';
+      case DesktopShortcutAction.levelDown:
+        return 'levelDown';
       case DesktopShortcutAction.volumeUp:
         return 'volumeUp';
       case DesktopShortcutAction.volumeDown:
@@ -99,6 +109,10 @@ extension DesktopShortcutActionX on DesktopShortcutAction {
         return '快退';
       case DesktopShortcutAction.seekForward:
         return '快进';
+      case DesktopShortcutAction.levelUp:
+        return '音量/亮度 +';
+      case DesktopShortcutAction.levelDown:
+        return '音量/亮度 -';
       case DesktopShortcutAction.volumeUp:
         return '音量 +';
       case DesktopShortcutAction.volumeDown:
@@ -128,6 +142,14 @@ extension DesktopShortcutActionX on DesktopShortcutAction {
 
   String get hint {
     switch (this) {
+      case DesktopShortcutAction.levelUp:
+      case DesktopShortcutAction.levelDown:
+        return '（选中条）';
+      case DesktopShortcutAction.volumeUp:
+      case DesktopShortcutAction.volumeDown:
+      case DesktopShortcutAction.brightnessUp:
+      case DesktopShortcutAction.brightnessDown:
+        return '（固定）';
       case DesktopShortcutAction.togglePanelVersion:
         return '（仅在线播放）';
       default:
@@ -339,10 +361,12 @@ class DesktopShortcutBindings {
         DesktopKeyBinding(keyId: LogicalKeyboardKey.arrowLeft.keyId),
     DesktopShortcutAction.seekForward:
         DesktopKeyBinding(keyId: LogicalKeyboardKey.arrowRight.keyId),
-    DesktopShortcutAction.volumeUp:
+    DesktopShortcutAction.levelUp:
         DesktopKeyBinding(keyId: LogicalKeyboardKey.arrowUp.keyId),
-    DesktopShortcutAction.volumeDown:
+    DesktopShortcutAction.levelDown:
         DesktopKeyBinding(keyId: LogicalKeyboardKey.arrowDown.keyId),
+    DesktopShortcutAction.volumeUp: null,
+    DesktopShortcutAction.volumeDown: null,
     DesktopShortcutAction.brightnessUp: DesktopKeyBinding(
       keyId: LogicalKeyboardKey.arrowUp.keyId,
       shift: true,
@@ -453,4 +477,3 @@ class DesktopShortcutBindings {
     );
   }
 }
-

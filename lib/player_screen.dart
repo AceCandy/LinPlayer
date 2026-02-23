@@ -587,6 +587,16 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
       return KeyEventResult.handled;
     }
+    if (isDownOrRepeat && matches(DesktopShortcutAction.levelUp)) {
+      _showControls();
+      _desktopAdjustLevelByKey(target: _desktopLevelTarget, direction: 1);
+      return KeyEventResult.handled;
+    }
+    if (isDownOrRepeat && matches(DesktopShortcutAction.levelDown)) {
+      _showControls();
+      _desktopAdjustLevelByKey(target: _desktopLevelTarget, direction: -1);
+      return KeyEventResult.handled;
+    }
 
     if (event is! KeyDownEvent) {
       return KeyEventResult.ignored;
@@ -5368,7 +5378,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           min: 0.0,
           max: 1.0,
           onChanged: (v) => _desktopSetVolume(v),
-          tooltip: '音量（鼠标拖动 / ↑↓）',
+          tooltip: '音量（鼠标拖动 / 默认 ↑↓，可自定义）',
         ),
         const SizedBox(height: 6),
         _desktopLevelBar(
@@ -5381,7 +5391,7 @@ class _PlayerScreenState extends State<PlayerScreen>
           min: 0.2,
           max: 1.0,
           onChanged: (v) => _desktopSetBrightness(v),
-          tooltip: '亮度（鼠标拖动 / ↑↓）',
+          tooltip: '亮度（鼠标拖动 / 默认 ↑↓ 或 Shift+↑↓，可自定义）',
         ),
       ],
     );
