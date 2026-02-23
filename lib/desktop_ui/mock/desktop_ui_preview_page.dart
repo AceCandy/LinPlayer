@@ -68,85 +68,93 @@ class DesktopUiTopBar extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: Container(
-          height: 64,
-          padding: const EdgeInsets.symmetric(horizontal: 18),
-          decoration: BoxDecoration(
-            color: Colors.black.withValues(alpha: 0.28),
-            border: Border(
-              bottom: BorderSide(
-                color: Colors.white.withValues(alpha: 0.08),
-              ),
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: const SizedBox.expand(),
             ),
           ),
-          child: Row(
-            children: [
-              Container(
-                width: 32,
-                height: 32,
-                decoration: BoxDecoration(
-                  borderRadius: BorderRadius.circular(10),
-                  gradient: const LinearGradient(
-                    colors: [Color(0xFF2D8CFF), Color(0xFF0EA5B7)],
-                    begin: Alignment.topLeft,
-                    end: Alignment.bottomRight,
+          Container(
+            height: 64,
+            padding: const EdgeInsets.symmetric(horizontal: 18),
+            decoration: BoxDecoration(
+              color: Colors.black.withValues(alpha: 0.28),
+              border: Border(
+                bottom: BorderSide(
+                  color: Colors.white.withValues(alpha: 0.08),
+                ),
+              ),
+            ),
+            child: Row(
+              children: [
+                Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(10),
+                    gradient: const LinearGradient(
+                      colors: [Color(0xFF2D8CFF), Color(0xFF0EA5B7)],
+                      begin: Alignment.topLeft,
+                      end: Alignment.bottomRight,
+                    ),
+                  ),
+                  alignment: Alignment.center,
+                  child: const Text(
+                    'L',
+                    style: TextStyle(
+                      color: Colors.white,
+                      fontSize: 16,
+                      fontWeight: FontWeight.w700,
+                    ),
                   ),
                 ),
-                alignment: Alignment.center,
-                child: const Text(
-                  'L',
+                const SizedBox(width: 10),
+                const Text(
+                  'Placeholder Logo',
                   style: TextStyle(
-                    color: Colors.white,
-                    fontSize: 16,
-                    fontWeight: FontWeight.w800,
+                    color: DesktopUiTheme.textPrimary,
+                    fontSize: 14,
+                    fontWeight: FontWeight.w700,
                   ),
                 ),
-              ),
-              const SizedBox(width: 10),
-              const Text(
-                'Placeholder Logo',
-                style: TextStyle(
-                  color: DesktopUiTheme.textPrimary,
-                  fontSize: 14,
-                  fontWeight: FontWeight.w700,
+                const SizedBox(width: 14),
+                _iconButton(Icons.menu_rounded),
+                const Spacer(),
+                const Text(
+                  'Placeholder Center Title',
+                  style: TextStyle(
+                    color: DesktopUiTheme.textSecondary,
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
                 ),
-              ),
-              const SizedBox(width: 14),
-              _iconButton(Icons.menu_rounded),
-              const Spacer(),
-              const Text(
-                'Placeholder Center Title',
-                style: TextStyle(
-                  color: DesktopUiTheme.textSecondary,
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
+                const Spacer(),
+                _iconButton(Icons.search_rounded),
+                const SizedBox(width: 8),
+                _iconButton(Icons.notifications_none_rounded),
+                const SizedBox(width: 8),
+                Container(
+                  width: 34,
+                  height: 34,
+                  decoration: BoxDecoration(
+                    color: Colors.white.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(999),
+                  ),
+                  child: const Icon(
+                    Icons.person_outline_rounded,
+                    color: DesktopUiTheme.textPrimary,
+                    size: 18,
+                  ),
                 ),
-              ),
-              const Spacer(),
-              _iconButton(Icons.search_rounded),
-              const SizedBox(width: 8),
-              _iconButton(Icons.notifications_none_rounded),
-              const SizedBox(width: 8),
-              Container(
-                width: 34,
-                height: 34,
-                decoration: BoxDecoration(
-                  color: Colors.white.withValues(alpha: 0.16),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: const Icon(
-                  Icons.person_outline_rounded,
-                  color: DesktopUiTheme.textPrimary,
-                  size: 18,
-                ),
-              ),
-              const SizedBox(width: 8),
-              _iconButton(Icons.settings_outlined),
-            ],
+                const SizedBox(width: 8),
+                _iconButton(Icons.settings_outlined),
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

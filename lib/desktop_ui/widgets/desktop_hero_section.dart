@@ -103,7 +103,7 @@ class DesktopHeroSection extends StatelessWidget {
                           style: TextStyle(
                             color: desktopTheme.textPrimary,
                             fontSize: 38,
-                            fontWeight: FontWeight.w800,
+                            fontWeight: FontWeight.w700,
                             height: 1.04,
                           ),
                         ),

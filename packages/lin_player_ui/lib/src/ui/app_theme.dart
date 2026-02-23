@@ -1,5 +1,5 @@
 import 'package:flutter/foundation.dart'
-    show TargetPlatform, defaultTargetPlatform, kIsWeb;
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 
 import 'package:lin_player_prefs/preferences.dart';
@@ -7,32 +7,17 @@ import 'app_style.dart';
 
 /// Centralized theme (light/dark + optional Material You dynamic color).
 class AppTheme {
-  static const String _desktopAppFontFamily = 'Noto Sans SC';
+  static const String _appFontFamily = 'Noto Sans SC';
 
-  static bool _isDesktopPlatform(TargetPlatform platform) {
-    if (kIsWeb) return false;
-    return switch (platform) {
-      TargetPlatform.windows ||
-      TargetPlatform.macOS ||
-      TargetPlatform.linux =>
-        true,
-      _ => false,
-    };
+  static String _fontFamily(TargetPlatform platform) {
+    // Use a bundled CJK+Latin font across all platforms to keep glyphs & weights
+    // consistent.
+    //
+    // Note: emoji are still expected to fall back to platform emoji fonts.
+    return _appFontFamily;
   }
 
-  static String? _desktopFontFamily(TargetPlatform platform) {
-    return switch (platform) {
-      // Desktop: use a bundled CJK+Latin font to keep glyphs & weights
-      // consistent across platforms.
-      TargetPlatform.windows ||
-      TargetPlatform.macOS ||
-      TargetPlatform.linux =>
-        _desktopAppFontFamily,
-      _ => null,
-    };
-  }
-
-  static List<String>? _desktopFontFallback(TargetPlatform platform) {
+  static List<String> _fontFallback(TargetPlatform platform) {
     return switch (platform) {
       TargetPlatform.windows => const <String>[
           // System UI fallbacks (best-effort for rare missing glyphs).
@@ -61,7 +46,19 @@ class AppTheme {
           // Emoji.
           'Noto Color Emoji',
         ],
-      _ => null,
+      TargetPlatform.android => const <String>[
+          'Roboto',
+          'Noto Color Emoji',
+        ],
+      TargetPlatform.iOS => const <String>[
+          '.SF Pro Text',
+          'Helvetica Neue',
+          'Apple Color Emoji',
+        ],
+      TargetPlatform.fuchsia => const <String>[
+          'Roboto',
+          'Noto Color Emoji',
+        ],
     };
   }
 
@@ -153,11 +150,8 @@ class AppTheme {
     required bool compact,
   }) {
     final platform = defaultTargetPlatform;
-    final useDesktopSystemFont = _isDesktopPlatform(platform);
-    final desktopFontFamily =
-        useDesktopSystemFont ? _desktopFontFamily(platform) : null;
-    final desktopFontFallback =
-        useDesktopSystemFont ? _desktopFontFallback(platform) : null;
+    final appFontFamily = _fontFamily(platform);
+    final appFontFallback = _fontFallback(platform);
     final isDark = scheme.brightness == Brightness.dark;
     final effectiveCompact = compact || template == UiTemplate.proTool;
     final style = _styleFor(
@@ -176,8 +170,8 @@ class AppTheme {
       materialTapTargetSize: effectiveCompact
           ? MaterialTapTargetSize.shrinkWrap
           : MaterialTapTargetSize.padded,
-      fontFamily: desktopFontFamily,
-      fontFamilyFallback: desktopFontFallback,
+      fontFamily: appFontFamily,
+      fontFamilyFallback: appFontFallback,
       extensions: <ThemeExtension<dynamic>>[style],
     );
 
@@ -187,7 +181,9 @@ class AppTheme {
       final size = style.fontSize;
       final scaled = size == null
           ? style
-          : style.copyWith(fontSize: size * (effectiveCompact ? 0.90 : 0.92));
+          : style.copyWith(
+              fontSize: size * (effectiveCompact ? 0.90 : 0.92),
+            );
       return scaled.copyWith(
         decoration: TextDecoration.none,
       );

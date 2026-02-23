@@ -104,7 +104,7 @@ class _EpisodeHeroInfo extends StatelessWidget {
           style: TextStyle(
             color: DesktopUiTheme.textPrimary,
             fontSize: 34,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             height: 1.12,
           ),
         ),

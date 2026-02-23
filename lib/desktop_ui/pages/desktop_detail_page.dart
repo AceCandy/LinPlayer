@@ -1233,7 +1233,7 @@ class _HeroInfoColumn extends StatelessWidget {
           overflow: TextOverflow.ellipsis,
           style: TextStyle(
             fontSize: 32,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             color: colors.textPrimary,
             height: 1.15,
           ),

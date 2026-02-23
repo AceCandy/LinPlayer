@@ -139,9 +139,17 @@ Widget _detailGlassPanel({
   if (!enableBlur) return ClipRRect(borderRadius: borderRadius, child: surface);
   return ClipRRect(
     borderRadius: borderRadius,
-    child: BackdropFilter(
-      filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-      child: surface,
+    child: Stack(
+      fit: StackFit.passthrough,
+      children: [
+        Positioned.fill(
+          child: BackdropFilter(
+            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+            child: const SizedBox.expand(),
+          ),
+        ),
+        surface,
+      ],
     ),
   );
 }
@@ -894,7 +902,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           style: (wide ? theme.textTheme.headlineMedium : theme.textTheme.headlineSmall)
               ?.copyWith(
                 color: heroTextColor,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
               ),
         ),
         const SizedBox(height: 8),
@@ -994,7 +1002,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
       overflow: TextOverflow.ellipsis,
       style: theme.textTheme.headlineSmall?.copyWith(
             color: heroTextColor,
-            fontWeight: FontWeight.w900,
+            fontWeight: FontWeight.w700,
             shadows: const [
               Shadow(color: Colors.black54, blurRadius: 10),
             ],
@@ -3606,7 +3614,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                       : theme.textTheme.headlineSmall)
                                    ?.copyWith(
                                      color: heroTextColor,
-                                     fontWeight: FontWeight.w800,
+                                      fontWeight: FontWeight.w700,
                                    ),
                             ),
                             const SizedBox(height: 6),
@@ -3763,7 +3771,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                             textAlign: TextAlign.right,
                             style: theme.textTheme.headlineMedium?.copyWith(
                               color: heroTextColor,
-                              fontWeight: FontWeight.w900,
+                              fontWeight: FontWeight.w700,
                               shadows: const [
                                 Shadow(color: Colors.black54, blurRadius: 10),
                               ],
@@ -4515,11 +4523,11 @@ Widget _playButton(BuildContext context,
               label,
               style: theme.textTheme.titleSmall?.copyWith(
                     color: fg,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                   ) ??
                   const TextStyle(
                     color: Colors.white,
-                    fontWeight: FontWeight.w800,
+                    fontWeight: FontWeight.w700,
                     fontSize: 16,
                   ),
             ),

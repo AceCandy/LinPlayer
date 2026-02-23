@@ -111,7 +111,7 @@ class _HeroInfo extends StatelessWidget {
           style: TextStyle(
             color: DesktopUiTheme.textPrimary,
             fontSize: 40,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
             height: 1.08,
           ),
         ),

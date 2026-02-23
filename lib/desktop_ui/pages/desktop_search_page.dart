@@ -680,7 +680,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
           style: TextStyle(
             color: theme.accent,
             fontSize: 12,
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
           ),
         ),
       );
@@ -854,7 +854,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
                               style: TextStyle(
                                 color: desktopTheme.textPrimary,
                                 fontSize: 18,
-                                fontWeight: FontWeight.w800,
+                                fontWeight: FontWeight.w700,
                                 height: 1.12,
                               ),
                             ),
@@ -904,23 +904,30 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(20),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: desktopTheme.surface.withValues(alpha: 0.66),
-            borderRadius: BorderRadius.circular(20),
-            border: Border.all(color: desktopTheme.border),
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 16, sigmaY: 16),
+              child: const SizedBox.expand(),
+            ),
           ),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Padding(
-                padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: desktopTheme.surface.withValues(alpha: 0.66),
+              borderRadius: BorderRadius.circular(20),
+              border: Border.all(color: desktopTheme.border),
+            ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(18, 14, 18, 8),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
                         query.isEmpty
                             ? _t(zh: '聚合搜索', en: 'Aggregate Search')
                             : _t(zh: '“$query”的结果', en: 'Results for "$query"'),
@@ -929,7 +936,7 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
                         style: TextStyle(
                           color: desktopTheme.textPrimary,
                           fontSize: 20,
-                          fontWeight: FontWeight.w800,
+                          fontWeight: FontWeight.w700,
                         ),
                       ),
                     ),
@@ -945,8 +952,8 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
                           ),
+                        ),
                       ),
-                    ),
                     _buildAggregateToggleButton(desktopTheme),
                     const SizedBox(width: 10),
                     _buildFilterButton(desktopTheme, query.isNotEmpty),
@@ -984,24 +991,25 @@ class _DesktopSearchPageState extends State<DesktopSearchPage> {
                     ),
                   ),
                 ),
-              const SizedBox(height: 4),
-              Expanded(
-                child: Stack(
-                  children: [
-                    Positioned.fill(child: body),
-                    if (_loading && _groups.isNotEmpty)
-                      const Positioned(
-                        left: 0,
-                        right: 0,
-                        top: 0,
-                        child: LinearProgressIndicator(minHeight: 2),
-                      ),
-                  ],
+                const SizedBox(height: 4),
+                Expanded(
+                  child: Stack(
+                    children: [
+                      Positioned.fill(child: body),
+                      if (_loading && _groups.isNotEmpty)
+                        const Positioned(
+                          left: 0,
+                          right: 0,
+                          top: 0,
+                          child: LinearProgressIndicator(minHeight: 2),
+                        ),
+                    ],
+                  ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
-        ),
+        ],
       ),
     );
   }

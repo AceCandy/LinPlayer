@@ -168,7 +168,7 @@ class UiPageShell extends StatelessWidget {
               style: const TextStyle(
                 color: DesktopUiTheme.textPrimary,
                 fontSize: 28,
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 0.2,
               ),
             ),

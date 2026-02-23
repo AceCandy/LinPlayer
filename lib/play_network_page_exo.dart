@@ -1024,7 +1024,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                               style: const TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 16,
-                                                fontWeight: FontWeight.w800,
+                                                fontWeight: FontWeight.w700,
                                                 letterSpacing: 0.2,
                                               ),
                                             ),

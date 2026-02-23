@@ -606,7 +606,7 @@ class _MediaBackdropTileState extends State<MediaBackdropTile> {
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: theme.textTheme.bodyMedium?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 letterSpacing:
                     style.template == UiTemplate.neonHud ? 0.15 : null,
               ),

@@ -62,7 +62,7 @@ class TvHomePage extends StatelessWidget {
                   Text(
                     'LinPlayer',
                     style: theme.textTheme.headlineSmall?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       height: 1.05,
                     ),
                   ),

@@ -99,7 +99,7 @@ class _WideLayout extends StatelessWidget {
               Text(
                 '用手机扫码添加服务器',
                 style: theme.textTheme.headlineSmall?.copyWith(
-                  fontWeight: FontWeight.w800,
+                  fontWeight: FontWeight.w700,
                   height: 1.05,
                 ),
               ),
@@ -189,7 +189,7 @@ class _NarrowLayout extends StatelessWidget {
         Text(
           '用手机扫码添加服务器',
           style: theme.textTheme.headlineSmall?.copyWith(
-            fontWeight: FontWeight.w800,
+            fontWeight: FontWeight.w700,
           ),
         ),
         const SizedBox(height: 10),

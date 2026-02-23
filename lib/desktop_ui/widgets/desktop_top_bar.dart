@@ -72,137 +72,148 @@ class DesktopTopBar extends StatelessWidget {
 
     return ClipRRect(
       borderRadius: BorderRadius.circular(14),
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            gradient: LinearGradient(
-              begin: Alignment.topCenter,
-              end: Alignment.bottomCenter,
-              colors: [background, background2],
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+              child: const SizedBox.expand(),
             ),
-            borderRadius: BorderRadius.circular(14),
           ),
-          child: SizedBox(
-            height: 60,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12),
-              child: Row(
-                children: [
-                  SizedBox(
-                    width: 560,
-                    child: Row(
-                      children: [
-                        _HeaderIconButton(
-                          icon: Icons.arrow_back_rounded,
-                          tooltip:
-                              _t(zh: '\u8fd4\u56de (Esc)', en: 'Back (Esc)'),
-                          onTap: backEnabled ? onBack : null,
-                          color: (backEnabled && onBack != null)
-                              ? iconColor
-                              : iconColor.withValues(alpha: 0.38),
-                        ),
-                        const SizedBox(width: 6),
-                        _HeaderIconButton(
-                          icon: Icons.menu_rounded,
-                          tooltip: _t(zh: '\u83dc\u5355', en: 'Menu'),
-                          onTap: onToggleSidebar,
-                          color: onToggleSidebar != null
-                              ? iconColor
-                              : iconColor.withValues(alpha: 0.38),
-                        ),
-                        const SizedBox(width: 10),
-                        _LogoBadge(theme: theme),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: _ServerSummaryBadge(
-                            language: language,
-                            serverName: serverName,
-                            movieCount: movieCount,
-                            seriesCount: seriesCount,
-                            statsLoading: statsLoading,
-                            theme: theme,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                  Expanded(
-                    child: Center(
-                      child: showSearch
-                          ? _SearchCenter(
-                              title: title,
-                              controller: searchController,
-                              hintText: searchHint,
-                              onSubmitted: onSearchSubmitted,
-                              onChanged: onSearchChanged,
-                              textColor: theme.textPrimary,
-                            )
-                          : _TopPillTabs(
-                              language: language,
-                              selected: homeTab,
-                              onChanged: onHomeTabChanged,
-                            ),
-                    ),
-                  ),
-                  SizedBox(
-                    width: 280,
-                    child: Align(
-                      alignment: Alignment.centerRight,
+          DecoratedBox(
+            decoration: BoxDecoration(
+              gradient: LinearGradient(
+                begin: Alignment.topCenter,
+                end: Alignment.bottomCenter,
+                colors: [background, background2],
+              ),
+              borderRadius: BorderRadius.circular(14),
+            ),
+            child: SizedBox(
+              height: 60,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                child: Row(
+                  children: [
+                    SizedBox(
+                      width: 560,
                       child: Row(
-                        mainAxisSize: MainAxisSize.min,
                         children: [
                           _HeaderIconButton(
-                            icon: Icons.search_rounded,
-                            tooltip: _t(zh: '\u641c\u7d22', en: 'Search'),
-                            onTap: () =>
-                                onSearchSubmitted(searchController.text),
-                            color: iconColor,
-                          ),
-                          if (onOpenLibraryManager != null) ...[
-                            const SizedBox(width: 6),
-                            _HeaderIconButton(
-                              icon: Icons.video_library_rounded,
-                              tooltip: _t(zh: '\u5a92\u4f53\u5e93', en: 'Libraries'),
-                              onTap: onOpenLibraryManager,
-                              color: iconColor,
-                            ),
-                          ],
-                          const SizedBox(width: 6),
-                          _HeaderIconButton(
-                            icon: Icons.alt_route_rounded,
-                            tooltip: _t(
-                              zh: '\u7ebf\u8def\u7ba1\u7406',
-                              en: 'Route Manager',
-                            ),
-                            onTap: onOpenRouteManager,
-                            color: iconColor,
+                            icon: Icons.arrow_back_rounded,
+                            tooltip:
+                                _t(zh: '\u8fd4\u56de (Esc)', en: 'Back (Esc)'),
+                            onTap: backEnabled ? onBack : null,
+                            color: (backEnabled && onBack != null)
+                                ? iconColor
+                                : iconColor.withValues(alpha: 0.38),
                           ),
                           const SizedBox(width: 6),
                           _HeaderIconButton(
-                            icon: Icons.settings_outlined,
-                            tooltip: _t(zh: '\u8bbe\u7f6e', en: 'Settings'),
-                            onTap: onOpenSettings,
-                            color: iconColor,
+                            icon: Icons.menu_rounded,
+                            tooltip: _t(zh: '\u83dc\u5355', en: 'Menu'),
+                            onTap: onToggleSidebar,
+                            color: onToggleSidebar != null
+                                ? iconColor
+                                : iconColor.withValues(alpha: 0.38),
                           ),
-                          if (onRefresh != null && showSearch) ...[
-                            const SizedBox(width: 6),
-                            _HeaderIconButton(
-                              icon: Icons.refresh_rounded,
-                              tooltip: _t(zh: '\u5237\u65b0', en: 'Refresh'),
-                              onTap: onRefresh,
-                              color: iconColor,
+                          const SizedBox(width: 10),
+                          _LogoBadge(theme: theme),
+                          const SizedBox(width: 12),
+                          Expanded(
+                            child: _ServerSummaryBadge(
+                              language: language,
+                              serverName: serverName,
+                              movieCount: movieCount,
+                              seriesCount: seriesCount,
+                              statsLoading: statsLoading,
+                              theme: theme,
                             ),
-                          ],
+                          ),
                         ],
                       ),
                     ),
-                  ),
-                ],
+                    Expanded(
+                      child: Center(
+                        child: showSearch
+                            ? _SearchCenter(
+                                title: title,
+                                controller: searchController,
+                                hintText: searchHint,
+                                onSubmitted: onSearchSubmitted,
+                                onChanged: onSearchChanged,
+                                textColor: theme.textPrimary,
+                              )
+                            : _TopPillTabs(
+                                language: language,
+                                selected: homeTab,
+                                onChanged: onHomeTabChanged,
+                              ),
+                      ),
+                    ),
+                    SizedBox(
+                      width: 280,
+                      child: Align(
+                        alignment: Alignment.centerRight,
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            _HeaderIconButton(
+                              icon: Icons.search_rounded,
+                              tooltip: _t(zh: '\u641c\u7d22', en: 'Search'),
+                              onTap: () =>
+                                  onSearchSubmitted(searchController.text),
+                              color: iconColor,
+                            ),
+                            if (onOpenLibraryManager != null) ...[
+                              const SizedBox(width: 6),
+                              _HeaderIconButton(
+                                icon: Icons.video_library_rounded,
+                                tooltip: _t(
+                                  zh: '\u5a92\u4f53\u5e93',
+                                  en: 'Libraries',
+                                ),
+                                onTap: onOpenLibraryManager,
+                                color: iconColor,
+                              ),
+                            ],
+                            const SizedBox(width: 6),
+                            _HeaderIconButton(
+                              icon: Icons.alt_route_rounded,
+                              tooltip: _t(
+                                zh: '\u7ebf\u8def\u7ba1\u7406',
+                                en: 'Route Manager',
+                              ),
+                              onTap: onOpenRouteManager,
+                              color: iconColor,
+                            ),
+                            const SizedBox(width: 6),
+                            _HeaderIconButton(
+                              icon: Icons.settings_outlined,
+                              tooltip: _t(zh: '\u8bbe\u7f6e', en: 'Settings'),
+                              onTap: onOpenSettings,
+                              color: iconColor,
+                            ),
+                            if (onRefresh != null && showSearch) ...[
+                              const SizedBox(width: 6),
+                              _HeaderIconButton(
+                                icon: Icons.refresh_rounded,
+                                tooltip: _t(zh: '\u5237\u65b0', en: 'Refresh'),
+                                onTap: onRefresh,
+                                color: iconColor,
+                              ),
+                            ],
+                          ],
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
           ),
-        ),
+        ],
       ),
     );
   }

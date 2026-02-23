@@ -28,6 +28,57 @@ import 'tv/tv_shell.dart';
 
 final GlobalKey<NavigatorState> _rootNavigatorKey = GlobalKey<NavigatorState>();
 
+final class _SnappedTextScaler implements TextScaler {
+  const _SnappedTextScaler(
+    this.scaler, {
+    required this.devicePixelRatio,
+  });
+
+  final TextScaler scaler;
+  final double devicePixelRatio;
+
+  @override
+  double scale(double fontSize) {
+    final scaled = scaler.scale(fontSize);
+    final dpr = devicePixelRatio;
+    if (dpr <= 0) return scaled;
+    return (scaled * dpr).roundToDouble() / dpr;
+  }
+
+  @override
+  double get textScaleFactor => scaler.scale(1.0);
+
+  @override
+  TextScaler clamp({
+    double minScaleFactor = 0,
+    double maxScaleFactor = double.infinity,
+  }) {
+    if (minScaleFactor == 0 && maxScaleFactor == double.infinity) {
+      return this;
+    }
+    final clamped = scaler.clamp(
+      minScaleFactor: minScaleFactor,
+      maxScaleFactor: maxScaleFactor,
+    );
+    if (identical(clamped, scaler)) return this;
+    return _SnappedTextScaler(clamped, devicePixelRatio: devicePixelRatio);
+  }
+
+  @override
+  bool operator ==(Object other) {
+    if (identical(this, other)) return true;
+    return other is _SnappedTextScaler &&
+        other.scaler == scaler &&
+        other.devicePixelRatio == devicePixelRatio;
+  }
+
+  @override
+  int get hashCode => Object.hash(scaler, devicePixelRatio);
+
+  @override
+  String toString() => 'snapped($scaler @${devicePixelRatio}x)';
+}
+
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
   debugPaintSizeEnabled = false;
@@ -260,9 +311,15 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                 final mediaQuery = MediaQuery.of(context);
                 const probe = 14.0;
                 final userScale = mediaQuery.textScaler.scale(probe) / probe;
-                final textScaler = scale == 1.0
+                final baseTextScaler = scale == 1.0
                     ? mediaQuery.textScaler
                     : TextScaler.linear(userScale * scale);
+                final textScaler = isDesktopPlatform
+                    ? _SnappedTextScaler(
+                        baseTextScaler,
+                        devicePixelRatio: mediaQuery.devicePixelRatio,
+                      )
+                    : baseTextScaler;
 
                 final style = scaledTheme.extension<AppStyle>();
                 final hasBackdrop = style != null &&

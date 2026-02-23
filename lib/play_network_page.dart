@@ -1696,7 +1696,7 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
                                               style: const TextStyle(
                                                 color: Colors.white,
                                                 fontSize: 16,
-                                                fontWeight: FontWeight.w800,
+                                                fontWeight: FontWeight.w700,
                                                 letterSpacing: 0.2,
                                               ),
                                             ),
@@ -8085,16 +8085,24 @@ class _PlayNetworkPageState extends State<PlayNetworkPage>
             : Colors.black.withValues(alpha: 0.08));
     return ClipRRect(
       borderRadius: borderRadius,
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
-        child: DecoratedBox(
-          decoration: BoxDecoration(
-            color: resolvedColor,
-            borderRadius: borderRadius,
-            border: Border.all(color: resolvedBorder),
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: blurSigma, sigmaY: blurSigma),
+              child: const SizedBox.expand(),
+            ),
           ),
-          child: child,
-        ),
+          DecoratedBox(
+            decoration: BoxDecoration(
+              color: resolvedColor,
+              borderRadius: borderRadius,
+              border: Border.all(color: resolvedBorder),
+            ),
+            child: child,
+          ),
+        ],
       ),
     );
   }

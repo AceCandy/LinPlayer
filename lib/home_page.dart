@@ -898,7 +898,7 @@ class _TvTopNavItemState extends State<_TvTopNavItem> {
                   Text(
                     widget.label,
                     style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w800,
+                      fontWeight: FontWeight.w700,
                       color: fg,
                     ),
                   ),
@@ -953,10 +953,19 @@ class _GlassActionIconButton extends StatelessWidget {
     );
 
     if (useGlass && enableBlur) {
+      final content = child;
       child = ClipOval(
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: child,
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            content,
+          ],
         ),
       );
     }
@@ -1097,11 +1106,20 @@ class _ServerGlassButtonState extends State<_ServerGlassButton> {
     );
 
     if (widget.useGlass && widget.enableBlur) {
+      final content = child;
       child = ClipRRect(
         borderRadius: radius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-          child: child,
+        child: Stack(
+          fit: StackFit.passthrough,
+          children: [
+            Positioned.fill(
+              child: BackdropFilter(
+                filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                child: const SizedBox.expand(),
+              ),
+            ),
+            content,
+          ],
         ),
       );
     }
@@ -1217,10 +1235,19 @@ class _FloatingBottomNav extends StatelessWidget {
       );
 
       if (_usesGlassSurfaces && enableBlur) {
+        final content = child;
         child = ClipOval(
-          child: BackdropFilter(
-            filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
-            child: child,
+          child: Stack(
+            fit: StackFit.passthrough,
+            children: [
+              Positioned.fill(
+                child: BackdropFilter(
+                  filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+                  child: const SizedBox.expand(),
+                ),
+              ),
+              content,
+            ],
           ),
         );
       }
@@ -1445,7 +1472,7 @@ class _MediaStatsSectionState extends State<_MediaStatsSection> {
           const SizedBox(height: 8),
           DefaultTextStyle.merge(
             style: theme.textTheme.titleMedium?.copyWith(
-              fontWeight: FontWeight.w800,
+              fontWeight: FontWeight.w700,
               letterSpacing: 0.2,
             ),
             child: value,
@@ -2621,8 +2648,8 @@ class _HomeSectionHeader extends StatelessWidget {
 
     final titleStyle = theme.textTheme.titleMedium?.copyWith(
       fontWeight: switch (template) {
-        UiTemplate.neonHud => FontWeight.w800,
-        UiTemplate.mangaStoryboard => FontWeight.w800,
+        UiTemplate.neonHud => FontWeight.w700,
+        UiTemplate.mangaStoryboard => FontWeight.w700,
         _ => FontWeight.w700,
       },
       letterSpacing: template == UiTemplate.neonHud ? 0.25 : null,
@@ -2717,7 +2744,7 @@ class _HomeSectionHeader extends StatelessWidget {
             child: Text(
               text,
               style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 color: scheme.onSecondaryContainer,
               ),
             ),
@@ -2735,7 +2762,7 @@ class _HomeSectionHeader extends StatelessWidget {
             child: Text(
               text,
               style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w800,
+                fontWeight: FontWeight.w700,
                 letterSpacing: 0.25,
               ),
             ),
@@ -2753,7 +2780,7 @@ class _HomeSectionHeader extends StatelessWidget {
             child: Text(
               text,
               style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),
@@ -2770,7 +2797,7 @@ class _HomeSectionHeader extends StatelessWidget {
             child: Text(
               text,
               style: theme.textTheme.labelLarge?.copyWith(
-                fontWeight: FontWeight.w900,
+                fontWeight: FontWeight.w700,
               ),
             ),
           ),

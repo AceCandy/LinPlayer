@@ -49,9 +49,17 @@ class GlassAppBar extends StatelessWidget implements PreferredSizeWidget {
     if (!shouldBlur) return child;
 
     return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-        child: child,
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }
@@ -76,9 +84,17 @@ class GlassNavigationBar extends StatelessWidget {
     if (!shouldBlur) return child;
 
     return ClipRect(
-      child: BackdropFilter(
-        filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
-        child: child,
+      child: Stack(
+        fit: StackFit.passthrough,
+        children: [
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: sigma, sigmaY: sigma),
+              child: const SizedBox.expand(),
+            ),
+          ),
+          child,
+        ],
       ),
     );
   }
