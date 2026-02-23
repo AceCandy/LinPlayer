@@ -1523,7 +1523,10 @@ class _ActionButtons extends StatelessWidget {
       children: [
         ElevatedButton.icon(
           onPressed: onPlay,
-          icon: const Icon(Icons.play_arrow_rounded),
+          icon: const Icon(
+            Icons.play_arrow_rounded,
+            size: _DetailActionButtonTokens.iconSize,
+          ),
           label: Text(
             _dtr(
               language: language,
@@ -1544,13 +1547,22 @@ class _ActionButtons extends StatelessWidget {
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
             padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 24, vertical: 14),
+              EdgeInsets.symmetric(
+                horizontal: 24,
+                vertical: _DetailActionButtonTokens.verticalPadding,
+              ),
+            ),
+            minimumSize: const WidgetStatePropertyAll(
+              Size(0, _DetailActionButtonTokens.height),
             ),
           ),
         ),
         OutlinedButton.icon(
           onPressed: onToggleWatched,
-          icon: const Icon(Icons.check_rounded),
+          icon: const Icon(
+            Icons.check_rounded,
+            size: _DetailActionButtonTokens.iconSize,
+          ),
           label: Text(
             watched
                 ? _dtr(
@@ -1582,7 +1594,13 @@ class _ActionButtons extends StatelessWidget {
               RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
             padding: const WidgetStatePropertyAll(
-              EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+              EdgeInsets.symmetric(
+                horizontal: 20,
+                vertical: _DetailActionButtonTokens.verticalPadding,
+              ),
+            ),
+            minimumSize: const WidgetStatePropertyAll(
+              Size(0, _DetailActionButtonTokens.height),
             ),
           ),
         ),
@@ -1682,6 +1700,7 @@ class _CircleIconButtonState extends State<_CircleIconButton> {
 
   @override
   Widget build(BuildContext context) {
+    const buttonSize = _DetailActionButtonTokens.height;
     final colors = _EpisodeDetailColors.of(context);
     final color = widget.active ? colors.heartActive : colors.textSecondary;
     return MouseRegion(
@@ -1694,8 +1713,8 @@ class _CircleIconButtonState extends State<_CircleIconButton> {
         onTap: widget.onTap,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 140),
-          width: 42,
-          height: 42,
+          width: buttonSize,
+          height: buttonSize,
           decoration: BoxDecoration(
             color: _hovered ? colors.surfaceHover : colors.surface,
             borderRadius: BorderRadius.circular(8),
@@ -1703,11 +1722,21 @@ class _CircleIconButtonState extends State<_CircleIconButton> {
               color: _hovered ? colors.primary : colors.border,
             ),
           ),
-          child: Icon(widget.icon, size: 20, color: color),
+          child: Icon(
+            widget.icon,
+            size: _DetailActionButtonTokens.iconSize,
+            color: color,
+          ),
         ),
       ),
     );
   }
+}
+
+class _DetailActionButtonTokens {
+  static const double verticalPadding = 14.0;
+  static const double iconSize = 24.0;
+  static const double height = verticalPadding * 2 + iconSize;
 }
 
 class _TechDropdown extends StatefulWidget {
