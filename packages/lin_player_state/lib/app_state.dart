@@ -191,6 +191,9 @@ class AppState extends ChangeNotifier {
       'showHomeLibraryQuickAccess_v1';
   static const _kShowHomeRandomRecommendationsKey =
       'showHomeRandomRecommendations_v1';
+  static const _kLibraryFilterPanelPinnedKey = 'libraryFilterPanelPinned_v1';
+  static const _kLibraryCustomPrefixFiltersEnabledKey =
+      'libraryCustomPrefixFiltersEnabled_v1';
   static const _kAutoUpdateEnabledKey = 'autoUpdateEnabled_v1';
   static const _kAutoUpdateLastCheckedAtMsKey = 'autoUpdateLastCheckedAtMs_v1';
 
@@ -278,6 +281,8 @@ class AppState extends ChangeNotifier {
   double _desktopBackgroundBlurSigma = 12.0;
   bool _showHomeLibraryQuickAccess = true;
   bool _showHomeRandomRecommendations = true;
+  bool _libraryFilterPanelPinned = false;
+  bool _libraryCustomPrefixFiltersEnabled = false;
   bool _autoUpdateEnabled = false;
   int _autoUpdateLastCheckedAtMs = 0;
   String _externalMpvPath = '';
@@ -754,6 +759,9 @@ class AppState extends ChangeNotifier {
   double get desktopBackgroundBlurSigma => _desktopBackgroundBlurSigma;
   bool get showHomeLibraryQuickAccess => _showHomeLibraryQuickAccess;
   bool get showHomeRandomRecommendations => _showHomeRandomRecommendations;
+  bool get libraryFilterPanelPinned => _libraryFilterPanelPinned;
+  bool get libraryCustomPrefixFiltersEnabled =>
+      _libraryCustomPrefixFiltersEnabled;
   bool get autoUpdateEnabled => _autoUpdateEnabled;
   DateTime? get autoUpdateLastCheckedAt => _autoUpdateLastCheckedAtMs <= 0
       ? null
@@ -976,6 +984,10 @@ class AppState extends ChangeNotifier {
         prefs.getBool(_kShowHomeLibraryQuickAccessKey) ?? true;
     _showHomeRandomRecommendations =
         prefs.getBool(_kShowHomeRandomRecommendationsKey) ?? true;
+    _libraryFilterPanelPinned =
+        prefs.getBool(_kLibraryFilterPanelPinnedKey) ?? false;
+    _libraryCustomPrefixFiltersEnabled =
+        prefs.getBool(_kLibraryCustomPrefixFiltersEnabledKey) ?? false;
     _autoUpdateEnabled = prefs.getBool(_kAutoUpdateEnabledKey) ?? false;
     _autoUpdateLastCheckedAtMs =
         prefs.getInt(_kAutoUpdateLastCheckedAtMsKey) ?? 0;
@@ -1237,6 +1249,8 @@ class AppState extends ChangeNotifier {
         'desktopBackgroundBlurSigma': _desktopBackgroundBlurSigma,
         'showHomeLibraryQuickAccess': _showHomeLibraryQuickAccess,
         'showHomeRandomRecommendations': _showHomeRandomRecommendations,
+        'libraryFilterPanelPinned': _libraryFilterPanelPinned,
+        'libraryCustomPrefixFiltersEnabled': _libraryCustomPrefixFiltersEnabled,
         'autoUpdateEnabled': _autoUpdateEnabled,
         'externalMpvPath': _externalMpvPath,
         'anime4kPreset': _anime4kPreset.id,
@@ -1603,6 +1617,10 @@ class AppState extends ChangeNotifier {
         _readBool(data['showHomeLibraryQuickAccess'], fallback: true);
     final nextShowHomeRandomRecommendations =
         _readBool(data['showHomeRandomRecommendations'], fallback: true);
+    final nextLibraryFilterPanelPinned =
+        _readBool(data['libraryFilterPanelPinned'], fallback: false);
+    final nextLibraryCustomPrefixFiltersEnabled =
+        _readBool(data['libraryCustomPrefixFiltersEnabled'], fallback: false);
     final nextAutoUpdateEnabled =
         _readBool(data['autoUpdateEnabled'], fallback: false);
     final nextExternalMpvPath =
@@ -1811,6 +1829,8 @@ class AppState extends ChangeNotifier {
     _desktopBackgroundBlurSigma = nextDesktopBackgroundBlurSigma;
     _showHomeLibraryQuickAccess = nextShowHomeLibraryQuickAccess;
     _showHomeRandomRecommendations = nextShowHomeRandomRecommendations;
+    _libraryFilterPanelPinned = nextLibraryFilterPanelPinned;
+    _libraryCustomPrefixFiltersEnabled = nextLibraryCustomPrefixFiltersEnabled;
     _autoUpdateEnabled = nextAutoUpdateEnabled;
     _externalMpvPath = nextExternalMpvPath;
     _anime4kPreset = nextAnime4kPreset;
@@ -1948,6 +1968,11 @@ class AppState extends ChangeNotifier {
     await prefs.setBool(
       _kShowHomeRandomRecommendationsKey,
       _showHomeRandomRecommendations,
+    );
+    await prefs.setBool(_kLibraryFilterPanelPinnedKey, _libraryFilterPanelPinned);
+    await prefs.setBool(
+      _kLibraryCustomPrefixFiltersEnabledKey,
+      _libraryCustomPrefixFiltersEnabled,
     );
     await prefs.setBool(_kAutoUpdateEnabledKey, _autoUpdateEnabled);
 
@@ -2790,6 +2815,12 @@ class AppState extends ChangeNotifier {
     bool excludeFolders = true,
     String? sortBy,
     String sortOrder = 'Descending',
+    List<String>? genres,
+    List<int>? years,
+    double? minCommunityRating,
+    bool? isPlayed,
+    bool? isFavorite,
+    List<String>? seriesStatus,
   }) async {
     if (baseUrl == null || token == null || userId == null) {
       throw Exception('No server selected');
@@ -2814,6 +2845,12 @@ class AppState extends ChangeNotifier {
       excludeFolders: excludeFolders,
       sortBy: sortBy,
       sortOrder: sortOrder,
+      genres: genres,
+      years: years,
+      minCommunityRating: minCommunityRating,
+      isPlayed: isPlayed,
+      isFavorite: isFavorite,
+      seriesStatus: seriesStatus,
     );
     final list = _itemsCache[parentId] ?? [];
     if (startIndex == 0) {
@@ -4148,6 +4185,22 @@ class AppState extends ChangeNotifier {
     _showHomeRandomRecommendations = enabled;
     final prefs = await SharedPreferences.getInstance();
     await prefs.setBool(_kShowHomeRandomRecommendationsKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setLibraryFilterPanelPinned(bool enabled) async {
+    if (_libraryFilterPanelPinned == enabled) return;
+    _libraryFilterPanelPinned = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLibraryFilterPanelPinnedKey, enabled);
+    notifyListeners();
+  }
+
+  Future<void> setLibraryCustomPrefixFiltersEnabled(bool enabled) async {
+    if (_libraryCustomPrefixFiltersEnabled == enabled) return;
+    _libraryCustomPrefixFiltersEnabled = enabled;
+    final prefs = await SharedPreferences.getInstance();
+    await prefs.setBool(_kLibraryCustomPrefixFiltersEnabledKey, enabled);
     notifyListeners();
   }
 

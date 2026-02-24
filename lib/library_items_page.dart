@@ -7,13 +7,9 @@ import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
-import 'show_detail_page.dart';
-import 'server_adapters/server_access.dart';
 
-enum _LibraryItemsViewMode {
-  items,
-  tags,
-}
+import 'server_adapters/server_access.dart';
+import 'show_detail_page.dart';
 
 enum _LibraryItemsSortBy {
   communityRating('CommunityRating', '评分'),
@@ -39,6 +35,60 @@ enum _LibraryItemsSortBy {
   }
 }
 
+class _GridItem extends StatelessWidget {
+  const _GridItem({
+    required this.item,
+    required this.access,
+    required this.onTap,
+  });
+
+  final MediaItem item;
+  final ServerAccess? access;
+  final VoidCallback onTap;
+
+  String _yearOf() {
+    final y = item.productionYear;
+    if (y != null && y > 0) return y.toString();
+    final d = (item.premiereDate ?? '').trim();
+    if (d.isEmpty) return '';
+    final parsed = DateTime.tryParse(d);
+    if (parsed != null) return parsed.year.toString();
+    return d.length >= 4 ? d.substring(0, 4) : '';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final access = this.access;
+    final image = item.hasImage && access != null
+        ? access.adapter.imageUrl(
+            access.auth,
+            itemId: item.id,
+            imageType: 'Primary',
+            maxWidth: 320,
+          )
+        : null;
+
+    final year = _yearOf();
+    final rating = item.communityRating;
+
+    String badge = '';
+    if (item.type == 'Movie') {
+      badge = '电影';
+    } else if (item.type == 'Series') {
+      badge = '剧集';
+    }
+
+    return MediaPosterTile(
+      title: item.name,
+      imageUrl: image,
+      year: year,
+      rating: rating,
+      badgeText: badge,
+      onTap: onTap,
+    );
+  }
+}
+
 enum _LibraryItemsSortOrder {
   ascending('Ascending', Icons.arrow_upward_rounded, '升序'),
   descending('Descending', Icons.arrow_downward_rounded, '降序');
@@ -57,6 +107,36 @@ enum _LibraryItemsSortOrder {
     }
     return null;
   }
+}
+
+enum _SeriesStatusFilter {
+  all('全部'),
+  continuing('连载'),
+  ended('完结');
+
+  const _SeriesStatusFilter(this.zhLabel);
+
+  final String zhLabel;
+}
+
+enum _PlayedFilter {
+  all('全部'),
+  unplayed('未看'),
+  played('已看');
+
+  const _PlayedFilter(this.zhLabel);
+
+  final String zhLabel;
+}
+
+enum _FavoriteFilter {
+  all('全部'),
+  notFavorite('未喜欢'),
+  favorite('喜欢');
+
+  const _FavoriteFilter(this.zhLabel);
+
+  final String zhLabel;
 }
 
 enum LibraryItemsPageResult {
@@ -85,18 +165,43 @@ class LibraryItemsPage extends StatefulWidget {
 
 class _LibraryItemsPageState extends State<LibraryItemsPage> {
   static const String _kPrefsPrefix = 'libraryItemsPrefs_v1:';
+  static const double _kTopControlsFadeDistance = 220.0;
+  static const int _kEmptyAutoLoadMaxAttempts = 3;
 
-  final _scroll = ScrollController();
+  final ScrollController _scroll = ScrollController();
+  final TextEditingController _minRatingController = TextEditingController();
+  final TextEditingController _maxRatingController = TextEditingController();
+  final TextEditingController _yearFromController = TextEditingController();
+  final TextEditingController _yearToController = TextEditingController();
+
   bool _loadingMore = false;
-  bool _prefetchingAll = false;
   bool _isRequesting = false;
-  int _prefetchEpoch = 0;
+  bool _pendingReload = false;
   String? _error;
 
-  _LibraryItemsViewMode _viewMode = _LibraryItemsViewMode.items;
   _LibraryItemsSortBy _sortBy = _LibraryItemsSortBy.dateCreated;
   _LibraryItemsSortOrder _sortOrder = _LibraryItemsSortOrder.descending;
-  final Set<String> _selectedTags = <String>{};
+
+  double? _minRating;
+  double? _maxRating;
+  int? _selectedYear;
+  int? _yearFrom;
+  int? _yearTo;
+  final Set<String> _selectedGenres = <String>{};
+  _SeriesStatusFilter _seriesStatus = _SeriesStatusFilter.all;
+  _PlayedFilter _played = _PlayedFilter.all;
+  _FavoriteFilter _favorite = _FavoriteFilter.all;
+  final Map<String, String?> _customPrefixSelections = <String, String?>{};
+
+  bool _filterPanelOpen = false;
+  bool _showAllGenres = false;
+  bool _showAllYears = false;
+  double _topControlsVisibility = 1.0;
+
+  Timer? _filterDebounce;
+  String _lastServerQueryKey = '';
+  int _emptyAutoLoadAttempts = 0;
+  bool _emptyAutoLoadScheduled = false;
 
   String get _prefsKey {
     final serverId = widget.appState.activeServerId ?? 'none';
@@ -121,9 +226,6 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
     await _restorePrefs();
     if (!mounted) return;
     await _load(reset: true);
-    if (_viewMode == _LibraryItemsViewMode.tags) {
-      _startPrefetchAllIfNeeded();
-    }
   }
 
   Future<void> _restorePrefs() async {
@@ -140,27 +242,68 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
       final restoredSortOrder = _LibraryItemsSortOrder.tryParse(
         decoded['sortOrder']?.toString(),
       );
-      final restoredViewMode = switch (decoded['viewMode']?.toString()) {
-        'tags' => _LibraryItemsViewMode.tags,
-        _ => _LibraryItemsViewMode.items,
-      };
-      final restoredTags = (decoded['selectedTags'] is List)
-          ? (decoded['selectedTags'] as List)
+      final restoredMinRating = (decoded['minRating'] as num?)?.toDouble();
+      final restoredMaxRating = (decoded['maxRating'] as num?)?.toDouble();
+      final restoredSelectedYear = decoded['selectedYear'] as int?;
+      final restoredYearFrom = decoded['yearFrom'] as int?;
+      final restoredYearTo = decoded['yearTo'] as int?;
+      final restoredGenres = (decoded['selectedGenres'] is List)
+          ? (decoded['selectedGenres'] as List)
               .where((e) => e != null)
               .map((e) => e.toString().trim())
               .where((e) => e.isNotEmpty)
               .toSet()
           : const <String>{};
+      final restoredSeriesStatus =
+          switch (decoded['seriesStatus']?.toString()) {
+        'continuing' => _SeriesStatusFilter.continuing,
+        'ended' => _SeriesStatusFilter.ended,
+        _ => _SeriesStatusFilter.all,
+      };
+      final restoredPlayed = switch (decoded['played']?.toString()) {
+        'unplayed' => _PlayedFilter.unplayed,
+        'played' => _PlayedFilter.played,
+        _ => _PlayedFilter.all,
+      };
+      final restoredFavorite = switch (decoded['favorite']?.toString()) {
+        'notFavorite' => _FavoriteFilter.notFavorite,
+        'favorite' => _FavoriteFilter.favorite,
+        _ => _FavoriteFilter.all,
+      };
+      final restoredCustomPrefixSelections =
+          (decoded['customPrefixSelections'] is Map)
+              ? (decoded['customPrefixSelections'] as Map)
+                  .map((k, v) => MapEntry(k.toString(), v?.toString()))
+              : const <String, String?>{};
 
       if (!mounted) return;
       setState(() {
         _sortBy = restoredSortBy ?? _sortBy;
         _sortOrder = restoredSortOrder ?? _sortOrder;
-        _viewMode = restoredViewMode;
-        _selectedTags
+        _minRating = restoredMinRating;
+        _maxRating = restoredMaxRating;
+        _selectedYear = restoredSelectedYear;
+        _yearFrom = restoredYearFrom;
+        _yearTo = restoredYearTo;
+        _selectedGenres
           ..clear()
-          ..addAll(restoredTags);
+          ..addAll(restoredGenres);
+        _seriesStatus = restoredSeriesStatus;
+        _played = restoredPlayed;
+        _favorite = restoredFavorite;
+        _customPrefixSelections
+          ..clear()
+          ..addAll(restoredCustomPrefixSelections);
       });
+
+      _minRatingController.text =
+          restoredMinRating == null ? '' : restoredMinRating.toString();
+      _maxRatingController.text =
+          restoredMaxRating == null ? '' : restoredMaxRating.toString();
+      _yearFromController.text =
+          restoredYearFrom == null ? '' : restoredYearFrom.toString();
+      _yearToController.text =
+          restoredYearTo == null ? '' : restoredYearTo.toString();
     } catch (_) {
       // Best-effort; ignore broken prefs.
     }
@@ -169,11 +312,38 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
   Future<void> _persistPrefs() async {
     try {
       final prefs = await SharedPreferences.getInstance();
+      final customPrefixSelections = Map<String, String>.fromEntries(
+        _customPrefixSelections.entries
+            .where((e) => e.key.trim().isNotEmpty)
+            .map((e) => MapEntry(e.key, (e.value ?? '').trim()))
+            .where((e) => e.value.isNotEmpty),
+      );
       final data = <String, dynamic>{
         'sortBy': _sortBy.serverValue,
         'sortOrder': _sortOrder.serverValue,
-        'viewMode': _viewMode == _LibraryItemsViewMode.tags ? 'tags' : 'items',
-        'selectedTags': _selectedTags.toList(growable: false),
+        'minRating': _minRating,
+        'maxRating': _maxRating,
+        'selectedYear': _selectedYear,
+        'yearFrom': _yearFrom,
+        'yearTo': _yearTo,
+        'selectedGenres': _selectedGenres.toList(growable: false),
+        'seriesStatus': switch (_seriesStatus) {
+          _SeriesStatusFilter.continuing => 'continuing',
+          _SeriesStatusFilter.ended => 'ended',
+          _ => 'all',
+        },
+        'played': switch (_played) {
+          _PlayedFilter.unplayed => 'unplayed',
+          _PlayedFilter.played => 'played',
+          _ => 'all',
+        },
+        'favorite': switch (_favorite) {
+          _FavoriteFilter.notFavorite => 'notFavorite',
+          _FavoriteFilter.favorite => 'favorite',
+          _ => 'all',
+        },
+        if (customPrefixSelections.isNotEmpty)
+          'customPrefixSelections': customPrefixSelections,
       };
       await prefs.setString(_prefsKey, jsonEncode(data));
     } catch (_) {
@@ -181,27 +351,240 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
     }
   }
 
-  Future<void> _load({required bool reset}) async {
+  void _setTopControlsVisibility(double value) {
+    final next = value.clamp(0.0, 1.0).toDouble();
+    if ((next - _topControlsVisibility).abs() <= 0.001 || !mounted) return;
+    setState(() => _topControlsVisibility = next);
+  }
+
+  void _updateTopControlsVisibilityByScrollDelta(double delta) {
+    if (delta.abs() < 0.1) return;
+    final next = _topControlsVisibility - (delta / _kTopControlsFadeDistance);
+    _setTopControlsVisibility(next);
+  }
+
+  bool _handleGridScrollNotification(ScrollNotification notification) {
+    if (notification.depth != 0) return false;
+    final axis = axisDirectionToAxis(notification.metrics.axisDirection);
+    if (axis != Axis.vertical) return false;
+
+    final pixels = notification.metrics.pixels;
+    if (pixels <= 0) {
+      _setTopControlsVisibility(1.0);
+      return false;
+    }
+
+    if (notification is ScrollUpdateNotification) {
+      final delta = notification.scrollDelta ?? 0;
+      _updateTopControlsVisibilityByScrollDelta(delta);
+      return false;
+    }
+
+    if (notification is OverscrollNotification) {
+      _updateTopControlsVisibilityByScrollDelta(notification.overscroll);
+      return false;
+    }
+
+    if (notification is ScrollEndNotification && pixels <= 1) {
+      _setTopControlsVisibility(1.0);
+      return false;
+    }
+
+    return false;
+  }
+
+  double? _parseRating(String raw) {
+    final v = double.tryParse(raw.trim());
+    if (v == null) return null;
+    return v.clamp(0.0, 10.0).toDouble();
+  }
+
+  int? _parseYear(String raw) {
+    final v = int.tryParse(raw.trim());
+    if (v == null) return null;
+    return v.clamp(1800, 3000);
+  }
+
+  void _scheduleFilterApply() {
+    _filterDebounce?.cancel();
+    _filterDebounce = Timer(const Duration(milliseconds: 240), () {
+      if (!mounted) return;
+      _applyFilterValuesFromControllers();
+      _onFiltersChanged();
+    });
+  }
+
+  void _applyFilterValuesFromControllers() {
+    final nextMin = _parseRating(_minRatingController.text);
+    final nextMax = _parseRating(_maxRatingController.text);
+    final nextYearFrom = _parseYear(_yearFromController.text);
+    final nextYearTo = _parseYear(_yearToController.text);
+
+    final shouldClearSelectedYear =
+        (nextYearFrom != null || nextYearTo != null) && _selectedYear != null;
+
+    if (nextMin == _minRating &&
+        nextMax == _maxRating &&
+        nextYearFrom == _yearFrom &&
+        nextYearTo == _yearTo &&
+        !shouldClearSelectedYear) {
+      return;
+    }
+
+    setState(() {
+      _minRating = nextMin;
+      _maxRating = nextMax;
+      _yearFrom = nextYearFrom;
+      _yearTo = nextYearTo;
+      if (nextYearFrom != null || nextYearTo != null) {
+        _selectedYear = null;
+      }
+    });
+  }
+
+  String _serverIncludeItemTypes() {
+    if (_seriesStatus == _SeriesStatusFilter.all) return 'Series,Movie';
+    return 'Series';
+  }
+
+  List<String>? _serverGenres() {
+    if (_selectedGenres.isEmpty) return null;
+    final list = _selectedGenres.toList(growable: false)
+      ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+    return list;
+  }
+
+  List<int>? _serverYears() {
+    if (_selectedYear != null) return <int>[_selectedYear!];
+    if (_yearFrom == null || _yearTo == null) return null;
+    final from = _yearFrom!;
+    final to = _yearTo!;
+    final minY = from <= to ? from : to;
+    final maxY = from <= to ? to : from;
+    if ((maxY - minY) > 100) return null;
+    return <int>[for (int y = minY; y <= maxY; y++) y];
+  }
+
+  double? _serverMinCommunityRating() {
+    final min = _minRating;
+    final max = _maxRating;
+    if (min == null) return null;
+    if (max == null) return min;
+    return min <= max ? min : max;
+  }
+
+  bool? _serverIsPlayed() {
+    switch (_played) {
+      case _PlayedFilter.all:
+        return null;
+      case _PlayedFilter.played:
+        return true;
+      case _PlayedFilter.unplayed:
+        return false;
+    }
+  }
+
+  bool? _serverIsFavorite() {
+    switch (_favorite) {
+      case _FavoriteFilter.all:
+        return null;
+      case _FavoriteFilter.favorite:
+        return true;
+      case _FavoriteFilter.notFavorite:
+        return false;
+    }
+  }
+
+  List<String>? _serverSeriesStatus() {
+    switch (_seriesStatus) {
+      case _SeriesStatusFilter.all:
+        return null;
+      case _SeriesStatusFilter.continuing:
+        return const <String>['Continuing'];
+      case _SeriesStatusFilter.ended:
+        return const <String>['Ended'];
+    }
+  }
+
+  String _serverQueryKey() {
+    return jsonEncode(<String, Object?>{
+      'types': _serverIncludeItemTypes(),
+      'genres': _serverGenres(),
+      'years': _serverYears(),
+      'minRating': _serverMinCommunityRating(),
+      'isPlayed': _serverIsPlayed(),
+      'isFavorite': _serverIsFavorite(),
+      'seriesStatus': _serverSeriesStatus(),
+      'sortBy': _sortBy.serverValue,
+      'sortOrder': _sortOrder.serverValue,
+    });
+  }
+
+  void _maybeReloadServer() {
+    final nextKey = _serverQueryKey();
+    if (nextKey == _lastServerQueryKey) return;
+
+    if (_isRequesting) {
+      _pendingReload = true;
+      return;
+    }
+
+    _emptyAutoLoadAttempts = 0;
+    unawaited(_scrollToTop());
+    unawaited(_load(reset: true));
+  }
+
+  void _scheduleEmptyAutoLoadMore() {
+    if (_emptyAutoLoadScheduled) return;
+    _emptyAutoLoadScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _emptyAutoLoadScheduled = false;
+      if (!mounted) return;
+      if (_isRequesting) return;
+      if (_emptyAutoLoadAttempts >= _kEmptyAutoLoadMaxAttempts) return;
+
+      final loaded = widget.appState.getItems(widget.parentId).length;
+      final total = widget.appState.getTotal(widget.parentId);
+      if (total != 0 && loaded >= total) return;
+
+      _emptyAutoLoadAttempts++;
+      unawaited(_load(reset: false, limit: 200));
+    });
+  }
+
+  Future<void> _load({required bool reset, int limit = 30}) async {
     if (_isRequesting) return;
     final items = widget.appState.getItems(widget.parentId);
     final total = widget.appState.getTotal(widget.parentId);
     final start = reset ? 0 : items.length;
     if (!reset && items.length >= total && total != 0) return;
+
     setState(() {
       _isRequesting = true;
       _loadingMore = true;
       if (reset) _error = null;
     });
+
+    if (reset) {
+      _lastServerQueryKey = _serverQueryKey();
+    }
+
     try {
       await widget.appState.loadItems(
         parentId: widget.parentId,
         startIndex: start,
-        limit: 30,
-        includeItemTypes: 'Series,Movie',
+        limit: limit,
+        includeItemTypes: _serverIncludeItemTypes(),
         recursive: true,
         excludeFolders: false,
         sortBy: _sortBy.serverValue,
         sortOrder: _sortOrder.serverValue,
+        genres: _serverGenres(),
+        years: _serverYears(),
+        minCommunityRating: _serverMinCommunityRating(),
+        isPlayed: _serverIsPlayed(),
+        isFavorite: _serverIsFavorite(),
+        seriesStatus: _serverSeriesStatus(),
       );
     } catch (e) {
       if (!mounted) return;
@@ -216,6 +599,23 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
           _loadingMore = false;
         });
       }
+      if (mounted && _pendingReload) {
+        _pendingReload = false;
+        _maybeReloadServer();
+      }
+    }
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scroll.hasClients) return;
+    try {
+      await _scroll.animateTo(
+        0,
+        duration: const Duration(milliseconds: 180),
+        curve: Curves.easeOut,
+      );
+    } catch (_) {
+      // ignore scroll errors
     }
   }
 
@@ -235,115 +635,340 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
       _sortBy = sortBy;
       _sortOrder = sortOrder;
       _error = null;
-      _prefetchEpoch++;
-      _prefetchingAll = false;
     });
+    _emptyAutoLoadAttempts = 0;
     unawaited(_persistPrefs());
-    unawaited(_scrollToTop());
-    unawaited(_load(reset: true).then((_) {
-      if (_viewMode == _LibraryItemsViewMode.tags) {
-        _startPrefetchAllIfNeeded();
-      }
-    }));
+    _maybeReloadServer();
   }
 
-  void _setViewMode(_LibraryItemsViewMode mode) {
-    if (_viewMode == mode) return;
-    setState(() {
-      _viewMode = mode;
-      _error = null;
-      if (mode != _LibraryItemsViewMode.tags) {
-        _prefetchEpoch++;
-        _prefetchingAll = false;
-      }
-    });
-    unawaited(_persistPrefs());
-    if (mode == _LibraryItemsViewMode.tags) {
-      _startPrefetchAllIfNeeded();
+  int? _itemYear(MediaItem item) {
+    final y = item.productionYear;
+    if (y != null && y > 0) return y;
+    final d = (item.premiereDate ?? '').trim();
+    if (d.isEmpty) return null;
+    final parsed = DateTime.tryParse(d);
+    return parsed?.year;
+  }
+
+  MapEntry<String, String>? _parseCustomPrefix(String raw) {
+    final v = raw.trim();
+    if (v.isEmpty) return null;
+    final idxAscii = v.indexOf(':');
+    final idxZh = v.indexOf('：');
+    int idx = -1;
+    if (idxAscii > 0) idx = idxAscii;
+    if (idxZh > 0 && (idx == -1 || idxZh < idx)) idx = idxZh;
+    if (idx <= 0 || idx >= v.length - 1) return null;
+    final prefix = v.substring(0, idx).trim();
+    final value = v.substring(idx + 1).trim();
+    if (prefix.isEmpty || value.isEmpty) return null;
+    return MapEntry(prefix, value);
+  }
+
+  bool _matchesRating(MediaItem item) {
+    if (_minRating == null && _maxRating == null) return true;
+    final rating = item.communityRating;
+    if (rating == null) return false;
+    final min = _minRating;
+    final max = _maxRating;
+    if (min != null && max != null) {
+      final low = min <= max ? min : max;
+      final high = min <= max ? max : min;
+      return rating >= low && rating <= high;
+    }
+    if (min != null && rating < min) return false;
+    if (max != null && rating > max) return false;
+    return true;
+  }
+
+  bool _matchesYear(MediaItem item) {
+    if (_selectedYear == null && _yearFrom == null && _yearTo == null) {
+      return true;
+    }
+    final year = _itemYear(item);
+    if (year == null) return false;
+    final selected = _selectedYear;
+    if (selected != null) return year == selected;
+    if (_yearFrom != null && _yearTo != null) {
+      final from = _yearFrom!;
+      final to = _yearTo!;
+      final minY = from <= to ? from : to;
+      final maxY = from <= to ? to : from;
+      return year >= minY && year <= maxY;
+    }
+    if (_yearFrom != null && year < _yearFrom!) return false;
+    if (_yearTo != null && year > _yearTo!) return false;
+    return true;
+  }
+
+  bool _matchesGenres(MediaItem item) {
+    if (_selectedGenres.isEmpty) return true;
+    return item.genres.any(_selectedGenres.contains);
+  }
+
+  bool _matchesSeriesStatus(MediaItem item) {
+    final filter = _seriesStatus;
+    if (filter == _SeriesStatusFilter.all) return true;
+    if (item.type != 'Series') return false;
+    final s = (item.status ?? '').trim().toLowerCase();
+    if (s.isEmpty) return false;
+    switch (filter) {
+      case _SeriesStatusFilter.continuing:
+        return s.contains('continu');
+      case _SeriesStatusFilter.ended:
+        return s.contains('ended');
+      case _SeriesStatusFilter.all:
+        return true;
     }
   }
 
-  Future<void> _scrollToTop() async {
-    if (!_scroll.hasClients) return;
-    try {
-      await _scroll.animateTo(
-        0,
-        duration: const Duration(milliseconds: 180),
-        curve: Curves.easeOut,
-      );
-    } catch (_) {
-      // ignore scroll errors
+  bool _matchesPlayed(MediaItem item) {
+    switch (_played) {
+      case _PlayedFilter.all:
+        return true;
+      case _PlayedFilter.unplayed:
+        return !item.played;
+      case _PlayedFilter.played:
+        return item.played;
     }
   }
 
-  void _startPrefetchAllIfNeeded() {
-    if (_prefetchingAll) return;
-    final epoch = ++_prefetchEpoch;
-    setState(() => _prefetchingAll = true);
-    unawaited(() async {
-      try {
-        while (mounted &&
-            epoch == _prefetchEpoch &&
-            _viewMode == _LibraryItemsViewMode.tags) {
-          final items = widget.appState.getItems(widget.parentId);
-          final total = widget.appState.getTotal(widget.parentId);
-          if (total != 0 && items.length >= total) break;
-          if (_isRequesting) {
-            await Future<void>.delayed(const Duration(milliseconds: 80));
-            continue;
-          }
-          await _loadPageForPrefetch(startIndex: items.length);
+  bool _matchesFavorite(MediaItem item) {
+    switch (_favorite) {
+      case _FavoriteFilter.all:
+        return true;
+      case _FavoriteFilter.notFavorite:
+        return !item.favorite;
+      case _FavoriteFilter.favorite:
+        return item.favorite;
+    }
+  }
+
+  bool _matchesCustomPrefixes(MediaItem item) {
+    if (_customPrefixSelections.isEmpty) return true;
+    for (final entry in _customPrefixSelections.entries) {
+      final prefix = entry.key.trim();
+      final selected = (entry.value ?? '').trim();
+      if (prefix.isEmpty || selected.isEmpty) continue;
+
+      bool matched = false;
+      for (final raw in <String>[...item.genres, ...item.tags]) {
+        final parsed = _parseCustomPrefix(raw);
+        if (parsed == null) continue;
+        if (parsed.key == prefix && parsed.value == selected) {
+          matched = true;
+          break;
         }
-      } finally {
-        if (mounted && epoch == _prefetchEpoch) {
-          setState(() => _prefetchingAll = false);
-        }
       }
-    }());
-  }
-
-  Future<void> _loadPageForPrefetch({required int startIndex}) async {
-    if (_isRequesting) return;
-    setState(() => _isRequesting = true);
-    try {
-      await widget.appState.loadItems(
-        parentId: widget.parentId,
-        startIndex: startIndex,
-        limit: 200,
-        includeItemTypes: 'Series,Movie',
-        recursive: true,
-        excludeFolders: false,
-        sortBy: _sortBy.serverValue,
-        sortOrder: _sortOrder.serverValue,
-      );
-    } catch (e) {
-      if (!mounted) return;
-      setState(() => _error = e.toString());
-    } finally {
-      if (mounted) setState(() => _isRequesting = false);
+      if (!matched) return false;
     }
+    return true;
   }
 
-  void _toggleTag(String tag) {
-    final normalized = tag.trim();
-    if (normalized.isEmpty) return;
-    setState(() {
-      if (_selectedTags.contains(normalized)) {
-        _selectedTags.remove(normalized);
-      } else {
-        _selectedTags.add(normalized);
-      }
-    });
+  bool _matchesAllFilters(
+    MediaItem item, {
+    required bool customPrefixEnabled,
+  }) {
+    if (!_matchesRating(item)) return false;
+    if (!_matchesYear(item)) return false;
+    if (!_matchesGenres(item)) return false;
+    if (!_matchesSeriesStatus(item)) return false;
+    if (!_matchesPlayed(item)) return false;
+    if (!_matchesFavorite(item)) return false;
+    if (customPrefixEnabled && !_matchesCustomPrefixes(item)) return false;
+    return true;
+  }
+
+  int _activeFilterCount({required bool customPrefixEnabled}) {
+    int count = 0;
+    if (_minRating != null || _maxRating != null) count++;
+    if (_selectedYear != null || _yearFrom != null || _yearTo != null) count++;
+    if (_selectedGenres.isNotEmpty) count++;
+    if (_seriesStatus != _SeriesStatusFilter.all) count++;
+    if (_played != _PlayedFilter.all) count++;
+    if (_favorite != _FavoriteFilter.all) count++;
+    if (customPrefixEnabled) {
+      count += _customPrefixSelections.entries
+          .map((e) => (e.value ?? '').trim())
+          .where((v) => v.isNotEmpty)
+          .length;
+    }
+    return count;
+  }
+
+  void _onFiltersChanged() {
+    _emptyAutoLoadAttempts = 0;
     unawaited(_persistPrefs());
+    _maybeReloadServer();
   }
 
   @override
   void dispose() {
+    _filterDebounce?.cancel();
+    _minRatingController.dispose();
+    _maxRatingController.dispose();
+    _yearFromController.dispose();
+    _yearToController.dispose();
     _scroll.dispose();
     super.dispose();
   }
 
   bool _isTv(BuildContext context) => DeviceType.isTv;
+
+  Widget _pill(
+    BuildContext context, {
+    required double uiScale,
+    required Widget child,
+    required VoidCallback? onTap,
+    bool selected = false,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final background = selected
+        ? scheme.primary.withValues(alpha: 0.16)
+        : scheme.surface.withValues(alpha: 0.10);
+    final border = selected
+        ? scheme.primary.withValues(alpha: 0.55)
+        : scheme.outline.withValues(alpha: 0.35);
+    final fg = selected ? scheme.primary : theme.iconTheme.color;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(999),
+        child: Container(
+          height: 36 * uiScale,
+          padding: EdgeInsets.symmetric(horizontal: 12 * uiScale),
+          decoration: BoxDecoration(
+            color: background,
+            borderRadius: BorderRadius.circular(999),
+            border: Border.all(color: border),
+          ),
+          child: IconTheme.merge(
+            data: IconThemeData(color: fg, size: 18 * uiScale),
+            child: DefaultTextStyle.merge(
+              style: TextStyle(
+                color: theme.textTheme.bodyMedium?.color,
+                fontSize: 13,
+              ),
+              child: child,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Color _optionSelectedBackground(ThemeData theme) {
+    final scheme = theme.colorScheme;
+    final alpha = theme.brightness == Brightness.dark ? 0.18 : 0.08;
+    return scheme.onSurface.withValues(alpha: alpha);
+  }
+
+  Widget _optionChip(
+    BuildContext context, {
+    required double uiScale,
+    required String label,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    final theme = Theme.of(context);
+    final fg =
+        selected ? theme.colorScheme.onSurface : theme.textTheme.bodyMedium?.color;
+    final weight = selected ? FontWeight.w600 : FontWeight.w400;
+    final bg = selected ? _optionSelectedBackground(theme) : null;
+
+    return Material(
+      color: Colors.transparent,
+      child: InkWell(
+        onTap: onTap,
+        child: Container(
+          padding: EdgeInsets.symmetric(
+            horizontal: 10 * uiScale,
+            vertical: 6 * uiScale,
+          ),
+          decoration: BoxDecoration(color: bg),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: weight,
+              color: fg,
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _numberField(
+    BuildContext context, {
+    required double uiScale,
+    required TextEditingController controller,
+    required String hintText,
+    required bool decimal,
+    double width = 92,
+  }) {
+    return ConstrainedBox(
+      constraints: BoxConstraints.tightFor(
+        width: width * uiScale,
+        height: 34 * uiScale,
+      ),
+      child: TextField(
+        controller: controller,
+        keyboardType: decimal
+            ? const TextInputType.numberWithOptions(decimal: true)
+            : TextInputType.number,
+        style: const TextStyle(fontSize: 13),
+        decoration: InputDecoration(
+          isDense: true,
+          hintText: hintText,
+          contentPadding: EdgeInsets.symmetric(
+            horizontal: 8 * uiScale,
+            vertical: 9 * uiScale,
+          ),
+          border: const OutlineInputBorder(
+            borderRadius: BorderRadius.zero,
+          ),
+        ),
+        onChanged: (_) => _scheduleFilterApply(),
+      ),
+    );
+  }
+
+  Widget _filterRow(
+    BuildContext context, {
+    required double uiScale,
+    required String label,
+    required List<Widget> children,
+  }) {
+    final theme = Theme.of(context);
+    return Padding(
+      padding: EdgeInsets.only(top: 10 * uiScale),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          SizedBox(
+            width: 76 * uiScale,
+            child: Text(
+              '$label：',
+              style: theme.textTheme.bodyMedium?.copyWith(
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+          ),
+          Expanded(
+            child: Wrap(
+              spacing: 8 * uiScale,
+              runSpacing: 8 * uiScale,
+              children: children,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -351,72 +976,63 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
       animation: widget.appState,
       builder: (context, _) {
         final allItems = widget.appState.getItems(widget.parentId);
-        final total = widget.appState.getTotal(widget.parentId);
-        final tags = <String>{};
+        final customPrefixEnabled =
+            widget.appState.libraryCustomPrefixFiltersEnabled;
+        final pinned = widget.appState.libraryFilterPanelPinned;
+
+        final genres = <String>{};
+        final years = <int>{};
+        final customGroups = <String, Set<String>>{};
         for (final item in allItems) {
-          for (final g in item.genres) {
-            final normalized = g.trim();
-            if (normalized.isNotEmpty) tags.add(normalized);
+          final y = _itemYear(item);
+          if (y != null) years.add(y);
+
+          for (final raw in item.genres) {
+            final normalized = raw.trim();
+            if (normalized.isEmpty) continue;
+            final parsed =
+                customPrefixEnabled ? _parseCustomPrefix(normalized) : null;
+            if (parsed != null) {
+              customGroups
+                  .putIfAbsent(parsed.key, () => <String>{})
+                  .add(parsed.value);
+              continue;
+            }
+            genres.add(normalized);
+          }
+
+          if (customPrefixEnabled) {
+            for (final raw in item.tags) {
+              final normalized = raw.trim();
+              if (normalized.isEmpty) continue;
+              final parsed = _parseCustomPrefix(normalized);
+              if (parsed == null) continue;
+              customGroups
+                  .putIfAbsent(parsed.key, () => <String>{})
+                  .add(parsed.value);
+            }
           }
         }
-        final tagList = tags.toList()
+        final genreList = genres.toList()
           ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        final yearList = years.toList()..sort((a, b) => b.compareTo(a));
+        final customGroupList = customGroups.entries.toList()
+          ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
-        final items = (_viewMode == _LibraryItemsViewMode.tags &&
-                _selectedTags.isNotEmpty)
-            ? allItems
-                .where((item) => item.genres.any(_selectedTags.contains))
-                .toList(growable: false)
-            : allItems;
+        final items = allItems
+            .where(
+              (item) => _matchesAllFilters(
+                item,
+                customPrefixEnabled: customPrefixEnabled,
+              ),
+            )
+            .toList(growable: false);
 
         final access = resolveServerAccess(appState: widget.appState);
         final uiScale = context.uiScale;
         final isTv = _isTv(context);
         final enableBlur = !isTv && widget.appState.enableBlurEffects;
         final maxCrossAxisExtent = (isTv ? 160.0 : 180.0) * uiScale;
-
-        Widget pill({
-          required Widget child,
-          required VoidCallback? onTap,
-          bool selected = false,
-        }) {
-          final theme = Theme.of(context);
-          final scheme = theme.colorScheme;
-          final background = selected
-              ? scheme.primary.withValues(alpha: 0.16)
-              : scheme.surface.withValues(alpha: 0.10);
-          final border = selected
-              ? scheme.primary.withValues(alpha: 0.55)
-              : scheme.outline.withValues(alpha: 0.35);
-          final fg = selected ? scheme.primary : theme.iconTheme.color;
-
-          return Material(
-            color: Colors.transparent,
-            child: InkWell(
-              onTap: onTap,
-              borderRadius: BorderRadius.circular(999),
-              child: Container(
-                height: 36 * uiScale,
-                padding: EdgeInsets.symmetric(horizontal: 12 * uiScale),
-                decoration: BoxDecoration(
-                  color: background,
-                  borderRadius: BorderRadius.circular(999),
-                  border: Border.all(color: border),
-                ),
-                child: IconTheme.merge(
-                  data: IconThemeData(color: fg, size: 18 * uiScale),
-                  child: DefaultTextStyle.merge(
-                    style: TextStyle(
-                      color: theme.textTheme.bodyMedium?.color,
-                      fontSize: 13,
-                    ),
-                    child: child,
-                  ),
-                ),
-              ),
-            ),
-          );
-        }
 
         PopupMenuItem<_LibraryItemsSortBy> sortItem({
           required _LibraryItemsSortBy value,
@@ -455,7 +1071,9 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                 ),
               ),
             ],
-            child: pill(
+            child: _pill(
+              context,
+              uiScale: uiScale,
               onTap: null,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
@@ -478,21 +1096,23 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
           );
         }
 
-        Widget tagButton() {
-          final selected = _viewMode == _LibraryItemsViewMode.tags;
-          final tagCount = _selectedTags.length;
-          final label = tagCount == 0 ? '标签' : '标签（$tagCount）';
-          return pill(
+        Widget filterButton() {
+          final active =
+              _activeFilterCount(customPrefixEnabled: customPrefixEnabled);
+          final label = active == 0 ? '筛选' : '筛选（$active）';
+          final selected = pinned || _filterPanelOpen;
+
+          return _pill(
+            context,
+            uiScale: uiScale,
             selected: selected,
-            onTap: () {
-              _setViewMode(selected
-                  ? _LibraryItemsViewMode.items
-                  : _LibraryItemsViewMode.tags);
-            },
+            onTap: pinned
+                ? null
+                : () => setState(() => _filterPanelOpen = !_filterPanelOpen),
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
-                const Icon(Icons.local_offer_rounded),
+                const Icon(Icons.tune_rounded),
                 SizedBox(width: 8 * uiScale),
                 Text(label),
               ],
@@ -500,78 +1120,303 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
           );
         }
 
-        Widget tagChipsBar() {
-          if (_viewMode != _LibraryItemsViewMode.tags) {
-            return const SizedBox.shrink();
-          }
+        Widget filterPanel() {
+          final show = pinned || _filterPanelOpen;
+          if (!show) return const SizedBox.shrink();
 
-          final progressText = total == 0
-              ? (allItems.isEmpty ? '加载中…' : '已加载 ${allItems.length}')
-              : '已加载 ${allItems.length} / $total';
+          final displayGenres = _showAllGenres
+              ? genreList
+              : (genreList.length <= 18
+                  ? genreList
+                  : genreList.take(18).toList());
+          final displayYears = _showAllYears
+              ? yearList
+              : (yearList.length <= 20 ? yearList : yearList.take(20).toList());
+
+          final noRatingFilter = _minRating == null && _maxRating == null;
+          final noYearFilter =
+              _selectedYear == null && _yearFrom == null && _yearTo == null;
 
           return Padding(
             padding: EdgeInsets.only(top: 10 * uiScale),
             child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                SizedBox(
-                  height: 42 * uiScale,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: EdgeInsets.symmetric(horizontal: 12 * uiScale),
-                    itemCount: 1 + tagList.length,
-                    separatorBuilder: (_, __) => SizedBox(width: 8 * uiScale),
-                    itemBuilder: (context, index) {
-                      if (index == 0) {
-                        final selected = _selectedTags.isEmpty;
-                        return FilterChip(
-                          selected: selected,
-                          label: const Text('全部'),
-                          onSelected: (_) {
-                            if (_selectedTags.isEmpty) return;
-                            setState(() => _selectedTags.clear());
-                            unawaited(_persistPrefs());
-                          },
-                        );
-                      }
-                      final tag = tagList[index - 1];
-                      final selected = _selectedTags.contains(tag);
-                      return FilterChip(
-                        selected: selected,
-                        label: Text(tag),
-                        onSelected: (_) => _toggleTag(tag),
-                      );
-                    },
-                  ),
-                ),
-                Padding(
-                  padding: EdgeInsets.only(top: 6 * uiScale),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Text(
-                        progressText,
-                        style: Theme.of(context)
-                            .textTheme
-                            .bodySmall
-                            ?.copyWith(
-                              color: Theme.of(context)
-                                  .textTheme
-                                  .bodySmall
-                                  ?.color
-                                  ?.withValues(alpha: 0.75),
-                            ),
-                      ),
-                      if (_prefetchingAll) ...[
-                        SizedBox(width: 10 * uiScale),
-                        SizedBox(
-                          width: 14 * uiScale,
-                          height: 14 * uiScale,
-                          child: const CircularProgressIndicator(strokeWidth: 2),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '评分',
+                  children: [
+                    _optionChip(
+                      context,
+                      uiScale: uiScale,
+                      label: '全部',
+                      selected: noRatingFilter,
+                      onTap: () {
+                        if (noRatingFilter) return;
+                        _filterDebounce?.cancel();
+                        _minRatingController.text = '';
+                        _maxRatingController.text = '';
+                        setState(() {
+                          _minRating = null;
+                          _maxRating = null;
+                        });
+                        _onFiltersChanged();
+                      },
+                    ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _numberField(
+                          context,
+                          uiScale: uiScale,
+                          controller: _minRatingController,
+                          hintText: '最低',
+                          decimal: true,
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6 * uiScale),
+                          child: const Text('~'),
+                        ),
+                        _numberField(
+                          context,
+                          uiScale: uiScale,
+                          controller: _maxRatingController,
+                          hintText: '最高',
+                          decimal: true,
                         ),
                       ],
-                    ],
-                  ),
+                    ),
+                  ],
                 ),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '年份',
+                  children: [
+                    _optionChip(
+                      context,
+                      uiScale: uiScale,
+                      label: '全部',
+                      selected: noYearFilter,
+                      onTap: () {
+                        if (noYearFilter) return;
+                        _filterDebounce?.cancel();
+                        _yearFromController.text = '';
+                        _yearToController.text = '';
+                        setState(() {
+                          _selectedYear = null;
+                          _yearFrom = null;
+                          _yearTo = null;
+                        });
+                        _onFiltersChanged();
+                      },
+                    ),
+                    for (final y in displayYears)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: y.toString(),
+                        selected: _selectedYear == y,
+                        onTap: () {
+                          _filterDebounce?.cancel();
+                          final next = _selectedYear == y ? null : y;
+                          _yearFromController.text = '';
+                          _yearToController.text = '';
+                          setState(() {
+                            _selectedYear = next;
+                            _yearFrom = null;
+                            _yearTo = null;
+                          });
+                          _onFiltersChanged();
+                        },
+                      ),
+                    if (yearList.length > displayYears.length)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: _showAllYears ? '收起' : '更多',
+                        selected: _showAllYears,
+                        onTap: () =>
+                            setState(() => _showAllYears = !_showAllYears),
+                      ),
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        _numberField(
+                          context,
+                          uiScale: uiScale,
+                          controller: _yearFromController,
+                          hintText: '从',
+                          decimal: false,
+                          width: 78,
+                        ),
+                        Padding(
+                          padding: EdgeInsets.symmetric(horizontal: 6 * uiScale),
+                          child: const Text('~'),
+                        ),
+                        _numberField(
+                          context,
+                          uiScale: uiScale,
+                          controller: _yearToController,
+                          hintText: '到',
+                          decimal: false,
+                          width: 78,
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '类型',
+                  children: [
+                    _optionChip(
+                      context,
+                      uiScale: uiScale,
+                      label: '全部',
+                      selected: _selectedGenres.isEmpty,
+                      onTap: () {
+                        if (_selectedGenres.isEmpty) return;
+                        setState(() => _selectedGenres.clear());
+                        _onFiltersChanged();
+                      },
+                    ),
+                    for (final g in displayGenres)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: g,
+                        selected: _selectedGenres.contains(g),
+                        onTap: () {
+                          setState(() {
+                            if (_selectedGenres.contains(g)) {
+                              _selectedGenres.remove(g);
+                            } else {
+                              _selectedGenres.add(g);
+                            }
+                          });
+                          _onFiltersChanged();
+                        },
+                      ),
+                    if (genreList.length > displayGenres.length)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: _showAllGenres ? '收起' : '更多',
+                        selected: _showAllGenres,
+                        onTap: () =>
+                            setState(() => _showAllGenres = !_showAllGenres),
+                      ),
+                  ],
+                ),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '完结状态',
+                  children: [
+                    for (final v in _SeriesStatusFilter.values)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: v.zhLabel,
+                        selected: _seriesStatus == v,
+                        onTap: () {
+                          if (_seriesStatus == v) return;
+                          setState(() => _seriesStatus = v);
+                          _onFiltersChanged();
+                        },
+                      ),
+                  ],
+                ),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '观看',
+                  children: [
+                    for (final v in _PlayedFilter.values)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: v.zhLabel,
+                        selected: _played == v,
+                        onTap: () {
+                          if (_played == v) return;
+                          setState(() => _played = v);
+                          _onFiltersChanged();
+                        },
+                      ),
+                  ],
+                ),
+                _filterRow(
+                  context,
+                  uiScale: uiScale,
+                  label: '喜欢',
+                  children: [
+                    for (final v in _FavoriteFilter.values)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: v.zhLabel,
+                        selected: _favorite == v,
+                        onTap: () {
+                          if (_favorite == v) return;
+                          setState(() => _favorite = v);
+                          _onFiltersChanged();
+                        },
+                      ),
+                  ],
+                ),
+                if (customPrefixEnabled)
+                  for (final entry in customGroupList)
+                    _filterRow(
+                      context,
+                      uiScale: uiScale,
+                      label: entry.key,
+                      children: [
+                        _optionChip(
+                          context,
+                          uiScale: uiScale,
+                          label: '全部',
+                          selected: (_customPrefixSelections[entry.key] ?? '')
+                              .trim()
+                              .isEmpty,
+                          onTap: () {
+                            if ((_customPrefixSelections[entry.key] ?? '')
+                                .trim()
+                                .isEmpty) {
+                              return;
+                            }
+                            setState(
+                              () => _customPrefixSelections.remove(entry.key),
+                            );
+                            _onFiltersChanged();
+                          },
+                        ),
+                        for (final value in (entry.value.toList()
+                          ..sort((a, b) =>
+                              a.toLowerCase().compareTo(b.toLowerCase()))))
+                          _optionChip(
+                            context,
+                            uiScale: uiScale,
+                            label: value,
+                            selected: _customPrefixSelections[entry.key] == value,
+                            onTap: () {
+                              final current =
+                                  _customPrefixSelections[entry.key];
+                              setState(() {
+                                if (current == value) {
+                                  _customPrefixSelections.remove(entry.key);
+                                } else {
+                                  _customPrefixSelections[entry.key] = value;
+                                }
+                              });
+                              _onFiltersChanged();
+                            },
+                          ),
+                      ],
+                    ),
               ],
             ),
           );
@@ -586,54 +1431,97 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
             return Center(child: Text(_error!));
           }
 
-          if (items.isEmpty && _viewMode == _LibraryItemsViewMode.tags) {
-            return const Center(child: Text('没有匹配的项目'));
+          if (items.isEmpty && allItems.isNotEmpty) {
+            final total = widget.appState.getTotal(widget.parentId);
+            final canLoadMore = total == 0 || allItems.length < total;
+            final canAutoLoad = _emptyAutoLoadAttempts < _kEmptyAutoLoadMaxAttempts;
+            if (canLoadMore && !_isRequesting && !_loadingMore && canAutoLoad) {
+              _scheduleEmptyAutoLoadMore();
+            }
+
+            final showLoading = canLoadMore && (_loadingMore || _isRequesting);
+            final showManualLoad = canLoadMore && !canAutoLoad;
+
+            return Center(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Text(
+                      (canLoadMore && canAutoLoad)
+                          ? '没有匹配的项目，继续加载中…'
+                          : '没有匹配的项目',
+                    ),
+                    if (showLoading) ...[
+                      const SizedBox(height: 12),
+                      const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ],
+                    if (showManualLoad) ...[
+                      const SizedBox(height: 12),
+                      TextButton(
+                        onPressed: _loadingMore
+                            ? null
+                            : () => unawaited(_load(reset: false, limit: 200)),
+                        child: const Text('继续加载'),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+            );
           }
 
           return Padding(
             padding: const EdgeInsets.all(12),
-            child: GridView.builder(
-              controller: _scroll,
-              gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-                maxCrossAxisExtent: maxCrossAxisExtent,
-                mainAxisSpacing: 10,
-                crossAxisSpacing: 10,
-                childAspectRatio: 0.7,
-              ),
-              itemCount: items.length + (_loadingMore ? 1 : 0),
-              itemBuilder: (context, index) {
-                if (index >= items.length) {
-                  return const Center(child: CircularProgressIndicator());
-                }
-                final item = items[index];
-                return _GridItem(
-                  item: item,
-                  appState: widget.appState,
-                  access: access,
-                  onTap: () {
-                    final openItem = widget.onOpenItem;
-                    if (openItem != null) {
-                      openItem(item);
-                      if (Navigator.of(context).canPop()) {
-                        Navigator.of(context)
-                            .pop(LibraryItemsPageResult.openedItem);
+            child: NotificationListener<ScrollNotification>(
+              onNotification: _handleGridScrollNotification,
+              child: GridView.builder(
+                controller: _scroll,
+                gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: maxCrossAxisExtent,
+                  mainAxisSpacing: 10,
+                  crossAxisSpacing: 10,
+                  childAspectRatio: 0.7,
+                ),
+                itemCount: items.length + (_loadingMore ? 1 : 0),
+                itemBuilder: (context, index) {
+                  if (index >= items.length) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+                  final item = items[index];
+                  return _GridItem(
+                    item: item,
+                    access: access,
+                    onTap: () {
+                      final openItem = widget.onOpenItem;
+                      if (openItem != null) {
+                        openItem(item);
+                        if (Navigator.of(context).canPop()) {
+                          Navigator.of(context)
+                              .pop(LibraryItemsPageResult.openedItem);
+                        }
+                        return;
                       }
-                      return;
-                    }
 
-                    Navigator.of(context).push(
-                      MaterialPageRoute(
-                        builder: (_) => ShowDetailPage(
-                          itemId: item.id,
-                          title: item.name,
-                          appState: widget.appState,
-                          isTv: isTv,
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => ShowDetailPage(
+                            itemId: item.id,
+                            title: item.name,
+                            appState: widget.appState,
+                            isTv: isTv,
+                          ),
                         ),
-                      ),
-                    );
-                  },
-                );
-              },
+                      );
+                    },
+                  );
+                },
+              ),
             ),
           );
         }
@@ -647,79 +1535,63 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
           ),
           body: Column(
             children: [
-              SizedBox(height: 10 * uiScale),
               if (!isTv)
-                Center(
-                  child: Wrap(
-                    spacing: 10 * uiScale,
-                    runSpacing: 10 * uiScale,
-                    alignment: WrapAlignment.center,
-                    children: [
-                      sortButton(),
-                      tagButton(),
-                    ],
+                ClipRect(
+                  child: Align(
+                    alignment: Alignment.topLeft,
+                    heightFactor: _topControlsVisibility,
+                    child: Opacity(
+                      opacity: _topControlsVisibility,
+                      child: Padding(
+                        padding: EdgeInsets.fromLTRB(
+                          12,
+                          10 * uiScale,
+                          12,
+                          0,
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Wrap(
+                              spacing: 10 * uiScale,
+                              runSpacing: 10 * uiScale,
+                              children: [
+                                sortButton(),
+                                filterButton(),
+                              ],
+                            ),
+                            AnimatedSwitcher(
+                              duration: const Duration(milliseconds: 180),
+                              transitionBuilder: (child, anim) {
+                                return FadeTransition(
+                                  opacity: anim,
+                                  child: SizeTransition(
+                                    sizeFactor: anim,
+                                    axisAlignment: -1,
+                                    child: child,
+                                  ),
+                                );
+                              },
+                              child: (pinned || _filterPanelOpen)
+                                  ? Container(
+                                      key: const ValueKey('filterPanel'),
+                                      child: filterPanel(),
+                                    )
+                                  : const SizedBox(
+                                      key: ValueKey('filterPanelClosed'),
+                                    ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
                   ),
                 ),
-              tagChipsBar(),
               Expanded(child: content()),
             ],
           ),
         );
       },
-    );
-  }
-}
-
-class _GridItem extends StatelessWidget {
-  const _GridItem({
-    required this.item,
-    required this.appState,
-    required this.access,
-    required this.onTap,
-  });
-
-  final MediaItem item;
-  final AppState appState;
-  final ServerAccess? access;
-  final VoidCallback onTap;
-
-  String _yearOf() {
-    final d = (item.premiereDate ?? '').trim();
-    if (d.isEmpty) return '';
-    final parsed = DateTime.tryParse(d);
-    if (parsed != null) return parsed.year.toString();
-    return d.length >= 4 ? d.substring(0, 4) : '';
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final access = this.access;
-    final image = item.hasImage && access != null
-        ? access.adapter.imageUrl(
-            access.auth,
-            itemId: item.id,
-            imageType: 'Primary',
-            maxWidth: 320,
-          )
-        : null;
-
-    final year = _yearOf();
-    final rating = item.communityRating;
-
-    String badge = '';
-    if (item.type == 'Movie') {
-      badge = '电影';
-    } else if (item.type == 'Series') {
-      badge = '剧集';
-    }
-
-    return MediaPosterTile(
-      title: item.name,
-      imageUrl: image,
-      year: year,
-      rating: rating,
-      badgeText: badge,
-      onTap: onTap,
     );
   }
 }

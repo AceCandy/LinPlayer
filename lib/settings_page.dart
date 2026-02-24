@@ -2235,6 +2235,22 @@ class _SettingsPageState extends State<SettingsPage> {
                       subtitle: const Text('在首页“继续观看”下方显示媒体库快速访问栏'),
                       contentPadding: EdgeInsets.zero,
                     ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      value: appState.libraryFilterPanelPinned,
+                      onChanged: (v) => appState.setLibraryFilterPanelPinned(v),
+                      title: const Text('常驻筛选面板'),
+                      subtitle: const Text('在媒体库详情页常驻显示筛选面板'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    const Divider(height: 1),
+                    SwitchListTile(
+                      value: appState.libraryCustomPrefixFiltersEnabled,
+                      onChanged: (v) =>
+                          appState.setLibraryCustomPrefixFiltersEnabled(v),
+                      title: const Text('自定义 Tag/Genre 前缀筛选'),
+                      contentPadding: EdgeInsets.zero,
+                    ),
                   ],
                 ),
               ),

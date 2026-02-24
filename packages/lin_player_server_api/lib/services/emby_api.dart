@@ -73,7 +73,10 @@ class MediaItem {
   final String overview;
   final double? communityRating;
   final String? premiereDate;
+  final int? productionYear;
+  final String? status;
   final List<String> genres;
+  final List<String> tags;
   final int? runTimeTicks;
   final int? sizeBytes;
   final String? container;
@@ -87,6 +90,7 @@ class MediaItem {
   final String? parentId;
   final int playbackPositionTicks;
   final bool played;
+  final bool favorite;
   final List<MediaPerson> people;
   MediaItem({
     required this.id,
@@ -95,7 +99,10 @@ class MediaItem {
     required this.overview,
     required this.communityRating,
     required this.premiereDate,
+    this.productionYear,
+    this.status,
     required this.genres,
+    this.tags = const <String>[],
     required this.runTimeTicks,
     required this.sizeBytes,
     required this.container,
@@ -108,6 +115,7 @@ class MediaItem {
     required this.hasImage,
     required this.playbackPositionTicks,
     this.played = false,
+    this.favorite = false,
     required this.people,
     this.parentId,
   });
@@ -119,7 +127,10 @@ class MediaItem {
         overview: json['Overview'] as String? ?? '',
         communityRating: (json['CommunityRating'] as num?)?.toDouble(),
         premiereDate: json['PremiereDate'] as String?,
-        genres: (json['Genres'] as List?)?.cast<String>() ?? const [],
+        productionYear: json['ProductionYear'] as int?,
+        status: json['Status'] as String?,
+        genres: (json['Genres'] as List?)?.cast<String>() ?? const <String>[],
+        tags: (json['Tags'] as List?)?.cast<String>() ?? const <String>[],
         runTimeTicks: json['RunTimeTicks'] as int?,
         sizeBytes: json['Size'] as int?,
         container: json['Container'] as String?,
@@ -136,6 +147,7 @@ class MediaItem {
         playbackPositionTicks:
             (json['UserData'] as Map?)?['PlaybackPositionTicks'] as int? ?? 0,
         played: (json['UserData'] as Map?)?['Played'] == true,
+        favorite: (json['UserData'] as Map?)?['IsFavorite'] == true,
         people: (json['People'] as List?)
                 ?.map((e) => MediaPerson.fromJson(e as Map<String, dynamic>))
                 .toList() ??
@@ -150,7 +162,10 @@ class MediaItem {
         'Overview': overview,
         'CommunityRating': communityRating,
         'PremiereDate': premiereDate,
+        'ProductionYear': productionYear,
+        'Status': status,
         'Genres': genres,
+        'Tags': tags,
         'RunTimeTicks': runTimeTicks,
         'Size': sizeBytes,
         'Container': container,
@@ -164,6 +179,7 @@ class MediaItem {
         'UserData': {
           'PlaybackPositionTicks': playbackPositionTicks,
           'Played': played,
+          'IsFavorite': favorite,
         },
         'People': people.map((e) => e.toJson()).toList(),
         'ParentId': parentId,
@@ -807,9 +823,13 @@ class EmbyApi {
     List<String>? genres,
     List<int>? years,
     List<String>? personIds,
+    double? minCommunityRating,
+    bool? isPlayed,
+    bool? isFavorite,
+    List<String>? seriesStatus,
   }) async {
     final resolvedFields = (fields == null || fields.trim().isEmpty)
-        ? 'Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,CommunityRating,PremiereDate'
+        ? 'Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,PrimaryImageAspectRatio,RunTimeTicks,Size,Container,Genres,Tags,CommunityRating,PremiereDate,ProductionYear,Status,UserData'
         : fields.trim();
     final params = <String>[
       if (parentId != null && parentId.isNotEmpty) 'ParentId=$parentId',
@@ -852,6 +872,27 @@ class EmbyApi {
     }
     if (searchTerm != null && searchTerm.isNotEmpty) {
       params.add('SearchTerm=${Uri.encodeComponent(searchTerm)}');
+    }
+    if (minCommunityRating != null) {
+      params.add('MinCommunityRating=$minCommunityRating');
+    }
+    if (isPlayed != null) {
+      params.add('IsPlayed=$isPlayed');
+    }
+    if (isFavorite != null) {
+      params.add('IsFavorite=$isFavorite');
+    }
+    final resolvedSeriesStatus = seriesStatus
+        ?.map((value) => value.trim())
+        .where((value) => value.isNotEmpty)
+        .toSet()
+        .toList(growable: false);
+    if (resolvedSeriesStatus != null && resolvedSeriesStatus.isNotEmpty) {
+      resolvedSeriesStatus
+          .sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      params.add(
+        'SeriesStatus=${Uri.encodeComponent(resolvedSeriesStatus.join(','))}',
+      );
     }
     final url =
         Uri.parse(_apiUrl(baseUrl, 'Users/$userId/Items?${params.join('&')}'));
