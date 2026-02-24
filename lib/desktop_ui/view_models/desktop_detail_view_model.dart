@@ -32,14 +32,17 @@ class DesktopDetailViewModel extends ChangeNotifier {
   List<MediaPerson> _people = const <MediaPerson>[];
   PlaybackInfoResult? _playbackInfo;
   bool _loading = false;
+  bool _episodesLoading = false;
   String? _error;
   bool _favorite = false;
   ServerAccess? _access;
   bool _disposed = false;
+  int _loadGeneration = 0;
 
   MediaItem get detail => _detail;
   List<MediaItem> get seasons => _seasons;
   List<MediaItem> get episodes => _episodes;
+  bool get episodesLoading => _episodesLoading;
   List<MediaItem> get similar => _similar;
   List<MediaPerson> get people => _people;
   PlaybackInfoResult? get playbackInfo => _playbackInfo;
@@ -90,6 +93,9 @@ class DesktopDetailViewModel extends ChangeNotifier {
     if (_disposed) return;
     notifyListeners();
   }
+
+  bool _isActiveLoad(int generation) =>
+      !_disposed && _loadGeneration == generation;
 
   static String _seasonsCacheKey({
     required String serverId,
@@ -279,6 +285,98 @@ class DesktopDetailViewModel extends ChangeNotifier {
     return mutable;
   }
 
+  static List<MediaItem> _sortEpisodes(List<MediaItem> episodes) {
+    final mutable = List<MediaItem>.from(episodes);
+    mutable.sort((a, b) {
+      final aSeason = a.seasonNumber ?? 0;
+      final bSeason = b.seasonNumber ?? 0;
+      final seasonDiff = aSeason.compareTo(bSeason);
+      if (seasonDiff != 0) return seasonDiff;
+
+      final aNo = a.episodeNumber ?? 0;
+      final bNo = b.episodeNumber ?? 0;
+      final diff = aNo.compareTo(bNo);
+      if (diff != 0) return diff;
+      return a.name.toLowerCase().compareTo(b.name.toLowerCase());
+    });
+    return mutable;
+  }
+
+  Future<List<MediaItem>> _fetchEpisodePreview({
+    required ServerAccess access,
+    required String seasonId,
+    String? seriesIdForRecursive,
+  }) async {
+    final resolvedSeasonId = seasonId.trim();
+    final resolvedSeriesId = (seriesIdForRecursive ?? '').trim();
+    if (resolvedSeasonId.isEmpty) return const <MediaItem>[];
+
+    try {
+      final episodeResult = await access.adapter.fetchEpisodes(
+        access.auth,
+        seasonId: resolvedSeasonId,
+      );
+      final preview =
+          _sortEpisodes(episodeResult.items).take(24).toList(growable: false);
+      if (preview.isNotEmpty || resolvedSeriesId.isEmpty) return preview;
+    } catch (_) {
+      if (resolvedSeriesId.isEmpty) return const <MediaItem>[];
+    }
+
+    try {
+      final recursiveResult = await access.adapter.fetchItems(
+        access.auth,
+        parentId: resolvedSeriesId,
+        includeItemTypes: 'Episode',
+        recursive: true,
+        limit: 200,
+        sortBy: 'IndexNumber',
+        sortOrder: 'Ascending',
+      );
+      return _sortEpisodes(recursiveResult.items)
+          .take(24)
+          .toList(growable: false);
+    } catch (_) {
+      return const <MediaItem>[];
+    }
+  }
+
+  Future<void> _retryLoadEpisodes({
+    required int loadGeneration,
+    required ServerAccess access,
+    required String seasonId,
+    String? seriesIdForRecursive,
+  }) async {
+    const delays = <Duration>[
+      Duration(seconds: 1),
+      Duration(seconds: 2),
+      Duration(seconds: 4),
+      Duration(seconds: 8),
+      Duration(seconds: 16),
+    ];
+    for (final delay in delays) {
+      await Future.delayed(delay);
+      if (!_isActiveLoad(loadGeneration)) return;
+
+      final episodes = await _fetchEpisodePreview(
+        access: access,
+        seasonId: seasonId,
+        seriesIdForRecursive: seriesIdForRecursive,
+      );
+      if (!_isActiveLoad(loadGeneration)) return;
+      if (episodes.isEmpty) continue;
+
+      _episodes = episodes;
+      _episodesLoading = false;
+      _safeNotifyListeners();
+      return;
+    }
+
+    if (!_isActiveLoad(loadGeneration)) return;
+    _episodesLoading = false;
+    _safeNotifyListeners();
+  }
+
   static Future<void> _purgeExpiredSeasonCache() async {
     final nowMs = DateTime.now().millisecondsSinceEpoch;
     if (nowMs - _seasonsCacheLastPurgeAtMs <=
@@ -397,7 +495,9 @@ class DesktopDetailViewModel extends ChangeNotifier {
   Future<void> load({bool forceRefresh = false}) async {
     if (_loading && !forceRefresh) return;
 
+    final loadGeneration = ++_loadGeneration;
     _loading = true;
+    _episodesLoading = false;
     _error = null;
     _safeNotifyListeners();
 
@@ -406,9 +506,12 @@ class DesktopDetailViewModel extends ChangeNotifier {
     final currentAccess =
         resolveServerAccess(appState: appState, server: server);
     if (currentAccess == null) {
-      _loading = false;
-      _error = 'No active media server session';
-      _safeNotifyListeners();
+      if (_isActiveLoad(loadGeneration)) {
+        _loading = false;
+        _episodesLoading = false;
+        _error = 'No active media server session';
+        _safeNotifyListeners();
+      }
       return;
     }
 
@@ -436,35 +539,35 @@ class DesktopDetailViewModel extends ChangeNotifier {
           .catchError((_) => _seedItem);
 
       final cachedSeasons = await cachedSeasonsFuture;
+      if (!_isActiveLoad(loadGeneration)) return;
       if (cachedSeasons != null && cachedSeasons.isNotEmpty) {
         _seasons = cachedSeasons;
         _safeNotifyListeners();
       }
 
       final detailItem = await detailFuture;
+      if (!_isActiveLoad(loadGeneration)) return;
       _detail = detailItem;
       _people = detailItem.people;
       _safeNotifyListeners();
 
-      final relatedFuture = _fetchRelatedByTagsAndYear(
-        access: currentAccess,
-        detailItem: detailItem,
-      );
-      final Future<PlaybackInfoResult?> playbackFuture = currentAccess.adapter
-          .fetchPlaybackInfo(
-            currentAccess.auth,
-            itemId: detailItem.id,
-          )
-          .then<PlaybackInfoResult?>((value) => value)
-          .catchError((_) => null);
-
       List<MediaItem> seasons = const <MediaItem>[];
-      List<MediaItem> episodes = const <MediaItem>[];
 
       final type = detailItem.type.trim().toLowerCase();
+      final isMovie = type == 'movie';
       final isSeries = type == 'series';
       final isSeason = type == 'season';
       final isEpisode = type == 'episode';
+
+      final Future<PlaybackInfoResult?> playbackFuture = (isEpisode || isMovie)
+          ? currentAccess.adapter
+              .fetchPlaybackInfo(
+                currentAccess.auth,
+                itemId: detailItem.id,
+              )
+              .then<PlaybackInfoResult?>((value) => value)
+              .catchError((_) => null)
+          : Future<PlaybackInfoResult?>.value(null);
 
       final seriesId = _resolveSeriesId(detailItem);
       seasons = cachedSeasons ?? const <MediaItem>[];
@@ -598,39 +701,61 @@ class DesktopDetailViewModel extends ChangeNotifier {
                           : (detailItem.parentId ?? '').trim())
           .trim();
 
-      if (seasonIdForEpisodes.isNotEmpty) {
-        try {
-          final episodeResult = await currentAccess.adapter.fetchEpisodes(
-            currentAccess.auth,
-            seasonId: seasonIdForEpisodes,
+      if (!isMovie && seasonIdForEpisodes.isNotEmpty) {
+        _episodesLoading = true;
+        _safeNotifyListeners();
+
+        final recursiveFallbackId =
+            isSeries && seasonIdForEpisodes == seriesId ? seriesId : null;
+        final episodePreview = await _fetchEpisodePreview(
+          access: currentAccess,
+          seasonId: seasonIdForEpisodes,
+          seriesIdForRecursive: recursiveFallbackId,
+        );
+        if (!_isActiveLoad(loadGeneration)) return;
+        _episodes = episodePreview;
+        _safeNotifyListeners();
+
+        if (episodePreview.isNotEmpty) {
+          _episodesLoading = false;
+          _safeNotifyListeners();
+        } else {
+          unawaited(
+            _retryLoadEpisodes(
+              loadGeneration: loadGeneration,
+              access: currentAccess,
+              seasonId: seasonIdForEpisodes,
+              seriesIdForRecursive: recursiveFallbackId,
+            ),
           );
-          final items = List<MediaItem>.from(episodeResult.items);
-          items.sort((a, b) {
-            final aNo = a.episodeNumber ?? 0;
-            final bNo = b.episodeNumber ?? 0;
-            final diff = aNo.compareTo(bNo);
-            if (diff != 0) return diff;
-            return a.name.toLowerCase().compareTo(b.name.toLowerCase());
-          });
-          episodes = items.take(24).toList(growable: false);
-        } catch (_) {
-          episodes = const <MediaItem>[];
         }
+      } else {
+        _episodesLoading = false;
       }
 
-      final relatedItems = await relatedFuture;
       final playbackInfo = await playbackFuture;
-
-      _episodes = episodes;
-      _similar =
-          relatedItems.where((item) => item.id != detailItem.id).toList();
+      if (!_isActiveLoad(loadGeneration)) return;
       _playbackInfo = playbackInfo;
+
+      final relatedItems = await _fetchRelatedByTagsAndYear(
+        access: currentAccess,
+        detailItem: detailItem,
+      ).catchError((_) => const <MediaItem>[]);
+      if (!_isActiveLoad(loadGeneration)) return;
+      _similar = relatedItems
+          .where((item) => item.id.trim().isNotEmpty && item.id != detailItem.id)
+          .toList(growable: false);
     } catch (e) {
-      _error = e.toString();
-      _playbackInfo = null;
+      if (_isActiveLoad(loadGeneration)) {
+        _error = e.toString();
+        _playbackInfo = null;
+        _episodesLoading = false;
+      }
     } finally {
-      _loading = false;
-      _safeNotifyListeners();
+      if (_isActiveLoad(loadGeneration)) {
+        _loading = false;
+        _safeNotifyListeners();
+      }
     }
   }
 }

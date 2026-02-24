@@ -652,11 +652,22 @@ class _MediaCategorySectionState extends State<_MediaCategorySection> {
         ? event.scrollDelta.dy
         : event.scrollDelta.dx;
     if (delta == 0) return;
+    final position = _controller.position;
     final target = (_controller.offset + delta).clamp(
-      _controller.position.minScrollExtent,
-      _controller.position.maxScrollExtent,
+      position.minScrollExtent,
+      position.maxScrollExtent,
     );
-    _controller.jumpTo(target);
+    final distance = (target - _controller.offset).abs();
+    if (distance < 0.5) return;
+    final durationMs = (distance / 1.5).round();
+    final clampedMs = durationMs < 1 ? 1 : (durationMs > 220 ? 220 : durationMs);
+    unawaited(
+      _controller.animateTo(
+        target,
+        duration: Duration(milliseconds: clampedMs),
+        curve: Curves.linear,
+      ),
+    );
   }
 
   void _centerLibraryCard({

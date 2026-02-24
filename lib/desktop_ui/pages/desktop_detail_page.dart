@@ -24,6 +24,32 @@ typedef DesktopDetailOpenItem = void Function(
   ServerProfile? server,
 ]);
 
+void _animateScrollByPointerDelta({
+  required ScrollController controller,
+  required PointerScrollEvent event,
+}) {
+  final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
+      ? event.scrollDelta.dy
+      : event.scrollDelta.dx;
+  if (delta == 0) return;
+  final position = controller.position;
+  final target = (controller.offset + delta).clamp(
+    position.minScrollExtent,
+    position.maxScrollExtent,
+  );
+  final distance = (target - controller.offset).abs();
+  if (distance < 0.5) return;
+
+  final durationMs = math.max(1, math.min(220, (distance / 1.5).round()));
+  unawaited(
+    controller.animateTo(
+      target,
+      duration: Duration(milliseconds: durationMs),
+      curve: Curves.linear,
+    ),
+  );
+}
+
 class DesktopDetailPage extends StatefulWidget {
   const DesktopDetailPage({
     super.key,
@@ -753,6 +779,7 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
                         language: widget.language,
                       ),
                       episodes: vm.episodes,
+                      episodesLoading: vm.episodesLoading,
                       currentItemId: item.id,
                       access: vm.access,
                       language: widget.language,
@@ -2014,15 +2041,7 @@ class _SeasonHorizontalListState extends State<_SeasonHorizontalList> {
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent || !_controller.hasClients) return;
-    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-        ? event.scrollDelta.dy
-        : event.scrollDelta.dx;
-    if (delta == 0) return;
-    final target = (_controller.offset + delta).clamp(
-      _controller.position.minScrollExtent,
-      _controller.position.maxScrollExtent,
-    );
-    _controller.jumpTo(target);
+    _animateScrollByPointerDelta(controller: _controller, event: event);
   }
 
   @override
@@ -2207,6 +2226,7 @@ class _SeasonEpisodesSection extends StatelessWidget {
   const _SeasonEpisodesSection({
     required this.title,
     required this.episodes,
+    required this.episodesLoading,
     required this.currentItemId,
     required this.access,
     required this.language,
@@ -2216,6 +2236,7 @@ class _SeasonEpisodesSection extends StatelessWidget {
 
   final String title;
   final List<MediaItem> episodes;
+  final bool episodesLoading;
   final String currentItemId;
   final ServerAccess? access;
   final DesktopUiLanguage language;
@@ -2255,14 +2276,37 @@ class _SeasonEpisodesSection extends StatelessWidget {
             SizedBox(
               height: 112,
               child: Center(
-                child: Text(
-                  _dtr(
-                    language: language,
-                    zh: '\u6682\u65e0\u5267\u96c6',
-                    en: 'No episodes',
-                  ),
-                  style: TextStyle(color: colors.textSecondary),
-                ),
+                child: episodesLoading
+                    ? Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              color: colors.textSecondary,
+                            ),
+                          ),
+                          const SizedBox(width: 12),
+                          Text(
+                            _dtr(
+                              language: language,
+                              zh: '\u6b63\u5728\u52a0\u8f7d\u5267\u96c6\u2026',
+                              en: 'Loading episodes...',
+                            ),
+                            style: TextStyle(color: colors.textSecondary),
+                          ),
+                        ],
+                      )
+                    : Text(
+                        _dtr(
+                          language: language,
+                          zh: '\u6682\u65e0\u5267\u96c6',
+                          en: 'No episodes',
+                        ),
+                        style: TextStyle(color: colors.textSecondary),
+                      ),
               ),
             )
           else
@@ -2335,15 +2379,7 @@ class _EpisodeHorizontalListState extends State<_EpisodeHorizontalList> {
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent || !_controller.hasClients) return;
-    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-        ? event.scrollDelta.dy
-        : event.scrollDelta.dx;
-    if (delta == 0) return;
-    final target = (_controller.offset + delta).clamp(
-      _controller.position.minScrollExtent,
-      _controller.position.maxScrollExtent,
-    );
-    _controller.jumpTo(target);
+    _animateScrollByPointerDelta(controller: _controller, event: event);
   }
 
   void _updateScrollButtons() {
@@ -2758,15 +2794,7 @@ class _PeopleHorizontalListState extends State<_PeopleHorizontalList> {
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent || !_controller.hasClients) return;
-    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-        ? event.scrollDelta.dy
-        : event.scrollDelta.dx;
-    if (delta == 0) return;
-    final target = (_controller.offset + delta).clamp(
-      _controller.position.minScrollExtent,
-      _controller.position.maxScrollExtent,
-    );
-    _controller.jumpTo(target);
+    _animateScrollByPointerDelta(controller: _controller, event: event);
   }
 
   void _updateScrollButtons() {
@@ -3176,15 +3204,7 @@ class _SimilarHorizontalListState extends State<_SimilarHorizontalList> {
 
   void _onPointerSignal(PointerSignalEvent event) {
     if (event is! PointerScrollEvent || !_controller.hasClients) return;
-    final delta = event.scrollDelta.dy.abs() > event.scrollDelta.dx.abs()
-        ? event.scrollDelta.dy
-        : event.scrollDelta.dx;
-    if (delta == 0) return;
-    final target = (_controller.offset + delta).clamp(
-      _controller.position.minScrollExtent,
-      _controller.position.maxScrollExtent,
-    );
-    _controller.jumpTo(target);
+    _animateScrollByPointerDelta(controller: _controller, event: event);
   }
 
   void _updateScrollButtons() {
