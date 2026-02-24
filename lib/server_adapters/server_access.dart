@@ -2,6 +2,7 @@ import 'package:lin_player_state/lin_player_state.dart';
 
 import 'package:lin_player_core/state/media_server_type.dart';
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
+import 'package:lin_player_server_adapters_uhd/lin_player_server_adapters_uhd.dart';
 
 class ServerAccess {
   const ServerAccess({required this.adapter, required this.auth});
@@ -34,7 +35,7 @@ ServerAccess? resolveServerAccess({
     apiPrefix: apiPrefix,
     preferredScheme: preferredScheme,
   );
-  final adapter = ServerAdapterFactory.forLogin(
+  final adapter = UhdAwareServerAdapterFactory.forLogin(
     serverType: serverType,
     deviceId: appState.deviceId,
   );

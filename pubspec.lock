@@ -364,6 +364,13 @@ packages:
       relative: true
     source: path
     version: "0.0.1"
+  lin_player_server_adapters_uhd:
+    dependency: "direct main"
+    description:
+      path: "packages/lin_player_server_adapters_uhd"
+      relative: true
+    source: path
+    version: "0.0.1"
   lin_player_server_api:
     dependency: "direct main"
     description:

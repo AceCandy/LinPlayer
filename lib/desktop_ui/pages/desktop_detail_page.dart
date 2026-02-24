@@ -186,7 +186,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
       unawaited(widget.viewModel.load(forceRefresh: true));
       try {
         if (item.type.trim().toLowerCase() == 'episode') {
-          await widget.viewModel.appState.updateContinueWatchingAfterPlaybackMark(
+          await widget.viewModel.appState
+              .updateContinueWatchingAfterPlaybackMark(
             item: item,
             played: nextPlayed,
           );
@@ -282,7 +283,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
 
     final access = vm.access;
     if (access == null) {
-      _showMessage(_t(zh: '\u672a\u8fde\u63a5\u670d\u52a1\u5668', en: 'No server'));
+      _showMessage(
+          _t(zh: '\u672a\u8fde\u63a5\u670d\u52a1\u5668', en: 'No server'));
       return;
     }
 
@@ -457,7 +459,9 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         SizedBox(
           width: 86,
           child: Tooltip(
-            message: _t(zh: '\u8f93\u5165\u5b63\u5ea6\uff0c\u56de\u8f66\u8df3\u8f6c', en: 'Type season, press Enter'),
+            message: _t(
+                zh: '\u8f93\u5165\u5b63\u5ea6\uff0c\u56de\u8f66\u8df3\u8f6c',
+                en: 'Type season, press Enter'),
             child: TextField(
               controller: _jumpSeasonController,
               focusNode: _jumpSeasonFocusNode,
@@ -476,7 +480,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               ),
               decoration: decoration(
                 prefix: _dtr(language: widget.language, zh: '\u5b63', en: 'S'),
-                hint: _dtr(language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
+                hint: _dtr(
+                    language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
               ),
             ),
           ),
@@ -485,7 +490,9 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         SizedBox(
           width: 86,
           child: Tooltip(
-            message: _t(zh: '\u8f93\u5165\u96c6\u6570\uff0c\u56de\u8f66\u8df3\u8f6c', en: 'Type episode, press Enter'),
+            message: _t(
+                zh: '\u8f93\u5165\u96c6\u6570\uff0c\u56de\u8f66\u8df3\u8f6c',
+                en: 'Type episode, press Enter'),
             child: TextField(
               controller: _jumpEpisodeController,
               focusNode: _jumpEpisodeFocusNode,
@@ -504,7 +511,8 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
               ),
               decoration: decoration(
                 prefix: _dtr(language: widget.language, zh: '\u96c6', en: 'E'),
-                hint: _dtr(language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
+                hint: _dtr(
+                    language: widget.language, zh: '\u6570\u5b57', en: 'No.'),
               ),
             ),
           ),
@@ -561,6 +569,19 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
       },
     );
     return uri.toString();
+  }
+
+  String? _resolvePlaybackDirectStreamUrl(
+    ServerAuthSession auth,
+    Map<String, dynamic>? mediaSource,
+  ) {
+    final candidate = (mediaSource?['DirectStreamUrl'] as String?)?.trim();
+    if (candidate == null || candidate.isEmpty) return null;
+
+    final resolved = Uri.parse(auth.baseUrl).resolve(candidate);
+    final params = Map<String, String>.from(resolved.queryParameters);
+    if (!params.containsKey('api_key')) params['api_key'] = auth.token;
+    return resolved.replace(queryParameters: params).toString();
   }
 
   Future<void> _launchExternalMpv({
@@ -627,10 +648,12 @@ class _DesktopDetailPageState extends State<DesktopDetailPage> {
         playSessionId: info.playSessionId,
         deviceId: vm.appState.deviceId,
       );
+      final directFromPlaybackInfo =
+          _resolvePlaybackDirectStreamUrl(access.auth, selectedSource);
 
       final launched = await launchExternalMpv(
         executablePath: vm.appState.externalMpvPath,
-        source: streamUrl,
+        source: directFromPlaybackInfo ?? streamUrl,
         httpHeaders: access.adapter.buildStreamHeaders(access.auth),
       );
       _showMessage(
@@ -1620,7 +1643,8 @@ class _ActionButtons extends StatelessWidget {
                 }
                 return colors.primary;
               }),
-              foregroundColor: const WidgetStatePropertyAll<Color>(Colors.white),
+              foregroundColor:
+                  const WidgetStatePropertyAll<Color>(Colors.white),
               elevation: const WidgetStatePropertyAll<double>(0),
               shape: WidgetStatePropertyAll(
                 RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
@@ -2068,8 +2092,9 @@ class _SeasonHorizontalListState extends State<_SeasonHorizontalList> {
               access: widget.access,
               season: season,
             );
-            final isCurrent = (widget.currentSeasonId ?? '').trim().isNotEmpty &&
-                season.id == widget.currentSeasonId;
+            final isCurrent =
+                (widget.currentSeasonId ?? '').trim().isNotEmpty &&
+                    season.id == widget.currentSeasonId;
             return _SeasonPosterCard(
               width: _kPosterWidth,
               height: _kPosterHeight,
@@ -2956,8 +2981,7 @@ class _PersonCardState extends State<_PersonCard> {
     final raw = widget.person.role.trim();
     if (raw.isEmpty) return const _PersonRoleParts(role: '', voice: false);
 
-    final voicePattern =
-        RegExp(r'\\(\\s*voice\\s*\\)', caseSensitive: false);
+    final voicePattern = RegExp(r'\\(\\s*voice\\s*\\)', caseSensitive: false);
     final voice = voicePattern.hasMatch(raw);
     final cleaned = raw.replaceAll(voicePattern, '').trim();
     return _PersonRoleParts(role: cleaned, voice: voice);
@@ -3287,9 +3311,8 @@ class _SimilarHorizontalListState extends State<_SimilarHorizontalList> {
                     width: _kCardWidth,
                     item: item,
                     access: widget.access,
-                    onTap: widget.onTap == null
-                        ? null
-                        : () => widget.onTap!(item),
+                    onTap:
+                        widget.onTap == null ? null : () => widget.onTap!(item),
                   );
                 },
               ),
@@ -3345,7 +3368,9 @@ class _SimilarPosterCardState extends State<_SimilarPosterCard> {
     final rating = widget.item.communityRating;
     if (rating != null && rating.isFinite && rating > 0) {
       final fixed = rating.toStringAsFixed(1);
-      return fixed.endsWith('.0') ? fixed.substring(0, fixed.length - 2) : fixed;
+      return fixed.endsWith('.0')
+          ? fixed.substring(0, fixed.length - 2)
+          : fixed;
     }
 
     final type = widget.item.type.trim().toLowerCase();
@@ -4174,10 +4199,9 @@ String _seasonSectionTitle(
   required DesktopUiLanguage language,
 }) {
   final type = item.type.trim().toLowerCase();
-  final season =
-      (type == 'episode' || type == 'season')
-          ? (item.seasonNumber ?? item.episodeNumber ?? 1)
-          : 1;
+  final season = (type == 'episode' || type == 'season')
+      ? (item.seasonNumber ?? item.episodeNumber ?? 1)
+      : 1;
   return _dtr(
     language: language,
     zh: '\u66f4\u591a\u6765\u81ea\uff1a\u7b2c $season \u5b63',
@@ -4852,8 +4876,7 @@ class _DesktopPersonPageState extends State<DesktopPersonPage> {
                                     zh: '\u6682\u65e0\u76f8\u5173\u4f5c\u54c1',
                                     en: 'No credits found',
                                   ),
-                                  style:
-                                      TextStyle(color: colors.textSecondary),
+                                  style: TextStyle(color: colors.textSecondary),
                                 ),
                               ),
                             )
@@ -4906,7 +4929,8 @@ class _PersonHeaderDelegate extends SliverPersistentHeaderDelegate {
   double get maxExtent => _kMaxHeight;
 
   @override
-  Widget build(BuildContext context, double shrinkOffset, bool overlapsContent) {
+  Widget build(
+      BuildContext context, double shrinkOffset, bool overlapsContent) {
     final colors = _EpisodeDetailColors.of(context);
     final t = (shrinkOffset / (maxExtent - minExtent)).clamp(0.0, 1.0);
     final eased = Curves.easeOutCubic.transform(t);
@@ -4953,8 +4977,7 @@ class _PersonHeaderDelegate extends SliverPersistentHeaderDelegate {
                     builder: (context, constraints) {
                       final maxWidth = constraints.maxWidth;
                       final verticalLayout = maxWidth < 820;
-                      final portraitWidth =
-                          verticalLayout ? 158.0 : 186.0;
+                      final portraitWidth = verticalLayout ? 158.0 : 186.0;
                       final portraitHeight = portraitWidth * 3 / 2;
 
                       final portrait = _PersonPortraitCard(
