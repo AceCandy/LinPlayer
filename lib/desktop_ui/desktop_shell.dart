@@ -16,6 +16,7 @@ import '../library_items_page.dart';
 import '../play_network_page.dart';
 import '../play_network_page_exo.dart';
 import '../settings_page.dart';
+import '../services/app_back_intent.dart';
 import 'mock/desktop_ui_preview_page.dart';
 import 'models/desktop_ui_language.dart';
 import 'pages/desktop_detail_page.dart';
@@ -100,10 +101,6 @@ class _DesktopLibraryItemsBackTarget {
 
   final String parentId;
   final String title;
-}
-
-class _DesktopBackIntent extends Intent {
-  const _DesktopBackIntent();
 }
 
 class _DesktopWorkspace extends StatefulWidget {
@@ -1830,10 +1827,10 @@ class _DesktopWorkspaceState extends State<_DesktopWorkspace> {
                       enabled: true,
                       shortcuts: <ShortcutActivator, Intent>{
                         const SingleActivator(LogicalKeyboardKey.escape):
-                            _DesktopBackIntent(),
+                            AppBackIntent(),
                       },
                       actions: <Type, Action<Intent>>{
-                        _DesktopBackIntent: CallbackAction<_DesktopBackIntent>(
+                        AppBackIntent: CallbackAction<AppBackIntent>(
                           onInvoke: (_) {
                             _onBackRequested();
                             return null;

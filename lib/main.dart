@@ -6,6 +6,7 @@ import 'package:flutter/foundation.dart'
 import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
+import 'package:flutter/services.dart';
 import 'package:media_kit/media_kit.dart';
 import 'package:lin_player_core/app_config/app_config.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
@@ -18,6 +19,7 @@ import 'desktop_ui/desktop_shell.dart';
 import 'home_page.dart';
 import 'server_page.dart';
 import 'webdav_home_page.dart';
+import 'services/app_back_intent.dart';
 import 'services/app_update_flow.dart';
 import 'services/built_in_proxy/built_in_proxy_service.dart';
 import 'services/app_route_observer.dart';
@@ -360,32 +362,63 @@ class _LinPlayerAppState extends State<LinPlayerApp>
                           ));
 
                 final shortcutWrappedChild = isDesktopPlatform
-                    ? Listener(
-                        behavior: HitTestBehavior.deferToChild,
-                        onPointerDown: (event) {
-                          final buttons = event.buttons;
-                          final backDown = (buttons & kBackMouseButton) != 0;
-                          final forwardDown =
-                              (buttons & kForwardMouseButton) != 0;
-                          if (!backDown && !forwardDown) return;
-
-                          final shortcuts = appState.desktopShortcutBindings;
-                          final nav = _rootNavigatorKey.currentState;
-                          if (nav == null) return;
-
-                          void handle(DesktopMouseSideButtonAction action) {
-                            if (action != DesktopMouseSideButtonAction.appBack) {
-                              return;
-                            }
-                            unawaited(nav.maybePop());
-                          }
-
-                          if (backDown) handle(shortcuts.mouseBackButtonAction);
-                          if (forwardDown) {
-                            handle(shortcuts.mouseForwardButtonAction);
-                          }
+                    ? Shortcuts(
+                        shortcuts: const <ShortcutActivator, Intent>{
+                          SingleActivator(LogicalKeyboardKey.escape):
+                              AppBackIntent(),
                         },
-                        child: appChild,
+                        child: Actions(
+                          actions: <Type, Action<Intent>>{
+                            AppBackIntent: CallbackAction<AppBackIntent>(
+                              onInvoke: (_) {
+                                final nav = _rootNavigatorKey.currentState;
+                                if (nav == null) return null;
+                                unawaited(nav.maybePop());
+                                return null;
+                              },
+                            ),
+                          },
+                          child: Builder(
+                            builder: (actionContext) => Listener(
+                              behavior: HitTestBehavior.translucent,
+                              onPointerDown: (event) {
+                                final buttons = event.buttons;
+                                final backDown =
+                                    (buttons & kBackMouseButton) != 0;
+                                final forwardDown =
+                                    (buttons & kForwardMouseButton) != 0;
+                                if (!backDown && !forwardDown) return;
+
+                                final shortcuts =
+                                    appState.desktopShortcutBindings;
+                                final invokeContext = FocusManager
+                                        .instance.primaryFocus?.context ??
+                                    actionContext;
+
+                                void handle(
+                                  DesktopMouseSideButtonAction action,
+                                ) {
+                                  if (action !=
+                                      DesktopMouseSideButtonAction.appBack) {
+                                    return;
+                                  }
+                                  Actions.invoke(
+                                    invokeContext,
+                                    const AppBackIntent(),
+                                  );
+                                }
+
+                                if (backDown) {
+                                  handle(shortcuts.mouseBackButtonAction);
+                                }
+                                if (forwardDown) {
+                                  handle(shortcuts.mouseForwardButtonAction);
+                                }
+                              },
+                              child: appChild,
+                            ),
+                          ),
+                        ),
                       )
                     : appChild;
 

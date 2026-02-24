@@ -165,8 +165,12 @@ class LibraryItemsPage extends StatefulWidget {
 
 class _LibraryItemsPageState extends State<LibraryItemsPage> {
   static const String _kPrefsPrefix = 'libraryItemsPrefs_v1:';
+  static const String _kGenresCachePrefix = 'libraryGenresCache_v1:';
   static const double _kTopControlsFadeDistance = 220.0;
   static const int _kEmptyAutoLoadMaxAttempts = 3;
+  // Genres rarely change compared to item lists. Cache aggressively and rely on
+  // a lightweight change-detection check to refresh when the library updates.
+  static const Duration _kGenresCacheMaxAge = Duration(days: 365);
 
   final ScrollController _scroll = ScrollController();
   final TextEditingController _minRatingController = TextEditingController();
@@ -192,6 +196,17 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
   _PlayedFilter _played = _PlayedFilter.all;
   _FavoriteFilter _favorite = _FavoriteFilter.all;
   final Map<String, String?> _customPrefixSelections = <String, String?>{};
+  List<String>? _availableGenresFromServer;
+  List<int>? _availableYearsFromServer;
+  int? _availableGenresFetchedAtMs;
+  int? _availableGenresLibraryTotal;
+  String? _availableGenresLibraryLatestItemId;
+  int? _availableGenresLibrarySignatureAtMs;
+  Future<LibraryFilterOptions>? _availableGenresInFlight;
+  Future<void>? _availableGenresSignatureInFlight;
+  String _lastServerGenresKey = '';
+  bool _isLoadingGenresFromServer = false;
+  bool _pendingGenresReload = false;
 
   bool _filterPanelOpen = false;
   bool _showAllGenres = false;
@@ -206,6 +221,12 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
   String get _prefsKey {
     final serverId = widget.appState.activeServerId ?? 'none';
     return '$_kPrefsPrefix$serverId:${widget.parentId}';
+  }
+
+  String get _genresCacheKey {
+    final serverId = widget.appState.activeServerId ?? 'none';
+    final types = _serverIncludeItemTypes();
+    return '$_kGenresCachePrefix$serverId:${widget.parentId}:$types';
   }
 
   @override
@@ -225,7 +246,135 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
   Future<void> _restorePrefsAndLoad() async {
     await _restorePrefs();
     if (!mounted) return;
+    await _restoreGenresCache();
+    if (!mounted) return;
+    _maybeReloadServerGenres(force: !_isGenresCacheFresh());
     await _load(reset: true);
+    if (!mounted) return;
+    _checkLibraryChangedAndMaybeReloadGenres();
+  }
+
+  bool _isGenresCacheFresh() {
+    final at = _availableGenresFetchedAtMs;
+    if (at == null || at <= 0) return false;
+    if (_availableYearsFromServer == null) return false;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final age = now - at;
+    return age >= 0 && age <= _kGenresCacheMaxAge.inMilliseconds;
+  }
+
+  Future<void> _restoreGenresCache() async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final raw = prefs.getString(_genresCacheKey);
+      if (raw == null || raw.trim().isEmpty) return;
+      final decoded = jsonDecode(raw);
+      if (decoded is! Map) return;
+
+      final rawGenres = decoded['genres'];
+      final rawYears = decoded['years'];
+      if (rawGenres is! List && rawYears is! List) return;
+
+      final outGenres = <String>[];
+      if (rawGenres is List) {
+        final seen = <String>{};
+        for (final entry in rawGenres) {
+          if (entry == null) continue;
+          final v = entry.toString().trim();
+          if (v.isEmpty) continue;
+          final key = v.toLowerCase();
+          if (seen.add(key)) outGenres.add(v);
+        }
+        outGenres.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+      }
+
+      final outYears = <int>[];
+      if (rawYears is List) {
+        final seen = <int>{};
+        for (final entry in rawYears) {
+          if (entry == null) continue;
+          final parsed = entry is int
+              ? entry
+              : int.tryParse(entry.toString().trim());
+          if (parsed == null || parsed <= 0) continue;
+          if (seen.add(parsed)) outYears.add(parsed);
+        }
+        outYears.sort((a, b) => b.compareTo(a));
+      }
+
+      final fetchedAt = decoded['fetchedAt'];
+      final fetchedAtMs = fetchedAt is int
+          ? fetchedAt
+          : int.tryParse((fetchedAt ?? '').toString().trim());
+
+      final rawLibraryTotal = decoded['libraryTotal'];
+      final libraryTotal = rawLibraryTotal is int
+          ? rawLibraryTotal
+          : int.tryParse((rawLibraryTotal ?? '').toString().trim());
+      final rawLatestItemId = decoded['libraryLatestItemId'];
+      final latestItemId = rawLatestItemId?.toString().trim();
+      final rawSignatureAt = decoded['librarySignatureAt'];
+      final signatureAtMs = rawSignatureAt is int
+          ? rawSignatureAt
+          : int.tryParse((rawSignatureAt ?? '').toString().trim());
+
+      if (!mounted) return;
+      setState(() {
+        _availableGenresFromServer = rawGenres is List ? outGenres : null;
+        _availableYearsFromServer = rawYears is List ? outYears : null;
+        _availableGenresFetchedAtMs = fetchedAtMs;
+        _availableGenresLibraryTotal = libraryTotal;
+        _availableGenresLibraryLatestItemId = latestItemId;
+        _availableGenresLibrarySignatureAtMs = signatureAtMs;
+        _lastServerGenresKey = _serverGenresKey();
+      });
+    } catch (_) {
+      // Best-effort; ignore broken cache.
+    }
+  }
+
+  Future<void> _persistGenresCache({
+    List<String>? genres,
+    List<int>? years,
+    int? fetchedAtMs,
+    int? libraryTotal,
+    String? libraryLatestItemId,
+    int? librarySignatureAtMs,
+  }) async {
+    try {
+      final prefs = await SharedPreferences.getInstance();
+      final existingRaw = prefs.getString(_genresCacheKey);
+      final merged = <String, Object?>{};
+      if (existingRaw != null && existingRaw.trim().isNotEmpty) {
+        try {
+          final existingDecoded = jsonDecode(existingRaw);
+          if (existingDecoded is Map) {
+            for (final entry in existingDecoded.entries) {
+              final key = entry.key?.toString();
+              if (key == null || key.trim().isEmpty) continue;
+              merged[key] = entry.value;
+            }
+          }
+        } catch (_) {
+          // Ignore broken cache; overwrite with fresh values below.
+        }
+      }
+
+      if (genres != null) merged['genres'] = genres;
+      if (years != null) merged['years'] = years;
+      if (fetchedAtMs != null) merged['fetchedAt'] = fetchedAtMs;
+      if (libraryTotal != null) merged['libraryTotal'] = libraryTotal;
+      if (libraryLatestItemId != null) {
+        merged['libraryLatestItemId'] = libraryLatestItemId;
+      }
+      if (librarySignatureAtMs != null) {
+        merged['librarySignatureAt'] = librarySignatureAtMs;
+      }
+
+      await prefs.setString(_genresCacheKey, jsonEncode(merged));
+    } catch (_) {
+      // Best-effort.
+    }
   }
 
   Future<void> _restorePrefs() async {
@@ -520,6 +669,143 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
     });
   }
 
+  String _serverGenresKey() {
+    final serverId = widget.appState.activeServerId ?? 'none';
+    return jsonEncode(<String, Object?>{
+      'serverId': serverId,
+      'parentId': widget.parentId,
+      'types': _serverIncludeItemTypes(),
+    });
+  }
+
+  void _maybeReloadServerGenres({bool force = false}) {
+    final access = resolveServerAccess(appState: widget.appState);
+    if (access == null) return;
+
+    final nextKey = _serverGenresKey();
+    final hasCurrentData =
+        nextKey == _lastServerGenresKey &&
+        (_availableGenresFromServer != null || _availableYearsFromServer != null);
+    if (!force && hasCurrentData && _isGenresCacheFresh()) return;
+
+    final inFlight = _availableGenresInFlight;
+    if (inFlight != null) {
+      _pendingGenresReload = true;
+      return;
+    }
+
+    setState(() => _isLoadingGenresFromServer = true);
+
+    final requestKey = nextKey;
+    final request = access.adapter.fetchAvailableFilters(
+      access.auth,
+      parentId: widget.parentId,
+      includeItemTypes: _serverIncludeItemTypes(),
+      recursive: true,
+    );
+    _availableGenresInFlight = request;
+
+    request.then((filters) {
+      if (!mounted) return;
+      if (requestKey != _serverGenresKey()) return;
+      final genres = filters.genres;
+      final years = filters.years;
+      final fetchedAtMs = DateTime.now().millisecondsSinceEpoch;
+      setState(() {
+        _availableGenresFromServer = genres;
+        _availableYearsFromServer = years;
+        _availableGenresFetchedAtMs = fetchedAtMs;
+        _lastServerGenresKey = requestKey;
+        _isLoadingGenresFromServer = false;
+      });
+      unawaited(
+        _persistGenresCache(
+          genres: genres,
+          years: years,
+          fetchedAtMs: fetchedAtMs,
+          libraryTotal: _availableGenresLibraryTotal,
+          libraryLatestItemId: _availableGenresLibraryLatestItemId,
+          librarySignatureAtMs: _availableGenresLibrarySignatureAtMs,
+        ),
+      );
+    }).catchError((_) {
+      if (!mounted) return;
+      if (requestKey != _serverGenresKey()) return;
+      setState(() => _isLoadingGenresFromServer = false);
+    }).whenComplete(() {
+      if (_availableGenresInFlight == request) {
+        _availableGenresInFlight = null;
+      }
+      if (mounted && _isLoadingGenresFromServer) {
+        setState(() => _isLoadingGenresFromServer = false);
+      }
+      if (mounted && _pendingGenresReload) {
+        _pendingGenresReload = false;
+        _maybeReloadServerGenres(force: true);
+      }
+    });
+  }
+
+  void _checkLibraryChangedAndMaybeReloadGenres() {
+    final access = resolveServerAccess(appState: widget.appState);
+    if (access == null) return;
+
+    final inFlight = _availableGenresSignatureInFlight;
+    if (inFlight != null) return;
+
+    final requestKey = _serverGenresKey();
+    final previousTotal = _availableGenresLibraryTotal;
+    final previousLatestItemId = _availableGenresLibraryLatestItemId;
+
+    final request = access.adapter.fetchItems(
+      access.auth,
+      parentId: widget.parentId,
+      startIndex: 0,
+      limit: 1,
+      includeItemTypes: _serverIncludeItemTypes(),
+      recursive: true,
+      excludeFolders: false,
+      sortBy: _LibraryItemsSortBy.dateCreated.serverValue,
+      sortOrder: _LibraryItemsSortOrder.descending.serverValue,
+    );
+
+    final future = request.then((result) {
+      if (!mounted) return;
+      if (requestKey != _serverGenresKey()) return;
+
+      final total = result.total;
+      final latestItemId = result.items.isEmpty ? '' : result.items.first.id;
+      final signatureAtMs = DateTime.now().millisecondsSinceEpoch;
+
+      final changed = (previousTotal != null && previousTotal != total) ||
+          (previousLatestItemId != null &&
+              previousLatestItemId != latestItemId);
+
+      setState(() {
+        _availableGenresLibraryTotal = total;
+        _availableGenresLibraryLatestItemId = latestItemId;
+        _availableGenresLibrarySignatureAtMs = signatureAtMs;
+      });
+      unawaited(
+        _persistGenresCache(
+          libraryTotal: total,
+          libraryLatestItemId: latestItemId,
+          librarySignatureAtMs: signatureAtMs,
+        ),
+      );
+
+      if (changed) {
+        _maybeReloadServerGenres(force: true);
+      }
+    }).catchError((_) {
+      // Best-effort.
+    }).whenComplete(() {
+      _availableGenresSignatureInFlight = null;
+    });
+
+    _availableGenresSignatureInFlight = future;
+  }
+
   void _maybeReloadServer() {
     final nextKey = _serverQueryKey();
     if (nextKey == _lastServerQueryKey) return;
@@ -799,6 +1085,7 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
   void _onFiltersChanged() {
     _emptyAutoLoadAttempts = 0;
     unawaited(_persistPrefs());
+    _maybeReloadServerGenres();
     _maybeReloadServer();
   }
 
@@ -1013,9 +1300,63 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
             }
           }
         }
-        final genreList = genres.toList()
+        final localGenreList = genres.toList()
           ..sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
-        final yearList = years.toList()..sort((a, b) => b.compareTo(a));
+        final serverGenreList = _availableGenresFromServer;
+        final usingServerGenreList =
+            serverGenreList != null && serverGenreList.isNotEmpty;
+        final genreSource =
+            usingServerGenreList ? serverGenreList : localGenreList;
+
+        final mergedGenreList = <String>[];
+        final mergedGenreSeen = <String>{};
+        void addGenre(
+          String raw, {
+          required bool allowCustomPrefix,
+        }) {
+          final v = raw.trim();
+          if (v.isEmpty) return;
+          if (!allowCustomPrefix &&
+              customPrefixEnabled &&
+              _parseCustomPrefix(v) != null) {
+            return;
+          }
+          final key = v.toLowerCase();
+          if (mergedGenreSeen.add(key)) mergedGenreList.add(v);
+        }
+
+        for (final g in genreSource) {
+          addGenre(g, allowCustomPrefix: false);
+        }
+        for (final g in _selectedGenres) {
+          addGenre(g, allowCustomPrefix: true);
+        }
+        mergedGenreList
+            .sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+        final genreList = mergedGenreList;
+
+        final localYearList = years.toList()..sort((a, b) => b.compareTo(a));
+        final serverYearList = _availableYearsFromServer;
+        final usingServerYearList =
+            serverYearList != null && serverYearList.isNotEmpty;
+        final yearSource = usingServerYearList ? serverYearList : localYearList;
+
+        final mergedYearList = <int>[];
+        final mergedYearSeen = <int>{};
+        void addYear(int raw) {
+          final y = raw;
+          if (y <= 0) return;
+          if (mergedYearSeen.add(y)) mergedYearList.add(y);
+        }
+
+        for (final y in yearSource) {
+          addYear(y);
+        }
+        final selectedYear = _selectedYear;
+        if (selectedYear != null) addYear(selectedYear);
+
+        mergedYearList.sort((a, b) => b.compareTo(a));
+        final yearList = mergedYearList;
         final customGroupList = customGroups.entries.toList()
           ..sort((a, b) => a.key.toLowerCase().compareTo(b.key.toLowerCase()));
 
@@ -1108,7 +1449,11 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
             selected: selected,
             onTap: pinned
                 ? null
-                : () => setState(() => _filterPanelOpen = !_filterPanelOpen),
+                : () {
+                    final next = !_filterPanelOpen;
+                    setState(() => _filterPanelOpen = next);
+                    if (next) _maybeReloadServerGenres();
+                  },
             child: Row(
               mainAxisSize: MainAxisSize.min,
               children: [
@@ -1123,6 +1468,9 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
         Widget filterPanel() {
           final show = pinned || _filterPanelOpen;
           if (!show) return const SizedBox.shrink();
+
+          final total = widget.appState.getTotal(widget.parentId);
+          final canLoadMore = total == 0 || allItems.length < total;
 
           final displayGenres = _showAllGenres
               ? genreList
@@ -1212,6 +1560,27 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                         _onFiltersChanged();
                       },
                     ),
+                    if (!usingServerYearList &&
+                        _availableYearsFromServer == null &&
+                        canLoadMore &&
+                        !_isLoadingGenresFromServer)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: '从服务器获取',
+                        selected: false,
+                        onTap: () => _maybeReloadServerGenres(force: true),
+                      ),
+                    if (_isLoadingGenresFromServer)
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4 * uiScale),
+                        child: SizedBox(
+                          width: 14 * uiScale,
+                          height: 14 * uiScale,
+                          child:
+                              const CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
                     for (final y in displayYears)
                       _optionChip(
                         context,
@@ -1283,6 +1652,23 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                         _onFiltersChanged();
                       },
                     ),
+                    if (!usingServerGenreList && !_isLoadingGenresFromServer)
+                      _optionChip(
+                        context,
+                        uiScale: uiScale,
+                        label: '从服务器获取',
+                        selected: false,
+                        onTap: () => _maybeReloadServerGenres(force: true),
+                      ),
+                    if (_isLoadingGenresFromServer)
+                      Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 4 * uiScale),
+                        child: SizedBox(
+                          width: 14 * uiScale,
+                          height: 14 * uiScale,
+                          child: const CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
                     for (final g in displayGenres)
                       _optionChip(
                         context,
@@ -1304,7 +1690,7 @@ class _LibraryItemsPageState extends State<LibraryItemsPage> {
                       _optionChip(
                         context,
                         uiScale: uiScale,
-                        label: _showAllGenres ? '收起' : '更多',
+                        label: _showAllGenres ? '收起' : '更多(${genreList.length})',
                         selected: _showAllGenres,
                         onTap: () =>
                             setState(() => _showAllGenres = !_showAllGenres),

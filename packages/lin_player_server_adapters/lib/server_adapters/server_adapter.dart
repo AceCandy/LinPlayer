@@ -74,6 +74,20 @@ abstract class MediaServerAdapter {
     List<String>? personIds,
   });
 
+  Future<List<String>> fetchAvailableGenres(
+    ServerAuthSession auth, {
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  });
+
+  Future<LibraryFilterOptions> fetchAvailableFilters(
+    ServerAuthSession auth, {
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  });
+
   Future<PagedResult<MediaItem>> fetchContinueWatching(
     ServerAuthSession auth, {
     int limit = 30,

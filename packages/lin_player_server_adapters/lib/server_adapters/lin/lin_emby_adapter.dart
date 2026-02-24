@@ -161,6 +161,40 @@ class LinEmbyAdapter implements MediaServerAdapter {
   }
 
   @override
+  Future<List<String>> fetchAvailableGenres(
+    ServerAuthSession auth, {
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  }) {
+    return _apiFor(auth).fetchAvailableGenres(
+      token: auth.token,
+      baseUrl: auth.baseUrl,
+      userId: auth.userId,
+      parentId: parentId,
+      includeItemTypes: includeItemTypes,
+      recursive: recursive,
+    );
+  }
+
+  @override
+  Future<LibraryFilterOptions> fetchAvailableFilters(
+    ServerAuthSession auth, {
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  }) {
+    return _apiFor(auth).fetchAvailableFilters(
+      token: auth.token,
+      baseUrl: auth.baseUrl,
+      userId: auth.userId,
+      parentId: parentId,
+      includeItemTypes: includeItemTypes,
+      recursive: recursive,
+    );
+  }
+
+  @override
   Future<PagedResult<MediaItem>> fetchContinueWatching(
     ServerAuthSession auth, {
     int limit = 30,

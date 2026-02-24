@@ -66,6 +66,64 @@ bool _hasAnyImageData(Map<String, dynamic> json) {
   return false;
 }
 
+String _stringFromListOrName(dynamic raw) {
+  if (raw == null) return '';
+  if (raw is String) return raw;
+  if (raw is Map) {
+    final name = raw['Name'] ?? raw['name'];
+    if (name != null) return name.toString();
+  }
+  return raw.toString();
+}
+
+List<String> _normalizeStringList(dynamic raw) {
+  if (raw is! List) return const <String>[];
+  final out = <String>[];
+  final seen = <String>{};
+  for (final entry in raw) {
+    final v = _stringFromListOrName(entry).trim();
+    if (v.isEmpty) continue;
+    final key = v.toLowerCase();
+    if (seen.add(key)) out.add(v);
+  }
+  out.sort((a, b) => a.toLowerCase().compareTo(b.toLowerCase()));
+  return out;
+}
+
+int? _intFromListOrName(dynamic raw) {
+  if (raw == null) return null;
+  if (raw is int) return raw;
+  if (raw is num) return raw.toInt();
+  if (raw is Map) {
+    final name = raw['Name'] ?? raw['name'];
+    if (name != null) return int.tryParse(name.toString().trim());
+  }
+  return int.tryParse(raw.toString().trim());
+}
+
+List<int> _normalizeIntList(dynamic raw) {
+  if (raw is! List) return const <int>[];
+  final out = <int>[];
+  final seen = <int>{};
+  for (final entry in raw) {
+    final v = _intFromListOrName(entry);
+    if (v == null || v <= 0) continue;
+    if (seen.add(v)) out.add(v);
+  }
+  out.sort((a, b) => b.compareTo(a));
+  return out;
+}
+
+class LibraryFilterOptions {
+  const LibraryFilterOptions({
+    this.genres = const <String>[],
+    this.years = const <int>[],
+  });
+
+  final List<String> genres;
+  final List<int> years;
+}
+
 class MediaItem {
   final String id;
   final String name;
@@ -907,6 +965,109 @@ class EmbyApi {
         .toList();
     final total = map['TotalRecordCount'] as int? ?? items.length;
     return PagedResult(items, total);
+  }
+
+  Future<List<String>> fetchAvailableGenres({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  }) async {
+    final filters = await fetchAvailableFilters(
+      token: token,
+      baseUrl: baseUrl,
+      userId: userId,
+      parentId: parentId,
+      includeItemTypes: includeItemTypes,
+      recursive: recursive,
+    );
+    return filters.genres;
+  }
+
+  Future<LibraryFilterOptions> fetchAvailableFilters({
+    required String token,
+    required String baseUrl,
+    required String userId,
+    String? parentId,
+    String? includeItemTypes,
+    bool recursive = true,
+  }) async {
+    final resolvedParentId = (parentId ?? '').trim();
+    final resolvedTypes = (includeItemTypes ?? '').trim();
+
+    final params = <String>[
+      'UserId=$userId',
+      if (resolvedParentId.isNotEmpty)
+        'ParentId=${Uri.encodeComponent(resolvedParentId)}',
+      if (resolvedTypes.isNotEmpty)
+        'IncludeItemTypes=${Uri.encodeComponent(resolvedTypes)}',
+      'Recursive=$recursive',
+    ];
+
+    final paramsWithoutUserId = params
+        .where((p) => !p.trim().toLowerCase().startsWith('userid='))
+        .toList(growable: false);
+
+    final candidates = <String>[
+      'Items/Filters?${params.join('&')}',
+      'Users/$userId/Items/Filters?${paramsWithoutUserId.join('&')}',
+      // Some servers expose genres as a separate endpoint. Try this as a
+      // fallback, so the genre filter UI does not need to page through Items.
+      'Genres?${params.join('&')}',
+      'Users/$userId/Genres?${paramsWithoutUserId.join('&')}',
+    ];
+
+    http.Response? lastResp;
+    Object? lastError;
+    var sawSuccess200 = false;
+    var bestGenres = const <String>[];
+    var bestYears = const <int>[];
+    for (final path in candidates) {
+      try {
+        final url = Uri.parse(_apiUrl(baseUrl, path));
+        final resp = await _client.get(
+          url,
+          headers: _jsonHeaders(token: token, userId: userId),
+        );
+        lastResp = resp;
+        if (resp.statusCode != 200) continue;
+        sawSuccess200 = true;
+
+        final map = jsonDecode(resp.body) as Map<String, dynamic>;
+        final genres = _normalizeStringList(
+          map['Genres'] ??
+              map['genres'] ??
+              map['GenreItems'] ??
+              map['genreItems'] ??
+              map['Items'] ??
+              map['items'],
+        );
+        if (bestGenres.isEmpty && genres.isNotEmpty) bestGenres = genres;
+
+        final years = _normalizeIntList(map['Years'] ?? map['years']);
+        if (bestYears.isEmpty && years.isNotEmpty) bestYears = years;
+
+        if (bestGenres.isNotEmpty && bestYears.isNotEmpty) {
+          return LibraryFilterOptions(genres: bestGenres, years: bestYears);
+        }
+      } catch (e) {
+        lastError = e;
+        continue;
+      }
+    }
+
+    if (sawSuccess200) {
+      return LibraryFilterOptions(genres: bestGenres, years: bestYears);
+    }
+
+    final code = lastResp?.statusCode;
+    final suffix = code == null ? '' : ' ($code)';
+    if (lastError != null) {
+      throw Exception('Failed to fetch filters$suffix: $lastError');
+    }
+    throw Exception('Failed to fetch filters$suffix');
   }
 
   Future<PagedResult<MediaItem>> fetchRandomRecommendations({

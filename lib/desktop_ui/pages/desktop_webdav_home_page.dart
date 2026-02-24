@@ -5,6 +5,7 @@ import 'package:lin_player_state/lin_player_state.dart';
 
 import '../../player_screen.dart';
 import '../../player_screen_exo.dart';
+import '../../services/app_back_intent.dart';
 import '../../settings_page.dart';
 import '../../webdav_browser_page.dart';
 import '../widgets/desktop_cinematic_shell.dart';
@@ -27,6 +28,11 @@ class _DesktopWebDavHomePageState extends State<DesktopWebDavHomePage> {
     DesktopCinematicTab(label: 'Settings', icon: Icons.settings_outlined),
   ];
 
+  void _handleBackRequested() {
+    if (_index == 0) return;
+    setState(() => _index = 0);
+  }
+
   @override
   Widget build(BuildContext context) {
     final appState = widget.appState;
@@ -47,17 +53,31 @@ class _DesktopWebDavHomePageState extends State<DesktopWebDavHomePage> {
       SettingsPage(appState: appState),
     ];
 
-    return DesktopCinematicShell(
-      appState: widget.appState,
-      title: 'Workspace',
-      tabs: _tabs,
-      selectedIndex: _index,
-      onSelected: (index) => setState(() => _index = index),
-      trailingLabel: appState.activeServer?.name ?? 'No active server',
-      trailingIcon: Icons.cloud_outlined,
-      child: IndexedStack(
-        index: _index,
-        children: pages,
+    return Actions(
+      actions: <Type, Action<Intent>>{
+        AppBackIntent: CallbackAction<AppBackIntent>(
+          onInvoke: (_) {
+            _handleBackRequested();
+            return null;
+          },
+        ),
+      },
+      child: Focus(
+        autofocus: true,
+        skipTraversal: true,
+        child: DesktopCinematicShell(
+          appState: widget.appState,
+          title: 'Workspace',
+          tabs: _tabs,
+          selectedIndex: _index,
+          onSelected: (index) => setState(() => _index = index),
+          trailingLabel: appState.activeServer?.name ?? 'No active server',
+          trailingIcon: Icons.cloud_outlined,
+          child: IndexedStack(
+            index: _index,
+            children: pages,
+          ),
+        ),
       ),
     );
   }
