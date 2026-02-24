@@ -114,147 +114,21 @@ class DesktopDetailViewModel extends ChangeNotifier {
     return '';
   }
 
-  static int? _yearFromPremiereDate(String? value) {
-    final raw = (value ?? '').trim();
-    if (raw.isEmpty) return null;
-    final parsed = DateTime.tryParse(raw);
-    if (parsed != null) return parsed.year;
-    if (raw.length < 4) return null;
-    final year = int.tryParse(raw.substring(0, 4));
-    if (year == null || year < 1800 || year > 2500) return null;
-    return year;
-  }
-
-  static List<String> _normalizedGenres(List<String> genres) {
-    final seen = <String>{};
-    final result = <String>[];
-    for (final entry in genres) {
-      final normalized = entry.trim();
-      if (normalized.isEmpty) continue;
-      final key = normalized.toLowerCase();
-      if (!seen.add(key)) continue;
-      result.add(normalized);
-    }
-    return result;
-  }
-
-  static double _relatedScore({
-    required Set<String> baseGenresLower,
-    required int? baseYear,
-    required MediaItem candidate,
-  }) {
-    final candidateGenres =
-        _normalizedGenres(candidate.genres).map((e) => e.toLowerCase()).toSet();
-    final overlap = baseGenresLower.isEmpty
-        ? 0
-        : candidateGenres.where(baseGenresLower.contains).length;
-
-    final candidateYear = _yearFromPremiereDate(candidate.premiereDate);
-    final yearDiff = (baseYear == null || candidateYear == null)
-        ? 3
-        : (candidateYear - baseYear).abs();
-    final rating = candidate.communityRating ?? 0;
-
-    return overlap * 10 - yearDiff * 1.25 + rating;
-  }
-
-  Future<List<MediaItem>> _fetchRelatedByTagsAndYear({
+  Future<List<MediaItem>> _fetchSimilarItems({
     required ServerAccess access,
     required MediaItem detailItem,
   }) async {
     final detailId = detailItem.id.trim();
     if (detailId.isEmpty) return const <MediaItem>[];
 
-    final type = detailItem.type.trim().toLowerCase();
-    final isMovie = type == 'movie';
-    final includeItemTypes = isMovie ? 'Movie' : 'Series';
-
-    final seriesId = _resolveSeriesId(detailItem);
-    final baseId = isMovie ? detailId : (seriesId.isNotEmpty ? seriesId : detailId);
-    final baseItem = baseId != detailId
-        ? await access.adapter
-            .fetchItemDetail(access.auth, itemId: baseId)
-            .catchError((_) => detailItem)
-        : detailItem;
-
-    final baseGenres = _normalizedGenres(baseItem.genres);
-    final baseYear = _yearFromPremiereDate(baseItem.premiereDate);
-    if (baseGenres.isEmpty && baseYear == null) {
-      return access.adapter
-          .fetchSimilar(
-            access.auth,
-            itemId: detailId,
-            limit: 30,
-          )
-          .then((result) => result.items)
-          .catchError((_) => const <MediaItem>[]);
-    }
-
-    final queryGenres = baseGenres.take(2).toList(growable: false);
-    final queryYears = baseGenres.isEmpty && baseYear != null ? [baseYear] : null;
-
-    final candidates = await access.adapter
-        .fetchItems(
+    return access.adapter
+        .fetchSimilar(
           access.auth,
-          includeItemTypes: includeItemTypes,
-          recursive: true,
-          limit: 180,
-          sortBy: 'Random',
-          sortOrder: 'Ascending',
-          genres: queryGenres,
-          years: queryYears,
+          itemId: detailId,
+          limit: 36,
         )
         .then((result) => result.items)
         .catchError((_) => const <MediaItem>[]);
-
-    if (candidates.isEmpty) {
-      return access.adapter
-          .fetchSimilar(
-            access.auth,
-            itemId: detailId,
-            limit: 30,
-          )
-          .then((result) => result.items)
-          .catchError((_) => const <MediaItem>[]);
-    }
-
-    final baseGenresLower = baseGenres.map((e) => e.toLowerCase()).toSet();
-    final excludedIds = <String>{
-      detailId,
-      baseItem.id.trim(),
-    }..removeWhere((e) => e.isEmpty);
-
-    final filtered = candidates.where((candidate) {
-      final id = candidate.id.trim();
-      if (id.isEmpty) return false;
-      if (excludedIds.contains(id)) return false;
-      if (baseGenresLower.isEmpty) return true;
-      return candidate.genres
-          .map((e) => e.trim().toLowerCase())
-          .where((e) => e.isNotEmpty)
-          .any(baseGenresLower.contains);
-    }).toList(growable: false);
-
-    final scored = filtered
-        .map((candidate) => (
-              candidate,
-              _relatedScore(
-                baseGenresLower: baseGenresLower,
-                baseYear: baseYear,
-                candidate: candidate,
-              ),
-            ))
-        .toList(growable: false);
-
-    scored.sort((a, b) {
-      final diff = b.$2.compareTo(a.$2);
-      if (diff != 0) return diff;
-      final ratingDiff = (b.$1.communityRating ?? 0).compareTo(a.$1.communityRating ?? 0);
-      if (ratingDiff != 0) return ratingDiff;
-      return a.$1.name.toLowerCase().compareTo(b.$1.name.toLowerCase());
-    });
-
-    return scored.map((entry) => entry.$1).take(36).toList(growable: false);
   }
 
   static int? _readIntOpt(dynamic value) {
@@ -737,7 +611,7 @@ class DesktopDetailViewModel extends ChangeNotifier {
       if (!_isActiveLoad(loadGeneration)) return;
       _playbackInfo = playbackInfo;
 
-      final relatedItems = await _fetchRelatedByTagsAndYear(
+      final relatedItems = await _fetchSimilarItems(
         access: currentAccess,
         detailItem: detailItem,
       ).catchError((_) => const <MediaItem>[]);
