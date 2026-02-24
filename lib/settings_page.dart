@@ -46,6 +46,7 @@ class _SettingsPageState extends State<SettingsPage> {
   double? _tvBackgroundBlurSigmaDraft;
   double? _desktopBackgroundOpacityDraft;
   double? _desktopBackgroundBlurSigmaDraft;
+  int? _coverCacheSizeBytes;
   bool _checkingUpdate = false;
   String _currentVersionFull = '';
   bool _tvRemoteBusy = false;
@@ -60,6 +61,7 @@ class _SettingsPageState extends State<SettingsPage> {
     super.initState();
     _loadPackageInfo();
     _attachTvFocusAutoScroll();
+    unawaited(_refreshCoverCacheSize());
     if (DeviceType.isTv) {
       unawaited(BuiltInProxyService.instance.refresh());
       unawaited(_loadTvProxySubscriptionUrl());
@@ -113,6 +115,25 @@ class _SettingsPageState extends State<SettingsPage> {
         _currentVersionFull = AppUpdateService.packageVersionFull(info);
       });
     } catch (_) {}
+  }
+
+  String _formatMb(int? bytes) {
+    if (bytes == null) return '--MB';
+    if (bytes <= 0) return '0MB';
+    final mb = bytes / (1024 * 1024);
+    final digits = mb < 10 ? 1 : 0;
+    return '${mb.toStringAsFixed(digits)}MB';
+  }
+
+  Future<void> _refreshCoverCacheSize() async {
+    if (kIsWeb) return;
+    try {
+      final bytes = await CoverCacheManager.instance.store.getCacheSize();
+      if (!mounted) return;
+      setState(() => _coverCacheSizeBytes = bytes);
+    } catch (_) {
+      // Best effort.
+    }
   }
 
   Future<void> _loadTvProxySubscriptionUrl() async {
@@ -2823,7 +2844,22 @@ class _SettingsPageState extends State<SettingsPage> {
                       contentPadding: EdgeInsets.zero,
                       leading: const Icon(Icons.delete_outline),
                       title: const Text('清理封面缓存'),
-                      subtitle: const Text('删除本地缓存的封面/随机推荐图片'),
+                      subtitle: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Text('删除本地缓存的封面/随机推荐图片'),
+                          const SizedBox(height: 2),
+                          Text(
+                            '已缓存${_formatMb(_coverCacheSizeBytes)}',
+                            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                                  color: Theme.of(context)
+                                      .colorScheme
+                                      .onSurfaceVariant,
+                                ),
+                          ),
+                        ],
+                      ),
                       onTap: () async {
                         final confirmed = await showDialog<bool>(
                           context: context,
@@ -2851,6 +2887,7 @@ class _SettingsPageState extends State<SettingsPage> {
                           await CoverCacheManager.instance.emptyCache();
                           PaintingBinding.instance.imageCache.clear();
                           PaintingBinding.instance.imageCache.clearLiveImages();
+                          unawaited(_refreshCoverCacheSize());
                           if (!context.mounted) return;
                           ScaffoldMessenger.of(context).showSnackBar(
                             const SnackBar(content: Text('已清理封面缓存')),

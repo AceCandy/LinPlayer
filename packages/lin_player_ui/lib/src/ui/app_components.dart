@@ -320,16 +320,20 @@ class _MediaPosterTileState extends State<MediaPosterTile> {
     };
 
     final image = widget.imageUrl != null
-        ? CachedNetworkImage(
-            imageUrl: widget.imageUrl!,
-            cacheManager: CoverCacheManager.instance,
-            httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
-            fit: BoxFit.cover,
-            placeholder: (_, __) => const ColoredBox(color: Colors.black12),
-            errorWidget: (_, __, ___) =>
-                const ColoredBox(color: Colors.black26),
-          )
-        : const ColoredBox(color: Colors.black26, child: Icon(Icons.image));
+          ? CachedNetworkImage(
+              imageUrl: widget.imageUrl!,
+              cacheManager: CoverCacheManager.instance,
+              httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+              fit: BoxFit.cover,
+              placeholder: (_, __) => const ColoredBox(color: Colors.black12),
+              errorWidget: (_, __, ___) =>
+                  const ColoredBox(color: Colors.black26),
+              useOldImageOnUrlChange: true,
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
+              placeholderFadeInDuration: Duration.zero,
+            )
+          : const ColoredBox(color: Colors.black26, child: Icon(Icons.image));
 
     final badge = (widget.badgeText ?? '').trim();
 
@@ -559,6 +563,10 @@ class _MediaBackdropTileState extends State<MediaBackdropTile> {
               color: Colors.black26,
               child: Center(child: Icon(Icons.broken_image_outlined)),
             ),
+            useOldImageOnUrlChange: true,
+            fadeInDuration: Duration.zero,
+            fadeOutDuration: Duration.zero,
+            placeholderFadeInDuration: Duration.zero,
           )
         : const ColoredBox(
             color: Colors.black26,

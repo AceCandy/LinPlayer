@@ -49,6 +49,10 @@ class DesktopHeroSection extends StatelessWidget {
                 fit: BoxFit.cover,
                 placeholder: (_, __) => const SizedBox.shrink(),
                 errorWidget: (_, __, ___) => const SizedBox.shrink(),
+                useOldImageOnUrlChange: true,
+                fadeInDuration: Duration.zero,
+                fadeOutDuration: Duration.zero,
+                placeholderFadeInDuration: Duration.zero,
               ),
             DecoratedBox(
               decoration: BoxDecoration(
@@ -194,6 +198,10 @@ class _PosterImage extends StatelessWidget {
         fit: BoxFit.cover,
         placeholder: (_, __) => const SizedBox.shrink(),
         errorWidget: (_, __, ___) => _PosterFallback(title: title),
+        useOldImageOnUrlChange: true,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        placeholderFadeInDuration: Duration.zero,
       );
     }
 

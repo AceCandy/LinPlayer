@@ -2611,7 +2611,10 @@ class _CoverImageState extends State<_CoverImage> {
         }
         return placeHolder;
       },
-      fadeInDuration: const Duration(milliseconds: 220),
+      useOldImageOnUrlChange: true,
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
     );
   }
 }

@@ -922,6 +922,10 @@ class _CategoryCoverImageState extends State<_CategoryCoverImage> {
         }
         return widget.placeholder;
       },
+      useOldImageOnUrlChange: true,
+      fadeInDuration: Duration.zero,
+      fadeOutDuration: Duration.zero,
+      placeholderFadeInDuration: Duration.zero,
     );
   }
 }

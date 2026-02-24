@@ -371,6 +371,10 @@ class _CardImageState extends State<_CardImage> {
           }
           return _ImageFallback(title: widget.title);
         },
+        useOldImageOnUrlChange: true,
+        fadeInDuration: Duration.zero,
+        fadeOutDuration: Duration.zero,
+        placeholderFadeInDuration: Duration.zero,
       );
     }
     return _ImageFallback(title: widget.title);
