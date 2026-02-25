@@ -125,5 +125,44 @@ void main() {
     expect(auth.apiPrefixUsed, '');
     expect(auth.baseUrlUsed, 'https://example.com');
   });
-}
 
+  test('EmbyApi.fetchSeasons uses Shows seasons with api_key for UHD', () async {
+    final client = MockClient((request) async {
+      if (request.method == 'GET' &&
+          request.url.path == '/Shows/s1/Seasons' &&
+          request.url.queryParameters['api_key'] == 't1') {
+        return http.Response(
+          jsonEncode({
+            'Items': [
+              {'Id': 'season1', 'Name': 'S1', 'Type': 'Season', 'UserData': {}}
+            ],
+            'TotalRecordCount': 1,
+          }),
+          200,
+          headers: {'content-type': 'application/json'},
+        );
+      }
+      return http.Response('Not Found', 404);
+    });
+
+    final api = EmbyApi(
+      hostOrUrl: 'https://example.com',
+      preferredScheme: 'https',
+      apiPrefix: '',
+      serverType: MediaServerType.uhd,
+      deviceId: 'd1',
+      client: client,
+    );
+
+    final res = await api.fetchSeasons(
+      token: 't1',
+      baseUrl: 'https://example.com',
+      userId: 'u1',
+      seriesId: 's1',
+    );
+
+    expect(res.total, 1);
+    expect(res.items.length, 1);
+    expect(res.items.first.id, 'season1');
+  });
+}

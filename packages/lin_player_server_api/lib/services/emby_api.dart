@@ -528,6 +528,38 @@ class EmbyApi {
     return _apiUrlWithPrefix(baseUrl, apiPrefix, path);
   }
 
+  bool _shouldAppendApiKey(String? token) =>
+      serverType == MediaServerType.uhd && (token ?? '').trim().isNotEmpty;
+
+  Uri _withApiKey(Uri uri, String token) {
+    if (!_shouldAppendApiKey(token)) return uri;
+    final query = uri.query;
+    if (RegExp(r'(^|&)api_key=', caseSensitive: false).hasMatch(query)) {
+      return uri;
+    }
+    final encoded = Uri.encodeQueryComponent(token.trim());
+    final newQuery =
+        query.isEmpty ? 'api_key=$encoded' : '$query&api_key=$encoded';
+    return uri.replace(query: newQuery);
+  }
+
+  Uri _apiUri(String baseUrl, String path, {String? token}) {
+    final uri = Uri.parse(_apiUrl(baseUrl, path));
+    if (token == null) return uri;
+    return _withApiKey(uri, token);
+  }
+
+  Uri _apiUriWithPrefix(
+    String baseUrl,
+    String apiPrefix,
+    String path, {
+    String? token,
+  }) {
+    final uri = Uri.parse(_apiUrlWithPrefix(baseUrl, apiPrefix, path));
+    if (token == null) return uri;
+    return _withApiKey(uri, token);
+  }
+
   // Simple device id generator to satisfy Emby header requirements
   static String _randomId() {
     const chars = 'abcdefghijklmnopqrstuvwxyz0123456789';
@@ -791,7 +823,12 @@ class EmbyApi {
 
     for (final path in candidates) {
       try {
-        final url = Uri.parse(_apiUrlWithPrefix(fixedBase, prefix, path));
+        final url = _apiUriWithPrefix(
+          fixedBase,
+          prefix,
+          path,
+          token: fixedToken,
+        );
         final resp = await _client
             .get(
               url,
@@ -819,8 +856,8 @@ class EmbyApi {
     String? token,
   }) async {
     final urls = [
-      Uri.parse(_apiUrl(baseUrl, 'System/Info/Public')),
-      Uri.parse(_apiUrl(baseUrl, 'System/Info')),
+      _apiUri(baseUrl, 'System/Info/Public', token: token),
+      _apiUri(baseUrl, 'System/Info', token: token),
     ];
 
     for (final url in urls) {
@@ -861,7 +898,7 @@ class EmbyApi {
     String baseUrl, {
     bool allowFailure = true,
   }) async {
-    final url = Uri.parse(_apiUrl(baseUrl, 'System/Ext/ServerDomains'));
+    final url = _apiUri(baseUrl, 'System/Ext/ServerDomains', token: token);
     try {
       final resp = await _client.get(url, headers: {
         ..._jsonHeaders(token: token),
@@ -887,7 +924,7 @@ class EmbyApi {
     required String userId,
   }) async {
     // Emby 官方推荐获取视图的接口：/Users/{userId}/Views
-    final url = Uri.parse(_apiUrl(baseUrl, 'Users/$userId/Views'));
+    final url = _apiUri(baseUrl, 'Users/$userId/Views', token: token);
     final resp = await _client.get(
       url,
       headers: _jsonHeaders(token: token, userId: userId),
@@ -915,7 +952,7 @@ class EmbyApi {
     http.Response? lastResp;
     for (final path in candidates) {
       try {
-        final url = Uri.parse(_apiUrl(baseUrl, path));
+        final url = _apiUri(baseUrl, path, token: token);
         final resp = await _client.get(url,
             headers: _jsonHeaders(token: token, userId: userId));
         lastResp = resp;
@@ -1020,7 +1057,7 @@ class EmbyApi {
       );
     }
     final url =
-        Uri.parse(_apiUrl(baseUrl, 'Users/$userId/Items?${params.join('&')}'));
+        _apiUri(baseUrl, 'Users/$userId/Items?${params.join('&')}', token: token);
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
     if (resp.statusCode != 200) {
@@ -1093,7 +1130,7 @@ class EmbyApi {
     var bestYears = const <int>[];
     for (final path in candidates) {
       try {
-        final url = Uri.parse(_apiUrl(baseUrl, path));
+        final url = _apiUri(baseUrl, path, token: token);
         final resp = await _client.get(
           url,
           headers: _jsonHeaders(token: token, userId: userId),
@@ -1161,7 +1198,28 @@ class EmbyApi {
     required String baseUrl,
     required String userId,
     required String seriesId,
-  }) {
+  }) async {
+    if (serverType == MediaServerType.uhd) {
+      final url = _apiUri(baseUrl, 'Shows/$seriesId/Seasons', token: token);
+      final resp = await _client.get(
+        url,
+        headers: _jsonHeaders(token: token, userId: userId),
+      );
+      if (resp.statusCode != 200) {
+        throw Exception('Failed to fetch seasons (${resp.statusCode})');
+      }
+      final map = jsonDecode(resp.body) as Map<String, dynamic>;
+      final rawItems = (map['Items'] as List<dynamic>?) ??
+          (map['items'] as List<dynamic>?) ??
+          const <dynamic>[];
+      final items = rawItems
+          .whereType<Map>()
+          .map((e) => MediaItem.fromJson(Map<String, dynamic>.from(e)))
+          .toList();
+      final total = map['TotalRecordCount'] as int? ?? items.length;
+      return PagedResult(items, total);
+    }
+
     return fetchItems(
       token: token,
       baseUrl: baseUrl,
@@ -1199,18 +1257,17 @@ class EmbyApi {
     required String userId,
     int limit = 30,
   }) async {
-    final url = Uri.parse(
-      _apiUrl(
-        baseUrl,
-        'Users/$userId/Items'
-        '?Filters=IsResumable'
-        '&IncludeItemTypes=Episode,Movie'
-        '&Recursive=true'
-        '&SortBy=DatePlayed'
-        '&SortOrder=Descending'
-        '&Limit=$limit'
-        '&Fields=Overview,ParentId,SeriesId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData',
-      ),
+    final url = _apiUri(
+      baseUrl,
+      'Users/$userId/Items'
+      '?Filters=IsResumable'
+      '&IncludeItemTypes=Episode,Movie'
+      '&Recursive=true'
+      '&SortBy=DatePlayed'
+      '&SortOrder=Descending'
+      '&Limit=$limit'
+      '&Fields=Overview,ParentId,SeriesId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData',
+      token: token,
     );
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
@@ -1239,19 +1296,18 @@ class EmbyApi {
     String? seriesId,
   }) async {
     final resolvedSeriesId = (seriesId ?? '').trim();
-    final url = Uri.parse(
-      _apiUrl(
-        baseUrl,
-        'Shows/NextUp'
-        '?UserId=$userId'
-        '&Limit=$limit'
-        '${resolvedSeriesId.isEmpty ? '' : '&SeriesId=${Uri.encodeComponent(resolvedSeriesId)}'}'
-        '&EnableUserData=true'
-        '&EnableImages=true'
-        '&ImageTypeLimit=1'
-        '&EnableImageTypes=Primary,Thumb,Backdrop'
-        '&Fields=Overview,ParentId,ProviderIds',
-      ),
+    final url = _apiUri(
+      baseUrl,
+      'Shows/NextUp'
+      '?UserId=$userId'
+      '&Limit=$limit'
+      '${resolvedSeriesId.isEmpty ? '' : '&SeriesId=${Uri.encodeComponent(resolvedSeriesId)}'}'
+      '&EnableUserData=true'
+      '&EnableImages=true'
+      '&ImageTypeLimit=1'
+      '&EnableImageTypes=Primary,Thumb,Backdrop'
+      '&Fields=Overview,ParentId,ProviderIds',
+      token: token,
     );
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
@@ -1309,18 +1365,17 @@ class EmbyApi {
     int limit = 12,
     bool onlyEpisodes = true,
   }) async {
-    final url = Uri.parse(
-      _apiUrl(
-        baseUrl,
-        'Users/$userId/Items'
-        '?ParentId=$libraryId'
-        '&IncludeItemTypes=${onlyEpisodes ? 'Episode' : 'Episode,Movie'}'
-        '&Recursive=true'
-        '&SortBy=DateCreated'
-        '&SortOrder=Descending'
-        '&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData'
-        '&Limit=$limit',
-      ),
+    final url = _apiUri(
+      baseUrl,
+      'Users/$userId/Items'
+      '?ParentId=$libraryId'
+      '&IncludeItemTypes=${onlyEpisodes ? 'Episode' : 'Episode,Movie'}'
+      '&Recursive=true'
+      '&SortBy=DateCreated'
+      '&SortOrder=Descending'
+      '&Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData'
+      '&Limit=$limit',
+      token: token,
     );
     final resp = await _client.get(url, headers: {
       ..._jsonHeaders(token: token, userId: userId),
@@ -1385,7 +1440,7 @@ class EmbyApi {
           };
 
     Future<http.Response> postReq() => _client.post(
-          Uri.parse(_apiUrl(baseUrl, 'Items/$itemId/PlaybackInfo')),
+          _apiUri(baseUrl, 'Items/$itemId/PlaybackInfo', token: token),
           headers: _jsonHeaders(
             token: token,
             userId: userId,
@@ -1398,11 +1453,10 @@ class EmbyApi {
           }),
         );
     Future<http.Response> getReq() => _client.get(
-          Uri.parse(
-            _apiUrl(
-              baseUrl,
-              'Items/$itemId/PlaybackInfo?UserId=$userId&DeviceId=$deviceId',
-            ),
+          _apiUri(
+            baseUrl,
+            'Items/$itemId/PlaybackInfo?UserId=$userId&DeviceId=$deviceId',
+            token: token,
           ),
           headers:
               _jsonHeaders(token: token, userId: userId, deviceId: deviceId),
@@ -1543,7 +1597,7 @@ class EmbyApi {
     bool? played,
   }) async {
     final url =
-        Uri.parse(_apiUrl(baseUrl, 'Users/$userId/Items/$itemId/UserData'));
+        _apiUri(baseUrl, 'Users/$userId/Items/$itemId/UserData', token: token);
     final body = <String, dynamic>{
       'PlaybackPositionTicks': positionTicks,
       if (played != null) 'Played': played,
@@ -1571,7 +1625,7 @@ class EmbyApi {
     required Map<String, dynamic> body,
   }) async {
     final resp = await _client.post(
-      Uri.parse(_apiUrl(baseUrl, path)),
+      _apiUri(baseUrl, path, token: token),
       headers: _jsonHeaders(
         token: token,
         userId: userId,
@@ -1591,12 +1645,11 @@ class EmbyApi {
     required String userId,
     required String itemId,
   }) async {
-    final url = Uri.parse(
-      _apiUrl(
-        baseUrl,
-        'Users/$userId/Items/$itemId'
-        '?Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData,ProviderIds,CommunityRating,PremiereDate,ProductionYear,Genres,People,RunTimeTicks,Size,Container',
-      ),
+    final url = _apiUri(
+      baseUrl,
+      'Users/$userId/Items/$itemId'
+      '?Fields=Overview,ParentId,ParentIndexNumber,IndexNumber,SeriesName,SeasonName,ImageTags,PrimaryImageTag,ThumbImageTag,ParentThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,UserData,ProviderIds,CommunityRating,PremiereDate,ProductionYear,Genres,People,RunTimeTicks,Size,Container',
+      token: token,
     );
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
@@ -1644,7 +1697,7 @@ class EmbyApi {
     required String itemId,
     String? userId,
   }) async {
-    final url = Uri.parse(_apiUrl(baseUrl, 'Items/$itemId/Chapters'));
+    final url = _apiUri(baseUrl, 'Items/$itemId/Chapters', token: token);
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
     // 404 means the item has no chapters on many servers.
@@ -1682,7 +1735,7 @@ class EmbyApi {
     ];
 
     for (final path in candidates) {
-      final uri = withUser(Uri.parse(_apiUrl(baseUrl, path)));
+      final uri = withUser(_apiUri(baseUrl, path, token: token));
       final resp = await _client.get(uri, headers: headers);
       if (resp.statusCode == 404) continue;
       if (resp.statusCode == 204) return null;
@@ -1705,11 +1758,10 @@ class EmbyApi {
     required String itemId,
     int limit = 10,
   }) async {
-    final url = Uri.parse(
-      _apiUrl(
-        baseUrl,
-        'Users/$userId/Items/$itemId/Similar?Limit=$limit&Fields=Overview,ImageTags,PrimaryImageTag,ThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,ProviderIds,CommunityRating,Genres,ProductionYear',
-      ),
+    final url = _apiUri(
+      baseUrl,
+      'Users/$userId/Items/$itemId/Similar?Limit=$limit&Fields=Overview,ImageTags,PrimaryImageTag,ThumbImageTag,SeriesPrimaryImageTag,BackdropImageTags,ProviderIds,CommunityRating,Genres,ProductionYear',
+      token: token,
     );
     final resp = await _client.get(url,
         headers: _jsonHeaders(token: token, userId: userId));
