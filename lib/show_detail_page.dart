@@ -1022,23 +1022,22 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
           spacing: 10,
           runSpacing: 10,
           children: [
-            _heroActionButton(
-              context,
-              icon: Icons.play_arrow,
-              label: '播放',
-              primary: true,
-              onTap: isSeries
-                  ? (_featuredEpisode == null
-                      ? null
-                      : () => _openEpisode(context, _featuredEpisode!))
-                  : () => _playMovie(item),
-            ),
-            _heroActionButton(
-              context,
-              icon: item.played ? Icons.check_circle : Icons.radio_button_unchecked,
-              label: item.played ? '已播放' : '未播放',
-              onTap: null,
-            ),
+            if (!isSeries)
+              _heroActionButton(
+                context,
+                icon: Icons.play_arrow,
+                label: '播放',
+                primary: true,
+                onTap: () => _playMovie(item),
+              ),
+            if (!isSeries)
+              _heroActionButton(
+                context,
+                icon:
+                    item.played ? Icons.check_circle : Icons.radio_button_unchecked,
+                label: item.played ? '已播放' : '未播放',
+                onTap: null,
+              ),
             _heroActionButton(
               context,
               icon: _localFavorite ? Icons.favorite : Icons.favorite_border,
@@ -2599,24 +2598,26 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                   spacing: buttonGap,
                                   runSpacing: buttonGap,
                                   children: [
-                                    pillButton(
-                                      icon: Icons.play_arrow_rounded,
-                                      label: playLabel,
-                                      onPressed: _markBusy
-                                          ? null
-                                          : () => unawaited(playPrimary()),
-                                      autofocus: true,
-                                      primary: true,
-                                    ),
-                                    pillButton(
-                                      icon: played
-                                          ? Icons.visibility_off_outlined
-                                          : Icons.check_circle_outline_rounded,
-                                      label: played ? '标记未播放' : '标记已播放',
-                                      onPressed: _markBusy
-                                          ? null
-                                          : _toggleItemPlayedMark,
-                                    ),
+                                    if (!isSeries)
+                                      pillButton(
+                                        icon: Icons.play_arrow_rounded,
+                                        label: playLabel,
+                                        onPressed: _markBusy
+                                            ? null
+                                            : () => unawaited(playPrimary()),
+                                        autofocus: true,
+                                        primary: true,
+                                      ),
+                                    if (!isSeries)
+                                      pillButton(
+                                        icon: played
+                                            ? Icons.visibility_off_outlined
+                                            : Icons.check_circle_outline_rounded,
+                                        label: played ? '标记未播放' : '标记已播放',
+                                        onPressed: _markBusy
+                                            ? null
+                                            : _toggleItemPlayedMark,
+                                      ),
                                     pillButton(
                                       icon: _localFavorite
                                           ? Icons.favorite_rounded
@@ -2625,57 +2626,65 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                       onPressed: _favoriteLoaded
                                           ? _toggleLocalFavorite
                                           : null,
+                                      autofocus: isSeries,
                                     ),
-                                    pillButton(
-                                      icon: Icons.memory_rounded,
-                                      label: coreLabel,
-                                      onPressed:
-                                          canSwitchCore ? _togglePlayerCore : null,
-                                    ),
+                                    if (!isSeries)
+                                      pillButton(
+                                        icon: Icons.memory_rounded,
+                                        label: coreLabel,
+                                        onPressed: canSwitchCore
+                                            ? _togglePlayerCore
+                                            : null,
+                                      ),
                                   ],
                                 ),
-                                SizedBox(
-                                    height:
-                                        (14 * uiScale).clamp(10.0, 18.0)),
-                                Wrap(
-                                  spacing: buttonGap,
-                                  runSpacing: buttonGap,
-                                  children: [
-                                    menuButton(
-                                      icon: Icons.movie_filter_rounded,
-                                      label: ms == null
-                                          ? '视频'
-                                          : '视频：${currentVideoText()}',
-                                      onPressed: playInfo == null
-                                          ? null
-                                          : () => unawaited(
-                                              _pickMediaSourceTv(context, playInfo),
-                                            ),
-                                    ),
-                                    menuButton(
-                                      icon: Icons.audiotrack_rounded,
-                                      label: ms == null
-                                          ? '音频'
-                                          : '音频：${currentAudioText()}',
-                                      onPressed: ms == null
-                                          ? null
-                                          : () => unawaited(
-                                                _pickAudioStreamTv(context, ms),
+                                if (!isSeries) ...[
+                                  SizedBox(
+                                      height:
+                                          (14 * uiScale).clamp(10.0, 18.0)),
+                                  Wrap(
+                                    spacing: buttonGap,
+                                    runSpacing: buttonGap,
+                                    children: [
+                                      menuButton(
+                                        icon: Icons.movie_filter_rounded,
+                                        label: ms == null
+                                            ? '视频'
+                                            : '视频：${currentVideoText()}',
+                                        onPressed: playInfo == null
+                                            ? null
+                                            : () => unawaited(
+                                                _pickMediaSourceTv(
+                                                    context, playInfo),
                                               ),
-                                    ),
-                                    menuButton(
-                                      icon: Icons.closed_caption_rounded,
-                                      label: ms == null
-                                          ? '字幕'
-                                          : '字幕：${currentSubtitleText()}',
-                                      onPressed: ms == null
-                                          ? null
-                                          : () => unawaited(
-                                                _pickSubtitleStreamTv(context, ms),
-                                              ),
-                                    ),
-                                  ],
-                                ),
+                                      ),
+                                      menuButton(
+                                        icon: Icons.audiotrack_rounded,
+                                        label: ms == null
+                                            ? '音频'
+                                            : '音频：${currentAudioText()}',
+                                        onPressed: ms == null
+                                            ? null
+                                            : () => unawaited(
+                                                  _pickAudioStreamTv(
+                                                      context, ms),
+                                                ),
+                                      ),
+                                      menuButton(
+                                        icon: Icons.closed_caption_rounded,
+                                        label: ms == null
+                                            ? '字幕'
+                                            : '字幕：${currentSubtitleText()}',
+                                        onPressed: ms == null
+                                            ? null
+                                            : () => unawaited(
+                                                  _pickSubtitleStreamTv(
+                                                      context, ms),
+                                                ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
                               ],
                             ),
                           ),
@@ -3588,24 +3597,6 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                           runtime: runtime,
                         ),
                         const SizedBox(height: 16),
-                        if (widget.itemId.isEmpty && _featuredEpisode != null)
-                          _playButton(
-                            context,
-                            label:
-                                '播放 S${_featuredEpisode!.seasonNumber ?? 1}:E${_featuredEpisode!.episodeNumber ?? 1}',
-                            onTap: () {
-                              Navigator.of(context).push(
-                                MaterialPageRoute(
-                                  builder: (_) => EpisodeDetailPage(
-                                    episode: _featuredEpisode!,
-                                    appState: widget.appState,
-                                    server: widget.server,
-                                    isTv: widget.isTv,
-                                  ),
-                                ),
-                              );
-                            },
-                          ),
                         if (widget.itemId.isEmpty && !isSeries) ...[
                           if (playInfo != null && !showFloatingSettings)
                             _moviePlaybackOptionsCard(context, playInfo),
@@ -4997,6 +4988,754 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     );
   }
 
+  static const int _kTvPickerDefault = -99999;
+
+  String _episodeMark(MediaItem ep) {
+    final season = (ep.seasonNumber ?? 0).clamp(0, 999);
+    final episode = (ep.episodeNumber ?? 0).clamp(0, 999);
+    if (season <= 0 || episode <= 0) return '';
+    return 'S${season.toString().padLeft(2, '0')}'
+        'E${episode.toString().padLeft(2, '0')}';
+  }
+
+  Future<T?> _showTvPicker<T>(
+    BuildContext context, {
+    required String title,
+    required List<({T value, String label, String? subtitle, bool selected})>
+        options,
+  }) async {
+    if (options.isEmpty) return null;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final radius = (18 * uiScale).clamp(14.0, 22.0);
+    final insetH = (28 * uiScale).clamp(18.0, 44.0);
+    final insetV = (22 * uiScale).clamp(14.0, 34.0);
+    final padding = (14 * uiScale).clamp(10.0, 18.0);
+    final maxWidth = (760 * uiScale).clamp(520.0, 920.0);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
+
+    final gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        scheme.primary.withValues(alpha: isDark ? 0.14 : 0.10),
+        Colors.black.withValues(alpha: 0.58),
+      ],
+    );
+
+    return showDialog<T>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.64),
+      builder: (ctx) {
+        var autofocusAssigned = false;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding: EdgeInsets.symmetric(horizontal: insetH, vertical: insetV),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: _detailGlassPanel(
+              enableBlur: false,
+              showBorder: false,
+              gradient: gradient,
+              radius: radius,
+              padding: EdgeInsets.all(padding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                  Divider(
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                  SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: options.length,
+                      separatorBuilder: (_, __) => SizedBox(
+                        height: (10 * uiScale).clamp(8.0, 14.0),
+                      ),
+                      itemBuilder: (context, index) {
+                        final opt = options[index];
+                        final shouldAutofocus =
+                            !autofocusAssigned && (opt.selected || index == 0);
+                        if (shouldAutofocus) autofocusAssigned = true;
+
+                        return TvFocusable(
+                          autofocus: shouldAutofocus,
+                          onPressed: () => Navigator.of(ctx).pop<T>(opt.value),
+                          borderRadius: BorderRadius.circular(
+                            (16 * uiScale).clamp(12.0, 20.0),
+                          ),
+                          surfaceColor: Colors.black.withValues(alpha: 0.28),
+                          focusedSurfaceColor: scheme.primary.withValues(
+                            alpha: isDark ? 0.20 : 0.16,
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: (14 * uiScale).clamp(10.0, 18.0),
+                            vertical: (12 * uiScale).clamp(10.0, 16.0),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                opt.selected
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                color:
+                                    opt.selected ? scheme.primary : Colors.white70,
+                              ),
+                              SizedBox(width: (12 * uiScale).clamp(10.0, 16.0)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      opt.label,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleSmall?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if ((opt.subtitle ?? '').trim().isNotEmpty)
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          top: (4 * uiScale).clamp(2.0, 6.0),
+                                        ),
+                                        child: Text(
+                                          opt.subtitle!,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall?.copyWith(
+                                            color: Colors.white70,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickMediaSourceTv(
+    BuildContext context,
+    PlaybackInfoResult info,
+  ) async {
+    final sources = info.mediaSources.cast<Map<String, dynamic>>();
+    if (sources.isEmpty) return;
+
+    final sortedSources = List<Map<String, dynamic>>.from(sources)
+      ..sort(_ShowDetailPageState._compareMediaSourcesByQuality);
+
+    final options = sortedSources
+        .map((ms) {
+          final id = (ms['Id']?.toString() ?? '').trim();
+          if (id.isEmpty) return null;
+          return (
+            value: id,
+            label: _ShowDetailPageState._mediaSourceTitle(ms),
+            subtitle: _mediaSourceSubtitle(ms),
+            selected: id == _selectedMediaSourceId,
+          );
+        })
+        .whereType<({String value, String label, String? subtitle, bool selected})>()
+        .toList();
+
+    final selected = await _showTvPicker<String>(
+      context,
+      title: '视频版本',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null ||
+        selected.isEmpty ||
+        selected == _selectedMediaSourceId) {
+      return;
+    }
+
+    setState(() {
+      _selectedMediaSourceId = selected;
+      _selectedAudioStreamIndex = null;
+      _selectedSubtitleStreamIndex = null;
+    });
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    final idx = sources
+        .indexWhere((ms) => (ms['Id']?.toString() ?? '').trim() == selected);
+    if (idx < 0) return;
+    unawaited(
+      widget.appState.setSeriesMediaSourceIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        mediaSourceIndex: idx,
+      ),
+    );
+  }
+
+  Future<void> _pickAudioStreamTv(
+    BuildContext context,
+    Map<String, dynamic> ms,
+  ) async {
+    final audioStreams = _ShowDetailPageState._streamsOfType(ms, 'Audio');
+    if (audioStreams.isEmpty) return;
+
+    final def = _ShowDetailPageState._defaultStream(audioStreams);
+    final defIndex = _ShowDetailPageState._asInt(def?['Index']);
+
+    final options = <({int value, String label, String? subtitle, bool selected})>[
+      (
+        value: _kTvPickerDefault,
+        label: '默认',
+        subtitle: defIndex == null ? null : '默认音轨',
+        selected: _selectedAudioStreamIndex == null,
+      ),
+      ...audioStreams.map((s) {
+        final idx = _ShowDetailPageState._asInt(s['Index']);
+        if (idx == null) return null;
+        final selectedNow = idx == _selectedAudioStreamIndex;
+        final title = _ShowDetailPageState._streamLabel(s, includeCodec: false);
+        final codec = (s['Codec'] as String?)?.trim();
+        return (
+          value: idx,
+          label: idx == defIndex ? '$title (默认)' : title,
+          subtitle: codec?.isEmpty == true ? null : codec,
+          selected: selectedNow,
+        );
+      }).whereType<({int value, String label, String? subtitle, bool selected})>(),
+    ];
+
+    final selected = await _showTvPicker<int>(
+      context,
+      title: '音轨选择',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null) return;
+    final effective = selected == _kTvPickerDefault ? null : selected;
+    setState(() => _selectedAudioStreamIndex = effective);
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    unawaited(
+      widget.appState.setSeriesAudioStreamIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        audioStreamIndex: effective,
+      ),
+    );
+  }
+
+  Future<void> _pickSubtitleStreamTv(
+    BuildContext context,
+    Map<String, dynamic> ms,
+  ) async {
+    final subtitleStreams = _ShowDetailPageState._streamsOfType(ms, 'Subtitle');
+    if (subtitleStreams.isEmpty) return;
+
+    final def = _ShowDetailPageState._defaultStream(subtitleStreams);
+    final defIndex = _ShowDetailPageState._asInt(def?['Index']);
+
+    final options = <({int value, String label, String? subtitle, bool selected})>[
+      (
+        value: -1,
+        label: '关闭',
+        subtitle: null,
+        selected: _selectedSubtitleStreamIndex == -1,
+      ),
+      (
+        value: _kTvPickerDefault,
+        label: '默认',
+        subtitle: defIndex == null ? null : '默认字幕',
+        selected: _selectedSubtitleStreamIndex == null,
+      ),
+      ...subtitleStreams.map((s) {
+        final idx = _ShowDetailPageState._asInt(s['Index']);
+        if (idx == null) return null;
+        final selectedNow = idx == _selectedSubtitleStreamIndex;
+        final title = _ShowDetailPageState._streamLabel(s, includeCodec: false);
+        final codec = (s['Codec'] as String?)?.trim();
+        return (
+          value: idx,
+          label: idx == defIndex ? '$title (默认)' : title,
+          subtitle: codec?.isEmpty == true ? null : codec,
+          selected: selectedNow,
+        );
+      }).whereType<({int value, String label, String? subtitle, bool selected})>(),
+    ];
+
+    final selected = await _showTvPicker<int>(
+      context,
+      title: '字幕选择',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null) return;
+    final effective = selected == _kTvPickerDefault ? null : selected;
+    setState(() => _selectedSubtitleStreamIndex = effective);
+
+    final serverId = widget.server?.id ?? widget.appState.activeServerId;
+    final sid = (_seriesId ?? '').trim();
+    if (serverId == null || serverId.trim().isEmpty || sid.isEmpty) return;
+    unawaited(
+      widget.appState.setSeriesSubtitleStreamIndex(
+        serverId: serverId.trim(),
+        seriesId: sid,
+        subtitleStreamIndex: effective,
+      ),
+    );
+  }
+
+  Widget _buildTvEpisodeDetailPage(
+    BuildContext context, {
+    required MediaItem ep,
+    required ServerAccess? access,
+    required String playLabel,
+    required bool played,
+    required bool hasResume,
+    required int ticks,
+    required Duration? runtime,
+    required String dateText,
+    required String backdropUrl,
+    required String coverUrl,
+    required String seriesTitle,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    String fmtRuntime(Duration? d) {
+      if (d == null) return '';
+      final h = d.inHours;
+      final m = d.inMinutes.remainder(60);
+      if (h > 0) return '${h}h ${m}m';
+      return '${d.inMinutes}m';
+    }
+
+    final mark = _episodeMark(ep);
+    final runtimeText = fmtRuntime(runtime);
+    final dateLine = dateText.isEmpty ? '' : '播出日期：$dateText';
+
+    final coverWidth = (520 * uiScale).clamp(360.0, 760.0);
+    final coverRadius = (20 * uiScale).clamp(14.0, 26.0);
+    final contentPadding = EdgeInsets.fromLTRB(
+      (32 * uiScale).clamp(18.0, 44.0),
+      (22 * uiScale).clamp(14.0, 32.0),
+      (32 * uiScale).clamp(18.0, 44.0),
+      (30 * uiScale).clamp(18.0, 44.0),
+    );
+
+    final buttonHeight = (52 * uiScale).clamp(44.0, 62.0);
+    final buttonPaddingH = (16 * uiScale).clamp(12.0, 18.0);
+    final buttonIconSize = (22 * uiScale).clamp(18.0, 26.0);
+    final buttonGap = (14 * uiScale).clamp(10.0, 18.0);
+
+    Widget pillButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+      bool autofocus = false,
+      bool primary = false,
+    }) {
+      final fg = Colors.white;
+      final surface = primary
+          ? const Color(0xFF1F9F75).withValues(alpha: 0.86)
+          : Colors.black.withValues(alpha: 0.30);
+      final focusedSurface = primary
+          ? const Color(0xFF1F9F75).withValues(alpha: 0.96)
+          : scheme.primary.withValues(alpha: isDark ? 0.20 : 0.16);
+      return TvFocusable(
+        autofocus: autofocus,
+        enabled: onPressed != null,
+        onPressed: onPressed,
+        borderRadius: BorderRadius.circular(999),
+        surfaceColor: surface,
+        focusedSurfaceColor: focusedSurface,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: buttonHeight,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: buttonPaddingH),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: buttonIconSize, color: fg),
+                SizedBox(width: (10 * uiScale).clamp(8.0, 14.0)),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: fg,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget menuButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+    }) {
+      final fg = Colors.white;
+      final surface = Colors.black.withValues(alpha: 0.26);
+      final focusedSurface =
+          scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14);
+      final radius = (18 * uiScale).clamp(14.0, 22.0);
+      return TvFocusable(
+        enabled: onPressed != null,
+        onPressed: onPressed,
+        borderRadius: BorderRadius.circular(radius),
+        surfaceColor: surface,
+        focusedSurfaceColor: focusedSurface,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: buttonHeight,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: buttonPaddingH),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: buttonIconSize, color: fg),
+                SizedBox(width: (10 * uiScale).clamp(8.0, 14.0)),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget markLine() {
+      if (mark.isEmpty && runtimeText.isEmpty) return const SizedBox.shrink();
+      return Row(
+        children: [
+          if (mark.isNotEmpty)
+            Text(
+              mark,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w900,
+              ),
+            ),
+          if (mark.isNotEmpty && runtimeText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                '·',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          if (runtimeText.isNotEmpty)
+            Text(
+              runtimeText,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white70,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      );
+    }
+
+    Widget background = backdropUrl.isEmpty
+        ? const ColoredBox(color: Colors.black26)
+        : Image.network(
+            backdropUrl,
+            fit: BoxFit.cover,
+            headers: {'User-Agent': LinHttpClientFactory.userAgent},
+            errorBuilder: (_, __, ___) => const ColoredBox(color: Colors.black26),
+          );
+
+    final scrim = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.black.withValues(alpha: 0.82),
+        Colors.black.withValues(alpha: 0.60),
+        Colors.black.withValues(alpha: 0.78),
+      ],
+    );
+
+    final playInfo = _playInfo;
+    final currentMs = _currentMediaSource();
+
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(child: background),
+          Positioned.fill(
+            child: DecoratedBox(decoration: BoxDecoration(gradient: scrim)),
+          ),
+          SafeArea(
+            child: FocusTraversalGroup(
+              policy: ReadingOrderTraversalPolicy(),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1600),
+                  child: ListView(
+                    padding: contentPadding,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: coverWidth,
+                            child: AspectRatio(
+                              aspectRatio: 16 / 9,
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(coverRadius),
+                                child: coverUrl.isEmpty
+                                    ? const ColoredBox(color: Colors.black26)
+                                    : Image.network(
+                                        coverUrl,
+                                        fit: BoxFit.cover,
+                                        headers: {
+                                          'User-Agent': LinHttpClientFactory.userAgent
+                                        },
+                                        errorBuilder: (_, __, ___) =>
+                                            const ColoredBox(color: Colors.black26),
+                                      ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: (26 * uiScale).clamp(18.0, 34.0)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  seriesTitle,
+                                  style: theme.textTheme.headlineSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.08,
+                                  ),
+                                ),
+                                SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                                Text(
+                                  ep.name.trim().isNotEmpty
+                                      ? ep.name.trim()
+                                      : '第${ep.episodeNumber ?? 1}集',
+                                  style: theme.textTheme.titleLarge?.copyWith(
+                                    color: Colors.white.withValues(alpha: 0.96),
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                                SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                                markLine(),
+                                if (dateLine.isNotEmpty) ...[
+                                  SizedBox(
+                                      height: (8 * uiScale).clamp(6.0, 12.0)),
+                                  Text(
+                                    dateLine,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                SizedBox(height: (16 * uiScale).clamp(12.0, 22.0)),
+                                Wrap(
+                                  spacing: buttonGap,
+                                  runSpacing: buttonGap,
+                                  children: [
+                                    pillButton(
+                                      icon: Icons.play_arrow_rounded,
+                                      label: playLabel,
+                                      onPressed: () => _playCurrentEpisode(
+                                        startPosition: hasResume
+                                            ? _ticksToDuration(ticks)
+                                            : null,
+                                      ),
+                                      autofocus: true,
+                                      primary: true,
+                                    ),
+                                    pillButton(
+                                      icon: played
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.check_circle_outline_rounded,
+                                      label: played ? '标记未播放' : '标记已播放',
+                                      onPressed: _markBusy
+                                          ? null
+                                          : _toggleEpisodePlayedMark,
+                                    ),
+                                    pillButton(
+                                      icon: _localFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      label: _localFavorite ? '已收藏' : '收藏',
+                                      onPressed: _favoriteLoaded
+                                          ? _toggleLocalFavorite
+                                          : null,
+                                    ),
+                                    pillButton(
+                                      icon: Icons.format_list_numbered_rounded,
+                                      label: '选集',
+                                      onPressed: () => _pickEpisode(context),
+                                    ),
+                                  ],
+                                ),
+                                if (playInfo != null) ...[
+                                  SizedBox(
+                                      height:
+                                          (14 * uiScale).clamp(10.0, 18.0)),
+                                  Wrap(
+                                    spacing: buttonGap,
+                                    runSpacing: buttonGap,
+                                    children: [
+                                      menuButton(
+                                        icon: Icons.movie_filter_rounded,
+                                        label: currentMs == null
+                                            ? '视频'
+                                            : '视频：${_currentVideoText()}',
+                                        onPressed: () => unawaited(
+                                          _pickMediaSourceTv(context, playInfo),
+                                        ),
+                                      ),
+                                      menuButton(
+                                        icon: Icons.audiotrack_rounded,
+                                        label: currentMs == null
+                                            ? '音频'
+                                            : '音频：${_currentAudioText()}',
+                                        onPressed: currentMs == null
+                                            ? null
+                                            : () => unawaited(
+                                                  _pickAudioStreamTv(
+                                                      context, currentMs),
+                                                ),
+                                      ),
+                                      menuButton(
+                                        icon: Icons.closed_caption_rounded,
+                                        label: currentMs == null
+                                            ? '字幕'
+                                            : '字幕：${_currentSubtitleText()}',
+                                        onPressed: currentMs == null
+                                            ? null
+                                            : () => unawaited(
+                                                  _pickSubtitleStreamTv(
+                                                      context, currentMs),
+                                                ),
+                                      ),
+                                    ],
+                                  ),
+                                ],
+                                if ((_detail?.overview ?? '').trim().isNotEmpty) ...[
+                                  SizedBox(
+                                      height:
+                                          (14 * uiScale).clamp(10.0, 18.0)),
+                                  Text(
+                                    _detail!.overview,
+                                    maxLines: 3,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white.withValues(alpha: 0.88),
+                                      height: 1.45,
+                                    ),
+                                  ),
+                                ],
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: (22 * uiScale).clamp(16.0, 30.0)),
+                      if ((_seriesId ?? '').trim().isNotEmpty) ...[
+                        _otherEpisodesSection(context),
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                      ],
+                      _externalLinksSection(context, ep, widget.appState),
+                      if (playInfo != null) ...[
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _mediaInfo(
+                          context,
+                          playInfo,
+                          selectedMediaSourceId: _selectedMediaSourceId,
+                        ),
+                      ],
+                      if (_detail?.people.isNotEmpty == true && access != null) ...[
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _castSection(
+                          context,
+                          _detail!.people,
+                          access: access,
+                        ),
+                      ],
+                      if (_chapters.isNotEmpty) ...[
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _sectionTitle(context, '章节'),
+                        const SizedBox(height: 8),
+                        Wrap(
+                          spacing: 8,
+                          runSpacing: 8,
+                          children: _chapters
+                              .map((c) =>
+                                  Chip(label: Text('${c.name} ${_fmt(c.start)}')))
+                              .toList(),
+                        ),
+                      ],
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
@@ -5051,6 +5790,23 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     final seriesTitle = _seriesName.trim().isNotEmpty
         ? _seriesName.trim()
         : (ep.seriesName.trim().isNotEmpty ? ep.seriesName.trim() : ep.name);
+
+    if (widget.isTv) {
+      return _buildTvEpisodeDetailPage(
+        context,
+        ep: ep,
+        access: access,
+        playLabel: playLabel,
+        played: played,
+        hasResume: hasResume,
+        ticks: ticks,
+        runtime: runtime,
+        dateText: dateText,
+        backdropUrl: backdropUrl,
+        coverUrl: thumbUrl,
+        seriesTitle: seriesTitle,
+      );
+    }
 
     Widget background = backdropUrl.isNotEmpty
         ? Image.network(
