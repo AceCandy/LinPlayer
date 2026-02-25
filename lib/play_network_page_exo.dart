@@ -19,6 +19,7 @@ import 'package:video_player_platform_interface/video_player_platform_interface.
 import 'play_network_page.dart';
 import 'server_adapters/server_access.dart';
 import 'services/app_route_observer.dart';
+import 'tv/tv_focusable.dart';
 import 'widgets/danmaku_manual_search_dialog.dart';
 import 'widgets/list_picker_dialog.dart';
 
@@ -129,6 +130,17 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       FocusNode(debugLabel: 'network_exo_player_tv_surface');
   final FocusNode _tvPlayPauseFocusNode =
       FocusNode(debugLabel: 'network_exo_player_tv_play_pause');
+
+  int _tvBottomPanelIndex = 0; // 0=playback, 1=episodes, 2=subtitles, 3=audio
+  DateTime? _tvNetSpeedLastPollAt;
+
+  bool _tvSubtitleTracksLoading = false;
+  String? _tvSubtitleTracksError;
+  List<vp_android.ExoPlayerSubtitleTrackData> _tvSubtitleTracks = const [];
+
+  bool _tvAudioTracksLoading = false;
+  String? _tvAudioTracksError;
+  List<VideoAudioTrack> _tvAudioTracks = const [];
 
   VideoViewType _viewType = VideoViewType.platformView;
   bool _switchingViewType = false;
@@ -1822,6 +1834,679 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
     });
   }
 
+  static const int _tvBottomPanelCount = 4;
+
+  void _setTvBottomPanel(int index) {
+    final next = index.clamp(0, _tvBottomPanelCount - 1);
+    if (_tvBottomPanelIndex == next) return;
+    setState(() => _tvBottomPanelIndex = next);
+    if (next == 1) {
+      // ignore: unawaited_futures
+      _ensureEpisodePickerLoaded();
+      return;
+    }
+    if (next == 2) {
+      // ignore: unawaited_futures
+      _refreshTvSubtitleTracks();
+      return;
+    }
+    if (next == 3) {
+      // ignore: unawaited_futures
+      _refreshTvAudioTracks();
+      return;
+    }
+  }
+
+  void _cycleTvBottomPanel({required bool forward}) {
+    if (forward) {
+      _setTvBottomPanel((_tvBottomPanelIndex + 1) % _tvBottomPanelCount);
+      return;
+    }
+    // Don't wrap backwards: keep arrow-up behavior predictable.
+    if (_tvBottomPanelIndex <= 0) return;
+    _setTvBottomPanel(_tvBottomPanelIndex - 1);
+  }
+
+  String _tvTitleText() {
+    final detail = _episodePickerItem;
+    final seriesId = (widget.seriesId ?? '').trim();
+    final type = (detail?.type ?? '').trim().toLowerCase();
+    final isEpisode =
+        seriesId.isNotEmpty || type == 'episode' || type == 'tv episode';
+    if (!isEpisode) return widget.title;
+
+    final seasonNo = detail?.seasonNumber;
+    final epNo = detail?.episodeNumber;
+    if (seasonNo == null || seasonNo <= 0 || epNo == null || epNo <= 0) {
+      return widget.title;
+    }
+
+    String two(int v) => v.toString().padLeft(2, '0');
+    return 'S${two(seasonNo)}E${two(epNo)} ${widget.title}'.trim();
+  }
+
+  static String _tvFmtTime(DateTime t) {
+    String two(int v) => v.toString().padLeft(2, '0');
+    return '${two(t.hour)}:${two(t.minute)}';
+  }
+
+  static String _tvFmtNetSpeedMb(double? bytesPerSecond) {
+    final v = bytesPerSecond;
+    if (v == null || !v.isFinite || v < 0) return '— MB/S';
+    final mb = v / (1024.0 * 1024.0);
+    return '${mb.toStringAsFixed(1)} MB/S';
+  }
+
+  Future<void> _refreshTvSubtitleTracks() async {
+    if (_tvSubtitleTracksLoading) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (!_isAndroid) return;
+
+    setState(() {
+      _tvSubtitleTracksLoading = true;
+      _tvSubtitleTracksError = null;
+    });
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final playerId = controller.playerId;
+      final api = vp_android.VideoPlayerInstanceApi(
+        messageChannelSuffix: playerId.toString(),
+      );
+      final data = await api.getSubtitleTracks();
+      if (!mounted) return;
+      setState(() {
+        _tvSubtitleTracks = data.exoPlayerTracks ??
+            const <vp_android.ExoPlayerSubtitleTrackData>[];
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _tvSubtitleTracks = const <vp_android.ExoPlayerSubtitleTrackData>[];
+        _tvSubtitleTracksError = '获取字幕失败';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _tvSubtitleTracksLoading = false);
+      }
+    }
+  }
+
+  Future<void> _tvSelectSubtitleTrack(
+      vp_android.ExoPlayerSubtitleTrackData? track) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+    if (!_isAndroid) return;
+
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final playerId = controller.playerId;
+      final api = vp_android.VideoPlayerInstanceApi(
+        messageChannelSuffix: playerId.toString(),
+      );
+      if (track == null) {
+        await api.deselectSubtitleTrack();
+      } else {
+        await api.selectSubtitleTrack(track.groupIndex, track.trackIndex);
+      }
+    } catch (_) {}
+
+    if (!mounted) return;
+    await _refreshTvSubtitleTracks();
+  }
+
+  Future<void> _refreshTvAudioTracks() async {
+    if (_tvAudioTracksLoading) return;
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final platform = VideoPlayerPlatform.instance;
+    if (!platform.isAudioTrackSupportAvailable()) {
+      setState(() {
+        _tvAudioTracks = const <VideoAudioTrack>[];
+        _tvAudioTracksError = '当前内核不支持音轨切换';
+      });
+      return;
+    }
+
+    setState(() {
+      _tvAudioTracksLoading = true;
+      _tvAudioTracksError = null;
+    });
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final playerId = controller.playerId;
+      final tracks = await platform.getAudioTracks(playerId);
+      if (!mounted) return;
+      setState(() => _tvAudioTracks = tracks);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _tvAudioTracks = const <VideoAudioTrack>[];
+        _tvAudioTracksError = '获取音轨失败';
+      });
+    } finally {
+      if (mounted) {
+        setState(() => _tvAudioTracksLoading = false);
+      }
+    }
+  }
+
+  Future<void> _tvSelectAudioTrack(VideoAudioTrack track) async {
+    final controller = _controller;
+    if (controller == null || !controller.value.isInitialized) return;
+
+    final platform = VideoPlayerPlatform.instance;
+    if (!platform.isAudioTrackSupportAvailable()) return;
+
+    try {
+      // ignore: invalid_use_of_visible_for_testing_member
+      final playerId = controller.playerId;
+      await platform.selectAudioTrack(playerId, track.id);
+    } catch (_) {}
+
+    if (!mounted) return;
+    await _refreshTvAudioTracks();
+  }
+
+  Future<void> _pickTvSeason() async {
+    if (_episodePickerLoading) return;
+    await _ensureEpisodePickerLoaded();
+    if (!mounted) return;
+
+    final seasons = _episodeSeasons;
+    if (seasons.isEmpty) return;
+    final currentId = (_episodeSelectedSeasonId ?? seasons.first.id).trim();
+    if (currentId.isEmpty) return;
+
+    final picked = await showDialog<String>(
+      context: context,
+      builder: (ctx) {
+        return AlertDialog(
+          title: const Text('选择季'),
+          content: SizedBox(
+            width: 520,
+            height: 420,
+            child: ListView.separated(
+              itemCount: seasons.length,
+              separatorBuilder: (_, __) => const Divider(height: 1),
+              itemBuilder: (context, index) {
+                final season = seasons[index];
+                final selected = season.id == currentId;
+                return TvFocusable(
+                  autofocus: selected,
+                  onPressed: () => Navigator.of(ctx).pop(season.id),
+                  borderRadius: BorderRadius.circular(12),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 10,
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _seasonLabel(season, index),
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (selected) const Icon(Icons.check, size: 18),
+                    ],
+                  ),
+                );
+              },
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(ctx).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (!mounted) return;
+    final nextId = (picked ?? '').trim();
+    if (nextId.isEmpty || nextId == currentId) return;
+    setState(() => _episodeSelectedSeasonId = nextId);
+  }
+
+  Color _tvHudBg(ColorScheme scheme) {
+    final isDark = scheme.brightness == Brightness.dark;
+    return isDark ? const Color(0xE6000000) : const Color(0xE6FFFFFF);
+  }
+
+  Color _tvHudFg(ColorScheme scheme) =>
+      scheme.brightness == Brightness.dark ? Colors.white : Colors.black;
+
+  Widget _buildTvTopStatusBar() {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final uiScale = context.uiScale;
+
+    final bg = _tvHudBg(scheme);
+    final fg = _tvHudFg(scheme);
+
+    final radius = (18 * uiScale).clamp(14.0, 26.0);
+    final padH = (16 * uiScale).clamp(12.0, 20.0);
+    final padV = (10 * uiScale).clamp(8.0, 14.0);
+
+    final now = DateTime.now();
+    final title = _tvTitleText();
+    final speed = _tvFmtNetSpeedMb(_netSpeedBytesPerSecond);
+    final time = _tvFmtTime(now);
+
+    final titleStyle = theme.textTheme.titleMedium?.copyWith(
+      color: fg,
+      fontWeight: FontWeight.w800,
+    );
+    final rightStyle = theme.textTheme.labelLarge?.copyWith(
+      color: fg,
+      fontWeight: FontWeight.w800,
+    );
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(radius),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+        child: Row(
+          children: [
+            Expanded(
+              child: Text(
+                title,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: titleStyle,
+              ),
+            ),
+            const SizedBox(width: 14),
+            Text(speed, style: rightStyle),
+            const SizedBox(width: 14),
+            Text(time, style: rightStyle),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTvProgressBar({
+    required double progress,
+    required double buffered,
+    required Color progressColor,
+    required Color bufferedColor,
+    required Color trackColor,
+    double height = 10,
+  }) {
+    final p = progress.clamp(0.0, 1.0);
+    final b = buffered.clamp(0.0, 1.0);
+
+    return ClipRRect(
+      borderRadius: BorderRadius.circular(999),
+      child: SizedBox(
+        height: height,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            ColoredBox(color: trackColor),
+            FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: b,
+              child: ColoredBox(color: bufferedColor),
+            ),
+            FractionallySizedBox(
+              alignment: Alignment.centerLeft,
+              widthFactor: p,
+              child: ColoredBox(color: progressColor),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  Widget _buildTvChip({
+    required String label,
+    required VoidCallback? onPressed,
+    bool autofocus = false,
+    bool selected = false,
+    IconData? icon,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final uiScale = context.uiScale;
+    final isDark = scheme.brightness == Brightness.dark;
+
+    final padH = (12 * uiScale).clamp(10.0, 16.0);
+    final padV = (10 * uiScale).clamp(8.0, 14.0);
+
+    final surface = selected
+        ? scheme.primary.withValues(alpha: isDark ? 0.28 : 0.18)
+        : (isDark
+            ? Colors.white.withValues(alpha: 0.12)
+            : Colors.black.withValues(alpha: 0.06));
+    final focusedSurface =
+        scheme.primary.withValues(alpha: isDark ? 0.38 : 0.22);
+
+    return TvFocusable(
+      autofocus: autofocus,
+      enabled: onPressed != null,
+      onPressed: onPressed,
+      borderRadius: BorderRadius.circular(999),
+      surfaceColor: surface,
+      focusedSurfaceColor: focusedSurface,
+      padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (icon != null) ...[
+            Icon(icon, size: (18 * uiScale).clamp(16.0, 22.0)),
+            SizedBox(width: (8 * uiScale).clamp(6.0, 10.0)),
+          ],
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 240),
+            child: Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvEpisodesPanel({required bool enabled}) {
+    if (_episodePickerLoading) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final err = (_episodePickerError ?? '').trim();
+    if (err.isNotEmpty) {
+      return Center(child: Text(err));
+    }
+
+    final seasons = _episodeSeasons;
+    if (seasons.isEmpty) {
+      return const Center(child: Text('暂无可选剧集'));
+    }
+
+    final selectedSeasonId = ((_episodeSelectedSeasonId ?? '').trim().isNotEmpty)
+        ? _episodeSelectedSeasonId!.trim()
+        : seasons.first.id;
+    final selectedSeason = seasons.firstWhere(
+      (s) => s.id == selectedSeasonId,
+      orElse: () => seasons.first,
+    );
+
+    return Row(
+      children: [
+        if (seasons.length > 1) ...[
+          _buildTvChip(
+            label: _seasonLabel(
+              selectedSeason,
+              seasons.indexOf(selectedSeason),
+            ),
+            icon: Icons.layers_outlined,
+            onPressed: enabled ? _pickTvSeason : null,
+          ),
+          const SizedBox(width: 10),
+        ],
+        Expanded(
+          child: FutureBuilder<List<MediaItem>>(
+            future: _episodesFutureForSeasonId(selectedSeason.id),
+            builder: (context, snapshot) {
+              if (snapshot.connectionState != ConnectionState.done) {
+                return const Center(child: CircularProgressIndicator());
+              }
+              if (snapshot.hasError) {
+                return const Center(child: Text('加载剧集失败'));
+              }
+              final eps = snapshot.data ?? const <MediaItem>[];
+              if (eps.isEmpty) {
+                return const Center(child: Text('暂无剧集'));
+              }
+
+              return SingleChildScrollView(
+                scrollDirection: Axis.horizontal,
+                child: Row(
+                  children: [
+                    for (final entry in eps.asMap().entries) ...[
+                      if (entry.key > 0) const SizedBox(width: 10),
+                      _buildTvChip(
+                        autofocus: entry.key == 0,
+                        selected: entry.value.id == widget.itemId,
+                        label: (entry.value.episodeNumber ?? (entry.key + 1))
+                            .toString(),
+                        onPressed: !enabled
+                            ? null
+                            : () => _playEpisodeFromPicker(entry.value),
+                      ),
+                    ],
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildTvSubtitlePanel({required bool enabled}) {
+    if (_tvSubtitleTracksLoading && _tvSubtitleTracks.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final err = (_tvSubtitleTracksError ?? '').trim();
+    if (err.isNotEmpty && _tvSubtitleTracks.isEmpty) {
+      return Center(child: Text(err));
+    }
+
+    final tracks = _tvSubtitleTracks;
+    final selected = tracks.where((t) => t.isSelected).toList();
+    final offSelected = selected.isEmpty;
+
+    if (tracks.isEmpty) {
+      return Row(
+        children: [
+          _buildTvChip(
+            autofocus: true,
+            selected: offSelected,
+            label: '关闭',
+            icon: Icons.subtitles_off_outlined,
+            onPressed: enabled ? () => _tvSelectSubtitleTrack(null) : null,
+          ),
+          const SizedBox(width: 12),
+          const Expanded(child: Text('暂无字幕')),
+        ],
+      );
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          _buildTvChip(
+            autofocus: true,
+            selected: offSelected,
+            label: '关闭',
+            icon: Icons.subtitles_off_outlined,
+            onPressed: enabled ? () => _tvSelectSubtitleTrack(null) : null,
+          ),
+          for (final entry in tracks.asMap().entries) ...[
+            const SizedBox(width: 10),
+            _buildTvChip(
+              selected: entry.value.isSelected,
+              label: _subtitleTrackTitle(entry.value),
+              icon: Icons.subtitles_outlined,
+              onPressed: !enabled
+                  ? null
+                  : () => _tvSelectSubtitleTrack(entry.value),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvAudioPanel({required bool enabled}) {
+    if (_tvAudioTracksLoading && _tvAudioTracks.isEmpty) {
+      return const Center(child: CircularProgressIndicator());
+    }
+    final err = (_tvAudioTracksError ?? '').trim();
+    if (err.isNotEmpty) {
+      return Center(child: Text(err));
+    }
+
+    final tracks = _tvAudioTracks;
+    if (tracks.isEmpty) {
+      return const Center(child: Text('暂无音轨'));
+    }
+
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
+      child: Row(
+        children: [
+          for (final entry in tracks.asMap().entries) ...[
+            if (entry.key > 0) const SizedBox(width: 10),
+            _buildTvChip(
+              autofocus: entry.key == 0,
+              selected: entry.value.isSelected,
+              label: _audioTrackTitle(entry.value),
+              icon: Icons.audiotrack_outlined,
+              onPressed:
+                  enabled ? () => _tvSelectAudioTrack(entry.value) : null,
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTvBottomStatusBar({
+    required bool enabled,
+    required Duration position,
+    required Duration buffered,
+    required Duration duration,
+    required bool isPlaying,
+    required Future<void> Function() onPlay,
+    required Future<void> Function() onPause,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final uiScale = context.uiScale;
+
+    final bg = _tvHudBg(scheme);
+    final fg = _tvHudFg(scheme);
+    final radius = (18 * uiScale).clamp(14.0, 26.0);
+    final padH = (14 * uiScale).clamp(10.0, 18.0);
+    final padV = (12 * uiScale).clamp(10.0, 16.0);
+
+    final durationMs = duration.inMilliseconds;
+    final progress = durationMs <= 0 ? 0.0 : position.inMilliseconds / durationMs;
+    final bufferedRatio =
+        durationMs <= 0 ? 0.0 : buffered.inMilliseconds / durationMs;
+
+    final progressColor = scheme.primary;
+    final bufferedColor = scheme.secondary; // strong contrast with progress
+    final trackColor = scheme.brightness == Brightness.dark
+        ? Colors.white.withValues(alpha: 0.18)
+        : Colors.black.withValues(alpha: 0.10);
+
+    Widget panel = switch (_tvBottomPanelIndex) {
+      0 => Row(
+          children: [
+            TvFocusable(
+              focusNode: _tvPlayPauseFocusNode,
+              autofocus: true,
+              enabled: enabled,
+              onPressed: !enabled
+                  ? null
+                  : () {
+                      // ignore: unawaited_futures
+                      isPlaying ? onPause() : onPlay();
+                    },
+              borderRadius: BorderRadius.circular(999),
+              surfaceColor: scheme.brightness == Brightness.dark
+                  ? Colors.white.withValues(alpha: 0.12)
+                  : Colors.black.withValues(alpha: 0.06),
+              focusedSurfaceColor:
+                  scheme.primary.withValues(alpha: scheme.brightness == Brightness.dark ? 0.26 : 0.16),
+              padding: EdgeInsets.symmetric(
+                horizontal: (14 * uiScale).clamp(10.0, 18.0),
+                vertical: (10 * uiScale).clamp(8.0, 14.0),
+              ),
+              child: Icon(
+                isPlaying ? Icons.pause_rounded : Icons.play_arrow_rounded,
+                color: fg,
+                size: (26 * uiScale).clamp(22.0, 34.0),
+              ),
+            ),
+            const SizedBox(width: 14),
+            Expanded(
+              child: _buildTvProgressBar(
+                progress: progress,
+                buffered: bufferedRatio,
+                progressColor: progressColor,
+                bufferedColor: bufferedColor,
+                trackColor: trackColor,
+                height: (10 * uiScale).clamp(8.0, 12.0),
+              ),
+            ),
+          ],
+        ),
+      1 => _buildTvEpisodesPanel(enabled: enabled),
+      2 => _buildTvSubtitlePanel(enabled: enabled),
+      _ => _buildTvAudioPanel(enabled: enabled),
+    };
+
+    panel = KeyedSubtree(
+      key: ValueKey<int>(_tvBottomPanelIndex),
+      child: panel,
+    );
+
+    return Material(
+      color: bg,
+      borderRadius: BorderRadius.circular(radius),
+      clipBehavior: Clip.antiAlias,
+      child: Padding(
+        padding: EdgeInsets.symmetric(horizontal: padH, vertical: padV),
+        child: AnimatedSwitcher(
+          duration: const Duration(milliseconds: 260),
+          switchInCurve: Curves.easeOutCubic,
+          switchOutCurve: Curves.easeInCubic,
+          transitionBuilder: (child, animation) {
+            final fade = CurvedAnimation(
+              parent: animation,
+              curve: Curves.easeOut,
+            );
+            final slide = Tween<Offset>(
+              begin: const Offset(0, 0.12),
+              end: Offset.zero,
+            ).animate(animation);
+            final rotate = Tween<double>(
+              begin: -0.015,
+              end: 0.0,
+            ).animate(animation);
+            return FadeTransition(
+              opacity: fade,
+              child: SlideTransition(
+                position: slide,
+                child: RotationTransition(turns: rotate, child: child),
+              ),
+            );
+          },
+          child: panel,
+        ),
+      ),
+    );
+  }
+
   void _hideControlsForRemote() {
     _controlsHideTimer?.cancel();
     _controlsHideTimer = null;
@@ -2450,7 +3135,10 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
         }
         _lastBufferedEnd = bufferedEnd;
 
-        if (widget.appState.showBufferSpeed) {
+        final wantBufferSpeed = widget.appState.showBufferSpeed;
+        final wantNetSpeed = wantBufferSpeed || widget.isTv;
+
+        if (wantBufferSpeed) {
           final refreshSeconds = widget.appState.bufferSpeedRefreshSeconds
               .clamp(0.2, 3.0)
               .toDouble();
@@ -2486,11 +3174,21 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
           }
         } else {
           _bufferSpeedX = null;
-          _netSpeedBytesPerSecond = null;
           _lastBufferedAt = null;
           _bufferSpeedSampleEnd = bufferedEnd;
-          _lastTotalRxBytes = null;
-          _lastTotalRxAt = null;
+
+          if (wantNetSpeed) {
+            final last = _tvNetSpeedLastPollAt;
+            if (last == null ||
+                now.difference(last) >= const Duration(seconds: 1)) {
+              _tvNetSpeedLastPollAt = now;
+              _pollSystemNetSpeedOrFallback();
+            }
+          } else {
+            _netSpeedBytesPerSecond = null;
+            _lastTotalRxBytes = null;
+            _lastTotalRxAt = null;
+          }
         }
 
         _applyDanmakuPauseState(_buffering || !_isPlaying);
@@ -3974,8 +4672,43 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       skipTraversal: true,
       onKeyEvent: (node, event) {
         if (!remoteEnabled) return KeyEventResult.ignored;
-        if (!node.hasPrimaryFocus) return KeyEventResult.ignored;
         final key = event.logicalKey;
+
+        if (widget.isTv && event is KeyDownEvent) {
+          if (key == LogicalKeyboardKey.arrowDown) {
+            _showControls(scheduleHide: false);
+            final before = _tvBottomPanelIndex;
+            _cycleTvBottomPanel(forward: true);
+            if (before == _tvBottomPanelCount - 1) {
+              _focusTvPlayPause();
+            }
+            return KeyEventResult.handled;
+          }
+          if (key == LogicalKeyboardKey.arrowUp) {
+            _showControls(scheduleHide: false);
+            final before = _tvBottomPanelIndex;
+            _cycleTvBottomPanel(forward: false);
+            if (before == 1) {
+              _focusTvPlayPause();
+            }
+            return KeyEventResult.handled;
+          }
+
+          if (controlsEnabled && _tvBottomPanelIndex == 0) {
+            if (key == LogicalKeyboardKey.arrowLeft) {
+              // ignore: unawaited_futures
+              _seekRelative(Duration(seconds: -_seekBackSeconds));
+              return KeyEventResult.handled;
+            }
+            if (key == LogicalKeyboardKey.arrowRight) {
+              // ignore: unawaited_futures
+              _seekRelative(Duration(seconds: _seekForwardSeconds));
+              return KeyEventResult.handled;
+            }
+          }
+        }
+
+        if (!node.hasPrimaryFocus) return KeyEventResult.ignored;
 
         if (event is KeyDownEvent) {
           if (key == LogicalKeyboardKey.arrowUp) {
@@ -4090,7 +4823,7 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
       child: Scaffold(
         backgroundColor: Colors.black,
         extendBodyBehindAppBar: true,
-        appBar: PreferredSize(
+        appBar: widget.isTv ? null : PreferredSize(
           preferredSize: _controlsVisible
               ? const Size.fromHeight(kToolbarHeight)
               : Size.zero,
@@ -4669,42 +5402,91 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                                 ),
                               ),
                             ),
-                          Align(
-                            alignment: Alignment.bottomCenter,
-                            child: SafeArea(
-                              top: false,
-                              minimum: const EdgeInsets.fromLTRB(12, 0, 12, 12),
-                              child: AnimatedOpacity(
-                                opacity: _controlsVisible ? 1 : 0,
-                                duration: const Duration(milliseconds: 200),
-                                child: IgnorePointer(
-                                  ignoring: !_controlsVisible,
-                                  child: Listener(
-                                    onPointerDown: (_) => _showControls(),
-                                    child: Focus(
-                                      canRequestFocus: false,
-                                      onKeyEvent: (node, event) {
-                                        if (!_remoteEnabled) {
-                                          return KeyEventResult.ignored;
-                                        }
-                                        if (event is! KeyDownEvent) {
-                                          return KeyEventResult.ignored;
-                                        }
-                                        if (event.logicalKey ==
-                                            LogicalKeyboardKey.arrowDown) {
-                                          final moved = FocusScope.of(context)
-                                              .focusInDirection(
-                                            TraversalDirection.down,
-                                          );
-                                          if (moved) {
+                          if (widget.isTv)
+                            Align(
+                              alignment: Alignment.topCenter,
+                              child: SafeArea(
+                                bottom: false,
+                                minimum:
+                                    const EdgeInsets.fromLTRB(12, 12, 12, 0),
+                                child: _buildTvTopStatusBar(),
+                              ),
+                            ),
+                          if (widget.isTv)
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: SafeArea(
+                                top: false,
+                                minimum:
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                child: _buildTvBottomStatusBar(
+                                  enabled: controlsEnabled,
+                                  position: _position,
+                                  buffered: _lastBufferedEnd,
+                                  duration: _duration,
+                                  isPlaying: _isPlaying,
+                                  onPlay: () async {
+                                    _showControls();
+                                    await controller.play();
+                                    _maybeReportPlaybackProgress(
+                                      controller.value.position,
+                                      force: true,
+                                    );
+                                    _applyDanmakuPauseState(false);
+                                    if (mounted) setState(() {});
+                                  },
+                                  onPause: () async {
+                                    _showControls();
+                                    await controller.pause();
+                                    _maybeReportPlaybackProgress(
+                                      controller.value.position,
+                                      force: true,
+                                    );
+                                    _applyDanmakuPauseState(true);
+                                    if (mounted) setState(() {});
+                                  },
+                                ),
+                              ),
+                            ),
+                          if (!widget.isTv)
+                            Align(
+                              alignment: Alignment.bottomCenter,
+                              child: SafeArea(
+                                top: false,
+                                minimum:
+                                    const EdgeInsets.fromLTRB(12, 0, 12, 12),
+                                child: AnimatedOpacity(
+                                  opacity: _controlsVisible ? 1 : 0,
+                                  duration: const Duration(milliseconds: 200),
+                                  child: IgnorePointer(
+                                    ignoring: !_controlsVisible,
+                                    child: Listener(
+                                      onPointerDown: (_) => _showControls(),
+                                      child: Focus(
+                                        canRequestFocus: false,
+                                        onKeyEvent: (node, event) {
+                                          if (!_remoteEnabled) {
+                                            return KeyEventResult.ignored;
+                                          }
+                                          if (event is! KeyDownEvent) {
+                                            return KeyEventResult.ignored;
+                                          }
+                                          if (event.logicalKey ==
+                                              LogicalKeyboardKey.arrowDown) {
+                                            final moved =
+                                                FocusScope.of(context)
+                                                    .focusInDirection(
+                                              TraversalDirection.down,
+                                            );
+                                            if (moved) {
+                                              return KeyEventResult.handled;
+                                            }
+                                            _hideControlsForRemote();
                                             return KeyEventResult.handled;
                                           }
-                                          _hideControlsForRemote();
-                                          return KeyEventResult.handled;
-                                        }
-                                        return KeyEventResult.ignored;
-                                      },
-                                      child: PlaybackControls(
+                                          return KeyEventResult.ignored;
+                                        },
+                                        child: PlaybackControls(
                                         enabled: controlsEnabled,
                                         playPauseFocusNode:
                                             _tvPlayPauseFocusNode,
@@ -4812,7 +5594,8 @@ class _ExoPlayNetworkPageState extends State<ExoPlayNetworkPage>
                               ),
                             ),
                           ),
-                          _buildEpisodePickerOverlay(enableBlur: enableBlur),
+                          if (!widget.isTv)
+                            _buildEpisodePickerOverlay(enableBlur: enableBlur),
                         ],
                       )
                     : _playError != null

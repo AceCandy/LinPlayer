@@ -8,6 +8,7 @@ class TvFocusable extends StatefulWidget {
     required this.child,
     this.onPressed,
     this.autofocus = false,
+    this.focusNode,
     this.enabled = true,
     this.borderRadius = const BorderRadius.all(Radius.circular(16)),
     this.padding,
@@ -19,6 +20,7 @@ class TvFocusable extends StatefulWidget {
   final Widget child;
   final VoidCallback? onPressed;
   final bool autofocus;
+  final FocusNode? focusNode;
   final bool enabled;
   final BorderRadius borderRadius;
   final EdgeInsetsGeometry? padding;
@@ -70,6 +72,7 @@ class _TvFocusableState extends State<TvFocusable> {
 
     return FocusableActionDetector(
       autofocus: widget.autofocus,
+      focusNode: widget.focusNode,
       enabled: enabled,
       onFocusChange: _onFocusChange,
       shortcuts: const <ShortcutActivator, Intent>{
@@ -138,4 +141,3 @@ class _TvFocusableState extends State<TvFocusable> {
     );
   }
 }
-

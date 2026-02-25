@@ -89,11 +89,11 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
             padding: const EdgeInsets.fromLTRB(16, 12, 16, 24),
             children: [
               _Section(
-                title: '播放手势',
+                title: _isTv ? '遥控器' : '播放手势',
                 enableBlur: enableBlur,
                 child: Column(
                   children: [
-                    if (!_isDesktopPlatform) ...[
+                    if (!_isDesktopPlatform && !_isTv) ...[
                       SwitchListTile(
                         value: appState.gestureBrightness,
                         onChanged: (v) => appState.setGestureBrightness(v),
@@ -143,45 +143,49 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                         await appState.setLongPressSpeedMultiplier(v);
                       },
                     ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.longPressSlideSpeed,
-                      onChanged: (v) => appState.setLongPressSlideSpeed(v),
-                      title: const Text('长按时滑动调整倍速'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
+                    if (!_isTv) ...[
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.longPressSlideSpeed,
+                        onChanged: (v) => appState.setLongPressSlideSpeed(v),
+                        title: const Text('长按时滑动调整倍速'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
                   ],
                 ),
               ),
-              const SizedBox(height: 12),
-              _Section(
-                title: '播放时双击',
-                enableBlur: enableBlur,
-                child: Column(
-                  children: [
-                    _doubleTapTile(
-                      context,
-                      title: '屏幕左侧',
-                      value: appState.doubleTapLeft,
-                      onChanged: (v) => appState.setDoubleTapLeft(v),
-                    ),
-                    const Divider(height: 1),
-                    _doubleTapTile(
-                      context,
-                      title: '屏幕中间',
-                      value: appState.doubleTapCenter,
-                      onChanged: (v) => appState.setDoubleTapCenter(v),
-                    ),
-                    const Divider(height: 1),
-                    _doubleTapTile(
-                      context,
-                      title: '屏幕右侧',
-                      value: appState.doubleTapRight,
-                      onChanged: (v) => appState.setDoubleTapRight(v),
-                    ),
-                  ],
+              if (!_isTv) ...[
+                const SizedBox(height: 12),
+                _Section(
+                  title: '播放时双击',
+                  enableBlur: enableBlur,
+                  child: Column(
+                    children: [
+                      _doubleTapTile(
+                        context,
+                        title: '屏幕左侧',
+                        value: appState.doubleTapLeft,
+                        onChanged: (v) => appState.setDoubleTapLeft(v),
+                      ),
+                      const Divider(height: 1),
+                      _doubleTapTile(
+                        context,
+                        title: '屏幕中间',
+                        value: appState.doubleTapCenter,
+                        onChanged: (v) => appState.setDoubleTapCenter(v),
+                      ),
+                      const Divider(height: 1),
+                      _doubleTapTile(
+                        context,
+                        title: '屏幕右侧',
+                        value: appState.doubleTapRight,
+                        onChanged: (v) => appState.setDoubleTapRight(v),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
+              ],
               if (_isDesktopPlatform) ...[
                 const SizedBox(height: 12),
                 _Section(
@@ -391,27 +395,30 @@ class _InteractionSettingsPageState extends State<InteractionSettingsPage> {
                         await appState.setSeekForwardSeconds(seconds);
                       },
                     ),
-                    const Divider(height: 1),
-                    SwitchListTile(
-                      value: appState.forceRemoteControlKeys,
-                      onChanged: (v) => appState.setForceRemoteControlKeys(v),
-                      title: const Text('强制启用遥控器按键支持'),
-                      subtitle: const Text('如果不是 TV 设备，不要启用该选项!!!'),
-                      contentPadding: EdgeInsets.zero,
-                    ),
+                    if (!_isTv) ...[
+                      const Divider(height: 1),
+                      SwitchListTile(
+                        value: appState.forceRemoteControlKeys,
+                        onChanged: (v) => appState.setForceRemoteControlKeys(v),
+                        title: const Text('强制启用遥控器按键支持'),
+                        subtitle: const Text('如果不是 TV 设备，不要启用该选项!!!'),
+                        contentPadding: EdgeInsets.zero,
+                      ),
+                    ],
                   ],
                 ),
               ),
               const SizedBox(height: 8),
-              Padding(
-                padding: const EdgeInsets.only(top: 6),
-                child: Text(
-                  '提示：部分手势会影响拖动/双击的手感，可按需关闭。',
-                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                        color: Theme.of(context).colorScheme.onSurfaceVariant,
-                      ),
+              if (!_isTv)
+                Padding(
+                  padding: const EdgeInsets.only(top: 6),
+                  child: Text(
+                    '提示：部分手势会影响拖动/双击的手感，可按需关闭。',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                          color: Theme.of(context).colorScheme.onSurfaceVariant,
+                        ),
+                  ),
                 ),
-              ),
             ],
           ),
         );
