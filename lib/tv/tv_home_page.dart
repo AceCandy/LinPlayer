@@ -6,11 +6,11 @@ import 'package:lin_player_state/lin_player_state.dart';
 import '../home_page.dart';
 import '../library_page.dart';
 import '../search_page.dart';
+import '../server_page.dart';
 import '../settings_page.dart';
 import '../webdav_home_page.dart';
 import '../services/built_in_proxy/built_in_proxy_service.dart';
 import '../services/tv_remote/tv_remote_service.dart';
-import 'tv_onboarding_page.dart';
 import 'tv_widgets.dart';
 
 class TvHomePage extends StatelessWidget {
@@ -25,7 +25,7 @@ class TvHomePage extends StatelessWidget {
   Widget _pickActiveServerHome() {
     final active = appState.activeServer;
     if (active == null || !appState.hasActiveServerProfile) {
-      return TvOnboardingPage(appState: appState);
+      return ServerPage(appState: appState);
     }
     if (active.serverType == MediaServerType.webdav) {
       return WebDavHomePage(appState: appState);
@@ -41,7 +41,7 @@ class TvHomePage extends StatelessWidget {
         final theme = Theme.of(context);
         final hasServers = appState.servers.isNotEmpty;
         if (!hasServers) {
-          return TvOnboardingPage(appState: appState);
+          return ServerPage(appState: appState);
         }
 
         final active = appState.activeServer;
@@ -95,7 +95,7 @@ class TvHomePage extends StatelessWidget {
                           subtitle: '添加/切换/管理',
                           icon: Icons.dns_outlined,
                           onPressed: () =>
-                              _push(context, TvOnboardingPage(appState: appState)),
+                              _push(context, ServerPage(appState: appState)),
                         ),
                         TvActionCard(
                           title: '媒体库',
@@ -119,7 +119,8 @@ class TvHomePage extends StatelessWidget {
                           title: '手机扫码',
                           subtitle: remoteUrl == null ? '配对后输入服务器信息' : '已就绪：${remoteUrl.host}:${remoteUrl.port}',
                           icon: Icons.qr_code_2_outlined,
-                          onPressed: () => _push(context, TvOnboardingPage(appState: appState)),
+                          onPressed: () =>
+                              _push(context, ServerPage(appState: appState)),
                         ),
                         TvActionCard(
                           title: '网络加速',

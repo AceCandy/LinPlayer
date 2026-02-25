@@ -5,11 +5,13 @@ import 'package:flutter/material.dart';
 import 'package:lin_player_prefs/lin_player_prefs.dart';
 import 'package:lin_player_state/lin_player_state.dart';
 import 'package:lin_player_ui/lin_player_ui.dart';
+import 'package:qr_flutter/qr_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import 'player_screen.dart';
 import 'player_screen_exo.dart';
 import 'settings_page.dart';
+import 'services/tv_remote/tv_remote_service.dart';
 import 'server_text_import_sheet.dart';
 import 'package:lin_player_server_api/services/plex_api.dart';
 import 'package:lin_player_core/state/media_server_type.dart';
@@ -35,6 +37,15 @@ class _ServerPageState extends State<ServerPage> {
   final List<bool> _desktopPagesBuilt = <bool>[true, false, false];
 
   bool _isTv(BuildContext context) => DeviceType.isTv;
+
+  @override
+  void initState() {
+    super.initState();
+    if (DeviceType.isTv) {
+      // Make pairing available out-of-box on Android TV.
+      unawaited(TvRemoteService.instance.start(appState: widget.appState));
+    }
+  }
 
   void _selectDesktopTab(int index) {
     if (index == _desktopTabIndex) return;
@@ -120,19 +131,50 @@ class _ServerPageState extends State<ServerPage> {
                         ),
                   ),
                 ),
-                IconButton(
-                  tooltip: isList ? '网格显示' : '条状显示',
-                  onPressed: loading
-                      ? null
-                      : () async {
-                          await widget.appState.setServerListLayout(
-                            isList ? ServerListLayout.grid : ServerListLayout.list,
-                          );
-                        },
-                  icon: Icon(isList
-                      ? Icons.grid_view_outlined
-                      : Icons.view_list_outlined),
-                ),
+                if (isTv)
+                  SegmentedButton<ServerListLayout>(
+                    segments: const [
+                      ButtonSegment(
+                        value: ServerListLayout.grid,
+                        label: Text('矩形'),
+                        icon: Icon(Icons.grid_view_outlined),
+                      ),
+                      ButtonSegment(
+                        value: ServerListLayout.list,
+                        label: Text('条形'),
+                        icon: Icon(Icons.view_list_outlined),
+                      ),
+                    ],
+                    selected: {
+                      isList ? ServerListLayout.list : ServerListLayout.grid,
+                    },
+                    showSelectedIcon: false,
+                    onSelectionChanged: loading
+                        ? null
+                        : (selected) async {
+                            await widget.appState.setServerListLayout(
+                              selected.first,
+                            );
+                          },
+                  )
+                else
+                  IconButton(
+                    tooltip: isList ? '网格显示' : '条状显示',
+                    onPressed: loading
+                        ? null
+                        : () async {
+                            await widget.appState.setServerListLayout(
+                              isList
+                                  ? ServerListLayout.grid
+                                  : ServerListLayout.list,
+                            );
+                          },
+                    icon: Icon(
+                      isList
+                          ? Icons.grid_view_outlined
+                          : Icons.view_list_outlined,
+                    ),
+                  ),
                 if (!isTv)
                   IconButton(
                     tooltip: '主题',
@@ -181,12 +223,14 @@ class _ServerPageState extends State<ServerPage> {
             ),
           ),
         if (servers.isEmpty)
-          const SliverFillRemaining(
+          SliverFillRemaining(
             hasScrollBody: false,
             child: Center(
               child: Padding(
-                padding: EdgeInsets.all(24),
-                child: Text('还没有服务器，点右上角“+”添加。'),
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  isTv ? '还没有服务器，请用手机扫码右侧二维码添加。' : '还没有服务器，点右上角“+”添加。',
+                ),
               ),
             ),
           )
@@ -207,6 +251,7 @@ class _ServerPageState extends State<ServerPage> {
                           child: _ServerListTile(
                             server: server,
                             active: isActive,
+                            subtitleText: isTv ? _tvServerSubtitle(server) : null,
                             autofocus: isTv && isActive,
                             onTap: loading
                                 ? null
@@ -231,7 +276,9 @@ class _ServerPageState extends State<ServerPage> {
                                     if (!context.mounted) return;
                                     await Navigator.of(context).maybePop();
                                   },
-                            onLongPress: () => _showEditServerSheet(server),
+                            onLongPress: () => isTv
+                                ? unawaited(_showTvServerMenu(server))
+                                : _showEditServerSheet(server),
                           ),
                         );
                       },
@@ -253,6 +300,7 @@ class _ServerPageState extends State<ServerPage> {
                       return _ServerCard(
                         server: server,
                         active: isActive,
+                        subtitleText: isTv ? _tvServerSubtitle(server) : null,
                         autofocus: isTv && isActive,
                         onTap: loading
                             ? null
@@ -275,13 +323,619 @@ class _ServerPageState extends State<ServerPage> {
                                 if (!context.mounted) return;
                                 await Navigator.of(context).maybePop();
                               },
-                        onLongPress: () => _showEditServerSheet(server),
+                        onLongPress: () => isTv
+                            ? unawaited(_showTvServerMenu(server))
+                            : _showEditServerSheet(server),
                       );
                     },
                   ),
           ),
       ],
     );
+  }
+
+  String _tvServerSubtitle(ServerProfile server) {
+    final routeRemark =
+        (widget.appState.serverDomainRemark(server.id, server.baseUrl) ?? '')
+            .trim();
+    if (routeRemark.isNotEmpty) return routeRemark;
+
+    final serverRemark = (server.remark ?? '').trim();
+    if (serverRemark.isNotEmpty) return serverRemark;
+
+    final uri = Uri.tryParse(server.baseUrl);
+    if (uri != null && uri.host.trim().isNotEmpty) return uri.host.trim();
+    return server.serverType.label;
+  }
+
+  Widget _buildTvQrPanel(BuildContext context) {
+    final theme = Theme.of(context);
+    final uiScale = context.uiScale;
+    final remote = TvRemoteService.instance;
+
+    return AnimatedBuilder(
+      animation: remote,
+      builder: (context, _) {
+        final url = remote.firstRemoteUrl;
+        final addressText = url == null ? '正在获取局域网地址…' : url.toString();
+        final qrSize = (260 * uiScale).clamp(200.0, 340.0);
+
+        return Padding(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 24),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                '手机扫码添加服务器',
+                style: theme.textTheme.titleLarge?.copyWith(
+                  fontWeight: FontWeight.w700,
+                  height: 1.1,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                '手机与 TV 需在同一局域网。扫码后在手机端填写服务器地址/账号/密码，提交后 TV 会自动添加服务器。',
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 16),
+              Expanded(
+                child: Center(
+                  child: Container(
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: theme.colorScheme.surfaceContainerHighest
+                          .withValues(alpha: 0.65),
+                      borderRadius: BorderRadius.circular(18),
+                      border: Border.all(color: theme.colorScheme.outlineVariant),
+                    ),
+                    child: url == null
+                        ? SizedBox(
+                            height: qrSize,
+                            width: qrSize,
+                            child: const Center(
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            ),
+                          )
+                        : QrImageView(
+                            data: url.toString(),
+                            size: qrSize,
+                            backgroundColor: Colors.white,
+                          ),
+                  ),
+                ),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                addressText,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                '提示：可在 设置 → TV 专区 关闭“手机扫码控制”。',
+                style: theme.textTheme.bodySmall?.copyWith(
+                  color: theme.colorScheme.onSurfaceVariant,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _showTvServerMenu(ServerProfile server) async {
+    if (!mounted) return;
+
+    final action = await showDialog<_TvServerMenuAction>(
+      context: context,
+      builder: (dialogContext) {
+        Widget item({
+          required _TvServerMenuAction value,
+          required IconData icon,
+          required String label,
+          bool danger = false,
+        }) {
+          final color =
+              danger ? Theme.of(dialogContext).colorScheme.error : null;
+          return ListTile(
+            leading: Icon(icon, color: color),
+            title: Text(
+              label,
+              style: color == null ? null : TextStyle(color: color),
+            ),
+            onTap: () => Navigator.of(dialogContext).pop(value),
+          );
+        }
+
+        return AlertDialog(
+          title: Text(
+            server.name,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+          ),
+          content: SizedBox(
+            width: 420,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                item(
+                  value: _TvServerMenuAction.addRoute,
+                  icon: Icons.add,
+                  label: '添加线路',
+                ),
+                item(
+                  value: _TvServerMenuAction.switchRoute,
+                  icon: Icons.route_outlined,
+                  label: '修改线路',
+                ),
+                item(
+                  value: _TvServerMenuAction.editRouteRemark,
+                  icon: Icons.edit_note_outlined,
+                  label: '修改线路备注',
+                ),
+                item(
+                  value: _TvServerMenuAction.relogin,
+                  icon: Icons.lock_reset_outlined,
+                  label: '重新登录',
+                ),
+                const Divider(height: 12),
+                item(
+                  value: _TvServerMenuAction.deleteServer,
+                  icon: Icons.delete_outline,
+                  label: '删除服务器',
+                  danger: true,
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+    if (!mounted || action == null) return;
+
+    switch (action) {
+      case _TvServerMenuAction.addRoute:
+        await _tvAddRoute(server);
+        break;
+      case _TvServerMenuAction.switchRoute:
+        await _tvSwitchRoute(server);
+        break;
+      case _TvServerMenuAction.editRouteRemark:
+        await _tvEditRouteRemark(server);
+        break;
+      case _TvServerMenuAction.relogin:
+        await _tvRelogin(server);
+        break;
+      case _TvServerMenuAction.deleteServer:
+        await _tvDeleteServer(server);
+        break;
+    }
+  }
+
+  Future<Map<String, String>?> _showTvRouteEditorDialog({
+    required String title,
+  }) async {
+    final nameCtrl = TextEditingController();
+    final urlCtrl = TextEditingController();
+    final remarkCtrl = TextEditingController();
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 560,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nameCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '名称',
+                    hintText: '例如：直连 / 备用 / 移动',
+                  ),
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: urlCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '地址',
+                    hintText: '例如：https://emby.example.com:8920',
+                  ),
+                  keyboardType: TextInputType.url,
+                ),
+                const SizedBox(height: 10),
+                TextField(
+                  controller: remarkCtrl,
+                  decoration: const InputDecoration(
+                    labelText: '备注（可选）',
+                    hintText: '例如：移动 / 低延迟',
+                  ),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () {
+                Navigator.of(dialogContext).pop({
+                  'name': nameCtrl.text.trim(),
+                  'url': urlCtrl.text.trim(),
+                  'remark': remarkCtrl.text.trim(),
+                });
+              },
+              child: const Text('保存'),
+            ),
+          ],
+        );
+      },
+    );
+
+    nameCtrl.dispose();
+    urlCtrl.dispose();
+    remarkCtrl.dispose();
+    return result;
+  }
+
+  Future<String?> _pickTvRouteUrl(ServerProfile server, {required String title}) async {
+    final currentUrl = server.baseUrl.trim();
+    final customDomains = widget.appState.customDomainsOfServer(server.id);
+
+    final seen = <String>{};
+    final items = <({String name, String url})>[];
+
+    void addItem(String name, String url) {
+      final fixedUrl = url.trim();
+      if (fixedUrl.isEmpty || seen.contains(fixedUrl)) return;
+      seen.add(fixedUrl);
+      final fixedName = name.trim().isEmpty ? fixedUrl : name.trim();
+      items.add((name: fixedName, url: fixedUrl));
+    }
+
+    if (currentUrl.isNotEmpty) {
+      addItem('当前线路', currentUrl);
+    }
+    for (final d in customDomains) {
+      addItem(d.name, d.url);
+    }
+
+    if (items.isEmpty) return null;
+
+    return showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: Text(title),
+          content: SizedBox(
+            width: 680,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxHeight: 420),
+              child: ListView.separated(
+                shrinkWrap: true,
+                itemCount: items.length,
+                separatorBuilder: (_, __) => const Divider(height: 1),
+                itemBuilder: (context, index) {
+                  final entry = items[index];
+                  final selected = entry.url == currentUrl;
+                  final remark = (widget.appState
+                          .serverDomainRemark(server.id, entry.url) ??
+                      '')
+                      .trim();
+                  final subtitle = remark.isEmpty ? entry.url : '$remark · ${entry.url}';
+                  return ListTile(
+                    title: Text(
+                      entry.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    subtitle: Text(
+                      subtitle,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                    trailing: selected ? const Icon(Icons.check, size: 18) : null,
+                    onTap: () => Navigator.of(dialogContext).pop(entry.url),
+                  );
+                },
+              ),
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('取消'),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Future<String?> _showTvTextInputDialog({
+    required String title,
+    required String labelText,
+    String initialText = '',
+    String? hintText,
+    bool obscureText = false,
+  }) async {
+    final ctrl = TextEditingController(text: initialText);
+    var visible = !obscureText;
+
+    final result = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(title),
+              content: SizedBox(
+                width: 560,
+                child: TextField(
+                  controller: ctrl,
+                  obscureText: !visible,
+                  decoration: InputDecoration(
+                    labelText: labelText,
+                    hintText: hintText,
+                    suffixIcon: obscureText
+                        ? IconButton(
+                            tooltip: visible ? '隐藏' : '显示',
+                            icon: Icon(
+                              visible ? Icons.visibility_off : Icons.visibility,
+                            ),
+                            onPressed: () => setDialogState(() {
+                              visible = !visible;
+                            }),
+                          )
+                        : null,
+                  ),
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () =>
+                      Navigator.of(dialogContext).pop(ctrl.text.trim()),
+                  child: const Text('保存'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    ctrl.dispose();
+    return result;
+  }
+
+  Future<void> _tvAddRoute(ServerProfile server) async {
+    final result = await _showTvRouteEditorDialog(title: '添加线路');
+    if (result == null) return;
+
+    try {
+      await widget.appState.addCustomDomainForServer(
+        serverId: server.id,
+        name: result['name'] ?? '',
+        url: result['url'] ?? '',
+        remark: (result['remark'] ?? '').trim().isEmpty
+            ? null
+            : (result['remark'] ?? '').trim(),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  Future<void> _tvSwitchRoute(ServerProfile server) async {
+    final picked = await _pickTvRouteUrl(server, title: '修改线路');
+    if (picked == null) return;
+    final nextUrl = picked.trim();
+    final currentUrl = server.baseUrl.trim();
+    if (nextUrl.isEmpty || nextUrl == currentUrl) return;
+
+    try {
+      await widget.appState.updateServerRoute(server.id, url: nextUrl);
+      if (!mounted) return;
+      if (server.id == widget.appState.activeServerId &&
+          server.serverType.isEmbyLike) {
+        await widget.appState.refreshDomains();
+        await widget.appState.refreshLibraries();
+        unawaited(widget.appState.loadHome(forceRefresh: true));
+      }
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('已切换线路')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('线路切换失败：$e')),
+      );
+    }
+  }
+
+  Future<void> _tvEditRouteRemark(ServerProfile server) async {
+    final picked = await _pickTvRouteUrl(server, title: '选择线路');
+    if (picked == null) return;
+    final url = picked.trim();
+    if (url.isEmpty) return;
+
+    final currentRemark =
+        (widget.appState.serverDomainRemark(server.id, url) ?? '').trim();
+    final next = await _showTvTextInputDialog(
+      title: '修改线路备注',
+      labelText: '备注',
+      hintText: '例如：移动 / 低延迟',
+      initialText: currentRemark,
+    );
+    if (next == null) return;
+
+    await widget.appState.setServerDomainRemark(
+      server.id,
+      url,
+      next.trim().isEmpty ? null : next.trim(),
+    );
+  }
+
+  Future<void> _tvRelogin(ServerProfile server) async {
+    if (server.serverType == MediaServerType.plex) {
+      final token = await _showTvTextInputDialog(
+        title: '重新登录',
+        labelText: 'Plex Token',
+        hintText: '从 Plex 授权获取',
+        obscureText: true,
+      );
+      if (token == null) return;
+      await widget.appState.addPlexServer(
+        baseUrl: server.baseUrl,
+        token: token.trim(),
+        displayName: server.name,
+        remark: server.remark,
+        iconUrl: server.iconUrl,
+        plexMachineIdentifier: server.plexMachineIdentifier,
+      );
+      if (!mounted) return;
+      if ((widget.appState.error ?? '').trim().isNotEmpty) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(widget.appState.error!)),
+        );
+        return;
+      }
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('登录已更新')),
+      );
+      return;
+    }
+
+    final userCtrl = TextEditingController(text: server.username);
+    final pwdCtrl = TextEditingController();
+    var pwdVisible = false;
+
+    final result = await showDialog<Map<String, String>>(
+      context: context,
+      builder: (dialogContext) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: const Text('重新登录'),
+              content: SizedBox(
+                width: 560,
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: userCtrl,
+                      decoration: const InputDecoration(labelText: '账号'),
+                    ),
+                    const SizedBox(height: 10),
+                    TextField(
+                      controller: pwdCtrl,
+                      obscureText: !pwdVisible,
+                      decoration: InputDecoration(
+                        labelText: '密码',
+                        suffixIcon: IconButton(
+                          tooltip: pwdVisible ? '隐藏密码' : '显示密码',
+                          icon: Icon(
+                            pwdVisible ? Icons.visibility_off : Icons.visibility,
+                          ),
+                          onPressed: () => setDialogState(() {
+                            pwdVisible = !pwdVisible;
+                          }),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(dialogContext).pop(),
+                  child: const Text('取消'),
+                ),
+                FilledButton(
+                  onPressed: () {
+                    Navigator.of(dialogContext).pop({
+                      'username': userCtrl.text.trim(),
+                      'password': pwdCtrl.text,
+                    });
+                  },
+                  child: const Text('登录'),
+                ),
+              ],
+            );
+          },
+        );
+      },
+    );
+
+    userCtrl.dispose();
+    pwdCtrl.dispose();
+
+    if (result == null) return;
+
+    try {
+      await widget.appState.updateServerPassword(
+        server.id,
+        username: result['username'],
+        password: result['password'] ?? '',
+      );
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('登录已更新')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(e.toString())),
+      );
+    }
+  }
+
+  Future<void> _tvDeleteServer(ServerProfile server) async {
+    final ok = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('删除服务器？'),
+          content: Text('将删除“${server.name}”。'),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(false),
+              child: const Text('取消'),
+            ),
+            FilledButton(
+              onPressed: () => Navigator.of(dialogContext).pop(true),
+              child: const Text('删除'),
+            ),
+          ],
+        );
+      },
+    );
+    if (ok != true) return;
+    await widget.appState.removeServer(server.id);
   }
 
   @override
@@ -377,6 +1031,30 @@ class _ServerPageState extends State<ServerPage> {
           );
         }
 
+        if (isTv) {
+          return Scaffold(
+            body: SafeArea(
+              child: Row(
+                children: [
+                  Expanded(
+                    child: _buildServerListView(
+                      context,
+                      servers: servers,
+                      loading: loading,
+                      isTv: isTv,
+                      showInlineLocalEntry: widget.showInlineLocalEntry,
+                      isList: isList,
+                      maxCrossAxisExtent: maxCrossAxisExtent,
+                    ),
+                  ),
+                  const VerticalDivider(width: 1),
+                  Expanded(child: _buildTvQrPanel(context)),
+                ],
+              ),
+            ),
+          );
+        }
+
         return Scaffold(
           body: SafeArea(
             child: _buildServerListView(
@@ -399,6 +1077,7 @@ class _ServerCard extends StatefulWidget {
   const _ServerCard({
     required this.server,
     required this.active,
+    this.subtitleText,
     this.autofocus = false,
     required this.onTap,
     required this.onLongPress,
@@ -406,6 +1085,7 @@ class _ServerCard extends StatefulWidget {
 
   final ServerProfile server;
   final bool active;
+  final String? subtitleText;
   final bool autofocus;
   final VoidCallback? onTap;
   final VoidCallback onLongPress;
@@ -426,9 +1106,8 @@ class _ServerCardState extends State<_ServerCard> {
     final isDark = colorScheme.brightness == Brightness.dark;
     final highlighted = _focused || _hovered;
     final remark = (server.remark ?? '').trim();
-    final subtitleText = remark.isNotEmpty
-        ? '${server.serverType.label} · $remark'
-        : server.serverType.label;
+    final subtitleText = widget.subtitleText ??
+        (remark.isNotEmpty ? '${server.serverType.label} · $remark' : server.serverType.label);
 
     final borderColor = active
         ? colorScheme.primary.withValues(alpha: 0.55)
@@ -528,6 +1207,7 @@ class _ServerListTile extends StatefulWidget {
   const _ServerListTile({
     required this.server,
     required this.active,
+    this.subtitleText,
     this.autofocus = false,
     required this.onTap,
     required this.onLongPress,
@@ -535,6 +1215,7 @@ class _ServerListTile extends StatefulWidget {
 
   final ServerProfile server;
   final bool active;
+  final String? subtitleText;
   final bool autofocus;
   final VoidCallback? onTap;
   final VoidCallback onLongPress;
@@ -555,9 +1236,8 @@ class _ServerListTileState extends State<_ServerListTile> {
     final isDark = scheme.brightness == Brightness.dark;
     final highlighted = _focused || _hovered;
     final remark = (server.remark ?? '').trim();
-    final subtitleText = remark.isNotEmpty
-        ? '${server.serverType.label} · $remark'
-        : server.serverType.label;
+    final subtitleText = widget.subtitleText ??
+        (remark.isNotEmpty ? '${server.serverType.label} · $remark' : server.serverType.label);
 
     final borderColor = active
         ? scheme.primary.withValues(alpha: 0.55)
@@ -678,6 +1358,14 @@ class _ServerErrorBadge extends StatelessWidget {
     if (tooltip.isEmpty) return child;
     return Tooltip(message: tooltip, child: child);
   }
+}
+
+enum _TvServerMenuAction {
+  addRoute,
+  switchRoute,
+  editRouteRemark,
+  relogin,
+  deleteServer,
 }
 
 enum _PlexAddMode {
