@@ -41,18 +41,21 @@ class _HomePageState extends State<HomePage> {
   // Other platforms: 0 home, 1 aggregate, 2 local, 3 settings.
   int _index = 0;
   bool _loading = true;
+  Future<MediaStats>? _mediaStatsFuture;
 
   @override
   void initState() {
     super.initState();
+    _mediaStatsFuture = widget.appState.loadMediaStats();
     _load();
   }
 
   Future<void> _load({bool forceRefresh = false}) async {
     setState(() => _loading = true);
     try {
-      // Prefetch bottom stats once per server entry.
-      unawaited(widget.appState.loadMediaStats());
+      // Prefetch media stats once per server entry.
+      _mediaStatsFuture =
+          widget.appState.loadMediaStats(forceRefresh: forceRefresh);
 
       if (forceRefresh) {
         if (!widget.appState.isLoading) {
@@ -515,21 +518,11 @@ class _HomePageState extends State<HomePage> {
         ];
 
         if (isTv) {
-          final tvPages = [
-            _HomeBody(
-              appState: widget.appState,
-              loading: _loading,
-              onRefresh: () => _load(forceRefresh: true),
-              isTv: true,
-              showSearchBar: false,
-            ),
-            AggregateServicePage(appState: widget.appState),
-            SettingsPage(appState: widget.appState),
-          ];
-
-          final selectedIndex = _index < 0
-              ? 0
-              : (_index >= tvPages.length ? tvPages.length - 1 : _index);
+          final serverName = widget.appState.activeServer?.name ??
+              (widget.appState.servers.isNotEmpty
+                  ? '选择服务器'
+                  : AppConfigScope.of(context).displayName);
+          final iconUrl = widget.appState.activeServer?.iconUrl;
 
           return Scaffold(
             body: Column(
@@ -538,22 +531,26 @@ class _HomePageState extends State<HomePage> {
                   bottom: false,
                   child: Padding(
                     padding: const EdgeInsets.fromLTRB(16, 10, 16, 8),
-                    child: _TvTopNavBar(
-                      selectedIndex: selectedIndex,
-                      onSelected: (i) {
-                        if (_index == i) return;
-                        setState(() => _index = i);
-                        WidgetsBinding.instance.addPostFrameCallback((_) {
-                          FocusManager.instance.primaryFocus
-                              ?.focusInDirection(TraversalDirection.down);
-                        });
-                      },
-                      serverName: widget.appState.activeServer?.name ??
-                          (widget.appState.servers.isNotEmpty
-                              ? '选择服务器'
-                              : AppConfigScope.of(context).displayName),
-                      iconUrl: widget.appState.activeServer?.iconUrl,
+                    child: _TvHomeTopBar(
+                      serverName: serverName,
+                      iconUrl: iconUrl,
+                      mediaStatsFuture: _mediaStatsFuture,
                       onTapServer: _openServerPage,
+                      onTapSearch: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SearchPage(appState: widget.appState),
+                        ),
+                      ),
+                      onTapLibrary: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => LibraryPage(appState: widget.appState),
+                        ),
+                      ),
+                      onTapSettings: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => SettingsPage(appState: widget.appState),
+                        ),
+                      ),
                     ),
                   ),
                 ),
@@ -561,7 +558,13 @@ class _HomePageState extends State<HomePage> {
                   child: MediaQuery.removePadding(
                     context: context,
                     removeTop: true,
-                    child: tvPages[selectedIndex],
+                    child: _HomeBody(
+                      appState: widget.appState,
+                      loading: _loading,
+                      onRefresh: () => _load(forceRefresh: true),
+                      isTv: true,
+                      showSearchBar: false,
+                    ),
                   ),
                 ),
               ],
@@ -693,11 +696,17 @@ class _TvFocusable extends StatefulWidget {
     required this.borderRadius,
     required this.child,
     required this.onTap,
+    this.autofocus = false,
+    this.surfaceColor,
+    this.padding,
   });
 
   final BorderRadius borderRadius;
   final Widget child;
   final VoidCallback onTap;
+  final bool autofocus;
+  final Color? surfaceColor;
+  final EdgeInsetsGeometry? padding;
 
   @override
   State<_TvFocusable> createState() => _TvFocusableState();
@@ -728,133 +737,11 @@ class _TvFocusableState extends State<_TvFocusable> {
     final isDark = scheme.brightness == Brightness.dark;
 
     final bg = _focused
-        ? scheme.primary.withValues(alpha: isDark ? 0.16 : 0.12)
+        ? scheme.primary.withValues(alpha: isDark ? 0.14 : 0.10)
         : Colors.transparent;
-    final borderColor = _focused ? scheme.primary : Colors.transparent;
-
-    return FocusableActionDetector(
-      onFocusChange: _onFocusChange,
-      child: AnimatedContainer(
-        duration: const Duration(milliseconds: 120),
-        curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: widget.borderRadius,
-          border: Border.all(color: borderColor, width: 2),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            customBorder:
-                RoundedRectangleBorder(borderRadius: widget.borderRadius),
-            onTap: widget.onTap,
-            child: widget.child,
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _TvTopNavBar extends StatelessWidget {
-  const _TvTopNavBar({
-    required this.selectedIndex,
-    required this.onSelected,
-    required this.serverName,
-    required this.iconUrl,
-    required this.onTapServer,
-  });
-
-  final int selectedIndex;
-  final ValueChanged<int> onSelected;
-  final String serverName;
-  final String? iconUrl;
-  final VoidCallback? onTapServer;
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      children: [
-        Expanded(
-          child: Align(
-            alignment: Alignment.centerLeft,
-            child: _ServerGlassButton(
-              serverName: serverName,
-              iconUrl: iconUrl,
-              onTap: onTapServer,
-              enableBlur: false,
-              useGlass: false,
-            ),
-          ),
-        ),
-        const SizedBox(width: 16),
-        _TvTopNavItem(
-          autofocus: selectedIndex == 0,
-          selected: selectedIndex == 0,
-          icon: Icons.home_outlined,
-          label: '首页',
-          onTap: () => onSelected(0),
-        ),
-        const SizedBox(width: 10),
-        _TvTopNavItem(
-          autofocus: selectedIndex == 1,
-          selected: selectedIndex == 1,
-          icon: Icons.hub_outlined,
-          label: '聚合',
-          onTap: () => onSelected(1),
-        ),
-        const SizedBox(width: 10),
-        _TvTopNavItem(
-          autofocus: selectedIndex == 2,
-          selected: selectedIndex == 2,
-          icon: Icons.settings_outlined,
-          label: '设置',
-          onTap: () => onSelected(2),
-        ),
-      ],
-    );
-  }
-}
-
-class _TvTopNavItem extends StatefulWidget {
-  const _TvTopNavItem({
-    required this.selected,
-    required this.icon,
-    required this.label,
-    required this.onTap,
-    this.autofocus = false,
-  });
-
-  final bool selected;
-  final IconData icon;
-  final String label;
-  final VoidCallback onTap;
-  final bool autofocus;
-
-  @override
-  State<_TvTopNavItem> createState() => _TvTopNavItemState();
-}
-
-class _TvTopNavItemState extends State<_TvTopNavItem> {
-  bool _focused = false;
-
-  void _onFocusChange(bool v) {
-    if (_focused == v) return;
-    setState(() => _focused = v);
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final theme = Theme.of(context);
-    final scheme = theme.colorScheme;
-    final isDark = scheme.brightness == Brightness.dark;
-
-    final selected = widget.selected;
-    final bg = selected
-        ? scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16)
-        : scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.60 : 0.78);
-    final fg = selected ? scheme.onSurface : scheme.onSurface;
-    final borderColor = _focused ? scheme.primary : Colors.transparent;
+    final borderColor =
+        _focused ? scheme.primary.withValues(alpha: 0.95) : Colors.transparent;
+    final glow = scheme.primary.withValues(alpha: isDark ? 0.50 : 0.38);
 
     return FocusableActionDetector(
       autofocus: widget.autofocus,
@@ -875,39 +762,204 @@ class _TvTopNavItemState extends State<_TvTopNavItem> {
           onInvoke: (_) => widget.onTap(),
         ),
       },
-      child: AnimatedContainer(
+      child: AnimatedScale(
+        scale: _focused ? 1.05 : 1.0,
         duration: const Duration(milliseconds: 120),
         curve: Curves.easeOut,
-        decoration: BoxDecoration(
-          color: bg,
-          borderRadius: BorderRadius.circular(999),
-          border: Border.all(color: borderColor, width: 2),
-        ),
-        child: Material(
-          color: Colors.transparent,
-          child: InkWell(
-            customBorder: const StadiumBorder(),
-            onTap: widget.onTap,
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(widget.icon, color: fg),
-                  const SizedBox(width: 8),
-                  Text(
-                    widget.label,
-                    style: theme.textTheme.labelLarge?.copyWith(
-                      fontWeight: FontWeight.w700,
-                      color: fg,
+        child: AnimatedContainer(
+          duration: const Duration(milliseconds: 120),
+          curve: Curves.easeOut,
+          decoration: BoxDecoration(
+            color: bg,
+            borderRadius: widget.borderRadius,
+            border: Border.all(color: borderColor, width: 2),
+            boxShadow: !_focused
+                ? null
+                : [
+                    BoxShadow(
+                      color: glow,
+                      blurRadius: 18,
+                      spreadRadius: 1.0,
                     ),
-                  ),
-                ],
+                    BoxShadow(
+                      color:
+                          scheme.primary.withValues(alpha: isDark ? 0.22 : 0.16),
+                      blurRadius: 44,
+                      spreadRadius: 0.0,
+                    ),
+                  ],
+          ),
+          child: Material(
+            color: widget.surfaceColor ?? Colors.transparent,
+            shape: RoundedRectangleBorder(borderRadius: widget.borderRadius),
+            clipBehavior: Clip.antiAlias,
+            child: InkWell(
+              customBorder:
+                  RoundedRectangleBorder(borderRadius: widget.borderRadius),
+              onTap: widget.onTap,
+              child: Padding(
+                padding: widget.padding ?? EdgeInsets.zero,
+                child: widget.child,
               ),
             ),
           ),
         ),
       ),
+    );
+  }
+}
+
+class _TvHomeTopBar extends StatelessWidget {
+  const _TvHomeTopBar({
+    required this.serverName,
+    required this.iconUrl,
+    required this.mediaStatsFuture,
+    required this.onTapServer,
+    required this.onTapSearch,
+    required this.onTapLibrary,
+    required this.onTapSettings,
+  });
+
+  final String serverName;
+  final String? iconUrl;
+  final Future<MediaStats>? mediaStatsFuture;
+  final VoidCallback onTapServer;
+  final VoidCallback onTapSearch;
+  final VoidCallback onTapLibrary;
+  final VoidCallback onTapSettings;
+
+  String _fmtCount(int? v) {
+    if (v == null) return '--';
+    return v.toString().replaceAllMapped(
+          RegExp(r'(\\d)(?=(\\d{3})+$)'),
+          (m) => '${m[1]},',
+        );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final surface =
+        scheme.surfaceContainerHigh.withValues(alpha: isDark ? 0.62 : 0.80);
+
+    Widget actionButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback onTap,
+    }) {
+      return _TvFocusable(
+        borderRadius: BorderRadius.circular(999),
+        surfaceColor: surface,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+        onTap: onTap,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, color: scheme.onSurface),
+            const SizedBox(width: 8),
+            Text(
+              label,
+              style: theme.textTheme.labelLarge?.copyWith(
+                fontWeight: FontWeight.w700,
+                color: scheme.onSurface,
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    final serverStatsLine = FutureBuilder<MediaStats>(
+      future: mediaStatsFuture,
+      builder: (context, snap) {
+        final stats = snap.data;
+        final movies = _fmtCount(stats?.movieCount);
+        final series = _fmtCount(stats?.seriesCount);
+        return Text(
+          '电影 $movies · 剧集 $series',
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.labelSmall?.copyWith(
+            color: scheme.onSurfaceVariant,
+            fontWeight: FontWeight.w600,
+          ),
+        );
+      },
+    );
+
+    return Row(
+      children: [
+        Expanded(
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: _TvFocusable(
+                autofocus: true,
+                borderRadius: BorderRadius.circular(18),
+                surfaceColor: surface,
+                padding:
+                    const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                onTap: onTapServer,
+                child: Row(
+                  children: [
+                    ServerIconAvatar(
+                      iconUrl: iconUrl,
+                      name: serverName,
+                      radius: 18,
+                    ),
+                    const SizedBox(width: 10),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            serverName,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: theme.textTheme.titleSmall?.copyWith(
+                              fontWeight: FontWeight.w800,
+                              color: scheme.onSurface,
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          serverStatsLine,
+                        ],
+                      ),
+                    ),
+                    const SizedBox(width: 6),
+                    Icon(
+                      Icons.chevron_right,
+                      color: scheme.onSurfaceVariant,
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+        const SizedBox(width: 10),
+        actionButton(
+          icon: Icons.search,
+          label: '搜索',
+          onTap: onTapSearch,
+        ),
+        const SizedBox(width: 10),
+        actionButton(
+          icon: Icons.video_library_outlined,
+          label: '媒体库',
+          onTap: onTapLibrary,
+        ),
+        const SizedBox(width: 10),
+        actionButton(
+          icon: Icons.settings_outlined,
+          label: '设置',
+          onTap: onTapSettings,
+        ),
+      ],
     );
   }
 }
@@ -1346,7 +1398,6 @@ class _HomeBody extends StatelessWidget {
               children: [
                 const SizedBox(height: 8),
                 if (isTv) ...[
-                  _LibraryQuickAccessSection(appState: appState, isTv: true),
                   _ContinueWatchingSection(appState: appState, isTv: true),
                 ] else ...[
                   if (appState.showHomeRandomRecommendations)
@@ -1392,7 +1443,7 @@ class _HomeBody extends StatelessWidget {
                     child: Center(child: Text('暂无可展示内容')),
                   ),
                 const SizedBox(height: 8),
-                _MediaStatsSection(appState: appState, isTv: isTv),
+                if (!isTv) _MediaStatsSection(appState: appState, isTv: isTv),
               ],
             ),
           ),
@@ -1759,7 +1810,7 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
               children: [
                 Expanded(
                   child: Text(
-                    '继续观看',
+                    widget.isTv ? '观看记录' : '继续观看',
                     maxLines: 1,
                     overflow: TextOverflow.ellipsis,
                     style: theme.textTheme.titleMedium,
@@ -1784,11 +1835,12 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
             const spacing = 10.0;
             final access = resolveServerAccess(appState: widget.appState);
             final compact = constraints.maxWidth < 600;
-            final titleMaxLines = compact ? 2 : 1;
+            final titleMaxLines = widget.isTv ? 1 : (compact ? 2 : 1);
             final uiScale = context.uiScale;
             final baseWidth = widget.isTv ? (280 * uiScale) : 280.0;
             final visible = (constraints.maxWidth / baseWidth).clamp(1.4, 7.0);
-            final maxCount = items.length < 12 ? items.length : 12;
+            final maxCount =
+                widget.isTv ? items.length : (items.length < 12 ? items.length : 12);
 
             final itemWidth =
                 (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
@@ -1810,7 +1862,7 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
                     children: [
                       Expanded(
                         child: Text(
-                          '继续观看',
+                          widget.isTv ? '观看记录' : '继续观看',
                           style: theme.textTheme.titleMedium,
                           maxLines: 1,
                           overflow: TextOverflow.ellipsis,
@@ -1842,16 +1894,17 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
                           final item = items[index];
                           final isEpisode =
                               item.type.toLowerCase() == 'episode';
-                          final title = item.name;
+                          final title = isEpisode && item.seriesName.trim().isNotEmpty
+                              ? item.seriesName.trim()
+                              : item.name;
                           final pos =
                               _ticksToDuration(item.playbackPositionTicks);
                           final tag = isEpisode ? _episodeTag(item) : '';
-                          final sub = [
-                            if (isEpisode && item.seriesName.isNotEmpty)
-                              item.seriesName,
-                            if (tag.isNotEmpty) tag,
+                          final subParts = <String>[
+                            if (isEpisode && tag.isNotEmpty) tag,
                             if (pos > Duration.zero) '观看到 ${_fmt(pos)}',
-                          ].join(' · ');
+                          ];
+                          final sub = subParts.join(' · ');
 
                           final img = item.hasImage && access != null
                               ? access.adapter.imageUrl(
@@ -1933,10 +1986,10 @@ class _ContinueWatchingSectionState extends State<_ContinueWatchingSection>
                                       title,
                                       maxLines: titleMaxLines,
                                       overflow: TextOverflow.ellipsis,
-                                      style:
-                                          theme.textTheme.bodyMedium?.copyWith(
-                                        fontWeight: FontWeight.w700,
-                                      ),
+                                      style: (widget.isTv
+                                              ? theme.textTheme.bodySmall
+                                              : theme.textTheme.bodyMedium)
+                                          ?.copyWith(fontWeight: FontWeight.w700),
                                     ),
                                     if (sub.isNotEmpty)
                                       Padding(
@@ -2893,13 +2946,15 @@ class _HomeSectionCarousel extends StatelessWidget {
         final uiScale = context.uiScale;
         final baseWidth = isTv ? (180 * uiScale) : 180.0;
         final visible = (constraints.maxWidth / baseWidth).clamp(2.2, 12.0);
-        final maxCount = items.length < _maxItems ? items.length : _maxItems;
+        final cap = isTv ? 10 : _maxItems;
+        final maxCount = items.length < cap ? items.length : cap;
 
         final itemWidth =
             (constraints.maxWidth - padding * 2 - spacing * (visible - 1)) /
                 visible;
         final imageHeight = itemWidth * 3 / 2;
-        final listHeight = imageHeight + 44; // card padding + title line
+        final listHeight =
+            imageHeight + (isTv ? (62 * uiScale).clamp(52.0, 72.0) : 56.0);
 
         return Padding(
           padding: const EdgeInsets.only(bottom: 6),
@@ -2956,6 +3011,8 @@ class _HomeCard extends StatelessWidget {
   final VoidCallback onTap;
 
   String _yearOf() {
+    final py = item.productionYear;
+    if (py != null && py > 0) return py.toString();
     final d = (item.premiereDate ?? '').trim();
     if (d.isEmpty) return '';
     final parsed = DateTime.tryParse(d);
@@ -2970,12 +3027,103 @@ class _HomeCard extends StatelessWidget {
         ? access.adapter.imageUrl(
             access.auth,
             itemId: item.id,
-            maxWidth: isTv ? 320 : 240,
+            maxWidth: isTv ? 360 : 240,
           )
         : null;
 
     final year = _yearOf();
     final rating = item.communityRating;
+
+    if (isTv) {
+      final theme = Theme.of(context);
+      final scheme = theme.colorScheme;
+      final uiScale = context.uiScale;
+      final radius = (12 * uiScale).clamp(10.0, 16.0);
+
+      final imageWidget = image == null
+          ? const ColoredBox(
+              color: Colors.black26,
+              child: Center(child: Icon(Icons.image_outlined)),
+            )
+          : CachedNetworkImage(
+              imageUrl: image,
+              cacheManager: CoverCacheManager.instance,
+              httpHeaders: {'User-Agent': LinHttpClientFactory.userAgent},
+              fit: BoxFit.cover,
+              placeholder: (_, __) => const ColoredBox(
+                color: Colors.black12,
+                child: Center(child: Icon(Icons.image_outlined)),
+              ),
+              errorWidget: (_, __, ___) => const ColoredBox(
+                color: Colors.black26,
+                child: Center(child: Icon(Icons.broken_image_outlined)),
+              ),
+              useOldImageOnUrlChange: true,
+              fadeInDuration: Duration.zero,
+              fadeOutDuration: Duration.zero,
+              placeholderFadeInDuration: Duration.zero,
+            );
+
+      final metaStyle = theme.textTheme.labelSmall?.copyWith(
+        color: scheme.onSurfaceVariant,
+        fontWeight: FontWeight.w600,
+      );
+
+      final hasRating = rating != null && rating > 0;
+      final hasYear = year.trim().isNotEmpty;
+
+      final metaLine = (!hasRating && !hasYear)
+          ? const SizedBox(height: 16)
+          : Row(
+              children: [
+                if (hasRating) ...[
+                  const Icon(
+                    Icons.star_rounded,
+                    size: 16,
+                    color: Colors.amber,
+                  ),
+                  const SizedBox(width: 2),
+                  Text(rating.toStringAsFixed(1), style: metaStyle),
+                ],
+                if (hasRating && hasYear) const SizedBox(width: 8),
+                if (hasYear) Text(year.trim(), style: metaStyle),
+              ],
+            );
+
+      return _TvFocusable(
+        borderRadius: BorderRadius.circular(radius + 4),
+        onTap: onTap,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            AspectRatio(
+              aspectRatio: 2 / 3,
+              child: ClipRRect(
+                borderRadius: BorderRadius.circular(radius),
+                child: imageWidget,
+              ),
+            ),
+            SizedBox(height: (8 * uiScale).clamp(6.0, 10.0)),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: Text(
+                item.name,
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: theme.textTheme.bodyMedium?.copyWith(
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              child: metaLine,
+            ),
+          ],
+        ),
+      );
+    }
 
     final topRightBadge = item.type == 'Series'
         ? FutureBuilder<int?>(
