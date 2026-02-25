@@ -6,12 +6,16 @@ import 'emos/emos_adapter.dart';
 import 'lin/lin_emby_adapter.dart';
 import 'server_adapter.dart';
 import 'uhd/uhd_adapter.dart';
+import 'uhd/uhd_emby_like_adapter.dart';
 
 class ServerAdapterFactory {
   static MediaServerAdapter forLogin({
     required MediaServerType serverType,
     required String deviceId,
   }) {
+    if (serverType == MediaServerType.uhd) {
+      return UhdEmbyLikeAdapter(serverType: serverType, deviceId: deviceId);
+    }
     switch (AppConfig.current.product) {
       case AppProduct.lin:
         return LinEmbyAdapter(serverType: serverType, deviceId: deviceId);

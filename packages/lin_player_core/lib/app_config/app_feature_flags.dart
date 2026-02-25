@@ -39,6 +39,7 @@ class AppFeatureFlags {
           allowedServerTypes: {
             MediaServerType.emby,
             MediaServerType.jellyfin,
+            MediaServerType.uhd,
             MediaServerType.plex,
             MediaServerType.webdav,
           },

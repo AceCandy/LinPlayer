@@ -1,5 +1,7 @@
-import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
-import 'package:lin_player_server_adapters/server_adapters/lin/lin_emby_adapter.dart';
+import 'package:lin_player_server_api/services/emby_api.dart';
+
+import '../lin/lin_emby_adapter.dart';
+import '../server_adapter.dart';
 
 class UhdEmbyLikeAdapter extends LinEmbyAdapter {
   UhdEmbyLikeAdapter({required super.serverType, required super.deviceId});
@@ -14,21 +16,6 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
     if (_looksLikeUlid(v)) return true;
     if (v.length == 27 && _looksLikeUlid(v.substring(1))) return true;
     return false;
-  }
-
-  static String _effectiveStreamApiPrefix(ServerAuthSession auth) {
-    final configured = _normalizeApiPrefix(auth.apiPrefix);
-    final desired = configured.isEmpty ? 'emby' : configured;
-
-    final baseUri = Uri.tryParse(auth.baseUrl.trim());
-    if (baseUri == null) return desired;
-    final segments =
-        baseUri.pathSegments.where((segment) => segment.isNotEmpty).toList();
-    if (segments.isEmpty) return desired;
-
-    final last = segments.last.toLowerCase();
-    if (last == desired.toLowerCase()) return '';
-    return desired;
   }
 
   static String _normalizeImageId(String itemId) {
@@ -48,6 +35,56 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
       v = v.substring(0, v.length - 1);
     }
     return v;
+  }
+
+  static String _effectiveStreamApiPrefix(ServerAuthSession auth) {
+    final configured = _normalizeApiPrefix(auth.apiPrefix);
+    final desired = configured.isEmpty ? 'emby' : configured;
+
+    final baseUri = Uri.tryParse(auth.baseUrl.trim());
+    if (baseUri == null) return desired;
+    final segments =
+        baseUri.pathSegments.where((segment) => segment.isNotEmpty).toList();
+    if (segments.isEmpty) return desired;
+
+    final last = segments.last.toLowerCase();
+    if (last == desired.toLowerCase()) return '';
+    return desired;
+  }
+
+  static String _effectiveAssetBaseUrl(ServerAuthSession auth) {
+    final raw = auth.baseUrl.trim();
+    final uri = Uri.tryParse(raw);
+    if (uri == null) return raw;
+
+    final segments = uri.pathSegments.toList(growable: true);
+
+    // Users sometimes paste the web UI url: /web or /web/index.html.
+    while (segments.isNotEmpty) {
+      final last = segments.last.toLowerCase();
+      final secondLast = segments.length >= 2
+          ? segments[segments.length - 2].toLowerCase()
+          : null;
+
+      if (secondLast == 'web' && last == 'index.html') {
+        segments.removeLast();
+        segments.removeLast();
+        continue;
+      }
+      if (last == 'web') {
+        segments.removeLast();
+        continue;
+      }
+      break;
+    }
+
+    // Assets are hosted at the root (without /emby suffix).
+    while (segments.isNotEmpty && segments.last.toLowerCase() == 'emby') {
+      segments.removeLast();
+    }
+
+    final normalizedPath = segments.isEmpty ? '' : '/${segments.join('/')}';
+    return uri.replace(path: normalizedPath, query: null, fragment: null).toString();
   }
 
   static String _urlJoin(String baseUrl, String path) {
@@ -101,6 +138,7 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
     final rawId = itemId.trim();
     if (rawId.isEmpty) return rawId;
 
+    // Some backends use prefixed ids like "e{ULID}" for episodes.
     if (rawId.length == 27 && _looksLikeUlid(rawId.substring(1))) {
       return rawId;
     }
@@ -169,12 +207,7 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
 
   static MediaItem _maybeForceHasImage(MediaItem item) {
     if (item.hasImage) return item;
-
-    final id = item.id.trim();
-    final isUlid = _looksLikeUlid(id);
-    final isPrefixedUlid = id.length == 27 && _looksLikeUlid(id.substring(1));
-    if (!isUlid && !isPrefixedUlid) return item;
-
+    if (!_looksLikeUhdItemId(item.id)) return item;
     return _copyWithHasImage(item, true);
   }
 
@@ -188,7 +221,8 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
     final id = _normalizeImageId(itemId);
     final kind = _uhdImageKind(imageType);
     final width = (maxWidth != null && maxWidth > 0) ? '@${maxWidth}_' : '';
-    return _urlJoin(auth.baseUrl, 'img/$kind/$id/img.webp$width');
+    final base = _effectiveAssetBaseUrl(auth);
+    return _urlJoin(base, 'img/$kind/$id/img.webp$width');
   }
 
   @override
@@ -199,7 +233,8 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
   }) {
     final id = _normalizeImageId(personId);
     final width = (maxWidth != null && maxWidth > 0) ? '@${maxWidth}_' : '';
-    return _urlJoin(auth.baseUrl, 'img/person/$id/img.webp$width');
+    final base = _effectiveAssetBaseUrl(auth);
+    return _urlJoin(base, 'img/person/$id/img.webp$width');
   }
 
   @override
@@ -312,6 +347,7 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
 
     final itemType = detail?.type ?? '';
     final containerFromDetail = _normalizeContainer(detail?.container);
+    final videoId = _computeVideoId(itemId: itemId, itemType: itemType);
 
     try {
       final info = await super.fetchPlaybackInfo(
@@ -324,11 +360,6 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
       for (final entry in info.mediaSources) {
         if (entry is Map) {
           final ms = Map<String, dynamic>.from(entry);
-          final rawId = (ms['Id']?.toString() ?? '').trim();
-          final videoId = _computeVideoId(
-            itemId: _looksLikeUhdItemId(rawId) ? rawId : itemId,
-            itemType: itemType,
-          );
           final c = _normalizeContainer(ms['Container']?.toString());
           ms['DirectStreamUrl'] = buildOriginalStreamUrl(
             auth,
@@ -346,7 +377,6 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
         mediaSources: patched,
       );
     } catch (_) {
-      final videoId = _computeVideoId(itemId: itemId, itemType: itemType);
       return PlaybackInfoResult(
         playSessionId: '',
         mediaSourceId: videoId,
@@ -366,3 +396,4 @@ class UhdEmbyLikeAdapter extends LinEmbyAdapter {
     }
   }
 }
+

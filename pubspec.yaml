@@ -17,8 +17,6 @@ dependencies:
     path: packages/lin_player_server_api
   lin_player_server_adapters:
     path: packages/lin_player_server_adapters
-  lin_player_server_adapters_uhd:
-    path: packages/lin_player_server_adapters_uhd
   lin_player_prefs:
     path: packages/lin_player_prefs
   lin_player_ui:

@@ -1,7 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
-import 'package:lin_player_server_adapters_uhd/lin_player_server_adapters_uhd.dart';
+import 'package:lin_player_server_adapters/server_adapters/uhd/uhd_emby_like_adapter.dart';
 
 void main() {
   ServerAuthSession auth({

@@ -8,7 +8,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 import 'backup_crypto.dart';
 import 'package:lin_player_server_api/services/emby_api.dart';
 import 'package:lin_player_server_api/services/webdav_api.dart';
-import 'package:lin_player_server_adapters_uhd/lin_player_server_adapters_uhd.dart';
+import 'package:lin_player_server_adapters/lin_player_server_adapters.dart';
 import 'package:lin_player_prefs/anime4k_preferences.dart';
 import 'package:lin_player_prefs/danmaku_preferences.dart';
 import 'package:lin_player_prefs/desktop_shortcuts.dart';
@@ -2132,7 +2132,7 @@ class AppState extends ChangeNotifier {
             'Current version only supports Emby/Jellyfin login. Use Plex login to add Plex.';
         return null;
       }
-      final adapter = UhdAwareServerAdapterFactory.forLogin(
+      final adapter = ServerAdapterFactory.forLogin(
         serverType: serverType,
         deviceId: _deviceId,
       );
@@ -2663,6 +2663,7 @@ class AppState extends ChangeNotifier {
       switch (server.serverType) {
         case MediaServerType.emby:
         case MediaServerType.jellyfin:
+        case MediaServerType.uhd:
           if (fixedUsername.isEmpty) {
             throw const FormatException('Missing username');
           }
@@ -2692,7 +2693,7 @@ class AppState extends ChangeNotifier {
                   ((uri.path.isNotEmpty && uri.path != '/') ? uri.path : '')
               : rawBaseUrl;
 
-          final adapter = UhdAwareServerAdapterFactory.forLogin(
+          final adapter = ServerAdapterFactory.forLogin(
             serverType: server.serverType,
             deviceId: _deviceId,
           );

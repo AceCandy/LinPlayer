@@ -499,6 +499,7 @@ class TvRemoteService extends ChangeNotifier {
     try {
       final type = switch (typeRaw) {
         'jellyfin' => MediaServerType.jellyfin,
+        'uhd' => MediaServerType.uhd,
         'webdav' => MediaServerType.webdav,
         'plex' => MediaServerType.plex,
         _ => MediaServerType.emby,

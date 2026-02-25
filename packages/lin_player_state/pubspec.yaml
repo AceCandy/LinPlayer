@@ -20,5 +20,3 @@ dependencies:
     path: ../lin_player_server_api
   lin_player_server_adapters:
     path: ../lin_player_server_adapters
-  lin_player_server_adapters_uhd:
-    path: ../lin_player_server_adapters_uhd
