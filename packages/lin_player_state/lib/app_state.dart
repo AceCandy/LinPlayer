@@ -2207,8 +2207,11 @@ class AppState extends ChangeNotifier {
       try {
         final linesFuture = adapter.fetchDomains(auth, allowFailure: true);
         final libsFuture = adapter.fetchLibraries(auth);
-        final lines = await linesFuture;
-        final libs = await libsFuture;
+        final lines = await linesFuture.timeout(
+          const Duration(seconds: 8),
+          onTimeout: () => const <DomainInfo>[],
+        );
+        final libs = await libsFuture.timeout(const Duration(seconds: 12));
 
         _activeServerId = server.id;
         _domains = lines;
@@ -2766,7 +2769,12 @@ class AppState extends ChangeNotifier {
         serverType: serverType,
         deviceId: _deviceId,
       );
-      _domains = await api.fetchDomains(token!, baseUrl!, allowFailure: true);
+      _domains = await api
+          .fetchDomains(token!, baseUrl!, allowFailure: true)
+          .timeout(
+            const Duration(seconds: 8),
+            onTimeout: () => const <DomainInfo>[],
+          );
       _error = null;
     } catch (e) {
       _error = e.toString();
@@ -2777,10 +2785,38 @@ class AppState extends ChangeNotifier {
   }
 
   Future<void> refreshLibraries() async {
-    if (baseUrl == null || token == null || userId == null) return;
+    if (baseUrl == null || token == null) return;
     _loading = true;
     notifyListeners();
     try {
+      var resolvedUserId = userId;
+      if (resolvedUserId == null &&
+          activeServer?.serverType.isEmbyLike == true) {
+        final api = EmbyApi(
+          hostOrUrl: baseUrl!,
+          preferredScheme: 'https',
+          apiPrefix: apiPrefix,
+          serverType: serverType,
+          deviceId: _deviceId,
+        );
+        final fetched = await api.fetchCurrentUserId(
+          token: token!,
+          baseUrl: baseUrl!,
+        );
+        final fixed = (fetched ?? '').trim();
+        if (fixed.isNotEmpty) {
+          final server = activeServer;
+          if (server != null && server.id == activeServerId) {
+            server.userId = fixed;
+            resolvedUserId = fixed;
+            final prefs = await SharedPreferences.getInstance();
+            await _persistServers(prefs);
+          }
+        }
+      }
+
+      if (resolvedUserId == null) return;
+
       final api = EmbyApi(
         hostOrUrl: baseUrl!,
         preferredScheme: 'https',
@@ -2788,11 +2824,13 @@ class AppState extends ChangeNotifier {
         serverType: serverType,
         deviceId: _deviceId,
       );
-      _libraries = await api.fetchLibraries(
-        token: token!,
-        baseUrl: baseUrl!,
-        userId: userId!,
-      );
+      _libraries = await api
+          .fetchLibraries(
+            token: token!,
+            baseUrl: baseUrl!,
+            userId: resolvedUserId,
+          )
+          .timeout(const Duration(seconds: 12));
       await _persistLibrariesCache();
       _itemsCache.clear();
       _randomRecommendations = null;

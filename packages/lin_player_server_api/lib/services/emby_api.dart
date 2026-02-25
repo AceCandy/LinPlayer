@@ -695,9 +695,11 @@ class EmbyApi {
   }) async {
     final errors = <String>[];
     for (final base in _candidates()) {
-      final prefixes = serverType == MediaServerType.jellyfin
-          ? const ['', 'jellyfin', 'emby']
-          : const ['emby'];
+      final prefixes = switch (serverType) {
+        MediaServerType.jellyfin => const ['', 'jellyfin', 'emby'],
+        MediaServerType.uhd => const ['', 'emby'],
+        _ => const ['emby'],
+      };
       for (final prefix in prefixes) {
         final url = Uri.parse(
           _apiUrlWithPrefix(base, prefix, 'Users/AuthenticateByName'),
@@ -722,15 +724,40 @@ class EmbyApi {
             continue;
           }
           final map = jsonDecode(resp.body) as Map<String, dynamic>;
-          final token = map['AccessToken'] as String?;
-          final userId =
-              (map['User'] as Map<String, dynamic>?)?['Id'] as String? ?? '';
-          if (token == null || token.isEmpty) {
+          final token = (map['AccessToken'] ??
+                  map['accessToken'] ??
+                  map['Token'] ??
+                  map['token'])
+              ?.toString();
+          var userId = '';
+          final userObj = map['User'];
+          if (userObj is Map) {
+            final id = userObj['Id'] ??
+                userObj['id'] ??
+                userObj['UserId'] ??
+                userObj['userId'];
+            userId = (id ?? '').toString().trim();
+          } else if (userObj != null) {
+            userId = userObj.toString().trim();
+          }
+          if (userId.isEmpty) {
+            final id = map['UserId'] ?? map['userId'];
+            userId = (id ?? '').toString().trim();
+          }
+          if ((token ?? '').trim().isEmpty) {
             errors.add('${url.origin}: 未返回 token');
             continue;
           }
+          if (userId.isEmpty) {
+            userId = (await fetchCurrentUserId(
+                  token: token!.trim(),
+                  baseUrl: base,
+                  apiPrefixOverride: prefix,
+                )) ??
+                '';
+          }
           return AuthResult(
-            token: token,
+            token: token!.trim(),
             baseUrlUsed: base,
             userId: userId,
             apiPrefixUsed: _normalizeApiPrefix(prefix),
@@ -745,6 +772,46 @@ class EmbyApi {
       }
     }
     throw Exception('登录失败：${errors.join(" | ")}');
+  }
+
+  Future<String?> fetchCurrentUserId({
+    required String token,
+    required String baseUrl,
+    String? apiPrefixOverride,
+  }) async {
+    final fixedToken = token.trim();
+    final fixedBase = baseUrl.trim();
+    if (fixedToken.isEmpty || fixedBase.isEmpty) return null;
+
+    final prefix = apiPrefixOverride ?? apiPrefix;
+    final candidates = <String>[
+      'Users/Me',
+      'Users/Me?format=json',
+    ];
+
+    for (final path in candidates) {
+      try {
+        final url = Uri.parse(_apiUrlWithPrefix(fixedBase, prefix, path));
+        final resp = await _client
+            .get(
+              url,
+              headers: _jsonHeaders(token: fixedToken),
+            )
+            .timeout(const Duration(seconds: 6));
+        if (resp.statusCode != 200) continue;
+        final decoded = jsonDecode(resp.body);
+        final map = decoded is Map ? decoded : null;
+        if (map == null) continue;
+        final id = (map['Id'] ?? map['id'] ?? map['UserId'] ?? map['userId'])
+            ?.toString()
+            .trim();
+        if (id != null && id.isNotEmpty) return id;
+      } catch (_) {
+        // best-effort
+      }
+    }
+
+    return null;
   }
 
   Future<String?> fetchServerName(
