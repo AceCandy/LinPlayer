@@ -11,8 +11,10 @@ import 'package:lin_player_ui/lin_player_ui.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import 'package:url_launcher/url_launcher_string.dart';
 import 'server_adapters/server_access.dart';
+import 'person_page.dart';
 import 'play_network_page.dart';
 import 'play_network_page_exo.dart';
+import 'tv/tv_focusable.dart';
 
 class _DetailUiTokens {
   static const pagePadding = EdgeInsets.fromLTRB(20, 74, 20, 24);
@@ -111,21 +113,26 @@ Widget _detailGlassPanel({
   EdgeInsetsGeometry? padding,
   bool enableBlur = true,
   double radius = 16,
+  bool showBorder = true,
+  Gradient? gradient,
 }) {
   final borderRadius = BorderRadius.circular(radius);
-  final surface = Container(
-    padding: padding,
-    decoration: BoxDecoration(
-      borderRadius: borderRadius,
-      gradient: LinearGradient(
+  final effectiveGradient = gradient ??
+      LinearGradient(
         begin: Alignment.topLeft,
         end: Alignment.bottomRight,
         colors: [
           Colors.black.withValues(alpha: 0.46),
           Colors.black.withValues(alpha: 0.34),
         ],
-      ),
-      border: Border.all(color: Colors.white.withValues(alpha: 0.20)),
+      );
+  final surface = Container(
+    padding: padding,
+    decoration: BoxDecoration(
+      borderRadius: borderRadius,
+      gradient: effectiveGradient,
+      border:
+          showBorder ? Border.all(color: Colors.white.withValues(alpha: 0.20)) : null,
       boxShadow: [
         BoxShadow(
           color: Colors.black.withValues(alpha: 0.22),
@@ -192,6 +199,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
   int? _selectedSubtitleStreamIndex; // null = default, -1 = off
   bool _localFavorite = false;
   bool _favoriteLoaded = false;
+  bool _markBusy = false;
 
   String? get _baseUrl => widget.server?.baseUrl ?? widget.appState.baseUrl;
   String? get _token => widget.server?.token ?? widget.appState.token;
@@ -725,6 +733,78 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     );
     if (!mounted) return;
     await _refreshProgressAfterReturn();
+  }
+
+  Future<void> _toggleItemPlayedMark() async {
+    if (_markBusy) return;
+    final access =
+        resolveServerAccess(appState: widget.appState, server: widget.server);
+    if (access == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('未连接服务器')),
+      );
+      return;
+    }
+
+    final currentPlayed = _detail?.played ?? false;
+    final nextPlayed = !currentPlayed;
+
+    setState(() => _markBusy = true);
+    try {
+      await access.adapter.updatePlaybackPosition(
+        access.auth,
+        itemId: widget.itemId,
+        positionTicks: 0,
+        played: nextPlayed,
+      );
+
+      final detail = await access.adapter
+          .fetchItemDetail(access.auth, itemId: widget.itemId);
+      if (!mounted) return;
+      setState(() => _detail = detail);
+
+      unawaited(
+        widget.appState.loadContinueWatching(
+          forceRefresh: true,
+          forceNewRequest: true,
+        ),
+      );
+      unawaited(widget.appState.loadHome(forceRefresh: true));
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(nextPlayed ? '已标记为已播放' : '已标记为未播放')),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('标记失败：$e')),
+      );
+    } finally {
+      if (mounted) setState(() => _markBusy = false);
+    }
+  }
+
+  Future<void> _togglePlayerCore() async {
+    if (kIsWeb || defaultTargetPlatform != TargetPlatform.android) return;
+    final next = widget.appState.playerCore == PlayerCore.exo
+        ? PlayerCore.mpv
+        : PlayerCore.exo;
+    try {
+      await widget.appState.setPlayerCore(next);
+      if (!mounted) return;
+      setState(() {});
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(next == PlayerCore.exo ? '已切换到 ExoPlayer' : '已切换到 mpv'),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('切换失败：$e')),
+      );
+    }
   }
 
   Widget _heroActionButton(
@@ -1840,6 +1920,1427 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     setState(() => _selectedSubtitleStreamIndex = selected);
   }
 
+  static const int _kTvPickerDefault = -99999;
+
+  Future<T?> _showTvPicker<T>(
+    BuildContext context, {
+    required String title,
+    required List<({T value, String label, String? subtitle, bool selected})>
+        options,
+  }) async {
+    if (options.isEmpty) return null;
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final radius = (18 * uiScale).clamp(14.0, 22.0);
+    final insetH = (28 * uiScale).clamp(18.0, 44.0);
+    final insetV = (22 * uiScale).clamp(14.0, 34.0);
+    final padding = (14 * uiScale).clamp(10.0, 18.0);
+    final maxWidth = (760 * uiScale).clamp(520.0, 920.0);
+    final maxHeight = MediaQuery.sizeOf(context).height * 0.72;
+
+    final gradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        scheme.primary.withValues(alpha: isDark ? 0.14 : 0.10),
+        Colors.black.withValues(alpha: 0.58),
+      ],
+    );
+
+    return showDialog<T>(
+      context: context,
+      barrierColor: Colors.black.withValues(alpha: 0.64),
+      builder: (ctx) {
+        var autofocusAssigned = false;
+        return Dialog(
+          backgroundColor: Colors.transparent,
+          insetPadding:
+              EdgeInsets.symmetric(horizontal: insetH, vertical: insetV),
+          child: ConstrainedBox(
+            constraints: BoxConstraints(
+              maxWidth: maxWidth,
+              maxHeight: maxHeight,
+            ),
+            child: _detailGlassPanel(
+              enableBlur: false,
+              showBorder: false,
+              gradient: gradient,
+              radius: radius,
+              padding: EdgeInsets.all(padding),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    style: theme.textTheme.titleMedium?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                  SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                  Divider(
+                    height: 1,
+                    color: Colors.white.withValues(alpha: 0.18),
+                  ),
+                  SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+                  Expanded(
+                    child: ListView.separated(
+                      itemCount: options.length,
+                      separatorBuilder: (_, __) => SizedBox(
+                        height: (10 * uiScale).clamp(8.0, 14.0),
+                      ),
+                      itemBuilder: (context, index) {
+                        final opt = options[index];
+                        final shouldAutofocus =
+                            !autofocusAssigned && (opt.selected || index == 0);
+                        if (shouldAutofocus) autofocusAssigned = true;
+
+                        return TvFocusable(
+                          autofocus: shouldAutofocus,
+                          onPressed: () => Navigator.of(ctx).pop<T>(opt.value),
+                          borderRadius: BorderRadius.circular(
+                            (16 * uiScale).clamp(12.0, 20.0),
+                          ),
+                          surfaceColor: Colors.black.withValues(alpha: 0.28),
+                          focusedSurfaceColor: scheme.primary.withValues(
+                            alpha: isDark ? 0.20 : 0.16,
+                          ),
+                          padding: EdgeInsets.symmetric(
+                            horizontal: (14 * uiScale).clamp(10.0, 18.0),
+                            vertical: (12 * uiScale).clamp(10.0, 16.0),
+                          ),
+                          child: Row(
+                            children: [
+                              Icon(
+                                opt.selected
+                                    ? Icons.check_circle
+                                    : Icons.circle_outlined,
+                                color: opt.selected
+                                    ? scheme.primary
+                                    : Colors.white70,
+                              ),
+                              SizedBox(
+                                  width: (12 * uiScale).clamp(10.0, 16.0)),
+                              Expanded(
+                                child: Column(
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Text(
+                                      opt.label,
+                                      maxLines: 2,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: theme.textTheme.titleSmall
+                                          ?.copyWith(
+                                        color: Colors.white,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                    if ((opt.subtitle ?? '')
+                                        .trim()
+                                        .isNotEmpty)
+                                      Padding(
+                                        padding: EdgeInsets.only(
+                                          top:
+                                              (4 * uiScale).clamp(2.0, 6.0),
+                                        ),
+                                        child: Text(
+                                          opt.subtitle!,
+                                          maxLines: 2,
+                                          overflow: TextOverflow.ellipsis,
+                                          style: theme.textTheme.bodySmall
+                                              ?.copyWith(
+                                            color: Colors.white70,
+                                            height: 1.25,
+                                          ),
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ],
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Future<void> _pickMediaSourceTv(
+    BuildContext context,
+    PlaybackInfoResult info,
+  ) async {
+    final sources = info.mediaSources.cast<Map<String, dynamic>>();
+    if (sources.isEmpty) return;
+
+    final sortedSources = List<Map<String, dynamic>>.from(sources)
+      ..sort(_compareMediaSourcesByQuality);
+
+    final options = sortedSources
+        .map((ms) {
+          final id = (ms['Id'] as String? ?? '').trim();
+          if (id.isEmpty) return null;
+          return (
+            value: id,
+            label: _mediaSourceTitle(ms),
+            subtitle: _mediaSourceSubtitle(ms),
+            selected: id == _selectedMediaSourceId,
+          );
+        })
+        .whereType<({String value, String label, String? subtitle, bool selected})>()
+        .toList();
+
+    final selected = await _showTvPicker<String>(
+      context,
+      title: '视频版本',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null ||
+        selected.isEmpty ||
+        selected == _selectedMediaSourceId) {
+      return;
+    }
+    setState(() {
+      _selectedMediaSourceId = selected;
+      _selectedAudioStreamIndex = null;
+      _selectedSubtitleStreamIndex = null;
+    });
+  }
+
+  Future<void> _pickAudioStreamTv(
+    BuildContext context,
+    Map<String, dynamic> ms,
+  ) async {
+    final audioStreams = _streamsOfType(ms, 'Audio');
+    if (audioStreams.isEmpty) return;
+
+    final def = _defaultStream(audioStreams);
+    final defIndex = _asInt(def?['Index']);
+
+    final options = <({int value, String label, String? subtitle, bool selected})>[
+      (
+        value: _kTvPickerDefault,
+        label: '默认',
+        subtitle: defIndex == null ? null : '默认音轨',
+        selected: _selectedAudioStreamIndex == null,
+      ),
+      ...audioStreams.map((s) {
+        final idx = _asInt(s['Index']);
+        if (idx == null) return null;
+        final selectedNow = idx == _selectedAudioStreamIndex;
+        final title = _streamLabel(s, includeCodec: false);
+        final codec = (s['Codec'] as String?)?.trim();
+        return (
+          value: idx,
+          label: idx == defIndex ? '$title (默认)' : title,
+          subtitle: codec?.isEmpty == true ? null : codec,
+          selected: selectedNow,
+        );
+      }).whereType<({int value, String label, String? subtitle, bool selected})>(),
+    ];
+
+    final selected = await _showTvPicker<int>(
+      context,
+      title: '音轨选择',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null) return;
+    setState(() {
+      _selectedAudioStreamIndex =
+          selected == _kTvPickerDefault ? null : selected;
+    });
+  }
+
+  Future<void> _pickSubtitleStreamTv(
+    BuildContext context,
+    Map<String, dynamic> ms,
+  ) async {
+    final subtitleStreams = _streamsOfType(ms, 'Subtitle');
+    if (subtitleStreams.isEmpty) return;
+
+    final def = _defaultStream(subtitleStreams);
+    final defIndex = _asInt(def?['Index']);
+
+    final options = <({int value, String label, String? subtitle, bool selected})>[
+      (
+        value: -1,
+        label: '关闭',
+        subtitle: null,
+        selected: _selectedSubtitleStreamIndex == -1,
+      ),
+      (
+        value: _kTvPickerDefault,
+        label: '默认',
+        subtitle: defIndex == null ? null : '默认字幕',
+        selected: _selectedSubtitleStreamIndex == null,
+      ),
+      ...subtitleStreams.map((s) {
+        final idx = _asInt(s['Index']);
+        if (idx == null) return null;
+        final selectedNow = idx == _selectedSubtitleStreamIndex;
+        final title = _streamLabel(s, includeCodec: false);
+        final codec = (s['Codec'] as String?)?.trim();
+        return (
+          value: idx,
+          label: idx == defIndex ? '$title (默认)' : title,
+          subtitle: codec?.isEmpty == true ? null : codec,
+          selected: selectedNow,
+        );
+      }).whereType<({int value, String label, String? subtitle, bool selected})>(),
+    ];
+
+    final selected = await _showTvPicker<int>(
+      context,
+      title: '字幕选择',
+      options: options,
+    );
+
+    if (!mounted) return;
+    if (selected == null) return;
+    setState(() {
+      _selectedSubtitleStreamIndex =
+          selected == _kTvPickerDefault ? null : selected;
+    });
+  }
+
+  Widget _buildTvDetailPage(
+    BuildContext context, {
+    required MediaItem item,
+    required ServerAccess? access,
+    required bool isSeries,
+    required Duration? runtime,
+    required PlaybackInfoResult? playInfo,
+    required String heroBackdropUrl,
+    required String heroPrimaryUrl,
+    required ColorFilter? heroFilter,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final heroUrl =
+        heroBackdropUrl.isNotEmpty ? heroBackdropUrl : heroPrimaryUrl;
+    final posterUrl = heroPrimaryUrl.isNotEmpty ? heroPrimaryUrl : heroUrl;
+
+    String fmtDate(String? raw) {
+      final v = (raw ?? '').trim();
+      if (v.isEmpty) return '';
+      if (v.contains('T')) return v.split('T').first;
+      final parsed = DateTime.tryParse(v);
+      if (parsed == null) return v;
+      final y = parsed.year.toString().padLeft(4, '0');
+      final m = parsed.month.toString().padLeft(2, '0');
+      final d = parsed.day.toString().padLeft(2, '0');
+      return '$y-$m-$d';
+    }
+
+    String fmtRuntime(Duration? d) {
+      if (d == null) return '';
+      final h = d.inHours;
+      final m = d.inMinutes.remainder(60);
+      if (h > 0) return '${h}h ${m}m';
+      return '${d.inMinutes}m';
+    }
+
+    final rating = item.communityRating;
+    final runtimeText = fmtRuntime(runtime);
+    final date = fmtDate(item.premiereDate);
+    final dateLabel = isSeries ? '首播日期' : '首映日期';
+    final dateLine = date.isEmpty ? '' : '$dateLabel：$date';
+
+    final played = item.played;
+    final hasResume = item.playbackPositionTicks > 0 && !played && !isSeries;
+    final playLabel = isSeries
+        ? '播放'
+        : (hasResume ? '继续播放' : (played ? '重播' : '播放'));
+
+    final canSwitchCore = !kIsWeb &&
+        defaultTargetPlatform == TargetPlatform.android;
+    final coreLabel =
+        widget.appState.playerCore == PlayerCore.exo ? '内核：Exo' : '内核：mpv';
+
+    final posterWidth = (320 * uiScale).clamp(220.0, 420.0);
+    final posterRadius = (20 * uiScale).clamp(14.0, 26.0);
+    final contentPadding = EdgeInsets.fromLTRB(
+      (32 * uiScale).clamp(18.0, 44.0),
+      (22 * uiScale).clamp(14.0, 32.0),
+      (32 * uiScale).clamp(18.0, 44.0),
+      (30 * uiScale).clamp(18.0, 44.0),
+    );
+
+    final buttonHeight = (52 * uiScale).clamp(44.0, 62.0);
+    final buttonPaddingH = (16 * uiScale).clamp(12.0, 18.0);
+    final buttonIconSize = (22 * uiScale).clamp(18.0, 26.0);
+    final buttonGap = (14 * uiScale).clamp(10.0, 18.0);
+
+    Widget pillButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+      bool autofocus = false,
+      bool primary = false,
+    }) {
+      final fg = Colors.white;
+      final surface = primary
+          ? const Color(0xFF1F9F75).withValues(alpha: 0.86)
+          : Colors.black.withValues(alpha: 0.30);
+      final focusedSurface = primary
+          ? const Color(0xFF1F9F75).withValues(alpha: 0.96)
+          : scheme.primary.withValues(alpha: isDark ? 0.20 : 0.16);
+      return TvFocusable(
+        autofocus: autofocus,
+        enabled: onPressed != null,
+        onPressed: onPressed,
+        borderRadius: BorderRadius.circular(999),
+        surfaceColor: surface,
+        focusedSurfaceColor: focusedSurface,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: buttonHeight,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: buttonPaddingH),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: buttonIconSize, color: fg),
+                SizedBox(width: (10 * uiScale).clamp(8.0, 14.0)),
+                Text(
+                  label,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: theme.textTheme.labelLarge?.copyWith(
+                    color: fg,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget menuButton({
+      required IconData icon,
+      required String label,
+      required VoidCallback? onPressed,
+    }) {
+      final fg = Colors.white;
+      final surface = Colors.black.withValues(alpha: 0.26);
+      final focusedSurface =
+          scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14);
+      final radius = (18 * uiScale).clamp(14.0, 22.0);
+      return TvFocusable(
+        enabled: onPressed != null,
+        onPressed: onPressed,
+        borderRadius: BorderRadius.circular(radius),
+        surfaceColor: surface,
+        focusedSurfaceColor: focusedSurface,
+        padding: EdgeInsets.zero,
+        child: SizedBox(
+          height: buttonHeight,
+          child: Padding(
+            padding: EdgeInsets.symmetric(horizontal: buttonPaddingH),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: buttonIconSize, color: fg),
+                SizedBox(width: (10 * uiScale).clamp(8.0, 14.0)),
+                Flexible(
+                  child: Text(
+                    label,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: theme.textTheme.labelLarge?.copyWith(
+                      color: fg,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget ratingLine() {
+      if (rating == null && runtimeText.isEmpty) return const SizedBox.shrink();
+      final value = rating ?? 0;
+      final starValue = (value / 2).clamp(0.0, 5.0);
+      final full = starValue.floor();
+      final hasHalf = (starValue - full) >= 0.5;
+      final empty = 5 - full - (hasHalf ? 1 : 0);
+
+      return Row(
+        children: [
+          if (rating != null) ...[
+            for (int i = 0; i < full; i++)
+              const Icon(Icons.star_rounded,
+                  size: 18, color: Colors.amber),
+            if (hasHalf)
+              const Icon(Icons.star_half_rounded,
+                  size: 18, color: Colors.amber),
+            for (int i = 0; i < empty; i++)
+              Icon(
+                Icons.star_border_rounded,
+                size: 18,
+                color: Colors.amber.withValues(alpha: 0.7),
+              ),
+            const SizedBox(width: 8),
+            Text(
+              value.toStringAsFixed(1),
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white,
+                fontWeight: FontWeight.w800,
+              ),
+            ),
+          ],
+          if (rating != null && runtimeText.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 10),
+              child: Text(
+                '·',
+                style: theme.textTheme.labelLarge?.copyWith(
+                  color: Colors.white70,
+                  fontWeight: FontWeight.w800,
+                ),
+              ),
+            ),
+          if (runtimeText.isNotEmpty)
+            Text(
+              runtimeText,
+              style: theme.textTheme.labelLarge?.copyWith(
+                color: Colors.white70,
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+        ],
+      );
+    }
+
+    Widget background = heroUrl.isEmpty
+        ? const ColoredBox(color: Colors.black26)
+        : Image.network(
+            heroUrl,
+            fit: BoxFit.cover,
+            headers: {'User-Agent': LinHttpClientFactory.userAgent},
+            errorBuilder: (_, __, ___) =>
+                const ColoredBox(color: Colors.black26),
+          );
+    if (heroFilter != null) {
+      background = ColorFiltered(colorFilter: heroFilter, child: background);
+    }
+
+    final scrim = LinearGradient(
+      begin: Alignment.topCenter,
+      end: Alignment.bottomCenter,
+      colors: [
+        Colors.black.withValues(alpha: 0.82),
+        Colors.black.withValues(alpha: 0.60),
+        Colors.black.withValues(alpha: 0.78),
+      ],
+    );
+
+    Future<void> playPrimary() async {
+      if (isSeries) {
+        final season = _selectedSeason;
+        if (season == null) return;
+        final eps = await _episodesForSeason(season);
+        if (!context.mounted) return;
+        final ep = _featuredEpisode ?? (eps.isNotEmpty ? eps.first : null);
+        if (ep == null) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('暂无剧集')),
+          );
+          return;
+        }
+        await _openEpisode(context, ep);
+        return;
+      }
+      await _playMovie(item);
+    }
+
+    final ms = playInfo == null
+        ? null
+        : _findMediaSource(playInfo, _selectedMediaSourceId);
+
+    String currentVideoText() => ms == null ? '' : _mediaSourceSubtitle(ms);
+
+    String currentAudioText() {
+      if (ms == null) return '';
+      final streams = _streamsOfType(ms, 'Audio');
+      if (streams.isEmpty) return '默认';
+      final def = _defaultStream(streams);
+      final selected = _selectedAudioStreamIndex != null
+          ? streams.firstWhere(
+              (s) => _asInt(s['Index']) == _selectedAudioStreamIndex,
+              orElse: () => def ?? const <String, dynamic>{},
+            )
+          : def;
+      if (selected == null || selected.isEmpty) return '默认';
+      final label = _streamLabel(selected, includeCodec: false);
+      return label.isEmpty ? '默认' : label;
+    }
+
+    String currentSubtitleText() {
+      if (ms == null) return '';
+      final streams = _streamsOfType(ms, 'Subtitle');
+      if (streams.isEmpty) return '关闭';
+      final def = _defaultStream(streams);
+      if (_selectedSubtitleStreamIndex == -1) return '关闭';
+      final Map<String, dynamic>? selected;
+      if (_selectedSubtitleStreamIndex != null) {
+        selected = streams.firstWhere(
+          (s) => _asInt(s['Index']) == _selectedSubtitleStreamIndex,
+          orElse: () => def ?? const <String, dynamic>{},
+        );
+      } else {
+        selected = def;
+      }
+      if (selected == null || selected.isEmpty) return '默认';
+      final label = _streamLabel(selected, includeCodec: false);
+      return label.isEmpty ? '默认' : label;
+    }
+
+    return Scaffold(
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned.fill(child: background),
+          Positioned.fill(
+            child: DecoratedBox(decoration: BoxDecoration(gradient: scrim)),
+          ),
+          SafeArea(
+            child: FocusTraversalGroup(
+              policy: ReadingOrderTraversalPolicy(),
+              child: Center(
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 1600),
+                  child: ListView(
+                    padding: contentPadding,
+                    children: [
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: posterWidth,
+                            child: AspectRatio(
+                              aspectRatio: 2 / 3,
+                              child: ClipRRect(
+                                borderRadius:
+                                    BorderRadius.circular(posterRadius),
+                                child: posterUrl.isEmpty
+                                    ? const ColoredBox(
+                                        color: Colors.black26,
+                                        child:
+                                            Center(child: Icon(Icons.image)),
+                                      )
+                                    : Image.network(
+                                        posterUrl,
+                                        fit: BoxFit.cover,
+                                        headers: {
+                                          'User-Agent':
+                                              LinHttpClientFactory.userAgent
+                                        },
+                                        errorBuilder: (_, __, ___) =>
+                                            const ColoredBox(
+                                                color: Colors.black26),
+                                      ),
+                              ),
+                            ),
+                          ),
+                          SizedBox(width: (26 * uiScale).clamp(18.0, 34.0)),
+                          Expanded(
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                Text(
+                                  item.name,
+                                  style: theme.textTheme.headlineSmall?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w900,
+                                    height: 1.08,
+                                  ),
+                                ),
+                                SizedBox(
+                                    height: (10 * uiScale).clamp(8.0, 14.0)),
+                                ratingLine(),
+                                if (dateLine.isNotEmpty) ...[
+                                  SizedBox(
+                                      height:
+                                          (8 * uiScale).clamp(6.0, 12.0)),
+                                  Text(
+                                    dateLine,
+                                    style: theme.textTheme.bodyMedium?.copyWith(
+                                      color: Colors.white70,
+                                      fontWeight: FontWeight.w700,
+                                    ),
+                                  ),
+                                ],
+                                SizedBox(
+                                    height:
+                                        (16 * uiScale).clamp(12.0, 22.0)),
+                                Wrap(
+                                  spacing: buttonGap,
+                                  runSpacing: buttonGap,
+                                  children: [
+                                    pillButton(
+                                      icon: Icons.play_arrow_rounded,
+                                      label: playLabel,
+                                      onPressed: _markBusy
+                                          ? null
+                                          : () => unawaited(playPrimary()),
+                                      autofocus: true,
+                                      primary: true,
+                                    ),
+                                    pillButton(
+                                      icon: played
+                                          ? Icons.visibility_off_outlined
+                                          : Icons.check_circle_outline_rounded,
+                                      label: played ? '标记未播放' : '标记已播放',
+                                      onPressed: _markBusy
+                                          ? null
+                                          : _toggleItemPlayedMark,
+                                    ),
+                                    pillButton(
+                                      icon: _localFavorite
+                                          ? Icons.favorite_rounded
+                                          : Icons.favorite_border_rounded,
+                                      label: _localFavorite ? '已喜欢' : '喜欢',
+                                      onPressed: _favoriteLoaded
+                                          ? _toggleLocalFavorite
+                                          : null,
+                                    ),
+                                    pillButton(
+                                      icon: Icons.memory_rounded,
+                                      label: coreLabel,
+                                      onPressed:
+                                          canSwitchCore ? _togglePlayerCore : null,
+                                    ),
+                                  ],
+                                ),
+                                SizedBox(
+                                    height:
+                                        (14 * uiScale).clamp(10.0, 18.0)),
+                                Wrap(
+                                  spacing: buttonGap,
+                                  runSpacing: buttonGap,
+                                  children: [
+                                    menuButton(
+                                      icon: Icons.movie_filter_rounded,
+                                      label: ms == null
+                                          ? '视频'
+                                          : '视频：${currentVideoText()}',
+                                      onPressed: playInfo == null
+                                          ? null
+                                          : () => unawaited(
+                                              _pickMediaSourceTv(context, playInfo),
+                                            ),
+                                    ),
+                                    menuButton(
+                                      icon: Icons.audiotrack_rounded,
+                                      label: ms == null
+                                          ? '音频'
+                                          : '音频：${currentAudioText()}',
+                                      onPressed: ms == null
+                                          ? null
+                                          : () => unawaited(
+                                                _pickAudioStreamTv(context, ms),
+                                              ),
+                                    ),
+                                    menuButton(
+                                      icon: Icons.closed_caption_rounded,
+                                      label: ms == null
+                                          ? '字幕'
+                                          : '字幕：${currentSubtitleText()}',
+                                      onPressed: ms == null
+                                          ? null
+                                          : () => unawaited(
+                                                _pickSubtitleStreamTv(context, ms),
+                                              ),
+                                    ),
+                                  ],
+                                ),
+                              ],
+                            ),
+                          ),
+                        ],
+                      ),
+                      SizedBox(height: (22 * uiScale).clamp(16.0, 30.0)),
+                      if (isSeries) ...[
+                        _tvSeasonSelectorSection(context, access: access),
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _tvEpisodeSelectorSection(context, access: access),
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                      ],
+                      _tvPeopleSection(context, access: access),
+                      SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                      _tvMediaInfoSection(context, item: item, playInfo: playInfo),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _tvSeasonSelectorSection(
+    BuildContext context, {
+    required ServerAccess? access,
+  }) {
+    if (_seasons.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final cardWidth = (260 * uiScale).clamp(180.0, 340.0);
+    final cardRadius = (18 * uiScale).clamp(14.0, 22.0);
+    final imgRadius = (14 * uiScale).clamp(10.0, 18.0);
+    final gap = (14 * uiScale).clamp(10.0, 18.0);
+
+    final selectedId = _selectedSeasonId;
+
+    String labelOf(MediaItem season, int index) {
+      final no = season.seasonNumber ?? season.episodeNumber ?? (index + 1);
+      return '第$no季';
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, '季度选择'),
+        SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+        SizedBox(
+          height: (cardWidth / (16 / 9) + 62).clamp(160.0, 320.0),
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _seasons.length,
+            separatorBuilder: (_, __) => SizedBox(width: gap),
+            itemBuilder: (context, index) {
+              final s = _seasons[index];
+              final img = access == null
+                  ? ''
+                  : access.adapter.imageUrl(
+                      access.auth,
+                      itemId: s.id,
+                      imageType: 'Primary',
+                      maxWidth: 900,
+                    );
+              final selectedNow = selectedId != null && s.id == selectedId;
+              final surface = selectedNow
+                  ? scheme.primary.withValues(alpha: isDark ? 0.16 : 0.12)
+                  : Colors.black.withValues(alpha: 0.24);
+
+              return SizedBox(
+                width: cardWidth,
+                child: TvFocusable(
+                  onPressed: () {
+                    if (s.id == _selectedSeasonId) return;
+                    setState(() {
+                      _selectedSeasonId = s.id;
+                      _featuredEpisode = null;
+                    });
+                    unawaited(() async {
+                      try {
+                        final eps = await _episodesForSeason(s);
+                        if (!mounted || _selectedSeasonId != s.id) return;
+                        setState(() {
+                          _featuredEpisode = eps.isNotEmpty ? eps.first : null;
+                        });
+                      } catch (_) {}
+                    }());
+                  },
+                  borderRadius: BorderRadius.circular(cardRadius),
+                  surfaceColor: surface,
+                  focusedSurfaceColor:
+                      scheme.primary.withValues(alpha: isDark ? 0.20 : 0.16),
+                  padding: EdgeInsets.all((10 * uiScale).clamp(8.0, 12.0)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 16 / 9,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(imgRadius),
+                          child: img.isEmpty
+                              ? const ColoredBox(
+                                  color: Colors.black26,
+                                  child: Center(child: Icon(Icons.image)),
+                                )
+                              : Image.network(
+                                  img,
+                                  fit: BoxFit.cover,
+                                  headers: {
+                                    'User-Agent': LinHttpClientFactory.userAgent
+                                  },
+                                  errorBuilder: (_, __, ___) =>
+                                      const ColoredBox(color: Colors.black26),
+                                ),
+                        ),
+                      ),
+                      SizedBox(height: (10 * uiScale).clamp(8.0, 12.0)),
+                      Text(
+                        labelOf(s, index),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tvEpisodeSelectorSection(
+    BuildContext context, {
+    required ServerAccess? access,
+  }) {
+    if (_seasons.isEmpty) return const SizedBox.shrink();
+    final season = _selectedSeason;
+    if (season == null) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final cardWidth = (260 * uiScale).clamp(180.0, 340.0);
+    final cardRadius = (18 * uiScale).clamp(14.0, 22.0);
+    final imgRadius = (14 * uiScale).clamp(10.0, 18.0);
+    final gap = (14 * uiScale).clamp(10.0, 18.0);
+
+    return FutureBuilder<List<MediaItem>>(
+      future: _episodesForSeason(season),
+      builder: (context, snapshot) {
+        final eps = snapshot.data ?? const <MediaItem>[];
+        return Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            _sectionTitle(context, '集数选择'),
+            SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+            SizedBox(
+              height: (cardWidth / (16 / 9) + 72).clamp(180.0, 360.0),
+              child: eps.isEmpty
+                  ? const Center(
+                      child: Text('暂无剧集', style: TextStyle(color: Colors.white70)),
+                    )
+                  : ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      itemCount: eps.length,
+                      separatorBuilder: (_, __) => SizedBox(width: gap),
+                      itemBuilder: (context, index) {
+                        final ep = eps[index];
+                        final epNo = ep.episodeNumber ?? (index + 1);
+                        final img = access == null
+                            ? ''
+                            : access.adapter.imageUrl(
+                                access.auth,
+                                itemId: ep.hasImage ? ep.id : season.id,
+                                imageType: 'Primary',
+                                maxWidth: 900,
+                              );
+                        return SizedBox(
+                          width: cardWidth,
+                          child: TvFocusable(
+                            onPressed: () => unawaited(_openEpisode(context, ep)),
+                            borderRadius: BorderRadius.circular(cardRadius),
+                            surfaceColor: Colors.black.withValues(alpha: 0.24),
+                            focusedSurfaceColor: scheme.primary.withValues(
+                              alpha: isDark ? 0.20 : 0.16,
+                            ),
+                            padding:
+                                EdgeInsets.all((10 * uiScale).clamp(8.0, 12.0)),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                AspectRatio(
+                                  aspectRatio: 16 / 9,
+                                  child: ClipRRect(
+                                    borderRadius:
+                                        BorderRadius.circular(imgRadius),
+                                    child: img.isEmpty
+                                        ? const ColoredBox(
+                                            color: Colors.black26,
+                                            child: Center(
+                                                child: Icon(Icons.image)),
+                                          )
+                                        : Image.network(
+                                            img,
+                                            fit: BoxFit.cover,
+                                            headers: {
+                                              'User-Agent':
+                                                  LinHttpClientFactory.userAgent
+                                            },
+                                            errorBuilder: (_, __, ___) =>
+                                                const ColoredBox(
+                                                  color: Colors.black26,
+                                                ),
+                                          ),
+                                  ),
+                                ),
+                                SizedBox(
+                                    height:
+                                        (10 * uiScale).clamp(8.0, 12.0)),
+                                Text(
+                                  '第$epNo集',
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: theme.textTheme.labelLarge?.copyWith(
+                                    color: Colors.white,
+                                    fontWeight: FontWeight.w800,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+            ),
+          ],
+        );
+      },
+    );
+  }
+
+  Widget _tvPeopleSection(
+    BuildContext context, {
+    required ServerAccess? access,
+  }) {
+    final item = _detail;
+    if (item == null || item.people.isEmpty || access == null) {
+      return const SizedBox.shrink();
+    }
+
+    final people = item.people.where((p) => p.id.trim().isNotEmpty).toList();
+    if (people.isEmpty) return const SizedBox.shrink();
+
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final cardWidth = (170 * uiScale).clamp(132.0, 220.0);
+    final cardRadius = (18 * uiScale).clamp(14.0, 22.0);
+    final imgRadius = (14 * uiScale).clamp(10.0, 18.0);
+    final gap = (14 * uiScale).clamp(10.0, 18.0);
+
+    void openPerson(MediaPerson p) {
+      final id = p.id.trim();
+      if (id.isEmpty) return;
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => PersonPage(
+            appState: widget.appState,
+            server: widget.server,
+            personId: id,
+            seedName: p.name,
+            isTv: widget.isTv,
+            onOpenItem: (ctx, entry) {
+              Navigator.of(ctx).push(
+                MaterialPageRoute(
+                  builder: (_) => ShowDetailPage(
+                    itemId: entry.id,
+                    title: entry.name,
+                    appState: widget.appState,
+                    server: widget.server,
+                    isTv: widget.isTv,
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, '演职人员'),
+        SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+        SizedBox(
+          height: (cardWidth * 1.72).clamp(240.0, 420.0),
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: people.length,
+            separatorBuilder: (_, __) => SizedBox(width: gap),
+            itemBuilder: (context, index) {
+              final p = people[index];
+              final img = access.adapter.personImageUrl(
+                access.auth,
+                personId: p.id,
+                maxWidth: 520,
+              );
+              return SizedBox(
+                width: cardWidth,
+                child: TvFocusable(
+                  onPressed: () => openPerson(p),
+                  borderRadius: BorderRadius.circular(cardRadius),
+                  surfaceColor: Colors.black.withValues(alpha: 0.22),
+                  focusedSurfaceColor:
+                      scheme.primary.withValues(alpha: isDark ? 0.20 : 0.16),
+                  padding: EdgeInsets.all((10 * uiScale).clamp(8.0, 12.0)),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      AspectRatio(
+                        aspectRatio: 2 / 3,
+                        child: ClipRRect(
+                          borderRadius: BorderRadius.circular(imgRadius),
+                          child: img.isEmpty
+                              ? const ColoredBox(
+                                  color: Colors.black26,
+                                  child: Center(child: Icon(Icons.person)),
+                                )
+                              : Image.network(
+                                  img,
+                                  fit: BoxFit.cover,
+                                  headers: {
+                                    'User-Agent': LinHttpClientFactory.userAgent
+                                  },
+                                  errorBuilder: (_, __, ___) =>
+                                      const ColoredBox(color: Colors.black26),
+                                ),
+                        ),
+                      ),
+                      SizedBox(height: (10 * uiScale).clamp(8.0, 12.0)),
+                      Text(
+                        p.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: theme.textTheme.labelLarge?.copyWith(
+                          color: Colors.white,
+                          fontWeight: FontWeight.w800,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _tvMediaInfoSection(
+    BuildContext context, {
+    required MediaItem item,
+    required PlaybackInfoResult? playInfo,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    final info = playInfo;
+    if (info == null) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle(context, '媒体信息'),
+          SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+          Text(
+            item.type.toLowerCase() == 'series'
+                ? '请进入单集查看媒体信息'
+                : '暂无媒体信息',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final ms = _findMediaSource(info, _selectedMediaSourceId) ??
+        (info.mediaSources.first as Map<String, dynamic>);
+    final streams = (ms['MediaStreams'] as List?) ?? const [];
+    final videos = streams
+        .where((e) => (e as Map)['Type'] == 'Video')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+    final audios = streams
+        .where((e) => (e as Map)['Type'] == 'Audio')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+    final subs = streams
+        .where((e) => (e as Map)['Type'] == 'Subtitle')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+
+    String fmtSize(dynamic raw) {
+      final bytes = raw is num ? raw.toInt() : int.tryParse('$raw');
+      if (bytes == null || bytes <= 0) return '';
+      const kb = 1024;
+      const mb = kb * 1024;
+      const gb = mb * 1024;
+      if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+      if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(0)} MB';
+      if (bytes >= kb) return '${(bytes / kb).toStringAsFixed(0)} KB';
+      return '$bytes B';
+    }
+
+    String yn(dynamic v) => v == true ? '是' : '否';
+
+    List<({String k, String v})> videoLines(Map<String, dynamic> v) {
+      final out = <({String k, String v})>[];
+      final title = (v['DisplayTitle'] ?? '').toString().trim();
+      final codec = (v['Codec'] ?? '').toString().trim();
+      final width = _asInt(v['Width']);
+      final height = _asInt(v['Height']);
+      final aspect = _formatVideoAspectRatio(v);
+      final bitrate = _asInt(v['BitRate']);
+      final fr = v['RealFrameRate'] ?? v['AverageFrameRate'];
+
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      if (width != null && height != null) {
+        out.add((k: '源分辨率', v: '${width}x$height'));
+      }
+      if (aspect != null) out.add((k: '视频比例', v: aspect));
+      if (fr != null) out.add((k: '帧速率', v: fr.toString()));
+      if (bitrate != null && bitrate > 0) {
+        out.add((k: '比特率', v: '${(bitrate / 1000000).toStringAsFixed(1)} Mbps'));
+      }
+      out.add((k: '默认', v: yn(v['IsDefault'])));
+      return out;
+    }
+
+    List<({String k, String v})> audioLines(Map<String, dynamic> a) {
+      final out = <({String k, String v})>[];
+      final title = (a['DisplayTitle'] ?? '').toString().trim();
+      final lang = (a['Language'] ?? '').toString().trim();
+      final codec = (a['Codec'] ?? '').toString().trim();
+      final channels = _asInt(a['Channels']);
+      final bitrate = _asInt(a['BitRate']);
+      final sample = _asInt(a['SampleRate']);
+
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (lang.isNotEmpty) out.add((k: '语言种类', v: lang));
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      if (channels != null) out.add((k: '音频声道', v: '$channels ch'));
+      if (bitrate != null && bitrate > 0) {
+        out.add((k: '比特率', v: '${(bitrate / 1000).toStringAsFixed(0)} Kbps'));
+      }
+      if (sample != null && sample > 0) out.add((k: '采样率', v: '$sample Hz'));
+      out.add((k: '默认', v: yn(a['IsDefault'])));
+      return out;
+    }
+
+    List<({String k, String v})> subLines(Map<String, dynamic> s) {
+      final out = <({String k, String v})>[];
+      final title =
+          (s['DisplayTitle'] ?? s['Language'] ?? '').toString().trim();
+      final lang = (s['Language'] ?? '').toString().trim();
+      final codec = (s['Codec'] ?? '').toString().trim();
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (lang.isNotEmpty) out.add((k: '语言种类', v: lang));
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      out.add((k: '默认', v: yn(s['IsDefault'])));
+      out.add((k: '强制', v: yn(s['IsForced'])));
+      out.add((k: '外部', v: yn(s['IsExternal'])));
+      return out;
+    }
+
+    Widget infoCard({
+      required IconData icon,
+      required String title,
+      required List<({String k, String v})> lines,
+    }) {
+      final cardWidth = (360 * uiScale).clamp(280.0, 520.0);
+      final radius = (18 * uiScale).clamp(14.0, 22.0);
+      final iconSize = (22 * uiScale).clamp(18.0, 26.0);
+      final labelWidth = (96 * uiScale).clamp(84.0, 124.0);
+
+      return SizedBox(
+        width: cardWidth,
+        child: TvFocusable(
+          borderRadius: BorderRadius.circular(radius),
+          surfaceColor: Colors.black.withValues(alpha: 0.22),
+          focusedSurfaceColor:
+              scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14),
+          padding: EdgeInsets.all((14 * uiScale).clamp(10.0, 18.0)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: Colors.white, size: iconSize),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+              ...lines.take(14).map(
+                    (e) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: (6 * uiScale).clamp(4.0, 8.0),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: labelWidth,
+                            child: Text(
+                              e.k,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              e.v,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final container =
+        (ms['Container'] ?? item.container ?? ms['Name'] ?? '').toString().trim();
+    final sizeText = fmtSize(ms['Size'] ?? item.sizeBytes);
+
+    final fileCardRadius = (18 * uiScale).clamp(14.0, 22.0);
+    final fileGradient = LinearGradient(
+      begin: Alignment.topLeft,
+      end: Alignment.bottomRight,
+      colors: [
+        scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14),
+        scheme.secondary.withValues(alpha: isDark ? 0.10 : 0.08),
+      ],
+    );
+
+    final streamCards = <Widget>[
+      ...videos.map(
+        (v) => infoCard(
+          icon: Icons.videocam_rounded,
+          title: '视频',
+          lines: videoLines(v),
+        ),
+      ),
+      ...audios.map(
+        (a) => infoCard(
+          icon: Icons.music_note_rounded,
+          title: '音频',
+          lines: audioLines(a),
+        ),
+      ),
+      ...subs.map(
+        (s) => infoCard(
+          icon: Icons.closed_caption_rounded,
+          title: '字幕',
+          lines: subLines(s),
+        ),
+      ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, '媒体信息'),
+        SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+        _detailGlassPanel(
+          enableBlur: false,
+          showBorder: false,
+          gradient: fileGradient,
+          radius: fileCardRadius,
+          padding: EdgeInsets.all((16 * uiScale).clamp(12.0, 20.0)),
+          child: Row(
+            children: [
+              Text(
+                container.isEmpty ? '媒体源' : container.toUpperCase(),
+                style: theme.textTheme.titleMedium?.copyWith(
+                  color: Colors.white,
+                  fontWeight: FontWeight.w900,
+                ),
+              ),
+              if (sizeText.isNotEmpty) ...[
+                SizedBox(width: (16 * uiScale).clamp(12.0, 20.0)),
+                Text(
+                  sizeText,
+                  style: theme.textTheme.titleSmall?.copyWith(
+                    color: Colors.white70,
+                    fontWeight: FontWeight.w800,
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+        SizedBox(height: (12 * uiScale).clamp(10.0, 18.0)),
+        if (streamCards.isEmpty)
+          Text(
+            '暂无流信息',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        else
+          SizedBox(
+            height: (440 * uiScale).clamp(320.0, 620.0),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: streamCards.length,
+              separatorBuilder: (_, __) =>
+                  SizedBox(width: (14 * uiScale).clamp(10.0, 18.0)),
+              itemBuilder: (context, index) => streamCards[index],
+            ),
+          ),
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (_loading) {
@@ -1847,13 +3348,15 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     }
     final enableBlur = !widget.isTv && widget.appState.enableBlurEffects;
     if (_error != null || _detail == null) {
-      return Scaffold(
-        appBar: GlassAppBar(
-          enableBlur: enableBlur,
-          child: AppBar(title: Text(widget.title)),
-        ),
-        body: Center(child: Text(_error ?? '加载失败')),
-      );
+      return widget.isTv
+          ? Scaffold(body: Center(child: Text(_error ?? '加载失败')))
+          : Scaffold(
+              appBar: GlassAppBar(
+                enableBlur: enableBlur,
+                child: AppBar(title: Text(widget.title)),
+              ),
+              body: Center(child: Text(_error ?? '加载失败')),
+            );
     }
     final item = _detail!;
     final access = resolveServerAccess(
@@ -1928,6 +3431,20 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     final scrimBottom = Colors.black.withValues(alpha: 0.72);
 
     const heroTitleColor = Colors.white;
+
+    if (widget.isTv) {
+      return _buildTvDetailPage(
+        context,
+        item: item,
+        access: access,
+        isSeries: isSeries,
+        runtime: runtime,
+        playInfo: playInfo,
+        heroBackdropUrl: heroBackdrop,
+        heroPrimaryUrl: heroPrimary,
+        heroFilter: heroFilter,
+      );
+    }
 
     Widget heroImage = hero.isEmpty
         ? const ColoredBox(color: Colors.black26)
