@@ -2698,8 +2698,14 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                         SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
                       ],
                       _tvPeopleSection(context, access: access),
-                      SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
-                      _tvMediaInfoSection(context, item: item, playInfo: playInfo),
+                      if (!isSeries) ...[
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _tvMediaInfoSection(
+                          context,
+                          item: item,
+                          playInfo: playInfo,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -2726,6 +2732,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     final cardRadius = (18 * uiScale).clamp(14.0, 22.0);
     final imgRadius = (14 * uiScale).clamp(10.0, 18.0);
     final gap = (14 * uiScale).clamp(10.0, 18.0);
+    final cardPadding = (8 * uiScale).clamp(6.0, 12.0);
+    final labelGap = (8 * uiScale).clamp(6.0, 10.0);
+    final listHeight = (cardWidth / (16 / 9) +
+            (54 * uiScale).clamp(40.0, 70.0))
+        .clamp(150.0, 300.0);
 
     final selectedId = _selectedSeasonId;
 
@@ -2740,7 +2751,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
         _sectionTitle(context, '季度选择'),
         SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
         SizedBox(
-          height: (cardWidth / (16 / 9) + 62).clamp(160.0, 320.0),
+          height: listHeight,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: _seasons.length,
@@ -2783,7 +2794,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                   surfaceColor: surface,
                   focusedSurfaceColor:
                       scheme.primary.withValues(alpha: isDark ? 0.20 : 0.16),
-                  padding: EdgeInsets.all((10 * uiScale).clamp(8.0, 12.0)),
+                  padding: EdgeInsets.all(cardPadding),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
@@ -2807,7 +2818,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                 ),
                         ),
                       ),
-                      SizedBox(height: (10 * uiScale).clamp(8.0, 12.0)),
+                      SizedBox(height: labelGap),
                       Text(
                         labelOf(s, index),
                         maxLines: 1,
@@ -2845,6 +2856,11 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
     final cardRadius = (18 * uiScale).clamp(14.0, 22.0);
     final imgRadius = (14 * uiScale).clamp(10.0, 18.0);
     final gap = (14 * uiScale).clamp(10.0, 18.0);
+    final cardPadding = (8 * uiScale).clamp(6.0, 12.0);
+    final labelGap = (8 * uiScale).clamp(6.0, 10.0);
+    final listHeight = (cardWidth / (16 / 9) +
+            (54 * uiScale).clamp(40.0, 74.0))
+        .clamp(160.0, 320.0);
 
     return FutureBuilder<List<MediaItem>>(
       future: _episodesForSeason(season),
@@ -2856,7 +2872,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
             _sectionTitle(context, '集数选择'),
             SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
             SizedBox(
-              height: (cardWidth / (16 / 9) + 72).clamp(180.0, 360.0),
+              height: listHeight,
               child: eps.isEmpty
                   ? const Center(
                       child: Text('暂无剧集', style: TextStyle(color: Colors.white70)),
@@ -2885,8 +2901,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                             focusedSurfaceColor: scheme.primary.withValues(
                               alpha: isDark ? 0.20 : 0.16,
                             ),
-                            padding:
-                                EdgeInsets.all((10 * uiScale).clamp(8.0, 12.0)),
+                            padding: EdgeInsets.all(cardPadding),
                             child: Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
@@ -2915,9 +2930,7 @@ class _ShowDetailPageState extends State<ShowDetailPage> {
                                           ),
                                   ),
                                 ),
-                                SizedBox(
-                                    height:
-                                        (10 * uiScale).clamp(8.0, 12.0)),
+                                SizedBox(height: labelGap),
                                 Text(
                                   '第$epNo集',
                                   maxLines: 1,
@@ -4253,6 +4266,9 @@ class EpisodeDetailPage extends StatefulWidget {
 }
 
 class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
+  late MediaItem _episode;
+  int _loadSeq = 0;
+
   PlaybackInfoResult? _playInfo;
   String? _selectedMediaSourceId;
   int? _selectedAudioStreamIndex; // null = default
@@ -4273,6 +4289,28 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   bool _localFavorite = false;
   bool _favoriteLoaded = false;
 
+  Future<void> _switchEpisode(MediaItem episode) async {
+    final id = episode.id.trim();
+    if (id.isEmpty || id == _episode.id) return;
+
+    setState(() {
+      _episode = episode;
+      _playInfo = null;
+      _selectedMediaSourceId = null;
+      _selectedAudioStreamIndex = null;
+      _selectedSubtitleStreamIndex = null;
+      _error = null;
+      _loading = true;
+      _detail = null;
+      _chapters = const [];
+      _favoriteLoaded = false;
+      _localFavorite = false;
+    });
+
+    unawaited(_loadLocalFavorite());
+    unawaited(_load());
+  }
+
   Future<void> _toggleEpisodePlayedMark() async {
     if (_markBusy) return;
     final access =
@@ -4292,13 +4330,13 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     try {
       await access.adapter.updatePlaybackPosition(
         access.auth,
-        itemId: widget.episode.id,
+        itemId: _episode.id,
         positionTicks: 0,
         played: nextPlayed,
       );
 
       final detail = await access.adapter
-          .fetchItemDetail(access.auth, itemId: widget.episode.id);
+          .fetchItemDetail(access.auth, itemId: _episode.id);
       if (!mounted) return;
       setState(() => _detail = detail);
 
@@ -4330,12 +4368,13 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   String get _episodeFavoriteKey {
     final serverKey =
         (_baseUrl ?? 'default').replaceAll(RegExp(r'[^a-zA-Z0-9]'), '_');
-    return 'episode_detail_local_favorite_${serverKey}_${widget.episode.id}';
+    return 'episode_detail_local_favorite_${serverKey}_${_episode.id}';
   }
 
   @override
   void initState() {
     super.initState();
+    _episode = widget.episode;
     _loadLocalFavorite();
     _load();
   }
@@ -4377,6 +4416,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     if (access == null) return;
 
     final before = _detail?.playbackPositionTicks;
+    final episodeId = _episode.id;
     for (var attempt = 0; attempt < 3; attempt++) {
       final attemptDelay =
           attempt == 0 ? delay : const Duration(milliseconds: 300);
@@ -4386,7 +4426,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
 
       try {
         final detail = await access.adapter
-            .fetchItemDetail(access.auth, itemId: widget.episode.id);
+            .fetchItemDetail(access.auth, itemId: episodeId);
         if (!mounted) return;
         setState(() => _detail = detail);
         if (before == null || detail.playbackPositionTicks != before) return;
@@ -4421,15 +4461,18 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       });
       return;
     }
+    final seq = ++_loadSeq;
+    final episodeId = _episode.id.trim();
     try {
       final detail = await access.adapter
-          .fetchItemDetail(access.auth, itemId: widget.episode.id);
+          .fetchItemDetail(access.auth, itemId: episodeId);
+      if (!mounted || seq != _loadSeq) return;
 
       final resolvedSeriesId =
-          (detail.seriesId ?? widget.episode.seriesId ?? '').trim();
+          (detail.seriesId ?? _episode.seriesId ?? '').trim();
       final resolvedSeriesName = detail.seriesName.trim().isNotEmpty
           ? detail.seriesName.trim()
-          : widget.episode.seriesName.trim();
+          : _episode.seriesName.trim();
 
       if (resolvedSeriesId.isNotEmpty) {
         setState(() {
@@ -4443,11 +4486,13 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
             episodeDetail: detail,
             seriesId: resolvedSeriesId,
             seriesName: resolvedSeriesName,
+            loadSeq: seq,
           ),
         );
       }
       final info = await access.adapter
-          .fetchPlaybackInfo(access.auth, itemId: widget.episode.id);
+          .fetchPlaybackInfo(access.auth, itemId: episodeId);
+      if (!mounted || seq != _loadSeq) return;
       final sources = info.mediaSources.cast<Map<String, dynamic>>();
       final preferred = sources.isEmpty
           ? null
@@ -4496,10 +4541,11 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       List<ChapterInfo> chaps = const [];
       try {
         chaps = await access.adapter
-            .fetchChapters(access.auth, itemId: widget.episode.id);
+            .fetchChapters(access.auth, itemId: episodeId);
       } catch (_) {
         // Chapters are optional; hide section when unavailable.
       }
+      if (!mounted || seq != _loadSeq) return;
       setState(() {
         _playInfo = info;
         _detail = detail;
@@ -4509,9 +4555,10 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         _selectedSubtitleStreamIndex = selectedSubtitleStreamIndex;
       });
     } catch (e) {
+      if (!mounted || seq != _loadSeq) return;
       setState(() => _error = e.toString());
     } finally {
-      if (mounted) setState(() => _loading = false);
+      if (mounted && seq == _loadSeq) setState(() => _loading = false);
     }
   }
 
@@ -4883,7 +4930,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
   }
 
   Future<void> _playCurrentEpisode({Duration? startPosition}) async {
-    final ep = _detail ?? widget.episode;
+    final ep = _detail ?? _episode;
     final useExoCore = !kIsWeb &&
         defaultTargetPlatform == TargetPlatform.android &&
         widget.appState.playerCore == PlayerCore.exo;
@@ -5695,15 +5742,6 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                         _otherEpisodesSection(context),
                         SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
                       ],
-                      _externalLinksSection(context, ep, widget.appState),
-                      if (playInfo != null) ...[
-                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
-                        _mediaInfo(
-                          context,
-                          playInfo,
-                          selectedMediaSourceId: _selectedMediaSourceId,
-                        ),
-                      ],
                       if (_detail?.people.isNotEmpty == true && access != null) ...[
                         SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
                         _castSection(
@@ -5725,6 +5763,14 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                               .toList(),
                         ),
                       ],
+                      if (playInfo != null) ...[
+                        SizedBox(height: (18 * uiScale).clamp(14.0, 26.0)),
+                        _tvMediaSourceInfoSection(
+                          context,
+                          item: ep,
+                          playInfo: playInfo,
+                        ),
+                      ],
                     ],
                   ),
                 ),
@@ -5733,6 +5779,337 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
           ),
         ],
       ),
+    );
+  }
+
+  Widget _tvMediaSourceInfoSection(
+    BuildContext context, {
+    required MediaItem item,
+    required PlaybackInfoResult playInfo,
+  }) {
+    final theme = Theme.of(context);
+    final scheme = theme.colorScheme;
+    final isDark = scheme.brightness == Brightness.dark;
+    final uiScale = context.uiScale;
+
+    if (playInfo.mediaSources.isEmpty) {
+      return Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          _sectionTitle(context, '媒体源信息'),
+          SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+          Text(
+            '暂无媒体源信息',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      );
+    }
+
+    final ms = _ShowDetailPageState._findMediaSource(
+          playInfo,
+          _selectedMediaSourceId,
+        ) ??
+        (playInfo.mediaSources.first as Map<String, dynamic>);
+
+    final streams = (ms['MediaStreams'] as List?) ?? const [];
+    final videos = streams
+        .where((e) => (e as Map)['Type'] == 'Video')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+    final audios = streams
+        .where((e) => (e as Map)['Type'] == 'Audio')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+    final subs = streams
+        .where((e) => (e as Map)['Type'] == 'Subtitle')
+        .map((e) => e as Map<String, dynamic>)
+        .toList();
+
+    String fmtSize(dynamic raw) {
+      final bytes = raw is num ? raw.toInt() : int.tryParse('$raw');
+      if (bytes == null || bytes <= 0) return '';
+      const kb = 1024;
+      const mb = kb * 1024;
+      const gb = mb * 1024;
+      if (bytes >= gb) return '${(bytes / gb).toStringAsFixed(1)} GB';
+      if (bytes >= mb) return '${(bytes / mb).toStringAsFixed(0)} MB';
+      if (bytes >= kb) return '${(bytes / kb).toStringAsFixed(0)} KB';
+      return '$bytes B';
+    }
+
+    String yn(dynamic v) => v == true ? '是' : '否';
+
+    String? fmtAdded(dynamic raw) {
+      final text = raw == null ? '' : raw.toString().trim();
+      if (text.isEmpty) return null;
+      final parsed = DateTime.tryParse(text);
+      if (parsed == null) return null;
+      final local = parsed.toLocal();
+      final hh = local.hour.toString().padLeft(2, '0');
+      final mm = local.minute.toString().padLeft(2, '0');
+      return '${local.year}/${local.month}/${local.day} $hh:$mm';
+    }
+
+    String fmtMbps(int? bitrate) {
+      if (bitrate == null || bitrate <= 0) return '';
+      return '${(bitrate / 1000000).toStringAsFixed(1)} Mbps';
+    }
+
+    String fmtKbps(int? bitrate) {
+      if (bitrate == null || bitrate <= 0) return '';
+      return '${(bitrate / 1000).toStringAsFixed(0)} Kbps';
+    }
+
+    List<({String k, String v})> videoLines(Map<String, dynamic> v) {
+      final out = <({String k, String v})>[];
+      final title = (v['DisplayTitle'] ?? '').toString().trim();
+      final innerTitle = (v['Title'] ?? '').toString().trim();
+      final codec = (v['Codec'] ?? '').toString().trim();
+      final profile = (v['Profile'] ?? '').toString().trim();
+      final level = _ShowDetailPageState._asInt(v['Level']);
+      final width = _ShowDetailPageState._asInt(v['Width']);
+      final height = _ShowDetailPageState._asInt(v['Height']);
+      final aspect = _formatVideoAspectRatio(v);
+      final interlaced = v['IsInterlaced'] == true;
+      final fr = v['RealFrameRate'] ?? v['AverageFrameRate'];
+      final bitrate = _ShowDetailPageState._asInt(v['BitRate']);
+      final primaries = (v['ColorPrimaries'] ?? '').toString().trim();
+      final colorSpace = (v['ColorSpace'] ?? '').toString().trim();
+      final transfer = (v['ColorTransfer'] ?? '').toString().trim();
+      final bitDepth = _ShowDetailPageState._asInt(v['BitDepth']);
+      final pixelFormat = (v['PixelFormat'] ?? '').toString().trim();
+      final refFrames = _ShowDetailPageState._asInt(v['RefFrames']);
+
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (innerTitle.isNotEmpty && innerTitle != title) {
+        out.add((k: '内嵌标题', v: innerTitle));
+      }
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      if (profile.isNotEmpty) out.add((k: '编码规格', v: profile));
+      if (level != null && level > 0) out.add((k: '编码级别', v: '$level'));
+      if (width != null && height != null) {
+        out.add((k: '源分辨率', v: '${width}x$height'));
+      }
+      if (aspect != null) out.add((k: '视频比例', v: aspect));
+      out.add((k: '隔行扫描', v: yn(interlaced)));
+      if (fr != null) out.add((k: '帧速率', v: fr.toString()));
+      final bitrateText = fmtMbps(bitrate);
+      if (bitrateText.isNotEmpty) out.add((k: '比特率', v: bitrateText));
+      if (primaries.isNotEmpty) out.add((k: '原始色域', v: primaries));
+      if (colorSpace.isNotEmpty) out.add((k: '色彩空间', v: colorSpace));
+      if (transfer.isNotEmpty) out.add((k: '色彩转换', v: transfer));
+      if (bitDepth != null && bitDepth > 0) {
+        out.add((k: '比特位深', v: '$bitDepth Bit'));
+      }
+      if (pixelFormat.isNotEmpty) out.add((k: '像素格式', v: pixelFormat));
+      if (refFrames != null && refFrames > 0) {
+        out.add((k: '参考帧', v: '$refFrames'));
+      }
+      out.add((k: '默认', v: yn(v['IsDefault'])));
+      return out;
+    }
+
+    List<({String k, String v})> audioLines(Map<String, dynamic> a) {
+      final out = <({String k, String v})>[];
+      final title = (a['DisplayTitle'] ?? '').toString().trim();
+      final innerTitle = (a['Title'] ?? '').toString().trim();
+      final lang = (a['Language'] ?? '').toString().trim();
+      final codec = (a['Codec'] ?? '').toString().trim();
+      final profile = (a['Profile'] ?? '').toString().trim();
+      final channels = _ShowDetailPageState._asInt(a['Channels']);
+      final layout = (a['ChannelLayout'] ?? '').toString().trim();
+      final bitrate = _ShowDetailPageState._asInt(a['BitRate']);
+      final sample = _ShowDetailPageState._asInt(a['SampleRate']);
+
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (innerTitle.isNotEmpty && innerTitle != title) {
+        out.add((k: '内嵌标题', v: innerTitle));
+      }
+      if (lang.isNotEmpty) out.add((k: '语言种类', v: lang));
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      if (profile.isNotEmpty) out.add((k: '编码规格', v: profile));
+      if (layout.isNotEmpty) out.add((k: '音效布局', v: layout));
+      if (channels != null) out.add((k: '音频声道', v: '$channels ch'));
+      final bitrateText = fmtKbps(bitrate);
+      if (bitrateText.isNotEmpty) out.add((k: '比特率', v: bitrateText));
+      if (sample != null && sample > 0) out.add((k: '采样率', v: '$sample Hz'));
+      out.add((k: '默认', v: yn(a['IsDefault'])));
+      return out;
+    }
+
+    List<({String k, String v})> subLines(Map<String, dynamic> s) {
+      final out = <({String k, String v})>[];
+      final title =
+          (s['DisplayTitle'] ?? s['Language'] ?? '').toString().trim();
+      final innerTitle = (s['Title'] ?? '').toString().trim();
+      final lang = (s['Language'] ?? '').toString().trim();
+      final codec = (s['Codec'] ?? '').toString().trim();
+      if (title.isNotEmpty) out.add((k: '标题名称', v: title));
+      if (innerTitle.isNotEmpty && innerTitle != title) {
+        out.add((k: '内嵌标题', v: innerTitle));
+      }
+      if (lang.isNotEmpty) out.add((k: '语言种类', v: lang));
+      if (codec.isNotEmpty) out.add((k: '编码格式', v: codec.toUpperCase()));
+      out.add((k: '默认', v: yn(s['IsDefault'])));
+      out.add((k: '强制', v: yn(s['IsForced'])));
+      out.add((k: '外部', v: yn(s['IsExternal'])));
+      return out;
+    }
+
+    Widget infoCard({
+      required IconData icon,
+      required String title,
+      required List<({String k, String v})> lines,
+    }) {
+      final cardWidth = (360 * uiScale).clamp(280.0, 520.0);
+      final radius = (18 * uiScale).clamp(14.0, 22.0);
+      final iconSize = (22 * uiScale).clamp(18.0, 26.0);
+      final labelWidth = (96 * uiScale).clamp(84.0, 124.0);
+
+      return SizedBox(
+        width: cardWidth,
+        child: TvFocusable(
+          borderRadius: BorderRadius.circular(radius),
+          surfaceColor: Colors.black.withValues(alpha: 0.22),
+          focusedSurfaceColor:
+              scheme.primary.withValues(alpha: isDark ? 0.18 : 0.14),
+          padding: EdgeInsets.all((14 * uiScale).clamp(10.0, 18.0)),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Row(
+                children: [
+                  Icon(icon, color: Colors.white, size: iconSize),
+                  const SizedBox(width: 10),
+                  Text(
+                    title,
+                    style: theme.textTheme.titleSmall?.copyWith(
+                      color: Colors.white,
+                      fontWeight: FontWeight.w800,
+                    ),
+                  ),
+                ],
+              ),
+              SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+              ...lines.take(18).map(
+                    (e) => Padding(
+                      padding: EdgeInsets.only(
+                        bottom: (6 * uiScale).clamp(4.0, 8.0),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          SizedBox(
+                            width: labelWidth,
+                            child: Text(
+                              e.k,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white70,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 10),
+                          Expanded(
+                            child: Text(
+                              e.v,
+                              style: theme.textTheme.bodySmall?.copyWith(
+                                color: Colors.white,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    final container = (ms['Container'] ?? item.container ?? ms['Name'] ?? '')
+        .toString()
+        .trim()
+        .toUpperCase();
+    final sizeText = fmtSize(ms['Size'] ?? item.sizeBytes);
+    final addedTime = fmtAdded(
+      ms['DateCreated'] ??
+          ms['DateAdded'] ??
+          ms['DateCreatedUtc'] ??
+          ms['DateModified'],
+    );
+    final headerParts = <String>[
+      container.isEmpty ? '媒体源' : container,
+      if (sizeText.isNotEmpty) sizeText,
+      addedTime == null ? '添加时间未知' : '媒体于 $addedTime 添加',
+    ];
+    final header = headerParts.join('  ');
+
+    final streamCards = <Widget>[
+      ...videos.asMap().entries.map(
+            (entry) => infoCard(
+              icon: Icons.videocam_rounded,
+              title: videos.length > 1 ? '视频 ${entry.key + 1}' : '视频',
+              lines: videoLines(entry.value),
+            ),
+          ),
+      ...audios.asMap().entries.map(
+            (entry) => infoCard(
+              icon: Icons.music_note_rounded,
+              title: audios.length > 1 ? '音频 ${entry.key + 1}' : '音频',
+              lines: audioLines(entry.value),
+            ),
+          ),
+      ...subs.asMap().entries.map(
+            (entry) => infoCard(
+              icon: Icons.closed_caption_rounded,
+              title: subs.length > 1 ? '字幕 ${entry.key + 1}' : '字幕',
+              lines: subLines(entry.value),
+            ),
+          ),
+    ];
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _sectionTitle(context, '媒体源信息'),
+        SizedBox(height: (10 * uiScale).clamp(8.0, 14.0)),
+        Text(
+          header,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          style: theme.textTheme.titleSmall?.copyWith(
+            color: Colors.white70,
+            fontWeight: FontWeight.w800,
+          ),
+        ),
+        SizedBox(height: (12 * uiScale).clamp(10.0, 18.0)),
+        if (streamCards.isEmpty)
+          Text(
+            '暂无流信息',
+            style: theme.textTheme.bodyMedium?.copyWith(
+              color: Colors.white70,
+              fontWeight: FontWeight.w600,
+            ),
+          )
+        else
+          SizedBox(
+            height: (440 * uiScale).clamp(320.0, 620.0),
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              itemCount: streamCards.length,
+              separatorBuilder: (_, __) =>
+                  SizedBox(width: (14 * uiScale).clamp(10.0, 18.0)),
+              itemBuilder: (context, index) => streamCards[index],
+            ),
+          ),
+      ],
     );
   }
 
@@ -5761,7 +6138,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
       );
     }
 
-    final ep = _detail ?? widget.episode;
+    final ep = _detail ?? _episode;
     final ms = _currentMediaSource();
     final played = _detail?.played ?? false;
     final ticks = _detail?.playbackPositionTicks ?? 0;
@@ -6082,18 +6459,9 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                     _otherEpisodesSection(context),
                     const SizedBox(height: _DetailUiTokens.sectionGap),
                   ],
-                  _externalLinksSection(context, ep, widget.appState),
                   if (_playInfo != null) ...[
                     const SizedBox(height: 16),
                     _episodePlaybackOptionsCard(context, _playInfo!),
-                  ],
-                  if (_playInfo != null) ...[
-                    const SizedBox(height: 16),
-                    _mediaInfo(
-                      context,
-                      _playInfo!,
-                      selectedMediaSourceId: _selectedMediaSourceId,
-                    ),
                   ],
                   if (_detail?.people.isNotEmpty == true && access != null) ...[
                     const SizedBox(height: _DetailUiTokens.sectionGap),
@@ -6115,6 +6483,14 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                           .toList(),
                     ),
                   ],
+                  if (_playInfo != null) ...[
+                    const SizedBox(height: _DetailUiTokens.sectionGap),
+                    _mediaInfo(
+                      context,
+                      _playInfo!,
+                      selectedMediaSourceId: _selectedMediaSourceId,
+                    ),
+                  ],
                 ],
               ),
             ),
@@ -6130,6 +6506,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
     required MediaItem episodeDetail,
     required String seriesId,
     required String seriesName,
+    required int loadSeq,
   }) async {
     try {
       final seasons =
@@ -6171,7 +6548,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
           : seasonItems;
 
       final currentSeasonId =
-          (episodeDetail.parentId ?? widget.episode.parentId ?? '').trim();
+          (episodeDetail.parentId ?? _episode.parentId ?? '').trim();
       final previousSeasonId = _selectedSeasonId;
       final selectedSeasonId = currentSeasonId.isNotEmpty &&
               seasonsForUi.any((s) => s.id == currentSeasonId)
@@ -6196,7 +6573,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         episodesCacheForUi[selectedSeasonId] = items;
       }
 
-      if (!mounted) return;
+      if (!mounted || loadSeq != _loadSeq) return;
       setState(() {
         _seasons = seasonsForUi;
         _seasonsVirtual = seasonsVirtual;
@@ -6207,7 +6584,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         _seriesError = null;
       });
     } catch (e) {
-      if (!mounted) return;
+      if (!mounted || loadSeq != _loadSeq) return;
       setState(() {
         _seriesError = e.toString();
         _seasons = const [];
@@ -6216,7 +6593,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         _episodesCache.clear();
       });
     } finally {
-      if (mounted) {
+      if (mounted && loadSeq == _loadSeq) {
         setState(() {
           _seriesLoading = false;
         });
@@ -6387,7 +6764,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                       }
                       final epIndex = idx - 1;
                       final ep = eps[epIndex];
-                      final isCurrent = ep.id == widget.episode.id;
+                      final isCurrent = ep.id == _episode.id;
                       return ListTile(
                         leading: Icon(
                           isCurrent
@@ -6413,19 +6790,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
         selectedEp.id.isEmpty) {
       return;
     }
-    if (selectedEp.id == widget.episode.id) {
-      return;
-    }
-    Navigator.of(context).pushReplacement(
-      MaterialPageRoute(
-        builder: (_) => EpisodeDetailPage(
-          episode: selectedEp,
-          appState: widget.appState,
-          server: widget.server,
-          isTv: widget.isTv,
-        ),
-      ),
-    );
+    unawaited(_switchEpisode(selectedEp));
   }
 
   void _openSeasonEpisodesPage(BuildContext context, MediaItem season) {
@@ -6539,7 +6904,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                         const SizedBox(width: _DetailUiTokens.horizontalGap),
                     itemBuilder: (context, index) {
                       final e = eps[index];
-                      final isCurrent = e.id == widget.episode.id;
+                      final isCurrent = e.id == _episode.id;
                       final epNo = e.episodeNumber ?? (index + 1);
                       final img = epAccess == null
                           ? ''
@@ -6558,16 +6923,7 @@ class _EpisodeDetailPageState extends State<EpisodeDetailPage> {
                                   BorderRadius.circular(_DetailUiTokens.cardRadius),
                               onTap: () {
                                 if (isCurrent) return;
-                                Navigator.of(context).pushReplacement(
-                                  MaterialPageRoute(
-                                    builder: (_) => EpisodeDetailPage(
-                                      episode: e,
-                                      appState: widget.appState,
-                                      server: widget.server,
-                                      isTv: widget.isTv,
-                                    ),
-                                  ),
-                                );
+                                unawaited(_switchEpisode(e));
                               },
                               child: Ink(
                                 decoration: BoxDecoration(
