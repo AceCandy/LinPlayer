@@ -38,3 +38,5 @@ go run ./cmd/signupdate -verify v2.0.0-dev ../build/pack/SHA256SUMS.txt
 本项目 Android 安装包使用独立 applicationId `io.github.acecandy.linplayer`,与原版共存;Kotlin namespace 保留以兼容 JNI 类名。项目专用发布 keystore 已生成,保存在忽略的 `.local/android-signing/` 下,密钥与配套信息文件权限为 0600、目录为 0700,仓库外另有同机备份。后续版本必须复用此身份,不要重新生成覆盖。
 
 四项 Android 签名 Actions Secrets 已配置: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。APK 签名与更新清单 Ed25519 签名分别管理。二开项目不需要原作者私钥,也不承诺覆盖原版安装包或自动迁移原版应用数据。同机备份仍需补充离线或独立存储备份。
+
+Android 手机和 TV 云端包已用 SDK 独立验签并回读包名;证书与本地 keystore 一致。最终整轮 CI 的三端打包与真实更新产物清单签名验签均通过,未创建预发布或稳定版。设备安装仍未验收。
