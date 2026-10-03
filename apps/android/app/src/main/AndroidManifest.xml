@@ -82,7 +82,7 @@
             android:windowSoftInputMode="adjustResize">
 
             <intent-filter>
-                <action android:name="android.intent.action.MAIN" />
+                <action android:name="${mainLauncherAction}" />
                 <category android:name="android.intent.category.LAUNCHER" />
                 <!-- TV 入口。分流靠 UiModeManager,不是两个 Activity;缺 banner 电视桌面是一块空白磁贴 -->
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
@@ -109,6 +109,16 @@
                 android:resource="@xml/file_paths" />
         </provider>
 
+        <!-- 诊断进程不运行主进程 provider,播放器崩溃后仍可读取现场。 -->
+        <activity android:name=".StartupDiagnosticsActivity" android:exported="true"
+            android:enabled="${diagnosticEnabled}"
+            android:process=":diagnostics"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="${diagnosticLauncherAction}" />
+                <category android:name="android.intent.category.LAUNCHER" />
+            </intent-filter>
+        </activity>
         <!-- U1.22 前台服务。Android 14 起 foregroundServiceType 必填 -->
         <service
             android:name=".ui.player.PlaybackService"

@@ -1,5 +1,13 @@
 # 安卓平台(打包 / 签名 / 资源限定符 / R8 / LFS / 主题)
 
+### WorkManager 的 Room 构造器必须检查 release 成品 — 2026-10-03
+
+真机启动在 `InitializationProvider` 中因 `WorkDatabase_Impl.<init>[]` 缺失崩溃。当前 WorkManager 2.10.1 原 AAR 有 public 无参构造器,Room 2.6.1 consumer 规则未阻止最终 R8 删除它。补充 RoomDatabase 子类 public 无参构造器保留规则后,APK 中该方法恢复。debug 单测不会经过 release 裁剪,因此必须运行 `scripts/check-android-workdatabase.py` 检查手机和 TV APK,不能用编译、验签或核心初始化成功替代。先拿主进程启动堆栈,不要凭设备版本猜原因。
+
+### 启动诊断要检查 APK 的真实入口 — 2026-10-03
+
+直接构造诊断 Activity 的测试通过,不代表点击图标能进入它。第一版诊断包仍从业务 MainActivity 的开屏跳转,且合并清单保留第三方 provider,真机仍打不开。诊断入口必须在 APK 成品上检查 Application、MAIN/LAUNCHER 指向及 provider 的启用状态;覆盖初始化前的路径,不能只绕开核心库。门禁见 `scripts/check-android-startup-diagnostics.py`。这项缺陷不等于已经确认设备闪退根因。
+
 **这个领域最容易踩的坑:**
 1. **这里几乎所有失败模式都是「构建绿、装机废」**:未签名 APK、缺 `touchscreen required=false`、libmpv 是 LFS 指针、R8 裁掉 JNI 回调 —— 全部要验成品不验中间状态。
 2. **`-night` 的优先级高于 `-vXX`**,按 API 加主题属性必须建 `values-vXX` 和 `values-night-vXX` 两份,同名 style 是整条替换不是叠加。

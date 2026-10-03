@@ -11,6 +11,7 @@ plugins {
 // 版本一退,更新检查判「已是最新」并**静默**卡死所有老用户。
 val repoRoot = rootDir.parentFile.parentFile
 val lpVersion = File(repoRoot, "VERSION").readText().trim()
+val startupDiagnostics = providers.gradleProperty("lp.startupDiagnostics").orNull == "true"
 
 // 签名材料从**不进版本库**的 keystore.properties 读(全局红线)。
 // ★ 「写了 ≠ 用了」:下面 buildTypes.release 必须真的挂上 signingConfig,
@@ -48,6 +49,10 @@ android {
         // 崩溃上报 DSN 由 scripts/sentry-dsn.sh 放进环境变量,不进仓库(全局红线)。
         // 本地构建为空 = SDK 不启用,见 LinPlayerApp
         buildConfigField("String", "SENTRY_DSN", "\"${System.getenv("SENTRY_DSN") ?: ""}\"")
+        buildConfigField("boolean", "STARTUP_DIAGNOSTICS", startupDiagnostics.toString())
+        manifestPlaceholders["mainLauncherAction"] = if (startupDiagnostics) "linplayer.disabled" else "android.intent.action.MAIN"
+        manifestPlaceholders["diagnosticLauncherAction"] = if (startupDiagnostics) "android.intent.action.MAIN" else "linplayer.disabled"
+        manifestPlaceholders["diagnosticEnabled"] = startupDiagnostics.toString()
         // versionCode 从版本号算:1.2.3 -> 10203。手写会忘,忘了就是更新装不上
         versionCode = lpVersion.split("-")[0].split(".").let {
             it.getOrElse(0) { "0" }.toInt() * 10000 +

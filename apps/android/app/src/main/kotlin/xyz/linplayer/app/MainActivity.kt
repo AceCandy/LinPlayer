@@ -63,7 +63,7 @@ class MainActivity : ComponentActivity() {
         }.getOrNull()?.let { app.setDeviceId(it) }
 
         // 上次崩了就自动把现场发给开发者,不问(用户说不清出了什么问题)
-        lifecycleScope.launch {
+        if (!BuildConfig.STARTUP_DIAGNOSTICS) lifecycleScope.launch {
             if (xyz.linplayer.app.data.Report.sendPending(this@MainActivity, app))
                 app.toast("上次异常退出,已把报告发给开发者")
         }
@@ -182,6 +182,7 @@ class MainActivity : ComponentActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
+        if (!::app.isInitialized) return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
         if (isInMultiWindowMode) return
         if (!app.wantsPip) return

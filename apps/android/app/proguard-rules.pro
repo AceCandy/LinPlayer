@@ -14,6 +14,11 @@
 #   这个名字找函数,类名一混淆就对不上了。
 -keep class xyz.linplayer.app.core.Native { *; }
 
+# Room 通过反射调用生成数据库的无参构造器;被裁会在 WorkManager 自动初始化时闪退。
+-keepclassmembers class * extends androidx.room.RoomDatabase {
+    public <init>();
+}
+
 # kotlinx.serialization 的生成序列化器
 -keepclassmembers class kotlinx.serialization.json.** { *** Companion; }
 -keepclasseswithmembers class kotlinx.serialization.json.** {

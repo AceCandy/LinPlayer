@@ -1,6 +1,7 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.content.Context
 import coil3.ImageLoader
 import coil3.PlatformContext
 import coil3.SingletonImageLoader
@@ -20,12 +21,20 @@ class LinPlayerApp : Application(), SingletonImageLoader.Factory {
     lateinit var core: CoreClient
         private set
 
+    override fun attachBaseContext(base: Context) {
+        super.attachBaseContext(base)
+        // provider 在 Application.onCreate 前执行,诊断包必须在这之前留下 JVM 异常。
+        if (BuildConfig.STARTUP_DIAGNOSTICS && !processName().endsWith(":diagnostics"))
+            xyz.linplayer.app.data.Report.arm(this)
+    }
+
     override fun onCreate() {
         super.onCreate()
         // `:spider` 子进程只跑 TVBox jar,不起核心层(一个数据目录只能有一个核心层实例)
         if (processName().endsWith(":spider")) return
+        if (BuildConfig.STARTUP_DIAGNOSTICS && processName().endsWith(":diagnostics")) return
         // 最先起:核心层起不来本身就要能报上来
-        Telemetry.init(this)
+        if (!BuildConfig.STARTUP_DIAGNOSTICS) Telemetry.init(this)
         // 日志排在核心层之前:核心层起不来本身就是最该留下记录的一种失败
         Logs.init(this)
         xyz.linplayer.app.data.Report.arm(this)
