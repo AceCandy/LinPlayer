@@ -387,7 +387,10 @@ func RegisterCommands(version string) {
 	bus.Register("emby.relogin", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 		c := config.Current()
 		id, user, pw := str(args, "server_id"), str(args, "username"), str(args, "password")
-		acc := c.Find(id)
+		if strings.TrimSpace(id) == "" {
+			return nil, bus.NewErr(bus.EInvalid, "server_id 不能为空")
+		}
+		acc := c.Resolve(id)
 		if acc == nil {
 			return nil, bus.NewErr(bus.ENotFound, "找不到该服务器: %s", id)
 		}
@@ -406,7 +409,7 @@ func RegisterCommands(version string) {
 		}
 		// 新 token 要立刻进图片白名单,否则重新登录之后封面还在用旧 token 打 401
 		localserve.AllowDefault(acc.Server, http.Header{"X-Emby-Token": {acc.Token}})
-		return map[string]any{"server_id": id, "user_name": res.UserName}, nil
+		return map[string]any{"server_id": acc.Server, "user_name": res.UserName}, nil
 	})
 
 	// ★ logout **尽力而为**:实测某 fork 该端点 404 且 token 登出后仍可用,
@@ -468,6 +471,9 @@ const serverNameTimeout = 5 * time.Second
 //
 // 无论哪一类,`Msg` 都带上真实原因 —— UI 那边负责把它显示出来。
 func classify(err error) error {
+	if e, ok := err.(*bus.Err); ok {
+		return e
+	}
 	// ★★ 证书问题要**指路**,不能只把 x509 那句英文丢给用户。
 	//   自建 Emby 用自签名证书极常见,而用户看到
 	//   「x509: certificate signed by unknown authority」是不知道该干什么的 ——

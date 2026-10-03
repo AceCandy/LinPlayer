@@ -118,6 +118,8 @@ def pkg_sources(d):
 CALL = re.compile(
     r'\b(?:call|block|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\((.*?)\)\s*\)',
     re.S)
+# 前台播放服务用 send(command, "key" to value),也属于命令边界。
+SEND = re.compile(r'\bsend\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(.*?)\)', re.S)
 # ☠ 连**驼峰**一起收。只认蛇形的话 `"autoCheck" to v` 整条从视野里消失,
 # 闸门一声不吁 —— 而核心层清一色蛇形,驼峰正是这条边界上最容易写出来的错。
 PAIR = re.compile(r'"([A-Za-z_0-9]+)"\s+to\b')
@@ -165,7 +167,7 @@ def ui_calls():
             path = os.path.join(base, f)
             src = io.open(path, encoding='utf-8').read()
             rel = os.path.relpath(path, ROOT)
-            for m in CALL.finditer(src):
+            for m in list(CALL.finditer(src)) + list(SEND.finditer(src)):
                 line = src.count('\n', 0, m.start()) + 1
                 found.append((rel, line, m.group(1), PAIR.findall(m.group(2))))
             for m in SPREAD.finditer(src):

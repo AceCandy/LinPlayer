@@ -541,6 +541,7 @@ public static class SettingsSections
             hint.Text = busy ? "正在准备(播放页那边点的),进度在这里也看得到。" : "";
             if (btn is not null)
             {
+                body.Children.Add(Note("可选组件含 DirectML/MSVC 等专有许可运行库;N 卡版另含 TensorRT/CUDA,按各组件许可使用。"));
                 btn.IsEnabled = !busy;
                 btn.Click += async (_, _) =>
                 {

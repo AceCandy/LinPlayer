@@ -47,8 +47,10 @@ func captureUI(t *testing.T) *evCapture {
 	bus.Init()
 	c := &evCapture{}
 	done := make(chan struct{})
-	c.stop = func() { close(done) }
+	stopped := make(chan struct{})
+	c.stop = func() { close(done); <-stopped }
 	go func() {
+		defer close(stopped)
 		for {
 			select {
 			case <-done:
@@ -117,8 +119,11 @@ func (c *evCapture) wait(t *testing.T, what string, ok func() bool) {
 	t.Fatalf("等不到 %s;收到 %d 帧、%d 条状态", what, len(c.frames), len(c.states))
 }
 
-/* mountUI 照真实壳的做法挂一块 UI:首帧从 mount 的**返回值**吃进来,
-   后续帧才走事件。测试里也这么做,是为了让这两条路都被走到。 */
+/*
+mountUI 照真实壳的做法挂一块 UI:首帧从 mount 的**返回值**吃进来,
+
+	后续帧才走事件。测试里也这么做,是为了让这两条路都被走到。
+*/
 func mountUI(t *testing.T, c *evCapture, args map[string]any) string {
 	t.Helper()
 	r := call(t, "plugin.ui.mount", args)
@@ -484,9 +489,10 @@ func TestUI首帧跟着mount的返回值(t *testing.T) {
 而开发机上一切正常,编译也绿。
 
 判据有三条,少一条这件事就是半残:
-  · 壳报来的视口能到插件手里(useViewport 拿得到)
-  · 变了要**重渲染**,不是只改一个读不到的值
-  · 没变**不许**重渲染(尺寸变化一秒几十条,每条都重画等于自己做 DDoS)
+
+	· 壳报来的视口能到插件手里(useViewport 拿得到)
+	· 变了要**重渲染**,不是只改一个读不到的值
+	· 没变**不许**重渲染(尺寸变化一秒几十条,每条都重画等于自己做 DDoS)
 */
 func TestUI视口与安全区送得到插件手里(t *testing.T) {
 	h := installAndRestart(t, `definePlugin({ pages: { p: () => {

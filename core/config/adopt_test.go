@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"runtime"
 	"testing"
 	"time"
 
@@ -25,6 +26,41 @@ func plant(t *testing.T, base, name, body string, age time.Duration) string {
 		t.Fatal(err)
 	}
 	return dir
+}
+
+func Test迁移使用私有权限且不覆盖已有文件(t *testing.T) {
+	dir := t.TempDir()
+	src, dst := filepath.Join(dir, "source"), filepath.Join(dir, "target")
+	if err := os.WriteFile(src, []byte("旧配置"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst); err != nil {
+		t.Fatal(err)
+	}
+	st, err := os.Stat(dst)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if runtime.GOOS != "windows" && st.Mode().Perm() != 0600 {
+		t.Fatalf("迁移权限过宽: %o", st.Mode().Perm())
+	}
+	if err := os.WriteFile(dst, []byte("当前配置"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	if err := copyFile(src, dst); err == nil {
+		t.Fatal("迁移覆盖已有文件")
+	}
+	b, _ := os.ReadFile(dst)
+	if string(b) != "当前配置" {
+		t.Fatal("已有配置被替换")
+	}
+	broken := filepath.Join(dir, "incomplete")
+	if err := copyFile(dir, broken); err == nil {
+		t.Fatal("把目录当文件迁移成功")
+	}
+	if _, err := os.Stat(broken); !os.IsNotExist(err) {
+		t.Fatal("失败后留下半份配置")
+	}
 }
 
 // ★★ 用户报的「每次更新账号就没了」:新版解压到旁边的新目录,

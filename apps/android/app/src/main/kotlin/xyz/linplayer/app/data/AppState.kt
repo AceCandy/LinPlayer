@@ -122,6 +122,20 @@ class AppState(val core: CorePort, scope: CoroutineScope) {
         return core.callJson(command, merged, onPartial)
     }
 
+    /** TV 选集需要整季;按服务端分页取全,不能把第一页当作完整季。 */
+    suspend fun seasonEpisodes(parentId: String): List<Item> {
+        val out = mutableListOf<Item>()
+        while (true) {
+            val page = Page.from(call("emby.seasonEpisodes", JsonObject(mapOf(
+                "parent_id" to JsonPrimitive(parentId),
+                "start_index" to JsonPrimitive(out.size),
+                "limit" to JsonPrimitive(200),
+            ))))
+            out.addAll(page.items)
+            if (page.items.isEmpty() || page.total?.let { out.size >= it } == true) return out
+        }
+    }
+
     fun toast(text: String, kind: ToastKind = ToastKind.Info) {
         _toasts.tryEmit(Toast(text, kind))
     }

@@ -26,7 +26,7 @@ import (
 )
 
 // repo 发布仓库。
-const repo = "zzzwannasleep/LinPlayer"
+const repo = "AceCandy/LinPlayer"
 
 // githubAPI GitHub API 基址。做成变量是为了让测试指向假上游 ——
 // check() 要联网,不换基址就只测得到「查不动」那一半。
@@ -215,12 +215,17 @@ type UpdateInfo struct {
 	AssetName string `json:"asset_name"`
 	AssetURL  string `json:"asset_url"`
 	AssetSize int64  `json:"asset_size"`
+	// 仅核心层使用,来自同一发布的校验清单,不接受 UI 指定。
+	ChecksumURL  string `json:"-"`
+	SignatureURL string `json:"-"`
+	checksum     string
 }
 
 // GithubProxies 内置的几档 GitHub 代理【用户定 2026-09-12】。
 //
 // ★ 这是**几个现成的档,不是白名单** —— 用户可以在设置里填任何一个自己的。
-//   这类公共代理今天能用明天就 404,写死一张表等于把用户锁在坏掉的那几个上。
+//
+//	这类公共代理今天能用明天就 404,写死一张表等于把用户锁在坏掉的那几个上。
 var GithubProxies = []string{
 	"https://gh-proxy.com",
 	"https://ghproxy.net",
@@ -231,7 +236,8 @@ var GithubProxies = []string{
 // 代理基址 + "/" + 原始完整 URL。
 //
 // ★ 只套 GitHub 自己的域。假上游(LP_UPDATE_API)和自建镜像套上去反而打不通,
-//   而那正是测试和排障走的路。
+//
+//	而那正是测试和排障走的路。
 func proxied(raw string) string {
 	ok := false
 	for _, h := range []string{
@@ -322,8 +328,18 @@ func CheckUpdate(ctx context.Context, channel, currentTag string) (*UpdateInfo, 
 		info.Name = rel.TagName
 	}
 	names := make([]string, len(rel.Assets))
+	checksumName := ""
 	for i, a := range rel.Assets {
 		names[i] = a.Name
+		if a.Name == "SHA256SUMS" || (a.Name == "SHA256SUMS.txt" && info.ChecksumURL == "") {
+			info.ChecksumURL = a.URL
+			checksumName = a.Name
+		}
+	}
+	for _, a := range rel.Assets {
+		if checksumName != "" && a.Name == checksumName+".sig" {
+			info.SignatureURL = a.URL
+		}
 	}
 	if i := pickAsset(names, assetKeywordSets()); i >= 0 {
 		a := rel.Assets[i]
@@ -377,5 +393,5 @@ type CheckResult struct {
 	Current   string `json:"current"`
 	// 没有更新时是 nil。界面要立刻决定给「下载并安装」还是只给一条下载链接。
 	Update        *UpdateInfo `json:"update"`
-	CanSelfUpdate bool  `json:"can_self_update"`
+	CanSelfUpdate bool        `json:"can_self_update"`
 }

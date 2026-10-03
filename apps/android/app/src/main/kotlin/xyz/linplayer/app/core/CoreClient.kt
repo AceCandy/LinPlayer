@@ -67,6 +67,7 @@ data class CoreEvent(val name: String, val data: JsonElement)
  */
 class CoreClient private constructor() : LinPlayerCommands, CorePort {
 
+    private val submissionLock = Any()
     private val seq = AtomicLong(0)
     private val pending = ConcurrentHashMap<Long, CancellableContinuation<JsonElement>>()
     private val partials = ConcurrentHashMap<Long, (JsonElement) -> Unit>()
@@ -134,26 +135,46 @@ class CoreClient private constructor() : LinPlayerCommands, CorePort {
         args: JsonObject?,
         onPartial: ((JsonElement) -> Unit)?,
     ): JsonElement = suspendCancellableCoroutine { cont ->
-        val s = seq.incrementAndGet()
-        pending[s] = cont
-        if (onPartial != null) partials[s] = onPartial
-        cont.invokeOnCancellation {
-            Native.cancel(s)
-            pending.remove(s)
-            partials.remove(s)
-        }
-        val rc = Native.call(s, command, args?.toString() ?: "{}")
-        if (rc != 0) {
-            pending.remove(s)
-            partials.remove(s)
-            cont.resumeWithException(CoreException("E_INTERNAL", "命令没发出去($command,rc=$rc)", false))
+        synchronized(submissionLock) {
+            val s = seq.incrementAndGet()
+            pending[s] = cont
+            if (onPartial != null) partials[s] = onPartial
+            cont.invokeOnCancellation {
+                synchronized(submissionLock) {
+                    Native.cancel(s)
+                    pending.remove(s)
+                    partials.remove(s)
+                }
+            }
+            if (stop) {
+                pending.remove(s)?.resumeWithException(CoreException("E_SHUTDOWN", "核心已关停", false))
+                partials.remove(s)
+                return@suspendCancellableCoroutine
+            }
+            if (!cont.isActive) return@suspendCancellableCoroutine
+            val rc = Native.call(s, command, args?.toString() ?: "{}")
+            if (rc != 0) {
+                partials.remove(s)
+                val error = when (rc) {
+                    -2 -> CoreException("E_SHUTDOWN", "核心已关停", false)
+                    -3 -> CoreException("E_INVALID", "命令参数或序号无效", false)
+                    -4 -> CoreException("E_BUSY", "命令队列已满,请稍后重试", true)
+                    else -> CoreException("E_INTERNAL", "命令没发出去($command,rc=$rc)", false)
+                }
+                pending.remove(s)?.resumeWithException(error)
+            }
         }
     }
 
     override fun setSurface(surface: Surface?, w: Int, h: Int): Int = Native.setSurface(surface, w, h)
 
+    private fun failPending() {
+        for (s in pending.keys) pending.remove(s)?.resumeWithException(CoreException("E_SHUTDOWN", "核心已关停", false))
+        partials.clear()
+    }
+
     fun shutdown() {
-        stop = true
+        synchronized(submissionLock) { stop = true; failPending() }
         Native.shutdown()
     }
 
@@ -213,7 +234,7 @@ class CoreClient private constructor() : LinPlayerCommands, CorePort {
                 }
                 _events.tryEmit(CoreEvent(name, data))
             }
-            "eof" -> stop = true
+            "eof" -> synchronized(submissionLock) { stop = true; failPending() }
         }
     }
 

@@ -273,7 +273,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     /* 字幕语言偏好。**要在建 ExoPlayer 之前读到** —— ExoPlayer 的轨道选择是
        「参数变了才重选」,建完再补一次也行,但首帧那几秒会没有字幕。
        `null` = 还没读到,`""` = 没有语言偏好(那是**默认状态**,不是「关了字幕」)。 */
-    var subLangPref by remember { mutableStateOf<String?>(null) }
+    var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     /* ☠ **「关字幕」的开关是 `sub_enabled`,不是「语言偏好为空」。**
        核心层的 `sub_lang` 是 `*string`、默认 null,含义是「没偏好,随便挑一条」;
        上一版拿它是不是空串当关闭判据,于是**从没设过语言的人**(绝大多数)
@@ -282,10 +282,14 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var subOff by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
-        subLangPref = p.str("sub_lang") ?: ""
+        trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
+            subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
+            subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
+            subEnabled = p.boolOrNull("sub_enabled") != false,
+        )
         subOff = p.boolOrNull("sub_enabled") == false
     }
-    val exo = rememberExoPlayer(engine == "exo", subLangPref)
+    val exo = rememberExoPlayer(engine == "exo", trackPrefs)
     /* 画面比例【用户定 2026-09-07】。★ **不持久化** —— 和画面增强档位同一条口径:
        它是「这一片这一次这么看」,记住的话下一片莫名其妙就是 4:3。 */
     var videoFit by remember { mutableStateOf(VideoFit.Source) }
@@ -362,6 +366,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                ExoPlayer 不解析 Attachments,不自己抠的话 libass 只能回落系统字体。
                ★ 和上面那条一样是 fire-and-forget:抠不到只是字形不对,不该挡住播放。 */
             if (exo != null && url != null) loadEmbeddedFonts(url)
+        }.onSuccess {
+            runCatching { PlaybackService.start(ctx, app, exo, route.title) }.onFailure { app.report(it) }
         }.onFailure { app.report(it); if (route.src != null) srcSwitch = true }
     }
     /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
@@ -383,7 +389,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
             // 起播失败要**说出来**,不许静默退回去 —— 和 mpv 那条同一条口径
             e.playerError?.let { err ->
-                failReason = "ExoPlayer:" + (err.errorCodeName) + " " + (err.message ?: "")
+                failReason = playbackAdvice(err)
                 openFailed = true
                 return@LaunchedEffect
             }
@@ -451,20 +457,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         osd = false
     }
 
-    // 进度上报:播放中每 10s 一次 + 暂停 / 退出各一次
-    LaunchedEffect(route.itemId) {
-        while (true) {
-            delay(10_000)
-            if (!paused && position > 0) runCatching {
-                // ★ 不传 item_id:核心层从**当前播放目标**取(连同 PlaySessionId)。
-                //   让调用方传 = 传错一次就是「看一半退出进度不落地」,而且查不出来
-                app.call("emby.reportProgress", args("pos" to position, "paused" to paused))
-            }
-        }
-    }
+    // 定时进度上报由前台服务负责,应用退到后台后也继续执行。
     DisposableEffect(route.itemId) {
         onDispose {
             app.wantsPip = false
+            PlaybackService.stop(ctx)
             Libass.reset()
             // ★ 走 app.bg 不走 scope:后者正在被取消,launch 出去的活一件都不跑
             app.bg.launch {

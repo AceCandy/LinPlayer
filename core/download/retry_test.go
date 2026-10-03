@@ -144,7 +144,7 @@ func TestDL_没权限不重试(t *testing.T) {
 	if it.Status != StatusFailed {
 		t.Fatalf("401 该直接失败,实得 %s", it.Status)
 	}
-	if msg := deref(it.Error); !strings.Contains(msg, "无下载权限") {
+	if msg := deref(it.Error); !strings.Contains(msg, "重新登录原账号") {
 		t.Fatalf("错误该说人话,实得 %q", msg)
 	}
 	// 探测 1 次 + 取数 1 次 = 2。多出来的就是在重试一个不可能变对的错。

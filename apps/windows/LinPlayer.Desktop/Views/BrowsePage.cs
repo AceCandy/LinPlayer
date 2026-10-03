@@ -5,6 +5,7 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
@@ -28,7 +29,8 @@ public sealed class BrowsePage : PageBase
 {
     private readonly CoreClient _core;
     private readonly StackPanel _crumbs = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
-    private readonly StackPanel _rows = new() { Spacing = 2 };
+    private readonly ItemsControl _rows = new();
+    private Control _head = null!;
     private readonly TextBlock _status = Dim("");
     private readonly TextBox _filter = new() { Watermark = "在当前目录里过滤", Width = 220, Classes = { "field" } };
 
@@ -47,20 +49,19 @@ public sealed class BrowsePage : PageBase
 
         _filter.TextChanged += (_, _) => Render();
 
-        Content = Scrolled(new StackPanel
+        _head = new StackPanel
         {
-            Spacing = 10,
+            Spacing = 10, Margin = new Thickness(0, 0, 0, 10),
             Children =
             {
-                new StackPanel
-                {
-                    Orientation = Orientation.Horizontal, Spacing = 10,
-                    Children = { _crumbs, _filter },
-                },
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { _crumbs, _filter } },
                 _status,
-                _rows,
             },
-        });
+        };
+        _rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel());
+        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => item is Control header ? header : item is JsonElement entry ? Row(entry) : new Panel());
+        _rows.ItemsSource = new object[] { _head };
+        Content = Scrolled(_rows);
 
         _ = Load("");
     }
@@ -68,7 +69,7 @@ public sealed class BrowsePage : PageBase
     private async Task Load(string dirId)
     {
         _loadingDir = dirId;
-        _rows.Children.Clear();
+        _rows.ItemsSource = new object[] { _head };
         _status.Text = "加载中…";
         RenderCrumbs();
 
@@ -86,7 +87,7 @@ public sealed class BrowsePage : PageBase
             {
                 var go = new Button { Content = "重新登录这个源", Classes = { "primary" }, Margin = new Thickness(0, 10, 0, 0) };
                 go.Click += (_, _) => Nav.Root(new ServersPage(_core, () => { }));
-                _rows.Children.Add(go);
+                _rows.ItemsSource = new object[] { _head, go };
             }
             return;
         }
@@ -106,7 +107,7 @@ public sealed class BrowsePage : PageBase
 
     private void Render()
     {
-        _rows.Children.Clear();
+        _rows.ItemsSource = new object[] { _head };
         var kw = _filter.Text?.Trim() ?? "";
         var shown = _entries
             .Where(e => kw.Length == 0 || Str(e, "name").Contains(kw, StringComparison.OrdinalIgnoreCase))
@@ -124,7 +125,7 @@ public sealed class BrowsePage : PageBase
             ? $"这个文件夹里没有匹配「{kw}」的内容。"
             : $"{shown.Count} 项" + (shown.Count != _entries.Count ? $"(共 {_entries.Count} 项)" : "");
 
-        foreach (var e in shown) _rows.Children.Add(Row(e));
+        _rows.ItemsSource = new object[] { _head }.Concat(shown.Cast<object>()).ToList();
     }
 
     private Control Row(JsonElement e)
@@ -144,6 +145,7 @@ public sealed class BrowsePage : PageBase
 
         var b = new Button
         {
+            Margin = new Thickness(0, 0, 0, 2),
             Background = Brushes.Transparent,
             BorderThickness = new Thickness(0),
             Padding = new Thickness(10, 10),

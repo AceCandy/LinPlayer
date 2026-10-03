@@ -22,12 +22,12 @@
 技术栈是 **Go 核心层 + C#(Avalonia) Windows 外壳**。
 
 - 目标架构、迁移方案、任务清单:[`docs/go-migration/`](docs/go-migration/README.md)
-- **Rust + React/Tauri 那一整套已从仓库删除**(`crates/` `apps/desktop` `apps/android` `ui/`)。
+- **旧 Rust + React/Tauri 栈已删除。** 当前 apps/android 是重新实现的 Kotlin/Compose 外壳。
   需要查旧实现时:`git show rust-final:<路径>`,或 `git log -- <路径>`。
 - `core/**` 的注释里原先有 57 处「移植自 `crates/…`」的溯源引用,已随本次删除一并清掉 ——
   注释现在只讲**这段代码本身**为什么这么写,不再指向仓库外的东西。
-- **当前只有 Windows 一个端能出包。** Linux 与 Android/TV 的 Go 版 UI 一行没写
-  (进度见 `docs/go-migration/TODO.md`),删 Rust 时它们的旧实现一并没了。
+- **当前 Windows / Linux / Android 手机 / Android TV 均有实现和出包流程。**
+  平台状态以 README「各端状态」为准;构建通过不代表真实设备验收通过。
 
 ---
 
@@ -37,7 +37,7 @@
 core/              ★ Go 核心层。业务全在这:emby / player / net / danmaku / history …
                      出库为 lpcore.dll(c-shared),三通道见 SPEC §5
 apps/
-  windows/         C# + Avalonia 的 Windows 外壳(唯一还活着的端)
+  windows/         C# + Avalonia 的 Windows / Linux 共用外壳
 bindings/
   csharp/  kotlin/ 从 COMMANDS.md 生成的命令绑定(Commands.g.cs / .kt)
 third_party/
@@ -218,10 +218,10 @@ VERSION            ★ 版本号唯一权威,见 docs/VERSIONING.md
 - commit message **别用 PowerShell here-string** `@'...'@`,会污染标题。用 `$'...'` 或 heredoc
 - 大文档别硬塞 heredoc,容易被 shell 吃引号 —— 用文件写入工具
 
-### Android(暂无实现,写 Go 版 UI 时再看)
-2026-09-04 删 Rust 栈时安卓端一并没了。下面这些是那套踩出来的,重写时仍然成立 ——
+### Android
+2026-09-04 删除旧安卓端后已重建 Kotlin/Compose 外壳。下面是旧栈留下且仍需遵守的约束 ——
 细节连同代码去 `git show rust-final:` 里翻:
-- `libmpv.so` 走 **Git LFS**。CI 必须 `lfs: true` + 校验 ELF 魔数,否则 APK 里是指针文本
+- 当前 `libmpv.so` 不入库,CI 用 `scripts/fetch-libmpv-android.sh` 拉取并校验 ELF 魔数与机器类型;旧栈曾用 Git LFS,不能把指针文本打进 APK。
 - release 默认开 R8:只被 JNI 调的方法会被裁 → 必须写 keep 规则
 - **`-night` 资源限定符压过 `-vXX`**:按 API 分主题要同时建 `values-vXX` 和 `values-night-vXX`
 - release 变体没配 `signingConfig` 会出 `-unsigned.apk`。**`keystore.properties` 写了 ≠ 用了**

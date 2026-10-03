@@ -11,6 +11,7 @@ import (
 	"sync"
 	"time"
 
+	"linplayer/core/bus"
 	"linplayer/core/paths"
 )
 
@@ -195,11 +196,24 @@ func findExisting(records []Record, fp Fingerprint, itemID string) *Record {
 // ★ 已看完就不续播:远端 played 直接返回 nil;本服本地记录 played 时**只信远端**
 // —— 避免跨服记录覆盖用户在本服的「已看完」。
 func (s *Store) ResolveResumeTicks(scopeKey string, candidate Candidate, seriesTmdbID *string,
-	remoteTicks *int64, remotePlayed bool, crossServer bool) *int64 {
+	remoteTicks *int64, remotePlayed bool, crossServer bool) (result *int64) {
+	source := "none"
+	defer func() {
+		position := int64(0)
+		if result != nil {
+			position = *result / TicksPerSec
+		}
+		// 只记录来源类别和位置,不写服务器、账号、条目或其它观看记录。
+		bus.Logf("info", "RESUME source=%s position_secs=%d cross_server=%t", source, position, crossServer)
+	}()
 	if remotePlayed {
+		source = "watched"
 		return nil
 	}
 	normalizedRemote := normalizeTicks(remoteTicks, candidate.RunTimeTicks)
+	if normalizedRemote != nil {
+		source = "current_server"
+	}
 	fp, ok := FingerprintOfCandidate(candidate, seriesTmdbID)
 	if !ok {
 		return normalizedRemote
@@ -217,10 +231,16 @@ func (s *Store) ResolveResumeTicks(scopeKey string, candidate Candidate, seriesT
 		if rt == nil {
 			rt = existing.RunTimeTicks
 		}
-		best = MaxPositionTicks(best, normalizeTicks(&existing.LastPositionTicks, rt))
+		local := normalizeTicks(&existing.LastPositionTicks, rt)
+		if local != nil && (best == nil || *local > *best) {
+			best, source = local, "local"
+		}
 	}
 	if crossServer {
-		best = MaxPositionTicks(best, s.crossServerTicks(candidate, seriesTmdbID, scopeKey))
+		cross := s.crossServerTicks(candidate, seriesTmdbID, scopeKey)
+		if cross != nil && (best == nil || *cross > *best) {
+			best, source = cross, "cross_server"
+		}
 	}
 	return best
 }

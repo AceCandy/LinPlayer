@@ -190,7 +190,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 }
                             }
                             // 跨服结果**不给长按菜单**:收藏 / 标已看是对当前活跃服务器写的
-                            else -> LpRow(name, Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
+                            else -> LpRow(name + " · 最多 8 条", Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
                                 { nav.navigate(Route.Detail(it.id, it.type)) }, menu = null)
                         }
                     }
@@ -222,6 +222,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         val eps = items.filter { it.isEpisode }
                         val rest = items.filterNot { it.isEpisode }
                         LazyColumn(Modifier.fillMaxSize(), contentPadding = pad) {
+                            if (items.size >= 50) item("limit") {
+                                Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
+                            }
                             if (rest.isNotEmpty()) item("grid") {
                                 LazyVerticalGridInline(rest) { picked ->
                                     // 历史只在**用户真的点开了某个结果**时才记 ——

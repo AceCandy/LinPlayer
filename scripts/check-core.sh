@@ -36,18 +36,23 @@ step "1. go vet + go test"
 ( cd "$ROOT/core" && PATH="$ROOT/third_party/libmpv:$PATH" go vet ./...   && PATH="$ROOT/third_party/libmpv:$PATH" go test -count=1 ./... ) || fail=$((fail + 1))
 
 step "2. 出库"
+node "$ROOT/scripts/test-companion-warning.mjs" || fail=$((fail + 1))
 bash "$ROOT/scripts/build-core.sh" >/dev/null || fail=$((fail + 1))
 
 step "3. FFI 契约(头文件 vs SPEC §5.1)"
-python "$ROOT/scripts/check-ffi-contract.py" || fail=$((fail + 1))
+case "$(go env GOOS)" in
+  windows) CORE_LIB="$ROOT/build/core/lpcore.dll"; CORE_HEADER="$ROOT/build/core/lpcore.h" ;;
+  darwin) CORE_LIB="$ROOT/build/core/liblpcore.dylib"; CORE_HEADER="$ROOT/build/core/liblpcore.h" ;;
+  *) CORE_LIB="$ROOT/build/core/liblpcore.so"; CORE_HEADER="$ROOT/build/core/liblpcore.h" ;;
+esac
+python "$ROOT/scripts/check-ffi-contract.py" "$CORE_HEADER" || fail=$((fail + 1))
 
 step "4. 契约测试(C# 宿主侧)"
-CHECK="$ROOT/tools/corecheck/bin/Release/net10.0/corecheck.exe"
-if [ ! -x "$CHECK" ]; then
-  ( cd "$ROOT/tools/corecheck" && dotnet build -c Release --nologo >/dev/null )
+CHECK="$ROOT/tools/corecheck/bin/Release/net10.0/corecheck.dll"
+if ! ( cd "$ROOT/tools/corecheck" && dotnet build -c Release --nologo >/dev/null ); then
+  fail=$((fail + 1))
 fi
-# LP_DEBUG_CMDS=1 才有 debug.* —— panic 边界那三条判据靠它们
-LP_DEBUG_CMDS=1 "$CHECK" "$ROOT/build/core/lpcore.dll" | tail -20
+LP_DEBUG_CMDS=1 dotnet "$CHECK" "$CORE_LIB" | cat
 rc=${PIPESTATUS[0]}
 [ "$rc" = "0" ] || fail=$((fail + 1))
 

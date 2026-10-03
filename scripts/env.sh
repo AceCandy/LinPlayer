@@ -51,8 +51,8 @@ _lp_zig=""
 [ -f "$_lp_root/.toolchain/zig/zig.exe" ] && _lp_zig="$_lp_root/.toolchain/zig/zig.exe"
 [ -z "$_lp_zig" ] && [ -f "$_lp_root/.toolchain/zig/zig" ] && _lp_zig="$_lp_root/.toolchain/zig/zig"
 if [ -n "$_lp_zig" ]; then
-  export CC="$(_lp_win "$_lp_zig") cc"
-  export CXX="$(_lp_win "$_lp_zig") c++"
+  export CC="${CC:-$(_lp_win "$_lp_zig") cc}"
+  export CXX="${CXX:-$(_lp_win "$_lp_zig") c++}"
   export PATH="$_lp_root/.toolchain/zig:$PATH"
 fi
 unset _lp_zig

@@ -52,6 +52,7 @@ const (
 	eNotInit  C.int32_t = -1
 	eShutdown C.int32_t = -2
 	eBadArg   C.int32_t = -3
+	eBusy     C.int32_t = -4
 	eInternal C.int32_t = -99
 )
 
@@ -210,6 +211,14 @@ func lp_call(seq C.int64_t, cmd *C.char, argsJSON *C.char) (ret C.int32_t) {
 		return eShutdown
 	}
 	if err := bus.Call(int64(seq), goStr(cmd), goStr(argsJSON)); err != nil {
+		if e, ok := err.(*bus.Err); ok {
+			switch e.Code {
+			case bus.EShutdown:
+				return eShutdown
+			case bus.EBusy:
+				return eBusy
+			}
+		}
 		return eBadArg
 	}
 	return eOK
@@ -254,6 +263,7 @@ func lp_free(p *C.char) {
 //export lp_shutdown
 func lp_shutdown() {
 	defer guard("lp_shutdown", nil, 0)
+	bus.BeginShutdown()
 	// ★ 关 mpv 必须排在 lp_gl_uninit 之后(S1.2 实测:反过来宿主合成器当场抛异常)。
 	//   这里只关核心;GL 通道由宿主在销毁 GL 上下文前自己调 lp_gl_uninit。
 	player.Close()

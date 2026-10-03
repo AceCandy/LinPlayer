@@ -1199,7 +1199,12 @@ public sealed class PlayerPage : UserControl
         d.Transitions = Fade(OsdInMs);
         _drawer = d;
         _root!.Children.Insert(_root.Children.IndexOf(_bubble), d);
-        Dispatcher.UIThread.Post(() => EpisodeDrawer.Slide(d, true), DispatcherPriority.Render);
+        Dispatcher.UIThread.Post(() =>
+        {
+            if (_drawer != d) return; // 已收起或换栏时,旧回调不能重新启用控件并抢焦点。
+            EpisodeDrawer.Slide(d, true);
+            d.FocusInitial();
+        }, DispatcherPriority.Render);
     }
 
     private void CloseDrawer()
@@ -1907,6 +1912,8 @@ public sealed class PlayerPage : UserControl
         _lastMove = DateTime.UtcNow;
         ShowOsd(true);
         if (e.Key == Key.Escape && _drawer is not null) { CloseDrawer(); e.Handled = true; return; }
+        // 栏内导航和 Enter 留给控件;Space 仍只控制播放,不误点分集。
+        if (_drawer is not null && e.Key is not (Key.Space or Key.E)) return;
         /* 在输入框里打字(片头片尾的时长、弹幕搜索):数字键会被当成「跳到百分之几」、
            空格会暂停。隧道阶段页面比输入框先拿到这一下,所以必须在最前面放行。
            看 Source 不看焦点:弹层是另一个顶层窗口,这一页的 FocusManager 看不见它里面的焦点。 */
@@ -3975,6 +3982,7 @@ public sealed class PlayerPage : UserControl
         if (!Bool(st, "installed"))
         {
             var mb = st.TryGetProperty("download_bytes", out var b) && b.TryGetInt64(out var n) ? n / (1 << 20) : 0;
+            host.Children.Add(Dimmed("可选组件含 DirectML/MSVC 等专有许可运行库;N 卡版另含 TensorRT/CUDA,按各组件许可使用。"));
             host.Children.Add(Dimmed($"第一次用要下载补帧组件(约 {mb} MB),下完以后一直能用。显卡:{Str(st, "gpu")}"));
             _interpProgress = Dimmed(Bool(st, "installing") ? "正在下载…" : "");
             var dl = MenuRow("下载补帧组件");
@@ -4070,6 +4078,7 @@ public sealed class PlayerPage : UserControl
             return;
         }
         var first = !Bool(st, "installed");
+        host.Children.Add(Dimmed("N 卡加速包含 TensorRT/CUDA 等专有许可组件,按各组件许可使用。"));
         host.Children.Add(Dimmed(TrtNote(st, trt)));
         _interpProgress = Dimmed(Bool(trt, "preparing") ? "正在为显卡准备加速引擎…" : Bool(st, "installing") ? "正在下载…" : "");
         var dl = MenuRow(first ? "下载补帧组件(N 卡加速版)" : "下载 N 卡加速包");

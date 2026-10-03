@@ -591,7 +591,7 @@ private fun BoxScope.EpisodesPanel(app: AppState, overlay: Overlay, ui: PlayerUi
     }
     LaunchedEffect(season) {
         if (season == ui.seasonId) { eps = ui.episodes; return@LaunchedEffect }
-        season?.let { s -> eps = Item.list(runCatching { app.call("emby.seasonEpisodes", args("parent_id" to s, "limit" to 40)) }.getOrNull()) }
+        season?.let { s -> runCatching { app.seasonEpisodes(s) }.onSuccess { eps = it }.onFailure { app.report(it) } }
     }
     TvSidePanel("选集", { overlay.close() }) {
         if (seasons.size > 1) {

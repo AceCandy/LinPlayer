@@ -202,7 +202,8 @@ scripts/           build, packaging and gate scripts (pack-win.sh / pack-linux.s
 
 ## License
 
-[LICENSE](../LICENSE)
+[LICENSE](../LICENSE) covers the project source. Distributed and optional components retain their own licenses.
+Optional interpolation packages include proprietary Microsoft DirectML/VC++ runtimes and, for NVIDIA acceleration, TensorRT/CUDA. The DirectML repository's MIT license does not cover DirectML.dll. See [third-party components](THIRD_PARTY.md).
 
 ## Acknowledgements
 

@@ -419,7 +419,10 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     var dl by remember { mutableStateOf(false) }
 
     suspend fun loadEpisodes(parent: String): List<Item> {
-        val b = app.block("emby.seasonEpisodes", args("parent_id" to parent, "limit" to 200)).map { Item.list(it) }
+        val b = try { Block.Ok(app.seasonEpisodes(parent)) }
+            catch (e: kotlinx.coroutines.CancellationException) { throw e }
+            catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
+            catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "分集加载失败") }
         episodes = b
         return b.valueOrNull.orEmpty()
     }

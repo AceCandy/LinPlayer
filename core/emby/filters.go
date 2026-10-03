@@ -8,6 +8,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/url"
+	"sort"
+	"strings"
 	"sync"
 )
 
@@ -18,6 +20,7 @@ type Filters struct {
 	Years           []int64  `json:"years"`
 	Studios         []string `json:"studios"`
 	OfficialRatings []string `json:"official_ratings"`
+	Unavailable     []string `json:"unavailable,omitempty"` // 暂时失败的分面;404 不列入重试。
 }
 
 // FiltersOf 取某库的筛选分面。
@@ -29,12 +32,25 @@ type Filters struct {
 //	/Years、/Tags、/OfficialRatings            → 404 ❌(旧栈也在拉这三个并**吞错**,
 //	                                              所以旧版的年份/标签分面一直是空的)
 //
-// 故:genres/studios/tags/official_ratings 走各自分面端点(**各自吞错**,一个挂不能拖垮面板);
+// 故:genres/studios/tags/official_ratings 走各自分面端点(404 降级为空,其它失败显式记录,保留成功分面);
 // years 因为没有可用端点,改用两次 Limit=1 探针取最早/最晚年份再铺成区间。
 func (c *Client) FiltersOf(ctx context.Context, s *Session, parentID string) (*Filters, error) {
 	var out Filters
 	var wg sync.WaitGroup
-	// 五路并行,各自吞错 —— 某个分面 404/500 只让它自己为空。
+	var mu sync.Mutex
+	var authErr error
+	record := func(name string, err error) {
+		if err == nil || StatusOf(err) == 404 {
+			return
+		}
+		mu.Lock()
+		defer mu.Unlock()
+		if StatusOf(err) == 401 || StatusOf(err) == 403 {
+			authErr = err
+		}
+		out.Unavailable = append(out.Unavailable, name)
+	}
+	// 五路并行,保留成功分面;认证失败必须明确返回。
 	for _, f := range []struct {
 		endpoint string
 		dst      *[]string
@@ -47,34 +63,37 @@ func (c *Client) FiltersOf(ctx context.Context, s *Session, parentID string) (*F
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			*f.dst = c.facet(ctx, s, f.endpoint, parentID)
+			var err error
+			*f.dst, err = c.facet(ctx, s, f.endpoint, parentID)
+			record(strings.ToLower(f.endpoint), err)
 		}()
 	}
 	wg.Add(1)
 	go func() {
 		defer wg.Done()
-		out.Years = c.yearRange(ctx, s, parentID)
+		var err error
+		out.Years, err = c.yearRange(ctx, s, parentID)
+		record("years", err)
 	}()
 	wg.Wait()
-	// ★ 全空也返回成功:某个库确实可能一个分面都没有,那是「筛不了」不是「出错了」。
-	//   报错的话整块筛选面板会显示红字重试,而重试永远也不会有结果。
-	return &out, nil
+	sort.Strings(out.Unavailable)
+	return &out, authErr
 }
 
 // facet 某分面端点的库内取值(Items[].Name)。
 //
-// ★ 失败**吞掉返回空**:分面挂了不该让整个面板报错。
+// ★ 失败保留空列表,由调用方记录失败状态,不抹掉其它成功分面。
 // ★ 返回的是**空切片不是 nil** —— nil 序列化成 JSON `null`,而黄金实现给的是 `[]`。
 //
 //	前端拿到 null 直接 `.map()` 会抛错,在透明窗口下就是**一片黑且不报错**。
 //	这条是差分对账当场抓出来的(2026-08-31):Go 的零值切片和 Rust 的 Vec::new() 不等价。
-func (c *Client) facet(ctx context.Context, s *Session, endpoint, parentID string) []string {
+func (c *Client) facet(ctx context.Context, s *Session, endpoint, parentID string) ([]string, error) {
 	u := fmt.Sprintf("%s/%s?UserId=%s&ParentId=%s&Recursive=true",
 		s.Server, endpoint, url.QueryEscape(s.UserID), url.QueryEscape(parentID))
 	out := []string{}
 	b, err := c.getBytes(ctx, s, u)
 	if err != nil {
-		return out
+		return out, err
 	}
 	var j struct {
 		Items []struct {
@@ -82,14 +101,14 @@ func (c *Client) facet(ctx context.Context, s *Session, endpoint, parentID strin
 		} `json:"Items"`
 	}
 	if err := json.Unmarshal(b, &j); err != nil {
-		return out
+		return out, err
 	}
 	for _, i := range j.Items {
 		if i.Name != "" {
 			out = append(out, i.Name)
 		}
 	}
-	return out
+	return out, nil
 }
 
 // yearRange 年份分面。
@@ -99,30 +118,45 @@ func (c *Client) facet(ctx context.Context, s *Session, endpoint, parentID strin
 //
 // ponytail: 区间里可能混入该库没有的年份(选了就是空结果),换取 2 次请求而非 17 次;
 // 要精确年份列表得等服务端支持分面,或改成全量扫描。
-func (c *Client) yearRange(ctx context.Context, s *Session, parentID string) []int64 {
-	probe := func(order string) *int64 {
+func (c *Client) yearRange(ctx context.Context, s *Session, parentID string) ([]int64, error) {
+	probe := func(order string) (*int64, error) {
 		u := fmt.Sprintf("%s/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=Movie,Series"+
 			"&SortBy=ProductionYear&SortOrder=%s&Limit=1&Fields=ProductionYear",
 			s.Server, url.PathEscape(s.UserID), url.QueryEscape(parentID), order)
 		items, err := c.fetchItems(ctx, s, u)
 		if err != nil || len(items) == 0 {
-			return nil
+			return nil, err
 		}
-		return items[0].Year
+		return items[0].Year, nil
 	}
 	var newest, oldest *int64
+	var newestErr, oldestErr error
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() { defer wg.Done(); newest = probe("Descending") }()
-	go func() { defer wg.Done(); oldest = probe("Ascending") }()
+	go func() { defer wg.Done(); newest, newestErr = probe("Descending") }()
+	go func() { defer wg.Done(); oldest, oldestErr = probe("Ascending") }()
 	wg.Wait()
+	for _, err := range []error{newestErr, oldestErr} {
+		if StatusOf(err) == 401 || StatusOf(err) == 403 {
+			return []int64{}, err
+		}
+	}
+	if StatusOf(newestErr) == 404 && oldestErr != nil {
+		return []int64{}, oldestErr
+	}
+	if newestErr != nil {
+		return []int64{}, newestErr
+	}
+	if oldestErr != nil {
+		return []int64{}, oldestErr
+	}
 	// 同上:空区间要给 `[]` 不是 nil
 	if newest == nil || oldest == nil || *newest < *oldest {
-		return []int64{}
+		return []int64{}, nil
 	}
 	out := []int64{}
 	for y := *newest; y >= *oldest; y-- {
 		out = append(out, y)
 	}
-	return out
+	return out, nil
 }

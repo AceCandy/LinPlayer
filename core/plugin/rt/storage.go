@@ -20,6 +20,7 @@ import (
 
 	"golang.org/x/net/publicsuffix"
 
+	"linplayer/core/bus"
 	"linplayer/core/paths"
 )
 
@@ -98,17 +99,23 @@ func (s *kvStore) All() map[string]json.RawMessage {
 
 func (s *kvStore) flush() {
 	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.t != nil {
+		s.t.Stop()
+	}
 	s.t = nil
 	if !s.dirty {
-		s.mu.Unlock()
 		return
 	}
 	b, err := json.Marshal(s.m)
-	s.dirty = false
-	s.mu.Unlock()
 	if err == nil {
-		_ = writeFileAtomic(s.path, b)
+		err = writeFileAtomic(s.path, b)
 	}
+	if err != nil {
+		bus.Logf("warn", "插件存储写入失败,保留待写状态: %v", err)
+		return
+	}
+	s.dirty = false
 }
 
 func writeFileAtomic(p string, b []byte) error {
@@ -176,17 +183,17 @@ func (s *secretStore) Get(k string) (string, bool) {
 
 func (s *secretStore) Set(k, v string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.m[k] = v
 	b, _ := json.Marshal(s.m)
-	s.mu.Unlock()
 	return s.save(b)
 }
 
 func (s *secretStore) Remove(k string) error {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.m, k)
 	b, _ := json.Marshal(s.m)
-	s.mu.Unlock()
 	return s.save(b)
 }
 
@@ -313,8 +320,8 @@ func (rj *recJar) SetCookies(u *url.URL, cs []*http.Cookie) {
 
 func (j *jarSet) persist(name string) {
 	j.mu.Lock()
+	defer j.mu.Unlock()
 	rj := j.jars[name]
-	j.mu.Unlock()
 	if rj == nil {
 		return
 	}
@@ -326,8 +333,8 @@ func (j *jarSet) persist(name string) {
 
 func (j *jarSet) clear(name string) {
 	j.mu.Lock()
+	defer j.mu.Unlock()
 	delete(j.jars, name)
-	j.mu.Unlock()
 	_ = j.sec.Remove("cookiejar:" + name)
 }
 

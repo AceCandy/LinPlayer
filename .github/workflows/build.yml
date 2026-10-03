@@ -45,7 +45,7 @@ jobs:
     outputs:
       version: ${{ steps.v.outputs.version }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # ★ 校验每个 `run:` 块的 shell 语法。yaml 合法 ≠ 脚本合法:
       #   用脚本批量改 workflow 时把某步的 if/then 切断,YAML 照样解析得过,
@@ -67,18 +67,46 @@ jobs:
           echo "version=$V" >> "$GITHUB_OUTPUT"
           echo "version = $V"
 
+  verify-update-signing:
+    name: Verify project update signing
+    if: github.event_name != 'pull_request'
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.0'
+          cache: false
+      - name: Sign, verify and reject tampering
+        env:
+          LP_UPDATE_SIGNING_SEED: ${{ secrets.LP_UPDATE_SIGNING_SEED }}
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+        run: |
+          work=$(mktemp -d)
+          trap 'rm -rf "$work"' EXIT
+          printf 'CI update signature verification\n' > "$work/SHA256SUMS"
+          cd core
+          go run ./cmd/signupdate v0.0.0-dev "$work/SHA256SUMS"
+          go run ./cmd/signupdate -verify v0.0.0-dev "$work/SHA256SUMS"
+          printf 'tampered\n' >> "$work/SHA256SUMS"
+          if go run ./cmd/signupdate -verify v0.0.0-dev "$work/SHA256SUMS"; then
+            echo '::error::Tampered update manifest was accepted'
+            exit 1
+          fi
+
   build-windows:
     name: Build Windows portable
     needs: version
     runs-on: windows-latest
     steps:
       - name: Checkout code
-        uses: actions/checkout@v4
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # 项目级工具链(Go + zig)。版本与 sha256 钉在 fetch 脚本里 ——
       # 和本地开发用的是**同一份**,免得「我这儿能编、CI 编不过」。
       - name: Cache toolchain
-        uses: actions/cache@v4
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4
         with:
           path: .toolchain
           key: toolchain-${{ runner.os }}-${{ hashFiles('scripts/fetch-toolchain.sh') }}
@@ -88,7 +116,7 @@ jobs:
         run: bash scripts/fetch-toolchain.sh
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
 
@@ -104,11 +132,14 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           $ErrorActionPreference = "Stop"
-          $rel = gh api repos/shinchiro/mpv-winbuild-cmake/releases/latest | ConvertFrom-Json
-          $asset = $rel.assets | Where-Object { $_.name -match '^mpv-dev-x86_64-.*\.7z$' } | Select-Object -First 1
-          if (-not $asset) { throw "shinchiro 最新 release 里没有 mpv-dev-x86_64 资产" }
-          Write-Host "source: $($asset.name)"
+          $lock = Get-Content third_party/libmpv/windows.lock.json | ConvertFrom-Json
+          $rel = gh api "repos/$($lock.repository)/releases/tags/$($lock.tag)" | ConvertFrom-Json
+          $asset = $rel.assets | Where-Object { $_.name -eq $lock.asset } | Select-Object -First 1
+          if (-not $asset) { throw "固定版本里没有指定的 mpv-dev 资产" }
+          Write-Host "source: $($lock.tag) / $($asset.name)"
           Invoke-WebRequest -Uri $asset.browser_download_url -OutFile mpv-dev.7z
+          $actual = (Get-FileHash mpv-dev.7z -Algorithm SHA256).Hash.ToLowerInvariant()
+          if ($actual -ne $lock.sha256) { throw "libmpv 下载内容与固定 SHA256 不符" }
           7z x mpv-dev.7z -ompv-dev | Out-Null
           $dll = Get-ChildItem mpv-dev -Recurse -Filter libmpv-2.dll | Select-Object -First 1
           if (-not $dll) { throw "压缩包里没有 libmpv-2.dll" }
@@ -119,10 +150,10 @@ jobs:
 
       # check-core 第 7/8 关要 pnpm(SDK 生成物、UI 运行时产物是否最新)。
       # 没有 pnpm 那两关**直接算红**(不是跳过)—— 所以这一步不能省。
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
         with:
           version: 10
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: 22
 
@@ -178,7 +209,7 @@ jobs:
           ls -la "$STAGE"/LinPlayer.exe "$STAGE"/lpcore.dll "$STAGE"/libmpv-2.dll
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: LinPlayer-win-x64
           path: release/*.zip
@@ -190,16 +221,16 @@ jobs:
     # ★ 钉 22.04:glibc 向后兼容不向前,在哪个版本上编,比它老的发行版就起不来(TODO L8)
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
       # fetch-toolchain.sh 只拉 Windows 的 Go 与 zig,这里用 setup-go 装同一个版本;C 编译器用系统 gcc
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.0'
           cache: false
 
       - name: Setup .NET
-        uses: actions/setup-dotnet@v4
+        uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4
         with:
           dotnet-version: '10.0.x'
 
@@ -225,7 +256,7 @@ jobs:
         run: bash scripts/pack-linux.sh "$GITHUB_WORKSPACE/release"
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: LinPlayer-linux-x64
           path: release/*.zip
@@ -239,8 +270,8 @@ jobs:
     needs: build-linux
     runs-on: ubuntu-22.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: LinPlayer-linux-x64
           path: dl
@@ -261,15 +292,15 @@ jobs:
         run: bash scripts/smoke-linux-gui.sh stage/LinPlayer
 
   # issue #65:Ubuntu 26.04 一打开就 SIGSEGV,连软件渲染也崩 —— 显卡不是嫌疑。
-  # 用 26.04 的系统库再开一次窗。不在 create-prerelease 的 needs 里:它红了不挡发布,只报信
+  # 用 26.04 的系统库再开一次窗。冒烟结果随预发布公开;失败允许预发布,阻断提升正式版
   smoke-linux-gui-2604:
     name: Smoke Linux GUI (Ubuntu 26.04)
     needs: build-linux
     runs-on: ubuntu-latest
     container: ubuntu:26.04
     steps:
-      - uses: actions/checkout@v4
-      - uses: actions/download-artifact@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           name: LinPlayer-linux-x64
           path: dl
@@ -312,9 +343,9 @@ jobs:
     env:
       HAS_KEYSTORE: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
 
-      - uses: actions/setup-java@v4
+      - uses: actions/setup-java@cf277c60eb25467037889841efdb72551f06f6c3 # v4
         with:
           distribution: temurin
           java-version: '21'
@@ -322,7 +353,7 @@ jobs:
       # ★ **不能用 scripts/fetch-toolchain.sh**:它拉的是 windows-amd64 的 Go 与 zig
       #   (版本与 sha256 写死在脚本里)。这里用 setup-go 装同一个大版本;
       #   安卓的 C 编译器本来就走 NDK 的 clang,不需要 zig。
-      - uses: actions/setup-go@v5
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
         with:
           go-version: '1.27.0'
           cache: false
@@ -444,7 +475,7 @@ jobs:
         run: bash scripts/pack-android.sh tv
 
       - name: Upload artifact
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4
         with:
           name: LinPlayer-android
           path: build/android/*.apk
@@ -452,11 +483,15 @@ jobs:
 
   create-prerelease:
     name: Create Pre-release
-    needs: [version, build-windows, build-linux, build-android]
-    if: github.event_name == 'push'
+    needs: [version, build-windows, build-linux, build-android, smoke-linux-gui, smoke-linux-gui-2604]
+    if: always() && github.event_name == 'push' && needs.version.result == 'success' && needs.build-windows.result == 'success' && needs.build-linux.result == 'success' && needs.build-android.result == 'success'
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.0'
+          cache: false
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
         with:
           # 要算「上次发布到现在改了什么」,得有完整历史和全部 tag
           fetch-depth: 0
@@ -465,10 +500,28 @@ jobs:
         run: bash scripts/release-notes.sh "/tmp/notes.md"
 
       - name: Download release artifacts
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4
         with:
           path: ./artifacts
           merge-multiple: true
+
+      - name: Record platform checks
+        env:
+          RELEASE_NEEDS: ${{ toJSON(needs) }}
+          RELEASE_VERSION: ${{ needs.version.outputs.version }}
+          RELEASE_COMMIT: ${{ github.sha }}
+        run: |
+          python3 - <<'PY'
+          import json, os, pathlib
+          jobs = json.loads(os.environ['RELEASE_NEEDS'])
+          status = {'version': os.environ['RELEASE_VERSION'], 'commit': os.environ['RELEASE_COMMIT'], 'jobs': jobs}
+          pathlib.Path('artifacts/RELEASE-STATUS.json').write_text(json.dumps(status, indent=2), encoding='utf-8')
+          failed = [name for name, info in jobs.items() if info['result'] != 'success']
+          with open('/tmp/notes.md', 'a', encoding='utf-8') as notes:
+              notes.write('\n\n### 平台检查\n')
+              notes.write('未通过: ' + ', '.join(failed) if failed else '构建及 Linux 图形冒烟均通过。')
+              notes.write('\nAndroid 真设备验收记录另行维护;构建与单测不代表设备验收。\n')
+          PY
 
       - name: List release artifacts
         run: ls -lah ./artifacts/
@@ -476,8 +529,19 @@ jobs:
       - name: Generate SHA256 checksums
         run: |
           cd ./artifacts
-          sha256sum ./*.zip ./*.apk > SHA256SUMS.txt
+          sha256sum ./*.zip ./*.apk RELEASE-STATUS.json > SHA256SUMS.txt
           cat SHA256SUMS.txt
+
+      - name: Sign update manifest
+        env:
+          LP_UPDATE_SIGNING_SEED: ${{ secrets.LP_UPDATE_SIGNING_SEED }}
+          RELEASE_TAG: v${{ needs.version.outputs.version }}-pre
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+        run: |
+          cd core
+          go run ./cmd/signupdate "$RELEASE_TAG" ../artifacts/SHA256SUMS.txt
+          go run ./cmd/signupdate -verify "$RELEASE_TAG" ../artifacts/SHA256SUMS.txt
 
       # 这条护栏是照「改了 .github/workflows/ 就 403」立的(70cc78b7 上连红两次)。
       # ⚠ 2026-09-18 那条归因**证伪了**:9af25e65 一个 .github/ 文件没碰,护栏正确地没触发,
@@ -494,7 +558,7 @@ jobs:
 
       - name: Create Pre-release
         if: steps.wf.outputs.skip != 'true'
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ needs.version.outputs.version }}-pre
           name: v${{ needs.version.outputs.version }} (Pre-release)

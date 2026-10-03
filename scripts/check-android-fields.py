@@ -38,9 +38,9 @@
 - 解析被抽进另一个函数(参数是 JsonObject)。窗口跟不进去;接收者是本函数形参的读取
   直接放行(它是别处拿到的响应,算到本函数的命令头上只会造假红)。
 - 事件数据(`val o = ev.data.obj()`)不是命令响应,读取放行。
-- 同名 struct 跨包合并成并集(成功行会 ⚠ 出来是哪几个)。
+- 同名 struct 按命令所属包解析;无法确定归属时报告为放行。
 """
-import io
+import pathlib
 import os
 import re
 import sys
@@ -68,19 +68,14 @@ EMBED = re.compile(r'^\s*\*?(?:\w+\.)?([A-Z]\w*)\s*$', re.M)
 
 
 def go_struct_fields():
-    """struct 名 -> (json 标签集合, 子 struct 名集合, 定义它的文件数)。
-
-    ☠ 同名 struct **跨包合并**,字段集变成并集 —— 那是**弱化**不是等价:
-      `Item` 在 download 和 emby 里各有一个,合起来什么字段名都放得进去。
-      合并本身不会造假红,但它会让这条命令的对账形同虚设,所以下面要**报出来**。
-    """
+    """Go 包名.类型名 -> 字段;只有唯一类型才提供不带包名的别名。"""
     out = {}
     st = re.compile(r'\btype\s+(\w+)\s+struct\s*\{')
     for base, _, files in os.walk(CORE):
         for f in files:
             if not f.endswith('.go') or f.endswith('_test.go'):
                 continue
-            src = io.open(os.path.join(base, f), encoding='utf-8', errors='ignore').read()
+            src = pathlib.Path(base, f).read_text(encoding='utf-8', errors='ignore')
             for m in st.finditer(src):
                 depth, i = 1, m.end()
                 while i < len(src) and depth:
@@ -89,12 +84,27 @@ def go_struct_fields():
                     elif src[i] == '}':
                         depth -= 1
                     i += 1
-                tags, kids, where, embeds = out.setdefault(m.group(1), (set(), set(), set(), set()))
+                name = m.group(1)
+                package = re.search(r'^package\s+(\w+)', src, re.M).group(1)
+                tags, kids, where, embeds = out.setdefault(package + '.' + name, (set(), set(), set(), set()))
                 where.add(os.path.join(base, f))
                 for ty, tag in FIELD.findall(src[m.end():i]):
                     tags.add(tag)
                     kids.add(ty)
                 embeds.update(EMBED.findall(src[m.end():i - 1]))
+    # 嵌套类型先按当前 Go 包解析;唯一类型可跨包引用,同名类型不再并成字段并集。
+    by_name = {}
+    for qualified in out:
+        by_name.setdefault(qualified.split('.')[-1], []).append(qualified)
+    for qualified, (tags, kids, where, embeds) in list(out.items()):
+        package = qualified.split('.')[0]
+        def resolve(name):
+            local = package + '.' + name
+            return local if local in out else by_name.get(name, [name])[0] if len(by_name.get(name, [])) == 1 else name
+        out[qualified] = (tags, {resolve(k) for k in kids}, where, {resolve(k) for k in embeds})
+    for name, candidates in by_name.items():
+        if len(candidates) == 1:
+            out[name] = out[candidates[0]]
     return out
 
 
@@ -128,7 +138,7 @@ def doc_return_types():
     """命令名 -> 返回类型的裸名。"""
     out = {}
     row = re.compile(r'^\|[^|]*\|\s*`([a-z]+\.[A-Za-z]+)`\s*\|[^|]*\|[^|]*\|([^|]*)\|')
-    for line in io.open(DOC, encoding='utf-8'):
+    for line in pathlib.Path(DOC).read_text(encoding='utf-8').splitlines():
         m = row.match(line.strip())
         if not m:
             continue
@@ -315,6 +325,11 @@ def scope_fields(src, spans, structs, rets, pos):
 def main():
     structs = go_struct_fields()
     rets = doc_return_types()
+    rets.update({'emby.rankingFetch': 'ranking.Entry', 'emby.blockedList': 'blocklist.Entry', 'emby.watchHistoryList': 'history.Record'})
+    for command, name in list(rets.items()):
+        qualified = command.split('.')[0] + '.' + name
+        if qualified in structs:
+            rets[command] = qualified
     bad = checked = waved = 0
     merged = set()
 
@@ -323,7 +338,7 @@ def main():
             if not f.endswith('.kt'):
                 continue
             path = os.path.join(base, f)
-            src = strip_comments(io.open(path, encoding='utf-8').read())
+            src = strip_comments(pathlib.Path(path).read_text(encoding='utf-8'))
             spans = windows(src)
             binds = bindings(src, spans)
             for a, b, cmd in spans:
@@ -379,8 +394,7 @@ def main():
           '返回类型在核心层查不到同名 struct,占 %.0f%%)'
           % (checked, waved, 100.0 * waved / (checked + waved)))
     if merged:
-        # 并集 = 弱化。不报的话「对上账了」这句话会比实际强
-        print('  ⚠ 这几个类型名在多个包里都有,字段按并集算,对账被削弱:%s'
+        print('  ⚠ 这些类型在同一个包内有多份声明,字段按并集算:%s'
               % ', '.join(sorted(merged)))
     return 0
 

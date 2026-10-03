@@ -197,7 +197,9 @@ scripts/           构建、出包与门禁脚本（pack-win.sh / pack-linux.sh 
 
 ## 许可证
 
-[LICENSE](LICENSE)
+[LICENSE](LICENSE) 适用于项目源码。发行包和可选下载组件分别遵循其第三方许可。
+可选补帧运行包含 Microsoft DirectML、MSVC 运行库;N 卡加速包另含 NVIDIA TensorRT/CUDA 等专有许可组件。
+DirectML 仓库示例的 MIT 许可不等于 DirectML.dll 的二进制许可。详情见[第三方组件说明](docs/THIRD_PARTY.md)。
 
 ## 致谢
 

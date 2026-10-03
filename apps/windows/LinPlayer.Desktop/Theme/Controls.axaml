@@ -388,6 +388,9 @@
   <Style Selector="Button.eprow.on /template/ ContentPresenter">
     <Setter Property="Background" Value="{DynamicResource AccentSoft}" />
   </Style>
+  <Style Selector="Button.eprow:focus-visible /template/ ContentPresenter">
+    <Setter Property="Background" Value="{DynamicResource AccentSoft}" />
+  </Style>
   <Style Selector="Button.eprow:pressed">
     <Setter Property="RenderTransform" Value="scale(0.985)" />
   </Style>

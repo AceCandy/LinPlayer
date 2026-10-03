@@ -81,20 +81,21 @@ func (c *Client) fetchAllPaged(ctx context.Context, s *Session, baseURL string, 
 	//   一条收藏都没有时前端拿到 null 直接 `.map()` 会抛错,
 	//   在透明窗口下就是**一片黑且不报错** —— 本仓最难查的那类。
 	out := []Item{}
-	for {
-		u := fmt.Sprintf("%s&StartIndex=%d&Limit=%d", baseURL, len(out), ServerPageCap)
-		page, err := c.fetchItems(ctx, s, u)
+	for start := 0; start < max; {
+		u := fmt.Sprintf("%s&StartIndex=%d&Limit=%d", baseURL, start, ServerPageCap)
+		page, err := c.fetchPage(ctx, s, u)
 		if err != nil {
 			return nil, err
 		}
-		got := len(page)
-		out = append(out, page...)
-		// 不足一页 = 到底了;够一页但触闸也停(别无限翻)
-		if got < ServerPageCap || len(out) >= max {
+		got := len(page.Items)
+		start += got // 游标与终点必须按屏蔽前的服务端条数计算。
+		out = append(out, filterBlocked(page.Items)...)
+		// 空页或达到服务端总数才到底;短页仍可能有后续数据。
+		if got == 0 || (page.Total > 0 && int64(start) >= page.Total) || len(out) >= max {
 			break
 		}
 	}
-	return out, nil
+	return out[:min(len(out), max)], nil
 }
 
 // ---------------------------------------------------------------- 媒体库网格
@@ -190,8 +191,7 @@ func (q *ItemQuery) matches(it Item) bool {
 // 同时在客户端按同样条件**复筛一遍**:认参数的服务器上复筛是 no-op,
 // 不认的服务器上至少保证**不会显示不匹配的条目**。
 //
-// ponytail: 复筛只作用于当前这一页 —— 要完整结果需服务端支持,或改成翻页累加。
-// **宁可少给,不能给错。**
+// 有本地筛选时按服务端页扫描,只保留调用方所需的筛后页,并计算准确的筛后总数。
 func (c *Client) Items(ctx context.Context, s *Session, parentID string, q *ItemQuery) (*Page, error) {
 	if q == nil {
 		q = &ItemQuery{}
@@ -203,7 +203,7 @@ func (c *Client) Items(ctx context.Context, s *Session, parentID string, q *Item
 		s.Server, url.PathEscape(s.UserID), url.QueryEscape(parentID))
 
 	limit := ServerPageCap
-	if q.Limit != nil && *q.Limit < ServerPageCap {
+	if q.Limit != nil && *q.Limit > 0 && *q.Limit < ServerPageCap {
 		limit = *q.Limit
 	}
 	fmt.Fprintf(&b, "&Limit=%d", limit)
@@ -242,26 +242,42 @@ func (c *Client) Items(ctx context.Context, s *Session, parentID string, q *Item
 		fmt.Fprintf(&b, "&IsPlayed=%t", *q.Played)
 	}
 
-	page, err := c.fetchPage(ctx, s, b.String())
+	if !q.needsLocalFilter() {
+		return c.fetchPage(ctx, s, b.String())
+	}
+	// 筛后游标不能直接发给服务器:前面的原始页可能一条也不匹配。
+	u, err := url.Parse(b.String())
 	if err != nil {
 		return nil, err
 	}
-	if q.needsLocalFilter() {
-		before := len(page.Items)
-		kept := page.Items[:0]
+	params := u.Query()
+	params.Set("Limit", strconv.Itoa(ServerPageCap))
+	wantStart := 0
+	if q.StartIndex != nil {
+		wantStart = max(0, *q.StartIndex)
+	}
+	out := &Page{Items: []Item{}}
+	for start := 0; ; {
+		params.Set("StartIndex", strconv.Itoa(start))
+		u.RawQuery = params.Encode()
+		page, err := c.fetchPage(ctx, s, u.String())
+		if err != nil {
+			return nil, err
+		}
 		for _, it := range page.Items {
 			if q.matches(it) {
-				kept = append(kept, it)
+				if out.Total >= int64(wantStart) && len(out.Items) < limit {
+					out.Items = append(out.Items, it)
+				}
+				out.Total++
 			}
 		}
-		page.Items = kept
-		// ★ 复筛动过手 → 服务端的 TotalRecordCount 不再是筛后总数,报本页实际条数,
-		//   免得前端按几千条画出永远翻不满的页码。
-		if len(page.Items) != before {
-			page.Total = int64(len(page.Items))
+		start += len(page.Items)
+		if len(page.Items) == 0 || (page.Total > 0 && int64(start) >= page.Total) {
+			break
 		}
 	}
-	return page, nil
+	return out, nil
 }
 
 func pushList(b *strings.Builder, key string, vals []string, sep string) {
@@ -323,9 +339,9 @@ func (c *Client) NextUp(ctx context.Context, s *Session, limit int) ([]Item, err
 func (c *Client) Collections(ctx context.Context, s *Session) ([]Item, error) {
 	u := fmt.Sprintf("%s/Users/%s/Items?IncludeItemTypes=BoxSet&Recursive=true"+
 		"&SortBy=SortName&SortOrder=Ascending"+
-		"&Fields=PrimaryImageAspectRatio,Genres,ProductionYear,CommunityRating&Limit=%d",
-		s.Server, url.PathEscape(s.UserID), ServerPageCap)
-	return c.fetchItems(ctx, s, u)
+		"&Fields=PrimaryImageAspectRatio,Genres,ProductionYear,CommunityRating",
+		s.Server, url.PathEscape(s.UserID))
+	return c.fetchAllPaged(ctx, s, u, 10000)
 }
 
 // Favorites 收藏列表(IsFavorite 过滤,跨库递归)。

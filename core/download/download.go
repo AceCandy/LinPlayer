@@ -19,6 +19,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -52,18 +53,21 @@ func (s Segment) length() int64 { return s.End - s.Start + 1 }
 
 // Item 一条下载任务。
 type Item struct {
-	ID            string    `json:"id"`
-	ItemID        string    `json:"item_id"`
-	MediaSourceID *string   `json:"media_source_id"`
-	Type          string    `json:"type"`
-	Title         string    `json:"title"`
-	SeriesID      *string   `json:"series_id"`
-	SeriesName    *string   `json:"series_name"`
-	SeasonNumber  *int64    `json:"season_number"`
-	EpisodeNumber *int64    `json:"episode_number"`
-	PosterURL     *string   `json:"poster_url"`
-	Container     string    `json:"container"`
-	URL           string    `json:"url"`
+	ID            string  `json:"id"`
+	ItemID        string  `json:"item_id"`
+	MediaSourceID *string `json:"media_source_id"`
+	Type          string  `json:"type"`
+	Title         string  `json:"title"`
+	SeriesID      *string `json:"series_id"`
+	SeriesName    *string `json:"series_name"`
+	SeasonNumber  *int64  `json:"season_number"`
+	EpisodeNumber *int64  `json:"episode_number"`
+	PosterURL     *string `json:"poster_url"`
+	Container     string  `json:"container"`
+	URL           string  `json:"url"`
+	// 下载身份不随活跃账号切换;认证地址和令牌仅在发请求时构造。
+	ServerID      string    `json:"server_id,omitempty"`
+	UserID        string    `json:"user_id,omitempty"`
 	FilePath      string    `json:"file_path"`
 	TotalBytes    int64     `json:"total_bytes"`
 	Status        Status    `json:"status"`
@@ -125,7 +129,7 @@ func New(dir string, c *http.Client) (*Manager, error) {
 		return nil, err
 	}
 	m := &Manager{
-		client: c,
+		client: downloadClient(c),
 		st: state{
 			items:          map[string]*Item{},
 			dir:            dir,
@@ -142,6 +146,7 @@ func New(dir string, c *http.Client) (*Manager, error) {
 		}
 		if list != nil {
 			for _, it := range list {
+				migrateAuth(it)
 				// ★ 被中断的「下载中」改成暂停,并按 part 文件的**实际大小**恢复。
 				//   不改的话列表里永远挂着一条谁也不在跑的「下载中」。
 				if it.Status == StatusDownloading {
@@ -150,6 +155,10 @@ func New(dir string, c *http.Client) (*Manager, error) {
 				syncSegmentsFromDisk(it)
 				it.recompute()
 				m.st.items[it.ID] = it
+			}
+			// 首次读取旧索引即清除旧凭据,不能等到用户操作。
+			if err := m.persist(); err != nil {
+				return nil, err
 			}
 		}
 	}
@@ -180,7 +189,9 @@ func (m *Manager) List() []Item {
 	defer m.mu.Unlock()
 	out := make([]Item, 0, len(m.st.items))
 	for _, it := range m.st.items {
-		out = append(out, *it)
+		copy := *it
+		copy.PosterURL = posterForDisplay(it)
+		out = append(out, copy)
 	}
 	sort.Slice(out, func(i, j int) bool { return out[i].AddedAt > out[j].AddedAt })
 	return out
@@ -205,6 +216,7 @@ func (m *Manager) CompletedPath(itemID string) string {
 
 // Enqueue 入队。返回任务 id。
 func (m *Manager) Enqueue(it *Item) string {
+	migrateAuth(it)
 	m.mu.Lock()
 	if it.ID == "" {
 		it.ID = strconv.FormatInt(time.Now().UnixNano(), 36)
@@ -446,7 +458,7 @@ func (m *Manager) downloadItem(id string, cancel chan struct{}) error {
 	}
 
 	if it.TotalBytes <= 0 && len(it.Segments) == 0 {
-		total, supports := probe(m.client, it.URL, cancel)
+		total, supports := probe(m.client, it, cancel)
 		m.mu.Lock()
 		if cur, ok := m.st.items[id]; ok {
 			if total > 0 {
@@ -535,6 +547,12 @@ func (m *Manager) runSegment(id string, index int, cancel, segCancel chan struct
 		if st, err := os.Stat(part); err == nil {
 			existing = st.Size()
 		}
+		if !it.SupportsRange && existing > 0 {
+			if err := os.Truncate(part, 0); err != nil {
+				return err
+			}
+			existing = 0 // 整流无法续传,暂停后恢复也必须从头写。
+		}
 		if seg.End >= 0 && existing > seg.length() {
 			existing = seg.length()
 		}
@@ -568,8 +586,7 @@ func (m *Manager) runSegment(id string, index int, cancel, segCancel chan struct
 		if !it.SupportsRange {
 			/* 不支持 Range = 续不上,只能从头再来。
 			   ★ 必须先把已写的清掉:part 是 O_APPEND 打开的,不清就是把第二遍的字节
-			     接在第一遍屁股后面 —— 而 assemble 只做拼接**不校验长度**,
-			     出来的是一个长度不对却一句错都不报的坏文件。 */
+			     接在第一遍屁股后面,无法组成正确的完整文件。 */
 			// ★ 文件还没建出来是**正常情况**(上一轮在建连阶段就挂了),那就是已经是 0。
 			//   不放过 ENOENT 的话,用户看到的错误会是一句 "The system cannot find the
 			//   file specified.",把真正的网络错误盖掉 —— 这条是靠反向注入撞出来的。
@@ -605,10 +622,10 @@ func (m *Manager) fetchSegment(id string, index int, it *Item, seg Segment, part
 		stop() // 掐断正在进行的读
 	}()
 
-	/* ★ 重试打的是 it.URL(Emby 直链),不是上一轮跟到的那条落点 ——
+	/* ★ 重试重新构造原账号的下载端点,不是上一轮跟到的那条落点 ——
 	   前后端分离的服会在这里重新发一次 302,换回一条**新签名**的直链。
 	   「下到一半签名过期,整条任务死掉」正是靠这一点修好的。 */
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, it.URL, nil)
+	req, err := downloadRequest(ctx, it)
 	if err != nil {
 		return 0, permanent(err)
 	}
@@ -619,6 +636,7 @@ func (m *Manager) fetchSegment(id string, index int, it *Item, seg Segment, part
 			req.Header.Set("Range", fmt.Sprintf("bytes=%d-", existing))
 		}
 	}
+	req.Header.Set("Accept-Encoding", "identity") // Range 指的是原始字节,不能自动解压。
 	resp, err := m.client.Do(req)
 	if err != nil {
 		return 0, friendlyErr(err, cancel, segCancel)
@@ -626,6 +644,23 @@ func (m *Manager) fetchSegment(id string, index int, it *Item, seg Segment, part
 	defer resp.Body.Close()
 	if resp.StatusCode >= 400 {
 		return 0, statusErr(resp.StatusCode)
+	}
+	var responseBytes int64 = -1
+	if req.Header.Get("Range") != "" {
+		var start, end, total int64
+		var trailing string
+		n, err := fmt.Sscanf(resp.Header.Get("Content-Range"), "bytes %d-%d/%d %s", &start, &end, &total, &trailing)
+		if resp.StatusCode != http.StatusPartialContent || err != io.EOF || n != 3 ||
+			start != seg.Start+existing || end < start || total <= end ||
+			(seg.End >= 0 && end > seg.End) || (it.TotalBytes > 0 && total != it.TotalBytes) {
+			return 0, permanent(errors.New("上游返回的 Range 区间不匹配,未写入分段"))
+		}
+		responseBytes = end - start + 1
+		if resp.ContentLength >= 0 && resp.ContentLength != responseBytes {
+			return 0, permanent(errors.New("上游 Range 长度与区间不符"))
+		}
+	} else if resp.StatusCode != http.StatusOK {
+		return 0, permanent(errors.New("上游未返回完整文件"))
 	}
 
 	f, err := os.OpenFile(part, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o644)
@@ -647,6 +682,10 @@ func (m *Manager) fetchSegment(id string, index int, it *Item, seg Segment, part
 		}
 		nr, rerr := resp.Body.Read(buf)
 		if nr > 0 {
+			if (responseBytes >= 0 && wrote+int64(nr) > responseBytes) ||
+				(it.TotalBytes > 0 && seg.End < 0 && downloaded+int64(nr) > it.TotalBytes) {
+				return wrote, permanent(errors.New("上游响应超出预期长度"))
+			}
 			if werr := writeAll(f, buf[:nr]); werr != nil {
 				return wrote, permanent(werr) // 盘写不进去,重试十次也一样
 			}
@@ -655,14 +694,20 @@ func (m *Manager) fetchSegment(id string, index int, it *Item, seg Segment, part
 			m.updateDownloaded(id, index, downloaded)
 		}
 		if rerr == io.EOF {
+			if responseBytes >= 0 && wrote != responseBytes {
+				return wrote, errors.New("上游 Range 响应未下完整")
+			}
 			/* ★★ 干净的 EOF **不等于这一段下完了**。
 			   反代无视 Range 回一个更短的 Content-Length、CDN 提前收尾,都会产出
 			   「读到头了但字节不够」的响应。老代码在这里直接 return nil ——
-			   而 assemble 只拼接不校验,结果是一个**短了却报成功**的文件,
+			   当时 assemble 也只拼接不校验,结果是一个**短了却报成功**的文件,
 			   播到一半就没了,一句错都不报。
 			   有确定长度就自己核对;核不上按可重试的错抛出去,下一轮从断点续。 */
 			if seg.End >= 0 && downloaded < seg.length() {
 				return wrote, fmt.Errorf("上游提前断流(还差 %d 字节)", seg.length()-downloaded)
+			}
+			if seg.End < 0 && it.TotalBytes > 0 && downloaded < it.TotalBytes {
+				return wrote, fmt.Errorf("上游提前断流(还差 %d 字节)", it.TotalBytes-downloaded)
 			}
 			return wrote, nil
 		}
@@ -686,7 +731,6 @@ func writeAll(f *os.File, p []byte) error {
 	}
 	return nil
 }
-
 
 // ---------------------------------------------------------------------------
 // 小工具
@@ -722,24 +766,31 @@ func (m *Manager) updateDownloaded(id string, index int, v int64) {
 	}
 }
 
-func (m *Manager) persist() {
+func (m *Manager) persist() error {
 	m.mu.Lock()
+	defer m.mu.Unlock() // 快照和原子替换同序,避免旧快照覆盖新状态及共享 .tmp 竞争。
 	list := make([]*Item, 0, len(m.st.items))
 	for _, it := range m.st.items {
 		list = append(list, it)
 	}
 	path := m.st.indexPath
 	b, err := json.Marshal(indexFile{Threads: m.st.threads, Items: list})
-	m.mu.Unlock()
 	if err != nil {
-		return
+		return err
 	}
 	// ★ 临时文件 + rename:写到一半断电的话,就地重写会留下一份**半截的 JSON**,
 	//   下次启动整个下载列表读不出来(而文件其实都还在)。
 	tmp := path + ".tmp"
-	if os.WriteFile(tmp, b, 0o644) == nil {
-		_ = os.Rename(tmp, path)
+	if err := os.WriteFile(tmp, b, 0o600); err != nil {
+		log.Printf("下载索引写入失败: %v", err)
+		return err
+	} else if err := os.Chmod(tmp, 0o600); err != nil {
+		return err
+	} else if err := os.Rename(tmp, path); err != nil {
+		log.Printf("下载索引替换失败: %v", err)
+		return err
 	}
+	return nil
 }
 
 // syncSegmentsFromDisk 按 part 文件的实际大小校正各段进度。
@@ -773,7 +824,7 @@ func syncSegmentsFromDisk(it *Item) {
 //
 // ★ 用 `Range: bytes=0-0` 而不是 HEAD:有的服务端 HEAD 不给 Content-Length,
 // 有的干脆不支持 HEAD。一个字节的 GET 两样都能问出来。
-func probe(c *http.Client, url string, cancel chan struct{}) (int64, bool) {
+func probe(c *http.Client, it *Item, cancel chan struct{}) (int64, bool) {
 	ctx, stop := context.WithCancel(context.Background())
 	defer stop()
 	go func() {
@@ -783,7 +834,7 @@ func probe(c *http.Client, url string, cancel chan struct{}) (int64, bool) {
 		case <-ctx.Done():
 		}
 	}()
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := downloadRequest(ctx, it)
 	if err != nil {
 		return 0, false
 	}
@@ -806,8 +857,7 @@ func probe(c *http.Client, url string, cancel chan struct{}) (int64, bool) {
 		}
 	}
 	total, _ := strconv.ParseInt(resp.Header.Get("Content-Length"), 10, 64)
-	supports := strings.Contains(strings.ToLower(resp.Header.Get("Accept-Ranges")), "bytes")
-	return total, supports
+	return total, false // 只声明 Accept-Ranges 不够:忽略探测请求的上游按整流下载。
 }
 
 // buildSegments 切分段。
@@ -841,15 +891,35 @@ func buildSegments(it *Item, threads int) {
 
 // assemble 按序拼接各段,然后删掉 part 文件。
 func assemble(it *Item) error {
-	_ = os.Remove(it.FilePath)
-	out, err := os.Create(it.FilePath)
+	if len(it.Segments) == 0 {
+		return errors.New("没有可合并的分段")
+	}
+	// 全部验证完再动最终文件,失败保留原文件和断点。
+	var total int64
+	for i, seg := range it.Segments {
+		st, err := os.Stat(it.partPath(i))
+		if err != nil {
+			return err
+		}
+		if seg.End >= 0 && (seg.Start != total || st.Size() != seg.length()) {
+			return errors.New("分段区间或长度不完整")
+		}
+		total += st.Size()
+	}
+	if it.TotalBytes > 0 && total != it.TotalBytes {
+		return fmt.Errorf("下载总长度不符(%d/%d)", total, it.TotalBytes)
+	}
+	tmp := it.FilePath + ".assembling"
+	out, err := os.Create(tmp)
 	if err != nil {
 		return err
 	}
+	defer os.Remove(tmp)
 	for i := range it.Segments {
 		f, err := os.Open(it.partPath(i))
 		if err != nil {
-			continue
+			_ = out.Close()
+			return err
 		}
 		_, cerr := io.Copy(out, f)
 		_ = f.Close()
@@ -859,6 +929,16 @@ func assemble(it *Item) error {
 		}
 	}
 	if err := out.Close(); err != nil {
+		return err
+	}
+	st, err := os.Stat(tmp)
+	if err != nil {
+		return err
+	}
+	if st.Size() != total {
+		return errors.New("合并后的文件长度不符")
+	}
+	if err := os.Rename(tmp, it.FilePath); err != nil {
 		return err
 	}
 	for i := range it.Segments {
@@ -906,7 +986,10 @@ func friendlyErr(err error, cancel, segCancel chan struct{}) error {
 // 「这个请求本身不对」—— 重试也不会变对。不分这一类就是**把 401 重试十遍**:
 // 用户等一分钟才看到「无下载权限」,而服务器白挨十次。
 func statusErr(code int) error {
-	if code == 401 || code == 403 {
+	if code == 401 {
+		return permanent(errors.New("登录已失效,请重新登录原账号后恢复下载"))
+	}
+	if code == 403 {
 		return permanent(errors.New("无下载权限"))
 	}
 	err := fmt.Errorf("服务器错误(%d)", code)

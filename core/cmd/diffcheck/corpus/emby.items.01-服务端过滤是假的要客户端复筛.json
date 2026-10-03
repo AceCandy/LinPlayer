@@ -1,10 +1,10 @@
 {
   "name": "emby.items · 服务端过滤是假的,客户端要复筛,而且 total 要改",
-  "note": "实测某 fork 对 Genres/Years/MinCommunityRating 一律忽略 —— 传 Genres=喜剧 返回的 TotalRecordCount 与不传完全一致,头几条根本没有喜剧标签。所以参数照发 + 客户端复筛。★ 复筛动过手之后 total 必须改成本页实际条数,否则前端按 3276 画出永远翻不满的页码。",
+  "note": "实测某 fork 对 Genres/Years/MinCommunityRating 一律忽略 —— 传 Genres=喜剧 返回的 TotalRecordCount 与不传完全一致,头几条根本没有喜剧标签。所以参数照发 + 客户端复筛。★ 本地复筛须扫描所有服务端页,按筛后结果计算 total 和游标。夹具只有三条原始数据,总数也保持三条,避免重复返回同一页伪装成多页。",
   "provenance": "crates/core/src/emby.rs:640 items() 的文档注释(带实测服务器与数字)",
   "upstream": [
     {"path": "/Users/u/Items", "status": 200,
-     "body": "{\"Items\":[{\"Id\":\"m1\",\"Name\":\"喜剧片\",\"Type\":\"Movie\",\"Genres\":[\"喜剧\"]},{\"Id\":\"m2\",\"Name\":\"动作片\",\"Type\":\"Movie\",\"Genres\":[\"动作\"]},{\"Id\":\"m3\",\"Name\":\"恐怖片\",\"Type\":\"Movie\",\"Genres\":[\"恐怖\"]}],\"TotalRecordCount\":3276}"}
+     "body": "{\"Items\":[{\"Id\":\"m1\",\"Name\":\"喜剧片\",\"Type\":\"Movie\",\"Genres\":[\"喜剧\"]},{\"Id\":\"m2\",\"Name\":\"动作片\",\"Type\":\"Movie\",\"Genres\":[\"动作\"]},{\"Id\":\"m3\",\"Name\":\"恐怖片\",\"Type\":\"Movie\",\"Genres\":[\"恐怖\"]}],\"TotalRecordCount\":3}"}
   ],
   "command": "emby.items",
   "args": {"parent_id": "lib-1", "query": {"genres": ["喜剧"]}},

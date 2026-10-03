@@ -48,6 +48,7 @@ func registerPlayURL() {
 		}
 		// 不是 Emby 条目:清掉上报上下文,否则这条流的进度会记到上一部片上
 		currentMu.Lock()
+		cancelHistoryRetryLocked()
 		current = nil
 		currentCtx = nil
 		pendingSubs = nil
@@ -60,4 +61,3 @@ func registerPlayURL() {
 		return map[string]any{"url": u, "title": title}, nil
 	})
 }
-

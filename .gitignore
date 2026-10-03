@@ -52,6 +52,10 @@ docs/go-migration/spikes/s1-2/AvaloniaProbe/obj/
 docs/go-migration/spikes/s2/out/
 tools/corecheck/bin/
 tools/corecheck/obj/
+tools/homecheck/bin/
+tools/homecheck/obj/
+tools/privacycheck/bin/
+tools/privacycheck/obj/
 docs/go-migration/spikes/s2/*.txt
 docs/go-migration/spikes/s3/*.exe
 
@@ -179,3 +183,9 @@ __pycache__/
 
 # 补帧 kernel 头:gen-kernels.py 现生成
 third_party/mpv-interp/lpinterp_kernels.h
+
+tools/listcheck/bin/
+tools/listcheck/obj/
+
+# 项目更新签名私钥与本地配置
+.local/

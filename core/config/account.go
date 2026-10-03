@@ -310,6 +310,9 @@ func (c *AppConfig) Resolve(serverID string) *Account {
 		return a
 	}
 	for i := range c.AccountList {
+		if c.AccountList[i].ActiveLineURL() == serverID {
+			return &c.AccountList[i]
+		}
 		for _, l := range c.AccountList[i].Lines {
 			if l.URL == serverID {
 				return &c.AccountList[i]

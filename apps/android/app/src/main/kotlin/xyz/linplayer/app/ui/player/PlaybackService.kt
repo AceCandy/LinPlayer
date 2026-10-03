@@ -16,25 +16,27 @@ import android.os.PowerManager
 import android.support.v4.media.session.MediaSessionCompat
 import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
+import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.MainActivity
-import xyz.linplayer.app.core.CoreClient
 import xyz.linplayer.app.data.bool
+import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.dbl
-import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.obj
+import xyz.linplayer.app.ui.pages.args
 
 /**
  * 前台服务 + MediaSession + 音频焦点(U1.21 / U1.22 / U1.23)。
  *
- * ★ **播放器不在 Java 侧** —— 解码渲染全在核心层的 libmpv 里。所以:
- *   · 不用 `media3-exoplayer`,也不实现 `androidx.media3.common.Player`;
- *   · 用平台的 `MediaSessionCompat` + `MediaStyle` 通知,控制指令一律转成
- *     `player.*` 命令发给核心层。
+ * ★ mpv 控制转给核心层;选择 ExoPlayer 时使用播放页持有的同一个实例。
+ *   用 `MediaSessionCompat` + `MediaStyle` 通知,不额外实现 Player 适配器。
  *   接一个 `SimpleBasePlayer` 适配器只是为了让 media3 的通知帮我们画一遍,
  *   代价是要把 mpv 的状态映射成 Player 的 20 多个方法 —— 那是一层纯翻译的债。
  *
@@ -46,8 +48,40 @@ class PlaybackService : Service() {
     private lateinit var session: MediaSessionCompat
     private var focusRequest: AudioFocusRequest? = null
     private var wakeLock: PowerManager.WakeLock? = null
+    private var position = 0.0
+    private var paused = true
+    private var stopping = false
+    private var volume = 100.0
+    private var duckedVolume: Double? = null
+    private var resumeOnGain = false
+    private var focusHeld = false
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
-    private val core get() = CoreClient.get()
+    private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
+        when (change) {
+            AudioManager.AUDIOFOCUS_LOSS -> {
+                focusHeld = false; resumeOnGain = false
+                restoreVolume()
+                send("player.setPause", "paused" to true)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> {
+                focusHeld = false
+                resumeOnGain = !paused
+                send("player.setPause", "paused" to true)
+            }
+            AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> {
+                if (duckedVolume == null) {
+                    duckedVolume = volume
+                    send("player.setVolume", "volume" to volume * .3)
+                }
+            }
+            AudioManager.AUDIOFOCUS_GAIN -> {
+                focusHeld = true
+                restoreVolume()
+                if (resumeOnGain) send("player.setPause", "paused" to false)
+                resumeOnGain = false
+            }
+        }
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
@@ -57,21 +91,31 @@ class PlaybackService : Service() {
 
         session = MediaSessionCompat(this, "LinPlayer").apply {
             setCallback(object : MediaSessionCompat.Callback() {
-                override fun onPlay() = send("player.setPause", "paused" to false)
-                override fun onPause() = send("player.setPause", "paused" to true)
-                override fun onSeekTo(pos: Long) = send("player.seek", "position_secs" to pos / 1000.0)
-                override fun onStop() = send("player.stopPlayback")
+                override fun onPlay() { requestFocus(); send("player.setPause", "paused" to !focusHeld) }
+                override fun onPause() { resumeOnGain = false; send("player.setPause", "paused" to true) }
+                override fun onSeekTo(pos: Long) = send("player.seek", "pos" to pos / 1000.0)
+                override fun onStop() = stopPlayback()
             })
             isActive = true
         }
 
-        // 播放状态跟着核心层的 player.status 走,不自己数
+        // ExoPlayer 的状态不经过核心事件;在主线程回读当前内核,后台也保持上报。
         scope.launch {
-            core.events.collect { ev ->
-                if (ev.name != "player.status") return@collect
-                val o = ev.data as? JsonObject
-                val paused = o.bool("paused")
-                val pos = ((o.dbl("position") ?: 0.0) * 1000).toLong()
+            var ticks = 0
+            while (!stopping) {
+                val app = playbackApp ?: break
+                val exo = externalPlayer
+                val o = if (exo == null) runCatching { app.call("player.status").obj() }.getOrNull() else null
+                // 内核尚未准备时不把空状态当作正在播放,也不上报零进度。
+                val ready = exo?.let { it.playbackState != androidx.media3.common.Player.STATE_IDLE }
+                    ?: (o != null && ((o.dbl("duration") ?: 0.0) > 0 || (o.dbl("position") ?: 0.0) > 0))
+                if (!ready) { delay(500); continue }
+                val wasPaused = paused
+                position = exo?.currentPosition?.div(1000.0) ?: o.dbl("position") ?: 0.0
+                paused = exo?.let { !it.playWhenReady } ?: o.bool("paused")
+                volume = exo?.volume?.times(100.0) ?: o.dbl("volume") ?: volume
+                if (wasPaused && !paused && !focusHeld) requestFocus()
+                if (paused) releaseWake() else acquireWake()
                 session.setPlaybackState(
                     PlaybackStateCompat.Builder()
                         .setActions(
@@ -80,20 +124,27 @@ class PlaybackService : Service() {
                         )
                         .setState(
                             if (paused) PlaybackStateCompat.STATE_PAUSED else PlaybackStateCompat.STATE_PLAYING,
-                            pos, if (paused) 0f else 1f,
+                            (position * 1000).toLong(), if (paused) 0f else 1f,
                         ).build()
                 )
-                notify(o.str("title") ?: "LinPlayer", paused)
+                notify(mediaTitle, paused)
+                if (((!paused && ++ticks % 20 == 0) || (!wasPaused && paused)) && position > 0) runCatching {
+                    app.call("emby.reportProgress", args("pos" to position, "paused" to paused))
+                }
+                delay(500)
             }
         }
     }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         // ★ 5 秒内必须调,否则 ANR。放在第一行,别排在任何 IO 后面
-        startForeground(NOTI_ID, buildNotification("LinPlayer", false))
-        requestFocus()
-        acquireWake()
-        return START_STICKY
+        startForeground(NOTI_ID, buildNotification(mediaTitle, paused))
+        when (intent?.action) {
+            ACTION_STOP -> { stopPlayback(); return START_NOT_STICKY }
+            ACTION_PAUSE -> { resumeOnGain = false; send("player.setPause", "paused" to true); return START_NOT_STICKY }
+            ACTION_PLAY -> { requestFocus(); send("player.setPause", "paused" to !focusHeld); return START_NOT_STICKY }
+        }
+        return START_NOT_STICKY
     }
 
     override fun onDestroy() {
@@ -102,6 +153,9 @@ class PlaybackService : Service() {
         session.isActive = false
         session.release()
         scope.cancel()
+        stopForeground(STOP_FOREGROUND_REMOVE)
+        (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTI_ID)
+        playbackApp = null; externalPlayer = null
         super.onDestroy()
     }
 
@@ -112,16 +166,9 @@ class PlaybackService : Service() {
      *   为它暂停再恢复会打断观看节奏;而永久丢失(别的 App 开始播)才暂停。
      */
     private fun requestFocus() {
+        if (focusHeld) return
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
-        val listener = AudioManager.OnAudioFocusChangeListener { change ->
-            when (change) {
-                AudioManager.AUDIOFOCUS_LOSS -> send("player.setPause", "paused" to true)
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> send("player.setPause", "paused" to true)
-                AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> send("player.setVolume", "volume" to 30)
-                AudioManager.AUDIOFOCUS_GAIN -> send("player.setVolume", "volume" to 100)
-            }
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val result = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val req = AudioFocusRequest.Builder(AudioManager.AUDIOFOCUS_GAIN)
                 .setAudioAttributes(
                     AudioAttributes.Builder()
@@ -129,25 +176,32 @@ class PlaybackService : Service() {
                         .setContentType(AudioAttributes.CONTENT_TYPE_MOVIE)
                         .build()
                 )
-                .setOnAudioFocusChangeListener(listener)
+                .setOnAudioFocusChangeListener(focusListener)
                 .build()
             focusRequest = req
             am.requestAudioFocus(req)
         } else {
             @Suppress("DEPRECATION")
-            am.requestAudioFocus(listener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
+            am.requestAudioFocus(focusListener, AudioManager.STREAM_MUSIC, AudioManager.AUDIOFOCUS_GAIN)
         }
+        focusHeld = result == AudioManager.AUDIOFOCUS_REQUEST_GRANTED
+        if (!focusHeld) send("player.setPause", "paused" to true)
     }
 
     private fun abandonFocus() {
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             focusRequest?.let { am.abandonAudioFocusRequest(it) }
+        } else {
+            @Suppress("DEPRECATION")
+            am.abandonAudioFocus(focusListener)
         }
+        focusHeld = false
     }
 
     /** 后台播放期间保住 CPU。**屏幕常亮是 Activity 的事**(FLAG_KEEP_SCREEN_ON),不在这。 */
     private fun acquireWake() {
+        if (wakeLock?.isHeld == true) return
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "LinPlayer::playback").apply {
             setReferenceCounted(false)
@@ -161,9 +215,17 @@ class PlaybackService : Service() {
     }
 
     private fun send(cmd: String, vararg pairs: Pair<String, Any>) {
+        externalPlayer?.let { exo ->
+            when (cmd) {
+                "player.setPause" -> exo.playWhenReady = !(pairs.first().second as Boolean)
+                "player.seek" -> exo.seekTo(((pairs.first().second as Number).toDouble() * 1000).toLong())
+                "player.setVolume" -> exo.volume = ((pairs.first().second as Number).toFloat() / 100).coerceIn(0f, 1f)
+            }
+            return
+        }
         scope.launch {
             runCatching {
-                core.callJson(cmd, JsonObject(pairs.associate { (k, v) ->
+                playbackApp?.call(cmd, JsonObject(pairs.associate { (k, v) ->
                     k to when (v) {
                         is Number -> kotlinx.serialization.json.JsonPrimitive(v)
                         is Boolean -> kotlinx.serialization.json.JsonPrimitive(v)
@@ -171,6 +233,23 @@ class PlaybackService : Service() {
                     }
                 }))
             }
+        }
+    }
+
+    private fun restoreVolume() {
+        duckedVolume?.let { send("player.setVolume", "volume" to it) }
+        duckedVolume = null
+    }
+
+    private fun stopPlayback() {
+        if (stopping) return
+        stopping = true
+        val app = playbackApp
+        val pos = externalPlayer?.currentPosition?.div(1000.0) ?: position
+        externalPlayer?.stop()
+        scope.launch {
+            try { runCatching { app?.call("player.stopPlayback", args("pos" to pos)) } }
+            finally { stopSelf() }
         }
     }
 
@@ -189,10 +268,18 @@ class PlaybackService : Service() {
             .setSmallIcon(android.R.drawable.ic_media_play)
             .setContentIntent(open)
             .setOngoing(!paused)
+            .addAction(if (paused) android.R.drawable.ic_media_play else android.R.drawable.ic_media_pause,
+                if (paused) "播放" else "暂停", action(if (paused) ACTION_PLAY else ACTION_PAUSE))
+            .addAction(android.R.drawable.ic_menu_close_clear_cancel, "停止", action(ACTION_STOP))
             .setStyle(androidx.media.app.NotificationCompat.MediaStyle()
-                .setMediaSession(session.sessionToken))
+                .setMediaSession(session.sessionToken).setShowActionsInCompactView(0, 1))
             .build()
     }
+
+    private fun action(name: String): PendingIntent = PendingIntent.getService(
+        this, 0, Intent(this, PlaybackService::class.java).setAction(name),
+        PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
+    )
 
     private fun createChannel() {
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
@@ -204,8 +291,20 @@ class PlaybackService : Service() {
     companion object {
         private const val CHANNEL = "playback"
         private const val NOTI_ID = 1001
+        private const val ACTION_PLAY = "playback.play"
+        private const val ACTION_PAUSE = "playback.pause"
+        private const val ACTION_STOP = "playback.stop"
+        private var playbackApp: AppState? = null
+        private var externalPlayer: ExoPlayer? = null
+        private var mediaTitle = "LinPlayer"
 
-        fun start(ctx: Context) = ctx.startForegroundService(Intent(ctx, PlaybackService::class.java))
-        fun stop(ctx: Context) = ctx.stopService(Intent(ctx, PlaybackService::class.java))
+        fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String) {
+            playbackApp = app; externalPlayer = exo; mediaTitle = title
+            ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java))
+        }
+        fun stop(ctx: Context) {
+            ctx.stopService(Intent(ctx, PlaybackService::class.java))
+            playbackApp = null; externalPlayer = null
+        }
     }
 }

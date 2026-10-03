@@ -152,7 +152,7 @@ internal static class Wallpaper
     private static async Task<Bitmap?> Local(string url)
     {
         try { return new Bitmap(new MemoryStream(await Http.GetByteArrayAsync(url))); }
-        catch (Exception e) { Log.W("壁纸", $"包内壁纸读不到({url}):{e.Message}"); return null; }
+        catch (Exception e) { Log.W("壁纸", $"包内壁纸读不到:{e.GetType().Name}"); return null; }
     }
 
     /// <summary>image 字段既可能是一个字符串,也可能是 <c>ImageRef</c> 对象。</summary>

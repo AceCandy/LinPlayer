@@ -235,7 +235,6 @@ func baseOptions(hwdec, shaderCacheDir, confDir string) [][2]string {
 		// libmpv 没有配置目录,这两项不显式给就**不缓存**:每次起播重编整条
 		// Anime4K CNN 链,表现是开着超分时第一秒卡一下(mpv 发行版卫生那条)。
 		opts = append(opts,
-			[2]string{"gpu-shader-cache", "yes"},
 			[2]string{"gpu-shader-cache-dir", shaderCacheDir})
 	}
 	return opts
@@ -245,7 +244,7 @@ func baseOptions(hwdec, shaderCacheDir, confDir string) [][2]string {
 //
 // ★ 它只被测试调用,却必须住在非测试文件里 —— Go 不允许 `_test.go` 里 `import "C"`。
 // 判据来源:实测 libmpv(client api 2.5)对不存在的选项名返回 -5(option not found),
-// 对 `vd` / `gpu-shader-cache-dir` / `gpu-shader-cache` 都返回 0。
+// 对 `vd` / `gpu-shader-cache-dir` 都返回 0。
 func checkOptionNames(opts [][2]string) []string {
 	h := C.mpv_create()
 	if h == nil {
@@ -791,6 +790,9 @@ func playFile(path string) error {
 
 // Close 关停 mpv。必须排在 GLUninit 之后。
 func Close() {
+	currentMu.Lock()
+	cancelHistoryRetryLocked()
+	currentMu.Unlock()
 	drainStop.Store(true)
 	mpvMu.Lock()
 	h := mpvH

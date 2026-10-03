@@ -152,6 +152,8 @@ internal static class Program
 {
     private static long _seq;
     private static int _fail;
+    private static bool _loaded;
+    private static EventPump? _pump;
 
     private static void Check(bool ok, string what, string detail = "")
     {
@@ -163,9 +165,24 @@ internal static class Program
 
     public static int Main(string[] args)
     {
+        var data = Directory.CreateTempSubdirectory("linplayer-contract-");
+        try { return Run(args, data.FullName); }
+        finally
+        {
+            if (_loaded) Core.lp_shutdown();
+            _pump?.Join(3000);
+            data.Delete(true);
+        }
+    }
+
+    private static int Run(string[] args, string dataDir)
+    {
         var dll = args.Length > 0 && !args[0].StartsWith("--") ? args[0] : "../../build/core/lpcore.dll";
+        var platform = OperatingSystem.IsWindows() ? "windows" : OperatingSystem.IsMacOS() ? "macos" : "linux";
+        var initArgs = JsonSerializer.Serialize(new { platform, dataDir });
         var leakMode = args.Contains("--leak");     // 反向注入:故意不 lp_free
         Core.Preload(dll);
+        _loaded = true;
 
         Console.WriteLine("======== SPIKE-2 · Go 核心 <-> C# 宿主 ========");
 
@@ -174,8 +191,9 @@ internal static class Program
         if (args.Contains("--probe-only"))
         {
             var cmd = Environment.GetEnvironmentVariable("LP_PROBE_CMD") ?? "debug.panic";
-            Core.lp_init("{}");
+            Core.lp_init(initArgs);
             var pp = new EventPump();
+            _pump = pp;
             var ps = Next(); var pt = pp.Expect(ps);
             Console.WriteLine($"  发命令 {cmd} …");
             Core.lp_call(ps, cmd, "{}");
@@ -188,6 +206,7 @@ internal static class Program
             Thread.Sleep(1500);
             Console.WriteLine($"  等待 1.5s 后进程仍然存活;期间日志条数 = {pp.LogCount},最后一条 = {Trunc(pp.LastLogMsg)}");
             Core.lp_shutdown();
+            _loaded = false;
             return arrived ? 0 : 1;
         }
 
@@ -201,8 +220,9 @@ internal static class Program
 
         // ---- 启动 ----
         Console.WriteLine("== 2. 启动与事件泵 ==");
-        Check(Core.lp_init("{\"platform\":\"windows\",\"dataDir\":\"userdata\"}") == 0, "lp_init 返回 0");
+        Check(Core.lp_init(initArgs) == 0, "lp_init 返回 0");
         var pump = new EventPump(leakMode);
+        _pump = pump;
         Thread.Sleep(150);
         Check(pump.LogCount > 0, "事件线程收到了启动日志", $"LogCount={pump.LogCount}");
 
@@ -236,8 +256,8 @@ internal static class Program
         if (t2.IsCompletedSuccessfully)
         {
             var d = t2.Result.GetProperty("data");
-            Check(d.GetProperty("videoChan").GetString() == "gl", "Windows 上 videoChan = gl(通道 B)");
-            Check(d.GetProperty("platform").GetString() == "windows", "platform = windows");
+            Check(d.GetProperty("videoChan").GetString() == "gl", "桌面 videoChan = gl(通道 B)");
+            Check(d.GetProperty("platform").GetString() == platform, $"platform = {platform}");
         }
 
         // ---- §5.7 流式中间结果 + §5.4 错误模型 ----
@@ -356,6 +376,7 @@ internal static class Program
         // ---- §5.11 关停与 eof ----
         Console.WriteLine("== 10. 关停:必须发 eof,否则事件线程永远退不出来 ==");
         Core.lp_shutdown();
+        _loaded = false;
         Check(pump.Join(3000), "事件线程 3 秒内退出");
         Check(pump.SawEof, "收到了 {\"t\":\"eof\"}");
         Check(Core.lp_call(Next(), "debug.echo", "{}") != 0, "关停后 lp_call 被拒");

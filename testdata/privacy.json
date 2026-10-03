@@ -1,0 +1,13 @@
+{
+  "home": "/home/dummy",
+  "data_root": "/home/dummy/userdata",
+  "cases": [
+    {"input": "GET https://server.example.test/Items?api_key=SECRET&x=1", "expected": "GET https://<host>/Items?api_key=<redacted>&x=1"},
+    {"input": "http://localhost:12345/p/SECRET/author/plugin/image.png", "expected": "http://localhost:12345/p/<redacted>/author/plugin/image.png"},
+    {"input": "http://localhost.evil.test/p/a", "expected": "http://<host>/p/a"},
+    {"input": "X-Emby-Token: SECRET Authorization: Bearer SECRET", "expected": "X-Emby-Token: <redacted> Authorization: <redacted>"},
+    {"input": "{\"refresh_token\":\"SECRET\"}", "expected": "{\"refresh_token\":\"<redacted>\"}"},
+    {"input": "{\"password\":\"SECRET with spaces\"}", "expected": "{\"password\":\"<redacted>\"}"},
+    {"input": "open /home/dummy/userdata/logs/file /home/dummy/video", "expected": "open <data>/logs/file ~/video"}
+  ]
+}

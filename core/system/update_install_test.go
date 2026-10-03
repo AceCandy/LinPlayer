@@ -8,18 +8,23 @@ package system
 import (
 	"archive/zip"
 	"bytes"
+	"context"
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"linplayer/core/paths"
+	"linplayer/core/updatesign"
 )
 
 // makeZip 造一个 zip,names 是「压缩包内路径」。
@@ -165,14 +170,45 @@ func TestPickAsset安卓认的是APK(t *testing.T) {
 
 // ---------------------------------------------------------------- 整条下载链路
 
+func Test更新校验支持发布工作流相对文件名(t *testing.T) {
+	for _, prefix := range []string{"", "./"} {
+		t.Run(prefix, func(t *testing.T) {
+			key := signingTestKey(t)
+			sum := sha256.Sum256([]byte("package"))
+			manifest := []byte(fmt.Sprintf("%x  %sLinPlayer.zip\n", sum, prefix))
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if r.URL.Path == "/sig" {
+					_, _ = w.Write(updatesign.Sign(key, "v2.0.0", manifest))
+				} else {
+					_, _ = w.Write(manifest)
+				}
+			}))
+			defer srv.Close()
+			got, err := assetChecksum(context.Background(), &UpdateInfo{Tag: "v2.0.0", ChecksumURL: srv.URL, SignatureURL: srv.URL + "/sig", AssetName: "LinPlayer.zip"})
+			if err != nil || got != fmt.Sprintf("%x", sum) {
+				t.Fatalf("发布工作流的校验清单未被接受: %s, %v", got, err)
+			}
+		})
+	}
+}
+
 // fakeRelease 一台假 GitHub:发布信息 + 真的能下的资产。
 // body 短于 size 时模拟「下到一半断了」。
 func fakeRelease(t *testing.T, body []byte, size int64) *httptest.Server {
 	t.Helper()
+	key := signingTestKey(t)
+	sum := sha256.Sum256(body)
+	manifest := []byte(fmt.Sprintf("%x  LinPlayer-Windows-v99.0.0.zip\n%x  LinPlayer-linux-v99.0.0.tar.gz\n", sum, sum))
 	var base string
 	mux := http.NewServeMux()
 	mux.HandleFunc("/asset", func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write(body)
+	})
+	mux.HandleFunc("/checksums", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(manifest)
+	})
+	mux.HandleFunc("/signature", func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write(updatesign.Sign(key, "v99.0.0", manifest))
 	})
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		rel := map[string]any{
@@ -180,6 +216,8 @@ func fakeRelease(t *testing.T, body []byte, size int64) *httptest.Server {
 			"html_url": "https://example.invalid/rel",
 			// 两个平台各放一个,跑在哪台机器上都挑得中
 			"assets": []map[string]any{
+				{"name": "SHA256SUMS", "browser_download_url": base + "/checksums"},
+				{"name": "SHA256SUMS.sig", "browser_download_url": base + "/signature"},
 				{"name": "LinPlayer-Windows-v99.0.0.zip", "browser_download_url": base + "/asset", "size": size},
 				{"name": "LinPlayer-linux-v99.0.0.tar.gz", "browser_download_url": base + "/asset", "size": size},
 			},
@@ -191,6 +229,163 @@ func fakeRelease(t *testing.T, body []byte, size int64) *httptest.Server {
 	base = srv.URL
 	t.Cleanup(srv.Close)
 	return srv
+}
+
+func Test更新缓存同长度损坏必须重新校验(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	body := []byte("正确更新包")
+	srv := fakeRelease(t, body, int64(len(body)))
+	old := githubAPI
+	githubAPI = srv.URL
+	defer func() { githubAPI = old }()
+	info, err := CheckUpdate(context.Background(), "stable", "v1.0.0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	p, err := fetchAsset(context.Background(), info, func(int64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(p, bytes.Repeat([]byte("x"), len(body)), 0600); err != nil {
+		t.Fatal(err)
+	}
+	p, err = fetchAsset(context.Background(), info, func(int64) {})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, _ := os.ReadFile(p)
+	if !bytes.Equal(got, body) {
+		t.Fatal("同长度的损坏缓存被直接复用")
+	}
+}
+
+func Test更新下载同长度但哈希不符必须失败(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	key := signingTestKey(t)
+	good, bad := []byte("good"), []byte("evil")
+	manifest := []byte(fmt.Sprintf("%x  package.zip\n", sha256.Sum256(good)))
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/sums" {
+			_, _ = w.Write(manifest)
+		} else if r.URL.Path == "/sig" {
+			_, _ = w.Write(updatesign.Sign(key, "v2.0.0", manifest))
+		} else {
+			_, _ = w.Write(bad)
+		}
+	}))
+	defer srv.Close()
+	_, err := fetchAsset(context.Background(), &UpdateInfo{
+		AssetURL: srv.URL + "/asset", AssetName: "package.zip", AssetSize: 4,
+		Tag: "v2.0.0", ChecksumURL: srv.URL + "/sums", SignatureURL: srv.URL + "/sig",
+	}, func(int64) {})
+	if err == nil || !strings.Contains(err.Error(), "SHA-256") {
+		t.Fatalf("未检测到安装包哈希损坏: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(updateDir(), "package.zip")); !os.IsNotExist(err) {
+		t.Fatal("未通过哈希的包留在最终路径")
+	}
+}
+
+func Test旧更新任务不能覆盖新任务进度(t *testing.T) {
+	s := &updState{task: 2, phase: "downloading", got: 20}
+	s.progress(1, 999)
+	if s.snap().Downloaded != 20 {
+		t.Fatal("旧任务覆盖了新任务进度")
+	}
+	s.progress(2, 50)
+	if s.snap().Downloaded != 50 {
+		t.Fatal("当前任务的进度没有更新")
+	}
+}
+
+func TestStageZip拒绝包内用户数据(t *testing.T) {
+	z := makeZip(t, "LinPlayer/LinPlayer.exe", "LinPlayer/UserData/accounts.json")
+	if _, err := stageZip(z, t.TempDir(), "LinPlayer.exe"); err == nil {
+		t.Fatal("安装包可以覆盖用户数据")
+	}
+}
+
+func TestLinux覆盖失败恢复旧文件且保留更新包(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("使用 Linux shell")
+	}
+	for _, rollbackFails := range []bool{false, true} {
+		t.Run(strconv.FormatBool(rollbackFails), func(t *testing.T) {
+			base := t.TempDir()
+			dir := filepath.Join(base, "app")
+			staged := filepath.Join(dir, "userdata", "cache", "update", "staged")
+			bin := filepath.Join(base, "bin")
+			for _, p := range []string{dir, staged, bin} {
+				if err := os.MkdirAll(p, 0755); err != nil {
+					t.Fatal(err)
+				}
+			}
+			exe, marker := filepath.Join(dir, "LinPlayer"), filepath.Join(base, "started")
+			write := func(p, body string, mode os.FileMode) {
+				if err := os.WriteFile(p, []byte(body), mode); err != nil {
+					t.Fatal(err)
+				}
+			}
+			oldExe := "#!/bin/sh\ntouch " + shq(marker) + "\n"
+			write(exe, oldExe, 0755)
+			write(filepath.Join(dir, "library"), "old", 0644)
+			if err := os.Symlink("missing-target", filepath.Join(dir, "dangling")); err != nil {
+				t.Fatal(err)
+			}
+			write(filepath.Join(staged, "dangling"), "new", 0644)
+			write(filepath.Join(staged, "LinPlayer"), oldExe, 0755)
+			write(filepath.Join(staged, "library"), "new", 0644)
+			write(filepath.Join(staged, "added"), "new", 0644)
+			realCP, err := exec.LookPath("cp")
+			if err != nil {
+				t.Fatal(err)
+			}
+			// 忠实模拟覆盖阶段已经改了一部分文件,然后复制失败。
+			write(filepath.Join(bin, "cp"), "#!/bin/sh\nif [ \"$LP_TEST_ROLLBACK_FAIL\" = true ] && [ \"$2\" = \"$LP_TEST_STAGED.backup/.\" ]; then exit 1; fi\nif [ \"$2\" = \"$LP_TEST_STAGED/.\" ]; then\n"+
+				"rm -f \"$LP_TEST_DIR/dangling\"\nprintf new > \"$LP_TEST_DIR/dangling\"\nprintf new > \"$LP_TEST_DIR/library\"\nprintf new > \"$LP_TEST_DIR/added\"\nexit 1\nfi\nexec "+shq(realCP)+" \"$@\"\n", 0755)
+			dead := exec.Command("true")
+			if err := dead.Run(); err != nil {
+				t.Fatal(err)
+			}
+			name, body := applyScript("linux", applyPlan{Pid: dead.Process.Pid, Staged: staged, Dir: dir, Exe: exe, Log: filepath.Join(base, "log")})
+			script, err := writeScript(base, name, body)
+			if err != nil {
+				t.Fatal(err)
+			}
+			c := exec.Command("sh", script)
+			c.Env = append(os.Environ(), "PATH="+bin+string(os.PathListSeparator)+os.Getenv("PATH"), "LP_TEST_STAGED="+staged, "LP_TEST_DIR="+dir, "LP_TEST_ROLLBACK_FAIL="+strconv.FormatBool(rollbackFails))
+			if err := c.Run(); err == nil {
+				t.Fatal("覆盖失败却返回成功")
+			}
+			if rollbackFails {
+				if _, err := os.Stat(filepath.Join(dir, "added")); err != nil {
+					t.Fatal("回滚失败后继续清理了现场")
+				}
+				old, _ := os.ReadFile(filepath.Join(staged+".backup", "library"))
+				if string(old) != "old" {
+					t.Fatal("回滚失败后没有保留旧文件备份")
+				}
+			} else {
+				link, err := os.Readlink(filepath.Join(dir, "dangling"))
+				if err != nil || link != "missing-target" {
+					t.Fatalf("原有断链没有恢复: %q %v", link, err)
+				}
+				got, _ := os.ReadFile(filepath.Join(dir, "library"))
+				if string(got) != "old" {
+					t.Fatal("旧文件没有恢复")
+				}
+				if _, err := os.Stat(filepath.Join(dir, "added")); !os.IsNotExist(err) {
+					t.Fatal("失败覆盖留下了新文件")
+				}
+			}
+			if _, err := os.Stat(staged); err != nil {
+				t.Fatal("失败后清理了负载,无法重试")
+			}
+			if _, err := os.Stat(marker); !os.IsNotExist(err) {
+				t.Fatal("失败后仍启动了程序")
+			}
+		})
+	}
 }
 
 // waitPhase 轮询到不再是 downloading 为止。

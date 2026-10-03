@@ -287,6 +287,8 @@ public sealed class LibraryGridPage : PageBase
     /// <summary> 虚拟化网格。这一页是全站最长的一页(分页拉,能拉到上千条)。</summary>
     private readonly MediaGrid _grid;
     private readonly TextBlock _status = new() { Classes = { "dim" } };
+    private readonly ContentControl _filterState = new();
+    private bool _filtersLoading;
     /// <summary>首屏骨架。 第一页回来之前这块是空的,不垫的话进库先见一片黑。</summary>
     private readonly ContentControl _first = new() { Content = Skeleton.Grid(false, 18) };
     private readonly ComboBox _sort = new() { Width = 150, MinHeight = 34 };
@@ -352,7 +354,7 @@ public sealed class LibraryGridPage : PageBase
         bar.Children.Add(_view);
         var body = new StackPanel
         {
-            Spacing = 14, Children = { head, bar, _active, _first, _grid, _status },
+            Spacing = 14, Children = { head, bar, _filterState, _active, _first, _grid, _status },
         };
         SyncActive();
 
@@ -450,11 +452,12 @@ public sealed class LibraryGridPage : PageBase
     }
 
     /// <summary>
-    /// 拉分面。 拉不到**不报错、不挡页面** —— 某些 fork 没有 /Items/Filters,
-    /// 那就只是没有筛选下拉,网格本身照样能看。
+    /// 拉分面。失败在筛选区域提示并允许重试,保留可用选项,不阻断媒体网格。
     /// </summary>
     private async Task LoadFilters()
     {
+        if (_filtersLoading) return;
+        _filtersLoading = true;
         JsonElement f;
         try
         {
@@ -464,22 +467,40 @@ public sealed class LibraryGridPage : PageBase
                 s.server, s.token, s.user_id, s.device_id, parent_id = _parentId,
             });
         }
-        catch { return; }   // 筛选面板拉不到就不画,媒体库本体已经在屏幕上了
+        catch (Exception e)
+        {
+            Dispatcher.UIThread.Post(() => FilterFailure("筛选暂不可用:" + LibraryPage.Advice(e)));
+            return;
+        }
+        finally { _filtersLoading = false; }
 
         var genres = Strings(f, "genres");
         var years = Numbers(f, "years");
         Dispatcher.UIThread.Post(() =>
         {
+            var oldGenre = _genre.SelectedItem as string;
+            var oldYear = _year.SelectedItem as string;
+            var unavailable = Strings(f, "unavailable");
             _suppress = true;
-            if (genres.Count > 0)
+            if (!unavailable.Contains("genres"))
                 _genre.ItemsSource = new List<string> { "全部类型" }.Concat(genres).ToList();
-            if (years.Count > 0)
+            if (!unavailable.Contains("years"))
                 _year.ItemsSource = new List<string> { "全部年份" }
                     .Concat(years.OrderByDescending(x => x).Select(x => x.ToString())).ToList();
-            _genre.SelectedIndex = 0;
-            _year.SelectedIndex = 0;
+            _genre.SelectedIndex = Math.Max(0, _genre.Items.Cast<string>().ToList().IndexOf(oldGenre ?? ""));
+            _year.SelectedIndex = Math.Max(0, _year.Items.Cast<string>().ToList().IndexOf(oldYear ?? ""));
             _suppress = false;
+            if (oldGenre != _genre.SelectedItem as string || oldYear != _year.SelectedItem as string) Requery();
+            if (unavailable.Count > 0) FilterFailure("部分筛选暂不可用,已保留可用选项。");
+            else _filterState.Content = genres.Count == 0 && years.Count == 0 ? Dim("该库未提供类型或年份筛选。") : null;
         });
+    }
+
+    private void FilterFailure(string message)
+    {
+        var retry = new Button { Classes = { "ghost" }, Content = "重试筛选" };
+        retry.Click += async (_, _) => { retry.IsEnabled = false; await LoadFilters(); };
+        _filterState.Content = new StackPanel { Spacing = 6, Children = { Dim(message), retry } };
     }
 
     private static List<string> Strings(JsonElement e, string k) =>

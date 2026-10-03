@@ -51,7 +51,8 @@ NOTICE = """LinPlayer 补帧运行时(interp-runtime-{ver})
 - vs-mlrt / vsort             GPL-3.0           https://github.com/AmusementClub/vs-mlrt
 - akarin                     LGPL-3.0          https://github.com/AkarinVS/vapoursynth-plugin
 - ONNX Runtime               MIT               https://github.com/microsoft/onnxruntime
-- DirectML                   MIT               https://github.com/microsoft/DirectML
+- DirectML 二进制            Microsoft DirectML 软件许可条款(不是 MIT)
+  DirectML 仓库示例代码的 MIT 许可不适用于 DirectML.dll;分发以实际二进制随附条款为准。
 - RIFE v4.6 模型             MIT               https://github.com/hzwer/Practical-RIFE
 - DistilDRBA 模型            MIT               https://github.com/routineLife1/VS-DistilDRBA
 - MSVC 运行库                Microsoft Visual C++ Redistributable 许可

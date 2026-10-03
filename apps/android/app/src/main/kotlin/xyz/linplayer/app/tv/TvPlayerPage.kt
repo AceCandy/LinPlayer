@@ -150,14 +150,18 @@ fun TvPlayerPage(r: TvRoute.Player) {
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetried by remember(target) { mutableStateOf(false) }
     val engine = if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: UiPrefs.engine.value
-    var subLangPref by remember { mutableStateOf<String?>(null) }
+    var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     var subOffPref by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
-        subLangPref = p.str("sub_lang") ?: ""
+        trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
+            subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
+            subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
+            subEnabled = p?.get("sub_enabled")?.let { p.bool("sub_enabled") } ?: true,
+        )
         subOffPref = p?.get("sub_enabled")?.let { !p.bool("sub_enabled") } ?: false
     }
-    val exo = rememberExoPlayer(engine == "exo", subLangPref)
+    val exo = rememberExoPlayer(engine == "exo", trackPrefs)
     val root = remember { FocusRequester() }
     var leaving by remember { mutableStateOf(false) }
     val leave: () -> Unit = { if (!leaving) { leaving = true; nav.pop() } }
@@ -235,7 +239,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             ui.title = listOfNotNull(d.str("series_name"),
                 d.long("season_no")?.let { s -> d.long("episode_no")?.let { e -> "S${s}E%02d".format(e) } }, d.str("name")).joinToString(" · ")
             (ui.seasonId ?: ui.seriesId)?.let { p ->
-                launch { ui.episodes = Item.list(runCatching { app.call("emby.seasonEpisodes", args("parent_id" to p, "limit" to 200)) }.getOrNull()) }
+                launch { runCatching { app.seasonEpisodes(p) }.onSuccess { ui.episodes = it }.onFailure { app.report(it) } }
             }
         }
         ui.versions = Version.list(runCatching { app.call("emby.itemMedia", args("item_id" to target.itemId)) }.getOrNull())
@@ -279,7 +283,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             e.duration.takeIf { it > 0 }?.let { ui.duration = it / 1000.0 }
             ui.paused = !e.playWhenReady
             ui.buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
-            e.playerError?.let { err -> ui.failed = "ExoPlayer:" + err.errorCodeName + " " + (err.message ?: ""); return@LaunchedEffect }
+            e.playerError?.let { err -> ui.failed = xyz.linplayer.app.ui.player.playbackAdvice(err); return@LaunchedEffect }
             if (e.playbackState == androidx.media3.common.Player.STATE_ENDED && !ui.nextCard) {
                 if (ui.everMoved) onFinished(app, ui, target, scope) { leave() } else ui.failed = "ExoPlayer 一帧都没放出来就结束了"
                 return@LaunchedEffect

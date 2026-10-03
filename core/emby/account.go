@@ -15,6 +15,8 @@ import (
 	"os"
 	"regexp"
 	"strings"
+
+	"linplayer/core/bus"
 )
 
 // ClientName 是 X-Emby-Authorization 里的 Client 字段。
@@ -124,6 +126,9 @@ func (c *Client) Login(ctx context.Context, server, username, password, deviceID
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&auth); err != nil {
 		return nil, nil, fmt.Errorf("解析失败: %w", err)
+	}
+	if strings.TrimSpace(auth.AccessToken) == "" || strings.TrimSpace(auth.User.ID) == "" {
+		return nil, nil, bus.NewErr(bus.EUpstream, "登录响应缺少有效的令牌或用户身份")
 	}
 	s := &Session{Server: server, Token: auth.AccessToken, UserID: auth.User.ID, DeviceID: deviceID}
 	return s, &LoginResult{

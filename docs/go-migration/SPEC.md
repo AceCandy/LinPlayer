@@ -258,7 +258,7 @@ int32_t  lp_init(const char* config_json);
 
 // 发起一条命令。立即返回(不阻塞)。结果通过事件队列以 {"t":"result","seq":N,...} 送回。
 // seq 由宿主分配,必须单调递增且非 0。
-// 返回 0 表示已受理;非 0 表示连受理都失败(如未 init)。
+// 返回 0 表示已受理;负值表示未受理: -1 未初始化,-2 已关停,-3 参数非法,-4 队列满,-99 内部错误。
 int32_t  lp_call(int64_t seq, const char* cmd, const char* args_json);
 
 // 取消一条在途命令。对已完成的 seq 是空操作。
@@ -409,6 +409,7 @@ C# `TaskCompletionSource`、Swift `withCheckedContinuation`)。
 | `E_NOTFOUND` | 条目不存在 | 空态 |
 | `E_PERMISSION` | 权限不足(核心层目前没有发出方) | 显示「当前账号没有权限」(两端 `CoreClient` 现有文案) |
 | `E_INVALID` | 参数非法 | 这是 bug,记日志 |
+| `E_BUSY` | 命令队列已满,未受理 | 提示稍后重试 |
 | `E_SHUTDOWN` | 核心已关停 | 忽略 |
 | `E_INTERNAL` | 兜底 | 记日志 + 上报 |
 

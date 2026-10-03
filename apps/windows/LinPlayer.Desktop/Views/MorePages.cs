@@ -168,7 +168,7 @@ public sealed class SearchPage : PageBase
                         if (g.TryGetProperty("error", out var ev) && ev.ValueKind == JsonValueKind.String) failed++;
                         else { hit++; total += row.Count; }
                         rowsHost.Children.Add(row.View);
-                        status.Text = $"{hit} 个来源 · 共 {total} 条" + (failed == 0 ? "" : $" · {failed} 个没搜成");
+                        status.Text = $"{hit} 个来源 · 共 {total} 条" + (failed == 0 ? "" : $" · {failed} 个没搜成") + " · 每个来源最多显示 8 条,可缩小关键词";
                     }
                     await core.CallStreamAsync("source.aggregateSearch", new { query = q },
                         g => { var c = g.Clone(); Dispatcher.UIThread.Post(() => Add(c)); });
@@ -193,7 +193,7 @@ public sealed class SearchPage : PageBase
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (mine != _seq) return;
-                    status.Text = items.Count == 0 ? "" : $"{items.Count} 条结果";
+                    status.Text = items.Count == 0 ? "" : $"{items.Count} 条结果" + (items.Count >= 50 ? " · 最多显示 50 条,请缩小关键词" : "");
                     host.Content = items.Count == 0
                         ? NoHit(q, false)
                         : LibraryPage.Grid(core, s.server, items, false,

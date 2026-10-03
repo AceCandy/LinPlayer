@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"regexp"
 	"runtime"
@@ -105,25 +106,28 @@ type report struct {
 }
 
 func buildReport(kind, text, crash, log string) report {
+	home, _ := os.UserHomeDir()
+	s := func(v string) string { return Scrub(v, home, paths.Root()) }
+	log = s(log) // 先脱敏再截断,否则参数名可能被截掉而留下凭据尾部。
 	if len(log) > maxLogBytes {
 		log = "…(前面截掉了)\n" + log[len(log)-maxLogBytes:]
 	}
-	home, _ := os.UserHomeDir()
-	s := func(v string) string { return Scrub(v, home, paths.Root()) }
 	return report{
 		Kind:     kind,
 		Version:  Version,
 		Platform: fmt.Sprintf("%s/%s panic=%d", runtime.GOOS, runtime.GOARCH, bus.PanicCount()),
 		Text:     s(text),
 		Crash:    s(crash),
-		Log:      s(log),
+		Log:      log,
 	}
 }
 
 var (
 	secretParam = regexp.MustCompile(`(?i)\b(api_key|apikey|x-emby-token|x-mediabrowser-token|token|access_token|refresh_token|pw|password|passwd|sign|authorization)(["']?\s*[=:]\s*["']?)(?:bearer\s+)?[^&\s"'<>,;]+`)
+	jsonSecret  = regexp.MustCompile(`(?i)("(?:api_key|apikey|x-emby-token|x-mediabrowser-token|token|access_token|refresh_token|pw|password|passwd|sign|authorization)"\s*:\s*")(?:[^"\\]|\\.)*(")`)
 	// 用户自己的服务器地址也不外发(隐私说明里承诺过):只留协议,主机和端口抹掉
-	urlHost = regexp.MustCompile(`(?i)\b(https?|wss?)://[^/\s"'<>]+`)
+	urlHost    = regexp.MustCompile(`(?i)\b(https?|wss?)://[^/\s"'<>]+`)
+	localAsset = regexp.MustCompile(`(?i)(https?://(?:localhost|127\.0\.0\.1|\[::1\])(?::[0-9]+)?/p/)[^/\s"'<>]+`)
 )
 
 // Scrub 报告离开本机前的最后一道:数据目录 / 主目录(里面嵌着系统用户名)、
@@ -139,11 +143,13 @@ func Scrub(s, home, dataRoot string) string {
 			s = regexp.MustCompile("(?i)"+regexp.QuoteMeta(p[0])).ReplaceAllLiteralString(s, p[1])
 		}
 	}
+	s = jsonSecret.ReplaceAllString(s, "${1}<redacted>${2}")
 	s = secretParam.ReplaceAllString(s, "${1}${2}<redacted>")
+	s = localAsset.ReplaceAllString(s, "${1}<redacted>")
 	return urlHost.ReplaceAllStringFunc(s, func(m string) string {
 		i := strings.Index(m, "://")
-		host := m[i+3:]
-		if strings.HasPrefix(host, "127.0.0.1") || strings.HasPrefix(host, "localhost") {
+		u, err := url.Parse(m)
+		if err == nil && u.User == nil && (u.Hostname() == "127.0.0.1" || strings.EqualFold(u.Hostname(), "localhost") || u.Hostname() == "::1") {
 			return m
 		}
 		return m[:i+3] + "<host>"

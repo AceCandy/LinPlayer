@@ -58,7 +58,7 @@ func registerTransport() {
 		s, err := sessionFrom(a)
 		if err != nil {
 			// 没有会话也要能停 —— 停播是本地动作,上报才需要会话
-			_ = command("stop")
+			_ = Stop(ctx, nil, pos)
 			return map[string]any{"stopped": true, "reported": false}, nil
 		}
 		if err := Stop(ctx, s, pos); err != nil {

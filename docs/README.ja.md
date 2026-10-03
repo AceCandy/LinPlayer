@@ -272,3 +272,5 @@ UI デモと長期的なサポートを提供いただいた以下の Emby サ�
 ## チャンネル
 
 Telegram チャンネル [**@MikudesuChannels**](https://t.me/MikudesuChannels) —— リリース、更新予告、ディスカッション。
+
+サードパーティーのコンポーネントと任意のフレーム補間パッケージのライセンスについては [THIRD_PARTY.md](THIRD_PARTY.md)（中国語）を参照してください。

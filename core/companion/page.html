@@ -128,6 +128,7 @@ button.pri:disabled{opacity:.5}
 
   <!-- 服务器 -->
   <section class="pane" id="p-servers">
+    <p class="hint">仅在可信局域网使用。手机与电视之间使用明文 HTTP,账号密码可能被同一网络中的流量观察者读取;服务器使用 HTTPS 也不能保护这一段传输。</p>
     <h2>已添加</h2>
     <div id="accs"></div>
 
@@ -196,7 +197,15 @@ button.pri:disabled{opacity:.5}
 <script>
 /* 接口一律 POST <本页地址>/api/<名字>。地址取自 location.pathname:里面带着一次性 token */
 const BASE = location.pathname.replace(/\/$/, "");
+let trustedLANConfirmed = false;
 async function api(name, body) {
+  if (location.protocol === "http:" && !trustedLANConfirmed &&
+      ["emby.login", "account.batchParse", "account.batchAddServers"].includes(name)) {
+    if (!confirm("手机与电视之间使用明文 HTTP,账号密码或批量文本可能被同一网络中的流量观察者读取。请仅在可信局域网使用。确认仍要发送吗?")) {
+      throw new Error("已取消,账号信息未发送");
+    }
+    trustedLANConfirmed = true;
+  }
   const r = await fetch(BASE + "/api/" + name, { method: "POST", body: JSON.stringify(body || {}) });
   let j;
   try { j = await r.json(); } catch { throw new Error("电视没响应(HTTP " + r.status + ")"); }

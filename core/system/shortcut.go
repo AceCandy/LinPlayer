@@ -96,7 +96,7 @@ func shouldRepair(target, exeName string, targetExists bool) bool {
 	if target == "" || targetExists {
 		return false
 	}
-	return strings.EqualFold(filepath.Base(target), exeName)
+	return strings.EqualFold(filepath.Base(strings.ReplaceAll(target, `\`, "/")), exeName)
 }
 
 // repairBroken 把**已经指坏了的**、原本指着我们这个 exe 的快捷方式改回来。

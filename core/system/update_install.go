@@ -13,6 +13,8 @@ package system
 import (
 	"archive/zip"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"fmt"
 	"io"
 	"net/http"
@@ -28,7 +30,10 @@ import (
 	"linplayer/core/config"
 	"linplayer/core/httpx"
 	"linplayer/core/paths"
+	"linplayer/core/updatesign"
 )
+
+var updateSigningPublicKey = updatesign.PublicKey()
 
 // updateDir 更新包落点。放 cache/ 下:丢了能重下。
 func updateDir() string { return filepath.Join(paths.CacheDir(), "update") }
@@ -69,15 +74,18 @@ func CanSelfUpdate() bool {
 // updState 下载进度。**不主动推事件**,UI 轮询 system.updateProgress ——
 // 和下载管理器同一个口径:一个活跃任务不值得为它开一条事件流。
 type updState struct {
-	mu     sync.Mutex
-	phase  string // idle / downloading / ready / failed
-	tag    string
-	name   string
-	file   string
-	errMsg string
-	got    int64
-	total  int64
-	cancel context.CancelFunc
+	mu         sync.Mutex
+	installing bool
+	task       uint64
+	checksum   string
+	phase      string // idle / downloading / ready / failed
+	tag        string
+	name       string
+	file       string
+	errMsg     string
+	got        int64
+	total      int64
+	cancel     context.CancelFunc
 }
 
 var upd = &updState{phase: "idle"}
@@ -105,36 +113,47 @@ func (s *updState) snap() UpdateProgress {
 	}
 }
 
-func (s *updState) progress(n int64) {
+func (s *updState) progress(task uint64, n int64) {
 	s.mu.Lock()
-	s.got = n
+	if s.task == task {
+		s.got = n
+	}
 	s.mu.Unlock()
 }
 
 // start 开下载。已经在下就什么都不做 —— 按钮连点不该叠出两条。
 func (s *updState) start(info *UpdateInfo) {
+	copyInfo := *info
+	info = &copyInfo
 	s.mu.Lock()
-	if s.phase == "downloading" {
+	if s.phase == "downloading" || s.installing {
 		s.mu.Unlock()
 		return
 	}
 	ctx, cancel := context.WithCancel(context.Background())
+	s.task++
+	task := s.task
 	s.phase, s.tag, s.name = "downloading", info.Tag, info.AssetName
 	s.file, s.errMsg, s.got, s.total, s.cancel = "", "", 0, info.AssetSize, cancel
+	s.checksum = ""
 	s.mu.Unlock()
 
 	/* 脱离命令的 ctx 单开一条。命令一返回它的 ctx 就取消了,挂在上面的话
 	   下载会在第一次读响应体时当场断,而界面上看到的是「刚开始就失败」。 */
 	go func() {
-		f, err := fetchAsset(ctx, info, s.progress)
+		f, err := fetchAsset(ctx, info, func(n int64) { s.progress(task, n) })
 		s.mu.Lock()
 		defer s.mu.Unlock()
+		if s.task != task {
+			return
+		}
 		s.cancel = nil
 		if err != nil {
 			s.phase, s.errMsg = "failed", err.Error()
 			return
 		}
 		s.phase, s.file, s.got = "ready", f, s.total
+		s.checksum = info.checksum
 	}()
 }
 
@@ -157,13 +176,18 @@ func fetchAsset(ctx context.Context, info *UpdateInfo, on func(int64)) (string, 
 	if info.AssetURL == "" {
 		return "", fmt.Errorf("这个版本没有适合本平台的安装包")
 	}
-	dir := updateDir()
+	want, err := assetChecksum(ctx, info)
+	if err != nil {
+		return "", err
+	}
+	info.checksum = want
+	dir := filepath.Join(updateDir(), want) // 不同内容隔离,取消中的旧下载不能覆盖新安装包。
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return "", err
 	}
 	dst := filepath.Join(dir, filepath.Base(info.AssetName))
-	// 已经下过一份**大小对得上**的:直接用。重下 100MB 只为拿到同一份文件没有意义
-	if fi, err := os.Stat(dst); err == nil && info.AssetSize > 0 && fi.Size() == info.AssetSize {
+	// 缓存也必须验内容,同长度不代表同一安装包。
+	if fi, err := os.Stat(dst); err == nil && info.AssetSize > 0 && fi.Size() == info.AssetSize && verifyAsset(dst, want) == nil {
 		on(fi.Size())
 		return dst, nil
 	}
@@ -182,11 +206,12 @@ func fetchAsset(ctx context.Context, info *UpdateInfo, on func(int64)) (string, 
 		return "", fmt.Errorf("下载更新失败: 服务器返回 %d", resp.StatusCode)
 	}
 
-	part := dst + ".part"
-	f, err := os.Create(part)
+	f, err := os.CreateTemp(dir, filepath.Base(info.AssetName)+".*.part")
 	if err != nil {
 		return "", err
 	}
+	part := f.Name()
+	defer os.Remove(part)
 	n, err := io.Copy(io.MultiWriter(f, &countWriter{on: on}), resp.Body)
 	if cerr := f.Close(); err == nil {
 		err = cerr
@@ -201,11 +226,92 @@ func fetchAsset(ctx context.Context, info *UpdateInfo, on func(int64)) (string, 
 		_ = os.Remove(part)
 		return "", fmt.Errorf("下载不完整(%d/%d 字节),没装", n, info.AssetSize)
 	}
+	if err := verifyAsset(part, want); err != nil {
+		return "", err
+	}
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
 	_ = os.Remove(dst)
 	if err := os.Rename(part, dst); err != nil {
 		return "", err
 	}
 	return dst, nil
+}
+
+// assetChecksum 先认证项目公钥和发布标签,再取安装包精确对应的 SHA-256。
+func assetChecksum(ctx context.Context, info *UpdateInfo) (string, error) {
+	if info.ChecksumURL == "" {
+		return "", fmt.Errorf("发布缺少 SHA256SUMS,无法校验,请手动安装")
+	}
+	if info.SignatureURL == "" || info.Tag == "" {
+		return "", fmt.Errorf("发布缺少更新签名,无法认证来源,请手动安装")
+	}
+	b, err := fetchUpdateMetadata(ctx, info.ChecksumURL, 1024*1024)
+	if err != nil {
+		return "", err
+	}
+	sig, err := fetchUpdateMetadata(ctx, info.SignatureURL, 1024)
+	if err != nil {
+		return "", fmt.Errorf("获取更新签名失败: %w", err)
+	}
+	if err := updatesign.Verify(updateSigningPublicKey, info.Tag, b, sig); err != nil {
+		return "", err
+	}
+	want := ""
+	for _, line := range strings.Split(string(b), "\n") {
+		if len(line) < 66 || line[64] != ' ' || (line[65] != ' ' && line[65] != '*') || strings.TrimPrefix(strings.TrimSuffix(line[66:], "\r"), "./") != info.AssetName {
+			continue
+		}
+		if _, err := hex.DecodeString(line[:64]); err != nil || want != "" {
+			return "", fmt.Errorf("安装包校验值无效或重复")
+		}
+		want = strings.ToLower(line[:64])
+	}
+	if want == "" {
+		return "", fmt.Errorf("校验清单缺少本平台安装包")
+	}
+	return want, nil
+}
+
+// fetchUpdateMetadata 对清单和签名设独立大小上限,防止元数据无限占用内存。
+func fetchUpdateMetadata(ctx context.Context, url string, max int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, proxied(url), nil)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := httpx.Client().Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("获取更新元数据失败: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return nil, fmt.Errorf("更新元数据返回 %d", resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(b)) > max {
+		return nil, fmt.Errorf("更新元数据过大")
+	}
+	return b, nil
+}
+
+func verifyAsset(path, want string) error {
+	f, err := os.Open(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	h := sha256.New()
+	if _, err := io.Copy(h, f); err != nil {
+		return err
+	}
+	if hex.EncodeToString(h.Sum(nil)) != want {
+		return fmt.Errorf("安装包 SHA-256 不匹配,未安装")
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------- 解包就位
@@ -231,6 +337,11 @@ func stageZip(zipPath, destDir, wantExe string) (string, error) {
 		if name == "." || name == sep || filepath.IsAbs(name) ||
 			name == ".." || strings.HasPrefix(name, ".."+sep) {
 			return "", fmt.Errorf("更新包里有越界路径: %s", f.Name)
+		}
+		for _, part := range strings.Split(name, sep) {
+			if strings.EqualFold(part, "userdata") {
+				return "", fmt.Errorf("更新包包含用户数据目录,拒绝覆盖")
+			}
 		}
 		dst := filepath.Join(destDir, name)
 		if f.FileInfo().IsDir() {
@@ -312,6 +423,7 @@ func shq(s string) string { return "'" + strings.ReplaceAll(s, "'", `'"'"'`) + "
 // goos 是参数不是 runtime 常量,为的是两个平台的脚本在任何一台机器上都能被自检读一遍。
 func applyScript(goos string, p applyPlan) (name, body string) {
 	pid := strconv.Itoa(p.Pid)
+	backup := p.Staged + ".backup"
 	if goos == "windows" {
 		/* robocopy **不带 /MIR**:它只补齐和覆盖,从不删目标里多出来的东西。
 		   userdata/ 就在这个目标目录里 —— 加一个 /MIR 等于删掉用户的全部账号。 */
@@ -319,9 +431,36 @@ func applyScript(goos string, p applyPlan) (name, body string) {
 			"$ErrorActionPreference = 'Continue'",
 			"Start-Transcript -Path " + psq(p.Log) + " -Force | Out-Null",
 			"Wait-Process -Id " + pid + " -Timeout 120 -ErrorAction SilentlyContinue",
+			"if (Get-Process -Id " + pid + " -ErrorAction SilentlyContinue) { Write-Output 'Old process still running'; exit 1 }",
 			"Start-Sleep -Milliseconds 800",
-			"& robocopy " + psq(p.Staged) + " " + psq(p.Dir) + " /E /R:2 /W:1 /NFL /NDL /NJH /NJS | Out-Null",
-			"if ($LASTEXITCODE -ge 8) { Write-Output \"robocopy failed: $LASTEXITCODE\" }",
+			"$staged = " + psq(p.Staged),
+			"$dir = " + psq(p.Dir),
+			"$backup = " + psq(backup),
+			"$new = @(); $replacing = $false",
+			"try {",
+			"  New-Item -ItemType Directory -Path $backup -ErrorAction Stop | Out-Null",
+			"  Get-ChildItem -LiteralPath $staged -Recurse -File -ErrorAction Stop | ForEach-Object {",
+			"    $rel = $_.FullName.Substring($staged.Length).TrimStart('\\')",
+			"    $dst = Join-Path $dir $rel; $old = Join-Path $backup $rel",
+			"    $entry = Get-Item -LiteralPath $dst -Force -ErrorAction SilentlyContinue",
+			"    if ($entry -and ($entry.Attributes -band [IO.FileAttributes]::ReparsePoint)) { throw 'Update target is a reparse point' }",
+			"    if ($entry) {",
+			"      New-Item -ItemType Directory -Path (Split-Path $old) -Force -ErrorAction Stop | Out-Null",
+			"      Copy-Item -LiteralPath $dst -Destination $old -Force -ErrorAction Stop",
+			"    } else { $script:new += $dst }",
+			"  }",
+			"  $replacing = $true",
+			"  & robocopy $staged $dir /E /R:2 /W:1 /NFL /NDL /NJH /NJS | Out-Null",
+			"  if ($LASTEXITCODE -ge 8) { throw \"robocopy failed: $LASTEXITCODE\" }",
+			"} catch {",
+			"  Write-Output $_",
+			"  if ($replacing) {",
+			"    & robocopy $backup $dir /E /R:2 /W:1 /NFL /NDL /NJH /NJS | Out-Null",
+			"    if ($LASTEXITCODE -ge 8) { Write-Output 'Rollback failed; backup retained'; Stop-Transcript | Out-Null; exit 1 }",
+			"    $new | ForEach-Object { Remove-Item -LiteralPath $_ -Force -ErrorAction Continue }",
+			"  }",
+			"  Stop-Transcript | Out-Null; exit 1",
+			"}",
 			"Remove-Item -LiteralPath " + psq(p.Staged) + " -Recurse -Force -ErrorAction SilentlyContinue",
 			"Start-Process -FilePath " + psq(p.Exe) + " -WorkingDirectory " + psq(p.Dir),
 			"Stop-Transcript | Out-Null",
@@ -331,10 +470,28 @@ func applyScript(goos string, p applyPlan) (name, body string) {
 	lines := []string{
 		"#!/bin/sh",
 		"exec >>" + shq(p.Log) + " 2>&1",
-		"while kill -0 " + pid + " 2>/dev/null; do sleep 1; done",
+		"waited=0; while kill -0 " + pid + " 2>/dev/null; do [ \"$waited\" -lt 120 ] || exit 1; sleep 1; waited=$((waited + 1)); done",
 		"sleep 1",
-		"cp -a " + shq(p.Staged+"/.") + " " + shq(p.Dir+"/"),
+		"staged=" + shq(p.Staged),
+		"dir=" + shq(p.Dir),
+		"backup=" + shq(backup),
+		"new=" + shq(backup+".new"),
+		"mkdir \"$backup\" \"$new\" || exit 1",
+		"cd \"$staged\" || exit 1",
+		"find . -type f -exec sh -c 'dir=$1; backup=$2; new=$3; shift 3; for f do",
+		"  if [ -e \"$dir/$f\" ] || [ -L \"$dir/$f\" ]; then",
+		"    mkdir -p \"$backup/$(dirname \"$f\")\" && cp -a \"$dir/$f\" \"$backup/$f\" || exit 1",
+		"  else mkdir -p \"$new/$(dirname \"$f\")\" && : > \"$new/$f\" || exit 1; fi",
+		"done' sh \"$dir\" \"$backup\" \"$new\" {} + || exit 1",
+		"if ! cp -a \"$staged/.\" \"$dir/\"; then",
+		"  echo 'Update failed; restoring old files'",
+		"  cp -a \"$backup/.\" \"$dir/\" || { echo 'Rollback failed; backup retained'; exit 1; }",
+		"  cd \"$new\" && find . -type f -exec sh -c 'dir=$1; shift; for f do rm -f \"$dir/$f\" || exit 1; done' sh \"$dir\" {} +",
+		"  exit 1",
+		"fi",
+		"cd \"$dir\" || exit 1",
 		"rm -rf " + shq(p.Staged),
+		"rm -rf \"$new\"",
 		"cd " + shq(p.Dir) + " && " + shq(p.Exe) + " &",
 	}
 	return "apply-update.sh", strings.Join(lines, "\n") + "\n"
@@ -401,10 +558,15 @@ func registerInstallCommands() {
 
 	bus.Register("system.cancelUpdate", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		upd.mu.Lock()
+		if upd.installing {
+			upd.mu.Unlock()
+			return nil, bus.NewErr(bus.EInvalid, "正在准备安装,无法取消")
+		}
 		if upd.cancel != nil {
 			upd.cancel()
 		}
 		upd.phase, upd.errMsg, upd.cancel = "idle", "", nil
+		upd.task++ // 取消后立即重试,旧任务不能覆盖新进度或就绪状态。
 		upd.mu.Unlock()
 		return upd.snap(), nil
 	})
@@ -415,10 +577,26 @@ func registerInstallCommands() {
 	// 脚本等到进程没了才动手。安卓端不走这条路,把 APK 交给系统装包器。
 	bus.Register("system.installUpdate", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		upd.mu.Lock()
-		phase, file := upd.phase, upd.file
+		if upd.installing {
+			upd.mu.Unlock()
+			return nil, bus.NewErr(bus.EInvalid, "已经在准备安装")
+		}
+		phase, file, checksum := upd.phase, upd.file, upd.checksum
+		upd.installing = true
 		upd.mu.Unlock()
+		handedOff := false
+		defer func() {
+			if !handedOff {
+				upd.mu.Lock()
+				upd.installing = false
+				upd.mu.Unlock()
+			}
+		}()
 		if phase != "ready" || file == "" {
 			return nil, bus.NewErr(bus.EInvalid, "安装包还没下好")
+		}
+		if err := verifyAsset(file, checksum); err != nil {
+			return nil, bus.NewErr(bus.EInvalid, "%v", err)
 		}
 		if runtime.GOOS == "android" {
 			return InstallResult{Action: "apk", File: file}, nil
@@ -432,8 +610,10 @@ func registerInstallCommands() {
 			return nil, bus.NewErr(bus.EInternal, "找不到程序自己的位置: %v", err)
 		}
 		dir := filepath.Dir(exe)
-		staged := filepath.Join(updateDir(), "staged")
-		_ = os.RemoveAll(staged)
+		staged, err := os.MkdirTemp(updateDir(), "staged-")
+		if err != nil {
+			return nil, bus.NewErr(bus.EInternal, "无法准备更新目录: %v", err)
+		}
 		root, err := stageZip(file, staged, filepath.Base(exe))
 		if err != nil {
 			_ = os.RemoveAll(staged)
@@ -451,6 +631,7 @@ func registerInstallCommands() {
 		if err := spawnDetached(script); err != nil {
 			return nil, bus.NewErr(bus.EInternal, "覆盖脚本起不来: %v", err)
 		}
+		handedOff = true
 		bus.Logf("info", "更新就位,等本进程退出后覆盖: %s", root)
 		return InstallResult{Action: "restart"}, nil
 	})

@@ -96,6 +96,7 @@ public sealed class CoreException(string code, string message, bool retryable, s
 /// </summary>
 public sealed class CoreClient : ILinPlayerCommands, IDisposable
 {
+    private readonly object _sendGate = new();
     private long _seq;
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
     // 流式命令的中间结果回调(聚合搜索按源逐行、换源逐源);在事件线程上触发
@@ -138,21 +139,35 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
 
     private Task<JsonElement> Send(long seq, string command, object? args, CancellationToken ct)
     {
-        var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
-        _pending[seq] = tcs;
-
-        var json = args is null ? "{}" : JsonSerializer.Serialize(args);
-        var rc = Native.lp_call(seq, command, json);
-        if (rc != 0)
+        lock (_sendGate)
         {
-            _pending.TryRemove(seq, out _);
-            throw new CoreException("E_INTERNAL", $"命令没发出去({command},rc={rc})", false);
+            var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
+            _pending[seq] = tcs;
+
+            if (_stop) {
+                _pending.TryRemove(seq, out _);
+                _partials.TryRemove(seq, out _);
+                throw new CoreException("E_SHUTDOWN", "核心已关停", false);
+            }
+            var json = args is null ? "{}" : JsonSerializer.Serialize(args);
+            var rc = Native.lp_call(seq, command, json);
+            if (rc != 0)
+            {
+                _pending.TryRemove(seq, out _);
+                _partials.TryRemove(seq, out _);
+                throw rc switch {
+                    -2 => new CoreException("E_SHUTDOWN", "核心已关停", false),
+                    -3 => new CoreException("E_INVALID", "命令参数或序号无效", false),
+                    -4 => new CoreException("E_BUSY", "命令队列已满,请稍后重试", true),
+                    _ => new CoreException("E_INTERNAL", $"命令没发出去({command},rc={rc})", false),
+                };
+            }
+            // 取消要**同时**通知核心层:只丢掉本地的 TCS 的话,核心层那边还在跑,
+            // 而它的结果没人收 —— 事件队列会一直堆着。
+            if (ct.CanBeCanceled)
+                ct.Register(() => { Native.lp_cancel(seq); _pending.TryRemove(seq, out _); tcs.TrySetCanceled(); });
+            return Perf.On ? Timed(command, tcs.Task) : tcs.Task;
         }
-        // 取消要**同时**通知核心层:只丢掉本地的 TCS 的话,核心层那边还在跑,
-        // 而它的结果没人收 —— 事件队列会一直堆着。
-        if (ct.CanBeCanceled)
-            ct.Register(() => { Native.lp_cancel(seq); _pending.TryRemove(seq, out _); tcs.TrySetCanceled(); });
-        return Perf.On ? Timed(command, tcs.Task) : tcs.Task;
     }
 
     /// <summary>
@@ -255,7 +270,7 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
                 }
             case "eof":
                 // 队列发 EOF 表示核心层要关了 —— 不退出循环的话进程退不干净
-                _stop = true;
+                lock (_sendGate) { _stop = true; FailPending(); }
                 return;
         }
     }
@@ -263,9 +278,17 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
     private static string? Str(JsonElement e, string key) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v) ? v.GetString() : null;
 
+    private void FailPending()
+    {
+        foreach (var seq in _pending.Keys)
+            if (_pending.TryRemove(seq, out var tcs))
+                tcs.TrySetException(new CoreException("E_SHUTDOWN", "核心已关停", false));
+        _partials.Clear();
+    }
+
     public void Dispose()
     {
-        _stop = true;
+        lock (_sendGate) { _stop = true; FailPending(); }
         Native.lp_shutdown();
         _pump.Join(TimeSpan.FromSeconds(3));
     }

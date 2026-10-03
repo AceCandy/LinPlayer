@@ -34,6 +34,8 @@ for c in python3 python; do
 done
 [ -n "$PY_BIN" ] || { echo "找不到带 PyYAML 的 python(pip install pyyaml)"; exit 1; }
 
+"$PY_BIN" scripts/test-review-gates.py
+
 WORK="$(mktemp -d)"
 trap 'rm -rf "$WORK"' EXIT
 export WORK

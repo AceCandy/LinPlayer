@@ -22,7 +22,7 @@ func Test基础选项_magicyuv必须被拉黑(t *testing.T) {
 	t.Fatalf("mpv 起手选项里没有 %v —— CVE-2026-8461 的防护没了", want)
 }
 
-// 着色器缓存:给了目录就必须两项都设上。
+// 着色器缓存:配置目录即可启用;旧版 mpv 不认识额外的 gpu-shader-cache 开关。
 //
 // libmpv 没有配置目录,少给 `gpu-shader-cache-dir` 它就不落盘,
 // 表现是每次起播重编整条 Anime4K 链(开着超分时第一秒卡一下)。
@@ -31,14 +31,11 @@ func Test基础选项_给了目录就要开着色器缓存(t *testing.T) {
 	for _, kv := range baseOptions("auto", "D:/x/cache/shaders", "") {
 		got[kv[0]] = kv[1]
 	}
-	if got["gpu-shader-cache"] != "yes" {
-		t.Errorf("gpu-shader-cache 应为 yes,实得 %q", got["gpu-shader-cache"])
-	}
 	if got["gpu-shader-cache-dir"] != "D:/x/cache/shaders" {
 		t.Errorf("gpu-shader-cache-dir 没传对,实得 %q", got["gpu-shader-cache-dir"])
 	}
 
-	// 目录为空(建不出来)时不许把这两项设上 —— 给 mpv 一个空路径比不给更糟。
+	// 目录为空(建不出来)时不许设置缓存目录 —— 给 mpv 一个空路径比不给更糟。
 	for _, kv := range baseOptions("auto", "", "") {
 		if kv[0] == "gpu-shader-cache-dir" {
 			t.Errorf("没有可用目录时不该设 gpu-shader-cache-dir")
@@ -78,7 +75,6 @@ func Test选项名探测_对不存在的选项必须报出来(t *testing.T) {
 		t.Fatalf("探测器没能识别出不存在的选项 —— 它现在是恒绿的,不可信;实得 %v", bad)
 	}
 }
-
 
 // ---- 用户的 mpv.conf ----
 

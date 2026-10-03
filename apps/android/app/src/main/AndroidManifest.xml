@@ -111,12 +111,9 @@
 
         <!-- U1.22 前台服务。Android 14 起 foregroundServiceType 必填 -->
         <service
-            android:name=".player.PlaybackService"
+            android:name=".ui.player.PlaybackService"
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">
-            <intent-filter>
-                <action android:name="androidx.media3.session.MediaSessionService" />
-            </intent-filter>
         </service>
 
         <!-- TVBox jar spider 独立进程(插件 SPEC D354):jar 崩了只死这个进程,播放不断 -->

@@ -183,6 +183,36 @@ func contains(s, sub string) bool {
 	return false
 }
 
+// 清单优先级变化时,签名必须跟随最终选中的那份清单。
+func Test更新校验清单与签名必须同名配对(t *testing.T) {
+	for _, missing := range []bool{false, true} {
+		var rel release
+		if err := json.Unmarshal([]byte(`{"tag_name":"v2.0.0","assets":[{"name":"SHA256SUMS.txt.sig","browser_download_url":"txt-sig"},{"name":"SHA256SUMS.txt","browser_download_url":"txt"},{"name":"SHA256SUMS","browser_download_url":"sum"}]}`), &rel); err != nil {
+			t.Fatal(err)
+		}
+		if !missing {
+			rel.Assets = append(rel.Assets, rel.Assets[0])
+			rel.Assets[3].Name, rel.Assets[3].URL = "SHA256SUMS.sig", "sum-sig"
+		}
+		srv := fakeReleases(t, rel)
+		old := githubAPI
+		githubAPI = srv.URL
+		info, err := CheckUpdate(context.Background(), "stable", "v1.0.0")
+		githubAPI = old
+		srv.Close()
+		if err != nil || info == nil || info.ChecksumURL != "sum" {
+			t.Fatalf("清单选择错误: %v %v", info, err)
+		}
+		want := "sum-sig"
+		if missing {
+			want = ""
+		}
+		if info.SignatureURL != want {
+			t.Fatal("签名与清单串用")
+		}
+	}
+}
+
 // fakeReleases 假 GitHub:/releases/latest 给单个,/releases 给列表。
 func fakeReleases(t *testing.T, rels ...release) *httptest.Server {
 	t.Helper()

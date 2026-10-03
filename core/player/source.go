@@ -61,6 +61,7 @@ func PlaySourceRecorded(url, title string, resumeSecs float64,
 	   排在后面的话,上一片的外挂字幕会挂到这一片上,而且旧的 current 还会被
 	   状态轮询拍回来 —— 表现是「第二个片子露出上一片的信息」。 */
 	currentMu.Lock()
+	cancelHistoryRetryLocked()
 	current = nil
 	pendingSubs = nil
 	currentCtx = nil // 源播放不是 Emby,清掉观看记录上下文,别把网盘进度记到上一部 Emby 片上

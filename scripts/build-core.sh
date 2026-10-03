@@ -27,7 +27,7 @@ esac
 # 编译期凭据(弹弹Play / 反馈代理 / 图标源 / CF 测速)。**只有密文进 ldflags** —— 明文会原样出现在
 # 构建日志和进程命令行里。一个都没配时 SEAL 是空串,本地构建照常出得来,
 # 对应功能会明说「此构建没有凭据」(honest,不是装作没数据)。
-SEAL="$( cd "$ROOT/core" && go run ./cmd/sealsecrets )"
+SEAL="$( cd "$ROOT/core" && GOOS="$(go env GOHOSTOS)" GOARCH="$(go env GOHOSTARCH)" CGO_ENABLED=0 go run ./cmd/sealsecrets )"
 # ★★ 打印**注入了哪几个**(只打变量名,不打值)。
 #   没这一行的时候,「弹幕搜不到」到底是 CI 漏配、sealsecrets 封错,
 #   还是运行时解不开,**三者在日志里长得一模一样**(都是一片安静)。

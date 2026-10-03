@@ -188,6 +188,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		}
 	}
 	currentMu.Lock()
+	cancelHistoryRetryLocked()
 	currentCtx = whCtx
 	currentMu.Unlock()
 
@@ -222,6 +223,10 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		if err := loadWith(playURL, resumeSecs, nil, ""); err != nil {
 			return nil, err
 		}
+	}
+
+	if whCtx == nil {
+		startHistoryRetry(target, s, resumeSecs)
 	}
 
 	// 上报 start。★ 失败**不阻断播放** —— 上报是记账,播放是主线。
@@ -328,6 +333,68 @@ type historyContext struct {
 
 var currentCtx *historyContext
 
+// historyRetry 属于一次具体起播;同一条目重复起播也不能共享补建结果。
+type historyRetry struct {
+	target   *emby.PlaybackTarget
+	session  emby.Session
+	ctx      context.Context
+	cancel   context.CancelFunc
+	position float64
+}
+
+var pendingHistory *historyRetry
+
+// cancelHistoryRetryLocked 在换片、停播时取消补建;调用方持有 currentMu。
+func cancelHistoryRetryLocked() {
+	if pendingHistory != nil {
+		pendingHistory.cancel()
+		pendingHistory = nil
+	}
+}
+
+func startHistoryRetry(target *emby.PlaybackTarget, s *emby.Session, pos float64) {
+	currentMu.Lock()
+	defer currentMu.Unlock()
+	if current != target || currentCtx != nil {
+		return
+	}
+	cancelHistoryRetryLocked()
+	ctx, cancel := context.WithCancel(context.Background())
+	r := &historyRetry{target: target, session: *s, ctx: ctx, cancel: cancel, position: pos}
+	pendingHistory = r
+	go retryHistory(r)
+}
+
+// retryHistory 不占起播命令;网络恢复后只给仍在播放的目标补建记录。
+func retryHistory(r *historyRetry) {
+	defer r.cancel()
+	for {
+		attempt, cancel := context.WithTimeout(r.ctx, 10*time.Second)
+		h := buildHistoryContext(attempt, &r.session, r.target.ItemID)
+		cancel()
+		currentMu.Lock()
+		if r.ctx.Err() != nil || pendingHistory != r || current != r.target || currentCtx != nil {
+			currentMu.Unlock()
+			return
+		}
+		if h != nil {
+			currentCtx = h
+			pendingHistory = nil
+			captureHistoryLocked(r.position, true)
+			currentMu.Unlock()
+			return
+		}
+		currentMu.Unlock()
+		timer := time.NewTimer(5 * time.Second)
+		select {
+		case <-r.ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
 // seriesScope 剧集的「服务器|剧 id」;电影、取不到判据时回空串。
 func seriesScope(server string, h *historyContext) string {
 	if h == nil || h.candidate.SeriesID == nil || *h.candidate.SeriesID == "" {
@@ -339,11 +406,11 @@ func seriesScope(server string, h *historyContext) string {
 // buildHistoryContext 取「带全部匹配判据的条目」+ 剧的 TMDB id。
 //
 // ★ 取不到判据(网络抖 / 权限)**不该拦住播放** —— 返回 nil,
-// 这次播放就不进本地记录,但片子照放。
+// 播放建立后在后台补取,不改变已经开始播放的续播位置。
 func buildHistoryContext(ctx context.Context, s *emby.Session, itemID string) *historyContext {
 	it, err := prefsClient.ItemForHistory(ctx, s, itemID)
-	if err != nil || it == nil {
-		bus.Logf("warn", "取观看记录判据失败(本次播放不进本地记录): %v", err)
+	if err != nil || it == nil || it.ID != itemID {
+		bus.Logf("warn", "取观看记录判据失败(播放不中断,稍后补取): %v", err)
 		return nil
 	}
 	cand := history.CandidateFromItem(*it)
@@ -363,8 +430,16 @@ func buildHistoryContext(ctx context.Context, s *emby.Session, itemID string) *h
 // captureHistory 落一次观看记录。force=true 用于停播那一下。
 func captureHistory(posSecs float64, force bool) {
 	currentMu.Lock()
+	defer currentMu.Unlock()
+	if pendingHistory != nil {
+		pendingHistory.position = posSecs
+	}
+	captureHistoryLocked(posSecs, force)
+}
+
+// captureHistoryLocked 将目标核验和落盘保持同序,避免补建/换片交错写入错误进度。
+func captureHistoryLocked(posSecs float64, force bool) {
 	c := currentCtx
-	currentMu.Unlock()
 	if c == nil {
 		return
 	}
@@ -372,9 +447,7 @@ func captureHistory(posSecs float64, force bool) {
 		// 数据源多半不给片长:取 mpv 的,不然进度百分比与「看完」都判不了
 		if d := propF("duration"); d > 0 {
 			t := int64(d * float64(history.TicksPerSec))
-			currentMu.Lock()
 			c.candidate.RunTimeTicks = &t
-			currentMu.Unlock()
 		}
 	}
 	history.Shared().Capture(history.CaptureOpts{
@@ -403,23 +476,21 @@ func watchedNow(pos float64) bool {
 
 // Stop 停播并上报。pos 是停在哪一秒。
 func Stop(ctx context.Context, s *emby.Session, pos float64) error {
-	t := Current()
 	currentMu.Lock()
+	t := current
+	// 停播落盘、取消补建和清空目标是同一次状态转换,补建不能穿过收尾。
+	captureHistoryLocked(pos, true)
+	watched := watchedNow(pos)
+	cancelHistoryRetryLocked()
 	current = nil
 	pendingSubs = nil
+	currentCtx = nil
 	currentMu.Unlock()
 	setShaderScope("")
 	_ = command("stop")
-	closeSharedProxy() // 停播就把代理停掉:端口、goroutine、缓存文件一起收
-	thumbs.close()     // 缩略图那个实例也收掉:它装的是这一片
-	// ★ 停播这一下**必须落盘**(force):不 force 的话会被 10 秒节流吃掉,
-	//   最后那段进度就丢了 —— 而用户下次进来看到的正是那个旧位置。
-	captureHistory(pos, true)
-	currentMu.Lock()
-	watched := watchedNow(pos)
-	currentCtx = nil
-	currentMu.Unlock()
-	if t == nil {
+	closeSharedProxy()
+	thumbs.close()
+	if t == nil || s == nil {
 		return nil
 	}
 	/* ★★ 越过用户那条阈值就**明着告诉服务器已看完**。

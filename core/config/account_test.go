@@ -309,3 +309,18 @@ func TestActiveLineURL只改写当前那条线(t *testing.T) {
 		t.Fatalf("DirectLineURL 不该被改写: %q", got)
 	}
 }
+
+func TestResolve识别当前优选本地地址(t *testing.T) {
+	cf.Clear()
+	defer cf.Clear()
+	c := defaults()
+	c.Upsert(Account{Server: "https://primary.example.test", Lines: []ServerLine{{URL: "https://line.example.test"}}})
+	cf.Bind("https://line.example.test", "http://localhost")
+	a := c.Resolve("http://localhost")
+	if a == nil || a.Server != "https://primary.example.test" {
+		t.Fatal("当前会话本地地址未解析成账号")
+	}
+	if c.Resolve("http://unknown.example.test") != nil {
+		t.Fatal("未知地址匹配了活跃账号")
+	}
+}

@@ -182,8 +182,8 @@ public sealed class HomePage : PageBase
         /* 各块并发发出去,各自渲染 —— 谁先回来谁先出现,不互相等。
             但**位置是先占好的**:每条轨道在发请求之前就把自己那一块(骨架)挂上去,
             所以屏幕上的顺序是固定的,不是「谁先回来谁排前面」。 */
-        var resume = Track("继续观看", () => ResumeAndNextUp(core, s), true,
-            key: MetaCache.Key("home.resume", s), resumeRow: true);
+        var resume = Track("继续观看", null, true,
+            key: MetaCache.Key("home.resume", s), resumeRow: true, resumeLoad: () => ResumeAndNextUp(core, s));
 
         /* 合集。<b><c>emby.listCollections</c> 早就注册着,UI 一次没调过</b> ——
            这是本仓第五次撞上「后端领先前端」。
@@ -385,34 +385,27 @@ public sealed class HomePage : PageBase
     internal static void ForgetResume(string itemId)
     {
         if (Nav.Session is not { } ns) return;
-        var key = MetaCache.Key("home.resume",
-            new { server = ns.server, token = ns.token, user_id = ns.user_id, device_id = ns.device_id });
-        if (MetaCache.PeekList(key) is { } old)
-            MetaCache.PutList(key, old.Where(it => Str(it, "id") != itemId).ToList());
-    }
-
-    private static async Task<List<JsonElement>> ResumeAndNextUp(CoreClient core, object s)
-    {
-        var a = Arr(core.EmbyListResume(With(s, new { limit = 12 })));
-        var b = Arr(core.EmbyListNextUp(With(s, new { limit = 12 })));
-        var resume = await Safe(a);
-        var nextUp = await Safe(b);
-
-        var seen = new HashSet<string>();
-        var outp = new List<JsonElement>();
-        foreach (var it in resume.Concat(nextUp))
-        {
-            var key = Str(it, "series_id") is { Length: > 0 } sid ? "s:" + sid : "i:" + Str(it, "id");
-            if (seen.Add(key)) outp.Add(it);
+        var s = new { server = ns.server, token = ns.token, user_id = ns.user_id, device_id = ns.device_id };
+        foreach (var kind in new[] { "home.resume", "home.resume.items", "home.nextUp.items" }) {
+            var key = MetaCache.Key(kind, s);
+            if (MetaCache.PeekList(key) is { } old)
+                MetaCache.PutList(key, old.Where(it => Str(it, "id") != itemId).ToList());
         }
-        return outp;
     }
 
-    /// <summary>失败当空表 —— 合并的两条里挂了一条,不该把另一条也弄没。</summary>
-    private static async Task<List<JsonElement>> Safe(Task<List<JsonElement>> t)
+    private static async Task<ResumeFeed.Result> ResumeAndNextUp(CoreClient core, object s)
     {
-        try { return await t; }
-        catch { return []; }
+        var resumeKey = MetaCache.Key("home.resume.items", s);
+        var nextKey = MetaCache.Key("home.nextUp.items", s);
+        // 旧版只有合并缓存;首次部分失败时保留旧内容,待两路成功后自然刷新。
+        var previous = MetaCache.PeekList(MetaCache.Key("home.resume", s));
+        var result = await ResumeFeed.Load(
+            () => Arr(core.EmbyListResume(With(s, new { limit = 12 }))),
+            () => Arr(core.EmbyListNextUp(With(s, new { limit = 12 }))),
+            MetaCache.PeekList(resumeKey) ?? previous, MetaCache.PeekList(nextKey) ?? previous);
+        if (result.Resume is not null) MetaCache.PutList(resumeKey, result.Resume);
+        if (result.NextUp is not null) MetaCache.PutList(nextKey, result.NextUp);
+        return result;
     }
 
     private static async Task<List<JsonElement>> Arr(Task<JsonElement> t)
@@ -439,9 +432,9 @@ public sealed class HomePage : PageBase
     /// **已经能画出内容了**,只是没人存过上一次的结果。</para>
     /// </param>
     /// <param name="lazy">true = 先只占位,滚到跟前了再真去拉。</param>
-    private async Task Track(string title, Func<Task<List<JsonElement>>> load, bool wide,
+    private async Task Track(string title, Func<Task<List<JsonElement>>>? load, bool wide,
         Action<List<JsonElement>>? onItems = null, StackPanel? host = null, string? libraryId = null,
-        string? key = null, bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false)
+        string? key = null, bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false, Func<Task<ResumeFeed.Result>>? resumeLoad = null)
     {
         /* 占位用**骨架**,不是「加载中…」。
            三个字只有 20px 高,内容一回来这一行从 20px 撑到 280px,
@@ -481,14 +474,32 @@ public sealed class HomePage : PageBase
             else Swap(hit.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(hit, wide, resumeRow));
         }
 
+        Control Failure(Exception error, List<JsonElement>? kept)
+        {
+            var panel = new StackPanel { Spacing = 10 };
+            if (kept is { Count: > 0 }) panel.Children.Add(Strip(kept, wide, resumeRow));
+            var why = error is CoreException ce ? ce.Advice : error.Message;
+            panel.Children.Add(Dim($"{title}暂未刷新:{why}"));
+            var retry = new Button { Classes = { "ghost" }, Content = "重试" };
+            retry.Click += async (_, _) => { retry.IsEnabled = false; await Run(); };
+            panel.Children.Add(retry);
+            return panel;
+        }
+
         async Task Run()
         {
             var t0 = Core.Perf.Ms;
             try
             {
-                var items = await load();
+                var result = resumeLoad is null ? null : await resumeLoad();
+                var items = result?.Items ?? await load!();
+                if (result?.Error is { } error) {
+                    Swap(Failure(error, items));
+                    return;
+                }
                 Core.Perf.Log($"轨道「{title}」<- 服务器 {items.Count} 条,{Core.Perf.Ms - t0:0} ms");
                 if (key is not null) MetaCache.PutList(key, items);
+                hit = items;
                 onItems?.Invoke(items);
                 // 空态要说清「为什么空」,不是干放一句「暂无数据」(§6.4)
                 // hideWhenEmpty 的轨道例外:它整条消失,连标题都不留 ——
@@ -498,8 +509,7 @@ public sealed class HomePage : PageBase
             }
             /* 已经用缓存画出内容之后再失败(离线 / 服务器挂了),<b>不要把内容换成一行红字</b> ——
                屏幕上那批旧数据仍然是用户能用的东西,擦掉它换成「加载失败」是纯粹的损失。 */
-            catch (CoreException e) { if (hit is null) Swap(Dim($"{title}加载失败:{e.Advice}")); }
-            catch (Exception e) { if (hit is null) Swap(Dim($"{title}加载失败:{e.Message}")); }
+            catch (Exception e) { Swap(Failure(e, hit)); }
         }
 
         if (!lazy) { await Run(); return; }

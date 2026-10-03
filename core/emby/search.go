@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"net/url"
 	"strings"
+
+	"linplayer/core/bus"
 )
 
 // HistoryFields 是跨服务器续播强匹配所需的 Fields
@@ -20,11 +22,37 @@ const cardFields = "PrimaryImageAspectRatio,Genres,ProductionYear,CommunityRatin
 
 // Search 全局 / 库内搜索。
 func (c *Client) Search(ctx context.Context, s *Session, query string, types []string, limit int, parentID string) ([]Item, error) {
-	items, err := c.fetchItems(ctx, s, searchURL(s, query, types, limit, parentID))
-	if err != nil {
-		return nil, err
+	if limit <= 0 {
+		limit = 50
 	}
-	return filterTypes(items, types), nil
+	limit = min(limit, ServerPageCap)
+	base := searchURL(s, query, types, limit, parentID)
+	out := []Item{}
+	seen := map[string]bool{}
+	// 游标按原始结果推进;被类型/屏蔽过滤的条目不占展示名额。
+	for start := 0; len(out) < limit; {
+		page, err := c.fetchPage(ctx, s, fmt.Sprintf("%s&StartIndex=%d", base, start))
+		if err != nil {
+			return nil, err
+		}
+		got := len(page.Items)
+		start += got
+		fresh := page.Items[:0]
+		for _, item := range page.Items {
+			if !seen[item.ID] {
+				seen[item.ID] = true
+				fresh = append(fresh, item)
+			}
+		}
+		if got > 0 && len(fresh) == 0 {
+			return nil, bus.NewErr(bus.EUpstream, "服务器没有推进搜索分页,请缩小关键词")
+		}
+		out = append(out, filterTypes(filterBlocked(fresh), types)...)
+		if got == 0 || (page.Total > 0 && int64(start) >= page.Total) {
+			break
+		}
+	}
+	return out[:min(len(out), limit)], nil
 }
 
 // filterTypes 显式点了名的类型,**再自己滤一遍**。

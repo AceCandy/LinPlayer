@@ -21,6 +21,7 @@ const (
 	ENotFound    = "E_NOTFOUND"
 	EPermission  = "E_PERMISSION"
 	EInvalid     = "E_INVALID"
+	EBusy        = "E_BUSY"
 	EShutdown    = "E_SHUTDOWN"
 	EInternal    = "E_INTERNAL"
 )
@@ -163,7 +164,8 @@ Tap 在**进程内**旁听所有事件。
 ★ 为什么要有这个:事件队列是给壳的(一个消费者,见 SPEC §5.6 那条硬规矩),
 核心层里另一个包想知道「播放状态变了」时,不能去抢那个队列。
 ☠ 旁听函数在 Emit 的调用线程上同步跑:它必须**很快且不回头调 bus** ——
-  在里面发事件会立刻自递归。要做慢活就自己投 goroutine。
+
+	在里面发事件会立刻自递归。要做慢活就自己投 goroutine。
 */
 func Tap(fn func(name string, data json.RawMessage)) {
 	tapMu.Lock()
@@ -238,7 +240,9 @@ const WorkerCount = 8
 
 // Init 起事件队列与 worker 池。幂等。
 func Init() {
-	if !started.CompareAndSwap(false, true) {
+	inflightMu.Lock()
+	defer inflightMu.Unlock()
+	if started.Load() {
 		return
 	}
 	q = newQueue()
@@ -250,10 +254,13 @@ func Init() {
 			}
 		}()
 	}
+	started.Store(true)
 }
 
 // Call 受理一条命令。立即返回,不阻塞。
 func Call(seq int64, cmd, argsJSON string) error {
+	inflightMu.Lock()
+	defer inflightMu.Unlock()
 	if !started.Load() {
 		return NewErr(EInvalid, "核心层还没 init")
 	}
@@ -264,12 +271,19 @@ func Call(seq int64, cmd, argsJSON string) error {
 		// seq 由宿主分配,必须单调递增且非 0
 		return NewErr(EInvalid, "seq 不能为 0")
 	}
+	if _, exists := inflight[seq]; exists {
+		return NewErr(EInvalid, "seq 已在执行")
+	}
 	ctx, cancel := context.WithCancel(context.Background())
-	inflightMu.Lock()
-	inflight[seq] = cancel
-	inflightMu.Unlock()
-	jobs <- job{seq: seq, cmd: cmd, args: argsJSON, ctx: ctx}
-	return nil
+	// 接纳检查、登记和投递与关停同锁;满载立即拒绝,不阻塞宿主线程。
+	select {
+	case jobs <- job{seq: seq, cmd: cmd, args: argsJSON, ctx: ctx}:
+		inflight[seq] = cancel
+		return nil
+	default:
+		cancel()
+		return &Err{Code: EBusy, Msg: "命令队列已满,请稍后重试", Retryable: true}
+	}
 }
 
 // Invoke 在**当前 goroutine 上**同步跑一条已注册命令,结果直接返回,不进事件队列。
@@ -327,16 +341,25 @@ func NextEvent(timeoutMs int32) []byte {
 	return b
 }
 
-// Shutdown 关停。发 eof 让消费者退出循环。
-func Shutdown() {
+// BeginShutdown 停止接纳并取消任务,保留事件出口供各模块记录收尾日志。
+func BeginShutdown() {
+	inflightMu.Lock()
 	if !shuttingDown.CompareAndSwap(false, true) {
+		inflightMu.Unlock()
 		return
 	}
-	inflightMu.Lock()
 	for _, c := range inflight {
 		c()
 	}
+	if jobs != nil {
+		close(jobs)
+	}
 	inflightMu.Unlock()
+}
+
+// Shutdown 完成关停。发 eof 让消费者退出循环。
+func Shutdown() {
+	BeginShutdown()
 	if q != nil {
 		q.close()
 	}
@@ -374,6 +397,10 @@ func runGuarded(j job) {
 		}
 	}()
 
+	if j.ctx.Err() != nil {
+		failResult(j.seq, &Err{Code: EInvalid, Msg: "命令已取消"})
+		return
+	}
 	h, ok := lookup(j.cmd)
 	if !ok {
 		// 未注册的命令是**调用方的 bug**,不是「条目不存在」——

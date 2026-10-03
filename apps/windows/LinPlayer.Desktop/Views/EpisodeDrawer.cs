@@ -5,6 +5,10 @@ using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Controls.Templates;
 using Avalonia.Layout;
+using Avalonia.Input;
+using Avalonia.Automation;
+using Avalonia.VisualTree;
+using Avalonia.Threading;
 using Avalonia.Media;
 using Avalonia.Media.Transformation;
 using LinPlayer.Desktop.Core;
@@ -26,6 +30,7 @@ internal sealed class EpisodeDrawer : Border
 
     private readonly ContentControl _body = new();
     private readonly List<Button> _tabs = [];
+    private Action? _focusContent;
 
     public EpisodeDrawer(CoreClient core, string server, IReadOnlyList<CardItem> episodes, string currentId,
         IReadOnlyList<(double At, string Label)> chapters, Action<CardItem> onPick, Action<double> onChapter,
@@ -38,23 +43,37 @@ internal sealed class EpisodeDrawer : Border
         BorderBrush = new SolidColorBrush(Color.Parse("#1fffffff"));
         BorderThickness = new Thickness(1, 0, 0, 0);
         Padding = new Thickness(0, 14, 0, 0);
+        KeyboardNavigation.SetTabNavigation(this, KeyboardNavigationMode.Cycle);
 
         var close = new Button
         {
             Classes = { "osd" }, Content = "\uE711", FontSize = 14, Width = 34, Height = 34,
-            Focusable = false, HorizontalAlignment = HorizontalAlignment.Right,
+            Focusable = true, HorizontalAlignment = HorizontalAlignment.Right,
         };
         ToolTip.SetTip(close, "收起(Esc)");
+        AutomationProperties.SetName(close, "收起选集栏");
         close.Click += (_, _) => onClose();
 
         var tabs = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
         void Tab(object content, Func<Control> make)
         {
-            var b = new Button { Classes = { "chip" }, Content = content, Focusable = false };
+            var b = new Button { Classes = { "chip" }, Content = content, Focusable = true };
             b.Click += (_, _) =>
             {
                 foreach (var t in _tabs) t.Classes.Set("on", t == b);
+                _focusContent = null;
                 _body.Content = make();
+            };
+            b.KeyDown += (_, e) =>
+            {
+                if (e.Key == Key.Down) { _focusContent?.Invoke(); e.Handled = true; }
+                else if (e.Key is Key.Left or Key.Right)
+                {
+                    var next = _tabs[Math.Clamp(_tabs.IndexOf(b) + (e.Key == Key.Left ? -1 : 1), 0, _tabs.Count - 1)];
+                    next.Focus();
+                    next.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
+                    e.Handled = true;
+                }
             };
             _tabs.Add(b);
             tabs.Children.Add(b);
@@ -85,6 +104,8 @@ internal sealed class EpisodeDrawer : Border
         if (_tabs.Count > 0) _tabs[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
     }
 
+    internal void FocusInitial() => _tabs.FirstOrDefault()?.Focus();
+
     /// <summary>插件侧栏页的标签:manifest 给了 <c>icon</c> 就图标 + 名字(D300)。</summary>
     private static object TabHead(PlayerSurfaceInfo p)
     {
@@ -106,15 +127,35 @@ internal sealed class EpisodeDrawer : Border
     /// 分集表。<b>虚拟化</b>:长篇番剧上千集,全造出来打开这一栏就要卡半秒。
     /// 打开时把正在放的那一集滚进视野 —— 第 500 集时停在第 1 集等于让人自己翻。
     /// </summary>
-    private static Control EpisodeList(CoreClient core, string server, IReadOnlyList<CardItem> eps,
+    private Control EpisodeList(CoreClient core, string server, IReadOnlyList<CardItem> eps,
         string currentId, Action<CardItem> onPick)
     {
+        var items = eps.ToList();
+        var focused = Math.Max(0, items.FindIndex(e => e.Id == currentId));
         var list = new ItemsControl
         {
             ItemsSource = eps,
             ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel()),
             ItemTemplate = new FuncDataTemplate<CardItem>((e, _) =>
-                e is null ? new Panel() : Row(core, server, e, e.Id == currentId, onPick)),
+            {
+                if (e is null) return new Panel();
+                var row = Row(core, server, e, e.Id == currentId, onPick);
+                row.GotFocus += (_, _) => focused = items.IndexOf(e);
+                return row;
+            }),
+        };
+        void FocusRow(int index)
+        {
+            focused = Math.Clamp(index, 0, items.Count - 1);
+            list.ScrollIntoView(focused);
+            Dispatcher.UIThread.Post(() => list.ContainerFromIndex(focused)?.GetVisualDescendants().OfType<Button>().FirstOrDefault()?.Focus(), DispatcherPriority.Loaded);
+        }
+        _focusContent = () => FocusRow(focused);
+        list.KeyDown += (_, e) =>
+        {
+            if (e.Key is not (Key.Up or Key.Down or Key.Home or Key.End)) return;
+            FocusRow(e.Key == Key.Home ? 0 : e.Key == Key.End ? items.Count - 1 : focused + (e.Key == Key.Up ? -1 : 1));
+            e.Handled = true;
         };
         var sv = new ScrollViewer
         {
@@ -187,27 +228,37 @@ internal sealed class EpisodeDrawer : Border
 
         var b = new Button
         {
-            Classes = { "eprow" }, Content = grid, Focusable = false,
+            Classes = { "eprow" }, Content = grid, Focusable = true,
             Margin = new Thickness(0, 0, 0, 6),
         };
         if (current) b.Classes.Add("on");
+        AutomationProperties.SetName(b, title.Text ?? e.Name);
         b.Click += (_, _) => onPick(e);
         return b;
     }
 
-    private static Control ChapterList(IReadOnlyList<(double At, string Label)> chapters, Action<double> onChapter)
+    private Control ChapterList(IReadOnlyList<(double At, string Label)> chapters, Action<double> onChapter)
     {
         var col = new StackPanel { Spacing = 2 };
         foreach (var (at, label) in chapters)
         {
             var b = new Button
             {
-                Classes = { "eprow" }, Focusable = false,
+                Classes = { "eprow" }, Focusable = true,
                 Content = new TextBlock { Text = label, FontSize = 13.5, Foreground = Brushes.White },
             };
             b.Click += (_, _) => onChapter(at);
+            b.GotFocus += (_, _) => b.BringIntoView();
+            b.KeyDown += (_, e) =>
+            {
+                if (e.Key is not (Key.Up or Key.Down)) return;
+                var index = Math.Clamp(col.Children.IndexOf(b) + (e.Key == Key.Up ? -1 : 1), 0, col.Children.Count - 1);
+                col.Children[index].Focus();
+                e.Handled = true;
+            };
             col.Children.Add(b);
         }
+        _focusContent = () => col.Children.FirstOrDefault()?.Focus();
         return new ScrollViewer { Content = col, Padding = new Thickness(10, 0, 10, 14) };
     }
 
@@ -217,5 +268,6 @@ internal sealed class EpisodeDrawer : Border
         c.RenderTransform = TransformOperations.Parse(open ? "translateX(0px)" : $"translateX({DrawerWidth}px)");
         c.Opacity = open ? 1 : 0;
         c.IsHitTestVisible = open;
+        c.IsEnabled = open;
     }
 }

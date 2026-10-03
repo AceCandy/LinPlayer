@@ -4,7 +4,6 @@ package download
 
 import (
 	"context"
-	"strings"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
@@ -72,15 +71,13 @@ func RegisterCommands() {
 		if acc == nil || acc.IsFileBrowse() {
 			return nil, bus.NewErr(bus.EAuth, "请先登录 Emby 服务器")
 		}
-		server := strings.TrimRight(acc.ActiveLineURL(), "/")
-		url := server + "/Items/" + itemID + "/Download?api_key=" + acc.Token
-
 		it := &Item{
 			ItemID:    itemID,
 			Type:      str(a, "type_"),
 			Title:     str(a, "title"),
 			Container: str(a, "container"),
-			URL:       url,
+			ServerID:  acc.Server,
+			UserID:    acc.UserID,
 		}
 		// 剧名 / 季集号是**文件名**要用的:只给「第 12 集」的话两部剧各下一集
 		// 就撞成同一个文件(见 fileBase)。调用方给不出就算了,不强求。
@@ -96,6 +93,7 @@ func RegisterCommands() {
 			it.EpisodeNumber = &n
 		}
 		if p := str(a, "poster_url"); p != "" {
+			p = stripCredentials(p)
 			it.PosterURL = &p
 		}
 		return m.Enqueue(it), nil
@@ -146,7 +144,6 @@ func RegisterCommands() {
 		for _, one := range m.List() {
 			queued[one.ItemID] = true
 		}
-		server := strings.TrimRight(acc.ActiveLineURL(), "/")
 		out := SeasonQueued{IDs: []string{}}
 		for i := range eps {
 			ep := eps[i]
@@ -160,13 +157,15 @@ func RegisterCommands() {
 				Title:  ep.Name,
 				// 列表命令不发 container,交给核心层兜底(默认 mkv)——
 				// 和卡片右键那条「下载」同一个口径。
-				URL:           server + "/Items/" + ep.ID + "/Download?api_key=" + acc.Token,
+				ServerID:      acc.Server,
+				UserID:        acc.UserID,
 				SeriesID:      ep.SeriesID,
 				SeriesName:    ep.SeriesName,
 				SeasonNumber:  ep.SeasonNo,
 				EpisodeNumber: ep.EpisodeNo,
 			}
 			if p := str(a, "poster_url"); p != "" {
+				p = stripCredentials(p)
 				it.PosterURL = &p
 			}
 			out.IDs = append(out.IDs, m.Enqueue(it))

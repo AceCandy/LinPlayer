@@ -17,13 +17,19 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff # v5
+        with:
+          go-version: '1.27.0'
+          cache: false
       - name: Resolve version (input or latest pre-release)
         id: resolve
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          INPUT_VERSION: ${{ inputs.version }}
         run: |
           set -euo pipefail
-          VER="${{ inputs.version }}"
+          VER="$INPUT_VERSION"
           if [ -z "$VER" ]; then
             echo "未指定版本，自动选取版本号最大的预发布(*-pre)…"
             # ★ 不能用 `.[0].tagName` —— GitHub 返回的顺序**不可依赖**,没写进文档也不自洽。
@@ -37,6 +43,7 @@ jobs:
               --json tagName,isPrerelease \
               --jq 'map(select(.isPrerelease))|.[].tagName' \
               | awk '{
+                  if ($0 !~ /^v[0-9]+\.[0-9]+\.[0-9]+(-build[0-9]+)?-pre$/) next;
                   t=$0; v=t; sub(/^v/,"",v); sub(/-pre$/,"",v);
                   b=0;
                   if (match(v,/-build[0-9]+$/)) { b=substr(v,RSTART+6); sub(/-build[0-9]+$/,"",v) }
@@ -50,6 +57,7 @@ jobs:
             VER=$(echo "$TAG" | sed -E 's/^v//; s/-pre$//')
             echo "选取到最新预发布: $TAG -> 版本 $VER"
           fi
+          [[ "$VER" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-build[0-9]+)?$ ]] || { echo "版本格式不合法"; exit 1; }
           echo "version=$VER" >> "$GITHUB_OUTPUT"
           echo "pretag=v$VER-pre" >> "$GITHUB_OUTPUT"
 
@@ -64,30 +72,25 @@ jobs:
           echo "Downloaded assets:"
           ls -lah /tmp/assets/
 
-      - name: Verify assets (informational)
+      - name: Require complete assets and successful platform checks
+        id: policy
+        env:
+          RELEASE_VERSION: ${{ steps.resolve.outputs.version }}
+          RELEASE_TAG: ${{ steps.resolve.outputs.pretag }}
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
         run: |
-          VER="${{ steps.resolve.outputs.version }}"
-          # 只列**真的会被构建出来**的产物。把不存在的平台留在这儿只会让每次发布
-          # 刷一串假「缺少 xxx」,久了没人看这段输出。
-          #
-          # ★ APK 的名字由安卓出包脚本决定,应用内更新按 `.apk` + ABI 认包
-          #   (core/system/update.go 的 assetKeywordSets),改名前先改那儿。
-          EXPECTED=(
-            "LinPlayer-Windows-v$VER.zip"
-            "LinPlayer-Linux-v$VER.zip"
-            "app-arm64-v8a-release.apk"
-            "app-tv-armeabi-v7a-release.apk"
-          )
-          MISSING=0
-          for f in "${EXPECTED[@]}"; do
-            if [ -f "/tmp/assets/$f" ]; then
-              echo "✅ $f"
-            else
-              echo "⚠️ 缺少: $f（该平台将不在本次发布中）"
-              MISSING=$((MISSING+1))
-            fi
-          done
-          echo "缺失 $MISSING 个平台产物（不阻断发布）"
+          git fetch --depth=1 origin "refs/tags/$RELEASE_TAG"
+          RELEASE_COMMIT=$(git rev-parse 'FETCH_HEAD^{commit}')
+          python3 scripts/check-release-policy.py /tmp/assets "$RELEASE_VERSION" "$RELEASE_COMMIT"
+          (cd core && go run ./cmd/signupdate -verify "$RELEASE_TAG" /tmp/assets/SHA256SUMS.txt)
+          STABLE_TAG="v$RELEASE_VERSION"
+          if [ -n "$(git ls-remote --tags origin "refs/tags/$STABLE_TAG")" ]; then
+            git fetch --depth=1 origin "refs/tags/$STABLE_TAG"
+            STABLE_COMMIT=$(git rev-parse 'FETCH_HEAD^{commit}')
+            [ "$STABLE_COMMIT" = "$RELEASE_COMMIT" ] || { echo "已有稳定标签与预发布提交不一致"; exit 1; }
+          fi
+          echo "commit=$RELEASE_COMMIT" >> "$GITHUB_OUTPUT"
 
       - name: Carry over the pre-release notes
         env:
@@ -134,13 +137,25 @@ jobs:
           # 随 files: /tmp/assets/* 一起上传，供 App 端校验安装包完整性。
           cd /tmp/assets
           rm -f SHA256SUMS
-          for f in *; do [ -f "$f" ] && sha256sum "$f"; done > SHA256SUMS
+          sha256sum *.zip *.apk RELEASE-STATUS.json > SHA256SUMS
           echo "Generated SHA256SUMS:"; cat SHA256SUMS
 
+      - name: Sign stable update manifest
+        env:
+          LP_UPDATE_SIGNING_SEED: ${{ secrets.LP_UPDATE_SIGNING_SEED }}
+          RELEASE_TAG: v${{ steps.resolve.outputs.version }}
+          GOTOOLCHAIN: local
+          CGO_ENABLED: '0'
+        run: |
+          cd core
+          go run ./cmd/signupdate "$RELEASE_TAG" /tmp/assets/SHA256SUMS
+          go run ./cmd/signupdate -verify "$RELEASE_TAG" /tmp/assets/SHA256SUMS
+
       - name: Create Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           tag_name: v${{ steps.resolve.outputs.version }}
+          target_commitish: ${{ steps.policy.outputs.commit }}
           name: Release v${{ steps.resolve.outputs.version }}
           prerelease: false
           make_latest: true

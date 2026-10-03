@@ -236,7 +236,7 @@ private fun AggregateRows(
                     err != null -> TvText("$name 没搜成:$err", t.meta, TvC.fg3, maxLines = 2)
                     n == 0 -> TvText("$name · 没有结果", t.meta, TvC.fg3)
                     else -> {
-                        RowTitle(name, trailing = "$n 条")
+                        RowTitle(name, trailing = "$n 条" + (if (!plugin) " · 最多 8 条" else ""))
                         Spacer(Modifier.height(TvSp.x8))
                         ProvideRowKeyline(TvSp.x12) {
                             LazyRow(contentPadding = PaddingValues(horizontal = TvSp.x12, vertical = TvSp.x6),
@@ -288,7 +288,7 @@ private fun SearchResults(
             }
             val rest = hits.filterNot { it.item.isEpisode }
             val eps = hits.filter { it.item.isEpisode }
-            TvText("结果 · ${hits.size}", t.meta, TvC.fg3)
+            TvText("结果 · ${hits.size}" + (if (hits.size >= 60) " · 最多显示 60 条,请缩小关键词" else ""), t.meta, TvC.fg3)
             Spacer(Modifier.height(TvSp.x6))
             LazyColumn(verticalArrangement = Arrangement.spacedBy(TvSp.x6), contentPadding = PaddingValues(bottom = TvSp.x12)) {
                 items(rest, key = { it.item.id }) { h ->

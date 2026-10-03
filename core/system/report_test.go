@@ -1,9 +1,34 @@
 package system
 
 import (
+	"encoding/json"
+	"os"
 	"strings"
 	"testing"
 )
+
+func Test共用隐私语料(t *testing.T) {
+	b, err := os.ReadFile("../../testdata/privacy.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var corpus struct {
+		Home     string `json:"home"`
+		DataRoot string `json:"data_root"`
+		Cases    []struct {
+			Input    string `json:"input"`
+			Expected string `json:"expected"`
+		} `json:"cases"`
+	}
+	if err := json.Unmarshal(b, &corpus); err != nil {
+		t.Fatal(err)
+	}
+	for _, tc := range corpus.Cases {
+		if got := Scrub(tc.Input, corpus.Home, corpus.DataRoot); got != tc.Expected {
+			t.Errorf("脱敏不一致: %q != %q", got, tc.Expected)
+		}
+	}
+}
 
 func TestScrub(t *testing.T) {
 	home := `C:\Users\zhangsan`
@@ -36,5 +61,12 @@ func TestBuildReportTruncatesLogTail(t *testing.T) {
 	}
 	if !strings.HasSuffix(r.Log, "尾巴") || len(r.Log) > maxLogBytes+64 {
 		t.Fatalf("日志该留尾部并截到上限,len=%d", len(r.Log))
+	}
+}
+
+func Test报告截断不能截掉脱敏参数名(t *testing.T) {
+	r := buildReport("feedback", "", "", "api_key="+strings.Repeat("SECRET", maxLogBytes))
+	if strings.Contains(r.Log, "SECRET") {
+		t.Fatal("日志截断后丢失参数名,令牌尾部外泄")
 	}
 }

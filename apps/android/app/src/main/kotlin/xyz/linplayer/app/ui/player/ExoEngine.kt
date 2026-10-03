@@ -91,7 +91,7 @@ private const val TAG_EXO = "lp-exo"
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun rememberExoPlayer(enabled: Boolean, preferredSubLang: String?): ExoPlayer? {
+internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?): ExoPlayer? {
     val ctx = LocalContext.current
     if (!enabled) return null
     val player = remember {
@@ -118,36 +118,51 @@ fun rememberExoPlayer(enabled: Boolean, preferredSubLang: String?): ExoPlayer? {
        `onCues` 一次都不回调,界面上就是「完全没有字幕」。用户报的正是这一条。
        语言偏好走播放偏好里的 `sub_lang`;它是空的时候
        `selectUndeterminedTextLanguage` 兜住「没标语言」的那些轨,
-       两条都命中不了的由 [pickSubtitleTrack] 在轨道表到手之后再补一次。 */
-    DisposableEffect(player, preferredSubLang) {
+       两条都命中不了的由 [preferredTrackIndex] 在轨道表到手之后再补一次。 */
+    DisposableEffect(player, prefs) {
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-            .setPreferredTextLanguage(preferredSubLang?.takeIf { it.isNotBlank() })
+            .setPreferredTextLanguage(prefs?.subLang?.takeIf { it.isNotBlank() })
+            .setPreferredAudioLanguage(prefs?.audioLang?.takeIf { it.isNotBlank() })
             .setSelectUndeterminedTextLanguage(true)
+            .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, prefs?.subEnabled == false)
             .build()
-        onDispose { }
+        // 每类轨道表只应用一次;手动选轨产生的回调不能再被默认偏好覆盖。
+        val applied = mutableMapOf<Int, List<androidx.media3.common.TrackGroup>>()
+        fun apply(tracks: Tracks) {
+            if (prefs == null) return
+            for (type in listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT)) {
+                val groups = tracks.groups.filter { it.type == type }
+                val key = groups.map { it.mediaTrackGroup }
+                if (key.isEmpty() || applied[type] == key) continue
+                applied[type] = key
+                if (type in player.trackSelectionParameters.disabledTrackTypes) continue
+                val rows = groups.flatMap { group -> (0 until group.length).filter { group.isTrackSupported(it) }.map { group to it } }
+                val subtitle = type == C.TRACK_TYPE_TEXT
+                val index = preferredTrackIndex(rows.map { (g, i) ->
+                    val f = g.getTrackFormat(i)
+                    TrackCandidate(f.label.orEmpty(), f.language.orEmpty(), g.isTrackSelected(i))
+                }, if (subtitle) prefs.subLang else prefs.audioLang, if (subtitle) prefs.subRegex else prefs.audioRegex, subtitle)
+                if (index >= 0) {
+                    val (group, track) = rows[index]
+                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track)).build()
+                }
+            }
+        }
+        val listener = object : Player.Listener {
+            override fun onTracksChanged(tracks: Tracks) = apply(tracks)
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                applied.clear()
+                player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                    .clearOverridesOfType(C.TRACK_TYPE_AUDIO).clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
+            }
+        }
+        player.addListener(listener)
+        apply(player.currentTracks)
+        onDispose { player.removeListener(listener) }
     }
     DisposableEffect(player) { onDispose { player.release() } }
     return player
-}
-
-/**
- * 兜底选一条字幕轨。
- *
- * 语言偏好没命中时(片源标的是 `chi` 而偏好写的是 `zh`,或者干脆一条都没标),
- * DefaultTrackSelector 会**一条都不选**。这里在轨道表到手之后补一次:
- * 有文本轨、又一条都没选中 → 选第一条。
- *
- * ★ 用户显式关了字幕(`sub_lang == ""`)时**不补** —— 那是他自己关的。
- */
-@OptIn(UnstableApi::class)
-private fun pickSubtitleTrack(player: ExoPlayer, tracks: Tracks, subOff: Boolean) {
-    if (subOff) return
-    val texts = tracks.groups.filter { it.type == C.TRACK_TYPE_TEXT }
-    if (texts.isEmpty() || texts.any { it.isSelected }) return
-    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-        .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, false)
-        .setOverrideForType(TrackSelectionOverride(texts.first().mediaTrackGroup, 0))
-        .build()
 }
 
 /** 把一条地址交给 ExoPlayer,并从 [startSecs] 起播。 */
@@ -258,7 +273,6 @@ fun ExoSurface(
                 if (ratio <= 0f) videoOf(tracks)?.let { (w, h, r) ->
                     ratio = r; videoW = w; videoH = h
                 }
-                pickSubtitleTrack(player, tracks, subOff)
                 syncLibassTrack(tracks, subOff)
             }
         }

@@ -146,6 +146,7 @@ func PlayLocal(path string, resumeSecs float64) (map[string]any, error) {
 	// ★ 本地文件**不走 Emby 上报**,也没有观看记录上下文 —— 清掉,
 	//   否则会把本地文件的进度记到上一部 Emby 片上。
 	currentMu.Lock()
+	cancelHistoryRetryLocked()
 	current = nil
 	currentCtx = nil
 	pendingSubs = nil

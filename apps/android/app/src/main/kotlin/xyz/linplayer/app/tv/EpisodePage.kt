@@ -106,8 +106,9 @@ fun EpisodePage(r: TvRoute.Episode) {
         val d = b.valueOrNull ?: return@LaunchedEffect
         val parent = d.str("season_id") ?: d.str("series_id")
         if (parent != null && parent != siblingsFor) launch {
-            siblings = Item.list(app.block("emby.seasonEpisodes", args("parent_id" to parent, "limit" to 200)).valueOrNull)
-            siblingsFor = parent
+            runCatching { app.seasonEpisodes(parent) }
+                .onSuccess { siblings = it; siblingsFor = parent }
+                .onFailure { app.report(it) }
         }
         // 跨服务器认定同一集交给核心层(剧 TMDB / 原名 + 季集号),见 loadVersionCards
         loadVersionCards(app, epId) { pick.cards = it }

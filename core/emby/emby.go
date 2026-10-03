@@ -12,9 +12,8 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
-	"time"
 
-	"linplayer/core/net/tlspolicy"
+	"linplayer/core/httpx"
 )
 
 // Session 一次会话所需的全部身份信息。
@@ -332,15 +331,10 @@ type Client struct {
 
 // NewClient 造一个默认客户端。
 //
-// ★ 超时是**空闲超时**不是整体超时(SPEC §14.1)—— 慢链路上拉一个大响应
-// 合法地要几十秒,整体超时会把正常请求掐掉。这里先用整体超时占位,
-// 空闲超时要在 net 层实现(TODO C33)。
+// 使用统一出口的响应头/响应体空闲超时,持续有数据的慢请求不会被整体时限截断。
 func NewClient(version string) *Client {
 	return &Client{
-		// ★ Transport 按 host 决定要不要放行自签名证书(见 net/tlspolicy)。
-		//   用默认 Transport 的话,用户勾了「允许自签名」也连不上自建服务器 ——
-		//   而报出来的是一句看不懂的 x509 英文。
-		HTTP:    &http.Client{Timeout: 60 * time.Second, Transport: tlspolicy.Transport()},
+		HTTP:    httpx.EmbyClient(),
 		UA:      "LinPlayer/" + version,
 		Version: version,
 	}

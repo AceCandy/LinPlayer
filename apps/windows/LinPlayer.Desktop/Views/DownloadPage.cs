@@ -5,11 +5,13 @@ using System.Text.Json;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
+using Avalonia.Controls.Templates;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using LinPlayer.Core;
 using LinPlayer.Desktop.Core;
 
@@ -31,10 +33,11 @@ public sealed class DownloadPage : PageBase
     /* 列表**不许铺满整个窗口**。一条下载记录的内容只有「海报 标题 一行状态」,
        在 1600px 宽的窗口里摊开就是标题和按钮各占一头、中间一大片空 ——
        用户说的「样式不好看」有一半是这个。920 是四五十个汉字的宽度,够长标题不截断。 */
-    private readonly StackPanel _rows = new()
+    private readonly ItemsControl _rows = new()
     {
-        Spacing = 10, MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Left,
+        MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Left,
     };
+    private Control _head = null!;
     private readonly TextBlock _status = Dim("");
     private readonly ComboBox _threads = new() { Width = 130, MinHeight = 34 };
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -59,7 +62,7 @@ public sealed class DownloadPage : PageBase
         var clear = new Button { Content = "清除已完成", Classes = { "ghost" }, MinHeight = 34 };
         clear.Click += (_, _) => _ = ClearCompleted();
 
-        Content = Scrolled(new StackPanel
+        _head = new StackPanel
         {
             Spacing = 14,
             Children =
@@ -71,9 +74,13 @@ public sealed class DownloadPage : PageBase
                     Children = { _threads, clear },
                 },
                 _status,
-                _rows,
             },
-        });
+        };
+        _head.Margin = new Thickness(0, 0, 0, 14);
+        _rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel());
+        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => item is Control header ? header : item is string section ? Section(section) : item is JsonElement entry ? Row(entry) : new Panel());
+        _rows.ItemsSource = new object[] { _head };
+        Content = Scrolled(_rows);
 
         // 并发数**从核心层读回来**,不是 UI 猜一个再灌下去。
         // 猜的话就是「pill 显示 3、引擎实际跑 2」双重撒谎(UI_PC §7.9)。
@@ -146,7 +153,7 @@ public sealed class DownloadPage : PageBase
         var items = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
         Dispatcher.UIThread.Post(() =>
         {
-            _rows.Children.Clear();
+            _rows.ItemsSource = new object[] { _head };
             if (items.Count == 0)
             {
                 _status.Text = "还没有下载任务。在详情页点「下载」加进来。";
@@ -162,17 +169,19 @@ public sealed class DownloadPage : PageBase
             var done = items.Where(x => Str(x, "status") is "completed").ToList();
             var rest = items.Where(x => !live.Contains(x) && !done.Contains(x)).ToList();
 
+            var rows = new List<object> { _head };
             if (live.Count > 0)
             {
-                _rows.Children.Add(Section($"进行中 · {live.Count}"));
-                foreach (var it in live) _rows.Children.Add(Row(it));
+                rows.Add($"进行中 · {live.Count}");
+                rows.AddRange(live.Cast<object>());
             }
             if (done.Count > 0)
             {
-                _rows.Children.Add(Section($"已完成 · {done.Count} —— 点一下就能看"));
-                foreach (var it in done) _rows.Children.Add(Row(it));
+                rows.Add($"已完成 · {done.Count} —— 点一下就能看");
+                rows.AddRange(done.Cast<object>());
             }
-            foreach (var it in rest) _rows.Children.Add(Row(it));
+            rows.AddRange(rest.Cast<object>());
+            _rows.ItemsSource = rows;
         });
     }
 
@@ -301,6 +310,7 @@ public sealed class DownloadPage : PageBase
         var card = new Border
         {
             Classes = { "card" },
+            Margin = new Thickness(0, 0, 0, 10),
             Padding = new Thickness(14, 10),
             Child = grid,
         };
@@ -466,9 +476,9 @@ public sealed class DownloadPage : PageBase
         if (mode == "") return;
         _ = Task.Delay(2500).ContinueWith(_ => Dispatcher.UIThread.Post(() =>
         {
-            var cards = _rows.Children.OfType<Border>().ToList();
+            var cards = _rows.GetVisualDescendants().OfType<Border>().Where(c => c.Classes.Contains("card")).ToList();
             var taps = cards.Where(c => c.Classes.Contains("tap")).ToList();
-            var heads = _rows.Children.OfType<TextBlock>().Select(t => t.Text ?? "").ToList();
+            var heads = _rows.Items.OfType<string>().ToList();
             Console.WriteLine(heads.Any(h => h.StartsWith("已完成"))
                 ? $"[下载页] ✓ 分了组:{string.Join(" / ", heads)}"
                 : $"[下载页] ✗ 没有「已完成」分组,共 {heads.Count} 个组标题");
