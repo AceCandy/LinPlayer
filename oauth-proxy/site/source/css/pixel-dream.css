@@ -37,7 +37,7 @@
   --bar-text: #363c49;       /* engraved dark slate */
   --accent: #2a5fb5;         /* classic retro link blue */
   --star: #8c93a1;           /* steel star accent */
-  --glit: url("/img/glitter-2.svg");
+  --glit: url("../img/glitter-2.svg");
   --engrave: 0 1px 0 rgba(255, 255, 255, 0.9), 0 -1px 0 rgba(0, 0, 0, 0.14);
 }
 
@@ -61,7 +61,7 @@ html {
   min-height: 100%;
   scroll-behavior: smooth;
   background:
-    url("/img/glitter-1.svg") repeat,
+    url("../img/glitter-1.svg") repeat,
     linear-gradient(135deg, #eef1f6 0%, #c9cfdb 36%, #aab2c2 66%, #d4d9e3 100%);
   background-size: 160px 160px, auto;
   background-attachment: fixed, fixed;
@@ -94,9 +94,9 @@ body {
   opacity: 0;
   animation: bling-flip 0.45s steps(1) infinite;
 }
-#glitter-bg .gframe--1 { background-image: url("/img/glitter-1.svg"); animation-delay: 0s; }
-#glitter-bg .gframe--2 { background-image: url("/img/glitter-2.svg"); animation-delay: 0.15s; }
-#glitter-bg .gframe--3 { background-image: url("/img/glitter-3.svg"); animation-delay: 0.3s; }
+#glitter-bg .gframe--1 { background-image: url("../img/glitter-1.svg"); animation-delay: 0s; }
+#glitter-bg .gframe--2 { background-image: url("../img/glitter-2.svg"); animation-delay: 0.15s; }
+#glitter-bg .gframe--3 { background-image: url("../img/glitter-3.svg"); animation-delay: 0.3s; }
 @keyframes bling-flip {
   0%, 33.3% { opacity: 1; }
   33.4%, 100% { opacity: 0; }
@@ -551,7 +551,7 @@ a:hover {
   border: 0;
   width: min(380px, 78vw);
   height: 14px;
-  background: url("/img/pixel-lace-border.svg") center center / contain no-repeat;
+  background: url("../img/pixel-lace-border.svg") center center / contain no-repeat;
 }
 
 /* pager / chips — rectangular beveled blinkie buttons */
@@ -759,7 +759,7 @@ a:hover {
   height: 52px;
   border-radius: 50%;
   border: 3px solid #fff;
-  background: #2a2f3a url("/assets/img/cover.jpg") center / cover no-repeat;
+  background: #2a2f3a url("../assets/img/cover.jpg") center / cover no-repeat;
   box-shadow: 0 0 0 3px var(--ring);
 }
 /* little vinyl spindle hole over the cover */

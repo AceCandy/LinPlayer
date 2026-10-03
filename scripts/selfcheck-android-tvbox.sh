@@ -11,7 +11,7 @@ cd "$ROOT"
 source scripts/env.sh >/dev/null 2>&1 || true
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
 ADB="$SDK/platform-tools/adb.exe"; [ -x "$ADB" ] || ADB="$SDK/platform-tools/adb"
-PKG=xyz.linplayer.app.debug
+PKG=io.github.acecandy.linplayer.debug
 ACT="$PKG/xyz.linplayer.app.MainActivity"
 HOST="${LP_SELFCHECK_HOST:-10.0.2.2}"
 VOD=18097

@@ -1,7 +1,7 @@
 name: Deploy site (GitHub Pages)
 
 # 构建 oauth-proxy/site 下的 Hexo 静态站（落地页 + Wiki）并发布到 GitHub Pages。
-# 站点地址（自定义域名）：https://linplayer.902541.xyz
+# 站点使用当前仓库默认 Pages 项目地址,不绑定上游自定义域名。
 # 注意：需在仓库 Settings → Pages → Build and deployment → Source 选 "GitHub Actions"。
 
 on:
@@ -44,6 +44,9 @@ jobs:
 
       - name: Build (hexo generate)
         run: npx hexo generate
+
+      - name: Check project paths
+        run: python3 ../../scripts/check-site-paths.py public
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@56afc609e74202658d3ffba0e8f6dda462b719fa # v3

@@ -14,8 +14,8 @@ author: LinPlayer
 language: zh-CN
 timezone: Asia/Shanghai
 
-url: https://linplayer.902541.xyz
-root: /
+url: https://acecandy.github.io/LinPlayer
+root: /LinPlayer/
 permalink: wiki/:title/
 permalink_defaults:
 pretty_urls:

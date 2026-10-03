@@ -31,3 +31,10 @@ go run ./cmd/signupdate -verify v2.0.0-dev ../build/pack/SHA256SUMS.txt
 本次已在仓库外建立本机副本并逐字节核对,目录权限 0700、文件权限 0600。这只是同机冗余,不能替代离线或独立存储备份。请把私钥另存到可靠的离线或加密备份,丢失会导致无法继续为这批客户端签名。公钥可以公开,私钥必须保密。更换密钥需要先让客户端可信地接受新公钥;本次不提供从配置或网络动态替换信任公钥的入口,不能直接重新生成并覆盖现有文件。
 
 签名能证明清单来自项目密钥持有者,不替代构建审查、仓库权限管理、Android APK 签名或 Windows 系统代码签名。2026-10-03 的云端独立签名检查已通过:使用实际 Secret 签名、固定公钥验签、篡改拒绝。未进行发布及真实设备安装验收。
+
+
+## 独立二开 Android 身份
+
+本项目 Android 安装包使用独立 applicationId `io.github.acecandy.linplayer`,与原版共存;Kotlin namespace 保留以兼容 JNI 类名。项目专用发布 keystore 已生成,保存在忽略的 `.local/android-signing/` 下,密钥与配套信息文件权限为 0600、目录为 0700,仓库外另有同机备份。后续版本必须复用此身份,不要重新生成覆盖。
+
+四项 Android 签名 Actions Secrets 已配置: `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`。APK 签名与更新清单 Ed25519 签名分别管理。二开项目不需要原作者私钥,也不承诺覆盖原版安装包或自动迁移原版应用数据。同机备份仍需补充离线或独立存储备份。

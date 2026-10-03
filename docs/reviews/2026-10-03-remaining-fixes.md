@@ -60,4 +60,14 @@ Windows 候选包为 `build/pack/LinPlayer-Windows-v2.0.0-dev.zip`（约 107.5 M
 - Build 整体结果为失败,预发布 job 跳过,没有创建预发布或提升稳定版。
 - 同次推送触发既有站点工作流:站点构建成功,部署返回 404;只读 Pages 接口亦返回 404,当前仓库没有启用 Pages。本轮未启用站点或调整域名。
 
-继续 Android 正式出包需要原发布 keystore 及配套密码、别名,通过受限本地文件配置 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`,不要将值发到聊天或提交。更新清单签名 Secret 不能替代 APK 签名。编译期功能凭据缺失时,相关集成功能仍不完整。
+上述失败记录属于首次云端验证。用户随后明确本项目是独立二开,不要求覆盖原版;已为二开新建独立发布 keystore,通过受限本地文件配置 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`,不要将值发到聊天或提交。更新清单签名 Secret 不能替代 APK 签名。编译期功能凭据缺失时,相关集成功能仍不完整。
+
+
+## 独立二开身份调整
+
+用户确认以独立二开版交付,不需要原项目私钥。此前将兼容原版覆盖升级当作前提的判断已纠正:先确认分发身份和覆盖升级目标,再判断是否需要旧签名。
+
+- Android applicationId 改为 `io.github.acecandy.linplayer`,保持 Kotlin namespace 和 JNI 类名;两个自检脚本同步新的运行包名,FileProvider 按运行时包名派生。
+- 新发布 keystore 的四项 Actions Secrets 已配置;本机密钥与配套信息均在忽略目录,仓库外备份已核对权限及内容。后续版本复用此密钥,仍需独立存储备份。
+- 站点使用当前仓库默认 GitHub Pages 项目地址,移除继承的 CNAME,仓库链接指向二开仓库,删除原项目群组入口。修正 CSS、音频、截图和文档链接的子路径;生成页面子路径门禁先捕获错误再通过,已接入部署工作流。
+- Pages 已通过 API 启用 workflow 构建模式。实际部署和新版 APK 签名验收结果待本轮 CI 回读;不提升稳定版。

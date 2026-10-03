@@ -41,7 +41,7 @@ android {
     compileSdk = 37
 
     defaultConfig {
-        applicationId = "xyz.linplayer.app"
+        applicationId = "io.github.acecandy.linplayer"
         minSdk = 24
         targetSdk = 36
         versionName = lpVersion

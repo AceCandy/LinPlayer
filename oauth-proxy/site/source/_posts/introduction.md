@@ -34,8 +34,8 @@ tags: [介绍, Emby]
 - **ExoPlayer（Media3）** —— **仅安卓**，播放页长按播放键即可切。原生硬解链路，能耗与兼容性好；
   该内核下没有画面增强（glsl-shaders 是 mpv 的东西）。
 
-> 详见 [播放内核与字幕](/wiki/player-cores/) 与 [功能特性](/wiki/features/)。
+> 详见 [播放内核与字幕](/LinPlayer/wiki/player-cores/) 与 [功能特性](/LinPlayer/wiki/features/)。
 
 ## 快速开始
 
-前往 [快速开始](/wiki/getting-started/) 了解如何连接服务器并开始播放。
+前往 [快速开始](/LinPlayer/wiki/getting-started/) 了解如何连接服务器并开始播放。

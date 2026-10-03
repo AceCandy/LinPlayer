@@ -8,7 +8,7 @@
 (function () {
   "use strict";
 
-  var TRACK_PATH = "/assets/audio/Xploshi-NewYou.flac";
+  var TRACK_PATH = new URL("../assets/audio/Xploshi-NewYou.flac", document.currentScript.src).href;
   var TRACK_NAME = "Xploshi — New You";
   var leaveTitle = "烸個亾洧着屬纡洎己哋杺凊";
   var returnTitle = "莈洧邇啲ㄖ孓，莪過啲並鈈恏";
