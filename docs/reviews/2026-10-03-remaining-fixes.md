@@ -70,4 +70,13 @@ Windows 候选包为 `build/pack/LinPlayer-Windows-v2.0.0-dev.zip`（约 107.5 M
 - Android applicationId 改为 `io.github.acecandy.linplayer`,保持 Kotlin namespace 和 JNI 类名;两个自检脚本同步新的运行包名,FileProvider 按运行时包名派生。
 - 新发布 keystore 的四项 Actions Secrets 已配置;本机密钥与配套信息均在忽略目录,仓库外备份已核对权限及内容。后续版本复用此密钥,仍需独立存储备份。
 - 站点使用当前仓库默认 GitHub Pages 项目地址,移除继承的 CNAME,仓库链接指向二开仓库,删除原项目群组入口。修正 CSS、音频、截图和文档链接的子路径;生成页面子路径门禁先捕获错误再通过,已接入部署工作流。
-- Pages 已通过 API 启用 workflow 构建模式。实际部署和新版 APK 签名验收结果待本轮 CI 回读;不提升稳定版。
+- Pages 已通过 API 启用 workflow 构建模式。站点部署及新版 APK 签名验证已完成;不提升稳定版。
+
+
+独立二开实际验证:
+
+- [站点部署](https://github.com/AceCandy/LinPlayer/actions/runs/37103336469)通过。浏览器核查首页、截图页及关于页导航,20 张截图加载、背景资源和音频加载通过;关于页指向当前仓库,浏览器已关闭。
+- [构建记录](https://github.com/AceCandy/LinPlayer/actions/runs/37103336437)中 Android 手机及 TV 包通过。下载实际云端产物,使用 SDK apksigner 验证 v2/v3,另以低版本验证范围核验 v1;两包证书摘要与本地项目 keystore 一致。aapt2 回读两包 applicationId 均为 `io.github.acecandy.linplayer`,主 Activity 类名仍为 `xyz.linplayer.app.MainActivity`。
+- 本轮 Windows 核心门禁暴露队列超时 bug:定时器唤醒后再次用更晚创建的截止时刻判断,可能重新等待而再无唤醒。日志显示插件测试清理卡在 captureUI 的 NextEvent(20)。队列改为在锁内记录定时器触发状态,保留零超时非阻塞与负超时无限等待。回归先以定时器注册后推迟创建截止时间的忠实注入变红,修复后定向竞态测试通过。
+- 完整 bus 竞态检查额外发现既有停滞测试写全局 stallTimeout 与后台 watchStall 读取冲突。本次未改该测试夹具,不声称整个 bus 竞态检查通过;超时路径定向竞态检查通过。
+- 真设备安装、原版与二开版共存、应用数据迁移及播放渲染仍未验收。独立二开不自动导入原版私有数据。

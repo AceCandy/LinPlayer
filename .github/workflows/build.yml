@@ -164,6 +164,13 @@ jobs:
         # raw 地址,藏进 Secret 只会让漏配的那次静默失灵(D571)
         run: bash scripts/check-core.sh
 
+      - name: Queue timeout regression (Windows scheduling)
+        shell: bash
+        run: |
+          source scripts/env.sh
+          cd core
+          go test ./bus -run Test队列_pop定时器唤醒后不再等待 -count=100
+
       - name: Bindings gate (COMMANDS.md ↔ Go ↔ C# ↔ Kotlin)
         shell: bash
         run: bash scripts/check-bindings.sh

@@ -207,3 +207,19 @@ func Test队列_pop超时返回nil(t *testing.T) {
 		t.Fatalf("超时 80ms 却只等了 %v —— 会把宿主的事件线程变成忙轮询", d)
 	}
 }
+
+// 定时器唤醒必须结束空队列等待,不能依赖第二次取时钟后的截止点。
+func Test队列_pop定时器唤醒后不再等待(t *testing.T) {
+	q := newQueue()
+	defer q.close()
+	done := make(chan *Event, 1)
+	go func() { done <- q.pop(5) }()
+	select {
+	case e := <-done:
+		if e != nil {
+			t.Fatalf("空队列应返回 nil,实得 %+v", e)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("定时器唤醒后仍在等待")
+	}
+}

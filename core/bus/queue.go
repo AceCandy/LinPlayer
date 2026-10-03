@@ -162,20 +162,21 @@ func (q *queue) pop(timeoutMs int32) *Event {
 	q.mu.Lock()
 	defer q.mu.Unlock()
 
-	if timeoutMs >= 0 {
+	if timeoutMs > 0 {
 		// Cond 没有带超时的 Wait,用一个定时器唤醒。
 		// ponytail: 每次 pop 起一个 timer。超时路径只在 UI 空闲时走,不是热路。
+		timedOut := false
 		t := time.AfterFunc(time.Duration(timeoutMs)*time.Millisecond, func() {
 			q.mu.Lock()
+			timedOut = true
 			q.notEmpty.Broadcast()
 			q.mu.Unlock()
 		})
 		defer t.Stop()
-		deadline := time.Now().Add(time.Duration(timeoutMs) * time.Millisecond)
-		for q.l.Len() == 0 && !q.closed && time.Now().Before(deadline) {
+		for q.l.Len() == 0 && !q.closed && !timedOut {
 			q.notEmpty.Wait()
 		}
-	} else {
+	} else if timeoutMs < 0 {
 		for q.l.Len() == 0 && !q.closed {
 			q.notEmpty.Wait()
 		}
