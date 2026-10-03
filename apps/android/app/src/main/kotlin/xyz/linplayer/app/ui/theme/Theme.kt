@@ -67,7 +67,8 @@ internal var LightColors = LpColors(
     bg = Color(0xFFFAF7FC),
     s1 = Color(0x0B000000), s2 = Color(0x13000000), s3 = Color(0x1E000000),
     line = Color(0x0F000000), line2 = Color(0x1F000000),
-    fg = Color(0xFF1A1622), fg2 = Color(0xFF6B6478), fg3 = Color(0xFF9A93A8),
+    // 说明与占位也承载可读内容:叠在最深的 s3 分层底上仍需保留 4.5:1 对比度。
+    fg = Color(0xFF1A1622), fg2 = Color(0xFF514A60), fg3 = Color(0xFF615A70),
     acc = Color(0xFF8A5A00), accDim = Color(0x1F8A5A00), accFg = Color(0xFFFFFBF2),
     ok = Color(0xFF1F7A55), warn = Color(0xFF8A5A00), bad = Color(0xFFC7554E),
     scrim = Color(0xB3FAF7FC), chip = Color(0xC7FFFFFF), isDark = false,
