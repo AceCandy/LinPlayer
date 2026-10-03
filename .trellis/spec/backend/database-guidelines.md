@@ -1,51 +1,16 @@
-# Database Guidelines
+# 核心持久化规范
 
-> Database patterns and conventions for this project.
+保留原规范路径以兼容已有任务引用。当前 Go 配置和历史使用 JSON 文件，不套用初始化模板的 ORM / SQL 迁移规则。
 
----
+## 读取与写入
 
-## Overview
+- `config.Load()` 只有文件不存在时允许默认空配置；已有文件格式损坏返回 `ErrCorrupt`，调用者不得吞错后保存默认配置。
+- `AppConfig.Save()` 保留未知 JSON 键，写临时文件 → Sync → Close → Rename；失败清理临时文件，不直接截断原配置。
+- 数据路径使用 `core/paths`；不在功能包另造数据根。
+- 初始化尚未完成时不从 `config.Current()` 取默认配置再写盘；后台任务遵守配置就绪约束。
+- `core/config/adopt.go` 只在新根缺配置时接管指定配置 / 历史，不顺带迁移缓存、日志或下载。扩大迁移范围需明确需求。
 
-<!--
-Document your project's database conventions here.
+## 回归检查
 
-Questions to answer:
-- What ORM/query library do you use?
-- How are migrations managed?
-- What are the naming conventions for tables/columns?
-- How do you handle transactions?
--->
-
-(To be filled by the team)
-
----
-
-## Query Patterns
-
-<!-- How should queries be written? Batch operations? -->
-
-(To be filled by the team)
-
----
-
-## Migrations
-
-<!-- How to create and run migrations -->
-
-(To be filled by the team)
-
----
-
-## Naming Conventions
-
-<!-- Table names, column names, index names -->
-
-(To be filled by the team)
-
----
-
-## Common Mistakes
-
-<!-- Database-related mistakes your team has made -->
-
-(To be filled by the team)
+覆盖新装缺文件、已有损坏 JSON、未知字段保存、写入失败和临时文件清理。读失败不能改写原文件，旧数据接管不能覆盖新根配置。
+参照 [实现](../../../core/config/config.go)、[配置测试](../../../core/config/config_test.go)、[数据接管](../../../core/config/adopt.go)，运行核心门禁。

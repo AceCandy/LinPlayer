@@ -170,6 +170,8 @@ Windows 上同样可用（`LinPlayer.exe`），输出需要重定向或经管道
 
 仓库结构、本地构建、门禁与技术栈详见 **[开发文档](docs/DEVELOPMENT.md)**。简要：
 
+当前开发规范统一位于 [.trellis/spec/](.trellis/spec/index.md)，按通用规则、Go 核心与原生外壳分层；各端安装包交付位置见 [构建与交付](.trellis/spec/shared/build-release.md)。
+
 ```
 core/              Go 核心层，编成 lpcore 动态库，经 C ABI 给各端调用
 apps/windows/      C# + Avalonia 桌面端（Windows 与 Linux 共用）

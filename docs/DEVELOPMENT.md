@@ -1,5 +1,7 @@
 # 开发与技术
 
+当前开发约束统一维护在 [Trellis 规范入口](../.trellis/spec/index.md)。本文提供技术概览与常用命令；目录归属、门禁和最终交付路径以 [通用规范](../.trellis/spec/shared/index.md) 为准。
+
 > 2026-09-04 重写。此前这份文档写的是 Rust + React/Tauri 那一套 —— 那个栈已从仓库删除,
 > 整篇都作废了。要看旧内容:`git show rust-final:docs/DEVELOPMENT.md`。
 

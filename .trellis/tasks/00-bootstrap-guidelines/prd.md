@@ -1,139 +1,33 @@
-# Bootstrap Task: Fill Project Development Guidelines
+# 项目规范整理与填充
 
-**You (the AI) are running this task. The developer does not read this file.**
+## 需求
 
-The developer just ran `trellis init` on this project for the first time.
-`.trellis/` now exists with empty spec scaffolding, and this bootstrap task
-exists under `.trellis/tasks/`. When they want to work on it, they should start
-this task from a session that provides Trellis session identity.
+将 LinPlayer 的长期开发规范集中到 .trellis/spec，按真实 Go 核心和原生外壳组织。
+根入口负责加载，设计正本保留原位，历史故障与当前执行规则分开维护。
 
-**Your job**: help them populate `.trellis/spec/` with the team's real
-coding conventions. Every future AI session — this project's
-`trellis-implement` and `trellis-check` sub-agents — auto-loads spec files
-listed in per-task jsonl manifests. Empty spec = sub-agents write generic
-code. Real spec = sub-agents match the team's actual patterns.
+## 边界
 
-Don't dump instructions. Open with a short greeting, figure out if the repo
-has any existing convention docs (CLAUDE.md, .cursorrules, etc.), and drive
-the rest conversationally.
+- 保留 backend / frontend / guides 路径，新增 shared 与总索引。
+- 文档使用中文，规则有真实代码、测试、脚本或用户确认的产品约束依据。
+- 不移动业务源码、缓存或构建目录，不修改 Trellis 运行脚本与任务状态。
+- 不改变产品范围、API 行为、产物命名或既有授权要求。
+- 前序手机主题修改保留，本次只整理规范与入口。
 
----
+## 验收清单
 
-## Status (update the checkboxes as you complete each item)
+- [x] Go 核心规范补齐目录、错误、日志、JSON 持久化和契约门禁。
+- [x] 外壳规范覆盖 Avalonia 桌面、Compose 手机与 TV，区分平台刻度和验收方法。
+- [x] 通用规范覆盖产品 / API、目录、安全与统一交付路径。
+- [x] 根入口指向 spec，初始化占位和不适用的上游模板内容已移除。
+- [x] 规范链接有效，Trellis 可发现各层，现有任务上下文引用没有失效。
+- [x] 已有源码 / 测试例子可追溯，产品 / API 正文迁移未改写，托管入口保持不变。
 
-- [ ] Fill backend guidelines
-- [ ] Fill frontend guidelines
-- [ ] Add code examples
+## 入口与证据
 
----
-
-## Spec files to populate
-
-
-### Backend guidelines
-
-| File | What to document |
-|------|------------------|
-| `.trellis/spec/backend/directory-structure.md` | Where different file types go (routes, services, utils) |
-| `.trellis/spec/backend/database-guidelines.md` | ORM, migrations, query patterns, naming conventions |
-| `.trellis/spec/backend/error-handling.md` | How errors are caught, logged, and returned |
-| `.trellis/spec/backend/logging-guidelines.md` | Log levels, format, what to log |
-| `.trellis/spec/backend/quality-guidelines.md` | Code review standards, testing requirements |
-
-
-### Frontend guidelines
-
-| File | What to document |
-|------|------------------|
-| `.trellis/spec/frontend/directory-structure.md` | Component/page/hook organization |
-| `.trellis/spec/frontend/component-guidelines.md` | Component patterns, props conventions |
-| `.trellis/spec/frontend/hook-guidelines.md` | Custom hook naming, patterns |
-| `.trellis/spec/frontend/state-management.md` | State library, patterns, what goes where |
-| `.trellis/spec/frontend/type-safety.md` | TypeScript conventions, type organization |
-| `.trellis/spec/frontend/quality-guidelines.md` | Linting, testing, accessibility |
-
-
-### Thinking guides (already populated)
-
-`.trellis/spec/guides/` contains general thinking guides pre-filled with
-best practices. Customize only if something clearly doesn't fit this project.
-
----
-
-## How to fill the spec
-
-### Step 1: Import from existing convention files first (preferred)
-
-Search the repo for existing convention docs. If any exist, read them and
-extract the relevant rules into the matching `.trellis/spec/` files —
-usually much faster than documenting from scratch.
-
-| File / Directory | Tool |
-|------|------|
-| `CLAUDE.md` / `CLAUDE.local.md` | Claude Code |
-| `AGENTS.md` | Codex / Claude Code / agent-compatible tools |
-| `.cursorrules` | Cursor |
-| `.cursor/rules/*.mdc` | Cursor (rules directory) |
-| `.windsurfrules` | Windsurf |
-| `.clinerules` | Cline |
-| `.roomodes` | Roo Code |
-| `.github/copilot-instructions.md` | GitHub Copilot |
-| `.vscode/settings.json` → `github.copilot.chat.codeGeneration.instructions` | VS Code Copilot |
-| `CONVENTIONS.md` / `.aider.conf.yml` | aider |
-| `CONTRIBUTING.md` | General project conventions |
-| `.editorconfig` | Editor formatting rules |
-
-### Step 2: Analyze the codebase for anything not covered by existing docs
-
-Scan real code to discover patterns. Before writing each spec file:
-- Find 2-3 real examples of each pattern in the codebase.
-- Reference real file paths (not hypothetical ones).
-- Document anti-patterns the team clearly avoids.
-
-### Step 3: Document reality, not ideals
-
-**Critical**: write what the code *actually does*, not what it should do.
-Sub-agents match the spec, so aspirational patterns that don't exist in the
-codebase will cause sub-agents to write code that looks out of place.
-
-If the team has known tech debt, document the current state — improvement
-is a separate conversation, not a bootstrap concern.
-
----
-
-## Quick explainer of the runtime (share when they ask "why do we need spec at all")
-
-- Every AI coding task spawns two sub-agents: `trellis-implement` (writes
-  code) and `trellis-check` (verifies quality).
-- Each task has `implement.jsonl` / `check.jsonl` manifests listing which
-  spec files to load.
-- The platform hook auto-injects those spec files + the task's `prd.md`
-  into every sub-agent prompt, so the sub-agent codes/reviews per team
-  conventions without anyone pasting them manually.
-- Source of truth: `.trellis/spec/`. That's why filling it well now pays
-  off forever.
-
----
-
-## Completion
-
-When the developer confirms the checklist items above are done with real
-examples (not placeholders), guide them to run:
-
-```bash
-python3 ./.trellis/scripts/task.py finish
-python3 ./.trellis/scripts/task.py archive 00-bootstrap-guidelines
-```
-
-After archive, every new developer who joins this project will get a
-`00-join-<slug>` onboarding task instead of this bootstrap task.
-
----
-
-## Suggested opening line
-
-"Welcome to Trellis! Your init just set me up to help you fill the project
-spec — a one-time setup so every future AI session follows the team's
-conventions instead of writing generic code. Before we start, do you have
-any existing convention docs (CLAUDE.md, .cursorrules, CONTRIBUTING.md,
-etc.) I can pull from, or should I scan the codebase from scratch?"
+- 规范总索引：`.trellis/spec/index.md`
+- 通用层：`.trellis/spec/shared/index.md`
+- 核心层：`.trellis/spec/backend/index.md`
+- 外壳层：`.trellis/spec/frontend/index.md`
+- 每层包含 Pre-Development Checklist 与 Quality Check，并链接代表实现与测试。
+- 2026-10-04：链接、层发现、任务 jsonl 引用、diff 格式与隐私门禁通过；独立文档复核已完成。
+- 本次文档变更不执行应用编译、出包或设备验收；任务保留原状态，提交 / 归档按后续授权处理。
