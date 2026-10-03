@@ -139,6 +139,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     var genre by xyz.linplayer.app.data.keepState<String?>("$ck.genre") { null }
     var showFilter by remember { mutableStateOf(false) }
     var filters by remember { mutableStateOf<Block<List<String>>>(Block.Loading) }
+    var filtersSupported by xyz.linplayer.app.data.keepState("$ck.filtersSupported.${app.session.value?.server}") { true }
     /* 手里这份结果是**按哪套筛选**拉回来的。没有它就分不清「返回这一页」和
        「换了筛选」,而这两件事下面那道闸要走相反的路 —— 见 LaunchedEffect。 */
     var fetchedAs by xyz.linplayer.app.data.keepState<String?>("$ck.as") { null }
@@ -156,8 +157,10 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             put("start_index", offset); put("limit", PAGE)
             put("sort_by", sort.second)
             put("sort_order", if (sort.second == "SortName") "Ascending" else "Descending")
-            if (minRating.second > 0) put("rating_min", minRating.second)
-            genre?.let { put("genres", jsonArrayOf(listOf(it))) }
+            if (filtersSupported) {
+                if (minRating.second > 0) put("rating_min", minRating.second)
+                genre?.let { put("genres", jsonArrayOf(listOf(it))) }
+            }
         }
         val a = buildMap<String, Any> {
             put("parent_id", route.viewId)
@@ -186,7 +189,11 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             // 分面只跟库走,换筛选不必再拉一遍
             if (filters !is Block.Ok) launch {
                 filters = when (val r = app.block("emby.getFilters", args("parent_id" to route.viewId))) {
-                    is Block.Ok -> Block.Ok(r.value.obj().strList("genres"))
+                    is Block.Ok -> {
+                        filtersSupported = r.value.obj()?.get("capabilities").obj()?.get("filters")?.toString() != "false"
+                        if (!filtersSupported) { genre = null; minRating = RATINGS[0] }
+                        Block.Ok(r.value.obj().strList("genres"))
+                    }
                     is Block.Fail -> r
                     else -> Block.Loading
                 }
@@ -272,19 +279,22 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             SORTS.forEach { s ->
                 OptRow(s.first, { sort = s; showFilter = false }, selected = s == sort)
             }
-            SectionLabel("评分下限")
-            RATINGS.forEach { r ->
-                OptRow(r.first, { minRating = r; showFilter = false }, selected = r == minRating)
-            }
-            SectionLabel("类型")
-            when (val f = filters) {
-                is Block.Loading -> Dim2("正在取分面…", Modifier.padding(Sp.x12))
-                // 分面拉不到要**在筛选面板里明说**,不能静默变成「此库没有分面」
-                is Block.Fail -> if (!f.isSilent) Dim2("分面取不到:${f.message}", Modifier.padding(Sp.x12))
-                is Block.Ok -> if (f.value.isEmpty()) Dim2("这个库没有类型分面", Modifier.padding(Sp.x12))
-                else f.value.forEach { g ->
-                    OptRow(g, { genre = if (genre == g) null else g; showFilter = false },
-                        selected = genre == g)
+            if (!filtersSupported) Dim2("服务端不支持条件筛选,可使用排序和分页。", Modifier.padding(Sp.x12))
+            else {
+                SectionLabel("评分下限")
+                RATINGS.forEach { r ->
+                    OptRow(r.first, { minRating = r; showFilter = false }, selected = r == minRating)
+                }
+                SectionLabel("类型")
+                when (val f = filters) {
+                    is Block.Loading -> Dim2("正在取分面…", Modifier.padding(Sp.x12))
+                    // 分面拉不到要**在筛选面板里明说**,不能静默变成「此库没有分面」
+                    is Block.Fail -> if (!f.isSilent) Dim2("分面取不到:${f.message}", Modifier.padding(Sp.x12))
+                    is Block.Ok -> if (f.value.isEmpty()) Dim2("这个库没有类型分面", Modifier.padding(Sp.x12))
+                    else f.value.forEach { g ->
+                        OptRow(g, { genre = if (genre == g) null else g; showFilter = false },
+                            selected = genre == g)
+                    }
                 }
             }
             Spacer(Modifier.height(Sp.x12))

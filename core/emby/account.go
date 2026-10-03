@@ -203,6 +203,9 @@ func (c *Client) SetPlayed(ctx context.Context, s *Session, itemID string, playe
 // 用户要的是「不想看,也不想标成已看」:标已看会把进度和播放数一起改掉。
 // Emby 4.9.5 实测:POST 后 Items/Resume 立刻不再返回它,UserData 原样;Hide=false 能放回。
 func (c *Client) HideResume(ctx context.Context, s *Session, itemID string, hide bool) error {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.HideResume {
+		return unsupported("隐藏继续观看")
+	}
 	return c.postPlain(ctx, s, fmt.Sprintf("%s/Users/%s/Items/%s/HideFromResume?Hide=%t",
 		s.Server, url.PathEscape(s.UserID), url.PathEscape(itemID), hide))
 }
@@ -247,10 +250,14 @@ func (c *Client) Permissions(ctx context.Context, s *Session) (map[string]any, e
 	if err := json.Unmarshal(b, &j); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
-	return map[string]any{
+	out := map[string]any{
 		"is_admin":     adminFlag(j),
 		"can_download": policyFlag(j, "EnableContentDownloading"),
-	}, nil
+	}
+	if caps := c.capabilities(ctx, s); caps != nil {
+		out["capabilities"] = caps
+	}
+	return out, nil
 }
 
 // policyFlag 从 /Users/{id} 响应的 Policy 里读一个布尔位。缺一律判否。
@@ -279,6 +286,9 @@ func adminFlag(user map[string]any) bool {
 // ★ Recursive=true:对库卡片来说不递归**等于什么都没做**(库本身没有元数据可刮)。
 // ★ ReplaceAllImages 恒 false —— 用户自己换过的封面不该被一次「刷新元数据」抹掉。
 func (c *Client) RefreshItem(ctx context.Context, s *Session, itemID string, full bool) error {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Refresh {
+		return unsupported("刷新元数据")
+	}
 	return c.postAdmin(ctx, s, refreshURL(s.Server, itemID, full))
 }
 
@@ -293,6 +303,9 @@ func refreshURL(server, itemID string, full bool) string {
 
 // ScanAllLibraries 扫描整台服务器的媒体库文件(Emby web 的「扫描所有媒体库」)。
 func (c *Client) ScanAllLibraries(ctx context.Context, s *Session) error {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Refresh {
+		return unsupported("扫描媒体库")
+	}
 	return c.postAdmin(ctx, s, s.Server+"/Library/Refresh")
 }
 

@@ -15,12 +15,15 @@ import (
 
 // Filters 一个库能筛什么。
 type Filters struct {
-	Genres          []string `json:"genres"`
-	Tags            []string `json:"tags"`
-	Years           []int64  `json:"years"`
-	Studios         []string `json:"studios"`
-	OfficialRatings []string `json:"official_ratings"`
-	Unavailable     []string `json:"unavailable,omitempty"` // 暂时失败的分面;404 不列入重试。
+	Capabilities    *Capabilities `json:"capabilities,omitempty"`
+	Genres          []string      `json:"genres"`
+	Tags            []string      `json:"tags"`
+	Years           []int64       `json:"years"`
+	Studios         []string      `json:"studios"`
+	OfficialRatings []string      `json:"official_ratings"`
+	Unavailable     []string      `json:"unavailable,omitempty"` // 暂时失败的分面;404 不列入重试。
+	Unsupported     []string      `json:"unsupported,omitempty"` // 接口不存在,不提示反复重试。
+	Empty           []string      `json:"empty,omitempty"`       // 服务端未提供选项,不能据此宣称支持分面。
 }
 
 // FiltersOf 取某库的筛选分面。
@@ -35,16 +38,23 @@ type Filters struct {
 // 故:genres/studios/tags/official_ratings 走各自分面端点(404 降级为空,其它失败显式记录,保留成功分面);
 // years 因为没有可用端点,改用两次 Limit=1 探针取最早/最晚年份再铺成区间。
 func (c *Client) FiltersOf(ctx context.Context, s *Session, parentID string) (*Filters, error) {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Filters {
+		return &Filters{Capabilities: caps, Genres: []string{}, Tags: []string{}, Years: []int64{}, Studios: []string{}, OfficialRatings: []string{}, Unsupported: []string{"genres", "tags", "years", "studios", "officialratings"}}, nil
+	}
 	var out Filters
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var authErr error
 	record := func(name string, err error) {
-		if err == nil || StatusOf(err) == 404 {
+		if err == nil {
 			return
 		}
 		mu.Lock()
 		defer mu.Unlock()
+		if StatusOf(err) == 404 {
+			out.Unsupported = append(out.Unsupported, name)
+			return
+		}
 		if StatusOf(err) == 401 || StatusOf(err) == 403 {
 			authErr = err
 		}
@@ -66,6 +76,11 @@ func (c *Client) FiltersOf(ctx context.Context, s *Session, parentID string) (*F
 			var err error
 			*f.dst, err = c.facet(ctx, s, f.endpoint, parentID)
 			record(strings.ToLower(f.endpoint), err)
+			if err == nil && len(*f.dst) == 0 {
+				mu.Lock()
+				out.Empty = append(out.Empty, strings.ToLower(f.endpoint))
+				mu.Unlock()
+			}
 		}()
 	}
 	wg.Add(1)
@@ -77,6 +92,8 @@ func (c *Client) FiltersOf(ctx context.Context, s *Session, parentID string) (*F
 	}()
 	wg.Wait()
 	sort.Strings(out.Unavailable)
+	sort.Strings(out.Unsupported)
+	sort.Strings(out.Empty)
 	return &out, authErr
 }
 

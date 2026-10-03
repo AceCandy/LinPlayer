@@ -56,6 +56,7 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.LocalApp
@@ -356,16 +357,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                是明令禁止的(反代只在 /emby/ 下处理 Range,拼错的表现是
                「跳到没缓冲的位置就卡死」,而且查不出来)。 */
             val url = r.str("play_url")
-            if (exo != null && url != null) exo.load(url, r.dbl("resume_secs") ?: 0.0)
+            if (exo != null && url != null) exo.load(url, r.dbl("resume_secs") ?: 0.0, r?.get("external_subs"))
             /* 外挂 ASS。**压制组单独发的那种字幕才是「特效字幕」的大头** ——
                内封 ASS 走 media3 的解析器那条路(ExoSurface 里按选中轨切),
                外挂的核心层根本不交给 ExoPlayer,得自己取回来喂 libass。
                ★ fire-and-forget:取不到就没有特效字幕,不该挡住播放。 */
-            if (exo != null && !subOff) loadExternalAss(app, r?.get("external_subs"))
+            if (exo != null && !subOff) launch { loadExternalAss(app, r?.get("external_subs")) }
             /* 内嵌字体(MKV 附件)。**特效字幕的字形全靠它** ——
                ExoPlayer 不解析 Attachments,不自己抠的话 libass 只能回落系统字体。
                ★ 和上面那条一样是 fire-and-forget:抠不到只是字形不对,不该挡住播放。 */
-            if (exo != null && url != null) loadEmbeddedFonts(url)
+            if (exo != null && url != null) launch { loadEmbeddedFonts(url) }
         }.onSuccess {
             runCatching { PlaybackService.start(ctx, app, exo, route.title) }.onFailure { app.report(it) }
         }.onFailure { app.report(it); if (route.src != null) srcSwitch = true }
@@ -1125,6 +1126,8 @@ internal suspend fun loadExternalAss(
     val list = subs.arr().mapNotNull { it.obj() }
     val ordered = list.sortedByDescending { it.bool("is_default") }
     for (o in ordered) {
+        // VTT / SRT 已交给 Media3,不要重复下载并尝试作为 ASS 解析。
+        if (o.str("mime_type") in listOf("text/vtt", "application/x-subrip")) continue
         val u = o.str("url")?.takeIf { it.isNotBlank() } ?: continue
         val bytes = runCatching {
             val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
@@ -1134,6 +1137,8 @@ internal suspend fun loadExternalAss(
                 "LinPlayer/" + xyz.linplayer.app.BuildConfig.VERSION_NAME)
             c.inputStream.use { st -> st.readBytes() }
         }.getOrNull() ?: continue
+        // 阻塞下载返回时可能已换集,旧任务不得再覆盖当前字幕。
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         // 4MB 封顶:字幕再长也到不了,到了多半是取回了一部片
         if (bytes.isEmpty() || bytes.size > (4 shl 20)) continue
         val head = String(bytes, 0, minOf(bytes.size, 512), Charsets.UTF_8)
@@ -1155,5 +1160,6 @@ internal suspend fun loadEmbeddedFonts(url: String) =
         val ua = "LinPlayer/" + xyz.linplayer.app.BuildConfig.VERSION_NAME
         val fonts = runCatching { MkvFonts.extract(MkvFonts.ranged(url, ua)) }
             .getOrDefault(emptyList())
+        kotlinx.coroutines.currentCoroutineContext().ensureActive()
         if (fonts.isNotEmpty()) Libass.addFonts(fonts)
     }

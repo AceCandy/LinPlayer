@@ -1,8 +1,7 @@
 // Package emby 是 Emby 客户端。
 //
-// **Rust 版是黄金实现** —— 这里的每一处行为
-// 都要和它逐字对齐,包括那些看起来像 bug 的地方(它们多半是修过的坑)。
-// 差分对账(`tools/diffcheck`)就是用来钉住这件事的。
+// 现行 API 契约以项目规范指定的 MediaStationGo 实现为准。
+// 旧差分对账用于保护既有行为;新增能力仍需当前服务端契约回归。
 package emby
 
 import (
@@ -12,6 +11,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 
 	"linplayer/core/httpx"
 )
@@ -93,6 +93,7 @@ type Page struct {
 // ---------------------------------------------------------------- 线上结构
 
 type rawItem struct {
+	ServerID       string         `json:"ServerId"`
 	ID             string         `json:"Id"`
 	Name           *string        `json:"Name"`
 	Type           *string        `json:"Type"`
@@ -326,7 +327,9 @@ type Client struct {
 	HTTP *http.Client
 	UA   string
 	// Version 只给 X-Emby-Authorization 的 Version 字段用(UA 是另一条道,别复用)
-	Version string
+	Version  string
+	capMu    sync.Mutex
+	capCache map[string]*capabilityEntry
 }
 
 // NewClient 造一个默认客户端。
@@ -351,6 +354,12 @@ func (c *Client) fetchPage(ctx context.Context, s *Session, u string) (*Page, er
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
 	items := make([]Item, 0, len(data.Items))
+	for _, r := range data.Items {
+		if r.ServerID != "" {
+			c.rememberIdentity(s.Server, r.ServerID)
+			break
+		}
+	}
 	for _, r := range data.Items {
 		items = append(items, fromRaw(r))
 	}

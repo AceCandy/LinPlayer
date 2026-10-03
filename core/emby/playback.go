@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"path"
 	"strings"
 	"sync"
 )
@@ -24,6 +25,7 @@ type ExternalSub struct {
 	Title     string  `json:"title"`
 	Lang      *string `json:"lang"`
 	IsDefault bool    `json:"is_default"`
+	MimeType  string  `json:"mime_type,omitempty"` // 交付格式可能与原始编码不同,例如 ASS 被转换成 VTT。
 }
 
 // PlaybackTarget 一次播放会话的目标 + 上报三件套共享的 id。
@@ -248,9 +250,20 @@ func externalSubs(s *Session, ms rawMediaSource, itemID, msID string) []External
 		}
 		out = append(out, ExternalSub{
 			URL: u, Title: title, Lang: nonEmpty(st.Language), IsDefault: derefB(st.IsDefault),
+			MimeType: subtitleMimeType(u, ext),
 		})
 	}
 	return out
+}
+
+func subtitleMimeType(rawURL, fallback string) string {
+	types := map[string]string{"vtt": "text/vtt", "srt": "application/x-subrip", "ass": "text/x-ssa", "ssa": "text/x-ssa"}
+	if u, err := url.Parse(rawURL); err == nil {
+		if mime := types[strings.TrimPrefix(strings.ToLower(path.Ext(u.Path)), ".")]; mime != "" {
+			return mime
+		}
+	}
+	return types[fallback]
 }
 
 // subtitlePath 服务器不给 DeliveryUrl 时自己拼的取字幕路径(相对路径,不含 host)。

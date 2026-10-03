@@ -190,8 +190,11 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 }
                             }
                             // 跨服结果**不给长按菜单**:收藏 / 标已看是对当前活跃服务器写的
-                            else -> LpRow(name + " · 最多 8 条", Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
-                                { nav.navigate(Route.Detail(it.id, it.type)) }, menu = null)
+                            else -> Column {
+                                g.str("warning")?.let { Dim3(it, Modifier.padding(Sp.x16), maxLines = 2) }
+                                LpRow(name + " · 最多 8 条", Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
+                                    { nav.navigate(Route.Detail(it.id, it.type)) }, menu = null)
+                            }
                         }
                     }
                     if (aggBusy) item("busy") { Dim3("还有来源在搜…", Modifier.padding(Sp.x16)) }

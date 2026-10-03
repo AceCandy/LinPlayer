@@ -1,0 +1,60 @@
+{
+  "name": "emby.favorites · MediaStationGo 收藏首屏单页并保留原始游标",
+  "note": "兼容短页、屏蔽后的空洞及超过旧 2000 条上限的后续收藏。",
+  "provenance": "MediaStationGo 6e20252 internal/service/emby_items_list.go mediaItems 与 metadataWorkPage 的分页封装; LinPlayer core/emby/favorites_page_test.go 的排序、游标与单页请求回归。脱敏合成载荷。",
+  "upstream": [
+    {
+      "path": "/Users/u/Items",
+      "status": 200,
+      "body": "{\"Items\": [{\"Id\": \"movie-blocked\", \"Name\": \"\\u88ab\\u5c4f\\u853d\\u7684\\u7535\\u5f71\", \"Type\": \"Movie\"}, {\"Id\": \"movie-ok\", \"Name\": \"\\u6b63\\u5e38\\u7535\\u5f71\", \"Type\": \"Movie\"}], \"TotalRecordCount\": 3000}"
+    }
+  ],
+  "blocklist": [
+    {
+      "id": "movie-blocked",
+      "name": "被屏蔽的电影"
+    }
+  ],
+  "command": "emby.favorites",
+  "args": {
+    "start_index": 1999,
+    "limit": 60,
+    "sort": "更新时间"
+  },
+  "expect": {
+    "items": [
+      {
+        "id": "movie-ok",
+        "name": "正常电影",
+        "type_": "Movie",
+        "is_folder": false,
+        "has_primary": false,
+        "runtime_secs": 0,
+        "resume_secs": 0,
+        "series_name": null,
+        "episode_no": null,
+        "season_no": null,
+        "video_height": null,
+        "bitrate": null,
+        "size_bytes": null,
+        "video_range": null,
+        "played": false,
+        "unplayed_item_count": 0,
+        "genres": [],
+        "year": null,
+        "rating": null,
+        "provider_ids": {},
+        "presentation_unique_key": null,
+        "path": null,
+        "series_id": null,
+        "date_updated": null,
+        "sort_name": null,
+        "tags": [],
+        "studios": []
+      }
+    ],
+    "total": 3000,
+    "next_index": 2001,
+    "has_more": true
+  }
+}

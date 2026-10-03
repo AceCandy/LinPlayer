@@ -66,13 +66,13 @@
 | [x] | `emby.blockedList` | `blocked_list` | `—` | `Entry` | ✅ |
 | [x] | `emby.counts` | **新增** | `server, token, user_id` | `Counts` | — | <!-- 媒体库规模统计。Rust 版里 emby::counts 只被 aggregate_overview 内部调用,没单独成命令 -->
 | [x] | `emby.currentSession` | `current_session` | `—` | `Option<LoginResult>` | ✅ |
-| [x] | `emby.getFilters` | `get_filters` | `parent_id: String` | `Result<emby::Filters, String>` | ✅ |
+| [x] | `emby.getFilters` | `get_filters` | `parent_id: String` | `Filters { genres, tags, years, studios, official_ratings, unavailable?, unsupported?, empty?, capabilities? }` | ✅ |
 | [x] | `emby.isAdmin` | `is_admin` | `—` | `Result<bool, String>` | ✅ |
 | [x] | `emby.itemDetail` | `item_detail` | `item_id: String, // 缺省 = true（桌面/TV 的旧调用点不传，行为不变）。 // 手机端传 false：它按季分页拉集，不需要这一坨。 with_children: Option<bool>` | `Result<emby::ItemDetail, String>` | ✅ |
 | [x] | `emby.itemMedia` | `item_media` | `item_id: String` | `Result<Vec<emby::MediaVersion>, String>` | ✅ |
 | [x] | `emby.listCollections` | `list_collections` | `—` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.collectionItems` | **新增** | `item_id: String` | `CollectionItems` | — | <!-- 合集成员，影片/剧集分开（合集页原来一个字都画不出来） -->
-| [x] | `emby.listFavorites` | `list_favorites` | `—` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.listFavorites` | `list_favorites` | `sort?, sort_by?, sort_order?, start_index?, limit?` | `未传 limit: Item[]; 传 limit: { items, total, next_index, has_more }` | ✅ |
 | [x] | `emby.listItems` | `list_items` | `parent_id: String` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.listItemsPage` | `list_items_page` | `parent_id: String, start_index: Option<u32>, limit: Option<u32>, sort_by: Option<String>, sort_order: Option<String>, genres: Option<Vec<String>>, tags: Option<Vec<String>>, years: Option<Vec<i32>>, studios: Option<Vec<String>>, rating_min: Option<f64>, rating_max: Option<f64>` | `Page` | ✅ |
 | [x] | `emby.listLatest` | `list_latest` | `parent_id: String, limit: u32` | `Result<Vec<Item>, String>` | ✅ |
@@ -83,7 +83,7 @@
 | [x] | `emby.logout` | **新增** | `server, token, user_id, device_id` | `{ server_ok: bool }` | — | <!-- 服务端登出。尽力而为:某 fork 该端点 404 且 token 仍可用,失败不挡本地删账号 -->
 | [x] | `emby.personDetail` | `person_detail` | `person_id: String` | `Result<emby::PersonDetail, String>` | ✅ |
 | [x] | `emby.personItems` | `person_items` | `person_id: String, limit: Option<u32>` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.permissions` | **新增** | `—` | `{is_admin, can_download}` | ✅ | <!-- 一次请求同时回答「是不是管理员」和「能不能下载」;缺字段一律判否 -->
+| [x] | `emby.permissions` | **新增** | `—` | `{is_admin, can_download, capabilities?}` | ✅ | <!-- 一次请求同时回答「是不是管理员」和「能不能下载」;缺字段一律判否 -->
 | [x] | `emby.refreshItem` | `refresh_item` | `item_id: String, full: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.relogin` | `relogin` | `server_id: String, username: String, password: String` | `Result<(), String>` | ✅ |
 | [x] | `emby.reportProgress` | `report_progress` | `pos: f64, paused: bool` | `Result<(), String>` | ✅ |
@@ -412,3 +412,12 @@
 | [x] | `plugin.ui.event` | **新增** | `surface, fn, args?` | `—` | ✅ |
 | [x] | `plugin.ui.viewport` | **新增** | `surface, width, height, breakpoint, formFactor, insets` | `—` | ✅ |
 <!-- END GENERATED -->
+
+### 已核实的服务端能力限制
+
+`emby.getFilters`、`emby.permissions`、`emby.itemDetail` 可返回 `capabilities`。
+字段为 `filters / hide_resume / refresh / similar / collections / chapters / provider_lookup`；仅显式 `false` 表示已核实不支持，字段或对象缺失时沿用既有 Emby 行为。能力描述独立于用户管理员、下载权限，不能用它替代鉴权。
+
+当前按 MediaStationGo `6e20252` 的固定服务标识匹配限制，不按显示名或空列表推断。条件筛选、隐藏续播、刷新/扫描和精确 provider 查询被核心层拒绝时返回不可重试的 `E_UNSUPPORTED`；已知不支持的可选相似推荐、合集和章节不再请求占位端点，返回空结果供入口收起。
+
+`emby.aggregateSearch` 和 `source.aggregateSearch` 的每服结果可带 `warning`，表示名称搜索可能漏掉不同译名的条目；保留成功结果，不能把该说明当作请求失败。跨服版本的名称搜索回退会在 `reason` 中说明同一限制。

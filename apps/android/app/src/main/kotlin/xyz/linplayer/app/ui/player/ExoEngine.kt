@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.player
 
 import android.graphics.Bitmap
+import android.net.Uri
 import android.view.SurfaceView
 import androidx.annotation.OptIn
 import androidx.compose.foundation.Canvas
@@ -64,6 +65,11 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
 import xyz.linplayer.app.BuildConfig
 import xyz.linplayer.app.core.Logs
+import kotlinx.serialization.json.JsonElement
+import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.obj
+import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.bool
 
 /**
  * libass 找字体的目录。
@@ -166,11 +172,27 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?): ExoPlayer?
 }
 
 /** 把一条地址交给 ExoPlayer,并从 [startSecs] 起播。 */
-fun ExoPlayer.load(url: String, startSecs: Double) {
-    setMediaItem(MediaItem.fromUri(url))
+fun ExoPlayer.load(url: String, startSecs: Double, subs: JsonElement? = null) {
+    setMediaItem(exoMediaItem(url, subs))
     prepare()
     if (startSecs > 0) seekTo((startSecs * 1000).toLong())
     playWhenReady = true
+}
+
+/** 文本外挂字幕交给 Media3;ASS 继续由 libass 处理。每次换片重建,不继承上一集字幕。 */
+@OptIn(UnstableApi::class)
+internal fun exoMediaItem(url: String, subs: JsonElement?): MediaItem {
+    val configs = subs.arr().mapNotNull { raw ->
+        val o = raw.obj() ?: return@mapNotNull null
+        val uri = o.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+        val mime = o.str("mime_type") ?: return@mapNotNull null
+        if (mime != "text/vtt" && mime != "application/x-subrip") return@mapNotNull null
+        MediaItem.SubtitleConfiguration.Builder(Uri.parse(uri))
+            .setMimeType(mime).setLabel(o.str("title")).setLanguage(o.str("lang"))
+            .setSelectionFlags(if (o.bool("is_default")) C.SELECTION_FLAG_DEFAULT else 0)
+            .build()
+    }
+    return MediaItem.Builder().setUri(url).setSubtitleConfigurations(configs).build()
 }
 
 /**

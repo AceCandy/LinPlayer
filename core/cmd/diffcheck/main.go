@@ -1,8 +1,7 @@
 // diffcheck 是差分对账器(SPEC §12.1,TODO 阶段 2)。
 //
-// **Rust 版是黄金实现。** Go 版的验收不是「跑起来了」,是「输出和 Rust 版一致」。
-// 单元测试只能证明 Go 版自洽,证明不了它和 Rust 版一致 ——
-// 这个工具是防「看起来对了」的唯一手段。
+// 旧语料保护既有兼容行为;现行服务端新增契约必须独立记录来源。
+// 每份语料严格比较完整响应,不能通过忽略新增字段掩盖接线错误。
 //
 //	用法:  go run ./cmd/diffcheck [-corpus 目录] [-v]
 //	退出码 = 对不上的用例数
@@ -116,6 +115,10 @@ var runners = map[string]runner{
 	},
 	"emby.favorites": func(ctx context.Context, server string, args map[string]any) (any, error) {
 		c, s := newSession(server, args)
+		if _, paged := args["limit"]; paged {
+			value := func(key string) string { v, _ := args[key].(string); return v }
+			return c.FavoritesPage(ctx, s, intArg(args, "start_index", 0), intArg(args, "limit", 60), value("sort"), value("sort_by"), value("sort_order"))
+		}
 		return c.Favorites(ctx, s)
 	},
 	"emby.counts": func(ctx context.Context, server string, args map[string]any) (any, error) {

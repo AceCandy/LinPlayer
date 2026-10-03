@@ -214,9 +214,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
                     if (exo != null && url != null) {
-                        exo.load(url, res.dbl("resume_secs") ?: 0.0)
-                        if (!subOffPref) loadExternalAss(app, res?.get("external_subs"))
-                        loadEmbeddedFonts(url)
+                        exo.load(url, res.dbl("resume_secs") ?: 0.0, res?.get("external_subs"))
+                        if (!subOffPref) launch { loadExternalAss(app, res?.get("external_subs")) }
+                        launch { loadEmbeddedFonts(url) }
                     }
                 }
             }

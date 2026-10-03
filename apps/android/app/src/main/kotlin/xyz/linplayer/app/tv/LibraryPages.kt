@@ -171,6 +171,7 @@ fun LibraryGridPage(r: TvRoute.Library) {
     var moreFailed by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var facets by keepState<Block<Pair<List<String>, List<Long>>>>("$ck.facets") { Block.Loading }
+    var filtersSupported by keepState("$ck.filtersSupported") { true }
 
     val filterKey = "$sort|$genre|$year|$played"
     val hasFilter = genre != null || year != null || played != 0
@@ -181,9 +182,11 @@ fun LibraryGridPage(r: TvRoute.Library) {
         val q = buildMap<String, JsonElement> {
             put("start_index", JsonPrimitive(offset)); put("limit", JsonPrimitive(LibPage))
             put("sort_by", JsonPrimitive(by)); put("sort_order", JsonPrimitive(order))
-            genre?.let { put("genres", jsonArrayOf(listOf(it))) }
-            year?.let { put("years", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(it)))) }
-            PlayedStates[played].second?.let { put("played", JsonPrimitive(it)) }
+            if (filtersSupported) {
+                genre?.let { put("genres", jsonArrayOf(listOf(it))) }
+                year?.let { put("years", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(it)))) }
+                PlayedStates[played].second?.let { put("played", JsonPrimitive(it)) }
+            }
         }
         val a = buildMap<String, Any> {
             put("parent_id", viewId)
@@ -212,6 +215,8 @@ fun LibraryGridPage(r: TvRoute.Library) {
         if (facets is Block.Ok) return@LaunchedEffect
         facets = app.block("emby.getFilters", args("parent_id" to viewId)).map { e ->
             val o = e.obj()
+            filtersSupported = o?.get("capabilities").obj()?.get("filters")?.toString() != "false"
+            if (!filtersSupported) { genre = null; year = null; played = 0 }
             o.strList("genres") to o?.get("years").arr().mapNotNull { (it as? JsonPrimitive)?.content?.toLongOrNull() }
         }
     }
@@ -231,7 +236,7 @@ fun LibraryGridPage(r: TvRoute.Library) {
             PageHead(r.title, count = total?.takeIf { first is Block.Ok }?.let { "%,d 项".format(it) })
             Spacer(Modifier.height(TvSp.x12))
             EntryChip("筛选与排序", LpIcons.filter, condition, modifier = Modifier.memo("lib.filter", initial = true), onClick = {
-                overlay.open { FilterPanel(sort, genre, year, played, facets, { overlay.close() },
+                overlay.open { FilterPanel(sort, genre, year, played, facets, filtersSupported, { overlay.close() },
                     onSort = { sort = it }, onGenre = { genre = it }, onYear = { year = it }, onPlayed = { played = it }) }
             })
             Spacer(Modifier.height(TvSp.x16))
@@ -279,7 +284,7 @@ fun LibraryGridPage(r: TvRoute.Library) {
 @Composable
 private fun androidx.compose.foundation.layout.BoxScope.FilterPanel(
     sort: Int, genre: String?, year: Long?, played: Int,
-    facets: Block<Pair<List<String>, List<Long>>>, onClose: () -> Unit,
+    facets: Block<Pair<List<String>, List<Long>>>, filtersSupported: Boolean, onClose: () -> Unit,
     onSort: (Int) -> Unit, onGenre: (String?) -> Unit, onYear: (Long?) -> Unit, onPlayed: (Int) -> Unit,
 ) {
     // 面板里的选中态要跟着改动走,而 overlay 的内容 lambda 只捕获了打开那一刻的值
@@ -292,20 +297,23 @@ private fun androidx.compose.foundation.layout.BoxScope.FilterPanel(
         LibSorts.forEachIndexed { i, (label) ->
             PanelItem(label, selected = i == s, focused = i == s, onClick = { s = i; onSort(i) })
         }
-        val f = facets.valueOrNull
-        PanelGroup("类型")
-        if (f == null || f.first.isEmpty()) PanelItem("这台服务器没有提供类型列表", enabled = false)
+        if (!filtersSupported) PanelItem("服务端不支持条件筛选,可使用排序和分页", enabled = false)
         else {
-            PanelItem("全部类型", selected = g == null, onClick = { g = null; onGenre(null) })
-            f.first.forEach { name -> PanelItem(name, selected = g == name, onClick = { g = name; onGenre(name) }) }
+            val f = facets.valueOrNull
+            PanelGroup("类型")
+            if (f == null || f.first.isEmpty()) PanelItem("这台服务器没有提供类型列表", enabled = false)
+            else {
+                PanelItem("全部类型", selected = g == null, onClick = { g = null; onGenre(null) })
+                f.first.forEach { name -> PanelItem(name, selected = g == name, onClick = { g = name; onGenre(name) }) }
+            }
+            PanelGroup("年份")
+            if (f == null || f.second.isEmpty()) PanelItem("这台服务器没有提供年份列表", enabled = false)
+            else {
+                PanelItem("全部年份", selected = y == null, onClick = { y = null; onYear(null) })
+                f.second.forEach { v -> PanelItem(v.toString(), selected = y == v, onClick = { y = v; onYear(v) }) }
+            }
+            PanelGroup("状态")
+            PlayedStates.forEachIndexed { i, (label) -> PanelItem(label, selected = i == p, onClick = { p = i; onPlayed(i) }) }
         }
-        PanelGroup("年份")
-        if (f == null || f.second.isEmpty()) PanelItem("这台服务器没有提供年份列表", enabled = false)
-        else {
-            PanelItem("全部年份", selected = y == null, onClick = { y = null; onYear(null) })
-            f.second.forEach { v -> PanelItem(v.toString(), selected = y == v, onClick = { y = v; onYear(v) }) }
-        }
-        PanelGroup("状态")
-        PlayedStates.forEachIndexed { i, (label) -> PanelItem(label, selected = i == p, onClick = { p = i; onPlayed(i) }) }
     }
 }

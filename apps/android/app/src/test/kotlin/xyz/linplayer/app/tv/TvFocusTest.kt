@@ -26,6 +26,9 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.PageCache
+import xyz.linplayer.app.data.long
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 
 /**
  * 焦点路径断言(UI_TV.md §11.3)。☠ 焦点问题在静态截图上**完全看不出来** —— 出图之外必须有按键驱动的断言。
@@ -60,6 +63,43 @@ class TvFocusTest {
 
     private fun focused(tag: String) = rule.onNode(hasTestTag(tag)).assertIsFocused()
     private fun pressBack() { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
+
+    @Test fun 收藏分页追加并使用服务端游标() {
+        mount(TvRoute.Favorites) {
+            on("emby.listFavorites") { args ->
+                val offset = args.long("start_index") ?: -1
+                assertEquals(60L, args.long("limit"))
+                buildJsonObject {
+                    put("items", arr(item(if (offset == 0L) "first" else "next", if (offset == 0L) "首批收藏" else "后续收藏")))
+                    put("total", 2001)
+                    put("next_index", if (offset == 0L) 2000 else 2001)
+                    put("has_more", offset == 0L)
+                }
+            }
+        }
+        advance(rule, 800)
+        val offsets = core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") }
+        assertEquals(listOf(0L, 2000L), offsets)
+        rule.onNode(hasText("首批收藏")).assertExists()
+        rule.onNode(hasText("后续收藏")).assertExists()
+    }
+
+    @Test fun 不支持条件筛选时保留排序并说明原因() {
+        mount(TvRoute.Library("library", "测试媒体库")) {
+            library()
+            on("emby.getFilters") { buildJsonObject {
+                put("genres", arr())
+                put("years", arr())
+                put("capabilities", buildJsonObject { put("filters", false) })
+            } }
+        }
+        focused("lib.filter")
+        press(rule, Key.DirectionCenter)
+        rule.onNode(hasText("服务端不支持条件筛选,可使用排序和分页")).assertExists()
+        rule.onNode(hasText("全部年份")).assertDoesNotExist()
+        rule.onNode(hasText("未看")).assertDoesNotExist()
+        rule.onNode(hasText("更新时间")).assertExists()
+    }
 
     @Test fun 首页初始焦点在Hero详情() {
         mount()

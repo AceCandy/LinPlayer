@@ -1,4 +1,5 @@
 ﻿using System;
+using System.Text.Json;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Media;
@@ -256,7 +257,8 @@ public static class CardActions
            打的是 HideFromResume,进度和已看状态原样不动(见 core/emby HideResume)。 */
         if (resumeRow)
         {
-            var hide = new MenuItem { Header = "取消观看记录", Icon = Icon(G.Block) };
+            var hide = new MenuItem { Header = "取消观看记录", Icon = Icon(G.Block), IsEnabled = false };
+            _ = EnableHideResume(core, hide);
             hide.Click += async (_, _) =>
             {
                 var ok = await Run(core, "emby.hideResume", new { item_id = item.Id, hide = true },
@@ -358,6 +360,20 @@ public static class CardActions
     /// 只在 UI 线程读写,不加锁。</para>
     /// </summary>
     private static readonly Dictionary<string, bool> DownloadOk = [];
+
+    private static async Task EnableHideResume(CoreClient core, MenuItem item)
+    {
+        var s = Nav.Session;
+        if (s is null) return;
+        try {
+            var perm = await core.EmbyPermissions(new { s.server, s.token, s.user_id, s.device_id });
+            if (Nav.Session != s) return;
+            var ok = !perm.TryGetProperty("capabilities", out var caps)
+                || !caps.TryGetProperty("hide_resume", out var hide) || hide.ValueKind != System.Text.Json.JsonValueKind.False;
+            item.IsEnabled = ok;
+            if (!ok) item.Header = "服务端不支持隐藏继续观看";
+        } catch { } // 权限查询失败时保持禁用,避免给出未经确认的写操作。
+    }
 
     internal static async Task ShowIfDownloadable(CoreClient core, Control down)
     {

@@ -1,0 +1,38 @@
+{
+  "name": "emby.resolveStream · MediaStationGo 外挂字幕按交付 VTT 格式接线",
+  "note": "媒体原始字幕编码为 ASS,服务端交付地址和响应为 VTT,不能按原始编码决定解析器。",
+  "provenance": "MediaStationGo 6e20252 internal/service/emby_media_sources.go mapSubtitleSelection 与 embySubtitleDeliveryURL; internal/service/subtitle.go serveMedia; 字段一致的脱敏合成载荷,非真实联调记录。",
+  "upstream": [
+    {
+      "path": "/Items/item/PlaybackInfo?UserId=u",
+      "status": 200,
+      "body": "{\"PlaySessionId\": \"fixture-session\", \"MediaSources\": [{\"Id\": \"media\", \"Container\": \"mkv\", \"DirectStreamUrl\": \"/Videos/media/stream.mkv\", \"MediaStreams\": [{\"Type\": \"Subtitle\", \"Index\": 3, \"Codec\": \"ass\", \"IsExternal\": true, \"IsDefault\": true, \"Language\": \"chi\", \"DeliveryUrl\": \"/Videos/media/Subtitles/3/Stream.vtt\"}]}]}"
+    },
+    {
+      "path": "/Videos/media/stream.mkv",
+      "status": 206,
+      "body": "x"
+    }
+  ],
+  "command": "emby.resolveStream",
+  "args": {
+    "item_id": "item"
+  },
+  "expect": {
+    "item_id": "item",
+    "media_source_id": "media",
+    "play_session_id": "fixture-session",
+    "play_method": "DirectStream",
+    "is_dolby_vision": false,
+    "external_subs": [
+      {
+        "url": "SERVER/Videos/media/Subtitles/3/Stream.vtt?api_key=t",
+        "title": "chi",
+        "lang": "chi",
+        "is_default": true,
+        "mime_type": "text/vtt"
+      }
+    ],
+    "url": "SERVER/Videos/media/stream.mkv?api_key=t"
+  }
+}

@@ -17,6 +17,11 @@ const tmdbBatch = 20
 // ★ 返回前再按 TMDB 滤一遍:服务端要是不认 AnyProviderIdEquals 会回整个库,
 // 不滤的话那台服的全部片子都会被当成「同一部」塞进结果。
 func (c *Client) ByTmdb(ctx context.Context, s *Session, typ string, ids []string) ([]Item, error) {
+	if len(ids) > 0 {
+		if caps := c.capabilities(ctx, s); caps != nil && !caps.ProviderLookup {
+			return nil, unsupported("按 TMDB 标识精确查询;名称搜索结果可能不完整")
+		}
+	}
 	want := map[string]bool{}
 	var uniq []string
 	for _, id := range ids {

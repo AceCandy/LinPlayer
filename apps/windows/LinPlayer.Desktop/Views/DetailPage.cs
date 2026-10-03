@@ -860,6 +860,8 @@ public sealed class DetailPage : PageBase
         void Jump(string kind, string label, string value)
         {
             if (label == "" || value == "") return;
+            if (d.TryGetProperty("capabilities", out var caps) && caps.TryGetProperty("filters", out var filter)
+                && filter.ValueKind == JsonValueKind.False) { Chip(label); return; }
             chips.Children.Add(Views.Chips.Clickable(label,
                 () => Nav.Push(new LibraryGridPage(_core, _server, "", label, (kind, value)))));
         }

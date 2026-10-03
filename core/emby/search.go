@@ -130,6 +130,9 @@ func searchURL(s *Session, query string, types []string, limit int, parentID str
 //
 // 复用 fetchItems —— 返回结构和列表端点同构,不另造解析。
 func (c *Client) Similar(ctx context.Context, s *Session, itemID string, limit int) ([]Item, error) {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Similar {
+		return []Item{}, nil
+	}
 	if limit > ServerPageCap {
 		limit = ServerPageCap
 	}

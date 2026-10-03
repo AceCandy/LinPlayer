@@ -34,7 +34,8 @@ type ServerGroup struct {
 	// ☠ 以前失败的服务器**整条被丢掉**,调用方无从分辨「这台没有这部片」和
 	// 「这台压根没搜成」—— 半失败(一路 429 一路回空)就被吞成「没搜到」。
 	// 这一栏非空时 Items 必为空,UI 要把它当成「这台没搜成」而不是空结果。
-	Error *string `json:"error"`
+	Error   *string `json:"error"`
+	Warning string  `json:"warning,omitempty"` // 能力降级说明,不替代成功的搜索结果。
 }
 
 // SourceOverview 聚合视界里的一张服务器卡。

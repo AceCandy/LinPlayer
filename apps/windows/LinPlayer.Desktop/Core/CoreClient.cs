@@ -141,6 +141,7 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
     {
         lock (_sendGate)
         {
+            ct.ThrowIfCancellationRequested();
             var tcs = new TaskCompletionSource<JsonElement>(TaskCreationOptions.RunContinuationsAsynchronously);
             _pending[seq] = tcs;
 
@@ -164,10 +165,19 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
             }
             // 取消要**同时**通知核心层:只丢掉本地的 TCS 的话,核心层那边还在跑,
             // 而它的结果没人收 —— 事件队列会一直堆着。
-            if (ct.CanBeCanceled)
-                ct.Register(() => { Native.lp_cancel(seq); _pending.TryRemove(seq, out _); tcs.TrySetCanceled(); });
-            return Perf.On ? Timed(command, tcs.Task) : tcs.Task;
+            var result = ct.CanBeCanceled ? WaitCancellable(seq, tcs, ct) : tcs.Task;
+            return Perf.On ? Timed(command, result) : result;
         }
+    }
+
+    private async Task<JsonElement> WaitCancellable(long seq, TaskCompletionSource<JsonElement> tcs, CancellationToken ct)
+    {
+        using var registration = ct.Register(() => {
+            Native.lp_cancel(seq);
+            _pending.TryRemove(seq, out _);
+            tcs.TrySetCanceled(ct);
+        });
+        return await tcs.Task.ConfigureAwait(false);
     }
 
     /// <summary>

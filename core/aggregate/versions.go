@@ -94,6 +94,11 @@ func registerVersionCommands() {
 				if err != nil || len(vers) == 0 {
 					return
 				}
+				if acc.Server != base.Server {
+					if notice := client.ProviderLookupNotice(s.Server); notice != "" {
+						reason += " · " + notice
+					}
+				}
 				slots[i] = &VersionGroup{
 					ServerID: acc.Server, ServerName: acc.DisplayName(),
 					ItemID: id, Current: acc.Server == base.Server,

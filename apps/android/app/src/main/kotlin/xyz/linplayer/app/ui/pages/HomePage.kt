@@ -118,6 +118,13 @@ fun HomePage(nav: NavController) {
     var collections by keepState<Block<List<Item>>>("home.collections") { Block.Loading }
     var accounts by keepState<List<Account>>("home.accounts") { emptyList() }
     var reload by remember { mutableStateOf(0) }
+    val currentSession by app.session.collectAsState()
+    var canHideResume by remember(currentSession?.server, currentSession?.userId) { mutableStateOf(false) }
+    LaunchedEffect(currentSession?.server, currentSession?.userId) {
+        if (currentSession == null) return@LaunchedEffect
+        val perm = runCatching { app.call("emby.permissions") }.getOrNull().obj()
+        canHideResume = perm != null && perm["capabilities"].obj()?.get("hide_resume")?.toString() != "false"
+    }
     /* 插件声明的首页栏目(SPEC 6.1,D156 D303)。
        ☠ 这张表以前**声明了没人画** —— 插件写了 homeSections,核心层没有取它的命令,
        壳自然也画不出来,而 manifest 合法、lp check 通过、贡献点清单里还列着它。 */
@@ -164,7 +171,7 @@ fun HomePage(nav: NavController) {
     // 继续观看多一项「取消观看记录」(用户 2026-09-18:「我不想看 我也不想标记为已观看」)。
     // 打 HideFromResume,进度和已看状态都不动;成功后只从这一条里摘掉,别的块不受影响。
     val resumeMenu: (Item) -> List<CardAction> = { item ->
-        cardActions(app, scope, item) + CardAction("取消观看记录") {
+        cardActions(app, scope, item) + if (!canHideResume) emptyList() else listOf(CardAction("取消观看记录") {
             scope.launch {
                 runCatching { app.call("emby.hideResume", args("item_id" to item.id, "hide" to true)) }
                     .onSuccess {
@@ -173,7 +180,7 @@ fun HomePage(nav: NavController) {
                     }
                     .onFailure { app.report(it) }
             }
-        }
+        })
     }
 
     val switchServer: (Account) -> Unit = { a ->

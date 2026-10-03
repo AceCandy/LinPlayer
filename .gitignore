@@ -54,6 +54,8 @@ tools/corecheck/bin/
 tools/corecheck/obj/
 tools/homecheck/bin/
 tools/homecheck/obj/
+tools/productcheck/bin/
+tools/productcheck/obj/
 tools/privacycheck/bin/
 tools/privacycheck/obj/
 docs/go-migration/spikes/s2/*.txt

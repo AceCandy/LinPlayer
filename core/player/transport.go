@@ -72,7 +72,9 @@ func registerTransport() {
 	// ★ 三次上报共用同一个 PlaySessionId —— 这里从当前播放目标取,
 	//   **不让调用方传**:传错一次就是「看一半退出进度不落地」,而且查不出来。
 	bus.Register("emby.reportProgress", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		t := Current()
+		currentMu.Lock()
+		t, report := current, currentReport
+		currentMu.Unlock()
 		if t == nil {
 			// 没在播就上报 = 调用方状态错了,但这不该报错打扰用户
 			return map[string]any{"reported": false, "why": "没有正在进行的播放"}, nil
@@ -86,13 +88,18 @@ func registerTransport() {
 		// ★ 顺手落一次本地观看记录(内部有 10 秒节流)。
 		//   放在这里而不是另开一条定时器:上报本来就是「每几秒一次」的节奏,
 		//   再开一条只会多一份状态要对齐。
-		captureHistory(pos, false)
-		if err := prefsClient.ReportProgress(ctx, s, t, pos, paused); err != nil {
+		currentMu.Lock()
+		if current == t {
+			captureHistoryLocked(pos, false)
+		}
+		currentMu.Unlock()
+		reported, err := report.progress(ctx, s, t, pos, paused)
+		if err != nil {
 			// ★ 上报失败不该冒到用户面前:它每几秒一次,弹一次红字就是刷屏
 			bus.Logf("warn", "report_progress 失败: %v", err)
 			return map[string]any{"reported": false}, nil
 		}
-		return map[string]any{"reported": true}, nil
+		return map[string]any{"reported": reported}, nil
 	})
 
 	// ---- 传输控制 ----

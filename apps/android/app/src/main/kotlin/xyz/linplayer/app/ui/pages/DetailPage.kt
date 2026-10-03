@@ -407,7 +407,8 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                         horizontalArrangement = Arrangement.spacedBy(Sp.x6),
                     ) {
                         jumps.forEach { (kind, value, label) ->
-                            Tag(label) { nav.navigate(Route.Facet(kind, value, label)) }
+                            if (d?.get("capabilities").obj()?.get("filters")?.toString() == "false") Tag(label)
+                            else Tag(label) { nav.navigate(Route.Facet(kind, value, label)) }
                         }
                         plain.forEach { Tag(it) }
                     }

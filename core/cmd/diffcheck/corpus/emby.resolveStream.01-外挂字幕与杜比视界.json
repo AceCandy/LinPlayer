@@ -1,7 +1,7 @@
 {
   "name": "emby.resolveStream · 外挂字幕地址、DV 判定、PlaySessionId",
   "note": "取流这一跳同时定死四件事:①外挂字幕优先用服务器给的 DeliveryUrl,没有就按 index 拼标准路由(subrip 的扩展名要写成 srt,webvtt 写成 vtt);②图形字幕(pgssub/dvdsub)跳过 —— 外挂形态少见且 mpv 挂载后多半不可用;③DV 判定在这里算,因为 MediaStreams 只有这条路上拿得到,调用方手里的版本列表是另一次请求、可能选的不是同一个版本;④PlaySessionId 必须贯穿上报三件套,服务器给了就用服务器的。另外 api_key 要补在 DeliveryUrl 上(它是相对路径且不带凭据)。",
-  "provenance": "crates/core/src/emby.rs:2089 resolve_stream() + :1785 subtitle_path() + :341 is_dolby_vision()",
+  "provenance": "crates/core/src/emby.rs:2089 resolve_stream() + :1785 subtitle_path() + :341 is_dolby_vision(); 2026-10-03 交付格式字段来自 core/emby/subtitle_delivery_test.go 与 Media3 外挂字幕接线契约",
   "upstream": [
     {
       "path": "/Items/it1/PlaybackInfo?UserId=u",
@@ -29,13 +29,15 @@
         "url": "SERVER/Videos/it1/ms-1/Subtitles/3/0/Stream.srt?api_key=t",
         "title": "chi",
         "lang": "chi",
-        "is_default": false
+        "is_default": false,
+        "mime_type": "application/x-subrip"
       },
       {
         "url": "SERVER/Videos/it1/ms-1/Subtitles/4/0/Stream.ass?api_key=t",
         "title": "简体中文",
         "lang": null,
-        "is_default": true
+        "is_default": true,
+        "mime_type": "text/x-ssa"
       }
     ],
     "url": "SERVER/videos/it1/original.mkv?static=true&api_key=t"

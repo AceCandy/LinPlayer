@@ -196,6 +196,11 @@ func (c *Client) Items(ctx context.Context, s *Session, parentID string, q *Item
 	if q == nil {
 		q = &ItemQuery{}
 	}
+	if q.needsLocalFilter() || len(q.StudioIds) > 0 {
+		if caps := c.capabilities(ctx, s); caps != nil && !caps.Filters {
+			return nil, unsupported("媒体库条件筛选,可继续使用排序和分页")
+		}
+	}
 	// Fields 必须带 Genres/ProductionYear/CommunityRating,否则客户端复筛没有判据。
 	var b strings.Builder
 	fmt.Fprintf(&b, "%s/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=Movie,Series"+
@@ -337,6 +342,9 @@ func (c *Client) NextUp(ctx context.Context, s *Session, limit int) ([]Item, err
 
 // Collections 合集。
 func (c *Client) Collections(ctx context.Context, s *Session) ([]Item, error) {
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Collections {
+		return []Item{}, nil
+	}
 	u := fmt.Sprintf("%s/Users/%s/Items?IncludeItemTypes=BoxSet&Recursive=true"+
 		"&SortBy=SortName&SortOrder=Ascending"+
 		"&Fields=PrimaryImageAspectRatio,Genres,ProductionYear,CommunityRating",

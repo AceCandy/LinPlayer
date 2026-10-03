@@ -34,6 +34,9 @@ type Chapter struct {
 // ★ 失败 / 无章节都返回**空表** —— 这两个功能都是增值项,不该拦住播放。
 func (c *Client) Chapters(ctx context.Context, s *Session, itemID string, thumbWidth int) []Chapter {
 	out := []Chapter{}
+	if caps := c.capabilities(ctx, s); caps != nil && !caps.Chapters {
+		return out
+	}
 	u := fmt.Sprintf("%s/Users/%s/Items/%s?Fields=Chapters",
 		s.Server, url.PathEscape(s.UserID), url.PathEscape(itemID))
 	b, err := c.getBytes(ctx, s, u)

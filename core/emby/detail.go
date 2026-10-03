@@ -37,16 +37,17 @@ type SeasonInfo struct {
 
 // ItemDetail 条目详情。
 type ItemDetail struct {
-	ID          string   `json:"id"`
-	Name        string   `json:"name"`
-	Type        string   `json:"type_"`
-	Overview    string   `json:"overview"`
-	Year        *int64   `json:"year"`
-	Genres      []string `json:"genres"`
-	Rating      *float64 `json:"rating"`
-	RuntimeSecs float64  `json:"runtime_secs"`
-	ResumeSecs  float64  `json:"resume_secs"`
-	HasPrimary  bool     `json:"has_primary"`
+	Capabilities *Capabilities `json:"capabilities,omitempty"`
+	ID           string        `json:"id"`
+	Name         string        `json:"name"`
+	Type         string        `json:"type_"`
+	Overview     string        `json:"overview"`
+	Year         *int64        `json:"year"`
+	Genres       []string      `json:"genres"`
+	Rating       *float64      `json:"rating"`
+	RuntimeSecs  float64       `json:"runtime_secs"`
+	ResumeSecs   float64       `json:"resume_secs"`
+	HasPrimary   bool          `json:"has_primary"`
 	// ★ 背景图在 **BackdropImageTags 数组**里,不在 ImageTags 里。
 	//   写成 ImageTags["Backdrop"] 永远是 false —— 详情页就永远没有大图。
 	HasBackdrop bool `json:"has_backdrop"`
@@ -161,6 +162,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 	if err := json.Unmarshal(b, &j); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
+	c.rememberIdentity(s.Server, jstr(j, "ServerId"))
 
 	typ := jstr(j, "Type")
 
@@ -247,22 +249,23 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 	}
 
 	return &ItemDetail{
-		ID:          id,
-		Tags:        jstrList(j, "Tags"),
-		Studios:     jnamedList(j, "Studios"),
-		Name:        jstr(j, "Name"),
-		Type:        typ,
-		Overview:    jstr(j, "Overview"),
-		Year:        jint(j, "ProductionYear"),
-		Genres:      genres,
-		Rating:      jfloat(j, "CommunityRating"),
-		RuntimeSecs: float64(jint64or0(j, "RunTimeTicks")) / 1e7,
-		ResumeSecs:  float64(jint64or0(ud, "PlaybackPositionTicks")) / 1e7,
-		HasPrimary:  hasPrimary,
-		HasBackdrop: hasBackdrop,
-		IsFavorite:  jbool(ud, "IsFavorite"),
-		Played:      jbool(ud, "Played"),
-		SeasonID:    jstrPtr(j, "SeasonId"),
+		Capabilities: capabilitiesForID(jstr(j, "ServerId")),
+		ID:           id,
+		Tags:         jstrList(j, "Tags"),
+		Studios:      jnamedList(j, "Studios"),
+		Name:         jstr(j, "Name"),
+		Type:         typ,
+		Overview:     jstr(j, "Overview"),
+		Year:         jint(j, "ProductionYear"),
+		Genres:       genres,
+		Rating:       jfloat(j, "CommunityRating"),
+		RuntimeSecs:  float64(jint64or0(j, "RunTimeTicks")) / 1e7,
+		ResumeSecs:   float64(jint64or0(ud, "PlaybackPositionTicks")) / 1e7,
+		HasPrimary:   hasPrimary,
+		HasBackdrop:  hasBackdrop,
+		IsFavorite:   jbool(ud, "IsFavorite"),
+		Played:       jbool(ud, "Played"),
+		SeasonID:     jstrPtr(j, "SeasonId"),
 		// ★ 这里**不**折空串 —— 与 Item 的映射不同。Rust 侧是 `.as_str().map(String::from)`,
 		//   没有 `.filter(非空)`。照搬,不许「统一一下」。
 		SeriesName: jstrPtr(j, "SeriesName"),

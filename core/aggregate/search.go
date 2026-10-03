@@ -98,14 +98,17 @@ func searchAll(ctx context.Context, c *config.AppConfig, query string, includeEp
 	// ★ 按账号表顺序拼回去,不按谁先返回 —— 否则每次搜索服务器顺序都在跳
 	out := []ServerGroup{}
 	for _, x := range all {
-		g := ServerGroup{ServerID: x.acc.Server, ServerName: x.acc.DisplayName()}
+		g := ServerGroup{ServerID: x.acc.Server, ServerName: x.acc.DisplayName(), Warning: client.ProviderLookupNotice(x.s.Server)}
 		switch {
 		case x.err != nil:
 			// 单台失败隔离:其余照出。但**要说出来**,不能悄悄消失 —— 「没搜成」和「没有」是两回事
 			msg := x.err.Error()
 			g.Error = &msg
 		case len(x.items) == 0:
-			continue // 这台没有这部片 —— 不是失败,整条不出
+			if g.Warning == "" {
+				continue
+			} // 降级的空结果不能解释为完整查询后不存在。
+			g.Items = []emby.Item{}
 		default:
 			g.Items = x.items
 		}

@@ -2,6 +2,7 @@
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 using Avalonia;
 using Avalonia.Controls;
@@ -34,6 +35,11 @@ public sealed class HomePage : PageBase
     private readonly Hero _hero;
     private CoreClient? _core;
     private string _server = "";
+    private CancellationTokenSource _lifetime = new();
+    private CancellationToken _ct;
+    private readonly List<Func<Task>> _retryOnReturn = [];
+    private bool _officialStarted;
+    private bool _pluginsLoaded;
 
     /// <summary>Hero 用几张。 这一批<b>只给 Hero</b> —— 「随便看看」那条 2026-09-03 撤了。</summary>
     private const int HeroCount = 5;
@@ -52,6 +58,15 @@ public sealed class HomePage : PageBase
     /// <param name="title">保留形参:外壳按源类型算出来的名字,别的入口还在传。</param>
     public HomePage(CoreClient core, Action<CardItem>? onOpen = null, string title = "首页")
     {
+        _ct = _lifetime.Token;
+        DetachedFromVisualTree += (_, _) => { if (!_ct.IsCancellationRequested) { _lifetime.Cancel(); _lifetime.Dispose(); } };
+        AttachedToVisualTree += (_, _) => {
+            if (!_ct.IsCancellationRequested) return;
+            _lifetime = new CancellationTokenSource(); _ct = _lifetime.Token;
+            var retry = _retryOnReturn.ToArray(); _retryOnReturn.Clear();
+            foreach (var run in retry) _ = run();
+            Post(PumpLazy, DispatcherPriority.Background);
+        };
         _core = core;
         _onOpen = onOpen;
         /* <b>首页不写页头</b>(用户 2026-09-02:「继续观看上面的服务器名称也去掉」)。
@@ -102,8 +117,14 @@ public sealed class HomePage : PageBase
     /// </summary>
     private async Task LoadAllAsync(CoreClient core)
     {
-        await LoadAsync(core);
-        await PluginHomeSections(core);
+        var ct = _ct;
+        try {
+            await LoadAsync(core);
+            ct.ThrowIfCancellationRequested();
+            await PluginHomeSections(core);
+        } catch (OperationCanceledException) when (ct.IsCancellationRequested) {
+            RetryWhenVisible(_officialStarted ? () => PluginHomeSections(core) : () => LoadAllAsync(core));
+        }
     }
 
     /// <summary>
@@ -115,10 +136,14 @@ public sealed class HomePage : PageBase
     /// </summary>
     private async Task PluginHomeSections(CoreClient core)
     {
+        if (_pluginsLoaded) return;
+        var ct = _ct;
         JsonElement list;
-        try { list = await core.PluginHomeSections(new { }); }
+        try { list = await core.PluginHomeSections(new { }, ct); ct.ThrowIfCancellationRequested(); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(() => PluginHomeSections(core)); return; }
         catch (Exception e) { Log.W("首页", "取插件栏目失败,这一页只画官方内容:" + e.Message); return; }
         if (list.ValueKind != JsonValueKind.Array) return;
+        _pluginsLoaded = true;
         foreach (var it in list.EnumerateArray())
         {
             var pid = Mi.Str(it, "plugin_id");
@@ -148,11 +173,12 @@ public sealed class HomePage : PageBase
     }
 
     private void AddPluginTrack(CoreClient core, string title, string pid, string sid, bool wide) =>
-        _ = Track(title, async () => await Arr(core.PluginHomeItems(new { plugin_id = pid, id = sid })),
+        _ = Track(title, async () => await Arr(core.PluginHomeItems(new { plugin_id = pid, id = sid }, _ct)),
             wide, lazy: true, hideWhenEmpty: true);
 
     private async Task LoadAsync(CoreClient core)
     {
+        var ct = _ct;
         /* 会话<b>优先用外壳已经拉好的那份</b>(<see cref="Nav.Session"/>)。
            原来这一页自己再拉一次 emby.currentSession —— 而外壳启动时刚拉过,
            首页每次构造都白花一次往返,**而且这一次是串行的**:
@@ -160,7 +186,8 @@ public sealed class HomePage : PageBase
         JsonElement session = default;
         if (Nav.Session is null)
         {
-            try { session = await core.EmbyCurrentSession(); }
+            try { session = await core.EmbyCurrentSession(ct: ct); }
+            catch (OperationCanceledException) { throw; }
             catch (Exception e) { AddRow(Dim($"读会话失败:{e.Message}")); return; }
             if (session.ValueKind != JsonValueKind.Object)
             {
@@ -168,6 +195,8 @@ public sealed class HomePage : PageBase
                 return;
             }
         }
+        ct.ThrowIfCancellationRequested();
+        _officialStarted = true;
         _server = Nav.Session?.server ?? Str(session, "server");
         var s = Nav.Session is { } ns
             ? new { server = ns.server, token = ns.token, user_id = ns.user_id, device_id = ns.device_id }
@@ -209,7 +238,7 @@ public sealed class HomePage : PageBase
         var boxsets = Track("合集", async () =>
                 await CollectionsOn(core)
                     ? await Arr(core.EmbyListCollections(
-                        new { s.server, s.token, s.user_id, s.device_id }))
+                        new { s.server, s.token, s.user_id, s.device_id }, _ct))
                     : [], false,
             key: MetaCache.Key("emby.listCollections", new { s.server, s.user_id }),
             lazy: true, hideWhenEmpty: true);
@@ -222,7 +251,7 @@ public sealed class HomePage : PageBase
         libSection.Children.Add(libBusy);
 
         var views = Track("媒体库",
-            () => Arr(core.EmbyViews(new { s.server, s.token, s.user_id, s.device_id })), true,
+            () => Arr(core.EmbyViews(new { s.server, s.token, s.user_id, s.device_id }, _ct)), true,
             key: MetaCache.Key("emby.views", new { s.server, s.user_id }),
             onItems: libs => LatestPerLibrary(core, s, libSection, libBusy, libs));
         AddRow(libSection);
@@ -246,7 +275,7 @@ public sealed class HomePage : PageBase
         _ = Task.Run(async () =>
         {
             await Task.Delay(5000);
-            Dispatcher.UIThread.Post(() =>
+            Post(() =>
             {
                 var titles = new List<string>();
                 var emptyNote = false;
@@ -286,13 +315,16 @@ public sealed class HomePage : PageBase
     /// 读取失败时默认隐藏的话,用户看到的是「合集栏没了」,而他什么都没改过,
     /// 也没有任何提示告诉他为什么。宁可多画一条。</para>
     /// </summary>
-    private static async Task<bool> CollectionsOn(CoreClient core)
+    private async Task<bool> CollectionsOn(CoreClient core)
     {
+        var ct = _ct;
         try
         {
-            var r = await core.PrefsGetHomeSettings(new { });
+            var r = await core.PrefsGetHomeSettings(new { }, ct);
+            ct.ThrowIfCancellationRequested();
             return !r.TryGetProperty("collections_enabled", out var v) || v.ValueKind != JsonValueKind.False;
         }
+        catch (OperationCanceledException) { throw; }
         catch { return true; }   // 读不到设置就按「开」走:首页少一块比多一块更像坏了
     }
 
@@ -306,12 +338,14 @@ public sealed class HomePage : PageBase
     /// </summary>
     private async Task HeroItems(CoreClient core, object s)
     {
-        var key = MetaCache.Key("emby.listRandom", new { _server, hero = HeroCount });
+        var key = MetaCache.Key("emby.listRandom", With(s, new { hero = HeroCount }));
         var cached = MetaCache.PeekList(key);
         if (cached is { Count: > 0 }) _hero.Show(_server, cached);
 
+        var ct = _ct;
         List<JsonElement> all;
-        try { all = await Arr(core.EmbyListRandom(With(s, new { limit = HeroCount }))); }
+        try { all = await Arr(core.EmbyListRandom(With(s, new { limit = HeroCount }), ct)); ct.ThrowIfCancellationRequested(); }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(() => HeroItems(core, s)); return; }
         catch { if (cached is null) _hero.Hide(); return; }
         if (all.Count == 0) { _hero.Hide(); return; }
         /* 内容没变就<b>不要再 Show 一次</b>。Show 会重建圆点、复位轮播、重发预取,
@@ -340,13 +374,13 @@ public sealed class HomePage : PageBase
     private void LatestPerLibrary(CoreClient core, object s, StackPanel section,
         Control busy, List<JsonElement> libs)
     {
-        Dispatcher.UIThread.Post(() =>
+        Post(() =>
         {
             section.Children.Remove(busy);
             if (libs.Count == 0)
             {
-                _ = Track("最新加入", () => Arr(core.EmbyListLatest(With(s, new { limit = 16 }))), false,
-                    key: MetaCache.Key("emby.listLatest", new { _server }), host: section);
+                _ = Track("最新加入", () => Arr(core.EmbyListLatest(With(s, new { limit = 16 }), _ct)), false,
+                    key: MetaCache.Key("emby.listLatest", s), host: section);
                 return;
             }
             var n = 0;
@@ -359,9 +393,9 @@ public sealed class HomePage : PageBase
                    首页整段本来就是「最新加入」,每一条再重复一次是纯噪音。
                    后面那个 › 点进这个库的网格页。 */
                 _ = Track(name,
-                    () => Arr(core.EmbyListLatest(With(s, new { parent_id = id, limit = 16 }))),
+                    () => Arr(core.EmbyListLatest(With(s, new { parent_id = id, limit = 16 }), _ct)),
                     false, host: section, libraryId: id,
-                    key: MetaCache.Key("emby.listLatest", new { _server, id }),
+                    key: MetaCache.Key("emby.listLatest", With(s, new { parent_id = id })),
                     // 第一条库轨道跟「继续观看」一起算进首屏,再往下的等滚到了再拉
                     lazy: ++n + 1 > EagerRows);
             }
@@ -393,20 +427,37 @@ public sealed class HomePage : PageBase
         }
     }
 
-    private static async Task<ResumeFeed.Result> ResumeAndNextUp(CoreClient core, object s)
+    private async Task<ResumeFeed.Result> ResumeAndNextUp(CoreClient core, object s)
     {
+        var ct = _ct;
         var resumeKey = MetaCache.Key("home.resume.items", s);
         var nextKey = MetaCache.Key("home.nextUp.items", s);
         // 旧版只有合并缓存;首次部分失败时保留旧内容,待两路成功后自然刷新。
         var previous = MetaCache.PeekList(MetaCache.Key("home.resume", s));
         var result = await ResumeFeed.Load(
-            () => Arr(core.EmbyListResume(With(s, new { limit = 12 }))),
-            () => Arr(core.EmbyListNextUp(With(s, new { limit = 12 }))),
+            () => Arr(core.EmbyListResume(With(s, new { limit = 12 }), ct)),
+            () => Arr(core.EmbyListNextUp(With(s, new { limit = 12 }), ct)),
             MetaCache.PeekList(resumeKey) ?? previous, MetaCache.PeekList(nextKey) ?? previous);
+        ct.ThrowIfCancellationRequested();
         if (result.Resume is not null) MetaCache.PutList(resumeKey, result.Resume);
         if (result.NextUp is not null) MetaCache.PutList(nextKey, result.NextUp);
         return result;
     }
+
+    private void Post(Action action, DispatcherPriority? priority = null)
+    {
+        var ct = _ct;
+        Dispatcher.UIThread.Post(() => {
+            if (!ct.IsCancellationRequested) action();
+            else RetryWhenVisible(() => { action(); return Task.CompletedTask; });
+        }, priority ?? DispatcherPriority.Normal);
+    }
+
+    // 导航栈会保留页面实例;取消的加载在返回后继续,已显示内容及滚动位置保持。
+    private void RetryWhenVisible(Func<Task> run) => Dispatcher.UIThread.Post(() => {
+        if (_ct.IsCancellationRequested) _retryOnReturn.Add(run);
+        else _ = run();
+    });
 
     private static async Task<List<JsonElement>> Arr(Task<JsonElement> t)
     {
@@ -445,19 +496,19 @@ public sealed class HomePage : PageBase
         box.Children.Add(RowHead(title, libraryId));
         box.Children.Add(body);
         if (host is null) AddRow(box);
-        else Dispatcher.UIThread.Post(() => host.Children.Add(box));
+        else Post(() => host.Children.Add(box));
 
         /* 整条轨道消失(标题行一起)。
             从**它实际挂进去的那个容器**里摘 —— host 给了就是 host,没给才是 _rows。
              写死 _rows 的话,挂在「最新加入」小节里的轨道摘不掉,而且**不报错**:
              Remove 一个不在表里的元素返回 false,谁也不会去看那个返回值。 */
-        void Vanish() => Dispatcher.UIThread.Post(() =>
+        void Vanish() => Post(() =>
         {
             Core.Perf.Log($"轨道「{title}」<- 0 条,整条不画");
             (host ?? _rows).Children.Remove(box);
         });
 
-        void Swap(Control with) => Dispatcher.UIThread.Post(() =>
+        void Swap(Control with) => Post(() =>
         {
             var at = box.Children.IndexOf(body);
             if (at < 0) return;
@@ -488,11 +539,13 @@ public sealed class HomePage : PageBase
 
         async Task Run()
         {
+            var ct = _ct;
             var t0 = Core.Perf.Ms;
             try
             {
                 var result = resumeLoad is null ? null : await resumeLoad();
                 var items = result?.Items ?? await load!();
+                ct.ThrowIfCancellationRequested();
                 if (result?.Error is { } error) {
                     Swap(Failure(error, items));
                     return;
@@ -509,12 +562,13 @@ public sealed class HomePage : PageBase
             }
             /* 已经用缓存画出内容之后再失败(离线 / 服务器挂了),<b>不要把内容换成一行红字</b> ——
                屏幕上那批旧数据仍然是用户能用的东西,擦掉它换成「加载失败」是纯粹的损失。 */
-            catch (Exception e) { Swap(Failure(e, hit)); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(Run); }
+            catch (Exception e) { if (!ct.IsCancellationRequested) Swap(Failure(e, hit)); }
         }
 
         if (!lazy) { await Run(); return; }
         _lazy.Add((box, Run));
-        Dispatcher.UIThread.Post(PumpLazy, DispatcherPriority.Background);
+        Post(PumpLazy, DispatcherPriority.Background);
     }
 
     /// <summary>
@@ -526,7 +580,7 @@ public sealed class HomePage : PageBase
     /// </summary>
     private void PumpLazy()
     {
-        if (_lazy.Count == 0) return;
+        if (_ct.IsCancellationRequested || _lazy.Count == 0) return;
         var edge = _sv.Offset.Y + _sv.Viewport.Height + 800;
         for (var i = _lazy.Count - 1; i >= 0; i--)
         {
@@ -606,7 +660,7 @@ public sealed class HomePage : PageBase
         return b;
     }
 
-    private void AddRow(Control c) => Dispatcher.UIThread.Post(() => _rows.Children.Add(c));
+    private void AddRow(Control c) => Post(() => _rows.Children.Add(c));
 
     private static string Id(JsonElement e) => Str(e, "id");
 

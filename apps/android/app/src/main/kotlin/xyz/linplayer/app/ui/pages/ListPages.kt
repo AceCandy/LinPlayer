@@ -27,6 +27,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -91,22 +92,50 @@ fun FavoritesPage(nav: NavController) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val grid = rememberLazyGridState()
-    var block by xyz.linplayer.app.data.keepState<Block<List<Item>>>("fav") { Block.Loading }
-    var sort by xyz.linplayer.app.data.keepState("fav.sort") { FAV_SORTS[0] }
+    val session = app.session.collectAsStateWithLifecycle().value
+    val key = "fav.${session?.server}.${session?.userId}"
+    var block by xyz.linplayer.app.data.keepState<Block<List<Item>>>(key) { Block.Loading }
+    var sort by xyz.linplayer.app.data.keepState("$key.sort") { FAV_SORTS[0] }
     /* 手里这份是按哪一档拉的。少了它,下面那道「已经有结果就别重拉」的闸
        会把换档位一起吞掉 —— 和媒体库那个坑同一个形状。 */
-    var fetchedSort by xyz.linplayer.app.data.keepState<String?>("fav.as") { null }
+    var fetchedSort by xyz.linplayer.app.data.keepState<String?>("$key.as") { null }
     var reload by remember { mutableStateOf(0) }
+    var nextIndex by xyz.linplayer.app.data.keepState("$key.next") { 0 }
+    var hasMore by xyz.linplayer.app.data.keepState("$key.more") { false }
+    var loadingMore by remember { mutableStateOf(false) }
+    var moreFailed by remember { mutableStateOf(false) }
+    var generation by remember { mutableStateOf(0) }
 
-    LaunchedEffect(reload, sort) {
+    suspend fun fetch(offset: Int) {
+        val gen = generation
+        when (val r = app.block("emby.listFavorites", args("sort" to sort, "start_index" to offset, "limit" to 60))) {
+            is Block.Ok -> if (gen == generation) {
+                val page = Page.from(r.value)
+                val previous = if (offset == 0) emptyList() else (block as? Block.Ok)?.value.orEmpty()
+                block = Block.Ok((previous + page.items).distinctBy { it.id })
+                nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
+                hasMore = r.value.obj().bool("has_more")
+                moreFailed = false
+            }
+            is Block.Fail -> if (gen == generation) {
+                if (offset == 0) block = r else { moreFailed = true; app.report(Exception(r.message)) }
+            }
+            else -> Unit
+        }
+    }
+    fun loadMore() {
+        if (!hasMore || loadingMore) return
+        loadingMore = true
+        val gen = generation
+        scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
+    }
+
+    LaunchedEffect(key, reload, sort) {
         // ☠ 判据必须带上档位,否则就是媒体库那个坑(2026-09-12「筛选了不刷新」)
         if (reload == 0 && block is Block.Ok && fetchedSort == sort) return@LaunchedEffect
-        fetchedSort = sort
-        block = when (val r = app.block("emby.listFavorites", args("sort" to sort))) {
-            is Block.Ok -> Block.Ok(Page.from(r.value).items)
-            is Block.Fail -> r
-            else -> Block.Loading
-        }
+        generation++; loadingMore = false; moreFailed = false
+        fetchedSort = sort; nextIndex = 0; hasMore = false; block = Block.Loading
+        fetch(0)
     }
     LaunchedEffect(Unit) { app.invalidate.collect { if (it == "library" || it == "all") reload++ } }
 
@@ -117,7 +146,7 @@ fun FavoritesPage(nav: NavController) {
         xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
     }) { pad ->
         BlockBox(block, { reload++ }, skeleton = { GridSkel(pad) }) { items ->
-            if (items.isEmpty()) EmptyState(
+            if (items.isEmpty() && !hasMore) EmptyState(
                 "还没有收藏任何内容",
                 "在任意封面上长按 → 收藏,或者在详情页点右上角那颗心。收藏会跟着服务器走。",
                 LpIcons.heart,
@@ -140,6 +169,11 @@ fun FavoritesPage(nav: NavController) {
                     MediaCard(it, app.imageUrl(it.id, "Primary", 330),
                         { nav.navigate(Route.Detail(it.id, it.type)) },
                         Modifier.fillMaxWidth(), menu = cardActions(app, scope, it))
+                }
+                if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                    if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                    LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
+                        { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary)
                 }
             }
         }

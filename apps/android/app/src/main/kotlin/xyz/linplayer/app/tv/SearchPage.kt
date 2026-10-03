@@ -231,6 +231,7 @@ private fun AggregateRows(
             val srcItems = if (plugin) g["items"].arr().mapNotNull { it.obj() } else emptyList()
             val n = embyItems.size + srcItems.size
             Column {
+                g.str("warning")?.let { TvText(it, t.meta, TvC.fg3, maxLines = 2) }
                 // 半失败(一路 429、一路回空)不能吞成「没搜到」:错了的源自己占一行说话
                 when {
                     err != null -> TvText("$name 没搜成:$err", t.meta, TvC.fg3, maxLines = 2)

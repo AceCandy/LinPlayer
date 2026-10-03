@@ -97,6 +97,10 @@ func RegisterCommands(version string) {
 		return defaultClient.NextUp(ctx, s, intArg(a, "limit", 12))
 	})
 	list("emby.listFavorites", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		if _, paged := a["limit"]; paged {
+			return defaultClient.FavoritesPage(ctx, s, intArg(a, "start_index", 0), intArg(a, "limit", 60),
+				str(a, "sort"), str(a, "sort_by"), str(a, "sort_order"))
+		}
 		v, err := defaultClient.Favorites(ctx, s)
 		if err != nil {
 			return nil, err

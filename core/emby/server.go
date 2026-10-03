@@ -47,7 +47,9 @@ func (c *Client) ProbeServer(ctx context.Context, server string) (*ServerInfo, e
 	if err := json.NewDecoder(resp.Body).Decode(&j); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
-	return &ServerInfo{Name: jstr(j, "ServerName"), Version: jstr(j, "Version"), ID: jstr(j, "Id")}, nil
+	info := &ServerInfo{Name: jstr(j, "ServerName"), Version: jstr(j, "Version"), ID: jstr(j, "Id")}
+	c.rememberIdentity(base, info.ID)
+	return info, nil
 }
 
 // ExtDomain 服主下发的一条备用线路。

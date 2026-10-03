@@ -36,6 +36,7 @@ type SearchRow struct {
 	Items      []Item      `json:"items,omitempty"`
 	EmbyItems  []emby.Item `json:"emby_items,omitempty"`
 	Error      *string     `json:"error,omitempty"`
+	Warning    string      `json:"warning,omitempty"` // 服务端能力限制,结果仍可使用。
 	MS         int64       `json:"ms"`
 }
 
@@ -140,12 +141,17 @@ func searchOne(ctx context.Context, c *config.AppConfig, acc config.Account, q s
 		return row
 	}
 	if len(items) == 0 {
-		return nil
+		row.Warning = embyClient.ProviderLookupNotice(sessionOf(c, acc).Server)
+		if row.Warning == "" {
+			return nil
+		}
+		return row
 	}
 	if len(items) > limit {
 		items = items[:limit]
 	}
 	row.EmbyItems = items
+	row.Warning = embyClient.ProviderLookupNotice(sessionOf(c, acc).Server)
 	return row
 }
 

@@ -34,6 +34,7 @@ import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
+import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.arr
@@ -83,17 +84,46 @@ fun FavoritesPage() {
     val scope = rememberCoroutineScope()
     val overlay = rememberOverlay()
     val t = tvType
-    val server = app.session.collectAsStateWithLifecycle().value?.server
+    val session = app.session.collectAsStateWithLifecycle().value
+    val server = "${session?.server}.${session?.userId}"
     var by by keepState("tv.fav.by") { 0 }
     var asc by keepState("tv.fav.asc") { false }
     var block by keepState<Block<List<Item>>>("tv.fav.$server") { Block.Loading }
     // 数据源收藏按来源分组(D326 D333),和 Emby 收藏同页 —— 用户记的是「我收藏过」,不是「我在哪台收藏过」
     var srcFavs by remember { mutableStateOf<List<kotlinx.serialization.json.JsonObject>>(emptyList()) }
     var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(server, by, asc, reload) {
+    var nextIndex by remember(server) { mutableIntStateOf(0) }
+    var hasMore by remember(server) { mutableStateOf(false) }
+    var loadingMore by remember { mutableStateOf(false) }
+    var moreFailed by remember { mutableStateOf(false) }
+    var generation by remember { mutableIntStateOf(0) }
+    suspend fun fetch(offset: Int) {
+        val gen = generation
         val r = app.block("emby.listFavorites", args("sort_by" to FavBy[by].first,
-            "sort_order" to if (asc) "asc" else "desc")).map { Item.list(it) }
-        if (!(r is Block.Fail && block is Block.Ok)) block = r
+            "sort_order" to if (asc) "asc" else "desc", "start_index" to offset, "limit" to 60))
+        if (gen != generation) return
+        when (r) {
+            is Block.Ok -> {
+                val page = Page.from(r.value)
+                val previous = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
+                block = Block.Ok((previous + page.items).distinctBy { it.id })
+                nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
+                hasMore = r.value.obj().bool("has_more"); moreFailed = false
+            }
+            is Block.Fail -> if (offset == 0) block = r else { moreFailed = true; app.toast(r.message) }
+            else -> Unit
+        }
+    }
+    fun loadMore() {
+        if (loadingMore || !hasMore) return
+        loadingMore = true
+        val gen = generation
+        scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
+    }
+    LaunchedEffect(server, by, asc, reload) {
+        generation++; loadingMore = false; moreFailed = false
+        nextIndex = 0; hasMore = false; block = Block.Loading
+        fetch(0)
     }
     LaunchedEffect(reload) {
         srcFavs = runCatching { app.call("source.favorites") }.getOrNull().arr().mapNotNull { it.obj() }
@@ -111,7 +141,7 @@ fun FavoritesPage() {
                 // 失败 FullState + 重试:旧实现失败时永远停在骨架上
                 is Block.Fail -> FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试"), tone = TvC.bad,
                     onButton = { reload++ })
-                is Block.Ok -> if (b.value.isEmpty() && srcFavs.isEmpty()) FullState(LpIcons.heart, "还没有收藏", sub = "在详情页按收藏,之后会出现在这里",
+                is Block.Ok -> if (b.value.isEmpty() && srcFavs.isEmpty() && !hasMore) FullState(LpIcons.heart, "还没有收藏", sub = "在详情页按收藏,之后会出现在这里",
                     buttons = listOf("去媒体库看看"), onButton = { nav.rail(TvRoute.Library()) })
                 else {
                     val eps = b.value.filter { it.isEpisode }
@@ -185,7 +215,13 @@ fun FavoritesPage() {
                                 }
                             }
                         }
-                        item("end") { TvText("已经到底了 · 共 ${b.value.size + srcCount} 项", t.meta, TvC.fg3, Modifier.padding(vertical = TvSp.x12)) }
+                        item("end") {
+                            if (hasMore) {
+                                if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                                PanelItem(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
+                                    onClick = { loadMore() }, enabled = !loadingMore)
+                            } else TvText("已经到底了 · 共 ${b.value.size + srcCount} 项", t.meta, TvC.fg3, Modifier.padding(vertical = TvSp.x12))
+                        }
                     }
                 }
             }

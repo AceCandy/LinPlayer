@@ -28,6 +28,9 @@ func Test筛选区分不支持与暂时失败(t *testing.T) {
 			if (status == 503) != strings.Contains(string(b), "unavailable") {
 				t.Fatalf("失败与不支持没有区分: %s", b)
 			}
+			if status == 404 && !strings.Contains(string(b), "unsupported") {
+				t.Fatalf("缺失接口被伪装成正常空数据: %s", b)
+			}
 		})
 	}
 }

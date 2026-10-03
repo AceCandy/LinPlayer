@@ -480,6 +480,9 @@ public sealed class LibraryGridPage : PageBase
         {
             var oldGenre = _genre.SelectedItem as string;
             var oldYear = _year.SelectedItem as string;
+            var supported = !f.TryGetProperty("capabilities", out var caps)
+                || !caps.TryGetProperty("filters", out var filter) || filter.ValueKind != JsonValueKind.False;
+            _genre.IsEnabled = supported; _year.IsEnabled = supported;
             var unavailable = Strings(f, "unavailable");
             _suppress = true;
             if (!unavailable.Contains("genres"))
@@ -491,8 +494,14 @@ public sealed class LibraryGridPage : PageBase
             _year.SelectedIndex = Math.Max(0, _year.Items.Cast<string>().ToList().IndexOf(oldYear ?? ""));
             _suppress = false;
             if (oldGenre != _genre.SelectedItem as string || oldYear != _year.SelectedItem as string) Requery();
-            if (unavailable.Count > 0) FilterFailure("部分筛选暂不可用,已保留可用选项。");
-            else _filterState.Content = genres.Count == 0 && years.Count == 0 ? Dim("该库未提供类型或年份筛选。") : null;
+            if (!supported) _filterState.Content = Dim("服务端不支持条件筛选,可使用排序和分页。");
+            else if (unavailable.Count > 0) FilterFailure("部分筛选暂不可用,已保留可用选项。");
+            else {
+                var missing = Strings(f, "unsupported");
+                var empty = Strings(f, "empty");
+                _filterState.Content = missing.Count > 0 || empty.Count > 0
+                    ? Dim("服务端未提供部分筛选选项,已保留可用选项。") : null;
+            }
         });
     }
 

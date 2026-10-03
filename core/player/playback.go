@@ -21,8 +21,9 @@ import (
 
 // current 当前这次播放的目标。上报三件套要靠它拿 PlaySessionId。
 var (
-	currentMu sync.Mutex
-	current   *emby.PlaybackTarget
+	currentMu     sync.Mutex
+	current       *emby.PlaybackTarget
+	currentReport *playbackReport
 	// pendingSubs 等 FILE_LOADED 之后才挂的外挂字幕。
 	//
 	// ★★ **loadfile 只是排队就返回**。紧跟着调 sub-add 必定拿到 -12(MPV_ERROR_COMMAND),
@@ -118,6 +119,8 @@ func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs
 func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv bool) (*PlayResult, error) {
 	c := config.Current()
 	prefs := c.PrefsOf()
+	histCtx, cancelHist := context.WithCancel(ctx)
+	defer cancelHist()
 
 	/* ★★ 观看记录判据和取流地址<b>并发打</b>。
 	   两者互不依赖,而串起来是**起播路径上白白多出的一到两次网络往返**:
@@ -130,7 +133,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	   ★ 通道要**带缓冲**:取流地址失败时这里直接 return,没人收这个值,
 	     无缓冲的话那个 goroutine 会永远卡在发送上(每失败一次泄漏一个)。 */
 	histCh := make(chan *historyContext, 1)
-	go func() { histCh <- buildHistoryContext(ctx, s, itemID) }()
+	go func() { histCh <- buildPlaybackHistoryContext(histCtx, s, itemID, prefs.CrossServerResume) }()
 
 	target, err := prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
 	if err != nil {
@@ -148,7 +151,12 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 
 	playURL := startPrefetch(ctx, s, target, prefs)
 
-	whCtx := <-histCh
+	var whCtx *historyContext
+	select {
+	case whCtx = <-histCh:
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	}
 	// 负数 = 调用方明说从头放:服务端进度、跨服续播、看完回零这一整段都不许再改它
 	fromStart := resumeSecs < 0
 	if fromStart {
@@ -212,6 +220,8 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	currentMu.Lock()
 	pendingSubs = target.ExternalSubs
 	current = target
+	report := &playbackReport{started: make(chan struct{}), session: *s}
+	currentReport = report
 	currentMu.Unlock()
 
 	/* 起播走 loadWith 这个**唯一入口**(见 load.go)。
@@ -221,6 +231,18 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	     而且画面照放,只有服务端日志里看得出来。 */
 	if useMpv {
 		if err := loadWith(playURL, resumeSecs, nil, ""); err != nil {
+			report.mu.Lock()
+			report.stopped = true
+			report.mu.Unlock()
+			close(report.started)
+			currentMu.Lock()
+			if current == target {
+				current = nil
+				currentReport = nil
+				currentCtx = nil
+				pendingSubs = nil
+			}
+			currentMu.Unlock()
 			return nil, err
 		}
 	}
@@ -229,9 +251,9 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		startHistoryRetry(target, s, resumeSecs)
 	}
 
-	// 上报 start。★ 失败**不阻断播放** —— 上报是记账,播放是主线。
-	if err := prefsClient.ReportStart(ctx, s, target, resumeSecs); err != nil {
-		bus.Logf("warn", "report_start 失败(不影响播放): %v", err)
+	report.startAsync(*s, target, resumeSecs)
+	if whCtx != nil && !prefs.CrossServerResume {
+		go enrichHistoryContext(target, *s, whCtx)
 	}
 
 	return &PlayResult{
@@ -408,6 +430,11 @@ func seriesScope(server string, h *historyContext) string {
 // ★ 取不到判据(网络抖 / 权限)**不该拦住播放** —— 返回 nil,
 // 播放建立后在后台补取,不改变已经开始播放的续播位置。
 func buildHistoryContext(ctx context.Context, s *emby.Session, itemID string) *historyContext {
+	return buildPlaybackHistoryContext(ctx, s, itemID, true)
+}
+
+// 同服续播只需条目判据;跨服续播开启时才在起播前补齐剧标识。
+func buildPlaybackHistoryContext(ctx context.Context, s *emby.Session, itemID string, includeSeries bool) *historyContext {
 	it, err := prefsClient.ItemForHistory(ctx, s, itemID)
 	if err != nil || it == nil || it.ID != itemID {
 		bus.Logf("warn", "取观看记录判据失败(播放不中断,稍后补取): %v", err)
@@ -415,15 +442,28 @@ func buildHistoryContext(ctx context.Context, s *emby.Session, itemID string) *h
 	}
 	cand := history.CandidateFromItem(*it)
 	var seriesTmdb *string
-	if cand.SeriesID != nil && *cand.SeriesID != "" {
-		// ponytail: 这里每次起播都打一次。Rust 侧按 seriesId 缓存(含「查过但没有」的
-		// 负缓存)—— 没有缓存的表现是对没刮削的剧反复打服务器。接 net 层时补上。
+	if includeSeries && cand.SeriesID != nil && *cand.SeriesID != "" {
 		seriesTmdb = prefsClient.SeriesTmdbID(ctx, s, *cand.SeriesID)
 	}
 	return &historyContext{
 		scope:        history.ScopeKey(s.Server, s.UserID),
 		candidate:    cand,
 		seriesTmdbID: seriesTmdb,
+	}
+}
+
+// 后补标识只更新仍在播放的上下文,不改动已经决定的续播位置。
+func enrichHistoryContext(target *emby.PlaybackTarget, s emby.Session, h *historyContext) {
+	if h.candidate.SeriesID == nil || *h.candidate.SeriesID == "" {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	id := prefsClient.SeriesTmdbID(ctx, &s, *h.candidate.SeriesID)
+	currentMu.Lock()
+	defer currentMu.Unlock()
+	if current == target && currentCtx == h {
+		h.seriesTmdbID = id
 	}
 }
 
@@ -478,6 +518,8 @@ func watchedNow(pos float64) bool {
 func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 	currentMu.Lock()
 	t := current
+	report := currentReport
+	currentReport = nil
 	// 停播落盘、取消补建和清空目标是同一次状态转换,补建不能穿过收尾。
 	captureHistoryLocked(pos, true)
 	watched := watchedNow(pos)
@@ -492,6 +534,15 @@ func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 	thumbs.close()
 	if t == nil || s == nil {
 		return nil
+	}
+	if report != nil {
+		report.mu.Lock()
+		defer report.mu.Unlock()
+		report.stopped = true
+		if err := report.waitStart(ctx); err != nil {
+			return err
+		}
+		s = &report.session
 	}
 	/* ★★ 越过用户那条阈值就**明着告诉服务器已看完**。
 

@@ -1,4 +1,5 @@
 ﻿using System.Text.Json;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
@@ -270,9 +271,13 @@ public sealed class SearchPage : PageBase
         }
         var items = g.TryGetProperty("emby_items", out var ei) && ei.ValueKind == JsonValueKind.Array
             ? ei.EnumerateArray().Select(CardItem.From).ToList() : [];
-        if (items.Count == 0) return null;
+        var warning = g.TryGetProperty("warning", out var wv) && wv.ValueKind == JsonValueKind.String ? wv.GetString() ?? "" : "";
+        if (items.Count == 0) return warning.Length == 0 ? null : (new StackPanel { Children = { H2(nm), Dim(warning) } }, 0);
         // 点开的详情页要用**那一台**的地址,不是当前活跃的那台
-        return (new StackPanel { Spacing = 10, Children = { H2($"{nm} · {items.Count} 条"), LibraryPage.Grid(core, srv, items, false, LibraryPage.OpenDetail(core, srv)) } }, items.Count);
+        var row = new StackPanel { Spacing = 10, Children = { H2($"{nm} · {items.Count} 条") } };
+        if (warning.Length > 0) row.Children.Add(Dim(warning));
+        row.Children.Add(LibraryPage.Grid(core, srv, items, false, LibraryPage.OpenDetail(core, srv)));
+        return (row, items.Count);
     }
 
     internal void SelfCheckQuery(string q) => Dispatcher.UIThread.Post(() =>
@@ -402,8 +407,7 @@ public sealed class FavoritesPage : PageBase
     /// <summary>
     /// 排序档位。<b>必须和核心层 <c>emby.FavoriteSorts</c> 逐字一致</b> —— 对不上就静默落回第一档。
     ///
-    /// <para>排序是核心层<b>本地</b>做的:某 fork 在 <c>Filters=IsFavorite</c> 上无视
-    /// SortBy 且照样回 200,送上去等于什么都没做。</para>
+    /// <para>分页排序采用当前服务端契约,旧全量调用仍保留本地排序兼容。</para>
     /// </summary>
     private static readonly string[] Sorts = ["更新时间", "名称", "评分", "年份"];
 
@@ -417,6 +421,28 @@ public sealed class FavoritesPage : PageBase
         var rows = new StackPanel { Spacing = 14, Children = { H1("收藏") } };
         var busy = Dim("加载中…");
         var sort = Sorts[0];
+        var session = Nav.Session!;
+        var request = new CancellationTokenSource();
+        var detached = false;
+        var generation = 0;
+        var nextIndex = 0;
+        var loading = false;
+        var hasMore = false;
+        var more = new Button { Classes = { "ghost" }, Content = "加载更多" };
+        var seen = new HashSet<string>();
+        MediaGrid? posters = null, episodes = null;
+        var restCount = 0;
+        var episodeCount = 0;
+        var restHead = H2("影片与剧集");
+        var episodeHead = H2("分集");
+        DetachedFromVisualTree += (_, _) => { if (!detached) { detached = true; request.Cancel(); request.Dispose(); } };
+        AttachedToVisualTree += (_, _) => {
+            if (!detached) return;
+            detached = false; request = new CancellationTokenSource(); generation++; loading = false;
+            more.IsEnabled = true;
+            if (seen.Count == 0) Fetch();
+        };
+        more.Click += (_, _) => Fetch();
         var picks = new WrapPanel { ItemSpacing = 6, LineSpacing = 6 };
         /* 版式按重画之后还要在:这一页每换一次排序就整页重来一遍,
            而那两个网格是新造的 —— 所以按可视树现找,不是记住上一批的引用。 */
@@ -437,9 +463,13 @@ public sealed class FavoritesPage : PageBase
             catch (Exception e) { srcFav.Content = Dim("数据源收藏读不到:" + LibraryPage.Advice(e)); }
         }
 
-        // 档位换了整页重画:收藏是一次全量拉回来的(没有分页),重排就是重来一遍
+        // 换排序取消旧页;追加页面保持现有网格及滚动位置。
         void Load()
         {
+            if (detached) return;
+            request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
+            generation++; nextIndex = 0; loading = false; seen.Clear();
+            posters = null; episodes = null; restCount = 0; episodeCount = 0;
             foreach (var b in picks.Children.OfType<Button>())
                 b.Classes.Set("on", (string?)b.Tag == sort);
             while (rows.Children.Count > 2) rows.Children.RemoveAt(2);
@@ -456,22 +486,33 @@ public sealed class FavoritesPage : PageBase
         }
         Load();
 
-        void Fetch() =>
-        _ = Task.Run(async () =>
+        void Fetch()
         {
+            if (loading || detached) return;
+            loading = true; more.IsEnabled = false;
+            var ct = request.Token;
+            var gen = generation;
+            var offset = nextIndex;
+            var want = sort;
+            _ = FetchAsync();
+            async Task FetchAsync()
+            {
             try
             {
-                var s = Nav.Session!;
-                var want = sort;
-                var res = await core.EmbyListFavorites(new { s.server, s.token, s.user_id, s.device_id, sort });
-                var items = res.ValueKind == JsonValueKind.Array
-                    ? res.EnumerateArray().Select(CardItem.From).ToList() : [];
+                var s = session;
+                var res = await core.EmbyListFavorites(new { s.server, s.token, s.user_id, s.device_id,
+                    sort = want, start_index = offset, limit = 60 }, ct);
+                var raw = res.ValueKind == JsonValueKind.Array ? res : res.GetProperty("items");
+                var items = raw.EnumerateArray().Select(CardItem.From).ToList();
                 Dispatcher.UIThread.Post(() =>
                 {
-                    // 等这一趟网络的工夫里用户换了档位:这批是旧档位的结果,别落地
-                    if (want != sort) return;
-                    rows.Children.Remove(busy);
-                    if (items.Count == 0) { rows.Children.Add(Dim("还没有收藏。详情页点「收藏」就会出现在这里。")); return; }
+                    if (gen != generation || detached) return;
+                    nextIndex = res.ValueKind == JsonValueKind.Object ? res.GetProperty("next_index").GetInt32() : offset + items.Count;
+                    hasMore = res.ValueKind == JsonValueKind.Object && res.GetProperty("has_more").GetBoolean();
+                    items = items.Where(it => seen.Add(it.Id)).ToList();
+                    loading = false; more.IsEnabled = true; more.Content = "加载更多";
+                    rows.Children.Remove(busy); rows.Children.Remove(more);
+                    if (seen.Count == 0 && !hasMore) { rows.Children.Add(Dim("还没有收藏。详情页点「收藏」就会出现在这里。")); return; }
 
                     /* <b>分集单独一栏,横版</b>(接着 2026-09-03 那条
                        「集封面和海报封面/季封面是不一样的,集封面是横着的」)。
@@ -484,27 +525,43 @@ public sealed class FavoritesPage : PageBase
                     var rest = items.Where(i => i.Type != "Episode").ToList();
                     if (rest.Count > 0)
                     {
-                        if (eps.Count > 0) rows.Children.Add(H2($"影片与剧集 · {rest.Count}"));
-                        var g = LibraryPage.Grid(core, s.server, rest, false);
-                        // 新造的网格要跟上当前版式 —— 不跟的话换完排序又回到海报网格
-                        g.ListMode = GridView.IsList;
-                        rows.Children.Add(g);
+                        restCount += rest.Count;
+                        if (posters is null) {
+                            posters = LibraryPage.Grid(core, s.server, rest, false);
+                            posters.ListMode = GridView.IsList;
+                            rows.Children.Insert(2, posters);
+                        } else posters.Append(rest);
                     }
                     if (eps.Count > 0)
                     {
-                        rows.Children.Add(H2($"分集 · {eps.Count}"));
-                        var g = LibraryPage.Grid(core, s.server, eps, true,
-                            LibraryPage.OpenDetail(core, s.server), episodeStyle: true, width: 214);
-                        g.ListMode = GridView.IsList;
-                        rows.Children.Add(g);
+                        episodeCount += eps.Count;
+                        if (episodes is null) {
+                            rows.Children.Add(episodeHead);
+                            episodes = LibraryPage.Grid(core, s.server, eps, true,
+                                LibraryPage.OpenDetail(core, s.server), episodeStyle: true, width: 214);
+                            episodes.ListMode = GridView.IsList;
+                            rows.Children.Add(episodes);
+                        } else episodes.Append(eps);
                     }
+                    if (restCount > 0 && episodeCount > 0 && !rows.Children.Contains(restHead)) rows.Children.Insert(2, restHead);
+                    restHead.Text = $"影片与剧集 · {restCount}";
+                    episodeHead.Text = $"分集 · {episodeCount}";
+                    if (hasMore) rows.Children.Add(more);
                 });
             }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { }
             catch (Exception e)
             {
-                Dispatcher.UIThread.Post(() => busy.Text = $"加载失败:{LibraryPage.Advice(e)}");
+                Dispatcher.UIThread.Post(() => {
+                    if (gen != generation || detached) return;
+                    loading = false; more.IsEnabled = true; more.Content = "重试加载";
+                    busy.Text = $"加载失败:{LibraryPage.Advice(e)}";
+                    if (!rows.Children.Contains(busy)) rows.Children.Add(busy);
+                    if (!rows.Children.Contains(more)) rows.Children.Add(more);
+                });
             }
-        });
+            }
+        }
     }
 
     /// <summary>
