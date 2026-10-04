@@ -640,12 +640,12 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 
 | | |
 |---|---|
-| 版式 | ① **Hero**(随机 5 条,只取有剧照的;两层图交叉淡入 + Ken Burns 恒速缓推;艺术字 logo → 小标题 → 元信息三层居中,整块可点)② 继续观看 ③ 接下来看 ④ 媒体库入口轨 ⑤ **每个媒体库一条「最新」轨** ⑥ 合集 |
-| 数据来源 | `emby.listRandom` `emby.listResume` `emby.listNextUp` `emby.views` `emby.listLatest` `emby.listCollections` `emby.counts` `prefs.getHomeSettings` `account.listAccounts` |
-| 加载态 | 各块并发。**媒体库最新轨并发不串行**(八个库串行 = 八次往返)。未到的画骨架轨 |
+| 版式 | ① **Hero**(复用首页各库最新列表,按库序去重最多 5 条;两层图交叉淡入 + Ken Burns 恒速缓推;艺术字 logo → 小标题 → 元信息三层居中,整块可点)② 继续观看 ③ 合集 ④ 媒体库入口轨 ⑤ **每个媒体库一条「最新」轨** |
+| 数据来源 | `emby.listResume` `emby.views` `emby.listLatest` `emby.listCollections` `emby.counts` `prefs.getHomeSettings` `account.listAccounts` |
+| 加载态 | 首屏各块并发；首屏轮播所需库的最新轨提前加载并与列表共用；其它合集和最新轨滚到可见时独立加载，未到的画骨架轨 |
 | 错误态 | 各块各自 catch。**只有 `emby.views` 是地基**,它挂了才整页错误条 |
 | 空态 | Hero 未到 → 骨架块;`views` 未到 → 先出两条最新轨骨架(否则首屏下半是空的);没有服务器 → 「还没有添加服务器」+ 跳转 |
-| 手势 | 下拉刷新;卡片点=进详情、长按=菜单;Hero 左右滑换条目 |
+| 手势 | 下拉刷新;返回首页更新继续观看，推荐与媒体库复用缓存;卡片点=进详情、长按=菜单;Hero 左右滑换条目 |
 
 - **元信息只有「年份 · 评分 · 类型」**,画质标签整个去掉【用户定 2026-07-28】。
 - **艺术字 logo 取不到 → 回落成文字标题,并隐藏下面那行标题**(否则重复)。

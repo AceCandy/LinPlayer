@@ -22,8 +22,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -47,9 +49,14 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import kotlinx.coroutines.awaitCancellation
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -99,6 +106,7 @@ import xyz.linplayer.app.ui.theme.lpTween
  *
  * 可见的媒体库最新轨独立并发，屏幕外栏目滚到时再加载。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomePage(nav: NavController) {
     val app = LocalApp.current
@@ -111,15 +119,27 @@ fun HomePage(nav: NavController) {
     /* ☠ 这几份数据以前是 `remember`,而 `remember` 的寿命是 composition ——
        点进任何一页再返回,首页**整个重拉一遍**(骨架闪一次、Hero 从第一张重来)。
        底栏的 saveState/restoreState 保得住滚动位置(rememberSaveable),保不住它们。 */
-    var hero by keepState<Block<List<Item>>>("home.hero") { Block.Loading }
     var resume by keepState<Block<List<Item>>>("home.resume") { Block.Loading }
-    var nextUp by keepState<Block<List<Item>>>("home.nextUp") { Block.Loading }
     var views by keepState<Block<List<View>>>("home.views") { Block.Loading }
     var latest by keepState<Map<String, List<Item>>>("home.latest") { emptyMap() }
     var collections by keepState<Block<List<Item>>>("home.collections") { Block.Loading }
     var accounts by keepState<List<Account>>("home.accounts") { emptyList() }
     var reload by remember { mutableStateOf(0) }
+    var refreshing by remember { mutableStateOf(false) }
+    val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
+    var latestFailures by remember(currentSession?.server, currentSession?.userId, reload) {
+        mutableStateOf<Map<String, Block.Fail>>(emptyMap())
+    }
+    val heroViews = views.valueOrNull
+    val heroItems = latestHeroItems(heroViews.orEmpty(), latest)
+    val hero: Block<List<Item>> = when {
+        heroItems.isNotEmpty() -> Block.Ok(heroItems)
+        heroViews != null && heroViews.all { it.id in latest || it.id in latestFailures } ->
+            heroViews.firstNotNullOfOrNull { latestFailures[it.id] } ?: Block.Ok(emptyList())
+        views is Block.Fail -> views as Block.Fail
+        else -> Block.Loading
+    }
     var canHideResume by remember(currentSession?.server, currentSession?.userId) { mutableStateOf(false) }
     LaunchedEffect(currentSession?.server, currentSession?.userId) {
         if (currentSession == null) return@LaunchedEffect
@@ -138,29 +158,47 @@ fun HomePage(nav: NavController) {
     /** 顶栏那颗胶囊点开的**服务器选择弹窗**。全站没有 bottom sheet,一律居中弹窗。 */
     var pickServer by remember { mutableStateOf(false) }
 
-    // 每一块自己一个 launch:一块回来就画一块,谁也不等谁。
-    LaunchedEffect(reload) {
-        if (reload == 0 && views is Block.Ok) return@LaunchedEffect
-        // 空栏目没有可见高度，刷新时恢复占位，让它也能再次按需加载。
-        latest = latest.filterValues { it.isNotEmpty() }
-        if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
-        launch { hero = app.block("emby.listRandom", args("limit" to 5)).map { Item.list(it) } }
-        launch { resume = app.block("emby.listResume", args("limit" to 12)).map { Item.list(it) } }
-        launch { nextUp = app.block("emby.listNextUp", args("limit" to 20)).map { Item.list(it) } }
-        // 顶栏那颗服务器 chip。**本地账号表,不走网络** —— 整张表都要,
-        // 因为点它弹的是「换一台」的列表,不是只显示当前这台的名字
-        launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
-        launch {
-            val v = app.block("emby.views").map { View.list(it) }
-            views = v
+    // 每次恢复首页更新续播；库仅在首次加载或显式刷新时重取。
+    LaunchedEffect(owner, currentSession?.server, currentSession?.userId, reload) {
+        var loadHome = reload > 0 || views !is Block.Ok
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            try {
+                coroutineScope {
+                    launch { resume = app.block("emby.listResume", args("limit" to 12)).map { Item.list(it) } }
+                    if (loadHome) {
+                        // 空栏目恢复占位，才能在本轮再次按需加载。
+                        latest = latest.filterValues { it.isNotEmpty() }
+                        if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
+                        // 服务器胶囊读取完整本地账号表，不走网络。
+                        launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
+                        launch { views = app.block("emby.views").map { View.list(it) } }
+                    }
+                }
+                loadHome = false
+            } finally {
+                refreshing = false
+            }
+            awaitCancellation()
         }
     }
 
     // 屏幕外栏目不回源；任务归页面所有，滚离单个栏目不会反复取消重拉。
     LaunchedEffect(currentSession?.server, currentSession?.userId, reload) {
         val requested = mutableSetOf<String>()
-        snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.key } to views.valueOrNull }.collect { (keys, visibleViews) ->
-            for (key in keys) {
+        snapshotFlow {
+            Triple(list.layoutInfo.visibleItemsInfo.map { it.key }, views.valueOrNull, latest to latestFailures)
+        }.collect { (keys, visibleViews, _) ->
+            // 首屏复用最新轨的请求和结果；够五条就不为轮播继续预取其它库。
+            val heroKeys = mutableListOf<String>()
+            val heroIDs = mutableSetOf<String>()
+            for (view in visibleViews.orEmpty()) {
+                heroKeys += "latest-${view.id}"
+                val cached = latest[view.id]
+                if (cached == null && view.id !in latestFailures) break
+                cached.orEmpty().forEach { heroIDs += it.id }
+                if (heroIDs.size >= 5) break
+            }
+            for (key in keys + heroKeys) {
                 if (key == "collections" && requested.add("collections") &&
                     (reload > 0 || collections !is Block.Ok)) {
                     launch { collections = app.block("emby.listCollections").map { Item.list(it) } }
@@ -170,13 +208,14 @@ fun HomePage(nav: NavController) {
                     launch {
                         val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 16))
                         r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
+                        if (r is Block.Fail) latestFailures = latestFailures + (view.id to r)
                     }
                 }
             }
         }
     }
 
-    // 屏蔽条目后**整页重拉,不在 UI 逐个过滤** —— 首页手里有六份互不相干的列表副本,
+    // 屏蔽条目后**整页重拉,不在 UI 逐个过滤** —— 首页留存各栏目列表,
     // 挨个过滤 = 把核心层的规则在 UI 再抄一遍,抄错还不报错
     LaunchedEffect(Unit) {
         app.invalidate.collect { if (it == "library" || it == "accounts" || it == "all") reload++ }
@@ -207,8 +246,8 @@ fun HomePage(nav: NavController) {
                     /* ☠ 先把各块打回骨架。`PageCache.clear()`(在 boot 里)清的是那张哈希表,
                        **清不掉当前 composition 手里的那几个 MutableState** —— 不打回去的话,
                        新服务器的数据到位之前,屏幕上摆的是上一台的媒体库。那是界面在撒谎。 */
-                    hero = Block.Loading; resume = Block.Loading
-                    nextUp = Block.Loading; collections = Block.Loading
+                    resume = Block.Loading
+                    collections = Block.Loading
                     views = Block.Loading; latest = emptyMap()
                     // ★ **必须等 refreshSession**:首页各块读的是新会话,
                     //   不等的话它们拿旧服务器的凭据去拉内容
@@ -248,53 +287,56 @@ fun HomePage(nav: NavController) {
             return@LpImmersive
         }
 
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-            item("hero") { Hero(hero, list, open) }
+        PullToRefreshBox(
+            isRefreshing = refreshing,
+            onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
+            modifier = Modifier.fillMaxSize(),
+        ) {
+            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+                item("hero") { Hero(hero, list, open) }
 
-            // 顺序照 PC 端首页:Hero → 继续观看 → 接下来看 → 合集 → 各库最新
-            item("resume") {
-                RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu)
-            }
-            item("nextup") {
-                RowBlock("接下来看", nextUp, thumb = false, app = app, open = open, menu = menu)
-            }
-            item("collections") {
-                RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu)
-            }
-
-            item("views") {
-                when (v) {
-                    is Block.Loading -> LpRowSkeleton("媒体库")
-                    is Block.Ok -> if (v.value.isEmpty()) EmptyState(
-                        "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
-                    ) else ViewsRow(v.value, nav)
-                    is Block.Fail -> Unit
+                // 首页顺序：Hero → 继续观看 → 合集 → 各库最新
+                item("resume") {
+                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu)
                 }
-            }
-
-            // 每个媒体库一条「最新」轨。未到的画骨架 —— 否则首屏下半是空的
-            v.valueOrNull.orEmpty().forEach { view ->
-                item("latest-${view.id}") {
-                    /* ☠ 影片轨道用 **2:3 竖版海报**,`thumb` 是「16:9 剧照卡」的开关,
-                       只有分集(继续观看)才该开。传成 true 的话首页下半整片变横图,
-                       而 Emby 给的 Primary 本来就是竖的,横过来是被 Crop 裁掉一条。 */
-                    /* ★ 轨道标题就是**库名本身**,不缀「· 最新」【用户定 2026-09-06】:
-                       首页从上到下五六条轨全带同一个后缀,那个词一个字的信息都不提供,
-                       只是把每条标题拉长、把库名挤窄。 */
-                    val items = latest[view.id]
-                    if (items == null) LpRowSkeleton(view.name, thumb = false)
-                    else if (items.isNotEmpty()) LpRow(
-                        view.name, items,
-                        { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
-                        onMore = { nav.navigate(Route.Library(view.id, view.name)) },
-                    )
+                item("collections") {
+                    RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu)
                 }
+
+                item("views") {
+                    when (v) {
+                        is Block.Loading -> LpRowSkeleton("媒体库")
+                        is Block.Ok -> if (v.value.isEmpty()) EmptyState(
+                            "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
+                        ) else ViewsRow(v.value, nav)
+                        is Block.Fail -> Unit
+                    }
+                }
+
+                // 每个媒体库一条「最新」轨。未到的画骨架 —— 否则首屏下半是空的
+                v.valueOrNull.orEmpty().forEach { view ->
+                    item("latest-${view.id}") {
+                        /* ☠ 影片轨道用 **2:3 竖版海报**,`thumb` 是「16:9 剧照卡」的开关,
+                           只有分集(继续观看)才该开。传成 true 的话首页下半整片变横图,
+                           而 Emby 给的 Primary 本来就是竖的,横过来是被 Crop 裁掉一条。 */
+                        /* ★ 轨道标题就是**库名本身**,不缀「· 最新」【用户定 2026-09-06】:
+                           首页从上到下五六条轨全带同一个后缀,那个词一个字的信息都不提供,
+                           只是把每条标题拉长、把库名挤窄。 */
+                        val items = latest[view.id]
+                        if (items == null) LpRowSkeleton(view.name, thumb = false)
+                        else if (items.isNotEmpty()) LpRow(
+                            view.name, items,
+                            { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
+                            onMore = { nav.navigate(Route.Library(view.id, view.name)) },
+                        )
+                    }
+                }
+                // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
+                items(pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
+                    PluginHomeSection(sec, nav)
+                }
+                item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
-            // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
-            items(pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
-                PluginHomeSection(sec, nav)
-            }
-            item("tail") { Spacer(Modifier.height(Sp.x26)) }
         }
     }
 
@@ -387,6 +429,10 @@ private fun RowBlock(
         is Block.Fail -> Unit
     }
 }
+
+/** 轮播复用首页库序中的最新列表，跨库去重后最多展示五条。 */
+internal fun latestHeroItems(views: List<View>, latest: Map<String, List<Item>>): List<Item> =
+    views.flatMap { latest[it.id].orEmpty() }.distinctBy { it.id }.take(5)
 
 /**
  * Hero(草稿 01):**铺到屏幕物理顶端**,状态栏浮在它上面。
