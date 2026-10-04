@@ -27,4 +27,6 @@
 - 不用 PowerShell 5.1 批量重写中文源码；非 ASCII 的 .ps1 保留 BOM。
 - 无边框最大化与视频子窗口几何按当前 Win32 接入约束，检查工作区、DPI 与真实窗口；截图不能证明视频层可见。
 
+- 首页 Hero 图片任务按需创建，只预取当前张和下一张；异步切图同时核查条目索引和数据代次，避免旧批次覆盖新批次。
+
 依据：[Tok](../../../apps/windows/LinPlayer.Desktop/Views/Tok.cs)、[导航](../../../apps/windows/LinPlayer.Desktop/Views/Nav.cs)、[媒体库页面](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面经验](../../../docs/lessons/ui-desktop.md)。

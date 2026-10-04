@@ -38,6 +38,13 @@ func TestLoginRegistersImageAllowlist(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/Items/x/Images/Primary" {
+			if r.URL.Query().Get("maxHeight") != "330" {
+				t.Errorf("登录登记丢弃了图片尺寸: %s", r.URL.RawQuery)
+			}
+			w.WriteHeader(599)
+			return
+		}
 		if r.URL.Path != "/Users/AuthenticateByName" {
 			w.WriteHeader(599)
 			return
@@ -66,7 +73,7 @@ func TestLoginRegistersImageAllowlist(t *testing.T) {
 	// 登记进去了吗 —— 用「这张图取不取得到」来判,而不是去读白名单的内部结构:
 	// 读内部结构的话,把 handleImg 改坏了这条测试照样绿。
 	req, _ := http.NewRequest(http.MethodGet,
-		srv.BaseURL()+"/img?src="+up.URL+"/Items/x/Images/Primary", nil)
+		srv.BaseURL()+"/img?src="+up.URL+"/Items/x/Images/Primary&h=330", nil)
 	req.Header.Set("X-LP-Token", srv.Token)
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {

@@ -64,6 +64,22 @@ class TvFocusTest {
     private fun focused(tag: String) = rule.onNode(hasTestTag(tag)).assertIsFocused()
     private fun pressBack() { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
 
+    @Test fun 首页只加载滚到的媒体库栏目() {
+        mount {
+            ret("emby.views", arr(*(0 until 30).map { i -> buildJsonObject {
+                put("id", "lazy-$i"); put("name", "媒体库$i"); put("collection_type", "movies")
+            } }.toTypedArray()))
+        }
+        fun loaded(id: String) = core.calls.any {
+            it.first == "emby.listLatest" && it.second?.get("parent_id")?.toString() == "\"$id\""
+        }
+        assertFalse("屏幕外最后一个库不应首屏回源", loaded("lazy-29"))
+        repeat(5) { press(rule, Key.DirectionDown); advance(rule, 300) }
+        assertTrue("滚到媒体库后没有请求", loaded("lazy-0"))
+        assertFalse("滚动只应拉附近栏目", loaded("lazy-29"))
+        assertFalse("列表末尾的合集不应提前请求", core.calls.any { it.first == "emby.listCollections" })
+    }
+
     @Test fun 收藏分页追加并使用服务端游标() {
         mount(TvRoute.Favorites) {
             on("emby.listFavorites") { args ->

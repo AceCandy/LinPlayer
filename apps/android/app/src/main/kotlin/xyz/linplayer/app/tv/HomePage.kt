@@ -29,6 +29,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -104,7 +105,9 @@ fun HomePage() {
         return
     }
 
-    val server = app.session.collectAsStateWithLifecycle().value?.server
+    val session = app.session.collectAsStateWithLifecycle().value
+    val server = session?.server
+    val list = rememberLazyListState()
     val ck = "tv.home.$server"
     var hero by keepState<Block<List<Item>>>("$ck.hero") { Block.Loading }
     var resume by keepState<Block<List<Item>>>("$ck.resume") { Block.Loading }
@@ -124,17 +127,32 @@ fun HomePage() {
     /* 回来时后台静默刷新:结果回来才替换,**一次拉取失败不把手里已有的冲掉**。 */
     fun <T> keep(old: Block<T>, new: Block<T>) = if (new is Block.Fail && old is Block.Ok) old else new
     LaunchedEffect(server, reload) {
+        // 空栏目不在列表中；刷新时恢复占位，允许滚到后重新检查内容。
+        latest = latest.filterValues { it.valueOrNull?.isEmpty() != true }
+        if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
         if (hero !is Block.Ok || reload > 0) launch { hero = keep(hero, app.block("emby.listRandom", args("limit" to 5)).map { Item.list(it) }) }
         launch { resume = keep(resume, app.block("emby.listResume", args("limit" to 20)).map { Item.list(it) }) }
         launch { nextUp = keep(nextUp, app.block("emby.listNextUp", args("limit" to 20)).map { Item.list(it) }) }
-        launch { collections = keep(collections, app.block("emby.listCollections").map { Item.list(it) }) }
         launch {
             val v = app.block("emby.views").map { View.list(it) }
             views = keep(views, v)
-            v.valueOrNull?.forEach { view ->
-                launch {
-                    val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 20)).map { Item.list(it) }
-                    latest = latest + (view.id to keep(latest[view.id] ?: Block.Loading, r))
+        }
+    }
+
+    // 只拉当前可见栏目，栏目离屏后仍由页面作用域完成这一代请求。
+    LaunchedEffect(server, session?.userId, reload) {
+        val requested = mutableSetOf<String>()
+        snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.key } to views.valueOrNull }.collect { (keys, visibleViews) ->
+            for (key in keys) {
+                if (key == "coll" && requested.add("coll")) {
+                    launch { collections = keep(collections, app.block("emby.listCollections").map { Item.list(it) }) }
+                }
+                val view = visibleViews?.firstOrNull { key == "view.${it.id}" } ?: continue
+                if (requested.add(view.id)) {
+                    launch {
+                        val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 20)).map { Item.list(it) }
+                        latest = latest + (view.id to keep(latest[view.id] ?: Block.Loading, r))
+                    }
                 }
             }
         }
@@ -153,7 +171,6 @@ fun HomePage() {
                     onButton = { nav.rail(TvRoute.Servers) })
             }
         } else {
-            val list = rememberLazyListState()
             // 焦点卡钉在距顶 64dp = 安全区 27 + 行标题 29 + 间距 8:行标题跟着露出
             ProvideColumnKeyline(above = 64.dp) {
                 LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(top = TvDim.safeV, bottom = 64.dp)) {

@@ -26,8 +26,10 @@ package localserve
 import (
 	"context"
 	"crypto/rand"
+	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -66,7 +68,20 @@ type Server struct {
 	Client *http.Client
 
 	// gate 限并发回源。见 fetchSlots。
-	gate chan struct{}
+	gate    chan struct{}
+	ctx     context.Context
+	cancel  context.CancelFunc
+	fetchMu sync.Mutex
+	fetches map[string]*imageFetch
+}
+
+// imageFetch 合并同图回源；每个等待者只控制自己的等待期限。
+type imageFetch struct {
+	done    chan struct{}
+	cancel  context.CancelFunc
+	waiters int
+	bytes   []byte
+	err     error
 }
 
 // fetchSlots 同时最多几张图在**回源**。
@@ -100,6 +115,7 @@ func Start() (*Server, error) {
 		_ = ln.Close()
 		return nil, fmt.Errorf("生成 token 失败: %w", err)
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	s := &Server{
 		Addr:  ln.Addr().String(),
 		Token: hex.EncodeToString(tok),
@@ -109,6 +125,8 @@ func Start() (*Server, error) {
 		//   和「白名单没同步」长得一模一样,极难分辨。
 		Client: &http.Client{Timeout: fetchTimeout, Transport: tlspolicy.Transport()},
 		gate:   make(chan struct{}, fetchSlots),
+		ctx:    ctx, cancel: cancel,
+		fetches: map[string]*imageFetch{},
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/img", s.handleImg)
@@ -125,20 +143,31 @@ func Start() (*Server, error) {
 }
 
 // Close 停服务。
-func (s *Server) Close() error { return s.http.Close() }
+func (s *Server) Close() error {
+	s.cancel()
+	return s.http.Close()
+}
 
 // BaseURL 给宿主的前缀。
 func (s *Server) BaseURL() string { return "http://" + s.Addr }
 
 // Allow 把一个来源加进白名单。
 //
-// 登录成功 / 授权插件源时调。headers 是取图时要带的头(Emby 是 X-Emby-Token,
-// 网盘可能是 Cookie + Referer)。
+// 第三方图床原样回源，避免尺寸参数改坏签名；Emby 使用 AllowEmby。
 //
 // ★ 白名单按 **origin** 存,不按完整 URL:同一台服务器的图片路径千变万化,
 // 按 URL 存等于没有白名单。
 func (s *Server) Allow(rawOrigin string, headers http.Header) {
-	o, ok := originOf(rawOrigin)
+	s.allowOrigin(rawOrigin, headers, true)
+}
+
+// AllowEmby 登记 Emby 图片来源，允许转发尺寸并清除错误的原样标记。
+func (s *Server) AllowEmby(origin string, headers http.Header) {
+	s.allowOrigin(origin, headers, false)
+}
+
+func (s *Server) allowOrigin(origin string, headers http.Header, raw bool) {
+	o, ok := originOf(origin)
 	if !ok {
 		return
 	}
@@ -151,7 +180,7 @@ func (s *Server) Allow(rawOrigin string, headers http.Header) {
 	if s.raw == nil {
 		s.raw = map[string]bool{}
 	}
-	s.raw[o] = true
+	s.raw[o] = raw
 }
 
 // Revoke 从白名单里去掉一个来源(登出 / 删账号 / 撤销插件授权时调)。
@@ -165,6 +194,7 @@ func (s *Server) Revoke(rawOrigin string) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	delete(s.allow, o)
+	delete(s.raw, o)
 }
 
 // lookup 查白名单。返回(要带的头, 命中没有)。
@@ -281,23 +311,74 @@ func (s *Server) handleImg(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	// ★ 到这里才占名额 —— 缓存命中的那条路在上面已经 return 了,不排队。
+	b, err := s.sharedImage(r.Context(), upstream, headers)
+	if err != nil {
+		if r.Context().Err() == nil {
+			http.Error(w, err.Error(), http.StatusBadGateway)
+		}
+		return
+	}
+	writeImage(w, b, false)
+}
+
+// sharedImage 同 URL、同鉴权身份共用回源，最后一个等待者离开才取消。
+func (s *Server) sharedImage(ctx context.Context, upstream string, headers http.Header) ([]byte, error) {
+	identity, _ := json.Marshal(headers)
+	key := fmt.Sprintf("%x", sha256.Sum256([]byte(upstream+string(identity))))
+	s.fetchMu.Lock()
+	f := s.fetches[key]
+	if f == nil {
+		fetchCtx, cancel := context.WithTimeout(s.ctx, fetchTimeout)
+		f = &imageFetch{done: make(chan struct{}), cancel: cancel}
+		s.fetches[key] = f
+		go s.loadImage(fetchCtx, key, upstream, headers.Clone(), f)
+	}
+	f.waiters++
+	s.fetchMu.Unlock()
+	defer func() {
+		s.fetchMu.Lock()
+		defer s.fetchMu.Unlock()
+		f.waiters--
+		if f.waiters == 0 {
+			f.cancel()
+			if s.fetches[key] == f {
+				delete(s.fetches, key)
+			}
+		}
+	}()
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case <-f.done:
+		return f.bytes, f.err
+	}
+}
+
+func (s *Server) loadImage(ctx context.Context, key, upstream string, headers http.Header, f *imageFetch) {
+	defer f.cancel()
+	defer func() {
+		s.fetchMu.Lock()
+		defer s.fetchMu.Unlock()
+		if s.fetches[key] == f {
+			delete(s.fetches, key)
+		}
+		close(f.done)
+	}()
 	select {
 	case s.gate <- struct{}{}:
 		defer func() { <-s.gate }()
-	case <-r.Context().Done():
+	case <-ctx.Done():
+		f.err = ctx.Err()
 		return
 	}
-
-	ctx, cancel := context.WithTimeout(r.Context(), fetchTimeout)
-	defer cancel()
-	b, err := s.fetch(ctx, upstream, headers)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusBadGateway)
+	// 排队期间其它请求可能已经生成缓存，不能再次回源。
+	if f.bytes = imgcache.Get2L(upstream); f.bytes != nil {
 		return
 	}
-	imgcache.Put2L(key, b)
-	writeImage(w, b, false)
+	f.bytes, f.err = s.fetch(ctx, upstream, headers)
+	if f.err == nil && ctx.Err() == nil {
+		imgcache.Put2L(upstream, f.bytes)
+	}
 }
 
 func (s *Server) fetch(ctx context.Context, u string, headers http.Header) ([]byte, error) {
@@ -419,6 +500,13 @@ func Default() *Server {
 func AllowDefault(origin string, headers http.Header) {
 	if s := Default(); s != nil {
 		s.Allow(origin, headers)
+	}
+}
+
+// AllowEmbyDefault 由登录入口登记支持尺寸参数的 Emby 服务器。
+func AllowEmbyDefault(origin string, headers http.Header) {
+	if s := Default(); s != nil {
+		s.AllowEmby(origin, headers)
 	}
 }
 

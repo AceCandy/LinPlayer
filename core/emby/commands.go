@@ -349,7 +349,7 @@ func RegisterCommands(version string) {
 		// ★ 登录成功才把这台服务器放进图片通道的白名单(SPEC §6)。
 		//   漏了这一步的表现是**登录进去一张封面都没有**,而命令全都正常 ——
 		//   很容易被误判成「图片接口坏了」。
-		localserve.AllowDefault(res.Server, http.Header{"X-Emby-Token": {res.Token}})
+		localserve.AllowEmbyDefault(res.Server, http.Header{"X-Emby-Token": {res.Token}})
 		// ★ 自签名白名单也要跟着刷:新账号默认不放行,但这里和 account.commit
 		//   保持同一套动作,免得以后加了「登录时勾自签名」又漏一处。
 		tlspolicy.Set(c.InsecureHosts())
@@ -412,7 +412,7 @@ func RegisterCommands(version string) {
 			return nil, bus.NewErr(bus.EInternal, "配置保存失败: %v", err)
 		}
 		// 新 token 要立刻进图片白名单,否则重新登录之后封面还在用旧 token 打 401
-		localserve.AllowDefault(acc.Server, http.Header{"X-Emby-Token": {acc.Token}})
+		localserve.AllowEmbyDefault(acc.Server, http.Header{"X-Emby-Token": {acc.Token}})
 		return map[string]any{"server_id": acc.Server, "user_name": res.UserName}, nil
 	})
 

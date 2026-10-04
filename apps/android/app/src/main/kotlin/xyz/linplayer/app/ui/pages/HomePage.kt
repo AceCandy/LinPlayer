@@ -31,6 +31,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -96,7 +97,7 @@ import xyz.linplayer.app.ui.theme.lpTween
  * 这是**契约不是优化**。实测串行等待比并发慢 5.5 倍,而用户会把它描述成
  * 「不秒加载」并归咎于动画。
  *
- * ☠ 媒体库最新轨**并发不串行**:八个库串行 = 八次往返。
+ * 可见的媒体库最新轨独立并发，屏幕外栏目滚到时再加载。
  */
 @Composable
 fun HomePage(nav: NavController) {
@@ -140,21 +141,36 @@ fun HomePage(nav: NavController) {
     // 每一块自己一个 launch:一块回来就画一块,谁也不等谁。
     LaunchedEffect(reload) {
         if (reload == 0 && views is Block.Ok) return@LaunchedEffect
+        // 空栏目没有可见高度，刷新时恢复占位，让它也能再次按需加载。
+        latest = latest.filterValues { it.isNotEmpty() }
+        if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
         launch { hero = app.block("emby.listRandom", args("limit" to 5)).map { Item.list(it) } }
         launch { resume = app.block("emby.listResume", args("limit" to 12)).map { Item.list(it) } }
         launch { nextUp = app.block("emby.listNextUp", args("limit" to 20)).map { Item.list(it) } }
-        launch { collections = app.block("emby.listCollections").map { Item.list(it) } }
         // 顶栏那颗服务器 chip。**本地账号表,不走网络** —— 整张表都要,
         // 因为点它弹的是「换一台」的列表,不是只显示当前这台的名字
         launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
         launch {
             val v = app.block("emby.views").map { View.list(it) }
             views = v
-            // 每个库一条「最新」轨,**并发**
-            v.valueOrNull?.forEach { view ->
-                launch {
-                    val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 16))
-                    r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
+        }
+    }
+
+    // 屏幕外栏目不回源；任务归页面所有，滚离单个栏目不会反复取消重拉。
+    LaunchedEffect(currentSession?.server, currentSession?.userId, reload) {
+        val requested = mutableSetOf<String>()
+        snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.key } to views.valueOrNull }.collect { (keys, visibleViews) ->
+            for (key in keys) {
+                if (key == "collections" && requested.add("collections") &&
+                    (reload > 0 || collections !is Block.Ok)) {
+                    launch { collections = app.block("emby.listCollections").map { Item.list(it) } }
+                }
+                val view = visibleViews?.firstOrNull { key == "latest-${it.id}" } ?: continue
+                if (requested.add(view.id) && (reload > 0 || view.id !in latest)) {
+                    launch {
+                        val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 16))
+                        r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
+                    }
                 }
             }
         }

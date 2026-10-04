@@ -1,13 +1,18 @@
 package localserve
 
 import (
+	"context"
+	"errors"
+	"fmt"
 	"net/http"
-	"net/url"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"linplayer/core/imgcache"
 	"linplayer/core/paths"
@@ -296,5 +301,191 @@ func TestAllowRejectsNonHTTPScheme(t *testing.T) {
 	s.Allow("https://example.invalid:8096", nil)
 	if _, ok := s.lookup("https://example.invalid:8096/Items/1/Images/Primary"); !ok {
 		t.Fatal("https 来源必须能登记 —— 不然这条测试证明不了任何事")
+	}
+}
+
+// 同图的两个显示控件不能各占一个名额重复回源。
+func TestImgConcurrentFetchSharesUpstream(t *testing.T) {
+	var hits atomic.Int32
+	started := make(chan struct{}, 2)
+	release := make(chan struct{})
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		started <- struct{}{}
+		select {
+		case <-release:
+			_, _ = w.Write(pngBytes)
+		case <-r.Context().Done():
+		}
+	})
+	s.Allow(up.URL, nil)
+	done := make(chan int, 2)
+	request := func() {
+		req := httptest.NewRequest(http.MethodGet, "/img?src="+up.URL+"/shared.png", nil)
+		req.Header.Set("X-LP-Token", s.Token)
+		w := httptest.NewRecorder()
+		s.handleImg(w, req)
+		done <- w.Code
+	}
+	go request()
+	<-started
+	go request()
+	select {
+	case <-started:
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(release)
+	for range 2 {
+		if code := <-done; code != 200 {
+			t.Fatalf("取图失败: %d", code)
+		}
+	}
+	if got := hits.Load(); got != 1 {
+		t.Fatalf("同图并发回源 %d 次，期望 1 次", got)
+	}
+}
+
+// 一个控件取消加载，不能让仍在显示同图的另一个控件失败。
+func TestSharedImageWaiterCancellation(t *testing.T) {
+	started := make(chan struct{})
+	release := make(chan struct{})
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		close(started)
+		select {
+		case <-release:
+			_, _ = w.Write(pngBytes)
+		case <-r.Context().Done():
+		}
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	first := make(chan error, 1)
+	second := make(chan error, 1)
+	go func() { _, err := s.sharedImage(ctx, up.URL, nil); first <- err }()
+	<-started
+	go func() {
+		b, err := s.sharedImage(context.Background(), up.URL, nil)
+		if err == nil && len(b) == 0 {
+			err = errors.New("图片为空")
+		}
+		second <- err
+	}()
+	waitForImageWaiters(t, s, 2)
+	cancel()
+	if err := <-first; !errors.Is(err, context.Canceled) {
+		t.Fatalf("取消等待: %v", err)
+	}
+	close(release)
+	if err := <-second; err != nil {
+		t.Fatalf("其他等待者不应失败: %v", err)
+	}
+}
+
+func waitForImageWaiters(t *testing.T, s *Server, want int) {
+	t.Helper()
+	deadline := time.Now().Add(time.Second)
+	for time.Now().Before(deadline) {
+		s.fetchMu.Lock()
+		n := 0
+		for _, f := range s.fetches {
+			n += f.waiters
+		}
+		s.fetchMu.Unlock()
+		if n == want {
+			return
+		}
+		time.Sleep(time.Millisecond)
+	}
+	t.Fatalf("等待者数量未达到 %d", want)
+}
+
+// 所有人离开或服务关闭后，后台回源都必须停止。
+func TestSharedImageStopsUnusedFetch(t *testing.T) {
+	for _, closeServer := range []bool{false, true} {
+		t.Run(fmt.Sprintf("close=%v", closeServer), func(t *testing.T) {
+			started := make(chan struct{})
+			stopped := make(chan struct{})
+			s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+				close(started)
+				<-r.Context().Done()
+				close(stopped)
+			})
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			done := make(chan error, 1)
+			go func() { _, err := s.sharedImage(ctx, up.URL, nil); done <- err }()
+			<-started
+			if closeServer {
+				_ = s.Close()
+			} else {
+				cancel()
+			}
+			select {
+			case <-stopped:
+			case <-time.After(time.Second):
+				t.Fatal("无人需要的回源没有停止")
+			}
+			if err := <-done; err == nil {
+				t.Fatal("取消的回源不应成功")
+			}
+		})
+	}
+}
+
+func TestSharedImageRechecksCacheAfterQueue(t *testing.T) {
+	var hits atomic.Int32
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(pngBytes)
+	})
+	for range fetchSlots {
+		s.gate <- struct{}{}
+	}
+	done := make(chan error, 1)
+	go func() { _, err := s.sharedImage(context.Background(), up.URL, nil); done <- err }()
+	waitForImageWaiters(t, s, 1)
+	imgcache.Put2L(up.URL, pngBytes)
+	<-s.gate
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("排队期间已有缓存，不应再次回源")
+	}
+}
+
+func TestSharedImageRetriesFailure(t *testing.T) {
+	var hits atomic.Int32
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if hits.Add(1) == 1 {
+			w.WriteHeader(http.StatusBadGateway)
+			return
+		}
+		_, _ = w.Write(pngBytes)
+	})
+	if _, err := s.sharedImage(context.Background(), up.URL, nil); err == nil {
+		t.Fatal("上游失败不应成功")
+	}
+	if _, err := s.sharedImage(context.Background(), up.URL, nil); err != nil {
+		t.Fatalf("失败后无法重试: %v", err)
+	}
+	if hits.Load() != 2 {
+		t.Fatalf("回源次数: %d", hits.Load())
+	}
+}
+
+// Emby 的明确登记必须覆盖旧原样标记，账号白名单重建也不能丢掉尺寸。
+func TestEmbyRegistrationClearsRawMarker(t *testing.T) {
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Query().Get("maxHeight") != "330" {
+			t.Errorf("Emby 尺寸未转发: %s", r.URL.RawQuery)
+		}
+		_, _ = w.Write(pngBytes)
+	})
+	s.Allow(up.URL, nil)
+	s.AllowEmby(up.URL, nil)
+	s.ReplaceAllowlist(func(add func(string, http.Header)) { add(up.URL, nil) })
+	if r := get(t, s, "/img?src="+up.URL+"/emby.jpg&h=330", true); r.StatusCode != 200 {
+		t.Fatalf("取图失败: %d", r.StatusCode)
 	}
 }

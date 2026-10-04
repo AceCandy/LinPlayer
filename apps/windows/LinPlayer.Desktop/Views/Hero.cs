@@ -97,8 +97,9 @@ public sealed class Hero : Border
     private readonly Button _prev, _next;
 
     private readonly List<JsonElement> _items = [];
-    private Task<Bitmap?>[] _bg = [], _wash = [], _logo = [];
+    private Lazy<Task<Bitmap?>>[] _bg = [], _wash = [], _logo = [];
     private int _idx = -1;
+    private int _generation;
 
     private bool _hover;
     private bool _alive;
@@ -462,6 +463,7 @@ public sealed class Hero : Border
             return;
         }
         _server = server;
+        _generation++;
         _items.Clear();
         _items.AddRange(items);
         if (_items.Count == 0) { IsVisible = false; return; }
@@ -473,20 +475,13 @@ public sealed class Hero : Border
            2026-09-03 加「缓存先画一批、真数据回来再画一批」之后当场会踩到。 */
         _idx = -1;
 
-        /* 几张图<b>一起预取</b>。翻页时才去拉的话,每翻一张都要等一次网络 ——
-           交叉淡入淡到一半发现下一张还没到,就成了「淡出到一片空白再淡回来」。
-           Images 那层解好的位图是留着的,所以第二轮翻回来是零成本。 */
-        _bg = _items.Select(it => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(_server, Id(it), "Backdrop"), 720)).ToArray();
-        // 氛围底只要 64px 高:它会被拉大九倍当糊底用,拉大图纯属白解码
-        _wash = _items.Select(it => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(_server, Id(it), "Backdrop"), 64)).ToArray();
-        /* 艺术字(Logo)。<b>Item 上没有 has_logo 这个字段</b>,取不到只能靠拉 ——
-           但 2026-09-06 起 <c>emby.listRandom</c> 已经在核心层只挑有艺术字的条目了
-           (RandomPicks 过取再筛),所以这里回落成文字标题应当是极少数
-           (取图本身失败,或者那台库一张 Logo 都没刮)。回落链一个字没改。 */
-        _logo = _items.Select(it => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(_server, Id(it), "Logo"), 184)).ToArray();
+        // 按需启动当前张和下一张，避免首屏一次占满全部轮播图的回源名额。
+        _bg = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Backdrop"), 720))).ToArray();
+        _wash = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Backdrop"), 64))).ToArray();
+        _logo = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Logo"), 184))).ToArray();
 
         BuildDots();
         _prev.IsVisible = _next.IsVisible = _items.Count > 1;
@@ -538,7 +533,7 @@ public sealed class Hero : Border
                 continue;
             }
             /* <b>图没到就不翻</b>(用户 2026-09-02:「切换之后没有显示还要等一会」)。
-               预取是在 Show() 里一起发的,但慢链路上第二张可能还在路上 ——
+               下一张已提前请求,但慢链路上它可能还在路上 ——
                照翻的话交叉淡入淡到一半发现没东西可淡,那一下就是「切过去了但是空的」。
                封顶 5 秒:一直等下去等于轮播被一张取不到的图卡死。 */
             if (_pinned) { await Task.Delay(500); continue; }
@@ -551,8 +546,8 @@ public sealed class Hero : Border
     /// <summary>等第 <paramref name="i"/> 张的位图到位,最多等 5 秒。</summary>
     private async Task Ready(int i)
     {
-        if (i < 0 || i >= _bg.Length || _bg[i].IsCompleted) return;
-        await Task.WhenAny(_bg[i], Task.Delay(5000));
+        if (i < 0 || i >= _bg.Length || _bg[i].Value.IsCompleted) return;
+        await Task.WhenAny(_bg[i].Value, Task.Delay(5000));
     }
 
     /// <summary>
@@ -610,18 +605,25 @@ public sealed class Hero : Border
     private async Task GoCore(int i)
     {
         if (i < 0 || i >= _items.Count) return;
+        var generation = _generation;
         _idx = i;
         SyncDots();
-        RenderBody(_items[i], _logo[i]);
+        var background = _bg[i].Value;
+        var washImage = _wash[i].Value;
+        RenderBody(_items[i], _logo[i].Value);
+        var next = (i + 1) % _items.Count;
+        _ = _bg[next].Value;
+        _ = _wash[next].Value;
+        _ = _logo[next].Value;
 
         var back = ReferenceEquals(_front, _layerA) ? _layerB : _layerA;
         var toA = ReferenceEquals(back, _layerA);
         var sharp = toA ? _sharpA : _sharpB;
         var wash = toA ? _washA : _washB;
 
-        var bmp = await _bg[i];
+        var bmp = await background;
         // 翻得比图快:等这张图的时候用户已经翻走了,别把它硬塞上去
-        if (_idx != i) return;
+        if (_idx != i || generation != _generation) return;
         if (bmp is null)
         {
             Console.WriteLine($"[Hero] 第 {i + 1} 张没有剧照,回退海报");
@@ -629,11 +631,11 @@ public sealed class Hero : Border
                退回海报 —— 现在是 Uniform 不裁,2:3 的海报只会窄一点,不会被裁烂。 */
             bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary"), 720);
             if (bmp is null) Console.WriteLine($"[Hero] 第 {i + 1} 张连海报也取不到(server={_server})");
-            if (_idx != i || bmp is null) return;
+            if (_idx != i || generation != _generation || bmp is null) return;
         }
         // 氛围底取不到就拿大图顶上(它只是被拉糊当底色,清晰与否看不出来)
-        var washBmp = i < _wash.Length ? await _wash[i] : null;
-        if (_idx != i) return;
+        var washBmp = await washImage;
+        if (_idx != i || generation != _generation) return;
         wash.Source = washBmp ?? bmp;
         // 羽化条要拿同一张糊图去画。少了这一句羽化层是空的 ——
         // 不报错,只是那条缝又回来了。
