@@ -364,7 +364,6 @@ func (c *Client) Collections(ctx context.Context, s *Session) ([]Item, error) {
 // **别拿原版的结论替 fork 签字**。所以这里只负责把 Fields 要全,排序交给前端本地做。
 func (c *Client) Favorites(ctx context.Context, s *Session) ([]Item, error) {
 	base := fmt.Sprintf("%s/Users/%s/Items?Filters=IsFavorite&Recursive=true"+
-		"&IncludeItemTypes=Movie,Series,Episode"+
 		"&Fields=PrimaryImageAspectRatio,CommunityRating,DateCreated,DateLastMediaAdded,SortName",
 		s.Server, url.PathEscape(s.UserID))
 	return c.fetchAllPaged(ctx, s, base, 2000)

@@ -28,7 +28,8 @@ func (c *Client) FavoritesPage(ctx context.Context, s *Session, start, limit int
 		direction = "Ascending"
 	}
 	q := url.Values{
-		"Filters": {"IsFavorite"}, "Recursive": {"true"}, "IncludeItemTypes": {"Movie,Series,Episode"},
+		// 收藏类型由服务端决定，避免不支持的类型使整个收藏查询返回空。
+		"Filters": {"IsFavorite"}, "Recursive": {"true"},
 		"Fields":     {"PrimaryImageAspectRatio,CommunityRating,DateCreated,DateLastMediaAdded,SortName"},
 		"StartIndex": {strconv.Itoa(max(0, start))}, "Limit": {strconv.Itoa(min(max(1, limit), ServerPageCap))},
 	}

@@ -6,12 +6,55 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
 
 	"linplayer/core/blocklist"
 )
+
+func Test收藏类型由服务端返回(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		q := r.URL.Query()
+		if q.Get("Filters") != "IsFavorite" || q.Get("Recursive") != "true" {
+			t.Errorf("收藏范围错误: %v", q)
+		}
+		// MediaStationGo 的收藏查询遇到任何不支持的类型会整体返回空。
+		for _, kind := range strings.Split(q.Get("IncludeItemTypes"), ",") {
+			if kind != "" && kind != "Movie" && kind != "Series" {
+				json.NewEncoder(w).Encode(map[string]any{"Items": []Item{}, "TotalRecordCount": 0})
+				return
+			}
+		}
+		if q.Has("IncludeItemTypes") {
+			t.Errorf("收藏不应固定类型: %v", q)
+		}
+		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
+			{"Id": "favorite-movie", "Type": "Movie"}, {"Id": "favorite-series", "Type": "Series"},
+		}, "TotalRecordCount": 2})
+	}))
+	defer up.Close()
+	c, s := NewClient("test"), &Session{Server: up.URL, UserID: "u"}
+	t.Run("分页", func(t *testing.T) {
+		p, err := c.FavoritesPage(context.Background(), s, 0, 60, "更新时间", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Items) != 2 || p.Items[0].Type != "Movie" || p.Items[1].Type != "Series" || p.NextIndex != 2 || p.HasMore {
+			t.Fatalf("电影或整剧收藏丢失: %+v", p)
+		}
+	})
+	t.Run("全量", func(t *testing.T) {
+		items, err := c.Favorites(context.Background(), s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 2 || items[0].Type != "Movie" || items[1].Type != "Series" {
+			t.Fatalf("电影或整剧收藏丢失: %+v", items)
+		}
+	})
+}
 
 func Test收藏单页短页不提前结束且屏蔽不改变游标(t *testing.T) {
 	old := blocklist.List()
