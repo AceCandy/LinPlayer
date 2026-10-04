@@ -139,3 +139,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 5: 收藏查询类型兼容修复
+<!-- trellis-session: v=2 fp=6edf7790fcaeccbc -->
+
+**Date**: 2026-10-04
+**Task**: 收藏查询类型兼容修复
+**Branch**: `main`
+
+### Summary
+
+分页及全量收藏去掉固定类型限制，保留收藏筛选、排序与游标；故障回归先失败后通过，核心门禁和手机出包验签通过。真实服务端与真机未验；其他任务保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c4a15be5` | fix(emby): 收藏查询跟随服务端支持的类型 |
+
+### Status
+
+[OK] **Completed**

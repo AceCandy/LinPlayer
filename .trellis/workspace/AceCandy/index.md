@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 4
+- **Total Sessions**: 5
 - **Last Active**: 2026-10-04
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~141 | Active |
+| `journal-1.md` | ~163 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 5 | 2026-10-04 | 收藏查询类型兼容修复 | `c4a15be5` | `main` |
 | 4 | 2026-10-04 | 媒体库浏览跟随服务器并提交归档 | `c6e15925` | `main` |
 | 3 | 2026-10-04 | 手机首页刷新审查与任务归档 | `fdeb7193` | `main` |
 | 2 | 2026-10-04 | 图片加载优化与手机主题修复 | `c0596038`, `18cf4b9e` | `main` |
