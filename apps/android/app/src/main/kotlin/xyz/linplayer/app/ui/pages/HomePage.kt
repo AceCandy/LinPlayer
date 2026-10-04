@@ -1,7 +1,9 @@
 package xyz.linplayer.app.ui.pages
 
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -15,12 +17,9 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
@@ -38,14 +37,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.clipToBounds
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -53,8 +47,6 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
-import coil3.compose.AsyncImagePainter
-import coil3.compose.rememberAsyncImagePainter
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
@@ -72,33 +64,29 @@ import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.Route
-import xyz.linplayer.app.ui.switchTab
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.CardAction
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
-import xyz.linplayer.app.ui.components.GlassIcon
 import xyz.linplayer.app.ui.components.Hairline
 import xyz.linplayer.app.ui.components.LpMenu
 import xyz.linplayer.app.ui.components.LpMenuItem
 import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.LpRowSkeleton
+import xyz.linplayer.app.ui.components.Skeleton
+import androidx.compose.ui.platform.testTag
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.SectionTitle
-import xyz.linplayer.app.ui.components.Skeleton
 import xyz.linplayer.app.ui.components.pressable
-import xyz.linplayer.app.ui.theme.heroHeight
-import xyz.linplayer.app.ui.theme.LpEasing
+import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
-import xyz.linplayer.app.ui.theme.T
-import xyz.linplayer.app.ui.theme.lpTween
 
 /**
- * 首页(U1.3)。版式照草稿 01:**Hero 从 y=0 起铺,状态栏浮在图上**。
+ * 首页(U1.3)：紧凑服务器栏下依次展示媒体库、继续观看和各库最新。
  *
  * ☠ **各块并发拉取、各自渲染,不设屏障**(SPEC §8.0 第 6 步)——
  * 这是**契约不是优化**。实测串行等待比并发慢 5.5 倍,而用户会把它描述成
@@ -117,7 +105,7 @@ fun HomePage(nav: NavController) {
 
 
     /* ☠ 这几份数据以前是 `remember`,而 `remember` 的寿命是 composition ——
-       点进任何一页再返回,首页**整个重拉一遍**(骨架闪一次、Hero 从第一张重来)。
+       点进任何一页再返回,首页**整个重拉一遍**(骨架闪一次)。
        底栏的 saveState/restoreState 保得住滚动位置(rememberSaveable),保不住它们。 */
     var resume by keepState<Block<List<Item>>>("home.resume") { Block.Loading }
     var views by keepState<Block<List<View>>>("home.views") { Block.Loading }
@@ -128,18 +116,6 @@ fun HomePage(nav: NavController) {
     var refreshing by remember { mutableStateOf(false) }
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
-    var latestFailures by remember(currentSession?.server, currentSession?.userId, reload) {
-        mutableStateOf<Map<String, Block.Fail>>(emptyMap())
-    }
-    val heroViews = views.valueOrNull
-    val heroItems = latestHeroItems(heroViews.orEmpty(), latest)
-    val hero: Block<List<Item>> = when {
-        heroItems.isNotEmpty() -> Block.Ok(heroItems)
-        heroViews != null && heroViews.all { it.id in latest || it.id in latestFailures } ->
-            heroViews.firstNotNullOfOrNull { latestFailures[it.id] } ?: Block.Ok(emptyList())
-        views is Block.Fail -> views as Block.Fail
-        else -> Block.Loading
-    }
     var canHideResume by remember(currentSession?.server, currentSession?.userId) { mutableStateOf(false) }
     LaunchedEffect(currentSession?.server, currentSession?.userId) {
         if (currentSession == null) return@LaunchedEffect
@@ -155,7 +131,7 @@ fun HomePage(nav: NavController) {
             .arr().mapNotNull { it.obj() }
             .filter { !it.str("id").isNullOrEmpty() && !it.str("plugin_id").isNullOrEmpty() }
     }
-    /** 顶栏那颗胶囊点开的**服务器选择弹窗**。全站没有 bottom sheet,一律居中弹窗。 */
+    /** 顶栏服名展开的服务器选择菜单。 */
     var pickServer by remember { mutableStateOf(false) }
 
     // 每次恢复首页更新续播；库仅在首次加载或显式刷新时重取。
@@ -169,7 +145,7 @@ fun HomePage(nav: NavController) {
                         // 空栏目恢复占位，才能在本轮再次按需加载。
                         latest = latest.filterValues { it.isNotEmpty() }
                         if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
-                        // 服务器胶囊读取完整本地账号表，不走网络。
+                        // 服名入口读取完整本地账号表，不走网络。
                         launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
                         launch { views = app.block("emby.views").map { View.list(it) } }
                     }
@@ -186,19 +162,9 @@ fun HomePage(nav: NavController) {
     LaunchedEffect(currentSession?.server, currentSession?.userId, reload) {
         val requested = mutableSetOf<String>()
         snapshotFlow {
-            Triple(list.layoutInfo.visibleItemsInfo.map { it.key }, views.valueOrNull, latest to latestFailures)
+            Triple(list.layoutInfo.visibleItemsInfo.map { it.key }, views.valueOrNull, latest)
         }.collect { (keys, visibleViews, _) ->
-            // 首屏复用最新轨的请求和结果；够五条就不为轮播继续预取其它库。
-            val heroKeys = mutableListOf<String>()
-            val heroIDs = mutableSetOf<String>()
-            for (view in visibleViews.orEmpty()) {
-                heroKeys += "latest-${view.id}"
-                val cached = latest[view.id]
-                if (cached == null && view.id !in latestFailures) break
-                cached.orEmpty().forEach { heroIDs += it.id }
-                if (heroIDs.size >= 5) break
-            }
-            for (key in keys + heroKeys) {
+            for (key in keys) {
                 if (key == "collections" && requested.add("collections") &&
                     (reload > 0 || collections !is Block.Ok)) {
                     launch { collections = app.block("emby.listCollections").map { Item.list(it) } }
@@ -208,7 +174,6 @@ fun HomePage(nav: NavController) {
                     launch {
                         val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 16))
                         r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
-                        if (r is Block.Fail) latestFailures = latestFailures + (view.id to r)
                     }
                 }
             }
@@ -259,11 +224,8 @@ fun HomePage(nav: NavController) {
         }
     }
 
-    LpImmersive(bar = {
-        /* ☠ **胶囊必须由 Row 给它定宽**【用户定 2026-09-07】。
-           原来它后面跟一个 `Spacer(weight(1f))`,自己不带权重 —— Row 先按
-           「要多少给多少」量它,于是长服务器名会把右边两颗按钮整个挤出屏幕。
-           改成它自己吃掉剩余宽度,名字放不下就省略号。 */
+    LpImmersive(barHeight = 40.dp, barHorizontalPadding = Sp.x16, bar = {
+        // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
             ServerChip(accounts.firstOrNull { it.isActive }) { pickServer = !pickServer }
@@ -277,8 +239,10 @@ fun HomePage(nav: NavController) {
                 onAdd = { pickServer = false; nav.navigate(Route.AddServer) },
             )
         }
-        GlassIcon(LpIcons.search, "搜索") { nav.navigate(Route.Search()) }
-        GlassIcon(LpIcons.settings, "设置") { nav.navigate(Route.Settings) }
+        Box(Modifier.size(40.dp).pressable({ nav.navigate(Route.Settings) }),
+            contentAlignment = Alignment.Center) {
+            Icon(LpIcons.settings, "设置", Modifier.size(20.dp), tint = Lp.colors.fg2)
+        }
     }) { pad ->
         // 地基块失败才整页报错:只有 emby.views 是地基
         val v = views
@@ -290,27 +254,26 @@ fun HomePage(nav: NavController) {
         PullToRefreshBox(
             isRefreshing = refreshing,
             onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
-            modifier = Modifier.fillMaxSize(),
+            modifier = Modifier.fillMaxSize().padding(
+                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 40.dp,
+            ),
         ) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-                item("hero") { Hero(hero, list, open) }
-
-                // 首页顺序：Hero → 继续观看 → 合集 → 各库最新
-                item("resume") {
-                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu)
-                }
-                item("collections") {
-                    RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu)
-                }
-
                 item("views") {
                     when (v) {
-                        is Block.Loading -> LpRowSkeleton("媒体库")
+                        is Block.Loading -> LazyRow(
+                            Modifier.padding(top = Sp.x4), contentPadding = PaddingValues(horizontal = Sp.x16),
+                            horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                        ) { items(3) { Skeleton(Modifier.size(158.dp, 90.dp)) } }
                         is Block.Ok -> if (v.value.isEmpty()) EmptyState(
                             "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
                         ) else ViewsRow(v.value, nav)
                         is Block.Fail -> Unit
                     }
+                }
+
+                item("resume") {
+                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu, resume = true)
                 }
 
                 // 每个媒体库一条「最新」轨。未到的画骨架 —— 否则首屏下半是空的
@@ -331,6 +294,9 @@ fun HomePage(nav: NavController) {
                         )
                     }
                 }
+                item("collections") {
+                    RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu)
+                }
                 // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
                 items(pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
                     PluginHomeSection(sec, nav)
@@ -342,24 +308,15 @@ fun HomePage(nav: NavController) {
 
 }
 
-/**
- * 顶栏那颗服务器胶囊。名字没到之前写「服务器」,**不画骨架** —— 一颗抖动的小胶囊比一个静字更吵。
- *
- * ☠ 图标位上一版是**一块渐变色块** —— 不是「图标没加载出来」,是压根没去取过图标。
- *   现在和服务器页共用 [rememberServerIcon],而且**透明底不垫色块**【用户定 2026-09-07】。
- * ★ 尺寸跟着顶栏另外两颗按钮一起放大到 44dp 高【用户定 2026-09-07】。
- * ★ 名字那一段 `weight(1f, fill = false)`:**能省略,但不占满** ——
- *   短名字的胶囊就该是短的,不该拉成一整条。
- */
+/** 紧凑服名入口：无底色和箭头，共用服务器图标，长名称省略。 */
 @Composable
 private fun ServerChip(account: Account?, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
     Row(
-        Modifier.height(44.dp).clip(RoundedCornerShape(R.pill))
-            .background(c.chip)
+        Modifier.height(40.dp)
             .pressable(onClick)
-            .padding(start = 6.dp, end = Sp.x12),
+            .padding(end = Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
@@ -373,13 +330,11 @@ private fun ServerChip(account: Account?, onClick: () -> Unit) {
             color = c.fg, fontSize = 14.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
-        Icon(LpIcons.chevD, null, Modifier.padding(start = Sp.x4).size(15.dp),
-            tint = c.fg2)
     }
 }
 
 /**
- * 换服务器 = **从胶囊底下掉下来的一张列表**【用户定 2026-09-07】。
+ * 换服务器 = **从服名底下展开的一张列表**【用户定 2026-09-07】。
  *
  * ☠ 上一版是一个居中弹窗。弹窗是「打断你,让你回答一个问题」;而换服务器是
  *   顶栏那颗按钮的**展开态** —— 它不该盖住整页,也不该让人先看一遍标题。
@@ -394,7 +349,7 @@ private fun ServerMenu(
     onManage: () -> Unit,
     onAdd: () -> Unit,
 ) {
-    LpMenu(open, onClose, Alignment.TopStart, androidx.compose.ui.unit.IntOffset(0, anchorH + 8)) {
+    LpMenu(open, onClose, Alignment.TopStart, androidx.compose.ui.unit.IntOffset(0, anchorH + 8), solid = true) {
         accounts.forEach { a ->
             LpMenuItem(
                 a.name, { onPick(a) },
@@ -416,6 +371,7 @@ private fun RowBlock(
     app: xyz.linplayer.app.data.AppState,
     open: (Item) -> Unit,
     menu: (Item) -> List<CardAction>,
+    resume: Boolean = false,
 ) {
     when (block) {
         is Block.Loading -> LpRowSkeleton(title, thumb)
@@ -423,199 +379,11 @@ private fun RowBlock(
         is Block.Ok -> if (block.value.isNotEmpty()) LpRow(
             title, block.value,
             { app.imageUrl(it.id, "Primary", if (thumb) 220 else 330) },
-            open, thumb = thumb, menu = menu,
+            open, thumb = thumb, menu = menu, resume = resume,
         )
         // 各块各自 catch:一个区块失败不整页报错
         is Block.Fail -> Unit
     }
-}
-
-/** 轮播复用首页库序中的最新列表，跨库去重后最多展示五条。 */
-internal fun latestHeroItems(views: List<View>, latest: Map<String, List<Item>>): List<Item> =
-    views.flatMap { latest[it.id].orEmpty() }.distinctBy { it.id }.take(5)
-
-/**
- * Hero(草稿 01):**铺到屏幕物理顶端**,状态栏浮在它上面。
- *
- * ★ **手指能左右翻**【用户定 2026-09-06】。轮播不给手是「看得见摸不着」——
- *   自动换片留着,但手一碰就停:抢走用户正在看的那一张比不自动播更糟。
- * ★ 标题走 **TMDB 艺术字**(Emby 的 `Logo` 图),取不到才回落成排版字。
- * ★ **上面没有播放按钮**【用户定 2026-09-06】—— 整块可点,进详情页。
- * ★ 动效三层:Ken Burns 恒速缓推 + 翻页视差 + 随滚动的整块上移淡出。
- * ★ 元信息只有「评分 · 年份 · 类型」——**画质标签整个去掉**【用户定 2026-07-28】。
- */
-@Composable
-private fun Hero(block: Block<List<Item>>, list: LazyListState, open: (Item) -> Unit) {
-    val c = Lp.colors
-    val h = heroHeight()
-    when (block) {
-        is Block.Loading -> Skeleton(Modifier.fillMaxWidth().height(h), R.none)
-        is Block.Fail -> Unit
-        is Block.Ok -> {
-            val items = block.value
-            if (items.isEmpty()) return
-            val app = LocalApp.current
-            val scope = rememberCoroutineScope()
-            val pager = rememberPagerState(pageCount = { items.size })
-            /* 手动翻过就不再自动轮播。**一次就够,不设「几秒后恢复」**——
-               定时恢复的表现是:用户翻到想看的那张、看了两眼,它又自己走掉。 */
-            var manual by remember { mutableStateOf(false) }
-
-            /* 视差:往下滚时整块跟着走一半、并且淡出。
-               ★ 读滚动位置只能在 `graphicsLayer` 的 lambda 里读 —— 它在 draw 阶段求值,
-                 每帧只是重画;写在外面读就是**每帧重组整条首页**。 */
-            Box(
-                Modifier.fillMaxWidth().height(h)
-                    .graphicsLayer {
-                        val off = if (list.firstVisibleItemIndex == 0)
-                            list.firstVisibleItemScrollOffset.toFloat() else h.toPx()
-                        translationY = off * 0.42f
-                        alpha = (1f - off / (h.toPx() * 0.85f)).coerceIn(0f, 1f)
-                    }
-                    .clipToBounds()
-            ) {
-                /* ☠☠ **相邻那一页要提前composition。** `HorizontalPager` 默认
-                   `beyondViewportPageCount = 0` —— 下一页是**开始滑的那一刻**才挂上去的,
-                   于是它的背景图这时才开始下载:滑进来的是一块空页,上面压着渐变幕布和
-                   已经从缓存里出来的艺术字,图晚半秒才「啪」地补上。
-                   用户看到的就是「切封面时有一块黑色遮罩,好像和艺术字一块」。
-                   预挂一页,图在上一页还在看的时候就取好了。 */
-                HorizontalPager(pager, Modifier.fillMaxSize(), beyondViewportPageCount = 1) { page ->
-                    val cur = items[page]
-                    Box(Modifier.fillMaxSize().pressable({ open(cur) })) {
-                        /* ☠ **封面上不许再有任何常驻动效**【用户定 2026-09-07】。
-                           先后去掉的是翻页视差(挪出去的部分底下是空的,露出幕布)和
-                           Ken Burns 缓推(用户原话「为什么封面右边会有自动推拉」)。
-                           到点换一张,换的过程是一次推拉,此外画面不动。 */
-                        NetImage(
-                            app.imageUrl(cur.id, "Backdrop", 720), null,
-                            Modifier.fillMaxSize(), corner = 0.dp, scale = ContentScale.Crop,
-                        )
-                        /* 上下两头压暗:上头给状态栏的时间和信号留可读性(**不是给它留黑底**),
-                           下头把图化进页面底色 —— 中间那 26% 完全不压,画面要露出来 */
-                        Box(
-                            Modifier.fillMaxSize().background(
-                                Brush.verticalGradient(
-                                    0.00f to c.bg.copy(alpha = .60f),
-                                    0.14f to c.bg.copy(alpha = .30f),
-                                    0.40f to Color.Transparent,
-                                    0.72f to c.bg.copy(alpha = .62f),
-                                    0.99f to c.bg,
-                                )
-                            )
-                        )
-                        Column(
-                            Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                                .padding(start = Sp.x20, end = Sp.x20, top = Sp.x10, bottom = 38.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally,
-                        ) {
-                            ArtTitle(app.imageUrl(cur.id, "Logo", 240), cur.cardTitle)
-                            Spacer(Modifier.height(Sp.x8))
-                            Row(
-                                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                cur.rating?.takeIf { r -> r > 0 }?.let { r ->
-                                    Text("★ %.1f".format(r), color = c.acc, fontSize = 12.sp,
-                                        fontWeight = FontWeight.Bold)
-                                }
-                                listOfNotNull(
-                                    cur.year?.toString(),
-                                    cur.genres.take(2).joinToString(" ").takeIf { g -> g.isNotEmpty() },
-                                ).forEach { Text(it, color = c.fg2, fontSize = 12.sp, maxLines = 1) }
-                            }
-                        }
-                    }
-                }
-                // 点位:选中那颗**长成一条**。★ 画在 pager 外面 —— 跟着翻页一起滑走就没人看得见
-                Row(
-                    Modifier.align(Alignment.BottomCenter).padding(bottom = Sp.x16),
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    items.indices.forEach { i ->
-                        val on = i == pager.currentPage
-                        val w by animateDpAsState(
-                            if (on) 17.dp else 5.dp,
-                            lpTween(T.T6, LpEasing.emphasizedDecelerate), label = "dotW",
-                        )
-                        Box(
-                            Modifier.size(w, 5.dp).clip(RoundedCornerShape(R.pill))
-                                .background(if (on) c.fg else c.fg.copy(alpha = .38f))
-                                .pressable({ manual = true; scope.launch { pager.animateScrollToPage(i) } })
-                        )
-                    }
-                }
-            }
-            /* 手指一碰就停自动轮播。
-               ☠ 判据是 **interactionSource(只有真手势才发)**,不是 `isScrollInProgress` ——
-                 后者对 `animateScrollToPage` 也是 true,于是**第一次自动换片就把自己关掉了**,
-                 表现是「轮播只走一格然后再也不动」,而且看起来像自动播压根没做。 */
-            LaunchedEffect(pager) {
-                pager.interactionSource.interactions.collect { manual = true }
-            }
-            /* ☠ **动画曲线要自己给。** `animateScrollToPage` 默认是 spring,
-               大图翻页时那条曲线尾巴很长、还会回弹 —— 用户原话「最垃圾的推拉效果」。
-               换成一条 350ms 的 emphasized:推过去,到位,结束。 */
-            val push = lpTween<Float>(T.T7, LpEasing.emphasized)
-            LaunchedEffect(items, manual, push) {
-                if (manual) return@LaunchedEffect
-                while (true) {
-                    kotlinx.coroutines.delay(7000)
-                    pager.animateScrollToPage(
-                        (pager.currentPage + 1) % items.size, animationSpec = push,
-                    )
-                }
-            }
-        }
-    }
-}
-
-/** 艺术字的最大占位(dp)。改这两个数就是改 Hero 标题的分量。 */
-private const val ART_MAX_W = 320f
-private const val ART_MAX_H = 92f
-
-/**
- * 艺术字实际要占的宽高(dp)—— 就是 `Fit` 之后**画出来**的那块。
- *
- * 抽成纯函数是为了能在 JVM 上钉:算错了不报错,只是标题和下面的标签之间
- * 多出一段说不清哪来的空白,而那只有真机上肉眼才看得见。
- * 原图尺寸未知(还没解出来)时按 3:1 给一个中庸值,不返回 0 ——
- * 返回 0 的表现是标题闪一下才出来。
- */
-internal fun artLogoSize(imgW: Float, imgH: Float, maxW: Float, maxH: Float): Pair<Float, Float> {
-    val ar = if (imgW > 0f && imgH > 0f && imgW.isFinite() && imgH.isFinite()) imgW / imgH else 3f
-    val h = minOf(maxH, maxW / ar)
-    return Pair(h * ar, h)
-}
-
-/**
- * 艺术字标题。
- *
- * ★ TMDB 的片名艺术字在 Emby 里是 `Logo` 图。**不是每部片都有** ——
- *   没有的那些回落成排版字,而不是留一块空白或者一个碎图标。
- * ★ 判据是**图真的解出来了**,不是「地址拼得出来」:地址永远拼得出来,
- *   拼出来的那条 404 才是常态。
- * ★ 按**高度**定尺寸、宽度随原图 —— 按宽度定会把横长的片名压成一条。
- * ☠ 尺寸自己算,不交给 `heightIn`/`widthIn`:那两个只**约束**布局框,
- *   `Fit` 画出来的图比框小的时候,小掉的那部分是**框里的空白**。
- *   宽长条的片名会在下面留出一大片空 —— 用户报的「艺术字和下面的标签离得很远」。
- */
-@Composable
-private fun ArtTitle(logoUrl: String?, fallback: String) {
-    val c = Lp.colors
-    val painter = rememberAsyncImagePainter(logoUrl)
-    val st by painter.state.collectAsState()
-    val sz = painter.intrinsicSize
-    if (st is AsyncImagePainter.State.Success) {
-        val (w, h) = artLogoSize(sz.width, sz.height, ART_MAX_W, ART_MAX_H)
-        androidx.compose.foundation.Image(
-            painter, fallback, Modifier.size(w.dp, h.dp), contentScale = ContentScale.Fit,
-        )
-    } else Text(
-        fallback, color = c.fg, fontSize = 29.sp,
-        fontWeight = FontWeight.Bold, lineHeight = 33.sp,
-        textAlign = TextAlign.Center, maxLines = 2, overflow = TextOverflow.Ellipsis,
-    )
 }
 
 /**
@@ -624,7 +392,7 @@ private fun ArtTitle(logoUrl: String?, fallback: String) {
  * ☠ **封面严禁裁剪**【用户定 2026-09-06】:各家库的封面比例五花八门(方的、16:9 的、
  *   海报比例的),`Crop` 会把库名的字直接切掉半边。所以是 `Fit` + 一块底色垫底,
  *   宁可两侧留边也不切。
- * ★ 没有封面的库回落成图标 —— 一块灰底比一张碎图好。
+ * ★ 未加载或缺少封面时居中显示库名，加载成功后只展示封面。
  */
 /**
  * 插件的一条首页栏目(D303)。
@@ -677,44 +445,28 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController) {
 private fun ViewsRow(views: List<View>, nav: NavController) {
     val c = Lp.colors
     val app = LocalApp.current
-    Column(Modifier.fillMaxWidth()) {
-        SectionTitle("媒体库")
-        LazyRow(
-            Modifier.fillMaxWidth(),
-            contentPadding = PaddingValues(horizontal = Sp.x16),
-            horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        ) {
-            items(views, key = { it.id }) { v ->
-                Column(
-                    Modifier.width(158.dp).pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
-                ) {
-                    Box(
-                        Modifier.fillMaxWidth().height(90.dp)
-                            .clip(RoundedCornerShape(R.md)).background(c.s1),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        // 垫一层图标:图没到 / 这个库压根没封面时,看到的是它而不是一块空
-                        Icon(iconFor(v.collectionType), null, Modifier.size(26.dp), tint = c.fg3)
-                        NetImage(
-                            app.imageUrl(v.id, "Primary", 260), v.name,
-                            Modifier.fillMaxSize(), R.md, ContentScale.Fit,
-                        )
-                    }
-                    Spacer(Modifier.height(Sp.x6))
-                    Text(v.name, color = c.fg, fontSize = 13.sp, lineHeight = 17.sp, maxLines = 1,
-                        overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium)
-                }
+    LazyRow(
+        Modifier.fillMaxWidth().padding(top = Sp.x4).testTag("home.libraries"),
+        contentPadding = PaddingValues(horizontal = Sp.x16),
+        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+    ) {
+        items(views, key = { it.id }) { v ->
+            Box(
+                Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(c.s1)
+                    .pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
+                contentAlignment = Alignment.Center,
+            ) {
+                NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", 260) else null, v.name,
+                    Modifier.fillMaxSize(), R.md, ContentScale.Fit,
+                    placeholder = {
+                        Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = c.fg,
+                            fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    })
             }
         }
     }
-}
-
-private fun iconFor(type: String?) = when (type) {
-    "movies" -> LpIcons.file
-    "tvshows" -> LpIcons.version
-    "boxsets" -> LpIcons.folder
-    "music" -> LpIcons.audio
-    else -> LpIcons.grid
 }
 
 /**

@@ -1,10 +1,10 @@
 package xyz.linplayer.app.ui.pages
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -20,9 +20,6 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.FilterChip
-import androidx.compose.material3.FilterChipDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -33,7 +30,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
@@ -56,7 +52,8 @@ import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
-import xyz.linplayer.app.ui.components.H2
+import xyz.linplayer.app.ui.components.MediaFilterChip
+import xyz.linplayer.app.ui.components.MediaRowHeader
 import xyz.linplayer.app.ui.components.LpField
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.MediaCard
@@ -65,7 +62,6 @@ import xyz.linplayer.app.ui.components.Skeleton
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
-import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
 /**
@@ -142,16 +138,16 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         aggBusy = false
     }
 
-    LpScaffold(onBack = { nav.popBackStack() }, scrolled = true, title = " ") { pad ->
+    LpScaffold(onBack = { nav.popBackStack() }, title = if (route.viewId != null) "库内搜索" else "搜索") { pad ->
         Column(Modifier.fillMaxSize().imePadding()) {
             LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                 Modifier.padding(horizontal = Sp.x16).focusRequester(focus))
 
-            Row(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x4),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                Toggle("包括集", includeEpisodes) { includeEpisodes = it }
+                MediaFilterChip("包括集", includeEpisodes) { includeEpisodes = !includeEpisodes }
                 // 库内搜索与聚合互斥:有搜索范围时这个开关**整个不出现**
-                if (route.viewId == null && !onSource) Toggle("聚合(含数据源)", aggregate) { aggregate = it }
+                if (route.viewId == null && !onSource) MediaFilterChip("聚合(含数据源)", aggregate) { aggregate = !aggregate }
                 if (aggregate && route.viewId == null) xyz.linplayer.app.ui.components.LpButton("搜索", { if (q.isNotBlank()) aggRun++ })
             }
 
@@ -169,6 +165,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 }
             }
 
+            if (aggregate && route.viewId == null && aggBusy) {
+                Dim3("还有来源在搜…", Modifier.padding(horizontal = Sp.x16, vertical = Sp.x4))
+            }
             val r = result
             when {
                 aggregate && route.viewId == null -> LazyColumn(Modifier.fillMaxSize(), contentPadding = pad) {
@@ -182,7 +181,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         when {
                             g.str("error") != null -> Dim3("$name 没搜成:${g.str("error")}", Modifier.padding(Sp.x16), maxLines = 2)
                             g.str("kind") == "plugin" -> Column(Modifier.padding(vertical = Sp.x8)) {
-                                xyz.linplayer.app.ui.components.H2("$name · ${g["items"].arr().size} 条", Modifier.padding(horizontal = Sp.x16))
+                                MediaRowHeader("$name · ${g["items"].arr().size} 条")
                                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                     g["items"].arr().mapNotNull { it.obj() }.forEach { it ->
                                         SourceCard(it, { nav.navigate(Route.SourceDetail(it.str("source") ?: sid, it.str("id") ?: "")) }, Modifier.width(108.dp))
@@ -197,8 +196,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             }
                         }
                     }
-                    if (aggBusy) item("busy") { Dim3("还有来源在搜…", Modifier.padding(Sp.x16)) }
-                    else if (aggRun > 0 && aggRows.isEmpty()) item("none") { EmptyState("「${q.trim()}」没搜到东西", "只包括打开了「允许聚合」的来源。") }
+                    if (!aggBusy && aggRun > 0 && aggRows.isEmpty()) item("none") { EmptyState("「${q.trim()}」没搜到东西", "只包括打开了「允许聚合」的来源。") }
                 }
 
                 r == null -> if (history.isEmpty()) EmptyState(
@@ -206,10 +204,17 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     LpIcons.search,
                 ) else HistoryList(history) { q = it }
 
-                r is Block.Loading -> Column(Modifier.padding(Sp.x16)) {
-                    repeat(3) {
-                        Skeleton(Modifier.fillMaxWidth().height(72.dp))
-                        Spacer(Modifier.height(Sp.x10))
+                r is Block.Loading -> LazyVerticalGrid(
+                    GridCells.Fixed(3), contentPadding = PaddingValues(Sp.x16),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x16),
+                ) {
+                    items(9) {
+                        Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
+                            Skeleton(Modifier.fillMaxWidth().aspectRatio(2f / 3f))
+                            Spacer(Modifier.height(Sp.x6))
+                            Skeleton(Modifier.fillMaxWidth(.8f).height(14.dp))
+                        }
                     }
                 }
 
@@ -275,25 +280,12 @@ private fun LazyVerticalGridInline(items: List<Item>, onOpen: (Item) -> Unit) {
 
 @Composable
 private fun HistoryList(history: List<String>, onPick: (String) -> Unit) {
-    Column(Modifier.fillMaxWidth().padding(Sp.x16)) {
-        H2("最近搜过")
+    Column(Modifier.fillMaxWidth()) {
+        MediaRowHeader("最近搜过")
         Spacer(Modifier.height(Sp.x8))
         history.forEach {
-            Text(it, Modifier.fillMaxWidth().pressable({ onPick(it) }).padding(vertical = Sp.x12),
+            Text(it, Modifier.fillMaxWidth().pressable({ onPick(it) }).padding(horizontal = Sp.x16, vertical = Sp.x12),
                 color = Lp.colors.fg2, fontSize = 14.sp)
         }
     }
-}
-
-@Composable
-private fun Toggle(label: String, on: Boolean, onChange: (Boolean) -> Unit) {
-    val c = Lp.colors
-    Text(
-        label,
-        Modifier.clip(RoundedCornerShape(R.pill))
-            .background(if (on) c.accDim else c.s2)
-            .pressable({ onChange(!on) })
-            .padding(horizontal = Sp.x12, vertical = Sp.x8),
-        color = if (on) c.acc else c.fg2, fontSize = 12.sp,
-    )
 }

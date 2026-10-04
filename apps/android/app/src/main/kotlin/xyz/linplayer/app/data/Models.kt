@@ -140,11 +140,11 @@ data class Page(val items: List<Item>, val total: Long?) {
 
 /** 媒体库。 */
 @Immutable
-data class View(val id: String, val name: String, val collectionType: String?) {
+data class View(val id: String, val name: String, val collectionType: String?, val hasPrimary: Boolean = false) {
     companion object {
         fun list(e: JsonElement?): List<View> = e.arr().mapNotNull {
             val o = it.obj() ?: return@mapNotNull null
-            View(o.str("id") ?: return@mapNotNull null, o.str("name") ?: "", o.str("collection_type"))
+            View(o.str("id") ?: return@mapNotNull null, o.str("name") ?: "", o.str("collection_type"), o.bool("has_primary"))
         }
     }
 }

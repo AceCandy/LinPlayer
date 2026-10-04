@@ -1,7 +1,6 @@
 package xyz.linplayer.app.ui.components
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +22,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.graphicsLayer
@@ -109,55 +109,22 @@ fun Modifier.bleed(horizontal: androidx.compose.ui.unit.Dp): Modifier = this.lay
     layout(cs.maxWidth, p.height) { p.place(-pad, 0) }
 }
 
-// ---------------------------------------------------------------- 液态玻璃
+// ---------------------------------------------------------------- 实色表面
 
-/**
- * 液态玻璃(全站的面 / 卡 / 弹窗都走它)。
- *
- * ☠ **不是用模糊做的。** 安卓上真正的背景模糊要 API 31 的 `RenderEffect`,
- *   而 `Modifier.blur` 只糊得了自己这一层、糊不到身后的内容;低版本上还静默不生效
- *   —— 那正是「浅色修好了深色没修」那一类只在部分机型现形的坑。
- *
- * ★ 所以这里**用光做玻璃**,三层叠出来,没有任何 API 门槛:
- *   ① 一层上浓下淡的膜 —— 光从上面斜进来
- *   ② 顶沿一道高光内边 —— 玻璃的厚度
- *   ③ 一圈由亮转暗的描边 —— 边缘的折射
- * ★ 深浅两套值不是同一组数乘个系数:深色里玻璃是**加白**,浅色里是**磨砂白 + 深描边**。
- *   同一套值套过去的表现是浅色下整块看不见(白加白)。
- * ★ [solid] 只调不透明度。服务器卡传 1.4【用户定 2026-09-06:那里不要太透】。
- */
+/** 共用面板表面；solid > 1 使用更强层级的底色。 */
 @Composable
 fun Modifier.glass(
     corner: androidx.compose.ui.unit.Dp = R.md,
     solid: Float = 1f,
 ): Modifier {
     val c = Lp.colors
-    val shape = RoundedCornerShape(corner)
-    fun a(v: Float) = (v * solid).coerceIn(0f, 1f)
-    val film = if (c.isDark)
-        listOf(Color.White.copy(alpha = a(.085f)), Color.White.copy(alpha = a(.040f)))
-    else
-        listOf(Color.White.copy(alpha = a(.78f)), Color.White.copy(alpha = a(.58f)))
-    val spec = Color.White.copy(alpha = a(if (c.isDark) .22f else .92f))
-    val edge = if (c.isDark)
-        listOf(Color.White.copy(alpha = a(.16f)), Color.White.copy(alpha = a(.045f)))
-    else
-        listOf(Color.Black.copy(alpha = a(.10f)), Color.Black.copy(alpha = a(.045f)))
-    return this
-        .clip(shape)
-        .background(Brush.verticalGradient(film))                                   // ①
-        .background(Brush.verticalGradient(0f to spec, 0.015f to Color.Transparent,
-            1f to Color.Transparent))                                               // ②
-        .border(Dim.hairline, Brush.verticalGradient(edge), shape)                   // ③
+    val surface = (if (solid > 1f) c.s2 else c.s1).compositeOver(c.bg)
+    return this.clip(RoundedCornerShape(corner)).background(surface)
 }
 
 // ---------------------------------------------------------------- 分层替代描边
 
-/**
- * 一块浮起来的面。**没有 border** —— 靠一层更亮的膜 + 顶沿一道内发丝线分层。
- *
- * 和 [Panel] 的分工:那个是设置页的表单分组(该有框);这个是内容页的卡。
- */
+/** 内容卡片通过实色层级区分，不叠加玻璃高光和描边。 */
 @Composable
 fun Layer(
     m: Modifier = Modifier,
@@ -168,13 +135,7 @@ fun Layer(
     val c = Lp.colors
     Box(
         m.clip(RoundedCornerShape(corner))
-            .background(if (strong) c.s2 else c.s1)
-            // 顶沿一道内发丝:光从上面来,这一道就是「它比底下高一点」的全部证据
-            .background(
-                Brush.verticalGradient(
-                    0f to c.line, 0.02f to Color.Transparent, 1f to Color.Transparent
-                )
-            )
+            .background((if (strong) c.s2 else c.s1).compositeOver(c.bg))
     ) { content() }
 }
 
@@ -186,6 +147,7 @@ fun SectionTitle(
     text: String,
     m: Modifier = Modifier,
     trailing: @Composable (() -> Unit)? = null,
+    accent: Color = Lp.colors.acc,
 ) {
     val c = Lp.colors
     Row(
@@ -194,13 +156,14 @@ fun SectionTitle(
     ) {
         Box(
             Modifier.size(3.dp, 15.dp).clip(RoundedCornerShape(R.pill)).background(
-                Brush.verticalGradient(listOf(c.acc, c.acc.copy(alpha = .3f)))
+                Brush.verticalGradient(listOf(accent, accent.copy(alpha = .3f)))
             )
         )
         Spacer(Modifier.width(Sp.x8))
-        Text(text, color = c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+        Text(text, Modifier.weight(1f), color = c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+            maxLines = if (trailing != null) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
         if (trailing != null) {
-            Spacer(Modifier.weight(1f))
+            Spacer(Modifier.width(Sp.x8))
             trailing()
         }
     }
@@ -236,8 +199,7 @@ fun ToneChip(
 }
 
 /**
- * 主按钮:整页**唯一一处渐变**。
- * ★ 卡片和背景一律不铺渐变 —— 满页渐变会立刻变廉价。
+ * 详情主按钮使用媒体蓝紫色，短按与长按沿用各自播放入口。
  */
 @Composable
 fun PrimaryAction(
@@ -248,23 +210,23 @@ fun PrimaryAction(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
-    val highlight = if (c.isDark) Color(0xFFFFC145) else c.acc
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .clip(RoundedCornerShape(R.pill))
-            .background(Brush.horizontalGradient(listOf(c.acc, highlight, c.acc)))
+            .background(c.mediaAccent)
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(17.dp), tint = c.accFg)
+            Icon(icon, null, Modifier.size(17.dp), tint = c.mediaOnAccent)
             Spacer(Modifier.width(Sp.x8))
         }
         Text(
-            text, color = c.accFg, fontSize = 15.sp, fontWeight = FontWeight.Bold,
-            maxLines = 1, overflow = TextOverflow.Ellipsis,
+            text, Modifier.weight(1f, fill = false), color = c.mediaOnAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
     }
 }
@@ -283,17 +245,17 @@ fun IconAction(
 ) {
     val c = Lp.colors
     Column(
-        m.clip(RoundedCornerShape(R.md)).pressable(onClick)
+        m.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.md)).pressable(onClick)
             .padding(horizontal = Sp.x12, vertical = Sp.x6),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier.size(38.dp).clip(RoundedCornerShape(R.pill))
-                .background(if (on) c.accDim else c.s1),
+                .background(if (on) c.mediaAccent.copy(alpha = .18f) else c.s1),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, Modifier.size(19.dp), tint = if (on) c.acc else c.fg2) }
+        ) { Icon(icon, null, Modifier.size(19.dp), tint = if (on) c.mediaIcon else c.fg2) }
         Spacer(Modifier.height(Sp.x6))
-        Text(label, color = if (on) c.acc else c.fg3, fontSize = 11.sp, maxLines = 1)
+        Text(label, color = if (on) c.mediaIcon else c.fg3, fontSize = 11.sp, maxLines = 1)
     }
 }
 

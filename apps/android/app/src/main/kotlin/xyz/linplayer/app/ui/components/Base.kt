@@ -8,7 +8,6 @@ import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.verticalScroll
@@ -54,11 +53,15 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.linplayer.app.ui.theme.Dim
@@ -129,25 +132,11 @@ fun Modifier.pressable(
         )
 }
 
-/**
- * 一颗按钮的皮:上亮下暗的膜 + 顶沿高光 + 一圈发丝边。
- *
- * 这三层叠出来的是「有厚度的玻璃片」而不是一块色板 ——
- * 全站按钮共用它,各处自己刷 `background(色)` 的写法早晚会长出第二套(用户 2026-09-07)。
- * [base] 是主色;给 `Color.Transparent` 就只剩玻璃本身。
- */
+/** 共用按钮实色表面，透明主题色先合成到底色。 */
 @Composable
 fun Modifier.buttonSkin(base: Color, corner: androidx.compose.ui.unit.Dp = R.sm): Modifier {
-    val dark = Lp.colors.isDark
-    val shape = RoundedCornerShape(corner)
-    val sheen = Color.White.copy(alpha = if (dark) .16f else .40f)
-    val shade = Color.Black.copy(alpha = if (dark) .18f else .06f)
-    val edge = Color.White.copy(alpha = if (dark) .18f else .34f)
-    return this
-        .clip(shape)
-        .background(base)
-        .background(Brush.verticalGradient(listOf(sheen, Color.Transparent, shade)))
-        .border(Dim.hairline, edge, shape)
+    return this.clip(RoundedCornerShape(corner))
+        .background(base.compositeOver(Lp.colors.bg))
 }
 
 // ---------------------------------------------------------------- 文字
@@ -333,6 +322,7 @@ fun LpCell(
     switch: Boolean? = null,
     arrow: Boolean = switch == null,
     onSwitch: ((Boolean) -> Unit)? = null,
+    mediaStyle: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
@@ -344,19 +334,29 @@ fun LpCell(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(21.dp), tint = c.fg2)
+            if (mediaStyle) Box(
+                Modifier.size(32.dp).clip(RoundedCornerShape(R.sm)).background(c.s2),
+                contentAlignment = Alignment.Center,
+            ) { Icon(icon, null, Modifier.size(19.dp), tint = c.mediaIcon) }
+            else Icon(icon, null, Modifier.size(21.dp), tint = c.fg2)
             Spacer(Modifier.width(Sp.x12))
         }
         Column(Modifier.weight(1f)) {
-            Body(label, maxLines = 2)
+            if (mediaStyle) Text(label, color = c.fg, fontSize = 15.sp, maxLines = 2,
+                overflow = TextOverflow.Ellipsis)
+            else Body(label, maxLines = 2)
             if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = 2)
         }
-        if (value != null) Dim3(value, Modifier.padding(start = Sp.x8))
+        if (value != null) Dim3(value, Modifier.padding(start = Sp.x8)
+            .then(if (mediaStyle) Modifier.widthIn(max = 120.dp) else Modifier))
         when {
             switch != null -> Switch(
                 checked = switch, onCheckedChange = onSwitch,
-                colors = SwitchDefaults.colors(checkedTrackColor = c.acc, checkedThumbColor = c.accFg),
-                modifier = Modifier.padding(start = Sp.x8),
+                colors = SwitchDefaults.colors(
+                    checkedTrackColor = if (mediaStyle) c.mediaAccent else c.acc,
+                    checkedThumbColor = if (mediaStyle) c.mediaOnAccent else c.accFg),
+                modifier = Modifier.padding(start = Sp.x8)
+                    .then(if (mediaStyle) Modifier.semantics { contentDescription = label } else Modifier),
             )
             arrow -> Icon(LpIcons.chevR, null, Modifier.padding(start = Sp.x6).size(18.dp), tint = c.fg3)
         }
@@ -381,19 +381,21 @@ fun SegRow(
         RowHead(label, sub, icon)
         Spacer(Modifier.height(Sp.x8))
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(R.sm)).background(c.s2).padding(Sp.x2),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(R.md)).background(c.s2).padding(Sp.x4),
             horizontalArrangement = Arrangement.spacedBy(Sp.x2),
         ) {
             options.forEach { o ->
                 val on = o == current
                 Box(
-                    Modifier.weight(1f).heightIn(min = 36.dp)
-                        .clip(RoundedCornerShape(R.sm - 2.dp))
-                        .background(if (on) c.acc else Color.Transparent)
+                    Modifier.weight(1f).heightIn(min = Dim.tap)
+                        .clip(RoundedCornerShape(R.sm))
+                        .background(if (on) c.mediaAccent else Color.Transparent)
+                        .semantics { selected = on }
                         .pressable({ if (!on) onPick(o) })
                         .padding(vertical = Sp.x8),
                     contentAlignment = Alignment.Center,
-                ) { Text(o, color = if (on) c.accFg else c.fg2, fontSize = 13.sp, maxLines = 1) }
+                ) { Text(o, color = if (on) c.mediaOnAccent else c.fg2, fontSize = 13.sp,
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }
     }
@@ -486,23 +488,26 @@ fun OptRow(
     sub: String? = null,
     selected: Boolean = false,
     badge: String? = null,
+    media: Boolean = false,
 ) {
     val c = Lp.colors
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .clip(RoundedCornerShape(R.sm))
-            .background(if (selected) c.accDim else Color.Transparent)
+            .background(if (selected) (if (media) c.mediaAccent.copy(alpha = .18f) else c.accDim) else Color.Transparent)
             .pressable(onClick)
             .padding(horizontal = Sp.x12, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, color = if (selected) c.acc else c.fg, fontSize = 14.sp, maxLines = 2,
+            Text(label, color = if (selected) (if (media) c.mediaIcon else c.acc) else c.fg, fontSize = 14.sp, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
-            if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2))
+            if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = if (media) 2 else 1)
+            if (media && badge != null) Text(badge, Modifier.padding(top = Sp.x4),
+                color = c.mediaIcon, fontSize = 11.sp)
         }
-        if (badge != null) LpTag(badge)
-        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = c.acc)
+        if (!media && badge != null) LpTag(badge)
+        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = if (media) c.mediaIcon else c.acc)
     }
 }
 
@@ -681,6 +686,7 @@ fun LpMenu(
     onDismiss: () -> Unit,
     alignment: Alignment = Alignment.TopStart,
     offset: androidx.compose.ui.unit.IntOffset = androidx.compose.ui.unit.IntOffset.Zero,
+    solid: Boolean = false,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     if (!open) return
@@ -705,7 +711,9 @@ fun LpMenu(
                 // 撑到 184dp 宽、每行 48dp 高就成了一块盖住半张卡的板
                 .widthIn(min = 148.dp, max = 260.dp)
                 .heightIn(max = 420.dp)
-                .glass(R.md, solid = 1.7f)
+                .then(if (solid) Modifier.clip(RoundedCornerShape(R.md))
+                    .background(Lp.colors.mediaPanel.copy(alpha = 1f))
+                    else Modifier.glass(R.md, solid = 1.7f))
                 .verticalScroll(androidx.compose.foundation.rememberScrollState())
                 .padding(vertical = Sp.x6),
             content = content,

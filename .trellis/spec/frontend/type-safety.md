@@ -11,6 +11,7 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 - 解析复用 data/Models.kt 等既有 obj / str / arr 入口；区别字段缺失、null、合法空集合与能力不支持。
 - 分页总数、版本 / 媒体流字段和鉴权值依据服务端真实返回，不补造假字段。
 - 同一 payload 的公共解析约束放在拥有者，页面只做呈现，不各自推测类型。
+- `download.list` 返回任务数组，读取 `status / received_bytes / total_bytes / progress / error`，不可读 `state / bytes / speed`。核心当前不发送 `download.progress`，手机在页面 STARTED 时每两秒采样，失败保留旧任务并清掉速度样本；首个成功样本不显示速度。`download.setThreads` 无参数才是并发数回读。`PhoneRecordsUiTest` 覆盖字段、刷新、失败恢复及离页停止。
 
 ## 正反例与回归
 

@@ -183,7 +183,6 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
     }
     val open: (JsonObject) -> Unit = { nav.navigate(Route.SourceDetail(it.str("source") ?: serverId, it.str("id") ?: "")) }
     LpScaffold(name, scrolled = rememberScrolled(grid), actions = {
-        LpIconButton(LpIcons.search, "聚合搜索") { nav.navigate(Route.Search()) }
         LpIconButton(LpIcons.heart, "收藏") { nav.navigate(Route.SourceFavorites) }
     }) { pad ->
         LazyVerticalGrid(GridCells.Adaptive(108.dp), Modifier.fillMaxSize(), grid,

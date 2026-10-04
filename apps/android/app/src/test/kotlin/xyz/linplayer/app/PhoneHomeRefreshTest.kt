@@ -1,8 +1,17 @@
 package xyz.linplayer.app
 
+import com.github.takahirom.roborazzi.captureRoboImage
 import android.app.Application
 import androidx.compose.material3.Text
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.test.*
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.navigation.toRoute
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.hasScrollToIndexAction
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
@@ -21,6 +30,9 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
 import org.junit.After
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
+import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
 import org.junit.Rule
 import org.junit.Test
@@ -29,8 +41,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.core.CoreException
-import xyz.linplayer.app.data.Item
-import xyz.linplayer.app.data.View
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
@@ -42,7 +52,6 @@ import xyz.linplayer.app.tv.item
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.HomePage
-import xyz.linplayer.app.ui.pages.latestHeroItems
 import xyz.linplayer.app.ui.theme.LpTheme
 
 /** 真实手机首页的导航恢复、下拉手势与请求次数回归。 */
@@ -59,23 +68,45 @@ class PhoneHomeRefreshTest {
         scope.cancel()
     }
 
-    private fun openHome(core: FakeCore) {
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    private fun openHome(core: FakeCore, fontScale: Float = 1f, dark: Boolean = false, missingImages: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
+        if (missingImages) coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(
+            ApplicationProvider.getApplicationContext<android.content.Context>())
+            .components { add(coil3.fetch.Fetcher.Factory<coil3.Uri> { _, _, _ ->
+                coil3.fetch.Fetcher { error("测试缺少封面") }
+            }) }.build())
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.setContent {
-            LpTheme(darkOverride = false) {
-                CompositionLocalProvider(LocalApp provides app) {
+            LpTheme(darkOverride = dark) {
+                CompositionLocalProvider(
+                    LocalApp provides app,
+                    LocalDensity provides Density(LocalDensity.current.density, fontScale),
+                ) {
                     nav = rememberNavController()
                     NavHost(nav, startDestination = Route.Home) {
                         composable<Route.Home> { HomePage(nav) }
                         composable<Route.Settings> { Text("其它页面") }
+                        composable<Route.Library> { Text("媒体库目标：" + it.toRoute<Route.Library>().viewId) }
+                        composable<Route.Servers> { Text("服务器管理目标") }
                     }
                 }
             }
         }
         rule.waitForIdle()
+    }
+
+    @Test fun resumeShowsEpisodeAndRemainingTime() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.listResume", arr(item("resume-ui", "重逢", "Episode",
+            series = "远方的故事", season = 1, episode = 12, runtime = 3600.0, resume = 1801.0)))
+        openHome(core)
+        rule.onNodeWithText("S1E12 · 重逢", useUnmergedTree = true).performScrollTo()
+        rule.onNodeWithText("剩余 29:59", useUnmergedTree = true).assertExists()
+        rule.onRoot().captureRoboImage("build/resume-ui/home.png")
+        assertEquals(1, core.calls.count { it.first == "emby.listResume" })
     }
 
     @Test fun homeDoesNotRequestNextUp() {
@@ -89,7 +120,7 @@ class PhoneHomeRefreshTest {
     @Test fun returningHomeUpdatesResumeWithoutReloadingRecommendations() {
         val core = FakeCore().loggedIn()
         openHome(core)
-        val heroCalls = core.calls.count { it.first == "emby.listRandom" }
+        val latestCalls = core.calls.count { it.first == "emby.listLatest" }
         val viewCalls = core.calls.count { it.first == "emby.views" }
         rule.runOnIdle { nav.navigate(Route.Settings) }
         rule.waitForIdle()
@@ -98,7 +129,7 @@ class PhoneHomeRefreshTest {
         rule.waitForIdle()
         rule.onNodeWithText("更新后的续播").assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listResume" })
-        assertEquals(heroCalls, core.calls.count { it.first == "emby.listRandom" })
+        assertEquals(latestCalls, core.calls.count { it.first == "emby.listLatest" })
         assertEquals(viewCalls, core.calls.count { it.first == "emby.views" })
     }
 
@@ -134,55 +165,142 @@ class PhoneHomeRefreshTest {
         assertEquals(3, core.calls.count { it.first == "emby.listResume" })
     }
 
-    @Test fun heroReusesLatestRequestWhenLibraryScrollsIntoView() {
+    @Test fun libraryAndResumeFitBelowToolbar() {
         val core = FakeCore().loggedIn()
         openHome(core)
-        rule.onNodeWithContentDescription("沙丘 2").assertExists()
-        assertEquals(1, core.calls.count { it.first == "emby.listLatest" && it.second.str("parent_id") == "lib-movie" })
-        rule.onNodeWithText("媒体库").performScrollTo()
-        rule.waitForIdle()
-        assertEquals(1, core.calls.count { it.first == "emby.listLatest" && it.second.str("parent_id") == "lib-movie" })
-        assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
+        val library = rule.onNodeWithTag("home.libraries").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val resume = rule.onNodeWithText("继续观看").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val settings = rule.onNodeWithContentDescription("设置").fetchSemanticsNode().boundsInRoot
+        assertTrue("媒体库被顶栏盖住", library.top >= settings.bottom)
+        assertTrue("媒体库应在续播之前", library.bottom < resume.top)
+        assertTrue("续播没有进入首屏上半部", resume.top < 440f)
+        rule.onRoot().captureRoboImage("build/resume-ui/compact-home.png")
     }
 
-    @Test fun heroUsesNextLibraryWhenFirstIsEmpty() {
+    @Test
+    @Config(qualifiers = "w320dp-h873dp-mdpi")
+    fun largeFontKeepsFirstRowsAndToolbarVisible() {
+        openHome(FakeCore().loggedIn(), fontScale = 1.3f)
+        rule.onNodeWithTag("home.libraries").assertIsDisplayed()
+        rule.onNodeWithText("继续观看").assertIsDisplayed()
+        rule.onNodeWithContentDescription("搜索").assertDoesNotExist()
+        rule.onNodeWithContentDescription("设置").assertIsDisplayed()
+        val libraryTop = rule.onNodeWithTag("home.libraries").fetchSemanticsNode().boundsInRoot.top
+        val toolbarBottom = rule.onNodeWithContentDescription("设置").fetchSemanticsNode().boundsInRoot.bottom
+        assertTrue("大字号下媒体库被顶栏遮住", libraryTop >= toolbarBottom)
+        rule.onRoot().captureRoboImage("build/resume-ui/compact-home-large-font.png")
+    }
+
+    @Test fun offscreenLibrariesLoadOnceWhenVisible() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.views", arr(*(1..10).map { index ->
+            buildJsonObject {
+                put("id", "lib-$index"); put("name", "媒体库 $index"); put("collection_type", "movies")
+            }
+        }.toTypedArray()))
+        core.on("emby.listLatest") { a -> arr(item("item-${a.str("parent_id")}", "最新影片")) }
+        openHome(core)
+        fun lastLibraryCalls() = core.calls.count {
+            it.first == "emby.listLatest" && it.second.str("parent_id") == "lib-10"
+        }
+        assertEquals(0, lastLibraryCalls())
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-10")
+        rule.waitForIdle()
+        assertEquals(1, lastLibraryCalls())
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("views")
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-10")
+        rule.waitForIdle()
+        assertEquals(1, lastLibraryCalls())
+        rule.runOnIdle { nav.navigate(Route.Settings) }
+        rule.runOnIdle { nav.popBackStack() }
+        rule.waitForIdle()
+        assertEquals(1, lastLibraryCalls())
+    }
+
+    @Test fun emptyLatestLibraryDoesNotBlockNextVisibleLibrary() {
         val core = FakeCore().loggedIn()
         core.on("emby.listLatest") { a ->
             if (a.str("parent_id") == "lib-movie") arr()
             else arr(item("latest-series", "最新剧集", "Series"))
         }
         openHome(core)
-        rule.onNodeWithContentDescription("最新剧集").assertExists()
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-tv")
+        rule.waitForIdle()
+        rule.onNodeWithText("最新剧集").assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listLatest" })
-        assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
     }
 
-    @Test fun heroKeepsLibraryOrderDeduplicatesAndCapsAtFive() {
-        val entries = (1..7).map { Item("id-$it", "影片 $it", "Movie") }
-        val views = listOf(View("a", "A", "movies"), View("b", "B", "movies"))
-        val result = latestHeroItems(views, mapOf("b" to entries.drop(1), "a" to entries.take(3)))
-        assertEquals(entries.take(5), result)
-    }
-
-    @Test fun heroUsesNextLibraryWhenFirstRequestFails() {
+    @Test fun failedLatestLibraryDoesNotBlockNextVisibleLibrary() {
         val core = FakeCore().loggedIn()
         core.on("emby.listLatest") { a ->
             if (a.str("parent_id") == "lib-movie") throw CoreException("E_NETWORK", "测试网络失败", true)
             else arr(item("fallback", "后续库的最新条目", "Series"))
         }
         openHome(core)
-        rule.onNodeWithContentDescription("后续库的最新条目").assertExists()
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-tv")
+        rule.waitForIdle()
+        rule.onNodeWithText("后续库的最新条目").assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listLatest" })
     }
 
-    @Test fun emptyLatestListsDoNotLeaveHeroSkeleton() {
+    @Test fun emptyLibrariesKeepResumeBelowToolbar() {
         val core = FakeCore().loggedIn()
-        core.ret("emby.listLatest", arr())
+        core.ret("emby.views", arr())
         openHome(core)
-        val libraryTop = rule.onNodeWithText("媒体库").fetchSemanticsNode().boundsInRoot.top
-        org.junit.Assert.assertTrue("空库的轮播仍占着大块骨架", libraryTop < 500f)
-        assertEquals(2, core.calls.count { it.first == "emby.listLatest" })
+        rule.onNodeWithText("这个账号下没有媒体库").assertIsDisplayed()
+        rule.onNodeWithText("继续观看").assertIsDisplayed()
+        assertEquals(0, core.calls.count { it.first == "emby.listLatest" })
         assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
     }
+
+    @Test fun libraryCoversHaveNoCaptionsAndTitleOpensLibrary() {
+        openHome(FakeCore().loggedIn())
+        rule.onNodeWithText("媒体库").assertDoesNotExist()
+        rule.onAllNodes(hasText("电影") and hasAnyAncestor(hasTestTag("home.libraries")),
+            useUnmergedTree = true).assertCountEquals(0)
+        rule.onAllNodesWithText("更多").assertCountEquals(0)
+        rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-movie")
+        rule.onNode(hasText("电影") and hasClickAction()).performClick()
+        rule.onNodeWithText("媒体库目标：lib-movie").assertIsDisplayed()
+    }
+
+    @Test fun missingCoverCentersNameAndKeepsLibraryClickable() {
+        openHome(FakeCore().loggedIn(), missingImages = true)
+        val name = rule.onNode(hasText("电影") and hasAnyAncestor(hasTestTag("home.libraries")),
+            useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val row = rule.onNodeWithTag("home.libraries").fetchSemanticsNode().boundsInRoot
+        assertTrue("缺图库名应居中", kotlin.math.abs(name.center.y - row.center.y) < 1f)
+        rule.onRoot().captureRoboImage("build/home-feedback/missing-cover.png")
+        rule.onNode(hasText("电影") and hasClickAction() and hasAnyAncestor(hasTestTag("home.libraries"))).performClick()
+        rule.onNodeWithText("媒体库目标：lib-movie").assertIsDisplayed()
+    }
+
+    @Test fun noPrimaryFlagShowsNameEvenWhenImageServiceWouldSucceed() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.views", arr(buildJsonObject {
+            put("id", "no-cover"); put("name", "无封面媒体库"); put("has_primary", false)
+        }))
+        openHome(core)
+        rule.onNode(hasText("无封面媒体库") and hasAnyAncestor(hasTestTag("home.libraries")),
+            useUnmergedTree = true).assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/global-nav/no-primary.png")
+    }
+
+    private fun serverMenu(dark: Boolean) {
+        openHome(FakeCore().loggedIn(), fontScale = 1.3f, dark = dark)
+        rule.onNodeWithText("服务器 A").performClick()
+        rule.onNodeWithText("管理服务器…").assertIsDisplayed()
+        val pixels = rule.onNode(isPopup()).captureToImage().toPixelMap()
+        val expected = (if (dark) xyz.linplayer.app.ui.theme.DarkColors else xyz.linplayer.app.ui.theme.LightColors)
+            .mediaPanel.copy(alpha = 1f)
+        val actual = pixels[pixels.width / 2, 3]
+        assertTrue("菜单应为实色面板", kotlin.math.abs(actual.red - expected.red) < .01f &&
+            kotlin.math.abs(actual.green - expected.green) < .01f && kotlin.math.abs(actual.blue - expected.blue) < .01f)
+        rule.onNode(isPopup()).captureRoboImage("build/home-feedback/menu-${if (dark) "dark" else "light"}.png")
+        rule.onNodeWithText("管理服务器…").performClick()
+        rule.onNodeWithText("服务器管理目标").assertIsDisplayed()
+    }
+    @Test fun lightServerMenu() = serverMenu(false)
+    @Test fun darkServerMenu() = serverMenu(true)
 
 }

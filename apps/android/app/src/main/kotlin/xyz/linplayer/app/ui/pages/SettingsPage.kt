@@ -69,7 +69,7 @@ import xyz.linplayer.app.ui.components.LpCell
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.SegRow
-import xyz.linplayer.app.ui.components.ToneChip
+import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.StepperRow
 import xyz.linplayer.app.ui.components.rememberScrolled
 import xyz.linplayer.app.ui.theme.LpIcons
@@ -111,25 +111,25 @@ fun SettingsPage(nav: NavController) {
 
     LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-            item("g1") { GroupLabel("通用") }
+            item("g1") { GroupLabel("播放与外观") }
             item("p1") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
-                    LpCell("外观", icon = LpIcons.image) { nav.navigate(Route.SettingsSub("appearance")) }
+                    LpCell("外观", mediaStyle = true, icon = LpIcons.image) { nav.navigate(Route.SettingsSub("appearance")) }
                     Hairline()
-                    LpCell("播放器", icon = LpIcons.play) { nav.navigate(Route.SettingsSub("player")) }
+                    LpCell("播放器", mediaStyle = true, icon = LpIcons.play) { nav.navigate(Route.SettingsSub("player")) }
                     Hairline()
-                    LpCell("mpv 配置", icon = LpIcons.file) { nav.navigate(Route.SettingsSub("mpvconf")) }
+                    LpCell("mpv 配置", mediaStyle = true, icon = LpIcons.file) { nav.navigate(Route.SettingsSub("mpvconf")) }
                     Hairline()
                     // 弹幕源和屏蔽词跟内核无关,Exo 下也照样能加(播放页那个入口才分内核)
-                    LpCell("弹幕", icon = LpIcons.danmaku) { nav.navigate(Route.SettingsSub("danmaku")) }
+                    LpCell("弹幕", mediaStyle = true, icon = LpIcons.danmaku) { nav.navigate(Route.SettingsSub("danmaku")) }
                     Hairline()
-                    LpCell("截屏", icon = LpIcons.camera) { nav.navigate(Route.SettingsSub("shot")) }
+                    LpCell("截屏", mediaStyle = true, icon = LpIcons.camera) { nav.navigate(Route.SettingsSub("shot")) }
                 }
             }
             item("g2") { GroupLabel("网络") }
             item("p2") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
-                    LpCell("多线程加载", icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
+                    LpCell("多线程加载", mediaStyle = true, icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
                 }
             }
             if (pluginEntries.isNotEmpty()) {
@@ -143,43 +143,51 @@ fun SettingsPage(nav: NavController) {
                             val pluginId = eid.substringBeforeLast(':', eid)
                             val page = e.str("page").orEmpty()
                             val title = e.str("title")?.takeIf { t -> t.isNotEmpty() } ?: page
-                            LpCell(title, icon = LpIcons.plugin) {
+                            LpCell(title, mediaStyle = true, icon = LpIcons.plugin) {
                                 nav.navigate(Route.PluginPage(pluginId, page, title))
                             }
                         }
                     }
                 }
             }
-            item("g4") { GroupLabel("其它") }
+            item("g4") { GroupLabel("内容与数据") }
             item("p4") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
                     // 「已屏蔽的内容」是**隐藏类功能的集中解除列表** ——
                     // 没有它的话屏蔽了就再也解除不了
-                    LpCell("已屏蔽的内容", icon = LpIcons.lock) {
+                    LpCell("已屏蔽的内容", mediaStyle = true, icon = LpIcons.lock) {
                         nav.navigate(Route.SettingsSub("blocked"))
                     }
                     Hairline()
                     // 和 PC 端读写同一份文件格式(docs/backup-format.md)
-                    LpCell("备份与还原", icon = LpIcons.folder) {
+                    LpCell("备份与还原", mediaStyle = true, icon = LpIcons.folder) {
                         nav.navigate(Route.SettingsSub("backup"))
                     }
                     Hairline()
+                    LpCell("文件浏览", mediaStyle = true, icon = LpIcons.folder) { nav.navigate(Route.Browse) }
+                    Hairline()
+                    LpCell("存储与数据目录", mediaStyle = true, icon = LpIcons.file) { nav.navigate(Route.SettingsSub("storage")) }
+                }
+            }
+            item("g-extensions") { GroupLabel("扩展与账号") }
+            item("p-extensions") {
+                Panel(Modifier.padding(horizontal = Sp.x16)) {
                     // 账号连接留在宿主(token 不给插件);记进度那部分在同步插件里
-                    LpCell("Trakt / Bangumi 账号", icon = LpIcons.version) {
+                    LpCell("Trakt / Bangumi 账号", mediaStyle = true, icon = LpIcons.version) {
                         nav.navigate(Route.SettingsSub("sync"))
                     }
                     Hairline()
-                    LpCell("插件", icon = LpIcons.plugin) { nav.navigate(Route.Plugins()) }
+                    LpCell("插件", mediaStyle = true, icon = LpIcons.plugin) { nav.navigate(Route.Plugins()) }
                     Hairline()
-                    LpCell("扩展组件", icon = LpIcons.plugin) { nav.navigate(Route.Extensions) }
+                    LpCell("扩展组件", mediaStyle = true, icon = LpIcons.plugin) { nav.navigate(Route.Extensions) }
+                }
+            }
+            item("g-app") { GroupLabel("应用") }
+            item("p-app") {
+                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                    LpCell("更新", mediaStyle = true, icon = LpIcons.version) { nav.navigate(Route.SettingsSub("update")) }
                     Hairline()
-                    LpCell("文件浏览", icon = LpIcons.folder) { nav.navigate(Route.Browse) }
-                    Hairline()
-                    LpCell("存储与数据目录", icon = LpIcons.file) { nav.navigate(Route.SettingsSub("storage")) }
-                    Hairline()
-                    LpCell("更新", icon = LpIcons.version) { nav.navigate(Route.SettingsSub("update")) }
-                    Hairline()
-                    LpCell("关于", icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
+                    LpCell("关于", mediaStyle = true, icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
                 }
             }
             // 插件分节(SPEC 6.2 D286):根设置页对应锚点 `settings`
@@ -191,8 +199,8 @@ fun SettingsPage(nav: NavController) {
 
 @Composable
 private fun GroupLabel(t: String) =
-    Text(t, Modifier.padding(start = Sp.x26, top = Sp.x20, bottom = Sp.x8),
-        color = Lp.colors.fg3, fontSize = 12.sp)
+    Text(t, Modifier.padding(start = Sp.x20, top = Sp.x20, bottom = Sp.x8),
+        color = Lp.colors.fg2, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
 
 /** 设置二级页。各面板**进入时各自拉自己的配置**;同一面板里的多个请求**必须并发**。 */
 @Composable
@@ -289,7 +297,7 @@ private fun AppearancePanel() {
         }, sub = "深浅两套都调过。跟随系统时晚上自动变暗;这一项只影响这台设备")
         Hairline()
         LpCell(
-            "界面字体",
+            "界面字体", mediaStyle = true,
             sub = if (font.isBlank()) "系统默认。选一个 .ttf / .otf 换掉全局字体"
             else "已换成 " + font.substringAfterLast('/'),
             onClick = { pick.launch(arrayOf("*/*")) },
@@ -301,7 +309,7 @@ private fun AppearancePanel() {
         // ★ 没换过就不画「恢复默认」—— 一个点了什么都不会发生的按钮
         if (font.isNotBlank()) {
             Hairline()
-            LpCell("恢复默认字体", arrow = false, onClick = {
+            LpCell("恢复默认字体", mediaStyle = true, arrow = false, onClick = {
                 xyz.linplayer.app.data.UiPrefs.setFont(ctx, "")
                 clearFonts(ctx)
             })
@@ -389,16 +397,16 @@ private fun PlayerPrefsPanel() {
             { v -> pick("hwdec", if (v == "关闭") "no" else "auto-safe") },
             sub = "关掉更费电,但少数机型的花屏、绿屏只能靠它")
         Hairline()
-        LpCell("杜比视界自动软解", sub = "DoVi 片源走硬解常见偏色,自动切软解画面才是对的",
+        LpCell("杜比视界自动软解", mediaStyle = true, sub = "DoVi 片源走硬解常见偏色,自动切软解画面才是对的",
             switch = prefs.bool("dolby_auto_sw"), onSwitch = { v -> flip("dolby_auto_sw", v) })
         Hairline()
-        LpCell("跳过片头", switch = prefs.bool("skip_intro"),
+        LpCell("跳过片头", mediaStyle = true, switch = prefs.bool("skip_intro"),
             onSwitch = { v -> flip("skip_intro", v) })
         Hairline()
-        LpCell("跳过片尾", switch = prefs.bool("skip_outro"),
+        LpCell("跳过片尾", mediaStyle = true, switch = prefs.bool("skip_outro"),
             onSwitch = { v -> flip("skip_outro", v) })
         Hairline()
-        LpCell("到了就自己跳", sub = "关着的话只弹一个「跳过」按钮,由你点",
+        LpCell("到了就自己跳", mediaStyle = true, sub = "关着的话只弹一个「跳过」按钮,由你点",
             switch = prefs.bool("skip_auto"), onSwitch = { v -> flip("skip_auto", v) })
     }
 }
@@ -483,24 +491,24 @@ private fun BackupPanel() {
     }
 
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("包含服务器地址与账号密码", value = if (withAccounts) "是" else "否",
+        LpCell("包含服务器地址与账号密码", mediaStyle = true, value = if (withAccounts) "是" else "否",
             onClick = { withAccounts = !withAccounts })
         Hairline()
-        LpCell("包含软件设置", value = if (withSettings) "是" else "否",
+        LpCell("包含软件设置", mediaStyle = true, value = if (withSettings) "是" else "否",
             onClick = { withSettings = !withSettings })
         Hairline()
-        LpCell("导出到文件", sub = "选个位置存下来,PC 端能直接读", onClick = {
+        LpCell("导出到文件", mediaStyle = true, sub = "选个位置存下来,PC 端能直接读", onClick = {
             save.launch("LinPlayer-备份-" + System.currentTimeMillis() + ".lpbak")
         })
         Hairline()
-        LpCell("从文件还原", sub = "合并:这台机器上原有的服务器保留", onClick = {
+        LpCell("从文件还原", mediaStyle = true, sub = "合并:这台机器上原有的服务器保留", onClick = {
             open.launch(arrayOf("*/*"))
         })
         Hairline()
         // ☠ 这句必须显眼:备份文件里带着 token 和密码,加密只是混淆级(密钥随文件走)
-        LpCell("勾了账号的备份文件里有你所有服务器的登录凭据,只做了混淆,别公开分享。",
+        LpCell("勾了账号的备份文件里有你所有服务器的登录凭据,只做了混淆,别公开分享。", mediaStyle = true,
             arrow = false)
-        note?.let { Hairline(); LpCell(it, arrow = false) }
+        note?.let { Hairline(); LpCell(it, mediaStyle = true, arrow = false) }
     }
 }
 
@@ -568,13 +576,13 @@ private fun DanmakuSettingsPanel() {
     Column {
         Panel(Modifier.padding(Sp.x16)) {
             // 「没有」和「坏了」是两件事:不可用时才把核心层给的原因摊开
-            LpCell("弹弹Play 官方源", arrow = false,
+            LpCell("弹弹Play 官方源", mediaStyle = true, arrow = false,
                 value = if (official.bool("enabled")) "可用" else "不可用",
                 sub = if (official.bool("enabled")) null else official.str("reason"))
         }
         GroupLabel("自建源")
         Panel(Modifier.padding(horizontal = Sp.x16)) {
-            if (sources.isEmpty()) LpCell("还没有自建源", arrow = false)
+            if (sources.isEmpty()) LpCell("还没有自建源", mediaStyle = true, arrow = false)
             sources.forEachIndexed { i, src ->
                 if (i > 0) Hairline()
                 SourceRow(
@@ -593,10 +601,10 @@ private fun DanmakuSettingsPanel() {
         }
         GroupLabel("屏蔽")
         Panel(Modifier.padding(horizontal = Sp.x16)) {
-            LpCell("屏蔽词", value = "${words.split("\n").count { it.isNotBlank() }} 个",
+            LpCell("屏蔽词", mediaStyle = true, value = "${words.split("\n").count { it.isNotBlank() }} 个",
                 onClick = { editWords = true })
             Hairline()
-            LpCell("屏蔽用户", value = "$userCount 个", sub = "从弹弹Play 屏蔽表导入",
+            LpCell("屏蔽用户", mediaStyle = true, value = "$userCount 个", sub = "从弹弹Play 屏蔽表导入",
                 onClick = { importXml.launch(arrayOf("*/*")) })
         }
         Spacer(Modifier.height(Sp.x20))
@@ -736,21 +744,21 @@ private fun MpvConfPanel() {
 
     Panel(Modifier.padding(Sp.x16)) {
         LpCell(
-            "当前配置",
+            "当前配置", mediaStyle = true,
             sub = if (active) "已导入 · " + text.lineSequence().count() + " 行" else "没有导入过",
             arrow = false,
         )
         Hairline()
-        LpCell("导入 mpv.conf", sub = "选一个文本文件;换成新的会整份覆盖",
+        LpCell("导入 mpv.conf", mediaStyle = true, sub = "选一个文本文件;换成新的会整份覆盖",
             onClick = { pick.launch(arrayOf("*/*")) })
         if (active) {
             Hairline()
-            LpCell("清除", sub = "删掉配置,回到出厂状态", arrow = false, onClick = {
+            LpCell("清除", mediaStyle = true, sub = "删掉配置,回到出厂状态", arrow = false, onClick = {
                 scope.launch { push("") }
             })
         }
         Hairline()
-        LpCell("只对 mpv 内核有效", sub = "ExoPlayer 走安卓自带解码,不读这份配置;" +
+        LpCell("只对 mpv 内核有效", mediaStyle = true, sub = "ExoPlayer 走安卓自带解码,不读这份配置;" +
             "改动要退出当前播放再进才生效", arrow = false)
     }
     if (active && text.isNotBlank()) Panel(Modifier.padding(horizontal = Sp.x16)) {
@@ -773,21 +781,21 @@ private fun ShotPanel() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val p = xyz.linplayer.app.data.UiPrefs
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("截屏保存到", sub = "相册的 Pictures/LinPlayer;安卓 9 及以下落到应用目录",
+        LpCell("截屏保存到", mediaStyle = true, sub = "相册的 Pictures/LinPlayer;安卓 9 及以下落到应用目录",
             arrow = false)
         Hairline()
-        LpCell("叠加系统时间", switch = p.shotTime.value,
+        LpCell("叠加系统时间", mediaStyle = true, switch = p.shotTime.value,
             onSwitch = { v -> p.setShotFlag(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_TIME, v) })
         if (p.shotTime.value) SegRow("时间的位置", CORNER_LABELS, cornerLabel(p.shotTimePos.value),
             { v -> p.setShotPos(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_TIME_POS, cornerCode(v)) })
         Hairline()
-        LpCell("叠加条目艺术字", sub = "这部片的片名艺术字(Emby 的 Logo 图),没有就不叠",
+        LpCell("叠加条目艺术字", mediaStyle = true, sub = "这部片的片名艺术字(Emby 的 Logo 图),没有就不叠",
             switch = p.shotLogo.value,
             onSwitch = { v -> p.setShotFlag(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_LOGO, v) })
         if (p.shotLogo.value) SegRow("艺术字的位置", CORNER_LABELS, cornerLabel(p.shotLogoPos.value),
             { v -> p.setShotPos(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_LOGO_POS, cornerCode(v)) })
         Hairline()
-        LpCell("截长屏按钮", sub = "可滚动的页面右下角出现一颗按钮,按一下把整页拼成长图",
+        LpCell("截长屏按钮", mediaStyle = true, sub = "可滚动的页面右下角出现一颗按钮,按一下把整页拼成长图",
             switch = p.longShot.value, onSwitch = { v -> p.setLongShot(ctx, v) })
     }
 }
@@ -847,7 +855,7 @@ private fun PrefetchPanel() {
     val cur = session?.server
     val on = cur != null && cur in servers
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("对这台服务器开启", sub = "开着不一定更快 —— 收益看服务端给不给多连接",
+        LpCell("对这台服务器开启", mediaStyle = true, sub = "开着不一定更快 —— 收益看服务端给不给多连接",
             switch = on, onSwitch = { v ->
                 val srv = cur ?: return@LpCell
                 val before = servers
@@ -887,7 +895,7 @@ private fun BlockedPanel() {
     else Panel(Modifier.padding(Sp.x16)) {
         items.forEachIndexed { i, (id, name) ->
             if (i > 0) Hairline()
-            LpCell(name, value = "解除", arrow = false, onClick = {
+            LpCell(name, mediaStyle = true, value = "解除", arrow = false, onClick = {
                 scope.launch {
                     runCatching {
                         app.call("emby.setBlocked",
@@ -935,23 +943,23 @@ private fun StoragePanel() {
     Panel(Modifier.padding(Sp.x16)) {
         // 安卓的数据根是应用私有目录:**展示但不可点开** ——
         // 没有文件管理器能进去,给一个打不开的按钮比不给更糟
-        LpCell("数据目录", sub = paths ?: "读取中…", arrow = false)
+        LpCell("数据目录", mediaStyle = true, sub = paths ?: "读取中…", arrow = false)
         Hairline()
         // 这个目录**是**能进去的(Android/data/<包名>/files/logs),所以照实写出来
-        LpCell("日志目录", sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
+        LpCell("日志目录", mediaStyle = true, sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
         Hairline()
-        LpCell("导出日志", sub = "选个位置存下来,连 logcat 一起", onClick = {
+        LpCell("导出日志", mediaStyle = true, sub = "选个位置存下来,连 logcat 一起", onClick = {
             save.launch("linplayer-" + System.currentTimeMillis() + ".log")
         })
         Hairline()
         // 不让用户描述:他说不清出了什么问题,日志说得清(用户 2026-09-18)
-        LpCell("发送日志给开发者", sub = "遇到 bug 点一下就行。服务器地址、账号和令牌会先抹掉", onClick = {
+        LpCell("发送日志给开发者", mediaStyle = true, sub = "遇到 bug 点一下就行。服务器地址、账号和令牌会先抹掉", onClick = {
             scope.launch { xyz.linplayer.app.data.Report.feedback(ctx, app) }
         })
         Hairline()
-        LpCell("缓存占用", value = size ?: "…", arrow = false)
+        LpCell("缓存占用", mediaStyle = true, value = size ?: "…", arrow = false)
         Hairline()
-        LpCell("清理缓存", onClick = {
+        LpCell("清理缓存", mediaStyle = true, onClick = {
             scope.launch {
                 runCatching { app.call("system.clearCache") }
                     .onSuccess { app.toast("缓存已清理", ToastKind.Ok); size = "0.0 MB" }
@@ -991,10 +999,10 @@ private fun AboutPanel() {
     LaunchedEffect(Unit) { check() }
 
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("版本", value = caps.version, arrow = false)
+        LpCell("版本", mediaStyle = true, value = caps.version, arrow = false)
         Hairline()
         LpCell(
-            "检查更新",
+            "检查更新", mediaStyle = true,
             value = newest.str("version")?.let { "有新版 $it" } ?: if (checked) "已是最新" else "…",
             sub = newest?.let { "点一下就下载并安装" },
             onClick = {
@@ -1193,14 +1201,14 @@ private fun UpdatePanel() {
             { v -> push(channelCode(v), auto, proxy) },
             sub = "预览版一天可能出好几个构建")
         Hairline()
-        LpCell("启动时自动检查更新", sub = "默认关着 —— 这是个会自己联网的行为",
+        LpCell("启动时自动检查更新", mediaStyle = true, sub = "默认关着 —— 这是个会自己联网的行为",
             switch = auto, onSwitch = { v -> push(channel, v, proxy) })
         Hairline()
-        LpCell("GitHub 代理", value = proxyLabel(proxy),
+        LpCell("GitHub 代理", mediaStyle = true, value = proxyLabel(proxy),
             sub = "GitHub 连不上时填一个,查版本和下载都走它",
             onClick = { editing = true })
         Hairline()
-        LpCell("当前版本", value = version.ifEmpty { "…" }, arrow = false)
+        LpCell("当前版本", mediaStyle = true, value = version.ifEmpty { "…" }, arrow = false)
     }
 
     if (editing) ProxyDialog(proxy, proxies, { editing = false }) { px ->
@@ -1231,9 +1239,9 @@ private fun ProxyDialog(
             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
             horizontalArrangement = Arrangement.spacedBy(Sp.x6),
         ) {
-            ToneChip("直连", on = draft.isBlank()) { draft = "" }
+            MediaFilterChip("直连", selected = draft.isBlank()) { draft = "" }
             picks.forEach { u ->
-                ToneChip(proxyLabel(u), on = draft.trimEnd('/') == u.trimEnd('/')) { draft = u }
+                MediaFilterChip(proxyLabel(u), selected = draft.trimEnd('/') == u.trimEnd('/')) { draft = u }
             }
         }
         Spacer(Modifier.height(Sp.x16))
@@ -1323,18 +1331,18 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val tr = trakt
-            if (!loaded) LpCell("Trakt", value = "查询中…", arrow = false)
+            if (!loaded) LpCell("Trakt", mediaStyle = true, value = "查询中…", arrow = false)
             else if (tr != null && tr.isNotEmpty()) {
-                LpCell("Trakt", value = tr.str("username") ?: "已连接", arrow = false)
+                LpCell("Trakt", mediaStyle = true, value = tr.str("username") ?: "已连接", arrow = false)
                 Hairline()
-                LpCell("断开 Trakt", arrow = false, onClick = {
+                LpCell("断开 Trakt", mediaStyle = true, arrow = false, onClick = {
                     scope.launch {
                         runCatching { app.call("sync.traktLogout") }
                             .onSuccess { reload++ }.onFailure { app.report(it) }
                     }
                 })
             } else {
-                LpCell("连接 Trakt", sub = "出一个码,在浏览器里输", onClick = {
+                LpCell("连接 Trakt", mediaStyle = true, sub = "出一个码,在浏览器里输", onClick = {
                     scope.launch {
                         runCatching { app.call("sync.traktDeviceCode") }
                             .onSuccess { device = it.obj() }.onFailure { app.report(it) }
@@ -1353,11 +1361,11 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val bg = bangumi
-            if (!loaded) LpCell("Bangumi", value = "查询中…", arrow = false)
+            if (!loaded) LpCell("Bangumi", mediaStyle = true, value = "查询中…", arrow = false)
             else if (bg != null && bg.isNotEmpty()) {
-                LpCell("Bangumi", value = bg.str("username") ?: "已连接", arrow = false)
+                LpCell("Bangumi", mediaStyle = true, value = bg.str("username") ?: "已连接", arrow = false)
                 Hairline()
-                LpCell("断开 Bangumi", arrow = false, onClick = {
+                LpCell("断开 Bangumi", mediaStyle = true, arrow = false, onClick = {
                     scope.launch {
                         runCatching { app.call("sync.bangumiLogout") }
                             .onSuccess { reload++ }.onFailure { app.report(it) }

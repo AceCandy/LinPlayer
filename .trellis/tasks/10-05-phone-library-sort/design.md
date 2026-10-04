@@ -1,0 +1,6 @@
+# 设计
+
+手机LibraryPage复用LpScaffold.actions和原筛选弹窗；当前排序Row无底色，使用媒体图标色、48dp命中区；评分/类型有选中时才出现条件条。方向作为按库保留状态，签名和请求同时含sort_order。切换排序默认名称升序，其余降序；方向可单独切换。
+服务端MediaStationGo基线ca18bee084487ada81bbed89879cec035b609bb6，开工工作树干净。普通TV/混合Year排序在seriesOrderSQL/metadataOrderSQL明确年份主键，避免默认上映日期+文件创建时间LATERAL回退；电影专用分支已正确。保留其它排序原语义，目录描述同步。DateCreated库内为别名，不另新增一个同义入口。Random跨请求随机种子不同，分页列表不使用；未测真实耗时不宣称加速。
+
+NFO库内三项元数据排序补齐：只投影目标标量字段，保留权限、已看资格、层级前缀、稳定ID、计数和页内详情；不改变红果资料模型。

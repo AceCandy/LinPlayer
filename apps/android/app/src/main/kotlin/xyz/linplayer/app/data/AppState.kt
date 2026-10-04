@@ -3,6 +3,8 @@ package xyz.linplayer.app.data
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.staticCompositionLocalOf
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -122,16 +124,23 @@ class AppState(val core: CorePort, scope: CoroutineScope) {
         return core.callJson(command, merged, onPartial)
     }
 
-    /** TV 选集需要整季;按服务端分页取全,不能把第一页当作完整季。 */
-    suspend fun seasonEpisodes(parentId: String): List<Item> {
-        val out = mutableListOf<Item>()
+    /** 按服务端分页取完整季；逐页通知使用不可变快照，重试可从已有项后继续。 */
+    suspend fun seasonEpisodes(
+        parentId: String,
+        loaded: List<Item> = emptyList(),
+        onPage: (List<Item>, Long?) -> Unit = { _, _ -> },
+    ): List<Item> {
+        val out = loaded.toMutableList()
         while (true) {
+            currentCoroutineContext().ensureActive()
             val page = Page.from(call("emby.seasonEpisodes", JsonObject(mapOf(
                 "parent_id" to JsonPrimitive(parentId),
                 "start_index" to JsonPrimitive(out.size),
                 "limit" to JsonPrimitive(200),
             ))))
+            currentCoroutineContext().ensureActive()
             out.addAll(page.items)
+            onPage(out.toList(), page.total)
             if (page.items.isEmpty() || page.total?.let { out.size >= it } == true) return out
         }
     }

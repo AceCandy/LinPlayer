@@ -1,9 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -14,8 +12,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
+import xyz.linplayer.app.ui.components.pressable
+import xyz.linplayer.app.ui.theme.Dim
 import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.rememberLazyGridState
@@ -33,10 +41,6 @@ import androidx.compose.runtime.snapshotFlow
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.graphics.Brush
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
@@ -57,37 +61,22 @@ import xyz.linplayer.app.ui.components.BlockBox
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim2
 import xyz.linplayer.app.ui.components.EmptyState
-import xyz.linplayer.app.ui.components.GlassIcon
-import xyz.linplayer.app.ui.components.Kicker
 import xyz.linplayer.app.ui.components.LpButton
+import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpDialog
-import xyz.linplayer.app.ui.components.LpImmersive
+import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
-import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.Skeleton
-import xyz.linplayer.app.ui.components.ToneChip
-import xyz.linplayer.app.ui.components.bleed
-import xyz.linplayer.app.ui.components.dissolve
-import xyz.linplayer.app.ui.components.toneScene
-import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.Sp
-import xyz.linplayer.app.ui.theme.rememberTone
 
-/**
- * 排序档位。「更新时间」≠「加入时间」—— 前者是这部剧**最近一集**入库的时间,追更要的是它。
- *
- * 第一条就是默认档【用户定 2026-09-12:「默认从新到旧排序」】。追更的人进库要看的是
- * 「哪部剧刚更新」,而「加入时间」排出来的是「哪部剧刚被收进来」,老剧更了新集排不上去。
- */
+/** 独立有效的库内排序；DateCreated在基准服务端是最新入库时间的别名。 */
 private val SORTS = listOf(
-    "更新时间" to "DateLastContentAdded",
-    "加入时间" to "DateCreated",
+    "更新日期" to "DateLastContentAdded",
     "上映日期" to "PremiereDate",
-    "名称 A→Z" to "SortName",
-    "年份" to "ProductionYear",
+    "名称" to "SortName",
     "评分" to "CommunityRating",
 )
 
@@ -110,9 +99,7 @@ internal fun needRefetch(hasItems: Boolean, ok: Boolean, fetchedAs: String?, key
     !(hasItems && ok && fetchedAs == key)
 
 /**
- * 媒体库 + 筛选(U1.4)。版式照草稿 02:**库头也取色**。
- *
- * ★ 「动画」和「电影」两个库进去颜色就不一样 —— 库有了身份,而这只要一张图和一次取色。
+ * 媒体库 + 筛选(U1.4)：紧凑顶栏与固定筛选区，网格复用首页媒体卡片。
  * ★ **排序一律走服务端。** 本地排只能排到已加载的那一页,翻页后顺序就乱了。
  * ★ 分页在核心层(offset/limit),UI 只负责**什么时候要下一页**(§10.2)。
  */
@@ -120,7 +107,6 @@ internal fun needRefetch(hasItems: Boolean, ok: Boolean, fetchedAs: String?, key
 fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     val route = entry.toRoute<Route.Library>()
     val app = LocalApp.current
-    val c = Lp.colors
     val scope = rememberCoroutineScope()
     val grid = rememberLazyGridState()
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
@@ -135,6 +121,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     var loadingMore by remember { mutableStateOf(false) }
     // 排序/筛选也留住:返回后筛选条被重置回默认,和「白重拉一次」一样恼人
     var sort by xyz.linplayer.app.data.keepState("$ck.sort") { SORTS[0] }
+    var sortOrder by xyz.linplayer.app.data.keepState("$ck.sortOrder") { "Descending" }
     var minRating by xyz.linplayer.app.data.keepState("$ck.rating") { RATINGS[0] }
     var genre by xyz.linplayer.app.data.keepState<String?>("$ck.genre") { null }
     var showFilter by remember { mutableStateOf(false) }
@@ -145,7 +132,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     var fetchedAs by xyz.linplayer.app.data.keepState<String?>("$ck.as") { null }
 
     val hasFilter = genre != null || minRating.second > 0
-    val filterKey = "${sort.second}|${minRating.second}|${genre.orEmpty()}"
+    val filterKey = "${sort.second}|$sortOrder|${minRating.second}|${genre.orEmpty()}"
 
     /* ☠ **这条命令收的是 `parent_id` + 一个嵌套的 `query` 对象**,不是平铺参数。
        平铺传过去核心层一个都读不到:`parent_id` 空 = 不限库、`query` 缺 = 默认分页,
@@ -156,7 +143,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         val q = buildMap<String, Any> {
             put("start_index", offset); put("limit", PAGE)
             put("sort_by", sort.second)
-            put("sort_order", if (sort.second == "SortName") "Ascending" else "Descending")
+            put("sort_order", sortOrder)
             if (filtersSupported) {
                 if (minRating.second > 0) put("rating_min", minRating.second)
                 genre?.let { put("genres", jsonArrayOf(listOf(it))) }
@@ -208,27 +195,44 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             items.isNotEmpty() && last >= items.size - 6
         }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(route.viewId, filterKey) {
         snapshotFlow { needMore }.collect { want ->
             if (!want || loadingMore) return@collect
             if (total != null && items.size >= (total ?: 0)) return@collect
             loadingMore = true
-            fetch(items.size)
-            loadingMore = false
+            try { fetch(items.size) } finally { loadingMore = false }
         }
     }
 
-    // 库头那张图和整页的底色都取自**这个库里最新的一部**
-    val face = items.firstOrNull()
-    val tone = rememberTone(app.imageUrl(face?.id, "Primary", 330), c.acc.copy(alpha = .9f))
-
-    LpImmersive(bar = {
-        GlassIcon(LpIcons.back, "返回") { nav.popBackStack() }
-        Spacer(Modifier.weight(1f))
-        GlassIcon(LpIcons.search, "在这个库里搜") { nav.navigate(Route.Search(route.viewId)) }
-        GlassIcon(LpIcons.sort, "筛选与排序") { showFilter = true }
-    }) { pad ->
-        Box(Modifier.fillMaxSize().background(toneScene(tone, c.bg, depth = 0.62f))) {
+    LpScaffold(
+        title = route.title,
+        // 总数只采用服务端返回值，不用当前已加载的页数代替。
+        subtitle = total?.let { "$it 部" },
+        onBack = { nav.popBackStack() },
+        actions = {
+            Row(
+                Modifier.heightIn(min = Dim.tap).widthIn(max = 168.dp).testTag("library.sort")
+                    .semantics { contentDescription = "排序：${sort.first}，${if (sortOrder == "Ascending") "升序" else "降序"}" }
+                    .pressable({ showFilter = true }).padding(start = Sp.x8, end = Sp.x12, bottom = Sp.x16),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+            ) {
+                Icon(LpIcons.sortLines, null, Modifier.size(18.dp), tint = Lp.colors.mediaIcon)
+                Text(sort.first, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
+                    fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+                    overflow = TextOverflow.Ellipsis)
+                Icon(LpIcons.arrowDown, null,
+                    Modifier.size(18.dp).rotate(if (sortOrder == "Ascending") 180f else 0f),
+                    tint = Lp.colors.mediaIcon)
+            }
+        },
+    ) { pad ->
+        Column(Modifier.fillMaxSize()) {
+            if (hasFilter) FilterBar(
+                genre = genre, rating = minRating,
+                onClearGenre = { genre = null },
+                onClearRating = { minRating = RATINGS[0] },
+            )
             BlockBox(first, onRetry = { scope.launch { fetch(0) } },
                 skeleton = { GridSkeleton(pad) }) {
                 if (items.isEmpty()) {
@@ -242,24 +246,10 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 } else LazyVerticalGrid(
                     GridCells.Fixed(posterColumns()), Modifier.fillMaxSize(), grid,
                     contentPadding = PaddingValues(
-                        start = Sp.x16, end = Sp.x16, bottom = pad.calculateBottomPadding()),
+                        start = Sp.x16, end = Sp.x16, top = Sp.x8, bottom = pad.calculateBottomPadding()),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                    verticalArrangement = Arrangement.spacedBy(Sp.x12),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x16),
                 ) {
-                    // ★ 库头要**铺到屏幕两边**,所以得钻出网格的 16dp 内边距
-                    item("head", span = { GridItemSpan(maxLineSpan) }) {
-                        Box(Modifier.bleed(Sp.x16)) {
-                            LibraryHead(app, route.title, face, total, grid)
-                        }
-                    }
-                    item("chips", span = { GridItemSpan(maxLineSpan) }) {
-                        FilterBar(
-                            sort = sort.first, genre = genre, rating = minRating,
-                            onOpen = { showFilter = true },
-                            onClearGenre = { genre = null },
-                            onClearRating = { minRating = RATINGS[0] },
-                        )
-                    }
                     items(items, key = { it.id }, contentType = { "poster" }) { it2 ->
                         MediaCard(
                             it2, app.imageUrl(it2.id, "Primary", 330),
@@ -277,8 +267,14 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         Column(Modifier.heightIn(max = 460.dp).verticalScroll(rememberScrollState())) {
             SectionLabel("排序")
             SORTS.forEach { s ->
-                OptRow(s.first, { sort = s; showFilter = false }, selected = s == sort)
+                OptRow(s.first, {
+                    if (s != sort) { sort = s; sortOrder = if (s.second == "SortName") "Ascending" else "Descending" }
+                    showFilter = false
+                }, selected = s == sort, media = true)
             }
+            SectionLabel("排序方向")
+            OptRow("升序", { sortOrder = "Ascending"; showFilter = false }, selected = sortOrder == "Ascending", media = true)
+            OptRow("降序", { sortOrder = "Descending"; showFilter = false }, selected = sortOrder == "Descending", media = true)
             if (!filtersSupported) Dim2("服务端不支持条件筛选,可使用排序和分页。", Modifier.padding(Sp.x12))
             else {
                 SectionLabel("评分下限")
@@ -303,90 +299,21 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     }
 }
 
-/**
- * 库头(草稿 02)。
- *
- * ★ 图从 y=0 铺起,下沿溶进取色底 —— 和详情页同一套手法。
- * ★ 三级标题:眉标「媒体库」→ 库名 31sp → 统计一行。
- * ★ 往下滚时整块图上移淡出(M3 的折叠大标题,但折的是**一整块图**不是一行字)。
- */
-@Composable
-private fun LibraryHead(
-    app: xyz.linplayer.app.data.AppState,
-    title: String,
-    face: Item?,
-    total: Long?,
-    grid: androidx.compose.foundation.lazy.grid.LazyGridState,
-) {
-    val c = Lp.colors
-    val h = Dim.coverLib
-    Box(Modifier.fillMaxWidth().height(h)) {
-        Box(
-            Modifier.fillMaxSize()
-                .graphicsLayer {
-                    val off = if (grid.firstVisibleItemIndex == 0)
-                        grid.firstVisibleItemScrollOffset.toFloat() else h.toPx()
-                    translationY = off * 0.40f
-                    alpha = (1f - off / (h.toPx() * 0.9f)).coerceIn(0f, 1f)
-                }
-                .dissolve(0.52f, 0.99f)
-        ) {
-            NetImage(app.imageUrl(face?.id, "Backdrop", 720), null, Modifier.fillMaxSize(), 0.dp)
-            Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        colorStops = if (c.isDark) arrayOf(
-                            0.00f to Color.Black.copy(alpha = .50f),
-                            0.34f to Color.Transparent,
-                            1.00f to Color.Black.copy(alpha = .45f),
-                        ) else arrayOf(
-                            0.00f to Color.Black.copy(alpha = .50f),
-                            0.34f to Color.Transparent,
-                            // 浅色标题不能落在压暗的图片上，文字区域先铺主题底色。
-                            0.48f to c.bg,
-                            1.00f to c.bg,
-                        ),
-                    )
-                )
-            )
-        }
-        Column(
-            Modifier.align(Alignment.BottomStart)
-                .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12)
-        ) {
-            Kicker("媒体库", color = c.fg2)
-            Spacer(Modifier.height(Sp.x4))
-            Text(title, color = c.fg, fontSize = 31.sp, fontWeight = FontWeight.Bold,
-                lineHeight = 34.sp, maxLines = 2)
-            // ☠ 只写服务端真给了的数。**「已看 132 / 未看 286」算不出来就不写** ——
-            //    拿已加载那一页去算,翻页之后数字会自己变,那是界面在撒谎
-            if (total != null) {
-                Spacer(Modifier.height(Sp.x6))
-                Text("$total 部", color = c.fg.copy(alpha = .72f), fontSize = 12.sp)
-            }
-        }
-    }
-}
-
-/** 筛选条。**chip 没有描边**:未选中是一层白 10% 填充,选中才是琥珀。 */
+/** 只在有已选筛选时展示清除入口，默认不占一行。 */
 @Composable
 private fun FilterBar(
-    sort: String,
     genre: String?,
     rating: Pair<String, Int>,
-    onOpen: () -> Unit,
     onClearGenre: () -> Unit,
     onClearRating: () -> Unit,
 ) {
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            .padding(top = Sp.x12, bottom = Sp.x4),
+            .padding(horizontal = Sp.x16),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {
-        ToneChip(sort, on = false, onClick = onOpen)
-        genre?.let { ToneChip("$it ×", on = true, onClick = onClearGenre) }
-        if (rating.second > 0) ToneChip("${rating.first} ×", on = true, onClick = onClearRating)
-        ToneChip("筛选", on = false, onClick = onOpen)
+        genre?.let { MediaFilterChip("$it ×", true, onClearGenre) }
+        if (rating.second > 0) MediaFilterChip("${rating.first} ×", true, onClearRating)
     }
 }
 
@@ -399,13 +326,13 @@ private fun SectionLabel(t: String) =
 private fun GridSkeleton(pad: PaddingValues) {
     LazyVerticalGrid(
         GridCells.Fixed(posterColumns()), Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = Sp.x16, end = Sp.x16, top = Dim.coverLib,
+        contentPadding = PaddingValues(start = Sp.x16, end = Sp.x16, top = Sp.x8,
             bottom = pad.calculateBottomPadding()),
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        verticalArrangement = Arrangement.spacedBy(Sp.x12),
+        verticalArrangement = Arrangement.spacedBy(Sp.x16),
     ) {
         items(List(12) { it }) {
-            Column {
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Skeleton(Modifier.fillMaxWidth().aspectRatio(2f / 3f))
                 Spacer(Modifier.height(Sp.x6))
                 Skeleton(Modifier.fillMaxWidth(0.8f).height(12.dp))

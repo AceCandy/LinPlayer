@@ -179,7 +179,7 @@ class PhoneThemeTest {
         }
         val pixels = rule.onNodeWithTag("primary").captureToImage().toPixelMap()
         val background = pixels[pixels.width / 2, 5]
-        assertTrue("浅色主按钮中心的文字对比度不足", contrast(LightColors.accFg, background) >= 4.5f)
+        assertTrue("浅色主按钮中心的文字对比度不足", contrast(LightColors.mediaOnAccent, background) >= 4.5f)
     }
 
     @Test fun homeContentRendersBothPalettes() {
@@ -220,9 +220,9 @@ class PhoneThemeTest {
         assertTrue("$name 浅色页底仍为深色", light[2, light.height - 2].luminance() > .5f)
         rule.onNodeWithText(if (name == "home-content") "继续观看" else "沙丘 2").assertExists()
         if (name == "library") {
-            val label = rule.onNodeWithText("媒体库").captureToImage().toPixelMap()
+            val label = rule.onNodeWithText("电影").captureToImage().toPixelMap()
             assertTrue("浅色媒体库标题区的文字对比度不足",
-                contrast(LightColors.fg2, label[label.width - 1, 0]) >= 4.5f)
+                contrast(LightColors.fg, label[label.width - 1, 0]) >= 4.5f)
         }
         rule.onRoot().captureRoboImage("build/phone-theme/$name-light.png")
         rule.runOnIdle { UiPrefs.theme.value = "dark" }

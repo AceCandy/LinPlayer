@@ -1,0 +1,3 @@
+# 方案
+MainShell集中嵌套滚动监听UserInput纵向位移，累积24dp后显隐，忽略横滑/程序滚动，路由变化恢复；AnimatedVisibility使用主题动效时长。浏览页均提供固定LocalTabClearance。维持最后激活Tab，二级页按此切栈；同Tab按钮返回根。
+View读取has_primary；HomePage跳过无主图请求；首页局部40dp顶栏避免扩大其它页高度。LibraryPage合并筛选入口并显示排序摘要。共享glass/buttonSkin/Layer去渐变和高光，用合成后实色主题表面，不改播放器专有控制层。

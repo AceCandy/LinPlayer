@@ -37,6 +37,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -50,6 +51,9 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
@@ -79,7 +83,7 @@ import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.PrimaryAction
 import xyz.linplayer.app.ui.components.SectionTitle
-import xyz.linplayer.app.ui.components.ToneChip
+import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.plugin.Anchored
 import xyz.linplayer.app.ui.plugin.LocalAnchors
 import xyz.linplayer.app.ui.plugin.PluginAnchors
@@ -214,7 +218,26 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
     var pickedVersion by remember { mutableStateOf<String?>(null) }
     var seasons by remember { mutableStateOf<List<Item>>(emptyList()) }
     var curSeason by remember { mutableStateOf<Item?>(null) }
-    var episodes by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var episodeRequest by remember { mutableStateOf(0) }
+    var episodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
+    var episodeTotal by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Long?>(null) }
+    var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
+    var episodeRetry by remember { mutableStateOf(0) }
+    LaunchedEffect(route.itemId, curSeason?.id, episodeRequest, episodeRetry) {
+        val parent = curSeason?.id ?: return@LaunchedEffect
+        episodeLoad = Block.Loading
+        val result = try {
+            app.seasonEpisodes(parent, episodes) { items, total ->
+                episodes = items
+                episodeTotal = total
+            }
+            Block.Ok(Unit)
+        } catch (e: CancellationException) { throw e }
+          catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
+          catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "分集加载失败") }
+        currentCoroutineContext().ensureActive()
+        episodeLoad = result
+    }
     var similar by remember { mutableStateOf<List<Item>>(emptyList()) }
     var people by remember { mutableStateOf<List<Person>>(emptyList()) }
     var favorite by remember { mutableStateOf(false) }
@@ -256,8 +279,6 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                     // 集详情页要定位到**这一集所属的季**,不是第一季
                     val s = seasons.firstOrNull { it.id == wantSeason } ?: seasons.firstOrNull()
                     curSeason = s
-                    if (s != null) episodes = Item.list(app.block("emby.seasonEpisodes",
-                        args("parent_id" to s.id)).valueOrNull)
                 }
             }
         }
@@ -299,6 +320,7 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
     val title = d.str("name") ?: ""
     val isEpisode = route.type == "Episode"
     val isSeries = route.type == "Series" || route.type == "Season"
+    val nextEp = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
     /* ☠ **合集原来一个字都画不出来。** 详情那条链只对 Series/Season 拉子项,
        而合集本身没有简介、没有年份、没有演职员 —— 整页只剩一个标题
        (用户 2026-09-08:「合集无法正确显示,显示不出来任何的东西」)。
@@ -419,14 +441,13 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                     if (isBoxSet) return@Anchored
                     val resume = d.dbl("resume_secs") ?: 0.0
                     val runtime = d.dbl("runtime_secs") ?: 0.0
-                    val nextEp = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
                     Column(Modifier.padding(top = Sp.x16)) {
                         PrimaryAction(
                             text = when {
-                                resume > 0 && runtime > resume ->
-                                    "继续观看 · 还剩 ${fmtDur(runtime - resume)}"
                                 isSeries && nextEp != null ->
-                                    "播放 S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1}"
+                                    "${if (nextEp.resumeSecs > 0 && !nextEp.played) "继续" else "播放"} S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1}"
+                                resume > 0 && runtime > resume ->
+                                    "继续观看\n还剩 ${fmtDur(runtime - resume)}"
                                 else -> "播放"
                             },
                             icon = LpIcons.play,
@@ -438,6 +459,10 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                                 )
                             },
                         ) { toPlayer(if (isSeries) (nextEp?.id ?: route.itemId) else route.itemId, null) }
+                        if (isSeries && nextEp != null) Dim3(
+                            "播放目标 · S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1} · ${nextEp.name}",
+                            Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6).testTag("detail.play.target"),
+                        )
 
                         Row(
                             Modifier.fillMaxWidth().padding(start = Sp.x10, end = Sp.x10, top = Sp.x12),
@@ -492,35 +517,39 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                      `seasons.size > 1` 把单季剧整条藏掉了,而那是最常见的情况。 */
                 item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {
                     if (seasons.isEmpty()) return@Anchored
-                    SectionTitle("季")
                     Row(
                         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                             .padding(horizontal = Sp.x16, vertical = Sp.x6),
                         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                     ) {
                         seasons.forEach { s2 ->
-                            ToneChip(s2.name, s2.id == curSeason?.id) {
+                            MediaFilterChip(s2.name, s2.id == curSeason?.id) {
                                 curSeason = s2
-                                episodes = emptyList()   // 先清空:留着上一季的会让人以为没换
-                                scope.launch {
-                                    episodes = Item.list(app.block("emby.seasonEpisodes",
-                                        args("parent_id" to s2.id)).valueOrNull)
-                                }
+                                episodeRequest++
                             }
                         }
                     }
                 } }
 
                 item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = Sp.x16)) {
-                    if (episodes.isEmpty()) return@Anchored
+                    if (curSeason == null) return@Anchored
                     SectionTitle(
                         curSeason?.name?.let { "$it · 选集" } ?: "选集",
-                        trailing = { Dim3("已看 ${episodes.count { it.played }} / ${episodes.size}") },
+                        accent = c.mediaIcon,
+                        trailing = {
+                            Dim3(if (episodeLoad is Block.Ok) "已看 ${episodes.count { it.played }} / ${episodes.size}"
+                                else "已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: ""))
+                        },
                     )
-                    EpisodeStrip(
-                        app, episodes, currentId = route.itemId,
+                    if (episodes.isNotEmpty()) EpisodeStrip(
+                        app, episodes, currentId = route.itemId, targetId = nextEp?.id.takeIf { isSeries },
                         onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) },
                     )
+                    when (val load = episodeLoad) {
+                        is Block.Loading -> SectionTitle("正在加载分集…", accent = Lp.colors.mediaIcon)
+                        is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(load.message, { episodeRetry++ })
+                        is Block.Ok -> if (episodes.isEmpty()) SectionTitle("本季暂无分集", accent = Lp.colors.mediaIcon)
+                    }
                 } }
 
                 /* 合集的成员。**影片和剧集分成两段**(用户 2026-09-08:
@@ -528,10 +557,10 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                    分堆在核心层做(`emby.collectionItems`)—— 两端各分一次的话,
                    迟早在「其它类型往哪儿归」上分叉,而那种不一致没人会报上来。 */
                 if (isBoxSet) {
-                    if (boxLoading) item("boxbusy") { SectionTitle("正在取合集内容…") }
+                    if (boxLoading) item("boxbusy") { SectionTitle("正在取合集内容…", accent = Lp.colors.mediaIcon) }
                     else if (boxMovies.isEmpty() && boxSeries.isEmpty() && boxOthers.isEmpty()) {
                         // 说清是「空的」而不是「没拉到」。空着的话和还在加载长得一样。
-                        item("boxempty") { SectionTitle("这个合集里没有内容") }
+                        item("boxempty") { SectionTitle("这个合集里没有内容", accent = Lp.colors.mediaIcon) }
                     }
                     listOf("影片" to boxMovies, "剧集" to boxSeries, "其它" to boxOthers)
                         .forEach { (label, list2) ->
@@ -559,7 +588,7 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                 /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
                    剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
                 if (!isSeries) item("pick") {
-                    SectionTitle("播放选项")
+                    SectionTitle("播放选项", accent = Lp.colors.mediaIcon)
                     PickList(
                         rows = listOf(
                             PickRow(
@@ -591,7 +620,7 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
 
                 // 媒体信息:**照 Emby 官端分组成卡**,不是一张 kv 大表
                 if (!isSeries && ver != null) item("media") {
-                    SectionTitle("媒体信息")
+                    SectionTitle("媒体信息", accent = Lp.colors.mediaIcon)
                     MediaCards(ver)
                 }
 
@@ -619,6 +648,7 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
                 versions.forEach { v ->
                     OptRow(
                         v.name, { pickedVersion = v.id; sheet = null },
+                        media = true,
                         sub = listOfNotNull(v.container?.uppercase(), fmtSize(v.sizeBytes),
                             fmtRate(v.bitrate)).joinToString(" · ").takeIf { it.isNotEmpty() },
                         selected = v.id == ver?.id,
@@ -798,7 +828,7 @@ private fun EpisodeHead(
                 Text(
                     it,
                     if (linked) Modifier.clickable(onClick = onSeries) else Modifier,
-                    color = if (linked) c.acc else c.fg2, fontSize = 12.sp, maxLines = 1,
+                    color = if (linked) c.mediaIcon else c.fg2, fontSize = 12.sp, maxLines = 1,
                     textDecoration = if (linked) TextDecoration.Underline else null,
                     overflow = TextOverflow.Ellipsis,
                 )
@@ -807,7 +837,7 @@ private fun EpisodeHead(
                 listOfNotNull(
                     d.long("season_no")?.let { "S$it" }, d.long("episode_no")?.let { "E$it" },
                 ).joinToString(" · "),
-                color = c.acc,
+                color = c.mediaIcon,
             )
             Spacer(Modifier.height(Sp.x4))
             Text(
@@ -831,7 +861,7 @@ private fun EpisodeHead(
                 ) {
                     Box(
                         Modifier.fillMaxWidth((resume / runtime).toFloat().coerceIn(0f, 1f))
-                            .height(3.dp).clip(RoundedCornerShape(R.pill)).background(c.acc)
+                            .height(3.dp).clip(RoundedCornerShape(R.pill)).background(c.mediaAccent)
                     )
                 }
             }
@@ -857,10 +887,10 @@ private fun Tag(text: String, onClick: (() -> Unit)? = null) {
     Text(
         text,
         Modifier.clip(RoundedCornerShape(R.pill))
-            .background(if (onClick != null) c.acc.copy(alpha = .18f) else c.s1)
+            .background(if (onClick != null) c.mediaAccent.copy(alpha = .18f) else c.s1)
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = Sp.x10, vertical = 3.dp),
-        color = if (onClick != null) c.acc else c.fg.copy(alpha = .86f),
+        color = if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
         fontSize = 11.sp, maxLines = 1,
     )
 }
@@ -870,15 +900,15 @@ private fun Tag(text: String, onClick: (() -> Unit)? = null) {
 private fun Overview(text: String) {
     val c = Lp.colors
     var expand by remember { mutableStateOf(false) }
-    SectionTitle("简介")
-    Layer(Modifier.padding(horizontal = Sp.x16), corner = 16.dp) {
+    SectionTitle("简介", accent = Lp.colors.mediaIcon)
+    Layer(Modifier.fillMaxWidth().padding(horizontal = Sp.x16), corner = 16.dp) {
         Column(Modifier.pressable({ expand = !expand }).padding(horizontal = 14.dp, vertical = 13.dp)) {
             Text(
                 text, color = c.fg2, fontSize = 13.sp, lineHeight = 21.sp,
-                maxLines = if (expand) Int.MAX_VALUE else 4, overflow = TextOverflow.Ellipsis,
+                maxLines = if (expand) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(Sp.x6))
-            Text(if (expand) "收起" else "展开", color = c.acc, fontSize = 12.sp,
+            Text(if (expand) "收起" else "展开", color = c.mediaIcon, fontSize = 12.sp,
                 fontWeight = FontWeight.Medium)
         }
     }
@@ -887,7 +917,7 @@ private fun Overview(text: String) {
 @Composable
 private fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
     val c = Lp.colors
-    SectionTitle("演员")
+    SectionTitle("演员", accent = Lp.colors.mediaIcon)
     Row(
         Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
             .padding(horizontal = Sp.x16),
@@ -929,17 +959,17 @@ private fun PickList(rows: List<PickRow>) {
                         .padding(horizontal = 14.dp, vertical = 11.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    Text(r.label, color = c.fg2, fontSize = 12.5.sp, modifier = Modifier.width(38.dp))
-                    Spacer(Modifier.weight(1f))
-                    Text(
-                        r.value, color = c.fg, fontSize = 13.sp, fontWeight = FontWeight.Medium,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(3f, fill = false),
-                        textAlign = androidx.compose.ui.text.style.TextAlign.End,
-                    )
-                    r.extra?.let {
-                        Spacer(Modifier.width(Sp.x6))
-                        Text(it, color = c.acc, fontSize = 11.sp, maxLines = 1)
+                    Column(Modifier.weight(1f)) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(r.label, color = c.fg2, fontSize = 12.sp)
+                            r.extra?.let {
+                                Spacer(Modifier.width(Sp.x8))
+                                Text(it, color = c.mediaIcon, fontSize = 11.sp)
+                            }
+                        }
+                        Spacer(Modifier.height(Sp.x4))
+                        Text(r.value, color = c.fg, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                     if (r.onClick != null) Icon(LpIcons.chevR, null,
                         Modifier.padding(start = Sp.x6).size(15.dp), tint = c.fg3)
@@ -1038,7 +1068,7 @@ private fun InfoCard(title: String, summary: String, rows: List<Pair<String, Str
  *
  * ★ 高度按 sp 现算,不写死 dp —— 系统字号放大时写死的 dp 会把集名裁掉半行
  *   (和首页那两条轨道同一个坑,见 `Cards.kt` 的 `rowHeight`)。
- * ★ **正在看的那一集用状态表达,不用文字**:一圈琥珀描边 + 集号变琥珀。
+ * ★ 当前单集与待播放目标用文字区分，描边和集号颜色辅助定位。
  * ★ 逐张错开 22ms 上浮进场,只跑一次。
  */
 @Composable
@@ -1046,6 +1076,7 @@ private fun EpisodeStrip(
     app: xyz.linplayer.app.data.AppState,
     episodes: List<Item>,
     currentId: String,
+    targetId: String?,
     onOpen: (Item) -> Unit,
 ) {
     val h = with(androidx.compose.ui.platform.LocalDensity.current) {
@@ -1058,7 +1089,7 @@ private fun EpisodeStrip(
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         itemsIndexed(episodes, key = { _, e -> e.id }, contentType = { _, _ -> "ep" }) { i, ep ->
-            EpCard(app, ep, i, ep.id == currentId) { onOpen(ep) }
+            EpCard(app, ep, i, ep.id == currentId, ep.id == targetId) { onOpen(ep) }
         }
     }
 }
@@ -1071,6 +1102,7 @@ private fun EpCard(
     ep: Item,
     index: Int,
     current: Boolean,
+    target: Boolean,
     onOpen: () -> Unit,
 ) {
     val c = Lp.colors
@@ -1090,7 +1122,7 @@ private fun EpCard(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                 .clip(RoundedCornerShape(12.dp))
                 .then(
-                    if (current) Modifier.border(2.dp, c.acc, RoundedCornerShape(12.dp))
+                    if (current || target) Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(12.dp))
                     else Modifier
                 )
         ) {
@@ -1098,7 +1130,7 @@ private fun EpCard(
             if (ep.progress > 0f) Box(
                 Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp)
                     .background(c.line2)
-            ) { Box(Modifier.fillMaxWidth(ep.progress).height(2.dp).background(c.acc)) }
+            ) { Box(Modifier.fillMaxWidth(ep.progress).height(2.dp).background(c.mediaAccent)) }
             if (ep.played) Box(
                 Modifier.align(Alignment.TopEnd).padding(Sp.x6).size(18.dp)
                     .clip(RoundedCornerShape(R.pill)).background(c.ok),
@@ -1106,19 +1138,26 @@ private fun EpCard(
             ) { Icon(LpIcons.check, "已看完", Modifier.size(11.dp), tint = Color(0xFF062418)) }
         }
         Spacer(Modifier.height(Sp.x6))
-        Text(
-            "EP %02d".format(ep.episodeNo ?: (index + 1).toLong()),
-            color = if (current) c.acc else c.fg3, fontSize = 11.sp, lineHeight = 15.sp,
-            fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
-        )
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Text(
+                "EP %02d".format(ep.episodeNo ?: (index + 1).toLong()),
+                color = if (current || target) c.mediaIcon else c.fg3, fontSize = 11.sp, lineHeight = 15.sp,
+                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
+            )
+            if (current || target) Text(if (current) "当前集" else "待播放",
+                color = c.mediaIcon, fontSize = 11.sp, lineHeight = 15.sp)
+        }
         Text(
             ep.name, color = c.fg, fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
             lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
         Text(
-            if (ep.progress > 0f && ep.runtimeSecs > 0)
-                "还剩 ${fmtDur(ep.runtimeSecs - ep.resumeSecs)}"
-            else fmtDur(ep.runtimeSecs),
+            when {
+                ep.played -> "已看完"
+                ep.resumeSecs > 0 && ep.runtimeSecs > ep.resumeSecs -> "还剩 ${fmtDur(ep.runtimeSecs - ep.resumeSecs)}"
+                ep.resumeSecs > 0 -> "观看中"
+                else -> "未看"
+            } + if (ep.resumeSecs <= 0 && ep.runtimeSecs > 0) " · ${fmtDur(ep.runtimeSecs)}" else "",
             color = c.fg3, fontSize = 11.sp, lineHeight = 15.sp, maxLines = 1,
         )
     }
@@ -1140,6 +1179,7 @@ private fun LangDialog(
             langs.forEach { l ->
                 OptRow(
                     langCn(l) ?: l, { onPick(l) },
+                    media = true,
                     sub = streams.firstOrNull { it.lang == l }?.label,
                     selected = l == current,
                 )
@@ -1177,12 +1217,13 @@ private fun SubDialog(
                 OptRow(
                     st.label.ifBlank { langCn(st.lang) ?: "字幕轨 ${st.index}" },
                     { onPick(st.lang.orEmpty()) },
+                    media = true,
                     sub = st.langAndCodec + if (st.isExternal) " · 外挂" else "",
                     // 只有语言能落库,所以选中态也只能按语言判 —— 同语言的几条会一起亮
                     selected = !current.isNullOrEmpty() && st.lang == current,
                 )
             }
-            OptRow("不显示字幕", { onPick("") }, selected = current == "")
+            OptRow("不显示字幕", { onPick("") }, selected = current == "", media = true)
             Spacer(Modifier.height(Sp.x8))
             LpButton("关闭", onDismiss, Modifier.fillMaxWidth(),
                 xyz.linplayer.app.ui.components.BtnKind.Secondary)

@@ -2,6 +2,11 @@ package xyz.linplayer.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.selection.selectable
+import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,7 +21,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBars
@@ -100,6 +104,8 @@ fun LpScaffold(
 fun LpImmersive(
     m: Modifier = Modifier,
     bar: @Composable RowScope.() -> Unit = {},
+    barHeight: Dp = Dim.topBar,
+    barHorizontalPadding: Dp = Sp.x12,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
@@ -108,7 +114,7 @@ fun LpImmersive(
         Column(Modifier.fillMaxWidth()) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Row(
-                Modifier.fillMaxWidth().height(Dim.topBar).padding(horizontal = Sp.x12),
+                Modifier.fillMaxWidth().height(barHeight).padding(horizontal = barHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8),
             ) { bar() }
@@ -186,46 +192,38 @@ fun rememberScrolled(state: androidx.compose.foundation.lazy.grid.LazyGridState)
     return v
 }
 
-/**
- * 底栏三个 Tab。**只有三个**【用户定】—— 不加第四个。
- *
- * ★ **没有那条上边线**(草稿 01 第 4 条):改成从底色渐隐上来。
- *   轨道从它下面穿过去,滚动时是渐渐化掉,而不是被一条线切断。
- */
+/** 悬浮图标底栏。三个 Tab 保留独立返回栈，搜索为独立动作；外部空白不拦截页面触摸。 */
 @Composable
-fun LpTabBar(current: Int, onPick: (Int) -> Unit) {
+fun LpTabBar(current: Int, onSearch: () -> Unit, onPick: (Int) -> Unit) {
     val c = Lp.colors
     Column(
-        Modifier.fillMaxWidth().background(
-            Brush.verticalGradient(
-                0f to Color.Transparent, 0.42f to c.bg.copy(alpha = .92f), 1f to c.bg
-            )
-        )
+        Modifier.fillMaxWidth().padding(top = Sp.x6, bottom = Dim.tabFloatGap +
+            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()),
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Spacer(Modifier.height(Sp.x12))
         Row(
-            Modifier.fillMaxWidth().height(Dim.tabBar),
+            Modifier.width(Dim.tabWidth).height(Dim.tabBar)
+                .shadow(6.dp, RoundedCornerShape(R.pill))
+                .clip(RoundedCornerShape(R.pill)).background(c.mediaPanel)
+                .padding(horizontal = Sp.x6, vertical = 5.dp)
+                .selectableGroup().testTag("phone.tabs"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Tab("首页", if (current == 0) LpIcons.homeOn else LpIcons.home, current == 0,
+            Tab("首页", LpIcons.home, current == 0,
                 Modifier.weight(1f), badge("home")) { onPick(0) }
+            Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(R.pill))
+                .pressable(onSearch), contentAlignment = Alignment.Center) {
+                Icon(LpIcons.search, "搜索", Modifier.size(26.dp), tint = c.mediaIcon)
+            }
             Tab("聚合视界", LpIcons.globe, current == 1, Modifier.weight(1f), badge("aggregate")) { onPick(1) }
-            /* 第三格是**收藏**不是服务器【用户定 2026-09-12】。
-               服务器一台一台加完就不再动了,而收藏是每天要看「哪部更新了」的地方 ——
-               底栏只有三格,给一个用一次的入口是浪费。服务器挪去聚合页那排快捷入口。 */
-            Tab("收藏", if (current == 2) LpIcons.heartOn else LpIcons.heart, current == 2,
+            // 服务器管理仍在聚合页；第三个入口是日常使用的收藏。
+            Tab("收藏", LpIcons.star, current == 2,
                 Modifier.weight(1f), badge("favorites")) { onPick(2) }
         }
-        Spacer(Modifier.height(
-            WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
-        ))
     }
 }
 
-/**
- * 一个 Tab。选中态是**一颗琥珀药丸从图标底下长出来** + 图标弹一下。
- * ★ 弹簧用 bouncy:全站只有两处配得上它,Tab 切换是其中一处 —— 它是手指刚碰过的地方。
- */
+/** 图标保留可读名称及选中语义，圆底与轻微缩放提示当前页。 */
 @Composable
 private fun Tab(
     label: String,
@@ -237,33 +235,25 @@ private fun Tab(
 ) {
     val c = Lp.colors
     val z by animateFloatAsState(if (on) 1f else 0f, LpSpring.bouncy(), label = "tabOn")
-    Column(
-        m.fillMaxSize().pressable(onClick),
-        horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+    Box(
+        m.fillMaxSize().clip(RoundedCornerShape(R.pill))
+            .selectable(selected = on, role = Role.Tab, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Box(contentAlignment = Alignment.Center) {
-            // 药丸底:宽度跟着 z 长出来,不是显隐切换
-            Box(
-                Modifier.graphicsLayer { scaleX = z; alpha = z }
-                    .size(44.dp, 26.dp).clip(RoundedCornerShape(R.pill)).background(c.accDim)
-            )
-            Icon(
-                icon, label,
-                Modifier.size(21.dp).graphicsLayer { val s = 1f + z * .08f; scaleX = s; scaleY = s },
-                tint = if (on) c.acc else c.fg3,
-            )
-            if (badge != null) Text(
-                badge, color = Color.White, fontSize = 10.sp,
-                modifier = Modifier.align(Alignment.TopEnd).offset(x = 14.dp, y = (-8).dp)
-                    .clip(RoundedCornerShape(R.pill)).background(c.bad)
-                    .padding(horizontal = 6.dp, vertical = 1.dp),
-            )
-        }
-        Spacer(Modifier.height(3.dp))
-        Text(
-            label, color = if (on) c.acc else c.fg3, fontSize = 10.5.sp,
-            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
+        Box(
+            Modifier.graphicsLayer { scaleX = z; scaleY = z; alpha = z }
+                .size(Dim.tap).clip(RoundedCornerShape(R.pill)).background(c.mediaAccent)
+        )
+        Icon(
+            icon, label,
+            Modifier.size(28.dp).graphicsLayer { val s = 1f + z * .08f; scaleX = s; scaleY = s },
+            tint = if (on) c.mediaOnAccent else c.mediaIcon,
+        )
+        if (badge != null) Text(
+            badge, color = Color.White, fontSize = 10.sp,
+            modifier = Modifier.align(Alignment.TopEnd)
+                .clip(RoundedCornerShape(R.pill)).background(c.bad)
+                .padding(horizontal = 6.dp, vertical = 1.dp),
         )
     }
 }

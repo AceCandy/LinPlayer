@@ -1,0 +1,14 @@
+# 验证与交付
+
+- 手机LibraryPage去掉年份，剩更新日期/上映日期/名称/评分；对应PhoneLibraryUiTest 6项通过，Compose panel-dark截图亲自复核四项入口。UI_MOBILE同步。服务端ProductionYear保留其它客户端兼容。
+- PostgreSQL15合成movie/Series各4,000作品80,000文件，TestEmbyLibrarySortPlans旧实现红、改后绿。实际候选计划/文件访问/服务方法前后数据见research/plans.md；没有使用生产数据，不声称生产HTTP提速已验收。
+- 作品级日期oracle强化：并列文件日期与ID逆序、唯一日期/并列/NULL日期混合、NULL标题文件名称回退；双向、偏移、count开关、可见/隐藏库、收藏与完整payload对照通过。
+- 初次交叉回归20项中18项通过：两个失败分别为旧随机500页强求补批、临时PG默认Asia/Shanghai与既有UTC fixture期望不一致。随机用例改50页保留真实跨批检查；临时PG设UTC。失败项及新fixture再次执行通过，不修改无关日期测试期望。
+- 交叉通过：EmbyGlobalBatchMixedSourcesRefill、WebNFOFilteredBatchRefill、EmbyGlobalBrowseCandidateBatches、EmbySeasonCandidatesRefillBeforeDetails、HongGuoLibraryPagePlan、EmbyItemsCountModes、NFOLibraryPagePlans、EmbyRandomGlobalWithoutExternalCatalogs、EmbyRandomSortUsesSeed、EmbyLatestCandidatePlans、EmbySeriesDenseCountPlan、EmbySeriesPaginationDoesNotProbeFilesForWholeCatalog、EmbyWorkBatchContinuesAndCounts、EmbyWorkBatchError、EmbyMetadataWorkPageMatchesFileGrouping、EmbyFileDateSortQualifiesOnce、RecentLogicalWorksPreservesBatchTiesAndFilters、RecentHongGuoAlbumsAggregateOnce、RecentLogicalWorksRefillsWithDates、RecentLibraryMembershipAcrossSources。新增复验KnownMovieMembership、LibraryWorkTimeSort、3项MovieLibrary测试通过。HTTP OptionalTotal/ParseEmbyItemsParamsFields通过。
+- 两次只读审查已完成；首审误把无GROUP BY聚合空输入当零行。亲自SQL验证JOIN LATERAL SELECT MAX(...) WHERE FALSE仍保留候选一行NULL，unique Series实测120项；第二审无可触发问题。共享批次上限/三来源/小页补取均核验。后续不凭静态JOIN形式判断空聚合资格。
+- service/repository/handler go vet通过；Android参数262、字段202通过（240既有放行）；两仓git diff --check通过。
+- Android双ABI release构建通过；存在Compose stack trace mapping既有工具告警，构建/校验成功。最终APK与源包一致，13个so均匹配ABI，liblpcore/libmpv真实存在，整数MiB<=60，v2/v3验签成功。
+- 手机build/android/app-arm64-v8a-release.apk：63065304bytes，ELF183，SHA256 5c097ea421daa13094a5e5872fdda93ad585bb0051c3f5b4ec5e00b8584c4294。
+- TV build/android/app-tv-armeabi-v7a-release.apk：59372270bytes，ELF40，SHA256 73b84d3211c963edc2fc8e3f3d69b12ea9dbddc3cc8cc55ae18d8617f19e84d6。
+- 未验/边界：本轮真机交互、生产大库/HTTP耗时、更新后服务端联调与部署；混合电影库独立日期聚合未改，大量日期/年份空值或并列仍需要原文件时间计算，不保证同幅度提升。新APK只去掉年份，服务端性能优化须更新MediaStationGo后生效。
+- 不提交/推送/部署，保留前轮其它工作树。临时PG关闭并删除，临时日志清理；正式APK和截图在忽略的build目录保留。任务不执行会自动提交的归档/日志脚本。

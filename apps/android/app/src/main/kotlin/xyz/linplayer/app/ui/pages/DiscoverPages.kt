@@ -20,8 +20,6 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
@@ -30,7 +28,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.statusBars
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
@@ -73,13 +70,11 @@ import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
-import xyz.linplayer.app.ui.components.GlassIcon
-import xyz.linplayer.app.ui.components.LpImmersive
+import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.NetImage
-import xyz.linplayer.app.ui.components.ToneChip
+import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.glow
 import xyz.linplayer.app.ui.components.pressable
-import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -99,52 +94,10 @@ import xyz.linplayer.app.ui.theme.lpTween
  * ★ 榜单条目**不是本地库里的条目**:它的 id 是 TMDB / 弹弹Play 的 id,
  *   拿去开详情页必然 404。点击一律走**站内搜标题**。
  *
- * ★ 两页共用一套「辉光 + 大标题 + 无边框」的手法,**只有色相不同**
- *   (榜单金 / 日历紫)—— 它们在同一个 Tab 下,得能一眼分开又看得出是一家。
+ * 两页共用紧凑顶栏与蓝紫筛选，奖牌颜色仅用于表达榜单名次。
  */
 
 private val GOLD = Color(0xFFFFC94D)
-private val EMBER = Color(0xFFE0553F)
-private val VIOLET = Color(0xFF6D4BD1)
-
-/** 页面顶上那一块调子:渐变底 + 散在角上的辉光。**不铺一整层渐变** —— 那会闷。 */
-@Composable
-private fun ToneStage(hue: Color, second: Color?, content: @Composable () -> Unit) {
-    val c = Lp.colors
-    Box(
-        Modifier.fillMaxSize().background(
-            Brush.verticalGradient(
-                0.00f to hue.copy(alpha = .16f),
-                0.26f to hue.copy(alpha = .05f),
-                0.54f to c.bg,
-                1.00f to c.bg,
-            )
-        )
-    ) {
-        Box(Modifier.offset(x = (-70).dp, y = (-40).dp).size(250.dp).glow(hue, .34f))
-        if (second != null) Box(
-            Modifier.align(Alignment.TopEnd).offset(x = 90.dp, y = 60.dp).size(220.dp)
-                .glow(second, .30f)
-        )
-        content()
-    }
-}
-
-/** 大标题。**压在辉光上**,不放进顶栏 —— 顶栏那一行只留返回和一个入口。 */
-@Composable
-private fun BigTitle(text: String, sub: String? = null) {
-    val c = Lp.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)) {
-        Spacer(Modifier.height(
-            WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + Dim.topBar))
-        Text(text, color = c.fg, fontSize = 29.sp, fontWeight = FontWeight.Bold, lineHeight = 33.sp)
-        if (sub != null) {
-            Spacer(Modifier.height(Sp.x6))
-            Text(sub, color = c.fg2, fontSize = 12.sp)
-        }
-    }
-}
-
 // ---------------------------------------------------------------- 排行榜
 
 /** 一条榜单。字段名照 `core/ranking/ranking.go` 的 `Entry`。 */
@@ -200,6 +153,7 @@ fun RankingPage(nav: NavController) {
     var cur by remember { mutableStateOf<String?>(null) }
     var block by remember { mutableStateOf<Block<List<Rank>>>(Block.Loading) }
     var reload by remember { mutableStateOf(0) }
+    var rankReload by remember { mutableStateOf(0) }
 
     LaunchedEffect(reload) {
         cats = app.block("emby.rankingCategories").map { e ->
@@ -211,7 +165,7 @@ fun RankingPage(nav: NavController) {
         }
         cur = cats.valueOrNull?.firstOrNull()?.first
     }
-    LaunchedEffect(cur) {
+    LaunchedEffect(cur, rankReload) {
         val id = cur ?: return@LaunchedEffect
         block = Block.Loading
         block = when (val r = app.block("emby.rankingFetch", args("category_id" to id))) {
@@ -223,66 +177,33 @@ fun RankingPage(nav: NavController) {
 
     val open: (Rank) -> Unit = { nav.navigate(Route.Search(q = it.title)) }
 
-    LpImmersive(bar = {
-        GlassIcon(LpIcons.back, "返回") { nav.popBackStack() }
-        Spacer(Modifier.weight(1f))
-        GlassIcon(LpIcons.search, "搜索") { nav.navigate(Route.Search()) }
-    }) { pad ->
-        ToneStage(GOLD, EMBER) {
+    LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->
+        Column(Modifier.fillMaxSize()) {
             val cf = cats
             if (cf is Block.Fail && !cf.isSilent) {
-                Column {
-                    BigTitle("排行榜")
-                    // ★ 原样显示核心层那句话。**别替它改写成「没有凭据」** ——
-                    //   那正是把一个真错误藏起来的写法
-                    ErrorState(cf.message, { reload++ })
-                }
-                return@ToneStage
+                ErrorState(cf.message, { reload++ })
+                return@Column
             }
             val cs = cats.valueOrNull
             if (cs != null && cs.isEmpty()) {
-                Column {
-                    BigTitle("排行榜")
-                    EmptyState("这个版本没有可用的榜单",
-                        "榜单要靠弹弹Play / TMDB 的编译期凭据。本地构建里没有它们;" +
-                            "发行包里有,如果这里还是空的,那就是凭据没进这次构建。",
-                        LpIcons.trophy)
-                }
-                return@ToneStage
+                EmptyState("暂无可用榜单", "稍后再来看看。", LpIcons.trophy)
+                return@Column
             }
-            // 切榜单是**平级切换**:左右滑入,不做纵向位移
-            // ★ 动画规格在**外面**算好再传进去:transitionSpec 里不是 @Composable 上下文
-            val inFade = lpTween<Float>(T.T5)
-            val inSlide = lpTween<androidx.compose.ui.unit.IntOffset>(T.T6, LpEasing.emphasizedDecelerate)
-            val outFade = lpTween<Float>(T.T3)
+            if (cs != null) Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = Sp.x16, vertical = Sp.x8),
+                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
+            ) {
+                cs.forEach { (id, name) -> MediaFilterChip(name, id == cur) { cur = id } }
+            }
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-                item("title") { BigTitle("排行榜") }
-                item("chips") {
-                    if (cs != null && cs.size > 1) Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(horizontal = Sp.x16, vertical = Sp.x12),
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x8),
-                    ) {
-                        cs.forEach { (id, name) -> ToneChip(name, id == cur) { cur = id } }
-                    }
-                }
                 item("body") {
-                    AnimatedContent(
-                        targetState = block,
-                        transitionSpec = {
-                            (fadeIn(inFade) + slideInHorizontally(inSlide) { it / 12 }) togetherWith
-                                fadeOut(outFade)
-                        },
-                        label = "rank",
-                    ) { b ->
-                        BlockBox(b, { cur = cur }) { rows ->
-                            if (rows.isEmpty()) EmptyState("暂无榜单数据", "这个榜单现在是空的。",
-                                LpIcons.trophy)
-                            else Column {
-                                if (rows.size >= 3) Podium(rows.take(3), open)
-                                rows.drop(if (rows.size >= 3) 3 else 0)
-                                    .forEachIndexed { i, r -> RankRow(r, i, open) }
-                            }
+                    BlockBox(block, { rankReload++ }) { rows ->
+                        if (rows.isEmpty()) EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
+                        else Column {
+                            if (rows.size >= 3) Podium(rows.take(3), open)
+                            rows.drop(if (rows.size >= 3) 3 else 0)
+                                .forEachIndexed { i, r -> RankRow(r, i, open) }
                         }
                     }
                 }
@@ -352,7 +273,7 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
             maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp,
         )
         r.rating?.takeIf { it > 0 }?.let {
-            Text("%.1f".format(it), color = c.acc, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("%.1f".format(it), color = c.mediaIcon, fontSize = 12.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -360,7 +281,7 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
 /**
  * 榜单一行。
  * ★ **零分隔线**:奇数行一层从左往右淡出的白 5% —— 斑马纹用渐变做,右侧自然消失。
- * ★ 4 名以后名次**越靠后越淡**:信息权重直接写进颜色里。
+ * ★ 排名使用次级文字色，保证深浅主题可读。
  * ★ 逐条错开 24ms 上浮进场,**只在首次组合时跑一次**。
  */
 @Composable
@@ -372,8 +293,6 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
     }
     val a by animateFloatAsState(
         if (shown) 1f else 0f, lpTween(T.T5, LpEasing.emphasizedDecelerate), label = "rowIn")
-    // 名次越靠后越淡,到第 20 名收在 12%
-    val fade = (0.30f - index * 0.009f).coerceAtLeast(0.12f)
 
     Row(
         Modifier.fillMaxWidth()
@@ -381,7 +300,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
             .then(
                 if (index % 2 == 0) Modifier.background(
                     Brush.horizontalGradient(
-                        0f to Color.White.copy(alpha = .05f),
+                        0f to c.s1,
                         0.82f to Color.Transparent,
                     )
                 ) else Modifier
@@ -391,7 +310,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
     ) {
         Text(
             r.rank.toString(), Modifier.width(34.dp),
-            color = c.fg.copy(alpha = fade), fontSize = 19.sp, fontWeight = FontWeight.Black,
+            color = c.fg2, fontSize = 19.sp, fontWeight = FontWeight.Black,
         )
         NetImage(r.image, null, Modifier.size(56.dp, 84.dp), 10.dp)
         Spacer(Modifier.width(Sp.x12))
@@ -400,7 +319,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
             r.subtitle?.let { Dim3(it, Modifier.padding(top = 2.dp)) }
         }
         r.rating?.takeIf { it > 0 }?.let {
-            Text("%.1f".format(it), color = c.acc, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("%.1f".format(it), color = c.mediaIcon, fontSize = 14.sp, fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -453,15 +372,17 @@ private fun CalendarBody(nav: NavController) {
     // 默认落在今天。java.time 的 DayOfWeek 就是 1=周一,和核心层同口径
     val today = java.time.LocalDate.now().dayOfWeek.value
     var day by remember { mutableStateOf(today) }
+    var reload by remember { mutableStateOf(0) }
 
     LaunchedEffect(Unit) {
         sponsorUrl = runCatching { app.call("system.afdianSponsorUrl") }
             .getOrNull().obj().str("url")
         unlocked = calendarUnlocked(app)
     }
-    LaunchedEffect(unlocked) {
+    LaunchedEffect(unlocked, reload) {
         // 未解锁**连数据都不拉**(D200):拉了再盖一层门,等于白花一次上游配额
         if (unlocked != true) return@LaunchedEffect
+        all = Block.Loading
         all = when (val r = app.block("sync.bangumiCalendar")) {
             is Block.Ok -> Block.Ok(
                 r.value.arr().mapNotNull {
@@ -497,18 +418,17 @@ private fun CalendarBody(nav: NavController) {
         all = Block.Ok(rows.mapIndexed { i, a -> a.copy(hit = hits[i.toString()].obj()) })
     }
 
-    LpImmersive(bar = {
-        GlassIcon(LpIcons.back, "返回") { nav.popBackStack() }
-        Spacer(Modifier.weight(1f))
-    }) { pad ->
-        ToneStage(VIOLET, null) {
+    LpScaffold("追剧日历", onBack = { nav.popBackStack() }) { pad ->
+        Box(Modifier.fillMaxSize()) {
             if (unlocked == false) {
                 CalendarGate(sponsorUrl) { unlocked = true }
-                return@ToneStage
+                return@Box
             }
-            BlockBox(all, null) { rows ->
+            BlockBox(all, { reload++ }) { rows ->
                 Column(Modifier.fillMaxSize()) {
-                    BigTitle("追剧日历", "本周 ${rows.size} 集")
+                    Text("本周 ${rows.size} 集 · 按放送日期查看",
+                        Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
+                        color = Lp.colors.fg2, fontSize = 12.sp)
                     WeekBar(day, today, rows.groupingBy { it.weekday }.eachCount()) { day = it }
 
                     val dIn = lpTween<androidx.compose.ui.unit.IntOffset>(
@@ -537,7 +457,7 @@ private fun CalendarBody(nav: NavController) {
 }
 
 /**
- * 周条:**七颗胶囊**,今天/选中那颗是琥珀渐变。
+ * 周条:**七颗胶囊**,今天有文字标记，选中使用蓝紫底色。
  * ★ 上一稿是七个圆角方块 —— 方块并排 = 表格感。
  * ★ 那天 0 部画一个点,**不写「0」** —— 写 0 会被读成「今天停播」。
  */
@@ -556,7 +476,7 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
                 Modifier.weight(1f).clip(RoundedCornerShape(R.pill))
                     .then(
                         if (on) Modifier.background(
-                            Brush.verticalGradient(listOf(c.acc, Color(0xFFD98A12)))
+                            c.mediaAccent
                         ) else Modifier.background(c.s1)
                     )
                     .pressable({ onPick(d) })
@@ -564,20 +484,20 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
                 Text(
-                    weekLabels[d - 1],
-                    color = if (on) c.accFg else if (d == today) c.acc else c.fg2,
+                    if (d == today) "今" else weekLabels[d - 1],
+                    color = if (on) c.mediaOnAccent else if (d == today) c.mediaIcon else c.fg2,
                     fontSize = 11.sp,
                 )
                 Text(
                     "%02d".format(monday.plusDays((d - 1).toLong()).dayOfMonth),
-                    color = if (on) c.accFg else c.fg, fontSize = 15.sp,
+                    color = if (on) c.mediaOnAccent else c.fg, fontSize = 15.sp,
                     fontWeight = FontWeight.Bold,
                     modifier = Modifier.graphicsLayer { val s = 1f + z * .06f; scaleX = s; scaleY = s },
                 )
                 val n = counts[d] ?: 0
                 Text(
                     if (n > 0) n.toString() else "—",
-                    color = (if (on) c.accFg else c.fg3).copy(alpha = if (n > 0) .85f else .5f),
+                    color = (if (on) c.mediaOnAccent else c.fg3).copy(alpha = if (n > 0) .85f else .5f),
                     fontSize = 10.sp,
                 )
             }
@@ -635,7 +555,7 @@ private fun Slot(hhmm: String, list: List<Air>, isNext: Boolean, now: java.time.
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                hhmm, color = if (isNext) c.acc else c.fg2, fontSize = 13.sp,
+                hhmm, color = if (isNext) c.mediaIcon else c.fg2, fontSize = 13.sp,
                 fontWeight = if (isNext) FontWeight.Bold else FontWeight.Medium,
                 textAlign = TextAlign.Center,
             )
@@ -646,11 +566,11 @@ private fun Slot(hhmm: String, list: List<Air>, isNext: Boolean, now: java.time.
                     Modifier.size(26.dp).graphicsLayer {
                         val s = 0.3f + p * 0.7f
                         scaleX = s; scaleY = s; alpha = (1f - p) * 0.55f
-                    }.clip(RoundedCornerShape(R.pill)).background(c.acc)
+                    }.clip(RoundedCornerShape(R.pill)).background(c.mediaAccent)
                 )
                 Box(
                     Modifier.size(8.dp).clip(RoundedCornerShape(R.pill))
-                        .background(if (isNext) c.acc else c.line2)
+                        .background(if (isNext) c.mediaAccent else c.line2)
                 )
             }
             // 节点往下那道**渐隐的光**:从强到无。时段之间不画横线 —— 线自己淡完就是分界
@@ -658,7 +578,7 @@ private fun Slot(hhmm: String, list: List<Air>, isNext: Boolean, now: java.time.
                 Modifier.width(2.dp).weight(1f).background(
                     Brush.verticalGradient(
                         listOf(
-                            (if (isNext) c.acc else c.fg2).copy(alpha = .55f),
+                            (if (isNext) c.mediaAccent else c.fg2).copy(alpha = .55f),
                             Color.Transparent,
                         )
                     )
@@ -702,27 +622,31 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
                 Text(
                     label,
                     Modifier.clip(RoundedCornerShape(R.pill))
-                        .background(if (soon) c.accDim else c.ok.copy(alpha = .18f))
+                        .background(if (soon) c.mediaAccent.copy(alpha = .12f) else c.ok.copy(alpha = .18f))
                         .padding(horizontal = Sp.x8, vertical = 2.dp),
-                    color = if (soon) c.acc else c.ok, fontSize = 10.5.sp,
+                    color = if (soon) c.mediaIcon else c.ok, fontSize = 10.5.sp,
                 )
             }
+            Spacer(Modifier.height(Sp.x6))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                // 已在 Emby 媒体库里:这一集入库了「可播」点了直接播,只有剧入库「已入库」点了进详情(D366)
+                a.hit?.let { h ->
+                    val playable = h.bool("playable")
+                    Text(if (playable) "可播" else "已入库",
+                        Modifier.padding(end = Sp.x6).clip(RoundedCornerShape(R.pill)).background(c.mediaAccent.copy(alpha = .12f))
+                            .pressable({
+                                if (playable) nav?.navigate(xyz.linplayer.app.ui.Route.Player(h.str("item_id") ?: "", a.title))
+                                else nav?.navigate(xyz.linplayer.app.ui.Route.Detail(h.str("series_id") ?: h.str("item_id") ?: "", "Series"))
+                            }).padding(horizontal = Sp.x8, vertical = 2.dp),
+                        color = c.mediaIcon, fontSize = 10.5.sp)
+                }
+                a.rating?.takeIf { it > 0 }?.let {
+                    Text("%.1f".format(it), Modifier.padding(end = Sp.x6), color = c.mediaIcon,
+                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                }
+            }
         }
-        // 已在 Emby 媒体库里:这一集入库了「可播」点了直接播,只有剧入库「已入库」点了进详情(D366)
-        a.hit?.let { h ->
-            val playable = h.bool("playable")
-            Text(if (playable) "可播" else "已入库",
-                Modifier.padding(end = Sp.x6).clip(RoundedCornerShape(R.pill)).background(c.accDim)
-                    .pressable({
-                        if (playable) nav?.navigate(xyz.linplayer.app.ui.Route.Player(h.str("item_id") ?: "", a.title))
-                        else nav?.navigate(xyz.linplayer.app.ui.Route.Detail(h.str("series_id") ?: h.str("item_id") ?: "", "Series"))
-                    }).padding(horizontal = Sp.x8, vertical = 2.dp),
-                color = c.acc, fontSize = 10.5.sp)
-        }
-        a.rating?.takeIf { it > 0 }?.let {
-            Text("%.1f".format(it), Modifier.padding(end = Sp.x6), color = c.acc,
-                fontSize = 13.sp, fontWeight = FontWeight.Bold)
-        }
+
     }
 }
 

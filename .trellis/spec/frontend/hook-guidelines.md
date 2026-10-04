@@ -7,6 +7,7 @@
 - Compose 进入页面的任务使用合适 key 的 LaunchedEffect；需要资源清理时用 DisposableEffect。用户点击触发的协程使用受管理作用域。
 - 仅属于当前页面的任务不得放进进程级作用域；长期监听明确拥有者和停止条件。
 - Avalonia 通过 CoreClient 的 CancellationToken 与页面有效性判定安排请求，UI 更新经 Dispatcher.UIThread。
+- 手机与 TV 的整季选集复用 `AppState.seasonEpisodes`，按服务端总数/空页终止，不把默认第一页或短页当作完整季。详情通过逐页累计快照先显示首批，加载状态与已有项分开；重试从已有项之后续取，回调前检查取消。TV 初始季请求还负责确定主播放目标，切季只替换分集行；取消留下的缓存加载态在返回页面时继续取完。目标加载失败必须能独立重试。
 - 测试必须给旧请求完成的机会，再断言它未改写新状态；不能在清理已使候选集为空后得到假绿。
 
 代表路径：[手机媒体库](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/LibraryPage.kt)、[手机详情](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/DetailPage.kt)、[桌面媒体库](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面核心接入](../../../apps/windows/LinPlayer.Desktop/Core/CoreClient.cs)。

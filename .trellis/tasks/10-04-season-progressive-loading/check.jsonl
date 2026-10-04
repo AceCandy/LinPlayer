@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "取消及分页"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "真实页面与焦点回归"}
+{"file": ".trellis/spec/shared/build-release.md", "reason": "出包与验签"}
+{"file": "docs/go-migration/UI_MOBILE.md", "reason": "手机详情交互"}
+{"file": "docs/go-migration/UI_TV.md", "reason": "主播放目标与焦点"}

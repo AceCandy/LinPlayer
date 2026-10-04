@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "手机主题与平台边界"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "组件复用"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "渲染与验证"}

@@ -5,6 +5,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
+import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
@@ -21,6 +22,15 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
+import androidx.compose.ui.input.nestedscroll.NestedScrollSource
+import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.toRoute
+import xyz.linplayer.app.ui.theme.lpTween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -146,6 +156,30 @@ private fun MainShell() {
         else -> -1
     }
 
+    val browsePage = entry != null && entry?.destination?.hasRoute<Route.Player>() != true &&
+        entry?.destination?.hasRoute<Route.AddServer>() != true
+    var activeTab by rememberSaveable { mutableStateOf(0) }
+    LaunchedEffect(tab) { if (tab >= 0) activeTab = tab }
+    var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
+    val threshold = with(LocalDensity.current) { 24.dp.toPx() }
+    val scroll = remember(entry?.id, threshold) {
+        object : NestedScrollConnection {
+            var travel = 0f
+            override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                if (source != NestedScrollSource.UserInput) return Offset.Zero
+                val dy = consumed.y + available.y
+                if (dy == 0f || kotlin.math.abs(consumed.x + available.x) > kotlin.math.abs(dy)) return Offset.Zero
+                if (travel * dy < 0) travel = 0f
+                travel += dy
+                if (kotlin.math.abs(travel) >= threshold) {
+                    tabsVisible = travel > 0
+                    travel = 0f
+                }
+                return Offset.Zero
+            }
+        }
+    }
+
     /* 真机自检直达:`am start ... -e lp_page <名字>`。
        ★ 不能靠 input tap 走到目标页 —— 坐标随字号 / 数据变,而且中间任何一步
          没点中,后面全错位;截图看起来还像是「那一页做坏了」。 */
@@ -188,11 +222,11 @@ private fun MainShell() {
        代价是每个列表都得自己留白,所以底栏高度走 LocalTabClearance 下发。 */
     androidx.compose.runtime.CompositionLocalProvider(
         xyz.linplayer.app.ui.components.LocalTabClearance provides
-            if (tab >= 0) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp
+            if (browsePage) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().nestedScroll(scroll)) {
             NavHost(
                 navController = nav,
                 startDestination = Route.Home,
@@ -253,11 +287,22 @@ private fun MainShell() {
         /* 播放页是全屏页,没有底栏。
            ☠ 截长屏时底栏必须让开:长图是一片片切出来拼的,底栏留着的话
              它会**在每一片里各印一条**,一路排下来像出了什么故障。 */
-        if (tab >= 0 && !xyz.linplayer.app.ui.components.LongShot.capturing.value) {
-            Box(Modifier.align(Alignment.BottomCenter)) {
-                LpTabBar(tab) {
-                    nav.switchTab(when (it) { 0 -> Route.Home; 1 -> Route.Aggregate; else -> Route.Favorites })
+        AnimatedVisibility(
+            visible = browsePage && tabsVisible && !xyz.linplayer.app.ui.components.LongShot.capturing.value,
+            modifier = Modifier.align(Alignment.BottomCenter),
+            enter = slideInVertically(lpTween(T.T4)) { it } + fadeIn(lpTween(T.T4)),
+            exit = slideOutVertically(lpTween(T.T3)) { it } + fadeOut(lpTween(T.T3)),
+        ) {
+            LpTabBar(if (tab >= 0) tab else activeTab, onSearch = {
+                if (entry?.destination?.hasRoute<Route.Search>() != true) {
+                    val viewId = if (entry?.destination?.hasRoute<Route.Library>() == true)
+                        entry?.toRoute<Route.Library>()?.viewId else null
+                    nav.navigate(Route.Search(viewId)) { launchSingleTop = true }
                 }
+            }) { picked ->
+                val target = when (picked) { 0 -> Route.Home; 1 -> Route.Aggregate; else -> Route.Favorites }
+                if (picked == activeTab && tab < 0) nav.popBackStack(target, inclusive = false)
+                else { activeTab = picked; nav.switchTab(target) }
             }
         }
         LongShotButton(Modifier.align(Alignment.BottomEnd))

@@ -17,12 +17,10 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 
@@ -41,6 +39,13 @@ data class LpColors(
     /** 叠在画面上的玻璃底。**写死色号必须带 alpha** —— 不透明的一律进上面那些 token */
     val chip: Color,
     val isDark: Boolean,
+    /** 手机媒体卡片与悬浮导航的蓝紫色，与播放页强调色分开。 */
+    val mediaAccent: Color = Color(0xFF344B88),
+    val mediaOnAccent: Color = Color(0xFFE2E6FF),
+    val mediaPanel: Color = Color(0xED25272E),
+    val mediaIcon: Color = Color(0xFFC5CAE9),
+    val mediaRating: Color = Color(0xFFCACDE9),
+    val mediaRatingInk: Color = Color(0xFF202333),
 )
 
 /*
@@ -73,6 +78,7 @@ internal var LightColors = LpColors(
     acc = Color(0xFF8A5A00), accDim = Color(0x1F8A5A00), accFg = Color(0xFFFFFBF2),
     ok = Color(0xFF1F7A55), warn = Color(0xFF8A5A00), bad = Color(0xFFC7554E),
     scrim = Color(0xB3FAF7FC), chip = Color(0xC7FFFFFF), isDark = false,
+    mediaPanel = Color(0xEDF1F2FA), mediaIcon = Color(0xFF424F82),
 )
 
 /** 间距刻度。**允许的值只有这些** */
@@ -97,29 +103,17 @@ object R {
 /** 固定尺寸。超过 48 的偏移不许写字面数字,抽成这里的具名常量 */
 object Dim {
     val topBar = 52.dp
-    val tabBar = 58.dp
+    val tabBar = 64.dp
+    val tabWidth = 240.dp
+    val tabFloatGap = 32.dp
     val tap = 48.dp
     val hairline = 1.dp
     /* 草稿里那几块「铺到屏幕顶」的图。它们不是间距,是**版面高度**,
-       所以抽成具名常量 —— 改了 Hero 高度而没改让位高度的话,底下第一条轨会被压住。 */
-    val coverLib = 212.dp    // 媒体库库头(草稿 02)
+       所以抽成具名常量 —— 改了封面高度而没改让位高度的话,底下第一条轨会被压住。 */
     val coverDetail = 236.dp // 剧/影详情页背景图(草稿 03)
 
-    /** 底栏总高:三个 Tab + 手势条。**内容从它下面穿过去**,所以列表要按它留白。 */
-    val tabClearance = 76.dp
-}
-
-/**
- * 首页 Hero 的高度【用户定 2026-09-07:「占首屏的比例有点低,可以做大一点」】。
- *
- * ☠ **写成屏高的比例,不写死 dp。** 原来是固定 392dp —— 在 5 寸小屏上那已经过了半屏,
- *   在 6.7 寸长屏上却只有三分之一。同一个数字在两台机器上是两种版面。
- * ★ 上下都夹一下:再小也得放得下艺术字,再大也不能把下面那条轨整个推出首屏。
- */
-@Composable
-fun heroHeight(): Dp {
-    val h = LocalConfiguration.current.screenHeightDp
-    return (h * 0.62f).dp.coerceIn(380.dp, 620.dp)
+    /** 悬浮栏及上下间距；系统导航条由页面安全区另外计入。 */
+    val tabClearance = tabBar + tabFloatGap + 6.dp
 }
 
 val LocalLpColors = staticCompositionLocalOf { DarkColors }

@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "最小修改与真实回归"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "手机与 TV 约束"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "取消与旧响应隔离"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "Android 渲染与焦点回归"}

@@ -58,6 +58,8 @@ object LpIcons {
     val list = stroke("list", "M8 6h13M8 12h13M8 18h13M3.6 5.4v1.2M3.6 11.4v1.2M3.6 17.4v1.2")
     val grid = stroke("grid", "M3.5 5.1a1.6 1.6 0 0 1 1.6-1.6h3.8a1.6 1.6 0 0 1 1.6 1.6v3.8a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6zM13.5 5.1a1.6 1.6 0 0 1 1.6-1.6h3.8a1.6 1.6 0 0 1 1.6 1.6v3.8a1.6 1.6 0 0 1-1.6 1.6h-3.8a1.6 1.6 0 0 1-1.6-1.6zM3.5 15.1a1.6 1.6 0 0 1 1.6-1.6h3.8a1.6 1.6 0 0 1 1.6 1.6v3.8a1.6 1.6 0 0 1-1.6 1.6H5.1a1.6 1.6 0 0 1-1.6-1.6zM13.5 15.1a1.6 1.6 0 0 1 1.6-1.6h3.8a1.6 1.6 0 0 1 1.6 1.6v3.8a1.6 1.6 0 0 1-1.6 1.6h-3.8a1.6 1.6 0 0 1-1.6-1.6z")
     val filter = stroke("filter", "M3 6h18M6.5 12h11M10 18h4")
+    val sortLines = stroke("sortLines", "M3 6h18M3 12h12M3 18h6")
+    val arrowDown = stroke("arrowDown", "M12 3v18m-7-7 7 7 7-7")
     val sort = stroke("sort", "M7 4v16M7 20l-3.2-3.2M7 20l3.2-3.2M17 20V4M17 4l-3.2 3.2M17 4l3.2 3.2")
     val rewind = fill("rewind", "M11 6 4 12l7 6zM20 6l-7 6 7 6z")
     val forward = fill("forward", "m13 6 7 6-7 6zM4 6l7 6-7 6z")

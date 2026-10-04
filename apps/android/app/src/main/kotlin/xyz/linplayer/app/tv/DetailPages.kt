@@ -31,6 +31,7 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.graphics.Color
@@ -41,6 +42,9 @@ import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Surface
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.Account
@@ -413,34 +417,89 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     val ck = "tv.series.$id.${app.session.value?.server}"
     var seasons by keepState<List<Season>?>("$ck.seasons") { null }
     var season by keepState<Season?>("$ck.season") { null }
-    var episodes by keepState<Block<List<Item>>>("$ck.eps") { Block.Loading }
+    var episodes by keepState<List<Item>>("$ck.episodeItems") { emptyList() }
+    var episodeLoad by keepState<Block<Unit>>("$ck.episodeLoad") { Block.Loading }
+    var episodeTotal by keepState<Long?>("$ck.episodeTotal") { null }
+    var targetParent by keepState<String?>("$ck.targetParent") { null }
+    var targetEpisodes by keepState<List<Item>>("$ck.targetEpisodes") { emptyList() }
+    var targetError by keepState<Block.Fail?>("$ck.targetError") { null }
+    var retryingTarget by remember { mutableStateOf(false) }
+    var resumedId by keepState<String?>("$ck.resumedId") { null }
     var target by keepState<Item?>("$ck.target") { null }
     var similar by keepState<List<Item>>("$ck.sim") { emptyList() }
     var dl by remember { mutableStateOf(false) }
 
-    suspend fun loadEpisodes(parent: String): List<Item> {
-        val b = try { Block.Ok(app.seasonEpisodes(parent)) }
-            catch (e: kotlinx.coroutines.CancellationException) { throw e }
-            catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
-            catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "分集加载失败") }
-        episodes = b
-        return b.valueOrNull.orEmpty()
+    val episodeScope = rememberCoroutineScope()
+    var episodeJob by remember { mutableStateOf<Job?>(null) }
+    var episodeGeneration by remember { mutableStateOf(0) }
+    var retryingEpisodes by remember { mutableStateOf(false) }
+
+    suspend fun loadEpisodes(parent: String, generation: Int, loaded: List<Item> = emptyList()) {
+        fun isSelected() = generation == episodeGeneration && parent == (season?.id ?: id)
+        val result = try {
+            val all = app.seasonEpisodes(parent, loaded) { items, total ->
+                if (parent == targetParent && target == null) targetEpisodes = items
+                if (isSelected()) {
+                    episodes = items
+                    episodeTotal = total
+                }
+            }
+            // 初始季决定主播放目标；手选其它季或重试不能把目标换到浏览季。
+            if (parent == targetParent && target == null) {
+                target = all.firstOrNull { it.id == resumedId } ?: all.firstOrNull { it.resumeSecs > 0 }
+                    ?: all.firstOrNull { !it.played } ?: all.firstOrNull()
+            }
+            Block.Ok(Unit)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
+          catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "分集加载失败") }
+        currentCoroutineContext().ensureActive()
+        if (isSelected()) episodeLoad = result
+        if (parent == targetParent) {
+            targetError = (result as? Block.Fail).takeIf { target == null }
+            retryingTarget = false
+        }
     }
     LaunchedEffect(id) {
         launch { similar = Item.list(app.block("emby.similarItems", args("item_id" to id, "limit" to 20)).valueOrNull) }
         launch { dl = canDownload(app) }
-        if (seasons != null) return@LaunchedEffect
+        if (seasons != null && target != null) {
+            if (episodeLoad is Block.Loading) {
+                val parent = season?.id ?: id
+                val generation = episodeGeneration
+                episodeJob = launch { loadEpisodes(parent, generation, episodes) }
+            }
+            return@LaunchedEffect
+        }
         val ss = seasonsOf(app.block("emby.seriesSeasons", args("series_id" to id)).valueOrNull)
         val resumed = Item.list(app.block("emby.listResume", args("limit" to 50)).valueOrNull).firstOrNull { it.seriesId == id }
         // 默认选中主按钮**目标集所在的季**【用户定 2026-09-14】:看了一半的 → 第一个没看完的季 → 第一季
         val s = ss.firstOrNull { resumed != null && it.index == resumed.seasonNo }
             ?: ss.firstOrNull { it.unplayed > 0 } ?: ss.firstOrNull()
-        seasons = ss
-        season = s
+        val defaultParent = s?.id ?: id
+        if (targetParent != defaultParent) targetEpisodes = emptyList()
+        targetParent = defaultParent
+        resumedId = resumed?.id
+        if (seasons == null) {
+            seasons = ss
+            season = s
+        }
+        val parent = season?.id ?: id
+        val generation = episodeGeneration
+        if (parent != targetParent && episodeLoad is Block.Loading) {
+            episodeJob = launch { loadEpisodes(parent, generation, episodes) }
+        }
         // ☠ 季列表可能为空(有些剧集直接挂剧下)→ 拿 series id 当 parent;不回落 =「点进去一集都没有」且不报错
-        val eps = loadEpisodes(s?.id ?: id)
-        target = eps.firstOrNull { it.id == resumed?.id } ?: eps.firstOrNull { it.resumeSecs > 0 }
-            ?: eps.firstOrNull { !it.played } ?: eps.firstOrNull()
+        loadEpisodes(defaultParent, generation, if (parent == defaultParent) episodes else targetEpisodes)
+    }
+    val focusMemory = LocalFocusMemory.current
+    LaunchedEffect(episodeLoad) {
+        // 重试按钮消失时才转交焦点；用户已移走焦点则不干预。
+        if (episodeLoad is Block.Ok && focusMemory.key == "detail.episodes.retry") {
+            val key = episodes.firstOrNull { focusMemory.requesters.containsKey("detail.ep.${it.id}") }
+                ?.let { "detail.ep.${it.id}" } ?: "detail.play"
+            focusMemory.requesters[key]?.requestFocus()
+        }
     }
 
     val tg = target
@@ -451,17 +510,34 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     val epTag = tg?.let { "S${it.seasonNo ?: 1}E${it.episodeNo ?: 1}" }
 
     Column(Modifier.padding(horizontal = TvDim.safeH)) {
-        DetailHead(d, meta, overlay = overlay, lines = 3)
+        DetailHead(d, meta, overlay = overlay, lines = 2)
         Spacer(Modifier.height(TvSp.x16))
         Anchored(PluginAnchors.DETAIL_ACTIONS) {
         Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
             // 主按钮上写明是哪一集:那是用户按播放时唯一想知道的事
             TvButton(when {
+                tg == null && retryingTarget -> "正在加载…"
+                tg == null && targetError != null -> "重试播放目标"
                 tg == null -> "播放"
                 tg.resumeSecs > 0 -> "继续 $epTag"
                 else -> "播放 $epTag"
-            }, LpIcons.play, primary = true, enabled = tg != null, modifier = Modifier.memo("detail.play", initial = true), onClick = {
-                tg?.let { nav.push(TvRoute.Player(it.id, cardTitleOf(it))) }
+            }, LpIcons.play, primary = true, enabled = tg != null || targetError != null || retryingTarget,
+                modifier = Modifier.memo("detail.play", initial = true), onClick = {
+                if (tg != null) nav.push(TvRoute.Player(tg.id, cardTitleOf(tg)))
+                else if (targetError != null) {
+                    val parent = targetParent ?: return@TvButton
+                    targetError = null
+                    retryingTarget = true
+                    val selected = parent == (season?.id ?: id)
+                    if (selected) {
+                        episodeJob?.cancel()
+                        episodeGeneration++
+                        episodeLoad = Block.Loading
+                    }
+                    val generation = if (selected) episodeGeneration else -1
+                    // 播放目标重试与初始加载一样独立于浏览季，切季只淘汰它的列表写回。
+                    episodeScope.launch { loadEpisodes(parent, generation, targetEpisodes) }
+                }
             })
             // 「继续」和「从头」必须并列显式给出:PC 上藏在右键里,TV 没有右键
             if (tg != null && tg.resumeSecs > 0) TvButton("从头播放", LpIcons.refresh, modifier = Modifier.memo("detail.restart"),
@@ -489,6 +565,9 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
                 }
             })
         }
+        // 固定中文标签预留行高，目标迟到时不向下推动分集行。
+        TvText(tg?.let { "播放目标 · $epTag · ${it.name}" } ?: "播放目标 · —", tvType.meta, TvC.fg2,
+            Modifier.padding(top = TvSp.x6).testTag("detail.play.target"))
         }
         val ss = seasons.orEmpty()
         Anchored(PluginAnchors.DETAIL_SEASONS) {
@@ -497,8 +576,15 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
             // 切季**只换分集行**,上半屏不动(整页重画会丢焦点)
             ScopeChips(ss.map { it.name }, ss.indexOfFirst { it.id == season?.id },
                 itemModifier = { i -> Modifier.memo("season.${ss[i].id}") }, onSelect = { i ->
+                    episodeJob?.cancel()
+                    episodeGeneration++
                     season = ss[i]
-                    scope.launch { loadEpisodes(ss[i].id) }
+                    episodes = emptyList()
+                    episodeTotal = null
+                    retryingEpisodes = false
+                    episodeLoad = Block.Loading
+                    val generation = episodeGeneration
+                    episodeJob = episodeScope.launch { loadEpisodes(ss[i].id, generation) }
                 })
         }
         }
@@ -506,14 +592,33 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     }
     // 分集行是满幅的,插件块得自己吃安全边距,否则它顶到屏幕边上(电视会切掉)
     Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = TvDim.safeH)) {
-        when (val e = episodes) {
-            is Block.Loading -> Row(Modifier.padding(start = TvDim.safeH), horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
-                repeat(5) { Skel(Modifier.size(TvDim.epW, TvDim.epH)) }
+        if (episodes.isNotEmpty()) EpisodeCards(episodes, currentId = null, targetId = tg?.id, keyPrefix = "detail.ep",
+            onOpen = { nav.push(TvRoute.Episode(it.id)) },
+            onMenu = { item -> overlay.openCardMenu(app, nav, scope, item) })
+        Column(Modifier.padding(horizontal = TvDim.safeH), verticalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+            when (val load = episodeLoad) {
+                is Block.Loading -> {
+                    TvText("正在加载分集… 已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: ""), tvType.body, TvC.fg2)
+                    if (episodes.isEmpty()) Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
+                        repeat(5) { Skel(Modifier.size(TvDim.epW, TvDim.epH)) }
+                    }
+                }
+                is Block.Fail -> xyz.linplayer.app.tv.kit.InlineError(load.message)
+                is Block.Ok -> if (episodes.isEmpty()) TvText("本季暂无分集", tvType.body, TvC.fg2)
             }
-            is Block.Fail -> xyz.linplayer.app.tv.kit.InlineError(e.message, Modifier.padding(start = TvDim.safeH))
-            is Block.Ok -> EpisodeCards(e.value, currentId = null, targetId = tg?.id, keyPrefix = "detail.ep",
-                onOpen = { nav.push(TvRoute.Episode(it.id)) },
-                onMenu = { item -> overlay.openCardMenu(app, nav, scope, item) })
+            if (episodeLoad is Block.Fail || (retryingEpisodes && episodeLoad is Block.Loading)) {
+                TvButton(if (episodeLoad is Block.Loading) "正在重试…" else "重试",
+                    modifier = Modifier.memo("detail.episodes.retry"), onClick = {
+                        if (episodeLoad !is Block.Fail) return@TvButton
+                        episodeJob?.cancel()
+                        episodeGeneration++
+                        retryingEpisodes = true
+                        episodeLoad = Block.Loading
+                        val parent = season?.id ?: id
+                        val generation = episodeGeneration
+                        episodeJob = episodeScope.launch { loadEpisodes(parent, generation, episodes) }
+                    })
+            }
         }
     }
     Anchored(PluginAnchors.DETAIL_SIMILAR, Modifier.padding(horizontal = TvDim.safeH)) { SimilarRow(similar, overlay, scope) }
@@ -540,9 +645,14 @@ internal fun EpisodeCards(
     val mem = LocalFocusMemory.current
     val state = rememberLazyListState()
     // 目标集不在第一屏(一屏放得下 5 张)就先滚过去:没挂上的项没有 FocusRequester,↓ 会落回 E1
-    LaunchedEffect(targetId, eps.size) {
+    val targetAvailable = eps.any { it.id == targetId }
+    LaunchedEffect(targetId, targetAvailable) {
         val i = eps.indexOfFirst { it.id == targetId }
-        if (i >= 5) state.scrollToItem(i)
+        // 补页或目标迟到不能把正在浏览的用户拉回目标集。
+        if (i >= 5 && mem.key?.startsWith("$keyPrefix.") != true &&
+            state.firstVisibleItemIndex == 0 && state.firstVisibleItemScrollOffset == 0 && !state.isScrollInProgress) {
+            state.scrollToItem(i)
+        }
     }
     ProvideRowKeyline(TvDim.safeH) {
         LazyRow(
@@ -562,14 +672,17 @@ internal fun EpisodeCards(
                     CardEpisode(
                         cover = { TvImage(app.imageUrl(ep.id, "Primary", 220)) },
                         no = no, title = "$no · ${ep.name}",
-                        sub = listOfNotNull(ep.runtimeSecs.takeIf { it > 0 }?.let { "${(it / 60).toInt()} 分钟" },
+                        sub = listOfNotNull(
+                            when (ep.id) { currentId -> "当前集"; targetId -> "待播放"; else -> null },
                             when {
                                 ep.played -> "已看完"
                                 ep.resumeSecs > 0 && ep.runtimeSecs > ep.resumeSecs -> remainText(ep.runtimeSecs - ep.resumeSecs)
-                                else -> null
-                            }).joinToString(" · "),
+                                ep.resumeSecs > 0 -> "观看中"
+                                else -> "未看"
+                            }, ep.runtimeSecs.takeIf { it > 0 && ep.resumeSecs <= 0 }?.let { "${(it / 60).toInt()} 分钟" }
+                        ).joinToString(" · "),
                         progress = if (ep.resumeSecs > 0 && !ep.played) ep.progress else null,
-                        done = ep.played, current = ep.id == currentId,
+                        done = ep.played, current = ep.id == currentId || ep.id == targetId,
                         modifier = Modifier.memo("$keyPrefix.${ep.id}"),
                         onLongClick = { onMenu(ep) }, onClick = { onOpen(ep) },
                     )

@@ -169,8 +169,8 @@ fun FakeCore.loggedIn(): FakeCore {
     ret("emby.listResume", resumeItems)
     ret("emby.listNextUp", nextItems)
     ret("emby.views", arr(
-        buildJsonObject { put("id", "lib-movie"); put("name", "电影"); put("collection_type", "movies") },
-        buildJsonObject { put("id", "lib-tv"); put("name", "剧集"); put("collection_type", "tvshows") },
+        buildJsonObject { put("id", "lib-movie"); put("name", "电影"); put("collection_type", "movies"); put("has_primary", true) },
+        buildJsonObject { put("id", "lib-tv"); put("name", "剧集"); put("collection_type", "tvshows"); put("has_primary", true) },
     ))
     on("emby.listLatest") { a -> if (a?.get("parent_id")?.let { (it as JsonPrimitive).content } == "lib-movie") movieItems else showItems }
     ret("emby.listCollections", arr())

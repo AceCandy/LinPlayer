@@ -40,6 +40,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
@@ -91,13 +92,13 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.rememberLauncherForActivityResult
 
 /**
- * 服务器管理(U1.9b)· 底栏第三个 Tab。
+ * 服务器管理(U1.9b)。
  *
  * ★ **点 = 切到这台,长按 = 操作菜单**【用户定 2026-09-06】。原来两者都弹菜单 ——
  *   于是这一页最高频的动作(换一台看)要两步,而最低频的(删)只要一步。
  * ★ 状态点 = 连通健康,不是「选中」(选中看「当前」角标)。
- *   `down`(探过确实不通)与 `unknown`(还没探过)**同色不同义** ——
- *   手机没有悬停,所以**直接把文字写在卡片上**。
+ *   `down`(探过确实不通)与未知状态(还没探过)含义不同 ——
+ *   手机没有悬停,所以右侧用短文字区分,不只靠颜色。
  * ★ 服务器图标走 `account.icon`:它自己会依次试用户头像和几条官方静态图标地址。
  */
 @Composable
@@ -272,7 +273,7 @@ fun ServersPage(nav: NavController) {
  *
  * ★ `account.icon` 回的是 **data URI**,不是可以直接丢给 Coil 的 http 地址 ——
  *   所以这里自己 base64 解一次再解码成位图。
- * ★ 取不到是**常态**(没头像、没 touchicon、离线),回落成那颗琥珀图标,一个字都不报。
+ * ★ 取不到是**常态**(没头像、没 touchicon、离线),回落成默认服务器图标,一个字都不报。
  * ★ 结果按 serverId 缓存在 composition 之外:这一页每次重组都发一次请求的话,
  *   探测和列表刷新会把它打成一串重复网络请求。
  */
@@ -329,27 +330,32 @@ private fun ServerCard(
             Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
                 if (icon != null) Image(icon, null, Modifier.fillMaxSize(),
                     contentScale = ContentScale.Fit)
-                else Icon(LpIcons.server, null, Modifier.size(22.dp), tint = c.acc)
+                else Icon(LpIcons.server, null, Modifier.size(22.dp), tint = c.mediaIcon)
             }
             Spacer(Modifier.padding(horizontal = Sp.x6))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Body(a.name, maxLines = 1)
+                    Text(a.name, Modifier.weight(1f), color = c.fg, fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (active) {
                         Spacer(Modifier.padding(horizontal = Sp.x4))
                         Text("当前", Modifier.clip(RoundedCornerShape(R.sm))
-                            .background(c.accDim).padding(horizontal = 6.dp, vertical = 1.dp),
-                            color = c.acc, fontSize = 10.sp)
+                            .background(c.mediaAccent).padding(horizontal = Sp.x8, vertical = Sp.x4),
+                            color = c.mediaOnAccent, fontSize = 11.sp)
                     }
                 }
-                /* ★ 副行只写**备注**【用户定 2026-09-07】。原来这里写的是连通状态,
-                   而「未检测」是探测还没回来的中间态 —— 它说的是我们自己的进度,
-                   不是用户想知道的事。状态由右边那颗点表示,够了。 */
+                // 副行仍保留备注；连通状态独立放在右侧，不替代用户的备注。
                 a.remark?.takeIf { it.isNotBlank() }?.let { Dim3(it, Modifier.padding(top = Sp.x2)) }
             }
-            Box(Modifier.size(8.dp).clip(RoundedCornerShape(R.pill)).background(
-                when (state) { "up" -> c.ok; "down" -> c.bad; else -> c.line2 }
-            ))
+            Column(Modifier.padding(start = Sp.x12), horizontalAlignment = Alignment.CenterHorizontally) {
+                Box(Modifier.size(8.dp).clip(RoundedCornerShape(R.pill)).background(
+                    when (state) { "ok" -> c.ok; "down" -> c.bad; else -> c.line2 }
+                ))
+                if (a.plugin == null) Text(
+                    when (state) { "ok" -> "可连接"; "down" -> "连接失败"; else -> "未检测" },
+                    Modifier.padding(top = Sp.x4), color = c.fg3, fontSize = 10.sp,
+                )
+            }
         }
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -41,6 +42,15 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
+import xyz.linplayer.app.data.Account
+import xyz.linplayer.app.ui.components.ErrorState
+import xyz.linplayer.app.ui.components.MediaRowHeader
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
@@ -56,16 +66,13 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.BlockBox
-import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.BtnKind
-import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
-import xyz.linplayer.app.ui.components.Hairline
 import xyz.linplayer.app.ui.components.LpButton
-import xyz.linplayer.app.ui.components.LpCell
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
+import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.Panel
@@ -73,7 +80,6 @@ import xyz.linplayer.app.ui.components.Skeleton
 import xyz.linplayer.app.ui.components.StepperRow
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
-import xyz.linplayer.app.ui.components.ToneChip
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
@@ -139,41 +145,40 @@ fun FavoritesPage(nav: NavController) {
     }
     LaunchedEffect(Unit) { app.invalidate.collect { if (it == "library" || it == "all") reload++ } }
 
-    LpScaffold("收藏", scrolled = rememberScrolled(grid), actions = {
+    LpScaffold("收藏", actions = {
         // 数据源的收藏单独一页(D326):它们不在 Emby 服务器上,排序档位也对不上
         // 「观看历史」和「全部收藏」是一对(SPEC 8.7 D326)
         xyz.linplayer.app.ui.components.LpIconButton(LpIcons.rewind, "观看历史") { nav.navigate(Route.History) }
         xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
     }) { pad ->
-        BlockBox(block, { reload++ }, skeleton = { GridSkel(pad) }) { items ->
-            if (items.isEmpty() && !hasMore) EmptyState(
-                "还没有收藏任何内容",
-                "在任意封面上长按 → 收藏,或者在详情页点右上角那颗心。收藏会跟着服务器走。",
-                LpIcons.heart,
-            ) else LazyVerticalGrid(
-                GridCells.Adaptive(112.dp), Modifier.fillMaxSize(), grid,
-                contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                verticalArrangement = Arrangement.spacedBy(Sp.x16),
+        Column(Modifier.fillMaxSize()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16),
+                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
             ) {
-                item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                    Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(bottom = Sp.x8),
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x6),
-                    ) {
-                        FAV_SORTS.forEach { s -> ToneChip(s, on = s == sort) { sort = s } }
+                FAV_SORTS.forEach { s -> MediaFilterChip(s, s == sort) { sort = s } }
+            }
+            BlockBox(block, { reload++ }, skeleton = { GridSkel(pad) }) { items ->
+                if (items.isEmpty() && !hasMore) EmptyState(
+                    "还没有收藏任何内容",
+                    "在任意封面上长按 → 收藏,或者在详情页点右上角那颗心。收藏会跟着服务器走。",
+                    LpIcons.heart,
+                ) else LazyVerticalGrid(
+                    GridCells.Adaptive(112.dp), Modifier.fillMaxSize(), grid,
+                    contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x16),
+                ) {
+                    items(items, key = { it.id }) {
+                        MediaCard(it, app.imageUrl(it.id, "Primary", 330),
+                            { nav.navigate(Route.Detail(it.id, it.type)) },
+                            Modifier.fillMaxWidth(), menu = cardActions(app, scope, it))
                     }
-                }
-                items(items, key = { it.id }) {
-                    MediaCard(it, app.imageUrl(it.id, "Primary", 330),
-                        { nav.navigate(Route.Detail(it.id, it.type)) },
-                        Modifier.fillMaxWidth(), menu = cardActions(app, scope, it))
-                }
-                if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                    if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
-                    LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
-                        { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary)
+                    if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
+                        if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                        LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
+                            { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary)
+                    }
                 }
             }
         }
@@ -194,107 +199,144 @@ private val FAV_SORTS = listOf("更新时间", "名称", "评分", "年份")
 fun DownloadsPage(nav: NavController) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
     val list = rememberLazyListState()
 
     data class Task(val id: String, val title: String, val state: String,
-                    val progress: Float, val speed: String)
-
-    var tasks by remember { mutableStateOf<List<Task>>(emptyList()) }
+                    val progress: Float, val received: Long, val total: Long, val error: String?)
+    var tasks by remember { mutableStateOf<List<Task>?>(null) }
+    var speeds by remember { mutableStateOf<Map<String, Double>>(emptyMap()) }
+    var failure by remember { mutableStateOf<Block.Fail?>(null) }
+    var reload by remember { mutableStateOf(0) }
     var threads by remember { mutableStateOf(2.0) }
-    var loaded by remember { mutableStateOf(false) }
 
     fun parse(e: kotlinx.serialization.json.JsonElement?): List<Task> = e.arr().mapNotNull {
         val o = it.obj() ?: return@mapNotNull null
-        val total = o.long("total_bytes") ?: 0
-        val done = o.long("bytes") ?: 0
-        Task(
-            o.str("id") ?: return@mapNotNull null,
-            o.str("title") ?: o.str("name") ?: "下载任务",
-            o.str("state") ?: "running",
-            if (total > 0) (done.toDouble() / total).toFloat().coerceIn(0f, 1f) else 0f,
-            o.long("speed")?.let { s -> "%.1f MB/s".format(s / 1024.0 / 1024.0) } ?: "",
-        )
+        val title = o.str("title") ?: "下载任务"
+        val series = o.str("series_name").orEmpty()
+        val season = o.long("season_number")
+        val episode = o.long("episode_number")
+        val heading = listOfNotNull(series.takeIf { it.isNotBlank() },
+            if (season != null && episode != null) "S${season}E${episode}" else null, title).joinToString(" · ")
+        Task(o.str("id") ?: return@mapNotNull null, heading, o.str("status") ?: "queued",
+            (o.dbl("progress") ?: 0.0).toFloat().coerceIn(0f, 1f),
+            o.long("received_bytes") ?: 0L, o.long("total_bytes") ?: 0L, o.str("error"))
     }
 
+    // 核心不发送 download.progress；仅在页面可见时采样，离页/退后台取消。
+    LaunchedEffect(reload, lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            var previous = emptyMap<String, Pair<Long, Long>>()
+            speeds = emptyMap()
+            while (true) {
+                when (val result = app.block("download.list")) {
+                    is Block.Ok -> {
+                        val now = android.os.SystemClock.elapsedRealtime()
+                        val rows = parse(result.value)
+                        speeds = rows.filter { it.state == "downloading" }.mapNotNull { t ->
+                            val old = previous[t.id] ?: return@mapNotNull null
+                            if (now <= old.second || t.received < old.first) return@mapNotNull null
+                            t.id to (t.received - old.first) * 1000.0 / (now - old.second)
+                        }.toMap()
+                        previous = rows.filter { it.state == "downloading" }.associate { it.id to (it.received to now) }
+                        tasks = rows
+                        failure = null
+                    }
+                    is Block.Fail -> { failure = result; speeds = emptyMap(); previous = emptyMap() }
+                    is Block.Loading -> Unit
+                }
+                delay(2000)
+            }
+        }
+    }
     LaunchedEffect(Unit) {
-        tasks = parse(runCatching { app.call("download.list") }.getOrNull())
-        /* ☠ 线程数**不在 download.list 里** —— 它返回的是一个任务数组,
-           原来那句 `r.obj().long("threads")` 拿数组当对象读,恒 null,
-           于是这一格**永远显示 2**,用户设成 4 也看不出来。
-           真出处是 `download.setThreads` 不传参数时的回读(桌面端一直是这么读的)。 */
-        // 把响应**绑到一个变量**上再读:链式写法认不出接收者,字段名门禁只能
-        // 回落到「本函数所有命令的并集」,而这个函数里正好也调 setThreads ——
-        // 那样改回去读错命令它也不会红。绑了变量它就能精确归属。
+        // download.list 是数组；不传 threads 的 setThreads 才是只读回读，不能把默认值灌回核心。
         val cur = runCatching { app.call("download.setThreads") }.getOrNull().obj()
         threads = (cur.long("threads") ?: 2L).toDouble()
-        loaded = true
-        // 订阅进度事件而不是轮询:轮询是「每秒一次全表」,事件是「变了才来」
-        app.core.events.collect { ev ->
-            if (ev.name == "download.progress") {
-                tasks = parse(runCatching { app.call("download.list") }.getOrNull())
+    }
+
+    fun action(command: String, id: String? = null) {
+        scope.launch {
+            when (val result = app.block(command, id?.let { args("id" to it) })) {
+                is Block.Ok -> {
+                    reload++
+                    if (command == "download.clearCompleted") app.toast("已清除完成的记录(文件保留)", ToastKind.Ok)
+                }
+                is Block.Fail -> if (!result.isSilent) app.toast(result.message, ToastKind.Error)
+                is Block.Loading -> Unit
             }
         }
     }
 
-    LpScaffold("下载", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list),
-        actions = {
-            LpIconButton(LpIcons.trash, "清除已完成") {
-                scope.launch {
-                    runCatching { app.call("download.clearCompleted") }
-                        .onSuccess { app.toast("已清除完成的记录(文件保留)", ToastKind.Ok) }
-                        .onFailure { app.report(it) }
-                }
-            }
-        }) { pad ->
+    LpScaffold("下载", onBack = { nav.popBackStack() }, actions = {
+        LpIconButton(LpIcons.trash, "清除已完成") { action("download.clearCompleted") }
+    }) { pad ->
         Column(Modifier.fillMaxSize()) {
             Panel(Modifier.padding(Sp.x16)) {
                 StepperRow("同时下载", threads, 1.0, 4.0, 1.0, { v ->
+                    val before = threads
                     threads = v
                     scope.launch {
-                        runCatching { app.call("download.setThreads", args("threads" to v.toInt())) }
-                            .onFailure { app.report(it) }
+                        when (val result = app.block("download.setThreads", args("threads" to v.toInt()))) {
+                            is Block.Ok -> threads = (result.value.obj().long("threads") ?: v.toLong()).toDouble()
+                            is Block.Fail -> { threads = before; if (!result.isSilent) app.toast(result.message, ToastKind.Error) }
+                            is Block.Loading -> Unit
+                        }
                     }
-                }, sub = "线程越多不一定越快,看服务端给不给", fmt = { it.toInt().toString() })
+                }, fmt = { it.toInt().toString() })
+                Text("清除已完成仅清记录；单项删除会删除文件",
+                    Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12),
+                    color = Lp.colors.fg2, fontSize = 12.sp)
             }
-            if (!loaded) Skeleton(Modifier.fillMaxWidth().height(72.dp).padding(Sp.x16))
-            else if (tasks.isEmpty()) EmptyState(
-                "下载队列是空的",
-                "详情页的长按菜单里可以整部或单集入队。下好的文件离线也能播。",
-                LpIcons.download,
-            ) else LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-                items(tasks, key = { it.id }) { t ->
+            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+                failure?.takeUnless { it.isSilent }?.let { error ->
+                    item("error") { ErrorState(error.message, { reload++ }) }
+                }
+                val rows = tasks
+                if (rows == null && failure == null) item("loading") {
+                    Column(Modifier.padding(horizontal = Sp.x16)) {
+                        repeat(3) { Skeleton(Modifier.fillMaxWidth().height(120.dp)); Spacer(Modifier.height(Sp.x12)) }
+                    }
+                }
+                if (rows?.isEmpty() == true && failure == null) item("empty") {
+                    EmptyState("下载队列是空的", "在详情页长按菜单中添加下载任务。", LpIcons.download)
+                }
+                items(rows.orEmpty(), key = { it.id }) { t ->
+                    val c = Lp.colors
                     Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)) {
                         Column(Modifier.padding(Sp.x16)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Column(Modifier.weight(1f)) {
-                                    Body(t.title, maxLines = 2)
-                                    Dim3("${(t.progress * 100).toInt()}%  ${t.speed}",
-                                        Modifier.padding(top = Sp.x2))
-                                }
-                                LpIconButton(
-                                    if (t.state == "paused") LpIcons.play else LpIcons.pause,
-                                    if (t.state == "paused") "继续" else "暂停",
-                                ) {
-                                    scope.launch {
-                                        runCatching {
-                                            app.call(
-                                                if (t.state == "paused") "download.resume" else "download.pause",
-                                                args("id" to t.id))
-                                        }.onFailure { app.report(it) }
+                                Text(t.title, Modifier.weight(1f), color = c.fg, fontSize = 15.sp,
+                                    fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                when (t.state) {
+                                    "paused", "failed" -> LpIconButton(LpIcons.play,
+                                        if (t.state == "failed") "重试下载" else "继续下载", tint = c.mediaIcon) {
+                                        action("download.resume", t.id)
+                                    }
+                                    "queued", "downloading" -> LpIconButton(LpIcons.pause, "暂停下载", tint = c.mediaIcon) {
+                                        action("download.pause", t.id)
                                     }
                                 }
-                                LpIconButton(LpIcons.close, "删除任务与文件") {
-                                    scope.launch {
-                                        runCatching { app.call("download.remove", args("id" to t.id)) }
-                                            .onFailure { app.report(it) }
-                                    }
-                                }
+                                LpIconButton(LpIcons.close, "删除任务与文件", tint = c.bad) { action("download.remove", t.id) }
                             }
-                            Spacer(Modifier.height(Sp.x8))
-                            Box(Modifier.fillMaxWidth().height(3.dp)
-                                .clip(RoundedCornerShape(R.pill)).background(Lp.colors.s3)) {
-                                Box(Modifier.fillMaxWidth(t.progress).fillMaxSize()
-                                    .background(Lp.colors.acc))
+                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                                Text(when (t.state) {
+                                    "queued" -> "等待下载"; "downloading" -> "正在下载"; "paused" -> "已暂停"
+                                    "completed" -> "已完成"; "failed" -> "下载失败"; "canceled" -> "已取消"; else -> "状态未知"
+                                }, color = if (t.state == "failed") c.bad else c.mediaIcon, fontSize = 12.sp)
+                                if (t.total > 0) Text("${(t.progress * 100).toInt()}%", color = c.fg2, fontSize = 12.sp)
+                            }
+                            Spacer(Modifier.height(Sp.x6))
+                            if (t.total > 0) LinearProgressIndicator(progress = { t.progress },
+                                modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
+                                color = c.mediaAccent, trackColor = c.s3)
+                            Spacer(Modifier.height(Sp.x6))
+                            Text(listOfNotNull(
+                                "${downloadSize(t.received)} / ${if (t.total > 0) downloadSize(t.total) else "大小未知"}",
+                                speeds[t.id]?.let { "${downloadSize(it.toLong())}/s" },
+                            ).joinToString(" · "), color = c.fg2, fontSize = 12.sp)
+                            t.error?.takeIf { t.state == "failed" && it.isNotBlank() }?.let {
+                                Text(it, Modifier.padding(top = Sp.x8), color = c.bad, fontSize = 12.sp)
                             }
                         }
                     }
@@ -302,6 +344,12 @@ fun DownloadsPage(nav: NavController) {
             }
         }
     }
+}
+
+private fun downloadSize(bytes: Long): String = when {
+    bytes >= 1073741824L -> "%.1f GB".format(bytes / 1073741824.0)
+    bytes >= 1048576L -> "%.1f MB".format(bytes / 1048576.0)
+    else -> "%.1f KB".format(bytes / 1024.0)
 }
 
 
@@ -438,54 +486,85 @@ fun HistoryPage(nav: NavController) {
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     var onlyCurrent by remember { mutableStateOf(true) }
-    var recs by remember { mutableStateOf<List<JsonObject>?>(null) }
-    LaunchedEffect(onlyCurrent) {
-        recs = runCatching { app.call("emby.watchHistoryList", args("current_only" to onlyCurrent)) }
-            .getOrNull().arr().mapNotNull { it.obj() }
-            // 核心层不保证顺序,排序是展示层的事
-            .sortedByDescending { it.long("last_played_at") ?: 0L }
+    var recs by remember { mutableStateOf<Block<List<JsonObject>>>(Block.Loading) }
+    var reload by remember { mutableStateOf(0) }
+    var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    LaunchedEffect(Unit) {
+        names = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
+            .associate { it.server to it.name }
+    }
+    LaunchedEffect(onlyCurrent, reload) {
+        recs = Block.Loading
+        recs = when (val result = app.block("emby.watchHistoryList", args("current_only" to onlyCurrent))) {
+            is Block.Ok -> Block.Ok(result.value.arr().mapNotNull { it.obj() }
+                .sortedByDescending { it.long("last_played_at") ?: 0L })
+            is Block.Fail -> result
+            is Block.Loading -> Block.Loading
+        }
     }
 
-    LpScaffold("观看历史", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
-            item("scope") {
-                Row(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
-                    ToneChip("当前服务器", on = onlyCurrent) { onlyCurrent = true }
-                    ToneChip("全部服务器", on = !onlyCurrent) { onlyCurrent = false }
-                }
+    LpScaffold("观看历史", onBack = { nav.popBackStack() }) { pad ->
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16),
+                horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                MediaFilterChip("当前服务器", onlyCurrent) { onlyCurrent = true }
+                MediaFilterChip("全部服务器", !onlyCurrent) { onlyCurrent = false }
             }
-            item("src") { SourceHistoryRow(nav) }
-            val rows = recs
-            if (rows == null) item("skel") {
-                Column(Modifier.padding(Sp.x16)) {
-                    repeat(4) { Skeleton(Modifier.fillMaxWidth().height(56.dp)); Spacer(Modifier.height(Sp.x10)) }
-                }
-            } else if (rows.isEmpty()) item("none") {
-                EmptyState("还没有观看记录", "看过的片会记在本机,换服务器或重装之后还在。", LpIcons.rewind)
-            } else {
-                item("h") { xyz.linplayer.app.ui.components.H2("服务器", Modifier.padding(Sp.x16)) }
-                items(rows.take(200), key = { it.str("record_id") ?: "" }) { rec ->
-                    val series = rec.str("series_title").orEmpty()
-                    val title = rec.str("title").orEmpty()
-                    val pos = (rec.long("last_position_ticks") ?: 0L) / 1e7
-                    val run = (rec.long("run_time_ticks") ?: 0L) / 1e7
-                    val right = if (rec.bool("played")) "已看完" else if (run > 0) "${clockOf(pos)} / ${clockOf(run)}" else clockOf(pos)
-                    val itemId = rec.str("last_emby_item_id")
-                    // scope_key 是 `server:user_id`,server 自带 https:// 甚至端口 —— 按**最后一个**冒号切
-                    val sid = (rec.str("scope_key") ?: "").substringBeforeLast(':', "")
-                    // last_played_at 是**毫秒**(core/history/store.go 的 nowMs),当秒读日期会跳到五万年后
-                    val whenMs = rec.long("last_played_at") ?: 0L
-                    val whenText = if (whenMs > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                        .format(java.util.Date(whenMs)) else ""
-                    LpCell(if (series.isEmpty()) title else "$series · $title", sub = whenText, value = right, onClick = {
-                        if (itemId.isNullOrEmpty()) { app.toast("这条记录没有对应的条目,换服务器后要先在设置里「扫描恢复」"); return@LpCell }
-                        scope.launch {
-                            if (sid.isNotEmpty()) runCatching { app.call("account.setActiveServer", args("server_id" to sid)) }
-                                .onSuccess { app.refreshSession() }.onFailure { app.report(it); return@launch }
-                            nav.navigate(Route.Detail(itemId, if (series.isEmpty()) "Movie" else "Episode"))
+            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
+                item("src") { SourceHistoryRow(nav) }
+                item("h") { MediaRowHeader("服务器观看记录") }
+                when (val result = recs) {
+                    is Block.Loading -> item("loading") {
+                        Column(Modifier.padding(Sp.x16)) {
+                            repeat(4) { Skeleton(Modifier.fillMaxWidth().height(112.dp)); Spacer(Modifier.height(Sp.x10)) }
                         }
-                    })
-                    Hairline()
+                    }
+                    is Block.Fail -> if (!result.isSilent) item("error") { ErrorState(result.message, { reload++ }) }
+                    is Block.Ok -> {
+                        if (result.value.isEmpty()) item("empty") {
+                            EmptyState("还没有观看记录", "观看记录保存在本机，可切换范围查看其他服务器的记录。", LpIcons.rewind)
+                        }
+                        items(result.value.take(200), key = { it.str("record_id") ?: "" }) { rec ->
+                            val series = rec.str("series_title").orEmpty()
+                            val title = rec.str("title").orEmpty()
+                            val pos = (rec.long("last_position_ticks") ?: 0L) / 1e7
+                            val run = (rec.long("run_time_ticks") ?: 0L) / 1e7
+                            val played = rec.bool("played")
+                            val progress = if (played) "已看完" else "已观看 ${clockOf(pos)}" + if (run > 0) " / ${clockOf(run)}" else ""
+                            val itemId = rec.str("last_emby_item_id")
+                            // scope_key 是 server:user_id，URL 可能带端口，必须按最后一个冒号切。
+                            val sid = rec.str("scope_key").orEmpty().substringBeforeLast(':', "")
+                            // last_played_at 是毫秒；ticks 则是 100 纳秒，不能共用换算。
+                            val whenMs = rec.long("last_played_at") ?: 0L
+                            val whenText = if (whenMs > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
+                                .format(java.util.Date(whenMs)) else "时间未知"
+                            Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)) {
+                                Column(Modifier.fillMaxWidth().pressable({
+                                    if (itemId.isNullOrEmpty()) app.toast("这条记录没有对应的条目,换服务器后要先在设置里「扫描恢复」")
+                                    else scope.launch {
+                                        if (sid.isNotEmpty()) runCatching { app.call("account.setActiveServer", args("server_id" to sid)) }
+                                            .onSuccess { app.refreshSession() }.onFailure { app.report(it); return@launch }
+                                        nav.navigate(Route.Detail(itemId, if (series.isEmpty()) "Movie" else "Episode"))
+                                    }
+                                }).padding(Sp.x16)) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        Text(if (series.isEmpty()) title else "$series · $title", Modifier.weight(1f),
+                                            color = Lp.colors.fg, fontSize = 16.sp, fontWeight = FontWeight.Medium,
+                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                        Icon(LpIcons.chevR, "查看详情", Modifier.padding(start = Sp.x8).size(18.dp), tint = Lp.colors.mediaIcon)
+                                    }
+                                    Text(names[sid] ?: "服务器名称不可用", Modifier.padding(top = Sp.x8),
+                                        color = Lp.colors.mediaIcon, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(whenText, Modifier.padding(top = Sp.x4), color = Lp.colors.fg2, fontSize = 12.sp)
+                                    Text(progress, Modifier.padding(top = Sp.x8), color = Lp.colors.fg2, fontSize = 12.sp)
+                                    if (run > 0) LinearProgressIndicator(
+                                        progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
+                                        modifier = Modifier.padding(top = Sp.x8).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
+                                        color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3)
+                                }
+                            }
+                        }
+                    }
                 }
             }
         }
