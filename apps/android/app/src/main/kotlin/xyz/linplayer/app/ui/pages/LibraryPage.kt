@@ -335,9 +335,17 @@ private fun LibraryHead(
             Box(
                 Modifier.fillMaxSize().background(
                     Brush.verticalGradient(
-                        0.00f to Color.Black.copy(alpha = .50f),
-                        0.34f to Color.Transparent,
-                        1.00f to Color.Black.copy(alpha = .45f),
+                        colorStops = if (c.isDark) arrayOf(
+                            0.00f to Color.Black.copy(alpha = .50f),
+                            0.34f to Color.Transparent,
+                            1.00f to Color.Black.copy(alpha = .45f),
+                        ) else arrayOf(
+                            0.00f to Color.Black.copy(alpha = .50f),
+                            0.34f to Color.Transparent,
+                            // 浅色标题不能落在压暗的图片上，文字区域先铺主题底色。
+                            0.48f to c.bg,
+                            1.00f to c.bg,
+                        ),
                     )
                 )
             )

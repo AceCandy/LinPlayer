@@ -78,8 +78,8 @@ fun PhoneRoot(app: AppState) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
         LaunchedEffect(Unit) { app.boot() }
 
-        Box(Modifier.fillMaxSize().background(
-            xyz.linplayer.app.ui.plugin.pageBg(Lp.colors.bg))) {
+        // 壁纸未就绪、透明或不能绘制时，也必须合成到当前主题底色。
+        Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
             // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
             xyz.linplayer.app.ui.plugin.WallpaperLayer()
             // 草稿画廊:`am start ... -e lp_page 'drafts:<n>'`。

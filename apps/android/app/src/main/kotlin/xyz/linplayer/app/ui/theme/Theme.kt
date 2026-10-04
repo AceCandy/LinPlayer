@@ -16,6 +16,7 @@ import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
@@ -177,13 +178,14 @@ fun LpTheme(
 
     // M3 的 ColorScheme 仍然要给:M3 组件(Slider / Switch / Chip)读的是它。
     // 我们自己的组件读 LocalLpColors,两套值必须一致,否则同一屏上会出现两种蓝
-    val scheme = if (dark) darkColorScheme(
+    // 自定义玻璃层保留透明度，标准控件的表面则先合成成不透明色。
+    val surface = c.s1.compositeOver(c.bg)
+    val surfaceAlt = c.s2.compositeOver(c.bg)
+    val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
         primary = c.acc, onPrimary = c.accFg, background = c.bg, onBackground = c.fg,
-        surface = c.s1, onSurface = c.fg, surfaceVariant = c.s2, onSurfaceVariant = c.fg2,
-        outline = c.line2, error = c.bad,
-    ) else lightColorScheme(
-        primary = c.acc, onPrimary = c.accFg, background = c.bg, onBackground = c.fg,
-        surface = c.s1, onSurface = c.fg, surfaceVariant = c.s2, onSurfaceVariant = c.fg2,
+        surface = surface, onSurface = c.fg, surfaceVariant = surfaceAlt, onSurfaceVariant = c.fg2,
+        surfaceContainerLowest = c.bg, surfaceContainerLow = surface, surfaceContainer = surface,
+        surfaceContainerHigh = surfaceAlt, surfaceContainerHighest = c.s3.compositeOver(c.bg),
         outline = c.line2, error = c.bad,
     )
 

@@ -12,6 +12,7 @@ import android.os.Bundle
 import android.provider.Settings
 import android.util.Rational
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -19,6 +20,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -55,6 +57,8 @@ class MainActivity : ComponentActivity() {
         installSplashScreen()
         super.onCreate(savedInstanceState)
         enableEdgeToEdge()
+        // 两套配色由应用控制，避免平台再次把浅色页面强制改成深色。
+        if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
 
         app = AppState((application as LinPlayerApp).core, lifecycleScope)
         // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,续播会话也对不上
@@ -87,6 +91,18 @@ class MainActivity : ComponentActivity() {
                 // 只给一种明暗的主题,系统切到另一种也保持它(D70)
                 "dark" -> true; "light" -> false; else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
             }) {
+                val darkBars = tvShape() || xyz.linplayer.app.ui.theme.Lp.colors.isDark
+                SideEffect {
+                    val style = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT,
+                    ) { darkBars }
+                    // Android 7 不支持深色导航图标，必须给白色图标保留深色底。
+                    val navigationStyle = SystemBarStyle.auto(
+                        android.graphics.Color.TRANSPARENT,
+                        if (Build.VERSION.SDK_INT < 26) android.graphics.Color.BLACK else android.graphics.Color.TRANSPARENT,
+                    ) { darkBars }
+                    enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = navigationStyle)
+                }
                 // 主题与「减少动态效果」报给插件宿主。挂在主题里面:切深浅色时这里会重组,
                 // 报的就是切完之后那一套(D558)
                 xyz.linplayer.app.plugin.ReportPluginEnv(app)

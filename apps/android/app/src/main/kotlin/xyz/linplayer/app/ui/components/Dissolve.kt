@@ -248,10 +248,11 @@ fun PrimaryAction(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    val highlight = if (c.isDark) Color(0xFFFFC145) else c.acc
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .clip(RoundedCornerShape(R.pill))
-            .background(Brush.horizontalGradient(listOf(c.acc, Color(0xFFFFC145), c.acc)))
+            .background(Brush.horizontalGradient(listOf(c.acc, highlight, c.acc)))
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
         horizontalArrangement = Arrangement.Center,
@@ -309,14 +310,13 @@ fun GlassIcon(
     m: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
-    // 上一版是一块 34% 的纯黑饼。换成和面板同一块玻璃:亮画面上不再糊成一坨,
-    // 暗画面上也还认得出是个按钮(用户 2026-09-07:「扁平化太严重」)
+    val c = Lp.colors
     Box(
         m.size(44.dp)
-            .buttonSkin(Color.Black.copy(alpha = .30f), R.pill)
+            .buttonSkin(c.chip, R.pill)
             .pressable(onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, desc, Modifier.size(22.dp), tint = Color.White) }
+    ) { Icon(icon, desc, Modifier.size(22.dp), tint = c.fg) }
 }
 
 /**

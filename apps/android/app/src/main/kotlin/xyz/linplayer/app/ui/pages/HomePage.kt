@@ -315,7 +315,7 @@ private fun ServerChip(account: Account?, onClick: () -> Unit) {
     val icon = account?.id?.let { rememberServerIcon(it) }
     Row(
         Modifier.height(44.dp).clip(RoundedCornerShape(R.pill))
-            .background(Color.Black.copy(alpha = .34f))
+            .background(c.chip)
             .pressable(onClick)
             .padding(start = 6.dp, end = Sp.x12),
         verticalAlignment = Alignment.CenterVertically,
@@ -328,11 +328,11 @@ private fun ServerChip(account: Account?, onClick: () -> Unit) {
         Spacer(Modifier.width(Sp.x8))
         Text(
             account?.name ?: "服务器", Modifier.weight(1f, fill = false),
-            color = Color.White, fontSize = 14.sp,
+            color = c.fg, fontSize = 14.sp,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
         Icon(LpIcons.chevD, null, Modifier.padding(start = Sp.x4).size(15.dp),
-            tint = Color.White.copy(alpha = .75f))
+            tint = c.fg2)
     }
 }
 
