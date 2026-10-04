@@ -202,8 +202,9 @@ func (c *Client) Items(ctx context.Context, s *Session, parentID string, q *Item
 		}
 	}
 	// Fields 必须带 Genres/ProductionYear/CommunityRating,否则客户端复筛没有判据。
+	// 按库的直属内容浏览，不预设类型，也不递归展开剧集中的分集。
 	var b strings.Builder
-	fmt.Fprintf(&b, "%s/Users/%s/Items?ParentId=%s&Recursive=true&IncludeItemTypes=Movie,Series"+
+	fmt.Fprintf(&b, "%s/Users/%s/Items?ParentId=%s&Recursive=false"+
 		"&Fields=PrimaryImageAspectRatio,Genres,Tags,Studios,ProductionYear,CommunityRating",
 		s.Server, url.PathEscape(s.UserID), url.QueryEscape(parentID))
 
