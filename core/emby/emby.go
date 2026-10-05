@@ -67,6 +67,9 @@ type Item struct {
 	// 「更新时间」排序用。DateLastMediaAdded 优先(剧集新集入库才动),没有就 DateCreated。
 	DateUpdated *string `json:"date_updated"`
 	SortName    *string `json:"sort_name"`
+	// 收藏的可见库归属与 Views 的库类型为可选扩展，旧服务端缺失时保持原行为。
+	LibraryIDs  []string `json:"library_ids,omitempty"`
+	LibraryType *string  `json:"library_type,omitempty"`
 
 	// Tags 自定义标签。实测某台真服上**全库一条都没有** —— 前端没值就整行不画。
 	Tags []string `json:"tags"`
@@ -99,6 +102,8 @@ type rawItem struct {
 	Type           *string        `json:"Type"`
 	IsFolder       *bool          `json:"IsFolder"`
 	CollectionType *string        `json:"CollectionType"`
+	LibraryIDs     []string       `json:"LibraryIds"`
+	LibraryType    *string        `json:"LibraryType"`
 	ImageTags      map[string]any `json:"ImageTags"`
 	// ★ 背景图挂在**这个数组**里,不在 ImageTags 里(写成 ImageTags["Backdrop"] 恒 false)。
 	//   只给 Hero 挑片用 —— 它不进 Item,所以不动对外的 JSON 形状。
@@ -315,6 +320,8 @@ func fromRaw(r rawItem) Item {
 		SeriesID:              nonEmpty(r.SeriesID),
 		DateUpdated:           nonEmpty(dateUpdated),
 		SortName:              nonEmpty(r.SortName),
+		LibraryIDs:            r.LibraryIDs,
+		LibraryType:           nonEmpty(r.LibraryType),
 		Tags:                  tags,
 		Studios:               named(r.Studios),
 	}

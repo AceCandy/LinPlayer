@@ -38,6 +38,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
@@ -70,6 +71,10 @@ import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpIconButton
+import xyz.linplayer.app.ui.components.LpRow
+import xyz.linplayer.app.ui.components.LpDialog
+import xyz.linplayer.app.ui.components.OptRow
+import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.MediaFilterChip
@@ -86,25 +91,34 @@ import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import androidx.compose.runtime.derivedStateOf
 import androidx.navigation.toRoute
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.unit.IntOffset
+import xyz.linplayer.app.data.View
+import xyz.linplayer.app.ui.theme.T
+import xyz.linplayer.app.ui.theme.lpTween
 
 /**
- * 收藏(U1.9a)。**2026-09-12 起是底栏第三个 Tab**,所以没有返回键。
+ * 收藏(U1.9a)。Tab 根页展示分类轨道，Movie / Series 分类页展示可返回的网格。
  *
- * 排序档位表在核心层(`emby.FavoriteSorts`),这里只按名字传过去 ——
- * 服务端那条路对某些 fork 是死的,排序是核心层本地做的。
+ * 分类页只重排已加载条目，排序不改变请求与分页游标。
  */
 @Composable
-fun FavoritesPage(nav: NavController) {
+fun FavoritesPage(nav: NavController, type: String? = null) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
+    val list = rememberLazyListState()
     val grid = rememberLazyGridState()
+    if (type != null) LongShotTarget(grid)
     val session = app.session.collectAsStateWithLifecycle().value
-    val key = "fav.${session?.server}.${session?.userId}"
+    val sessionKey = "fav.${session?.server}.${session?.userId}"
+    val key = sessionKey + if (type != null) ".$type" else ""
+    val title = when (type) { "Movie" -> "收藏的电影"; "Series" -> "收藏的剧"; "ShortDrama" -> "收藏的短剧"; else -> "收藏" }
     var block by xyz.linplayer.app.data.keepState<Block<List<Item>>>(key) { Block.Loading }
+    var shortLibraries by xyz.linplayer.app.data.keepState<Set<String>?>("$sessionKey.shortLibraries") { null }
     var sort by xyz.linplayer.app.data.keepState("$key.sort") { FAV_SORTS[0] }
-    /* 手里这份是按哪一档拉的。少了它,下面那道「已经有结果就别重拉」的闸
-       会把换档位一起吞掉 —— 和媒体库那个坑同一个形状。 */
-    var fetchedSort by xyz.linplayer.app.data.keepState<String?>("$key.as") { null }
+    var ascending by xyz.linplayer.app.data.keepState("$key.ascending") { false }
+    var showSort by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var nextIndex by xyz.linplayer.app.data.keepState("$key.next") { 0 }
     var hasMore by xyz.linplayer.app.data.keepState("$key.more") { false }
@@ -114,7 +128,7 @@ fun FavoritesPage(nav: NavController) {
 
     suspend fun fetch(offset: Int) {
         val gen = generation
-        when (val r = app.block("emby.listFavorites", args("sort" to sort, "start_index" to offset, "limit" to 60))) {
+        when (val r = app.block("emby.listFavorites", args("sort" to "更新时间", "start_index" to offset, "limit" to 60))) {
             is Block.Ok -> if (gen == generation) {
                 val page = Page.from(r.value)
                 val previous = if (offset == 0) emptyList() else (block as? Block.Ok)?.value.orEmpty()
@@ -136,57 +150,128 @@ fun FavoritesPage(nav: NavController) {
         scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
     }
 
-    LaunchedEffect(key, reload, sort) {
-        // ☠ 判据必须带上档位,否则就是媒体库那个坑(2026-09-12「筛选了不刷新」)
-        if (reload == 0 && block is Block.Ok && fetchedSort == sort) return@LaunchedEffect
+    LaunchedEffect(key, reload) {
+        if (reload == 0 && block is Block.Ok) return@LaunchedEffect
         generation++; loadingMore = false; moreFailed = false
-        fetchedSort = sort; nextIndex = 0; hasMore = false; block = Block.Loading
+        nextIndex = 0; hasMore = false; block = Block.Loading
         fetch(0)
     }
     LaunchedEffect(Unit) { app.invalidate.collect { if (it == "library" || it == "all") reload++ } }
 
-    LpScaffold("收藏", actions = {
+    val hasMembership = (block as? Block.Ok)?.value.orEmpty().any { it.libraryIds.isNotEmpty() }
+    LaunchedEffect(sessionKey, hasMembership, reload) {
+        if (!hasMembership || (reload == 0 && shortLibraries != null)) return@LaunchedEffect
+        // 库信息只增强分类；读取失败仍展示全部收藏，旧接口无需此请求。
+        val result = app.block("emby.views")
+        if (result is Block.Ok) shortLibraries = View.list(result.value)
+            .filter { it.libraryType == "hongguo" }.map { it.id }.toSet()
+    }
+    val shortIds = shortLibraries.orEmpty()
+    val fade = lpTween<Float>(T.T4)
+    val placement = lpTween<IntOffset>(T.T5)
+    val contentAlpha by animateFloatAsState(if (block is Block.Ok) 1f else 0f, fade, label = "favoritesContent")
+
+    LpScaffold(title, onBack = if (type != null) ({ nav.popBackStack() }) else null, actions = {
         // 数据源的收藏单独一页(D326):它们不在 Emby 服务器上,排序档位也对不上
         // 「观看历史」和「全部收藏」是一对(SPEC 8.7 D326)
-        xyz.linplayer.app.ui.components.LpIconButton(LpIcons.rewind, "观看历史") { nav.navigate(Route.History) }
-        xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
+        if (type == null) {
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.rewind, "观看历史") { nav.navigate(Route.History) }
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
+        } else MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
         Column(Modifier.fillMaxSize()) {
-            Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
-            ) {
-                FAV_SORTS.forEach { s -> MediaFilterChip(s, s == sort) { sort = s } }
-            }
-            BlockBox(block, { reload++ }, skeleton = { GridSkel(pad) }) { items ->
-                if (items.isEmpty() && !hasMore) EmptyState(
-                    "还没有收藏任何内容",
+            BlockBox(block, { reload++ }, skeleton = { if (type == null) GridSkel(pad) else GridSkeleton(pad) }) { items ->
+                val visible = remember(items, type, sort, ascending, shortIds) {
+                    if (type == null) items else sortFavoriteItems(items.filter { favoriteCategory(it, shortIds) == type }, sort, ascending)
+                }
+                if (visible.isEmpty() && !hasMore) EmptyState(
+                    when (type) { "Movie" -> "还没有收藏电影"; "Series" -> "还没有收藏电视剧"; "ShortDrama" -> "还没有收藏短剧"; else -> "还没有收藏任何内容" },
                     "在任意封面上长按 → 收藏,或者在详情页点右上角那颗心。收藏会跟着服务器走。",
                     LpIcons.heart,
-                ) else LazyVerticalGrid(
-                    GridCells.Adaptive(112.dp), Modifier.fillMaxSize(), grid,
+                ) else if (type != null) LazyVerticalGrid(
+                    GridCells.Fixed(posterColumns()), Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, grid,
                     contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                     verticalArrangement = Arrangement.spacedBy(Sp.x16),
                 ) {
-                    items(items, key = { it.id }) {
+                    items(visible, key = { it.id }, contentType = { "poster" }) {
                         MediaCard(it, app.imageUrl(it.id, "Primary", 330),
                             { nav.navigate(Route.Detail(it.id, it.type)) },
-                            Modifier.fillMaxWidth(), menu = cardActions(app, scope, it))
+                            Modifier.fillMaxWidth().animateItem(fade, placement, fade), menu = cardActions(app, scope, it))
                     }
                     if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                        if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                        // 没有本类型时继续寻找首批；已有结果后手动分页，排序重排不触发网络请求。
+                        if (!moreFailed && visible.isEmpty()) LaunchedEffect(nextIndex) { loadMore() }
                         LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
                             { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary)
+                    }
+                } else LazyColumn(
+                    Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
+                    contentPadding = PaddingValues(top = Sp.x8, bottom = pad.calculateBottomPadding()),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x16),
+                ) {
+                    // 按服务端类型分栏；单集与其它收藏仍保留，不能归类为电影或丢弃。
+                    val groups = listOf(
+                        "收藏的电影" to items.filter { it.type == "Movie" },
+                        "收藏的剧" to items.filter { favoriteCategory(it, shortIds) == "Series" },
+                        "收藏的短剧" to items.filter { favoriteCategory(it, shortIds) == "ShortDrama" },
+                        "收藏的分集" to items.filter { it.isEpisode },
+                        "其它收藏" to items.filter { it.type != "Movie" && !it.isSeries && !it.isEpisode },
+                    )
+                    groups.forEach { (title, entries) ->
+                        if (entries.isNotEmpty()) item(key = title) {
+                            val category = favoriteCategory(entries.first(), shortIds)
+                                .takeIf { it == "Movie" || it == "Series" || it == "ShortDrama" }
+                            LpRow(title, entries, { app.imageUrl(it.id, "Primary", 330) },
+                                { nav.navigate(Route.Detail(it.id, it.type)) },
+                                thumb = title == "收藏的分集", menu = { cardActions(app, scope, it) },
+                                onMore = if (category != null) ({
+                                    nav.navigate(Route.FavoriteCategory(category))
+                                }) else null)
+                        }
+                    }
+                    if (hasMore) item(key = "more") {
+                        LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
+                            { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary)
                     }
                 }
             }
         }
     }
+    fun applySort(value: String, asc: Boolean) {
+        sort = value; ascending = asc; showSort = false
+        grid.requestScrollToItem(0)
+    }
+    if (showSort) LpDialog({ showSort = false }, "排序") {
+        FAV_SORTS.forEach { s ->
+            OptRow(s, {
+                applySort(s, if (s == sort) ascending else s == "名称")
+            }, selected = s == sort, media = true)
+        }
+        OptRow("升序", { applySort(sort, true) }, selected = ascending, media = true)
+        OptRow("降序", { applySort(sort, false) }, selected = !ascending, media = true)
+    }
 }
 
-/** 收藏排序档位。**必须和核心层 `emby.FavoriteSorts` 逐字一致** —— 对不上就静默落回第一档。 */
+/** 只依据服务端归属和库类型区分短剧；旧接口或未知库仍按原媒体类型呈现。 */
+internal fun favoriteCategory(item: Item, shortLibraries: Set<String>): String =
+    if (item.isSeries && item.libraryIds.any { it in shortLibraries }) "ShortDrama" else item.type
+
+/** 收藏分类的本地排序档位，不参与服务端查询。 */
 private val FAV_SORTS = listOf("更新时间", "名称", "评分", "年份")
+
+/** 只重排当前已加载的收藏；相同值保持原序，缺失值在升降序时都沉底。 */
+internal fun sortFavoriteItems(items: List<Item>, sort: String, ascending: Boolean): List<Item> {
+    fun <T : Comparable<T>> by(value: (Item) -> T?): Comparator<Item> =
+        compareBy<Item> { value(it) == null }.then(if (ascending) compareBy(value) else compareByDescending(value))
+    val comparator = when (sort) {
+        "名称" -> by { it.sortName?.takeIf(String::isNotBlank) ?: it.name.takeIf(String::isNotBlank) }
+        "评分" -> by { it.rating }
+        "年份" -> by { it.year }
+        else -> by { it.dateUpdated?.takeIf(String::isNotBlank) }
+    }
+    return items.sortedWith(comparator)
+}
 
 /**
  * 下载(U1.12)。

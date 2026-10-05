@@ -68,6 +68,11 @@ data class Item(
     val genres: List<String> = emptyList(),
     val year: Long? = null,
     val rating: Double? = null,
+    /** 核心已返回的更新时间与服务端排序名，用于收藏的本地排序。 */
+    val dateUpdated: String? = null,
+    val sortName: String? = null,
+    /** 服务端明确返回的可见库归属；缺失时不推测媒体库。 */
+    val libraryIds: List<String> = emptyList(),
 ) {
     val isSeries: Boolean get() = type == "Series"
     val isEpisode: Boolean get() = type == "Episode"
@@ -106,6 +111,9 @@ data class Item(
                 genres = o.strList("genres"),
                 year = o.long("year"),
                 rating = o.dbl("rating"),
+                dateUpdated = o.str("date_updated"),
+                sortName = o.str("sort_name"),
+                libraryIds = o.strList("library_ids"),
             )
         }
 
@@ -140,11 +148,15 @@ data class Page(val items: List<Item>, val total: Long?) {
 
 /** 媒体库。 */
 @Immutable
-data class View(val id: String, val name: String, val collectionType: String?, val hasPrimary: Boolean = false) {
+data class View(val id: String, val name: String, val collectionType: String?, val hasPrimary: Boolean = false,
+    /** 可选的服务端库类型；hongguo 用于收藏短剧分类。 */
+    val libraryType: String? = null,
+) {
     companion object {
         fun list(e: JsonElement?): List<View> = e.arr().mapNotNull {
             val o = it.obj() ?: return@mapNotNull null
-            View(o.str("id") ?: return@mapNotNull null, o.str("name") ?: "", o.str("collection_type"), o.bool("has_primary"))
+            View(o.str("id") ?: return@mapNotNull null, o.str("name") ?: "", o.str("collection_type"),
+                o.bool("has_primary"), o.str("library_type"))
         }
     }
 }

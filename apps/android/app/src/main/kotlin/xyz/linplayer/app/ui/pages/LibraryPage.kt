@@ -210,21 +210,8 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         subtitle = total?.let { "$it 部" },
         onBack = { nav.popBackStack() },
         actions = {
-            Row(
-                Modifier.heightIn(min = Dim.tap).widthIn(max = 168.dp).testTag("library.sort")
-                    .semantics { contentDescription = "排序：${sort.first}，${if (sortOrder == "Ascending") "升序" else "降序"}" }
-                    .pressable({ showFilter = true }).padding(start = Sp.x8, end = Sp.x12, bottom = Sp.x16),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Sp.x6),
-            ) {
-                Icon(LpIcons.sortLines, null, Modifier.size(18.dp), tint = Lp.colors.mediaIcon)
-                Text(sort.first, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
-                    fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
-                    overflow = TextOverflow.Ellipsis)
-                Icon(LpIcons.arrowDown, null,
-                    Modifier.size(18.dp).rotate(if (sortOrder == "Ascending") 180f else 0f),
-                    tint = Lp.colors.mediaIcon)
-            }
+            MediaSortControl(sort.first, sortOrder == "Ascending", { showFilter = true },
+                Modifier.testTag("library.sort"))
         },
     ) { pad ->
         Column(Modifier.fillMaxSize()) {
@@ -323,7 +310,7 @@ private fun SectionLabel(t: String) =
         modifier = Modifier.padding(start = Sp.x12, top = Sp.x12, bottom = Sp.x4))
 
 @Composable
-private fun GridSkeleton(pad: PaddingValues) {
+internal fun GridSkeleton(pad: PaddingValues) {
     LazyVerticalGrid(
         GridCells.Fixed(posterColumns()), Modifier.fillMaxSize(),
         contentPadding = PaddingValues(start = Sp.x16, end = Sp.x16, top = Sp.x8,
@@ -343,5 +330,25 @@ private fun GridSkeleton(pad: PaddingValues) {
 
 /** 海报列数。插件主题的 `layout.posterColumns` 覆盖官方的 3(SPEC 11.4)。 */
 @Composable
-private fun posterColumns(): Int = xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
+internal fun posterColumns(): Int = xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
     androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp, 3)
+
+/** 媒体库与收藏分类共用的右侧排序入口。 */
+@Composable
+internal fun MediaSortControl(label: String, ascending: Boolean, onClick: () -> Unit, m: Modifier = Modifier) {
+    Row(
+        m.heightIn(min = Dim.tap).widthIn(max = 168.dp)
+            .semantics { contentDescription = "排序：$label，${if (ascending) "升序" else "降序"}" }
+            .pressable(onClick).padding(start = Sp.x8, end = Sp.x12),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+    ) {
+        Icon(LpIcons.sortLines, null, Modifier.size(18.dp), tint = Lp.colors.mediaIcon)
+        Text(label, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
+            fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            overflow = TextOverflow.Ellipsis)
+        Icon(LpIcons.arrowDown, null,
+            Modifier.size(18.dp).rotate(if (ascending) 180f else 0f),
+            tint = Lp.colors.mediaIcon)
+    }
+}

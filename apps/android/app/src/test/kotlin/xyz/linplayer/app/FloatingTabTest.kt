@@ -69,6 +69,8 @@ class FloatingTabTest {
         rule.onNodeWithTag("phone.tabs").assertExists()
         rule.onNodeWithContentDescription("返回").performClick()
         rule.onNodeWithContentDescription("收藏").assertIsSelected()
+        rule.onNodeWithText("收藏的电影").performClick()
+        rule.onNodeWithContentDescription("收藏").assertIsSelected()
         rule.onNode(hasScrollToIndexAction()).performScrollToKey("fav-18")
         val last = rule.onNodeWithText("收藏影片 18", useUnmergedTree = true)
         last.assertIsDisplayed()
@@ -91,6 +93,7 @@ class FloatingTabTest {
         rule.setContent { LpTheme(darkOverride = true) { PhoneRoot(app) } }
         rule.waitForIdle()
         rule.onNodeWithContentDescription("收藏").performClick()
+        rule.onNodeWithText("收藏的电影").performClick()
         rule.onRoot().performTouchInput { swipeUp(startY = height * .7f, endY = height * .3f) }
         rule.waitForIdle()
         rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
