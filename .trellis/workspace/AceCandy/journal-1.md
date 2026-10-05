@@ -183,3 +183,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 7: 收藏分类与库归属兼容
+<!-- trellis-session: v=2 fp=a26089ea978bd515 -->
+
+**Date**: 2026-10-05
+**Task**: 收藏分类与库归属兼容
+**Branch**: `main`
+
+### Summary
+
+手机收藏支持电影、剧集与显式红果库分类，兼容缺失字段；分类页本地排序、标题对齐及轻量动效。24 项 Android 回归、完整核心门禁、隐私检查及 APK 验签通过。未进行真机和线上联调。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8d59b85a` | feat(android): 优化收藏分类与本地排序并支持短剧库识别 |
+
+### Status
+
+[OK] **Completed**
