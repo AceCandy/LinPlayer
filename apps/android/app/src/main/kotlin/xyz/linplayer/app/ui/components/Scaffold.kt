@@ -215,7 +215,7 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, onPick: (Int) -> Unit) {
                 .pressable(onSearch), contentAlignment = Alignment.Center) {
                 Icon(LpIcons.search, "搜索", Modifier.size(26.dp), tint = c.mediaIcon)
             }
-            Tab("聚合视界", LpIcons.globe, current == 1, Modifier.weight(1f), badge("aggregate")) { onPick(1) }
+            Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f), badge("aggregate")) { onPick(1) }
             // 服务器管理仍在聚合页；第三个入口是日常使用的收藏。
             Tab("收藏", LpIcons.star, current == 2,
                 Modifier.weight(1f), badge("favorites")) { onPick(2) }

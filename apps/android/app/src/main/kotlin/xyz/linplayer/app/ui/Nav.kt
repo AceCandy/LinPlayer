@@ -2,6 +2,7 @@ package xyz.linplayer.app.ui
 
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
+import androidx.navigation.NavDestination.Companion.hasRoute
 import kotlinx.serialization.Serializable
 
 /**
@@ -20,8 +21,8 @@ object Route {
     @Serializable data class Detail(val itemId: String, val type: String)     // U1.5
     @Serializable data class Search(val viewId: String? = null, val q: String? = null) // U1.7
     @Serializable data object Favorites                                       // U1.9a · Tab 2
-    /** 收藏分类网格；type 为 Movie 或 Series。 */
-    @Serializable data class FavoriteCategory(val type: String)
+    /** 收藏库内网格；无 libraryId 时按兼容媒体类型显示。 */
+    @Serializable data class FavoriteCategory(val type: String? = null, val libraryId: String? = null, val title: String? = null)
     /** 全局观看历史(SPEC 8.7)。本地库,跨服续播靠它 —— 和「全部收藏」是一对。 */
     @Serializable data object History
 
@@ -69,6 +70,8 @@ object Route {
         val ar: Float = 0f,
         /** 数据源播放:`{server_id, item, line_id, episode_id}` 的 JSON 原文。非空时走 source.playItem。 */
         val src: String? = null,
+        /** 本次明确从头起播，绕过续播记录，不修改全局偏好。 */
+        val fromStart: Boolean = false,
     )
     @Serializable data object AddServer                                       // U1.2 的「添加」版式
 }
@@ -78,6 +81,8 @@ object Route {
  * `saveState` / `restoreState` 保住每个 Tab 的滚动位置与页面栈。
  */
 fun NavController.switchTab(route: Any) {
+    // 搜索是临时动作，不能随所属 Tab 保存后又作为 Tab 内容恢复。
+    if (currentDestination?.hasRoute<Route.Search>() == true) popBackStack()
     navigate(route) {
         popUpTo(graph.findStartDestination().id) { saveState = true }
         launchSingleTop = true

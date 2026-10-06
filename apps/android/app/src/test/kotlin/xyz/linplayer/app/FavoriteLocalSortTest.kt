@@ -2,37 +2,28 @@ package xyz.linplayer.app
 
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
-import kotlinx.serialization.json.JsonNull
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import org.junit.Assert.assertEquals
 import org.junit.Test
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.ui.pages.sortFavoriteItems
-import xyz.linplayer.app.ui.pages.favoriteCategory
+import xyz.linplayer.app.ui.pages.favoriteGroups
 import xyz.linplayer.app.data.View
 
 /** 本地排序读取核心已有字段，升降序均将缺值放末尾，并保持相同值原序。 */
 class FavoriteLocalSortTest {
-    @Test fun libraryMembershipIsOptionalAndOnlyExplicitShortLibrariesClassifySeries() {
-        val views = View.list(JsonArray(listOf(buildJsonObject {
-            put("id", "short-library"); put("library_type", "hongguo")
-        }, buildJsonObject {
-            put("id", "ordinary-library"); put("name", "红果短剧"); put("collection_type", "tvshows")
-        })))
-        val short = views.filter { it.libraryType == "hongguo" }.map { it.id }.toSet()
-        fun entry(libraries: List<String>?, type: String = "Series") = Item.from(buildJsonObject {
-            put("id", "hg-group-example"); put("type_", type)
-            put("library_ids", libraries?.let { JsonArray(it.map(::JsonPrimitive)) } ?: JsonNull)
-        })!!
-        assertEquals("ShortDrama", favoriteCategory(entry(listOf("ordinary-library", "short-library")), short))
-        for (libraries in listOf(null, emptyList(), listOf("ordinary-library"), listOf("unknown"))) {
-            assertEquals("Series", favoriteCategory(entry(libraries), short))
-        }
-        assertEquals("Series", favoriteCategory(Item("hg-work-example", "红果短剧", "Series"), short))
-        assertEquals("Series", favoriteCategory(entry(listOf("short-library")), emptySet()))
-        assertEquals("Movie", favoriteCategory(entry(listOf("short-library"), "Movie"), short))
-        assertEquals("Episode", favoriteCategory(entry(listOf("short-library"), "Episode"), short))
+    @Test fun groupsUseLibraryIdsHideEmptyLibrariesAndPreserveUnknownMembership() {
+        val libraries = listOf(View("a", "同名库", null), View("b", "同名库", null), View("empty", "空库", null))
+        val shared = Item("shared", "跨库收藏", "Series", libraryIds = listOf("a", "b"))
+        val legacy = Item("legacy", "旧收藏", "Movie")
+        val unknown = Item("unknown", "未知库收藏", "Series", libraryIds = listOf("missing"))
+        val entries = listOf(shared, legacy, unknown)
+        val groups = favoriteGroups(entries, libraries)
+        assertEquals(listOf("a", "b", null, null), groups.map { it.libraryId })
+        assertEquals(listOf(listOf("shared"), listOf("shared"), listOf("legacy"), listOf("unknown")),
+            groups.map { it.items.map { item -> item.id } })
+        assertEquals(listOf("同名库", "同名库", "收藏的电影", "收藏的剧"), groups.map { it.title })
+        assertEquals(listOf("Movie", "Series"), favoriteGroups(entries, emptyList()).map { it.type })
+        assertEquals(emptyList<Any>(), favoriteGroups(emptyList(), libraries))
     }
 
     @Test fun sortUsesReturnedFieldsAndKeepsMissingValuesLast() {

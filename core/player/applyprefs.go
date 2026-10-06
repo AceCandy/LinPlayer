@@ -67,7 +67,13 @@ func chooseTracks(tracks []Track, p config.Prefs) (sid, aid string) {
 		sid = "no"
 	default:
 		if sid = pickTrack(tracks, "sub", p.SubLang, p.SubRegex); sid == "" {
-			sid = fallbackSub(tracks)
+			// 没有显式选轨偏好才优先简体；语言/正则偏好和关闭字幕始终优先。
+			if (p.SubLang == nil || strings.TrimSpace(*p.SubLang) == "") && strings.TrimSpace(p.SubRegex) == "" {
+				sid = pickTrack(tracks, "sub", nil, `简体|简中|simplified|zh[-_]hans|zh[-_]cn|\bchs\b`)
+			}
+			if sid == "" {
+				sid = fallbackSub(tracks)
+			}
 		}
 	}
 	return sid, pickTrack(tracks, "audio", p.AudioLang, p.AudioRegex)

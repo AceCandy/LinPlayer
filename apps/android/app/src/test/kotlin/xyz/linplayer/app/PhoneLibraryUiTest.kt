@@ -174,7 +174,11 @@ class PhoneLibraryUiTest {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core(), scope)
-        rule.setContent { LpTheme(darkOverride = false) { PhoneRoot(app) } }
+        lateinit var back: androidx.activity.OnBackPressedDispatcher
+        rule.setContent {
+            back = checkNotNull(androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
+            LpTheme(darkOverride = false) { PhoneRoot(app) }
+        }
         rule.waitForIdle()
         rule.onNodeWithTag("phone.tabs").assertExists()
         rule.onNode(hasText("电影") and hasAnyAncestor(hasTestTag("home.libraries"))).performClick()
@@ -183,9 +187,17 @@ class PhoneLibraryUiTest {
         rule.onNodeWithText("影片 1").assertIsDisplayed()
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.onNodeWithTag("phone.tabs").assertExists()
-        rule.onNodeWithText("库内搜索").assertIsDisplayed()
+        rule.onNodeWithTag("search.field").assertIsDisplayed()
+        rule.onNodeWithText("在这个库里搜").assertIsDisplayed()
         rule.onNodeWithContentDescription("搜索").performClick()
-        rule.onNodeWithContentDescription("返回").performClick()
+        rule.runOnIdle { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithText("影片 1").assertIsDisplayed()
+        rule.onNodeWithContentDescription("搜索").performClick()
+        rule.onNodeWithContentDescription("聚合视界").performClick()
+        rule.onNodeWithContentDescription("首页").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithText("影片 1").assertIsDisplayed()
         rule.onNodeWithContentDescription("首页").performClick()
         rule.onNodeWithText("继续观看").assertExists()

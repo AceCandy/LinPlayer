@@ -43,11 +43,13 @@ type ItemDetail struct {
 	Type         string        `json:"type_"`
 	Overview     string        `json:"overview"`
 	Year         *int64        `json:"year"`
-	Genres       []string      `json:"genres"`
-	Rating       *float64      `json:"rating"`
-	RuntimeSecs  float64       `json:"runtime_secs"`
-	ResumeSecs   float64       `json:"resume_secs"`
-	HasPrimary   bool          `json:"has_primary"`
+	// PremiereDate 首播/上映日期；旧服务端无值时不扩展响应。
+	PremiereDate *string  `json:"premiere_date,omitempty"`
+	Genres       []string `json:"genres"`
+	Rating       *float64 `json:"rating"`
+	RuntimeSecs  float64  `json:"runtime_secs"`
+	ResumeSecs   float64  `json:"resume_secs"`
+	HasPrimary   bool     `json:"has_primary"`
 	// ★ 背景图在 **BackdropImageTags 数组**里,不在 ImageTags 里。
 	//   写成 ImageTags["Backdrop"] 永远是 false —— 详情页就永远没有大图。
 	HasBackdrop bool `json:"has_backdrop"`
@@ -257,6 +259,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 		Type:         typ,
 		Overview:     jstr(j, "Overview"),
 		Year:         jint(j, "ProductionYear"),
+		PremiereDate: jstrPtrNonEmpty(j, "PremiereDate"),
 		Genres:       genres,
 		Rating:       jfloat(j, "CommunityRating"),
 		RuntimeSecs:  float64(jint64or0(j, "RunTimeTicks")) / 1e7,

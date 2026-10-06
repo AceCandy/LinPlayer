@@ -256,7 +256,10 @@ private fun MainShell() {
                     val src by app.activeSource.collectAsStateWithLifecycle()
                     if (src != null) xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) else FavoritesPage(nav)
                 } }
-                composable<Route.FavoriteCategory> { FavoritesPage(nav, it.toRoute<Route.FavoriteCategory>().type) }
+                composable<Route.FavoriteCategory> {
+                    val route = it.toRoute<Route.FavoriteCategory>()
+                    FavoritesPage(nav, route.type, route.libraryId, route.title)
+                }
                 composable<Route.History> { xyz.linplayer.app.ui.plugin.Takeover("history") { xyz.linplayer.app.ui.pages.HistoryPage(nav) } }
                 composable<Route.Facet> { FacetPage(nav, it) }
                 composable<Route.Lines> { LinesPage(nav, it) }

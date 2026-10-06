@@ -240,6 +240,59 @@ func TestAggregateOverview浏览型源(t *testing.T) {
 	}
 }
 
+func TestAggregateOverview慢服有总时限且保留其它结果(t *testing.T) {
+	c := setup(t)
+	good := embyServer(t, "good", nil, false)
+	hanging := func(path string) *httptest.Server {
+		up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if strings.Contains(r.URL.Path, path) {
+				<-r.Context().Done()
+				return
+			}
+			if strings.Contains(r.URL.Path, "/Items/Counts") {
+				_, _ = w.Write([]byte(`{"MovieCount":3}`))
+			} else {
+				_, _ = w.Write([]byte(`{"Items":[{"Id":"r1","Name":"继续看的","Type":"Movie"}],"TotalRecordCount":1}`))
+			}
+		}))
+		t.Cleanup(up.Close)
+		return up
+	}
+	slowCounts, slowResume := hanging("/Items/Counts"), hanging("/Items/Resume")
+	for _, up := range []*httptest.Server{good, slowCounts, slowResume} {
+		c.Upsert(config.Account{Server: up.URL, Token: "t", UserID: "u"})
+	}
+	const seq = 801
+	defer bus.Cancel(seq)
+	if err := bus.Call(seq, "emby.aggregateOverview", `{}`); err != nil {
+		t.Fatal(err)
+	}
+	// 生产单服上限20秒；原实现等待挂起的请求不会返回。
+	deadline := time.Now().Add(22 * time.Second)
+	for time.Now().Before(deadline) {
+		var event struct {
+			T    string           `json:"t"`
+			Seq  int64            `json:"seq"`
+			Data []SourceOverview `json:"data"`
+		}
+		if json.Unmarshal(bus.NextEvent(200), &event) != nil || event.T != "result" || event.Seq != seq {
+			continue
+		}
+		cards := event.Data
+		if len(cards) != 3 || cards[0].Counts.Movie != 3 || len(cards[0].Resume) != 1 || cards[0].Error != nil {
+			t.Fatalf("慢服不能丢掉健康服结果: %+v", cards)
+		}
+		if len(cards[1].Resume) != 1 || cards[1].Error != nil {
+			t.Fatalf("统计超时不该丢掉已成功的继续观看: %+v", cards[1])
+		}
+		if cards[2].Counts.Movie != 3 || cards[2].Error == nil || *cards[2].Error == "" {
+			t.Fatalf("继续观看超时应保留统计并返回错误: %+v", cards[2])
+		}
+		return
+	}
+	t.Fatal("慢服务器让聚合总览一直等待，没有在单服总时限内结束")
+}
+
 // 结果按**账号表顺序**排,不按谁先返回 —— 否则每次搜索服务器顺序都在跳。
 func TestAggregateSearch顺序稳定(t *testing.T) {
 	c := setup(t)

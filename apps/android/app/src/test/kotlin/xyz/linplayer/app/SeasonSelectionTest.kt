@@ -14,6 +14,8 @@ import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onRoot
@@ -190,7 +192,10 @@ class SeasonSelectionTest {
             rule.onNodeWithTag("season.s$season").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
             press(rule, Key.DirectionCenter)
         }
-        else pageText("第 $season 季").performScrollTo().performClick()
+        else {
+            rule.onNodeWithContentDescription("选择季").performScrollTo().performClick()
+            pageText("第${season}季").performClick()
+        }
         rule.waitForIdle()
     }
 
@@ -315,31 +320,36 @@ class SeasonSelectionTest {
 
     private fun detailHierarchy(tv: Boolean, dark: Boolean) {
         open(tv = tv, total = 3, resumeEpisode = 2, episodeStates = true, dark = dark)
-        pageText("继续 S1E2").assertExists()
+        pageText("继续 S1E2", substring = true).assertExists()
         rule.onNodeWithTag("detail.play.target").assertTextContains("S1E2 · s1 分集 2", substring = true)
         rule.onRoot().captureRoboImage("build/detail-ui/${if (tv) "tv" else if (dark) "phone-dark" else "phone-light"}-top.png")
         if (!tv) pageText("待播放").performScrollTo().assertIsDisplayed()
         else pageText("待播放", substring = true).assertExists()
-        pageText("已看完", substring = true).assertExists()
+        if (tv) pageText("已看完", substring = true).assertExists()
+        else rule.onNodeWithContentDescription("已看完").assertExists()
         rule.onRoot().captureRoboImage("build/detail-ui/${if (tv) "tv" else if (dark) "phone-dark" else "phone-light"}-episodes.png")
         val row = rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
             hasAnyDescendant(hasText("s1 分集 2", substring = true)))
         row.performScrollToIndex(2)
-        pageText("未看", substring = true).assertExists()
+        if (tv) pageText("未看", substring = true).assertExists()
+        else {
+            pageText("未看").assertDoesNotExist()
+            rule.onAllNodesWithText("30:00")[1].assertIsDisplayed()
+        }
         if (!tv) {
-            pageText("展开").performScrollTo()
+            rule.onNodeWithContentDescription("展开简介").performScrollTo()
             rule.onRoot().captureRoboImage("build/detail-ui/phone-${if (dark) "dark" else "light"}-overview.png")
         }
         val layouts = mutableListOf<TextLayoutResult>()
         pageText(overview).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         assertEquals(if (tv) 2 else 3, layouts.single().lineCount)
         if (!tv) {
-            pageText("展开").performClick()
+            rule.onNodeWithContentDescription("展开简介").performClick()
             layouts.clear()
             pageText(overview).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             assertTrue(layouts.single().lineCount > 3)
-            pageText("收起").performScrollTo().performClick()
+            rule.onNodeWithContentDescription("收起简介").performScrollTo().performClick()
         }
         if (tv) {
             pick(2, true)
@@ -348,7 +358,7 @@ class SeasonSelectionTest {
             press(rule, Key.DirectionCenter)
             assertEquals("s1-1", (tvNav.top.route as TvRoute.Player).itemId)
         } else {
-            pageText("继续 S1E2").performScrollTo().performClick()
+            pageText("继续 S1E2", substring = true).performScrollTo().performClick()
             assertEquals("s1-1", phoneNav.currentBackStackEntry!!.toRoute<Route.Player>().itemId)
         }
     }

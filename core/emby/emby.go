@@ -155,6 +155,8 @@ type rawUserData struct {
 }
 
 type rawMediaSource struct {
+	Path         *string `json:"Path"`
+	DateCreated  *string `json:"DateCreated"`
 	ID           *string `json:"Id"`
 	Name         *string `json:"Name"`
 	Container    *string `json:"Container"`
@@ -171,9 +173,13 @@ type rawMediaSource struct {
 }
 
 type rawMediaStream struct {
-	Type    *string `json:"Type"`
-	Codec   *string `json:"Codec"`
-	Profile *string `json:"Profile"`
+	BitDepth    *int64  `json:"BitDepth"`
+	ColorSpace  *string `json:"ColorSpace"`
+	PixelFormat *string `json:"PixelFormat"`
+	IsForced    *bool   `json:"IsForced"`
+	Type        *string `json:"Type"`
+	Codec       *string `json:"Codec"`
+	Profile     *string `json:"Profile"`
 	// Title 是**压制组写在轨道里的那个名字**(「简体中文特效」「Signs & Songs」)。
 	// DisplayTitle 是 Emby 自己拼的「语言 + 格式」,两者不是一回事 ——
 	// 只透 DisplayTitle 的话界面上永远看不到轨道真名(用户 2026-09-07 点名)。

@@ -33,6 +33,8 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import xyz.linplayer.app.core.CorePort
+import kotlinx.serialization.json.JsonElement
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
@@ -69,7 +71,7 @@ class PhoneBrowseUiTest {
             season = 1, episode = 12, runtime = 3600.0, resume = 1801.0)))
     })
 
-    private fun open(core: FakeCore, route: Any = Route.Aggregate, fontScale: Float = 1f) {
+    private fun open(core: CorePort, route: Any = Route.Aggregate, fontScale: Float = 1f) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope)
@@ -82,7 +84,10 @@ class PhoneBrowseUiTest {
                     NavHost(nav, startDestination = route) {
                         composable<Route.Aggregate> { AggregatePage(nav) }
                         composable<Route.Favorites> { FavoritesPage(nav) }
-                        composable<Route.FavoriteCategory> { FavoritesPage(nav, it.toRoute<Route.FavoriteCategory>().type) }
+                        composable<Route.FavoriteCategory> {
+                            val route = it.toRoute<Route.FavoriteCategory>()
+                            FavoritesPage(nav, route.type, route.libraryId, route.title)
+                        }
                         composable<Route.Detail> { Text("详情目标：" + it.toRoute<Route.Detail>().itemId) }
                         composable<Route.Search> { SearchPage(nav, it) }
                     }
@@ -129,6 +134,23 @@ class PhoneBrowseUiTest {
         rule.onRoot().captureRoboImage("build/browse-ui/aggregate-dark-large.png")
     }
 
+    @Test fun aggregateServerTimeoutShowsErrorAlongsideHealthyServer() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.aggregateOverview", arr(overview()[0], buildJsonObject {
+            put("server_id", "server-slow"); put("server_name", "慢服务器")
+            put("counts", buildJsonObject { put("movie", 3) })
+            put("resume", arr())
+            put("error", "读取超时，请检查服务器连接后刷新")
+        }))
+        open(core)
+        rule.onNodeWithText(serverName).assertIsDisplayed()
+        rule.onNodeWithText("S1E12 · 重逢", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("慢服务器").assertIsDisplayed()
+        rule.onNodeWithText("读取超时，请检查服务器连接后刷新", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("还没有添加服务器").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/browse-ui/aggregate-server-timeout.png")
+    }
+
     @Test fun successfulEmptyOverviewStillOffersAddingServer() {
         val core = FakeCore().loggedIn()
         core.ret("emby.aggregateOverview", arr())
@@ -168,16 +190,20 @@ class PhoneBrowseUiTest {
         rule.onRoot().captureRoboImage("build/browse-ui/favorites-dark-large.png")
     }
 
-    @Test fun favoritesSeparateShortDramaByLibraryAndKeepLegacySeries() {
+    @Test fun favoritesGroupByLibraryAndKeepLegacySeries() {
         val core = FakeCore().loggedIn()
         val short = JsonObject(item("short", "短剧收藏", "Series") +
             ("library_ids" to arr(JsonPrimitive("tv"), JsonPrimitive("short-lib"))))
         core.ret("emby.listFavorites", page(short, item("hg-group-legacy", "旧接口剧集", "Series")))
         core.ret("emby.views", arr(buildJsonObject {
             put("id", "short-lib"); put("name", "独立库"); put("library_type", "hongguo")
-        }))
+        }, buildJsonObject { put("id", "empty-lib"); put("name", "空媒体库") }))
         open(core, Route.Favorites)
-        rule.onNodeWithText("收藏的短剧").assertIsDisplayed().performClick()
+        rule.onNodeWithText("空媒体库").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/browse-ui/favorite-library-overview-light.png")
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/browse-ui/favorite-library-overview-dark.png")
+        rule.onNodeWithText("独立库").assertIsDisplayed().performClick()
         rule.onNodeWithText("短剧收藏").assertIsDisplayed()
         rule.onNodeWithText("旧接口剧集").assertDoesNotExist()
         assertEquals(1, core.calls.count { it.first == "emby.views" })
@@ -207,7 +233,7 @@ class PhoneBrowseUiTest {
         rule.onNodeWithText("库信息暂不可用").assertDoesNotExist()
     }
 
-    @Test fun favoritesDoNotGuessShortLibrariesByName() {
+    @Test fun favoritesUseActualLibraryNameWithoutRequiringLibraryType() {
         val core = FakeCore().loggedIn()
         core.ret("emby.listFavorites", page(JsonObject(item("short", "归属已知类型未知", "Series") +
             ("library_ids" to arr(JsonPrimitive("short-lib"))))))
@@ -215,7 +241,8 @@ class PhoneBrowseUiTest {
             put("id", "short-lib"); put("name", "红果短剧"); put("collection_type", "tvshows")
         }))
         open(core, Route.Favorites)
-        rule.onNodeWithText("收藏的剧").assertIsDisplayed()
+        rule.onNodeWithText("收藏的剧").assertDoesNotExist()
+        rule.onNodeWithText("红果短剧").assertIsDisplayed().performClick()
         rule.onNodeWithText("归属已知类型未知").assertIsDisplayed()
         rule.onNodeWithText("收藏的短剧").assertDoesNotExist()
     }
@@ -282,6 +309,29 @@ class PhoneBrowseUiTest {
         rule.onNodeWithText("后续电视剧").assertIsDisplayed()
         rule.onNodeWithText("第一页电影").assertDoesNotExist()
         rule.onNodeWithText("还没有收藏任何内容").assertDoesNotExist()
+    }
+
+    @Test fun favoriteLibraryContinuesPastUnmatchedPagesAndSortsLocally() {
+        val core = FakeCore().loggedIn()
+        fun member(id: String, library: String) = JsonObject(item(id, id, "Series") +
+            ("library_ids" to arr(JsonPrimitive(library))))
+        core.on("emby.listFavorites") { args -> buildJsonObject {
+            val first = args?.get("start_index").toString() == "0"
+            put("items", if (first) arr(member("其它库收藏", "other")) else arr(member("目标库收藏", "target")))
+            put("next_index", if (first) 60 else 61); put("has_more", first)
+        } }
+        core.ret("emby.views", arr(buildJsonObject { put("id", "target"); put("name", "我的剧集库") }))
+        open(core, Route.FavoriteCategory(libraryId = "target", title = "我的剧集库"))
+        rule.onNodeWithText("我的剧集库").assertIsDisplayed()
+        rule.onNodeWithText("目标库收藏").assertIsDisplayed()
+        rule.onNodeWithText("其它库收藏").assertDoesNotExist()
+        assertEquals(listOf("0", "60"), core.calls.filter { it.first == "emby.listFavorites" }
+            .map { it.second?.get("start_index").toString() })
+        val before = core.calls.size
+        rule.onNodeWithTag("favorites.sort").performClick()
+        rule.onNodeWithText("名称").performClick()
+        rule.waitForIdle()
+        assertEquals(before, core.calls.size)
     }
 
     @Test fun favoriteCategoryEmptyStateOnlyDescribesItsOwnType() {
@@ -407,7 +457,82 @@ class PhoneBrowseUiTest {
         rule.onNodeWithText("加载更多").assertDoesNotExist()
     }
 
-    @Test fun searchConditionsKeepScopeAndManualAggregateBehavior() {
+    private fun pullDown() {
+        rule.onRoot().performTouchInput {
+            swipeDown(startY = height * .25f, endY = height * .85f, durationMillis = 600)
+        }
+        rule.waitForIdle()
+    }
+
+    @Test fun favoritesPullRefreshKeepsContentOnFailureAndCanRetry() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.listFavorites", page(item("old", "原收藏")))
+        open(core, Route.Favorites)
+        core.on("emby.listFavorites") { throw CoreException("E_NETWORK", "刷新失败", true) }
+        pullDown()
+        assertEquals(2, core.calls.count { it.first == "emby.listFavorites" })
+        rule.onNodeWithText("原收藏").assertIsDisplayed()
+        core.ret("emby.listFavorites", page(item("fresh", "刷新后的收藏")))
+        pullDown()
+        rule.onNodeWithText("刷新后的收藏").assertIsDisplayed()
+        rule.onNodeWithText("原收藏").assertDoesNotExist()
+        assertEquals(3, core.calls.count { it.first == "emby.listFavorites" })
+        assertTrue(core.calls.filter { it.first == "emby.listFavorites" }.all { it.second?.get("start_index").toString() == "0" })
+    }
+
+    @Test fun favoriteEmptyCategoryCanPullRefresh() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.listFavorites", page())
+        open(core, Route.FavoriteCategory("Movie"))
+        core.ret("emby.listFavorites", page(item("fresh", "新增电影收藏")))
+        pullDown()
+        rule.onNodeWithText("新增电影收藏").assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "emby.listFavorites" })
+    }
+
+    @Test fun searchCanPullRefreshEmptyResultsAndKeepScope() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page())
+        open(core, Route.Search(viewId = "movie-lib", q = "刷新词"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        core.on("emby.search") { throw CoreException("E_NETWORK", "搜索刷新失败", true) }
+        pullDown()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
+        rule.waitForIdle()
+        rule.onRoot().captureRoboImage("build/browse-ui/search-refresh-error.png")
+        rule.onNodeWithText("搜索刷新失败", substring = true).assertIsDisplayed()
+        core.ret("emby.search", page(item("fresh", "刷新搜索结果")))
+        pullDown()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 3 }
+        rule.waitForIdle()
+        rule.onNodeWithText("刷新搜索结果").assertIsDisplayed()
+        assertEquals("movie-lib", core.calls.last { it.first == "emby.search" }.second.str("parent_id"))
+        assertEquals("刷新词", core.calls.last { it.first == "emby.search" }.second.str("query"))
+    }
+
+    @Test fun aggregateSearchCanPullRefreshAfterManualSearch() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page())
+        core.ret("source.aggregateSearch", arr())
+        open(core, Route.Search(q = "聚合词"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "source.aggregateSearch" } == 1 }
+        rule.waitForIdle()
+        core.on("source.aggregateSearch") { throw CoreException("E_NETWORK", "聚合刷新失败", true) }
+        pullDown()
+        rule.waitUntil(5000) { core.calls.count { it.first == "source.aggregateSearch" } == 2 }
+        rule.waitForIdle()
+        rule.onNodeWithText("聚合刷新失败", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("没搜到东西", substring = true).assertDoesNotExist()
+        core.ret("source.aggregateSearch", arr())
+        pullDown()
+        rule.waitUntil(5000) { core.calls.count { it.first == "source.aggregateSearch" } == 3 }
+        assertEquals(1, core.calls.count { it.first == "emby.search" })
+    }
+
+    @Test fun searchInlineAggregateToggleSearchesImmediatelyWithoutExtraToolbarOrButton() {
         val core = FakeCore().loggedIn()
         core.ret("emby.search", page(*(1..12).map {
             item("search-$it", "结果 $it", year = 2024, rating = if (it == 1) 8.6 else null)
@@ -416,20 +541,60 @@ class PhoneBrowseUiTest {
         open(core, Route.Search(q = "故事"), fontScale = 1.3f)
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         rule.waitForIdle()
-        rule.onNodeWithText("包括集").assertIsNotSelected()
+        rule.onNodeWithText("包括集").assertDoesNotExist()
+        rule.onNodeWithText("聚合(含数据源)").assertDoesNotExist()
         rule.onNodeWithText("结果 1").assertIsDisplayed()
+        rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+        rule.onNodeWithText("搜索").assertDoesNotExist()
+        val field = rule.onNodeWithTag("search.field").fetchSemanticsNode().boundsInRoot
+        val icon = rule.onNodeWithTag("search.aggregate").fetchSemanticsNode().boundsInRoot
+        val results = rule.onNodeWithTag("search.results").fetchSemanticsNode().boundsInRoot
+        assertTrue("聚合图标须在输入框内", icon.left >= field.left && icon.right <= field.right && icon.top >= field.top && icon.bottom <= field.bottom)
+        assertTrue("结果和输入框之间留出间距", results.top >= field.bottom + 16f)
         rule.onRoot().captureRoboImage("build/browse-ui/search-light-large.png")
-        rule.onNodeWithText("包括集").performClick()
-        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
-        assertTrue(core.calls.last { it.first == "emby.search" }.second?.get("types").toString().contains("Episode"))
-        rule.onNodeWithText("聚合(含数据源)").performClick()
+        assertEquals("[\"Series\",\"Movie\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
+        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.onNodeWithContentDescription("关闭聚合搜索").assertIsSelected()
         rule.waitForIdle()
-        assertEquals(0, core.calls.count { it.first == "source.aggregateSearch" })
-        rule.onNode(hasText("搜索") and hasClickAction()).performScrollTo().performClick()
+        rule.onNode(hasText("搜索") and hasClickAction()).assertDoesNotExist()
         rule.waitUntil(5000) { core.calls.any { it.first == "source.aggregateSearch" } }
         assertEquals("故事", core.calls.last { it.first == "source.aggregateSearch" }.second.str("query"))
+        rule.onNode(hasSetTextAction()).performImeAction()
+        rule.waitUntil(5000) { core.calls.count { it.first == "source.aggregateSearch" } == 2 }
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/browse-ui/search-dark-large.png")
+    }
+
+    @Test fun aggregateResultsShowOnlyServerNameAndHorizontalPosters() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(item("local", "本服电影")))
+        core.ret("source.aggregateSearch", arr())
+        val client = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "source.aggregateSearch") onPartial?.invoke(buildJsonObject {
+                    put("server_id", "server-a"); put("server_name", "我的媒体服务器")
+                    put("warning", "服务端不支持标识查询,名称搜索可能遗漏不同译名的条目")
+                    put("emby_items", arr(*(1..50).map { item("agg-$it", "横滑结果 $it") }.toTypedArray()))
+                })
+                return result
+            }
+        }
+        open(client, Route.Search(q = "故事"), fontScale = 1.3f)
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.waitUntil(5000) { core.calls.any { it.first == "source.aggregateSearch" } }
+        rule.waitForIdle()
+        rule.onNodeWithText("我的媒体服务器").assertIsDisplayed()
+        rule.onNodeWithText("最多", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("服务端不支持标识查询", substring = true).assertDoesNotExist()
+        rule.onNode(hasText("搜索") and hasClickAction()).assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/browse-ui/search-aggregate-clean-light.png")
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/browse-ui/search-aggregate-clean-dark.png")
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange))
+            .performScrollToIndex(49)
+        rule.onNodeWithText("横滑结果 50").assertIsDisplayed()
     }
 
     @Test fun librarySearchNeverOffersCrossSourceToggle() {
@@ -438,6 +603,7 @@ class PhoneBrowseUiTest {
         open(core, Route.Search(viewId = "lib-movie", q = "条目"))
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         rule.onNodeWithText("聚合(含数据源)").assertDoesNotExist()
+        rule.onNodeWithContentDescription("开启聚合搜索").assertDoesNotExist()
         assertEquals("lib-movie", core.calls.last { it.first == "emby.search" }.second.str("parent_id"))
     }
 

@@ -10,6 +10,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
+import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
@@ -48,6 +50,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -57,6 +62,8 @@ import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.LocalApp
@@ -174,6 +181,8 @@ internal fun fmtSpeed(bytes: Long, nanos: Long): String {
 private const val LIBASS_FONTS_DIR = "/system/fonts"
 private const val SP_MIN = 0.25
 private const val SP_MAX = 4.0
+/** 默认倍率写入跨页面串行；临时播放控制仍归当前页面。 */
+private val speedWrites = Mutex()
 
 /**
  * 播放页 + OSD(U1.6)。
@@ -216,6 +225,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var osd by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf<String?>(null) }
+    var osdClearance by remember { mutableStateOf(92.dp) }
     var dmSearch by remember { mutableStateOf(false) }
     var srcSwitch by remember { mutableStateOf(false) }
     /** 弹幕密度。空表 = 不画(关了热力图、或者这一集没弹幕)。 */
@@ -283,6 +293,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var subOff by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
+        speed = (p.dbl("default_speed") ?: 1.0).coerceIn(SP_MIN, SP_MAX)
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
@@ -297,11 +308,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     /* 片源比例。**起手就是详情页带过来的那一份**(`Route.Player.ar`),
        0 = 详情页也不知道(strm / 网盘源常见),那时下面那个 LaunchedEffect 去问一次。 */
     var srcAr by remember(route.itemId) { mutableFloatStateOf(route.ar) }
-    /** 有没有「同一季的其它集」。**电影没有,所以电影不该有那颗「选集」**【用户定 2026-09-07】。 */
-    var hasEpisodes by remember(route.itemId) { mutableStateOf(false) }
+    var playTitle by remember(route.itemId) { mutableStateOf(route.title) }
+    var episodeLabel by remember(route.itemId) { mutableStateOf("") }
     LaunchedEffect(route.itemId) {
-        hasEpisodes = runCatching { app.call("emby.itemDetail", args("item_id" to route.itemId)) }
-            .getOrNull().obj().str("season_id") != null
+        val detail = runCatching { app.call("emby.itemDetail", args("item_id" to route.itemId)) }.getOrNull().obj()
+        playTitle = detail.str("series_name") ?: route.title
+        if (detail.str("type_") == "Episode") {
+            val number = listOfNotNull(detail.long("season_no")?.let { "S$it" },
+                detail.long("episode_no")?.let { "E$it" }).joinToString("")
+            episodeLabel = listOf(number, detail.str("name") ?: route.title)
+                .filter { it.isNotBlank() }.joinToString("：")
+        }
     }
 
     /* 沉浸式:**两个内核都要**【用户报 2026-09-07】。
@@ -329,7 +346,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 起播。★ 换片时**先立「未就绪」再发命令**,不能排在两个 await 之后
-    LaunchedEffect(route.itemId) {
+    LaunchedEffect(route.itemId, trackPrefs) {
+        if (trackPrefs == null) return@LaunchedEffect
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
         Libass.reset()
@@ -342,6 +360,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             val a = buildMap<String, Any> {
                 put("item_id", route.itemId)
                 put("engine", engine)
+                if (route.fromStart) put("from_start", true)
                 route.versionId?.let { put("media_source_id", it) }
             }
             val src = route.src?.let { kotlinx.serialization.json.Json.parseToJsonElement(it).obj() }
@@ -357,7 +376,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                是明令禁止的(反代只在 /emby/ 下处理 Range,拼错的表现是
                「跳到没缓冲的位置就卡死」,而且查不出来)。 */
             val url = r.str("play_url")
-            if (exo != null && url != null) exo.load(url, r.dbl("resume_secs") ?: 0.0, r?.get("external_subs"))
+            if (exo != null && url != null) {
+                exo.setPlaybackSpeed(speed.toFloat())
+                exo.load(url, r.dbl("resume_secs") ?: 0.0, r?.get("external_subs"))
+            }
             /* 外挂 ASS。**压制组单独发的那种字幕才是「特效字幕」的大头** ——
                内封 ASS 走 media3 的解析器那条路(ExoSurface 里按选中轨切),
                外挂的核心层根本不交给 ExoPlayer,得自己取回来喂 libass。
@@ -491,7 +513,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
     fun doSpeed(v: Double) {
         if (exo != null) exo.setPlaybackSpeed(v.toFloat())
-        else scope.launch { runCatching { app.call("player.setSpeed", args("speed" to v)) } }
+        else scope.launch {
+            runCatching { app.call("player.setSpeed", args("speed" to v)) }.onFailure { app.report(it) }
+        }
+        // 全局偏好的保存不能因用户立刻离开播放页而取消。
+        app.bg.launch {
+            speedWrites.withLock {
+                runCatching { app.call("player.setPlaybackPrefs", args("default_speed" to v)) }
+                    .onFailure { app.report(it) }
+            }
+        }
     }
     fun doVolume(v: Float) {
         if (exo != null) exo.volume = v
@@ -755,9 +786,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             enter = fadeIn(), exit = fadeOut(),
         ) {
             Osd(
-                portrait = portrait, netSpeed = netSpeed,
-                title = route.title, position = seekPreview ?: position, duration = duration,
-                paused = paused, speed = speed, hasEpisodes = hasEpisodes, heat = heat,
+                portrait = portrait, netSpeed = netSpeed, panelOpen = panel != null,
+                title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: position, duration = duration,
+                paused = paused, speed = speed, heat = heat,
                 pluginPanels = pluginPanels,
                 onBack = leave,
                 onToggle = { doPause(!paused) },
@@ -774,18 +805,22 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                     }
                 },
                 onPanel = { panel = it },
+                onBottomHeight = { osdClearance = it + Sp.x12 },
             )
         }
 
         // 锁屏后只有解锁按钮 —— 它就长在锁屏钮刚才那个位置上
-        if (locked) Box(Modifier.align(Alignment.CenterStart).padding(start = Sp.x12)) {
-            GlassIcon(LpIcons.lock, "解锁") { locked = false }
+        if (locked) Box(Modifier.align(Alignment.CenterStart).safeDrawingPadding()
+            .padding(start = if (portrait) Sp.x12 else Sp.x16)
+            .offset(y = if (portrait) 0.dp else 30.dp)) {
+            if (portrait) GlassIcon(LpIcons.lock, "解锁") { locked = false }
+            else PlayerControl(LpIcons.lock, "解锁") { locked = false }
         }
 
         panel?.let {
             PlayerPanel(
                 it, route.itemId, exo,
-                fit = videoFit,
+                fit = videoFit, bottomClearance = osdClearance,
                 pluginPanel = pluginPanels.firstOrNull { p ->
                     xyz.linplayer.app.ui.plugin.pluginPanelKind(p) == it
                 },
@@ -822,24 +857,77 @@ private val BottomVeil = Brush.verticalGradient(
     listOf(Color.Transparent, Color.Black.copy(alpha = .74f)),
 )
 
-/**
- * OSD。竖横一套,差别只在**底排放几颗按钮**。
- *
- * 上一版是竖横两个函数各写一遍布局,九宫格那套把控件摊到八个角落。
- * 摊开确实少挡画面,但代价是「每颗按钮都得自己算 padding 去躲开别人」——
- * 那笔账最后是用户替我们还的(点不到)。现在只剩上下两条:
- * 上条只有返回和标题,下条一列到底,中间**整片是画面**。
- */
+/** 横屏把主控制置中、倍速放右侧；竖屏保留紧凑底部控制。 */
 @Composable
-private fun Osd(
-    portrait: Boolean, netSpeed: String,
-    title: String, position: Double, duration: Double, paused: Boolean, speed: Double,
-    hasEpisodes: Boolean, heat: List<Float>,
+internal fun Osd(
+    portrait: Boolean, netSpeed: String, panelOpen: Boolean = false,
+    title: String, episodeLabel: String = "", position: Double, duration: Double, paused: Boolean, speed: Double,
+    heat: List<Float>,
     pluginPanels: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>,
     onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Double) -> Unit,
     onSpeed: (Double) -> Unit, onLock: () -> Unit, onShot: () -> Unit,
     onPanel: (String) -> Unit,
+    onBottomHeight: (androidx.compose.ui.unit.Dp) -> Unit = {},
 ) {
+    val density = LocalDensity.current
+    if (!portrait) {
+        Box(Modifier.fillMaxSize()) {
+            Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
+                .safeDrawingPadding().padding(horizontal = Sp.x16, vertical = Sp.x12),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                PlayerControl(LpIcons.back, "返回", onClick = onBack)
+                Marquee(title, Modifier.weight(1f))
+                PlayerControl(LpIcons.version, "比例", onClick = { onPanel("ratio") })
+                PlayerControl(LpIcons.more, "更多", onClick = { onPanel("more") })
+            }
+            if (netSpeed.isNotEmpty()) Box(Modifier.align(Alignment.TopEnd).safeDrawingPadding()
+                .padding(top = 76.dp, end = Sp.x16)) { NetSpeed(netSpeed) }
+            if (!panelOpen) Column(Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(start = Sp.x16),
+                verticalArrangement = Arrangement.spacedBy(Sp.x16)) {
+                PlayerControl(LpIcons.camera, "截屏", onClick = onShot)
+                PlayerControl(LpIcons.unlock, "锁屏", onClick = onLock)
+            }
+            if (!panelOpen) Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Sp.x26)) {
+                PlayerControl(LpIcons.rewind, "后退 10 秒", size = 56.dp,
+                    onClick = { onSeek((position - 10).coerceAtLeast(0.0)) })
+                PlayerControl(if (paused) LpIcons.play else LpIcons.pause, if (paused) "播放" else "暂停",
+                    size = 76.dp, onClick = onToggle)
+                PlayerControl(LpIcons.forward, "前进 10 秒", size = 56.dp,
+                    onClick = { onSeek(if (duration > 0) (position + 10).coerceAtMost(duration) else position + 10) })
+            }
+            if (!panelOpen) Column(Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(end = Sp.x16),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                PlayerControl(LpIcons.minus, "减速", onClick = { onSpeed(step(speed, -1)) })
+                Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
+                    fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                PlayerControl(LpIcons.plus, "加速", onClick = { onSpeed(step(speed, +1)) })
+            }
+            Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
+                .safeDrawingPadding().onSizeChanged { onBottomHeight(with(density) { it.height.toDp() }) }
+                .padding(horizontal = Sp.x12, vertical = Sp.x6)) {
+                if (episodeLabel.isNotBlank()) Marquee(episodeLabel,
+                    Modifier.fillMaxWidth().padding(horizontal = Sp.x6, vertical = Sp.x6))
+                Row(verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true) }
+                    PlayerControl(LpIcons.danmaku, "弹幕", onClick = { onPanel("danmaku") })
+                    PlayerControl(LpIcons.music, "音轨", onClick = { onPanel("audio") })
+                    PlayerControl(LpIcons.sub, "字幕", onClick = { onPanel("subtitle") })
+                }
+                if (pluginPanels.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
+                    pluginPanels.forEach { p ->
+                        Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon)) {
+                            onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))
+                        }
+                    }
+                }
+            }
+        }
+        return
+    }
     Box(Modifier.fillMaxSize()) {
         Row(
             Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
@@ -869,7 +957,8 @@ private fun Osd(
 
         Column(
             Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
-                .safeDrawingPadding().padding(top = Sp.x12),
+                .safeDrawingPadding().onSizeChanged { onBottomHeight(with(density) { it.height.toDp() }) }
+                .padding(top = Sp.x12),
         ) {
             ProgressRow(position, duration, heat, onSeek)
             Row(
@@ -892,9 +981,6 @@ private fun Osd(
                 // 横屏给「比例」一个自己的位置:埋在「更多」里用户找不到(报过一次)
                 if (!portrait) Chip("比例") { onPanel("ratio") }
                 Chip("字幕") { onPanel("subtitle") }
-                /* ☠ **电影不画「选集」**【用户定 2026-09-07】。它点开必然是一张空表 ——
-                   而一个「点开永远是空的」按钮比没有它更让人怀疑是不是坏了。 */
-                if (hasEpisodes) Chip("选集") { onPanel("episodes") }
                 // 插件标签排在官方那几个后面:这一栏的先后顺序是官方优先,插件是增量
                 pluginPanels.forEach { p ->
                     Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon)) {
@@ -903,6 +989,19 @@ private fun Osd(
                 }
             }
         }
+    }
+}
+
+/** 视频上的圆形控制始终用白图标与半透明暗底，不随应用主题变黑。 */
+@Composable
+private fun PlayerControl(
+    icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
+    size: androidx.compose.ui.unit.Dp = 44.dp, onClick: () -> Unit,
+) {
+    Box(Modifier.size(size).clip(RoundedCornerShape(R.pill))
+        .background(Color.Black.copy(alpha = .38f)).pressable(onClick),
+        contentAlignment = Alignment.Center) {
+        Icon(icon, label, Modifier.size(if (size >= 70.dp) 34.dp else 23.dp), tint = Color.White)
     }
 }
 
@@ -1008,6 +1107,7 @@ private fun Chip(
 @Composable
 private fun ProgressRow(
     position: Double, duration: Double, heat: List<Float>, onSeek: (Double) -> Unit,
+    showTotal: Boolean = false,
 ) {
     val enabled = duration > 0
     var live by remember(position) { mutableFloatStateOf(position.toFloat()) }
@@ -1041,13 +1141,14 @@ private fun ProgressRow(
             valueRange = 0f..(if (enabled) duration.toFloat() else 1f),
             enabled = enabled,
             modifier = Modifier.fillMaxWidth().padding(horizontal = Sp.x10),
-            colors = SliderDefaults.colors(thumbColor = Lp.colors.acc,
-                activeTrackColor = Lp.colors.acc, inactiveTrackColor = Color.White.copy(alpha = .3f)),
+            colors = SliderDefaults.colors(thumbColor = if (showTotal) Lp.colors.mediaIcon else Lp.colors.acc,
+                activeTrackColor = if (showTotal) Lp.colors.mediaIcon else Lp.colors.acc, inactiveTrackColor = Color.White.copy(alpha = .3f)),
         )
         }
-        // 右边写**剩余**不写总长:看片的时候关心的是「还有多久」
+        // 横屏参考布局显示总时长，竖屏沿用剩余时长。
         Text(
-            if (enabled) "-" + fmtTime((duration - position).coerceAtLeast(0.0)) else "--:--",
+            if (!enabled) "--:--" else if (showTotal) fmtTime(duration)
+            else "-" + fmtTime((duration - position).coerceAtLeast(0.0)),
             color = Color.White, fontSize = 11.sp,
         )
     }

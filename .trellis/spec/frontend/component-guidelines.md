@@ -8,3 +8,5 @@
 - 设计正本：桌面 [UI_PC](../../../docs/go-migration/UI_PC.md)、手机 [UI_MOBILE](../../../docs/go-migration/UI_MOBILE.md)、TV [UI_TV](../../../docs/go-migration/UI_TV.md)；历史刻度不覆盖当前源码。
 
 代表实现：[桌面样式](../../../apps/windows/LinPlayer.Desktop/Theme/Controls.axaml)、[手机组件](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/components/Base.kt)、[TV 组件](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/tv/kit/TvKit.kt)。
+
+- `LpField` 可选 `trailingIcon` 复用原生输入框尾部槽，`onSearch` 非空时使用 IME Search 并调用该回调；未传时保持已有键盘和布局行为。

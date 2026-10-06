@@ -64,3 +64,35 @@ func TestItemDetail缺这两个字段时不编值(t *testing.T) {
 		t.Fatalf("电影没有季,season_id 必须是 null,实得 %v", *d.SeasonID)
 	}
 }
+
+func TestItemDetail上映日期透传且缺失不扩展旧响应(t *testing.T) {
+	for _, date := range []string{`"2026-08-02T00:00:00.000Z"`, `null`, `""`} {
+		t.Run(date, func(t *testing.T) {
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				_, _ = w.Write([]byte(`{"Id":"ep-8","Type":"Episode","PremiereDate":` + date + `}`))
+			}))
+			defer up.Close()
+			d, err := NewClient("test").Detail(context.Background(),
+				&Session{Server: up.URL, Token: "t", UserID: "u"}, "ep-8", false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(d)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var payload map[string]json.RawMessage
+			if err := json.Unmarshal(b, &payload); err != nil {
+				t.Fatal(err)
+			}
+			got, present := payload["premiere_date"]
+			if date == `"2026-08-02T00:00:00.000Z"` {
+				if string(got) != date {
+					t.Fatalf("日期未透传: %s", got)
+				}
+			} else if present {
+				t.Fatalf("无日期不能扩展旧响应: %s", got)
+			}
+		})
+	}
+}

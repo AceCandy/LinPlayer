@@ -7,6 +7,9 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.text.KeyboardActions
+import androidx.compose.foundation.text.KeyboardOptions
+import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -266,6 +269,8 @@ fun LpField(
      *  另造一个的下场是两份配色、两份错误位置,而改的人只会记得改一份。 */
     lines: Int = 1,
     enabled: Boolean = true,
+    trailingIcon: @Composable (() -> Unit)? = null,
+    onSearch: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
     Column(m) {
@@ -275,6 +280,9 @@ fun LpField(
             onValueChange = onChange,
             enabled = enabled,
             placeholder = { Dim3(placeholder) },
+            trailingIcon = trailingIcon,
+            keyboardOptions = if (onSearch != null) KeyboardOptions(imeAction = ImeAction.Search) else KeyboardOptions.Default,
+            keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
             singleLine = lines <= 1,
             minLines = lines,
             isError = error != null,

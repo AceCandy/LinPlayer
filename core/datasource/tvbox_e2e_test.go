@@ -398,8 +398,8 @@ func TestTVBoxAggregateSearch(t *testing.T) {
 	got := map[string]int{}
 	for _, r := range rows {
 		got[r.ServerID] = len(r.Items)
-		if len(r.Items) > 8 {
-			t.Fatal("每源最多 8 条(D258)")
+		if len(r.Items) > 50 {
+			t.Fatal("每源最多 50 条")
 		}
 	}
 	if got[e.key("cms1")] == 0 || got[e.key("cmsb")] == 0 {

@@ -55,7 +55,10 @@ class FloatingTabTest {
         val core = FakeCore().loggedIn()
         core.ret("emby.listFavorites", page(*(1..18).map { item("fav-$it", "收藏影片 $it", runtime = 5400.0) }.toTypedArray()))
         val app = AppState(core, scope)
-        rule.setContent { LpTheme(darkOverride = false) {
+        lateinit var back: androidx.activity.OnBackPressedDispatcher
+        rule.setContent {
+            back = checkNotNull(androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
+            LpTheme(darkOverride = false) {
             androidx.compose.runtime.CompositionLocalProvider(androidx.compose.ui.platform.LocalDensity provides
                 androidx.compose.ui.unit.Density(1f, 1.3f)) { PhoneRoot(app) }
         } }
@@ -67,7 +70,8 @@ class FloatingTabTest {
         rule.onNodeWithContentDescription("收藏").performClick().assertIsSelected()
         rule.onNode(hasContentDescription("搜索") and hasAnyAncestor(hasTestTag("phone.tabs"))).performClick()
         rule.onNodeWithTag("phone.tabs").assertExists()
-        rule.onNodeWithContentDescription("返回").performClick()
+        rule.runOnIdle { back.onBackPressed() }
+        rule.waitForIdle()
         rule.onNodeWithContentDescription("收藏").assertIsSelected()
         rule.onNodeWithText("收藏的电影").performClick()
         rule.onNodeWithContentDescription("收藏").assertIsSelected()
@@ -79,7 +83,14 @@ class FloatingTabTest {
         assertTrue("末项应能滚到悬浮栏上方", bottom < barTop)
         rule.onRoot().captureRoboImage("build/floating-ui/favorites-bottom.png")
         rule.onNode(hasContentDescription("搜索") and hasAnyAncestor(hasTestTag("phone.tabs"))).performClick()
-        rule.onNodeWithContentDescription("返回").performClick()
+        rule.runOnIdle { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithText("收藏影片 18", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNode(hasContentDescription("搜索") and hasAnyAncestor(hasTestTag("phone.tabs"))).performClick()
+        rule.onNodeWithContentDescription("聚合视界").performClick()
+        rule.onNodeWithContentDescription("收藏").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithText("收藏影片 18", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithContentDescription("首页").performClick().assertIsSelected()
         rule.onNodeWithText("继续观看").assertExists()
@@ -105,6 +116,39 @@ class FloatingTabTest {
         rule.onNodeWithContentDescription("首页").performClick()
         rule.onNodeWithTag("home.libraries").performTouchInput { swipeLeft() }
         rule.onNodeWithTag("phone.tabs").assertIsDisplayed()
+    }
+
+    @Test fun switchingTabsNeverRestoresSearchAsTabContent() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val core = FakeCore().loggedIn()
+        core.ret("emby.listFavorites", page(item("fav", "收藏影片")))
+        val app = AppState(core, scope)
+        rule.setContent { LpTheme(darkOverride = true) { PhoneRoot(app) } }
+        rule.waitForIdle()
+
+        fun pick(name: String) {
+            rule.onNodeWithContentDescription(name).performClick()
+            rule.waitForIdle()
+            rule.onNodeWithContentDescription(name).assertIsSelected()
+            rule.onNodeWithTag("search.field").assertDoesNotExist()
+            rule.onNodeWithText(when (name) {
+                "首页" -> "继续观看"
+                "聚合视界" -> "服务器"
+                else -> "收藏的电影"
+            }).assertExists()
+        }
+
+        // 聚合 → 搜索 → 收藏 → 聚合，原实现会把搜索页作为聚合栈一起恢复。
+        for (origin in listOf("聚合视界", "收藏", "首页")) {
+            for (target in listOf("首页", "聚合视界", "收藏")) {
+                pick(origin)
+                rule.onNode(hasContentDescription("搜索") and hasAnyAncestor(hasTestTag("phone.tabs"))).performClick()
+                rule.onNodeWithTag("search.field").assertIsDisplayed()
+                pick(target)
+                pick(origin)
+            }
+        }
+        rule.onRoot().captureRoboImage("build/floating-ui/tab-after-search-dark.png")
     }
 
     private fun render(dark: Boolean) {

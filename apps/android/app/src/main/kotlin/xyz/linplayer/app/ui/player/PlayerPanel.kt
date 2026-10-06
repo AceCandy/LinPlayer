@@ -43,6 +43,9 @@ import xyz.linplayer.app.ui.components.glass
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.data.ToastKind
+import xyz.linplayer.app.ui.pages.langCn
+import androidx.compose.material3.Text
+import androidx.compose.ui.text.font.FontWeight
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
@@ -64,6 +67,7 @@ fun PlayerPanel(
     itemId: String,
     exo: androidx.media3.exoplayer.ExoPlayer? = null,
     fit: VideoFit = VideoFit.Source,
+    bottomClearance: androidx.compose.ui.unit.Dp = OsdClearance,
     /** 这一格是插件标签时的那一行(`plugin.playerSurfaces` 的 panel),官方面板是 null。 */
     pluginPanel: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
     onOpen: (String) -> Unit = {},
@@ -105,10 +109,12 @@ fun PlayerPanel(
                 options = off + t.arr().mapNotNull {
                     val o = it.obj() ?: return@mapNotNull null
                     if (o.str("kind") != want) return@mapNotNull null
+                    val language = trackLanguage(o.str("lang"), kind)
                     Triple(
                         o.str("id") ?: return@mapNotNull null,
-                        o.str("lang"),
-                        o.str("title") ?: o.str("lang") ?: "轨道",
+                        language,
+                        o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (want != "audio" || it != "未标注") }
+                            ?: language ?: "轨道",
                     )
                 }
                 current = t.arr().firstOrNull { it.obj().str("kind") == want && it.obj().bool("selected") }
@@ -236,13 +242,14 @@ fun PlayerPanel(
         Column(
             Modifier.align(Alignment.BottomEnd)
                 .safeDrawingPadding()
-                .padding(end = Sp.x12, bottom = OsdClearance)
+                .padding(end = Sp.x12, bottom = bottomClearance)
                 .width(236.dp)
                 .heightIn(max = 320.dp)
                 .glass(R.md, solid = 1.6f)
-                .padding(horizontal = Sp.x12, vertical = Sp.x10),
+                .padding(horizontal = Sp.x8, vertical = Sp.x8),
         ) {
-            Dim3(title)
+            Text(title, Modifier.padding(horizontal = Sp.x12, vertical = Sp.x4),
+                color = c.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(Sp.x6))
             when {
                 pluginPanel != null -> xyz.linplayer.app.ui.plugin.PluginSurface(
@@ -261,7 +268,7 @@ fun PlayerPanel(
                     // 字幕面板顶上挂一个「字幕样式…」的跳板:调样式和选轨是同一件事的两步,
                     // 让用户退出去再从「更多」进一遍等于把它藏起来
                     if (kind == "subtitle") item("substyle") {
-                        OptRow("字幕样式…", { onOpen("substyle") }, selected = false)
+                        OptRow("字幕样式…", { onOpen("substyle") }, selected = false, media = true)
                     }
                     items(options, key = { it.first }) { (id, badge, label) ->
                         OptRow(label, {
@@ -272,7 +279,9 @@ fun PlayerPanel(
                                 scope.launch { pick(app, kind, id, itemId, exo, displayHz) }
                                 onClose()
                             }
-                        }, selected = id == current || id == currentInterp, badge = badge)
+                        }, selected = id == current || id == currentInterp, media = kind == "audio" || kind == "subtitle",
+                            sub = badge?.takeIf { (kind == "audio" || kind == "subtitle") && it != label },
+                            badge = badge.takeUnless { kind == "audio" || kind == "subtitle" })
                     }
                 }
             }
@@ -357,13 +366,13 @@ private fun DanmakuPanel(
         item("on") {
             OptRow("显示弹幕", {
                 scope.launch { toggleDanmaku(app, itemId, !DanmakuStyle.enabled.value) }
-            }, selected = DanmakuStyle.enabled.value)
+            }, selected = DanmakuStyle.enabled.value, media = true)
         }
-        item("search") { OptRow("搜索弹幕…", onSearch, selected = false) }
+        item("search") { OptRow("搜索弹幕…", onSearch, selected = false, media = true) }
         item("again") {
             OptRow("重新匹配这一集", {
                 scope.launch { loadDanmakuFor(app, itemId, loud = true) }
-            }, selected = false)
+            }, selected = false, media = true)
         }
         // 范围是**三档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         item("area") {
@@ -371,7 +380,7 @@ private fun DanmakuPanel(
                 scope.launch {
                     DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue))
                 }
-            }, selected = false)
+            }, selected = false, media = true)
         }
         item("scale") {
             StepRow("弹幕缩放", "%.1f×".format(DanmakuStyle.scale.doubleValue)) { up ->
@@ -407,17 +416,17 @@ private fun DanmakuPanel(
         item("merge") {
             OptRow("合并重复弹幕",
                 { scope.launch { DanmakuStyle.set(app, "merge", !DanmakuStyle.merge.value) } },
-                selected = DanmakuStyle.merge.value)
+                selected = DanmakuStyle.merge.value, media = true)
         }
         item("bold") {
             OptRow("粗体弹幕",
                 { scope.launch { DanmakuStyle.set(app, "bold", !DanmakuStyle.bold.value) } },
-                selected = DanmakuStyle.bold.value)
+                selected = DanmakuStyle.bold.value, media = true)
         }
         item("heat") {
             OptRow("进度条热力图",
                 { scope.launch { DanmakuStyle.set(app, "heatmap", !DanmakuStyle.heatmap.value) } },
-                selected = DanmakuStyle.heatmap.value)
+                selected = DanmakuStyle.heatmap.value, media = true)
         }
         item("note") {
             Dim3("行数设成 0 就是这一类不显示。屏蔽词在设置里加。", maxLines = 3)
@@ -599,12 +608,12 @@ internal fun exoTracks(
         for (ti in 0 until g.length) {
             val f = g.getTrackFormat(ti)
             val name = listOfNotNull(
-                f.label,
-                f.language,
+                f.label?.takeIf { it.isNotBlank() && it != f.language && (kind != "audio" || it != "未标注") }
+                    ?: trackLanguage(f.language, kind),
                 // ASS 标出来:用户才知道这条是带特效的那一条
                 if (Libass.isAss(f)) "特效" else null,
             ).joinToString(" · ").ifBlank { "轨道 ${gi + 1}-${ti + 1}" }
-            out.add(Triple("$gi:$ti", f.language, name))
+            out.add(Triple("$gi:$ti", trackLanguage(f.language, kind), name))
         }
     }
     return out
@@ -650,3 +659,7 @@ internal fun exoPick(exo: androidx.media3.exoplayer.ExoPlayer, kind: String, id:
     // 选的是 ASS 就把 libass 接上,不是就撤掉 —— `onTracksChanged` 里那条同源判断
     if (type == text && !Libass.isAss(g.getTrackFormat(ti))) Libass.deactivate()
 }
+
+/** 音轨隐藏未知语言占位；可辨认的轨道语言使用中文名称。 */
+internal fun trackLanguage(language: String?, kind: String): String? =
+    langCn(language?.takeIf { it.isNotBlank() && (kind != "audio" || !it.equals("und", true)) })

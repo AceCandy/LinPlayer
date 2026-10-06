@@ -19,7 +19,7 @@ import (
 )
 
 const (
-	aggPerSource    = 8               // 聚合搜索每源展示条数(D258)
+	aggPerSource    = 50              // 聚合搜索每源展示条数(D258)
 	aggConcurrency  = 8               // 宿主批量调用并发上限(D234 D385)
 	switchTimeout   = 8 * time.Second // 换源单源超时(D234)
 	searchTimeout   = 20 * time.Second

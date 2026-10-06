@@ -413,6 +413,10 @@
 | [x] | `plugin.ui.viewport` | **新增** | `surface, width, height, breakpoint, formFactor, insets` | `—` | ✅ |
 <!-- END GENERATED -->
 
+### 详情日期可选字段
+
+`emby.itemDetail` 的 `ItemDetail` 可返回 `premiere_date: string`，透传服务端 `PremiereDate`。缺失/null/空串时省略，不改变命令参数、绑定和无日期旧响应；日期格式化及年份回落由外壳负责。
+
 ### 已核实的服务端能力限制
 
 `emby.getFilters`、`emby.permissions`、`emby.itemDetail` 可返回 `capabilities`。
@@ -421,3 +425,7 @@
 当前按 MediaStationGo `6e20252` 的固定服务标识匹配限制，不按显示名或空列表推断。条件筛选、隐藏续播、刷新/扫描和精确 provider 查询被核心层拒绝时返回不可重试的 `E_UNSUPPORTED`；已知不支持的可选相似推荐、合集和章节不再请求占位端点，返回空结果供入口收起。
 
 `emby.aggregateSearch` 和 `source.aggregateSearch` 的每服结果可带 `warning`，表示名称搜索可能漏掉不同译名的条目；保留成功结果，不能把该说明当作请求失败。跨服版本的名称搜索回退会在 `reason` 中说明同一限制。
+
+### 媒体信息可选字段
+
+`emby.itemMedia` 的 MediaVersion 可返回 `path / date_created: string`；StreamInfo 可返回 `bit_depth: integer`、`color_space / pixel_format: string`、`is_forced: boolean`。新字段缺失/null时省略，字符串为空也省略；显式 `is_forced=false` 保留。它们来自同一次 PlaybackInfo，不改参数或绑定。Path 供文件信息展示，不能作为客户端播放地址；外壳不展示远程地址的账号和查询参数。

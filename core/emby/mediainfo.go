@@ -17,10 +17,15 @@ import (
 
 // StreamInfo 一条流(视频/音频/字幕),字段照详情页媒体信息卡的 kv 行来。
 type StreamInfo struct {
-	Index   int64   `json:"index"`
-	Type    string  `json:"type_"` // Video | Audio | Subtitle
-	Codec   string  `json:"codec"`
-	Profile *string `json:"profile"`
+	// 可选的探测参数；缺失不输出，不能用零值冒充实际探测结果。
+	BitDepth    *int64  `json:"bit_depth,omitempty"`
+	ColorSpace  *string `json:"color_space,omitempty"`
+	PixelFormat *string `json:"pixel_format,omitempty"`
+	IsForced    *bool   `json:"is_forced,omitempty"`
+	Index       int64   `json:"index"`
+	Type        string  `json:"type_"` // Video | Audio | Subtitle
+	Codec       string  `json:"codec"`
+	Profile     *string `json:"profile"`
 	// Title 轨道真名(压制组写的);DisplayTitle 是服务器拼的「语言 + 格式」。
 	Title         *string  `json:"title"`
 	DisplayTitle  *string  `json:"display_title"`
@@ -42,6 +47,9 @@ type StreamInfo struct {
 
 // MediaVersion 一个版本(= 一个 MediaSource)。
 type MediaVersion struct {
+	// 媒体信息中的源标识与添加时间；Path 不用作客户端播放地址。
+	Path        *string      `json:"path,omitempty"`
+	DateCreated *string      `json:"date_created,omitempty"`
 	ID          string       `json:"id"`
 	Name        string       `json:"name"`
 	Container   *string      `json:"container"`
@@ -67,6 +75,8 @@ func versionFrom(m rawMediaSource) MediaVersion {
 			continue // 其它类型(EmbeddedImage / Data…)不进媒体信息卡
 		}
 		streams = append(streams, StreamInfo{
+			BitDepth: s.BitDepth, ColorSpace: nonEmpty(s.ColorSpace),
+			PixelFormat: nonEmpty(s.PixelFormat), IsForced: s.IsForced,
 			Index:         derefI(s.Index),
 			Type:          deref(s.Type),
 			Codec:         deref(s.Codec),
@@ -91,6 +101,7 @@ func versionFrom(m rawMediaSource) MediaVersion {
 		})
 	}
 	return MediaVersion{
+		Path: nonEmpty(m.Path), DateCreated: nonEmpty(m.DateCreated),
 		ID:          deref(m.ID),
 		Name:        deref(m.Name),
 		Container:   nonEmpty(m.Container),

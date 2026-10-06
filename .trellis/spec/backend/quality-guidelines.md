@@ -23,3 +23,7 @@
 - 回归先证实原故障会失败，再验证修复；未执行的设备播放、服务端联调必须说明。
 
 依据：[ABI](../../../core/ffi/abi.go)、[FFI](../../../core/ffi/main.go)、[核心门禁](../../../scripts/check-core.sh)、[绑定门禁](../../../scripts/check-bindings.sh)。
+
+- 聚合总览每服的统计与继续观看共用单服总时限（现有20秒），不能只依赖连接/响应头/响应体空闲超时；持续有数据的慢请求也须受总时限约束。单项失败保留另一项及健康服结果；继续观看超时返回可见错误。回归使用真实HTTP挂起请求，不仅给父ctx加短deadline（后者无法验证handler自身是否设置超时）。
+
+- mpv起播字幕在 SubLang/SubRegex 均为空时优先明确简体标记，与Android `preferredTrackIndex` 一致；显式正则/语言及关闭字幕始终优先，不把chi/zho推断成简体。外挂字幕沿用FILE_LOADED时序；`Test字幕默认简体不覆盖显式偏好` 覆盖默认、正则、语言和关闭。

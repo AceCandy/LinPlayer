@@ -100,6 +100,9 @@ func RegisterCommands(version string) {
 			wg.Add(1)
 			go func(i int, acc config.Account) {
 				defer wg.Done()
+				// 两个请求共用单服总时限，慢服不能让总览无限等待。
+				sctx, cancel := context.WithTimeout(ctx, perServerTimeout)
+				defer cancel()
 				s := sessionOf(c, acc)
 				/* ★ counts 和 resume **各自吞错**,不是一起失败。
 				   合成一条命令而不是「counts 一条、resume 一条」,是因为手机端首页顶栏
@@ -109,16 +112,19 @@ func RegisterCommands(version string) {
 				wg2.Add(2)
 				go func() {
 					defer wg2.Done()
-					if cnt, err := client.CountsOf(ctx, s); err == nil && cnt != nil {
+					if cnt, err := client.CountsOf(sctx, s); err == nil && cnt != nil {
 						out[i].Counts = *cnt
 					}
 				}()
 				go func() {
 					defer wg2.Done()
-					if items, err := client.Resume(ctx, s, 12); err == nil {
+					if items, err := client.Resume(sctx, s, 12); err == nil {
 						out[i].Resume = items
 					} else {
 						msg := err.Error()
+						if sctx.Err() == context.DeadlineExceeded {
+							msg = "读取超时，请检查服务器连接后刷新"
+						}
 						out[i].Error = &msg
 					}
 				}()
