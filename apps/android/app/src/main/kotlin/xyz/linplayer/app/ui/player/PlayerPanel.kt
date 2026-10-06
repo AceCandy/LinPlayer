@@ -19,6 +19,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -28,6 +29,9 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.arr
@@ -84,16 +88,21 @@ fun PlayerPanel(
     val list = rememberLazyListState()
     val c = Lp.colors
 
-    var options by remember { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
-    var current by remember { mutableStateOf<String?>(null) }
+    var options by remember(kind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
+    var current by remember(kind, itemId, exo) { mutableStateOf<String?>(null) }
+    var episodes by remember(kind, itemId) { mutableStateOf<List<Item>>(emptyList()) }
+    var loadError by remember(kind, itemId, exo) { mutableStateOf<String?>(null) }
+    var retry by remember(kind, itemId, exo) { mutableIntStateOf(0) }
+    var positioned by remember(kind, itemId, exo) { mutableStateOf(false) }
     // 补帧和画质增强同在一个面板里,各自有「当前档」
     var currentInterp by remember { mutableStateOf<String?>(null) }
     // 核心层在安卓上拿不到窗口系统:补完超过刷新率的档由它按这个数藏掉
     val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
-    var loading by remember { mutableStateOf(true) }
+    var loading by remember(kind, itemId, exo) { mutableStateOf(true) }
 
-    LaunchedEffect(kind, itemId) {
-        loading = true; options = emptyList()
+    LaunchedEffect(kind, itemId, exo, retry) {
+        loading = true; loadError = null
+        if (kind != "episodes") options = emptyList()
         when (kind) {
             "audio", "subtitle" -> if (exo != null) {
                 /* ☠☠ **Exo 内核不走 `player.tracks`。** 那条命令问的是 mpv,
@@ -104,7 +113,15 @@ fun PlayerPanel(
             } else {
                 // ☠ `player.tracks` 返回**裸数组**,轨道类型的字段名是 `kind` 不是 `type`。
                 //    两处都错的表现是音轨/字幕面板恒空,而且一句错都不报。
-                val t = runCatching { app.call("player.tracks") }.getOrNull()
+                val t = try {
+                    app.call("player.tracks").also { currentCoroutineContext().ensureActive() }
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    loadError = if (kind == "audio") "音轨读取失败" else "字幕读取失败"
+                    loading = false
+                    return@LaunchedEffect
+                }
                 val want = if (kind == "audio") "audio" else "sub"
                 // 字幕多给一项「关闭字幕」(id 空串 = 核心层设 sid=no),和 Exo 那边同一个理由
                 val off = if (want == "sub") listOf(Triple("", null, "关闭字幕")) else emptyList()
@@ -132,19 +149,26 @@ fun PlayerPanel(
                 }
             }
             "episodes" -> {
-                val d = runCatching { app.call("emby.itemDetail", args("item_id" to itemId)) }
-                    .getOrNull().obj()
-                // ★ 季的主键叫 season_id(核心层这次补上的);Emby 的 ParentId 不在详情里
-                val season = d.str("season_id")
-                if (season != null) {
-                    // 播放中**只拉一屏 40 条**
-                    options = Item.list(runCatching {
-                        app.call("emby.seasonEpisodes", args("parent_id" to season, "limit" to 40))
-                    }.getOrNull()).map {
-                        Triple(it.id, "${(it.runtimeSecs / 60).toInt()} 分钟",
-                            "S${it.seasonNo ?: 1}E${it.episodeNo ?: 1} ${it.name}")
+                try {
+                    val d = app.call("emby.itemDetail", args("item_id" to itemId)).obj()
+                    currentCoroutineContext().ensureActive()
+                    // ★ 季的主键叫 season_id(核心层这次补上的);Emby 的 ParentId 不在详情里
+                    val season = d.str("season_id")
+                    if (season != null) {
+                        current = itemId
+                        // 首批即可选集；重试从已加载项之后续取，避免丢掉当前列表。
+                        app.seasonEpisodes(season, episodes) { items, _ ->
+                            episodes = items
+                            options = items.map {
+                                Triple(it.id, "${(it.runtimeSecs / 60).toInt()} 分钟",
+                                    "S${it.seasonNo ?: 1}E${it.episodeNo ?: 1} ${it.name}")
+                            }
+                        }
                     }
-                    current = itemId
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) {
+                    currentCoroutineContext().ensureActive()
+                    loadError = "选集加载失败"
                 }
             }
             /* 画面增强。★ **`will_run == false` 的档位不进列表**
@@ -213,6 +237,7 @@ fun PlayerPanel(
                 )
             }
         }
+        currentCoroutineContext().ensureActive()
         loading = false
     }
 
@@ -253,6 +278,10 @@ fun PlayerPanel(
             Text(title, Modifier.padding(horizontal = Sp.x12, vertical = Sp.x4),
                 color = c.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
             Spacer(Modifier.height(Sp.x6))
+            loadError?.let {
+                Dim3(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)
+                OptRow("重试", { retry++ }, media = kind == "audio" || kind == "subtitle")
+            }
             when {
                 pluginPanel != null -> xyz.linplayer.app.ui.plugin.PluginSurface(
                     pluginPanel.pluginId, pluginPanel.target, "panel",
@@ -264,9 +293,9 @@ fun PlayerPanel(
                 kind == "danmaku" -> DanmakuPanel(app, scope, itemId, onSearch = {
                     onClose(); onSearch()
                 })
-                loading -> Dim3("正在取…")
-                options.isEmpty() -> Dim3("这里没有可选项", maxLines = 2)
-                else -> LazyColumn(Modifier.fillMaxWidth(), list) {
+                loading && options.isEmpty() -> Dim3("正在取…")
+                options.isEmpty() && loadError == null -> Dim3("这里没有可选项", maxLines = 2)
+                options.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), list) {
                     // 字幕面板顶上挂一个「字幕样式…」的跳板:调样式和选轨是同一件事的两步,
                     // 让用户退出去再从「更多」进一遍等于把它藏起来
                     if (kind == "subtitle") item("substyle") {
@@ -291,15 +320,19 @@ fun PlayerPanel(
                             sub = badge?.takeIf { (kind == "audio" || kind == "subtitle") && it != label },
                             badge = badge.takeUnless { kind == "audio" || kind == "subtitle" })
                     }
+                    if (loading) item("loading") { Dim3("正在取…") }
                 }
             }
         }
     }
 
-    // 打开面板要**滚动到当前项**
+    // 当前项到达后只定位一次；后续补页不能覆盖用户手动滚动的位置。
     LaunchedEffect(options, current) {
         val i = options.indexOfFirst { it.first == current }
-        if (i >= 0) list.scrollToItem(i)
+        if (!positioned && i >= 0) {
+            list.scrollToItem(i + if (kind == "subtitle") 1 else 0)
+            positioned = true
+        }
     }
 }
 

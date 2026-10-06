@@ -1,0 +1,4 @@
+{"file":".trellis/spec/shared/development.md","reason":"独立核验最小范围和红绿证据"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"实际 Compose 渲染与真机边界"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"分页续取与旧请求不能覆盖新面板"}
+{"file":".trellis/spec/shared/build-release.md","reason":"参数门禁及最终手机包验签"}

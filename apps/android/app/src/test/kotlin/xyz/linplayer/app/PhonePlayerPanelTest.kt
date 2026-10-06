@@ -15,6 +15,9 @@ import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -28,6 +31,9 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.long
+import xyz.linplayer.app.core.CoreException
+import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.tv.*
 import xyz.linplayer.app.ui.player.PlayerPanel
 import xyz.linplayer.app.ui.player.trackLanguage
@@ -40,6 +46,246 @@ class PhonePlayerPanelTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @After fun clean() { scope.cancel() }
+
+    @Test fun longSeasonLocatesCurrentOnceAndKeepsManualScrollDuringPaging() {
+        val secondPage = CompletableDeferred<Unit>()
+        val lastPage = CompletableDeferred<Unit>()
+        val starts = mutableListOf<Int>()
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.itemDetail", buildJsonObject { put("season_id", "season") })
+        }
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "emby.seasonEpisodes") return core.callJson(command, args, onPartial)
+                val start = (args.long("start_index") ?: 0).toInt()
+                starts += start
+                if (start == 40) secondPage.await()
+                if (start == 120) lastPage.await()
+                // 服务端只给 40 条，即使客户端请求更多也必须继续分页。
+                val count = minOf((args.long("limit") ?: 40).toInt(), 40)
+                return buildJsonObject {
+                    put("total", 143)
+                    put("items", buildJsonArray {
+                        for (i in start until minOf(start + count, 143)) add(item(
+                            "ep${i + 1}", "第${i + 1}集", "Episode", season = 1, episode = i + 1))
+                    })
+                }
+            }
+        }
+        val app = AppState(port, scope)
+        runBlocking { app.boot() }
+        var target = ""
+        var closed = false
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                PlayerPanel("episodes", "ep80", onPlaybackTarget = { id, _, _ -> target = id }, onClose = { closed = true })
+            } }
+        }
+        try {
+            rule.waitUntil(5_000) { 40 in starts }
+            rule.onNodeWithText("S1E1 第1集").assertIsDisplayed()
+            secondPage.complete(Unit)
+            rule.waitUntil(5_000) { 120 in starts }
+            rule.waitForIdle()
+            assertEquals(false, lastPage.isCompleted)
+            rule.onNodeWithText("S1E80 第80集").assertIsDisplayed()
+            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(99)
+            rule.onNodeWithText("S1E100 第100集").assertIsDisplayed()
+            lastPage.complete(Unit)
+            rule.waitForIdle()
+            rule.onNodeWithText("S1E100 第100集").assertIsDisplayed()
+            rule.onNodeWithText("S1E80 第80集").assertIsNotDisplayed()
+            assertEquals(listOf(0, 40, 80, 120), starts)
+            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(142)
+            rule.onNodeWithText("S1E143 第143集").assertIsDisplayed()
+            rule.onRoot().captureRoboImage("build/player-osd/episodes-last-page.png")
+            rule.onNodeWithText("S1E143 第143集").performClick()
+            assertEquals("ep143", target)
+            assertEquals(true, closed)
+            assertEquals(0, core.calls.count { it.first == "player.play" })
+        } finally { secondPage.complete(Unit); lastPage.complete(Unit) }
+    }
+
+    @Test fun failedEpisodePageKeepsLoadedItemsAndRetriesFromFailedOffset() {
+        val starts = mutableListOf<Int>()
+        var failed = false
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.itemDetail", buildJsonObject { put("season_id", "season") })
+            on("emby.seasonEpisodes") { a ->
+                val start = (a.long("start_index") ?: 0).toInt()
+                starts += start
+                if (start == 40 && !failed) {
+                    failed = true
+                    throw CoreException("E_NETWORK", "测试网络失败", true)
+                }
+                buildJsonObject {
+                    put("total", 81)
+                    put("items", buildJsonArray {
+                        for (i in start until minOf(start + 40, 81)) add(item(
+                            "ep${i + 1}", "第${i + 1}集", "Episode", season = 1, episode = i + 1))
+                    })
+                }
+            }
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                PlayerPanel("episodes", "ep10", onClose = {})
+            } }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("选集加载失败").assertIsDisplayed()
+        rule.onNodeWithText("S1E10 第10集").assertIsDisplayed()
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
+        rule.onNodeWithText("S1E31 第31集").assertIsDisplayed()
+        rule.onNodeWithText("重试").performClick()
+        rule.waitForIdle()
+        assertEquals(listOf(0, 40, 40, 80), starts)
+        rule.onNodeWithText("选集加载失败").assertDoesNotExist()
+        rule.onNodeWithText("S1E31 第31集").assertIsDisplayed()
+        rule.onNodeWithText("S1E10 第10集").assertIsNotDisplayed()
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(79)
+        rule.onNodeWithText("S1E80 第80集").assertIsDisplayed()
+    }
+
+    @Test fun changingTargetResetsEpisodeOffsetAndLeavingCancelsRemainingPages() {
+        val oldResponse = CompletableDeferred<Unit>()
+        val newResponse = CompletableDeferred<Unit>()
+        val starts = mutableListOf<Pair<String?, Long?>>()
+        var finished = 0
+        val core = FakeCore().loggedIn().apply {
+            on("emby.itemDetail") { a -> buildJsonObject { put("season_id", if (a.str("item_id") == "old80") "old" else "new") } }
+        }
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "emby.seasonEpisodes") return core.callJson(command, args, onPartial)
+                val parent = args.str("parent_id")
+                val start = args.long("start_index") ?: 0
+                starts += parent to start
+                if (start == 40L) {
+                    try {
+                        withContext(NonCancellable) { (if (parent == "old") oldResponse else newResponse).await() }
+                    } finally { finished++ }
+                }
+                return buildJsonObject {
+                    put("total", 81)
+                    put("items", buildJsonArray {
+                        for (i in start.toInt() until minOf(start.toInt() + 40, 81)) add(item(
+                            "$parent${i + 1}", "$parent 第${i + 1}集", "Episode", season = 1, episode = i + 1))
+                    })
+                }
+            }
+        }
+        val app = AppState(port, scope)
+        runBlocking { app.boot() }
+        val target = mutableStateOf("old80")
+        val visible = mutableStateOf(true)
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                if (visible.value) PlayerPanel("episodes", target.value, onClose = {})
+            } }
+        }
+        try {
+            rule.waitUntil(5_000) { ("old" to 40L) in starts }
+            rule.runOnIdle { target.value = "new80" }
+            rule.waitForIdle()
+            assertEquals("请求游标 $starts；详情目标 ${core.calls.filter { it.first == "emby.itemDetail" }.map { it.second.str("item_id") }}",
+                listOf(0L, 40L), starts.filter { it.first == "new" }.map { it.second })
+            rule.onNodeWithText("S1E1 new 第1集").assertIsDisplayed()
+            oldResponse.complete(Unit)
+            rule.waitUntil(5_000) { finished == 1 }
+            rule.waitForIdle()
+            rule.onNodeWithText("S1E1 new 第1集").assertIsDisplayed()
+            rule.onNodeWithText("S1E1 old 第1集").assertDoesNotExist()
+            rule.runOnIdle { visible.value = false }
+            rule.waitForIdle()
+            rule.onNodeWithText("选集").assertDoesNotExist()
+            newResponse.complete(Unit)
+            rule.waitUntil(5_000) { finished == 2 }
+            rule.waitForIdle()
+            assertEquals(listOf("old" to 0L, "old" to 40L, "new" to 0L, "new" to 40L), starts)
+        } finally { oldResponse.complete(Unit); newResponse.complete(Unit) }
+    }
+
+    @Test fun trackFailureRetriesAndSuccessfulEmptyResultIsDistinct() {
+        var failing = true
+        val core = FakeCore().loggedIn().apply {
+            on("player.tracks") {
+                if (failing) throw CoreException("E_NETWORK", "测试读取失败", true)
+                arr()
+            }
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        val kind = mutableStateOf("audio")
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                PlayerPanel(kind.value, "episode", onClose = {})
+            } }
+        }
+        rule.waitForIdle()
+        rule.onNodeWithText("音轨读取失败").assertIsDisplayed()
+        rule.onNodeWithText("这里没有可选项").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/player-osd/audio-read-error.png")
+        rule.runOnIdle { failing = false }
+        rule.onNodeWithText("重试").performClick()
+        rule.waitForIdle()
+        assertEquals(2, core.calls.count { it.first == "player.tracks" })
+        rule.onNodeWithText("这里没有可选项").assertIsDisplayed()
+        rule.onNodeWithText("重试").assertDoesNotExist()
+        rule.runOnIdle { failing = true; kind.value = "subtitle" }
+        rule.waitForIdle()
+        rule.onNodeWithText("字幕读取失败").assertIsDisplayed()
+        rule.onNodeWithText("关闭字幕").assertDoesNotExist()
+        rule.runOnIdle { failing = false }
+        rule.onNodeWithText("重试").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("关闭字幕").assertIsDisplayed()
+        rule.onNodeWithText("重试").assertDoesNotExist()
+        assertEquals(4, core.calls.count { it.first == "player.tracks" })
+    }
+
+    @Test fun lateFailureFromPreviousPanelCannotOverwriteNewTracks() {
+        val oldResponse = CompletableDeferred<Unit>()
+        var reads = 0
+        var oldFinished = false
+        val core = FakeCore().loggedIn().apply {
+            ret("player.tracks", arr(buildJsonObject {
+                put("id", "s1"); put("kind", "sub"); put("lang", "zh-Hans")
+            }))
+        }
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.tracks" && ++reads == 1) {
+                    try {
+                        withContext(NonCancellable) { oldResponse.await(); throw CoreException("E_NETWORK", "迟到的失败", true) }
+                    } finally { oldFinished = true }
+                }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        val app = AppState(port, scope)
+        runBlocking { app.boot() }
+        val kind = mutableStateOf("audio")
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                PlayerPanel(kind.value, "episode", onClose = {})
+            } }
+        }
+        try {
+            rule.waitUntil(5_000) { reads == 1 }
+            rule.runOnIdle { kind.value = "subtitle" }
+            rule.waitForIdle()
+            rule.onNodeWithText("简体中文").assertIsDisplayed()
+            oldResponse.complete(Unit)
+            rule.waitUntil(5_000) { oldFinished }
+            rule.waitForIdle()
+            rule.onNodeWithText("简体中文").assertIsDisplayed()
+            rule.onNodeWithText("音轨读取失败").assertDoesNotExist()
+            rule.onNodeWithText("这里没有可选项").assertDoesNotExist()
+        } finally { oldResponse.complete(Unit) }
+    }
 
     @Test fun trackPanelUsesChineseLanguagesAndDispatchesSelection() {
         val core = FakeCore().loggedIn().apply {
