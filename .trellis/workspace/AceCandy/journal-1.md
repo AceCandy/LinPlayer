@@ -276,3 +276,25 @@
 ### Next Steps
 
 - TV 任务保留待真机验收：实际 HDMI 切屏、黑屏时长、HDR/DV、Surface 重建后的首帧与补帧输出待验证。
+
+
+## Session 10: 手机播放面板完整选集与轨道失败重试
+<!-- trellis-session: v=2 fp=51ea6e35d158f981 -->
+
+**Date**: 2026-10-07
+**Task**: 手机播放面板完整选集与轨道失败重试
+**Branch**: `main`
+
+### Summary
+
+修复手机 PlayerPanel 整季分页、当前集定位、失败页续取及 MPV 音轨/字幕错误反馈和重试；请求与状态按面板、条目及实际 Media3 实例隔离，换集保留控制器回调。同步 UI_MOBILE 和 frontend 规范。20 项相关回归、独立复核、Android 参数/任务清单/隐私/diff 门禁通过；arm64 手机 release 包构建与 v1/v2/v3 验签通过。按用户确认仅本地提交并归档，不推送。未验证本次手机真机安装、真实媒体播放、MediaStationGo 联调及实际 Media3 实例切换；TV 真机验收暂缓，保留活动任务。无新增调试服务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4dfc6ef2` | fix(android): 补齐手机播放面板选集与错误重试 |
+
+### Status
+
+[OK] **Completed**
