@@ -331,8 +331,8 @@ private fun PlaybackGroup(overlay: Overlay) {
                 }
             })
         }
-        PanelItem("默认播放内核", value = if (UiPrefs.engine.value == "exo") "ExoPlayer" else "mpv", chevron = true, modifier = Modifier.memo("set.engine"), onClick = {
-            overlay.pick("默认播放内核", listOf("mpv" to "mpv", "ExoPlayer" to "exo"), UiPrefs.engine.value) { UiPrefs.setEngine(ctx, it) }
+        PanelItem("默认播放内核", value = UiPrefs.engineLabel(), chevron = true, modifier = Modifier.memo("set.engine"), onClick = {
+            overlay.pick("默认播放内核", UiPrefs.engineOptions, UiPrefs.engine.value) { UiPrefs.setEngine(ctx, it) }
         })
         val steps = listOf(5, 10, 15, 30)
         PanelItem("快进步长", value = "${UiPrefs.tvSeekStep.value} 秒", step = true, modifier = Modifier.memo("set.step"), onStep = { d ->

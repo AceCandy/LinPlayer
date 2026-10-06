@@ -75,6 +75,8 @@ fun PlayerPanel(
     // 搜索弹幕是**居中大弹窗**,不塞进这个 236dp 的小面板里 ——
     // 搜索结果是「源 → 条目 → 集数」三层,一列 236dp 摊不开
     onSearch: () -> Unit = {},
+    onTrackPicked: (String) -> Unit = {},
+    onPlaybackTarget: (String, String?, String) -> Unit = { _, _, _ -> },
     onClose: () -> Unit,
 ) {
     val app = LocalApp.current
@@ -275,8 +277,14 @@ fun PlayerPanel(
                             if (kind == "more" || id == "substyle") onOpen(id)
                             else if (id == "interp:na") app.toast(label, ToastKind.Error)
                             else if (kind == "ratio") { onFit(VideoFit.of(id)); onClose() }
+                            else if (kind == "source" || kind == "episodes") {
+                                onPlaybackTarget(if (kind == "source") itemId else id,
+                                    if (kind == "source") id else null, label)
+                                onClose()
+                            }
                             else {
-                                scope.launch { pick(app, kind, id, itemId, exo, displayHz) }
+                                if (kind == "audio" || kind == "subtitle") onTrackPicked(kind)
+                                scope.launch { pick(app, kind, id, exo, displayHz) }
                                 onClose()
                             }
                         }, selected = id == current || id == currentInterp, media = kind == "audio" || kind == "subtitle",
@@ -481,7 +489,7 @@ private fun StepKey(glyph: String, onClick: () -> Unit) = Box(
 }
 
 private suspend fun pick(
-    app: xyz.linplayer.app.data.AppState, kind: String, id: String, itemId: String,
+    app: xyz.linplayer.app.data.AppState, kind: String, id: String,
     exo: androidx.media3.exoplayer.ExoPlayer? = null,
     displayHz: Float = 0f,
 ) {
@@ -493,8 +501,6 @@ private suspend fun pick(
         when (kind) {
             "audio" -> app.call("player.setTrack", args("kind" to "audio", "id" to id))
             "subtitle" -> app.call("player.setTrack", args("kind" to "sub", "id" to id))
-            "source" -> app.call("player.play", args("item_id" to itemId, "media_source_id" to id))
-            "episodes" -> app.call("player.play", args("item_id" to id))
             /* ★ 超分**必须看返回体**:`setShaderLevel` 在着色器跑不起来时会
                自己退回关闭并带上 `reverted` —— 不看就是「界面说已启用、实际是关的」,
                本仓最贵的那类 bug。核心层把原因写在 note 里,原样转给用户。 */

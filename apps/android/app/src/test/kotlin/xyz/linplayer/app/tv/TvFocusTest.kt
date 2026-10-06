@@ -201,6 +201,28 @@ class TvFocusTest {
         assertFalse("没按过确认却传了 media_source_id:核心层的版本正则会被整个跳过", a!!.containsKey("media_source_id"))
     }
 
+    @Test fun 自动内核发送实际Media3且设置变化不重启当前片() {
+        val previous = xyz.linplayer.app.data.UiPrefs.engine.value
+        try {
+            xyz.linplayer.app.data.UiPrefs.engine.value = "auto"
+            mount(TvRoute.Player("sh6", "测试")) { player() }
+            val plays = core.calls.filter { it.first == "player.play" }
+            assertEquals("\"exo\"", plays.single().second?.get("engine").toString())
+            rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.engine.value = "mpv" }
+            advance(rule, 600)
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+        } finally { xyz.linplayer.app.data.UiPrefs.engine.value = previous }
+    }
+
+    @Test fun 自动偏好下显式手动内核仍优先() {
+        val previous = xyz.linplayer.app.data.UiPrefs.engine.value
+        try {
+            xyz.linplayer.app.data.UiPrefs.engine.value = "auto"
+            mount(TvRoute.Player("sh6", "测试", engine = "mpv")) { player() }
+            assertEquals("\"mpv\"", core.calls.single { it.first == "player.play" }.second?.get("engine").toString())
+        } finally { xyz.linplayer.app.data.UiPrefs.engine.value = previous }
+    }
+
     @Test fun 播放页OSD收起时菜单键和媒体键都有反应() {
         mount(TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王国")) { player() }
         listOf(2170.0, 2171.0, 2172.0).forEach { core.tick(it); advance(rule, 100) }

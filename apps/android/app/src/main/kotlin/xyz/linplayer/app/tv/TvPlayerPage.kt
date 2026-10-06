@@ -11,12 +11,14 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
@@ -58,6 +60,7 @@ import xyz.linplayer.app.ui.player.DanmakuLayer
 import xyz.linplayer.app.ui.player.DanmakuStyle
 import xyz.linplayer.app.ui.player.ExoSurface
 import xyz.linplayer.app.ui.player.Libass
+import xyz.linplayer.app.ui.player.PlayerController
 import xyz.linplayer.app.ui.player.VideoFit
 import xyz.linplayer.app.ui.player.VideoSurface
 import xyz.linplayer.app.ui.player.advancedNaturally
@@ -149,7 +152,13 @@ fun TvPlayerPage(r: TvRoute.Player) {
     var target by remember { mutableStateOf(r) }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetried by remember(target) { mutableStateOf(false) }
-    val engine = if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: UiPrefs.engine.value
+    val controller = remember(target) {
+        PlayerController(if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: UiPrefs.engine.value) { command, arguments ->
+            app.call(command, arguments)
+        }
+    }
+    val engine = controller.engine
+    val latestController by rememberUpdatedState(controller)
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     var subOffPref by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
@@ -162,36 +171,37 @@ fun TvPlayerPage(r: TvRoute.Player) {
         subOffPref = p?.get("sub_enabled")?.let { !p.bool("sub_enabled") } ?: false
     }
     val exo = rememberExoPlayer(engine == "exo", trackPrefs)
+    SideEffect { controller.bind(exo) }
+    MatchTvRefreshRate(app, controller, exo, attempt)
     val root = remember { FocusRequester() }
     var leaving by remember { mutableStateOf(false) }
     val leave: () -> Unit = { if (!leaving) { leaving = true; nav.pop() } }
 
     suspend fun switchTo(next: TvRoute.Player) {
-        runCatching { app.call("player.stopPlayback", args("pos" to ui.position)) }
+        runCatching { controller.stop(ui.position) }
         overlay.close()
         target = next
     }
 
     fun doSeek(t: Double) {
         val to = t.coerceIn(0.0, if (ui.duration > 0) ui.duration else Double.MAX_VALUE)
-        if (exo != null) exo.seekTo((to * 1000).toLong())
-        else scope.launch { runCatching { app.call("player.seek", args("pos" to to)) } }
+        scope.launch { runCatching { controller.seek(to) } }
     }
     fun doPause(want: Boolean) {
-        if (exo != null) exo.playWhenReady = !want
-        else scope.launch { runCatching { app.call("player.setPause", args("paused" to want)) } }
+        scope.launch { runCatching { controller.pause(want) } }
     }
     fun doSpeed(v: Double) {
-        if (exo != null) exo.setPlaybackSpeed(v.toFloat())
-        else scope.launch { runCatching { app.call("player.setSpeed", args("speed" to v)) } }
+        scope.launch { runCatching { controller.speed(v) } }
     }
 
-    val ctl = PlayerCtl(::doSeek, ::doPause, ::doSpeed) { scope.launch { switchTo(it) } }
+    val ctl = PlayerCtl(::doSeek, ::doPause, ::doSpeed, trackPicked = controller::trackPicked) { scope.launch { switchTo(it) } }
 
     // ---------------------------------------------------------------- 起播
-    LaunchedEffect(target, attempt) {
+    LaunchedEffect(target, attempt, engine) {
+        controller.begin()
         ui.everMoved = false; ui.buffering = true; ui.position = 0.0; ui.duration = 0.0
         ui.failed = null; ui.noVideo = null; ui.nextCard = false; ui.skipWhat = null; ui.osd = true
+        PlayerController.awaitPendingStop()
         ui.title = target.title
         Libass.reset()
         runCatching {
@@ -210,7 +220,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
                         if (target.fromStart) put("from_start", true)
                         target.resumeAt?.let { put("resume_secs", it) }
                     }
-                    val res = app.call("player.play", args(*a.toList().toTypedArray())).obj()
+                    val res = app.call("player.play", controller.playbackArgs(a)).obj()
+                    controller.resolved(res)
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
                     if (exo != null && url != null) {
@@ -218,9 +229,17 @@ fun TvPlayerPage(r: TvRoute.Player) {
                         if (!subOffPref) launch { loadExternalAss(app, res?.get("external_subs")) }
                         launch { loadEmbeddedFonts(url) }
                     }
+                    controller.restoreState()
+                    controller.fallback?.let {
+                        subOffPref = it.subOff
+                        ui.speed = it.speed
+                        app.call("player.setAspectRatio", args("ratio" to ui.fit.mpvRatio))
+                    }
                 }
             }
+            controller.started()
         }.onFailure { e ->
+            if (e is kotlinx.coroutines.CancellationException) throw e
             // 可重试的错(服务端 500、网络抖一下)先自己重来一次:多数时候第二次就起来了,不必让用户看失败页
             if (!autoRetried && (e as? CoreException)?.retryable == true) { autoRetried = true; attempt++; return@LaunchedEffect }
             // 第二行写核心层原话(§8.6),给人看的那句在第一行
@@ -260,6 +279,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         if (exo != null) return@LaunchedEffect
         app.core.events.collect { ev ->
             if (ev.name != "player.status") return@collect
+            if (!controller.ready) return@collect
             val o = ev.data.obj()
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(ui.position, p)) ui.everMoved = true
@@ -274,16 +294,29 @@ fun TvPlayerPage(r: TvRoute.Player) {
             }
         }
     }
-    LaunchedEffect(exo, target) {
+    LaunchedEffect(exo, target, attempt) {
         val e = exo ?: return@LaunchedEffect
         while (true) {
+            if (!controller.ready) { delay(250); continue }
             val p = e.currentPosition / 1000.0
             if (advancedNaturally(ui.position, p)) ui.everMoved = true
             ui.position = p
             e.duration.takeIf { it > 0 }?.let { ui.duration = it / 1000.0 }
             ui.paused = !e.playWhenReady
             ui.buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
-            e.playerError?.let { err -> ui.failed = xyz.linplayer.app.ui.player.playbackAdvice(err); return@LaunchedEffect }
+            e.playerError?.let { err ->
+                try {
+                    if (controller.tryFallback(err, controller.snapshot(e, subOffPref))) {
+                        overlay.close()
+                        app.toast("Media3 无法播放，已切换到 MPV")
+                        return@LaunchedEffect
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) { app.report(failure) }
+                ui.failed = xyz.linplayer.app.ui.player.playbackAdvice(err)
+                return@LaunchedEffect
+            }
             if (e.playbackState == androidx.media3.common.Player.STATE_ENDED && !ui.nextCard) {
                 if (ui.everMoved) onFinished(app, ui, target, scope) { leave() } else ui.failed = "ExoPlayer 一帧都没放出来就结束了"
                 return@LaunchedEffect
@@ -292,8 +325,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
         }
     }
     // 黑幕兜底:4 秒且不在缓冲 → 撤;12 秒无条件撤(状态事件发不出来时 buffering 停在初值 true)
-    LaunchedEffect(target) { delay(4000); if (!ui.buffering) ui.everMoved = true }
-    LaunchedEffect(target) { delay(12_000); ui.everMoved = true }
+    LaunchedEffect(target, engine) { delay(4000); if (!ui.buffering) ui.everMoved = true }
+    LaunchedEffect(target, engine) { delay(12_000); ui.everMoved = true }
     LaunchedEffect(Unit) { sampleNetSpeed { ui.netSpeed = it } }
     // 缓冲末端只在 OSD 亮着时要:事件里没有这个字段,命令版才有
     LaunchedEffect(ui.osd, exo) {
@@ -304,14 +337,14 @@ fun TvPlayerPage(r: TvRoute.Player) {
         }
     }
     // 有声音没画面:时间在走,但 vo 没建 / 没解出帧 —— 用 player.opts 分诊,不编原因
-    LaunchedEffect(ui.everMoved, target) {
+    LaunchedEffect(ui.everMoved, target, engine) {
         if (!ui.everMoved || exo != null) return@LaunchedEffect
         delay(6000)
         val o = runCatching { app.call("player.opts") }.getOrNull().obj() ?: return@LaunchedEffect
         if (o.str("current-vo").isNullOrBlank() || (o.str("dwidth")?.toIntOrNull() ?: 0) <= 0) ui.noVideo = failureDiag(app)
     }
     // 轨表**轮询到稳定**:每 700ms 一次,约 11 秒兜底;不在「第一次非空」时就停(音轨先出来、字幕永远进不了面板)
-    LaunchedEffect(target) {
+    LaunchedEffect(target, engine) {
         if (exo != null) return@LaunchedEffect
         var stable = 0
         var applied = false
@@ -324,6 +357,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
                 applied = true
                 applyPickedTracks(app, target, list)
             }
+            if (controller.ready && stable >= 2) runCatching { controller.restoreTracks(list) }.onFailure { app.report(it) }
         }
     }
     // 进度上报:播放中每 10s 一次
@@ -410,7 +444,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
     }
     // 主页键离开应用 → 暂停 + 落库 + 停止(TV 不做后台播放)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
-    DisposableEffect(lifecycle) {
+    DisposableEffect(lifecycle, controller, engine) {
         val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) { doPause(true); leave() } }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
@@ -420,8 +454,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             Libass.reset()
             // ★ 收尾走 app.bg:页面的协程作用域正被取消,挂在它上面的上报一件都不跑。**落库失败也要离页**
             val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
-            app.bg.launch {
-                runCatching { app.call("player.stopPlayback", args("pos" to pos)) }
+            latestController.stopIn(app.bg, pos, app::report) {
                 runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
             }
         }

@@ -40,7 +40,7 @@ object UiPrefs {
     val uiFont = mutableStateOf("")
 
     /**
-     * 播放键**短按**用哪个内核:`mpv` / `exo`。长按用另一个。
+     * 播放键短按模式:`mpv` / `exo` / `auto`。自动先试 Media3，兼容失败时回退 MPV。
      *
      * ★ 它进这里是因为**「哪个内核能在这台机器上出画面」是设备属性,不是账号属性**
      *   —— 手机上 mpv 出「有声音没画面」不代表电视上也会。跨设备同步它反而害人。
@@ -48,6 +48,8 @@ object UiPrefs {
      *   「一切持久化归核心层」:这里没有第二个真相。
      */
     val engine = mutableStateOf("mpv")
+    val engineOptions = listOf("自动" to "auto", "Media3" to "exo", "MPV" to "mpv")
+    fun engineLabel(of: String = engine.value): String = engineOptions.firstOrNull { it.second == of }?.first ?: "MPV"
 
     /**
      * 截屏叠加【用户定 2026-09-07】:要不要压上系统时间 / 条目艺术字,各自摆在哪一角。
@@ -146,10 +148,9 @@ object UiPrefs {
     /**
      * 长按播放键用的内核 —— 短按那个的**另一个**。
      *
-     * ★ 只有两个内核,所以「调换位置」就是把短按那个换掉,不需要第二个开关 ——
-     *   两个各自能选的话会出现「短按长按都是 mpv」,那时长按等于坏了。
+     * 自动模式的首选是 Media3，因此长按明确用 MPV，不触发自动回退。
      */
-    fun otherEngine(of: String = engine.value): String = if (of == "exo") "mpv" else "exo"
+    fun otherEngine(of: String = engine.value): String = if (of == "mpv") "exo" else "mpv"
 
     fun setFont(ctx: Context, path: String) {
         uiFont.value = path

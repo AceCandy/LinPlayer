@@ -14,6 +14,14 @@
 
 ## 资源与出包
 
+- Android Emby 播放模式为 `mpv` / `exo` / `auto`，由共用 `PlayerController` 解析实际内核，不能将 `auto` 直接传给核心。存量配置和默认 MPV 保持；显式路由优先，设置变化只影响下次播放。自动先 Media3，仅明确解码/格式不支持时回退 MPV 一次；网络、鉴权、DRM、资源被抢占、损坏内容和未知错误不自动换核。自动模式长按播放明确用 MPV。
+- 回退捕获实际版本、续播、暂停、倍率、音量及选轨/字幕关闭，先停输出并等待 `player.stopPlayback` 完成，再切内核；Compose 释放旧 Media3，手机前台服务重绑新内核。零秒续播用已有 `from_start=true`。状态监听只在当前起播成功后消费；跨内核轨道按标题/语言等身份匹配，不复用运行期 ID。非 Emby 来源保持现有 MPV 路径。`PlayerControllerTest`、`PlayerEngineLifecycleTest`、`PhoneEngineSettingsTest` 与 `TvFocusTest` 覆盖这些契约，真机仍需独立验收。
+- 用户手动选轨立即清除该类待恢复身份，晚到的旧轨不得覆盖新选择。TV 换目标先停 Media3 输出；离页通过控制器立即登记收尾任务，后续手机/TV 起播等待整次收尾（含 TV 播放标题清理），不能让旧 stop 停掉新会话。
+- 手机版本/选集面板通过页面目标回调起播，不能直接调用 `player.play` 绕过 Media3 加载与控制器。同页换目标显式等待一次 stop；离页收尾按页面存续登记，不能按 itemId 重复停止。`PhoneEnginePlaybackTest` 断言初次、换版本、切集各一次 play，后两次各一次 stop，且沿用实际内核。
+- 起播依赖异步读取的偏好时，`LaunchedEffect` 的 key 和放行条件使用同一不可变快照，例如 `val playbackPrefs = trackPrefs`；不能以旧 null key 启动协程、再读取已经更新的可变状态，否则重组前后都会起播。等待收尾后检查协程仍有效，再提交播放命令。
+- TV 刷新率归播放页窗口拥有：只用同当前物理分辨率的 supportedModes，按源帧率整倍频匹配（0.01 Hz 容差，区分 23.976/24 等）；保留已请求/当前匹配模式，不反复写相同偏好。切集/换版本/回退只重启采样，离页恢复入页 preferredDisplayModeId，不改其它窗口属性。无匹配或持续未知帧率恢复原偏好，系统忽略请求不影响播放。
+- TV Media3 在 STATE_READY 后读取当前格式/选中视频轨帧率；窗口管理期间关闭 Surface 帧率策略，离开后仅对未释放实例恢复。MPV 帧率来自 player.opts 的 container-fps 字符串；mpvGet 的实际返回为 {name,value} 对象。lpinterp 补帧滤镜启用或滤镜读取失败时保留原显示偏好，不能按源帧率降频或擅自关补帧。采样命令返回后检查取消和 ready，关闭的窗口拥有者拒绝迟到写入。回归见 TvRefreshRateTest / TvRefreshRatePlaybackTest，实际 HDMI 切屏与黑屏仍需真机验证。
+
 - API 分层主题属性同时检查 values-vXX 和 values-night-vXX；night 资源优先级可能遮蔽版本资源。
 - JNI 入口在 release R8 下必须保留。libmpv.so 不入仓，拉取后校验 ELF / ABI；不能把指针文本当运行库。
 - release signingConfig 必须实际接入；签名材料在忽略的本地文件。最终 APK 统一交付路径见 [构建与交付](../shared/build-release.md)。

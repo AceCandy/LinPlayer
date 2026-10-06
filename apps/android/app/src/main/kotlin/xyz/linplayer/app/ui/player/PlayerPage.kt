@@ -35,11 +35,13 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -200,7 +202,9 @@ private val speedWrites = Mutex()
  */
 @Composable
 fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
-    val route = entry.toRoute<Route.Player>()
+    var route by remember(entry) { mutableStateOf(entry.toRoute<Route.Player>()) }
+    val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
+    var resumeOverride by remember { mutableStateOf<Double?>(null) }
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val ctx = LocalContext.current
@@ -271,12 +275,18 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         nav.popBackStack()
     }
 
-    /* 内核。★ 进播放页时读一次就**钉住**(`remember` 不带 key):
+    /* 内核模式。★ 每个播放目标读一次就钉住:
        播到一半用户去设置里改了内核,回来时这一片的状态机会当场换一套
        —— 位置、时长、暂停三个值来源全变,而 ExoPlayer 手里根本没有这一片。
        所以设置页那一行明说「退出当前播放再进才生效」。 */
     // 数据源播放只走 mpv:取流、解析、请求头都在核心层,ExoPlayer 那条路拿不到这些
-    val engine = remember { if (route.src != null) "mpv" else route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
+    val controller = remember(route.itemId, route.versionId) {
+        PlayerController(if (route.src != null) "mpv" else initialMode) { command, arguments ->
+            app.call(command, arguments)
+        }
+    }
+    val engine = controller.engine
+    val latestController by rememberUpdatedState(controller)
     /* 字幕样式要在**画第一句字幕之前**就位。晚一步的表现是「进来先按默认样式画几句,
        打开一次面板才变过来」—— 而用户明明上一集就调好了。
        只读一次:它落在核心层配置里,一次会话内不会自己变。 */
@@ -302,6 +312,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         subOff = p.boolOrNull("sub_enabled") == false
     }
     val exo = rememberExoPlayer(engine == "exo", trackPrefs)
+    SideEffect { controller.bind(exo) }
+
+    suspend fun switchTarget(id: String, versionId: String?, title: String) {
+        if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
+        val resumeAt = if (id == route.itemId) position else null
+        controller.stop(position)
+        resumeOverride = resumeAt
+        route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
+            versionId = versionId, fromStart = false)
+    }
     /* 画面比例【用户定 2026-09-07】。★ **不持久化** —— 和画面增强档位同一条口径:
        它是「这一片这一次这么看」,记住的话下一片莫名其妙就是 4:3。 */
     var videoFit by remember { mutableStateOf(VideoFit.Source) }
@@ -346,9 +366,14 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 起播。★ 换片时**先立「未就绪」再发命令**,不能排在两个 await 之后
-    LaunchedEffect(route.itemId, trackPrefs) {
-        if (trackPrefs == null) return@LaunchedEffect
-        everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false
+    val playbackPrefs = trackPrefs
+    LaunchedEffect(controller, playbackPrefs, engine) {
+        // 按本次重组的快照放行，不能让旧的 null-key 协程读取新偏好后先起播一次。
+        if (playbackPrefs == null) return@LaunchedEffect
+        controller.begin()
+        everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
+        PlayerController.awaitPendingStop()
+        coroutineContext.ensureActive()
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
         Libass.reset()
         // 通知权限在**这里**要,不在冷启动时要(U1.27):它只在后台播放挂通知栏时有意义
@@ -362,6 +387,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 put("engine", engine)
                 if (route.fromStart) put("from_start", true)
                 route.versionId?.let { put("media_source_id", it) }
+                resumeOverride?.let {
+                    put("resume_secs", it)
+                    if (it <= 0) put("from_start", true)
+                }
             }
             val src = route.src?.let { kotlinx.serialization.json.Json.parseToJsonElement(it).obj() }
             if (src != null) {
@@ -370,7 +399,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 app.call("source.playItem", kotlinx.serialization.json.JsonObject(src.filterKeys { k -> k != "resume_secs" || pos > 0 }))
                 return@runCatching
             }
-            val r = app.call("player.play", args(*a.toList().toTypedArray())).obj()
+            val r = app.call("player.play", controller.playbackArgs(a)).obj()
+            controller.resolved(r)
             /* engine=exo 时核心层**只算不播**:它把该播的那条地址和续播位置回给这里,
                由 ExoPlayer 去 loadfile。地址一律用它回的这个 —— 在 UI 里自己拼
                是明令禁止的(反代只在 /emby/ 下处理 Range,拼错的表现是
@@ -389,9 +419,18 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                ExoPlayer 不解析 Attachments,不自己抠的话 libass 只能回落系统字体。
                ★ 和上面那条一样是 fire-and-forget:抠不到只是字形不对,不该挡住播放。 */
             if (exo != null && url != null) launch { loadEmbeddedFonts(url) }
+            controller.restoreState()
+            controller.fallback?.let { subOff = it.subOff }
+            if (controller.fallback != null) app.call("player.setAspectRatio", args("ratio" to videoFit.mpvRatio))
         }.onSuccess {
+            controller.started()
             runCatching { PlaybackService.start(ctx, app, exo, route.title) }.onFailure { app.report(it) }
-        }.onFailure { app.report(it); if (route.src != null) srcSwitch = true }
+        }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            app.report(it)
+            if (route.src != null) srcSwitch = true
+            if (controller.fallback != null) { failReason = it.message; openFailed = true }
+        }
     }
     /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
        进度带过去:从别的源接着看同一集。 */
@@ -401,9 +440,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        ★ 只能在主线程读 ExoPlayer(它是单线程模型),`LaunchedEffect` 正好跑在
          composition 的调度器上,也就是主线程 —— 挪到别的 dispatcher 会当场抛
          「Player is accessed on the wrong thread」。 */
-    LaunchedEffect(exo, route.itemId) {
+    LaunchedEffect(exo, controller) {
         val e = exo ?: return@LaunchedEffect
         while (true) {
+            if (!controller.ready) { delay(250); continue }
             val p = e.currentPosition / 1000.0
             if (advancedNaturally(position, p)) everMoved = true
             position = p
@@ -412,6 +452,15 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
             // 起播失败要**说出来**,不许静默退回去 —— 和 mpv 那条同一条口径
             e.playerError?.let { err ->
+                try {
+                    if (controller.tryFallback(err, controller.snapshot(e, subOff)) { PlaybackService.stop(ctx) }) {
+                        panel = null
+                        app.toast("Media3 无法播放，已切换到 MPV")
+                        return@LaunchedEffect
+                    }
+                } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) { app.report(failure) }
                 failReason = playbackAdvice(err)
                 openFailed = true
                 return@LaunchedEffect
@@ -425,7 +474,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 补帧跑不动 / 这一集不该补:核心层撤档后发这条,原因原样给用户
-    LaunchedEffect(engine) {
+    LaunchedEffect(engine, controller) {
         if (exo != null) return@LaunchedEffect
         app.core.events.collect { ev ->
             if (ev.name != "player.interpReverted") return@collect
@@ -434,10 +483,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 订阅 player.status(4 Hz)。**不轮询**
-    LaunchedEffect(engine) {
+    LaunchedEffect(engine, controller) {
         if (exo != null) return@LaunchedEffect
         app.core.events.collect { ev ->
             if (ev.name != "player.status") return@collect
+            if (!controller.ready) return@collect
             val o = ev.data as? JsonObject
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(position, p)) everMoved = true
@@ -459,7 +509,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 4 秒兜底放行:但**放行前必须先确认不在等缓冲**
-    LaunchedEffect(route.itemId) {
+    LaunchedEffect(route.itemId, engine) {
         delay(4000)
         if (!buffering) everMoved = true
     }
@@ -468,9 +518,18 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        (状态事件根本没来的时候 buffering 停在初值 true)—— 于是兜底不兜。
        这一条不带任何前提:真没画面的话用户看到的是黑画面 + 一个缓冲提示,
        和现在一样;而画面其实在的话,他至少看得见。 */
-    LaunchedEffect(route.itemId) {
+    LaunchedEffect(route.itemId, engine) {
         delay(12_000)
         everMoved = true
+    }
+
+    LaunchedEffect(controller, engine) {
+        if (controller.fallback == null) return@LaunchedEffect
+        repeat(16) {
+            delay(700)
+            val tracks = runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() }
+            runCatching { controller.restoreTracks(tracks) }.onFailure { app.report(it) }
+        }
     }
 
     // OSD 自动收起 5000ms。两条例外:**面板开着不收**、**暂停时不收**
@@ -481,22 +540,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 定时进度上报由前台服务负责,应用退到后台后也继续执行。
-    DisposableEffect(route.itemId) {
+    DisposableEffect(Unit) {
         onDispose {
             app.wantsPip = false
             PlaybackService.stop(ctx)
             Libass.reset()
             // ★ 走 app.bg 不走 scope:后者正在被取消,launch 出去的活一件都不跑
-            app.bg.launch {
-                runCatching {
-                    val p = if (duration > 0 && position >= duration - 2) duration else position
-                    // ★ 收尾**只发 player.stopPlayback**:它内部就带了 Stopped 上报,
-                    //   PlaySessionId 从当前播放目标取 —— 三次上报共用一个。
-                    //   不贯穿的话服务器当成三次互不相干的播放,进度就丢了。
-                    // ☠ 播完传**总时长**不是当前时间:差最后零点几秒 = 服务端不算看完
-                    app.call("player.stopPlayback", args("pos" to p))
-                }
-            }
+            // 控制器只发已有 stopPlayback，内部携带当前 PlaySessionId 的 Stopped 上报。
+            // 播完传总时长；离页收尾登记屏障，下一页不能越过这次停止。
+            val p = if (duration > 0 && position >= duration - 2) duration else position
+            latestController.stopIn(app.bg, p, app::report)
         }
     }
 
@@ -504,18 +557,13 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        ★ 写成四个具名函数而不是在八个调用点各写一个 if —— 漏一个的表现是
          「换成 ExoPlayer 之后快进不动」,而其它按钮都好使,看着像手势坏了。 */
     fun doSeek(t: Double) {
-        if (exo != null) exo.seekTo((t * 1000).toLong())
-        else scope.launch { runCatching { app.call("player.seek", args("pos" to t)) } }
+        scope.launch { runCatching { controller.seek(t) } }
     }
     fun doPause(want: Boolean) {
-        if (exo != null) exo.playWhenReady = !want
-        else scope.launch { runCatching { app.call("player.setPause", args("paused" to want)) } }
+        scope.launch { runCatching { controller.pause(want) } }
     }
     fun doSpeed(v: Double) {
-        if (exo != null) exo.setPlaybackSpeed(v.toFloat())
-        else scope.launch {
-            runCatching { app.call("player.setSpeed", args("speed" to v)) }.onFailure { app.report(it) }
-        }
+        scope.launch { runCatching { controller.speed(v) }.onFailure { app.report(it) } }
         // 全局偏好的保存不能因用户立刻离开播放页而取消。
         app.bg.launch {
             speedWrites.withLock {
@@ -525,10 +573,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
     fun doVolume(v: Float) {
-        if (exo != null) exo.volume = v
-        else scope.launch {
-            runCatching { app.call("player.setVolume", args("volume" to (v * 100).toInt())) }
-        }
+        scope.launch { runCatching { controller.volume(v) } }
     }
 
     /* 插件的 `player.openPanel` / `setOsdVisible`(D67 D162):面板名和 OSD 都是这一页的
@@ -656,7 +701,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
               2026-09-07 真出过这一次:安卓上 player.status 一条都发不出去
               (闸用错了标志,见 core/player/player.go 的 pumpStatus),
               位置永远是 0,这块布就永远撤不掉。修好了根因,死线也得留。 */
-        if (!everMoved) Box(Modifier.fillMaxSize().background(Color.Black),
+        if (!everMoved || openFailed) Box(Modifier.fillMaxSize().background(Color.Black),
             contentAlignment = Alignment.Center) {
             if (openFailed) Column(
                 Modifier.padding(horizontal = Sp.x26),
@@ -683,12 +728,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
               现在:攒够 [DRAG_SLOP] 再定方向,定了这一次手势就不再改;而且主方向要比
               副方向多出一截([lockAxis] 的 ratio),斜着划的那一下什么都不触发。 */
         if (!locked) Box(
-            Modifier.fillMaxSize().pointerInput(Unit) {
+            Modifier.fillMaxSize().pointerInput(controller, engine) {
                 detectTapGestures(
                     onTap = { osd = !osd },
                     onDoubleTap = { doPause(!paused) },
                 )
-            }.pointerInput(duration) {
+            }.pointerInput(duration, controller, engine) {
                 val slop = DRAG_SLOP.toPx()
                 var ax = 0f            // 这一次手势的累计位移
                 var ay = 0f
@@ -826,6 +871,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 },
                 onOpen = { k -> panel = k },
                 onSearch = { dmSearch = true },
+                onTrackPicked = controller::trackPicked,
+                onPlaybackTarget = { id, versionId, title ->
+                    scope.launch {
+                        runCatching { switchTarget(id, versionId, title) }.onFailure { app.report(it) }
+                    }
+                },
                 /* mpv 那条路的比例在核心层改(keepaspect / video-aspect-override / panscan);
                    Exo 那条路在 Compose 侧改尺寸。**同一个档位表**,不给用户两套说法。 */
                 onFit = { f ->

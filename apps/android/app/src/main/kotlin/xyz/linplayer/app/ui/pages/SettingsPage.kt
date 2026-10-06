@@ -375,19 +375,18 @@ private fun PlayerPrefsPanel() {
     }
 
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val short = if (xyz.linplayer.app.data.UiPrefs.engine.value == "exo") "ExoPlayer" else "mpv"
-    val long = if (short == "mpv") "ExoPlayer" else "mpv"
+    val short = xyz.linplayer.app.data.UiPrefs.engineLabel()
+    val long = xyz.linplayer.app.data.UiPrefs.engineLabel(xyz.linplayer.app.data.UiPrefs.otherEngine())
     Panel(Modifier.padding(Sp.x16)) {
         /* 播放键【用户定 2026-09-08:「短按 MPV、长按 EXO,允许调换位置」】。
            ★ 只给**短按**一个开关,长按恒是另一个 —— 两个各自能选的话会出现
              「短按长按都是 mpv」,那时长按就是坏的,而界面上看不出来。
            ★ 内核跟着**这一次起播**走,不改全局:长按试一次不该把设置也改掉。
-           ★ 播放中不换内核 —— 当场换等于拆掉解码器再重建,seek 位置、上报会话、
-             Surface 三样全要重来,为一个一年按一次的开关背这套复杂度不值。 */
-        SegRow("播放键短按", listOf("mpv", "ExoPlayer"), short, { v ->
-            xyz.linplayer.app.data.UiPrefs.setEngine(ctx, if (v == "ExoPlayer") "exo" else "mpv")
+           ★ 设置变化只对下一次播放生效；自动回退由当前播放控制器管理。 */
+        SegRow("播放内核", xyz.linplayer.app.data.UiPrefs.engineOptions.map { it.first }, short, { v ->
+            xyz.linplayer.app.data.UiPrefs.setEngine(ctx, xyz.linplayer.app.data.UiPrefs.engineOptions.first { it.first == v }.second)
         }, sub = "长按播放键用另一个内核(现在是 " + long + ")。" +
-            "mpv 认的格式多、字幕全;ExoPlayer 走安卓自带解码,更省电也更稳")
+            "自动用于 Emby：先用 Media3，解码或格式不支持时尝试 MPV 一次。退出当前播放再进入生效")
         Hairline()
         /* ★ 这一栏只放**核心层真的读**的那几项。上一版的「后台播放」「播完自动下一集」
            在核心层里连字段都没有:拨了返回成功、配置一个字没变,而且下次进来还是关着。

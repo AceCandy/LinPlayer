@@ -55,12 +55,13 @@ class PhonePlayerPanelTest {
         runBlocking { app.boot() }
         val dark = mutableStateOf(false)
         val kind = mutableStateOf("audio")
+        var pickedKind = ""
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     Box(Modifier.fillMaxSize().background(Color(0xFF455F48))) {
-                        PlayerPanel(kind.value, "episode", onClose = {})
+                        PlayerPanel(kind.value, "episode", onTrackPicked = { pickedKind = it }, onClose = {})
                     }
                 }
             }
@@ -75,6 +76,7 @@ class PhonePlayerPanelTest {
         rule.onNodeWithText("英语").performClick()
         rule.waitForIdle()
         assertEquals("2", core.calls.last { it.first == "player.setTrack" }.second.str("id"))
+        assertEquals("audio", pickedKind)
         rule.runOnIdle { kind.value = "subtitle" }
         rule.waitForIdle()
         rule.onNodeWithText("关闭字幕").assertIsDisplayed()
@@ -85,6 +87,7 @@ class PhonePlayerPanelTest {
         rule.waitForIdle()
         assertEquals("5", core.calls.last { it.first == "player.setTrack" }.second.str("id"))
         assertEquals("sub", core.calls.last { it.first == "player.setTrack" }.second.str("kind"))
+        assertEquals("subtitle", pickedKind)
         assertEquals("简体中文", trackLanguage("zh-Hans", "subtitle"))
         assertEquals("繁体中文", trackLanguage("zh-TW", "subtitle"))
         assertEquals(null, trackLanguage("und", "audio"))

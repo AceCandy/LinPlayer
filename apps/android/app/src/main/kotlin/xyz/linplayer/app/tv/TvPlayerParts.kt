@@ -102,6 +102,7 @@ import xyz.linplayer.app.ui.theme.LpIcons
 /** 面板里要动播放器的四个口子。换内核时这四个动作的实现整个换掉,面板不用知道。 */
 internal class PlayerCtl(
     val seek: (Double) -> Unit, val pause: (Boolean) -> Unit, val speed: (Double) -> Unit,
+    val trackPicked: (String) -> Unit = {},
     val switchTo: (TvRoute.Player) -> Unit,
 )
 
@@ -384,8 +385,8 @@ internal fun openPanel(
             return@open
         }
         when (which) {
-            "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo)
-            "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo)
+            "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked)
+            "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
             "episodes" -> EpisodesPanel(app, overlay, ui, target, ctl)
             else -> MorePanel(app, nav, scope, overlay, ui, target, engine, exo, ctl)
@@ -408,7 +409,7 @@ private suspend fun refreshTracks(app: AppState, ui: PlayerUi) {
 }
 
 @Composable
-private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, exo: ExoPlayer?) {
+private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, exo: ExoPlayer?, onPicked: (String) -> Unit) {
     val isSub = kind == "sub"
     var level by remember { mutableIntStateOf(0) }
     var delaySecs by remember { mutableStateOf<Double?>(null) }
@@ -435,6 +436,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
             if (options.isEmpty() || (isSub && options.size == 1)) PanelItem(if (isSub) "该版本没有内封字幕" else "没有可选的音轨", enabled = false)
             options.forEach { (id, _, label) ->
                 PanelItem(label, selected = id == cur, focused = id == cur, onClick = {
+                    onPicked(kind)
                     runCatching { exoPick(exo, if (isSub) "subtitle" else "audio", id) }.onFailure { app.report(it) }
                     overlay.close()
                 })
@@ -458,6 +460,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
                 }
                 PanelItem(if (ext) name else "$name(内封)", sub = if (ext) "外挂" else image,
                     selected = id == selected, focused = id == selected, onClick = {
+                    onPicked(kind)
                     scope.launch {
                         runCatching { app.call("player.setTrack", args("kind" to kind, "id" to id)) }.onFailure { app.report(it) }
                         refreshTracks(app, ui)
@@ -466,6 +469,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
                 })
             }
             if (isSub && list.isNotEmpty()) PanelItem("关闭字幕", selected = selected == null, focused = selected == null, onClick = {
+                onPicked(kind)
                 scope.launch { runCatching { app.call("player.setTrack", args("kind" to "sub", "id" to "")) }; refreshTracks(app, ui) }
                 overlay.close()
             })
