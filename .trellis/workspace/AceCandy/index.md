@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 8
-- **Last Active**: 2026-10-06
+- **Total Sessions**: 9
+- **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~244 | Active |
+| `journal-1.md` | ~278 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 9 | 2026-10-07 | Android 双内核与 TV 刷新率基线收尾 | `41605c5b` | `main` |
 | 8 | 2026-10-06 | 手机收藏搜索、详情和播放器体验优化 | `c23eb07a` | `main` |
 | 7 | 2026-10-05 | 收藏分类与库归属兼容 | `8d59b85a` | `main` |
 | 6 | 2026-10-05 | 提交未提交改动并归档已完成任务 | `348bdef1` | `main` |

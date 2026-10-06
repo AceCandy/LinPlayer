@@ -242,3 +242,37 @@
 ### Next Steps
 
 - 真机验证播放、切轨、连续播放与重启后的倍速恢复；真实服务端联调未覆盖。
+
+
+## Session 9: Android 双内核与 TV 刷新率基线收尾
+<!-- trellis-session: v=2 fp=36d4648e214beaa3 -->
+
+**Date**: 2026-10-07
+**Task**: Android 双内核与 TV 刷新率基线收尾
+**Branch**: `main`
+
+### Summary
+
+完成自动内核单次回退与 TV 同分辨率刷新率匹配，本地基线已提交，双内核任务归档，TV 真机验收按用户要求延后。
+
+### Main Changes
+
+- 手机与 TV 共用控制器，回退保留版本、进度、播放状态与轨道；TV 匹配刷新率并在离页恢复，补帧启用保留原偏好。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `41605c5b` | feat(android): 增加自动内核回退与 TV 刷新率匹配 |
+
+### Testing
+
+- [OK] 63 项相关回归已通过，源码与测试在通过后未修改；本轮复核提交范围、256 处参数调用、1454 文件隐私门禁、diff 检查与已验签 APK 一致性。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- TV 任务保留待真机验收：实际 HDMI 切屏、黑屏时长、HDR/DV、Surface 重建后的首帧与补帧输出待验证。
