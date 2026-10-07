@@ -343,9 +343,10 @@ fun TvPlayerPage(r: TvRoute.Player) {
         val o = runCatching { app.call("player.opts") }.getOrNull().obj() ?: return@LaunchedEffect
         if (o.str("current-vo").isNullOrBlank() || (o.str("dwidth")?.toIntOrNull() ?: 0) <= 0) ui.noVideo = failureDiag(app)
     }
-    // 轨表**轮询到稳定**:每 700ms 一次,约 11 秒兜底;不在「第一次非空」时就停(音轨先出来、字幕永远进不了面板)
-    LaunchedEffect(target, engine) {
-        if (exo != null) return@LaunchedEffect
+    // 起播成功后轨表**轮询到稳定**:每 700ms 一次,约 11 秒兜底;不在「第一次非空」时就停(音轨先出来、字幕永远进不了面板)
+    val tracksReady = controller.ready
+    LaunchedEffect(target, engine, tracksReady) {
+        if (exo != null || !tracksReady) return@LaunchedEffect
         var stable = 0
         var applied = false
         repeat(16) {

@@ -523,8 +523,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         everMoved = true
     }
 
-    LaunchedEffect(controller, engine) {
-        if (controller.fallback == null) return@LaunchedEffect
+    // 恢复窗口从起播成功后计时，慢取流不能耗尽晚到轨道的重试次数。
+    val tracksReady = controller.ready
+    LaunchedEffect(controller, engine, tracksReady) {
+        if (controller.fallback == null || !tracksReady) return@LaunchedEffect
         repeat(16) {
             delay(700)
             val tracks = runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() }
