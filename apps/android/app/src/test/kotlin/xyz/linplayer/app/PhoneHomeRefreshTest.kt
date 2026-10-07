@@ -28,9 +28,12 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.runBlocking
 import org.junit.After
 import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
@@ -41,6 +44,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.core.CoreException
+import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
@@ -69,7 +73,7 @@ class PhoneHomeRefreshTest {
     }
 
     @OptIn(coil3.annotation.DelicateCoilApi::class)
-    private fun openHome(core: FakeCore, fontScale: Float = 1f, dark: Boolean = false, missingImages: Boolean = false) {
+    private fun openHome(core: CorePort, fontScale: Float = 1f, dark: Boolean = false, missingImages: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         if (missingImages) coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(
@@ -115,6 +119,35 @@ class PhoneHomeRefreshTest {
         assertEquals(0, core.calls.count { it.first == "emby.listNextUp" })
         assertEquals(1, core.calls.count { it.first == "emby.listResume" })
         assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
+    }
+
+    @Test fun 附加请求未返回时首页仍可进入媒体库且核心请求不重复() {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.permissions", buildJsonObject {})
+            ret("plugin.homeSections", arr())
+        }
+        val release = CompletableDeferred<Unit>()
+        val pending = mutableSetOf<String>()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "emby.permissions" || command == "plugin.homeSections") {
+                    pending += command
+                    release.await()
+                }
+                return result
+            }
+        }
+        try {
+            openHome(port)
+            assertEquals(setOf("emby.permissions", "plugin.homeSections"), pending)
+            assertTrue(!release.isCompleted)
+            assertEquals(1, core.calls.count { it.first == "emby.views" })
+            assertEquals(1, core.calls.count { it.first == "emby.listResume" })
+            assertEquals(0, core.calls.count { it.first == "emby.listNextUp" || it.first == "emby.listRandom" })
+            rule.onNode(hasText("电影") and hasClickAction()).performClick()
+            rule.onNodeWithText("媒体库目标：lib-movie").assertIsDisplayed()
+        } finally { release.complete(Unit) }
     }
 
     @Test fun returningHomeUpdatesResumeWithoutReloadingRecommendations() {

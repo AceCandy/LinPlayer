@@ -1,0 +1,3 @@
+{"file":".trellis/spec/shared/product-and-api.md","reason":"性能基线与不得阻塞起播"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"取消边界与核心门禁"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"附加请求不得形成首屏屏障"}

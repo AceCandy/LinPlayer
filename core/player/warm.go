@@ -19,10 +19,12 @@ import (
 )
 
 var (
-	warmMu      sync.Mutex
-	preloader   = preload.New()
-	proxyMu     sync.Mutex
-	sharedProxy *prefetch.Handle
+	warmMu       sync.Mutex
+	warmCancelMu sync.Mutex
+	warmCancel   context.CancelFunc
+	preloader    = preload.New()
+	proxyMu      sync.Mutex
+	sharedProxy  *prefetch.Handle
 )
 
 // proxyFor 取一个代理到 upstreamURL 的句柄。
@@ -38,6 +40,9 @@ var (
 func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead bool) *prefetch.Handle {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
+	if ctx.Err() != nil {
+		return nil
+	}
 	if sharedProxy != nil {
 		if sharedProxy.Upstream() == upstreamURL {
 			return sharedProxy // ★ 命中预热:连同它已经装好的缓存一起拿回来
@@ -53,7 +58,17 @@ func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead
 		h, err = prefetch.StartPassthrough(ctx, upstreamURL, p.PrefetchCacheBytes, nil)
 	}
 	if err != nil {
+		if ctx.Err() != nil {
+			return nil
+		}
 		bus.Logf("warn", "本地代理起不来,回退直连: %v", err)
+		return nil
+	}
+	// 预热取消与发布互斥，避免检查后取消、随后仍发布旧句柄。
+	warmCancelMu.Lock()
+	defer warmCancelMu.Unlock()
+	if ctx.Err() != nil {
+		h.Close()
 		return nil
 	}
 	sharedProxy = h
@@ -131,6 +146,20 @@ func closeSharedProxy() {
 	}
 }
 
+// cancelWarm 取消取流与字节预热；共享代理和已缓存字节仍归正式播放复用。
+func cancelWarm() {
+	warmCancelMu.Lock()
+	if warmCancel != nil {
+		warmCancel()
+		warmCancel = nil
+	}
+	preloader.Cancel()
+	warmCancelMu.Unlock()
+	// 等在途代理探测退出，取消返回后旧任务不得再替换正式播放代理。
+	proxyMu.Lock()
+	proxyMu.Unlock()
+}
+
 // registerWarmCommands 由 RegisterCommands 调用。
 func registerWarmCommands() {
 	// preloadItem 详情页预热。**fire-and-forget**:立刻返回,后台慢慢热。
@@ -151,14 +180,29 @@ func registerWarmCommands() {
 			return nil, err
 		}
 		msID, _ := a["media_source_id"].(string)
+		warmCancelMu.Lock()
+		if warmCancel != nil {
+			warmCancel()
+		}
+		preloader.Cancel()
+		warmCtx, cancel := context.WithCancel(context.Background())
+		warmCancel = cancel
+		warmCancelMu.Unlock()
 
 		go func() {
 			// ★ 这个 goroutine 有自己的生命周期,别用请求的 ctx —— 那个一返回就取消了,
 			//   预热会当场被掐掉,看起来像「预热根本没工作」。
-			ctx := context.Background()
+			ctx := warmCtx
+			defer cancel()
 			warmMu.Lock()
 			defer warmMu.Unlock()
+			if ctx.Err() != nil {
+				return
+			}
 			target, err := prefsClient.ResolveStream(ctx, s, itemID, msID, p.VersionRegex)
+			if ctx.Err() != nil {
+				return
+			}
 			if err != nil {
 				bus.Logf("info", "预热取流失败(不影响详情页): %v", err)
 				return
@@ -175,6 +219,9 @@ func registerWarmCommands() {
 			// ★★ 尾部走**直连**,两个理由都在 core/net/preload 的注释里:
 			//   环形缓存同槽会把刚热好的头顶掉;而且代理不认后缀 Range。
 			st := preloader.Warm(ctx, itemID, headURL, p.PreloadHeadMB<<20, target.URL, preload.DefaultTailBytes)
+			if ctx.Err() != nil {
+				return
+			}
 			bus.Logf("info", "预热完成 item=%s 头 %d KB 尾 %d KB 取消=%v",
 				itemID, st.HeadBytes>>10, st.TailBytes>>10, st.Canceled)
 			bus.Emit("preload.done", map[string]any{
@@ -186,7 +233,7 @@ func registerWarmCommands() {
 	})
 
 	bus.Register("prefs.preloadCancel", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		preloader.Cancel()
+		cancelWarm()
 		return map[string]any{"canceled": true}, nil
 	})
 }

@@ -117,6 +117,8 @@ func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs
 }
 
 func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv bool) (*PlayResult, error) {
+	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
+	cancelWarm()
 	c := config.Current()
 	prefs := c.PrefsOf()
 	histCtx, cancelHist := context.WithCancel(ctx)
@@ -139,15 +141,6 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	if err != nil {
 		return nil, err
 	}
-
-	/* ponytail: 下面这几段等对应子系统移植后接上,**缺了各自的后果**:
-	   · 预加载取消        —— 起播那一刻预热还在拉,和播放器抢带宽,反倒更慢
-	   这些**都不影响本次能不能播出来**,所以先把主链路打通;
-	   但它们各自都是「功能静默不工作」,别当成可选项忘掉。 */
-
-	/* ★ **预热到此为止**:起播那一刻带宽该全给播放器。
-	   它自己跨过这一刻继续拉,就成了和播放器抢带宽 —— 反倒把起播拖慢。 */
-	preloader.Cancel()
 
 	playURL := startPrefetch(ctx, s, target, prefs)
 
@@ -516,6 +509,7 @@ func watchedNow(pos float64) bool {
 
 // Stop 停播并上报。pos 是停在哪一秒。
 func Stop(ctx context.Context, s *emby.Session, pos float64) error {
+	cancelWarm()
 	currentMu.Lock()
 	t := current
 	report := currentReport
