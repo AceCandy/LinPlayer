@@ -298,3 +298,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 11: Android 自动回退轨道恢复起播时序
+<!-- trellis-session: v=2 fp=e661e4da226681e7 -->
+
+**Date**: 2026-10-07
+**Task**: Android 自动回退轨道恢复起播时序
+**Branch**: `main`
+
+### Summary
+
+用户确认上一轮手机面板三项场景已验收，补入归档记录。复现手机与TV慢起播提前耗尽16次轨表轮询窗口，改为controller.ready起播成功后启动恢复，保持既有内核选择和回退契约。新增手机整页解码回退、网络及手动模式拒绝回退与TV慢起播选轨回归；旧代码故障下红、恢复后60项相关回归绿，独立复核及参数/任务清单/隐私/diff门禁通过。两端release重新构建，产物一致性、ABI/ELF及v1/v2/v3签名检查通过。按用户确认仅本地提交，归档本轮任务，不推送。本轮手机/TV真实媒体、设备播放与MediaStationGo联调未验证，TV刷新率真机待验任务保留。未启动外部调试服务，Gradle停止检查无daemon。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d599a4ad` | fix(android): 起播成功后再恢复播放轨道 |
+
+### Status
+
+[OK] **Completed**
