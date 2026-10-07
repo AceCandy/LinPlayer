@@ -562,6 +562,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         scope.launch { runCatching { controller.seek(t) } }
     }
     fun doPause(want: Boolean) {
+        PlaybackService.onUserPause(want)
         scope.launch { runCatching { controller.pause(want) } }
     }
     fun doSpeed(v: Double) {
@@ -575,6 +576,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
     fun doVolume(v: Float) {
+        PlaybackService.onUserVolume()
         scope.launch { runCatching { controller.volume(v) } }
     }
 

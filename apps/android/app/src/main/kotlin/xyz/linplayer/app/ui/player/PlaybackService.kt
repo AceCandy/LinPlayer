@@ -87,6 +87,7 @@ class PlaybackService : Service() {
 
     override fun onCreate() {
         super.onCreate()
+        activeService = this
         createChannel()
 
         session = MediaSessionCompat(this, "LinPlayer").apply {
@@ -148,6 +149,7 @@ class PlaybackService : Service() {
     }
 
     override fun onDestroy() {
+        if (activeService === this) activeService = null
         releaseWake()
         abandonFocus()
         session.isActive = false
@@ -297,6 +299,17 @@ class PlaybackService : Service() {
         private var playbackApp: AppState? = null
         private var externalPlayer: ExoPlayer? = null
         private var mediaTitle = "LinPlayer"
+        private var activeService: PlaybackService? = null
+
+        /** 页面手动操作优先于失焦前保存的恢复意图。 */
+        fun onUserPause(paused: Boolean) {
+            if (paused) activeService?.resumeOnGain = false
+        }
+
+        /** 页面手动音量以控制器的新值为准，获得焦点时不再恢复旧值。 */
+        fun onUserVolume() {
+            activeService?.duckedVolume = null
+        }
 
         fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String) {
             playbackApp = app; externalPlayer = exo; mediaTitle = title
