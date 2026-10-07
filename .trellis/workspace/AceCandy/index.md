@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 13
+- **Total Sessions**: 14
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~395 | Active |
+| `journal-1.md` | ~431 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 14 | 2026-10-07 | 手机浏览请求基线与预热取消收尾 | `70d5eec1` | `main` |
 | 13 | 2026-10-07 | 手机换集进度上报隔离 | `f50c1f9d` | `main` |
 | 12 | 2026-10-07 | 手机音频焦点恢复尊重手动操作 | `899be2cc` | `main` |
 | 11 | 2026-10-07 | Android 自动回退轨道恢复起播时序 | `d599a4ad` | `main` |

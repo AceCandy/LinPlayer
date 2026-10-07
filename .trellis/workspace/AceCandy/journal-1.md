@@ -393,3 +393,39 @@
 
 - 用户上一轮手机后台/焦点粗测通过；本轮换目标修补仍需真机验收，MediaStationGo真实闭环及实际解码回退样本、首帧耗时未验证。
 - TV刷新率任务继续保留待真机；不推送，本轮无新调试服务，Gradle确认无daemon。
+
+
+## Session 14: 手机浏览请求基线与预热取消收尾
+<!-- trellis-session: v=2 fp=168e7c28c0ab0a99 -->
+
+**Date**: 2026-10-07
+**Task**: 手机浏览请求基线与预热取消收尾
+**Branch**: `main`
+
+### Summary
+
+修复过期预热取消、保留共享缓存；完成请求基线、独立复核和跨端出包。
+
+### Main Changes
+
+- 预热独立上下文覆盖取流与字节读取；离页、新详情、正式起播和停播取消旧预热，代理发布与取消互斥。
+- 首页只补请求计数与附加请求挂起时导航回归，未改产品调度；正式 PlaybackInfo 保持独立解析。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `70d5eec1` | fix(core): 取消过期预热并保留播放缓存 |
+
+### Testing
+
+- [OK] 核心完整十关、player/preload/prefetch race、首页17项、Android参数对账、任务校验和隐私门禁通过。
+- [OK] 手机和TV APK与本次Gradle产物一致，ELF ABI及v1/v2/v3验签通过；Linux包脚本自检通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机慢链路实测首屏与首帧、详情快速离开与换详情起播、同流预热缓存复用。TV真机继续暂缓，Windows本轮未出包。
