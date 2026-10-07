@@ -320,3 +320,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 12: 手机音频焦点恢复尊重手动操作
+<!-- trellis-session: v=2 fp=a10e7f8ac82a0c81 -->
+
+**Date**: 2026-10-07
+**Task**: 手机音频焦点恢复尊重手动操作
+**Branch**: `main`
+
+### Summary
+
+同步页面暂停与音量操作到服务恢复意图；用户确认后本地提交及归档。
+
+### Main Changes
+
+- 页面手动暂停清除短暂失焦恢复意图；手动音量清除duck旧值，仍由原控制器分派内核。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `899be2cc` | fix(android): 音频焦点恢复尊重页面手动操作 |
+
+### Testing
+
+- [OK] 两项故障回归先红后绿；服务、控制器、手机面板和OSD共25项通过；两次独立复核通过。
+- [OK] 参数检查255处、任务校验、diff与隐私扫描通过；手机arm64最终APK与Gradle产物一致，13个ELF库及v1/v2/v3签名通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机真机验证后台/锁屏/来电与音频路由；TV真机继续暂缓，10-07-tv-refresh-rate保留。
+- 旧服务销毁清除共享绑定仍仅为待确认时序线索，未经复现不扩大修补。
