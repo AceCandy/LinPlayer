@@ -429,3 +429,45 @@
 ### Next Steps
 
 - 手机慢链路实测首屏与首帧、详情快速离开与换详情起播、同流预热缓存复用。TV真机继续暂缓，Windows本轮未出包。
+
+
+## Session 15: 主进度服实现与验证，待本地提交确认
+<!-- trellis-session: v=2 fp=ea6be0624e4c6cb7 -->
+
+**Date**: 2026-10-07
+**Task**: 主进度服实现与验证，待本地提交确认
+**Branch**: `main`
+
+### Summary
+
+两仓主进度服与准确CAS接口完成；核心门禁、播放回归、跨仓HTTP及三端出包通过；服务端完整回归存在无关失败，TV/Windows设备未验。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 16: 主进度服两仓本地提交与归档
+<!-- trellis-session: v=2 fp=143551b8c515eb09 -->
+
+**Date**: 2026-10-07
+**Task**: 主进度服两仓本地提交与归档
+**Branch**: `main`
+
+### Summary
+
+用户确认清单后完成两仓功能本地提交和本任务归档，未推送或部署。核心门禁、相关播放回归与跨仓联调已通过；完整服务端回归未全绿，TV/Windows设备未验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3dc5f2d7` | feat(progress): 支持指定主进度服与安全同步 |
+
+### Status
+
+[OK] **Completed**

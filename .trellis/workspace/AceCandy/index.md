@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 14
+- **Total Sessions**: 16
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~431 | Active |
+| `journal-1.md` | ~473 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 16 | 2026-10-07 | 主进度服两仓本地提交与归档 | `3dc5f2d7` | `main` |
+| 15 | 2026-10-07 | 主进度服实现与验证，待本地提交确认 | - | `main` |
 | 14 | 2026-10-07 | 手机浏览请求基线与预热取消收尾 | `70d5eec1` | `main` |
 | 13 | 2026-10-07 | 手机换集进度上报隔离 | `f50c1f9d` | `main` |
 | 12 | 2026-10-07 | 手机音频焦点恢复尊重手动操作 | `899be2cc` | `main` |
