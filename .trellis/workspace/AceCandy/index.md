@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 12
+- **Total Sessions**: 13
 - **Last Active**: 2026-10-07
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~358 | Active |
+| `journal-1.md` | ~395 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 13 | 2026-10-07 | 手机换集进度上报隔离 | `f50c1f9d` | `main` |
 | 12 | 2026-10-07 | 手机音频焦点恢复尊重手动操作 | `899be2cc` | `main` |
 | 11 | 2026-10-07 | Android 自动回退轨道恢复起播时序 | `d599a4ad` | `main` |
 | 10 | 2026-10-07 | 手机播放面板完整选集与轨道失败重试 | `4dfc6ef2` | `main` |
