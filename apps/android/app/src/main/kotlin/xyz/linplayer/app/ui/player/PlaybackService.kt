@@ -21,7 +21,9 @@ import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -55,6 +57,8 @@ class PlaybackService : Service() {
     private var duckedVolume: Double? = null
     private var resumeOnGain = false
     private var focusHeld = false
+    private var bindingGeneration = playbackGeneration
+    private var polling: Job? = null
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val focusListener = AudioManager.OnAudioFocusChangeListener { change ->
         when (change) {
@@ -100,13 +104,24 @@ class PlaybackService : Service() {
             isActive = true
         }
 
+        startPolling()
+    }
+
+    /** 每次重绑重新采样；旧 FFI 查询完成后不能再操作新播放目标。 */
+    private fun startPolling() {
+        polling?.cancel()
+        bindingGeneration = playbackGeneration
+        val generation = bindingGeneration
+        position = 0.0; paused = true
         // ExoPlayer 的状态不经过核心事件;在主线程回读当前内核,后台也保持上报。
-        scope.launch {
+        polling = scope.launch {
             var ticks = 0
             while (!stopping) {
                 val app = playbackApp ?: break
                 val exo = externalPlayer
                 val o = if (exo == null) runCatching { app.call("player.status").obj() }.getOrNull() else null
+                coroutineContext.ensureActive()
+                if (generation != playbackGeneration || playbackApp !== app || externalPlayer !== exo) break
                 // 内核尚未准备时不把空状态当作正在播放,也不上报零进度。
                 val ready = exo?.let { it.playbackState != androidx.media3.common.Player.STATE_IDLE }
                     ?: (o != null && ((o.dbl("duration") ?: 0.0) > 0 || (o.dbl("position") ?: 0.0) > 0))
@@ -145,6 +160,7 @@ class PlaybackService : Service() {
             ACTION_PAUSE -> { resumeOnGain = false; send("player.setPause", "paused" to true); return START_NOT_STICKY }
             ACTION_PLAY -> { requestFocus(); send("player.setPause", "paused" to !focusHeld); return START_NOT_STICKY }
         }
+        startPolling()
         return START_NOT_STICKY
     }
 
@@ -157,7 +173,7 @@ class PlaybackService : Service() {
         scope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTI_ID)
-        playbackApp = null; externalPlayer = null
+        if (bindingGeneration == playbackGeneration) { playbackApp = null; externalPlayer = null }
         super.onDestroy()
     }
 
@@ -217,6 +233,7 @@ class PlaybackService : Service() {
     }
 
     private fun send(cmd: String, vararg pairs: Pair<String, Any>) {
+        if (bindingGeneration != playbackGeneration) return
         externalPlayer?.let { exo ->
             when (cmd) {
                 "player.setPause" -> exo.playWhenReady = !(pairs.first().second as Boolean)
@@ -225,9 +242,12 @@ class PlaybackService : Service() {
             }
             return
         }
+        val app = playbackApp ?: return
+        val generation = bindingGeneration
         scope.launch {
+            if (generation != playbackGeneration) return@launch
             runCatching {
-                playbackApp?.call(cmd, JsonObject(pairs.associate { (k, v) ->
+                app.call(cmd, JsonObject(pairs.associate { (k, v) ->
                     k to when (v) {
                         is Number -> kotlinx.serialization.json.JsonPrimitive(v)
                         is Boolean -> kotlinx.serialization.json.JsonPrimitive(v)
@@ -244,7 +264,7 @@ class PlaybackService : Service() {
     }
 
     private fun stopPlayback() {
-        if (stopping) return
+        if (stopping || bindingGeneration != playbackGeneration) return
         stopping = true
         val app = playbackApp
         val pos = externalPlayer?.currentPosition?.div(1000.0) ?: position
@@ -300,6 +320,7 @@ class PlaybackService : Service() {
         private var externalPlayer: ExoPlayer? = null
         private var mediaTitle = "LinPlayer"
         private var activeService: PlaybackService? = null
+        private var playbackGeneration = 0L
 
         /** 页面手动操作优先于失焦前保存的恢复意图。 */
         fun onUserPause(paused: Boolean) {
@@ -311,11 +332,17 @@ class PlaybackService : Service() {
             activeService?.duckedVolume = null
         }
 
+        /** 换目标前恢复临时 duck 音量，不能把衰减值继承给下一集。 */
+        fun volumeBeforeSwitch(): Float? = activeService?.duckedVolume?.div(100.0)?.toFloat()
+
         fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String) {
+            playbackGeneration++
             playbackApp = app; externalPlayer = exo; mediaTitle = title
             ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java))
         }
         fun stop(ctx: Context) {
+            playbackGeneration++
+            activeService?.polling?.cancel()
             ctx.stopService(Intent(ctx, PlaybackService::class.java))
             playbackApp = null; externalPlayer = null
         }

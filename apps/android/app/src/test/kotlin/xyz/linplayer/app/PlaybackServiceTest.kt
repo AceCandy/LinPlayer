@@ -10,10 +10,15 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.setMain
 import kotlinx.serialization.json.JsonPrimitive
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -26,6 +31,7 @@ import org.robolectric.RuntimeEnvironment
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import xyz.linplayer.app.data.AppState
+import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.ui.player.PlaybackService
@@ -35,6 +41,103 @@ import xyz.linplayer.app.ui.player.PlayerController
 @Config(sdk = [36], application = Application::class)
 @OptIn(ExperimentalCoroutinesApi::class)
 class PlaybackServiceTest {
+    @Test fun 同服务重绑不会丢掉焦点恢复音量() = withPlayingService { service, core ->
+        val scope = CoroutineScope(Dispatchers.Main)
+        val app = AppState(core, scope)
+        val ctx = RuntimeEnvironment.getApplication()
+        try {
+            focus(service, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK)
+            PlaybackService.start(ctx, app, null, "新集")
+            service.onStartCommand(Intent(ctx, PlaybackService::class.java), 0, 2)
+            core.calls.clear()
+            focus(service, AudioManager.AUDIOFOCUS_GAIN)
+            assertEquals(100.0, core.calls.single { it.first == "player.setVolume" }.second.dbl("volume")!!, 0.0)
+        } finally { app.bg.cancel(); scope.cancel() }
+    }
+
+    @Test fun 旧服务销毁不会清除新内核绑定() {
+        Dispatchers.setMain(UnconfinedTestDispatcher())
+        val scope = CoroutineScope(Dispatchers.Main)
+        val core = FakeCore().apply {
+            ret("player.status", buildJsonObject { put("position", 37.5); put("duration", 100); put("paused", true) })
+        }
+        val app = AppState(core, scope)
+        val ctx = RuntimeEnvironment.getApplication()
+        val exo = ExoPlayer.Builder(ctx).build().apply { playWhenReady = true }
+        PlaybackService.start(ctx, app, null, "旧集")
+        val old = Robolectric.buildService(PlaybackService::class.java).create()
+        var next: org.robolectric.android.controller.ServiceController<PlaybackService>? = null
+        try {
+            PlaybackService.stop(ctx)
+            PlaybackService.start(ctx, app, exo, "新集")
+            old.destroy()
+            next = Robolectric.buildService(PlaybackService::class.java).create()
+            next.get().onStartCommand(Intent(ctx, PlaybackService::class.java).setAction("playback.pause"), 0, 1)
+            assertFalse(exo.playWhenReady)
+        } finally {
+            next?.destroy(); exo.release()
+            app.bg.cancel(); scope.cancel(); Dispatchers.resetMain()
+        }
+    }
+
+    @Test fun 同一服务重绑后重新采样当前目标() = withPlayingService { service, _ ->
+        val scope = CoroutineScope(Dispatchers.Main)
+        val core = FakeCore().apply {
+            ret("player.status", buildJsonObject { put("position", 1.0); put("duration", 100); put("paused", true) })
+        }
+        val app = AppState(core, scope)
+        val ctx = RuntimeEnvironment.getApplication()
+        try {
+            PlaybackService.start(ctx, app, null, "新集")
+            service.onStartCommand(Intent(ctx, PlaybackService::class.java), 0, 2)
+            assertEquals(1, core.calls.count { it.first == "player.status" })
+        } finally { app.bg.cancel(); scope.cancel() }
+    }
+
+    @Test fun 停止服务后晚到状态不能上报旧进度() {
+        val dispatcher = UnconfinedTestDispatcher()
+        Dispatchers.setMain(dispatcher)
+        val scope = CoroutineScope(Dispatchers.Main)
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val core = FakeCore().apply {
+            ret("player.status", buildJsonObject {
+                put("position", 37.5); put("duration", 100); put("paused", false)
+            })
+            ret("player.setPause", JsonPrimitive(true))
+            ret("emby.reportProgress", JsonPrimitive(true))
+        }
+        var reads = 0
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.status" && ++reads == 2) {
+                    entered.complete(Unit)
+                    // FFI请求已发出，取消不能撤回；旧请求仍要获得完成机会。
+                    withContext(NonCancellable) { release.await() }
+                    return buildJsonObject {
+                        put("position", 37.5); put("duration", 100); put("paused", true)
+                    }
+                }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        val app = AppState(port, scope)
+        val ctx = RuntimeEnvironment.getApplication()
+        PlaybackService.start(ctx, app, null, "旧集")
+        val controller = Robolectric.buildService(PlaybackService::class.java).create()
+        try {
+            dispatcher.scheduler.advanceTimeBy(500); dispatcher.scheduler.runCurrent()
+            assertTrue(entered.isCompleted)
+            PlaybackService.stop(ctx)
+            release.complete(Unit)
+            dispatcher.scheduler.runCurrent()
+            assertTrue(core.calls.none { it.first == "emby.reportProgress" })
+        } finally {
+            release.complete(Unit); controller.destroy()
+            app.bg.cancel(); scope.cancel(); Dispatchers.resetMain()
+        }
+    }
+
     @Test fun 通知暂停继续与媒体会话跳转控制当前内核() {
         for (media3 in listOf(false, true)) {
             Dispatchers.setMain(UnconfinedTestDispatcher())

@@ -317,6 +317,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     suspend fun switchTarget(id: String, versionId: String?, title: String) {
         if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
         val resumeAt = if (id == route.itemId) position else null
+        PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
+        PlaybackService.stop(ctx)
         controller.stop(position)
         resumeOverride = resumeAt
         route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,

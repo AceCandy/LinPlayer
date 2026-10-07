@@ -1,6 +1,7 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.media.AudioManager
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -33,6 +34,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.Robolectric
+import org.robolectric.android.controller.ServiceController
+import org.robolectric.Shadows
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import org.robolectric.util.ReflectionHelpers
@@ -54,8 +58,10 @@ import xyz.linplayer.app.ui.theme.LpTheme
 class PhoneEnginePlaybackTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var playbackService: ServiceController<PlaybackService>? = null
 
     @After fun cleanup() {
+        playbackService?.destroy()
         PlaybackService.stop(ApplicationProvider.getApplicationContext())
         scope.cancel()
     }
@@ -83,14 +89,23 @@ class PhoneEnginePlaybackTest {
         }
         advance(rule, 800)
         assertEquals("初次起播请求", 1, core.calls.count { it.first == "player.play" })
+        val exo = ReflectionHelpers.getStaticField<ExoPlayer>(PlaybackService::class.java, "externalPlayer")
+        playbackService = Robolectric.buildService(PlaybackService::class.java).create()
+        val focus = ReflectionHelpers.getField<AudioManager.OnAudioFocusChangeListener>(playbackService!!.get(), "focusListener")
+        rule.runOnIdle { focus.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK) }
+        assertEquals(.3f, exo.volume, .001f)
         rule.onNodeWithContentDescription("更多").performClick()
         advance(rule, 300)
         assertEquals("打开更多后的请求", 1, core.calls.count { it.first == "player.play" })
         rule.onNodeWithText("版本与线路").performClick()
         advance(rule, 300)
         assertEquals("打开版本面板后的请求", 1, core.calls.count { it.first == "player.play" })
+        assertNull(Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService)
         rule.onNodeWithText("1080p").performClick()
         advance(rule, 500)
+        assertEquals(1f, exo.volume, .001f)
+        assertEquals(PlaybackService::class.java.name,
+            Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService?.component?.className)
         val plays = core.calls.filter { it.first == "player.play" }
         assertEquals(plays.map { listOf(it.second.str("item_id"), it.second.str("engine"), it.second.str("media_source_id")) }.toString(), 2, plays.size)
         assertEquals("exo", plays.last().second.str("engine"))
@@ -103,8 +118,11 @@ class PhoneEnginePlaybackTest {
         assertTrue(stop in 0 until next)
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
         advance(rule, 300)
+        assertNull(Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService)
         rule.onNode(hasText("S1E7", substring = true)).performClick()
         advance(rule, 500)
+        assertEquals(PlaybackService::class.java.name,
+            Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService?.component?.className)
         val episode = core.calls.last { it.first == "player.play" }.second
         assertEquals(3, core.calls.count { it.first == "player.play" })
         assertEquals(2, core.calls.count { it.first == "player.stopPlayback" })
