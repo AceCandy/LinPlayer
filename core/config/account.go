@@ -350,6 +350,9 @@ func (c *AppConfig) Upsert(acc Account) {
 			continue
 		}
 		old := c.AccountList[i]
+		if binding := c.PrefsOf().PrimaryProgressServer; binding != nil && binding.Server == old.Server && old.UserID != acc.UserID {
+			InvalidateProgressAccount()
+		}
 		merged := acc
 		if merged.Name == "" {
 			merged.Name = old.Name
@@ -426,6 +429,11 @@ func (c *AppConfig) Remove(serverID string) bool {
 		activeServer = a.Server
 	}
 	c.AccountList = append(c.AccountList[:idx], c.AccountList[idx+1:]...)
+	if p := c.PrefsOf(); p.PrimaryProgressServer != nil && p.PrimaryProgressServer.Server == serverID {
+		InvalidateProgressAccount()
+		p.PrimaryProgressServer = nil
+		_ = c.SetPrefs(p)
+	}
 
 	// ★ 按服务器存的开关要跟着账号走。留着的话,重新加同一地址的服会「自己就开着」——
 	//   用户没开过多线程加载,它却是开的,而且没有任何地方解释为什么。

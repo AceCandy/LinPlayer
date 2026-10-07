@@ -226,6 +226,7 @@ public static class LinPlayerCommandNames
         "prefs.backupPreview",
         "prefs.getHomeSettings",
         "prefs.getPrefetchSettings",
+        "prefs.getPrimaryProgressServer",
         "prefs.getPrefs",
         "prefs.getPreloadSettings",
         "prefs.getProxy",
@@ -238,6 +239,8 @@ public static class LinPlayerCommandNames
         "prefs.setDetailBlur",
         "prefs.setHomeSettings",
         "prefs.setPrefetchSettings",
+        "prefs.setPrimaryProgressServer",
+        "prefs.retryPrimaryProgressSync",
         "prefs.setPrefs",
         "prefs.pushSearch",
         "prefs.setPreloadSettings",
@@ -709,7 +712,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> DownloadSetThreads(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("download.setThreads", args, ct);
 
-    // ---- 设置与偏好 · prefs.* (30 条) ----
+    // ---- 设置与偏好 · prefs.* (33 条) ----
     public static Task<JsonElement> PrefsApplyPrefs(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("prefs.applyPrefs", args, ct);
     public static Task<JsonElement> PrefsCfProxyDisable(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -734,6 +737,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("prefs.getHomeSettings", args, ct);
     public static Task<JsonElement> PrefsGetPrefetchSettings(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("prefs.getPrefetchSettings", args, ct);
+    public static Task<JsonElement> PrefsGetPrimaryProgressServer(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("prefs.getPrimaryProgressServer", args, ct);
     public static Task<JsonElement> PrefsGetPrefs(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("prefs.getPrefs", args, ct);
     public static Task<JsonElement> PrefsGetPreloadSettings(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -758,6 +763,10 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("prefs.setHomeSettings", args, ct);
     public static Task<JsonElement> PrefsSetPrefetchSettings(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("prefs.setPrefetchSettings", args, ct);
+    public static Task<JsonElement> PrefsSetPrimaryProgressServer(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("prefs.setPrimaryProgressServer", args, ct);
+    public static Task<JsonElement> PrefsRetryPrimaryProgressSync(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("prefs.retryPrimaryProgressSync", args, ct);
     public static Task<JsonElement> PrefsSetPrefs(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("prefs.setPrefs", args, ct);
     public static Task<JsonElement> PrefsPushSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

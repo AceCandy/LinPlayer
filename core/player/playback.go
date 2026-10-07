@@ -17,6 +17,7 @@ import (
 	"linplayer/core/config"
 	"linplayer/core/emby"
 	"linplayer/core/history"
+	"linplayer/core/progress"
 )
 
 // current 当前这次播放的目标。上报三件套要靠它拿 PlaySessionId。
@@ -135,7 +136,9 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	   ★ 通道要**带缓冲**:取流地址失败时这里直接 return,没人收这个值,
 	     无缓冲的话那个 goroutine 会永远卡在发送上(每失败一次泄漏一个)。 */
 	histCh := make(chan *historyContext, 1)
-	go func() { histCh <- buildPlaybackHistoryContext(histCtx, s, itemID, prefs.CrossServerResume) }()
+	go func() {
+		histCh <- buildPlaybackHistoryContext(histCtx, s, itemID, prefs.CrossServerResume || prefs.PrimaryProgressServer != nil)
+	}()
 
 	target, err := prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
 	if err != nil {
@@ -155,6 +158,25 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	if fromStart {
 		resumeSecs = 0
 	}
+	var primary *progress.Link
+	var primaryState *emby.ProgressSnapshot
+	if prefs.PrimaryProgressServer != nil && whCtx != nil {
+		primaryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		primary, primaryState, err = progress.Shared().Prepare(primaryCtx, prefsClient, c, s, whCtx.candidate, whCtx.seriesTmdbID, target.MediaSourceID, target.RunTimeTicks)
+		cancel()
+		if err != nil {
+			progress.Shared().Note("主服进度未能采用，已按所在服进度播放")
+			bus.Emit("progress.primary", map[string]any{"message": "主服进度未能采用，已按所在服进度播放"}, "")
+		} else {
+			progress.Shared().Note("")
+		}
+	}
+	if ctx.Err() != nil {
+		return nil, ctx.Err()
+	}
+	if prefs.PrimaryProgressServer != nil && whCtx != nil && target.RunTimeTicks > 0 {
+		whCtx.candidate.RunTimeTicks = &target.RunTimeTicks
+	}
 	if whCtx != nil && !fromStart {
 		/* ☠ **调用方没给续播位置就自己去拿**,不要默认成 0。
 		   服务器上的进度本来就在 `candidate.PositionTicks` 里(取判据那一趟顺手带回来的),
@@ -162,12 +184,22 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		   而且不报错 —— 安卓两个内核都栽在这上面(2026-09-07)。判据在核心层,
 		   调用方传 0 的含义统一为「我不知道,你来定」。 */
 		resumeSecs = resumeFor(resumeSecs, whCtx.candidate.PositionTicks)
+		if prefs.PrimaryProgressServer != nil {
+			// 主服模式不取本地最大值；不可用/独有资源沿所在服状态播放。
+			resumeSecs = float64(whCtx.candidate.PositionTicks) / float64(history.TicksPerSec)
+			if primaryState != nil {
+				resumeSecs = float64(primaryState.PositionTicks) / float64(history.TicksPerSec)
+				whCtx.candidate.Played = primaryState.Played
+			}
+		}
 		// ★ 调用方传进来的 resumeSecs 只是**这一台** Emby 的进度;
 		//   跨服续播开着时,本地记录里别的服务器上更靠后的进度会覆盖它(取最大)。
-		remote := int64(resumeSecs * float64(history.TicksPerSec))
-		if t := history.Shared().ResolveResumeTicks(whCtx.scope, whCtx.candidate,
-			whCtx.seriesTmdbID, &remote, whCtx.candidate.Played, prefs.CrossServerResume); t != nil {
-			resumeSecs = float64(*t) / float64(history.TicksPerSec)
+		if prefs.PrimaryProgressServer == nil {
+			remote := int64(resumeSecs * float64(history.TicksPerSec))
+			if t := history.Shared().ResolveResumeTicks(whCtx.scope, whCtx.candidate,
+				whCtx.seriesTmdbID, &remote, whCtx.candidate.Played, prefs.CrossServerResume); t != nil {
+				resumeSecs = float64(*t) / float64(history.TicksPerSec)
+			}
 		}
 		/* ☆☆ **看完了的片再点播放,从头开始**(用户 2026-09-03)。
 
@@ -213,7 +245,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	currentMu.Lock()
 	pendingSubs = target.ExternalSubs
 	current = target
-	report := &playbackReport{started: make(chan struct{}), session: *s}
+	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks}
 	currentReport = report
 	currentMu.Unlock()
 
@@ -533,6 +565,7 @@ func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 		report.mu.Lock()
 		defer report.mu.Unlock()
 		report.stopped = true
+		defer report.syncPrimary(pos, watched)
 		if err := report.waitStart(ctx); err != nil {
 			return err
 		}

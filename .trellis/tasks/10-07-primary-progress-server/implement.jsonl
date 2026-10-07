@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/shared/product-and-api.md", "reason": "产品和服务端兼容范围"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核心生命周期与门禁"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "配置与记录持久化"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "跨端设置状态归属"}
+{"file": ".trellis/tasks/10-07-primary-progress-server/research/compatibility.md", "reason": "真实服务端契约与限制"}

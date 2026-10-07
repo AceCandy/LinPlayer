@@ -892,7 +892,7 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 
 | | |
 |---|---|
-| 数据来源 | `prefs.getPrefs` `prefs.setPrefs` `prefs.applyPrefs` `prefs.getPrefetchSettings` `prefs.setPrefetchSettings` `prefs.getPreloadSettings` `prefs.setPreloadSettings` `prefs.getProxy` `prefs.setProxy` `prefs.cfProxyStatus` `prefs.cfProxyEnable` `prefs.cfProxyDisable` `prefs.cfSpeedTest` `prefs.getWritebackSettings` `prefs.setWritebackSettings` `prefs.getHomeSettings` `prefs.setHomeSettings` `prefs.configExportQr` `prefs.configImportQr` `player.getPlaybackPrefs` `player.setPlaybackPrefs` `player.shaderLevels` `player.setShaderLevel` `player.setTrackRegexes` `player.validateTrackRegex` `danmaku.getDanmakuConfig` `danmaku.setDanmakuConfig` `danmaku.minAutoScore` `danmaku.cacheSize` `danmaku.cacheClear` `danmaku.importBlocklist` `emby.blockedList` `emby.setBlocked` `emby.watchHistoryList` `emby.watchHistoryDelete` `emby.watchHistoryClear` `system.dataPaths` `system.cacheSize` `system.clearCache` `system.checkUpdate` `system.exportDiagnostics` `account.getCrossServerResume` `account.setCrossServerResume` |
+| 数据来源 | `prefs.getPrefs` `prefs.setPrefs` `prefs.applyPrefs` `prefs.getPrefetchSettings` `prefs.setPrefetchSettings` `prefs.getPreloadSettings` `prefs.setPreloadSettings` `prefs.getProxy` `prefs.setProxy` `prefs.cfProxyStatus` `prefs.cfProxyEnable` `prefs.cfProxyDisable` `prefs.cfSpeedTest` `prefs.getPrimaryProgressServer` `prefs.setPrimaryProgressServer` `prefs.retryPrimaryProgressSync` `prefs.getHomeSettings` `prefs.setHomeSettings` `prefs.configExportQr` `prefs.configImportQr` `player.getPlaybackPrefs` `player.setPlaybackPrefs` `player.shaderLevels` `player.setShaderLevel` `player.setTrackRegexes` `player.validateTrackRegex` `danmaku.getDanmakuConfig` `danmaku.setDanmakuConfig` `danmaku.minAutoScore` `danmaku.cacheSize` `danmaku.cacheClear` `danmaku.importBlocklist` `emby.blockedList` `emby.setBlocked` `emby.watchHistoryList` `emby.watchHistoryDelete` `emby.watchHistoryClear` `system.dataPaths` `system.cacheSize` `system.clearCache` `system.checkUpdate` `system.exportDiagnostics` `account.getCrossServerResume` `account.setCrossServerResume` |
 | 加载态 | 各面板**进入时各自拉自己的配置**;同一面板里的多个请求**必须并发** |
 | 错误态 | 读取失败的提示**必须挂在加载分支里面**(§6.4 第 3 条) |
 | 空态 | 「已屏蔽的内容」为空 = 没屏蔽过任何东西,正常 |
@@ -901,6 +901,7 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 - 交互口径见 §6.2:**改完即生效、零保存按钮、越界让核心层拒绝、失败回滚**。
 - **选项少 / 数值型的东西不开二次弹窗。** 用 `SegRow` / `StepperRow` / `SliderRow` 就地生效。
   弹窗只留给两种情况:① 选项多且互斥(超分十几档、语言列表)② 需要填表(正则、代理)。
+- 主进度服：未指定/已登录Emby账号单选，展示待同步和冲突数、错误、刷新及手动重试。选择固定账号用户；失败保留已确认选择；切换不迁移历史。冲突保留且不强制覆盖。本地跨服续播仅未指定主服时参与决策。 网络设置组进入独立主进度服页，账号与状态并发加载，离页取消。
 - **新增设置项必须有消费点。** 加一个开关但没人读它 = 一个永远不生效的开关,而且不报错。
 - 播放内核提供「自动 / Media3 / MPV」，默认及已有手动选择保持；变化只影响下一次播放。Emby 自动先 Media3，仅明确兼容错误回退 MPV 一次，网络/鉴权/DRM 不换核；回退保留版本、进度和播放选择并提示用户。自动模式长按明确用 MPV。非 Emby 来源沿用现有 MPV 路径，不按 ASS/MKV/PGS 名称强制切换。
 - 「已屏蔽的内容」是**隐藏类功能的集中解除列表**。

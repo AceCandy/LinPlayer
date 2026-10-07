@@ -658,7 +658,7 @@ public sealed class SettingsPage : PageBase
                 var prefetch = await Safe(() => core.PrefsGetPrefetchSettings(new { }));
                 var preload = await Safe(() => core.PrefsGetPreloadSettings(new { }));
                 var home = await Safe(() => core.PrefsGetHomeSettings(new { }));
-                var writeback = await Safe(() => core.PrefsGetWritebackSettings(new { }));
+                var primaryProgress = await Safe(() => core.PrefsGetPrimaryProgressServer(new { }));
                 var update = await Safe(() => core.PrefsGetUpdateSettings(new { }));
                 // 插件声明的分节(SPEC 6.2 D286)。和别的组一样各拉各的:没装插件时它就是空数组
                 var psecs = await Safe(() => core.PluginSettingsSections(new { }));
@@ -719,7 +719,7 @@ public sealed class SettingsPage : PageBase
 
                     // ── 高级:不常动、或者动错了要收拾的 ──
                     if (Features.On("set.blocked")) Add(gAdv, SettingsSections.Blocked(core));
-                    if (Features.On("set.writeback") && writeback is { } wb) Add(gAdv, SettingsSections.Writeback(core, wb));
+                    if (primaryProgress is { } primary) Add(gAdv, SettingsSections.PrimaryProgress(core, primary));
                     // 备份与还原和「扫码搬迁」是两件事:那张出二维码只搬账号,
                     // 这张出文件、带设置、和手机端互通(用户 2026-09-08)
                     Add(gAdv, SettingsSections.Backup(core));

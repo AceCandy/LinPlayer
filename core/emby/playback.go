@@ -40,6 +40,8 @@ type PlaybackTarget struct {
 	PlayMethod    string        `json:"play_method"` // "DirectStream" | "Transcode"
 	IsDolbyVision bool          `json:"is_dolby_vision"`
 	ExternalSubs  []ExternalSub `json:"external_subs"`
+	// RunTimeTicks 来自实际选中版本，避免用另一剪辑版的时长同步进度。
+	RunTimeTicks int64 `json:"-"`
 }
 
 // deviceProfile 是发给 PlaybackInfo 的宽松档案:声明啥都能直连,促使服务器返回 DirectStreamUrl。
@@ -139,6 +141,9 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 		//   调用方手里的版本列表是**另一次请求**,两边可能选的不是同一个版本。
 		IsDolbyVision: hasDolbyVision(ms),
 		ExternalSubs:  externalSubs(s, ms, itemID, msID),
+	}
+	if ms.RunTimeTicks != nil {
+		target.RunTimeTicks = *ms.RunTimeTicks
 	}
 
 	/* ★★ **永远不走转码流**。用户 2026-09-03 定的口径:

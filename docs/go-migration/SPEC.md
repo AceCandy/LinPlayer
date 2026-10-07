@@ -173,6 +173,7 @@ core/
 │   └── localserve/     # 数据通道 HTTP 服务(§6)
 ├── download/       # 多线程下载
 ├── history/        # 本地观看记录 + 跨服续播
+├── progress/       # 固定主服进度绑定、CAS与持久化待同步
 ├── update/         # 自更新
 ├── companion/      # 电视端手机控制台
 └── secrets/        # 编译期凭据(-ldflags -X)
@@ -240,6 +241,12 @@ UI 启动 --> lp_abi_version()
 > 没有它,错配的代价是「偶发崩溃、复现不了」(与 §5.3 同款);有了它,代价是一行明确的
 > 错误提示。**用一个导出换掉一整类不可诊断的故障,是这份契约里性价比最高的一次交易。**
 > 而且它天然向后兼容 —— 旧库里没有这个符号,这件事本身就是信号。
+
+### 5.0.1 主进度服命令与状态
+
+`prefs.getPrimaryProgressServer`、`prefs.setPrimaryProgressServer(server_id)`（空关闭）、`prefs.retryPrimaryProgressSync`共享三端；返回固定账号server/user_id、显示名、valid、pending、conflicts和error，不输出凭据。指定主服仅改变后续播放决策与回写；旧播放绑定失效，切换不批量迁移历史。可信同资源以主服完整零/回退/已看快照为准，从头播放优先；独有/不确定/不可用沿所在服远端进度起播，绕过本地最大值。
+
+副服匹配采用电影TMDB、剧TMDB+季集唯一核验和实际版本时长（差≤1秒）；主服自己播放沿普通上报门槛。`userdata/progress-sync.json`保存无凭据待同步，原子落盘后GET→版本CAS POST→回读确认。冲突保留且不自动覆盖；重试仅当前绑定。切换等待在途写入结束，完成后拒绝旧epoch；网络预算5秒/重试20秒。详情/列表继续显示各服原状态，不做全库批量覆盖。详见核心持久化规范。
 
 ### 5.1 导出函数表
 
@@ -1264,6 +1271,7 @@ Android / Apple 的数据根由宿主通过 `lp_init(config_json)` 传入 ——
 ```
 userdata/
 ├── config.json          # AppConfig
+├── progress-sync.json    # 主服待同步快照，不含凭据
 ├── history.json         # 本地观看记录
 ├── logs/
 ├── cache/
@@ -1635,7 +1643,7 @@ Linux abstract socket 或 XDG / Android 的 `launchMode`):
 | 本地观看记录 | 可读可写,恢复连接后补传 |
 | 本地播放 / SMB / WebDAV / FTP | 与 Emby 无关,照常 |
 | 媒体库浏览 | 展示上次缓存 + 明确的"离线"标识,**不是空白页也不是红色报错** |
-| 进度上报 | **进队列,不丢**。恢复连接后按序补传,冲突时以时间戳新的为准 |
+| 主服进度同步 | 先原子落待同步，再版本CAS；失败保留，手动重试，冲突不自动覆盖。普通所在服上报仍沿既有链路 |
 
 规定:核心层维护每台服务器的 `reachable` 状态,通过 `account.status` 事件推。
 **UI 不许自己探测连通性** —— 三端各探一遍就是三种退避策略。

@@ -259,7 +259,7 @@
 | [x] | `download.resume` | `download_resume` | `id: String` | `()` | ✅ |
 | [x] | `download.setThreads` | `download_set_threads` | `threads: usize` | `ThreadsReply` | ✅ |
 
-### 设置与偏好 · `prefs.*` — 30 条
+### 设置与偏好 · `prefs.*` — 33 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -275,6 +275,7 @@
 | [x] | `prefs.backupPreview` | **新增** | `content: Option<String>, path: Option<String>` | `BackupPreview` | — | <!-- 导入前看清楚要还原什么 -->
 | [x] | `prefs.getHomeSettings` | **新增** | `-` | `HomeSettings` | — | <!-- 首页栏目设置(合集栏按服开关等) -->
 | [x] | `prefs.getPrefetchSettings` | `get_prefetch_settings` | `—` | `PrefetchSettings` | ✅ |
+| [x] | `prefs.getPrimaryProgressServer` | **新增** | `—` | `PrimaryProgressSettings` | ✅ |
 | [x] | `prefs.getPrefs` | `get_prefs` | `—` | `Prefs` | ✅ |
 | [x] | `prefs.getPreloadSettings` | `get_preload_settings` | `—` | `PreloadSettings` | ❌ |
 | [x] | `prefs.getProxy` | `get_proxy` | `—` | `linplayer_core::ProxyConfig` | ✅ |
@@ -287,6 +288,8 @@
 | [x] | `prefs.setDetailBlur` | `set_detail_blur` | `value: u8` | `Result<(), String>` | ✅ |
 | [x] | `prefs.setHomeSettings` | **新增** | `settings: HomeSettings` | `Result<(), String>` | — | <!-- 写回首页栏目设置 -->
 | [x] | `prefs.setPrefetchSettings` | `set_prefetch_settings` | `settings: PrefetchSettings` | `Result<(), String>` | ✅ |
+| [x] | `prefs.setPrimaryProgressServer` | **新增** | `server_id: String` | `PrimaryProgressSettings` | ✅ | <!-- 空字符串关闭；服务器及用户固定绑定，不迁移历史 -->
+| [x] | `prefs.retryPrimaryProgressSync` | **新增** | `—` | `PrimaryProgressSettings` | ✅ | <!-- 只重试当前主服的待同步，冲突保留 -->
 | [x] | `prefs.setPrefs` | `set_prefs` | `audio_lang: Option<String>, sub_lang: Option<String>, sub_enabled: bool, search_history: Option<Vec<String>>, library_view: Option<String>` | `Prefs` | ✅ |
 | [x] | `prefs.pushSearch` | **新增** | `query: String` | `SearchHistory` | ✅ | <!-- 记一次搜索。去重/置顶/封顶都在核心层 —— 三端各写一遍的话「同一个词搜两次会不会出两条」迟早分叉 -->
 | [x] | `prefs.setPreloadSettings` | `set_preload_settings` | `settings: PreloadSettings` | `Result<(), String>` | ❌ |

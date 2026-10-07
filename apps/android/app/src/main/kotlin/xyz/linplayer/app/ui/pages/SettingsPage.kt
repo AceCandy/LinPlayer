@@ -130,6 +130,8 @@ fun SettingsPage(nav: NavController) {
             item("p2") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
                     LpCell("多线程加载", mediaStyle = true, icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
+                    Hairline()
+                    LpCell("主进度服", mediaStyle = true, icon = LpIcons.version) { nav.navigate(Route.SettingsSub("primaryprogress")) }
                 }
             }
             if (pluginEntries.isNotEmpty()) {
@@ -218,6 +220,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
         "mpvconf" -> "mpv 配置"; "danmaku" -> "弹幕"
         "backup" -> "备份与还原"
         "prefetch" -> "多线程加载"
+        "primaryprogress" -> "主进度服"
         "blocked" -> "已屏蔽的内容"; "storage" -> "存储与数据目录"
         "sync" -> "Trakt / Bangumi 账号"
         "update" -> "更新"; else -> "关于"
@@ -235,6 +238,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
                     "danmaku" -> DanmakuSettingsPanel()
                     "backup" -> BackupPanel()
                     "prefetch" -> PrefetchPanel()
+                    "primaryprogress" -> PrimaryProgressPanel()
                     "blocked" -> BlockedPanel()
                     "storage" -> StoragePanel()
                     "sync" -> SyncAccountsPanel()

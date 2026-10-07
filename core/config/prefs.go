@@ -133,6 +133,8 @@ type Prefs struct {
 	// 跨服务器续播:在别的服务器看过同一部片时,用本地记录里的最大进度起播。
 	// ★ 默认关 —— 它会让「这台服上没看过的片」也从中间起播,得用户明确要才开。
 	CrossServerResume bool `json:"cross_server_resume"`
+	// PrimaryProgressServer 固定服务器及用户，不随当前播放服或线路切换。
+	PrimaryProgressServer *ProgressServer `json:"primary_progress_server,omitempty"`
 	// 跨服回传主开关:看完/进度写回**其它**服务器。
 	// ★ 默认关 —— 它会往别人的服务器写数据,必须用户主动开。
 	CrossServerWriteback bool `json:"cross_server_writeback"`

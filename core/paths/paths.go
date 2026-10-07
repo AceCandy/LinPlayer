@@ -60,6 +60,9 @@ func ImageCache() string    { return sub("cache", "img") }
 func PrefetchCache() string { return sub("cache", "prefetch") }
 func ShadersDir() string    { return sub("shaders") }
 
+// ProgressSyncFile 保存主服待同步记录，不参与本地续播决策。
+func ProgressSyncFile() string { return sub("progress-sync.json") }
+
 // ShaderCacheDir 是 mpv 编译好的着色器**二进制**缓存。
 //
 // ★★ 目录名不能叫 shaders:`player.setShaderLevel` 已经在往 `cache/shaders`

@@ -28,6 +28,8 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.async
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -175,7 +177,7 @@ private fun GeneralGroup(overlay: Overlay) {
     Column {
         Group("播放行为")
         cross?.let { on ->
-            PanelItem("跨服务器续播", sub = "同一部片在别的服务器上看过,也从那个位置接着播", switch = on, modifier = Modifier.memo("set.cross"), onClick = {
+            PanelItem("本地跨服续播", sub = "仅在未指定主进度服时使用本地跨服记录", switch = on, modifier = Modifier.memo("set.cross"), onClick = {
                 toggle(scope, app, { cross == true }, { cross = it }) { app.call("account.setCrossServerResume", args("enabled" to it)) }
             })
         } ?: SkelRows(1)
@@ -579,6 +581,63 @@ private fun ProxyField(label: String, value: String, key: String, number: Boolea
 // ---------------------------------------------------------------- 同步
 
 @Composable
+private fun PrimaryProgressGroup(overlay: Overlay) {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var state by remember { mutableStateOf<JsonObject?>(null) }
+    var options by remember { mutableStateOf(listOf("未指定" to "")) }
+    var busy by remember { mutableStateOf(true) }
+    var failure by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableIntStateOf(0) }
+    LaunchedEffect(reload) {
+        busy = true
+        try {
+            val settings = async { app.call("prefs.getPrimaryProgressServer").obj() }
+            val accounts = async { app.call("account.listAccounts").arr().mapNotNull { it.obj() } }
+            state = settings.await()
+            options = listOf("未指定" to "") + accounts.await()
+                .filter { !it.str("user_id").isNullOrBlank() && it.str("source_kind").orEmpty() in listOf("", "emby") }
+                .map { (it.str("name") ?: "Emby 账号") to it.str("server").orEmpty() }
+            failure = null
+        } catch (e: CancellationException) { throw e
+        } catch (e: Exception) { failure = "主进度设置读取失败"; app.report(e)
+        } finally { busy = false }
+    }
+    Column {
+        Group("主进度服")
+        PanelItem("主进度账号", value = state?.let { if (it.str("server").isNullOrEmpty()) "未指定" else if (it.bool("valid")) it.str("name") else "账号已失效" } ?: "加载中…",
+            sub = "相同资源以主服为准，独有资源各服保留；切换不迁移历史", chevron = true, enabled = !busy && state != null,
+            modifier = Modifier.memo("set.primary"), onClick = {
+                overlay.pick("主进度服", options, state.str("server").orEmpty()) { server ->
+                    busy = true
+                    scope.launch {
+                        try { state = app.call("prefs.setPrimaryProgressServer", args("server_id" to server)).obj()
+                        } catch (e: CancellationException) { throw e
+                        } catch (e: Exception) { app.report(e)
+                        } finally { busy = false }
+                    }
+                }
+            })
+        state?.let { settings ->
+            PanelItem("同步状态", value = "待同步 ${settings.long("pending") ?: 0} · 冲突 ${settings.long("conflicts") ?: 0}",
+                sub = settings.str("error") ?: "冲突记录保留，不自动覆盖主服新进度", enabled = false)
+            PanelItem("重试待同步", enabled = !busy && settings.bool("valid") && (settings.long("pending") ?: 0) > 0,
+                modifier = Modifier.memo("set.primary.retry"), onClick = {
+                    busy = true
+                    scope.launch {
+                        try { state = app.call("prefs.retryPrimaryProgressSync").obj()
+                        } catch (e: CancellationException) { throw e
+                        } catch (e: Exception) { app.report(e)
+                        } finally { busy = false }
+                    }
+                })
+        }
+        failure?.let { TvText(it, tvType.meta, TvC.fg2) }
+        PanelItem("刷新同步状态", enabled = !busy, modifier = Modifier.memo("set.primary.refresh"), onClick = { reload++ })
+    }
+}
+
+@Composable
 private fun SyncGroup(overlay: Overlay) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
@@ -620,6 +679,7 @@ private fun SyncGroup(overlay: Overlay) {
         }
     }
     Column {
+        PrimaryProgressGroup(overlay)
         Group("Trakt")
         val tr = trakt
         when {

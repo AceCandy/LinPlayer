@@ -192,49 +192,85 @@ public static class SettingsSections
 
     // ---------------------------------------------------------------- 跨服回写
 
-    public static Control Writeback(CoreClient core, JsonElement s)
+    public static Control PrimaryProgress(CoreClient core, JsonElement initial)
     {
+        var state = initial;
         var hint = Hint();
-        var on = new CheckBox { Content = "把进度回写到其它服务器", IsChecked = Bool(s, "enabled") };
-        var progress = new CheckBox { Content = "连播放位置一起回写", IsChecked = Bool(s, "include_progress") };
-
-        var ranges = new[] { ("所有匹配到的服务器", "all"), ("只回写首次看过的那台", "first"), ("只回写最近看过的那台", "latest") };
-        var range = new ComboBox
+        var status = Hint();
+        var options = new List<(string Label, string Server)> { ("未指定", "") };
+        var select = new ComboBox { MinWidth = 220, MinHeight = 34, IsEnabled = false };
+        var retry = new Button { Content = "重试待同步", IsEnabled = false };
+        var legacy = CrossResume(core);
+        var scope = new CancellationTokenSource();
+        var ct = scope.Token;
+        var updating = false;
+        var loaded = false;
+        void Show()
         {
-            Width = 220, MinHeight = 34,
-            ItemsSource = ranges.Select(x => x.Item1).ToList(),
-            SelectedIndex = Math.Max(0, Array.FindIndex(ranges, x => x.Item2 == Str(s, "range"))),
-        };
-
-        async void Save()
-        {
-            try
-            {
-                await core.PrefsSetWritebackSettings(new
-                {
-                    settings = new
-                    {
-                        enabled = on.IsChecked == true,
-                        include_progress = progress.IsChecked == true,
-                        range = ranges[Math.Max(0, range.SelectedIndex)].Item2,
-                    },
-                });
-                hint.Text = "已保存。";
-            }
-            catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
+            status.Text = $"待同步 {(int)Num(state, "pending")} 项 · 冲突 {(int)Num(state, "conflicts")} 项";
+            hint.Text = Str(state, "error");
+            if (Str(state, "server") != "" && !Bool(state, "valid")) hint.Text = "主服账号已失效，请重新选择。";
+            retry.IsEnabled = Bool(state, "valid") && Num(state, "pending") > 0;
+            legacy.IsEnabled = Str(state, "server") == "";
         }
-        foreach (var c in new CheckBox[] { on, progress }) c.IsCheckedChanged += (_, _) => Save();
-        range.SelectionChanged += (_, _) => Save();
-
-        return Group("跨服务器进度", new StackPanel
+        Show();
+        var group = Group("主进度服", new StackPanel
         {
             Spacing = 10,
-            Children =
-            {
-                Note("同一部片在多台服务器上都有时,把「看到哪儿了」同步过去。"),
-                on, progress, Field("回写范围", range), CrossResume(core), hint,
-            },
+            Children = { Note("相同资源以主服进度为准，独有资源各服保留。切换主服不迁移历史；匹配不确定或主服不可用时正常播放。"),
+                Field("主进度账号", select), status, retry, legacy, hint },
         });
+        group.DetachedFromVisualTree += (_, _) => scope.Cancel();
+        group.AttachedToVisualTree += async (_, _) =>
+        {
+            if (loaded) return;
+            loaded = true;
+            try
+            {
+                var accounts = await core.AccountListAccounts(ct: ct);
+                ct.ThrowIfCancellationRequested();
+                foreach (var account in accounts.EnumerateArray())
+                {
+                    if (Str(account, "user_id") == "" || Str(account, "source_kind") is not ("" or "emby")) continue;
+                    options.Add((Str(account, "name") + " · " + Str(account, "user_name"), Str(account, "server")));
+                }
+                select.ItemsSource = options.Select(x => x.Label).ToList();
+                select.SelectedIndex = Math.Max(0, options.FindIndex(x => x.Server == Str(state, "server")));
+                select.IsEnabled = true;
+                select.SelectionChanged += async (_, _) =>
+                {
+                    if (updating || select.SelectedIndex < 0) return;
+                    var previous = Math.Max(0, options.FindIndex(x => x.Server == Str(state, "server")));
+                    updating = true;
+                    select.IsEnabled = retry.IsEnabled = false;
+                    try
+                    {
+                        state = await core.PrefsSetPrimaryProgressServer(new { server_id = options[select.SelectedIndex].Server }, ct);
+                        ct.ThrowIfCancellationRequested();
+                        Show();
+                    }
+                    catch (OperationCanceledException) { /* 离页后丢弃结果。 */ }
+                    catch (Exception e) { select.SelectedIndex = previous; hint.Text = LibraryPage.Advice(e); }
+                    finally { updating = false; select.IsEnabled = !ct.IsCancellationRequested; }
+                };
+            }
+            catch (OperationCanceledException) { /* 离页取消账号加载。 */ }
+            catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
+        };
+        retry.Click += async (_, _) =>
+        {
+            retry.IsEnabled = select.IsEnabled = false;
+            try
+            {
+                state = await core.PrefsRetryPrimaryProgressSync(ct: ct);
+                ct.ThrowIfCancellationRequested();
+                Show();
+            }
+            catch (OperationCanceledException) { /* 离页后不更新状态。 */ }
+            catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
+            finally { select.IsEnabled = !ct.IsCancellationRequested; }
+        };
+        return group;
     }
 
     /// <summary>
@@ -245,7 +281,7 @@ public static class SettingsSections
     /// </summary>
     private static Control CrossResume(CoreClient core)
     {
-        var box = new CheckBox { Content = "起播时取各服务器里最靠后的进度" };
+        var box = new CheckBox { Content = "未指定主服时，允许本地跨服续播" };
         var hint = Hint();
         // 初值从核心层**读回来**,不是默认一个再灌下去
         _ = Task.Run(async () =>

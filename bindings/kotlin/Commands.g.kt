@@ -216,6 +216,7 @@ object LinPlayerCommandNames {
         "prefs.backupPreview",
         "prefs.getHomeSettings",
         "prefs.getPrefetchSettings",
+        "prefs.getPrimaryProgressServer",
         "prefs.getPrefs",
         "prefs.getPreloadSettings",
         "prefs.getProxy",
@@ -228,6 +229,8 @@ object LinPlayerCommandNames {
         "prefs.setDetailBlur",
         "prefs.setHomeSettings",
         "prefs.setPrefetchSettings",
+        "prefs.setPrimaryProgressServer",
+        "prefs.retryPrimaryProgressSync",
         "prefs.setPrefs",
         "prefs.pushSearch",
         "prefs.setPreloadSettings",
@@ -697,7 +700,7 @@ suspend fun LinPlayerCommands.downloadResume(args: Map<String, Any?>? = null): J
 suspend fun LinPlayerCommands.downloadSetThreads(args: Map<String, Any?>? = null): JsonElement =
     call("download.setThreads", args)
 
-// ---- 设置与偏好 · prefs.* (30 条) ----
+// ---- 设置与偏好 · prefs.* (33 条) ----
 suspend fun LinPlayerCommands.prefsApplyPrefs(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.applyPrefs", args)
 suspend fun LinPlayerCommands.prefsCfProxyDisable(args: Map<String, Any?>? = null): JsonElement =
@@ -722,6 +725,8 @@ suspend fun LinPlayerCommands.prefsGetHomeSettings(args: Map<String, Any?>? = nu
     call("prefs.getHomeSettings", args)
 suspend fun LinPlayerCommands.prefsGetPrefetchSettings(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.getPrefetchSettings", args)
+suspend fun LinPlayerCommands.prefsGetPrimaryProgressServer(args: Map<String, Any?>? = null): JsonElement =
+    call("prefs.getPrimaryProgressServer", args)
 suspend fun LinPlayerCommands.prefsGetPrefs(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.getPrefs", args)
 suspend fun LinPlayerCommands.prefsGetPreloadSettings(args: Map<String, Any?>? = null): JsonElement =
@@ -746,6 +751,10 @@ suspend fun LinPlayerCommands.prefsSetHomeSettings(args: Map<String, Any?>? = nu
     call("prefs.setHomeSettings", args)
 suspend fun LinPlayerCommands.prefsSetPrefetchSettings(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.setPrefetchSettings", args)
+suspend fun LinPlayerCommands.prefsSetPrimaryProgressServer(args: Map<String, Any?>? = null): JsonElement =
+    call("prefs.setPrimaryProgressServer", args)
+suspend fun LinPlayerCommands.prefsRetryPrimaryProgressSync(args: Map<String, Any?>? = null): JsonElement =
+    call("prefs.retryPrimaryProgressSync", args)
 suspend fun LinPlayerCommands.prefsSetPrefs(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.setPrefs", args)
 suspend fun LinPlayerCommands.prefsPushSearch(args: Map<String, Any?>? = null): JsonElement =

@@ -402,6 +402,9 @@ func RegisterCommands(version string) {
 		if err != nil {
 			return nil, &bus.Err{Code: bus.EAuth, Msg: err.Error()}
 		}
+		if binding := c.PrefsOf().PrimaryProgressServer; binding != nil && binding.Server == acc.Server && acc.UserID != res.UserID {
+			config.InvalidateProgressAccount()
+		}
 		acc.Token = res.Token
 		acc.UserID = res.UserID
 		acc.UserName = res.UserName
