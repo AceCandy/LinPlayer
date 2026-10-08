@@ -471,3 +471,506 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 17: 手机持久共享缓存与播放外观
+<!-- trellis-session: v=2 fp=1aa93b59ba835ff7 -->
+
+**Date**: 2026-10-08
+**Task**: 手机持久共享缓存与播放外观
+**Branch**: `main`
+
+### Summary
+
+完成跨内核持久部分媒体缓存及手机八项外观体验改造，arm64安装包已生成，等待手机实测；保留前批改动，未提交推送归档。
+
+### Main Changes
+
+- 缓存固定账号/用户/条目/媒体源与强ETag隔离，默认全局1GiB/单片128MiB/7天TTL，容量设置关闭清理及Stop取消屏障
+- 内置系统/思源黑体/宋体，去播放按钮黑底与手机壁纸，详情背景轻模糊，Expressive形状与动效，OSD隐藏3dp只读进度条
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 51项Android相关回归、真实HTTP跨进程/版本/损坏/并发预算回归、prefetch/player/preload竞态检查及忠实故障红绿通过
+- [OK] 完整核心和绑定门禁、Android参数门禁、隐私/工作流门禁、最终APK签名v1/v2/v3与13SO/字体许可/一致性校验通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机验收切内核、重启缓存复用、PiP与动效；TV/Windows真机及本批TV包未验证
+
+
+## Session 18: 手机验收反馈：轻模糊、物理弹簧与缓存起播诊断
+<!-- trellis-session: v=2 fp=191e640ca4be148d -->
+
+**Date**: 2026-10-08
+**Task**: 手机验收反馈：轻模糊、物理弹簧与缓存起播诊断
+**Branch**: `main`
+
+### Summary
+
+背景85/15混合；页面、按钮和可见图片弹簧；起播阶段与首次缓存供给日志，保留授权与SHA校验；未提交未归档
+
+### Main Changes
+
+- 背景1280px轻模糊，透明alpha加权；导航/按钮/图片可见入场接公开Compose spring
+- 缓存与取流、历史等待、主服进度、内核setup阶段诊断，不记录地址/身份；满窗口恢复benchmark约153ms
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 37项Android回归通过；轻模糊真实故障红绿、按钮native渲染按压与回弹、系统零动画通过
+- [OK] prefetch普通/竞态、player测试与vet、完整核心门禁、Android参数和隐私检查通过；独立复核修正两处边界
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 新手机包验证背景/快速滚动/导航；同资源缓存重开导出日志定位真实设备瓶颈，TV真机暂不验证
+
+
+## Session 19: 修复快速点按无弹簧反馈与高频控件漏接
+<!-- trellis-session: v=2 fp=d7fb3f7a438b2169 -->
+
+**Date**: 2026-10-08
+**Task**: 修复快速点按无弹簧反馈与高频控件漏接
+**Branch**: `main`
+
+### Summary
+
+用户反馈未感知动效；真实短Tap红绿复现，按压事件反馈及卡片/底栏接线修正，增强页面/图片弹性
+
+### Main Changes
+
+- 共用pressFeedback直接消费Press/Release/Cancel，短Tap补可见反馈，不延迟点击；海报/底栏复用且保持长按和Tab语义
+- 弹簧阻尼0.65与缩放阈值0.001，图片40dp/0.90入场，页面1/3宽滑入、Tab0.94缩放
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 52项Android回归通过；滚动容器短Tap旧代码真实失败、修复通过；长按/连续点击/立即分派/目标越过/零动画真实渲染与时间采样验证
+- [OK] 只读独立复核、Android参数门禁、diff检查通过；前批未提交功能全部保留
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装更新手机包验收真实按压/页面/滚动观感；用户设备倍率与帧率尚未验证，未提交未归档
+
+
+## Session 20: 手机整卡入场与共享海报转场
+<!-- trellis-session: v=2 fp=e802a549e472d7e3 -->
+
+**Date**: 2026-10-08
+**Task**: 手机整卡入场与共享海报转场
+**Branch**: `main`
+
+### Summary
+
+整卡上浮淡入、真实共享海报往返、图片交叉淡入与轻按压；补账号和图片URL状态隔离，保留已有轻视差；82项回归通过并交付已签名arm64包。未提交/推送/归档。
+
+### Main Changes
+
+- 更新手机导航、卡片、详情前景海报接线及设计正本；保留前批播放器缓存改动
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 82项相关回归通过；共享/交叉淡入/Lazy记忆3项故障注入为红，恢复为绿；参数/隐私/diff检查通过
+- [OK] arm64 APK 76.648MiB；v1/v2/v3、13SO、R8映射与DEX核验通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机真机验收下滑整卡、海报详情往返和按钮反馈；缓存启动耗时仍需真机日志，TV暂缓
+
+
+## Session 21: 手机动效布局负担收敛
+<!-- trellis-session: v=2 fp=8d32ca2a41c919b5 -->
+
+**Date**: 2026-10-08
+**Task**: 手机动效布局负担收敛
+**Branch**: `main`
+
+### Summary
+
+空闲海报退出共享布局、普通搜索改三卡懒行；同尺寸回归60→12海报组合、30→0空闲共享modifier，84项通过并交付手机包。无真机帧数据，卡顿消除尚未确认。未提交/推送/归档。
+
+### Main Changes
+
+- 仅修改PosterMotion.sharedPoster及SearchPage普通结果行布局，保留原动效和业务
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 原实现两项新增结构回归失败，修复后84项回归通过；参数256处、隐私1636文件、diff检查通过
+- [OK] arm64 APK 76.648MiB，v1/v2/v3、13SO、80MiB与最终DEX核验通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 确认手机型号、新包安装与具体卡顿操作，采集同设备帧时间；TV继续暂缓
+
+
+## Session 22: 手机海报图片就绪后弹簧入场
+<!-- trellis-session: v=2 fp=6d6864bbb7482bfd -->
+
+**Date**: 2026-10-08
+**Task**: 手机海报图片就绪后弹簧入场
+**Branch**: `main`
+
+### Summary
+
+等待真实图片而非占位触发整卡缩放/上浮，首批短错峰与快滚到位；92项回归及arm64最终包核验通过，本次仅记录。
+
+### Main Changes
+
+- Cards/PosterMotion/PhoneRoot三处生产修改：图片结果按身份隔离、0.94→1/20dp弹簧、首批有界错峰、快滚观察且不消费手势。
+- 更新手机UI正本、Android规范、任务设计/验证及入场时机复盘；保留前批全部脏改，未提交推送归档。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 92项相关Android回归0失败；真实冷图原故障红/修复绿，热缓存、错误/无图、换图/零动画、裁剪、Lazy回滚、fling、共享中间帧通过。
+- [OK] Android参数256处、隐私及diff检查；最终APK 80371690 bytes，v1/v2/v3、arm64 13SO、80MiB与DEX owner和assemble一致性通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机安装新包验收慢速浏览/冷图入场/快速滚动/返回观感；未验证真机帧率、TV或缓存重开耗时。
+
+
+## Session 23: 首页整排海报随滚动横向归位
+<!-- trellis-session: v=2 fp=8ab70d9251405601 -->
+
+**Date**: 2026-10-08
+**Task**: 首页整排海报随滚动横向归位
+**Branch**: `main`
+
+### Summary
+
+按录屏方向仅改原生首页整排揭示，右移/轻缩放/淡入随可见位置连续变化；102项回归及arm64安装包核验通过，本次仅记录。
+
+### Main Changes
+
+- HomePage/Cards/PosterMotion：整排20dp→0/.97→1/.85→1、回滑可逆、标题水平稳定，关闭首页单卡叠加；每帧只在绘制层读取已有列表信息。
+- 续播/各库最新/合集/标准插件items与骨架接线；快滚强度平滑减弱、零倍率正常。更新UI正本和Android规范，保留其它页默认行为。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 102项Android相关回归0失败；真实LpRow原实现红/改后绿，双卡同步、冷图、首帧、回滑、组合次数、点击长按横滑、快滚/零倍率及已有首页/共享回归通过。
+- [OK] Android参数256处、全工作树隐私和diff检查；最终APK80371688 bytes，v1/v2/v3、arm64 13SO、80MiB预算、DEX新接线及assemble一致性通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机安装本轮新包对照首页下滑/回滑观感；真机帧率和TV未测，不宣称完整复现参照源码或曲线。未提交推送归档。
+
+
+## Session 24: 首页整排时间弹簧与录屏反馈复核
+<!-- trellis-session: v=2 fp=8c6aabb4db38c7c7 -->
+
+**Date**: 2026-10-08
+**Task**: 首页整排时间弹簧与录屏反馈复核
+**Branch**: `main`
+
+### Summary
+
+按用户确认方案将首页位置映射改为20%可见触发的时间弹簧，24dp整排归位；快滑待停与掠过跳过、Lazy/导航不重播、账号隔离。独立复核及99项相关回归通过，已出arm64手机包并核验。只记录，未提交推送归档。
+
+### Main Changes
+
+- 仅改PosterMotion首页整排动画与HomePage账号接线，保留其它页动效与已有脏改
+- 同步Android规范、UI正本、任务记录与错误参照判断复盘
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 旧代码下两条真实LpRow验收红，修复后99项相关回归绿，参数/隐私/diff门禁通过
+- [OK] APK v1/v2/v3 min-sdk21、唯一arm64/13 SO、80MiB预算、DEX时间协程与最终/assemble一致通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户安装新包验证普通下滑、快滑停留和回滑观感；无设备帧耗时实测，不能确认卡顿根因或精确复现参照
+
+
+## Session 25: 首页单卡展开与详情即时预览
+<!-- trellis-session: v=2 fp=752370524a2af7cb -->
+
+**Date**: 2026-10-08
+**Task**: 首页单卡展开与详情即时预览
+**Branch**: `main`
+
+### Summary
+
+删除首页整排横移和停滑等待，单卡可见即上浮放大短错峰；详情来源标题海报先显，背景含缓存独立渐显；103项回归通过并交付验签手机包，仅记录。
+
+### Main Changes
+
+- 首页及标准插件栏单卡入场，Lazy/导航返回记忆和账号隔离；其它页动效保持
+- 详情展示预览与真实业务状态分离；背景渐显在零倍率时直接完成
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 原故障4红及零倍率背景首帧红后修复；103项相关回归零失败；独立只读复核、参数/隐私/diff门禁
+- [OK] 手机包SHA256 e4303f3adb8ecbad338302f201b5f8969ceda6cde50c51d05140e898e987d9fd；v1/v2/v3、ABI/ELF、包体和最终DEX通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待手机真机帧耗时与主观观感验收；本轮未验证TV
+
+
+## Session 26: 手机详情本地缓存与持续横滑
+<!-- trellis-session: v=2 fp=59e98ba5af2421a8 -->
+
+**Date**: 2026-10-08
+**Task**: 手机详情本地缓存与持续横滑
+**Branch**: `main`
+
+### Summary
+
+详情展示白名单先显并后台刷新、跨重启复用；账号隔离和缓存清理接线；首页已加载海报持续位置形变。119项关联回归与手机包签名/ABI/DEX核验通过，真机观感与性能未验。
+
+### Main Changes
+
+- Application唯一DetailCache，64条/每条128KiB；元数据与实时业务状态分离，网络失败保留重试，鉴权/不存在清除，迟到响应隔离。
+- 首页LazyRow绘制层持续单卡边缘形变，图片加载与首次入场不重启；设置统计/清理包含详情缓存。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 119项相关回归全绿；Android参数、diff、隐私门禁通过；最终APK v1/v2/v3、arm64 13SO、最终DEX及assemble一致性通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装本次手机包验证重复进入及重启后的详情展示、已加载海报左右往返观感；尚无真机帧耗时和服务端联调。
+- 遵循用户仅记录要求，保留工作树，不提交、推送或归档。
+
+
+## Session 27: 手机逐图渐显与详情媒体区过渡
+<!-- trellis-session: v=2 fp=a4049b8146db7889 -->
+
+**Date**: 2026-10-08
+**Task**: 手机逐图渐显与详情媒体区过渡
+**Branch**: `main`
+
+### Summary
+
+统一普通冷热图逐张渐显、主导航线性透明度与详情媒体选项完整到达后过渡；独立复核和139项关联回归通过，已交付验签arm64手机包。仅记录，真机流畅度未验。
+
+### Main Changes
+
+- NetImage保留共享来源连续性与零倍率；图标库复用逐图加载，PhoneRoot保留导航结构并调整透明度曲线。
+- 详情媒体状态区分等待/成功/失败，不伪造默认版本；独立重试，选项与媒体信息整体淡入/高度变化；既有资料缓存、取消和业务状态保持。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 139项相关回归零失败/零跳过；真实导航中间帧、快慢图独立、热图混色、共享返回几何和媒体高度中间帧通过，Android参数256处及隐私/diff门禁通过。
+- [OK] 最终手机包v1/v2/v3 min-sdk21、arm64 13个SO、80MiB预算、最终DEX和assemble一致性通过；证据见任务research/fade-apk-verification.json。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装本轮手机包验收列表逐图渐显、详情选项展开和页面往返；尚未做真机帧耗时/真实服务端/TV验证，网络等待仍可能存在。
+- 遵循用户只记录要求，不提交、推送或归档。
+
+
+## Session 28: 手机图片视野触发渐显与媒体库加载态
+<!-- trellis-session: v=2 fp=698a61f520ea92eb -->
+
+**Date**: 2026-10-08
+**Task**: 手机图片视野触发渐显与媒体库加载态
+**Branch**: `main`
+
+### Summary
+
+修正屏外提前播完淡入：普通冷热图15%可见后400ms渐显、完全离屏复位；媒体库首批30条和简洁加载态，143项相关回归及最终手机包核验通过，仅记录。
+
+### Main Changes
+
+- NetImage可见性滞回与静态底色，背景独立、共享连续/零倍率保持；导航透明度适度延长。
+- LibraryPage首批30/后续120，以实际数量续页，简洁加载提示、取消后不回写，页面缓存与筛选保持。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 旧实现3条红；屏外预加载/同图往返/边缘滞回中间像素、分页offset30/limit120、143项相关回归及单独实际冷态截图验证通过；独立只读复核与主线程点验完成。
+- [OK] 最终APK v1/v2/v3 min-sdk21、arm64 13SO、80MiB预算、assemble一致及视野回调/400ms/加载态DEX核验通过。参数256处、diff/隐私门禁通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装新版验证缓存图反复滑入和媒体库加载体验；未测真机帧率、真实服务端速度或TV，首次无资料仍需网络。
+- 遵循用户仅记录要求，不提交、推送或归档。
+
+
+## Session 29: 搜索返回留存与海报弹簧菜单（第十四轮）
+<!-- trellis-session: v=2 fp=7b9f6d3870b22489 -->
+
+**Date**: 2026-10-08
+**Task**: 搜索返回留存与海报弹簧菜单（第十四轮）
+**Branch**: `main`
+
+### Summary
+
+搜索结果进入详情后返回保留输入、结果和位置，搜索海报长按共用菜单；手机与TV条目屏蔽入口移除。
+
+### Main Changes
+
+- 搜索entry状态与完成标记；普通、跨服及插件搜索长按；140dp弹簧Popup避让当前海报；移除条目屏蔽和TV静态草稿，同步规范与设计。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 旧代码两条故障回归失败，修复后147项相关回归通过；255处命令参数、diff、隐私门禁通过；手机包v1/v2/v3、ABI/ELF、80MiB预算、字节一致及最终DEX通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机真机确认搜索返回/长按菜单手感；TV设备暂缓。跨服Emby详情账号导航仍是原有待处理边界；极窄窗口避让存在降级。
+
+
+## Session 30: 详情选集首帧占位与正文即时呈现（第十五轮）
+<!-- trellis-session: v=2 fp=d1c9294613710bc0 -->
+
+**Date**: 2026-10-08
+**Task**: 详情选集首帧占位与正文即时呈现（第十五轮）
+**Branch**: `main`
+
+### Summary
+
+逐帧核对录屏发现季/分集晚到插入，修复详情选集轨道与播放目标的首帧占位，分集正文立即显示、图片独立渐显。
+
+### Main Changes
+
+- 选集等待/真实轨道同高，适配字号；剧集续播操作预留换行空间；季独立重试与同快照effect；partial错误保留列表/重试；移除详情分集整卡延迟动画。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 旧实现首帧几何回归红；90项详情、浏览及海报回归全绿，含1.3字体、分阶段请求、局部重试和冷图文字像素；参数/diff/隐私门禁与手机APK签名、ABI/ELF、体积、最终DEX通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 安装手机新包复测录屏中的首次进入与再次进入；真机性能、其它动态资料和插件高度未验，TV未改。
+
+
+## Session 31: 播放器与手机体验改造提交归档
+<!-- trellis-session: v=2 fp=18280040aaf5f6b3 -->
+
+**Date**: 2026-10-09
+**Task**: 播放器与手机体验改造提交归档
+**Branch**: `main`
+
+### Summary
+
+用户授权提交累计播放器及手机浏览改造，分批提交桌面连续跳转和核心/Android缓存、选轨、诊断、外观、搜索与详情布局。归档phone-cache-expressive，前序任务保留设备验收待办；未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9f6a83fb` | fix(desktop): 协调连续跳转与播放进度显示 |
+| `12c36f74` | feat(player): 完善共享缓存、播放控制与手机浏览体验 |
+
+### Testing
+
+- [OK] 提交前165项Android相关回归全部通过，255处命令参数、diff及隐私检查通过；沿用既有核心/绑定/桌面构建及手机APK验签记录。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机观感与帧率、缓存实际起播收益、TV/Windows设备及插件动态详情布局未验证；跨服详情账号导航边界保留。
