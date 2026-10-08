@@ -234,7 +234,10 @@ public sealed class PlayerPage : UserControl
     private readonly int _wantAudioIndex = -1;
     private readonly int _wantSubIndex = -1;
 
-    private double _duration;
+    private double _duration, _buffered;
+    private bool _polling, _started;
+    private Task _starting = Task.CompletedTask;
+    private static Task _pendingStop = Task.CompletedTask;
     /// <summary>
     /// 最近一次指针在本页坐标系里的位置。
     ///
@@ -254,14 +257,8 @@ public sealed class PlayerPage : UserControl
     private bool _muted;
     private DateTime _lastMove = DateTime.UtcNow;
 
-    /// <summary>
-    /// seek 闩:发出 seek 之后,状态回报还会有一小段时间给旧位置。
-    ///
-    /// <para>闩必须和**目标**比,不能和「上一次读到的位置」比 ——
-    /// 拿粘性值和目标比,一比就相等,闩当场自解除,进度条继续跳回旧位置。
-    /// 本地文件永远看不出来(seek 立刻生效),只有真服务器上才现形。</para>
-    /// </summary>
-    private double _seekTarget = -1;
+    /// <summary>只保存显示目标和提交顺序，不覆盖真实 _position。</summary>
+    private readonly PlaybackSeek _seek;
 
     /// <summary>这一条是不是文件浏览型源的条目(走 source.play)。</summary>
     private readonly bool _isSource;
@@ -339,6 +336,7 @@ public sealed class PlayerPage : UserControl
         _wantSubIndex = subIndex;
         _mediaSourceId = mediaSourceId;
         _core = core;
+        _seek = new PlaybackSeek(to => _core.PlayerSeek(new { pos = to }));
         _isSource = isSource || src is not null;
         _title = title;
         _itemId = itemId;
@@ -976,9 +974,9 @@ public sealed class PlayerPage : UserControl
         _view.DoubleTapped += (_, _) => ToggleFullscreen();
 
         // 起播排在 GL 就绪之后。发出去就行,不等结果 —— 等结果会把渲染线程堵住。
-        _view.OnReady = () => Dispatcher.UIThread.Post(() => _ = Start(itemId, resumeSecs));
+        _view.OnReady = () => Dispatcher.UIThread.Post(() => { if (!_seek.Stopped) _starting = Start(itemId, resumeSecs); });
 
-        _poll.Tick += (_, _) => { SampleNet(); _ = Poll(); };
+        _poll.Tick += (_, _) => { SampleNet(); if (_seek.Expire()) SyncSeekDisplay(); _ = Poll(); };
         _poll.Start();
         DetachedFromVisualTree += (_, _) => Stop();
 
@@ -1795,6 +1793,8 @@ public sealed class PlayerPage : UserControl
 
     private async Task Start(string itemId, double resumeSecs)
     {
+        await _pendingStop;
+        if (_seek.Stopped) return;
         if (_view.InitError is not null) { _msg.Text = _view.InitError; return; }
         // resumeSecs < 0 是「从头播放」:核心层只认 from_start,resume_secs=0 的含义是「你来定」
         var fromStart = resumeSecs < 0;
@@ -1837,9 +1837,11 @@ public sealed class PlayerPage : UserControl
                     media_source_id = _mediaSourceId,
                 });
             }
+            _started = !_seek.Stopped;
         }
         catch (Exception e)
         {
+            if (_seek.Stopped) return;
             _msg.Text = $"起播失败:{LibraryPage.Advice(e)}";
             // 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)
             if (_src is { } sp) Dispatcher.UIThread.Post(() => SwitchSource.Show(this, _core, sp.ServerId, sp.Item, sp.LineId, SrcIndex(), 0));
@@ -2681,7 +2683,7 @@ public sealed class PlayerPage : UserControl
     private async Task SeekBy(double delta)
     {
         if (_duration <= 0) return;
-        await SeekTo(Math.Clamp(_position + delta, 0, _duration));
+        await SubmitSeek(_seek.SeekBy(delta, _position, _duration));
     }
 
     // 只改滑块,命令由 PropertyChanged 统一发 —— 两处各发一次就会打架
@@ -4272,11 +4274,22 @@ public sealed class PlayerPage : UserControl
 
     private async Task Poll()
     {
+        if (_polling || !_started || _seek.Stopped) return;
+        _polling = true;
+        try { await PollState(); }
+        finally { _polling = false; }
+    }
+
+    private async Task PollState()
+    {
+        var revision = _seek.Revision;
         JsonElement st;
         try { st = await _core.PlayerStatus(new { }); }
         catch { return; }   // 每 250ms 一拍,弹提示会刷屏;下一拍自然补上
 
+        if (_seek.Stopped) return;
         var pos = Num(st, "position");
+        _position = Math.Clamp(pos, 0, Num(st, "duration") > 0 ? Num(st, "duration") : double.MaxValue);
         var dur = Num(st, "duration");
         var paused = st.TryGetProperty("paused", out var p) && p.ValueKind == JsonValueKind.True;
         _muted = st.TryGetProperty("mute", out var mu) && mu.ValueKind == JsonValueKind.True;
@@ -4354,16 +4367,10 @@ public sealed class PlayerPage : UserControl
             && !PointerOnOsd() && !_popupOpen)
             ShowOsd(false);
 
-        // 闩和**目标**比,不和上一次读到的位置比(见字段上的注释)
-        if (_seekTarget >= 0)
-        {
-            if (Math.Abs(pos - _seekTarget) < 1.5) _seekTarget = -1;
-            else return;
-        }
+        _seek.Observe(pos, Bool(st, "buffering"), revision);
         _duration = dur;
-        _position = Math.Clamp(pos, 0, dur > 0 ? dur : 1);
-        // buffered = 已缓冲到哪一秒(核心层读的是 mpv demuxer-cache-time,本地文件是 0)
-        _bar.Sync(_position, dur, Num(st, "buffered"));
+        _buffered = Num(st, "buffered");
+        SyncSeekDisplay();
         /* 帧库要知道「现在放到哪、一共多长」才能分格 —— 采帧那一侧在 GL 线程上,
            它不该自己去打命令(那是每一帧一次往返)。这里顺手喂,轮询本来就在跑。 */
         _frames.Duration = dur;
@@ -4384,9 +4391,6 @@ public sealed class PlayerPage : UserControl
         _frames.SetSpans(st);
         _bar.CachedSpans = _frames.Spans;
         SyncMute();
-        // 拖动中不要覆盖时间读数 —— 那会儿它显示的是**手指所在位置**,
-        // 被轮询盖回当前播放位置的话,拖的时候数字纹丝不动
-        if (!_bubble.IsVisible) _time.Text = dur > 0 ? Clock(pos) : "加载中…";
         _total.Text = dur > 0 ? Clock(dur) : "";
         _pause.Content = paused ? Ico.Play : Ico.Pause;
         // 弹幕层每 250ms 对一次表,两拍之间它自己按帧往前推
@@ -4509,15 +4513,22 @@ public sealed class PlayerPage : UserControl
         _ => code,
     };
 
-    private async Task SeekTo(double secs)
+    private Task SeekTo(double secs) => SubmitSeek(_seek.Seek(secs, _duration));
+
+    private async Task SubmitSeek(Task request)
     {
-        // duration 还是 0 的时候量程会塌成 1 秒:点中间 = 跳到 0.5 秒,
-        // 看起来「画面根本没动」。所以没拿到时长之前不许 seek。
-        if (_duration <= 0) return;
-        _seekTarget = secs;
-        // 参数名是 pos,不是 position —— 写错了核心层报「缺少 pos」,进度条纹丝不动
-        try { await _core.PlayerSeek(new { pos = secs }); }
-        catch (Exception e) { _msg.Text = $"跳转失败:{LibraryPage.Advice(e)}"; }
+        SyncSeekDisplay();
+        try { await request; }
+        catch (Exception e) { if (!_seek.Stopped) _msg.Text = $"跳转失败:{LibraryPage.Advice(e)}"; }
+        finally { if (!_seek.Stopped) SyncSeekDisplay(); }
+    }
+
+    private void SyncSeekDisplay()
+    {
+        var display = _seek.Target ?? _position;
+        _bar.Sync(display, _duration, _buffered);
+        // 拖动时保留指针位置读数，避免轮询盖回播放位置。
+        if (!_bubble.IsVisible) _time.Text = _duration > 0 ? Clock(display) : "加载中…";
     }
 
     /// <summary>
@@ -4530,15 +4541,26 @@ public sealed class PlayerPage : UserControl
     /// </summary>
     private void Stop()
     {
+        if (_seek.Stopped) return;
         _poll.Stop();
+        object arg = new { };
+        if (!NoEmby && Nav.Session is { } s)
+            arg = new { s.server, s.token, s.user_id, s.device_id, server_id = _serverId, pos = _position };
+        var previous = _pendingStop;
+        _pendingStop = StopPlayback(previous, arg);
+    }
+
+    private async Task StopPlayback(Task previous, object arg)
+    {
         try
         {
-            object arg = new { };
-            if (!NoEmby && Nav.Session is { } s)
-                arg = new { s.server, s.token, s.user_id, s.device_id, server_id = _serverId, pos = _position };
-            _ = _core.PlayerStopPlayback(arg);
+            await _seek.Stop(async () => {
+                await previous;
+                await _starting;
+                await _core.PlayerStopPlayback(arg);
+            });
         }
-        catch { /* 退出路径不该因为停播失败卡住 */ }
+        catch { /* 退出路径不因收尾失败卡住；核心记录故障，下一页仍可起播。 */ }
     }
 
     private static string Clock(double s) =>

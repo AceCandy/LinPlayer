@@ -30,3 +30,11 @@
 - 首页 Hero 图片任务按需创建，只预取当前张和下一张；异步切图同时核查条目索引和数据代次，避免旧批次覆盖新批次。
 
 依据：[Tok](../../../apps/windows/LinPlayer.Desktop/Views/Tok.cs)、[导航](../../../apps/windows/LinPlayer.Desktop/Views/Nav.cs)、[媒体库页面](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面经验](../../../docs/lessons/ui-desktop.md)。
+
+## 播放跳转
+
+- `PlayerPage._position` 只保存内核真实位置；进度上报、弹幕、停播和续播不能使用待跳转目标。
+- `PlaybackSeek` 持有显示目标；相对输入从目标累加，绝对输入按已知时长钳制。提交串行，等待中的请求只发最新目标；旧回执和旧失败不解除新目标。
+- 回执不代表落点：已提交、非缓冲、同请求代数且真实位置差小于 1.5 秒才解除。失败或单调时钟 15 秒超时恢复真实显示；超时检查独立于状态查询成功与否。
+- 单页状态查询不重叠，跳转等待不跳过其它状态同步。离页立即禁止输入并失效队列，停播等待在途 seek 和起播收尾，下一页起播等待旧页停播。
+- UI 超时不能取消已发原生命令；核心永久不返回时继续等待，不能提前放行导致旧 seek 作用于新媒体。`tools/seekcheck` 验证状态和真实控件接线，不能替代实际视频或 Windows 窗口验收。

@@ -70,6 +70,7 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="seekcheck" />
     <!-- 命令绑定是**生成的**(scripts/gen-bindings.py),不许手写。
          266 x 3 = 798 次抄写机会,错的那几次全是运行时才发现。 -->
     <ProjectReference Include="..\..\..\bindings\csharp\LinPlayer.Core.csproj" />
