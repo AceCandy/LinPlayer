@@ -19,6 +19,7 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -74,6 +75,7 @@ import xyz.linplayer.app.ui.components.LpMenuItem
 import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.LpRowSkeleton
+import xyz.linplayer.app.ui.components.homePosterEntrance
 import xyz.linplayer.app.ui.components.Skeleton
 import androidx.compose.ui.platform.testTag
 import xyz.linplayer.app.ui.components.NetImage
@@ -116,6 +118,7 @@ fun HomePage(nav: NavController) {
     var refreshing by remember { mutableStateOf(false) }
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
+    val motionAccount = currentSession?.let { it.server to it.userId }
     var canHideResume by remember(currentSession?.server, currentSession?.userId) { mutableStateOf(false) }
     LaunchedEffect(currentSession?.server, currentSession?.userId) {
         if (currentSession == null) return@LaunchedEffect
@@ -273,7 +276,8 @@ fun HomePage(nav: NavController) {
                 }
 
                 item("resume") {
-                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu, resume = true)
+                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
+                        homeAccount = motionAccount, resume = true)
                 }
 
                 // 每个媒体库一条「最新」轨。未到的画骨架 —— 否则首屏下半是空的
@@ -290,16 +294,17 @@ fun HomePage(nav: NavController) {
                         else if (items.isNotEmpty()) LpRow(
                             view.name, items,
                             { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
-                            onMore = { nav.navigate(Route.Library(view.id, view.name)) },
+                            onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount,
                         )
                     }
                 }
                 item("collections") {
-                    RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu)
+                    RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu,
+                        homeAccount = motionAccount)
                 }
                 // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
                 items(pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
-                    PluginHomeSection(sec, nav)
+                    PluginHomeSection(sec, nav, motionAccount)
                 }
                 item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
@@ -371,6 +376,7 @@ private fun RowBlock(
     app: xyz.linplayer.app.data.AppState,
     open: (Item) -> Unit,
     menu: (Item) -> List<CardAction>,
+    homeAccount: Pair<String, String>?,
     resume: Boolean = false,
 ) {
     when (block) {
@@ -379,7 +385,7 @@ private fun RowBlock(
         is Block.Ok -> if (block.value.isNotEmpty()) LpRow(
             title, block.value,
             { app.imageUrl(it.id, "Primary", if (thumb) 220 else 330) },
-            open, thumb = thumb, menu = menu, resume = resume,
+            open, thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount,
         )
         // 各块各自 catch:一个区块失败不整页报错
         is Block.Fail -> Unit
@@ -404,7 +410,7 @@ private fun RowBlock(
  *   更不该因为某个插件抽风就把首页弄坏。
  */
 @Composable
-private fun PluginHomeSection(sec: JsonObject, nav: NavController) {
+private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: Pair<String, String>?) {
     val app = LocalApp.current
     val pid = sec.str("plugin_id") ?: return
     val sid = sec.str("id") ?: return
@@ -425,17 +431,21 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController) {
     val got = items ?: return
     if (got.isEmpty()) return
     val shape = sec.str("shape") ?: "portrait"
+    val row = rememberLazyListState()
     Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
         SectionTitle(title)
         LazyRow(
+            state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
         ) {
-            items(got, key = { it.str("id") ?: "" }) { x ->
+            itemsIndexed(got, key = { _, it -> it.str("id") ?: "" }) { index, x ->
                 SourceCard(x, {
                     // 条目带来源(D282),按它回到对应数据源的详情页
                     nav.navigate(Route.SourceDetail(x.str("source") ?: "", x.str("id") ?: ""))
-                }, Modifier.width(if (shape == "landscape") 200.dp else 120.dp), shape = shape)
+                }, Modifier.width(if (shape == "landscape") 200.dp else 120.dp)
+                    .then(if (homeAccount != null) Modifier.homePosterEntrance(x.str("id") ?: "", index, homeAccount, row) else Modifier),
+                    shape = shape)
             }
         }
     }
@@ -504,35 +514,29 @@ internal fun cardActions(
     app: xyz.linplayer.app.data.AppState,
     scope: kotlinx.coroutines.CoroutineScope,
     item: Item,
+    serverId: String? = null,
 ): List<CardAction> = listOf(
     CardAction(if (item.played) "标为未看" else "标为已看") {
         scope.launch {
             runCatching {
-                app.call("emby.setPlayed", args("item_id" to item.id, "played" to !item.played))
+                app.call("emby.setPlayed", args(*listOfNotNull("item_id" to item.id, "played" to !item.played, serverId?.let { "server_id" to it }).toTypedArray()))
             }.onFailure { app.report(it) }
         }
     },
     CardAction("收藏") {
         scope.launch {
             runCatching {
-                app.call("emby.setFavorite", args("item_id" to item.id, "fav" to true))
+                app.call("emby.setFavorite", args(*listOfNotNull("item_id" to item.id, "fav" to true, serverId?.let { "server_id" to it }).toTypedArray()))
             }.onSuccess { app.toast("已加入收藏", xyz.linplayer.app.data.ToastKind.Ok) }
                 .onFailure { app.report(it) }
         }
     },
+) + if (serverId == null) listOf(
     CardAction("下载") {
         scope.launch {
             runCatching { app.call("download.enqueue", args("item_id" to item.id)) }
                 .onSuccess { app.toast("已加入下载队列", xyz.linplayer.app.data.ToastKind.Ok) }
                 .onFailure { app.report(it) }
         }
-    },
-    CardAction("屏蔽这个条目", danger = true) {
-        scope.launch {
-            runCatching {
-                app.call("emby.setBlocked",
-                    args("id" to item.id, "name" to item.name, "blocked" to true))
-            }.onFailure { app.report(it) }
-        }
-    },
-)
+    }
+) else emptyList()

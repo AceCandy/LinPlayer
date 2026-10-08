@@ -119,9 +119,9 @@ suspend fun canDownload(app: AppState): Boolean {
 
 /**
  * 卡片操作面板(§5.6)。**所有出现卡片的页面都接这一个**:
- * ☠ 旧实现只有媒体库页接了长按屏蔽,「同一张卡在不同页面行为不一样」。
+ * 卡片详情、收藏、已看和下载统一在此提供。
  *
- * [onChanged] 收到的是做了什么:`fav` / `unfav` / `played` / `unplayed` / `blocked` —— 页面按需移除或刷新。
+ * [onChanged] 收到的是做了什么:`fav` / `unfav` / `played` / `unplayed` —— 页面按需移除或刷新。
  */
 fun Overlay.openCardMenu(app: AppState, nav: TvNav, scope: CoroutineScope, item: Item, onChanged: (String) -> Unit = {}) {
     open { CardMenu(app, nav, scope, item, onClose = { close() }, onChanged = onChanged) }
@@ -132,21 +132,12 @@ private fun BoxScope.CardMenu(
     app: AppState, nav: TvNav, scope: CoroutineScope, item: Item,
     onClose: () -> Unit, onChanged: (String) -> Unit,
 ) {
-    var level by remember { mutableStateOf(0) }
     var fav by remember { mutableStateOf<Boolean?>(null) }
     var played by remember { mutableStateOf(item.played) }
     var dl by remember { mutableStateOf(false) }
-    // 分集的屏蔽记**剧名**:观看记录跨服务器,核心层只认名字(§7.6)
-    val blockId = if (item.isEpisode) item.seriesId ?: item.id else item.id
-    val blockName = if (item.isEpisode) item.seriesName ?: item.name else item.name
-    var blocked by remember { mutableStateOf(false) }
     LaunchedEffect(item.id) {
         launch { fav = runCatching { app.call("emby.itemDetail", args("item_id" to item.id)) }.getOrNull().obj()?.bool("is_favorite") }
         launch { dl = canDownload(app) }
-        launch {
-            blocked = runCatching { app.call("emby.blockedList") }.getOrNull().arr()
-                .any { it.obj().str("id") == blockId || it.obj().str("name") == blockName }
-        }
     }
     fun act(cmd: String, a: kotlinx.serialization.json.JsonObject, ok: String, tag: String, after: () -> Unit = {}) {
         scope.launch {
@@ -155,18 +146,7 @@ private fun BoxScope.CardMenu(
                 .onFailure { app.report(it) }
         }
     }
-    TvSidePanel(cardTitleOf(item), onClose, back = if (level == 1) ({ level = 0 }) else null) {
-        if (level == 1) {
-            PanelItem(if (blocked) "解除屏蔽" else "屏蔽这部内容",
-                sub = if (blocked) "它会重新出现在首页、媒体库和搜索里。"
-                else "屏蔽后它不会再出现在首页、媒体库和搜索里。分集按剧名屏蔽整部剧。",
-                enabled = false)
-            PanelItem(if (blocked) "确认解除" else "确认屏蔽", danger = !blocked, focused = true, onClick = {
-                act("emby.setBlocked", args("id" to blockId, "name" to blockName, "blocked" to !blocked),
-                    if (blocked) "已解除屏蔽" else "已屏蔽「$blockName」", if (blocked) "unblocked" else "blocked") { onClose() }
-            })
-            return@TvSidePanel
-        }
+    TvSidePanel(cardTitleOf(item), onClose) {
         PanelItem("查看详情", focused = true, onClick = { onClose(); openItem(nav, item) })
         if (item.isEpisode || item.type == "Movie") PanelItem(
             if (item.resumeSecs > 0) "继续播放" else "播放",
@@ -191,8 +171,6 @@ private fun BoxScope.CardMenu(
                 act("download.enqueue", args("item_id" to item.id), "已加入下载队列", "download")
             })
         }
-        PanelGroup("危险")
-        PanelItem(if (blocked) "解除屏蔽" else "屏蔽这部内容", danger = true, chevron = true, onClick = { level = 1 })
     }
 }
 

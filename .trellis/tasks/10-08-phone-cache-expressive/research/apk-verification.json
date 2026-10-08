@@ -1,0 +1,36 @@
+{
+  "bytes": 80338915,
+  "MiB": 76.61715984344482,
+  "SHA256": "67309db755a614ca9ea491d4901aa3bffa6e574c3249471e328b7031580fe05c",
+  "matches_intermediate": true,
+  "libraries": [
+    "lib/arm64-v8a/libandroidx.graphics.path.so",
+    "lib/arm64-v8a/libavcodec.so",
+    "lib/arm64-v8a/libavdevice.so",
+    "lib/arm64-v8a/libavfilter.so",
+    "lib/arm64-v8a/libavformat.so",
+    "lib/arm64-v8a/libavutil.so",
+    "lib/arm64-v8a/libc++_shared.so",
+    "lib/arm64-v8a/liblpcore.so",
+    "lib/arm64-v8a/libmpv.so",
+    "lib/arm64-v8a/libsentry-android.so",
+    "lib/arm64-v8a/libsentry.so",
+    "lib/arm64-v8a/libswresample.so",
+    "lib/arm64-v8a/libswscale.so"
+  ],
+  "fonts": {
+    "e8f396decc1f0963a016a989c3d8852e863d1350996f573860a80767c83a1cd3": 11625800,
+    "faa6c9df652116dde789d351359f3d7e5d2285a2b2a1f04a2d7244df706d5ea9": 8331336
+  },
+  "dex": [
+    "classes.dex"
+  ],
+  "native_matches": true,
+  "licenses_match": true,
+  "signatures": {
+    "v1": true,
+    "v2": true,
+    "v3": true
+  },
+  "byte_budget_verified": true
+}

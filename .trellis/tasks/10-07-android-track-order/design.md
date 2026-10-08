@@ -1,0 +1,13 @@
+# 设计
+
+CoreClient取消后不再消费回执，但核心worker并行，已经进入setTrack handler的命令不能撤回。单独清pending不足以保证用户手选最后生效。
+
+复用控制器seek/stop的Mutex并命名transportMutex，不再新增锁顺序。恢复和回退字幕关闭以NonCancellable发送并等回执；MPV手选登记后连排队也不可被面板取消，锁内复查代数/提交门，持锁期间不能由页面取消放行。begin/stop/stopIn关闭提交门并递增transportGeneration，等待锁前记录的旧手选在锁内检查代数；stop清pending，tryFallback成功后再保存新恢复身份。恢复在锁内读取当前pending，命令成功才消费，手选在等待锁前清对应身份。字幕关闭恢复意图独立pendingSubOff，手选和stop也清掉它。
+
+手选新增pickTrack(kind,id)，只用于MPV轨道ID；Media3仍走exoPick。手机PlayerPanel和TV PlayerCtl/TrackPanel注入控制器MPV回调，同步trackPicked保持点击即时清恢复意图。UI协程在关闭面板前以UNDISPATCHED启动，确保命令已登记，防止组合销毁取消尚未开始的提交。默认回调用于独立面板既有调用，不改变生产页面都绑定控制器的要求。
+
+restoreState的字幕关闭在启动期间可提交，匹配代数/pendingSubOff；普通手选及轨表恢复仅当前起播成功后放行。stop不会清掉已经捕获的在途命令，但等其收尾后再停播；旧排队选择不提交到新媒体。核心永久无回执仍等待，不用UI超时提前放锁。
+
+修改控制器、手机/TV面板与页面接线、相关控制器/控件回归及Android规范。无协议/持久化变化；风险为等待回执期间手选延迟。forced/SDH和跨集记忆另批。
+
+独立复核发现TV详情初选也可能晚于手选到达，纳入同一屏障：restoreInitialTrack按当前播放代数和同类manualTracks标记拒绝覆盖。begin清手选标记；不跨集保存。命令回执消费pending也核对代数。TV点击同样UNDISPATCHED登记。

@@ -25,6 +25,10 @@ import (
 // 合法区间。**设置页与命令层共用** —— 别各写各的(Rust 侧的 prefetch_cache 就吃过这个亏:
 // 设置页拿到 1GB、一保存就被核层按 16~32MB 拒掉,用户连「打开某台服务器」都点不动)。
 const (
+	// BufferTargetMin/Max 仅限制自定义压缩媒体缓冲目标；0表示内核自动。
+	BufferTargetMin int64 = 64 * 1024 * 1024
+	BufferTargetMax int64 = 512 * 1024 * 1024
+
 	SpeedMin = 0.25
 	SpeedMax = 4.0
 
@@ -71,6 +75,9 @@ const (
 
 // Prefs 播放与全局偏好。
 type Prefs struct {
+	// BufferTargetBytes Android内核缓冲目标，不包含解码/画面内存；默认0自动。
+	BufferTargetBytes int64 `json:"buffer_target_bytes"`
+
 	// ---- 选轨 ----
 	AudioLang  *string `json:"audio_lang"`
 	SubLang    *string `json:"sub_lang"`
@@ -161,6 +168,8 @@ type Prefs struct {
 	// ★ 旧配置里存的是 1GB(那时它被误当成下限用)。引擎会把超限值钳回,
 	// 但**读出来给设置页时也要钳** —— 否则设置页拿到超限值、一保存就被核层拒。
 	PrefetchCacheBytes int64 `json:"prefetch_cache_bytes"`
+	// MediaCacheBytes 是跨会话共享媒体缓存的全局预算；0关闭，单片仍最多128MiB。
+	MediaCacheBytes int64 `json:"media_cache_bytes"`
 
 	// ---- 预加载(详情页预热)----
 	// 和上面的多线程加载**不是一回事**:那个是播放中在本地起代理喂 mpv,
@@ -422,6 +431,7 @@ func DefaultPrefs() Prefs {
 		CrossServerWritebackProgress: true,
 		PrefetchThreads:              3,
 		PrefetchCacheBytes:           512 * 1024 * 1024,
+		MediaCacheBytes:              1024 * 1024 * 1024,
 		PreloadEnabled:               true,
 		PreloadHeadMB:                32,
 		Hwdec:                        "auto-safe",
@@ -519,6 +529,12 @@ func (p Prefs) MarshalJSON() ([]byte, error) {
 // ★ **读出来给设置页时也要钳**,不只是保存时钳 —— 否则设置页拿到一个越界值,
 // 用户什么都没改点一下保存就被核层拒,而他根本不知道哪儿不对。
 func (p Prefs) Clamped() Prefs {
+	if p.MediaCacheBytes != 0 && (p.MediaCacheBytes < PrefetchCacheMin || p.MediaCacheBytes > PrefetchCacheMax) {
+		p.MediaCacheBytes = DefaultPrefs().MediaCacheBytes
+	}
+	if p.BufferTargetBytes != 0 && (p.BufferTargetBytes < BufferTargetMin || p.BufferTargetBytes > BufferTargetMax) {
+		p.BufferTargetBytes = 0
+	}
 	if p.DefaultSpeed < SpeedMin || p.DefaultSpeed > SpeedMax {
 		p.DefaultSpeed = 1.0
 	}

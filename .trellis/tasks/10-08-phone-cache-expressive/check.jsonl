@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "保留前批改动、隐私与交付"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "缓存持久化与原子索引"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "预热/停止跨层生命周期"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "手机播放器状态和主题"}
+{"file": ".trellis/tasks/10-08-phone-cache-expressive/research/cache.md", "reason": "现有共享入口和校验缺口"}
+{"file": ".trellis/tasks/10-08-phone-cache-expressive/research/expressive-fonts.md", "reason": "字体许可体积与精确版本API"}
+{"file": ".trellis/tasks/10-08-phone-cache-expressive/research/visual.md", "reason": "播放器视觉锚点和后续需完整核查边界"}

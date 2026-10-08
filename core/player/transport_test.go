@@ -1,6 +1,7 @@
 package player
 
 import (
+	"encoding/json"
 	"testing"
 
 	"linplayer/core/config"
@@ -97,4 +98,33 @@ func TestApplyPlaybackDefaults(t *testing.T) {
 	applyPlaybackDefaults(p, true)
 	p.DolbyAutoSW = false
 	applyPlaybackDefaults(p, true)
+}
+
+// 缺失与null保持未知，显式false不能被omitempty吞掉。
+func TestParseTracksForcedJSON(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want string
+	}{
+		{`{"id":1,"type":"sub","forced":true}`, `true`},
+		{`{"id":1,"type":"sub","forced":false}`, `false`},
+		{`{"id":1,"type":"sub","forced":null}`, ``},
+		{`{"id":1,"type":"sub"}`, ``},
+	} {
+		tracks := parseTracks("[" + tc.raw + "]")
+		if len(tracks) != 1 {
+			t.Fatalf("轨表解析失败: %+v", tracks)
+		}
+		raw, err := json.Marshal(tracks[0])
+		if err != nil {
+			t.Fatal(err)
+		}
+		var fields map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &fields); err != nil {
+			t.Fatal(err)
+		}
+		if got := string(fields["forced"]); got != tc.want {
+			t.Fatalf("forced=%q, want %q; 输入%s", got, tc.want, tc.raw)
+		}
+	}
 }

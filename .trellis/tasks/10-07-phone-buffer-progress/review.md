@@ -1,0 +1,11 @@
+# 独立复核
+
+default只读审查确认绝对缓冲前沿、数值钳位和原生Slider交互保留；提出同页换目标旧查询可能覆盖新值。
+
+主线程点验：PlayerController由remember(route.itemId, route.versionId)创建，换目标/版本会产生新实例；poll effect以controller为key；旧实例stop后ready=false，新实例started不改变旧实例ready。审查“同页切目标key不变”的前提与源码不符，因此不添加冗余目标代数或改播放控制。
+
+补充挂起旧player.status、真实版本面板切到新版本、确认第二次play/新buffered值后释放旧请求的生产回归，通过；控件隐藏重开旧请求的同类测试也通过。一次初测失败来自测试替身缺player.stopPlayback响应，补齐fixture后绿，该失败不是功能红证据。
+
+横屏深浅/紧凑、大字号和竖屏截图人工点验；pixel断言验证三段颜色。未验真实设备/RTL手势或实际TalkBack；绘制方向随LocalLayoutDirection，保留Slider原语义与thumb，状态描述包含已播及缓冲时间。
+
+最终主线程复核：本批生产采样与绘制没有在审查后新增逻辑。后台回归改为在NavHost目的地内注入生命周期，避免导航覆盖测试owner；通过暂停事件保持OSD可见，并等待UI任务完成再检查查询计数，避免五秒自动收起混淆前后台行为。14项生产播放测试、5项OSD测试全部通过，包含未知时长禁用滑杆。测试fixture修正不算功能红证据。

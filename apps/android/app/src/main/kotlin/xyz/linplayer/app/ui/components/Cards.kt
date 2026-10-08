@@ -1,11 +1,11 @@
 package xyz.linplayer.app.ui.components
 
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
-import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,13 +22,18 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.IntrinsicSize
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import java.util.UUID
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,10 +43,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.platform.LocalHapticFeedback
-import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -50,19 +57,24 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import coil3.compose.AsyncImagePainter
 import coil3.compose.rememberAsyncImagePainter
+import coil3.request.ImageRequest
+import coil3.request.transformations
+import coil3.request.allowHardware
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.theme.LocalMotionScale
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
+import xyz.linplayer.app.ui.theme.lpTween
 
 /**
  * 网络图。
  *
- * ☠ **必须看 `painter.state`。** 只画 `AsyncImage` 不看 state 的话,骨架要么永不消失
- * 要么永不出现 —— 那正是历史故障「封面隐身」在 Compose 上的等价漏法
+ * ☠ **必须看 `painter.state`。** 只画 `AsyncImage` 不看 state 的话,占位可能永不消失
+ * 或图片就绪状态不更新 —— 那正是历史故障「封面隐身」在 Compose 上的等价漏法
  * (旧栈是手抄卡片时漏了「解码完成 → 加就绪标记」这一步)。
  */
 @Composable
@@ -72,9 +84,25 @@ fun NetImage(
     m: Modifier = Modifier,
     corner: androidx.compose.ui.unit.Dp = R.md,
     scale: ContentScale = ContentScale.Crop,
+    backgroundBlur: Boolean = false,
+    previewUrl: String? = null,
+    /** 共享海报已在转场中移动，保持图像连续，不叠加重新加载式的淡入。 */
+    reveal: Boolean = true,
+    onLoadResult: ((Boolean) -> Unit)? = null,
     placeholder: @Composable (() -> Unit)? = null,
 ) {
-    Box(m.clip(RoundedCornerShape(corner)), contentAlignment = Alignment.Center) {
+    val report by androidx.compose.runtime.rememberUpdatedState(onLoadResult)
+    LaunchedEffect(url) { if (url.isNullOrEmpty()) report?.invoke(false) }
+    var visible by remember { mutableStateOf(false) }
+    val viewport = if (backgroundBlur) Modifier else Modifier.onGloballyPositioned {
+        val bounds = it.boundsInWindow()
+        val area = it.size.width.toFloat() * it.size.height
+        val shown = bounds.width * bounds.height
+        // 到15%才开始，完全离屏才复位；边缘小幅滚动不反复闪图。
+        if (area > 0f && shown >= area * .15f) visible = true
+        else if (shown <= 0f) visible = false
+    }
+    Box(m.clip(RoundedCornerShape(corner)).then(viewport), contentAlignment = Alignment.Center) {
         if (url.isNullOrEmpty()) {
             // 没有地址就画一块占位底。**不画骨架** —— 骨架的意思是「在路上」,
             // 而这里是「压根没有」,两者在界面上必须能分开
@@ -85,16 +113,41 @@ fun NetImage(
             }
             return@Box
         }
-        val painter = rememberAsyncImagePainter(url)
-        val state by painter.state.collectAsState()
+        val ctx = LocalContext.current
+        val model = remember(ctx, url, backgroundBlur) {
+            if (backgroundBlur) ImageRequest.Builder(ctx).data(url).allowHardware(false)
+                .transformations(DetailBackgroundBlur).build() else url
+        }
+        val painter = androidx.compose.runtime.key(url, backgroundBlur) { rememberAsyncImagePainter(model) }
+        val state by androidx.compose.runtime.key(url, backgroundBlur) { painter.state.collectAsState() }
         val ready = state is AsyncImagePainter.State.Success
-        val alpha by animateFloatAsState(
-            if (ready) 1f else 0f,
-            androidx.compose.animation.core.tween(T.T5, easing = LpEasing.standard),
-            label = "imgIn",
-        )
-        if (!ready) {
-            if (placeholder != null) placeholder() else Skeleton(Modifier.fillMaxSize(), corner)
+        val failed = state is AsyncImagePainter.State.Error
+        LaunchedEffect(url, ready, failed) {
+            if (ready || failed) report?.invoke(ready)
+        }
+        val fade = remember(url, backgroundBlur) { Animatable(0f) }
+        val immediate = ready && (!reveal || LocalMotionScale.current <= 0f)
+        val fadeSpec = lpTween<Float>(T.T8, LinearEasing)
+        LaunchedEffect(url, ready, immediate, visible, fadeSpec) {
+            when {
+                immediate -> fade.snapTo(1f)
+                !backgroundBlur && !visible -> fade.snapTo(0f)
+                else -> fade.animateTo(if (ready) 1f else 0f, fadeSpec)
+            }
+        }
+        val fading by remember(fade, immediate) { derivedStateOf { !immediate && fade.value < 1f } }
+        val preview = previewUrl?.takeIf { it != url }?.let { previewData ->
+            // 来源热图先显示；对它再次模糊会错过现成的内存缓存。
+            androidx.compose.runtime.key(previewData) { rememberAsyncImagePainter(previewData) }
+        }
+        if (fading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            when {
+                preview?.state?.collectAsState()?.value is AsyncImagePainter.State.Success ->
+                    androidx.compose.foundation.Image(preview, null, Modifier.fillMaxSize(), contentScale = scale)
+                placeholder != null -> placeholder()
+                backgroundBlur -> Box(Modifier.fillMaxSize().background(Lp.colors.bg))
+                else -> Box(Modifier.fillMaxSize().background(Lp.colors.s3))
+            }
         }
         if (xyz.linplayer.app.BuildConfig.DEBUG) {
             val st = state
@@ -103,7 +156,9 @@ fun NetImage(
         }
         androidx.compose.foundation.Image(
             painter = painter, contentDescription = desc, contentScale = scale,
-            modifier = Modifier.fillMaxSize().graphicsLayer { this.alpha = alpha },
+            modifier = Modifier.fillMaxSize().graphicsLayer {
+                alpha = if (immediate) 1f else fade.value
+            },
         )
     }
 }
@@ -121,39 +176,53 @@ fun MediaCard(
     onOpen: () -> Unit,
     m: Modifier = Modifier,
     thumb: Boolean = false,
-    /** 长按菜单项。**null = 这一处不给长按菜单**(跨服结果就是这样,理由见 §7.5)。 */
+    /** 长按菜单项，null 表示该处不提供菜单。 */
     menu: List<CardAction>? = null,
     showCaption: Boolean = true,
     /** 长按交给调用方(插件的 `onLongPress`)。[menu] 在时以菜单为准:同一块区域只能有一个长按。 */
     onLongPress: (() -> Unit)? = null,
     /** 首页续播信息；其它轨道沿用普通卡片文案。 */
     resume: Boolean = false,
+    /** 调用方提供首页入场时关闭默认动画，保留按压与图片淡入。 */
+    entrance: Boolean = true,
 ) {
     val c = Lp.colors
-    val haptic = LocalHapticFeedback.current
     var menuOpen by remember { mutableStateOf(false) }
     val width = if (thumb) ThumbW else PosterW
+    var imageResult by remember(item.id, imageUrl) { mutableStateOf<Boolean?>(null) }
+    val posterToken = rememberSaveable(item.id, imageUrl) { UUID.randomUUID().toString() }
+    val motion = LocalPosterMotion.current
+    val scene = LocalPosterScene.current
+    val sharedSource = motion != null && scene != null && motion.links.values.any {
+        it.sourceEntry == scene.entry.id && it.token == posterToken
+    }
 
     // 整卡读成一条:TalkBack 逐个念「图片」「标题」「年份」是噪音
-    Column(m.width(width).semantics(mergeDescendants = true) { }) {
+    Column(m.width(width).then(if (entrance) Modifier.posterEntrance(item.id, imageUrl,
+        ready = imageResult != null, animate = imageResult != false) else Modifier).semantics(mergeDescendants = true) { }) {
         Box {
             Box(
                 Modifier.fillMaxWidth().aspectRatio(if (thumb) 16f / 9f else 2f / 3f)
                     .clip(RoundedCornerShape(R.md))
-                    .combinedClickable(
-                        onClick = onOpen,
+                    .pressable(
+                        onClick = {
+                            if (motion != null && scene != null) motion.open(scene.entry, item, posterToken, imageUrl, onOpen)
+                            else onOpen()
+                        },
                         onLongClick = when {
                             menu != null -> {
-                                { haptic.performHapticFeedback(HapticFeedbackType.LongPress); menuOpen = true }
+                                { menuOpen = true }
                             }
                             onLongPress != null -> {
-                                { haptic.performHapticFeedback(HapticFeedbackType.LongPress); onLongPress() }
+                                { onLongPress() }
                             }
                             else -> null
                         },
                     )
             ) {
-                NetImage(imageUrl, item.name, Modifier.fillMaxSize())
+                NetImage(imageUrl, item.name, Modifier.fillMaxSize().sharedPoster(item.id, posterToken),
+                    reveal = !sharedSource,
+                    onLoadResult = if (entrance) { { imageResult = it } } else null)
 
                 // 角标:剧集 → 未看集数,全看完 → 打勾;电影 → 评分。**角标要小**,它压在封面上
                 Badge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
@@ -246,8 +315,11 @@ private fun RatingCorner(rating: Double, m: Modifier) {
 data class CardAction(val label: String, val danger: Boolean = false, val onClick: () -> Unit)
 
 @Composable
-private fun CardMenu(open: Boolean, onDismiss: () -> Unit, actions: List<CardAction>) {
-    LpMenu(open, onDismiss) {
+internal fun CardMenu(open: Boolean, onDismiss: () -> Unit, actions: List<CardAction>) {
+    val gap = with(LocalDensity.current) { 8.dp.roundToPx() }
+    val position = remember(gap) { PosterMenuPositionProvider(gap) }
+    LpMenu(open, onDismiss, positionProvider = position,
+        m = Modifier.width(140.dp).testTag("poster.menu")) {
         actions.forEach { a ->
             LpMenuItem(a.label, { onDismiss(); a.onClick() }, danger = a.danger)
         }
@@ -296,17 +368,23 @@ fun LpRow(
     menu: ((Item) -> List<CardAction>)? = null,
     onMore: (() -> Unit)? = null,
     resume: Boolean = false,
+    /** 首页以账号隔离已入场卡片，非首页沿用图片就绪入场。 */
+    homeAccount: Pair<String, String>? = null,
 ) {
+    val row = rememberLazyListState()
     Column(m.fillMaxWidth()) {
         MediaRowHeader(title, onMore)
         LazyRow(
             Modifier.fillMaxWidth().height(rowHeight(thumb)),
+            state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
         ) {
             // key + contentType:不给的话滚动时 item 复用会让 Coil 重复发请求
-            items(items, key = { it.id }, contentType = { if (thumb) "thumb" else "poster" }) {
-                MediaCard(it, imageUrl(it), { onOpen(it) }, thumb = thumb, menu = menu?.invoke(it), resume = resume)
+            itemsIndexed(items, key = { _, it -> it.id }, contentType = { _, _ -> if (thumb) "thumb" else "poster" }) { index, item ->
+                MediaCard(item, imageUrl(item), { onOpen(item) },
+                    m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
+                    thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)
             }
         }
     }
@@ -346,5 +424,29 @@ internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
         Spacer(Modifier.width(Sp.x8))
         Text(title, color = Lp.colors.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
             modifier = Modifier.weight(1f))
+    }
+}
+
+/** 优先放在海报侧面；侧面不足时放在上下方，小窗口才允许边界钳位。 */
+internal class PosterMenuPositionProvider(private val gap: Int) : androidx.compose.ui.window.PopupPositionProvider {
+    override fun calculatePosition(
+        anchorBounds: androidx.compose.ui.unit.IntRect,
+        windowSize: androidx.compose.ui.unit.IntSize,
+        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
+        popupContentSize: androidx.compose.ui.unit.IntSize,
+    ): androidx.compose.ui.unit.IntOffset {
+        val maxX = (windowSize.width - popupContentSize.width).coerceAtLeast(0)
+        val maxY = (windowSize.height - popupContentSize.height).coerceAtLeast(0)
+        val y = anchorBounds.top.coerceIn(0, maxY)
+        val x = anchorBounds.left.coerceIn(0, maxX)
+        val right = androidx.compose.ui.unit.IntOffset(anchorBounds.right + gap, y)
+        val left = androidx.compose.ui.unit.IntOffset(anchorBounds.left - gap - popupContentSize.width, y)
+        val sides = if (layoutDirection == androidx.compose.ui.unit.LayoutDirection.Ltr) listOf(right, left) else listOf(left, right)
+        val candidates = sides + listOf(
+            androidx.compose.ui.unit.IntOffset(x, anchorBounds.bottom + gap),
+            androidx.compose.ui.unit.IntOffset(x, anchorBounds.top - gap - popupContentSize.height),
+        )
+        return candidates.firstOrNull { it.x in 0..maxX && it.y in 0..maxY }
+            ?: androidx.compose.ui.unit.IntOffset(x, y)
     }
 }

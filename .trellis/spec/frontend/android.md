@@ -16,6 +16,8 @@
 
 - Android Emby 播放模式为 `mpv` / `exo` / `auto`，由共用 `PlayerController` 解析实际内核，不能将 `auto` 直接传给核心。存量配置和默认 MPV 保持；显式路由优先，设置变化只影响下次播放。自动先 Media3，仅明确解码/格式不支持时回退 MPV 一次；网络、鉴权、DRM、资源被抢占、损坏内容和未知错误不自动换核。自动模式长按播放明确用 MPV。
 - 回退捕获实际版本、续播、暂停、倍率、音量及选轨/字幕关闭，先停输出并等待 `player.stopPlayback` 完成，再切内核；Compose 释放旧 Media3，手机前台服务重绑新内核。零秒续播用已有 `from_start=true`。状态监听只在当前起播成功后消费；跨内核轨道按标题/语言等身份匹配，不复用运行期 ID。非 Emby 来源保持现有 MPV 路径。`PlayerControllerTest`、`PlayerEngineLifecycleTest`、`PhoneEngineSettingsTest` 与 `TvFocusTest` 覆盖这些契约，真机仍需独立验收。
+- 跨内核轨道恢复仅接受有效标题/语言的唯一匹配；两个内核的同类序号不能证明身份，重复标签或标题/语言均未知时不提交恢复选轨命令，保留新内核当前选择。歧义不消费 pending，后续唯一匹配仍可恢复；forced/SDH/位图未进入身份模型，不能声称完整语义匹配。`PlayerControllerTest` 覆盖歧义拒选、后续唯一恢复、手选音轨及字幕关闭。
+- MPV恢复、详情初选和面板手选均经控制器的transportMutex等待命令回执，与seek/stop共用屏障；手选在排队前登记，详情初选晚到不得覆盖同类手选。不可撤回的选轨命令用NonCancellable等待，手机/TV点击UNDISPATCHED登记，面板关闭不丢已登记手选；离页/换片关闭提交门并推进代数，旧排队选择失效，停播和新起播等在途命令收尾。核心永久无回执仍持续等待，不用取消提前放锁。`PlayerControllerTest`、`PhonePlayerPanelTest`、`TvTrackTimingTest`覆盖交错、面板关闭和字幕/off键盘接线，不能替代真机。
 - 用户手动选轨立即清除该类待恢复身份，晚到的旧轨不得覆盖新选择。TV 换目标先停 Media3 输出；离页通过控制器立即登记收尾任务，后续手机/TV 起播等待整次收尾（含 TV 播放标题清理），不能让旧 stop 停掉新会话。
 - 手机回退与 TV 轨表恢复窗口从 `controller.ready` 起播成功后计时，effect 的 key 与放行条件使用同一不可变快照；等待旧 stop 或慢取流时不得查询旧轨表、消费轮询次数或应用详情选轨。`PhoneEnginePlaybackTest` / `TvTrackTimingTest` 挂起起播超过 11.2 秒后再释放，断言成功后仍按身份/ff_index 恢复一次。
 - 手机版本/选集面板通过页面目标回调起播，不能直接调用 `player.play` 绕过 Media3 加载与控制器。同页换目标显式等待一次 stop；离页收尾按页面存续登记，不能按 itemId 重复停止。`PhoneEnginePlaybackTest` 断言初次、换版本、切集各一次 play，后两次各一次 stop，且沿用实际内核。
@@ -24,6 +26,13 @@
 - 起播依赖异步读取的偏好时，`LaunchedEffect` 的 key 和放行条件使用同一不可变快照，例如 `val playbackPrefs = trackPrefs`；不能以旧 null key 启动协程、再读取已经更新的可变状态，否则重组前后都会起播。等待收尾后检查协程仍有效，再提交播放命令。
 - TV 刷新率归播放页窗口拥有：只用同当前物理分辨率的 supportedModes，按源帧率整倍频匹配（0.01 Hz 容差，区分 23.976/24 等）；保留已请求/当前匹配模式，不反复写相同偏好。切集/换版本/回退只重启采样，离页恢复入页 preferredDisplayModeId，不改其它窗口属性。无匹配或持续未知帧率恢复原偏好，系统忽略请求不影响播放。
 - TV Media3 在 STATE_READY 后读取当前格式/选中视频轨帧率；窗口管理期间关闭 Surface 帧率策略，离开后仅对未释放实例恢复。MPV 帧率来自 player.opts 的 container-fps 字符串；mpvGet 的实际返回为 {name,value} 对象。lpinterp 补帧滤镜启用或滤镜读取失败时保留原显示偏好，不能按源帧率降频或擅自关补帧。采样命令返回后检查取消和 ready，关闭的窗口拥有者拒绝迟到写入。回归见 TvRefreshRateTest / TvRefreshRatePlaybackTest，实际 HDMI 切屏与黑屏仍需真机验证。
+
+- Media3 诊断在 `rememberExoPlayer` 共用入口先于页面 load 注册，每个实例一个观察器；媒体 transition 重开阶段计时，首次 READY 与实际 `onRenderedFirstFrame` 分开记录 `phase` 和 `media_elapsed_ms`，起点不包含核心取流或点击前耗时。6 秒 READY 无视频首帧只记症状，不能自动换核，也不能用时钟推进当作呈现证据。
+- 手机起播阶段诊断使用 `elapsedRealtime`；详情点击起点通过导航 entry 的弱引用表一次消费，不进入路由序列化或磁盘；恢复/其它入口明确 `origin=page`，同页换目标为 `target`。点击时间在等待 stop 前局部捕获，完成后与新目标一起提交；一次实际内核尝试一个数字 attempt。
+- 手机 seek 阶段诊断在页面拥有的 `ObserveSeekTiming` 中可选挂接共用控制器；通知/媒体会话同样经控制器登记 request/submitted，页面与服务复用原有状态采样传入 paused/source，不增加核心查询。按 seek revision 隔离新旧请求，失败、取消、覆盖、begin/stop、后台和离页中断；15 秒诊断超时独立于 UI pending，不取消不可撤回命令或提前放开锁。
+- `seek_target_observed` 仅表示提交后非缓冲、位置进入目标 ±1 秒；后续非暂停/非缓冲样本实际时钟累计推进至少 250ms 才记录 `seek_clock_advanced frame_verified=false`，不是目标画面呈现。暂停到目标只记位置；缓冲清推进基线。数值包含页面250ms/服务500ms采样等待与推进阈值，EOF附近未满足阈值可超时，不认定播放故障。日志仅阶段、数字attempt、内核、耗时、白名单采样来源/暂停状态，不含媒体/用户/地址；IO写现有本地Logs。TV未登记该可选诊断，默认observePosition参数保留原行为。回归见SeekTimingTest、PhoneEnginePlaybackTest和PlaybackServiceTest。
+- `startup_request` / `request_complete` 记录核心请求前后；Media3 再记录 `load` 和真实 `first_frame`，提供 `request_ms` / `address_to_load_ms` / `load_to_frame_ms` 与 `total_ms`。MPV 请求包含解析与加载，不能当作纯取流耗时；`first_frame_supported=false`，不以 file-loaded/time-pos/Surface 绑定冒充首帧。偏好晚到创建播放器仅更换 listener，不关闭当前测量；加载前旧媒体错误不结束新测量。失败、后台、离页及页面主动 seek/暂停关闭测量，重复/迟到首帧不再上报。日志仅白名单枚举和数值，经页面协程 IO 写入；诊断不增加播放或网络请求。`StartupTimingTest` / `PhoneEnginePlaybackTest` 验证阶段接线、导航消费、换目标和回退，真机首帧耗时仍需实测。
+- 缓冲诊断只在 RESUMED、想播放、无抑制、非近 EOF 时累计：前缓冲按倍率折算；数据不足与已有数据不动分别计时，连续 12 秒无 >=250ms 进展记录一次。暂停、生命周期事件、seek、倍率/类别变化和实际进展重置窗口；停止/错误结束本媒体诊断。日志只含阶段与数值，IO 线程写现有 Logs，离页撤播放器/生命周期监听并取消采样，不新增上报或控制动作。`PlaybackHealthMonitorTest` 与 `Media3DiagnosticsTest` 验证判定、真实 listener 接入及离页撤销；实际首帧渲染与低内存设备需真机验证。
 
 - API 分层主题属性同时检查 values-vXX 和 values-night-vXX；night 资源优先级可能遮蔽版本资源。
 - JNI 入口在 release R8 下必须保留。libmpv.so 不入仓，拉取后校验 ELF / ABI；不能把指针文本当运行库。
@@ -56,3 +65,50 @@
 - 手机详情未续播按钮使用紧凑宽度并居中排列图标文字，单集简介位于播放操作之后、选集之前。季号从 `SeasonInfo.index_no` 读取，显示「第X季：自定义名称」，默认季名不重复；分集卡时长/剩余时间只在封面左下展示，封面下不再显示未看/还剩状态行。演员接入详情已有 `people[].role`，缺失/空白角色不画。`PhoneDetailOptionsTest` 覆盖真实季响应字段、默认/自定义季名、简介顺序和角色显示。
 - 手机播放器移除选集快捷按钮，横屏右下仅弹幕、音轨、字幕；音轨用音符，扬声器仍用于音量反馈。轨道语言复用 `langCn`，中文名称作为标题回落或副标题，不重复堆叠代码徽标；保留字幕关闭与真实切轨命令。`PhonePlayerPanelTest` 覆盖语言名称、未知音轨隐藏及选中请求。
 - 手机播放选集复用 `AppState.seasonEpisodes(parentId, loaded, onPage)` 逐页展示，失败保留列表并按已加载条数续取；当前集到达后只定位一次，补页不强制复位手动滚动。轨道读取失败显示错误和重试，与成功空结果区分；请求和临时状态按面板、条目及实际 Media3 实例隔离，取消不能转成空结果。`PhonePlayerPanelTest` 覆盖第80集定位、短页续取、末集可选、失败页续取及旧轨道失败晚到；选集仍交页面回调起播。
+
+- Android seek 的待跳转目标只属于 `PlayerController`，相对输入必须走 `seekBy(delta, actual, duration)`，不能以重组前捕获的 position 计算绝对目标。页面以 UNDISTPATCHED 提交目标；原生命令串行，排队仅最新请求能提交。提交返回不是 seek 完成；非缓冲实际位置在1秒容差内才释放，15秒超时/失败/取消清目标，250ms页面检查兜底。上报、弹幕、续播/回退快照始终取真实位置。MPV核心没有 seek 完成闩或 seeking 字段，不得据此虚构完成事件。
+- 停止立即失效待跳转及排队请求，并等已发seek提交收尾；通知seek在提交锁内复查服务绑定代数，通知stop登记现有跨页面收尾屏障，旧停止完成不能关闭新绑定。Slider拖动值独立于轮询，按媒体与时长隔离，原生取消清值；横拖起点固定，TV预览从待跳转目标起步但不写真实 ui.position。回归覆盖 PlayerControllerTest、PhonePlayerOsdTest、PhoneEnginePlaybackTest、PlaybackServiceTest、TvRefreshRatePlaybackTest；精确落点和后台/锁屏派发仍需真机。
+
+- 跨内核字幕身份除title/language外保留可空forced/bitmap；Media3仅FORCED位存在时确认true，缺位unknown。PGS/VOBSUB/DVBSUBS MIME是位图，SSA/SubRip/VTT是文本，其它unknown；MPV只对已核实codec hdmv_pgs_subtitle/dvd_subtitle/dvb_subtitle及ass/subrip/webvtt分类。不能使用MPV image（单张图片视频）或Media3 isText（包含位图）推断字幕类型，不能按标题或caption角色猜SDH。源属性已知时目标须已知且相等，未知不是false；仍需有效title/language和唯一候选，歧义保留手选。缺语义旧身份沿原唯一标签规则；回归见PlayerControllerTest。
+
+- 跨集轨道记忆仅在本次Android播放页内有效，不写磁盘；scope为当前服务器/用户/真实Episode所属series_id，详情id必须等于当前item。换账号、换剧、电影/本地/未知上下文不沿用，离页释放。每页只保留当前剧一组成功手选；默认、详情自动初选、fallback恢复不反写。Media3采样点击Format，MPV用当前面板/轮询轨表采样点击ID，不用selected的晚到回调作为手选身份。
+- 新集先恢复全局字幕开关，再应用同剧记忆；手选更新页面subOff，关闭是独立意图。恢复仍按严格title/language及known forced/bitmap唯一匹配，标题变化/缺轨/歧义维持默认；用户当前手选、TV详情显式预选、同片fallback优先。恢复通过已有transport屏障且每类只提交一次，手选/离页/换代拒绝旧排队任务。TV起播清旧ui.tracks，普通记忆只在新轨表稳定后恢复；无表仅可恢复off。详情请求前同步clearSeriesContext，取消请求不能撤销解绑；换页面memory也失效旧在途手选的记忆回写。SessionTrackMemoryTest及手机/TV真实面板换集回归覆盖本契约；TV真实设备暂缓。
+
+- 手机横竖屏滑杆按已播放、浅色已缓冲、暗色未缓冲绘制，保留原生Slider拖动、取消与语义。Media3沿现有250ms采样读bufferedPosition；MPV仅控件实际可见且RESUMED时每秒查询player.status.buffered（demuxer-cache-time绝对前沿，不能再加播放位置）。隐藏/后台取消查询，重开清旧值，切媒体/版本与迟到响应按controller隔离。缺值、非正或非有限值不画缓冲段，超时长钳位；未知时长禁用滑杆。这是单个缓冲前沿，不是离散磁盘缓存范围或全片下载进度。PhoneEnginePlaybackTest和PhonePlayerOsdTest覆盖接线、生命周期、迟到响应、三段像素及拖动；真机/RTL手势/TalkBack另验。
+
+## Android播放缓冲目标
+
+- 核心prefs.buffer_target_bytes=0自动，自定义64～512MiB；与落盘prefetch_cache_bytes独立。容量只针对压缩媒体缓冲，解码/纹理/字幕等另占内存，不能承诺总内存硬上限。
+- 手机/TV播放器设置沿既有控件，失败回滚，同字段保存串行；旧配置缺字段默认自动，命令拒绝非法类型、范围和小数字节。
+- Media3 1.11.0构造时配置DefaultLoadControl目标容量与size优先，默认启动时间不改。生产页复用prefs.getPrefs，等偏好就绪才创建内核/起播；当前实例不为设置变化中断。自动保持原默认策略。
+- Android MPV通过loadfile本片demuxer-max-bytes，自动不发送该覆盖选项，由内核结束恢复原mpv.conf有效值；本地播放同样走共用commandLoad。容量与续播start共用options槽位，旧/新语法兼容，桌面不应用该字段。
+- 参数接受/设置回显不等于真实内存和网络收益；LoadControl实际加载判据、页面等待/接线、手机/TV设置回归与Linux MPV恢复探针是自动验证，Android真实媒体/低内存/TV真机另验。
+
+## 手机缓存与Expressive外观
+
+- UiPrefs.ui_font仅空/sans/serif，内置常规静态字体，旧文件路径回系统默认，不影响字幕；资源许可与SHA见docs/go-migration/BUNDLED-FONTS.md。手机壁纸入口与根绘制移除，TV/插件契约保留。详情背景通过有界Coil转换处理，不修改共享原图。
+- Material3 1.4.0只使用公开API，形状token8/12/18/28dp和适度回弹保持影院配色；本批导航/图片/OSD/按压动画用lpTween/lpSpring，系统倍率变化由主题观察，0必须立即到位。
+- PassiveProgress是底部3dp只读Canvas：实际position、有限正duration、RTL、safeDrawing底部，OSD/面板/PiP/退场/转屏等待隐藏，锁屏可见；不可接入seek或MPV buffered轮询。
+- 手机存储页通过get/setPrefetchSettings.media_cache_bytes读取/保存全局媒体容量，省略其它字段不清空旧设置，保存失败回滚，加载失败显示重试。清理显示核心实际bytes结果。arm64手机字体资源预算20MiB、release上限80MiB，其它ABI仍60MiB。
+
+- 手机按压弹簧不得只用pressed布尔状态证明短Tap可见：滚动容器可能在同帧发出Press/Release。共用pressFeedback消费交互事件，短Tap补可见缩放，Cancel仅复位，onClick不等待动画；海报长按和底栏selectable复用同源反馈且保留长按/Role.Tab/selected。验收至少包括滚动容器快速Tap的真实渲染、点击即时分派和连续点击，不能只测按住再松手。归一化缩放弹簧使用0.001可见阈值，避免小幅回弹过早结束；系统动画倍率0立即到终态。
+
+- 海报共享元素以来源NavBackStackEntry与卡片独立token匹配目标详情；重复itemId不能作为唯一共享key。关联只驻内存，pop动画可见entry保留，出栈或切账号清理，不将图片授权URL写进路由或存储。非首页整卡入场rememberSaveable记忆，标题/角标与图片共用缩放/位移；`NetImage(onLoadResult)`通知成功/失败，MediaCard按item/URL隔离结果，占位始终可见，成功且15%可见才以0.94→1/20dp启动lpSpring（阈值0.001）；失败/无URL及零倍率正常几何。首批150ms内最多9张0/25/50ms短错峰；根NestedScrollConnection观察两轴consumed含fling，不消费滚动，快滚取消/跳过形变，静止150ms恢复。NetImage按URL隔离painter，普通图片含内存命中均按T8线性淡入，成功淡入期间以静态底色/来源预览托底，错误静态占位；同URL普通重组不重播。仅零倍率和实际共享来源卡片以reveal=false直接显示，避免返回共享海报重新透明。验收需有共享海报中间几何、交叉淡入混色、Lazy销毁后回滚像素及零倍率，而非只断言最终可见。须覆盖真实MediaCard冷图等待超过原动画周期后才开始、spring过冲、换URL隔离、占位错误/无图、部分裁剪可见面积和真实Lazy fling；不能仅用就绪色块代替异步图片整卡联动。
+
+- `sharedPoster`只有实际links指向的源卡片和详情登记共享节点，空闲列表返回原Modifier；测试同时断言空闲零共享modifier与点击/返回中间几何，不能用常驻所有节点换取匹配。普通搜索使用三卡片懒行，含稳定行序号的key隔离重复ID；60结果首屏仅组合附近行，并验证末尾可滚动/点击、无额外搜索请求。
+
+- 原生首页 `LpRow(homeAccount)` 对每张真实卡片应用 `homePosterEntrance(itemId,index,account,row)`，标准插件items也接同一modifier；媒体库入口和custom接管不套。按账号与卡片身份rememberSaveable保存seen，以裁剪后可见面积达到15%触发，snapshotFlow只观察阈值布尔。卡片从0.90缩放、向下22dp、0.86透明度，以lpSpring(.001f)上浮展开；缩放原点底边中点，相邻0/25/50ms短错峰；动画帧仅在graphicsLayer消费，不横移轨道、不等停滑或图片解码，已触发不因快滑/可见性变化停住。Lazy/导航返回不重播，换账号重置，零倍率立即正常；骨架轨道稳定，真实卡片到达后才入场。其它页面保留原posterEntrance规则。回归必须包括真实LpRow中相邻卡不同相位/向上扩大/水平中心不偏移、标题稳定、帧间不重组栏目、横纵向进入、冷图不阻塞/不重启、Lazy/导航返回与账号隔离、真实fling持续fast时完成、零倍率与点击/长按。参照风格判断须有连续帧或源码支持，不能把测试和出包当作真机流畅证据。
+- 详情头部可以从导航内存PosterLink取来源Item做纯展示预览，但仅在真实detail为空时取标题/剧名/集号；不可把预览写入Block.Ok、交给插件或用预览seriesId生成可点击链接。无图来源也能预览标题，但不注册共享图节点；账号切换清空预览，重复itemId按目标entry及来源token隔离。NetImage背景模式400ms线性渐显，包括内存命中；普通列表热图按T8逐张渐显，不等待整批图片。来源预览直接复用原图，不为预览重复模糊；完成图仍按背景模式模糊，无预览的背景用静态底色。渐显连续数值只在绘制层读取，占位是否保留用derivedStateOf。验收挂起真实详情请求、无图来源、分集不可点击剧名、服务端字段覆盖预览、账号/重复ID隔离、冷热背景中间混色和零倍率。
+
+- 详情仅白名单展示资料进入DetailCache，不存用户进度/收藏/已看/播放版本/凭据；嵌套people/studios也逐字段筛选。Application拥有唯一实例，AppState接入，磁盘IO在IO dispatcher且串行；清理时推进generation，旧请求不能写回。按server/userId/itemId散列隔离、最多64条/每条128KiB，读写刷新LRU；坏文件回源。页面按entry和账号重建、网络回写前检查取消；内存初始化、磁盘与网络并行，后到旧磁盘不能覆盖实时详情。网络失败保留缓存可重试；实际错误码E_AUTH/E_NOTFOUND删除，不能猜成E_NOT_FOUND。收藏/已看只在live就绪后可操作，插件不读取缓存资料。
+- 首页持续横滑形变从各LazyRow.layoutInfo读取卡片裁切比例，只在graphicsLayer消费，不用每帧Compose状态驱动整排。首次seen只约束一次入场，不阻止已加载卡片随位置形变；零倍率同时关闭两者。回归先断言真实图片已显示，再检查同位置往返、完整离屏返回和零倍率，避免把图片加载或裁切宽度误认成缩放。
+
+- 主NavHost的进入/退出/返回退出透明度分别使用lpTween(T8/T5/T6, LinearEasing)，返回进入使用T5，保持已有位移、Tab轻缩放和共享海报。验收使用真实PhoneRoot手动时钟比较转场中间帧，不以测试专用NavHost替代生产接线。
+- 手机详情itemMedia用Block<List<Version>>区分等待、失败和完成：等待仅提示“正在读取播放选项…”，不能用空列表伪造“默认版本”或空轨道；成功空列表不生成版本选项。选项以状态类型为key整体淡入并用SizeTransform平滑高度，媒体信息以版本id过渡，容器保持完整宽度。失败可单独重试媒体请求，离页取消后不回写，不串行等待元数据/偏好/图片。PhoneDetailCacheTest须覆盖挂起请求、空响应、失败独立重试与真实中间高度。
+
+- 普通NetImage解码请求不等可见性，淡入则按裁剪后的boundsInWindow面积至少15%触发；完全离屏才复位，0–15%之间保留已触发状态，避免边缘往返闪图。可见标记以布局位置保留、不以URL重建，URL更换只隔离painter/fade；背景不门控，实际共享来源即使reveal=false仍观察几何，结束共享后不从未初始化的可见标记重播。零倍率忽略门控直接显示。回归须先在屏外完成解码，再滚入采样混色，并让同一已解码图完全离屏后重新进入；滚动后先完成实际draw再推进手动动画时钟，不能只推进Compose时钟却没有绘制隐藏帧。
+- 手机媒体库首批30条，后续120条，以累计实际条目数量作offset；不把短首批当完整库。冷加载仅显示简洁进度提示，不铺整屏虚构海报/片名骨架；资料到达立即显示真实标题/年份/角标，单图静态底色渐显。已有同筛选keepState缓存按原条件复用，换筛选清旧数据，网络回写前检查取消。不为美化混入旧筛选条目或新增列表磁盘缓存。
+
+- 搜索临时数据由NavBackStackEntry拥有的SearchPageState保留，按会话/来源隔离，出栈释放；成功/失败完成标记避免详情返回重搜，rememberLazyListState在条件分支外保存位置。取消回写前ensureActive，聚合partial归请求子作用域，换词重置完成代数。搜索海报复用菜单，跨服已看/收藏必须server_id，跨服下载不提供，插件使用source.setFavorite。所有手机/TV新增条目屏蔽菜单移除，库屏蔽与历史解除保留。海报Popup140dp，按左右/上下空间避让当前海报，lpSpring(.001f)居中回弹；极窄窗口无完整空位只能钳位，不能保证绝不遮挡。
+
+- 详情的季/分集数据晚到不能把简介与演员先画到选集位置再推开：剧集/分集首帧保留选集标题/统计与episodeStripHeight，静态封面占位和真实轨道同高，播放目标单行常驻，剧集操作区预留续播换行高度。详情分集整卡不再错峰透明，上浮只会延迟正文，图片由NetImage独立渐显。seasonRetry仅请求真实详情所属季，离页/换目标取消；partial失败保留已加载列表与局部重试，无季/空集明确提示。普通与1.3字号须分阶段释放季/集请求检查位置和高度。插件/超长元数据及错误提示可变高度不属于绝对固定承诺。

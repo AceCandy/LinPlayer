@@ -1,0 +1,7 @@
+# 独立复核
+
+default只读审查未发现阻断。核查可选诊断不修改transportMutex、NonCancellable回执屏障、seekRevision合并规则或UI target回收；paused状态提前赋值保留wasPaused快照与原服务暂停/上报分支。
+
+审查盲区为服务轮询实际触发target_observed/clock_advanced，仅有媒体会话提交接线和纯判定跨来源测试。已补真实登记媒体会话回调发seek，再推进测试调度器让原服务poll读取两次目标附近且正在播放状态，断言两个阶段source=service，结果另见verification。
+
+后台测量主动终止属本批边界，不测后台恢复。位置容差、时钟推进和采样延迟均不证明真实视频帧呈现；手机真机、EOF附近与倍率/弱网性能尚需设备采样。

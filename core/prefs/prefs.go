@@ -13,10 +13,12 @@ package prefs
 
 import (
 	"context"
+	"math"
 	"strings"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/net/prefetch"
 	"linplayer/core/system"
 )
 
@@ -28,9 +30,10 @@ type SearchHistory struct {
 // PrefetchSettings 多线程加载(预取代理)的设置。
 type PrefetchSettings struct {
 	// Servers 按账号主键开:能不能加速取决于对端,不给全开的入口。
-	Servers    []string `json:"servers"`
-	Threads    int      `json:"threads"`
-	CacheBytes int64    `json:"cache_bytes"`
+	Servers         []string `json:"servers"`
+	Threads         int      `json:"threads"`
+	CacheBytes      int64    `json:"cache_bytes"`
+	MediaCacheBytes int64    `json:"media_cache_bytes"`
 }
 
 // RegisterCommands 由 lp_init 调用。version 是发行版本号(更新设置要用)。
@@ -138,7 +141,8 @@ func RegisterCommands(version string) {
 		p := config.Current().PrefsOf() // PrefsOf 已经钳过
 		return PrefetchSettings{
 			Servers: p.PrefetchServers, Threads: p.PrefetchThreads,
-			CacheBytes: p.PrefetchCacheBytes,
+			CacheBytes:      p.PrefetchCacheBytes,
+			MediaCacheBytes: p.MediaCacheBytes,
 		}, nil
 	})
 	bus.Register("prefs.setPrefetchSettings", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
@@ -158,6 +162,14 @@ func RegisterCommands(version string) {
 			return nil, bus.NewErr(bus.EInvalid,
 				"缓存上限只支持 64MB~4GB(落盘环形缓存,决定磁盘占用),实得 %d 字节", cache)
 		}
+		media := p.MediaCacheBytes
+		if raw, exists := s["media_cache_bytes"]; exists {
+			v, ok := raw.(float64)
+			if !ok || math.IsNaN(v) || math.IsInf(v, 0) || math.Trunc(v) != v || (v != 0 && (v < float64(config.PrefetchCacheMin) || v > float64(config.PrefetchCacheMax))) {
+				return nil, bus.NewErr(bus.EInvalid, "媒体缓存容量只支持关闭或64MiB~4GiB整数")
+			}
+			media = int64(v)
+		}
 
 		// ★ 只留**真实存在**的账号:服务器删了它的 id 还赖在表里的话,
 		//   下次加同地址的服会「自己就开着」。
@@ -166,7 +178,11 @@ func RegisterCommands(version string) {
 			known[acc.Server] = true
 		}
 		kept := []string{}
-		for _, srv := range strList(s, "servers") {
+		servers := p.PrefetchServers
+		if _, exists := s["servers"]; exists {
+			servers = strList(s, "servers")
+		}
+		for _, srv := range servers {
 			if known[srv] {
 				kept = append(kept, srv)
 			}
@@ -174,7 +190,18 @@ func RegisterCommands(version string) {
 		p.PrefetchServers = kept
 		p.PrefetchThreads = threads
 		p.PrefetchCacheBytes = cache
-		return p, save(c, p)
+		p.MediaCacheBytes = media
+		before := c.PrefsOf()
+		if err := prefetch.ConfigureMediaCache(media); err != nil {
+			_ = prefetch.ConfigureMediaCache(before.MediaCacheBytes)
+			return nil, bus.NewErr(bus.EInternal, "调整媒体缓存失败: %v", err)
+		}
+		if err := save(c, p); err != nil {
+			_ = c.SetPrefs(before)
+			_ = prefetch.ConfigureMediaCache(before.MediaCacheBytes)
+			return nil, err
+		}
+		return p, nil
 	})
 
 	// ---- 首页栏目(按服务器)----

@@ -38,7 +38,7 @@ Windows / Linux 脚本支持显式输出目录，但默认交付遵守本表。A
 
 ## 出包验收
 
-- Android release 使用实际 signingConfig；校验 APK 签名、ABI / ELF、播放库是否真实包含，R8 不得裁掉 JNI 入口。`pack-android.sh` 检查 v1 证书、v2/v3 签名块和整数 MiB 体积上限 60。
+- Android release 使用实际 signingConfig；校验 APK 签名、ABI / ELF、播放库是否真实包含，R8 不得裁掉 JNI 入口。`pack-android.sh` 检查 v1 证书、v2/v3 签名块和体积上限：arm64手机80MiB（内置字体原始资源≤20MiB），其它ABI60MiB。
 - Windows 绿色包自包含，核心库 / 播放库在 exe 同目录；验证壳 `version` 与本次版本相符。
 - Linux 只能在 Linux 出包；核心库不直接链接 libmpv 的 DT_NEEDED，系统运行时提供 libmpv。脚本检查图标、版本及能力命令冒烟。
 - 桌面打包前删除暂存 `userdata/` 和开发头文件；测试账号、用户日志或运行数据不得进入包。

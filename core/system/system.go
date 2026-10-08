@@ -10,6 +10,7 @@ import (
 
 	"linplayer/core/bus"
 	"linplayer/core/imgcache"
+	"linplayer/core/net/prefetch"
 	"linplayer/core/paths"
 )
 
@@ -81,7 +82,7 @@ func RegisterCommands() {
 
 	bus.Register("system.clearCache", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 		before, _ := paths.CacheSize()
-		if err := paths.ClearCache(); err != nil {
+		if err := prefetch.ClearCache(paths.ClearCache); err != nil {
 			return nil, bus.NewErr(bus.EInternal, "清理缓存失败: %v", err)
 		}
 		// ★★ **内存层必须一起清**:只删磁盘的话内存里那份还在继续供图,

@@ -7,6 +7,7 @@ import (
 	"bufio"
 	"context"
 	"fmt"
+	"linplayer/core/bus"
 	"net"
 	"strconv"
 	"strings"
@@ -43,6 +44,8 @@ type stream struct {
 	// ★ 必须有它才能把「在飞」和「被环形缓存挤掉」分开:两者的 has() 都是 false,
 	// 但前者只需等,后者必须重拉。分不开就会把在飞的段又拉一遍(重复下载 = 烧用户流量)。
 	inFlight map[int64]bool
+	// 容量不足或清缓存时，只保留本连接尚未消费的完成块，不阻止在线供给。
+	ready map[int64]*live
 
 	dataNotify   notifier // worker -> serve:某段就绪/失败
 	windowNotify notifier // serve -> worker:窗口推进
@@ -72,7 +75,11 @@ func (s *stream) worker(ctx context.Context) {
 		s.mu.Lock()
 		var c int64 = -1
 		if s.fetchCursor <= s.lastChunk && s.fetchCursor <= s.serveChunk+s.o.readAheadChunks-1 {
-			c = s.fetchCursor
+			if !s.inFlight[s.fetchCursor] && s.ready[s.fetchCursor] == nil {
+				c = s.fetchCursor
+				// 认领与游标推进必须原子完成，否则供给端会把在飞块误判为被淘汰并重拉。
+				s.inFlight[c] = true
+			}
 			s.fetchCursor++
 		}
 		s.mu.Unlock()
@@ -89,11 +96,11 @@ func (s *stream) worker(ctx context.Context) {
 		}
 		// 已在盘上就别再下一遍(seek 回看 / 两条连接区间重叠时命中)
 		if s.o.disk.has(c) {
+			s.mu.Lock()
+			delete(s.inFlight, c)
+			s.mu.Unlock()
 			continue
 		}
-		s.mu.Lock()
-		s.inFlight[c] = true
-		s.mu.Unlock()
 
 		/* 首段若不对齐,只拉播放器真正要的那截(残段),挂在本连接上不进共享登记处。
 
@@ -146,7 +153,7 @@ func (s *stream) worker(ctx context.Context) {
 		pin := s.o.disk.pinned(c)
 		base := ctx
 		if pin {
-			base = context.Background()
+			base = s.o.ctx
 		}
 		fetchCtx, cancel := context.WithCancel(base)
 		go func() {
@@ -157,7 +164,7 @@ func (s *stream) worker(ctx context.Context) {
 			select {
 			case <-connGone: // pin 时恒为 nil channel,永远不会被选中
 				cancel()
-			case <-s.o.stop.wait():
+			case <-s.o.ctx.Done():
 				cancel()
 			case <-fetchCtx.Done():
 			}
@@ -173,6 +180,12 @@ func (s *stream) worker(ctx context.Context) {
 			ok = true
 		case data != nil:
 			ok = s.o.disk.put(c, data)
+			if !ok && !s.o.over() {
+				s.mu.Lock()
+				s.ready[c] = l
+				s.mu.Unlock()
+				ok = true
+			}
 		}
 		s.o.liveEnd(c, l, registered) // ★ 必须在落盘之后,别留查不到的空档
 
@@ -195,6 +208,7 @@ func (s *stream) advanceServe(next int64) {
 	}
 	for c := s.serveChunk; c < next; c++ {
 		delete(s.failed, c) // 分段数据留在盘上,seek 回看可直接命中
+		delete(s.ready, c)
 	}
 	s.serveChunk = next
 	s.mu.Unlock()
@@ -214,6 +228,7 @@ func (s *stream) advanceServe(next int64) {
 // ★★ 「有多少给多少」,不是「等整段就绪」。整段就绪是**预取**该有的粒度,
 // 不是**供给**该有的粒度 —— 见 live 头部那笔 56~143KB/s 的账。
 func (s *stream) nextBytes(c int64, within int) []byte {
+	started := time.Now()
 	for {
 		if s.over() {
 			return nil
@@ -222,6 +237,9 @@ func (s *stream) nextBytes(c int64, within int) []byte {
 			// get 返回 nil = 刚好被别的连接挤出槽位(**不是**取数失败),
 			// 落到下面的自愈分支重拉 —— 当失败断流就是给播放器一个 early eof
 			if b := s.o.disk.get(c, s.o.chunkLen(c)); b != nil && within < len(b) {
+				s.o.firstSupply.Do(func() {
+					bus.Logf("info", "phase=cache_first_supply elapsed_ms=%d disk_hit=true persistent=%t", time.Since(started).Milliseconds(), s.o.disk.persistent)
+				})
 				out := make([]byte, len(b)-within)
 				copy(out, b[within:])
 				return out
@@ -232,7 +250,10 @@ func (s *stream) nextBytes(c int64, within int) []byte {
 		   起播只需要头几百 KB,等满 4MB 是纯粹的白等。
 		   先看本连接首段的残段载体,再看共享登记处。 */
 		var l *live
-		if c == s.firstChunk {
+		s.mu.Lock()
+		l = s.ready[c]
+		s.mu.Unlock()
+		if l == nil && c == s.firstChunk {
 			s.headMu.Lock()
 			l = s.headLive
 			s.headMu.Unlock()
@@ -242,6 +263,9 @@ func (s *stream) nextBytes(c int64, within int) []byte {
 		}
 		if l != nil {
 			if part := l.sliceFrom(within); part != nil {
+				s.o.firstSupply.Do(func() {
+					bus.Logf("info", "phase=cache_first_supply elapsed_ms=%d disk_hit=false persistent=%t", time.Since(started).Milliseconds(), s.o.disk.persistent)
+				})
 				return part
 			}
 			if !l.isDone() {
@@ -397,12 +421,14 @@ func (o *origin) handle(conn *net.TCPConn) error {
 		serveChunk:  first,
 		fetchCursor: first,
 		inFlight:    map[int64]bool{},
+		ready:       map[int64]*live{},
 		done:        make(chan struct{}),
 	}
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
 	for i := 0; i < o.threads; i++ {
-		go s.worker(ctx)
+		o.workers.Add(1)
+		go func() { defer o.workers.Done(); s.worker(ctx) }()
 	}
 	err = s.serve(conn, start, end)
 	s.finish() // 供给结束 -> 本连接 worker 退出、取消在飞的 fetch

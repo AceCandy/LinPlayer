@@ -42,6 +42,8 @@ type PlaybackTarget struct {
 	ExternalSubs  []ExternalSub `json:"external_subs"`
 	// RunTimeTicks 来自实际选中版本，避免用另一剪辑版的时长同步进度。
 	RunTimeTicks int64 `json:"-"`
+	// Bitrate 是选中媒体源的码率，仅估算预取时间，不证明媒体内容身份。
+	Bitrate int64 `json:"-"`
 }
 
 // deviceProfile 是发给 PlaybackInfo 的宽松档案:声明啥都能直连,促使服务器返回 DirectStreamUrl。
@@ -144,6 +146,9 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 	}
 	if ms.RunTimeTicks != nil {
 		target.RunTimeTicks = *ms.RunTimeTicks
+	}
+	if ms.Bitrate != nil {
+		target.Bitrate = *ms.Bitrate
 	}
 
 	/* ★★ **永远不走转码流**。用户 2026-09-03 定的口径:

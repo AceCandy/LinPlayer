@@ -8,6 +8,8 @@ import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.interaction.DragInteraction
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.horizontalScroll
@@ -25,6 +27,11 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.only
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -36,6 +43,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,6 +61,11 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalLayoutDirection
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.stateDescription
+import androidx.compose.ui.semantics.progressBarRangeInfo
+import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.offset
 import androidx.compose.ui.text.font.FontWeight
@@ -60,8 +73,12 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
@@ -80,7 +97,6 @@ import xyz.linplayer.app.data.str
 import xyz.linplayer.app.plugin.PluginPlayer
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.Dim3
-import xyz.linplayer.app.ui.components.GlassIcon
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.pages.args
@@ -206,10 +222,27 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
     var resumeOverride by remember { mutableStateOf<Double?>(null) }
     val app = LocalApp.current
+    val session by app.session.collectAsState()
+    val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
     val scope = rememberCoroutineScope()
+    var startupOrigin by remember(entry) {
+        val clickedAt = PlaybackClickTimes.take(entry)
+        mutableStateOf((clickedAt ?: android.os.SystemClock.elapsedRealtime()) to
+            if (clickedAt != null) StartupOrigin.CLICK else StartupOrigin.PAGE)
+    }
     val ctx = LocalContext.current
+    val lifecycleOwner = LocalLifecycleOwner.current
     val activity = ctx as? Activity
     val portrait = LocalConfiguration.current.orientation == Configuration.ORIENTATION_PORTRAIT
+    var inPip by remember(activity) { mutableStateOf(android.os.Build.VERSION.SDK_INT >= 26 && activity?.isInPictureInPictureMode == true) }
+    DisposableEffect(activity) {
+        val host = activity as? androidx.activity.ComponentActivity
+        val listener = androidx.core.util.Consumer<androidx.core.app.PictureInPictureModeChangedInfo> {
+            inPip = it.isInPictureInPictureMode
+        }
+        host?.addOnPictureInPictureModeChangedListener(listener)
+        onDispose { host?.removeOnPictureInPictureModeChangedListener(listener) }
+    }
 
     /* 壁纸的三个暂停条件之一(D443)。取**页面在不在**而不是插件的
        `player.start` / `player.end`:那两条事件只在核心层的插件运行时里发,
@@ -221,6 +254,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
 
     var position by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
+    var buffered by remember { mutableStateOf(0.0) }
     var paused by remember { mutableStateOf(false) }
     var buffering by remember { mutableStateOf(true) }
     /** ☠ 「时间真的往前走了」才撤黑幕,不是 `position > 0`。 */
@@ -286,6 +320,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
     val engine = controller.engine
+    val startupTiming = remember(controller, engine) {
+        StartupTiming(startupOrigin.first, startupOrigin.second, engine == "exo") { message ->
+            scope.launch(kotlinx.coroutines.Dispatchers.IO) { xyz.linplayer.app.core.Logs.d("lp-playback", message) }
+        }
+    }
     val latestController by rememberUpdatedState(controller)
     /* 字幕样式要在**画第一句字幕之前**就位。晚一步的表现是「进来先按默认样式画几句,
        打开一次面板才变过来」—— 而用户明明上一集就调好了。
@@ -295,15 +334,20 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        「参数变了才重选」,建完再补一次也行,但首帧那几秒会没有字幕。
        `null` = 还没读到,`""` = 没有语言偏好(那是**默认状态**,不是「关了字幕」)。 */
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
+    var bufferTargetBytes by remember { mutableStateOf(0L) }
     /* ☠ **「关字幕」的开关是 `sub_enabled`,不是「语言偏好为空」。**
        核心层的 `sub_lang` 是 `*string`、默认 null,含义是「没偏好,随便挑一条」;
        上一版拿它是不是空串当关闭判据,于是**从没设过语言的人**(绝大多数)
        整条字幕链被关死:libass 不开、兜底选轨不选、外挂 ASS 不取。
        真机日志里就是那句 `libass 不走这条路: available=true subOff=true`。 */
     var subOff by remember { mutableStateOf(false) }
+    LaunchedEffect(controller, controller.manualSubtitleOff) {
+        controller.manualSubtitleOff?.let { subOff = it }
+    }
     LaunchedEffect(Unit) {
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
         speed = (p.dbl("default_speed") ?: 1.0).coerceIn(SP_MIN, SP_MAX)
+        bufferTargetBytes = p.long("buffer_target_bytes") ?: 0L
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
@@ -311,16 +355,23 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         )
         subOff = p.boolOrNull("sub_enabled") == false
     }
-    val exo = rememberExoPlayer(engine == "exo", trackPrefs)
+    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes)
     SideEffect { controller.bind(exo) }
+    ObserveSeekTimeout(controller)
+    ObserveSeekTiming(controller)
+    ObserveStartupTiming(exo, startupTiming)
 
     suspend fun switchTarget(id: String, versionId: String?, title: String) {
         if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
+        val switchedAt = android.os.SystemClock.elapsedRealtime()
+        buffered = 0.0
+        startupTiming.close()
         val resumeAt = if (id == route.itemId) position else null
         PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
         PlaybackService.stop(ctx)
         controller.stop(position)
         resumeOverride = resumeAt
+        startupOrigin = switchedAt to StartupOrigin.TARGET
         route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
             versionId = versionId, fromStart = false)
     }
@@ -332,8 +383,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var srcAr by remember(route.itemId) { mutableFloatStateOf(route.ar) }
     var playTitle by remember(route.itemId) { mutableStateOf(route.title) }
     var episodeLabel by remember(route.itemId) { mutableStateOf("") }
-    LaunchedEffect(route.itemId) {
-        val detail = runCatching { app.call("emby.itemDetail", args("item_id" to route.itemId)) }.getOrNull().obj()
+    LaunchedEffect(controller, trackMemory) {
+        controller.clearSeriesContext(trackMemory)
+        val detail = if (route.src == null) runCatching { app.call("emby.itemDetail", args("item_id" to route.itemId)) }.getOrNull().obj() else null
+        coroutineContext.ensureActive()
+        controller.seriesContext(trackMemory, sessionTrackScope(session, detail, route.itemId))
         playTitle = detail.str("series_name") ?: route.title
         if (detail.str("type_") == "Episode") {
             val number = listOfNotNull(detail.long("season_no")?.let { "S$it" },
@@ -373,7 +427,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         // 按本次重组的快照放行，不能让旧的 null-key 协程读取新偏好后先起播一次。
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
+        subOff = controller.fallback?.subOff ?: !playbackPrefs.subEnabled
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
+        buffered = 0.0
         PlayerController.awaitPendingStop()
         coroutineContext.ensureActive()
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
@@ -398,10 +454,15 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             if (src != null) {
                 // resume 不给 = 让核心层按观看记录定;换源 / 切线路带过来的进度才显式送
                 val pos = src["resume_secs"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() } ?: 0.0
+                startupTiming.request()
                 app.call("source.playItem", kotlinx.serialization.json.JsonObject(src.filterKeys { k -> k != "resume_secs" || pos > 0 }))
+                startupTiming.requestComplete()
                 return@runCatching
             }
+            startupTiming.request()
             val r = app.call("player.play", controller.playbackArgs(a)).obj()
+            coroutineContext.ensureActive()
+            startupTiming.requestComplete()
             controller.resolved(r)
             /* engine=exo 时核心层**只算不播**:它把该播的那条地址和续播位置回给这里,
                由 ExoPlayer 去 loadfile。地址一律用它回的这个 —— 在 UI 里自己拼
@@ -409,7 +470,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                「跳到没缓冲的位置就卡死」,而且查不出来)。 */
             val url = r.str("play_url")
             if (exo != null && url != null) {
+                exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                    .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, subOff).build()
                 exo.setPlaybackSpeed(speed.toFloat())
+                startupTiming.load()
                 exo.load(url, r.dbl("resume_secs") ?: 0.0, r?.get("external_subs"))
             }
             /* 外挂 ASS。**压制组单独发的那种字幕才是「特效字幕」的大头** ——
@@ -426,9 +490,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             if (controller.fallback != null) app.call("player.setAspectRatio", args("ratio" to videoFit.mpvRatio))
         }.onSuccess {
             controller.started()
-            runCatching { PlaybackService.start(ctx, app, exo, route.title) }.onFailure { app.report(it) }
+            runCatching { PlaybackService.start(ctx, app, exo, route.title, controller) }.onFailure { app.report(it) }
         }.onFailure {
             if (it is kotlinx.coroutines.CancellationException) throw it
+            startupTiming.failed()
             app.report(it)
             if (route.src != null) srcSwitch = true
             if (controller.fallback != null) { failReason = it.message; openFailed = true }
@@ -449,9 +514,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             val p = e.currentPosition / 1000.0
             if (advancedNaturally(position, p)) everMoved = true
             position = p
+            buffered = e.bufferedPosition / 1000.0
             e.duration.takeIf { it > 0 }?.let { duration = it / 1000.0 }
             paused = !e.playWhenReady
             buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+            controller.observePosition(p, buffering, paused)
             // 起播失败要**说出来**,不许静默退回去 —— 和 mpv 那条同一条口径
             e.playerError?.let { err ->
                 try {
@@ -497,6 +564,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             duration = o.dbl("duration") ?: duration
             paused = o.bool("paused")
             buffering = o.bool("buffering")
+            controller.observePosition(p, buffering, paused)
             /* ☠ 判播完必须读 eof —— keep-open 下 END_FILE 永远不发。
                ★ 但「时间一次都没往前走过就 eof」不是播完,是**起播失败**:
                  直接 popBackStack 会让用户看到「点了播放,闪一下就回来了」,
@@ -527,12 +595,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
 
     // 恢复窗口从起播成功后计时，慢取流不能耗尽晚到轨道的重试次数。
     val tracksReady = controller.ready
-    LaunchedEffect(controller, engine, tracksReady) {
-        if (controller.fallback == null || !tracksReady) return@LaunchedEffect
+    val sessionTracks = controller.hasSessionTracks
+    LaunchedEffect(controller, engine, tracksReady, controller.seriesScope, sessionTracks) {
+        if ((!sessionTracks && controller.fallback == null) || !tracksReady) return@LaunchedEffect
         repeat(16) {
             delay(700)
-            val tracks = runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() }
-            runCatching { controller.restoreTracks(tracks) }.onFailure { app.report(it) }
+            val tracks = if (exo == null) runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() } else emptyList()
+            controller.observeTracks(tracks)
+            runCatching {
+                if (exo == null) controller.restoreTracks(tracks)
+                controller.restoreSessionTracks(exo, tracks)?.let { subOff = it }
+            }.onFailure { app.report(it) }
         }
     }
 
@@ -561,9 +634,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        ★ 写成四个具名函数而不是在八个调用点各写一个 if —— 漏一个的表现是
          「换成 ExoPlayer 之后快进不动」,而其它按钮都好使,看着像手势坏了。 */
     fun doSeek(t: Double) {
-        scope.launch { runCatching { controller.seek(t) } }
+        startupTiming.close()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            runCatching { controller.seek(t.coerceIn(0.0, if (duration > 0) duration else Double.MAX_VALUE)) }
+        }
+    }
+    fun doSeekBy(delta: Double) {
+        startupTiming.close()
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { controller.seekBy(delta, position, duration) } }
     }
     fun doPause(want: Boolean) {
+        if (want) startupTiming.close()
         PlaybackService.onUserPause(want)
         scope.launch { runCatching { controller.pause(want) } }
     }
@@ -659,6 +740,22 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        不然那台设备上顶栏永远出不来。 */
     val turning = turningTo(wantLandscape, portrait)
     var turnGaveUp by remember(route.itemId) { mutableStateOf(false) }
+    val controlsVisible = (osd && !locked || panel != null) && !(leaving || turning && !turnGaveUp)
+    // 推送状态没有缓冲前沿；只在手机控件可见时读取命令版的绝对时间。
+    LaunchedEffect(controller, engine, exo, controlsVisible, lifecycleOwner) {
+        if (exo != null || !controlsVisible) return@LaunchedEffect
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            buffered = 0.0
+            while (true) {
+                if (controller.ready) {
+                    val value = runCatching { app.call("player.status") }.getOrNull().obj().dbl("buffered")
+                    coroutineContext.ensureActive()
+                    if (controller.ready) buffered = value ?: 0.0
+                }
+                delay(1000)
+            }
+        }
+    }
     LaunchedEffect(turning) { if (turning) { delay(TurnGiveUpMs); turnGaveUp = true } }
 
     /* 网速读数。**在这一层数,不在 OSD 里数**【用户定 2026-09-12:「网速显示要常驻,
@@ -747,11 +844,13 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 var startX = 0f
                 var vol0 = 0f
                 var bri0 = 0f
+                var seek0 = 0.0
                 fun reset() { ax = 0f; ay = 0f; axis = null }
                 detectDragGestures(
                     onDragStart = { p ->
                         reset()
                         startX = p.x
+                        seek0 = controller.seekTarget ?: position
                         vol0 = volume
                         bri0 = if (brightness >= 0f) brightness else 0.5f
                     },
@@ -774,7 +873,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                     if (axis == DragAxis.H) {
                         if (duration > 0) {
                             val d = ax - slop * kotlin.math.sign(ax)
-                            seekPreview = (position + d / size.width * duration * 0.6)
+                            seekPreview = (seek0 + d / size.width * duration * 0.6)
                                 .coerceIn(0.0, duration)
                             osd = true
                         }
@@ -833,17 +932,18 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
 
         // ★ OSD 抬在 scrim 之上:面板开关期间上下栏**一动不动**
         AnimatedVisibility(
-            (osd && !locked || panel != null) && !(leaving || turning && !turnGaveUp),
-            enter = fadeIn(), exit = fadeOut(),
+            controlsVisible,
+            enter = fadeIn(xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3)),
+            exit = fadeOut(xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3)),
         ) {
             Osd(
                 portrait = portrait, netSpeed = netSpeed, panelOpen = panel != null,
-                title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: position, duration = duration,
-                paused = paused, speed = speed, heat = heat,
+                title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
+                paused = paused, speed = speed, heat = heat, buffered = buffered,
                 pluginPanels = pluginPanels,
                 onBack = leave,
                 onToggle = { doPause(!paused) },
-                onSeek = { t -> doSeek(t) },
+                onSeek = { t -> doSeek(t) }, onSeekBy = ::doSeekBy, seekKey = controller,
                 onSpeed = { v -> speed = v; doSpeed(v) },
                 onLock = { locked = true },
                 onShot = {
@@ -860,12 +960,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             )
         }
 
+        PassiveProgress(position, duration,
+            visible = !controlsVisible && panel == null && !leaving && !(turning && !turnGaveUp) &&
+                !inPip && controller.ready && everMoved && !openFailed,
+            m = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)))
+
         // 锁屏后只有解锁按钮 —— 它就长在锁屏钮刚才那个位置上
         if (locked) Box(Modifier.align(Alignment.CenterStart).safeDrawingPadding()
             .padding(start = if (portrait) Sp.x12 else Sp.x16)
             .offset(y = if (portrait) 0.dp else 30.dp)) {
-            if (portrait) GlassIcon(LpIcons.lock, "解锁") { locked = false }
-            else PlayerControl(LpIcons.lock, "解锁") { locked = false }
+            PlayerControl(LpIcons.lock, "解锁") { locked = false }
         }
 
         panel?.let {
@@ -878,6 +982,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 onOpen = { k -> panel = k },
                 onSearch = { dmSearch = true },
                 onTrackPicked = controller::trackPicked,
+                onMpvTrackPick = controller::pickTrack,
+                onMpvTracks = controller::observeTracks,
+                onExoTrackPick = { kind, id -> exo?.let { controller.pickExoTrack(it, kind, id) } },
                 onPlaybackTarget = { id, versionId, title ->
                     scope.launch {
                         runCatching { switchTarget(id, versionId, title) }.onFailure { app.report(it) }
@@ -925,6 +1032,9 @@ internal fun Osd(
     onSpeed: (Double) -> Unit, onLock: () -> Unit, onShot: () -> Unit,
     onPanel: (String) -> Unit,
     onBottomHeight: (androidx.compose.ui.unit.Dp) -> Unit = {},
+    onSeekBy: (Double) -> Unit = { delta -> onSeek((position + delta).coerceIn(0.0, if (duration > 0) duration else Double.MAX_VALUE)) },
+    seekKey: Any = Unit,
+    buffered: Double = 0.0,
 ) {
     val density = LocalDensity.current
     if (!portrait) {
@@ -948,11 +1058,11 @@ internal fun Osd(
             if (!panelOpen) Row(Modifier.align(Alignment.Center), verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Sp.x26)) {
                 PlayerControl(LpIcons.rewind, "后退 10 秒", size = 56.dp,
-                    onClick = { onSeek((position - 10).coerceAtLeast(0.0)) })
+                    onClick = { onSeekBy(-10.0) })
                 PlayerControl(if (paused) LpIcons.play else LpIcons.pause, if (paused) "播放" else "暂停",
                     size = 76.dp, onClick = onToggle)
                 PlayerControl(LpIcons.forward, "前进 10 秒", size = 56.dp,
-                    onClick = { onSeek(if (duration > 0) (position + 10).coerceAtMost(duration) else position + 10) })
+                    onClick = { onSeekBy(10.0) })
             }
             if (!panelOpen) Column(Modifier.align(Alignment.CenterEnd).safeDrawingPadding().padding(end = Sp.x16),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -969,7 +1079,7 @@ internal fun Osd(
                     Modifier.fillMaxWidth().padding(horizontal = Sp.x6, vertical = Sp.x6))
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true) }
+                    Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered) }
                     PlayerControl(LpIcons.danmaku, "弹幕", onClick = { onPanel("danmaku") })
                     PlayerControl(LpIcons.music, "音轨", onClick = { onPanel("audio") })
                     PlayerControl(LpIcons.sub, "字幕", onClick = { onPanel("subtitle") })
@@ -1007,9 +1117,9 @@ internal fun Osd(
             Modifier.align(Alignment.CenterStart).padding(start = Sp.x12),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            GlassIcon(LpIcons.unlock, "锁屏", onClick = onLock)
+            PlayerControl(LpIcons.unlock, "锁屏", onClick = onLock)
             Spacer(Modifier.height(Sp.x12))
-            GlassIcon(LpIcons.camera, "截屏", onClick = onShot)
+            PlayerControl(LpIcons.camera, "截屏", onClick = onShot)
         }
 
         Column(
@@ -1017,13 +1127,13 @@ internal fun Osd(
                 .safeDrawingPadding().onSizeChanged { onBottomHeight(with(density) { it.height.toDp() }) }
                 .padding(top = Sp.x12),
         ) {
-            ProgressRow(position, duration, heat, onSeek)
+            ProgressRow(position, duration, heat, onSeek, seekKey = seekKey, buffered = buffered)
             Row(
                 Modifier.fillMaxWidth().padding(start = Sp.x6, end = Sp.x6, bottom = Sp.x2),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 LpIconButton(LpIcons.rewind, "后退 10 秒", size = 22, tint = Color.White,
-                    onClick = { onSeek((position - 10).coerceAtLeast(0.0)) })
+                    onClick = { onSeekBy(-10.0) })
                 /* 播放键带辉光【用户定 2026-09-07】。整排里**只有它**发光 ——
                    它是这一页唯一的主动作,别的都在发光就等于谁都不突出。 */
                 LpIconButton(
@@ -1031,7 +1141,7 @@ internal fun Osd(
                     size = 30, tint = Color.White, glow = true, onClick = onToggle,
                 )
                 LpIconButton(LpIcons.forward, "前进 10 秒", size = 22, tint = Color.White,
-                    onClick = { onSeek(position + 10) })
+                    onClick = { onSeekBy(10.0) })
                 Spacer(Modifier.weight(1f))
                 SpeedGroup(speed, onSpeed)
                 if (!portrait) Chip("音轨") { onPanel("audio") }
@@ -1049,16 +1159,33 @@ internal fun Osd(
     }
 }
 
-/** 视频上的圆形控制始终用白图标与半透明暗底，不随应用主题变黑。 */
+/** 视频上的控制只画白图标，保留圆形命中区和按压反馈。 */
 @Composable
 private fun PlayerControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
     size: androidx.compose.ui.unit.Dp = 44.dp, onClick: () -> Unit,
 ) {
     Box(Modifier.size(size).clip(RoundedCornerShape(R.pill))
-        .background(Color.Black.copy(alpha = .38f)).pressable(onClick),
+        .pressable(onClick),
         contentAlignment = Alignment.Center) {
         Icon(icon, label, Modifier.size(if (size >= 70.dp) 34.dp else 23.dp), tint = Color.White)
+    }
+}
+
+/** 控件收起后的只读细条，只读实际播放位置，不参与跳转。 */
+@Composable
+internal fun PassiveProgress(position: Double, duration: Double, visible: Boolean, m: Modifier = Modifier) {
+    if (!visible || !duration.isFinite() || duration <= 0 || !position.isFinite()) return
+    val fraction = (position / duration).coerceIn(0.0, 1.0).toFloat()
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    val color = Lp.colors.mediaIcon
+    androidx.compose.foundation.Canvas(m.fillMaxWidth().height(3.dp).semantics {
+        stateDescription = "播放至 ${fmtTime(position)}"
+        progressBarRangeInfo = androidx.compose.ui.semantics.ProgressBarRangeInfo(fraction, 0f..1f)
+    }) {
+        drawRect(Color.White.copy(alpha = .25f))
+        drawRect(color, topLeft = androidx.compose.ui.geometry.Offset(if (rtl) size.width * (1 - fraction) else 0f, 0f),
+            size = androidx.compose.ui.geometry.Size(size.width * fraction, size.height))
     }
 }
 
@@ -1162,12 +1289,23 @@ private fun Chip(
  * 真服加载窗口实测 6~7 秒,这期间点中间会跳到 0.5 秒,用户看到的是「画面不变」。
  */
 @Composable
-private fun ProgressRow(
+@OptIn(androidx.compose.material3.ExperimentalMaterial3Api::class)
+internal fun ProgressRow(
     position: Double, duration: Double, heat: List<Float>, onSeek: (Double) -> Unit,
     showTotal: Boolean = false,
+    seekKey: Any = Unit,
+    buffered: Double = 0.0,
 ) {
-    val enabled = duration > 0
-    var live by remember(position) { mutableFloatStateOf(position.toFloat()) }
+    val enabled = duration.isFinite() && duration > 0
+    val bufferedEnd = if (enabled && buffered.isFinite() && buffered > 0) buffered.coerceAtMost(duration) else 0.0
+    val playedColor = if (showTotal) Lp.colors.mediaIcon else Lp.colors.acc
+    val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
+    var dragValue by remember(seekKey, duration) { mutableStateOf<Float?>(null) }
+    val interactions = remember(seekKey, duration) { MutableInteractionSource() }
+    LaunchedEffect(interactions) {
+        interactions.interactions.collect { if (it is DragInteraction.Cancel) dragValue = null }
+    }
+    val live = dragValue ?: position.toFloat()
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Sp.x12),
         verticalAlignment = Alignment.CenterVertically,
@@ -1193,11 +1331,31 @@ private fun ProgressRow(
         }
         Slider(
             value = if (enabled) live.coerceIn(0f, duration.toFloat()) else 0f,
-            onValueChange = { live = it },
-            onValueChangeFinished = { if (enabled) onSeek(live.toDouble()) },
+            onValueChange = { dragValue = it },
+            onValueChangeFinished = {
+                dragValue?.let { if (enabled) onSeek(it.toDouble()) }
+                dragValue = null
+            },
+            interactionSource = interactions,
             valueRange = 0f..(if (enabled) duration.toFloat() else 1f),
             enabled = enabled,
-            modifier = Modifier.fillMaxWidth().padding(horizontal = Sp.x10),
+            modifier = Modifier.fillMaxWidth().padding(horizontal = Sp.x10).semantics {
+                stateDescription = "播放至 ${fmtTime(live.toDouble())}，" +
+                    if (bufferedEnd > 0) "已缓冲至 ${fmtTime(bufferedEnd)}" else "缓冲进度未知"
+            },
+            track = { state ->
+                androidx.compose.foundation.Canvas(Modifier.fillMaxWidth().height(4.dp)
+                    .clip(RoundedCornerShape(2.dp))) {
+                    drawRect(Color.White.copy(alpha = .3f))
+                    val bufferFraction = if (enabled) (bufferedEnd / duration).toFloat() else 0f
+                    val playedFraction = if (enabled) (state.value / duration).toFloat().coerceIn(0f, 1f) else 0f
+                    for ((fraction, color) in listOf(bufferFraction to Color.White.copy(alpha = .55f), playedFraction to playedColor)) {
+                        if (fraction > 0) drawRect(color,
+                            topLeft = androidx.compose.ui.geometry.Offset(if (rtl) size.width * (1 - fraction) else 0f, 0f),
+                            size = androidx.compose.ui.geometry.Size(size.width * fraction, size.height))
+                    }
+                }
+            },
             colors = SliderDefaults.colors(thumbColor = if (showTotal) Lp.colors.mediaIcon else Lp.colors.acc,
                 activeTrackColor = if (showTotal) Lp.colors.mediaIcon else Lp.colors.acc, inactiveTrackColor = Color.White.copy(alpha = .3f)),
         )

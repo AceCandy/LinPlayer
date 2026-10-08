@@ -18,6 +18,7 @@ import android.support.v4.media.session.PlaybackStateCompat
 import androidx.core.app.NotificationCompat
 import androidx.core.content.ContextCompat
 import androidx.media3.exoplayer.ExoPlayer
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -112,6 +113,7 @@ class PlaybackService : Service() {
         polling?.cancel()
         bindingGeneration = playbackGeneration
         val generation = bindingGeneration
+        stopping = false
         position = 0.0; paused = true
         // ExoPlayer 的状态不经过核心事件;在主线程回读当前内核,后台也保持上报。
         polling = scope.launch {
@@ -125,10 +127,12 @@ class PlaybackService : Service() {
                 // 内核尚未准备时不把空状态当作正在播放,也不上报零进度。
                 val ready = exo?.let { it.playbackState != androidx.media3.common.Player.STATE_IDLE }
                     ?: (o != null && ((o.dbl("duration") ?: 0.0) > 0 || (o.dbl("position") ?: 0.0) > 0))
+                externalController?.expireSeek()
                 if (!ready) { delay(500); continue }
                 val wasPaused = paused
                 position = exo?.currentPosition?.div(1000.0) ?: o.dbl("position") ?: 0.0
                 paused = exo?.let { !it.playWhenReady } ?: o.bool("paused")
+                externalController?.observePosition(position, exo?.let { it.playbackState == androidx.media3.common.Player.STATE_BUFFERING } ?: o.bool("buffering"), paused, SeekSampleSource.SERVICE)
                 volume = exo?.volume?.times(100.0) ?: o.dbl("volume") ?: volume
                 if (wasPaused && !paused && !focusHeld) requestFocus()
                 if (paused) releaseWake() else acquireWake()
@@ -173,7 +177,7 @@ class PlaybackService : Service() {
         scope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTI_ID)
-        if (bindingGeneration == playbackGeneration) { playbackApp = null; externalPlayer = null }
+        if (bindingGeneration == playbackGeneration) { playbackApp = null; externalPlayer = null; externalController = null }
         super.onDestroy()
     }
 
@@ -234,6 +238,13 @@ class PlaybackService : Service() {
 
     private fun send(cmd: String, vararg pairs: Pair<String, Any>) {
         if (bindingGeneration != playbackGeneration) return
+        if (cmd == "player.seek") externalController?.let { controller ->
+            val generation = bindingGeneration
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                runCatching { controller.seek((pairs.first().second as Number).toDouble()) { generation == playbackGeneration } }
+            }
+            return
+        }
         externalPlayer?.let { exo ->
             when (cmd) {
                 "player.setPause" -> exo.playWhenReady = !(pairs.first().second as Boolean)
@@ -268,10 +279,21 @@ class PlaybackService : Service() {
         stopping = true
         val app = playbackApp
         val pos = externalPlayer?.currentPosition?.div(1000.0) ?: position
-        externalPlayer?.stop()
-        scope.launch {
-            try { runCatching { app?.call("player.stopPlayback", args("pos" to pos)) } }
-            finally { stopSelf() }
+        val controller = externalController
+        val generation = bindingGeneration
+        if (controller != null && app != null) {
+            controller.stopIn(app.bg, pos, {
+                app.report(it)
+                if (generation == playbackGeneration) stopSelf()
+            }, isCurrent = { generation == playbackGeneration }) {
+                if (generation == playbackGeneration) stopSelf()
+            }
+        } else {
+            externalPlayer?.stop()
+            scope.launch {
+                try { if (generation == playbackGeneration) runCatching { app?.call("player.stopPlayback", args("pos" to pos)) } }
+                finally { if (generation == playbackGeneration) stopSelf() }
+            }
         }
     }
 
@@ -318,6 +340,7 @@ class PlaybackService : Service() {
         private const val ACTION_STOP = "playback.stop"
         private var playbackApp: AppState? = null
         private var externalPlayer: ExoPlayer? = null
+        private var externalController: PlayerController? = null
         private var mediaTitle = "LinPlayer"
         private var activeService: PlaybackService? = null
         private var playbackGeneration = 0L
@@ -335,16 +358,16 @@ class PlaybackService : Service() {
         /** 换目标前恢复临时 duck 音量，不能把衰减值继承给下一集。 */
         fun volumeBeforeSwitch(): Float? = activeService?.duckedVolume?.div(100.0)?.toFloat()
 
-        fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String) {
+        internal fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String, controller: PlayerController? = null) {
             playbackGeneration++
-            playbackApp = app; externalPlayer = exo; mediaTitle = title
+            playbackApp = app; externalPlayer = exo; externalController = controller; mediaTitle = title
             ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java))
         }
         fun stop(ctx: Context) {
             playbackGeneration++
             activeService?.polling?.cancel()
             ctx.stopService(Intent(ctx, PlaybackService::class.java))
-            playbackApp = null; externalPlayer = null
+            playbackApp = null; externalPlayer = null; externalController = null
         }
     }
 }

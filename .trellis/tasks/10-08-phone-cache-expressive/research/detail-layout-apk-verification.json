@@ -1,0 +1,22 @@
+{
+  "bytes": 80371690,
+  "sha256": "bf8689e9a8efabfe835479bac4ceaca2ad7b5e87e1a0af73919d6944620f07a9",
+  "matches_assemble": true,
+  "abi": [
+    "arm64-v8a"
+  ],
+  "native_libraries": 13,
+  "elf64_aarch64": true,
+  "within_80mib": true,
+  "layout_markers_in_final_dex": {
+    "detail.episodes": true,
+    "正在读取选集…": true,
+    "暂无可用选集": true,
+    "正在确定播放目标…": true
+  },
+  "signature_min_sdk21": {
+    "v1": true,
+    "v2": true,
+    "v3": true
+  }
+}

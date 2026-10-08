@@ -691,8 +691,6 @@ fun DraftCardMenu() {
                 PanelItem("标记已看")
                 PanelGroup("其它")
                 PanelItem("下载")
-                PanelGroup("危险")
-                PanelItem("屏蔽这部内容", danger = true, chevron = true)
             }
         }
         DraftNote("§5.6 长按确认 = 菜单键 · 所有出现卡片的页面都接这个面板")

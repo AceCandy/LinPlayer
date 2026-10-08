@@ -31,6 +31,7 @@ import (
 	"unsafe"
 
 	"linplayer/core/bus"
+	"linplayer/core/config"
 )
 
 // decodeThreads 封顶 8:再多线程也吃不满,而每条线程都要一份帧缓冲 ——
@@ -183,3 +184,6 @@ func platformOptions() [][2]string {
 	}
 	return opts
 }
+
+// Android自定义容量只作为本片demuxer选项，自动保留用户mpv配置。
+func platformBufferTarget() int64 { return config.Current().PrefsOf().BufferTargetBytes }

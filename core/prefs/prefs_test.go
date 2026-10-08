@@ -3,6 +3,7 @@ package prefs
 import (
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
@@ -463,5 +464,63 @@ func Test首页栏目只列Emby(t *testing.T) {
 	}
 	if len(list) != 1 || list[0].Server != "https://a" {
 		t.Fatalf("只该列出 Emby 那一台,得到 %s", b)
+	}
+}
+
+func TestMediaCacheSettingsPartialSaveAndRollback(t *testing.T) {
+	setup(t)
+	c := config.Current()
+	p := c.PrefsOf()
+	p.PrefetchThreads = 4
+	if e := c.SetPrefs(p); e != nil {
+		t.Fatal(e)
+	}
+	r := call(t, 9101, "prefs.getPrefetchSettings", nil)
+	if !r.OK || r.Data["media_cache_bytes"] != float64(1<<30) {
+		t.Fatalf("default missing: %+v", r)
+	}
+	r = call(t, 9102, "prefs.setPrefetchSettings", map[string]any{"settings": map[string]any{"media_cache_bytes": float64(256 << 20)}})
+	if !r.OK || c.PrefsOf().MediaCacheBytes != 256<<20 || c.PrefsOf().PrefetchThreads != 4 {
+		t.Fatalf("partial save failed: %+v", r)
+	}
+	for i, v := range []any{float64(-1), float64(1), float64(8 << 30), float64((256 << 20) + 0.5), "invalid"} {
+		r = call(t, int64(9110+i), "prefs.setPrefetchSettings", map[string]any{"media_cache_bytes": v})
+		if r.OK || c.PrefsOf().MediaCacheBytes != 256<<20 {
+			t.Fatal("invalid capacity accepted")
+		}
+	}
+	// 让真实原子写路径失败，不能把未保存的偏好留在内存。
+	// 配置目标替换成非空目录，保持真实Save调用。
+	if e := os.Remove(paths.ConfigFile()); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.Mkdir(paths.ConfigFile(), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(filepath.Join(paths.ConfigFile(), "keep"), []byte("occupied"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	r = call(t, 9120, "prefs.setPrefetchSettings", map[string]any{"media_cache_bytes": float64(0)})
+	if r.OK || c.PrefsOf().MediaCacheBytes != 256<<20 {
+		t.Fatal("failed save was not rolled back")
+	}
+}
+
+func TestMediaCacheCapacityFailureDoesNotSaveNewBudget(t *testing.T) {
+	setup(t)
+	c := config.Current()
+	before := c.PrefsOf().MediaCacheBytes
+	if e := os.MkdirAll(paths.CacheDir(), 0700); e != nil {
+		t.Fatal(e)
+	}
+	if e := os.WriteFile(paths.MediaCache(), []byte("not a directory"), 0600); e != nil {
+		t.Fatal(e)
+	}
+	r := call(t, 9150, "prefs.setPrefetchSettings", map[string]any{"media_cache_bytes": float64(256 << 20)})
+	if r.OK || c.PrefsOf().MediaCacheBytes != before {
+		t.Fatal("failed capacity enforcement was saved")
+	}
+	if _, e := os.Stat(paths.ConfigFile()); !os.IsNotExist(e) {
+		t.Fatal("failure unexpectedly saved config")
 	}
 }

@@ -9,11 +9,15 @@ package player
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/json"
+	"fmt"
 	"strings"
 	"sync"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/emby"
 	"linplayer/core/net/prefetch"
 	"linplayer/core/net/preload"
 )
@@ -37,14 +41,14 @@ var (
 // 全部作废,起播还得从头再下一遍。慢链路上那是几分钟的白等。
 // readAhead=false 时起的是**旁路代理**:只把 mpv 读过的字节顺手落进环形缓存,
 // 一段都不超前拉。见 prefetch.StartPassthrough。
-func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead bool) *prefetch.Handle {
+func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead bool, options ...prefetch.CacheOptions) *prefetch.Handle {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	if ctx.Err() != nil {
 		return nil
 	}
 	if sharedProxy != nil {
-		if sharedProxy.Upstream() == upstreamURL {
+		if sharedProxy.Upstream() == upstreamURL && (len(options) == 0 || sharedProxy.Identity() == options[0].Identity) {
 			return sharedProxy // ★ 命中预热:连同它已经装好的缓存一起拿回来
 		}
 		sharedProxy.Close() // 换片了:端口、goroutine、缓存文件一起收
@@ -52,7 +56,9 @@ func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead
 	}
 	var h *prefetch.Handle
 	var err error
-	if readAhead {
+	if len(options) > 0 {
+		h, err = prefetch.StartCached(ctx, upstreamURL, p.PrefetchThreads, p.PrefetchCacheBytes, readAhead, options[0])
+	} else if readAhead {
 		h, err = prefetch.Start(ctx, upstreamURL, p.PrefetchThreads, p.PrefetchCacheBytes, nil)
 	} else {
 		h, err = prefetch.StartPassthrough(ctx, upstreamURL, p.PrefetchCacheBytes, nil)
@@ -80,6 +86,31 @@ func currentProxy() *prefetch.Handle {
 	proxyMu.Lock()
 	defer proxyMu.Unlock()
 	return sharedProxy
+}
+
+// mediaCacheOptions 以固定服务器账号和实际会话用户隔离；线路及授权token不参与稳定键。
+func mediaCacheOptions(s *emby.Session, target *emby.PlaybackTarget) prefetch.CacheOptions {
+	options := prefetch.CacheOptions{Budget: config.Current().PrefsOf().MediaCacheBytes, Bitrate: target.Bitrate}
+	if s == nil || s.UserID == "" || target.ItemID == "" || target.MediaSourceID == "" {
+		return options
+	}
+	server := strings.TrimRight(s.Server, "/")
+	for _, acc := range config.Current().AccountList {
+		if acc.UserID != s.UserID {
+			continue
+		}
+		match := server == acc.Server
+		for _, line := range acc.Lines {
+			match = match || server == strings.TrimRight(line.URL, "/")
+		}
+		if match {
+			server = acc.Server
+			break
+		}
+	}
+	b, _ := json.Marshal([]string{server, s.UserID, target.ItemID, target.MediaSourceID})
+	options.Identity = fmt.Sprintf("%x", sha256.Sum256(b))
+	return options
 }
 
 var (
@@ -212,7 +243,7 @@ func registerWarmCommands() {
 			//   起播时 mpv 连同一个代理,预热了多少当场吐多少。
 			//   只对直传流做 —— 转码 URL 是分段流,套代理没有意义。
 			if target.PlayMethod == "DirectStream" {
-				if h := proxyFor(ctx, target.URL, p, true); h != nil {
+				if h := proxyFor(ctx, target.URL, p, true, mediaCacheOptions(s, target)); h != nil {
 					headURL = h.URL
 				}
 			}

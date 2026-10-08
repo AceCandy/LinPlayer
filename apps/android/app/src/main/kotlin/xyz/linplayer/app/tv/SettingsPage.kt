@@ -42,6 +42,9 @@ import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.ToastKind
+import xyz.linplayer.app.ui.player.BUFFER_MIB
+import xyz.linplayer.app.ui.player.BUFFER_MIN_MIB
+import xyz.linplayer.app.ui.player.BUFFER_MAX_MIB
 import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.ui.plugin.Wallpaper
@@ -304,6 +307,18 @@ private fun PlaybackGroup(overlay: Overlay) {
         }))
         scope.launch { runCatching { app.call("player.setPlaybackPrefs", args(key to value(!on))) }.onFailure { prefs = old; app.report(it) } }
     }
+    var savingBuffer by remember { mutableStateOf(false) }
+    fun buffer(bytes: Long) {
+        if (savingBuffer) return
+        savingBuffer = true
+        val before = prefs
+        prefs = JsonObject((prefs ?: JsonObject(emptyMap())) + ("buffer_target_bytes" to JsonPrimitive(bytes)))
+        scope.launch {
+            try { send("buffer_target_bytes", bytes) }
+            catch (e: Exception) { prefs = before; app.report(e) }
+            finally { savingBuffer = false }
+        }
+    }
     val p = prefs
     Column {
         if (p == null) { SkelRows(6); return@Column }
@@ -314,6 +329,15 @@ private fun PlaybackGroup(overlay: Overlay) {
         val dv = p.bool("dolby_auto_sw")
         PanelItem("杜比视界自动软解", switch = dv, modifier = Modifier.memo("set.dv"), onClick = { flip("dolby_auto_sw", dv) })
         Group("播放")
+        val bufferBytes = p.long("buffer_target_bytes") ?: 0L
+        PanelItem("播放缓冲", value = if (bufferBytes == 0L) "自动" else "自定义", chevron = true,
+            sub = "媒体数据缓冲目标，不是总内存上限；下次播放生效", modifier = Modifier.memo("set.buffer"), onClick = {
+                overlay.pick("播放缓冲", listOf("自动" to 0L, "自定义" to (if (bufferBytes > 0) bufferBytes else 128 * BUFFER_MIB)), bufferBytes) { buffer(it) }
+            })
+        if (bufferBytes > 0) PanelItem("缓冲目标容量", value = "${bufferBytes / BUFFER_MIB} MiB", step = true,
+            modifier = Modifier.memo("set.buffer.capacity"), sub = "64～512 MiB；达到目标前也可开始播放", onStep = { d ->
+                buffer(((bufferBytes / BUFFER_MIB + d * 64).coerceIn(BUFFER_MIN_MIB.toLong(), BUFFER_MAX_MIB.toLong())) * BUFFER_MIB)
+            })
         val speed = p.dbl("default_speed") ?: 1.0
         PanelItem("默认倍速", value = "${speed}x", chevron = true, modifier = Modifier.memo("set.speed"), onClick = {
             overlay.pick("默认倍速", listOf(0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0).map { "${it}x" to it }, speed) { v ->

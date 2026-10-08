@@ -27,6 +27,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -103,6 +104,9 @@ import xyz.linplayer.app.ui.theme.LpIcons
 internal class PlayerCtl(
     val seek: (Double) -> Unit, val pause: (Boolean) -> Unit, val speed: (Double) -> Unit,
     val trackPicked: (String) -> Unit = {},
+    val pickTrack: suspend (String, String) -> Unit,
+    val pickExoTrack: ((ExoPlayer, String, String) -> Unit)? = null,
+    val observeTracks: (List<JsonObject>) -> Unit = {},
     val switchTo: (TvRoute.Player) -> Unit,
 )
 
@@ -173,6 +177,8 @@ internal fun BoxScope.Osd(
     pluginPanels: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>,
     onSeek: (Double) -> Unit, onPause: () -> Unit, onPrev: () -> Unit, onNext: () -> Unit,
     onPanel: (String) -> Unit, onSkip: () -> Unit,
+    onSeekBy: (Double) -> Unit = { onSeek(ui.position + it) },
+    seekPosition: Double = ui.position,
 ) {
     val mem = LocalFocusMemory.current
     TitleBlock(ui)
@@ -182,7 +188,9 @@ internal fun BoxScope.Osd(
         }
     }
     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = TvDim.safeH, end = TvDim.safeH, bottom = TvDim.safeV)) {
-        SeekBar(ui, onSeek, upTo = { if (ui.skipWhat != null) mem.requesters["osd.skip"] else null })
+        key(target, engine) {
+            SeekBar(ui, onSeek, seekPosition, upTo = { if (ui.skipWhat != null) mem.requesters["osd.skip"] else null })
+        }
         Spacer(Modifier.height(TvSp.x4))
         Row {
             // 左边写当前位置:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
@@ -196,10 +204,10 @@ internal fun BoxScope.Osd(
             Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8), verticalAlignment = Alignment.CenterVertically) {
                 // 上一集 / 下一集 / 选集**只有分集才画**(电影画了选集 = 永远空表)
                 if (ui.hasEpisodes) TvIconButton(LpIcons.skipPrev, 36.dp, modifier = Modifier.memo("osd.prev"), onClick = onPrev)
-                TvIconButton(LpIcons.rewind, 36.dp, modifier = Modifier.memo("osd.rew"), onClick = { onSeek(ui.position - step) })
+                TvIconButton(LpIcons.rewind, 36.dp, modifier = Modifier.memo("osd.rew"), onClick = { onSeekBy(-step.toDouble()) })
                 TvIconButton(if (ui.paused) LpIcons.play else LpIcons.pause, 44.dp, primary = true,
                     modifier = Modifier.memo("osd.play"), onClick = onPause)
-                TvIconButton(LpIcons.forward, 36.dp, modifier = Modifier.memo("osd.fwd"), onClick = { onSeek(ui.position + step) })
+                TvIconButton(LpIcons.forward, 36.dp, modifier = Modifier.memo("osd.fwd"), onClick = { onSeekBy(step.toDouble()) })
                 if (ui.hasEpisodes) TvIconButton(LpIcons.skipNext, 36.dp, modifier = Modifier.memo("osd.next"), onClick = onNext)
             }
             // 右组和播控拉开距离,防误触
@@ -231,7 +239,7 @@ internal fun BoxScope.Osd(
  * ★ 时长未知时不可聚焦:用 0 当量程,「点了跳转画面没动」。
  */
 @Composable
-private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, upTo: () -> androidx.compose.ui.focus.FocusRequester?) {
+private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double, upTo: () -> androidx.compose.ui.focus.FocusRequester?) {
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf(false) }
     var commit by remember { mutableStateOf<Job?>(null) }
@@ -250,7 +258,7 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, upTo: () -> androidx
                             // 按住加速:前 3 下一个步长 → 30s → 1min → 5min
                             val rc = e.nativeKeyEvent.repeatCount
                             val step = when { rc < 3 -> UiPrefs.tvSeekStep.value.toDouble(); rc < 10 -> 30.0; rc < 20 -> 60.0; else -> 300.0 }
-                            ui.preview = ((ui.preview ?: ui.position) + if (right) step else -step).coerceIn(0.0, d)
+                            ui.preview = ((ui.preview ?: seekPosition) + if (right) step else -step).coerceIn(0.0, d)
                         } else {
                             commit = scope.launch { delay(700); ui.preview?.let(onSeek); ui.preview = null }
                         }
@@ -267,7 +275,7 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, upTo: () -> androidx
     ) {
         val bmp = ui.thumb
         ProgressBar(
-            played = frac(ui.position), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = BarW,
+            played = frac(seekPosition), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = BarW,
             chapters = ui.chapters.map { frac(it.first) }.filter { it in 0.001f..0.999f },
             intro = ui.intro?.let { frac(it.start)..frac(it.endInclusive) },
             preview = ui.preview?.let(::frac), previewLabel = ui.preview?.let(::fmtTime) ?: "",
@@ -385,8 +393,8 @@ internal fun openPanel(
             return@open
         }
         when (which) {
-            "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked)
-            "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked)
+            "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
+            "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
             "episodes" -> EpisodesPanel(app, overlay, ui, target, ctl)
             else -> MorePanel(app, nav, scope, overlay, ui, target, engine, exo, ctl)
@@ -409,12 +417,12 @@ private suspend fun refreshTracks(app: AppState, ui: PlayerUi) {
 }
 
 @Composable
-private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, exo: ExoPlayer?, onPicked: (String) -> Unit) {
+private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, exo: ExoPlayer?, onPicked: (String) -> Unit, pickTrack: suspend (String, String) -> Unit, pickExoTrack: ((ExoPlayer, String, String) -> Unit)?, observeTracks: (List<JsonObject>) -> Unit) {
     val isSub = kind == "sub"
     var level by remember { mutableIntStateOf(0) }
     var delaySecs by remember { mutableStateOf<Double?>(null) }
     LaunchedEffect(Unit) {
-        if (exo == null) { refreshTracks(app, ui); delaySecs = mpvDouble(app, if (isSub) "sub-delay" else "audio-delay") ?: 0.0 }
+        if (exo == null) { refreshTracks(app, ui); observeTracks(ui.tracks); delaySecs = mpvDouble(app, if (isSub) "sub-delay" else "audio-delay") ?: 0.0 }
         if (isSub && !SubStyle.loaded.value) SubStyle.load(app)
     }
     val t = tvType
@@ -437,7 +445,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
             options.forEach { (id, _, label) ->
                 PanelItem(label, selected = id == cur, focused = id == cur, onClick = {
                     onPicked(kind)
-                    runCatching { exoPick(exo, if (isSub) "subtitle" else "audio", id) }.onFailure { app.report(it) }
+                    runCatching { if (pickExoTrack != null) pickExoTrack(exo, kind, id) else exoPick(exo, if (isSub) "subtitle" else "audio", id) }.onFailure { app.report(it) }
                     overlay.close()
                 })
             }
@@ -461,8 +469,8 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
                 PanelItem(if (ext) name else "$name(内封)", sub = if (ext) "外挂" else image,
                     selected = id == selected, focused = id == selected, onClick = {
                     onPicked(kind)
-                    scope.launch {
-                        runCatching { app.call("player.setTrack", args("kind" to kind, "id" to id)) }.onFailure { app.report(it) }
+                    scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                        runCatching { pickTrack(kind, id) }.onFailure { app.report(it) }
                         refreshTracks(app, ui)
                     }
                     overlay.close()
@@ -470,7 +478,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
             }
             if (isSub && list.isNotEmpty()) PanelItem("关闭字幕", selected = selected == null, focused = selected == null, onClick = {
                 onPicked(kind)
-                scope.launch { runCatching { app.call("player.setTrack", args("kind" to "sub", "id" to "")) }; refreshTracks(app, ui) }
+                scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { runCatching { pickTrack("sub", "") }; refreshTracks(app, ui) }
                 overlay.close()
             })
         }

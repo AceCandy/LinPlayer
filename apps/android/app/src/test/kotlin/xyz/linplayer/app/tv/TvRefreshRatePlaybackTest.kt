@@ -34,6 +34,7 @@ import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.PageCache
+import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.player.PlayerController
 import xyz.linplayer.app.ui.player.rememberExoPlayer
@@ -99,6 +100,18 @@ class TvRefreshRatePlaybackTest {
         rule.runOnIdle { installTvModes(activity.windowManager.defaultDisplay) }
         advance(rule, 1800)
         assertEquals(if (expectMatch) 101 else 0, activity.window.attributes.preferredDisplayModeId)
+    }
+
+    @Test fun 遥控连续快进累加且真实上报不使用待跳转目标() {
+        core.ret("player.seek", JsonNull)
+        mount()
+        rule.runOnIdle { core.tick(40.0); core.tick(40.25) }
+        advance(rule, 400)
+        val step = xyz.linplayer.app.data.UiPrefs.tvSeekStep.value.toDouble()
+        press(rule, Key.MediaFastForward, Key.MediaFastForward, Key.MediaFastForward)
+        assertEquals(40.25 + step * 3, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, .001)
+        advance(rule, 10_000)
+        assertEquals(40.25, core.calls.last { it.first == "emby.reportProgress" }.second.dbl("pos")!!, .001)
     }
 
     @Test fun 同帧率切集保留模式不同帧率重判退出恢复() {

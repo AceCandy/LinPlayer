@@ -34,6 +34,7 @@ import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.long
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.account
 import xyz.linplayer.app.tv.arr
@@ -165,4 +166,44 @@ class PhoneManagementUiTest {
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/management-ui/player-dark-large.png")
     }
+    @Test fun playbackBufferSavesAndRollsBack() {
+        val core = FakeCore().loggedIn()
+        core.ret("player.getPlaybackPrefs", buildJsonObject { put("buffer_target_bytes", 0) })
+        core.on("player.setPlaybackPrefs") { throw CoreException("E_NETWORK", "保存失败", true) }
+        open(core, Route.SettingsSub("player"), scale = 1f)
+        rule.onNodeWithText("自定义").performClick()
+        rule.waitForIdle()
+        assertEquals("134217728", core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("buffer_target_bytes").toString())
+        rule.onNodeWithText("缓冲目标容量").assertDoesNotExist()
+        core.on("player.setPlaybackPrefs") { a -> buildJsonObject { put("buffer_target_bytes", a.long("buffer_target_bytes")!!) } }
+        rule.onNodeWithText("自定义").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("128").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/management-ui/buffer-light.png")
+        rule.runOnIdle { dark.value = true }
+        rule.waitForIdle()
+        rule.onNodeWithText("自定义").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/management-ui/buffer-dark.png")
+        rule.onNodeWithContentDescription("增加").performClick()
+        rule.waitForIdle()
+        assertEquals("201326592", core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("buffer_target_bytes").toString())
+        rule.onNodeWithText("192").assertIsDisplayed()
+        // 页面三个自动项依次为内核、缓冲和硬解；选择缓冲行。
+        rule.onAllNodesWithText("自动")[1].performClick()
+        rule.waitForIdle()
+        assertEquals("0", core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("buffer_target_bytes").toString())
+        rule.onNodeWithText("缓冲目标容量").assertDoesNotExist()
+    }
+
+    @Test fun playbackBufferDarkLargeTextRendering() {
+        dark.value = true
+        val core = FakeCore().loggedIn().apply {
+            ret("player.getPlaybackPrefs", buildJsonObject { put("buffer_target_bytes", 134217728) })
+        }
+        open(core, Route.SettingsSub("player"), scale = 1.3f)
+        rule.onNodeWithText("自定义").assertIsDisplayed()
+        rule.onNodeWithText("128").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/management-ui/buffer-dark-large.png")
+    }
+
 }

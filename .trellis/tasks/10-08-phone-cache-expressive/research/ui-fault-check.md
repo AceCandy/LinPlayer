@@ -1,0 +1,8 @@
+# UI忠实故障注入
+
+临时禁用细条、恢复按钮黑底、关闭背景模糊；回归捕获以下失败，随后恢复生产代码。
+
+- backgroundBlurSoftensDetailKeepsOriginalAndBoundsWork[24]
+- backgroundBlurSoftensDetailKeepsOriginalAndBoundsWork
+- landscapeControlsHaveSeparateZonesAndDispatchActions
+- passiveProgressIsThinReadOnlyAndHidesForUnknownDuration

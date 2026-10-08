@@ -775,17 +775,7 @@ func playFile(path string) error {
 	applySubStyle()
 	// 弹幕显示设置同理:它决定的是每一帧怎么排,而每次起播都是新的一轮布局
 	loadDanmakuStyle()
-	mpvMu.Lock()
-	h := mpvH
-	mpvMu.Unlock()
-	c1, c2 := C.CString("loadfile"), C.CString(path)
-	defer C.free(unsafe.Pointer(c1))
-	defer C.free(unsafe.Pointer(c2))
-	argv := []*C.char{c1, c2, nil}
-	if C.mpv_command(h, (**C.char)(unsafe.Pointer(&argv[0]))) < 0 {
-		return errors.New("loadfile 失败")
-	}
-	return nil
+	return commandLoad(path, 0, platformBufferTarget())
 }
 
 // Close 关停 mpv。必须排在 GLUninit 之后。

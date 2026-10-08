@@ -76,6 +76,7 @@ class PhoneThemeTest {
 
     @After fun resetTheme() {
         UiPrefs.setTheme(ApplicationProvider.getApplicationContext(), originalTheme)
+        UiPrefs.setFont(ApplicationProvider.getApplicationContext(), "")
         Wallpaper.set(null)
         PageCache.clear()
         scope.cancel()
@@ -111,6 +112,13 @@ class PhoneThemeTest {
             }
         }
         rule.waitForIdle()
+        rule.onNodeWithText("壁纸").assertDoesNotExist()
+        rule.onNodeWithText("思源黑体").performClick()
+        assertEquals("sans", UiPrefs.uiFont.value)
+        rule.onNodeWithText("思源宋体").performClick()
+        assertEquals("serif", UiPrefs.uiFont.value)
+        rule.onNodeWithText("系统默认").performClick()
+        assertEquals("", UiPrefs.uiFont.value)
         assertBackground(DarkColors.bg)
         rule.onRoot().captureRoboImage("build/phone-theme/dark.png")
         rule.onNodeWithText("浅色").performClick()

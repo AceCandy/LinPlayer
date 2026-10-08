@@ -28,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -80,6 +81,9 @@ fun PlayerPanel(
     // 搜索结果是「源 → 条目 → 集数」三层,一列 236dp 摊不开
     onSearch: () -> Unit = {},
     onTrackPicked: (String) -> Unit = {},
+    onMpvTrackPick: (suspend (String, String) -> Unit)? = null,
+    onMpvTracks: (List<JsonObject>) -> Unit = {},
+    onExoTrackPick: ((String, String) -> Unit)? = null,
     onPlaybackTarget: (String, String?, String) -> Unit = { _, _, _ -> },
     onClose: () -> Unit,
 ) {
@@ -122,6 +126,7 @@ fun PlayerPanel(
                     loading = false
                     return@LaunchedEffect
                 }
+                onMpvTracks(t.arr().mapNotNull { it.obj() })
                 val want = if (kind == "audio") "audio" else "sub"
                 // 字幕多给一项「关闭字幕」(id 空串 = 核心层设 sid=no),和 Exo 那边同一个理由
                 val off = if (want == "sub") listOf(Triple("", null, "关闭字幕")) else emptyList()
@@ -313,7 +318,7 @@ fun PlayerPanel(
                             }
                             else {
                                 if (kind == "audio" || kind == "subtitle") onTrackPicked(kind)
-                                scope.launch { pick(app, kind, id, exo, displayHz) }
+                                scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { pick(app, kind, id, exo, displayHz, onMpvTrackPick, onExoTrackPick) }
                                 onClose()
                             }
                         }, selected = id == current || id == currentInterp, media = kind == "audio" || kind == "subtitle",
@@ -525,15 +530,19 @@ private suspend fun pick(
     app: xyz.linplayer.app.data.AppState, kind: String, id: String,
     exo: androidx.media3.exoplayer.ExoPlayer? = null,
     displayHz: Float = 0f,
+    onMpvTrackPick: (suspend (String, String) -> Unit)? = null,
+    onExoTrackPick: ((String, String) -> Unit)? = null,
 ) {
-    if (exo != null && (kind == "audio" || kind == "subtitle")) {
-        runCatching { exoPick(exo, kind, id) }.onFailure { app.report(it) }
+    if (kind == "audio" || kind == "subtitle") {
+        runCatching {
+            if (exo != null) { if (onExoTrackPick != null) onExoTrackPick(kind, id) else exoPick(exo, kind, id) }
+            else if (onMpvTrackPick != null) onMpvTrackPick(kind, id)
+            else app.call("player.setTrack", args("kind" to if (kind == "subtitle") "sub" else kind, "id" to id))
+        }.onFailure { app.report(it) }
         return
     }
     runCatching {
         when (kind) {
-            "audio" -> app.call("player.setTrack", args("kind" to "audio", "id" to id))
-            "subtitle" -> app.call("player.setTrack", args("kind" to "sub", "id" to id))
             /* ★ 超分**必须看返回体**:`setShaderLevel` 在着色器跑不起来时会
                自己退回关闭并带上 `reverted` —— 不看就是「界面说已启用、实际是关的」,
                本仓最贵的那类 bug。核心层把原因写在 note 里,原样转给用户。 */

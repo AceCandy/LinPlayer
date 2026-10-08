@@ -30,14 +30,14 @@ object UiPrefs {
     val theme = mutableStateOf("system")
 
     /**
-     * 界面字体文件的绝对路径(用户导入的 .ttf/.otf,已复制进应用私有目录)。空 = 系统默认。
+     * 内置界面字体ID，空为系统默认；不再读取用户文件路径。
      *
      * ★ 它进这里而不是核心层:字体得在**第一帧之前**就拿得到。走核心层是一次异步调用,
      *   表现是每次冷启动先用默认字体画一屏、再整页换字 —— 那比不给这个功能还难看。
-     * ★ 存的是**我们自己复制的那一份**,不是用户选中的原始 Uri:
-     *   SAF 的 Uri 重启后可能就没权限了,而字体是每次冷启动都要读的东西。
      */
     val uiFont = mutableStateOf("")
+    val fontOptions = listOf("系统默认" to "", "思源黑体" to "sans", "思源宋体" to "serif")
+    fun fontLabel(): String = fontOptions.firstOrNull { it.second == uiFont.value }?.first ?: "系统默认"
 
     /**
      * 播放键短按模式:`mpv` / `exo` / `auto`。自动先试 Media3，兼容失败时回退 MPV。
@@ -111,7 +111,9 @@ object UiPrefs {
         val sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
         theme.value = sp.getString(K_THEME, "system") ?: "system"
         engine.value = sp.getString(K_ENGINE, "mpv") ?: "mpv"
-        uiFont.value = sp.getString(K_FONT, "") ?: ""
+        val font = sp.getString(K_FONT, "").orEmpty()
+        uiFont.value = font.takeIf { v -> fontOptions.any { it.second == v } }.orEmpty()
+        if (font != uiFont.value) sp.edit().putString(K_FONT, uiFont.value).apply()
         shotTime.value = sp.getBoolean(K_SHOT_TIME, true)
         shotLogo.value = sp.getBoolean(K_SHOT_LOGO, false)
         shotTimePos.value = sp.getString(K_SHOT_TIME_POS, "br") ?: "br"
@@ -152,9 +154,10 @@ object UiPrefs {
      */
     fun otherEngine(of: String = engine.value): String = if (of == "mpv") "exo" else "mpv"
 
-    fun setFont(ctx: Context, path: String) {
-        uiFont.value = path
-        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(K_FONT, path).apply()
+    fun setFont(ctx: Context, id: String) {
+        require(fontOptions.any { it.second == id })
+        uiFont.value = id
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(K_FONT, id).apply()
     }
 
     fun setEngine(ctx: Context, v: String) {

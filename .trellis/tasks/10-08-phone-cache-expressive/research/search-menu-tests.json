@@ -1,0 +1,75 @@
+{
+  "suites": [
+    {
+      "name": "xyz.linplayer.app.PhoneBrowseUiTest",
+      "tests": "31",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneCardMenuTest",
+      "tests": "3",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneDetailCacheTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneDetailOptionsTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneHomeRefreshTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneLibraryUiTest",
+      "tests": "9",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneManagementUiTest",
+      "tests": "6",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhonePosterMotionTest",
+      "tests": "30",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneMotionTest",
+      "tests": "4",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneThemeTest",
+      "tests": "8",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.tv.TvFocusTest",
+      "tests": "15",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "total": 147,
+  "old_code_red": [
+    "searchReturnsWithTypedQueryResultsAndScrollWithoutRequest",
+    "searchPosterLongPressHasSharedActionsWithoutBlocking"
+  ]
+}

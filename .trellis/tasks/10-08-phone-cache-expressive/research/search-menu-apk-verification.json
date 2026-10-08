@@ -1,0 +1,21 @@
+{
+  "bytes": 80371679,
+  "sha256": "0717a0637c38093bec54b580b6a0e8bad4089d1c5319e5b26b79f819afd3dcb9",
+  "matches_assemble": true,
+  "abi": [
+    "arm64-v8a"
+  ],
+  "native_libraries": 13,
+  "elf64_aarch64": true,
+  "within_80mib": true,
+  "new_classes_in_final_dex": {
+    "SearchPageState": true,
+    "PosterMenuPositionProvider": true
+  },
+  "removed_block_labels_absent": true,
+  "signature_schemes_min_sdk21": {
+    "v1": true,
+    "v2": true,
+    "v3": true
+  }
+}

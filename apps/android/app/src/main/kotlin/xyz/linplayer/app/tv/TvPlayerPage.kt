@@ -12,6 +12,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -38,7 +39,9 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -60,6 +63,9 @@ import xyz.linplayer.app.ui.player.DanmakuLayer
 import xyz.linplayer.app.ui.player.DanmakuStyle
 import xyz.linplayer.app.ui.player.ExoSurface
 import xyz.linplayer.app.ui.player.Libass
+import xyz.linplayer.app.ui.player.ObserveSeekTimeout
+import xyz.linplayer.app.ui.player.SessionTrackMemory
+import xyz.linplayer.app.ui.player.sessionTrackScope
 import xyz.linplayer.app.ui.player.PlayerController
 import xyz.linplayer.app.ui.player.VideoFit
 import xyz.linplayer.app.ui.player.VideoSurface
@@ -135,6 +141,8 @@ internal fun isOk(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == K
 @Composable
 fun TvPlayerPage(r: TvRoute.Player) {
     val app = LocalApp.current
+    val session by app.session.collectAsState()
+    val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val activity = LocalContext.current as? Activity
@@ -160,9 +168,14 @@ fun TvPlayerPage(r: TvRoute.Player) {
     val engine = controller.engine
     val latestController by rememberUpdatedState(controller)
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
+    var bufferTargetBytes by remember { mutableStateOf(0L) }
     var subOffPref by remember { mutableStateOf(false) }
+    LaunchedEffect(controller, controller.manualSubtitleOff) {
+        controller.manualSubtitleOff?.let { subOffPref = it }
+    }
     LaunchedEffect(Unit) {
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
+        bufferTargetBytes = p.long("buffer_target_bytes") ?: 0L
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
@@ -170,8 +183,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
         )
         subOffPref = p?.get("sub_enabled")?.let { !p.bool("sub_enabled") } ?: false
     }
-    val exo = rememberExoPlayer(engine == "exo", trackPrefs)
+    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes)
     SideEffect { controller.bind(exo) }
+    ObserveSeekTimeout(controller)
     MatchTvRefreshRate(app, controller, exo, attempt)
     val root = remember { FocusRequester() }
     var leaving by remember { mutableStateOf(false) }
@@ -185,7 +199,10 @@ fun TvPlayerPage(r: TvRoute.Player) {
 
     fun doSeek(t: Double) {
         val to = t.coerceIn(0.0, if (ui.duration > 0) ui.duration else Double.MAX_VALUE)
-        scope.launch { runCatching { controller.seek(to) } }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { controller.seek(to) } }
+    }
+    fun doSeekBy(delta: Double) {
+        scope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { controller.seekBy(delta, ui.position, ui.duration) } }
     }
     fun doPause(want: Boolean) {
         scope.launch { runCatching { controller.pause(want) } }
@@ -194,11 +211,16 @@ fun TvPlayerPage(r: TvRoute.Player) {
         scope.launch { runCatching { controller.speed(v) } }
     }
 
-    val ctl = PlayerCtl(::doSeek, ::doPause, ::doSpeed, trackPicked = controller::trackPicked) { scope.launch { switchTo(it) } }
+    val ctl = PlayerCtl(::doSeek, ::doPause, ::doSpeed, trackPicked = controller::trackPicked, pickTrack = controller::pickTrack, pickExoTrack = controller::pickExoTrack, observeTracks = controller::observeTracks) { scope.launch { switchTo(it) } }
 
     // ---------------------------------------------------------------- 起播
-    LaunchedEffect(target, attempt, engine) {
+    val playbackPrefs = trackPrefs
+    LaunchedEffect(target, attempt, engine, playbackPrefs) {
+        if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
+        subOffPref = controller.fallback?.subOff ?: (trackPrefs?.subEnabled == false)
+        ui.tracks = emptyList()
+        ui.preview = null
         ui.everMoved = false; ui.buffering = true; ui.position = 0.0; ui.duration = 0.0
         ui.failed = null; ui.noVideo = null; ui.nextCard = false; ui.skipWhat = null; ui.osd = true
         PlayerController.awaitPendingStop()
@@ -225,6 +247,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
                     if (exo != null && url != null) {
+                        exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
+                            .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, subOffPref).build()
                         exo.load(url, res.dbl("resume_secs") ?: 0.0, res?.get("external_subs"))
                         if (!subOffPref) launch { loadExternalAss(app, res?.get("external_subs")) }
                         launch { loadEmbeddedFonts(url) }
@@ -250,9 +274,15 @@ fun TvPlayerPage(r: TvRoute.Player) {
     }
 
     // 剧集上下文、规格行、章节 / 片头片尾
-    LaunchedEffect(target.itemId) {
-        if (target.localEntry || target.download) return@LaunchedEffect
+    LaunchedEffect(controller, trackMemory) {
+        controller.clearSeriesContext(trackMemory)
+        if (target.localEntry || target.download || target.src != null) {
+            controller.seriesContext(trackMemory, null)
+            return@LaunchedEffect
+        }
         val d = runCatching { app.call("emby.itemDetail", args("item_id" to target.itemId)) }.getOrNull().obj()
+        coroutineContext.ensureActive()
+        controller.seriesContext(trackMemory, sessionTrackScope(session, d, target.itemId))
         ui.seasonId = d.str("season_id"); ui.seriesId = d.str("series_id")
         if (d.str("type_") == "Episode") {
             ui.title = listOfNotNull(d.str("series_name"),
@@ -287,6 +317,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             o.dbl("duration")?.takeIf { it > 0 }?.let { ui.duration = it }
             ui.paused = o.bool("paused")
             ui.buffering = o.bool("buffering")
+            controller.observePosition(p, ui.buffering)
             // ☠ keep-open 下 END_FILE 永远不发,判播完读 eof;**只收尾一次**
             if (o.bool("eof") && !ui.nextCard && ui.failed == null) {
                 if (ui.everMoved) onFinished(app, ui, target, scope) { leave() }
@@ -304,6 +335,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             e.duration.takeIf { it > 0 }?.let { ui.duration = it / 1000.0 }
             ui.paused = !e.playWhenReady
             ui.buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+            controller.observePosition(p, ui.buffering)
             e.playerError?.let { err ->
                 try {
                     if (controller.tryFallback(err, controller.snapshot(e, subOffPref))) {
@@ -345,7 +377,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
     }
     // 起播成功后轨表**轮询到稳定**:每 700ms 一次,约 11 秒兜底;不在「第一次非空」时就停(音轨先出来、字幕永远进不了面板)
     val tracksReady = controller.ready
-    LaunchedEffect(target, engine, tracksReady) {
+    LaunchedEffect(target, engine, tracksReady, controller.seriesScope) {
         if (exo != null || !tracksReady) return@LaunchedEffect
         var stable = 0
         var applied = false
@@ -354,11 +386,31 @@ fun TvPlayerPage(r: TvRoute.Player) {
             val list = runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() }
             if (list.size == ui.tracks.size && list.isNotEmpty()) stable++ else stable = 0
             ui.tracks = list
+            controller.observeTracks(list)
             if (stable >= 2 && !applied) {
                 applied = true
-                applyPickedTracks(app, target, list)
+                applyPickedTracks(controller, target, list)
             }
-            if (controller.ready && stable >= 2) runCatching { controller.restoreTracks(list) }.onFailure { app.report(it) }
+            if (controller.ready && stable >= 2) runCatching {
+                controller.restoreTracks(list)
+                controller.restoreSessionTracks(null, list, buildSet {
+                    if (target.audioIndex != null) add("audio")
+                    if (target.subIndex != null || target.subOff) add("sub")
+                })?.let { subOffPref = it }
+            }.onFailure { app.report(it) }
+        }
+    }
+    val sessionTracks = controller.hasSessionTracks
+    LaunchedEffect(controller, tracksReady, controller.seriesScope, sessionTracks, exo) {
+        if (!tracksReady || !sessionTracks) return@LaunchedEffect
+        repeat(16) {
+            delay(700)
+            runCatching {
+                controller.restoreSessionTracks(exo, emptyList(), buildSet {
+                    if (target.audioIndex != null) add("audio")
+                    if (target.subIndex != null || target.subOff) add("sub")
+                })?.let { subOffPref = it }
+            }.onFailure { app.report(it) }
         }
     }
     // 进度上报:播放中每 10s 一次
@@ -504,8 +556,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
                 }
                 return true
             }
-            Key.MediaFastForward -> { if (down) doSeek(ui.position + UiPrefs.tvSeekStep.value); return true }
-            Key.MediaRewind -> { if (down) doSeek(ui.position - UiPrefs.tvSeekStep.value); return true }
+            Key.MediaFastForward -> { if (down) doSeekBy(UiPrefs.tvSeekStep.value.toDouble()); return true }
+            Key.MediaRewind -> { if (down) doSeekBy(-UiPrefs.tvSeekStep.value.toDouble()); return true }
             Key.MediaNext -> { if (down) ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } }; return true }
             Key.MediaPrevious -> { if (down) ui.prev(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } }; return true }
             Key.MediaStop -> { if (down) leave(); return true }
@@ -574,7 +626,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         else if (!ui.everMoved) Curtain(ui)
         if (failed == null) {
             if (ui.osd && !overlay.isOpen && !ui.nextCard) Osd(ui, target, engine, pluginPanels,
-                onSeek = ::doSeek, onPause = { doPause(!ui.paused) },
+                onSeek = ::doSeek, onSeekBy = ::doSeekBy, seekPosition = controller.seekTarget ?: ui.position, onPause = { doPause(!ui.paused) },
                 onPrev = { ui.prev(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
                 onNext = { ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
                 onPanel = { which ->
@@ -621,9 +673,9 @@ private fun skipOutro(ui: PlayerUi, target: TvRoute.Player, seek: (Double) -> Un
  * 详情页选过的音轨 / 字幕:轨表稳定后按 **ff_index**(= Emby 的 MediaStream.Index)对上 mpv 的轨 id。
  * `picked` 为空时**什么都不设**,交给核心层的偏好。
  */
-private suspend fun applyPickedTracks(app: AppState, target: TvRoute.Player, tracks: List<JsonObject>) {
+private suspend fun applyPickedTracks(controller: PlayerController, target: TvRoute.Player, tracks: List<JsonObject>) {
     fun idOf(kind: String, index: Long?) = tracks.firstOrNull { it.str("kind") == kind && it.long("ff_index") == index }?.str("id")
-    target.audioIndex?.let { idOf("audio", it) }?.let { runCatching { app.call("player.setTrack", args("kind" to "audio", "id" to it)) } }
-    if (target.subOff) runCatching { app.call("player.setTrack", args("kind" to "sub", "id" to "")) }
-    else target.subIndex?.let { idOf("sub", it) }?.let { runCatching { app.call("player.setTrack", args("kind" to "sub", "id" to it)) } }
+    target.audioIndex?.let { idOf("audio", it) }?.let { runCatching { controller.restoreInitialTrack("audio", it) } }
+    if (target.subOff) runCatching { controller.restoreInitialTrack("sub", "") }
+    else target.subIndex?.let { idOf("sub", it) }?.let { runCatching { controller.restoreInitialTrack("sub", it) } }
 }

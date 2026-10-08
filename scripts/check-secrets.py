@@ -45,6 +45,7 @@ HOST_ALLOW = re.compile(
     r"baidu\.com|anthropic\.com|openai\.com|sentry\.io|cloudflare\.com|pages\.dev|"
     r"workers\.dev|afdian\.com|afdian\.net|telegram\.org|t\.me|creativecommons\.org|"
     r"unicode\.org|iana\.org|gnu\.org|fsf\.org|shields\.io|opensource\.org|"
+    r"dl\.google\.com|scripts\.sil\.org|"  # 官方Android依赖仓库与字体OFL许可站
     r"example\.(?:com|org|net)"
     r")$",
     re.I,

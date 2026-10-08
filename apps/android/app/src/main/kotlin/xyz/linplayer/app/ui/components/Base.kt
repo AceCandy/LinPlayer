@@ -1,11 +1,11 @@
 package xyz.linplayer.app.ui.components
 
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.animateFloatAsState
-import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
@@ -15,7 +15,7 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.interaction.MutableInteractionSource
-import androidx.compose.foundation.interaction.collectIsPressedAsState
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +43,8 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextFieldDefaults
+import kotlinx.coroutines.flow.collectLatest
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -75,6 +77,7 @@ import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.lpTween
+import xyz.linplayer.app.ui.theme.lpSpring
 
 /*
  * 共用组件词汇(UI_MOBILE.md §4.2)。**页面只能用它拼,不许各页自造一套**
@@ -83,24 +86,33 @@ import xyz.linplayer.app.ui.theme.lpTween
 
 // ---------------------------------------------------------------- 按下反馈
 
-/**
- * 按下 `scale .97`(UI_MOBILE.md §2.2)。
- *
- * 按下**即刻**缩到位、松手用弹簧回弹:硬切两头的写法在手上像卡了一下,
- * 而两头都做动画会让点击反馈慢半拍(用户 2026-09-07:「按钮不要做成静态的」)。
- * 用 `graphicsLayer` 的 lambda 版:只在 draw 阶段读值,不触发重组(§2.3 第 3 条)。
- */
+/** 直接消费交互事件，滚动容器的短点按也能回弹；取消滚动不补点击反馈。 */
+@Composable
+internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier {
+    val scale = remember(source) { Animatable(1f) }
+    val spec = lpSpring<Float>(visibilityThreshold = .001f)
+    LaunchedEffect(source, spec) {
+        scale.snapTo(1f)
+        source.interactions.collectLatest { interaction ->
+            when (interaction) {
+                is PressInteraction.Press -> scale.animateTo(.96f, spec)
+                is PressInteraction.Release -> {
+                    // 快速点按可能同帧发出Press/Release，补可见缩放但不延迟点击回调。
+                    if (scale.value > .96f) scale.snapTo(.96f)
+                    scale.animateTo(1f, spec)
+                }
+                is PressInteraction.Cancel -> scale.animateTo(1f, spec)
+            }
+        }
+    }
+    return graphicsLayer { scaleX = scale.value; scaleY = scale.value }
+}
+
+/** 共用按压反馈，不增加点击等待；只在绘制阶段读取缩放。 */
 @Composable
 fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    val pressed by src.collectIsPressedAsState()
-    val scale by animateFloatAsState(
-        if (pressed) 0.96f else 1f,
-        if (pressed) tween(0) else spring(dampingRatio = 0.42f, stiffness = 520f),
-        label = "press",
-    )
-    return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+    return this.pressFeedback(src)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -117,15 +129,8 @@ fun Modifier.pressable(
     enabled: Boolean = true,
 ): Modifier {
     val src = remember { MutableInteractionSource() }
-    val pressed by src.collectIsPressedAsState()
     val haptic = LocalHapticFeedback.current
-    val scale by animateFloatAsState(
-        if (pressed) 0.96f else 1f,
-        if (pressed) tween(0) else spring(dampingRatio = 0.42f, stiffness = 520f),
-        label = "press",
-    )
-    return this
-        .graphicsLayer { scaleX = scale; scaleY = scale }
+    return this.pressFeedback(src)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {
@@ -695,38 +700,47 @@ fun LpMenu(
     alignment: Alignment = Alignment.TopStart,
     offset: androidx.compose.ui.unit.IntOffset = androidx.compose.ui.unit.IntOffset.Zero,
     solid: Boolean = false,
+    positionProvider: androidx.compose.ui.window.PopupPositionProvider? = null,
+    m: Modifier = Modifier,
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     if (!open) return
-    androidx.compose.ui.window.Popup(
-        alignment, offset, onDismiss,
-        androidx.compose.ui.window.PopupProperties(focusable = true),
-    ) {
+    val panel: @Composable () -> Unit = {
         var shown by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(Unit) { shown = true }
         val sc by androidx.compose.animation.core.animateFloatAsState(
-            if (shown) 1f else .88f, lpTween(T.T5, LpEasing.emphasizedDecelerate), label = "menuZ")
+            if (shown) 1f else .88f, lpSpring(.001f), label = "menuZ")
         val op by androidx.compose.animation.core.animateFloatAsState(
             if (shown) 1f else 0f, lpTween(T.T4), label = "menuA")
-        val origin = androidx.compose.ui.graphics.TransformOrigin(
+        val origin = if (positionProvider != null) androidx.compose.ui.graphics.TransformOrigin.Center
+        else androidx.compose.ui.graphics.TransformOrigin(
             if (alignment == Alignment.TopEnd || alignment == Alignment.BottomEnd) 1f else 0f,
             if (alignment == Alignment.BottomStart || alignment == Alignment.BottomEnd) 1f else 0f,
         )
-        Column(
-            Modifier
-                .graphicsLayer { scaleX = sc; scaleY = sc; alpha = op; transformOrigin = origin }
-                // 菜单收窄一档【用户 2026-09-07:「又大又丑」】—— 它是几条一两个字的动作,
-                // 撑到 184dp 宽、每行 48dp 高就成了一块盖住半张卡的板
-                .widthIn(min = 148.dp, max = 260.dp)
-                .heightIn(max = 420.dp)
-                .then(if (solid) Modifier.clip(RoundedCornerShape(R.md))
-                    .background(Lp.colors.mediaPanel.copy(alpha = 1f))
-                    else Modifier.glass(R.md, solid = 1.7f))
-                .verticalScroll(androidx.compose.foundation.rememberScrollState())
-                .padding(vertical = Sp.x6),
-            content = content,
-        )
+        Box(if (positionProvider != null) Modifier.padding(4.dp) else Modifier) {
+            Column(
+                m
+                    .graphicsLayer { scaleX = sc; scaleY = sc; alpha = op; transformOrigin = origin }
+                    // 菜单收窄一档【用户 2026-09-07:「又大又丑」】—— 它是几条一两个字的动作,
+                    // 撑到 184dp 宽、每行 48dp 高就成了一块盖住半张卡的板
+                    .widthIn(min = 148.dp, max = 260.dp)
+                    .heightIn(max = 420.dp)
+                    .then(if (solid) Modifier.clip(RoundedCornerShape(R.md))
+                        .background(Lp.colors.mediaPanel.copy(alpha = 1f))
+                        else Modifier.glass(R.md, solid = 1.7f))
+                    .verticalScroll(androidx.compose.foundation.rememberScrollState())
+                    .padding(vertical = Sp.x6),
+                content = content,
+            )
+        }
     }
+    if (positionProvider == null) androidx.compose.ui.window.Popup(
+        alignment, offset, onDismiss,
+        androidx.compose.ui.window.PopupProperties(focusable = true), content = panel,
+    ) else androidx.compose.ui.window.Popup(
+        positionProvider, onDismiss,
+        androidx.compose.ui.window.PopupProperties(focusable = true), content = panel,
+    )
 }
 
 /** 菜单里的一行。两行:上面是名字,下面那行小字是「它到底是哪一个」。 */

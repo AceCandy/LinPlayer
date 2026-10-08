@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
@@ -38,6 +39,11 @@ import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.foundation.verticalScroll
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import kotlinx.coroutines.coroutineScope
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import xyz.linplayer.app.ui.components.LpIconButton
 import androidx.compose.ui.focus.FocusRequester
@@ -72,6 +78,22 @@ import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.Sp
 
+/** 搜索结果属于导航页，进入详情保留，搜索页出栈后自动释放。 */
+internal class SearchPageState : ViewModel() {
+    var initialized = false
+    val q = mutableStateOf("")
+    val aggregate = mutableStateOf(false)
+    val refresh = mutableStateOf(0)
+    val result = mutableStateOf<Block<List<Item>>?>(null)
+    val history = mutableStateOf<List<String>>(emptyList())
+    val aggRows = androidx.compose.runtime.mutableStateListOf<kotlinx.serialization.json.JsonObject>()
+    val aggRun = mutableStateOf(0)
+    val aggQuery = mutableStateOf("")
+    val aggFailure = mutableStateOf<String?>(null)
+    var completedQuery: Pair<String, Int>? = null
+    var completedRun = 0
+}
+
 /** 搜索只查电影和剧集；输入框内切换聚合，开启/键盘搜索/下拉刷新发起聚合查询。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -80,36 +102,45 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
 
-    // 带 q 进来的直接预填,不用用户再打一遍
-    var q by remember { mutableStateOf(route.q.orEmpty()) }
-    var refresh by remember { mutableStateOf(0) }
-    var refreshing by remember { mutableStateOf(false) }
-    // 当前是插件数据源:没有 Emby 会话,只能聚合搜(数据源一起,D258)
-    val onSource = app.activeSource.collectAsState().value != null
-    var aggregate by remember { mutableStateOf(onSource) }
-    /** 聚合结果,一个来源一行,谁先回来谁先显示(source.aggregateSearch 的 partial)。 */
-    val aggRows = remember { androidx.compose.runtime.mutableStateListOf<kotlinx.serialization.json.JsonObject>() }
-    var aggRun by remember { mutableStateOf(0) }
-    var aggBusy by remember { mutableStateOf(false) }
-    var aggQuery by remember { mutableStateOf("") }
-    var aggFailure by remember { mutableStateOf<String?>(null) }
-    var result by remember { mutableStateOf<Block<List<Item>>?>(null) }
-    var history by remember { mutableStateOf<List<String>>(emptyList()) }
+    val source = app.activeSource.collectAsState().value
+    val session = app.session.collectAsState().value
+    val onSource = source != null
+    val state: SearchPageState = viewModel(viewModelStoreOwner = entry,
+        key = "search:${session?.server}:${session?.userId}:${source?.id}")
+    if (!state.initialized) {
+        state.q.value = route.q.orEmpty()
+        state.aggregate.value = onSource
+        state.initialized = true
+    }
+    var q by state.q
+    var aggregate by state.aggregate
+    var refresh by state.refresh
+    var result by state.result
+    var history by state.history
+    val aggRows = state.aggRows
+    var aggRun by state.aggRun
+    var aggQuery by state.aggQuery
+    var aggFailure by state.aggFailure
+    var refreshing by remember(state) { mutableStateOf(false) }
+    var aggBusy by remember(state) { mutableStateOf(false) }
+    val resultScroll = rememberLazyListState()
+    val aggregateScroll = rememberLazyListState()
     val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
     // 预填了词就别抢焦点弹键盘 —— 用户是来看结果的,不是来打字的
-    LaunchedEffect(Unit) { if (route.q.isNullOrBlank()) focus.requestFocus() }
+    LaunchedEffect(Unit) { if (q.isBlank()) focus.requestFocus() }
 
     // 关键词/模式变化取消旧查询；刷新保留当前关键词与库内范围。
-    LaunchedEffect(q.trim(), aggregate, refresh) {
+    LaunchedEffect(state, q.trim(), aggregate, refresh) {
         val text = q.trim()
         if (text.isEmpty() || (aggregate && route.viewId == null)) {
             result = null
             if (text.isEmpty()) refreshing = false
-            if (text != aggQuery) { aggRun = 0; aggRows.clear(); aggFailure = null }
+            if (text != aggQuery) { aggRun = 0; state.completedRun = 0; aggRows.clear(); aggFailure = null }
             return@LaunchedEffect
         }
+        if (state.completedQuery == (text to refresh) && result != null && result !is Block.Loading) return@LaunchedEffect
         try {
             delay(250)
             result = Block.Loading
@@ -118,11 +149,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 put("types", jsonArrayOf(listOf("Series", "Movie")))
                 route.viewId?.let { put("parent_id", it) }
             }
-            result = when (val r = app.block("emby.search", args(*a.toList().toTypedArray()))) {
+            val response = app.block("emby.search", args(*a.toList().toTypedArray()))
+            currentCoroutineContext().ensureActive()
+            result = when (val r = response) {
                 is Block.Ok -> Block.Ok(Page.from(r.value).items)
                 is Block.Fail -> r
                 else -> Block.Loading
             }
+            state.completedQuery = text to refresh
         } finally { refreshing = false }
     }
 
@@ -130,21 +164,28 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         if (q.isBlank()) return
         aggQuery = q.trim(); aggRun++
     }
-    LaunchedEffect(aggRun, aggregate) {
+    LaunchedEffect(state, aggRun, aggregate) {
         if (aggRun == 0 || !aggregate || route.viewId != null) return@LaunchedEffect
+        if (state.completedRun == aggRun) return@LaunchedEffect
         val run = aggRun
         val text = aggQuery
         aggRows.clear(); aggBusy = true; aggFailure = null
         try {
-            app.call("source.aggregateSearch", args("query" to text)) { part ->
-                part.obj()?.let { row -> scope.launch {
-                    if (run == aggRun && aggregate && text == q.trim()) aggRows.add(row)
-                } }
+            coroutineScope {
+                val requestScope = this
+                app.call("source.aggregateSearch", args("query" to text)) { part ->
+                    part.obj()?.let { row -> requestScope.launch {
+                        if (run == aggRun && aggregate && text == q.trim()) aggRows.add(row)
+                    } }
+                }
             }
+            currentCoroutineContext().ensureActive()
+            state.completedRun = run
         } catch (e: CancellationException) { throw e }
         catch (e: Exception) {
             aggFailure = if (e is CoreException) e.advice else e.message ?: "聚合搜索失败"
             app.report(e)
+            state.completedRun = run
         }
         finally { aggBusy = false; refreshing = false }
     }
@@ -195,7 +236,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 val r = result
                 when {
-                    aggregate && route.viewId == null -> LazyColumn(Modifier.fillMaxSize().testTag("search.results"), contentPadding = pad) {
+                    aggregate && route.viewId == null -> LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = aggregateScroll, contentPadding = pad) {
                         if (aggRun == 0) item("hint") {
                             EmptyState("在所有来源里搜", "输入关键词后按键盘搜索键，每个来源各占一行。", LpIcons.search)
                         }
@@ -209,14 +250,23 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                     MediaRowHeader(name)
                                     Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                         g["items"].arr().mapNotNull { it.obj() }.forEach { it ->
-                                            SourceCard(it, { nav.navigate(Route.SourceDetail(it.str("source") ?: sid, it.str("id") ?: "")) }, Modifier.width(108.dp))
+                                            val sourceId = it.str("source") ?: sid
+                                            val onOpen = { nav.navigate(Route.SourceDetail(sourceId, it.str("id") ?: "")) }
+                                            SourceCard(it, onOpen, Modifier.width(108.dp), menu = listOf(
+                                                xyz.linplayer.app.ui.components.CardAction("查看详情", onClick = onOpen),
+                                                xyz.linplayer.app.ui.components.CardAction("收藏") { scope.launch {
+                                                    runCatching { app.call("source.setFavorite", args("server_id" to sourceId, "item" to it, "favorite" to true)) }
+                                                        .onSuccess { app.toast("已加入收藏", xyz.linplayer.app.data.ToastKind.Ok) }
+                                                        .onFailure { app.report(it) }
+                                                } },
+                                            ))
                                         }
                                     }
                                 }
-                                // 跨服结果**不给长按菜单**:收藏 / 标已看是对当前活跃服务器写的
+                                // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
                                     LpRow(name, Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
-                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = null)
+                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { cardActions(app, scope, it, sid) })
                                 }
                             }
                         }
@@ -256,17 +306,26 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             // 分集**单独一栏横版**;剧和影走网格
                             val eps = items.filter { it.isEpisode }
                             val rest = items.filterNot { it.isEpisode }
-                            LazyColumn(Modifier.fillMaxSize().testTag("search.results"), contentPadding = pad) {
+                            LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = pad) {
                                 if (items.size >= 50) item("limit") {
                                     Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
                                 }
-                                if (rest.isNotEmpty()) item("grid") {
-                                    LazyVerticalGridInline(rest) { picked ->
-                                        // 历史只在**用户真的点开了某个结果**时才记 ——
-                                        // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
-                                        val t = q.trim()
-                                        if (t.isNotEmpty()) history = (listOf(t) + history).distinct().take(8)
-                                        nav.navigate(Route.Detail(picked.id, picked.type))
+                                // 每行独立虚拟化，不能把全部结果塞进一个普通Column。
+                                itemsIndexed(rest.chunked(3), key = { index, row -> "poster-row:$index:${row.first().id}" },
+                                    contentType = { _, _ -> "poster-row" }) { index, row ->
+                                    Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
+                                        .padding(bottom = if (index == (rest.size - 1) / 3) 0.dp else Sp.x16),
+                                        horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
+                                        row.forEach { picked ->
+                                            MediaCard(picked, app.imageUrl(picked.id, "Primary", 330), {
+                                                // 历史只在**用户真的点开了某个结果**时才记 ——
+                                                // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
+                                                val t = q.trim()
+                                                if (t.isNotEmpty()) history = (listOf(t) + history).distinct().take(8)
+                                                nav.navigate(Route.Detail(picked.id, picked.type))
+                                            }, Modifier.weight(1f), menu = cardActions(app, scope, picked))
+                                        }
+                                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                                     }
                                 }
                                 if (eps.isNotEmpty()) item("eps") {
@@ -284,27 +343,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
 }
 
 private inline fun remember0(list: List<String>, set: (List<String>) -> Unit) = Unit
-
-@Composable
-private fun LazyVerticalGridInline(items: List<Item>, onOpen: (Item) -> Unit) {
-    val app = LocalApp.current
-    val rows = (items.size + 2) / 3
-    Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
-        verticalArrangement = Arrangement.spacedBy(Sp.x16)) {
-        repeat(rows) { r ->
-            Row(horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-                (0 until 3).forEach { cIdx ->
-                    val i = r * 3 + cIdx
-                    if (i < items.size) {
-                        val it2 = items[i]
-                        MediaCard(it2, app.imageUrl(it2.id, "Primary", 330), { onOpen(it2) },
-                            Modifier.weight(1f), menu = null)
-                    } else Spacer(Modifier.weight(1f))
-                }
-            }
-        }
-    }
-}
 
 @Composable
 private fun HistoryList(history: List<String>, onPick: (String) -> Unit) {

@@ -44,20 +44,8 @@ func loadWith(url string, startSec float64, headers map[string]string, ua string
 	}
 	setProp("user-agent", ua)
 
-	legacy := loadfileLegacy.Load()
-	err := mpvCommand(loadArgs(url, startSec, legacy)...)
-	if err != nil && startSec > 1 {
-		/* ☠ 两种 mpv 的 loadfile 语法不兼容(见 loadArgs),而安卓和桌面打包的 libmpv
-		   正好一边一种。被拒是参数解析阶段的事,mpv 什么都没做,换一种写法重发是安全的;
-		   试出来哪种能用就记住,之后每次起播都直接用它。 */
-		if err2 := mpvCommand(loadArgs(url, startSec, !legacy)...); err2 == nil {
-			loadfileLegacy.Store(!legacy)
-			bus.Logf("info", "loadfile 换用%s语法(这份 libmpv:%s)", syntaxName(!legacy), Prop("mpv-version"))
-			err = nil
-		}
-	}
-	if err != nil {
-		return fmt.Errorf("loadfile 失败: %w", err)
+	if err := commandLoad(url, startSec, platformBufferTarget()); err != nil {
+		return err
 	}
 	/* ★★ 把交给 mpv 的地址**自己记一份**,别回头去问 mpv 的 `path` 属性。
 	   实测它不可靠:同一次播放里,状态轮询读到的是完整地址(29 字符的代理 URL),
@@ -71,6 +59,26 @@ func loadWith(url string, startSec float64, headers map[string]string, ua string
 	   它是**用到才开**的(见 thumb.go),这里不需要提前开;
 	   不收的话下一次取图会先花一趟 loadfile 去换文件,而那趟是在鼠标底下发生的。 */
 	thumbs.close()
+	return nil
+}
+
+// commandLoad 本片选项与续播共用语法探测，本地播放也不能遗漏缓冲目标。
+func commandLoad(url string, startSec float64, bufferBytes int64) error {
+	legacy := loadfileLegacy.Load()
+	err := mpvCommand(loadArgs(url, startSec, legacy, bufferBytes)...)
+	if err != nil && (startSec > 1 || bufferBytes > 0) {
+		/* ☠ 两种 mpv 的 loadfile 语法不兼容(见 loadArgs),而安卓和桌面打包的 libmpv
+		   正好一边一种。被拒是参数解析阶段的事,mpv 什么都没做,换一种写法重发是安全的;
+		   试出来哪种能用就记住,之后每次起播都直接用它。 */
+		if err2 := mpvCommand(loadArgs(url, startSec, !legacy, bufferBytes)...); err2 == nil {
+			loadfileLegacy.Store(!legacy)
+			bus.Logf("info", "loadfile 换用%s语法(这份 libmpv:%s)", syntaxName(!legacy), Prop("mpv-version"))
+			err = nil
+		}
+	}
+	if err != nil {
+		return fmt.Errorf("loadfile 失败: %w", err)
+	}
 	return nil
 }
 
@@ -99,13 +107,21 @@ var mpvCommand = command
 // ☠☠ **0.37 及以前没有 index 这一格,选项就在第 3 位**(legacy=true)。
 // 安卓打包的 libmpv 是 v0.36.0-549:同一句四段式在那边回 -4,
 // 表现又是「有观看记录的片子播不了」(2026-09-14,移动端 mpv 内核)。
-func loadArgs(url string, startSec float64, legacy bool) []string {
+func loadArgs(url string, startSec float64, legacy bool, bufferBytes int64) []string {
 	args := []string{"loadfile", url, "replace"}
+	var options []string
 	if startSec > 1 {
+		options = append(options, "start="+strconv.FormatFloat(startSec, 'f', 3, 64))
+	}
+	if bufferBytes > 0 {
+		// 本片选项由mpv结束时恢复原值，自动不覆盖用户mpv.conf。
+		options = append(options, "demuxer-max-bytes="+strconv.FormatInt(bufferBytes, 10))
+	}
+	if len(options) > 0 {
 		if !legacy {
 			args = append(args, "-1")
 		}
-		args = append(args, "start="+strconv.FormatFloat(startSec, 'f', 3, 64))
+		args = append(args, strings.Join(options, ","))
 	}
 	return args
 }

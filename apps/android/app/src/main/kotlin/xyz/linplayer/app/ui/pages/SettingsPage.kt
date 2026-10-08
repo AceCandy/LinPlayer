@@ -48,6 +48,9 @@ import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.ui.player.BUFFER_MIB
+import xyz.linplayer.app.ui.player.BUFFER_MIN_MIB
+import xyz.linplayer.app.ui.player.BUFFER_MAX_MIB
 import xyz.linplayer.app.ui.Route
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -275,24 +278,6 @@ private fun AppearancePanel() {
     val theme = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
         "dark" -> "深色"; "light" -> "浅色"; else -> "跟随系统"
     }
-    val app = LocalApp.current
-    val font = xyz.linplayer.app.data.UiPrefs.uiFont.value
-    /* 字体导入【用户定 2026-09-08】。
-       ★ 文件类型过滤放到最宽,不按字体 MIME 筛:实测各家文件管理器给 .ttf 的
-         MIME 五花八门(application/octet-stream 最常见),按字体类型筛的表现是
-         「文件选择器里一个字体都看不见」—— 一个打不开的入口。
-         是不是真字体由复制完那次 createFromFile 判。 */
-    val pick = rememberLauncherForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri == null) return@rememberLauncherForActivityResult
-        val path = importFont(ctx, uri)
-        if (path == null) app.toast("这个文件不是能用的字体", ToastKind.Error)
-        else {
-            xyz.linplayer.app.data.UiPrefs.setFont(ctx, path)
-            app.toast("字体已换", ToastKind.Ok)
-        }
-    }
     Panel(Modifier.padding(Sp.x16)) {
         SegRow("主题", listOf("跟随系统", "深色", "浅色"), theme, { v ->
             xyz.linplayer.app.data.UiPrefs.setTheme(ctx, when (v) {
@@ -300,51 +285,14 @@ private fun AppearancePanel() {
             })
         }, sub = "深浅两套都调过。跟随系统时晚上自动变暗;这一项只影响这台设备")
         Hairline()
-        LpCell(
-            "界面字体", mediaStyle = true,
-            sub = if (font.isBlank()) "系统默认。选一个 .ttf / .otf 换掉全局字体"
-            else "已换成 " + font.substringAfterLast('/'),
-            onClick = { pick.launch(arrayOf("*/*")) },
-        )
+        SegRow("界面字体", xyz.linplayer.app.data.UiPrefs.fontOptions.map { it.first },
+            xyz.linplayer.app.data.UiPrefs.fontLabel(), { label ->
+                xyz.linplayer.app.data.UiPrefs.setFont(ctx,
+                    xyz.linplayer.app.data.UiPrefs.fontOptions.first { it.first == label }.second)
+            }, sub = "内置字体，切换立即生效；字幕字体不受影响")
         Hairline()
         ThemePickerCell()
-        Hairline()
-        WallpaperPickerCell()
-        // ★ 没换过就不画「恢复默认」—— 一个点了什么都不会发生的按钮
-        if (font.isNotBlank()) {
-            Hairline()
-            LpCell("恢复默认字体", mediaStyle = true, arrow = false, onClick = {
-                xyz.linplayer.app.data.UiPrefs.setFont(ctx, "")
-                clearFonts(ctx)
-            })
-        }
     }
-}
-
-/**
- * 把选中的字体复制进应用私有目录并返回落点。不是字体就返回 null。
- *
- * ☠ **必须复制一份。** SAF 给的 Uri 重启之后多半就没权限了,而字体是每次冷启动
- *   第一帧就要读的东西 —— 存 Uri 的表现是「今天好好的,明天开机字体没了」。
- * ☠ 文件名带时间戳:覆盖同一个路径的话,偏好里那个字符串没变,
- *   界面上那层 `remember(path)` 不会重算 —— 换了字体却一点变化都没有。
- * ★ 复制完当场 `createFromFile` 验一次。不验的话用户选了张图片进来,
- *   得到的是「设置显示已换、界面还是老样子」。
- */
-private fun importFont(ctx: android.content.Context, uri: android.net.Uri): String? = runCatching {
-    clearFonts(ctx)
-    val dst = java.io.File(ctx.filesDir, "ui-font-" + System.currentTimeMillis() + ".ttf")
-    ctx.contentResolver.openInputStream(uri)!!.use { i -> dst.outputStream().use { o -> i.copyTo(o) } }
-    if (android.graphics.Typeface.createFromFile(dst) == null) {
-        dst.delete()
-        return null
-    }
-    dst.absolutePath
-}.getOrNull()
-
-/** 旧字体不留 —— 每换一次留一份的话,私有目录里会攒一堆几十 MB 的中文字体。 */
-private fun clearFonts(ctx: android.content.Context) {
-    ctx.filesDir.listFiles { f -> f.name.startsWith("ui-font-") }?.forEach { it.delete() }
 }
 
 @Composable
@@ -378,6 +326,19 @@ private fun PlayerPrefsPanel() {
         }
     }
 
+    var savingBuffer by remember { mutableStateOf(false) }
+    fun buffer(bytes: Long) {
+        if (savingBuffer || prefs == null) return
+        savingBuffer = true
+        val before = prefs
+        prefs = patch(before, "buffer_target_bytes", JsonPrimitive(bytes))
+        scope.launch {
+            try {
+                prefs = app.call("player.setPlaybackPrefs", args("buffer_target_bytes" to bytes)).obj() ?: prefs
+            } catch (e: Exception) { prefs = before; app.report(e) }
+            finally { savingBuffer = false }
+        }
+    }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val short = xyz.linplayer.app.data.UiPrefs.engineLabel()
     val long = xyz.linplayer.app.data.UiPrefs.engineLabel(xyz.linplayer.app.data.UiPrefs.otherEngine())
@@ -392,6 +353,17 @@ private fun PlayerPrefsPanel() {
         }, sub = "长按播放键用另一个内核(现在是 " + long + ")。" +
             "自动用于 Emby：先用 Media3，解码或格式不支持时尝试 MPV 一次。退出当前播放再进入生效")
         Hairline()
+        if (prefs != null) {
+            val bytes = prefs.long("buffer_target_bytes") ?: 0L
+            SegRow("播放缓冲", listOf("自动", "自定义"), if (bytes == 0L) "自动" else "自定义",
+                { buffer(if (it == "自动") 0L else 128 * BUFFER_MIB) },
+                sub = "媒体数据缓冲目标，不是总内存上限；下次播放生效")
+            if (bytes > 0) StepperRow("缓冲目标容量", (bytes / BUFFER_MIB).toDouble(),
+                BUFFER_MIN_MIB.toDouble(), BUFFER_MAX_MIB.toDouble(), 64.0,
+                { buffer(it.toLong() * BUFFER_MIB) }, sub = "单位 MiB；64～512，达到目标前也可开始播放",
+                fmt = { it.toInt().toString() })
+            Hairline()
+        }
         /* ★ 这一栏只放**核心层真的读**的那几项。上一版的「后台播放」「播完自动下一集」
            在核心层里连字段都没有:拨了返回成功、配置一个字没变,而且下次进来还是关着。
            不生效的选项直接删,不摆在界面上(用户 2026-09-04 的口径)。 */
@@ -894,7 +866,7 @@ private fun BlockedPanel() {
         }
         loaded = true
     }
-    if (loaded && items.isEmpty()) EmptyState("没有屏蔽过任何东西", "在封面上长按可以屏蔽一个条目或整个库。")
+    if (loaded && items.isEmpty()) EmptyState("没有屏蔽过任何东西", "可在媒体库入口管理屏蔽；以前屏蔽的内容也可在这里解除。")
     else Panel(Modifier.padding(Sp.x16)) {
         items.forEachIndexed { i, (id, name) ->
             if (i > 0) Hairline()
@@ -921,7 +893,7 @@ private fun StoragePanel() {
         launch { paths = runCatching { app.call("system.dataPaths") }.getOrNull().obj().str("root") }
         launch {
             size = runCatching { app.call("system.cacheSize") }.getOrNull().obj()
-                .long("bytes")?.let { "%.1f MB".format(it / 1024.0 / 1024.0) }
+                .long("bytes")?.let { "%.1f MB".format((it + app.detailCache.sizeBytes()) / 1024.0 / 1024.0) }
         }
     }
     /* 导出日志。**必须让用户自己挑位置** —— 上一版写进应用私有目录然后弹一句
@@ -943,6 +915,8 @@ private fun StoragePanel() {
         }
     }
 
+    MediaCachePanel()
+    Spacer(Modifier.height(Sp.x12))
     Panel(Modifier.padding(Sp.x16)) {
         // 安卓的数据根是应用私有目录:**展示但不可点开** ——
         // 没有文件管理器能进去,给一个打不开的按钮比不给更糟
@@ -964,11 +938,68 @@ private fun StoragePanel() {
         Hairline()
         LpCell("清理缓存", mediaStyle = true, onClick = {
             scope.launch {
-                runCatching { app.call("system.clearCache") }
-                    .onSuccess { app.toast("缓存已清理", ToastKind.Ok); size = "0.0 MB" }
+                runCatching {
+                    app.detailCache.clear()
+                    app.call("system.clearCache")
+                }
+                    .onSuccess {
+                        app.toast("缓存已清理", ToastKind.Ok)
+                        size = it.obj().long("bytes")?.let { n -> "%.1f MB".format(n / 1024.0 / 1024.0) }
+                    }
                     .onFailure { app.report(it) }
             }
         })
+    }
+}
+
+@Composable
+private fun MediaCachePanel() {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var capacity by remember { mutableStateOf<Long?>(null) }
+    var lastCapacity by remember { mutableStateOf(1024L shl 20) }
+    var saving by remember { mutableStateOf(false) }
+    var loadFailed by remember { mutableStateOf(false) }
+    var reload by remember { mutableStateOf(0) }
+    LaunchedEffect(reload) {
+        loadFailed = false
+        runCatching { app.call("prefs.getPrefetchSettings") }
+            .onSuccess {
+                capacity = it.obj().long("media_cache_bytes") ?: (1024L shl 20)
+                if ((capacity ?: 0L) > 0L) lastCapacity = capacity!!
+            }.onFailure { loadFailed = true; app.report(it) }
+    }
+    fun update(value: Long) {
+        if (saving || capacity == null) return
+        val before = capacity
+        saving = true
+        capacity = value
+        scope.launch {
+            runCatching {
+                app.call("prefs.setPrefetchSettings", args("settings" to JsonObject(mapOf(
+                    "media_cache_bytes" to JsonPrimitive(value)))))
+            }.onSuccess { if (value > 0L) lastCapacity = value }
+                .onFailure { capacity = before; app.report(it) }
+            saving = false
+        }
+    }
+    Panel(Modifier.padding(Sp.x16)) {
+        val bytes = capacity
+        if (bytes == null) {
+            LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else "读取中…",
+                arrow = loadFailed, onClick = { if (loadFailed) reload++ })
+        } else {
+            LpCell("保留媒体缓存", mediaStyle = true,
+                sub = if (saving) "保存中…" else "退出与重启后可复用，两种内核共享；关闭会清理已有媒体缓存",
+                switch = bytes > 0L, onSwitch = { update(if (it) lastCapacity else 0L) })
+            if (bytes > 0L) {
+                Hairline()
+                StepperRow("磁盘容量上限", bytes / 1048576.0, 64.0, 4096.0, 64.0,
+                    { update(it.toLong() shl 20) },
+                    sub = "所有媒体共用；单片最多128MiB，7天未使用过期，空间不足淘汰最久未用内容",
+                    fmt = { "${it.toInt()} MiB" })
+            }
+        }
     }
 }
 

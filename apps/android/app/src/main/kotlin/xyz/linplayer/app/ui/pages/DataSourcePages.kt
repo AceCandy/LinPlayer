@@ -111,11 +111,14 @@ internal fun srcErr(e: Throwable): SrcErr {
 /** 数据源卡片。海报比例按分类声明(D336),缺海报是统一灰底(D341)。 */
 @Composable
 internal fun SourceCard(item: JsonObject, onOpen: () -> Unit, m: Modifier = Modifier, badge: String? = null,
-                        progress: Double = -1.0, shape: String = "portrait") {
+                        progress: Double = -1.0, shape: String = "portrait",
+                        menu: List<xyz.linplayer.app.ui.components.CardAction>? = null) {
     val app = LocalApp.current
     val ratio = when (shape) { "landscape" -> 16f / 9f; "square" -> 1f; else -> 2f / 3f }
-    Column(m.pressable(onOpen)) {
+    var menuOpen by remember { mutableStateOf(false) }
+    Column(m.pressable(onOpen, onLongClick = if (menu != null) ({ menuOpen = true }) else null)) {
         Box(Modifier.fillMaxWidth().aspectRatio(ratio)) {
+            if (menu != null) xyz.linplayer.app.ui.components.CardMenu(menuOpen, { menuOpen = false }, menu)
             NetImage(app.proxiedImage(item.img("poster"), 330), item.str("title"), Modifier.fillMaxSize())
             val tag = badge ?: item.str("remarks")
             if (!tag.isNullOrEmpty()) Text(tag, Modifier.align(Alignment.TopEnd).padding(Sp.x6).clip(RoundedCornerShape(R.sm))

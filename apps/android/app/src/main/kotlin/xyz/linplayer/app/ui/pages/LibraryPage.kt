@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
@@ -46,6 +47,8 @@ import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import xyz.linplayer.app.data.Block
@@ -83,6 +86,7 @@ private val SORTS = listOf(
 /** 评分下限固定四档:服务端给的分级不是评分,**没有分面可列**。 */
 private val RATINGS = listOf("不限" to 0, "9 分以上" to 9, "8 分以上" to 8, "7 分以上" to 7, "6 分以上" to 6)
 
+private const val FIRST_PAGE = 30
 private const val PAGE = 120
 
 /**
@@ -141,7 +145,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
        闸门已经补上,别再改回平铺。 */
     suspend fun fetch(offset: Int) {
         val q = buildMap<String, Any> {
-            put("start_index", offset); put("limit", PAGE)
+            put("start_index", offset); put("limit", if (offset == 0) FIRST_PAGE else PAGE)
             put("sort_by", sort.second)
             put("sort_order", sortOrder)
             if (filtersSupported) {
@@ -153,7 +157,9 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             put("parent_id", route.viewId)
             put("query", args(*q.toList().toTypedArray()))
         }
-        when (val r = app.block("emby.listItemsPage", args(*a.toList().toTypedArray()))) {
+        val r = app.block("emby.listItemsPage", args(*a.toList().toTypedArray()))
+        currentCoroutineContext().ensureActive()
+        when (r) {
             is Block.Ok -> {
                 val p = Page.from(r.value)
                 items = if (offset == 0) p.items else items + p.items
@@ -221,7 +227,14 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 onClearRating = { minRating = RATINGS[0] },
             )
             BlockBox(first, onRetry = { scope.launch { fetch(0) } },
-                skeleton = { GridSkeleton(pad) }) {
+                skeleton = {
+                    Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x16)
+                        .testTag("library.loading"), verticalAlignment = Alignment.CenterVertically) {
+                        CircularProgressIndicator(Modifier.size(18.dp), color = Lp.colors.mediaAccent, strokeWidth = 2.dp)
+                        Spacer(Modifier.size(Sp.x12))
+                        Dim2("正在加载作品…")
+                    }
+                }) {
                 if (items.isEmpty()) {
                     // 空态区分三种:这里是「被筛掉了」
                     EmptyState(

@@ -94,3 +94,13 @@ fun <T> lpTween(durationMs: Int, easing: Easing = LpEasing.standard): FiniteAnim
         tween(durationMillis = (durationMs * scale).toInt().coerceAtLeast(0), easing = easing)
     }
 }
+
+/** 表达式交互回弹：适度弹性，系统关动画时立即到位。 */
+@Composable
+fun <T> lpSpring(visibilityThreshold: T? = null): FiniteAnimationSpec<T> {
+    val scale = LocalMotionScale.current
+    return remember(scale, visibilityThreshold) {
+        if (scale <= 0f) tween(durationMillis = 0)
+        else spring(dampingRatio = .65f, stiffness = 320f / (scale * scale), visibilityThreshold = visibilityThreshold)
+    }
+}

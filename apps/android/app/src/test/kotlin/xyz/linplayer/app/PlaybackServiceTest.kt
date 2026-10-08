@@ -138,11 +138,59 @@ class PlaybackServiceTest {
         }
     }
 
+    @Test fun 通知排队期间重绑不提交旧跳转或停止() {
+        for (stop in listOf(false, true)) {
+            val dispatcher = UnconfinedTestDispatcher()
+            Dispatchers.setMain(dispatcher)
+            val scope = CoroutineScope(Dispatchers.Main)
+            val release = CompletableDeferred<Unit>()
+            val core = FakeCore().apply {
+                ret("player.status", buildJsonObject { put("position", 30); put("duration", 100); put("paused", true) })
+                ret("player.seek", kotlinx.serialization.json.JsonNull)
+            }
+            val app = AppState(core, scope)
+            val ctx = RuntimeEnvironment.getApplication()
+            var block = true
+            val old = PlayerController("mpv") { cmd, args ->
+                val result = core.callJson(cmd, args)
+                if (cmd == "player.seek" && block) release.await()
+                result
+            }
+            PlaybackService.start(ctx, app, null, "旧播放", old)
+            val serviceController = Robolectric.buildService(PlaybackService::class.java).create()
+            try {
+                val service = serviceController.get()
+                val field = PlaybackService::class.java.getDeclaredField("session").apply { isAccessible = true }
+                val session = field.get(service) as MediaSessionCompat
+                val implField = MediaSessionCompat::class.java.getDeclaredField("mImpl").apply { isAccessible = true }
+                val impl = implField.get(session)
+                val callback = impl.javaClass.getMethod("getCallback").apply { isAccessible = true }
+                    .invoke(impl) as MediaSessionCompat.Callback
+                callback.onSeekTo(42000)
+                if (stop) callback.onStop() else callback.onSeekTo(60000)
+                val next = PlayerController("mpv") { cmd, args -> core.callJson(cmd, args) }
+                PlaybackService.start(ctx, app, null, "新播放", next)
+                block = false; release.complete(Unit); dispatcher.scheduler.runCurrent()
+                assertEquals(listOf(42.0), core.calls.filter { it.first == "player.seek" }.map { it.second.dbl("pos") })
+                assertTrue(core.calls.none { it.first == "player.stopPlayback" })
+                service.onStartCommand(Intent(ctx, PlaybackService::class.java), 0, 1)
+                callback.onSeekTo(80000)
+                assertEquals(80.0, next.seekTarget!!, 0.0)
+                assertEquals(80.0, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, 0.0)
+            } finally {
+                release.complete(Unit); serviceController.destroy()
+                app.bg.cancel(); scope.cancel(); Dispatchers.resetMain()
+            }
+        }
+    }
+
     @Test fun 通知暂停继续与媒体会话跳转控制当前内核() {
         for (media3 in listOf(false, true)) {
-            Dispatchers.setMain(UnconfinedTestDispatcher())
+            val dispatcher = UnconfinedTestDispatcher()
+            Dispatchers.setMain(dispatcher)
             val scope = CoroutineScope(Dispatchers.Main)
             val core = FakeCore().apply {
+                ret("player.seek", kotlinx.serialization.json.JsonNull)
                 ret("player.status", buildJsonObject {
                     put("position", 37.5); put("duration", 100); put("paused", true)
                 })
@@ -150,7 +198,11 @@ class PlaybackServiceTest {
             val app = AppState(core, scope)
             val ctx = RuntimeEnvironment.getApplication()
             val exo = if (media3) ExoPlayer.Builder(ctx).build() else null
-            PlaybackService.start(ctx, app, exo, "测试影片")
+            val playerController = PlayerController(if (media3) "exo" else "mpv") { cmd, args -> core.callJson(cmd, args) }
+            val seekLogs = mutableListOf<String>()
+            playerController.seekTiming = xyz.linplayer.app.ui.player.SeekTiming({ 0L }, seekLogs::add)
+            playerController.bind(exo)
+            PlaybackService.start(ctx, app, exo, "测试影片", playerController)
             val controller = Robolectric.buildService(PlaybackService::class.java).create()
             try {
                 val service = controller.get()
@@ -168,10 +220,24 @@ class PlaybackServiceTest {
                 val callback = impl.javaClass.getMethod("getCallback").apply { isAccessible = true }
                     .invoke(impl) as MediaSessionCompat.Callback
                 callback.onSeekTo(42000)
+                assertTrue(seekLogs.any { it.startsWith("phase=seek_request ") })
+                assertTrue(seekLogs.any { it.startsWith("phase=seek_submitted ") })
+                assertEquals(42.0, playerController.seekTarget!!, 0.0)
                 if (exo != null) {
                     assertEquals(42000L, exo.currentPosition)
                     assertTrue(core.calls.none { it.first == "player.setPause" || it.first == "player.seek" })
-                } else assertEquals(42.0, core.calls.single { it.first == "player.seek" }.second.dbl("pos")!!, 0.0)
+                } else {
+                    assertEquals(42.0, core.calls.single { it.first == "player.seek" }.second.dbl("pos")!!, 0.0)
+                    for (position in listOf(42.0, 42.5)) {
+                        core.ret("player.status", buildJsonObject {
+                            put("position", position); put("duration", 100); put("paused", false)
+                        })
+                        dispatcher.scheduler.advanceTimeBy(500)
+                        dispatcher.scheduler.runCurrent()
+                    }
+                    assertTrue(seekLogs.any { it.startsWith("phase=seek_target_observed") && "sample_source=service" in it })
+                    assertTrue(seekLogs.any { it.startsWith("phase=seek_clock_advanced") && "sample_source=service" in it })
+                }
             } finally {
                 controller.destroy(); exo?.release()
                 app.bg.cancel(); scope.cancel(); Dispatchers.resetMain()

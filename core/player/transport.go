@@ -403,6 +403,8 @@ type Track struct {
 	Default  bool   `json:"default"`
 	Selected bool   `json:"selected"`
 	External bool   `json:"external"`
+	// Forced 保留运行期强制字幕语义；缺失时未知，不补false。
+	Forced *bool `json:"forced,omitempty"`
 	// FFIndex 这条轨在**容器里的流序号**(mpv 的 `ff-index`)。
 	//
 	// ★★ 详情页「播放前先选好音轨/字幕」靠它对号入座:详情页手里只有 Emby 的
@@ -433,6 +435,7 @@ func parseTracks(raw string) []Track {
 		Default  bool    `json:"default"`
 		Selected bool    `json:"selected"`
 		External bool    `json:"external"`
+		Forced   *bool   `json:"forced"`
 		FFIndex  *int64  `json:"ff-index"`
 		Codec    *string `json:"codec"`
 	}
@@ -451,7 +454,7 @@ func parseTracks(raw string) []Track {
 				ID: strconv.FormatInt(t.ID, 10), Kind: kind,
 				Title: strDeref(t.Title), Lang: strDeref(t.Lang),
 				Default: t.Default, Selected: t.Selected, External: t.External,
-				FFIndex: ff, Codec: strDeref(t.Codec),
+				FFIndex: ff, Codec: strDeref(t.Codec), Forced: t.Forced,
 			})
 		}
 	}

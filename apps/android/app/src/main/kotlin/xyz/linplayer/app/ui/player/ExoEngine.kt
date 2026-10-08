@@ -97,7 +97,7 @@ private const val TAG_EXO = "lp-exo"
  */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?): ExoPlayer? {
+internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0): ExoPlayer? {
     val ctx = LocalContext.current
     if (!enabled) return null
     val player = remember {
@@ -115,6 +115,7 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?): ExoPlayer?
         val sources = DefaultMediaSourceFactory(http)
             .setSubtitleParserFactory(LibassParserFactory(FONTS_DIR))
         ExoPlayer.Builder(ctx)
+            .setLoadControl(playbackLoadControl(bufferTargetBytes))
             .setMediaSourceFactory(sources)
             .build()
     }
@@ -167,6 +168,7 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?): ExoPlayer?
         apply(player.currentTracks)
         onDispose { player.removeListener(listener) }
     }
+    ObserveMedia3Diagnostics(player)
     DisposableEffect(player) { onDispose { player.release() } }
     return player
 }

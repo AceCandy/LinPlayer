@@ -58,7 +58,10 @@ func LogsDir() string       { return sub("logs") }
 func CacheDir() string      { return sub("cache") }
 func ImageCache() string    { return sub("cache", "img") }
 func PrefetchCache() string { return sub("cache", "prefetch") }
-func ShadersDir() string    { return sub("shaders") }
+
+// MediaCache 保存已验证版本的完整媒体块，不保存授权地址。
+func MediaCache() string { return sub("cache", "media") }
+func ShadersDir() string { return sub("shaders") }
 
 // ProgressSyncFile 保存主服待同步记录，不参与本地续播决策。
 func ProgressSyncFile() string { return sub("progress-sync.json") }

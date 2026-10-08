@@ -60,7 +60,8 @@ class MainActivity : ComponentActivity() {
         // 两套配色由应用控制，避免平台再次把浅色页面强制改成深色。
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
 
-        app = AppState((application as LinPlayerApp).core, lifecycleScope)
+        app = AppState((application as LinPlayerApp).core, lifecycleScope,
+            (application as LinPlayerApp).detailCache)
         // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,续播会话也对不上
         runCatching {
             Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)

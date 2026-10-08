@@ -179,7 +179,7 @@
 | [x] | `player.setTrackRegexes` | `set_track_regexes` | `version_regex: String, sub_regex: String, audio_regex: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setVolume` | `set_volume` | `volume: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.shaderLevels` | `shader_levels` | `—` | `Vec<ShaderLevel>` | ✅ |
-| [x] | `player.status` | `status` | `—` | `Result<Status, String>` | ✅ |
+| [x] | `player.status` | `status` | `—` | `Result<Value, String>` | ✅ |
 | [x] | `player.stopPlayback` | `stop_playback` | `pos: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.takePending` | `player_take_pending` | `—` | `Option<serde_json::Value>` | ❌ |
 | [x] | `player.thumbnail` | **新增** | `position: f64` | `Result<Thumbnail, String>` | — | <!-- 进度条某一点的缩略图。从**本地已缓存的字节**解,走只读缓存端点 + 第二个 mpv 实例 -->
@@ -274,7 +274,7 @@
 | [x] | `prefs.backupImport` | **新增** | `content: Option<String>, path: Option<String>, accounts: Option<bool>, settings: Option<bool>` | `BackupImported` | — | <!-- 备份与还原：导入（合并不覆盖） -->
 | [x] | `prefs.backupPreview` | **新增** | `content: Option<String>, path: Option<String>` | `BackupPreview` | — | <!-- 导入前看清楚要还原什么 -->
 | [x] | `prefs.getHomeSettings` | **新增** | `-` | `HomeSettings` | — | <!-- 首页栏目设置(合集栏按服开关等) -->
-| [x] | `prefs.getPrefetchSettings` | `get_prefetch_settings` | `—` | `PrefetchSettings` | ✅ |
+| [x] | `prefs.getPrefetchSettings` | `get_prefetch_settings` | `—` | `PrefetchSettings` | ✅ | <!-- servers/threads/cache_bytes + media_cache_bytes(全局媒体预算,默认1GiB,0关闭,64MiB~4GiB整数) -->
 | [x] | `prefs.getPrimaryProgressServer` | **新增** | `—` | `PrimaryProgressSettings` | ✅ |
 | [x] | `prefs.getPrefs` | `get_prefs` | `—` | `Prefs` | ✅ |
 | [x] | `prefs.getPreloadSettings` | `get_preload_settings` | `—` | `PreloadSettings` | ❌ |
@@ -287,7 +287,7 @@
 | [x] | `prefs.preloadItem` | `preload_item` | `item_id: String, media_source_id: Option<String>` | `Result<(), String>` | ❌ |
 | [x] | `prefs.setDetailBlur` | `set_detail_blur` | `value: u8` | `Result<(), String>` | ✅ |
 | [x] | `prefs.setHomeSettings` | **新增** | `settings: HomeSettings` | `Result<(), String>` | — | <!-- 写回首页栏目设置 -->
-| [x] | `prefs.setPrefetchSettings` | `set_prefetch_settings` | `settings: PrefetchSettings` | `Result<(), String>` | ✅ |
+| [x] | `prefs.setPrefetchSettings` | `set_prefetch_settings` | `settings: PrefetchSettings` | `Result<(), String>` | ✅ | <!-- 可部分更新;省略字段保留;保存失败回滚;容量立即收紧;成功返回当前Prefs -->
 | [x] | `prefs.setPrimaryProgressServer` | **新增** | `server_id: String` | `PrimaryProgressSettings` | ✅ | <!-- 空字符串关闭；服务器及用户固定绑定，不迁移历史 -->
 | [x] | `prefs.retryPrimaryProgressSync` | **新增** | `—` | `PrimaryProgressSettings` | ✅ | <!-- 只重试当前主服的待同步，冲突保留 -->
 | [x] | `prefs.setPrefs` | `set_prefs` | `audio_lang: Option<String>, sub_lang: Option<String>, sub_enabled: bool, search_history: Option<Vec<String>>, library_view: Option<String>` | `Prefs` | ✅ |

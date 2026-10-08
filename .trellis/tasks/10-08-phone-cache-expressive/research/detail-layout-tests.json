@@ -1,0 +1,29 @@
+{
+  "suites": [
+    {
+      "name": "xyz.linplayer.app.PhoneDetailCacheTest",
+      "tests": "17",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneBrowseUiTest",
+      "tests": "31",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhoneDetailOptionsTest",
+      "tests": "12",
+      "failures": "0",
+      "errors": "0"
+    },
+    {
+      "name": "xyz.linplayer.app.PhonePosterMotionTest",
+      "tests": "30",
+      "failures": "0",
+      "errors": "0"
+    }
+  ],
+  "old_code_red": "seriesReservesEpisodeLayoutBeforeSeasonsAndEpisodesArrive"
+}

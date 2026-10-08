@@ -1,6 +1,7 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
@@ -13,6 +14,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -27,6 +29,12 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import xyz.linplayer.app.core.CorePort
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
@@ -57,7 +65,7 @@ class PhoneLibraryUiTest {
 
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun open(core: FakeCore, fontScale: Float = 1f, dark: Boolean = false) {
+    private fun open(core: CorePort, fontScale: Float = 1f, dark: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope)
@@ -79,6 +87,50 @@ class PhoneLibraryUiTest {
 
     private fun core() = FakeCore().loggedIn().library().apply {
         ret("emby.listItemsPage", page(*entries.toTypedArray()))
+    }
+
+    @Test fun firstRequestIsSmallAndColdLoadingDoesNotFillTheScreenWithSkeletons() {
+        val fake = core()
+        val gate = CompletableDeferred<Unit>()
+        val port = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.listItemsPage") gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(port, dark = true)
+        rule.onNodeWithTag("library.loading").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/library-ui/loading.png")
+        rule.onAllNodes(hasScrollToIndexAction()).assertCountEquals(0)
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.onNodeWithText("影片 1").assertIsDisplayed()
+        rule.onNodeWithTag("library.loading").assertDoesNotExist()
+        val query = fake.calls.first { it.first == "emby.listItemsPage" }.second?.get("query").obj()
+        assertEquals("30", query?.get("limit").toString())
+    }
+
+    @Test fun smallFirstPageContinuesFromItsActualOffsetWithNormalPageSize() {
+        val fake = core()
+        val all = (1..160).map { item("film-$it", "影片 $it", year = 2024) }
+        fake.on("emby.listItemsPage") { a ->
+            val query = a?.get("query").obj()
+            val offset = query?.get("start_index").toString().toInt()
+            val limit = query?.get("limit").toString().toInt()
+            buildJsonObject {
+                put("items", JsonArray(all.drop(offset).take(limit)))
+                put("total", all.size)
+            }
+        }
+        open(fake)
+        val first = fake.calls.first { it.first == "emby.listItemsPage" }.second?.get("query").obj()
+        assertEquals("30", first?.get("limit").toString())
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(29)
+        rule.waitUntil(3000) { fake.calls.count { it.first == "emby.listItemsPage" } >= 2 }
+        val next = fake.calls.filter { it.first == "emby.listItemsPage" }[1].second?.get("query").obj()
+        assertEquals("30", next?.get("start_index").toString())
+        assertEquals("120", next?.get("limit").toString())
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
+        rule.onNodeWithText("影片 31").assertIsDisplayed()
     }
 
     @Test fun compactGridKeepsControlsAndLastRowVisibleWithLargeFont() {
@@ -202,5 +254,41 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("首页").performClick()
         rule.onNodeWithText("继续观看").assertExists()
         rule.onNodeWithTag("phone.tabs").assertExists()
+    }
+
+    @Test fun realShellPushAndPopHaveIntermediateRenderedFrames() {
+        PageCache.clear()
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val app = AppState(core(), scope)
+        lateinit var back: androidx.activity.OnBackPressedDispatcher
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            back = checkNotNull(androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current).onBackPressedDispatcher
+            LpTheme(darkOverride = false) { PhoneRoot(app) }
+        }
+        fun frame(): FloatArray {
+            val pixels = rule.onRoot().captureToImage().toPixelMap()
+            return (20 until 180 step 4).flatMap { y ->
+                (20 until pixels.width - 20 step 4).map { x -> pixels[x, y].red }
+            }.toFloatArray()
+        }
+        fun distance(a: FloatArray, b: FloatArray) = a.indices.sumOf { kotlin.math.abs(a[it] - b[it]).toDouble() } / a.size
+        rule.mainClock.advanceTimeBy(1000)
+        val home = frame()
+        rule.onNodeWithContentDescription("搜索").performClick()
+        rule.mainClock.advanceTimeBy(64)
+        val early = frame()
+        rule.mainClock.advanceTimeBy(96)
+        val middle = frame()
+        rule.mainClock.advanceTimeBy(500)
+        val search = frame()
+        assertTrue("push must visibly interpolate", distance(early, search) > distance(middle, search) + .002)
+        assertTrue("middle frame must not already be final", distance(middle, search) > .002)
+        rule.runOnIdle { back.onBackPressed() }
+        rule.mainClock.advanceTimeBy(80)
+        val returning = frame()
+        rule.mainClock.advanceTimeBy(500)
+        assertTrue("pop must also have a visible intermediate frame", distance(returning, home) > .002)
+        rule.onNodeWithTag("search.field").assertDoesNotExist()
     }
 }

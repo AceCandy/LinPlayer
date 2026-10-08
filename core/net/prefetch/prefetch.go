@@ -20,6 +20,7 @@
 package prefetch
 
 import (
+	"linplayer/core/bus"
 	"linplayer/core/httpx"
 	"linplayer/core/net/tlspolicy"
 
@@ -98,6 +99,35 @@ func readAheadBytes(threads int, cacheLimit int64) int64 {
 // ResignFn 上游签名链失效时的重签回调:重走取流拿新地址。nil = 不支持重签。
 type ResignFn func(ctx context.Context) string
 
+// CacheOptions 只接收调用方生成的媒体身份摘要，不保存授权地址或账号原文。
+type CacheOptions struct {
+	Identity string
+	Bitrate  int64
+	Budget   int64
+}
+
+// StartCached 两种内核共用的媒体代理；readAhead 只决定是否提前取数。
+func StartCached(ctx context.Context, u string, threads int, cacheLimit int64, readAhead bool, options CacheOptions) (*Handle, error) {
+	if err := ConfigureMediaCache(options.Budget); err != nil {
+		return nil, err
+	}
+	threads = min(max(threads, 2), 4)
+	window := int64(1)
+	ua := httpx.UA()
+	if readAhead {
+		limit := MaxReadAhead
+		// 码率只用于近似预取时长，不作为媒体版本证据；先钳再乘避免溢出。
+		if options.Bitrate > 0 {
+			limit = min(limit, min(options.Bitrate, MaxReadAhead*8/60)*60/8)
+		}
+		window = max64(1, (limit+ChunkSize-1)/ChunkSize)
+		ua = httpx.PreloadUA()
+	} else {
+		threads = 2
+	}
+	return start(ctx, u, threads, min(cacheLimit, mediaLimit), window, ua, nil, options)
+}
+
 // Handle 一个运行中的代理。**Close 即停服**,放行所有连接的 worker 退出。
 type Handle struct {
 	URL string
@@ -108,6 +138,11 @@ type Handle struct {
 	CachedURL string
 	origin    *origin
 	ln        net.Listener
+	once      sync.Once
+	wg        sync.WaitGroup
+	connMu    sync.Mutex
+	conns     map[net.Conn]bool
+	identity  string
 }
 
 // cachedPath 只读端点的路径;status416 「这段没有」的回应。
@@ -168,17 +203,35 @@ func (h *Handle) Upstream() string {
 // CachePathForTest 缓存文件路径。**只给测试用**(验换片时旧文件真的删了)。
 func (h *Handle) CachePathForTest() string { return h.origin.disk.path }
 
-// Close 停服并删掉缓存文件。
+// Identity 是调用方生成的稳定身份摘要，仅供同流代理复用比对。
+func (h *Handle) Identity() string { return h.identity }
+
+// Close 取消并等待所有连接与取数退出；完整持久块保留，会话临时缓存删除。
 func (h *Handle) Close() {
-	h.origin.closed.Store(true)
-	h.origin.stop.notifyAll()
-	_ = h.ln.Close()
-	h.origin.disk.close()
+	h.once.Do(func() {
+		h.origin.closed.Store(true)
+		h.origin.cancel()
+		h.origin.stop.notifyAll()
+		_ = h.ln.Close()
+		h.connMu.Lock()
+		for c := range h.conns {
+			_ = c.Close()
+		}
+		h.connMu.Unlock()
+		h.wg.Wait()
+		h.origin.workers.Wait()
+		h.origin.disk.close()
+	})
 }
 
 type origin struct {
-	upMu sync.Mutex
-	url  string
+	ctx         context.Context
+	cancel      context.CancelFunc
+	workers     sync.WaitGroup
+	firstSupply sync.Once
+	validator   string
+	upMu        sync.Mutex
+	url         string
 	// resolved 跟随 302 后的**最终**地址(CDN 直链);worker 优先打它。
 	//
 	// ★ 为什么值得单独存:某类服务端的直传流是 302 跳 CDN,而每段都是一次独立请求 ——
@@ -199,12 +252,12 @@ type origin struct {
 	readAheadChunks int64
 	// ua 上游请求的 User-Agent。旁路模式下**它就是用户正在看的那一路**,
 	// 用 LinPlayerPreload 那条道会让服主在日志里把它错认成一次旁路预取。
-	ua string
-	closed          atomic.Bool
-	stop            notifier
-	client          *http.Client
-	onInvalid       ResignFn
-	disk            *diskCache
+	ua        string
+	closed    atomic.Bool
+	stop      notifier
+	client    *http.Client
+	onInvalid ResignFn
+	disk      *diskCache
 
 	// liveMu / liveMap 正在拉取中的分段(段号 -> 载体)。**「边收边吐」的登记处**。
 	liveMu  sync.Mutex
@@ -241,7 +294,7 @@ func StartPassthrough(ctx context.Context, upstreamURL string, cacheLimit int64,
 }
 
 func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int64,
-	readAheadChunks int64, ua string, onInvalid ResignFn) (*Handle, error) {
+	readAheadChunks int64, ua string, onInvalid ResignFn, cacheOptions ...CacheOptions) (*Handle, error) {
 	o := &origin{
 		url: upstreamURL, threads: threads, ua: ua,
 		readAheadChunks: readAheadChunks,
@@ -254,17 +307,33 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		onInvalid: onInvalid,
 		liveMap:   map[int64]*live{},
 	}
+	probeAt := time.Now()
 	if err := o.probe(ctx, upstreamURL); err != nil {
+		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
 		return nil, err
 	}
-	disk, err := newDiskCache(o.totalSize, cacheLimit, threads)
+	bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=true version_verified=%t", time.Since(probeAt).Milliseconds(), o.validator != "")
+	restoreAt := time.Now()
+	var disk *diskCache
+	var err error
+	if len(cacheOptions) > 0 && cacheOptions[0].Budget > 0 && cacheOptions[0].Identity != "" && o.validator != "" {
+		disk, err = newPersistentCache(o.totalSize, cacheOptions[0].Identity, o.validator)
+	}
+	if disk == nil {
+		// 磁盘不可用或没有可信版本时仍保持会话内边收边吐，不复用旧媒体字节。
+		disk, err = newDiskCache(o.totalSize, cacheLimit, threads)
+		o.validator = ""
+	}
 	if err != nil {
 		return nil, fmt.Errorf("建缓存文件失败: %w", err)
 	}
+	bus.Logf("info", "phase=cache_restore elapsed_ms=%d persistent=%t restored_blocks=%d", time.Since(restoreAt).Milliseconds(), disk.persistent, len(disk.slots))
 	o.disk = disk
+	o.ctx, o.cancel = context.WithCancel(context.Background())
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
+		o.cancel()
 		disk.close()
 		return nil, fmt.Errorf("起本地代理失败: %w", err)
 	}
@@ -272,9 +341,14 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		// 路径带扩展名:ffmpeg 会拿 URL 尾巴猜容器格式,白送的线索没理由不给
 		URL:       "http://" + ln.Addr().String() + "/stream",
 		CachedURL: "http://" + ln.Addr().String() + cachedPath,
-		origin:    o, ln: ln,
+		origin:    o, ln: ln, conns: map[net.Conn]bool{},
 	}
+	if len(cacheOptions) > 0 {
+		h.identity = cacheOptions[0].Identity
+	}
+	h.wg.Add(1)
 	go func() {
+		defer h.wg.Done()
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
@@ -282,7 +356,18 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 			}
 			// 每条连接一个 goroutine:mpv 会为 seek 另开连接(我们回的是 Connection: close),
 			// 串行处理的话新连接要等旧连接把整段喂完 —— 那就是 seek 卡死。
+			h.connMu.Lock()
+			if o.over() {
+				h.connMu.Unlock()
+				_ = conn.Close()
+				return
+			}
+			h.conns[conn] = true
+			h.wg.Add(1)
+			h.connMu.Unlock()
 			go func() {
+				defer h.wg.Done()
+				defer func() { h.connMu.Lock(); delete(h.conns, conn); h.connMu.Unlock() }()
 				defer conn.Close()
 				_ = o.handle(conn.(*net.TCPConn))
 			}()
@@ -302,12 +387,14 @@ func (o *origin) probe(ctx context.Context, u string) error {
 	}
 	req.Header.Set("Range", "bytes=0-0")
 	req.Header.Set("User-Agent", o.ua)
+	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := o.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("探测文件大小失败: %w", err)
 	}
 	defer resp.Body.Close()
-	_, _ = io.Copy(io.Discard, resp.Body)
+	// 探测只需要一个字节；忽略Range的服务器可能返回整片，不能在这里下载完。
+	_, _ = io.CopyN(io.Discard, resp.Body, 1)
 
 	// 探测本来就跟完了 302,顺手把落点**和它声明的有效期**一起记下来给 worker 用
 	o.noteResolved(u, resp.Request.URL.String(), slot.ttl())
@@ -324,7 +411,31 @@ func (o *origin) probe(ctx context.Context, u string) error {
 		//   播放器算不出进度条也没法 seek。调用方回退直连。
 		return errors.New("上游没给文件大小,无法代理(调用方回退直连)")
 	}
+	mediaType := strings.ToLower(strings.Split(o.contentType, ";")[0])
+	manifest := strings.Contains(mediaType, "mpegurl") || mediaType == "application/dash+xml"
+	if !manifest && !strings.Contains(strings.ToLower(resp.Header.Get("Cache-Control")), "no-store") && validRangeResponse(resp, 0, 0, o.totalSize) && strongETag(resp.Header.Get("ETag")) {
+		o.validator = resp.Header.Get("ETag")
+	}
 	return nil
+}
+
+func strongETag(s string) bool {
+	if len(s) < 2 || s[0] != '"' || s[len(s)-1] != '"' {
+		return false
+	}
+	for i := 1; i < len(s)-1; i++ {
+		if s[i] < 0x21 || s[i] == '"' || s[i] == 0x7f {
+			return false
+		}
+	}
+	return true
+}
+
+func validRangeResponse(r *http.Response, start, end, total int64) bool {
+	return r.StatusCode == http.StatusPartialContent &&
+		r.Header.Get("Content-Range") == fmt.Sprintf("bytes %d-%d/%d", start, end, total) &&
+		(r.ContentLength < 0 || r.ContentLength == end-start+1) &&
+		(r.Header.Get("Content-Encoding") == "" || r.Header.Get("Content-Encoding") == "identity")
 }
 
 func (o *origin) chunkLen(c int64) int {
@@ -389,10 +500,15 @@ func (o *origin) fetchChunk(ctx context.Context, c int64, l *live) []byte {
 	want := l.cap
 
 	for attempt := 0; attempt < 3; attempt++ {
+		if ctx.Err() != nil || o.over() {
+			return nil
+		}
 		u, usedResolved := o.upstreamURL()
 
 		badAddr, retry := o.fetchOnce(ctx, u, start, end, l)
-		if !badAddr && !retry && l.len() == want {
+		// 取消可能发生在全部字节已到、最后一次Read尚未返回EOF时。
+		// 范围与版本已在喂数据前验证，完整块仍可提交，不能把它当残块丢掉。
+		if !badAddr && l.len() == want && (!retry || ctx.Err() != nil) {
 			return l.snapshot()
 		}
 		if !badAddr && !retry {
@@ -433,14 +549,27 @@ func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *l
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
 	req.Header.Set("User-Agent", o.ua)
+	if o.validator != "" {
+		req.Header.Set("If-Range", o.validator)
+		req.Header.Set("Accept-Encoding", "identity")
+	}
 
 	// 建连 + 等响应头:这一段可以用整体超时,它本来就该在几秒内完成
 	type res struct {
 		r   *http.Response
 		err error
 	}
-	ch := make(chan res, 1)
-	go func() { r, e := o.client.Do(req); ch <- res{r, e} }()
+	ch := make(chan res)
+	go func() {
+		r, e := o.client.Do(req)
+		select {
+		case ch <- res{r, e}:
+		case <-reqCtx.Done():
+			if r != nil {
+				_ = r.Body.Close()
+			}
+		}
+	}()
 	var resp *http.Response
 	select {
 	case v := <-ch:
@@ -450,8 +579,14 @@ func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *l
 		resp = v.r
 	case <-time.After(chunkTimeout()):
 		return true, false // 连响应头都等不到 = 这个地址不灵
+	case <-ctx.Done():
+		return false, false
 	}
 	defer resp.Body.Close()
+	// 条件Range回200、范围偏移或版本变化时，不能把新版本拼到旧缓存/live里。
+	if o.validator != "" && (!validRangeResponse(resp, start, end, o.totalSize) || resp.Header.Get("ETag") != o.validator) {
+		return false, false
+	}
 	if resp.StatusCode != http.StatusPartialContent && (resp.StatusCode < 200 || resp.StatusCode >= 300) {
 		return true, false
 	}

@@ -95,12 +95,14 @@ fun EpisodePage(r: TvRoute.Episode) {
     var siblings by remember { mutableStateOf<List<Item>>(emptyList()) }
     var siblingsFor by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
+    var downloadable by remember(epId) { mutableStateOf(false) }
     val pick = rememberPickState(epId)
     val fade = remember(epId) { Animatable(if (siblings.isEmpty()) 1f else 0f) }
 
     LaunchedEffect(epId, reload) {
         launch { fade.animateTo(1f, tween(200)) }
         launch { pick.loadPrefs(app) }
+        launch { downloadable = canDownload(app) }
         val b = app.block("emby.itemDetail", args("item_id" to epId)).map { it.obj() ?: JsonObject(emptyMap()) }
         detail = b
         val d = b.valueOrNull ?: return@LaunchedEffect
@@ -165,13 +167,10 @@ fun EpisodePage(r: TvRoute.Episode) {
                         // 拿不到这一集的已看状态时整个按钮不画,不猜默认值(§7.6)
                         if (d.containsKey("played")) PlayedButton(app, scope, epId, d.bool("played"))
                         FavButton(app, scope, epId, d.bool("is_favorite"), "ep.fav")
-                        TvButton("更多", LpIcons.more, modifier = Modifier.memo("ep.more"), onClick = {
+                        if (downloadable) TvButton("更多", LpIcons.more, modifier = Modifier.memo("ep.more"), onClick = {
                             scope.launch {
-                                val dl = canDownload(app)
-                                val blockId = d.str("series_id") ?: epId
-                                val blockName = series ?: (d.str("name") ?: "")
-                                overlay.openMore(title, app, nav, scope, blockId, blockName) { close ->
-                                    if (dl) PanelItem("下载", focused = true, onClick = {
+                                overlay.openMore(title) { close ->
+                                    PanelItem("下载", focused = true, onClick = {
                                         scope.launch {
                                             runCatching { app.call("download.enqueue", args("item_id" to epId)) }
                                                 .onSuccess { close(); app.toast("已加入下载队列", ToastKind.Ok) }.onFailure { app.report(it) }

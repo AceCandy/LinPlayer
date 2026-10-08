@@ -1,0 +1,11 @@
+# 设计
+
+现有Media3诊断从mediaItemTransition计时，漏掉导航、偏好等待和核心请求。手机详情toPlayer是最早点击位置，PlayerPage是请求与加载拥有者。
+
+使用WeakHashMap<NavBackStackEntry, Long>临时保存详情导航的elapsedRealtime起点，页面remember(entry)一次消费。键为真实导航entry，不含媒体信息，不写SavedState/路由/磁盘；恢复页面无点击值，明确origin=page。换目标在等待stop前捕获局部点击时间，stop结束后同route一起提交origin=target，防止交错切换提前覆盖另一目标的起点。回退沿用本次目标起点，但每次实际内核尝试生成独立数字attempt。
+
+StartupTiming仅接受白名单枚举和单调时间；阶段请求开始/完成、Media3加载提交/首帧。请求完成MPV标first_frame_supported=false；Media3地址返回可单独分解request_ms，first_frame记录load_to_frame_ms。日志经页面协程IO写既有Logs。各阶段只报一次；失败、后台、离页和手动seek关闭测量，不影响播放控制。
+
+PlayerPage以controller/engine拥有测量，DisposableEffect早于起播effect登记真实Player.Listener。旧内核/目标释放撤监听并关闭对象；load提交前不接受首帧。既有Media3健康监测保留。
+
+变更文件：新增StartupTiming.kt与回归；DetailPage导航一个入口，PlayerPage阶段接线和收尾；不改核心和Route协议。回滚删除本批接线与新增文件，无配置迁移。

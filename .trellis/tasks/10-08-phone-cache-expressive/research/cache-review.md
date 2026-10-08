@@ -1,0 +1,11 @@
+# 缓存独立复核
+
+两次只读审查完成，主线程按出处点验。首次审查将活动.part截断后再写推测为超预算；复核确认每次put与trim均持mediaStore.Mutex，按当前Stat大小计算extra，keep不会绕过used+extra检查，空间不足拒绝写。新增真实HTTP并发弱验证流测试通过，第二次审查明确撤回该推测。
+
+核实：稳定账号/用户/媒体源与强ETag隔离；完整块Sync+rename后发布；SHA恢复/读回验证；Stop先取消连接并等待handler，再等worker后关盘；worker认领inFlight与游标推进同锁；clear禁写且关闭临时句柄，ready/live继续供给；活跃条目失效后可重取。
+
+新增mediaCacheOptions线路/授权变化保持稳定、账号/服务器/条目/源隔离测试。跨子进程测试初期发现同连接重复取数，根因是游标推进和inFlight登记分离；已原子化，并补锁住磁盘查找的确定性断言。跨进程重开连续20次无重复下载。相关race以及完整核心门禁通过。
+
+未验Windows实机、手机真实两内核切换/杀进程缓存复用/弱网、服务端实际ETag支持及首帧性能；静态审查与HTTP回归不替代设备验收。
+
+补充最终复核：ConfigureMediaCache不再吞掉淘汰失败，容量无法执行时setter拒绝并保留旧偏好；配置保存失败恢复偏好和预算。以cache/media被非目录文件占用的真实磁盘故障验证拒绝保存。新增UI保存回归捕获args助手将普通嵌套Map字符串化的故障，改为传JsonObject；51项Android回归全部通过。

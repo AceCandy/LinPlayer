@@ -1,8 +1,10 @@
 package xyz.linplayer.app
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
@@ -38,7 +40,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
+import xyz.linplayer.app.ui.components.PosterMotionHost
+import xyz.linplayer.app.ui.components.PosterScrollMotion
+import xyz.linplayer.app.ui.components.LocalPosterScroll
+import xyz.linplayer.app.ui.components.posterComposable
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
@@ -88,10 +93,8 @@ fun PhoneRoot(app: AppState) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
         LaunchedEffect(Unit) { app.boot() }
 
-        // 壁纸未就绪、透明或不能绘制时，也必须合成到当前主题底色。
+        // 手机使用固定主题底色，不绘制全局壁纸。
         Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
-            // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
-            xyz.linplayer.app.ui.plugin.WallpaperLayer()
             // 草稿画廊:`am start ... -e lp_page 'drafts:<n>'`。
             // ★ 放在登录判定**之前** —— 草稿不连网,不该被「还没登录」挡住
             val draft = MainActivity.SelfCheck.page?.takeIf { it.startsWith("drafts") }
@@ -161,11 +164,20 @@ private fun MainShell() {
     var activeTab by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(tab) { if (tab >= 0) activeTab = tab }
     var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
+    val density = LocalDensity.current.density
+    val posterScroll = remember(entry?.id, density) { PosterScrollMotion(density) }
+    LaunchedEffect(posterScroll, posterScroll.fast) {
+        while (posterScroll.fast) {
+            delay(T.T3.toLong())
+            posterScroll.settle()
+        }
+    }
     val threshold = with(LocalDensity.current) { 24.dp.toPx() }
-    val scroll = remember(entry?.id, threshold) {
+    val scroll = remember(entry?.id, threshold, posterScroll) {
         object : NestedScrollConnection {
             var travel = 0f
             override fun onPostScroll(consumed: Offset, available: Offset, source: NestedScrollSource): Offset {
+                posterScroll.onPostScroll(consumed, available, source)
                 if (source != NestedScrollSource.UserInput) return Offset.Zero
                 val dy = consumed.y + available.y
                 if (dy == 0f || kotlin.math.abs(consumed.x + available.x) > kotlin.math.abs(dy)) return Offset.Zero
@@ -216,76 +228,88 @@ private fun MainShell() {
         }
     }
 
+    val session by app.session.collectAsStateWithLifecycle()
+    val pageSlide = lpTween<androidx.compose.ui.unit.IntOffset>(T.T7, LpEasing.emphasizedDecelerate)
+    val pageScale = lpTween<Float>(T.T7, LpEasing.emphasizedDecelerate)
+    val pageFade = lpTween<Float>(T.T8, LinearEasing)
+    val exitFade = lpTween<Float>(T.T5, LinearEasing)
+    val popFade = lpTween<Float>(T.T6, LinearEasing)
+
     /* ☠ 底栏从「Column 里占一格」改成「Box 上叠一层」。
        占一格的话内容区被切短,底栏上面永远是一条硬边;叠一层之后轨道从它下面穿过去,
        滚动时是渐渐化掉 —— 这是草稿 01 第 4 条要的效果。
        代价是每个列表都得自己留白,所以底栏高度走 LocalTabClearance 下发。 */
     androidx.compose.runtime.CompositionLocalProvider(
         xyz.linplayer.app.ui.components.LocalTabClearance provides
-            if (browsePage) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp
+            if (browsePage) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp,
+        LocalPosterScroll provides posterScroll
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize()) {
         Box(Modifier.fillMaxSize().nestedScroll(scroll)) {
+            PosterMotionHost(nav, session?.let { it.server to it.userId }) {
             NavHost(
                 navController = nav,
                 startDestination = Route.Home,
-                // 页面转场:新页从右滑入 + 淡入。**Tab 之间只淡入不位移**(平级没有方向)
+                // 页面转场:新页从右滑入 + 淡入。Tab 之间轻缩放 + 淡入(平级没有方向)
                 enterTransition = {
-                    slideInHorizontally(tweenI(T.T7, LpEasing.emphasized)) { it / 8 } +
-                        fadeIn(tween(T.T7))
+                    val peers = initialState.destination.isTab() && targetState.destination.isTab()
+                    if (targetState.destination.hasRoute<Route.Detail>()) fadeIn(pageFade)
+                    else if (peers) scaleIn(pageScale, initialScale = .98f) + fadeIn(pageFade)
+                    else slideInHorizontally(pageSlide) { it / 10 } + fadeIn(pageFade)
                 },
-                exitTransition = { fadeOut(tween(T.T4)) },
-                popEnterTransition = { fadeIn(tween(T.T4)) },
+                exitTransition = { fadeOut(exitFade) },
+                popEnterTransition = { fadeIn(exitFade) },
                 popExitTransition = {
-                    slideOutHorizontally(tweenI(T.T7, LpEasing.emphasized)) { it / 6 } +
-                        fadeOut(tween(T.T5))
+                    if (initialState.destination.hasRoute<Route.Detail>()) fadeOut(popFade)
+                    else slideOutHorizontally(pageSlide) { it / 10 } + fadeOut(popFade)
                 },
             ) {
                 // 当前是插件数据源:首页换成数据源首页(D167),Emby 那一套它一样都没有
-                composable<Route.Home> { xyz.linplayer.app.ui.plugin.Takeover("home") {
+                posterComposable<Route.Home> { xyz.linplayer.app.ui.plugin.Takeover("home") {
                     val src by app.activeSource.collectAsStateWithLifecycle()
                     src?.let { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } ?: HomePage(nav)
                 } }
-                composable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
-                composable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
-                composable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
-                composable<Route.Detail> { xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) } }
-                composable<Route.Search> { xyz.linplayer.app.ui.plugin.Takeover("search") { SearchPage(nav, it) } }
-                composable<Route.Favorites> { xyz.linplayer.app.ui.plugin.Takeover("favorites") {
+                posterComposable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
+                posterComposable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
+                posterComposable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
+                posterComposable<Route.Detail> { xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) } }
+                posterComposable<Route.Search> { xyz.linplayer.app.ui.plugin.Takeover("search") { SearchPage(nav, it) } }
+                posterComposable<Route.Favorites> { xyz.linplayer.app.ui.plugin.Takeover("favorites") {
                     val src by app.activeSource.collectAsStateWithLifecycle()
                     if (src != null) xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) else FavoritesPage(nav)
                 } }
-                composable<Route.FavoriteCategory> {
+                posterComposable<Route.FavoriteCategory> {
                     val route = it.toRoute<Route.FavoriteCategory>()
                     FavoritesPage(nav, route.type, route.libraryId, route.title)
                 }
-                composable<Route.History> { xyz.linplayer.app.ui.plugin.Takeover("history") { xyz.linplayer.app.ui.pages.HistoryPage(nav) } }
-                composable<Route.Facet> { FacetPage(nav, it) }
-                composable<Route.Lines> { LinesPage(nav, it) }
-                composable<Route.Browse> { xyz.linplayer.app.ui.plugin.Takeover("browse") { BrowsePage(nav) } }
-                composable<Route.Downloads> { xyz.linplayer.app.ui.plugin.Takeover("downloads") { DownloadsPage(nav) } }
-                composable<Route.Plugins> { PluginsPage(nav, it) }
-                composable<Route.PluginDetail> { xyz.linplayer.app.ui.pages.PluginDetailPage(nav, it) }
-                composable<Route.PluginPage> { xyz.linplayer.app.ui.pages.PluginHostPage(nav, it) }
-                composable<Route.Extensions> { xyz.linplayer.app.ui.pages.ExtensionsPage(nav) }
-                composable<Route.SourceCategory> { xyz.linplayer.app.ui.pages.SourceCategoryPage(nav, it) }
-                composable<Route.SourceDetail> { xyz.linplayer.app.ui.pages.SourceDetailPage(nav, it) }
-                composable<Route.SourceFavorites> { xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) }
-                composable<Route.Ranking> { xyz.linplayer.app.ui.plugin.Takeover("ranking") { RankingPage(nav) } }
-                composable<Route.Calendar> { xyz.linplayer.app.ui.plugin.Takeover("calendar") { CalendarPage(nav) } }
-                composable<Route.Settings> { xyz.linplayer.app.ui.plugin.Takeover("settings") { SettingsPage(nav) } }
-                composable<Route.SettingsSub> { SettingsSubPage(nav, it) }
+                posterComposable<Route.History> { xyz.linplayer.app.ui.plugin.Takeover("history") { xyz.linplayer.app.ui.pages.HistoryPage(nav) } }
+                posterComposable<Route.Facet> { FacetPage(nav, it) }
+                posterComposable<Route.Lines> { LinesPage(nav, it) }
+                posterComposable<Route.Browse> { xyz.linplayer.app.ui.plugin.Takeover("browse") { BrowsePage(nav) } }
+                posterComposable<Route.Downloads> { xyz.linplayer.app.ui.plugin.Takeover("downloads") { DownloadsPage(nav) } }
+                posterComposable<Route.Plugins> { PluginsPage(nav, it) }
+                posterComposable<Route.PluginDetail> { xyz.linplayer.app.ui.pages.PluginDetailPage(nav, it) }
+                posterComposable<Route.PluginPage> { xyz.linplayer.app.ui.pages.PluginHostPage(nav, it) }
+                posterComposable<Route.Extensions> { xyz.linplayer.app.ui.pages.ExtensionsPage(nav) }
+                posterComposable<Route.SourceCategory> { xyz.linplayer.app.ui.pages.SourceCategoryPage(nav, it) }
+                posterComposable<Route.SourceDetail> { xyz.linplayer.app.ui.pages.SourceDetailPage(nav, it) }
+                posterComposable<Route.SourceFavorites> { xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) }
+                posterComposable<Route.Ranking> { xyz.linplayer.app.ui.plugin.Takeover("ranking") { RankingPage(nav) } }
+                posterComposable<Route.Calendar> { xyz.linplayer.app.ui.plugin.Takeover("calendar") { CalendarPage(nav) } }
+                posterComposable<Route.Settings> { xyz.linplayer.app.ui.plugin.Takeover("settings") { SettingsPage(nav) } }
+                posterComposable<Route.SettingsSub> { SettingsSubPage(nav, it) }
                 /* ☠ 加完服务器**必须重取一次会话**。只 popBackStack 的话:
                    `emby.login` 已经在核心层把活动服务器换成了新加的这台,
                    而 UI 手里那份 session 还是老的 —— 于是「当前是哪台」这件事
                    界面和核心层各说各话,退出重进(boot 一次)才对得上
                    (用户 2026-09-12:「显示目前服务器是新添加的结果还是原来的服务器,
                    退出重进才正常」)。 */
-                composable<Route.AddServer> {
+                posterComposable<Route.AddServer> {
                     GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
                 }
-                composable<Route.Player> { PlayerPage(nav, it) }
+                posterComposable<Route.Player> { PlayerPage(nav, it) }
+            }
             }
         }
         /* 播放页是全屏页,没有底栏。
@@ -314,11 +338,8 @@ private fun MainShell() {
     }
 }
 
-private fun tween(d: Int, easing: androidx.compose.animation.core.Easing = LpEasing.standard) =
-    androidx.compose.animation.core.tween<Float>(d, easing = easing)
-
-private fun tweenI(d: Int, easing: androidx.compose.animation.core.Easing = LpEasing.standard) =
-    androidx.compose.animation.core.tween<androidx.compose.ui.unit.IntOffset>(d, easing = easing)
+private fun androidx.navigation.NavDestination.isTab() =
+    hasRoute<Route.Home>() || hasRoute<Route.Aggregate>() || hasRoute<Route.Favorites>()
 
 /**
  * Toast。**位置:全站中部偏下**【用户定,三端统一】。
@@ -343,8 +364,8 @@ private fun ToastHost() {
     Box(Modifier.fillMaxSize().padding(bottom = 128.dp), contentAlignment = Alignment.BottomCenter) {
         AnimatedVisibility(
             visible = cur != null,
-            enter = slideInVertically(tweenI(T.T5, LpEasing.emphasizedDecelerate)) { it / 3 } + fadeIn(tween(T.T5)),
-            exit = fadeOut(tween(T.T4)),
+            enter = slideInVertically(lpTween(T.T5, LpEasing.emphasizedDecelerate)) { it / 3 } + fadeIn(lpTween(T.T5)),
+            exit = fadeOut(lpTween(T.T4)),
         ) {
             val t = cur
             Text(

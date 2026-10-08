@@ -1,0 +1,19 @@
+{
+  "bytes": 80371683,
+  "MiB": 76.64840984344482,
+  "sha256": "e4303f3adb8ecbad338302f201b5f8969ceda6cde50c51d05140e898e987d9fd",
+  "SO_count": 13,
+  "ABI": "arm64-v8a",
+  "signature_schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "signature_verification_min_sdk": 21,
+  "matches_assemble_output": true,
+  "related_tests": 103,
+  "new_home_dex_marker": true,
+  "old_waiting_and_row_reveal_absent": true,
+  "device_validation": false,
+  "home_coroutine_disassembly_verified": true
+}

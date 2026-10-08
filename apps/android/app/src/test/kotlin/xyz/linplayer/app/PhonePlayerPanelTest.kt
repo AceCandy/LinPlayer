@@ -35,6 +35,9 @@ import xyz.linplayer.app.data.long
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.tv.*
+import xyz.linplayer.app.ui.player.PlayerController
+import xyz.linplayer.app.ui.player.PlaybackSnapshot
+import xyz.linplayer.app.ui.player.TrackIdentity
 import xyz.linplayer.app.ui.player.PlayerPanel
 import xyz.linplayer.app.ui.player.trackLanguage
 import xyz.linplayer.app.ui.theme.LpTheme
@@ -285,6 +288,52 @@ class PhonePlayerPanelTest {
             rule.onNodeWithText("音轨读取失败").assertDoesNotExist()
             rule.onNodeWithText("这里没有可选项").assertDoesNotExist()
         } finally { oldResponse.complete(Unit) }
+    }
+
+    @Test fun 面板关闭后手选仍排在在途恢复后提交() {
+        val release = CompletableDeferred<Unit>()
+        val tracks = listOf(
+            buildJsonObject { put("id", "1"); put("kind", "audio"); put("lang", "zho"); put("title", "中文"); put("selected", true) },
+            buildJsonObject { put("id", "2"); put("kind", "audio"); put("lang", "eng"); put("title", "英语") })
+        val core = FakeCore().loggedIn().apply {
+            ret("player.tracks", arr(*tracks.toTypedArray()))
+            ret("player.stopPlayback", JsonNull)
+            ret("player.setTrack", JsonNull)
+        }
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "player.setTrack" && args.str("id") == "1") release.await()
+                return result
+            }
+        }
+        val app = AppState(port, scope)
+        runBlocking { app.boot() }
+        val controller = PlayerController("auto") { command, args -> app.call(command, args) }
+        runBlocking {
+            controller.tryFallback(androidx.media3.common.PlaybackException("测试解码失败", null,
+                androidx.media3.common.PlaybackException.ERROR_CODE_DECODER_INIT_FAILED),
+                PlaybackSnapshot(10.0, false, 1.0, 1f, audio = TrackIdentity("中文", "zh")))
+        }
+        controller.started()
+        val opened = mutableStateOf(true)
+        rule.setContent {
+            LpTheme { CompositionLocalProvider(LocalApp provides app) {
+                if (opened.value) PlayerPanel("audio", "episode", onTrackPicked = controller::trackPicked,
+                    onMpvTrackPick = controller::pickTrack, onClose = { opened.value = false })
+            } }
+        }
+        rule.waitForIdle()
+        rule.runOnIdle { scope.launch(start = CoroutineStart.UNDISPATCHED) { controller.restoreTracks(tracks) } }
+        try {
+            rule.onNodeWithText("英语").performClick()
+            rule.waitForIdle()
+            rule.onNodeWithText("英语").assertDoesNotExist()
+            assertEquals(listOf("1"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
+        } finally { rule.runOnIdle { release.complete(Unit) } }
+        rule.waitForIdle()
+        rule.waitUntil(5_000) { rule.runOnIdle { }; core.calls.count { it.first == "player.setTrack" } == 2 }
+        assertEquals(listOf("1", "2"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
     }
 
     @Test fun trackPanelUsesChineseLanguagesAndDispatchesSelection() {

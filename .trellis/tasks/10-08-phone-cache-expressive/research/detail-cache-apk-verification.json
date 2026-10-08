@@ -1,0 +1,18 @@
+{
+  "bytes": 80371690,
+  "MiB": 76.64841651916504,
+  "sha256": "f865c60cf72ae7af89956f14c184a5b506e9d1a201a359638434d8401a828e84",
+  "SO_count": 13,
+  "ABI": "arm64-v8a",
+  "signature_schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "signature_verification_min_sdk": 21,
+  "matches_assemble_output": true,
+  "related_tests": 119,
+  "detail_cache_dex_verified": true,
+  "continuous_poster_layer_dex_verified": true,
+  "device_validation": false
+}

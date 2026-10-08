@@ -82,7 +82,7 @@ import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.components.Dim2
 import xyz.linplayer.app.data.strList
-import coil3.compose.AsyncImage
+import xyz.linplayer.app.ui.components.NetImage
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -655,10 +655,10 @@ private fun IconDialog(a: Account, onClose: () -> Unit, onChanged: () -> Unit) {
                 items(items.size) { i ->
                     val e = items[i]
                     val url = e.str("url").orEmpty()
-                    AsyncImage(
-                        model = url, contentDescription = e.str("name"),
-                        modifier = Modifier.size(64.dp).clickable { scope.launch { use(url) } },
-                        contentScale = ContentScale.Fit,
+                    NetImage(
+                        url = url, desc = e.str("name"),
+                        m = Modifier.size(64.dp).clickable { scope.launch { use(url) } },
+                        corner = 0.dp, scale = ContentScale.Fit,
                     )
                 }
             }

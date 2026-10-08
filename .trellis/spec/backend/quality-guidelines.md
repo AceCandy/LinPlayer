@@ -51,3 +51,19 @@
 ### 7. 错误与正确做法
 错误：只 `preloader.Cancel()`，晚到的 `Warm()` 会重置取消标志。
 正确：取流传入独立 warmCtx，关键阶段复查 `ctx.Err()`；取消后等待在途代理创建退出，正式起播再继续。禁止为取消预热而关闭已发布的共享代理。
+
+## 运行期轨道可选语义
+
+`player.tracks` 的 `forced` 来自MPV track-list同名键，以`*bool`和`omitempty`透传：缺失/null为未知且省略，显式false保留。新增可选JSON字段不改变ABI或命令参数；既有default/selected/external不在该规则的本批改动范围。`TestParseTracksForcedJSON`验证真实解析→JSON，禁止把缺失属性补成false。
+
+## Android内核缓冲目标
+
+`Prefs.buffer_target_bytes`为0自动或64～512MiB整数，get/setPlaybackPrefs透传，非法输入拒绝且不改其它字段；保存失败恢复命令前内存偏好。旧/越界配置回自动，未知配置键继续保留。Android的loadWith和本地playFile共用commandLoad，本片demuxer-max-bytes与续播start拼在同一options槽位，回自动不覆盖原conf；桌面platformBufferTarget返回0。Test播放缓冲目标、TestBufferTarget配置兼容、Test缓冲目标兼容两种loadfile覆盖此契约。
+
+## 持久共享媒体缓存
+
+- 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合强ETag和总长。每次起播重新解析授权与探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
+- 4MiB块保持边收边吐与头尾固定槽；完整块附64字节位置/哈希头，临时写→Sync→关闭→rename才发布，恢复与读取校验损坏，索引不保存URL或账号原文。单片数据+元数据≤128MiB，全局默认1GiB含会话ring/持久块/索引/在途临时写，TTL7天与LRU在访问/配置时执行。
+- 磁盘读写/清理/淘汰共用屏障，活动条目可安全失效重取，不能无限pin超预算；写盘失败由连接内有界ready载体继续供给，消费后释放。Close取消origin与连接并等worker退出，再关盘，保留完整持久块。清理关闭活动临时文件兼容Windows，旧句柄禁写。
+- worker认领inFlight和推进fetchCursor必须同锁原子完成；否则供给端会误判被淘汰而重复下载。取数取消后已收到的完整已验证块可提交，残块不可发布。
+- prefs.media_cache_bytes=0或64MiB～4GiB整数，旧配置默认1GiB；setter部分更新保留省略字段、保存失败回滚，再收紧预算。真实HTTP回归覆盖授权更新、账号/版本隔离、弱/缺失ETag、错误Range、跨进程恢复、损坏/半写、单片/全局预算、并发弱校验流、TTL/LRU、活动清理与Stop；运行prefetch/player/preload竞态检查。

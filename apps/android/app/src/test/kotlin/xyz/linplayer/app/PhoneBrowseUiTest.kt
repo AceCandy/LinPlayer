@@ -60,6 +60,7 @@ class PhoneBrowseUiTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val dark = mutableStateOf(false)
+    private lateinit var navigation: androidx.navigation.NavHostController
     private val serverName = "这是一台名字非常长的电影与剧集服务器"
 
     @After fun clean() { scope.cancel(); PageCache.clear() }
@@ -81,6 +82,7 @@ class PhoneBrowseUiTest {
                 CompositionLocalProvider(LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
                     val nav = rememberNavController()
+                    navigation = nav
                     NavHost(nav, startDestination = route) {
                         composable<Route.Aggregate> { AggregatePage(nav) }
                         composable<Route.Favorites> { FavoritesPage(nav) }
@@ -529,6 +531,142 @@ class PhoneBrowseUiTest {
         core.ret("source.aggregateSearch", arr())
         pullDown()
         rule.waitUntil(5000) { core.calls.count { it.first == "source.aggregateSearch" } == 3 }
+        assertEquals(1, core.calls.count { it.first == "emby.search" })
+    }
+
+    @Test fun separateSearchEntriesKeepTheirOwnLibraryQueries() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(item("entry-result", "独立结果")))
+        open(core, Route.Search(q = "第一词", viewId = "library-one"))
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 1 }
+        rule.runOnIdle { navigation.navigate(Route.Search(q = "第二词", viewId = "library-two")) }
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
+        rule.onNode(hasSetTextAction()).assertTextContains("第二词")
+        assertEquals("library-two", core.calls.last { it.first == "emby.search" }.second.str("parent_id"))
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        rule.onNode(hasSetTextAction()).assertTextContains("第一词")
+        rule.onNodeWithText("独立结果").assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "emby.search" })
+    }
+
+    @Test fun aggregatePluginPosterLongPressFavoritesItsSource() {
+        val delegate = FakeCore().loggedIn()
+        delegate.ret("emby.search", page())
+        delegate.ret("source.setFavorite", JsonObject(emptyMap()))
+        val picked = buildJsonObject { put("id", "source-result"); put("title", "插件结果"); put("source", "plugin-origin") }
+        val row = buildJsonObject {
+            put("server_id", "plugin-row"); put("server_name", "插件服"); put("kind", "plugin"); put("items", arr(picked))
+        }
+        val core = object : CorePort by delegate {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "source.aggregateSearch") return delegate.callJson(command, args, onPartial)
+                onPartial?.invoke(row)
+                return arr(row)
+            }
+        }
+        open(core, Route.Search(q = "插件"))
+        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("插件结果").performTouchInput { longClick() }
+        rule.onNodeWithText("查看详情").assertIsDisplayed()
+        rule.onNodeWithText("收藏").performClick()
+        rule.waitUntil(5000) { delegate.calls.any { it.first == "source.setFavorite" } }
+        val args = delegate.calls.last { it.first == "source.setFavorite" }.second!!
+        assertEquals("plugin-origin", args.str("server_id"))
+        assertEquals(picked, args["item"])
+        assertEquals("true", args["favorite"].toString())
+    }
+
+    @Test fun aggregateSearchReturnsWithRowsAndRoutesMenuToOrigin() {
+        val delegate = FakeCore().loggedIn()
+        delegate.ret("emby.search", page())
+        delegate.ret("emby.setFavorite", JsonObject(emptyMap()))
+        val row = buildJsonObject {
+            put("server_id", "other-account"); put("server_name", "其它服"); put("kind", "emby")
+            put("emby_items", arr(item("cross-result", "跨服结果")))
+        }
+        var searches = 0
+        val core = object : CorePort by delegate {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "source.aggregateSearch") return delegate.callJson(command, args, onPartial)
+                searches++
+                onPartial?.invoke(row)
+                return arr(row)
+            }
+        }
+        open(core, Route.Search(q = "跨服"))
+        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("跨服结果").performTouchInput { longClick() }
+        rule.onNodeWithText("下载").assertDoesNotExist()
+        rule.onNodeWithText("收藏").performClick()
+        rule.waitUntil(5000) { delegate.calls.any { it.first == "emby.setFavorite" } }
+        assertEquals("other-account", delegate.calls.last { it.first == "emby.setFavorite" }.second.str("server_id"))
+        rule.onNodeWithText("跨服结果").performClick()
+        rule.onNodeWithText("详情目标：cross-result").assertIsDisplayed()
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        rule.onNodeWithText("跨服结果").assertIsDisplayed()
+        rule.onNodeWithContentDescription("关闭聚合搜索").assertIsSelected()
+        assertEquals(1, searches)
+        rule.onNode(hasSetTextAction()).performTextReplacement("新词")
+        rule.onNode(hasSetTextAction()).performImeAction()
+        rule.waitForIdle()
+        assertEquals(2, searches)
+    }
+
+    @Test fun searchReturnsWithTypedQueryResultsAndScrollWithoutRequest() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(*(1..60).map { item("return-$it", "返回结果 $it") }.toTypedArray()))
+        open(core, Route.Search())
+        rule.onNode(hasSetTextAction()).performTextInput("返回词")
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        rule.onNodeWithTag("search.results").performScrollToIndex(20)
+        rule.onNodeWithText("返回结果 60").performClick()
+        rule.onNodeWithText("详情目标：return-60").assertIsDisplayed()
+        rule.onNodeWithTag("search.results").assertDoesNotExist()
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        rule.onNode(hasSetTextAction()).assertTextContains("返回词")
+        rule.onNodeWithText("返回结果 60").assertIsDisplayed()
+        assertEquals(1, core.calls.count { it.first == "emby.search" })
+        rule.onNode(hasSetTextAction()).performImeAction()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
+    }
+
+    @Test fun searchPosterLongPressHasSharedActionsWithoutBlocking() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(item("menu-search", "菜单结果")))
+        open(core, Route.Search(q = "菜单"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("菜单结果").performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").assertIsDisplayed()
+        rule.onNodeWithText("下载").assertIsDisplayed()
+        rule.onNodeWithText("屏蔽这个条目").assertDoesNotExist()
+        rule.onNodeWithText("收藏").performClick()
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.setFavorite" } }
+        assertEquals("menu-search", core.calls.last { it.first == "emby.setFavorite" }.second.str("item_id"))
+        rule.onNodeWithText("详情目标：menu-search").assertDoesNotExist()
+    }
+
+    @Test fun searchOnlyComposesNearbyPosterRowsAndCanOpenLastResult() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(*(1..60).map {
+            item("lazy-search-${it % 3}", "性能结果 $it", year = 2024)
+        }.toTypedArray()))
+        open(core, Route.Search(q = "性能"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        val captions = rule.onAllNodes(hasText("性能结果", substring = true), useUnmergedTree = true).fetchSemanticsNodes()
+        println("search_composed_posters=${captions.size}")
+        assertTrue("only nearby rows should compose, actual=${captions.size}", captions.size in 1..18)
+        rule.onNodeWithText("性能结果 60").assertDoesNotExist()
+        rule.onNodeWithTag("search.results").performScrollToIndex(20)
+        rule.onNodeWithText("性能结果 60").assertIsDisplayed().performClick()
+        rule.onNodeWithText("详情目标：lazy-search-0").assertIsDisplayed()
         assertEquals(1, core.calls.count { it.first == "emby.search" })
     }
 

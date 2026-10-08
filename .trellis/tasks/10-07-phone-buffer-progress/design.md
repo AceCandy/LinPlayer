@@ -1,0 +1,9 @@
+# 设计
+
+只改PlayerPage.kt生产状态、Osd与ProgressRow及对应回归；同页换片通过controller/engine key隔离。新增buffered状态，起播及切目标立即清0。Media3在原250ms轮询取得bufferedPosition；MPV事件无buffered，因此以controller/engine/controlsVisible/exo/lifecycleOwner为key在控件实际可见、RESUMED且ready时每秒调用已有player.status。核心已有demuxer-cache-time绝对前沿命令不修改。异步返回后ensureActive并检查ready，失败/缺值变0不留陈旧缓存。隐藏/后台后再次显示先清旧值再取新状态；controlsVisible与AnimatedVisibility共用同一条件，锁屏或转屏等待时不查询。
+
+显示端对时长和buffered有限数值做钳位。保留Slider原触摸/键盘/语义/thumb，通过Material3当前版本已有track槽以Canvas绘制底色、浅色缓冲、既有已播颜色；拖动沿用原live状态，缓冲值变化不重置拖动。轨道圆角、4dp厚，不改变命中区。已缓冲至时间通过stateDescription给辅助功能读取。
+
+seek期间不承诺区间完整性：内核buffered是单个前沿，只显示当前读数，buffered落后于播放/预览头时已播覆盖它，不造新缓冲段。跳转后下一次采样更新；不是任意离散磁盘缓存范围。MPV隐藏OSD不增加该查询。
+
+回滚删除状态采样和buffered参数/自定义轨道，保留前批seek/诊断代码。

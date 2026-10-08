@@ -6,6 +6,8 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Typography
+import androidx.compose.material3.Shapes
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -14,12 +16,17 @@ import androidx.compose.runtime.Immutable
 import androidx.compose.runtime.ProvidableCompositionLocal
 import androidx.compose.runtime.compositionLocalOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -98,6 +105,7 @@ object Sp {
 /** 圆角刻度。8=小件 · 12=卡片 · 18=弹窗面板 · 999=胶囊 */
 object R {
     val none = 0.dp; var sm = 8.dp; var md = 12.dp; val lg = 18.dp; var pill = 999.dp
+    val xl = 28.dp
 }
 
 /** 固定尺寸。超过 48 的偏移不许写字面数字,抽成这里的具名常量 */
@@ -135,22 +143,17 @@ private fun lpTypography(f: FontFamily?) = Typography(
 )
 
 /**
- * 用户导入的界面字体。
- *
- * ☠ **文件不在就当没设过,不许抛。** 路径存在偏好里,而文件可能被清数据、换机恢复
- *   之后就没了 —— 那时整个应用不该起不来,只是回到默认字体。
- * ★ 用 `Typeface.createFromFile` 而不是 Compose 的 `Font(File)`:后者要 API 26,
- *   本应用 minSdk 是 24。
+ * 内置静态字体资源，兼容API24；粗字由字体族合成，不使用变量字体轴。
  */
 @Composable
 private fun userFontFamily(): FontFamily? {
-    val path = xyz.linplayer.app.data.UiPrefs.uiFont.value
-    return remember(path) {
-        if (path.isBlank()) null
-        else runCatching {
-            val f = java.io.File(path)
-            if (f.isFile) FontFamily(android.graphics.Typeface.createFromFile(f)) else null
-        }.getOrNull()
+    val id = xyz.linplayer.app.data.UiPrefs.uiFont.value
+    return remember(id) {
+        when (id) {
+            "sans" -> FontFamily(Font(xyz.linplayer.app.R.font.noto_sans_sc_regular))
+            "serif" -> FontFamily(Font(xyz.linplayer.app.R.font.noto_serif_sc_regular))
+            else -> null
+        }
     }
 }
 
@@ -168,7 +171,14 @@ fun LpTheme(
     val dark = darkOverride ?: isSystemInDarkTheme()
     val c = if (dark) DarkColors else LightColors
     val ctx = LocalContext.current
-    val motion = remember(ctx) { animatorScale(ctx) }
+    var motion by remember(ctx) { mutableFloatStateOf(animatorScale(ctx)) }
+    DisposableEffect(ctx) {
+        val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
+            override fun onChange(selfChange: Boolean) { motion = animatorScale(ctx) }
+        }
+        ctx.contentResolver.registerContentObserver(Settings.Global.getUriFor(Settings.Global.ANIMATOR_DURATION_SCALE), false, observer)
+        onDispose { ctx.contentResolver.unregisterContentObserver(observer) }
+    }
 
     // M3 的 ColorScheme 仍然要给:M3 组件(Slider / Switch / Chip)读的是它。
     // 我们自己的组件读 LocalLpColors,两套值必须一致,否则同一屏上会出现两种蓝
@@ -189,7 +199,10 @@ fun LpTheme(
     val family = userFontFamily()
     val typo = remember(family) { lpTypography(family) }
     CompositionLocalProvider(LocalLpColors provides c, LocalMotionScale provides motion) {
-        MaterialTheme(colorScheme = scheme, typography = typo) {
+        MaterialTheme(colorScheme = scheme, typography = typo, shapes = Shapes(
+            extraSmall = RoundedCornerShape(R.sm), small = RoundedCornerShape(R.md),
+            medium = RoundedCornerShape(R.lg), large = RoundedCornerShape(R.xl), extraLarge = RoundedCornerShape(R.xl),
+        )) {
             CompositionLocalProvider(
                 LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = family),
                 content = content,

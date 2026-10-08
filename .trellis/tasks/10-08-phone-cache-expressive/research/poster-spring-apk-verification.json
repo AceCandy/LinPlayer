@@ -1,0 +1,21 @@
+{
+  "bytes": 80371690,
+  "MiB": 76.64841651916504,
+  "sha256": "6e3e7b65387e43df07df2c9f9494494e641fbfeca82bd4bc4edf5c1d693db968",
+  "SO_count": 13,
+  "ABI": "arm64-v8a",
+  "signature_schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "min_sdk_verification": 21,
+  "release_dex_owners": {
+    "xyz.linplayer.app.ui.components.PosterEntranceBatch": "xyz.linplayer.app.ui.components.PosterEntranceBatch",
+    "xyz.linplayer.app.ui.components.PosterMotionKt$posterEntrance$1$1": "xyz.linplayer.app.ui.components.PosterMotionKt$posterEntrance$1$1",
+    "xyz.linplayer.app.ui.components.PosterScrollMotion": "xyz.linplayer.app.ui.components.PosterScrollMotion"
+  },
+  "matches_assemble_output": true,
+  "related_tests": 92,
+  "device_validation": false
+}

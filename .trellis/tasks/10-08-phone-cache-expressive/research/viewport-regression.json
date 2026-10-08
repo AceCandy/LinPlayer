@@ -1,0 +1,89 @@
+{
+  "source": "完整回归结束时已读取XML并在工具输出核对；之后单独记录加载态截图运行会替换Gradle XML目录，本文件保存此前核对结果",
+  "suites": [
+    {
+      "name": "DetailCacheTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneBrowseUiTest",
+      "tests": 26,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneDetailCacheTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneDetailOptionsTest",
+      "tests": 12,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneHomeRefreshTest",
+      "tests": 17,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneLibraryUiTest",
+      "tests": 9,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneManagementUiTest",
+      "tests": 6,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneMediaCacheSettingsTest",
+      "tests": 2,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneMotionTest",
+      "tests": 4,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhonePosterMotionTest",
+      "tests": 30,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PhoneThemeTest",
+      "tests": 8,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "PluginNavTest",
+      "tests": 5,
+      "failures": 0,
+      "errors": 0
+    },
+    {
+      "name": "ResumeCardTest",
+      "tests": 7,
+      "failures": 0,
+      "errors": 0
+    }
+  ],
+  "total": {
+    "tests": 143,
+    "failures": 0,
+    "errors": 0
+  },
+  "device_validation": false
+}

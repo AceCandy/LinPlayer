@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "范围、隐私与验证"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "双内核与生命周期契约"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "组合释放与失效请求"}
+{"file": ".trellis/tasks/10-07-player-reference-research/research/player-reference-report.md", "reason": "首帧与卡顿分类来源"}

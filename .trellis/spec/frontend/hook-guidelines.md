@@ -11,3 +11,5 @@
 - 测试必须给旧请求完成的机会，再断言它未改写新状态；不能在清理已使候选集为空后得到假绿。Compose 用例切面板/目标或离页后，先等待组合更新并断言新内容/旧组件移除，再释放旧请求；仅修改 state 不代表旧 effect 已取消。
 
 代表路径：[手机媒体库](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/LibraryPage.kt)、[手机详情](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/DetailPage.kt)、[桌面媒体库](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面核心接入](../../../apps/windows/LinPlayer.Desktop/Core/CoreClient.cs)。
+
+- LaunchedEffect 的请求放行条件必须与 key 使用同一个不可变快照，不能 key 读取 detail.valueOrNull、协程开始后再读取可变 detail；同步完成的前序请求可能使旧 key 的effect先发请求，再因新 key 重发。详情季加载以seasonDetail快照放行，回归断言初次一次、局部重试一次。

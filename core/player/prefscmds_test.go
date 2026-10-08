@@ -236,3 +236,49 @@ func Test画面增强档位记得住(t *testing.T) {
 		t.Fatalf("当前这一次该是关着的,拿到 %q", got)
 	}
 }
+
+// 缓冲目标必须真正落库，非法输入不能被静默忽略或截断。
+func Test播放缓冲目标保存自动及拒绝非法值(t *testing.T) {
+	setup(t)
+	for i, value := range []any{float64(128 * 1024 * 1024), float64(0), float64(512 * 1024 * 1024)} {
+		r := call(t, int64(810+i), "player.setPlaybackPrefs", map[string]any{"buffer_target_bytes": value})
+		if !r.OK {
+			t.Fatal(r.Msg)
+		}
+		r = call(t, int64(820+i), "player.getPlaybackPrefs", nil)
+		var got map[string]any
+		if err := json.Unmarshal(r.Data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if got["buffer_target_bytes"] != value {
+			t.Fatalf("目标未保存/回显: %v", got["buffer_target_bytes"])
+		}
+		if _, err := config.Load(); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for i, value := range []any{float64(-1), float64(1), float64(513 * 1024 * 1024), float64(64*1024*1024) + 0.5, "128", nil} {
+		r := call(t, int64(830+i), "player.setPlaybackPrefs", map[string]any{"buffer_target_bytes": value, "skip_intro": true})
+		if r.OK || r.Code != bus.EInvalid {
+			t.Fatalf("非法值%v必须拒绝: %+v", value, r)
+		}
+		if config.Current().PrefsOf().SkipIntro {
+			t.Fatal("拒绝时不能改其它偏好")
+		}
+	}
+}
+
+// 失败回滚要保护核心内存，否则界面回到自动后下次仍用未保存容量。
+func Test播放缓冲保存失败回滚内存(t *testing.T) {
+	setup(t)
+	if err := os.Mkdir(paths.ConfigFile(), 0700); err != nil {
+		t.Fatal(err)
+	}
+	r := call(t, 850, "player.setPlaybackPrefs", map[string]any{"buffer_target_bytes": float64(128 * 1024 * 1024)})
+	if r.OK {
+		t.Fatal("配置文件被目录占用时不能假装保存成功")
+	}
+	if config.Current().PrefsOf().BufferTargetBytes != 0 {
+		t.Fatal("保存失败留下未保存的容量")
+	}
+}

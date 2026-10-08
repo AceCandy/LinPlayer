@@ -1,0 +1,9 @@
+# 设计
+
+当前TrackIdentity保存标题、语言与同类序号，matchingTrack在重复匹配或无标签时使用旧序号。Media3和mpv运行期轨表顺序不能互相证明身份，因此这一兜底可能选错音轨/字幕。
+
+最小修复：删除TrackIdentity.ordinal及snapshot内计数。matchingTrack只有至少一个有效标题或语言且候选唯一时返回；其余返回null。继续沿用现有语言规范化和严格标题比较，不从标题推断forced/SDH。
+
+pendingAudio/pendingSubtitle继续仅成功提交时清理，手选清对应pending，subOff继续独立恢复关闭且跳过字幕匹配。全局偏好与新内核原生选轨规则不变；拒选只表示不覆盖当前选择。
+
+修改PlayerController.kt、PlayerControllerTest.kt及Android规范；无公共接口/数据格式变化。回滚这一小段逻辑与测试即可。缺少标签或标签差异的媒体会保留新内核选择，用户可手选；唯一标签仍不能证明forced/SDH属性相同，完整语义增强未实现。

@@ -21,3 +21,6 @@ func videoOutReady() bool { return rctxSet.Load() }
 // platformOptions:桌面没有平台专属的 mpv 选项。返回 nil 让 ensureMpv 的
 // 追加是空操作 —— baseOptions 的输出因此一字不变,它那条测试照样钉得住。
 func platformOptions() [][2]string { return nil }
+
+// 桌面保持原有mpv.conf缓冲策略，本设置只在Android使用。
+func platformBufferTarget() int64 { return 0 }

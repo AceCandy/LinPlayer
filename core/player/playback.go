@@ -140,12 +140,17 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		histCh <- buildPlaybackHistoryContext(histCtx, s, itemID, prefs.CrossServerResume || prefs.PrimaryProgressServer != nil)
 	}()
 
+	resolveAt := time.Now()
 	target, err := prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+	bus.Logf("info", "phase=startup_resolve elapsed_ms=%d success=%t", time.Since(resolveAt).Milliseconds(), err == nil)
 	if err != nil {
 		return nil, err
 	}
 
+	proxyAt := time.Now()
 	playURL := startPrefetch(ctx, s, target, prefs)
+	bus.Logf("info", "phase=startup_proxy elapsed_ms=%d", time.Since(proxyAt).Milliseconds())
+	historyAt := time.Now()
 
 	var whCtx *historyContext
 	select {
@@ -153,6 +158,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	case <-ctx.Done():
 		return nil, ctx.Err()
 	}
+	bus.Logf("info", "phase=startup_history_wait elapsed_ms=%d", time.Since(historyAt).Milliseconds())
 	// 负数 = 调用方明说从头放:服务端进度、跨服续播、看完回零这一整段都不许再改它
 	fromStart := resumeSecs < 0
 	if fromStart {
@@ -161,9 +167,11 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	var primary *progress.Link
 	var primaryState *emby.ProgressSnapshot
 	if prefs.PrimaryProgressServer != nil && whCtx != nil {
+		progressAt := time.Now()
 		primaryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		primary, primaryState, err = progress.Shared().Prepare(primaryCtx, prefsClient, c, s, whCtx.candidate, whCtx.seriesTmdbID, target.MediaSourceID, target.RunTimeTicks)
 		cancel()
+		bus.Logf("info", "phase=startup_primary_progress elapsed_ms=%d success=%t", time.Since(progressAt).Milliseconds(), err == nil)
 		if err != nil {
 			progress.Shared().Note("主服进度未能采用，已按所在服进度播放")
 			bus.Emit("progress.primary", map[string]any{"message": "主服进度未能采用，已按所在服进度播放"}, "")
@@ -228,6 +236,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	bus.Logf("info", "PLAY item=%s resume=%.1f psid=%s method=%s",
 		itemID, resumeSecs, target.PlaySessionID, target.PlayMethod)
 
+	engineAt := time.Now()
 	// 画面增强按剧记:先定这一片属于哪部剧,applyPlaybackDefaults 才挂得对档位
 	setShaderScope(seriesScope(s.Server, whCtx))
 	if useMpv {
@@ -281,6 +290,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		go enrichHistoryContext(target, *s, whCtx)
 	}
 
+	bus.Logf("info", "phase=startup_engine_setup elapsed_ms=%d mpv=%t first_frame_verified=false", time.Since(engineAt).Milliseconds(), useMpv)
 	return &PlayResult{
 		ResumeSecs:    resumeSecs,
 		PlaySessionID: target.PlaySessionID,
@@ -334,7 +344,7 @@ func startPrefetch(ctx context.Context, s *emby.Session, target *emby.PlaybackTa
 	}
 	proxyMu.Unlock()
 
-	h := proxyFor(ctx, target.URL, p, on)
+	h := proxyFor(ctx, target.URL, p, on, mediaCacheOptions(s, target))
 	if h == nil {
 		return target.URL
 	}

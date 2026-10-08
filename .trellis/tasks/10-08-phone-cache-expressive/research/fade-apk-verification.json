@@ -1,0 +1,24 @@
+{
+  "bytes": 80371687,
+  "MiB": 76.64841365814209,
+  "sha256": "f9f1704d155691efe4bd409b83994d774b4d205c87129094f5cd6744b380cf71",
+  "SO_count": 13,
+  "ABI": "arm64-v8a",
+  "signature_schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "signature_verification_min_sdk": 21,
+  "matches_assemble_output": true,
+  "related_tests": 139,
+  "net_image_reveal_flag_and_linear_fade_dex_verified": true,
+  "detail_media_ui_markers_in_final_dex": [
+    "detail.options",
+    "detailOptions",
+    "detailMedia",
+    "正在读取播放选项…",
+    "播放选项读取失败："
+  ],
+  "device_validation": false
+}

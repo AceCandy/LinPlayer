@@ -384,30 +384,12 @@ internal fun FavButton(app: AppState, scope: CoroutineScope, itemId: String, ini
     })
 }
 
-/** 「更多」里的屏蔽:二级内容说明后果再确认,成功后离开这一页。 */
+/** 详情更多操作沿用侧栏，条目屏蔽不再提供。 */
 internal fun Overlay.openMore(
-    title: String, app: AppState, nav: TvNav, scope: CoroutineScope, blockId: String, blockName: String,
+    title: String,
     items: @Composable (close: () -> Unit) -> Unit,
 ) {
-    open {
-        var level by remember { mutableIntStateOf(0) }
-        TvSidePanel(title, { close() }, back = if (level == 1) ({ level = 0 }) else null) {
-            if (level == 1) {
-                PanelItem("屏蔽「$blockName」", sub = "屏蔽后它不会再出现在首页、媒体库和搜索里。", enabled = false)
-                PanelItem("确认屏蔽", danger = true, focused = true, onClick = {
-                    scope.launch {
-                        runCatching { app.call("emby.setBlocked", args("id" to blockId, "name" to blockName, "blocked" to true)) }
-                            .onSuccess { close(); app.toast("已屏蔽「$blockName」", ToastKind.Ok); nav.pop() }
-                            .onFailure { app.report(it) }
-                    }
-                })
-                return@TvSidePanel
-            }
-            items { close() }
-            PanelGroup("危险")
-            PanelItem("屏蔽", danger = true, chevron = true, onClick = { level = 1 })
-        }
-    }
+    open { TvSidePanel(title, { close() }) { items { close() } } }
 }
 
 @Composable
@@ -545,7 +527,7 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
             FavButton(app, scope, id, d.bool("is_favorite"), "detail.fav")
             TvButton("更多", LpIcons.more, modifier = Modifier.memo("detail.more"), onClick = {
                 val played = d.bool("played")
-                overlay.openMore(d.str("name") ?: "", app, nav, scope, id, d.str("name") ?: "") { close ->
+                overlay.openMore(d.str("name") ?: "") { close ->
                     PanelItem(if (played) "标记整部未看" else "标记整部已看", focused = true, onClick = {
                         scope.launch {
                             runCatching { app.call("emby.setPlayed", args("item_id" to id, "played" to !played)) }
@@ -751,7 +733,7 @@ private fun MovieBody(id: String, d: JsonObject, overlay: Overlay, scope: Corout
                 val played = d.bool("played")
                 scope.launch {
                     val dl = canDownload(app)
-                    overlay.openMore(title, app, nav, scope, id, title) { close ->
+                    overlay.openMore(title) { close ->
                         PanelItem(if (played) "标记未看" else "标记已看", focused = true, onClick = {
                             scope.launch {
                                 runCatching { app.call("emby.setPlayed", args("item_id" to id, "played" to !played)) }

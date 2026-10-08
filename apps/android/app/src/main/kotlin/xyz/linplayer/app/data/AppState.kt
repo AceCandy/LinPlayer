@@ -21,11 +21,10 @@ import xyz.linplayer.app.core.CorePort
 /**
  * 全局状态:会话 / 能力集 / 图片地址 / 失效广播。
  *
- * ★ **UI 侧不再自己做缓存层**:核心层已经发 `data.invalidate` 事件了(SPEC §5.8),
- *   再养一份缓存等于把失效时机在 UI 抄一遍,抄错还不报错。
- *   这里只把事件转成一条 Flow,页面订阅了就重取。
+ * 业务状态仍由核心负责；详情缓存只保留展示资料，每次进入后台刷新。
+ * 失效事件转成 Flow，由页面按自己的请求生命周期重取。
  */
-class AppState(val core: CorePort, scope: CoroutineScope) {
+class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: DetailCache = DetailCache()) {
 
     /**
      * 收尾用的作用域。**寿命跟进程,不跟 composition。**

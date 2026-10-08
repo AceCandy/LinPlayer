@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "作用域、状态归属与恢复契约"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "作用域、状态归属与恢复契约"}
+{"file": ".trellis/spec/backend/database-guidelines.md", "reason": "作用域、状态归属与恢复契约"}
+{"file": ".trellis/spec/shared/development.md", "reason": "作用域、状态归属与恢复契约"}
+{"file": ".trellis/tasks/10-07-series-track-memory/design.md", "reason": "作用域、状态归属与恢复契约"}

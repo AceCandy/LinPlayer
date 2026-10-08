@@ -11,6 +11,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"linplayer/core/paths"
 )
@@ -168,13 +169,15 @@ func (l *live) isDone() bool {
 // 磁盘占用**恒定 = 用户设的缓存上限**。整片直存看着简单,但随手就有 29.6GB 的片子
 // —— 顺序看完一遍就把用户硬盘吃掉 29.6GB,这和「内存爆掉」是同一个错误换了个介质。
 type diskCache struct {
-	mu sync.Mutex // 同时保护 slots 与文件读写
+	mu *sync.Mutex // 同时保护 slots、文件读写与全局清理
 	f  *os.File
 	// slots 槽位 -> 当前存的分段号。slots[c%ring] == c 才算命中。
-	slots map[int64]int64
-	ring  int64
-	path  string
-	total int64
+	slots         map[int64]int64
+	ring          int64
+	path          string
+	total         int64
+	persistent    bool
+	storeDisabled bool
 }
 
 // sweepOrphans 清掉**别的进程**留下的分段缓存文件。
@@ -211,6 +214,8 @@ var cacheSeq struct {
 // 同一部片 total 当然相同。一旦重名,后来者把文件截断清零,而前者的 slots 表在内存里
 // 仍然认为那些段「就绪」→ 前者读回一整块**稀疏零**并当作有效数据发给播放器。
 func newDiskCache(total, cacheBytes int64, threads int) (*diskCache, error) {
+	mediaStore.Lock()
+	defer mediaStore.Unlock()
 	dir := paths.PrefetchCache()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err
@@ -236,7 +241,9 @@ func newDiskCache(total, cacheBytes int64, threads int) (*diskCache, error) {
 	if want < 1 {
 		want = 1
 	}
-	return &diskCache{f: f, slots: map[int64]int64{}, ring: want, path: path, total: total}, nil
+	d := &diskCache{mu: &mediaStore.Mutex, f: f, slots: map[int64]int64{}, ring: want, path: path, total: total}
+	mediaStore.disks[d] = true
+	return d, nil
 }
 
 /*
@@ -296,6 +303,15 @@ func (d *diskCache) off(c int64) int64 { return d.slotOf(c) * ChunkSize }
 func (d *diskCache) has(c int64) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.storeDisabled {
+		return false
+	}
+	if d.persistent {
+		if _, err := os.Stat(d.blockPath(d.slotOf(c))); err != nil {
+			delete(d.slots, d.slotOf(c))
+			return false
+		}
+	}
 	v, ok := d.slots[d.slotOf(c)]
 	return ok && v == c
 }
@@ -313,8 +329,22 @@ func (d *diskCache) has(c int64) bool {
 func (d *diskCache) put(c int64, data []byte) bool {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.storeDisabled {
+		return false
+	}
+	if d.persistent {
+		return d.putPersistentLocked(c, data)
+	}
 	slot := d.slotOf(c)
 	delete(d.slots, slot) // 写到一半被读走 = 脏数据,先失效
+	st, err := d.f.Stat()
+	if err != nil {
+		return false
+	}
+	extra := max64(0, d.off(c)+int64(len(data))-st.Size())
+	if mediaStore.budget <= 0 || trimMediaLocked(extra, d.path) != nil {
+		return false
+	}
 	if _, err := d.f.WriteAt(data, d.off(c)); err != nil {
 		return false
 	}
@@ -330,8 +360,21 @@ func (d *diskCache) put(c int64, data []byte) bool {
 func (d *diskCache) get(c int64, length int) []byte {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.storeDisabled {
+		return nil
+	}
 	if v, ok := d.slots[d.slotOf(c)]; !ok || v != c {
 		return nil // 已被挤掉
+	}
+	if d.persistent {
+		found, b := d.readBlockLocked(d.slotOf(c))
+		if found != c || len(b) != length {
+			delete(d.slots, d.slotOf(c))
+			return nil
+		}
+		now := time.Now()
+		_ = os.Chtimes(d.path, now, now)
+		return b
 	}
 	buf := make([]byte, length)
 	if _, err := d.f.ReadAt(buf, d.off(c)); err != nil {
@@ -344,14 +387,29 @@ func (d *diskCache) get(c int64, length int) []byte {
 func (d *diskCache) close() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	_ = d.f.Close()
-	_ = os.Remove(d.path)
+	delete(mediaStore.disks, d)
+	d.storeDisabled = true
+	d.slots = map[int64]int64{}
+	if !d.persistent {
+		_ = d.f.Close()
+		_ = os.Remove(d.path)
+	}
 }
 
 // sizeOnDisk 当前文件实际长度。测试用:验「占用恒 = 上限」。
 func (d *diskCache) sizeOnDisk() int64 {
 	d.mu.Lock()
 	defer d.mu.Unlock()
+	if d.persistent {
+		var n int64
+		entries, _ := os.ReadDir(d.path)
+		for _, e := range entries {
+			if i, err := e.Info(); err == nil {
+				n += i.Size()
+			}
+		}
+		return n
+	}
 	st, err := d.f.Stat()
 	if err != nil {
 		return 0

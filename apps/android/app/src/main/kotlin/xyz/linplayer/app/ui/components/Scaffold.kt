@@ -2,6 +2,8 @@ package xyz.linplayer.app.ui.components
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import xyz.linplayer.app.ui.theme.lpSpring
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
@@ -49,7 +51,6 @@ import androidx.compose.ui.unit.sp
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.LpIcons
-import xyz.linplayer.app.ui.theme.LpSpring
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
@@ -234,10 +235,12 @@ private fun Tab(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
-    val z by animateFloatAsState(if (on) 1f else 0f, LpSpring.bouncy(), label = "tabOn")
+    val src = remember { MutableInteractionSource() }
+    val z by animateFloatAsState(if (on) 1f else 0f, lpSpring(visibilityThreshold = .001f), label = "tabOn")
     Box(
         m.fillMaxSize().clip(RoundedCornerShape(R.pill))
-            .selectable(selected = on, role = Role.Tab, onClick = onClick),
+            .pressFeedback(src)
+            .selectable(selected = on, role = Role.Tab, interactionSource = src, indication = null, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
         Box(

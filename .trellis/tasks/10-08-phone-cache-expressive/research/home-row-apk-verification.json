@@ -1,0 +1,20 @@
+{
+  "bytes": 80371688,
+  "MiB": 76.6484146118164,
+  "sha256": "49b9e18cafda17966de4c1b8fbc5836c98dc66b6900012750791c9263ad9f54d",
+  "SO_count": 13,
+  "ABI": "arm64-v8a",
+  "signature_schemes": [
+    "v1",
+    "v2",
+    "v3"
+  ],
+  "signature_verification_min_sdk": 21,
+  "release_dex_markers": [
+    "homeRowReveal",
+    "homeRowStrength"
+  ],
+  "matches_assemble_output": true,
+  "related_tests": 102,
+  "device_validation": false
+}

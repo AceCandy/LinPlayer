@@ -31,6 +31,8 @@ var prefsClient *emby.Client
 
 // PlaybackPrefs 播放器默认行为(设置页那一屏的回显体)。
 type PlaybackPrefs struct {
+	// BufferTargetBytes Android播放缓冲目标；0表示自动，不是总内存上限。
+	BufferTargetBytes       int64             `json:"buffer_target_bytes"`
 	Hwdec                   string            `json:"hwdec"`
 	DefaultSpeed            float64           `json:"default_speed"`
 	SkipIntro               bool              `json:"skip_intro"`
@@ -336,7 +338,8 @@ func registerPrefsCommands(version string) {
 	bus.Register("player.getPlaybackPrefs", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		p := config.Current().PrefsOf()
 		return PlaybackPrefs{
-			Hwdec: p.Hwdec, DefaultSpeed: p.DefaultSpeed,
+			BufferTargetBytes: p.BufferTargetBytes,
+			Hwdec:             p.Hwdec, DefaultSpeed: p.DefaultSpeed,
 			SkipIntro: p.SkipIntro, SkipOutro: p.SkipOutro,
 			SkipAuto: p.SkipAuto, SkipUseOnline: p.SkipUseOnline,
 			PreviewThumbs: p.PreviewThumbs, DolbyAutoSW: p.DolbyAutoSW,
@@ -349,6 +352,14 @@ func registerPrefsCommands(version string) {
 		s := settingsOf(a)
 		c := config.Current()
 		p := c.PrefsOf()
+		before := p
+		if raw, exists := s["buffer_target_bytes"]; exists {
+			v, ok := raw.(float64)
+			if !ok || (v != 0 && (v < float64(config.BufferTargetMin) || v > float64(config.BufferTargetMax))) || v != float64(int64(v)) {
+				return nil, bus.NewErr(bus.EInvalid, "缓冲目标只支持自动(0)或64～512MiB整数容量")
+			}
+			p.BufferTargetBytes = int64(v)
+		}
 
 		// ★ 拒而不是夹:静默夹紧 = 用户以为设上了(同 prefs.setPrefetchSettings 的理由)
 		if v, ok := s["hwdec"].(string); ok {
@@ -420,7 +431,12 @@ func registerPrefsCommands(version string) {
 			}
 			p.WatchedThresholdPercent = n
 		}
-		return p, savePrefs(c, p)
+		if err := savePrefs(c, p); err != nil {
+			// 保存失败时不能让下次起播用上界面已回滚的未保存值。
+			_ = c.SetPrefs(before)
+			return nil, err
+		}
+		return p, nil
 	})
 
 	// chapterInfo 章节 + 片头片尾区间。**一次请求同时喂两个功能**。

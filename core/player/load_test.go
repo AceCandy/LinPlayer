@@ -92,11 +92,11 @@ func loadfileCalls(calls [][]string) [][]string {
 // 只断言「参数里含 start=」的话,那个 bug 照样绿。
 func Test续播的loadfile参数里start不能占掉index那一格(t *testing.T) {
 	// 从头看:三段,不带 start=
-	if got := loadArgs("http://h/a.mkv", 0, false); len(got) != 3 {
+	if got := loadArgs("http://h/a.mkv", 0, false, 0); len(got) != 3 {
 		t.Fatalf("从头看应当是三段,实得 %d 段: %q", len(got), got)
 	}
 
-	got := loadArgs("http://h/a.mkv", 123.5, false)
+	got := loadArgs("http://h/a.mkv", 123.5, false, 0)
 	if len(got) != 5 {
 		t.Fatalf("带续播位置时应当是五段(多一格 index),实得 %d 段: %q", len(got), got)
 	}
@@ -109,5 +109,39 @@ func Test续播的loadfile参数里start不能占掉index那一格(t *testing.T)
 	}
 	if got[4] != "start=123.500" {
 		t.Fatalf("选项那一格不对: %q", got[4])
+	}
+}
+
+// 自定义容量即使从头播放也必须占正确options槽，自动不能残留覆盖值。
+func Test缓冲目标兼容两种loadfile语法及从头播放(t *testing.T) {
+	old := mpvCommand
+	defer func() { mpvCommand = old }()
+	for _, hasIndex := range []bool{false, true} {
+		for _, start := range []float64{0, 123.5} {
+			resetLoadfileSyntax()
+			var calls [][]string
+			mpvCommand = fakeMpv(hasIndex, &calls)
+			if err := commandLoad("buffer-fixture.mkv", start, 128*1024*1024); err != nil {
+				t.Fatal(err)
+			}
+			got := calls[len(calls)-1]
+			opts := got[len(got)-1]
+			if !strings.Contains(opts, "demuxer-max-bytes=134217728") {
+				t.Fatalf("未传容量: %v", got)
+			}
+			if start > 1 && !strings.Contains(opts, "start=123.500") {
+				t.Fatalf("丢失续播: %v", got)
+			}
+			calls = nil
+			if err := commandLoad("buffer-fixture-next.mkv", start, 128*1024*1024); err != nil {
+				t.Fatal(err)
+			}
+			if len(calls) != 1 {
+				t.Fatalf("后续起播应复用语法: %v", calls)
+			}
+			if strings.Contains(strings.Join(loadArgs("buffer-fixture.mkv", start, hasIndex, 0), " "), "demuxer-max-bytes") {
+				t.Fatal("自动仍覆盖用户配置")
+			}
+		}
 	}
 }
