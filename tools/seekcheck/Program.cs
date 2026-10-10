@@ -123,6 +123,7 @@ try {
         Check(Get<TextBlock>(page, "_time").Text == "0:40", "超时后显示未恢复真实位置");
         Console.WriteLine("真实页面：按钮/键盘累加及合并、进度条指针、真实位置隔离和超时显示恢复通过");
     } finally { release.TrySetResult(); window.Content = null; window.Close(); Jobs(); }
+    SeasonPlaybackCheck.Run(core);
 } finally { Directory.Delete(root, true); }
 
 static FieldInfo Field(object value, string name) => value.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic | BindingFlags.Public)!;

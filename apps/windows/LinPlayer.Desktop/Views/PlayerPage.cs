@@ -228,7 +228,11 @@ public sealed class PlayerPage : UserControl
     private long _netBytes = -1;
     private DateTime _netAt;
     /// <summary>下一集。有就画「下一集」键,没有就不画(电影 / 最后一集)。</summary>
-    private readonly CardItem? _next;
+    private CardItem? _next;
+    private Button _nextBtn = null!;
+    private Task<bool>? _episodesTask;
+    private readonly CancellationTokenSource _episodeCancellation = new();
+    private bool _finishing, _switching;
 
     /// <summary>详情页选好的音轨 / 字幕(Emby 流下标)。见构造函数的参数注释。</summary>
     private readonly int _wantAudioIndex = -1;
@@ -326,7 +330,7 @@ public sealed class PlayerPage : UserControl
     /// </param>
     public PlayerPage(CoreClient core, string itemId, string title, double resumeSecs,
         bool isSource = false, string mediaSourceId = "",
-        CardItem? next = null, int audioIndex = -1, int subIndex = -1, bool isLocal = false,
+        int audioIndex = -1, int subIndex = -1, bool isLocal = false,
         string serverId = "", SourcePlay? src = null)
     {
         _src = src;
@@ -340,7 +344,6 @@ public sealed class PlayerPage : UserControl
         _isSource = isSource || src is not null;
         _title = title;
         _itemId = itemId;
-        _next = next;
         _frames = new Thumbs(core);
         /* 图是<b>异步</b>回来的:回来那一刻鼠标多半还停在原处,
            得再跑一次预览回调把它摆上去 —— 不然用户看到的是「划过去只有时间,
@@ -543,8 +546,8 @@ public sealed class PlayerPage : UserControl
         shot.Click += (_, _) => _ = Screenshot();
 
         // 下一集。 没有下一集就**整个不画**,不摆一个灰着的按钮
-        var nextBtn = Glyph(Ico.Next, "下一集(N)");
-        nextBtn.Click += (_, _) => GoNext();
+        _nextBtn = Glyph(Ico.Next, "下一集(N)");
+        _nextBtn.Click += async (_, _) => await GoNext();
         // 数据源:播放页内切线路(保持集数与进度,D54 D464)与换源(D232)
         var lineBtn = _lineBtn = Osd("线路", "换线路(保持集数和进度)");
         lineBtn.IsVisible = _src is not null;
@@ -701,7 +704,8 @@ public sealed class PlayerPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Children = { _pause, back10, fwd10 },
         };
-        if (_next is not null || SrcNext() is not null) left.Children.Add(nextBtn);
+        _nextBtn.IsVisible = SrcNext() is not null;
+        left.Children.Add(_nextBtn);
         left.Children.Add(_volBox);
         left.Children.Add(clock);
         // 右下角:选集 / 倍速 / 音轨 / 字幕 / 全屏(用户 2026-09-06 点名的那一组)
@@ -1092,11 +1096,11 @@ public sealed class PlayerPage : UserControl
     /// <summary>选集键。分集表拉到之前不画 —— 电影上它永远不出现。</summary>
     private Button _pickEp = null!;
 
-    /// <summary>本剧的分集表(按季 / 集号排好)。空 = 还没拉到,或者这根本不是剧集。</summary>
+    /// <summary>当前季的分集表(按集号排好)。空 = 还没拉到,或者这根本不是剧集。</summary>
     private List<CardItem> _episodes = [];
 
     /// <summary>
-    /// 拉本剧的分集表,给选集键用。
+    /// 拉当前季的分集表,供选集与连播共用。
     ///
     /// <para><b>播放页自己拉,不让调用方喂</b>:2026-09-04 之后点一集是进它自己的
     /// 详情页,而集详情页手里没有分集表(它就是一个普通条目详情页)。
@@ -1104,19 +1108,26 @@ public sealed class PlayerPage : UserControl
     /// 而后者才是主路。</para>
     /// <para>拉不到就整个不画:电影 / 网盘源 / 本地文件本来就没有分集。</para>
     /// </summary>
-    private async Task LoadEpisodes()
+    private async Task<bool> LoadEpisodes()
     {
-        if (NoEmby || _isLocal || _isSource || _itemId == "" || Nav.Session is not { } s) return;
+        if (NoEmby || _isLocal || _isSource || _itemId == "" || Nav.Session is not { } s) return true;
         try
         {
             var d = await _core.EmbyItemDetail(new
             {
                 s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
                 item_id = _itemId, with_children = false,
-            });
-            if (Str(d, "type_") != "Episode") return;
-            var series = Str(d, "series_id");
-            if (series == "") return;
+            }, _episodeCancellation.Token);
+            if (Str(d, "type_") != "Episode") return true;
+            var parent = Str(d, "season_id");
+            int? season = d.TryGetProperty("season_no", out var number) && number.ValueKind == JsonValueKind.Number
+                ? number.GetInt32() : null;
+            if (parent == "") {
+                if (season is null)
+                    throw new InvalidOperationException("无法确认当前季");
+                parent = Str(d, "series_id");
+            }
+            if (parent == "") throw new InvalidOperationException("无法确认当前季");
             /* 一次拉不完就接着拉:服务端单页上限 200(ServerPageCap),
                而选集正是为长剧存在的 —— 只拉一页的话《海贼王》里第 300 集之后
                在这个列表里根本不存在,而且不报错。 */
@@ -1126,8 +1137,8 @@ public sealed class PlayerPage : UserControl
                 var page = await _core.EmbySeasonEpisodes(new
                 {
                     s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
-                    parent_id = series, start_index = eps.Count, limit = 200,
-                });
+                    parent_id = parent, start_index = eps.Count, limit = 200,
+                }, _episodeCancellation.Token);
                 var got = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
                     ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
                 // 空页就停。只看 total 的话,服务端 total 报大了就是个死循环。
@@ -1137,14 +1148,22 @@ public sealed class PlayerPage : UserControl
                     ? t.GetInt32() : eps.Count;
                 if (eps.Count >= total) break;
             }
-            if (eps.Count <= 1) return;   // 只有一集的「剧」不值得给一个选择器
-            Dispatcher.UIThread.Post(() =>
-            {
-                _episodes = eps;
-                _pickEp.IsVisible = true;
-            });
+            if (_seek.Stopped) return false;
+            _episodes = eps.Where(e => season is null || e.SeasonNo == season).OrderBy(e => e.EpisodeNo).ToList();
+            var at = _episodes.FindIndex(e => e.Id == _itemId);
+            if (at < 0) throw new InvalidOperationException("当前集不在分集列表中");
+            _next = _episodes.ElementAtOrDefault(at + 1);
+            _nextBtn.IsVisible = _next is not null;
+            _pickEp.IsVisible = _episodes.Count > 1;
+            return true;
         }
-        catch { /* 拉不到分集不影响正在放的这一集 */ }
+        catch (Exception e) {
+            if (!_seek.Stopped) {
+                _msg.Text = "分集加载失败：" + LibraryPage.Advice(e) + "，请点击下一集按钮重试";
+                _nextBtn.IsVisible = true;
+            }
+            return false;
+        }
     }
 
     private bool _pluginSurfacesAsked;
@@ -1224,21 +1243,34 @@ public sealed class PlayerPage : UserControl
         Nav.Replace(new PlayerPage(_core, e.Id, e.DisplayTitle, e.ResumeSecs, serverId: _serverId));
     }
 
-    private void GoNext()
+    /// <summary>自动与手动换集共用当前季列表；等待加载，失败时允许手动重试。</summary>
+    private async Task GoNext(bool finished = false)
     {
-        if (_src is not null && SrcNext() is { } n)
-        {
-            Stop();
-            _leaving = true;
-            Nav.Replace(new PlayerPage(_core, n.EpisodeId, $"{Mi.Str(n.Item, "title")} {n.Label}".Trim(), 0, src: n));
-            return;
+        if (_switching || _leaving || _seek.Stopped) return;
+        _switching = true;
+        finished |= _finishing;
+        try {
+            if (_src is not null && SrcNext() is { } n && !finished) {
+                Stop();
+                _leaving = true;
+                Nav.Replace(new PlayerPage(_core, n.EpisodeId, $"{Mi.Str(n.Item, "title")} {n.Label}".Trim(), 0, src: n));
+                return;
+            }
+            if (_episodesTask is { IsCompletedSuccessfully: true } && !_episodesTask.Result)
+                _episodesTask = null;
+            if (!await (_episodesTask ??= LoadEpisodes())) {
+                _episodesTask = null;
+                if (!_seek.Stopped) {
+                    _msg.Text = "无法加载下一集，请点击下一集按钮重试";
+                    _nextBtn.IsVisible = true;
+                }
+                return;
+            }
+            if (_seek.Stopped || _leaving) return;
+            if (_next is null) { if (finished) Leave(); return; }
+            PlayEpisode(_next);
         }
-        if (_next is null) return;
-        Stop();
-        _leaving = true;
-        // 换成**替换**不是压栈:一路看下去会攒出一栈播放页,
-        // 返回键要按十几下才回得到详情页。
-        Nav.Replace(new PlayerPage(_core, _next.Id, _next.DisplayTitle, _next.ResumeSecs));
+        finally { _switching = false; }
     }
 
     /// <summary>
@@ -2037,7 +2069,7 @@ public sealed class PlayerPage : UserControl
             case "player.speedUp": _ = CycleSpeed(+1); break;
             case "player.speedDown": _ = CycleSpeed(-1); break;
             case "player.fullscreen": ToggleFullscreen(); break;
-            case "player.next": GoNext(); break;
+            case "player.next": _ = GoNext(); break;
             case "player.episodes" when _pickEp.IsVisible: ShowEpisodes(); break;
             // 抽屉关着时直接展开下拉框,列表会飘在一块看不见的面板上 —— 得先把面板拿出来
             case "player.quality": ShowEnhance(); break;
@@ -4307,7 +4339,11 @@ public sealed class PlayerPage : UserControl
              宁可让用户自己按返回,也不能把正在看的片子扔掉。 */
         if (eof && dur > 0 && pos >= dur - EofSlackSecs && !_leaving)
         {
-            if (++_eofHits >= 2) { Leave(); return; }
+            if (++_eofHits >= 2 && !_finishing) {
+                _finishing = true;
+                await GoNext(finished: true);
+                return;
+            }
         }
         else _eofHits = 0;
 
@@ -4323,7 +4359,7 @@ public sealed class PlayerPage : UserControl
             _ = StartDanmaku();
             _ = LoadTracks();
             _ = LoadChapters();
-            _ = LoadEpisodes();
+            _episodesTask ??= LoadEpisodes();
             /* 画面增强档位表也要在**这里**重拉一次。
                构造函数里那次拉的时候 mpv 还没解出画面尺寸(video-params/w = 0),
                核心层就不给 will_run —— 于是「只留会生效的档」这条**一次都没生效过**。
@@ -4543,6 +4579,7 @@ public sealed class PlayerPage : UserControl
     {
         if (_seek.Stopped) return;
         _poll.Stop();
+        _episodeCancellation.Cancel();
         object arg = new { };
         if (!NoEmby && Nav.Session is { } s)
             arg = new { s.server, s.token, s.user_id, s.device_id, server_id = _serverId, pos = _position };

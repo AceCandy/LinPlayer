@@ -66,6 +66,7 @@ import xyz.linplayer.app.ui.player.Libass
 import xyz.linplayer.app.ui.player.ObserveSeekTimeout
 import xyz.linplayer.app.ui.player.SessionTrackMemory
 import xyz.linplayer.app.ui.player.sessionTrackScope
+import xyz.linplayer.app.ui.player.playbackSeason
 import xyz.linplayer.app.ui.player.PlayerController
 import xyz.linplayer.app.ui.player.VideoFit
 import xyz.linplayer.app.ui.player.VideoSurface
@@ -166,6 +167,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
         }
     }
     val engine = controller.engine
+    var finished by remember(controller) { mutableStateOf(false) }
+    var episodeResult by remember(controller) { mutableStateOf<Result<List<Item>>?>(null) }
+    var episodeRetry by remember(controller) { mutableIntStateOf(0) }
     val latestController by rememberUpdatedState(controller)
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     var bufferTargetBytes by remember { mutableStateOf(0L) }
@@ -221,6 +225,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         subOffPref = controller.fallback?.subOff ?: (trackPrefs?.subEnabled == false)
         ui.tracks = emptyList()
         ui.preview = null
+        finished = false
         ui.everMoved = false; ui.buffering = true; ui.position = 0.0; ui.duration = 0.0
         ui.failed = null; ui.noVideo = null; ui.nextCard = false; ui.skipWhat = null; ui.osd = true
         PlayerController.awaitPendingStop()
@@ -274,27 +279,41 @@ fun TvPlayerPage(r: TvRoute.Player) {
     }
 
     // 剧集上下文、规格行、章节 / 片头片尾
-    LaunchedEffect(controller, trackMemory) {
+    LaunchedEffect(controller, trackMemory, episodeRetry) {
         controller.clearSeriesContext(trackMemory)
+        episodeResult = null
+        ui.episodes = emptyList(); ui.seasonId = null; ui.seriesId = null
         if (target.localEntry || target.download || target.src != null) {
             controller.seriesContext(trackMemory, null)
+            episodeResult = Result.success(emptyList())
             return@LaunchedEffect
         }
-        val d = runCatching { app.call("emby.itemDetail", args("item_id" to target.itemId)) }.getOrNull().obj()
+        val loaded = runCatching { app.call("emby.itemDetail", args("item_id" to target.itemId)).obj() }
+        val d = loaded.getOrNull()
         coroutineContext.ensureActive()
         controller.seriesContext(trackMemory, sessionTrackScope(session, d, target.itemId))
         ui.seasonId = d.str("season_id"); ui.seriesId = d.str("series_id")
         if (d.str("type_") == "Episode") {
             ui.title = listOfNotNull(d.str("series_name"),
                 d.long("season_no")?.let { s -> d.long("episode_no")?.let { e -> "S${s}E%02d".format(e) } }, d.str("name")).joinToString(" · ")
-            (ui.seasonId ?: ui.seriesId)?.let { p ->
-                launch { runCatching { app.seasonEpisodes(p) }.onSuccess { ui.episodes = it }.onFailure { app.report(it) } }
-            }
+        }
+        launch {
+            val result = runCatching { playbackSeason(app, loaded.getOrThrow(), target.itemId) }
+            coroutineContext.ensureActive()
+            ui.episodes = result.getOrDefault(emptyList())
+            episodeResult = result
         }
         ui.versions = Version.list(runCatching { app.call("emby.itemMedia", args("item_id" to target.itemId)) }.getOrNull())
         val v = ui.versions.firstOrNull { it.id == ui.mediaSourceId } ?: ui.versions.firstOrNull()
         ui.spec = listOfNotNull(v?.let(::resLabel)?.takeIf { it != "—" },
             v?.of("Audio")?.firstOrNull()?.let { a -> listOfNotNull(codecName(a.codec), a.layout).joinToString(" ") }).joinToString(" · ")
+    }
+    LaunchedEffect(controller, finished, episodeResult, leaving) {
+        if (!finished || leaving) return@LaunchedEffect
+        val result = episodeResult ?: return@LaunchedEffect
+        if (result.isFailure) {
+            ui.failed = "无法加载下一集：${result.exceptionOrNull()?.message ?: "分集加载失败"}"
+        } else onFinished(app, ui, target) { leave() }
     }
     LaunchedEffect(target.itemId, ui.duration > 0) {
         if (ui.duration <= 0 || target.localEntry || target.download) return@LaunchedEffect
@@ -311,6 +330,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
             if (ev.name != "player.status") return@collect
             if (!controller.ready) return@collect
             val o = ev.data.obj()
+            if (!target.localEntry && !target.download && target.src == null && o.str("item_id")?.let { it != target.itemId } == true) return@collect
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(ui.position, p)) ui.everMoved = true
             ui.position = p
@@ -319,9 +339,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
             ui.buffering = o.bool("buffering")
             controller.observePosition(p, ui.buffering)
             // ☠ keep-open 下 END_FILE 永远不发,判播完读 eof;**只收尾一次**
-            if (o.bool("eof") && !ui.nextCard && ui.failed == null) {
-                if (ui.everMoved) onFinished(app, ui, target, scope) { leave() }
-                else ui.failed = failureDiag(app)
+            if (o.bool("eof") && !finished && !ui.nextCard && ui.failed == null) {
+                if (ui.everMoved && ui.duration > 0 && p >= ui.duration - 5) finished = true
+                else ui.failed = if (ui.everMoved) "播放提前结束，请检查网络或片源" else failureDiag(app)
             }
         }
     }
@@ -350,7 +370,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
                 return@LaunchedEffect
             }
             if (e.playbackState == androidx.media3.common.Player.STATE_ENDED && !ui.nextCard) {
-                if (ui.everMoved) onFinished(app, ui, target, scope) { leave() } else ui.failed = "ExoPlayer 一帧都没放出来就结束了"
+                if (ui.everMoved && ui.duration > 0 && p >= ui.duration - 5) finished = true
+                else ui.failed = "播放提前结束，请检查网络或片源"
                 return@LaunchedEffect
             }
             delay(250)
@@ -446,7 +467,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         }
     }
     // 下一集卡的倒计时。「自动播放下一集」关着:照样出卡,但没有倒计时、不自动播
-    LaunchedEffect(ui.nextCard) {
+    LaunchedEffect(target, ui.nextCard, UiPrefs.tvAutoNext.value) {
         if (!ui.nextCard || !UiPrefs.tvAutoNext.value) return@LaunchedEffect
         ui.countdown = 5
         while (ui.countdown > 0) { delay(1000); ui.countdown-- }
@@ -612,7 +633,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
         xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = false)
         xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true)
         val failed = ui.failed
-        if (failed != null) PlayerFailure(failed, retried = autoRetried, onRetry = { attempt++ },
+        if (failed != null) PlayerFailure(failed, retried = autoRetried, onRetry = {
+            if (finished) { ui.failed = null; episodeResult = null; episodeRetry++ } else attempt++
+        },
             onSwitchEngine = if (target.localEntry || target.download) null else ({
                 scope.launch { switchTo(target.copy(engine = if (engine == "exo") "mpv" else "exo")) }
             }),
@@ -650,7 +673,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
 }
 
 /** 播完(`eof` 且时间走过):有下一集就出下一集卡,没有就退回去并 Toast。 */
-private fun onFinished(app: AppState, ui: PlayerUi, target: TvRoute.Player, scope: kotlinx.coroutines.CoroutineScope, leave: () -> Unit) {
+private fun onFinished(app: AppState, ui: PlayerUi, target: TvRoute.Player, leave: () -> Unit) {
     if (ui.next(target.itemId) != null) { ui.osd = false; ui.nextCard = true }
     else { app.toast("播放完毕"); leave() }
 }

@@ -321,6 +321,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
     val engine = controller.engine
+    var finished by remember(controller) { mutableStateOf(false) }
+    var episodeResult by remember(controller) { mutableStateOf<Result<List<xyz.linplayer.app.data.Item>>?>(null) }
+    var episodeRetry by remember(controller) { mutableStateOf(0) }
     val startupTiming = remember(controller, engine) {
         StartupTiming(startupOrigin.first, startupOrigin.second, engine == "exo") { message ->
             scope.launch(kotlinx.coroutines.Dispatchers.IO) { xyz.linplayer.app.core.Logs.d("lp-playback", message) }
@@ -371,6 +374,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
         PlaybackService.stop(ctx)
         controller.stop(position)
+        panel = null
         resumeOverride = resumeAt
         startupOrigin = switchedAt to StartupOrigin.TARGET
         route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
@@ -384,17 +388,44 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var srcAr by remember(route.itemId) { mutableFloatStateOf(route.ar) }
     var playTitle by remember(route.itemId) { mutableStateOf(route.title) }
     var episodeLabel by remember(route.itemId) { mutableStateOf("") }
-    LaunchedEffect(controller, trackMemory) {
+    LaunchedEffect(controller, trackMemory, episodeRetry) {
         controller.clearSeriesContext(trackMemory)
-        val detail = if (route.src == null) runCatching { app.call("emby.itemDetail", args("item_id" to route.itemId)) }.getOrNull().obj() else null
+        episodeResult = null
+        val loaded = runCatching {
+            if (route.src == null) app.call("emby.itemDetail", args("item_id" to route.itemId)).obj() else null
+        }
+        val detail = loaded.getOrNull()
         coroutineContext.ensureActive()
         controller.seriesContext(trackMemory, sessionTrackScope(session, detail, route.itemId))
+        launch {
+            val result = runCatching {
+                if (route.src != null) emptyList() else playbackSeason(app, loaded.getOrThrow(), route.itemId)
+            }
+            coroutineContext.ensureActive()
+            episodeResult = result
+        }
         playTitle = detail.str("series_name") ?: route.title
         if (detail.str("type_") == "Episode") {
             val number = listOfNotNull(detail.long("season_no")?.let { "S$it" },
                 detail.long("episode_no")?.let { "E$it" }).joinToString("")
             episodeLabel = listOf(number, detail.str("name") ?: route.title)
                 .filter { it.isNotBlank() }.joinToString("：")
+        }
+    }
+
+    LaunchedEffect(controller, finished, episodeResult, leaving) {
+        if (!finished || leaving) return@LaunchedEffect
+        val result = episodeResult ?: return@LaunchedEffect
+        try {
+            val episodes = result.getOrThrow()
+            val at = episodes.indexOfFirst { it.id == route.itemId }
+            val next = if (at >= 0) episodes.getOrNull(at + 1) else null
+            if (next == null) leave() else switchTarget(next.id, null, listOfNotNull(next.seriesName, next.name).joinToString(" · "))
+        } catch (cancelled: kotlinx.coroutines.CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            failReason = "无法继续播放下一集：${failure.message ?: "分集加载失败"}"
+            openFailed = true
         }
     }
 
@@ -429,6 +460,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
         subOff = controller.fallback?.subOff ?: !playbackPrefs.subEnabled
+        finished = false
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
         buffered = 0.0
         PlayerController.awaitPendingStop()
@@ -536,7 +568,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 return@LaunchedEffect
             }
             if (e.playbackState == androidx.media3.common.Player.STATE_ENDED) {
-                if (everMoved) leave() else openFailed = true
+                if (everMoved && duration > 0 && p >= duration - 5) finished = true
+                else { failReason = "播放提前结束，请检查网络或片源"; openFailed = true }
                 return@LaunchedEffect
             }
             delay(250)
@@ -559,6 +592,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             if (ev.name != "player.status") return@collect
             if (!controller.ready) return@collect
             val o = ev.data as? JsonObject
+            if (route.src == null && o.str("item_id")?.let { it != route.itemId } == true) return@collect
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(position, p)) everMoved = true
             position = p
@@ -570,9 +604,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                ★ 但「时间一次都没往前走过就 eof」不是播完,是**起播失败**:
                  直接 popBackStack 会让用户看到「点了播放,闪一下就回来了」,
                  什么都没说。这种时候把 mpv 报的原因显示出来。 */
-            if (o.bool("eof")) {
-                if (everMoved) leave() else {
-                    failReason = failureDiag(app)
+            if (o.bool("eof") && !finished && !leaving && !openFailed) {
+                if (everMoved && duration > 0 && p >= duration - 5) finished = true else {
+                    failReason = if (everMoved) "播放提前结束，请检查网络或片源" else failureDiag(app)
                     openFailed = true
                 }
             }
@@ -811,7 +845,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 Modifier.padding(horizontal = Sp.x26),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("这一片没能播起来", color = Color.White, style = LpText.section)
+                Text(if (finished) "无法继续播放下一集" else "这一片没能播起来", color = Color.White, style = LpText.section)
                 Spacer(Modifier.height(Sp.x8))
                 /* ★ **把真正的原因摆在这里**,不是一句「原因在日志里」。
                    上一版那句话等于让用户去导诊断包,而他只想知道是不是自己的问题;
@@ -819,6 +853,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                    的实际取值就只能靠猜,一来一回好几轮。 */
                 Dim3(failReason ?: "原因还没拿到。设置 → 存储与数据目录 → 导出日志。", maxLines = 6)
                 Spacer(Modifier.height(Sp.x16))
+                if (finished) xyz.linplayer.app.ui.components.LpButton("重试", {
+                    openFailed = false; failReason = null; episodeResult = null; episodeRetry++
+                })
                 xyz.linplayer.app.ui.components.LpButton("返回", leave,
                     kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
             } else Dim3(if (buffering) "正在缓冲…" else "正在打开…")

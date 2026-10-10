@@ -48,9 +48,9 @@ class TvFocusTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
     }
 
-    private fun mount(route: TvRoute = TvRoute.Home, setup: FakeCore.() -> Unit = {}) {
+    private fun mount(route: TvRoute = TvRoute.Home, intercept: ((FakeCore) -> xyz.linplayer.app.core.CorePort)? = null, setup: FakeCore.() -> Unit = {}) {
         core = FakeCore().loggedIn().apply(setup)
-        val app = AppState(core, CoroutineScope(SupervisorJob() + Dispatchers.Main))
+        val app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main))
         runBlocking { app.boot() }
         nav = TvNav().apply { if (route == TvRoute.Home) Unit else push(route) }
         rule.mainClock.autoAdvance = false
@@ -181,6 +181,109 @@ class TvFocusTest {
         rule.onNode(hasText("字幕")).assertExists()
         // 唤醒那一下不许把焦点挪到快进上:焦点回到播放/暂停
         focused("osd.play")
+    }
+
+    @Test fun 分集加载失败不能误判季末退出且可以重试连播() {
+        var fail = true
+        mount(TvRoute.Player("sh6", "第六集")) {
+            player()
+            val response = handlers.getValue("emby.seasonEpisodes")
+            on("emby.seasonEpisodes") { a ->
+                if (fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集加载失败", true)
+                response(a)
+            }
+        }
+        core.tick(3658.0); advance(rule, 300)
+        core.tick(3658.25); advance(rule, 300)
+        core.tick(3660.0, eof = true); advance(rule, 600)
+        assertTrue("加载失败不能退出播放页", nav.top.route is TvRoute.Player)
+        rule.onNode(hasText("无法加载下一集", substring = true)).assertExists()
+        fail = false
+        rule.onNode(hasText("重试")).assertIsFocused()
+        press(rule, Key.Enter)
+        advance(rule, 1200)
+        assertEquals(2, core.calls.count { it.first == "emby.seasonEpisodes" })
+        focused("next.card")
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 自动倒计时可以连续播放三集() {
+        val prefs = xyz.linplayer.app.data.UiPrefs.tvAutoNext.value
+        try {
+            xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = true
+            mount(TvRoute.Player("sh6", "第六集")) {
+                player(); ret("player.stopPlayback", kotlinx.serialization.json.JsonNull)
+            }
+            for (next in listOf("sh7", "sh8")) {
+                core.tick(3658.0); advance(rule, 300)
+                core.tick(3658.25); advance(rule, 300)
+                core.tick(3660.0, eof = true); advance(rule, 600)
+                focused("next.card")
+                advance(rule, 5600)
+                assertEquals(next, (core.calls.last { it.first == "player.play" }.second?.get("item_id") as kotlinx.serialization.json.JsonPrimitive).content)
+                assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
+            }
+            assertEquals(3, core.calls.count { it.first == "player.play" })
+        } finally { xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = prefs }
+    }
+
+    @Test fun 完播等待慢分集请求返回后才出下一集卡() {
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        try {
+            mount(TvRoute.Player("sh6", "第六集"), intercept = { fake ->
+                object : xyz.linplayer.app.core.CorePort by fake {
+                    override suspend fun callJson(command: String, args: kotlinx.serialization.json.JsonObject?,
+                        onPartial: ((kotlinx.serialization.json.JsonElement) -> Unit)?): kotlinx.serialization.json.JsonElement {
+                        val result = fake.callJson(command, args, onPartial)
+                        if (command == "emby.seasonEpisodes") release.await()
+                        return result
+                    }
+                }
+            }) { player() }
+            core.tick(3658.0); advance(rule, 300)
+            core.tick(3658.25); advance(rule, 300)
+            core.tick(3660.0, eof = true); advance(rule, 600)
+            assertTrue(nav.top.route is TvRoute.Player)
+            rule.onNode(hasTestTag("next.card")).assertDoesNotExist()
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
+            focused("next.card")
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun 关闭自动播放时卡片等待确认而不自动切集() {
+        val prefs = xyz.linplayer.app.data.UiPrefs.tvAutoNext.value
+        try {
+            xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = false
+            mount(TvRoute.Player("sh6", "第六集")) { player() }
+            core.tick(3658.0); advance(rule, 300)
+            core.tick(3658.25); advance(rule, 300)
+            core.tick(3660.0, eof = true); advance(rule, 600)
+            focused("next.card")
+            advance(rule, 6000)
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+            press(rule, Key.Enter)
+            advance(rule, 600)
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second?.get("item_id")?.let {
+                (it as kotlinx.serialization.json.JsonPrimitive).content
+            })
+        } finally { xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = prefs }
+    }
+
+    @Test fun 季末即使返回下季条目也退出而不跨季() {
+        mount(TvRoute.Player("sh6", "第六集")) {
+            player()
+            ret("emby.seasonEpisodes", buildJsonObject {
+                put("items", arr(item("sh6", "季末", "Episode", season = 1, episode = 6),
+                    item("s2e1", "下一季", "Episode", season = 2, episode = 1)))
+                put("total", 2)
+            })
+        }
+        core.tick(3658.0); advance(rule, 300)
+        core.tick(3658.25); advance(rule, 300)
+        core.tick(3660.0, eof = true); advance(rule, 600)
+        assertFalse(nav.top.route is TvRoute.Player)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
     }
 
     @Test fun 播完出下一集卡焦点落在卡上() {

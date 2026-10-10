@@ -1568,7 +1568,7 @@ public sealed class DetailPage : PageBase
 
         /* 「下一集」不在这一层算了 —— 2026-09-04 之后点一集是**进它自己的详情页**,
            而那一页会自己算(它就是一个普通条目详情页)。
-           主按钮那条链路的「下一集」在 PlayRow 里,用的是同一份排序。 */
+           连播与手动下一集由播放页加载当前季后统一确定。 */
 
         // 当前这一季的集表 + 它的滚动容器(「跳到第 N 集」要滚它)
         var shown = new List<CardItem>();
@@ -1939,11 +1939,8 @@ public sealed class DetailPage : PageBase
                 var eps = await _episodesTask;
                 play.IsEnabled = true;
                 if (eps.Count == 0) { play.Content = "没有可播的分集"; return; }
-                var ordered = eps.OrderBy(e => e.SeasonNo).ThenBy(e => e.EpisodeNo).ToList();
                 var next = NextEpisode(eps);
-                var at = ordered.FindIndex(e => e.Id == next.Id);
-                var after = at >= 0 && at + 1 < ordered.Count ? ordered[at + 1] : null;
-                Nav.Push(new PlayerPage(_core, next.Id, next.DisplayTitle, next.ResumeSecs, next: after,
+                Nav.Push(new PlayerPage(_core, next.Id, next.DisplayTitle, next.ResumeSecs,
                     audioIndex: _audioIndex, subIndex: _subIndex));
             };
             row.Children.Add(play);

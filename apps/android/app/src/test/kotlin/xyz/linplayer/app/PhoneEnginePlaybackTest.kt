@@ -66,6 +66,100 @@ class PhoneEnginePlaybackTest {
         scope.cancel()
     }
 
+    @Test fun 手机完播连续切两集且旧集停止先于新集起播() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        for (next in listOf("sh7", "sh8")) {
+            rule.runOnIdle { core.tick(3658.0) }
+            advance(rule, 300)
+            rule.runOnIdle { core.tick(3658.25) }
+            advance(rule, 300)
+            rule.runOnIdle { core.tick(3660.0, eof = true) }
+            advance(rule, 600)
+            assertEquals(next, core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            val play = core.calls.indexOfLast { it.first == "player.play" }
+            val stop = core.calls.indexOfLast { it.first == "player.stopPlayback" }
+            assertTrue("旧集必须先停播", stop in 0 until play)
+            if (next == "sh7") {
+                rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+                    put("item_id", "sh6"); put("position", 3660.0); put("duration", 3660.0); put("eof", true)
+                })) }
+                advance(rule, 600)
+                assertEquals(2, core.calls.count { it.first == "player.play" })
+                rule.onNode(hasText("这一片没能播起来")).assertDoesNotExist()
+            }
+        }
+        assertEquals(3, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 手机中途断流不得自动切到下一集() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        rule.runOnIdle { core.tick(40.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(40.25) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(41.0, eof = true) }; advance(rule, 600)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+    }
+
+    @Test fun 手机完播等待分集加载且迟到后只切一次() {
+        val core = episodeCore()
+        val release = CompletableDeferred<Unit>()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "emby.seasonEpisodes") release.await()
+                return result
+            }
+        }
+        try {
+            showPlayer(port, "mpv")
+            rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+            rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+            rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 600)
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+            assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            assertEquals(2, core.calls.count { it.first == "player.play" })
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun 手机Media3完播复用停止屏障切下一集() {
+        val core = episodeCore()
+        showPlayer(core, "exo")
+        fun state(position: Long, ended: Boolean = false) {
+            rule.runOnIdle {
+                val info = ReflectionHelpers.getField<Any>(currentExo(), "playbackInfo")
+                val timeline = androidx.media3.exoplayer.source.SinglePeriodTimeline(3_660_000_000L, true, false, false, null,
+                    androidx.media3.common.MediaItem.fromUri("asset:///episode-test.mp4"))
+                val period = androidx.media3.exoplayer.source.MediaSource.MediaPeriodId(timeline.getUidOfPeriod(0))
+                ReflectionHelpers.setField(info, "timeline", timeline)
+                ReflectionHelpers.setField(info, "periodId", period)
+                ReflectionHelpers.setField(info, "loadingMediaPeriodId", period)
+                ReflectionHelpers.setField(info, "positionUs", position * 1000)
+                ReflectionHelpers.setField(info, "bufferedPositionUs", position * 1000)
+                ReflectionHelpers.setField(info, "playbackState", if (ended) androidx.media3.common.Player.STATE_ENDED else androidx.media3.common.Player.STATE_READY)
+            }
+            advance(rule, 300)
+        }
+        state(3_658_000); state(3_658_250); state(3_660_000, true)
+        advance(rule, 600)
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(2, core.calls.count { it.first == "player.play" })
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
+    }
+
+    private fun episodeCore() = FakeCore().loggedIn().player().apply {
+        ret("player.stopPlayback", JsonNull)
+        on("emby.itemDetail") { a -> buildJsonObject {
+            val id = a.str("item_id")!!
+            put("id", id); put("name", id); put("type_", "Episode")
+            put("season_id", "sh"); put("series_id", "s2"); put("season_no", 1)
+            put("episode_no", id.removePrefix("sh").toInt())
+        } }
+    }
+
     @Test fun 手机生产起播接入阶段日志且MPV首帧明确未知() {
         org.robolectric.shadows.ShadowLog.clear()
         val core = FakeCore().loggedIn().player()
