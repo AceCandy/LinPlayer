@@ -134,7 +134,7 @@ class PhoneColorSchemeTest {
             }
         } }
         rule.onNodeWithContentDescription("8 集未观看").assertExists()
-        rule.onNodeWithText("9.9", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText("9.9", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("2026", useUnmergedTree = true).assertIsDisplayed()
         rule.onNode(hasClickAction()).performTouchInput { longClick() }
         rule.onNodeWithTag("poster.menu").assertIsDisplayed()
@@ -147,7 +147,12 @@ class PhoneColorSchemeTest {
         fun item(rating: String) = mediaItem(Json.parseToJsonElement("""{"id":"p","ratings":[$rating]}""").obj())
         assertNull(item("""{"source":"TMDB","value":8.6}""").doubanRating)
         assertEquals(8.6, item("""{"source":"豆瓣","value":8.6,"max":10}""").doubanRating!!, 0.0)
+        assertNull(item("""{"source":"豆瓣","value":8.6,"max":10}""").rating)
         assertNull(item("""{"source":"Douban","value":86,"max":100}""").doubanRating)
+        assertNull(item("""{"source":"Other","value":4.3,"max":5}""").rating)
+        val both = item("""{"source":"Douban","value":8.6},{"source":"TMDB","value":7.4}""")
+        assertEquals(7.4, both.rating!!, 0.0)
+        assertEquals(8.6, both.doubanRating!!, 0.0)
     }
 
     private fun contrast(fg: Color, bg: Color): Float {

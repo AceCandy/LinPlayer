@@ -3,6 +3,9 @@ package xyz.linplayer.app
 import android.app.Application
 import androidx.compose.foundation.layout.Column
 import androidx.compose.runtime.*
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.Density
+import com.github.takahirom.roborazzi.captureRoboImage
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import kotlinx.serialization.json.Json
@@ -49,14 +52,18 @@ class HomeCinemaTest {
 
     @Test fun homepageBadgesAreSmallSeparateAndUpdate() {
         var score by mutableStateOf<Double?>(8.6)
+        var ordinaryScore by mutableStateOf<Double?>(9.9)
         rule.setContent {
             LpTheme(darkOverride = true) {
+                val density = LocalDensity.current
+                CompositionLocalProvider(LocalDensity provides Density(density.density, 1.3f)) {
                 MediaCard(Item.from(Json.parseToJsonElement("""{
                     "id":"s","name":"长标题仅一行显示","type_":"Series",
                     "unplayed_item_count":24,"unplayed_count_known":true,
-                    "DoubanRating":${score ?: "null"},"rating":9.9,"year":2026
+                    "DoubanRating":${score ?: "null"},"rating":${ordinaryScore?.takeIf { it.isFinite() } ?: "null"},"year":2026
                 }"""))!!,
                     null, {})
+                }
             }
         }
         rule.onNodeWithContentDescription("24 集未观看").assertExists()
@@ -65,11 +72,29 @@ class HomeCinemaTest {
         val count = rule.onNodeWithText("24", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val rating = rule.onNodeWithText("8.6", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue(rating.top > count.bottom)
-        rule.onNodeWithText("9.9", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText("9.9", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription("普通评分 9.9", useUnmergedTree = true).assertExists()
+        rule.onNodeWithContentDescription("豆瓣评分 8.6", useUnmergedTree = true).assertExists()
+        val ordinary = rule.onNodeWithText("9.9", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("普通评分和豆瓣不能重叠", ordinary.bottom < rating.top)
+        val poster = rule.onNodeWithText("长标题仅一行显示").fetchSemanticsNode().boundsInRoot
+        assertTrue("评分应留在窄海报边界内", ordinary.left >= poster.left && rating.left >= poster.left &&
+            ordinary.right <= poster.right && rating.right <= poster.right)
+        rule.onRoot().captureRoboImage("build/poster-ratings/dual-ratings.png")
         rule.runOnIdle { score = 8.0 }
         rule.onNodeWithText("8.0", useUnmergedTree = true).assertIsDisplayed()
         rule.runOnIdle { score = null }
         rule.onNodeWithText("豆", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithText("9.9", useUnmergedTree = true).assertIsDisplayed()
+        rule.runOnIdle { ordinaryScore = 7.1 }
+        rule.onNodeWithText("7.1", useUnmergedTree = true).assertIsDisplayed()
+        for (invalid in listOf(null, 0.0, -1.0, 10.1)) {
+            rule.runOnIdle { ordinaryScore = invalid }
+            rule.onNodeWithText("★", useUnmergedTree = true).assertDoesNotExist()
+        }
+        rule.runOnIdle { score = 8.6 }
+        rule.onNodeWithText("豆", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("★", useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun continueCardRetainsProgressTimeClickAndMenuWithLessText() {

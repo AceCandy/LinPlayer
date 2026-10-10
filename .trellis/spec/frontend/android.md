@@ -143,7 +143,7 @@
 
 - 版本正文和选择弹窗允许完整名称换行，不用两行省略；Version.displayName只用于展示，真实Name优先，空名或明确泛称才回退安全路径文件名，地址凭据/查询/片段不可展示；无名称和文件名则明确未提供，不影响preferred或提交的版本ID。OptRow仅版本菜单放开labelMaxLines，其他调用保持默认。
 
-- 首页Hero按UI_MOBILE.md当前电影Hero规格，候选来自当前账号首页及既有浏览结果的展示池，图片仅走核心缓存专用通道，Backdrop优先/Primary与Logo失败回退。触摸/横滑重置5秒计时，400ms过渡；纵滚/后台/离屏/零动画倍率暂停。首次头插仅起点复位，账号隔离与取消保留。所有手机标准海报复用MediaCard的精简片名/年份（单集保留SxEy）、EpisodeStatusBadge与DoubanRatingBadge，数据源共用PosterCaption和CardMenu；豆瓣只认DoubanRating（沿用服务端/核心同名字段，浏览缓存白名单保留；缺失或无效时隐藏），Series完成只认有效统计+零未看+Played，电影无数字。Dock仅四图标，键盘隐藏、系统导航区上12dp、200ms动画与24dp滚动阈值，搜索独立选中。HomeCinemaTest/HomeHeroTest/FloatingTabTest覆盖数据与真实组件；设备安全区/播放仍需真机。
+- 首页Hero按UI_MOBILE.md当前电影Hero规格，候选来自当前账号首页及既有浏览结果的展示池，图片仅走核心缓存专用通道，Backdrop优先/Primary与Logo失败回退。触摸/横滑重置5秒计时，400ms过渡；纵滚/后台/离屏/零动画倍率暂停。首次头插仅起点复位，账号隔离与取消保留。所有手机标准海报复用MediaCard的精简片名/年份（单集保留SxEy）、EpisodeStatusBadge与MediaRatingBadge，数据源共用PosterCaption和CardMenu；普通评分读取rating、豆瓣只认DoubanRating（沿用服务端/核心同名字段，浏览缓存白名单保留）；两种评分分别以★/豆标识，右下纵排迷你胶囊，缺失或无效分别隐藏，普通0分作为无评分隐藏，Series完成只认有效统计+零未看+Played，电影无数字。Dock仅四图标，键盘隐藏、系统导航区上12dp、200ms动画与24dp滚动阈值，搜索独立选中。HomeCinemaTest/HomeHeroTest/FloatingTabTest覆盖数据与真实组件；设备安全区/播放仍需真机。
 
 - Hero背景可以越过其原始占位延伸到继续观看图片中点，按媒体库入口实测高度与共用栏目/图片刻度计算；显示媒体库时保留原几何；隐藏媒体库时将入口和续播标题高度并入Hero，标题、播放键和指示线下移，续播卡片及背景下沿保持原Y。背景不可拦截后续卡片点击。无续播则不延伸。PhoneColorSchemeTest/HomeHeroTest验证真实渐变溢出像素、控件几何、主题切换/持久化及API28回退；系统壁纸动态更新和设备体验仍需真机。
 

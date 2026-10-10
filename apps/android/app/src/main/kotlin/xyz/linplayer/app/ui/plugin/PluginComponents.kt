@@ -183,7 +183,7 @@ internal fun mediaItem(o: JsonObject?, progress: Double = 0.0): Item = Item(
     runtimeSecs = if (progress > 0) 1.0 else 0.0,
     resumeSecs = progress,
     year = o.long("year"),
-    rating = o.arr("ratings").firstOrNull().obj().dbl("value"),
+    rating = o.arr("ratings").firstOrNull { (it.obj().str("source")?.lowercase() !in setOf("douban", "豆瓣")) && (it.obj().dbl("max") ?: 10.0) == 10.0 }.obj().dbl("value"),
     doubanRating = o.arr("ratings").firstOrNull { (it.obj().str("source")?.lowercase() in setOf("douban", "豆瓣")) && (it.obj().dbl("max") ?: 10.0) == 10.0 }.obj().dbl("value"),
     played = o.obj("userData").bool("played"),
     unplayedCountKnown = o.obj("userData").long("unplayedCount")?.let { it >= 0 } == true,

@@ -227,7 +227,11 @@ fun MediaCard(
                     onLoadResult = if (entrance) { { imageResult = it } } else null)
 
                 EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
-                DoubanRatingBadge(item.doubanRating, Modifier.align(Alignment.BottomEnd).padding(Sp.x6))
+                Column(Modifier.align(Alignment.BottomEnd).padding(Sp.x6),
+                    horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
+                    MediaRatingBadge(item.rating)
+                    MediaRatingBadge(item.doubanRating, douban = true)
+                }
 
                 // 仅续播轨道显示时长，普通海报即使有进度也不显示时间角标。
                 if (resume && (item.type == "Movie" || item.isEpisode) && item.runtimeSecs > 0) {
@@ -285,16 +289,17 @@ internal fun EpisodeStatusBadge(item: Item, m: Modifier = Modifier) {
     }
 }
 
-/** 只接受明确豆瓣来源的数据，缺失或越界不占位置。 */
+/** 通用与豆瓣评分共用小胶囊，各自缺失或越界时隐藏，不混用来源。 */
 @Composable
-internal fun DoubanRatingBadge(rating: Double?, m: Modifier = Modifier) {
-    val value = rating?.takeIf { it.isFinite() && it in 0.0..10.0 } ?: return
+internal fun MediaRatingBadge(rating: Double?, douban: Boolean = false, m: Modifier = Modifier) {
+    val value = rating?.takeIf { it.isFinite() && it in 0.0..10.0 && (douban || it > 0) } ?: return
+    val score = "%.1f".format(java.util.Locale.ROOT, value)
     Row(m.heightIn(min = 22.dp).clip(RoundedCornerShape(R.sm))
         .background(Color.Black.copy(alpha = .72f)).padding(horizontal = Sp.x6, vertical = Sp.x2)
-        .semantics(mergeDescendants = true) { contentDescription = "豆瓣评分 %.1f".format(java.util.Locale.ROOT, value) },
+        .semantics(mergeDescendants = true) { contentDescription = "${if (douban) "豆瓣" else "普通"}评分 $score" },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
-        Text("豆", color = Lp.colors.ok, style = LpText.badge)
-        Text("%.1f".format(java.util.Locale.ROOT, value), color = Color.White, style = LpText.caption)
+        Text(if (douban) "豆" else "★", color = if (douban) Lp.colors.ok else Color.White.copy(alpha = .8f), style = LpText.badge)
+        Text(score, color = Color.White, style = LpText.caption)
     }
 }
 
