@@ -61,7 +61,7 @@ class MainActivity : ComponentActivity() {
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
 
         app = AppState((application as LinPlayerApp).core, lifecycleScope,
-            (application as LinPlayerApp).detailCache)
+            (application as LinPlayerApp).detailCache, (application as LinPlayerApp).browseCache)
         // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,续播会话也对不上
         runCatching {
             Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)

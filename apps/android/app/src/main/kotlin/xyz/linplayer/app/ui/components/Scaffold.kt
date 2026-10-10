@@ -9,6 +9,7 @@ import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.platform.testTag
+import androidx.compose.foundation.border
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -22,6 +23,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -43,15 +45,14 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.theme.LpText
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
@@ -107,15 +108,16 @@ fun LpImmersive(
     bar: @Composable RowScope.() -> Unit = {},
     barHeight: Dp = Dim.topBar,
     barHorizontalPadding: Dp = Sp.x12,
+    barBackground: Color = Color.Transparent,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
     Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
         content(contentInsets())
-        Column(Modifier.fillMaxWidth()) {
+        Column(Modifier.fillMaxWidth().background(barBackground)) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Row(
-                Modifier.fillMaxWidth().height(barHeight).padding(horizontal = barHorizontalPadding),
+                Modifier.fillMaxWidth().heightIn(min = barHeight).padding(horizontal = barHorizontalPadding),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8),
             ) { bar() }
@@ -147,7 +149,7 @@ fun LpTopBar(
     Column(Modifier.fillMaxWidth().background(bg)) {
         Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
         Row(
-            Modifier.fillMaxWidth().height(Dim.topBar).padding(horizontal = Sp.x4),
+            Modifier.fillMaxWidth().heightIn(min = Dim.topBar).padding(horizontal = Sp.x4),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (onBack != null) {
@@ -155,13 +157,13 @@ fun LpTopBar(
             } else {
                 Spacer(Modifier.width(Sp.x12))
             }
-            Column(Modifier.weight(1f)) {
+            Column(Modifier.weight(1f).padding(vertical = Sp.x4)) {
                 if (title != null) Text(
-                    title, color = c.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold,
+                    title, color = c.fg, style = LpText.title,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,
                 )
                 if (subtitle != null) Text(
-                    subtitle, color = c.fg3, fontSize = 12.sp, maxLines = 1,
+                    subtitle, color = c.fg3, style = LpText.caption, maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
@@ -203,23 +205,21 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, onPick: (Int) -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            Modifier.width(Dim.tabWidth).height(Dim.tabBar)
-                .shadow(6.dp, RoundedCornerShape(R.pill))
+            Modifier.fillMaxWidth(.78f).height(Dim.tabBar)
+                .shadow(2.dp, RoundedCornerShape(R.pill))
                 .clip(RoundedCornerShape(R.pill)).background(c.mediaPanel)
+                .border(1.dp, c.line, RoundedCornerShape(R.pill))
                 .padding(horizontal = Sp.x6, vertical = 5.dp)
                 .selectableGroup().testTag("phone.tabs"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Tab("首页", LpIcons.home, current == 0,
-                Modifier.weight(1f), badge("home")) { onPick(0) }
-            Box(Modifier.weight(1f).fillMaxSize().clip(RoundedCornerShape(R.pill))
-                .pressable(onSearch), contentAlignment = Alignment.Center) {
-                Icon(LpIcons.search, "搜索", Modifier.size(26.dp), tint = c.mediaIcon)
-            }
-            Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f), badge("aggregate")) { onPick(1) }
+                Modifier.weight(1f)) { onPick(0) }
+            Tab("搜索", LpIcons.search, current == 3, Modifier.weight(1f), onClick = onSearch)
+            Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f)) { onPick(1) }
             // 服务器管理仍在聚合页；第三个入口是日常使用的收藏。
             Tab("收藏", LpIcons.star, current == 2,
-                Modifier.weight(1f), badge("favorites")) { onPick(2) }
+                Modifier.weight(1f)) { onPick(2) }
         }
     }
 }
@@ -231,7 +231,6 @@ private fun Tab(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     on: Boolean,
     m: Modifier,
-    badge: String? = null,
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
@@ -245,24 +244,15 @@ private fun Tab(
     ) {
         Box(
             Modifier.graphicsLayer { scaleX = z; scaleY = z; alpha = z }
-                .size(Dim.tap).clip(RoundedCornerShape(R.pill)).background(c.mediaAccent)
+                .size(40.dp).clip(RoundedCornerShape(R.pill)).background(c.accDim)
         )
         Icon(
             icon, label,
-            Modifier.size(28.dp).graphicsLayer { val s = 1f + z * .08f; scaleX = s; scaleY = s },
-            tint = if (on) c.mediaOnAccent else c.mediaIcon,
-        )
-        if (badge != null) Text(
-            badge, color = Color.White, fontSize = 10.sp,
-            modifier = Modifier.align(Alignment.TopEnd)
-                .clip(RoundedCornerShape(R.pill)).background(c.bad)
-                .padding(horizontal = 6.dp, vertical = 1.dp),
+            Modifier.size(24.dp),
+            tint = if (on) c.acc else c.mediaIcon,
         )
     }
 }
-
-/** 插件挂在这个入口上的角标(D158);没有就是 null。 */
-private fun badge(target: String) = xyz.linplayer.app.plugin.PluginNav.badges[target]
 
 /** 让页面能拿到底栏高度做自己的留白(网格 / 自绘列表)。 */
 @Composable

@@ -63,11 +63,16 @@ data class Item(
     val episodeNo: Long? = null,
     val seasonNo: Long? = null,
     val played: Boolean = false,
-    /** 未看子项数。played 时必为 0 —— **有勾优先,否则显数字** */
+    /** 当前用户未看子项数；首页只在服务端明确提供统计时使用。 */
     val unplayed: Long = 0,
     val genres: List<String> = emptyList(),
     val year: Long? = null,
     val rating: Double? = null,
+    val unplayedCountKnown: Boolean = false,
+    val hasBackdrop: Boolean = false,
+    val hasLogo: Boolean = false,
+    /** 仅明确豆瓣来源的评分；绝不回退到 CommunityRating。 */
+    val doubanRating: Double? = null,
     /** 核心已返回的更新时间与服务端排序名，用于收藏的本地排序。 */
     val dateUpdated: String? = null,
     val sortName: String? = null,
@@ -111,6 +116,10 @@ data class Item(
                 genres = o.strList("genres"),
                 year = o.long("year"),
                 rating = o.dbl("rating"),
+                unplayedCountKnown = o.bool("unplayed_count_known"),
+                hasBackdrop = o.bool("has_backdrop"),
+                hasLogo = o.bool("has_logo"),
+                doubanRating = o.dbl("douban_rating")?.takeIf { it.isFinite() && it in 0.0..10.0 },
                 dateUpdated = o.str("date_updated"),
                 sortName = o.str("sort_name"),
                 libraryIds = o.strList("library_ids"),

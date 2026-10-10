@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -28,7 +30,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.block
@@ -114,7 +115,7 @@ fun AggregatePage(nav: NavController) {
             groups.forEach { g ->
                 item("head-${g.serverId}") { ServerHead(g) }
                 g.error?.let { err -> item("err-${g.serverId}") {
-                    Text("现在连不上:$err", color = Lp.colors.fg2, fontSize = 12.sp,
+                    Text("现在连不上:$err", color = Lp.colors.fg2, style = LpText.caption,
                         modifier = Modifier.padding(horizontal = Sp.x16))
                 } }
                 if (g.resume.isNotEmpty()) item("resume-${g.serverId}") {
@@ -161,7 +162,7 @@ private fun Shortcut(label: String, icon: ImageVector, m: Modifier, onClick: () 
     ) {
         Icon(icon, null, Modifier.size(20.dp), tint = c.mediaIcon)
         Spacer(Modifier.height(Sp.x6))
-        Text(label, color = c.fg2, fontSize = 11.sp)
+        Text(label, color = c.fg2, style = LpText.badge)
     }
 }
 
@@ -205,10 +206,9 @@ private fun ServerHead(g: Overview) {
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
             // 地址仅作内部键；长名字不能挤掉当前服务器标记。
-            Text(g.serverName, color = c.fg, fontSize = 19.sp,
-                fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold,
+            Text(g.serverName, color = c.fg, style = LpText.title,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
-            if (g.active) Text("当前", color = c.mediaOnAccent, fontSize = 11.sp,
+            if (g.active) Text("当前", color = c.mediaOnAccent, style = LpText.badge,
                 modifier = Modifier.clip(RoundedCornerShape(R.sm)).background(c.mediaAccent)
                     .padding(horizontal = Sp.x6, vertical = Sp.x4))
         }
@@ -217,6 +217,6 @@ private fun ServerHead(g: Overview) {
             g.series.takeIf { it > 0 }?.let { "剧集 $it" },
             g.episode.takeIf { it > 0 }?.let { "分集 $it" },
         ).joinToString("  ·  ")
-        if (counts.isNotEmpty()) Text(counts, color = c.fg2, fontSize = 12.sp)
+        if (counts.isNotEmpty()) Text(counts, color = c.fg2, style = LpText.caption)
     }
 }

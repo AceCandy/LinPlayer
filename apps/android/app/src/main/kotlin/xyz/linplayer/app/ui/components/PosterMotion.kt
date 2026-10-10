@@ -18,6 +18,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.CubicBezierEasing
 import androidx.compose.ui.graphics.TransformOrigin
 import androidx.compose.ui.Modifier
 import android.os.SystemClock
@@ -174,7 +175,8 @@ internal fun Modifier.homePosterEntrance(
     var visible by remember { mutableStateOf(false) }
     val progress = remember { Animatable(if (seen) 1f else 0f) }
     val scale = LocalMotionScale.current
-    val spec = lpSpring<Float>(.001f)
+    val easing = remember { CubicBezierEasing(0f, 0f, .2f, 1f) }
+    val spec = lpTween<Float>(T.T9, easing)
     val travel = with(LocalDensity.current) { 22.dp.toPx() }
     LaunchedEffect(scale, spec) {
         if (seen) progress.snapTo(1f) else {
@@ -182,7 +184,8 @@ internal fun Modifier.homePosterEntrance(
             snapshotFlow { visible }.first { it }
             seen = true
             if (scale <= 0f) progress.snapTo(1f) else {
-                delay((index % 3 * (T.T1 / 2) * scale).toLong())
+                val initial = !row.isScrollInProgress && row.firstVisibleItemIndex == 0 && row.firstVisibleItemScrollOffset < 30 && index < 12
+                delay((if (initial) minOf(index, 4) * 80L * scale else 0f).toLong())
                 progress.animateTo(1f, spec)
             }
         }
@@ -202,11 +205,12 @@ internal fun Modifier.homePosterEntrance(
             (clipped.toFloat() / card.size).coerceIn(0f, 1f)
         }
         val bend = edge * edge * (3f - 2f * edge)
-        transformOrigin = TransformOrigin(.5f, 1f)
-        translationY = travel * maxOf(remaining, bend * .65f)
-        scaleX = 1f - maxOf(.10f * remaining, .12f * bend)
+        transformOrigin = TransformOrigin.Center
+        translationX = size.width * remaining
+        translationY = travel * bend * .65f
+        scaleX = 1f - maxOf(.5f * remaining, .12f * bend)
         scaleY = scaleX
-        alpha = (1f - .14f * remaining).coerceIn(0f, 1f)
+        alpha = (1f - .6f * remaining).coerceIn(0f, 1f)
     }
 }
 

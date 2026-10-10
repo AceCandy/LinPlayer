@@ -1,0 +1,2 @@
+# 方案
+在HomePage/Cards/Scaffold/PhoneRoot局部修改，Cards新增首页展示模式以隔离其它页面。使用Lp主题与Coil缓存，无新依赖。Hero候选仍来自已有首页作品，图像使用现有/img缓存加载机制，Backdrop失败回退Primary。播放复用Player路由；Series点击时复用seasons/seasonEpisodes解析首个未看分集，失败反馈，离页取消。核心仅添加未看统计有效标记和Backdrop存在字段，不改旧字段；Android适配层保留明确豆瓣字段，当前核心未提供可信豆瓣来源，因此默认隐藏。缓存白名单同步。保留其它工作树修改；回滚只撤本任务差异。

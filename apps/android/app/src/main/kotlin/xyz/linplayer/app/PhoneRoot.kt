@@ -1,5 +1,7 @@
 package xyz.linplayer.app
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.fadeIn
@@ -18,6 +20,8 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -37,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
 import xyz.linplayer.app.ui.components.PosterMotionHost
@@ -316,21 +319,20 @@ private fun MainShell() {
            ☠ 截长屏时底栏必须让开:长图是一片片切出来拼的,底栏留着的话
              它会**在每一片里各印一条**,一路排下来像出了什么故障。 */
         AnimatedVisibility(
-            visible = browsePage && tabsVisible && !xyz.linplayer.app.ui.components.LongShot.capturing.value,
+            visible = browsePage && tabsVisible && WindowInsets.ime.getBottom(LocalDensity.current) == 0 &&
+                !xyz.linplayer.app.ui.components.LongShot.capturing.value,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(lpTween(T.T4)) { it } + fadeIn(lpTween(T.T4)),
-            exit = slideOutVertically(lpTween(T.T3)) { it } + fadeOut(lpTween(T.T3)),
+            exit = slideOutVertically(lpTween(T.T4)) { it } + fadeOut(lpTween(T.T4)),
         ) {
-            LpTabBar(if (tab >= 0) tab else activeTab, onSearch = {
+            LpTabBar(if (entry?.destination?.hasRoute<Route.Search>() == true) 3 else if (tab >= 0) tab else activeTab, onSearch = {
                 if (entry?.destination?.hasRoute<Route.Search>() != true) {
-                    val viewId = if (entry?.destination?.hasRoute<Route.Library>() == true)
-                        entry?.toRoute<Route.Library>()?.viewId else null
-                    nav.navigate(Route.Search(viewId)) { launchSingleTop = true }
+                    nav.navigate(Route.Search()) { launchSingleTop = true }
                 }
             }) { picked ->
                 val target = when (picked) { 0 -> Route.Home; 1 -> Route.Aggregate; else -> Route.Favorites }
-                if (picked == activeTab && tab < 0) nav.popBackStack(target, inclusive = false)
-                else { activeTab = picked; nav.switchTab(target) }
+                activeTab = picked
+                nav.switchTab(target)
             }
         }
         LongShotButton(Modifier.align(Alignment.BottomEnd))
@@ -375,7 +377,7 @@ private fun ToastHost() {
                     .background(if (t?.kind == ToastKind.Error) c.bad else c.s3)
                     .padding(horizontal = Sp.x16, vertical = Sp.x12),
                 color = if (t?.kind == ToastKind.Error) c.accFg else c.fg,
-                fontSize = 13.sp,
+                style = LpText.secondary,
             )
         }
     }

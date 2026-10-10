@@ -2,7 +2,6 @@ package xyz.linplayer.app.ui
 
 import androidx.navigation.NavController
 import androidx.navigation.NavGraph.Companion.findStartDestination
-import androidx.navigation.NavDestination.Companion.hasRoute
 import kotlinx.serialization.Serializable
 
 /**
@@ -76,16 +75,11 @@ object Route {
     @Serializable data object AddServer                                       // U1.2 的「添加」版式
 }
 
-/**
- * 底栏切 Tab。**三个 Tab 各自独立返回栈**(UI_MOBILE.md §5.3)——
- * `saveState` / `restoreState` 保住每个 Tab 的滚动位置与页面栈。
- */
+/** 悬浮导航始终落到一级页；二级页不随Tab恢复，数据与滚动仍由页面留存。 */
 fun NavController.switchTab(route: Any) {
-    // 搜索是临时动作，不能随所属 Tab 保存后又作为 Tab 内容恢复。
-    if (currentDestination?.hasRoute<Route.Search>() == true) popBackStack()
+    if (popBackStack(route, inclusive = false)) return
     navigate(route) {
-        popUpTo(graph.findStartDestination().id) { saveState = true }
+        popUpTo(graph.findStartDestination().id)
         launchSingleTop = true
-        restoreState = true
     }
 }

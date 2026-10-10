@@ -264,7 +264,8 @@ fun PluginSurface(
                出了事记日志,画面不动 —— 用户没请这一层,不该替它背一个视觉故障。 */
             kind == "overlay" -> if (state != "error") RenderNode(tree.root, surfaceId ?: "", app)
             state == "error" -> PluginError(error)
-            state == "loading" && tree.root.children.isEmpty() -> PluginSkeleton()
+            state == "loading" && tree.root.children.isEmpty() ->
+                if (tv) PluginSkeleton() else xyz.linplayer.app.ui.components.LoadingState()
             else -> RenderNode(tree.root, surfaceId ?: "", app)
         }
         }

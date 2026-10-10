@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.player
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -10,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -27,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
@@ -281,7 +283,7 @@ fun PlayerPanel(
                 .padding(horizontal = Sp.x8, vertical = Sp.x8),
         ) {
             Text(title, Modifier.padding(horizontal = Sp.x12, vertical = Sp.x4),
-                color = c.fg, fontSize = 14.sp, fontWeight = FontWeight.SemiBold)
+                color = c.fg, style = LpText.action.copy(fontWeight = FontWeight.SemiBold))
             Spacer(Modifier.height(Sp.x6))
             loadError?.let {
                 Dim3(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)
@@ -509,8 +511,8 @@ private fun StepRow(label: String, readout: String, onStep: (Boolean) -> Unit) {
         Dim3(label, Modifier.weight(1f))
         StepKey("−") { onStep(false) }
         androidx.compose.material3.Text(
-            readout, Modifier.width(56.dp),
-            color = Lp.colors.fg, fontSize = 13.sp,
+            readout, Modifier.widthIn(min = 56.dp),
+            color = Lp.colors.fg, style = LpText.number,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         StepKey("+") { onStep(true) }
@@ -520,10 +522,10 @@ private fun StepRow(label: String, readout: String, onStep: (Boolean) -> Unit) {
 @Composable
 private fun StepKey(glyph: String, onClick: () -> Unit) = Box(
     // pressable 是全站统一的那个(带按压反馈),不自己再搭一套
-    Modifier.width(36.dp).height(36.dp).pressable(onClick, null),
+    Modifier.width(36.dp).heightIn(min = 36.dp).pressable(onClick, null),
     contentAlignment = Alignment.Center,
 ) {
-    androidx.compose.material3.Text(glyph, color = Lp.colors.fg, fontSize = 16.sp)
+    androidx.compose.material3.Text(glyph, color = Lp.colors.fg, style = LpText.section)
 }
 
 private suspend fun pick(

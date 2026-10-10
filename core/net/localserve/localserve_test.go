@@ -489,3 +489,69 @@ func TestEmbyRegistrationClearsRawMarker(t *testing.T) {
 		t.Fatalf("取图失败: %d", r.StatusCode)
 	}
 }
+
+// 缓存专用路由在缺图、读取及清理后均不能请求上游。
+func TestCachedImgNeverFetches(t *testing.T) {
+	var hits atomic.Int32
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) {
+		hits.Add(1)
+		_, _ = w.Write(pngBytes)
+	})
+	s.AllowEmby(up.URL, nil)
+	src := up.URL + "/Items/cached/Images/Backdrop/0?quality=90"
+	key, err := withSize(src, "", "720")
+	if err != nil {
+		t.Fatal(err)
+	}
+	route := "/img-cache?src=" + url.QueryEscape(src) + "&h=720"
+	if got := get(t, s, route, true).StatusCode; got != http.StatusNotFound {
+		t.Fatalf("未缓存应该404，实得%d", got)
+	}
+	imgcache.Put2L(key, pngBytes)
+	imgcache.MemClear()
+	if response := get(t, s, route, true); response.StatusCode != http.StatusOK || response.Header.Get("X-LP-Cache") != "hit" {
+		t.Fatalf("应从磁盘缓存读取，实得%d", response.StatusCode)
+	}
+	req, _ := http.NewRequest(http.MethodHead, s.BaseURL()+route, nil)
+	req.Header.Set("X-LP-Token", s.Token)
+	response, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = response.Body.Close()
+	if response.StatusCode != http.StatusOK || response.Header.Get("X-LP-Cache") != "hit" {
+		t.Fatal("HEAD探测应仅命中缓存")
+	}
+	imgcache.Clear()
+	if got := get(t, s, route, true).StatusCode; got != http.StatusNotFound {
+		t.Fatalf("缓存清理后不应回源，实得%d", got)
+	}
+	if got := hits.Load(); got != 0 {
+		t.Fatalf("缓存路由请求了上游%d次", got)
+	}
+	// 原来的取图通道仍保留回源语义。
+	if got := get(t, s, strings.Replace(route, "/img-cache?", "/img?", 1), true).StatusCode; got != http.StatusOK {
+		t.Fatalf("正常取图路由应仍能回源，实得%d", got)
+	}
+	if hits.Load() != 1 {
+		t.Fatal("正常取图路由应回源一次")
+	}
+}
+
+func TestCachedImgKeepsAuthenticationAndOriginAllowlist(t *testing.T) {
+	var hits atomic.Int32
+	s, up := newTestServer(t, func(w http.ResponseWriter, r *http.Request) { hits.Add(1) })
+	src := up.URL + "/poster.png"
+	imgcache.Put2L(src, pngBytes)
+	route := "/img-cache?src=" + url.QueryEscape(src)
+	if got := get(t, s, route, true).StatusCode; got != http.StatusNotFound {
+		t.Fatalf("未授权来源即使有缓存也不能读取，实得%d", got)
+	}
+	s.Allow(up.URL, nil)
+	if got := get(t, s, route, false).StatusCode; got != http.StatusUnauthorized {
+		t.Fatalf("缓存图片仍需本地鉴权，实得%d", got)
+	}
+	if hits.Load() != 0 {
+		t.Fatal("拒绝请求不应回源")
+	}
+}

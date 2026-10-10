@@ -1,9 +1,20 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -13,6 +24,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -29,6 +41,7 @@ import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -38,12 +51,17 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
@@ -51,13 +69,19 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
+import xyz.linplayer.app.data.CachedHomeImage
 import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.View
+import xyz.linplayer.app.data.browseBlock
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.ToastKind
@@ -74,13 +98,14 @@ import xyz.linplayer.app.ui.components.LpMenu
 import xyz.linplayer.app.ui.components.LpMenuItem
 import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.LpRow
+import xyz.linplayer.app.ui.components.MediaRowHeader
 import xyz.linplayer.app.ui.components.LpRowSkeleton
 import xyz.linplayer.app.ui.components.homePosterEntrance
-import xyz.linplayer.app.ui.components.Skeleton
 import androidx.compose.ui.platform.testTag
 import xyz.linplayer.app.ui.components.NetImage
-import xyz.linplayer.app.ui.components.SectionTitle
 import xyz.linplayer.app.ui.components.pressable
+import xyz.linplayer.app.ui.theme.lpTween
+import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -119,6 +144,25 @@ fun HomePage(nav: NavController) {
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
     val motionAccount = currentSession?.let { it.server to it.userId }
+    var banners by remember(motionAccount) { mutableStateOf<List<CachedHomeImage>>(emptyList()) }
+    val bannerItems = (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty())
+        .distinctBy { it.id }
+    LaunchedEffect(motionAccount, bannerItems, reload) {
+        // 候选只取首页已有真实作品，图片复用核心与Coil缓存，不额外请求推荐数据。
+        val found = bannerItems.filter { it.type in setOf("Movie", "Series", "Episode") }.shuffled().take(6)
+            .mapNotNull { item -> app.imageUrl(item.id, if (item.hasBackdrop) "Backdrop" else "Primary", 720)
+                ?.let { CachedHomeImage(item, it, item.hasBackdrop) } }
+        currentCoroutineContext().ensureActive()
+        if (app.session.value?.let { it.server to it.userId } == motionAccount) {
+            if (banners.isEmpty() && found.isNotEmpty() && !list.isScrollInProgress &&
+                list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0)
+                list.requestScrollToItem(0)
+            banners = found
+        }
+    }
+    val bannerVisible by remember { derivedStateOf {
+        list.layoutInfo.visibleItemsInfo.any { it.key == "banners" }
+    } }
     var canHideResume by remember(currentSession?.server, currentSession?.userId) { mutableStateOf(false) }
     LaunchedEffect(currentSession?.server, currentSession?.userId) {
         if (currentSession == null) return@LaunchedEffect
@@ -137,23 +181,26 @@ fun HomePage(nav: NavController) {
     /** 顶栏服名展开的服务器选择菜单。 */
     var pickServer by remember { mutableStateOf(false) }
 
-    // 每次恢复首页更新续播；库仅在首次加载或显式刷新时重取。
+    // 保留已展示内容，返回首页时并行刷新服务端快照。
     LaunchedEffect(owner, currentSession?.server, currentSession?.userId, reload) {
-        var loadHome = reload > 0 || views !is Block.Ok
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             try {
                 coroutineScope {
-                    launch { resume = app.block("emby.listResume", args("limit" to 12)).map { Item.list(it) } }
-                    if (loadHome) {
-                        // 空栏目恢复占位，才能在本轮再次按需加载。
-                        latest = latest.filterValues { it.isNotEmpty() }
-                        if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
-                        // 服名入口读取完整本地账号表，不走网络。
-                        launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
-                        launch { views = app.block("emby.views").map { View.list(it) } }
+                    launch {
+                        val response = app.browseBlock("emby.listResume", args("limit" to 12)) {
+                            if (resume !is Block.Ok) resume = Block.Ok(Item.list(it))
+                        }.map { Item.list(it) }
+                        if (response is Block.Ok || resume !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) resume = response
+                    }
+                    // 服名入口读取完整本地账号表，不走网络。
+                    launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
+                    launch {
+                        val response = app.browseBlock("emby.views") {
+                            if (views !is Block.Ok) views = Block.Ok(View.list(it))
+                        }.map { View.list(it) }
+                        if (response is Block.Ok || views !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) views = response
                     }
                 }
-                loadHome = false
             } finally {
                 refreshing = false
             }
@@ -168,14 +215,22 @@ fun HomePage(nav: NavController) {
             Triple(list.layoutInfo.visibleItemsInfo.map { it.key }, views.valueOrNull, latest)
         }.collect { (keys, visibleViews, _) ->
             for (key in keys) {
-                if (key == "collections" && requested.add("collections") &&
-                    (reload > 0 || collections !is Block.Ok)) {
-                    launch { collections = app.block("emby.listCollections").map { Item.list(it) } }
+                if (key == "collections" && requested.add("collections")) {
+                    launch {
+                        val response = app.browseBlock("emby.listCollections") {
+                            if (collections !is Block.Ok) collections = Block.Ok(Item.list(it))
+                        }.map { Item.list(it) }
+                        if (response is Block.Ok || collections !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) collections = response
+                    }
                 }
                 val view = visibleViews?.firstOrNull { key == "latest-${it.id}" } ?: continue
-                if (requested.add(view.id) && (reload > 0 || view.id !in latest)) {
+                if (requested.add(view.id)) {
                     launch {
-                        val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 16))
+                        val r = app.browseBlock("emby.listLatest", args("parent_id" to view.id, "limit" to 16)) {
+                            if (view.id !in latest) latest = latest + (view.id to Item.list(it))
+                        }
+                        currentCoroutineContext().ensureActive()
+                        if (r is Block.Fail && r.code in setOf("E_AUTH", "E_NOTFOUND")) latest = latest - view.id
                         r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
                     }
                 }
@@ -190,6 +245,18 @@ fun HomePage(nav: NavController) {
     }
 
     val open: (Item) -> Unit = { nav.navigate(Route.Detail(it.id, it.type)) }
+    var pendingPlayback by remember(motionAccount) { mutableStateOf<Item?>(null) }
+    LaunchedEffect(motionAccount, pendingPlayback) {
+        val item = pendingPlayback ?: return@LaunchedEffect
+        try {
+            val target = homePlaybackTarget(app, item)
+            currentCoroutineContext().ensureActive()
+            xyz.linplayer.app.ui.player.PlaybackClickTimes.navigate(nav, Route.Player(target.id, target.cardTitle))
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (e: Exception) { app.report(e) }
+        finally { pendingPlayback = null }
+    }
+    val play: (Item) -> Unit = { item -> if (pendingPlayback == null) pendingPlayback = item }
     val menu: (Item) -> List<CardAction> = { cardActions(app, scope, it) }
     // 继续观看多一项「取消观看记录」(用户 2026-09-18:「我不想看 我也不想标记为已观看」)。
     // 打 HideFromResume,进度和已看状态都不动;成功后只从这一条里摘掉,别的块不受影响。
@@ -227,7 +294,8 @@ fun HomePage(nav: NavController) {
         }
     }
 
-    LpImmersive(barHeight = 40.dp, barHorizontalPadding = Sp.x16, bar = {
+    LpImmersive(barHeight = 56.dp, barHorizontalPadding = Sp.x16,
+        barBackground = if (xyz.linplayer.app.ui.components.rememberScrolled(list)) Lp.colors.bg else Color.Transparent, bar = {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
@@ -242,9 +310,9 @@ fun HomePage(nav: NavController) {
                 onAdd = { pickServer = false; nav.navigate(Route.AddServer) },
             )
         }
-        Box(Modifier.size(40.dp).pressable({ nav.navigate(Route.Settings) }),
+        Box(Modifier.size(48.dp).pressable({ nav.navigate(Route.Settings) }),
             contentAlignment = Alignment.Center) {
-            Icon(LpIcons.settings, "设置", Modifier.size(20.dp), tint = Lp.colors.fg2)
+            Icon(LpIcons.settings, "设置", Modifier.size(24.dp), tint = Lp.colors.fg2)
         }
     }) { pad ->
         // 地基块失败才整页报错:只有 emby.views 是地基
@@ -258,16 +326,21 @@ fun HomePage(nav: NavController) {
             isRefreshing = refreshing,
             onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
             modifier = Modifier.fillMaxSize().padding(
-                top = WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 40.dp,
+                top = if (banners.isEmpty()) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
             ),
         ) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-                item("views") {
+                if (banners.isNotEmpty()) item("banners") {
+                    CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
+                        onPlay = play, primaryImage = { app.imageUrl(it.id, "Primary", 720) },
+                        logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120) else null })
+                }
+                if (!UiPrefs.hideHomeLibraries.value) item("views") {
                     when (v) {
                         is Block.Loading -> LazyRow(
                             Modifier.padding(top = Sp.x4), contentPadding = PaddingValues(horizontal = Sp.x16),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                        ) { items(3) { Skeleton(Modifier.size(158.dp, 90.dp)) } }
+                        ) { items(3) { Box(Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
                         is Block.Ok -> if (v.value.isEmpty()) EmptyState(
                             "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
                         ) else ViewsRow(v.value, nav)
@@ -276,7 +349,7 @@ fun HomePage(nav: NavController) {
                 }
 
                 item("resume") {
-                    RowBlock("继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
+                    RowBlock(if (UiPrefs.hideHomeLibraries.value) "" else "继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
                         homeAccount = motionAccount, resume = true)
                 }
 
@@ -294,7 +367,7 @@ fun HomePage(nav: NavController) {
                         else if (items.isNotEmpty()) LpRow(
                             view.name, items,
                             { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
-                            onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount,
+                            onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount, homeStyle = true,
                         )
                     }
                 }
@@ -313,26 +386,142 @@ fun HomePage(nav: NavController) {
 
 }
 
+/** 首页播放沿用既有Player入口，剧集按详情页的季/分集契约解析，不使用缓存进度起播。 */
+internal suspend fun homePlaybackTarget(app: xyz.linplayer.app.data.AppState, item: Item): Item {
+    if (!item.isSeries) return item
+    val seasons = Item.list(app.call("emby.seriesSeasons", args("series_id" to item.id)))
+    var first: Item? = null
+    for (season in seasons) {
+        val episodes = app.seasonEpisodes(season.id)
+        if (first == null) first = episodes.firstOrNull()
+        episodes.firstOrNull { !it.played }?.let { return it }
+    }
+    return first ?: throw IllegalStateException("没有可播放的分集")
+}
+
+/** 全宽电影Hero；触摸/纵向滚动/离屏/后台暂停，手动操作后重新计满轮播间隔。 */
+@Composable
+internal fun CachedHomeBanner(
+    images: List<CachedHomeImage>,
+    visible: Boolean,
+    open: (Item) -> Unit,
+    onPlay: (Item) -> Unit = open,
+    primaryImage: (Item) -> String? = { null },
+    logoImage: (Item) -> String? = { null },
+) {
+    if (images.isEmpty()) return
+    val c = Lp.colors
+    val owner = LocalLifecycleOwner.current
+    var index by remember(images) { mutableStateOf(0) }
+    var touching by remember { mutableStateOf(false) }
+    var dragging by remember { mutableStateOf(false) }
+    var manualRevision by remember { mutableStateOf(0) }
+    val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
+    LaunchedEffect(owner, visible, images, touching, dragging, manualRevision, motion) {
+        if (!visible || touching || dragging || images.size < 2 || motion <= 0f) return@LaunchedEffect
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
+            while (true) {
+                delay(5000)
+                index = (index + 1) % images.size
+            }
+        }
+    }
+    val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
+    val bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+    val available = (LocalConfiguration.current.screenHeightDp.dp - status - bottom).coerceAtLeast(0.dp)
+    val contentMin = with(LocalDensity.current) { status + 56.dp + 64.sp.toDp() + 16.sp.toDp() + 84.dp }
+    val heroHeight = (available * .42f).coerceIn(260.dp, 310.dp)
+        .coerceAtMost(available * .65f).coerceAtLeast(contentMin)
+    val fade = lpTween<Float>(400, LinearEasing)
+    Box(Modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
+        .pointerInput(images) {
+            awaitEachGesture {
+                awaitFirstDown(requireUnconsumed = false)
+                touching = true
+                try {
+                    while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) { }
+                } finally { touching = false; manualRevision++ }
+            }
+        }
+        .pointerInput(images) {
+            var travel = 0f
+            detectHorizontalDragGestures(
+                onDragStart = { dragging = true; travel = 0f },
+                onDragCancel = { dragging = false; manualRevision++ },
+                onDragEnd = {
+                    if (kotlin.math.abs(travel) >= 40.dp.toPx())
+                        index = (index + (if (travel < 0) 1 else images.size - 1)) % images.size
+                    dragging = false; manualRevision++
+                },
+            ) { change, amount -> change.consume(); travel += amount }
+        }) {
+        AnimatedContent(images[index], modifier = Modifier.fillMaxSize(), contentKey = { it.url },
+            transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "homeHero") { image ->
+            var failed by remember(image.url) { mutableStateOf(false) }
+            var logoFailed by remember(image.item.id) { mutableStateOf(false) }
+            val url = if (failed) primaryImage(image.item) else image.url
+            Box(Modifier.fillMaxSize().background(c.bg).pressable({ open(image.item) })) {
+                NetImage(url, null, Modifier.fillMaxSize(), 0.dp, scale = ContentScale.Crop,
+                    onLoadResult = { loaded ->
+                        if (!loaded && !failed && image.backdrop) failed = true
+                        // 即使海报也缺失仍保留标题与播放入口，静态底色避免布局跳动。
+                    })
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                    0f to (if (c.isDark) Color.Black.copy(alpha = .6f) else c.bg.copy(alpha = .92f)), .28f to Color.Transparent,
+                    .48f to c.bg.copy(alpha = .18f), 1f to c.bg)))
+                Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    val logo = logoImage(image.item).takeUnless { logoFailed }
+                    if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
+                        0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
+                    else Text(image.item.cardTitle, color = c.fg, style = LpText.hero,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
+                    if (info.isNotBlank()) Text(info, color = c.fg2, style = LpText.caption,
+                        maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(R.md)).background(c.acc)
+                        .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                        Icon(LpIcons.play, null, Modifier.size(20.dp), tint = c.accFg)
+                        Text(if (image.item.resumeSecs > 0 && !image.item.played) "继续播放" else "播放",
+                            color = c.accFg, style = LpText.action)
+                    }
+                }
+            }
+        }
+        if (images.size > 1) Row(Modifier.align(Alignment.BottomEnd).testTag("home.hero.indicators")
+            .padding(end = Sp.x16, bottom = Sp.x10),
+            horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
+            images.forEachIndexed { page, _ ->
+                Box(Modifier.size(if (page == index) 26.dp else 16.dp, 3.dp).clip(RoundedCornerShape(R.pill))
+                    .background(if (page == index) c.acc else Color.White.copy(alpha = .3f)))
+            }
+        }
+    }
+}
+
 /** 紧凑服名入口：无底色和箭头，共用服务器图标，长名称省略。 */
 @Composable
 private fun ServerChip(account: Account?, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
     Row(
-        Modifier.height(40.dp)
+        Modifier.heightIn(min = 56.dp)
             .pressable(onClick)
             .padding(end = Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(Modifier.size(30.dp), contentAlignment = Alignment.Center) {
+        Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
             if (icon != null) androidx.compose.foundation.Image(
                 icon, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-            ) else Icon(LpIcons.server, null, Modifier.size(21.dp), tint = c.acc)
+            ) else Icon(LpIcons.server, null, Modifier.size(24.dp), tint = c.acc)
         }
         Spacer(Modifier.width(Sp.x8))
         Text(
             account?.name ?: "服务器", Modifier.weight(1f, fill = false),
-            color = c.fg, fontSize = 14.sp,
+            color = c.fg, style = LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }
@@ -385,7 +574,8 @@ private fun RowBlock(
         is Block.Ok -> if (block.value.isNotEmpty()) LpRow(
             title, block.value,
             { app.imageUrl(it.id, "Primary", if (thumb) 220 else 330) },
-            open, thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount,
+            open, m = if (resume) Modifier.testTag("home.resume") else Modifier,
+            thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount, homeStyle = true,
         )
         // 各块各自 catch:一个区块失败不整页报错
         is Block.Fail -> Unit
@@ -417,7 +607,7 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
     val title = sec.str("title")?.takeIf { it.isNotEmpty() } ?: sid
     if (sec.str("kind") == "custom") {
         Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
-            SectionTitle(title)
+            MediaRowHeader(title)
             xyz.linplayer.app.ui.plugin.PluginSurface(pid, sec.str("block")?.takeIf { it.isNotEmpty() } ?: sid,
                 modifier = Modifier.padding(horizontal = Sp.x16))
         }
@@ -433,7 +623,7 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
     val shape = sec.str("shape") ?: "portrait"
     val row = rememberLazyListState()
     Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
-        SectionTitle(title)
+        MediaRowHeader(title)
         LazyRow(
             state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16),
@@ -470,7 +660,7 @@ private fun ViewsRow(views: List<View>, nav: NavController) {
                     Modifier.fillMaxSize(), R.md, ContentScale.Fit,
                     placeholder = {
                         Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = c.fg,
-                            fontSize = 14.sp, fontWeight = FontWeight.Medium, maxLines = 2,
+                            style = LpText.card, maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     })

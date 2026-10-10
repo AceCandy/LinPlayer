@@ -130,6 +130,7 @@ func Start() (*Server, error) {
 	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("/img", s.handleImg)
+	mux.HandleFunc("/img-cache", s.handleCachedImg)
 	mux.HandleFunc("/p/", s.handlePluginAsset)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
@@ -278,8 +279,21 @@ func (s *Server) authed(r *http.Request) bool {
 //
 //	GET /img?src=<完整图片 URL>&w=<px>&h=<px>
 func (s *Server) handleImg(w http.ResponseWriter, r *http.Request) {
+	s.handleImage(w, r, false)
+}
+
+// handleCachedImg 只供已有缓存；独立路由让旧核心也无法误走回源。
+func (s *Server) handleCachedImg(w http.ResponseWriter, r *http.Request) {
+	s.handleImage(w, r, true)
+}
+
+func (s *Server) handleImage(w http.ResponseWriter, r *http.Request, cacheOnly bool) {
 	if !s.authed(r) {
 		http.Error(w, "缺少或不正确的 X-LP-Token", http.StatusUnauthorized)
+		return
+	}
+	if cacheOnly && r.Method != http.MethodGet && r.Method != http.MethodHead {
+		http.Error(w, "只支持读取缓存图片", http.StatusMethodNotAllowed)
 		return
 	}
 	q := r.URL.Query()
@@ -308,6 +322,11 @@ func (s *Server) handleImg(w http.ResponseWriter, r *http.Request) {
 	key := upstream
 	if b := imgcache.Get2L(key); b != nil {
 		writeImage(w, b, true)
+		return
+	}
+
+	if cacheOnly {
+		http.Error(w, "图片未缓存", http.StatusNotFound)
 		return
 	}
 

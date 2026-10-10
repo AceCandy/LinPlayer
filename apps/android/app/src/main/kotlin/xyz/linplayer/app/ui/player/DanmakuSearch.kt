@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.player
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
@@ -27,7 +29,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonObject
@@ -153,7 +154,7 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
                 .pointerInput(Unit) { detectTapGestures { } },
         ) {
             Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("弹幕搜索", Modifier.weight(1f), color = Lp.colors.fg, fontSize = 15.sp)
+                Text("弹幕搜索", Modifier.weight(1f), color = Lp.colors.fg, style = LpText.section)
                 LpButton("关闭", onClick = onClose)
             }
             Spacer(Modifier.height(Sp.x10))

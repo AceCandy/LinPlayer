@@ -4,10 +4,8 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.collectAsState
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -46,10 +44,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewmodel.compose.viewModel
 import kotlinx.coroutines.delay
 import xyz.linplayer.app.ui.components.LpIconButton
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
@@ -72,8 +67,9 @@ import xyz.linplayer.app.ui.components.LpField
 import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.LpRow
-import xyz.linplayer.app.ui.components.Skeleton
-import xyz.linplayer.app.ui.components.pressable
+import xyz.linplayer.app.ui.components.MediaFilterChip
+import xyz.linplayer.app.ui.components.LpDialog
+import xyz.linplayer.app.ui.components.BlockBox
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.Sp
@@ -85,16 +81,16 @@ internal class SearchPageState : ViewModel() {
     val aggregate = mutableStateOf(false)
     val refresh = mutableStateOf(0)
     val result = mutableStateOf<Block<List<Item>>?>(null)
-    val history = mutableStateOf<List<String>>(emptyList())
+    val type = mutableStateOf("Movie")
     val aggRows = androidx.compose.runtime.mutableStateListOf<kotlinx.serialization.json.JsonObject>()
     val aggRun = mutableStateOf(0)
     val aggQuery = mutableStateOf("")
     val aggFailure = mutableStateOf<String?>(null)
-    var completedQuery: Pair<String, Int>? = null
+    var completedQuery: Triple<String, String, Int>? = null
     var completedRun = 0
 }
 
-/** 搜索只查电影和剧集；输入框内切换聚合，开启/键盘搜索/下拉刷新发起聚合查询。 */
+/** 搜索电影、剧集和人物；输入框内切换聚合，开启/键盘搜索/下拉刷新发起聚合查询。 */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
@@ -116,7 +112,19 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     var aggregate by state.aggregate
     var refresh by state.refresh
     var result by state.result
-    var history by state.history
+    var searchType by state.type
+    val ctx = androidx.compose.ui.platform.LocalContext.current
+    val history by xyz.linplayer.app.data.UiPrefs.searchHistory
+    var pickedPerson by remember(state) { mutableStateOf<Item?>(null) }
+    var personItems by remember(state) { mutableStateOf<Block<List<Item>>>(Block.Loading) }
+    var personRetry by remember(state) { mutableStateOf(0) }
+    LaunchedEffect(pickedPerson?.id, personRetry) {
+        val person = pickedPerson ?: return@LaunchedEffect
+        personItems = Block.Loading
+        val response = app.block("emby.personItems", args("person_id" to person.id, "limit" to 60)).map { Item.list(it) }
+        currentCoroutineContext().ensureActive()
+        personItems = response
+    }
     val aggRows = state.aggRows
     var aggRun by state.aggRun
     var aggQuery by state.aggQuery
@@ -125,14 +133,10 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     var aggBusy by remember(state) { mutableStateOf(false) }
     val resultScroll = rememberLazyListState()
     val aggregateScroll = rememberLazyListState()
-    val focus = remember { FocusRequester() }
     val keyboard = LocalSoftwareKeyboardController.current
 
-    // 预填了词就别抢焦点弹键盘 —— 用户是来看结果的,不是来打字的
-    LaunchedEffect(Unit) { if (q.isBlank()) focus.requestFocus() }
-
     // 关键词/模式变化取消旧查询；刷新保留当前关键词与库内范围。
-    LaunchedEffect(state, q.trim(), aggregate, refresh) {
+    LaunchedEffect(state, q.trim(), searchType, aggregate, refresh) {
         val text = q.trim()
         if (text.isEmpty() || (aggregate && route.viewId == null)) {
             result = null
@@ -140,13 +144,13 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             if (text != aggQuery) { aggRun = 0; state.completedRun = 0; aggRows.clear(); aggFailure = null }
             return@LaunchedEffect
         }
-        if (state.completedQuery == (text to refresh) && result != null && result !is Block.Loading) return@LaunchedEffect
+        if (state.completedQuery == Triple(text, searchType, refresh) && result != null && result !is Block.Loading) return@LaunchedEffect
         try {
             delay(250)
             result = Block.Loading
             val a = buildMap<String, Any> {
                 put("query", text)
-                put("types", jsonArrayOf(listOf("Series", "Movie")))
+                put("types", jsonArrayOf(listOf(searchType)))
                 route.viewId?.let { put("parent_id", it) }
             }
             val response = app.block("emby.search", args(*a.toList().toTypedArray()))
@@ -156,7 +160,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 is Block.Fail -> r
                 else -> Block.Loading
             }
-            state.completedQuery = text to refresh
+            state.completedQuery = Triple(text, searchType, refresh)
         } finally { refreshing = false }
     }
 
@@ -199,7 +203,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12)) {
             Column(Modifier.fillMaxSize().imePadding()) {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
-                    Modifier.padding(horizontal = Sp.x16).focusRequester(focus).testTag("search.field"),
+                    Modifier.padding(horizontal = Sp.x16).testTag("search.field"),
                     trailingIcon = if (route.viewId == null && !onSource) ({
                         LpIconButton(
                             LpIcons.layers, if (aggregate) "关闭聚合搜索" else "开启聚合搜索",
@@ -212,10 +216,23 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     }) else null,
                     onSearch = {
                         keyboard?.hide()
+                        xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, q)
                         if (aggregate && route.viewId == null) searchAggregate() else refresh++
                     },
                 )
-                Spacer(Modifier.height(Sp.x16))
+                Spacer(Modifier.height(Sp.x12))
+                if (!aggregate || route.viewId != null) Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x8),
+                ) {
+                    listOf("电影" to "Movie", "剧集" to "Series", "人物" to "Person").forEach { (label, type) ->
+                        androidx.compose.foundation.layout.Box(Modifier.testTag("search.type.$type")) {
+                            MediaFilterChip(label, searchType == type, { searchType = type })
+                        }
+                    }
+                }
+                if (q.isBlank() && history.isNotEmpty()) HistoryList(history) { q = it }
+                Spacer(Modifier.height(Sp.x8))
 
                 /* 插件的搜索快捷动作(D242)。摆在搜索框下面、结果上面 —— 结果列表本身不动。
                    一条都没有时整行不画,不在搜索框下面留一条空白。 */
@@ -277,20 +294,11 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     r == null -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { if (history.isEmpty()) EmptyState(
                         "搜片名、剧名或演员", "会搜当前服务器；点击搜索框右侧叠层图标可切换聚合搜索。",
                         LpIcons.search,
-                    ) else HistoryList(history) { q = it } }
+                    ) }
 
-                    r is Block.Loading -> LazyVerticalGrid(
-                        GridCells.Fixed(3), contentPadding = PaddingValues(Sp.x16),
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                        verticalArrangement = Arrangement.spacedBy(Sp.x16),
-                    ) {
-                        items(9) {
-                            Column(horizontalAlignment = androidx.compose.ui.Alignment.CenterHorizontally) {
-                                Skeleton(Modifier.fillMaxWidth().aspectRatio(2f / 3f))
-                                Spacer(Modifier.height(Sp.x6))
-                                Skeleton(Modifier.fillMaxWidth(.8f).height(14.dp))
-                            }
-                        }
+                    r is Block.Loading -> androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(),
+                        contentAlignment = androidx.compose.ui.Alignment.Center) {
+                        androidx.compose.material3.CircularProgressIndicator(color = Lp.colors.mediaAccent)
                     }
 
                     r is Block.Fail -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
@@ -321,9 +329,10 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                                 // 历史只在**用户真的点开了某个结果**时才记 ——
                                                 // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
                                                 val t = q.trim()
-                                                if (t.isNotEmpty()) history = (listOf(t) + history).distinct().take(8)
-                                                nav.navigate(Route.Detail(picked.id, picked.type))
-                                            }, Modifier.weight(1f), menu = cardActions(app, scope, picked))
+                                                xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, t)
+                                                if (picked.type == "Person") { personItems = Block.Loading; pickedPerson = picked }
+                                                else nav.navigate(Route.Detail(picked.id, picked.type))
+                                            }, Modifier.weight(1f), menu = if (picked.type == "Person") null else cardActions(app, scope, picked))
                                         }
                                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                                     }
@@ -340,6 +349,23 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             }
         }
     }
+    pickedPerson?.let { person ->
+        LpDialog({ pickedPerson = null }, person.name) {
+            BlockBox(personItems, onRetry = { personRetry++ }) { films ->
+                if (films.isEmpty()) EmptyState("没有相关作品", "这个服务器没有返回该人物的作品。")
+                else LazyVerticalGrid(GridCells.Fixed(3), Modifier.height(360.dp),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                    items(films, key = { it.id }) { film ->
+                        MediaCard(film, app.imageUrl(film.id, "Primary", 330), {
+                            pickedPerson = null
+                            nav.navigate(Route.Detail(film.id, film.type))
+                        }, Modifier.fillMaxWidth(), menu = cardActions(app, scope, film))
+                    }
+                }
+            }
+        }
+    }
 }
 
 private inline fun remember0(list: List<String>, set: (List<String>) -> Unit) = Unit
@@ -349,9 +375,12 @@ private fun HistoryList(history: List<String>, onPick: (String) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         MediaRowHeader("最近搜过")
         Spacer(Modifier.height(Sp.x8))
-        history.forEach {
-            Text(it, Modifier.fillMaxWidth().pressable({ onPick(it) }).padding(horizontal = Sp.x16, vertical = Sp.x12),
-                color = Lp.colors.fg2, fontSize = 14.sp)
+        androidx.compose.foundation.layout.FlowRow(
+            Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
+            horizontalArrangement = Arrangement.spacedBy(Sp.x8),
+            verticalArrangement = Arrangement.spacedBy(Sp.x4),
+        ) {
+            history.take(10).forEach { word -> MediaFilterChip(word, false, { onPick(word) }) }
         }
     }
 }

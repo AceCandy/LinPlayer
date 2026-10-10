@@ -2516,3 +2516,7 @@ Linux 侧靠二进制的硬依赖清单确定下限(§15.6)。Windows 侧的下�
 | `ui/tv` 9.5k 行 | Compose TV(Kotlin) | 重写,焦点逻辑删除 |
 | `ui/shared` 3.1k 行 | 部分下沉核心层(表单 schema),部分三端各写 | |
 | CDP 自检台 | 各端原生 UI 测试 | 手段替换 |
+
+### 本地缓存图片专用通道
+
+`GET /img-cache?src=<image URL>&w=<px>&h=<px>`（支持HEAD）复用/img的X-LP-Token与来源白名单检查、尺寸规范及缓存key。仅Get2L命中供图并返回X-LP-Cache: hit；未命中404且不请求上游，不改变普通/img回源行为。Android首页缓存轮播的探测和显示均使用此路由；独立路由让旧核心未实现时安全缺图，不能以/img可选标志代替。没有新增FFI或bus命令。

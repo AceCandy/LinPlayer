@@ -46,13 +46,14 @@ data class LpColors(
     /** 叠在画面上的玻璃底。**写死色号必须带 alpha** —— 不透明的一律进上面那些 token */
     val chip: Color,
     val isDark: Boolean,
-    /** 手机媒体卡片与悬浮导航的蓝紫色，与播放页强调色分开。 */
+    /** 非首页媒体卡片配色，与首页和播放页的品牌强调色分开。 */
     val mediaAccent: Color = Color(0xFF344B88),
     val mediaOnAccent: Color = Color(0xFFE2E6FF),
-    val mediaPanel: Color = Color(0xED25272E),
-    val mediaIcon: Color = Color(0xFFC5CAE9),
+    val mediaPanel: Color = Color(0xD91C1C25),
+    val mediaIcon: Color = Color(0xFFA6A4B5),
     val mediaRating: Color = Color(0xFFCACDE9),
     val mediaRatingInk: Color = Color(0xFF202333),
+    val mediaBadgeInk: Color = Color(0xFFF5F5F7),
 )
 
 /*
@@ -65,12 +66,12 @@ data class LpColors(
 /* 主题 token 是 `var`:插件主题在**第一次组合之前**改它一次(重启生效,D69),
    之后再没人写 —— 做成状态反而要求全站跟着重组,而那一次重组什么也换不了。 */
 internal var DarkColors = LpColors(
-    bg = Color(0xFF100E14),
+    bg = Color(0xFF0D0C12),
     s1 = Color(0x0EFFFFFF), s2 = Color(0x1AFFFFFF), s3 = Color(0x26FFFFFF),
     line = Color(0x12FFFFFF), line2 = Color(0x24FFFFFF),
-    fg = Color(0xFFF3EFF8), fg2 = Color(0xFF9B93AE), fg3 = Color(0xFF6E6880),
+    fg = Color(0xFFF5F5F7), fg2 = Color(0xFF9996A8), fg3 = Color(0xFF6E6880),
     // 强调色是**琥珀**不是蓝:草稿里评分、进度、选中态、主按钮渐变都吃它
-    acc = Color(0xFFF5A524), accDim = Color(0x2EF5A524), accFg = Color(0xFF20160A),
+    acc = Color(0xFFF4AD39), accDim = Color(0x2EF4AD39), accFg = Color(0xFF20160A),
     ok = Color(0xFF5CD6A0), warn = Color(0xFFF5A524), bad = Color(0xFFFF6B5E),
     scrim = Color(0xB3100E14), chip = Color(0x8C1A1720), isDark = true,
 )
@@ -85,7 +86,7 @@ internal var LightColors = LpColors(
     acc = Color(0xFF8A5A00), accDim = Color(0x1F8A5A00), accFg = Color(0xFFFFFBF2),
     ok = Color(0xFF1F7A55), warn = Color(0xFF8A5A00), bad = Color(0xFFC7554E),
     scrim = Color(0xB3FAF7FC), chip = Color(0xC7FFFFFF), isDark = false,
-    mediaPanel = Color(0xEDF1F2FA), mediaIcon = Color(0xFF424F82),
+    mediaPanel = Color(0xEDF1F2FA), mediaIcon = Color(0xFF514A60), mediaBadgeInk = Color(0xFF1A1622),
 )
 
 /** 间距刻度。**允许的值只有这些** */
@@ -112,8 +113,7 @@ object R {
 object Dim {
     val topBar = 52.dp
     val tabBar = 64.dp
-    val tabWidth = 240.dp
-    val tabFloatGap = 32.dp
+    val tabFloatGap = 12.dp
     val tap = 48.dp
     val hairline = 1.dp
     /* 草稿里那几块「铺到屏幕顶」的图。它们不是间距,是**版面高度**,
@@ -132,15 +132,29 @@ val LocalLpColors = staticCompositionLocalOf { DarkColors }
  */
 val LocalMotionScale: ProvidableCompositionLocal<Float> = compositionLocalOf { 1f }
 
-private fun lpTypography(f: FontFamily?) = Typography(
-    displayLarge = TextStyle(fontSize = 28.sp, fontWeight = FontWeight.Bold, fontFamily = f),
-    titleLarge = TextStyle(fontSize = 20.sp, fontWeight = FontWeight.Bold, fontFamily = f),
-    titleMedium = TextStyle(fontSize = 16.sp, fontWeight = FontWeight.SemiBold, fontFamily = f),
-    bodyLarge = TextStyle(fontSize = 14.sp, lineHeight = 21.sp, fontFamily = f),
-    bodyMedium = TextStyle(fontSize = 13.sp, fontFamily = f),
-    labelLarge = TextStyle(fontSize = 12.sp, fontFamily = f),
-    labelSmall = TextStyle(fontSize = 11.sp, fontFamily = f),
-)
+private fun lpTypography(f: FontFamily?): Typography {
+    fun style(size: Int, height: Int, weight: FontWeight = FontWeight.Normal) = TextStyle(
+        fontSize = size.sp, lineHeight = height.sp, fontWeight = weight,
+        fontFamily = f, letterSpacing = 0.sp,
+    )
+    return Typography(
+        displayLarge = style(25, 32, FontWeight.Bold),
+        displayMedium = style(20, 28, FontWeight.Bold),
+        displaySmall = style(20, 28, FontWeight.Medium),
+        headlineLarge = style(25, 32, FontWeight.Bold),
+        headlineMedium = style(20, 28, FontWeight.Medium),
+        headlineSmall = style(16, 24, FontWeight.SemiBold),
+        titleLarge = style(18, 24, FontWeight.SemiBold),
+        titleMedium = style(16, 24, FontWeight.SemiBold),
+        titleSmall = style(15, 22),
+        bodyLarge = style(14, 21),
+        bodyMedium = style(13, 20),
+        bodySmall = style(12, 16),
+        labelLarge = style(14, 20, FontWeight.Medium),
+        labelMedium = style(13, 20, FontWeight.Medium),
+        labelSmall = style(11, 14, FontWeight.Medium),
+    )
+}
 
 /**
  * 内置静态字体资源，兼容API24；粗字由字体族合成，不使用变量字体轴。
@@ -193,9 +207,7 @@ fun LpTheme(
         outline = c.line2, error = c.bad,
     )
 
-    /* ☠ **光换 Typography 不够。** 全站大半的 `Text(…, fontSize = 13.sp)` 走的是
-       `LocalTextStyle`(M3 不把 Typography 灌进去,它的默认值是 `TextStyle.Default`)——
-       只改 Typography 的表现是「标题换了字体,正文一个字都没变」。两处一起给。 */
+    // 公共文字与M3组件共用完整的字体、行高和字距，避免只改字号后继承正文行高。
     val family = userFontFamily()
     val typo = remember(family) { lpTypography(family) }
     CompositionLocalProvider(LocalLpColors provides c, LocalMotionScale provides motion) {
@@ -204,7 +216,7 @@ fun LpTheme(
             medium = RoundedCornerShape(R.lg), large = RoundedCornerShape(R.xl), extraLarge = RoundedCornerShape(R.xl),
         )) {
             CompositionLocalProvider(
-                LocalTextStyle provides LocalTextStyle.current.copy(fontFamily = family),
+                LocalTextStyle provides typo.bodyLarge,
                 content = content,
             )
         }

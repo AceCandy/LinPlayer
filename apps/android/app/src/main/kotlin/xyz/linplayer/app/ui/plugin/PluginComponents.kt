@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.plugin
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
@@ -643,18 +645,18 @@ internal fun PlugMarkdown(n: UiNode, m: Modifier) {
             when {
                 line.isEmpty() -> Spacer(Modifier.height(Sp.x6))
                 line.startsWith("### ") -> Text(mdInline(line.drop(4), c.acc, c.s2), color = c.fg,
-                    fontSize = 15.sp, fontWeight = FontWeight.SemiBold)
+                    style = LpText.list, fontWeight = FontWeight.SemiBold)
                 line.startsWith("## ") -> Text(mdInline(line.drop(3), c.acc, c.s2), color = c.fg,
-                    fontSize = 17.sp, fontWeight = FontWeight.SemiBold)
+                    style = LpText.section)
                 line.startsWith("# ") -> Text(mdInline(line.drop(2), c.acc, c.s2), color = c.fg,
-                    fontSize = 20.sp, fontWeight = FontWeight.Bold)
+                    style = LpText.heading)
                 line.startsWith("- ") || line.startsWith("* ") -> Row(
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                 ) {
-                    Text("·", color = c.fg3, fontSize = 14.sp)
-                    Text(mdInline(line.drop(2), c.acc, c.s2), color = c.fg2, fontSize = 14.sp, lineHeight = 21.sp)
+                    Text("·", color = c.fg3, style = LpText.body)
+                    Text(mdInline(line.drop(2), c.acc, c.s2), color = c.fg2, style = LpText.body)
                 }
-                else -> Text(mdInline(line, c.acc, c.s2), color = c.fg2, fontSize = 14.sp, lineHeight = 21.sp)
+                else -> Text(mdInline(line, c.acc, c.s2), color = c.fg2, style = LpText.body)
             }
         }
     }

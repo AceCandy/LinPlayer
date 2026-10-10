@@ -96,6 +96,33 @@ class PhonePosterMotionTest {
         return { fetched }
     }
 
+    @Test fun refreshedRowAtStartShowsNewPosterWhileMiddleKeepsItsAnchor() {
+        images()
+        val entries = mutableStateOf((1..20).map { Item("old-$it", "旧海报$it", "Movie") })
+        rule.setContent {
+            LpTheme {
+                Box(Modifier.size(320.dp, 300.dp)) {
+                    LpRow("", entries.value, { "poster:${it.id}" }, {})
+                }
+            }
+        }
+        rule.waitForIdle()
+        val initialLeft = rule.onNodeWithContentDescription("旧海报1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        rule.runOnIdle { entries.value = listOf(Item("new-1", "新海报1", "Movie")) + entries.value }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("新海报1", useUnmergedTree = true).assertIsDisplayed()
+        assertEquals("新海报应占据原来的首位", initialLeft,
+            rule.onNodeWithContentDescription("新海报1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left, .1f)
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(7)
+        rule.waitForIdle()
+        val anchor = rule.onNodeWithContentDescription("旧海报7", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        rule.runOnIdle { entries.value = listOf(Item("new-2", "新海报2", "Movie")) + entries.value }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("旧海报7", useUnmergedTree = true).assertIsDisplayed()
+        assertEquals("中部浏览不能被刷新拉回顶部", anchor,
+            rule.onNodeWithContentDescription("旧海报7", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left, .1f)
+    }
+
     @Test fun idleCardsDoNotInstallSharedLayoutModifiers() {
         val modifiers = mutableListOf<Modifier>()
         rule.setContent {
@@ -558,7 +585,7 @@ class PhonePosterMotionTest {
         rule.mainClock.advanceTimeBy(1000)
     }
 
-    @Test fun homeCardsExpandUpWithStaggerAndDoNotReplay() {
+    @Test fun homeCardsExpandAndMoveLeftWithStaggerWithoutReplaying() {
         images()
         var list: LazyListState? = null
         var compositions = 0
@@ -581,7 +608,6 @@ class PhonePosterMotionTest {
         }
         fun poster(n: Int) = rule.onNodeWithContentDescription("海报$n", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         rule.mainClock.advanceTimeBy(32)
-        assertTrue("first measured card must already be smaller", poster(0).width < 100f)
         rule.mainClock.advanceTimeBy(1000)
         val titleLeft = rule.onNodeWithText("固定标题").fetchSemanticsNode().boundsInRoot.left
         rule.onNodeWithContentDescription("海报0", useUnmergedTree = true).assertIsNotDisplayed()
@@ -589,14 +615,15 @@ class PhonePosterMotionTest {
         rule.runOnIdle { runBlocking { list!!.scrollToItem(0, 80) } }
         rule.mainClock.advanceTimeBy(32)
         val starting = poster(0)
+        assertTrue("visible card starts with a pronounced scale entrance: $starting", starting.width < 80f)
         rule.mainClock.advanceTimeBy(64)
         val moving = poster(0)
         assertTrue("card must grow upwards in successive frames: $starting → $moving",
             moving.top < starting.top - 2f && moving.width > starting.width + 1f)
-        assertEquals("no row translation may shift the card center", 68f, moving.center.x, .1f)
+        assertTrue("each card must move left while expanding: $starting → $moving", moving.left < starting.left - 10f)
         assertTrue("home cards must expand with independent phases", kotlin.math.abs(moving.width - poster(1).width) > .3f)
         val animatingCompositions = compositions
-        rule.mainClock.advanceTimeBy(352)
+        rule.mainClock.advanceTimeBy(384)
         assertEquals("main movement must settle by about450ms", 16f, poster(0).left, .4f)
         rule.mainClock.advanceTimeBy(700)
         val revealed = poster(0)
@@ -693,7 +720,7 @@ class PhonePosterMotionTest {
             androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
         }
         rule.mainClock.advanceTimeBy(96)
-        assertTrue("visible card must animate while fast scroll is active: ${left()}", left() in 16.5f..20.5f)
+        assertTrue("visible card must animate while fast scroll is active: ${left()}", left() in 25f..145f)
         rule.runOnIdle { assertTrue(scroll.fast) }
         rule.runOnIdle { motionScale.value = 0f; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
         rule.mainClock.advanceTimeBy(32)
@@ -821,7 +848,7 @@ class PhonePosterMotionTest {
         rule.mainClock.advanceTimeBy(1000)
         assertEquals("visible card finishes without waiting for settle", 104f, poster().width, .1f)
         rule.runOnIdle { assertTrue(scroll.fast) }
-        assertTrue("card must never park a full horizontal place away", during.center.x < 70f)
+        assertTrue("fresh card must start its expansion without waiting for fast scroll to end", during.width < 103f)
         rule.runOnIdle { runBlocking { list.scrollToItem(swept + 3) } }
         rule.mainClock.advanceTimeBy(1000)
         rule.onNodeWithText("海报$swept").assertDoesNotExist()
@@ -847,12 +874,44 @@ class PhonePosterMotionTest {
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(5)
         rule.mainClock.advanceTimeBy(64)
         val entering = poster(5)
-        assertTrue("horizontally entering card must start smaller: $entering", entering.width in 93f..102f)
+        assertTrue("horizontally entering card must start smaller: $entering", entering.width in 55f..96f)
         rule.mainClock.advanceTimeBy(700)
         assertEquals(104f, poster(5).width, .1f)
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
         rule.mainClock.advanceTimeBy(32)
         assertEquals("horizontal return must not replay", 104f, poster(0).width, .1f)
+    }
+
+    @Test fun homeEntranceHasDeceleratingMovementAndVisibleFade() {
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            LpTheme {
+                val row = rememberLazyListState()
+                Box(Modifier.size(320.dp, 200.dp).background(Color.Black).testTag("entrance")) {
+                    Box(Modifier.padding(start = 16.dp, top = 16.dp)) {
+                        Box(Modifier.size(100.dp).homePosterEntrance("one", 0, "server" to "user", row)
+                            .background(Color.Green).testTag("animated"))
+                    }
+                }
+            }
+        }
+        fun bounds() = rule.onNodeWithTag("animated").fetchSemanticsNode().boundsInRoot
+        rule.mainClock.advanceTimeBy(32)
+        val first = bounds()
+        assertTrue("initial scale must be close to half: $first", first.width in 50f..60f)
+        assertTrue("initial translation must approach one card width: $first", first.left > 120f)
+        rule.mainClock.advanceTimeBy(128)
+        val middle = bounds()
+        assertTrue("deceleration covers most of the distance early: $middle", middle.width in 78f..88f)
+        val pixels = rule.onNodeWithTag("entrance").captureToImage().toPixelMap()
+        val green = pixels[middle.center.x.toInt(), middle.center.y.toInt()].green
+        val progress = (middle.width / 100f - .5f) / .5f
+        assertEquals("opacity follows the same progress as geometry", .4f + .6f * progress, green, .03f)
+        rule.mainClock.advanceTimeBy(224)
+        assertTrue("450ms movement must not have settled at384ms", bounds().left > 16.2f)
+        rule.mainClock.advanceTimeBy(96)
+        assertEquals(16f, bounds().left, .01f)
+        assertEquals(100f, bounds().width, .01f)
     }
 
     @Test fun loadedHomePostersKeepDeformingOnRepeatedHorizontalScroll() {
@@ -961,7 +1020,7 @@ class PhonePosterMotionTest {
         rule.onNodeWithTag("source2").assertExists()
     }
 
-    @Test fun actualDetailSharesPosterBeforeItsMetadataArrives() =
+    @Test fun actualMovieShowsSourceTitleBeforeItsMetadataArrives() =
         checkDetailPreview(Item("m1", "Movie", "Movie"))
 
     @Test fun actualDetailShowsTitleFromSourceWithoutImage() =
@@ -1013,11 +1072,7 @@ class PhonePosterMotionTest {
             rule.onNodeWithTag("source").performClick()
             rule.mainClock.advanceTimeBy(100)
             assertTrue("metadata must still be pending", pending && !gate.isCompleted)
-            if (withImage && !source.isEpisode) {
-                val middle = greenBounds()
-                assertTrue("actual detail must share its poster while metadata is pending: $middle",
-                    middle.width > 60f && middle.width < 96f)
-            }
+            // 电影头部已改为Backdrop，不再重复放Primary海报；共享矩形另由专用用例核验。
             rule.mainClock.advanceTimeBy(320)
             if (source.isEpisode) {
                 rule.onNodeWithText("预览剧名").assertIsDisplayed().assertHasNoClickAction()

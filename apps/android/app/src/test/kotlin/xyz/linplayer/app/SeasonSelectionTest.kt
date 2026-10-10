@@ -8,17 +8,20 @@ import androidx.compose.ui.test.assertIsFocused
 import androidx.navigation.NavHostController
 import androidx.navigation.toRoute
 import androidx.compose.material3.Text
+import androidx.compose.ui.test.hasAnyAncestor
 import androidx.compose.ui.test.hasAnyDescendant
 import androidx.compose.ui.test.hasScrollToIndexAction
 import androidx.compose.ui.test.SemanticsMatcher
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasContentDescription
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.onAllNodesWithText
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.assert
 import androidx.compose.ui.test.assertTextContains
 import androidx.compose.ui.text.TextLayoutResult
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -185,7 +188,8 @@ class SeasonSelectionTest {
 
     // 播放副标题与分集卡会显示同一集名，旧回归在这里明确查分集/页面正文。
     private fun pageText(text: String, substring: Boolean = false) =
-        rule.onNode(hasText(text, substring = substring) and !hasTestTag("detail.play.target"))
+        rule.onNode(hasText(text, substring = substring) and !hasTestTag("detail.play.target") and
+            !hasTestTag("detail.series.target") and !hasAnyAncestor(hasTestTag("detail.series.target")))
 
     private fun pick(season: Int, tv: Boolean) {
         if (tv) {
@@ -194,7 +198,9 @@ class SeasonSelectionTest {
         }
         else {
             rule.onNodeWithContentDescription("选择季").performScrollTo().performClick()
-            pageText("第${season}季").performClick()
+            rule.onNode(hasText("第${season}季") and !hasContentDescription("选择季") and
+                !hasContentDescription("查看第${season}季分集") and
+                !hasAnyAncestor(hasContentDescription("查看第${season}季分集"))).performClick()
         }
         rule.waitForIdle()
     }
@@ -215,9 +221,9 @@ class SeasonSelectionTest {
         pageText("已看 0 / 403").performScrollTo().assertIsDisplayed()
         rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
-            hasAnyDescendant(hasText("EP 01")))
+            hasAnyDescendant(hasText("S1E1：s1 分集 1")))
             .performScrollToIndex(402)
-        pageText("s1 分集 403").assertIsDisplayed()
+        pageText("s1 分集 403", substring = true).assertIsDisplayed()
     }
 
     private fun batch(start: Int, end: Int, total: Int = 12) = buildJsonObject {
@@ -233,7 +239,7 @@ class SeasonSelectionTest {
         rule.waitForIdle()
         // 后续页仍挂起时，首批必须已可浏览。
         if (tv) pageText("E1 · 渐进分集 1").assertExists()
-        else pageText("渐进分集 1").performScrollTo().assertIsDisplayed()
+        else pageText("渐进分集 1", substring = true).performScrollTo().assertIsDisplayed()
         assertEquals(2, core.pending.size)
         if (tv) rule.onNodeWithTag("detail.ep.s1-0")
             .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
@@ -267,12 +273,12 @@ class SeasonSelectionTest {
         open(tv = tv, total = 12, holdAtStart = true, resumeEpisode = 7)
         rule.runOnIdle { core.pending[0].complete(batch(0, 8)) }
         rule.waitForIdle()
-        if (!tv) pageText("渐进分集 1").performScrollTo()
+        if (!tv) pageText("渐进分集 1", substring = true).performScrollTo()
         val row = rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
             hasAnyDescendant(hasText("渐进分集 1", substring = true)))
         row.performScrollToIndex(4)
-        val card = if (tv) rule.onNodeWithTag("detail.ep.s1-4") else pageText("渐进分集 5")
+        val card = if (tv) rule.onNodeWithTag("detail.ep.s1-4") else pageText("渐进分集 5", substring = true)
         if (tv) {
             card.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
             press(rule, Key.DirectionRight)
@@ -320,8 +326,10 @@ class SeasonSelectionTest {
 
     private fun detailHierarchy(tv: Boolean, dark: Boolean) {
         open(tv = tv, total = 3, resumeEpisode = 2, episodeStates = true, dark = dark)
-        pageText("继续 S1E2", substring = true).assertExists()
-        rule.onNodeWithTag("detail.play.target").assertTextContains("S1E2 · s1 分集 2", substring = true)
+        if (tv) pageText("继续 S1E2", substring = true).assertExists()
+        else rule.onNodeWithTag("detail.play").assertTextContains("继续观看")
+        if (tv) rule.onNodeWithTag("detail.play.target").assertTextContains("S1E2 · s1 分集 2", substring = true)
+        else rule.onNodeWithTag("detail.play.target").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/detail-ui/${if (tv) "tv" else if (dark) "phone-dark" else "phone-light"}-top.png")
         if (!tv) pageText("待播放").performScrollTo().assertIsDisplayed()
         else pageText("待播放", substring = true).assertExists()
@@ -335,7 +343,7 @@ class SeasonSelectionTest {
         if (tv) pageText("未看", substring = true).assertExists()
         else {
             pageText("未看").assertDoesNotExist()
-            rule.onAllNodesWithText("30:00")[1].assertIsDisplayed()
+            rule.onNodeWithTag("detail.ep.s1-2").assertIsDisplayed().assertTextContains("30:00")
         }
         if (!tv) {
             rule.onNodeWithContentDescription("展开简介").performScrollTo()
@@ -358,7 +366,9 @@ class SeasonSelectionTest {
             press(rule, Key.DirectionCenter)
             assertEquals("s1-1", (tvNav.top.route as TvRoute.Player).itemId)
         } else {
-            pageText("继续 S1E2", substring = true).performScrollTo().performClick()
+            rule.onNodeWithTag("detail.series.target").performScrollTo()
+                .assert(hasAnyDescendant(hasText("S1E2：s1 分集 2", substring = true)))
+            rule.onNodeWithTag("detail.play").performScrollTo().performClick()
             assertEquals("s1-1", phoneNav.currentBackStackEntry!!.toRoute<Route.Player>().itemId)
         }
     }
@@ -387,12 +397,12 @@ class SeasonSelectionTest {
         pick(2, tv)
         pick(1, tv)
         pick(2, tv)
-        pick(2, tv) // 同季重试也必须淘汰上一轮请求。
-        assertEquals(listOf("s2", "s1", "s2", "s2"), core.pending.map { it.parent })
-        rule.runOnIdle { core.pending[3].complete(page("s2", "当前季新响应")) }
+        pick(2, tv) // 手机重复选择当前季不重拉，TV 保留原有同季重试。
+        assertEquals(if (tv) listOf("s2", "s1", "s2", "s2") else listOf("s2", "s1", "s2"), core.pending.map { it.parent })
+        rule.runOnIdle { core.pending.last().complete(page("s2", "当前季新响应")) }
         rule.waitForIdle()
         rule.runOnIdle {
-            core.pending[2].complete(page("s2", "同季迟到响应"))
+            if (tv) core.pending[2].complete(page("s2", "同季迟到响应"))
             core.pending[1].complete(page("s1", "另一季迟到响应"))
             core.pending[0].complete(page("s2", "旧季迟到响应"))
         }
@@ -401,7 +411,7 @@ class SeasonSelectionTest {
         pageText("旧季迟到响应", substring = true).assertDoesNotExist()
         pageText("另一季迟到响应", substring = true).assertDoesNotExist()
         pageText("同季迟到响应", substring = true).assertDoesNotExist()
-        assertTrue("切季没有取消旧请求", core.pending.take(3).all { it.job.isCancelled })
+        assertTrue("切季没有取消旧请求", core.pending.dropLast(1).all { it.job.isCancelled })
     }
 
     @Test fun phoneRejectsLateSeasonResponse() = lateResponse(false)
@@ -474,7 +484,7 @@ class SeasonSelectionTest {
         rule.runOnIdle { core.hold = false; phoneNav.popBackStack() }
         rule.waitForIdle()
         pageText("离页迟到响应", substring = true).assertDoesNotExist()
-        pageText("s1 分集 1").performScrollTo().assertIsDisplayed()
+        pageText("s1 分集 1", substring = true).performScrollTo().assertIsDisplayed()
     }
 
     @Test

@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -269,11 +271,11 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
         }
         Spacer(Modifier.height(Sp.x8))
         Text(
-            r.title, color = c.fg, fontSize = 12.sp,
-            maxLines = 2, overflow = TextOverflow.Ellipsis, lineHeight = 16.sp,
+            r.title, color = c.fg, style = LpText.compact,
+            maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
         r.rating?.takeIf { it > 0 }?.let {
-            Text("%.1f".format(it), color = c.mediaIcon, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+            Text("%.1f".format(it), color = c.mediaIcon, style = LpText.number, fontWeight = FontWeight.SemiBold)
         }
     }
 }
@@ -310,7 +312,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
     ) {
         Text(
             r.rank.toString(), Modifier.width(34.dp),
-            color = c.fg2, fontSize = 19.sp, fontWeight = FontWeight.Black,
+            color = c.fg2, style = LpText.number.copy(fontSize = 19.sp, lineHeight = 24.sp), fontWeight = FontWeight.Black,
         )
         NetImage(r.image, null, Modifier.size(56.dp, 84.dp), 10.dp)
         Spacer(Modifier.width(Sp.x12))
@@ -319,7 +321,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
             r.subtitle?.let { Dim3(it, Modifier.padding(top = 2.dp)) }
         }
         r.rating?.takeIf { it > 0 }?.let {
-            Text("%.1f".format(it), color = c.mediaIcon, fontSize = 14.sp, fontWeight = FontWeight.Bold)
+            Text("%.1f".format(it), color = c.mediaIcon, style = LpText.action.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
         }
     }
 }
@@ -428,7 +430,7 @@ private fun CalendarBody(nav: NavController) {
                 Column(Modifier.fillMaxSize()) {
                     Text("本周 ${rows.size} 集 · 按放送日期查看",
                         Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
-                        color = Lp.colors.fg2, fontSize = 12.sp)
+                        color = Lp.colors.fg2, style = LpText.caption)
                     WeekBar(day, today, rows.groupingBy { it.weekday }.eachCount()) { day = it }
 
                     val dIn = lpTween<androidx.compose.ui.unit.IntOffset>(
@@ -486,19 +488,19 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
                 Text(
                     if (d == today) "今" else weekLabels[d - 1],
                     color = if (on) c.mediaOnAccent else if (d == today) c.mediaIcon else c.fg2,
-                    fontSize = 11.sp,
+                    style = LpText.caption,
                 )
                 Text(
                     "%02d".format(monday.plusDays((d - 1).toLong()).dayOfMonth),
-                    color = if (on) c.mediaOnAccent else c.fg, fontSize = 15.sp,
-                    fontWeight = FontWeight.Bold,
+                    color = if (on) c.mediaOnAccent else c.fg, style = LpText.list,
+                    fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.graphicsLayer { val s = 1f + z * .06f; scaleX = s; scaleY = s },
                 )
                 val n = counts[d] ?: 0
                 Text(
                     if (n > 0) n.toString() else "—",
                     color = (if (on) c.mediaOnAccent else c.fg3).copy(alpha = if (n > 0) .85f else .5f),
-                    fontSize = 10.sp,
+                    style = LpText.badge,
                 )
             }
         }
@@ -555,7 +557,7 @@ private fun Slot(hhmm: String, list: List<Air>, isNext: Boolean, now: java.time.
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Text(
-                hhmm, color = if (isNext) c.mediaIcon else c.fg2, fontSize = 13.sp,
+                hhmm, color = if (isNext) c.mediaIcon else c.fg2, style = LpText.filter.copy(fontFeatureSettings = "tnum"),
                 fontWeight = if (isNext) FontWeight.Bold else FontWeight.Medium,
                 textAlign = TextAlign.Center,
             )
@@ -624,7 +626,7 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
                     Modifier.clip(RoundedCornerShape(R.pill))
                         .background(if (soon) c.mediaAccent.copy(alpha = .12f) else c.ok.copy(alpha = .18f))
                         .padding(horizontal = Sp.x8, vertical = 2.dp),
-                    color = if (soon) c.mediaIcon else c.ok, fontSize = 10.5.sp,
+                    color = if (soon) c.mediaIcon else c.ok, style = LpText.caption,
                 )
             }
             Spacer(Modifier.height(Sp.x6))
@@ -638,11 +640,11 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
                                 if (playable) nav?.navigate(xyz.linplayer.app.ui.Route.Player(h.str("item_id") ?: "", a.title))
                                 else nav?.navigate(xyz.linplayer.app.ui.Route.Detail(h.str("series_id") ?: h.str("item_id") ?: "", "Series"))
                             }).padding(horizontal = Sp.x8, vertical = 2.dp),
-                        color = c.mediaIcon, fontSize = 10.5.sp)
+                        color = c.mediaIcon, style = LpText.caption)
                 }
                 a.rating?.takeIf { it > 0 }?.let {
                     Text("%.1f".format(it), Modifier.padding(end = Sp.x6), color = c.mediaIcon,
-                        fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                        style = LpText.number, fontWeight = FontWeight.SemiBold)
                 }
             }
         }
@@ -702,7 +704,7 @@ private fun CalendarGate(sponsorUrl: String?, onUnlocked: () -> Unit) {
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Spacer(Modifier.height(Sp.x48))
-        Text("追剧日历 · 赞助解锁", color = Lp.colors.fg, fontSize = 20.sp, fontWeight = FontWeight.SemiBold)
+        Text("追剧日历 · 赞助解锁", color = Lp.colors.fg, style = LpText.heading)
         Body("这是付费功能。在爱发电赞助后,用订单号解锁本机。")
         xyz.linplayer.app.ui.components.LpField(order, { order = it; err = null }, "爱发电订单号",
             Modifier.fillMaxWidth(), error = err)

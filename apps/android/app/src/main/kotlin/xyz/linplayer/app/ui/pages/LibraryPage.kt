@@ -1,12 +1,14 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -14,14 +16,12 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
-import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.theme.Dim
 import androidx.compose.foundation.lazy.grid.GridCells
@@ -32,7 +32,6 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +42,6 @@ import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
@@ -55,6 +53,7 @@ import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.Page
+import xyz.linplayer.app.data.browseBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.strList
@@ -70,7 +69,7 @@ import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.OptRow
-import xyz.linplayer.app.ui.components.Skeleton
+import xyz.linplayer.app.ui.components.LpRefreshIcon
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.Sp
@@ -86,11 +85,10 @@ private val SORTS = listOf(
 /** 评分下限固定四档:服务端给的分级不是评分,**没有分面可列**。 */
 private val RATINGS = listOf("不限" to 0, "9 分以上" to 9, "8 分以上" to 8, "7 分以上" to 7, "6 分以上" to 6)
 
-private const val FIRST_PAGE = 30
-private const val PAGE = 120
+private const val PAGE = 30
 
 /**
- * 该不该重拉第一页。
+ * 刷新前是否需要丢弃旧筛选的快照。
  *
  * ☠ 这道闸原来只判「手里有没有结果」,于是**换了筛选也当成「已经有了」直接跳过** ——
  * 界面一动不动(用户 2026-09-12:「移动端媒体库页的筛选不生效,筛选了不会刷新出现筛选结果」)。
@@ -99,7 +97,7 @@ private const val PAGE = 120
  * @param fetchedAs 手里这份结果对应的筛选签名;还没拉过是 null
  * @param key 现在这套筛选的签名
  */
-internal fun needRefetch(hasItems: Boolean, ok: Boolean, fetchedAs: String?, key: String): Boolean =
+internal fun needResetLibrary(hasItems: Boolean, ok: Boolean, fetchedAs: String?, key: String): Boolean =
     !(hasItems && ok && fetchedAs == key)
 
 /**
@@ -123,6 +121,10 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     var total by xyz.linplayer.app.data.keepState<Long?>("$ck.total") { null }
     var first by xyz.linplayer.app.data.keepState<Block<Unit>>("$ck.first") { Block.Loading }
     var loadingMore by remember { mutableStateOf(false) }
+    var refreshing by remember { mutableStateOf(true) }
+    var ended by xyz.linplayer.app.data.keepState("$ck.ended") { false }
+    var refreshError by remember { mutableStateOf<String?>(null) }
+    var reload by remember { mutableStateOf(0) }
     // 排序/筛选也留住:返回后筛选条被重置回默认,和「白重拉一次」一样恼人
     var sort by xyz.linplayer.app.data.keepState("$ck.sort") { SORTS[0] }
     var sortOrder by xyz.linplayer.app.data.keepState("$ck.sortOrder") { "Descending" }
@@ -143,9 +145,9 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
        于是**每个媒体库点进去都是同一份全站列表**,而且不报错。
        这个写法(buildMap 展开成 args)以前躲开了 check-android-args.py 的正则,
        闸门已经补上,别再改回平铺。 */
-    suspend fun fetch(offset: Int) {
+    suspend fun request(offset: Int): Block<kotlinx.serialization.json.JsonElement> {
         val q = buildMap<String, Any> {
-            put("start_index", offset); put("limit", if (offset == 0) FIRST_PAGE else PAGE)
+            put("start_index", offset); put("limit", PAGE)
             put("sort_by", sort.second)
             put("sort_order", sortOrder)
             if (filtersSupported) {
@@ -157,82 +159,116 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             put("parent_id", route.viewId)
             put("query", args(*q.toList().toTypedArray()))
         }
-        val r = app.block("emby.listItemsPage", args(*a.toList().toTypedArray()))
-        currentCoroutineContext().ensureActive()
-        when (r) {
-            is Block.Ok -> {
-                val p = Page.from(r.value)
-                items = if (offset == 0) p.items else items + p.items
-                total = p.total
-                first = Block.Ok(Unit)
+        val params = args(*a.toList().toTypedArray())
+        return if (offset == 0) app.browseBlock("emby.listItemsPage", params) { cached ->
+            if (items.isEmpty()) {
+                val page = Page.from(cached)
+                items = page.items; total = page.total; first = Block.Ok(Unit)
+                ended = page.items.isEmpty() || page.total?.let { items.size >= it } == true
             }
-            is Block.Fail -> if (offset == 0) first = r
-            else -> Unit
-        }
+        } else app.block("emby.listItemsPage", params)
     }
 
-    // 进库时**并发**拉分面与第一页条目
-    LaunchedEffect(route.viewId, filterKey) {
-        // 判据见 [needRefetch] —— [ck] 这个键里不含筛选条件,光看「有没有结果」会漏掉换筛选
-        if (!needRefetch(items.isNotEmpty(), first is Block.Ok, fetchedAs, filterKey)) return@LaunchedEffect
-        first = Block.Loading; items = emptyList(); total = null
+    // 同条件先保留页面/磁盘快照；刷新已加载的范围，不能拼接不同排序的旧尾页。
+    LaunchedEffect(route.viewId, filterKey, reload) {
+        refreshing = true; refreshError = null
+        if (needResetLibrary(items.isNotEmpty(), first is Block.Ok, fetchedAs, filterKey)) {
+            first = Block.Loading; items = emptyList(); total = null; ended = false
+        }
         fetchedAs = filterKey
-        coroutineScope {
-            launch { fetch(0) }
-            // 分面只跟库走,换筛选不必再拉一遍
-            if (filters !is Block.Ok) launch {
-                filters = when (val r = app.block("emby.getFilters", args("parent_id" to route.viewId))) {
-                    is Block.Ok -> {
-                        filtersSupported = r.value.obj()?.get("capabilities").obj()?.get("filters")?.toString() != "false"
-                        if (!filtersSupported) { genre = null; minRating = RATINGS[0] }
-                        Block.Ok(r.value.obj().strList("genres"))
+        try {
+            coroutineScope {
+                launch {
+                    val wanted = items.size.coerceAtLeast(PAGE)
+                    val fresh = mutableListOf<Item>()
+                    var done = false
+                    var count: Long? = null
+                    while (fresh.size < wanted && !done) {
+                        when (val response = request(fresh.size)) {
+                            is Block.Ok -> {
+                                currentCoroutineContext().ensureActive()
+                                val page = Page.from(response.value)
+                                fresh.addAll(page.items); count = page.total
+                                done = page.items.isEmpty() || count?.let { fresh.size >= it } == true
+                            }
+                            is Block.Fail -> {
+                                if (items.isEmpty() || response.code in setOf("E_AUTH", "E_NOTFOUND")) {
+                                    items = emptyList(); first = response
+                                } else refreshError = response.message
+                                return@launch
+                            }
+                            else -> return@launch
+                        }
                     }
-                    is Block.Fail -> r
-                    else -> Block.Loading
+                    if (items.isNotEmpty() && items.firstOrNull()?.id != fresh.firstOrNull()?.id &&
+                        grid.firstVisibleItemIndex == 0 && !grid.isScrollInProgress) grid.requestScrollToItem(0)
+                    items = fresh.toList(); total = count; ended = done; first = Block.Ok(Unit)
+                }
+                if (filters !is Block.Ok) launch {
+                    filters = when (val r = app.block("emby.getFilters", args("parent_id" to route.viewId))) {
+                        is Block.Ok -> {
+                            currentCoroutineContext().ensureActive()
+                            filtersSupported = r.value.obj()?.get("capabilities").obj()?.get("filters")?.toString() != "false"
+                            if (!filtersSupported) { genre = null; minRating = RATINGS[0] }
+                            Block.Ok(r.value.obj().strList("genres"))
+                        }
+                        is Block.Fail -> r
+                        else -> Block.Loading
+                    }
                 }
             }
-        }
+        } finally { refreshing = false }
     }
 
-    // 分页触发:**不用 Paging 3**(分页在核心层)。看 layoutInfo + 一个防重入的闩
-    val needMore by remember {
-        derivedStateOf {
-            val last = grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0
-            items.isNotEmpty() && last >= items.size - 6
-        }
-    }
-    LaunchedEffect(route.viewId, filterKey) {
-        snapshotFlow { needMore }.collect { want ->
-            if (!want || loadingMore) return@collect
-            if (total != null && items.size >= (total ?: 0)) return@collect
-            loadingMore = true
-            try { fetch(items.size) } finally { loadingMore = false }
-        }
+    // 记录可见末项和累计数；新一页到达后即使仍在底部也能继续触发。
+    LaunchedEffect(route.viewId, filterKey, reload) {
+        snapshotFlow { Triple(grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1, items.size, refreshing) }
+            .collect { (last, size, busy) ->
+                if (busy || loadingMore || ended || first !is Block.Ok || size == 0 || last < size - 6) return@collect
+                loadingMore = true
+                try {
+                    when (val response = request(size)) {
+                        is Block.Ok -> {
+                            currentCoroutineContext().ensureActive()
+                            val page = Page.from(response.value)
+                            items = items + page.items; total = page.total
+                            ended = page.items.isEmpty() || total?.let { items.size >= it } == true
+                        }
+                        is Block.Fail -> {
+                            if (response.code in setOf("E_AUTH", "E_NOTFOUND")) {
+                                items = emptyList(); first = response; ended = true
+                            } else refreshError = response.message
+                        }
+                        else -> Unit
+                    }
+                } finally { loadingMore = false }
+            }
     }
 
     LpScaffold(
         title = route.title,
-        // 总数只采用服务端返回值，不用当前已加载的页数代替。
-        subtitle = total?.let { "$it 部" },
+        // 未结束展示已加载数量的下限，结束后展示完整数量。
+        subtitle = if (first is Block.Ok) "${items.size}${if (ended) "" else "+"} 部" else null,
         onBack = { nav.popBackStack() },
         actions = {
             MediaSortControl(sort.first, sortOrder == "Ascending", { showFilter = true },
                 Modifier.testTag("library.sort"))
         },
     ) { pad ->
+        Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
+            refreshError?.let { message ->
+                xyz.linplayer.app.ui.components.ErrorState(message, { reload++ })
+            }
             if (hasFilter) FilterBar(
                 genre = genre, rating = minRating,
                 onClearGenre = { genre = null },
                 onClearRating = { minRating = RATINGS[0] },
             )
-            BlockBox(first, onRetry = { scope.launch { fetch(0) } },
+            BlockBox(first, onRetry = { reload++ },
                 skeleton = {
-                    Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x16)
-                        .testTag("library.loading"), verticalAlignment = Alignment.CenterVertically) {
-                        CircularProgressIndicator(Modifier.size(18.dp), color = Lp.colors.mediaAccent, strokeWidth = 2.dp)
-                        Spacer(Modifier.size(Sp.x12))
-                        Dim2("正在加载作品…")
+                    Box(Modifier.fillMaxSize().testTag("library.loading"), contentAlignment = Alignment.Center) {
+                        LpRefreshIcon()
                     }
                 }) {
                 if (items.isEmpty()) {
@@ -260,6 +296,13 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                     }
                 }
             }
+        }
+        if ((refreshing && first is Block.Ok) || loadingMore) {
+            Box(Modifier.align(Alignment.Center).size(48.dp)
+                .testTag("library.refreshing"), contentAlignment = Alignment.Center) {
+                LpRefreshIcon()
+            }
+        }
         }
     }
 
@@ -319,27 +362,8 @@ private fun FilterBar(
 
 @Composable
 private fun SectionLabel(t: String) =
-    Text(t, color = Lp.colors.fg3, fontSize = 12.sp,
+    Text(t, color = Lp.colors.fg3, style = LpText.filter,
         modifier = Modifier.padding(start = Sp.x12, top = Sp.x12, bottom = Sp.x4))
-
-@Composable
-internal fun GridSkeleton(pad: PaddingValues) {
-    LazyVerticalGrid(
-        GridCells.Fixed(posterColumns()), Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(start = Sp.x16, end = Sp.x16, top = Sp.x8,
-            bottom = pad.calculateBottomPadding()),
-        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        verticalArrangement = Arrangement.spacedBy(Sp.x16),
-    ) {
-        items(List(12) { it }) {
-            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                Skeleton(Modifier.fillMaxWidth().aspectRatio(2f / 3f))
-                Spacer(Modifier.height(Sp.x6))
-                Skeleton(Modifier.fillMaxWidth(0.8f).height(12.dp))
-            }
-        }
-    }
-}
 
 /** 海报列数。插件主题的 `layout.posterColumns` 覆盖官方的 3(SPEC 11.4)。 */
 @Composable
@@ -358,7 +382,7 @@ internal fun MediaSortControl(label: String, ascending: Boolean, onClick: () -> 
     ) {
         Icon(LpIcons.sortLines, null, Modifier.size(18.dp), tint = Lp.colors.mediaIcon)
         Text(label, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
-            fontSize = 13.sp, fontWeight = FontWeight.Medium, maxLines = 1,
+            style = LpText.filter, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
         Icon(LpIcons.arrowDown, null,
             Modifier.size(18.dp).rotate(if (ascending) 180f else 0f),

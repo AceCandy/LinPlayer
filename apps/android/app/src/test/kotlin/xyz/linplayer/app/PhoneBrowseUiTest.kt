@@ -99,6 +99,36 @@ class PhoneBrowseUiTest {
         rule.waitForIdle()
     }
 
+    private fun favoritesWaitingPage(route: Any, darkTheme: Boolean) {
+        dark.value = darkTheme
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.listFavorites", page(item("ready", "返回后的收藏")))
+        }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "emby.listFavorites") release.await()
+                return result
+            }
+        }
+        try {
+            open(port, route)
+            rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
+            rule.onNodeWithText("返回后的收藏").assertDoesNotExist()
+            rule.onRoot().captureRoboImage("build/favorites-waiting-${if (darkTheme) "dark" else "light"}.png")
+            release.complete(Unit)
+            rule.waitForIdle()
+            rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
+            rule.onNodeWithText("返回后的收藏").assertIsDisplayed()
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun favoritesColdWaitUsesRefreshFeedback() = favoritesWaitingPage(Route.Favorites, false)
+
+    @Test fun favoriteCategoryColdWaitUsesRefreshFeedback() =
+        favoritesWaitingPage(Route.FavoriteCategory("Movie", null, null), true)
+
     @Test fun aggregateInitialFailureIsNotEmptyAndCanRetry() {
         val core = FakeCore().loggedIn()
         core.on("emby.aggregateOverview") { throw CoreException("E_NETWORK", "聚合读取失败", true) }
@@ -492,6 +522,94 @@ class PhoneBrowseUiTest {
         assertEquals(2, core.calls.count { it.first == "emby.listFavorites" })
     }
 
+    @Test fun favoriteRefreshShowsNewFirstPosterAndKeepsUnchangedOrMiddlePosition() {
+        val core = FakeCore().loggedIn()
+        val entries = (1..30).map { item("fav-$it", "收藏 $it") }
+        core.ret("emby.listFavorites", page(*entries.toTypedArray()))
+        open(core, Route.FavoriteCategory("Movie"))
+        fun top(name: String) = rule.onNodeWithContentDescription(name, useUnmergedTree = true)
+            .fetchSemanticsNode().boundsInRoot.top
+        fun refresh() {
+            rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("data.invalidate",
+                buildJsonObject { put("scope", "library") })) }
+            rule.waitForIdle()
+        }
+        val firstTop = top("收藏 1")
+        val inserted = (1..6).map { item("new-$it", if (it == 1) "新增收藏" else "新增收藏 $it") }
+        val updated = inserted + entries
+        core.ret("emby.listFavorites", page(*updated.toTypedArray()))
+        refresh()
+        rule.onNodeWithText("新增收藏").assertIsDisplayed()
+        assertEquals(firstTop, top("新增收藏"), .1f)
+
+        rule.onNode(hasScrollToIndexAction()).performTouchInput {
+            swipeUp(startY = height * .6f, endY = height * .6f - 70f, durationMillis = 600)
+        }
+        val shiftedTop = top("新增收藏")
+        assertTrue("夹具应停在首行的非零偏移", shiftedTop < firstTop)
+        refresh()
+        assertEquals("相同资料刷新不重置首行偏移", shiftedTop, top("新增收藏"), .1f)
+
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(12)
+        val middleTop = top("收藏 12")
+        val more = (1..6).map { item("more-$it", "另一条新增收藏 $it") }
+        core.ret("emby.listFavorites", page(*(more + updated).toTypedArray()))
+        refresh()
+        assertEquals("中途浏览按作品保持位置", middleTop, top("收藏 12"), .1f)
+        assertEquals(4, core.calls.count { it.first == "emby.listFavorites" })
+    }
+
+    @Test fun searchDoesNotFocusAndTypesChangeRequests() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page())
+        open(core, Route.Search())
+        rule.onNode(hasSetTextAction()).assertIsNotFocused()
+        rule.onNode(hasSetTextAction()).performTextInput("测试词")
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        assertEquals("[\"Movie\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
+        rule.onNodeWithText("剧集").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } >= 2 }
+        assertEquals("[\"Series\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
+        rule.onNodeWithText("人物").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } >= 3 }
+        assertEquals("[\"Person\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
+    }
+
+    @Test fun personResultOpensRelatedWorksRatherThanPlaybackDetail() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(item("person-a", "演员甲", "Person")))
+        core.ret("emby.personItems", page(item("person-film", "演员的作品")))
+        open(core, Route.Search(q = "演员甲"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.onNodeWithText("人物").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
+        rule.onNode(hasText("演员甲") and hasAnyAncestor(hasTestTag("search.results"))).performClick()
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.personItems" } }
+        assertEquals("person-a", core.calls.last { it.first == "emby.personItems" }.second.str("person_id"))
+        rule.onNodeWithText("详情目标：person-a").assertDoesNotExist()
+        rule.onNodeWithText("演员的作品").assertIsDisplayed().performClick()
+        rule.onNodeWithText("详情目标：person-film").assertIsDisplayed()
+    }
+
+    @Test fun recentSearchesKeepTenAndOnlyShowWhenQueryIsEmpty() {
+        val ctx = ApplicationProvider.getApplicationContext<android.content.Context>()
+        xyz.linplayer.app.data.UiPrefs.searchHistory.value = emptyList()
+        (1..12).forEach { xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, "记录$it") }
+        xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, "记录5")
+        assertEquals(10, xyz.linplayer.app.data.UiPrefs.searchHistory.value.size)
+        assertEquals("记录5", xyz.linplayer.app.data.UiPrefs.searchHistory.value.first())
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page())
+        open(core, Route.Search())
+        rule.onNodeWithText("最近搜过").assertIsDisplayed()
+        rule.onNodeWithText("记录1").assertDoesNotExist()
+        rule.onNodeWithText("记录5").performClick()
+        rule.onNodeWithText("最近搜过").assertDoesNotExist()
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.onNode(hasSetTextAction()).performTextClearance()
+        rule.onNodeWithText("最近搜过").assertIsDisplayed()
+    }
+
     @Test fun searchCanPullRefreshEmptyResultsAndKeepScope() {
         val core = FakeCore().loggedIn()
         core.ret("emby.search", page())
@@ -690,7 +808,7 @@ class PhoneBrowseUiTest {
         assertTrue("聚合图标须在输入框内", icon.left >= field.left && icon.right <= field.right && icon.top >= field.top && icon.bottom <= field.bottom)
         assertTrue("结果和输入框之间留出间距", results.top >= field.bottom + 16f)
         rule.onRoot().captureRoboImage("build/browse-ui/search-light-large.png")
-        assertEquals("[\"Series\",\"Movie\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
+        assertEquals("[\"Movie\"]", core.calls.last { it.first == "emby.search" }.second?.get("types").toString())
         rule.onNodeWithContentDescription("开启聚合搜索").performClick()
         rule.onNodeWithContentDescription("关闭聚合搜索").assertIsSelected()
         rule.waitForIdle()

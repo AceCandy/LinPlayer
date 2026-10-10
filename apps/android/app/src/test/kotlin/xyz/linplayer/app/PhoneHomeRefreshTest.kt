@@ -70,6 +70,7 @@ class PhoneHomeRefreshTest {
     @After fun clean() {
         PageCache.clear()
         scope.cancel()
+        xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false
     }
 
     @OptIn(coil3.annotation.DelicateCoilApi::class)
@@ -107,10 +108,23 @@ class PhoneHomeRefreshTest {
         core.ret("emby.listResume", arr(item("resume-ui", "重逢", "Episode",
             series = "远方的故事", season = 1, episode = 12, runtime = 3600.0, resume = 1801.0)))
         openHome(core)
-        rule.onNodeWithText("S1E12 · 重逢", useUnmergedTree = true).performScrollTo()
+        rule.onNodeWithText("S1E12", useUnmergedTree = true).performScrollTo()
         rule.onNodeWithText("剩余 29:59", useUnmergedTree = true).assertExists()
         rule.onRoot().captureRoboImage("build/resume-ui/home.png")
         assertEquals(1, core.calls.count { it.first == "emby.listResume" })
+    }
+
+    @Test fun hiddenLibrariesAlsoHideResumeTitleButKeepCards() {
+        xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = true
+        val core = FakeCore().loggedIn()
+        core.ret("emby.listResume", arr(item("hidden-row", "仍然显示的续播")))
+        openHome(core)
+        rule.onNodeWithTag("home.libraries").assertDoesNotExist()
+        rule.onNodeWithText("继续观看").assertDoesNotExist()
+        rule.onNode(hasText("仍然显示的续播") and hasAnyAncestor(hasTestTag("home.resume"))).assertIsDisplayed()
+        rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false }
+        rule.onNodeWithTag("home.libraries").assertIsDisplayed()
+        rule.onNodeWithText("继续观看").assertIsDisplayed()
     }
 
     @Test fun homeDoesNotRequestNextUp() {
@@ -150,7 +164,7 @@ class PhoneHomeRefreshTest {
         } finally { release.complete(Unit) }
     }
 
-    @Test fun returningHomeUpdatesResumeWithoutReloadingRecommendations() {
+    @Test fun returningHomeKeepsContentAndRefreshesRecommendations() {
         val core = FakeCore().loggedIn()
         openHome(core)
         val latestCalls = core.calls.count { it.first == "emby.listLatest" }
@@ -160,10 +174,10 @@ class PhoneHomeRefreshTest {
         core.ret("emby.listResume", arr(item("new-resume", "更新后的续播", runtime = 3600.0, resume = 1800.0)))
         rule.runOnIdle { nav.popBackStack() }
         rule.waitForIdle()
-        rule.onNodeWithText("更新后的续播").assertExists()
+        rule.onNode(hasText("更新后的续播") and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listResume" })
-        assertEquals(latestCalls, core.calls.count { it.first == "emby.listLatest" })
-        assertEquals(viewCalls, core.calls.count { it.first == "emby.views" })
+        assertTrue(core.calls.count { it.first == "emby.listLatest" } > latestCalls)
+        assertEquals(viewCalls + 1, core.calls.count { it.first == "emby.views" })
     }
 
     @Test fun pullDownRefreshesHome() {
@@ -174,7 +188,7 @@ class PhoneHomeRefreshTest {
             swipeDown(startY = height * .15f, endY = height * .85f, durationMillis = 600)
         }
         rule.waitForIdle()
-        rule.onNodeWithText("下拉后的续播").assertExists()
+        rule.onNode(hasText("下拉后的续播") and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
         assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
         assertEquals(2, core.calls.count { it.first == "emby.listResume" })
         assertEquals(2, core.calls.count { it.first == "emby.views" })
@@ -194,7 +208,7 @@ class PhoneHomeRefreshTest {
             swipeDown(startY = height * .15f, endY = height * .85f, durationMillis = 600)
         }
         rule.waitForIdle()
-        rule.onNodeWithText("重试后的续播").assertExists()
+        rule.onNode(hasText("重试后的续播") and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
         assertEquals(3, core.calls.count { it.first == "emby.listResume" })
     }
 
@@ -247,7 +261,7 @@ class PhoneHomeRefreshTest {
         rule.runOnIdle { nav.navigate(Route.Settings) }
         rule.runOnIdle { nav.popBackStack() }
         rule.waitForIdle()
-        assertEquals(1, lastLibraryCalls())
+        assertEquals(2, lastLibraryCalls())
     }
 
     @Test fun emptyLatestLibraryDoesNotBlockNextVisibleLibrary() {

@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
@@ -44,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
@@ -122,11 +123,18 @@ internal fun SourceCard(item: JsonObject, onOpen: () -> Unit, m: Modifier = Modi
             NetImage(app.proxiedImage(item.img("poster"), 330), item.str("title"), Modifier.fillMaxSize())
             val tag = badge ?: item.str("remarks")
             if (!tag.isNullOrEmpty()) Text(tag, Modifier.align(Alignment.TopEnd).padding(Sp.x6).clip(RoundedCornerShape(R.sm))
-                .background(Lp.colors.scrim).padding(horizontal = Sp.x6, vertical = Sp.x2), color = Lp.colors.fg, fontSize = 10.sp, maxLines = 1)
+                .background(Lp.colors.scrim).padding(horizontal = Sp.x6, vertical = Sp.x2), color = Lp.colors.fg, style = LpText.badge, maxLines = 1)
             if (progress in 0.0..1.0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.toFloat()).height(3.dp).background(Lp.colors.acc))
         }
-        Body(item.str("title") ?: "", Modifier.padding(top = Sp.x6), maxLines = 1)
-        item.yearText().takeIf { it.isNotEmpty() }?.let { Dim3(it) }
+        Text(item.str("title") ?: "", Modifier.fillMaxWidth().padding(top = Sp.x6),
+            color = Lp.colors.fg, style = LpText.card, maxLines = 1,
+            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
+            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        item.yearText().takeIf { it.isNotEmpty() }?.let {
+            Text(it, Modifier.fillMaxWidth().padding(top = 2.dp), color = Lp.colors.fg2,
+                style = LpText.caption, maxLines = 1,
+                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+        }
     }
 }
 

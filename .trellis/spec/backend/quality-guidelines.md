@@ -67,3 +67,9 @@
 - 磁盘读写/清理/淘汰共用屏障，活动条目可安全失效重取，不能无限pin超预算；写盘失败由连接内有界ready载体继续供给，消费后释放。Close取消origin与连接并等worker退出，再关盘，保留完整持久块。清理关闭活动临时文件兼容Windows，旧句柄禁写。
 - worker认领inFlight和推进fetchCursor必须同锁原子完成；否则供给端会误判被淘汰而重复下载。取数取消后已收到的完整已验证块可提交，残块不可发布。
 - prefs.media_cache_bytes=0或64MiB～4GiB整数，旧配置默认1GiB；setter部分更新保留省略字段、保存失败回滚，再收紧预算。真实HTTP回归覆盖授权更新、账号/版本隔离、弱/缺失ETag、错误Range、跨进程恢复、损坏/半写、单片/全局预算、并发弱校验流、TTL/LRU、活动清理与Stop；运行prefetch/player/preload竞态检查。
+
+- 首页缓存轮播通过本地数据通道/img-cache读取，GET/HEAD仍校验X-LP-Token与来源白名单并使用既有尺寸key；Get2L未命中404，禁止调用sharedImage。普通/img仍可回源。独立路由保证旧核心不认识新入口时不误下载。缓存候选与渲染都必须使用/img-cache，不能探测命中后改回普通/img；TestCachedImgNeverFetches与TestCachedImgKeepsAuthenticationAndOriginAllowlist覆盖回源计数、清理、磁盘/HEAD与授权。
+
+## 首页媒体展示可靠性
+
+Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData明确提供非负UnplayedItemCount时为真；保持旧unplayed_item_count字段，不由Played补出统计。`has_backdrop`取BackdropImageTags、`has_logo`取ImageTags.Logo，缺失时省略，旧宿主忽略可选扩展。HomeUnplayedCountPresence/HomeImageCapabilities覆盖缺失、零、正数、负数与图像来源；差分对账仍保护旧字段。CommunityRating仍为rating，未确认来源不能作为豆瓣；当前没有可信豆瓣分数接入，首页不得伪造。

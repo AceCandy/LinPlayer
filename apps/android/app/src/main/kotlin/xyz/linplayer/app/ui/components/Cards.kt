@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.components
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.ui.graphics.Path
@@ -24,6 +26,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -31,6 +34,7 @@ import androidx.compose.material3.Text
 import java.util.UUID
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
@@ -49,6 +53,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -185,6 +190,8 @@ fun MediaCard(
     resume: Boolean = false,
     /** 调用方提供首页入场时关闭默认动画，保留按压与图片淡入。 */
     entrance: Boolean = true,
+    /** 首页精简文案与可信数据角标，不改变其它页卡片。 */
+    homeStyle: Boolean = false,
 ) {
     val c = Lp.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -225,9 +232,14 @@ fun MediaCard(
                     onLoadResult = if (entrance) { { imageResult = it } } else null)
 
                 // 角标:剧集 → 未看集数,全看完 → 打勾;电影 → 评分。**角标要小**,它压在封面上
-                Badge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
-                item.rating?.takeIf { it > 0 && it.isFinite() }?.let { rating ->
-                    RatingCorner(rating, Modifier.align(Alignment.BottomEnd))
+                if (homeStyle) {
+                    EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
+                    DoubanRatingBadge(item.doubanRating, Modifier.align(Alignment.BottomEnd).padding(Sp.x6))
+                } else {
+                    Badge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
+                    item.rating?.takeIf { it > 0 && it.isFinite() }?.let { rating ->
+                        RatingCorner(rating, Modifier.align(Alignment.BottomEnd))
+                    }
                 }
 
                 // 仅续播轨道显示时长，普通海报即使有进度也不显示时间角标。
@@ -248,9 +260,9 @@ fun MediaCard(
                 // 播放进度:仅在有进度时出现
                 if (item.progress > 0f) Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp)
-                        .background(c.line2)
+                        .background(if (homeStyle) Color.White.copy(alpha = .24f) else c.line2)
                 ) {
-                    Box(Modifier.fillMaxWidth(item.progress).fillMaxSize().background(c.mediaAccent))
+                    Box(Modifier.fillMaxWidth(item.progress).fillMaxSize().background(if (homeStyle) c.acc else c.mediaAccent))
                 }
             }
             if (menu != null) CardMenu(menuOpen, { menuOpen = false }, menu)
@@ -258,18 +270,59 @@ fun MediaCard(
         if (showCaption) {
             Spacer(Modifier.height(Sp.x6))
             // 一行 + 省略号:片名长短差别极大,不收会把行高撑成两三行,整条轨道高度乱跳
-            Text(item.cardTitle, color = c.fg, fontSize = 14.sp, lineHeight = CapTitleLh,
-                maxLines = 1, overflow = TextOverflow.Ellipsis, fontWeight = FontWeight.Medium,
-                textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            val subtitle = if (resume && item.isEpisode) listOfNotNull(
+            Text(item.cardTitle, color = c.fg, style = LpText.card,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                textAlign = if (homeStyle) TextAlign.Start else TextAlign.Center, modifier = Modifier.fillMaxWidth())
+            val subtitle = if (homeStyle) {
+                if (resume && item.isEpisode && item.seasonNo != null && item.episodeNo != null)
+                    "S${item.seasonNo}E${item.episodeNo}"
+                else item.year?.toString().takeUnless { resume }
+            } else if (resume && item.isEpisode) listOfNotNull(
                 if (item.seasonNo != null && item.episodeNo != null) "S${item.seasonNo}E${item.episodeNo}" else null,
                 item.name.takeIf { it.isNotBlank() && it != item.cardTitle },
             ).joinToString(" · ").takeIf { it.isNotBlank() } else item.cardSub
             subtitle?.let {
-                Text(it, color = c.fg2, fontSize = 11.sp, lineHeight = CapSubLh, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    textAlign = TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
+                Text(it, color = c.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                    textAlign = if (homeStyle) TextAlign.Start else TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
             }
         }
+    }
+}
+
+/** null 为未知；零只在明确统计且已完成时表示对勾，不把空剧库误判为完成。 */
+internal fun homeEpisodeStatus(item: Item): Long? = when {
+    item.isSeries && item.unplayedCountKnown && item.unplayed > 0 -> item.unplayed
+    item.isSeries && item.unplayedCountKnown && item.unplayed == 0L && item.played -> 0L
+    item.type == "Movie" && item.played -> 0L
+    else -> null
+}
+
+@Composable
+internal fun EpisodeStatusBadge(item: Item, m: Modifier = Modifier) {
+    val count = homeEpisodeStatus(item) ?: return
+    val done = count == 0L
+    val c = Lp.colors
+    Box(m.width(IntrinsicSize.Max).widthIn(min = 24.dp).heightIn(min = 24.dp)
+        .clip(RoundedCornerShape(R.pill))
+        .background(if (done) c.ok.copy(alpha = .24f) else c.mediaPanel)
+        .semantics { contentDescription = if (done) "已看完" else "$count 集未观看" }
+        .padding(horizontal = Sp.x6, vertical = Sp.x4), contentAlignment = Alignment.Center) {
+        if (done) Icon(LpIcons.check, null, Modifier.size(14.dp), tint = c.ok)
+        else Text(count.toString(), color = c.mediaBadgeInk, style = LpText.badge,
+            maxLines = 1, softWrap = false)
+    }
+}
+
+/** 只接受明确豆瓣来源的数据，缺失或越界不占位置。 */
+@Composable
+internal fun DoubanRatingBadge(rating: Double?, m: Modifier = Modifier) {
+    val value = rating?.takeIf { it.isFinite() && it in 0.0..10.0 } ?: return
+    Row(m.heightIn(min = 22.dp).clip(RoundedCornerShape(R.sm))
+        .background(Color.Black.copy(alpha = .72f)).padding(horizontal = Sp.x6, vertical = Sp.x2)
+        .semantics(mergeDescendants = true) { contentDescription = "豆瓣评分 %.1f".format(java.util.Locale.ROOT, value) },
+        verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
+        Text("豆", color = Lp.colors.ok, style = LpText.badge)
+        Text("%.1f".format(java.util.Locale.ROOT, value), color = Color.White, style = LpText.caption)
     }
 }
 
@@ -281,7 +334,7 @@ private fun Badge(item: Item, m: Modifier) {
             m.width(IntrinsicSize.Max).widthIn(min = 23.dp).heightIn(min = 23.dp).clip(RoundedCornerShape(R.pill))
                 .background(c.mediaAccent).padding(horizontal = 4.dp, vertical = 1.dp),
             contentAlignment = Alignment.Center,
-        ) { Text(item.unplayed.toString(), color = c.mediaOnAccent, fontSize = 14.sp, lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, maxLines = 1, softWrap = false) }
+        ) { Text(item.unplayed.toString(), color = c.mediaOnAccent, style = LpText.action.copy(lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"), maxLines = 1, softWrap = false) }
 
         item.played -> Box(
             m.size(18.dp).clip(RoundedCornerShape(R.pill)).background(c.ok),
@@ -305,7 +358,7 @@ private fun RatingCorner(rating: Double, m: Modifier) {
         }, c.mediaRating)
     }, contentAlignment = Alignment.BottomEnd) {
         Text("%.1f".format(java.util.Locale.ROOT, rating), color = c.mediaRatingInk,
-            fontSize = 13.sp, fontWeight = FontWeight.Medium,
+            style = LpText.filter,
             modifier = Modifier.padding(end = with(density) { 3.sp.toDp() },
                 bottom = with(density) { 5.sp.toDp() }).graphicsLayer { rotationZ = -45f })
     }
@@ -335,12 +388,10 @@ internal fun CardMenu(open: Boolean, onDismiss: () -> Unit, actions: List<CardAc
  *   写死的 dp 就把副标题裁掉半行:「继续观看」里的 SxEy、库里的年份只剩上半截。
  *   这不是审美问题,是**两把不同的尺**被硬凑在一起。
  */
-private val CapTitleLh = 20.sp
-private val CapSubLh = 16.sp
 
 @Composable
 private fun captionHeight(): Dp = with(LocalDensity.current) {
-    Sp.x6 + CapTitleLh.toDp() + 2.dp + CapSubLh.toDp() + 2.dp
+    Sp.x6 + LpText.card.lineHeight.toDp() + 2.dp + LpText.caption.lineHeight.toDp() + 2.dp
 }
 
 /** 一条轨道该多高 = 封面 + 文字区。**两处轨道(真卡 / 骨架)共用它**,否则骨架和真卡不等高。 */
@@ -370,10 +421,19 @@ fun LpRow(
     resume: Boolean = false,
     /** 首页以账号隔离已入场卡片，非首页沿用图片就绪入场。 */
     homeAccount: Pair<String, String>? = null,
+    homeStyle: Boolean = false,
 ) {
     val row = rememberLazyListState()
+    val firstId = items.firstOrNull()?.id
+    var previousFirst by remember { mutableStateOf(firstId) }
+    SideEffect {
+        // 首位刷新展示新内容；中途浏览仍按作品key保持位置。
+        if (previousFirst != null && previousFirst != firstId &&
+            row.firstVisibleItemIndex == 0 && !row.isScrollInProgress) row.requestScrollToItem(0)
+        previousFirst = firstId
+    }
     Column(m.fillMaxWidth()) {
-        MediaRowHeader(title, onMore)
+        if (title.isNotBlank()) MediaRowHeader(title, onMore, homeStyle)
         LazyRow(
             Modifier.fillMaxWidth().height(rowHeight(thumb)),
             state = row,
@@ -384,30 +444,24 @@ fun LpRow(
             itemsIndexed(items, key = { _, it -> it.id }, contentType = { _, _ -> if (thumb) "thumb" else "poster" }) { index, item ->
                 MediaCard(item, imageUrl(item), { onOpen(item) },
                     m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
-                    thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)
+                    thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null, homeStyle = homeStyle)
             }
         }
     }
 }
 
-/** 骨架轨道:4 张空卡。**形状和真卡一致**。 */
+/** 请求前仅保留低对比封面几何，不显示虚构的文字条和闪烁高光。 */
 @Composable
 fun LpRowSkeleton(title: String? = null, thumb: Boolean = false, m: Modifier = Modifier) {
     Column(m.fillMaxWidth()) {
-        if (title != null) MediaRowHeader(title, null) else Box(Modifier.padding(Sp.x16)) {
-            SkeletonLine(104.dp)
-        }
-        Row(
-            Modifier.fillMaxWidth().height(rowHeight(thumb))
-                .padding(horizontal = Sp.x16),
-            horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        ) {
-            repeat(4) {
-                Column(Modifier.width(if (thumb) ThumbW else PosterW)) {
-                    Skeleton(Modifier.fillMaxWidth().aspectRatio(if (thumb) 16f / 9f else 2f / 3f))
-                    Spacer(Modifier.height(Sp.x8))
-                    SkeletonLine(78.dp)
-                }
+        if (!title.isNullOrBlank()) MediaRowHeader(title)
+        LazyRow(Modifier.fillMaxWidth().height(rowHeight(thumb)),
+            contentPadding = PaddingValues(horizontal = Sp.x16),
+            horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
+            items(4) {
+                Box(Modifier.width(if (thumb) ThumbW else PosterW)
+                    .aspectRatio(if (thumb) 16f / 9f else 2f / 3f)
+                    .clip(RoundedCornerShape(R.md)).background(Lp.colors.s1))
             }
         }
     }
@@ -415,15 +469,16 @@ fun LpRowSkeleton(title: String? = null, thumb: Boolean = false, m: Modifier = M
 
 /** 栏目竖杠与标题构成入口；无更多回调时只展示标题。 */
 @Composable
-internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
+internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, homeStyle: Boolean = false) {
     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
         .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
-        .padding(top = Sp.x12, bottom = Sp.x8),
+        .padding(top = if (homeStyle) Sp.x26 else Sp.x12, bottom = if (homeStyle) Sp.x10 else Sp.x8),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(3.dp, 16.dp).clip(RoundedCornerShape(R.pill)).background(Lp.colors.mediaIcon))
         Spacer(Modifier.width(Sp.x8))
-        Text(title, color = Lp.colors.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold,
+        Text(title, color = Lp.colors.fg, style = LpText.title,
             modifier = Modifier.weight(1f))
+        if (homeStyle && onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp), tint = Lp.colors.fg2)
     }
 }
 

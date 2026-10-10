@@ -24,7 +24,8 @@ import xyz.linplayer.app.core.CorePort
  * 业务状态仍由核心负责；详情缓存只保留展示资料，每次进入后台刷新。
  * 失效事件转成 Flow，由页面按自己的请求生命周期重取。
  */
-class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: DetailCache = DetailCache()) {
+class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: DetailCache = DetailCache(),
+    val browseCache: BrowseCache = BrowseCache()) {
 
     /**
      * 收尾用的作用域。**寿命跟进程,不跟 composition。**

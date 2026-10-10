@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -13,6 +15,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -48,7 +51,7 @@ import xyz.linplayer.app.ui.components.LpField
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.OptRow
-import xyz.linplayer.app.ui.components.Skeleton
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
 import xyz.linplayer.app.ui.theme.Lp
@@ -189,9 +192,7 @@ fun BrowsePage(nav: NavController) {
                 }
             }
 
-            st is Block.Loading -> Column(Modifier.padding(pad).padding(Sp.x16)) {
-                repeat(6) { Skeleton(Modifier.fillMaxWidth().height(48.dp)); Spacer(Modifier.height(Sp.x8)) }
-            }
+            st is Block.Loading -> LoadingState(Modifier.fillMaxSize().padding(pad))
 
             st is Block.Fail -> if (!st.isSilent) ErrorState(st.message, { reload++ })
 
@@ -211,7 +212,7 @@ fun BrowsePage(nav: NavController) {
                             Modifier.size(20.dp), tint = Lp.colors.fg2)
                         Spacer(Modifier.padding(horizontal = Sp.x6))
                         Column(Modifier.weight(1f)) {
-                            Body(e.name, maxLines = 2)
+                            Text(e.name, style = LpText.list, color = Lp.colors.fg, maxLines = 2)
                             // 修改时间**核心层不发**(source.Entry 里没有这个字段),
                             // 原来那一格是恒空的 —— 摆着不生效的东西比没有更糟
                             e.size?.let {

@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.player
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.content.res.Configuration
@@ -68,7 +70,6 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.offset
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -810,7 +811,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 Modifier.padding(horizontal = Sp.x26),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                Text("这一片没能播起来", color = Color.White, fontSize = 16.sp)
+                Text("这一片没能播起来", color = Color.White, style = LpText.section)
                 Spacer(Modifier.height(Sp.x8))
                 /* ★ **把真正的原因摆在这里**,不是一句「原因在日志里」。
                    上一版那句话等于让用户去导诊断包,而他只想知道是不是自己的问题;
@@ -909,7 +910,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         if (everMoved && buffering) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             Text("正在缓冲…", Modifier.clip(RoundedCornerShape(R.pill)).background(c.chip)
                 .padding(horizontal = Sp.x12, vertical = Sp.x6),
-                color = Color.White, fontSize = 13.sp)
+                color = Color.White, style = LpText.secondary)
         }
 
         // seek 预览:滑动中显示目标时间与差值
@@ -918,7 +919,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 Text(
                     "${fmtTime(t)}  ${if (t >= position) "+" else "−"}${fmtTime(kotlin.math.abs(t - position))}",
                     Modifier.clip(RoundedCornerShape(R.sm)).background(c.chip).padding(Sp.x12),
-                    color = Color.White, fontSize = 18.sp,
+                    color = Color.White, style = LpText.title.copy(fontFeatureSettings = "tnum"),
                 )
             }
         }
@@ -1069,7 +1070,7 @@ internal fun Osd(
                 verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
                 PlayerControl(LpIcons.minus, "减速", onClick = { onSpeed(step(speed, -1)) })
                 Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
-                    fontSize = 15.sp, fontWeight = FontWeight.Medium)
+                    style = LpText.number.copy(fontSize = 15.sp, lineHeight = 20.sp))
                 PlayerControl(LpIcons.plus, "加速", onClick = { onSpeed(step(speed, +1)) })
             }
             Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
@@ -1222,7 +1223,7 @@ private fun AdjustHud(brightness: Boolean, value: Float) {
                 }
             }
             Spacer(Modifier.height(Sp.x8))
-            Text("${(value * 100).toInt()}%", color = Color.White, fontSize = 12.sp)
+            Text("${(value * 100).toInt()}%", color = Color.White, style = LpText.number)
         }
     }
 }
@@ -1233,7 +1234,7 @@ private fun NetSpeed(text: String) {
     if (text.isEmpty()) return
     Text(
         text, Modifier.padding(end = Sp.x6),
-        color = Color.White.copy(alpha = .82f), fontSize = 12.sp, maxLines = 1,
+        color = Color.White.copy(alpha = .82f), style = LpText.number, maxLines = 1,
     )
 }
 
@@ -1249,7 +1250,7 @@ private fun SpeedGroup(speed: Double, onSpeed: (Double) -> Unit) {
             onClick = { onSpeed(step(speed, -1)) })
         Text(
             "%.2f×".format(speed).replace(".00", ""),
-            color = Color.White, fontSize = 12.sp, fontWeight = FontWeight.Medium,
+            color = Color.White, style = LpText.number,
         )
         LpIconButton(LpIcons.plus, "加速", size = 16, tint = Color.White,
             onClick = { onSpeed(step(speed, +1)) })
@@ -1278,7 +1279,7 @@ private fun Chip(
             androidx.compose.material3.Icon(icon, null, Modifier.size(16.dp), tint = Color.White)
             Spacer(Modifier.width(Sp.x6))
         }
-        Text(label, color = Color.White, fontSize = 13.sp, maxLines = 1)
+        Text(label, color = Color.White, style = LpText.secondary, maxLines = 1)
     }
 }
 
@@ -1310,7 +1311,7 @@ internal fun ProgressRow(
         Modifier.fillMaxWidth().padding(horizontal = Sp.x12),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Text(fmtTime(position), color = Color.White, fontSize = 11.sp)
+        Text(fmtTime(position), color = Color.White, style = LpText.number)
         /* 热力图画在滑杆**上方**那 10dp 里,不叠进轨道 ——
            叠进去的话它和已播那半截互相染色,两个都读不出来。
            空表就整块不占位:关掉热力图之后进度条要回到原来的高度。 */
@@ -1364,7 +1365,7 @@ internal fun ProgressRow(
         Text(
             if (!enabled) "--:--" else if (showTotal) fmtTime(duration)
             else "-" + fmtTime((duration - position).coerceAtLeast(0.0)),
-            color = Color.White, fontSize = 11.sp,
+            color = Color.White, style = LpText.number,
         )
     }
 }
@@ -1379,7 +1380,7 @@ private fun Marquee(text: String, m: Modifier = Modifier) {
     Text(
         text,
         m.basicMarqueeCompat(),
-        color = Color.White, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+        color = Color.White, style = LpText.card,
         maxLines = 1, overflow = TextOverflow.Clip,
     )
 }

@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.components
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -160,7 +162,7 @@ fun SectionTitle(
             )
         )
         Spacer(Modifier.width(Sp.x8))
-        Text(text, Modifier.weight(1f), color = c.fg, fontSize = 15.sp, fontWeight = FontWeight.SemiBold,
+        Text(text, Modifier.weight(1f), color = c.fg, style = LpText.section,
             maxLines = if (trailing != null) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
         if (trailing != null) {
             Spacer(Modifier.width(Sp.x8))
@@ -173,8 +175,7 @@ fun SectionTitle(
 @Composable
 fun Kicker(text: String, m: Modifier = Modifier, color: Color? = null) =
     Text(
-        text, m, color = color ?: Lp.colors.fg2, fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold, letterSpacing = 1.4.sp, maxLines = 1,
+        text, m, color = color ?: Lp.colors.fg2, style = LpText.badge, maxLines = 1,
     )
 
 /** 无边框 chip。**未选中是一层填充,不是一个空心框** —— 一排空心框是方寸感最重的地方。 */
@@ -193,7 +194,7 @@ fun ToneChip(
             .background(if (on) c.acc else c.s2)
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x16, vertical = Sp.x8),
-        color = if (on) c.accFg else c.fg2, fontSize = 13.sp, maxLines = 1,
+        color = if (on) c.accFg else c.fg2, style = LpText.filter, maxLines = 1,
         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
     )
 }
@@ -224,7 +225,7 @@ fun PrimaryAction(
             Spacer(Modifier.width(Sp.x8))
         }
         Text(
-            text, Modifier.weight(1f, fill = false), color = c.mediaOnAccent, fontSize = 15.sp, fontWeight = FontWeight.Bold,
+            text, Modifier.weight(1f, fill = false), color = c.mediaOnAccent, style = LpText.list, fontWeight = FontWeight.SemiBold,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
@@ -255,7 +256,7 @@ fun IconAction(
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, Modifier.size(19.dp), tint = if (on) c.mediaIcon else c.fg2) }
         Spacer(Modifier.height(Sp.x6))
-        Text(label, color = if (on) c.mediaIcon else c.fg3, fontSize = 11.sp, maxLines = 1)
+        Text(label, color = if (on) c.mediaIcon else c.fg3, style = LpText.badge, maxLines = 1)
     }
 }
 

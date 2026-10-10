@@ -91,7 +91,8 @@ class FloatingTabTest {
         rule.onNodeWithContentDescription("收藏").performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("search.field").assertDoesNotExist()
-        rule.onNodeWithText("收藏影片 18", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("收藏的电影").assertIsDisplayed()
+        rule.onNodeWithText("收藏影片 18", useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithContentDescription("首页").performClick().assertIsSelected()
         rule.onNodeWithText("继续观看").assertExists()
     }

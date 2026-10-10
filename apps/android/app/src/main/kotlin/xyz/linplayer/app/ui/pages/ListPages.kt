@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -33,6 +35,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -43,7 +46,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.navigation.NavController
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
@@ -84,7 +86,7 @@ import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.Panel
-import xyz.linplayer.app.ui.components.Skeleton
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.StepperRow
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
@@ -193,12 +195,19 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
             Column(Modifier.fillMaxSize().then(
                 if (block is Block.Fail) Modifier.verticalScroll(rememberScrollState()) else Modifier,
             )) {
-                BlockBox(block, { reload++ }, skeleton = { if (!isCategory) GridSkel(pad) else GridSkeleton(pad) }) { items ->
+                BlockBox(block, { reload++ }, skeleton = { LoadingState(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) }) { items ->
                     val visible = remember(items, type, libraryId, sort, ascending, knownIds) {
                         if (!isCategory) items else sortFavoriteItems(items.filter {
                             if (libraryId != null) libraryId in it.libraryIds
                             else it.libraryIds.none { id -> id in knownIds } && favoriteFallbackType(it) == type
                         }, sort, ascending)
+                    }
+                    val firstId = visible.firstOrNull()?.id
+                    var previousFirst by remember { mutableStateOf(firstId) }
+                    SideEffect {
+                        if (isCategory && previousFirst != null && previousFirst != firstId &&
+                            grid.firstVisibleItemIndex == 0 && !grid.isScrollInProgress) grid.requestScrollToItem(0)
+                        previousFirst = firstId
                     }
                     if (visible.isEmpty() && !hasMore) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { EmptyState(
                         when (type) { "Movie" -> "还没有收藏电影"; "Series" -> "还没有收藏电视剧"; "Episode" -> "还没有收藏分集"; else -> "还没有收藏任何内容" },
@@ -394,7 +403,7 @@ fun DownloadsPage(nav: NavController) {
                 }, fmt = { it.toInt().toString() })
                 Text("清除已完成仅清记录；单项删除会删除文件",
                     Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12),
-                    color = Lp.colors.fg2, fontSize = 12.sp)
+                    color = Lp.colors.fg2, style = LpText.caption)
             }
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                 failure?.takeUnless { it.isSilent }?.let { error ->
@@ -402,9 +411,7 @@ fun DownloadsPage(nav: NavController) {
                 }
                 val rows = tasks
                 if (rows == null && failure == null) item("loading") {
-                    Column(Modifier.padding(horizontal = Sp.x16)) {
-                        repeat(3) { Skeleton(Modifier.fillMaxWidth().height(120.dp)); Spacer(Modifier.height(Sp.x12)) }
-                    }
+                    LoadingState(Modifier.fillParentMaxSize())
                 }
                 if (rows?.isEmpty() == true && failure == null) item("empty") {
                     EmptyState("下载队列是空的", "在详情页长按菜单中添加下载任务。", LpIcons.download)
@@ -414,8 +421,7 @@ fun DownloadsPage(nav: NavController) {
                     Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)) {
                         Column(Modifier.padding(Sp.x16)) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
-                                Text(t.title, Modifier.weight(1f), color = c.fg, fontSize = 15.sp,
-                                    fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                Text(t.title, Modifier.weight(1f), color = c.fg, style = LpText.list, fontWeight = FontWeight.Medium, maxLines = 2, overflow = TextOverflow.Ellipsis)
                                 when (t.state) {
                                     "paused", "failed" -> LpIconButton(LpIcons.play,
                                         if (t.state == "failed") "重试下载" else "继续下载", tint = c.mediaIcon) {
@@ -431,8 +437,8 @@ fun DownloadsPage(nav: NavController) {
                                 Text(when (t.state) {
                                     "queued" -> "等待下载"; "downloading" -> "正在下载"; "paused" -> "已暂停"
                                     "completed" -> "已完成"; "failed" -> "下载失败"; "canceled" -> "已取消"; else -> "状态未知"
-                                }, color = if (t.state == "failed") c.bad else c.mediaIcon, fontSize = 12.sp)
-                                if (t.total > 0) Text("${(t.progress * 100).toInt()}%", color = c.fg2, fontSize = 12.sp)
+                                }, color = if (t.state == "failed") c.bad else c.mediaIcon, style = LpText.caption)
+                                if (t.total > 0) Text("${(t.progress * 100).toInt()}%", color = c.fg2, style = LpText.caption)
                             }
                             Spacer(Modifier.height(Sp.x6))
                             if (t.total > 0) LinearProgressIndicator(progress = { t.progress },
@@ -442,9 +448,9 @@ fun DownloadsPage(nav: NavController) {
                             Text(listOfNotNull(
                                 "${downloadSize(t.received)} / ${if (t.total > 0) downloadSize(t.total) else "大小未知"}",
                                 speeds[t.id]?.let { "${downloadSize(it.toLong())}/s" },
-                            ).joinToString(" · "), color = c.fg2, fontSize = 12.sp)
+                            ).joinToString(" · "), color = c.fg2, style = LpText.caption)
                             t.error?.takeIf { t.state == "failed" && it.isNotBlank() }?.let {
-                                Text(it, Modifier.padding(top = Sp.x8), color = c.bad, fontSize = 12.sp)
+                                Text(it, Modifier.padding(top = Sp.x8), color = c.bad, style = LpText.caption)
                             }
                         }
                     }
@@ -460,24 +466,6 @@ private fun downloadSize(bytes: Long): String = when {
     else -> "%.1f KB".format(bytes / 1024.0)
 }
 
-
-@Composable
-private fun GridSkel(pad: PaddingValues) {
-    LazyVerticalGrid(
-        GridCells.Adaptive(112.dp), Modifier.fillMaxSize(),
-        contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
-        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        verticalArrangement = Arrangement.spacedBy(Sp.x16),
-    ) {
-        items(List(12) { it }) {
-            Column {
-                Skeleton(Modifier.fillMaxWidth().height(168.dp))
-                Spacer(Modifier.height(Sp.x6))
-                Skeleton(Modifier.fillMaxWidth(0.8f).height(12.dp))
-            }
-        }
-    }
-}
 
 /**
  * 「按某个类型 / 标签 / 工作室 列条目」
@@ -536,7 +524,7 @@ fun FacetPage(nav: NavController, entry: androidx.navigation.NavBackStackEntry) 
     val kindName = when (route.kind) { "tag" -> "标签"; "studio" -> "工作室"; else -> "类型" }
     LpScaffold(route.label, subtitle = kindName, onBack = { nav.popBackStack() },
         scrolled = rememberScrolled(grid)) { pad ->
-        BlockBox(first, { scope.launch { fetch(0) } }, skeleton = { GridSkel(pad) }) {
+        BlockBox(first, { scope.launch { fetch(0) } }, skeleton = { LoadingState(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) }) {
             if (items.isEmpty()) EmptyState(
                 "没有找到「${route.label}」下的内容",
                 "这台服务器上可能没有刮到这一项,或者它只挂在被屏蔽的库里。",
@@ -623,9 +611,7 @@ fun HistoryPage(nav: NavController) {
                 item("h") { MediaRowHeader("服务器观看记录") }
                 when (val result = recs) {
                     is Block.Loading -> item("loading") {
-                        Column(Modifier.padding(Sp.x16)) {
-                            repeat(4) { Skeleton(Modifier.fillMaxWidth().height(112.dp)); Spacer(Modifier.height(Sp.x10)) }
-                        }
+                        LoadingState(Modifier.fillParentMaxHeight(.65f).fillMaxWidth())
                     }
                     is Block.Fail -> if (!result.isSilent) item("error") { ErrorState(result.message, { reload++ }) }
                     is Block.Ok -> {
@@ -657,14 +643,14 @@ fun HistoryPage(nav: NavController) {
                                 }).padding(Sp.x16)) {
                                     Row(verticalAlignment = Alignment.CenterVertically) {
                                         Text(if (series.isEmpty()) title else "$series · $title", Modifier.weight(1f),
-                                            color = Lp.colors.fg, fontSize = 16.sp, fontWeight = FontWeight.Medium,
+                                            color = Lp.colors.fg, style = LpText.list, fontWeight = FontWeight.Medium,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                                         Icon(LpIcons.chevR, "查看详情", Modifier.padding(start = Sp.x8).size(18.dp), tint = Lp.colors.mediaIcon)
                                     }
                                     Text(names[sid] ?: "服务器名称不可用", Modifier.padding(top = Sp.x8),
-                                        color = Lp.colors.mediaIcon, fontSize = 12.sp, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(whenText, Modifier.padding(top = Sp.x4), color = Lp.colors.fg2, fontSize = 12.sp)
-                                    Text(progress, Modifier.padding(top = Sp.x8), color = Lp.colors.fg2, fontSize = 12.sp)
+                                        color = Lp.colors.mediaIcon, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                    Text(whenText, Modifier.padding(top = Sp.x4), color = Lp.colors.fg2, style = LpText.caption)
+                                    Text(progress, Modifier.padding(top = Sp.x8), color = Lp.colors.fg2, style = LpText.caption)
                                     if (run > 0) LinearProgressIndicator(
                                         progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
                                         modifier = Modifier.padding(top = Sp.x8).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),

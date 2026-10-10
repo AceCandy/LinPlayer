@@ -116,7 +116,7 @@ def pkg_sources(d):
 
 
 CALL = re.compile(
-    r'\b(?:call|block|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\((.*?)\)\s*\)',
+    r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\((.*?)\)\s*\)',
     re.S)
 # 前台播放服务用 send(command, "key" to value),也属于命令边界。
 SEND = re.compile(r'\bsend\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(.*?)\)', re.S)
@@ -131,7 +131,10 @@ PAIR = re.compile(r'"([A-Za-z_0-9]+)"\s+to\b')
 #   emby.search 传 view_id(核心层读 parent_id)。「点进媒体库出来的不是这个库」
 #   和「库内搜索搜的是全站」这两条症状,都是从这个盲区长出来的。
 SPREAD = re.compile(
-    r'\b(?:call|block|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\(\s*\*\s*(\w+)\s*\.', re.S)
+    r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\(\s*\*\s*(\w+)\s*\.', re.S)
+# 缓存入口可先构造params再发送，仍需核查其buildMap参数。
+ALIASED = re.compile(r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(\w+)\s*\)', re.S)
+PARAMS = r'\bval\s+{name}\s*=\s*args\(\s*\*\s*(\w+)\s*\.'
 PUT = re.compile(r'\bput\(\s*"([A-Za-z_0-9]+)"')
 
 
@@ -177,6 +180,15 @@ def ui_calls():
                     continue
                 line = src.count('\n', 0, m.start()) + 1
                 found.append((rel, line, m.group(1), keys))
+            for m in ALIASED.finditer(src):
+                aliases = list(re.finditer(PARAMS.format(name=re.escape(m.group(2))), src[:m.start()]))
+                if not aliases:
+                    continue
+                alias = aliases[-1]
+                keys = build_map_keys(src, alias.group(1), alias.start())
+                if keys is not None:
+                    line = src.count('\n', 0, m.start()) + 1
+                    found.append((rel, line, m.group(1), keys))
     return found
 
 

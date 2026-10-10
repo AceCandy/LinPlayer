@@ -26,6 +26,10 @@ class LinPlayerApp : Application(), SingletonImageLoader.Factory {
         xyz.linplayer.app.data.DetailCache(java.io.File(cacheDir, "detail-v1"))
     }
 
+    val browseCache by lazy {
+        xyz.linplayer.app.data.BrowseCache(java.io.File(cacheDir, "browse-v1"))
+    }
+
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         // provider 在 Application.onCreate 前执行,诊断包必须在这之前留下 JVM 异常。

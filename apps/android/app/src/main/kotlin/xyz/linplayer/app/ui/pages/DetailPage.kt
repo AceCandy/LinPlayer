@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import xyz.linplayer.app.ui.components.sharedPoster
 import xyz.linplayer.app.ui.components.posterPreview
 import xyz.linplayer.app.ui.components.detailPreview
@@ -14,6 +16,12 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.asPaddingValues
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -53,6 +61,14 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.ClipOp
+import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -61,6 +77,7 @@ import androidx.compose.ui.semantics.semantics
 import java.text.SimpleDateFormat
 import java.util.Locale
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalDensity
@@ -106,6 +123,7 @@ import xyz.linplayer.app.ui.components.Layer
 import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpImmersive
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.OptRow
@@ -167,6 +185,16 @@ internal data class Version(
     val path: String? = null, val dateCreated: String? = null,
 ) {
     fun of(kind: String) = streams.filter { it.type == kind }
+    /** 泛称不能识别文件，优先用安全路径的文件名；仅影响展示，不参与版本选择。 */
+    val displayName: String
+        get() {
+            val title = name.trim()
+            if (title.isNotEmpty() && title.lowercase(Locale.ROOT) !in
+                setOf("版本", "默认版本", "default", "default version")) return title
+            return displayMediaPath(path)?.substringBefore('?')?.substringBefore('#')
+                ?.replace('\\', '/')?.substringAfterLast('/')?.trim()?.takeIf(String::isNotEmpty)
+                ?: "未提供版本名称"
+        }
     companion object {
         /** ☠ `emby.itemMedia` 返回的是**裸数组** `[]MediaVersion`,不是 `{versions:[…]}`。 */
         fun list(e: kotlinx.serialization.json.JsonElement?): List<Version> = e.arr().mapNotNull {
@@ -273,6 +301,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     /** ☠ 「未选」是 `null` 不是 `0` —— 传了 id 核心层就走「手动指定」分支,版本正则整个被跳过。 */
     var pickedVersion by remember { mutableStateOf<String?>(null) }
     var seasons by remember { mutableStateOf<List<Item>>(emptyList()) }
+    var seasonImages by remember { mutableStateOf<Set<String>>(emptySet()) }
     var seasonLoad by remember { mutableStateOf<Block<Unit>>(Block.Loading) }
     var seasonRetry by remember { mutableStateOf(0) }
     var curSeason by remember { mutableStateOf<Item?>(null) }
@@ -349,6 +378,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
             currentCoroutineContext().ensureActive()
             seasons = result.valueOrNull.arr()
                 .mapNotNull { value -> Item.from(value)?.copy(seasonNo = value.obj().long("index_no")) }
+            seasonImages = result.valueOrNull.arr().filter { it.obj().boolOrNull("has_primary") != false }
+                .mapNotNull { it.obj().str("id") }.toSet()
             // 集详情页要定位到**这一集所属的季**,不是第一季
             val s = seasons.firstOrNull { it.id == wantSeason } ?: seasons.firstOrNull()
             curSeason = s
@@ -419,6 +450,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val title = d.str("name") ?: ""
     val isEpisode = route.type == "Episode"
     val isSeries = route.type == "Series" || route.type == "Season"
+    val isSeriesEntry = route.type == "Series"
     val nextEp = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
     /* ☠ **合集原来一个字都画不出来。** 详情那条链只对 Series/Season 拉子项,
        而合集本身没有简介、没有年份、没有演职员 —— 整页只剩一个标题
@@ -463,17 +495,20 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
             ar = if (target == route.itemId) arOf(ver) else 0f, fromStart = fromStart))
     }
 
+    val bodyHeight = with(LocalDensity.current) {
+        rememberTextMeasurer().measure("共 1 季", style = LpText.body).size.height.toDp()
+    }
     val barTint = if (list.firstVisibleItemIndex == 0) Color.White else c.fg
 
     LpImmersive(bar = {
         IconButton(onClick = { nav.popBackStack() }) {
-            Icon(LpIcons.back, "返回", tint = barTint)
+            Icon(LpIcons.back, "返回", Modifier.size(24.dp), tint = barTint)
         }
         Spacer(Modifier.weight(1f))
         if (!isBoxSet) {
             // Emby 的片也能换到数据源看(D525):这是跳转,不是把数据源塞进来当线路
             IconButton(onClick = { switching = true }) {
-                Icon(LpIcons.switchSource, "换源", tint = barTint)
+                Icon(LpIcons.switchSource, "换源", Modifier.size(24.dp), tint = barTint)
             }
             IconButton(enabled = live != null, onClick = {
                 scope.launch {
@@ -485,12 +520,12 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                 }
             }) {
                 if (played) Box(
-                    Modifier.size(26.dp).clip(RoundedCornerShape(R.pill)).background(barTint),
+                    Modifier.size(24.dp).clip(RoundedCornerShape(R.pill)).background(barTint),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Icon(LpIcons.check, "标未看", Modifier.size(19.dp),
+                    Icon(LpIcons.check, "标未看", Modifier.size(18.dp),
                         tint = if (list.firstVisibleItemIndex == 0) Color.Black else c.bg)
-                } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(28.dp), tint = barTint)
+                } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(24.dp), tint = barTint)
             }
         }
         if (!isBoxSet && !isEpisode) IconButton(enabled = live != null, onClick = {
@@ -502,7 +537,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                 }.onFailure { favorite = !want; app.report(it) }
             }
         }) {
-            Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏",
+            Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp),
                 tint = if (favorite) c.mediaIcon else barTint)
         }
         if (!isBoxSet) IconButton(onClick = {
@@ -512,7 +547,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                     .onFailure { app.report(it) }
             }
         }) {
-            Icon(LpIcons.download, "下载", tint = barTint)
+            Icon(LpIcons.download, "下载", Modifier.size(24.dp), tint = barTint)
         }
     }) { pad ->
         val f = detail
@@ -537,7 +572,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 nav.navigate(Route.Detail(sid, "Series"))
                             }
                         }
-                        else SeriesHead(app, route.itemId, d, list)
+                        else SeriesHead(app, route.itemId, d, list, isSeriesEntry)
                     }
                 }
 
@@ -551,17 +586,47 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
 
                 // 评分就在这条数据带里(★ 评分是第一格),锚点挂它
                 item("data") { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = Sp.x16)) {
+                    if (isSeriesEntry) {
+                        val summary = Triple(d.dbl("rating")?.takeIf { it > 0 },
+                            d.long("year")?.toString() ?: detailDate(d)?.take(4),
+                            seasons.size.takeIf { seasonLoad is Block.Ok && it > 0 })
+                        DetailReveal(summary, Modifier.testTag("detail.ratings")) { current ->
+                            androidx.compose.foundation.layout.FlowRow(
+                                Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12)
+                                    .heightIn(min = bodyHeight + 4.dp),
+                                horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                                verticalArrangement = Arrangement.spacedBy(Sp.x6),
+                            ) {
+                                current.first?.let {
+                                    Text("★ %.1f".format(it), color = c.mediaIcon, style = LpText.body)
+                                }
+                                current.second?.let {
+                                    Text(it, color = c.fg2, style = LpText.body)
+                                }
+                                current.third?.let { count -> Text(
+                                    "共 $count 季",
+                                    Modifier.border(1.dp, c.mediaIcon, RoundedCornerShape(4.dp))
+                                        .padding(horizontal = Sp.x6, vertical = 2.dp),
+                                    color = c.mediaIcon, style = LpText.body,
+                                ) }
+                            }
+                        }
+                        return@Anchored
+                    }
                     val values = listOfNotNull(
                         d.dbl("rating")?.takeIf { it > 0 }?.let { "★ %.1f".format(it) },
                         detailDate(d),
                         d.dbl("runtime_secs")?.takeIf { it > 0 }?.let { fmtDur(it) },
                         d.long("child_count")?.takeIf { it > 0 && isSeries }?.let { "$it 集" },
                     )
-                    if (values.isNotEmpty()) Text(
-                        values.joinToString(" · "),
-                        Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12),
-                        color = c.fg2, fontSize = 14.sp, lineHeight = 21.sp,
-                    )
+                    DetailReveal(if (d == null) null else values, Modifier.testTag("detail.ratings")) { current ->
+                        if (current == null) Spacer(Modifier.height(with(LocalDensity.current) { 21.sp.toDp() } + Sp.x12 * 2))
+                        else if (current.isNotEmpty()) Text(
+                            current.joinToString(" · "),
+                            Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12),
+                            color = c.fg2, style = LpText.body,
+                        )
+                    }
                 } }
 
                 item("tags") {
@@ -573,16 +638,20 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         d.strList("tags").take(6).map { Triple("tag", it, it) } +
                         d.namedList("studios").take(3).map { Triple("studio", it.second, it.first) }
                     val plain = listOfNotNull(d.str("official_rating"), d.str("status"))
-                    if (jumps.isNotEmpty() || plain.isNotEmpty()) Row(
-                        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                            .padding(start = Sp.x16, end = Sp.x16, top = Sp.x12),
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x6),
-                    ) {
-                        jumps.forEach { (kind, value, label) ->
-                            if (live == null || live.get("capabilities").obj()?.get("filters")?.toString() == "false") Tag(label)
-                            else Tag(label) { nav.navigate(Route.Facet(kind, value, label)) }
+                    DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags")) { current ->
+                        if (current == null) Spacer(Modifier.height(with(LocalDensity.current) { 24.sp.toDp() } + Sp.x6 + Sp.x12))
+                        else if (current.first.isNotEmpty() || current.second.isNotEmpty()) Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                                .padding(start = Sp.x16, end = Sp.x16, top = Sp.x12),
+                            horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+                        ) {
+                            current.first.forEach { (kind, value, label) ->
+                                if (live == null || current != (jumps to plain) ||
+                                    live.get("capabilities").obj()?.get("filters")?.toString() == "false") Tag(label)
+                                else Tag(label) { nav.navigate(Route.Facet(kind, value, label)) }
+                            }
+                            current.second.forEach { Tag(it) }
                         }
-                        plain.forEach { Tag(it) }
                     }
                 }
 
@@ -597,28 +666,32 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 .using(SizeTransform { _, _ -> contentSize })
                         }, label = "detailOptions") { state ->
                         when (state) {
-                            Block.Loading -> Dim3("正在读取播放选项…",
-                                Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12))
+                            Block.Loading -> LoadingState()
                             is Block.Fail -> if (!state.isSilent)
                                 xyz.linplayer.app.ui.components.ErrorState("播放选项读取失败：${state.message}", { mediaRetry++ })
                             is Block.Ok -> {
                                 val video = ver?.of("Video")?.firstOrNull()
                                 val audio = selectedTrack(ver?.of("Audio"), audioLang)
                                 PickList(buildList {
-                                    if (ver != null) add(PickRow("版本", video?.let {
-                                        listOfNotNull(it.height?.takeIf { h -> h > 0 }?.let { h -> "${h}p" },
-                                            it.codec.uppercase().takeIf { name -> name.isNotBlank() })
-                                            .joinToString(" ").ifBlank { ver.name }
-                                    } ?: ver.name, LpIcons.version,
-                                        onClick = if (versions.size > 1) ({ sheet = "version" }) else null))
-                                    audio?.let {
-                                        add(PickRow("音轨", audioSummary(it), LpIcons.music,
-                                            onClick = if ((ver?.of("Audio")?.size ?: 0) > 1) ({ sheet = "audio" }) else null))
+                                    if (ver != null) add(PickRow("版本", ver.displayName, LpIcons.version,
+                                        onClick = if (versions.size > 1) ({ sheet = "version" }) else null,
+                                        metadata = listOfNotNull(ver.container?.uppercase(), fmtSize(ver.sizeBytes)).joinToString(" · ")))
+                                    video?.let {
+                                        val value = videoSummary(it)
+                                        if (value.isNotBlank()) add(PickRow("视频", value, LpIcons.video))
                                     }
-                                    if (!ver?.of("Subtitle").isNullOrEmpty()) add(PickRow(
-                                        "字幕", trackLabel(ver?.of("Subtitle"), subLang, subOff = !subsEnabled, pattern = subRegex), LpIcons.sub,
-                                        onClick = { sheet = "sub" },
-                                    ))
+                                    audio?.let {
+                                        val summary = audioSummary(it)
+                                        add(PickRow("音轨", summary, LpIcons.musicNote,
+                                            onClick = if ((ver?.of("Audio")?.size ?: 0) > 1) ({ sheet = "audio" }) else null,
+                                            subtitle = trackSubtitle(it, summary)))
+                                    }
+                                    if (!ver?.of("Subtitle").isNullOrEmpty()) {
+                                        val subtitle = if (subsEnabled) selectedTrack(ver.of("Subtitle"), subLang, subRegex) else null
+                                        val summary = if (!subsEnabled) "关闭" else subtitle?.let(::subtitleSummary) ?: "无"
+                                        add(PickRow("字幕", summary, LpIcons.sub, onClick = { sheet = "sub" },
+                                            subtitle = subtitle?.let { trackSubtitle(it, summary) }))
+                                    }
                                     serverId?.takeIf { lineCount > 1 }?.let { sid ->
                                         add(PickRow("线路", lineLabel ?: "线路", LpIcons.line,
                                             // 线路页认的是账号 ID，换过线路后的会话地址不能代替它。
@@ -639,19 +712,24 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                     val continuing = resume > 0 && runtime > resume && (!isSeries || nextEp?.played != true)
                     Column(Modifier.padding(top = Sp.x16)) {
                         Row(
-                            Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
-                                .then(if (isSeries) Modifier.heightIn(min = with(LocalDensity.current) { 60.sp.toDp() } + Sp.x20) else Modifier),
+                            Modifier.fillMaxWidth().padding(horizontal = Sp.x16).testTag("detail.actions.layout")
+                                .then(when {
+                                    isSeriesEntry -> Modifier.heightIn(min = 52.dp)
+                                    isSeries -> Modifier.heightIn(min = with(LocalDensity.current) { 60.sp.toDp() } + Sp.x20)
+                                    else -> Modifier
+                                }),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             val label = when {
+                                isSeriesEntry -> if (continuing) "继续观看" else "播放"
                                 isSeries && nextEp != null ->
                                     "${if (continuing) "继续" else "播放"} S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1}"
                                 continuing -> "继续观看"
                                 else -> "播放"
-                            } + if (continuing) "（剩余：${fmtDur(runtime - resume)}）" else ""
+                            } + if (continuing && !isSeriesEntry) "（剩余：${fmtDur(runtime - resume)}）" else ""
                             Box(
-                                (if (continuing) Modifier.weight(1f) else Modifier.width(132.dp)).height(IntrinsicSize.Min)
+                                (if (continuing || isSeriesEntry) Modifier.weight(1f) else Modifier.width(132.dp)).height(IntrinsicSize.Min)
                                     .clip(RoundedCornerShape(R.md))
                                     .background(if (continuing) c.s2 else c.mediaAccent)
                                     .testTag("detail.play")
@@ -666,12 +744,12 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                     Box(Modifier.fillMaxHeight().fillMaxWidth((resume / runtime).toFloat().coerceIn(0f, 1f))
                                         .background(c.mediaAccent.copy(alpha = .35f)))
                                 }
-                                Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).padding(horizontal = Sp.x12, vertical = Sp.x10),
+                                Row(Modifier.fillMaxWidth().heightIn(min = if (isSeriesEntry) 52.dp else 48.dp).padding(horizontal = Sp.x12, vertical = Sp.x10),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally)) {
-                                    Icon(LpIcons.play, null, Modifier.size(19.dp),
+                                    Icon(LpIcons.play, null, Modifier.size(18.dp),
                                         tint = if (continuing) c.fg else c.mediaOnAccent)
-                                    Text(label, if (continuing) Modifier.weight(1f) else Modifier, fontSize = 14.sp, lineHeight = 20.sp,
+                                    Text(label, if (continuing) Modifier.weight(1f) else Modifier, style = LpText.action,
                                         textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                         fontWeight = FontWeight.SemiBold,
                                         color = if (continuing) c.fg else c.mediaOnAccent)
@@ -681,7 +759,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                             val menuOffset = with(LocalDensity.current) { 52.dp.roundToPx() }
                             Box {
                                 Box(
-                                    Modifier.size(48.dp).clip(RoundedCornerShape(R.md))
+                                    Modifier.size(if (isSeriesEntry) 52.dp else 48.dp).clip(RoundedCornerShape(R.md))
                                         .background(c.mediaAccent).pressable({ menuOpen = !menuOpen }),
                                     contentAlignment = Alignment.Center,
                                 ) {
@@ -697,23 +775,31 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 }
                             }
                         }
-                        if (isSeries) Box(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)
-                            .height(with(LocalDensity.current) { 16.sp.toDp() }).testTag("detail.play.target")) {
-                            Dim3(when {
-                                nextEp != null -> "播放目标 · S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1} · ${nextEp.name}"
-                                seasonLoad is Block.Loading || (curSeason != null && episodeLoad is Block.Loading) -> "正在确定播放目标…"
-                                else -> "暂无播放目标"
-                            })
+                        if (isSeriesEntry) Box(
+                            Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x8)
+                                .heightIn(min = bodyHeight)
+                                .testTag("detail.series.target"),
+                        ) {
+                            nextEp?.let { ep -> Text(
+                                listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" })
+                                    .joinToString("").let { number ->
+                                        listOf(number, ep.name).filter(String::isNotBlank).joinToString("：")
+                                    },
+                                color = c.fg2, style = LpText.body,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis,
+                            ) }
                         }
                     }
                 } }
 
-                if (isEpisode) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
-                    d.str("overview")?.takeIf { it.isNotBlank() }?.let { ov -> Overview(ov) }
+                if (isEpisode || isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview")) { ov ->
+                        ov?.let { Overview(it) }
+                    }
                 } }
 
-                // 季选择合并到选集标题，原季插件插入位继续保留。
-                item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
+                // 剧集入口的季海报位于分集之后；其它详情继续保留季插件插入位。
+                if (!isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
                 // 换季仍复用同一请求链和滚动状态。
                 item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = Sp.x16)) {
                     if (!isSeries && !isEpisode) return@Anchored
@@ -722,20 +808,29 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                     Column(Modifier.fillMaxWidth().testTag("detail.episodes")) {
                         Column(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12)) {
                             Box {
-                                Row(Modifier.heightIn(min = 48.dp)
-                                    .then(if (curSeason != null) Modifier.pressable({ seasonsOpen = !seasonsOpen }) else Modifier),
+                                Row(Modifier.then(if (isSeriesEntry) Modifier.fillMaxWidth() else Modifier).heightIn(min = 48.dp)
+                                    .then(if (curSeason != null && seasons.size > 1) Modifier.pressable({ seasonsOpen = !seasonsOpen }) else Modifier),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                                    Text(curSeason?.let { "来自${seasonLabel(it)}" } ?: "选集",
-                                        color = c.fg, fontSize = 18.sp, fontWeight = FontWeight.SemiBold)
-                                    if (curSeason != null) Icon(LpIcons.chevD, "选择季", Modifier.size(20.dp), tint = c.fg2)
+                                    Text(if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
+                                        color = c.fg, style = LpText.title)
+                                    if (isSeriesEntry) {
+                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f),
+                                            color = c.mediaIcon, style = LpText.compact,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.End,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                            ?: Spacer(Modifier.weight(1f))
+                                    }
+                                    if (curSeason != null && seasons.size > 1) Icon(LpIcons.chevD, "选择季", Modifier.size(20.dp), tint = c.fg2)
                                 }
                                 LpMenu(seasonsOpen, { seasonsOpen = false }, offset = IntOffset(0, menuOffset), solid = true) {
                                     seasons.forEach { season ->
                                         LpMenuItem(seasonLabel(season), {
                                             seasonsOpen = false
-                                            curSeason = season
-                                            episodeRequest++
+                                            if (curSeason?.id != season.id) {
+                                                curSeason = season
+                                                episodeRequest++
+                                            }
                                         }, selected = season.id == curSeason?.id)
                                     }
                                 }
@@ -750,23 +845,53 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         }
                         if (episodes.isNotEmpty()) key(curSeason?.id) {
                             EpisodeStrip(app, episodes, currentId = route.itemId, targetId = nextEp?.id.takeIf { isSeries },
+                                expanded = isSeriesEntry,
                                 onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) })
-                        } else Box(Modifier.fillMaxWidth().height(episodeStripHeight()), contentAlignment = Alignment.Center) {
+                        } else Box(Modifier.fillMaxWidth().height(episodeStripHeight(isSeriesEntry)), contentAlignment = Alignment.Center) {
                             when {
                                 seasonLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
                                     (seasonLoad as Block.Fail).message, { seasonRetry++ })
                                 curSeason != null && episodeLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
                                     (episodeLoad as Block.Fail).message, { episodeRetry++ })
                                 seasonLoad is Block.Loading || (curSeason != null && episodeLoad is Block.Loading) ->
-                                    Row(Modifier.fillMaxSize().padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-                                        repeat(3) { Box(Modifier.width(EpCardW).aspectRatio(16f / 9f)
-                                            .clip(RoundedCornerShape(12.dp)).background(c.s1)) }
-                                    }
+                                    LoadingState(Modifier.fillMaxSize())
                                 else -> Dim3(if (curSeason == null) "暂无可用选集" else "本季暂无分集")
                             }
                         }
                         if (episodes.isNotEmpty() && episodeLoad is Block.Fail)
                             xyz.linplayer.app.ui.components.ErrorState((episodeLoad as Block.Fail).message, { episodeRetry++ })
+                    }
+                } }
+
+                if (isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {
+                    Column(Modifier.fillMaxWidth().testTag("detail.seasons")) {
+                        SectionTitle("季", accent = c.mediaIcon)
+                        val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 }
+                        if (seasons.isNotEmpty()) LazyRow(
+                            Modifier.fillMaxWidth().height(seasonHeight),
+                            contentPadding = PaddingValues(horizontal = Sp.x16),
+                            horizontalArrangement = Arrangement.spacedBy(Sp.x12),
+                        ) {
+                            itemsIndexed(seasons, key = { _, season -> season.id }) { _, season ->
+                                Column(Modifier.width(104.dp).pressable({
+                                    if (curSeason?.id != season.id) {
+                                        curSeason = season
+                                        episodeRequest++
+                                    }
+                                }).semantics { contentDescription = "查看${seasonLabel(season)}分集" }) {
+                                    Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)
+                                        .clip(RoundedCornerShape(R.md))
+                                        .then(if (season.id == curSeason?.id)
+                                            Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(R.md)) else Modifier)) {
+                                        NetImage(if (season.id in seasonImages) app.imageUrl(season.id, "Primary", 330) else null,
+                                            null, Modifier.fillMaxSize(), R.md)
+                                    }
+                                    Spacer(Modifier.height(Sp.x6))
+                                    Text(seasonLabel(season), color = if (season.id == curSeason?.id) c.mediaIcon else c.fg,
+                                        style = LpText.compact, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                                }
+                            }
+                        } else if (seasonLoad is Block.Loading) LoadingState(Modifier.fillMaxWidth().height(seasonHeight))
                     }
                 } }
 
@@ -795,12 +920,16 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         }
                 }
 
-                if (!isEpisode) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
-                    d.str("overview")?.takeIf { it.isNotBlank() }?.let { ov -> Overview(ov) }
+                if (!isEpisode && !isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview")) { ov ->
+                        ov?.let { Overview(it) }
+                    }
                 } }
 
                 item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
-                    if (people.isNotEmpty()) People(app, people)
+                    DetailReveal(people, Modifier.testTag("detail.people")) { current ->
+                        if (current.isNotEmpty()) People(app, current)
+                    }
                 } }
 
                 // 媒体信息:**照 Emby 官端分组成卡**,不是一张 kv 大表
@@ -841,8 +970,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 versions.forEach { v ->
                     OptRow(
-                        v.name, { pickedVersion = v.id; sheet = null },
-                        media = true,
+                        v.displayName, { pickedVersion = v.id; sheet = null },
+                        media = true, labelMaxLines = Int.MAX_VALUE,
                         sub = listOfNotNull(v.container?.uppercase(), fmtSize(v.sizeBytes),
                             fmtRate(v.bitrate)).joinToString(" · ").takeIf { it.isNotEmpty() },
                         selected = v.id == ver?.id,
@@ -888,8 +1017,7 @@ private suspend fun savePrefs(app: xyz.linplayer.app.data.AppState, audio: Strin
 /**
  * 剧 / 影头部(草稿 03)。
  *
- * ★ 结构是**图 236 + 海报下探 78** —— 海报压在图的下沿上,而图的下沿已经溶掉了,
- *   所以没有任何一条边:海报是从颜色里长出来的。
+ * ★ 背景渐隐到正文，标题占整行，不再在标题前重复放一张小海报。
  * ★ 标题拆两级:眉标 → 主名 25sp → 副名 16sp 半透明。
  *   「鬼灭之刃 无限城篇」挤在一行是上一稿最明显的塌陷点。
  */
@@ -899,56 +1027,68 @@ private fun SeriesHead(
     id: String,
     d: JsonObject?,
     list: androidx.compose.foundation.lazy.LazyListState,
+    seriesEntry: Boolean,
 ) {
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
-    val imgH = Dim.coverDetail
-    Box(Modifier.fillMaxWidth().height(imgH + 66.dp)) {
-        Box(
-            Modifier.fillMaxWidth().height(imgH)
-                // 视差:图跟着滚一半 —— 海报和文字按正常速度走,两层错开才有纵深
-                .graphicsLayer {
-                    val off = if (list.firstVisibleItemIndex == 0)
-                        list.firstVisibleItemScrollOffset.toFloat() else imgH.toPx()
-                    translationY = off * 0.35f
-                }
-                .dissolve(0.54f, 0.99f)
-        ) {
-            NetImage(app.imageUrl(id, "Backdrop", 720), null, Modifier.fillMaxSize(), 0.dp, backgroundBlur = true)
-            // 顶上压一层:给浮在图上的状态栏和返回键留可读性。**不是给它留黑底**
+    var backdropFailed by remember(id) { mutableStateOf(false) }
+    val useBackdrop = d != null && d.boolOrNull("has_backdrop") != false && !backdropFailed
+    val imageKind = if (useBackdrop) "Backdrop" else "Primary"
+    val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) null
+        else app.imageUrl(id, imageKind, 720)
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().heightIn(min = maxWidth * 1.08f).testTag("detail.hero")) {
             Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        0.00f to Color.Black.copy(alpha = .52f),
-                        0.30f to Color.Transparent,
-                        0.78f to Color.Black.copy(alpha = .34f),
-                        1.00f to Color.Black.copy(alpha = .62f),
+                Modifier.matchParentSize()
+                    // 视差:图跟着滚一半 —— 海报和文字按正常速度走,两层错开才有纵深
+                    .graphicsLayer {
+                        val off = if (list.firstVisibleItemIndex == 0)
+                            list.firstVisibleItemScrollOffset.toFloat() else size.height
+                        translationY = off * 0.35f
+                    }
+                    .dissolve(0.64f, 0.99f)
+            ) {
+                NetImage(imageUrl, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
+                    backgroundBlur = true, previewUrl = posterPreview(id),
+                    onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
+                // 顶上压一层:给浮在图上的状态栏和返回键留可读性。**不是给它留黑底**
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0.00f to Color.Black.copy(alpha = .52f),
+                            0.30f to Color.Transparent,
+                            0.78f to c.bg.copy(alpha = .34f),
+                            1.00f to c.bg.copy(alpha = .72f),
+                        )
                     )
                 )
-            )
-        }
-        Row(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(horizontal = Sp.x16),
-            verticalAlignment = Alignment.Bottom,
-        ) {
-            NetImage(
-                app.imageUrl(id, "Primary", 330), null,
-                Modifier.width(96.dp).aspectRatio(2f / 3f).sharedPoster(id), 14.dp, previewUrl = posterPreview(id),
-            )
-            Spacer(Modifier.width(13.dp))
-            Column(Modifier.weight(1f).padding(bottom = Sp.x6)) {
-                Kicker(kickerOf(d.str("type_") ?: preview?.type), color = c.fg2)
-                Spacer(Modifier.height(Sp.x4))
-                Text(
-                    d.str("name") ?: preview?.name ?: "", color = c.fg, fontSize = 25.sp,
-                    fontWeight = FontWeight.Bold, lineHeight = 28.sp,
-                    maxLines = 3, overflow = TextOverflow.Ellipsis,
-                )
-                // 标语实测只有三成条目有 —— **没有就整行不画,不留空位**
-                d.str("tagline")?.takeIf { it.isNotBlank() }?.let {
-                    Spacer(Modifier.height(3.dp))
-                    Text(it, color = c.fg.copy(alpha = .82f), fontSize = 16.sp,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+            }
+            Row(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(
+                    start = Sp.x16, end = Sp.x16,
+                    top = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
+                ),
+                verticalAlignment = Alignment.Bottom,
+            ) {
+                Column(Modifier.weight(1f).padding(bottom = Sp.x6)) {
+                    if (!seriesEntry) {
+                        Kicker(kickerOf(d.str("type_") ?: preview?.type), color = c.fg2)
+                        Spacer(Modifier.height(Sp.x4))
+                    }
+                    Text(
+                        d.str("name") ?: preview?.name ?: "", color = c.fg, style = LpText.hero,
+                        maxLines = 3, overflow = TextOverflow.Ellipsis,
+                    )
+                    // 未知标语仅留一行空间，确认没有后收起；不让晚到文字突然抬高标题。
+                    DetailReveal(d?.let { it.str("tagline")?.takeIf(String::isNotBlank) ?: "" },
+                        Modifier.testTag("detail.tagline")) { tagline ->
+                        if (tagline == null) Spacer(Modifier.height(with(LocalDensity.current) { 24.sp.toDp() } + 3.dp))
+                        else if (tagline.isNotEmpty()) {
+                            Spacer(Modifier.height(3.dp))
+                            Text(tagline, color = c.fg.copy(alpha = .82f), style = LpText.section.copy(fontWeight = FontWeight.Normal),
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
@@ -971,56 +1111,59 @@ private fun EpisodeHead(
 ) {
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
-    Box(Modifier.fillMaxWidth().aspectRatio(16f / 10.4f)) {
-        Box(
-            Modifier.fillMaxSize()
-                .graphicsLayer {
-                    val off = if (list.firstVisibleItemIndex == 0)
-                        list.firstVisibleItemScrollOffset.toFloat() else size.height
-                    translationY = off * 0.35f
-                }
-                .dissolve(0.50f, 0.99f)
-        ) {
-            NetImage(app.imageUrl(id, "Primary", 480), null, Modifier.fillMaxSize().sharedPoster(id), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id))
+    BoxWithConstraints(Modifier.fillMaxWidth()) {
+        Box(Modifier.fillMaxWidth().heightIn(min = maxWidth * 1.08f).testTag("detail.hero")) {
             Box(
-                Modifier.fillMaxSize().background(
-                    Brush.verticalGradient(
-                        0.00f to Color.Black.copy(alpha = .52f),
-                        0.34f to Color.Transparent,
-                        0.72f to Color.Black.copy(alpha = .40f),
-                        1.00f to Color.Black.copy(alpha = .70f),
+                Modifier.matchParentSize()
+                    .graphicsLayer {
+                        val off = if (list.firstVisibleItemIndex == 0)
+                            list.firstVisibleItemScrollOffset.toFloat() else size.height
+                        translationY = off * 0.35f
+                    }
+                    .dissolve(0.64f, 0.99f)
+            ) {
+                NetImage(if (d.boolOrNull("has_primary") == false) null else app.imageUrl(id, "Primary", 480),
+                    null, Modifier.fillMaxSize().sharedPoster(id), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id))
+                Box(
+                    Modifier.fillMaxSize().background(
+                        Brush.verticalGradient(
+                            0.00f to Color.Black.copy(alpha = .52f),
+                            0.34f to Color.Transparent,
+                            0.78f to c.bg.copy(alpha = .34f),
+                            1.00f to c.bg.copy(alpha = .72f),
+                        )
                     )
                 )
-            )
-        }
-        Column(
-            Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12),
-        ) {
-            /* 剧名**点得动**:Emby 上点集详情页的剧名就回到剧集主页,我们只把它
-               当一行说明文字画着(用户 2026-09-11)。从某一集想回到整部剧,
-               原来只能一路按返回。
-               ★ 刮削不全的库拿不到 series_id —— 那时候不加下划线也不给点,
-                 摆一个点了没反应的链接比没有更糟。 */
-            (d.str("series_name") ?: preview?.seriesName)?.let {
-                val linked = !d.str("series_id").isNullOrBlank()
+            }
+            Column(
+                Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12,
+                        top = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
+            ) {
+                /* 剧名**点得动**:Emby 上点集详情页的剧名就回到剧集主页,我们只把它
+                   当一行说明文字画着(用户 2026-09-11)。从某一集想回到整部剧,
+                   原来只能一路按返回。
+                   ★ 刮削不全的库拿不到 series_id —— 那时候不加下划线也不给点,
+                     摆一个点了没反应的链接比没有更糟。 */
+                (d.str("series_name") ?: preview?.seriesName)?.let {
+                    val linked = !d.str("series_id").isNullOrBlank()
+                    Text(
+                        it,
+                        if (linked) Modifier.clickable(onClick = onSeries) else Modifier,
+                        color = c.fg, style = LpText.hero, maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+                Spacer(Modifier.height(Sp.x12))
+                val number = listOfNotNull(
+                    (d.long("season_no") ?: preview?.seasonNo)?.let { "S$it" }, (d.long("episode_no") ?: preview?.episodeNo)?.let { "E$it" },
+                ).joinToString("")
                 Text(
-                    it,
-                    if (linked) Modifier.clickable(onClick = onSeries) else Modifier,
-                    color = c.fg, fontSize = 25.sp, fontWeight = FontWeight.Bold,
-                    lineHeight = 31.sp, maxLines = 2,
-                    overflow = TextOverflow.Ellipsis,
+                    listOf(number, d.str("name") ?: preview?.name ?: "").filter { it.isNotBlank() }.joinToString("："),
+                    color = c.fg, style = LpText.headline,
+                    maxLines = 3, overflow = TextOverflow.Ellipsis,
                 )
             }
-            Spacer(Modifier.height(Sp.x12))
-            val number = listOfNotNull(
-                (d.long("season_no") ?: preview?.seasonNo)?.let { "S$it" }, (d.long("episode_no") ?: preview?.episodeNo)?.let { "E$it" },
-            ).joinToString("")
-            Text(
-                listOf(number, d.str("name") ?: preview?.name ?: "").filter { it.isNotBlank() }.joinToString("："),
-                color = c.fg, fontSize = 20.sp, lineHeight = 27.sp,
-                maxLines = 3, overflow = TextOverflow.Ellipsis,
-            )
         }
     }
 }
@@ -1035,6 +1178,19 @@ private fun kickerOf(type: String?): String = when (type) {
 
 /* ───────────────────────────── 区块 ───────────────────────────── */
 
+/** 仅对本区展示值过渡，缓存首帧直接呈现，相同资料刷新不重播。 */
+@Composable
+private fun <Value> DetailReveal(value: Value, modifier: Modifier = Modifier, content: @Composable (Value) -> Unit) {
+    val fade = lpTween<Float>(T.T8, LinearEasing)
+    val size = lpTween<IntSize>(T.T6)
+    AnimatedContent(value, modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopStart,
+        transitionSpec = {
+            (fadeIn(fade) togetherWith fadeOut(fade)).using(SizeTransform { _, _ -> size })
+        }, label = "detailReveal") { current ->
+        Column(Modifier.fillMaxWidth()) { content(current) }
+    }
+}
+
 @Composable
 private fun Tag(text: String, onClick: (() -> Unit)? = null) {
     val c = Lp.colors
@@ -1047,7 +1203,7 @@ private fun Tag(text: String, onClick: (() -> Unit)? = null) {
             .let { if (onClick != null) it.clickable(onClick = onClick) else it }
             .padding(horizontal = Sp.x10, vertical = 3.dp),
         color = if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
-        fontSize = 11.sp, maxLines = 1,
+        style = LpText.badge, maxLines = 1,
     )
 }
 
@@ -1060,7 +1216,7 @@ private fun Overview(text: String) {
         Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x20)
             .semantics { contentDescription = if (expand) "收起简介" else "展开简介" }
             .pressable({ expand = !expand }),
-        color = Lp.colors.fg2, fontSize = 14.sp, lineHeight = 23.sp,
+        color = Lp.colors.fg2, style = LpText.body.copy(lineHeight = 22.sp),
         maxLines = if (expand) Int.MAX_VALUE else 3, overflow = TextOverflow.Ellipsis,
     )
 }
@@ -1078,11 +1234,11 @@ private fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
             Column(Modifier.width(54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
                 NetImage(app.imageUrl(p.id, "Primary", 120), p.name, Modifier.size(54.dp), R.pill)
                 Spacer(Modifier.height(5.dp))
-                Text(p.name, color = c.fg2, fontSize = 10.5.sp, maxLines = 2,
+                Text(p.name, color = c.fg2, style = LpText.caption, maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 p.role?.let { Text(it, Modifier.padding(top = Sp.x2), color = c.fg3,
-                    fontSize = 10.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = LpText.badge.copy(lineHeight = 16.sp, fontWeight = FontWeight.Normal), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }
@@ -1106,29 +1262,72 @@ internal fun seasonLabel(season: Item): String {
 private data class PickRow(
     val label: String, val value: String, val icon: ImageVector,
     val onClick: (() -> Unit)? = null,
+    val subtitle: String? = null, val metadata: String? = null,
 )
 
-/** 视频与轨道用左对齐的紧凑选项按钮展示，文字按内容宽度展开。 */
+/** 版本用整行浮动标题描边框，视频标签与音轨/字幕选择独立展示。 */
 @Composable
 private fun PickList(rows: List<PickRow>) {
     val c = Lp.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x8),
-        verticalArrangement = Arrangement.spacedBy(Sp.x10)) {
+    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = Sp.x8),
+        verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
         rows.forEach { r ->
-            Row(
-                Modifier.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.md))
-                    .background(if (r.label == "音轨") c.s1 else Color.Transparent)
-                    .border(1.dp, c.line2, RoundedCornerShape(R.md))
+            if (r.label == "版本") {
+                var labelSize by remember { mutableStateOf(IntSize.Zero) }
+                val labelOffset = with(LocalDensity.current) { LpText.caption.lineHeight.toDp() / 2 }
+                Box(Modifier.fillMaxWidth().padding(top = Sp.x8)
                     .semantics { contentDescription = r.label }
-                    .then(r.onClick?.let { Modifier.pressable(it) } ?: Modifier)
-                    .padding(horizontal = Sp.x12, vertical = Sp.x10),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-            ) {
-                Icon(r.icon, null, Modifier.size(19.dp), tint = c.fg2)
-                Text(r.value, Modifier.weight(1f, fill = false), color = c.fg, fontSize = 14.sp,
-                    lineHeight = 20.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(15.dp), tint = c.fg3)
+                    .then(r.onClick?.let { Modifier.pressable(it) } ?: Modifier)) {
+                    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
+                        .drawBehind {
+                            val stroke = 1.dp.toPx()
+                            // 给浮动标题留出描边缺口，不用色块遮盖详情的取色背景。
+                            clipRect(left = Sp.x12.toPx(), top = 0f,
+                                right = Sp.x12.toPx() + labelSize.width, bottom = labelSize.height / 2f,
+                                clipOp = ClipOp.Difference) {
+                                drawRoundRect(c.line2, topLeft = Offset(stroke / 2, stroke / 2),
+                                    size = Size(size.width - stroke, size.height - stroke),
+                                    cornerRadius = CornerRadius(4.dp.toPx()), style = Stroke(stroke))
+                            }
+                        }
+                        .padding(horizontal = Sp.x12, vertical = Sp.x16),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                        Text(r.value, Modifier.weight(1f), color = c.fg, style = LpText.list)
+                        if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp), tint = c.fg2)
+                    }
+                    Text(listOfNotNull("版本", r.metadata?.takeIf(String::isNotBlank)).joinToString(" · "),
+                        Modifier.padding(end = Sp.x12).offset(x = Sp.x12, y = -labelOffset)
+                            .padding(horizontal = Sp.x4).onSizeChanged { labelSize = it },
+                        color = c.fg3, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                }
+            } else {
+                Row(
+                    Modifier.widthIn(min = 112.dp).heightIn(min = when {
+                        r.label == "视频" -> 32.dp
+                        r.onClick != null -> 48.dp
+                        else -> 40.dp
+                    })
+                        .clip(RoundedCornerShape(R.sm))
+                        .background(when (r.label) {
+                            "音轨" -> c.mediaPanel
+                            "字幕" -> c.fg2.copy(alpha = .16f)
+                            else -> Color.Transparent
+                        })
+                        .border(1.dp, c.line2, RoundedCornerShape(R.sm))
+                        .semantics { contentDescription = r.label }
+                        .then(r.onClick?.let { Modifier.pressable(it) } ?: Modifier)
+                        .padding(horizontal = Sp.x12, vertical = Sp.x6),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                ) {
+                    Icon(r.icon, null, Modifier.size(18.dp), tint = c.fg)
+                    Column(Modifier.weight(1f, fill = false)) {
+                        Text(r.value, color = c.fg, style = LpText.body)
+                        r.subtitle?.let { Text(it, color = c.fg2, style = LpText.secondary) }
+                    }
+                    if (r.onClick != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp), tint = c.fg3)
+                }
             }
         }
     }
@@ -1141,13 +1340,13 @@ private fun MediaCards(v: Version) {
     Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
         verticalArrangement = Arrangement.spacedBy(Sp.x6)) {
         displayMediaPath(v.path)?.let {
-            Text(it, color = c.fg, fontSize = 14.sp, lineHeight = 21.sp)
+            Text(it, color = c.fg, style = LpText.body)
         }
         val summary = listOfNotNull(
             v.container?.uppercase(), fmtSize(v.sizeBytes),
             addedTime(v.dateCreated)?.let { "添加于: $it" },
         ).joinToString("  ")
-        if (summary.isNotBlank()) Text(summary, color = c.fg2, fontSize = 13.sp, lineHeight = 20.sp)
+        if (summary.isNotBlank()) Text(summary, color = c.fg2, style = LpText.secondary)
     }
     if (v.streams.isEmpty()) return
     Row(
@@ -1185,7 +1384,7 @@ private fun MediaCards(v: Version) {
                         "外部" to stream.isExternal.toString(),
                     )
                     rows.forEach { (label, value) ->
-                        Text("$label: $value", color = c.fg2, fontSize = 12.sp, lineHeight = 19.sp)
+                        Text("$label: $value", color = c.fg2, style = LpText.caption)
                     }
                 }
             }
@@ -1225,6 +1424,7 @@ private fun EpisodeStrip(
     episodes: List<Item>,
     currentId: String,
     targetId: String?,
+    expanded: Boolean = false,
     onOpen: (Item) -> Unit,
 ) {
     val state = rememberLazyListState()
@@ -1237,24 +1437,27 @@ private fun EpisodeStrip(
         }
     }
     LazyRow(
-        Modifier.fillMaxWidth().height(episodeStripHeight()),
+        Modifier.fillMaxWidth().height(episodeStripHeight(expanded)),
         state = state,
         contentPadding = PaddingValues(horizontal = Sp.x16),
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         itemsIndexed(episodes, key = { _, e -> e.id }, contentType = { _, _ -> "ep" }) { i, ep ->
-            EpCard(app, ep, i, ep.id == currentId, ep.id == targetId) { onOpen(ep) }
+            EpCard(app, ep, i, ep.id == currentId, ep.id == targetId, expanded) { onOpen(ep) }
         }
     }
 }
 
 /** 等待和真实分集轨道共用几何，数据到达不挤动下面的简介与演员。 */
 @Composable
-private fun episodeStripHeight() = with(LocalDensity.current) {
-    EpCardW * 9 / 16 + Sp.x6 + 15.sp.toDp() + 17.sp.toDp() * 2 + Sp.x8
+private fun episodeStripHeight(expanded: Boolean = false) = with(LocalDensity.current) {
+    if (expanded) return@with SeriesEpCardW * 9 / 16 + Sp.x6 + LpText.body.lineHeight.toDp() * 2 +
+        LpText.caption.lineHeight.toDp() + Sp.x8
+    EpCardW * 9 / 16 + Sp.x6 + LpText.caption.lineHeight.toDp() + LpText.compact.lineHeight.toDp() * 2 + Sp.x8
 }
 
 private val EpCardW = 168.dp
+private val SeriesEpCardW = 224.dp
 
 @Composable
 private fun EpCard(
@@ -1263,11 +1466,12 @@ private fun EpCard(
     index: Int,
     current: Boolean,
     target: Boolean,
+    expanded: Boolean,
     onOpen: () -> Unit,
 ) {
     val c = Lp.colors
     Column(
-        Modifier.width(EpCardW).pressable(onOpen)
+        Modifier.width(if (expanded) SeriesEpCardW else EpCardW).testTag("detail.ep.${ep.id}").pressable(onOpen)
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -1297,20 +1501,27 @@ private fun EpCard(
             ) { Icon(LpIcons.check, "已看完", Modifier.size(11.dp), tint = Color(0xFF062418)) }
         }
         Spacer(Modifier.height(Sp.x6))
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+        if (expanded) {
             Text(
-                "EP %02d".format(ep.episodeNo ?: (index + 1).toLong()),
-                color = if (current || target) c.mediaIcon else c.fg3, fontSize = 11.sp, lineHeight = 15.sp,
-                fontWeight = FontWeight.Bold, letterSpacing = 1.1.sp,
+                listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" }).joinToString("")
+                    .let { number -> listOf(number, ep.name).filter(String::isNotBlank).joinToString("：") },
+                color = if (target) c.mediaIcon else c.fg, style = LpText.body,
+                maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
-            if (current || target) Text(if (current) "当前集" else "待播放",
-                color = c.mediaIcon, fontSize = 11.sp, lineHeight = 15.sp)
+            if (target) Text("待播放", color = c.mediaIcon, style = LpText.caption)
+        } else {
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                Text(
+                    "EP %02d".format(ep.episodeNo ?: (index + 1).toLong()),
+                    color = if (current || target) c.mediaIcon else c.fg3, style = LpText.badge.copy(lineHeight = LpText.caption.lineHeight, letterSpacing = 1.1.sp), fontWeight = FontWeight.SemiBold,
+                )
+                if (current || target) Text(if (current) "当前集" else "待播放",
+                    color = c.mediaIcon, style = LpText.caption)
+            }
+            Text(
+                ep.name, color = c.fg, style = LpText.compact, maxLines = 2, overflow = TextOverflow.Ellipsis,
+            )
         }
-        Text(
-            ep.name, color = c.fg, fontSize = 12.5.sp, fontWeight = FontWeight.Medium,
-            lineHeight = 17.sp, maxLines = 2, overflow = TextOverflow.Ellipsis,
-        )
-
     }
 }
 
@@ -1385,13 +1596,6 @@ private fun SubDialog(
 
 /* ───────────────────────────── 小工具 ───────────────────────────── */
 
-/** 播放选项里那一行显示什么。**显示的必须是真会播的那一条**,不是列表第一条。 */
-private fun trackLabel(streams: List<Stream>?, prefer: String?, subOff: Boolean = false, pattern: String = ""): String {
-    if (subOff) return "关闭"
-    val use = selectedTrack(streams, prefer, pattern) ?: return "无"
-    return use.label.ifBlank { langCn(use.lang) ?: use.codec.uppercase() }
-}
-
 /** 展示沿用当前语言偏好与服务端默认轨，不另选播放版本。 */
 private fun selectedTrack(streams: List<Stream>?, prefer: String?, pattern: String = ""): Stream? {
     val ss = streams.orEmpty()
@@ -1405,11 +1609,56 @@ private fun selectedTrack(streams: List<Stream>?, prefer: String?, pattern: Stri
         ?: ss.firstOrNull { it.isDefault } ?: ss.firstOrNull()
 }
 
-private fun audioSummary(stream: Stream): String = listOfNotNull(
-    stream.codec.uppercase().takeIf { it.isNotBlank() },
-    stream.layout?.takeIf { it.isNotBlank() } ?: stream.channels?.let { "${it}声道" },
-    langCn(stream.lang?.takeUnless { it.equals("und", true) }),
-).joinToString(" ").ifBlank { stream.label } + if (stream.isDefault) "（默认）" else ""
+/** 视频规格保留动态范围，不从版本文件名猜测HDR或杜比视界。 */
+private fun videoSummary(stream: Stream): String {
+    val range = trackText(stream.range)
+    val dynamic = when {
+        range?.contains("dovi", true) == true || range?.contains("dolby", true) == true || range.equals("DV", true) ||
+            stream.profile?.contains("dolby vision", true) == true || stream.codec.lowercase() in setOf("dvhe", "dvh1", "dav1") -> "Dolby Vision"
+        range?.contains("hdr10plus", true) == true || range?.contains("hdr10+", true) == true -> "HDR10+"
+        range?.contains("hdr10", true) == true -> "HDR10"
+        range.equals("HLG", true) -> "HLG"
+        range.equals("SDR", true) || range.equals("Unknown", true) -> null
+        else -> range
+    }
+    return listOfNotNull(stream.height?.takeIf { it > 0 }?.let { if (it >= 2160) "4K" else "${it}p" },
+        dynamic, trackText(stream.codec)?.uppercase()).joinToString(" ")
+        .ifBlank { trackText(stream.display) ?: trackText(stream.title).orEmpty() }
+}
+
+private fun audioSummary(stream: Stream): String {
+    val summary = trackText(stream.display) ?: listOfNotNull(langCn(trackText(stream.lang)),
+        trackText(stream.codec)?.uppercase(), trackText(stream.layout) ?: stream.channels?.takeIf { it > 0 }?.let { "${it}声道" })
+        .joinToString(" ").ifBlank { stream.label }
+    return summary + if (stream.isDefault && !summary.contains("默认") && !summary.contains("default", true)) "（默认）" else ""
+}
+
+private fun subtitleSummary(stream: Stream): String {
+    trackText(stream.display)?.let { return it }
+    val name = trackText(stream.title) ?: langCn(trackText(stream.lang)).orEmpty()
+    val codec = trackText(stream.codec)?.uppercase().orEmpty()
+    return if (codec.isEmpty() || name.equals(codec, true) || name.endsWith(" $codec", true)) name
+        else listOf(name, codec).filter(String::isNotBlank).joinToString(" ")
+}
+
+/** 主行展示服务器规格，副行保留压制组真名；缺标题时仅补已知参数。 */
+private fun trackSubtitle(stream: Stream, summary: String): String? {
+    trackText(stream.title)?.takeUnless { it == summary }?.let { return it }
+    val language = langCn(trackText(stream.lang))
+    if (stream.type == "Audio") {
+        val rate = fmtRate(stream.bitrate)
+        if (rate == null) return language?.takeUnless { summary.contains(it, true) }
+        val specs = listOfNotNull(trackText(stream.codec)?.uppercase(), trackText(stream.layout)
+            ?: stream.channels?.takeIf { it > 0 }?.let { "${it}声道" }, rate).joinToString(" ")
+        return listOfNotNull(language, "[$specs]").joinToString(" ")
+    }
+    return listOfNotNull(language, trackText(stream.codec)?.uppercase()).joinToString(" / ")
+        .takeUnless { it.isBlank() || it == summary }
+}
+
+private fun trackText(value: String?): String? = value?.trim()?.takeUnless {
+    it.isBlank() || it == "未标注" || it.equals("und", true)
+}
 
 /** 直接展示元数据日期，避免时区转换把首播日期移到前一天；无有效日期才回落年份。 */
 private fun detailDate(d: JsonObject?): String? = d.str("premiere_date")?.let {

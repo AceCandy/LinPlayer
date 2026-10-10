@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
@@ -40,9 +42,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
@@ -335,13 +335,12 @@ private fun ServerCard(
             Spacer(Modifier.padding(horizontal = Sp.x6))
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
-                    Text(a.name, Modifier.weight(1f), color = c.fg, fontSize = 16.sp,
-                        fontWeight = FontWeight.SemiBold, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    Text(a.name, Modifier.weight(1f), color = c.fg, style = LpText.section, maxLines = 1, overflow = TextOverflow.Ellipsis)
                     if (active) {
                         Spacer(Modifier.padding(horizontal = Sp.x4))
                         Text("当前", Modifier.clip(RoundedCornerShape(R.sm))
                             .background(c.mediaAccent).padding(horizontal = Sp.x8, vertical = Sp.x4),
-                            color = c.mediaOnAccent, fontSize = 11.sp)
+                            color = c.mediaOnAccent, style = LpText.badge)
                     }
                 }
                 // 副行仍保留备注；连通状态独立放在右侧，不替代用户的备注。
@@ -353,7 +352,7 @@ private fun ServerCard(
                 ))
                 if (a.plugin == null) Text(
                     when (state) { "ok" -> "可连接"; "down" -> "连接失败"; else -> "未检测" },
-                    Modifier.padding(top = Sp.x4), color = c.fg3, fontSize = 10.sp,
+                    Modifier.padding(top = Sp.x4), color = c.fg3, style = LpText.caption,
                 )
             }
         }
@@ -557,17 +556,17 @@ private fun LineRow(l: Line, ms: String, onTap: () -> Unit, onLong: () -> Unit) 
                     Spacer(Modifier.padding(horizontal = Sp.x4))
                     Text("生效中", Modifier.clip(RoundedCornerShape(R.sm))
                         .background(c.accDim).padding(horizontal = 6.dp, vertical = 1.dp),
-                        color = c.acc, fontSize = 10.sp)
+                        color = c.acc, style = LpText.caption)
                 }
             }
             Text(
-                l.url, color = c.fg3, fontSize = 11.5.sp, maxLines = 1,
+                l.url, color = c.fg3, style = LpText.caption, maxLines = 1,
                 overflow = TextOverflow.MiddleEllipsis,
                 fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace,
                 modifier = Modifier.padding(top = Sp.x2),
             )
         }
-        if (ms.isNotEmpty()) Dim3(ms, Modifier.padding(start = Sp.x8))
+        if (ms.isNotEmpty()) Text(ms, Modifier.padding(start = Sp.x8), color = Lp.colors.fg3, style = LpText.number)
     }
 }
 

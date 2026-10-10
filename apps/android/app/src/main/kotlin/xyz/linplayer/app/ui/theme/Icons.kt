@@ -69,6 +69,8 @@ object LpIcons {
     val music = stroke("music", "M9 17V5l11-2v12M9 8l11-2M9 17a3 3 0 1 1-3-3 3 3 0 0 1 3 3M20 15a3 3 0 1 1-3-3 3 3 0 0 1 3 3")
     val audio = stroke("audio", "M4 9.5v5h3.5l4.5 4V5.5l-4.5 4zM15.5 9.2a4 4 0 0 1 0 5.6M18.4 6.6a8 8 0 0 1 0 10.8")
     val version = stroke("version", "M3 6.2A2.2 2.2 0 0 1 5.2 4h13.6A2.2 2.2 0 0 1 21 6.2v7.6a2.2 2.2 0 0 1-2.2 2.2H5.2A2.2 2.2 0 0 1 3 13.8zM8 20h8M12 16v4")
+    val video = fill("video", "M3 5h12v14H3zM15 9l6-4v14l-6-4z")
+    val musicNote = fill("musicNote", "M11 3h8v4h-6v10a4 4 0 1 1-4-4h2z")
     val line = stroke("line", "M12 20v-5M4.5 9a10 10 0 0 1 15 0M7.5 12.5a6 6 0 0 1 9 0M14 17.5a2 2 0 1 1-4 0 2 2 0 0 1 4 0")
     val sparkle = stroke("sparkle", "M12 3.5 13.8 9l5.5 1.8-5.5 1.8L12 18l-1.8-5.4L4.7 10.8 10.2 9zM18.5 3v3M20 4.5h-3")
     val danmaku = stroke("danmaku", "M2.5 7.1a2.6 2.6 0 0 1 2.6-2.6h13.8a2.6 2.6 0 0 1 2.6 2.6v9.8a2.6 2.6 0 0 1-2.6 2.6H5.1a2.6 2.6 0 0 1-2.6-2.6zM6 9h7M6 12.5h4M14 12.5h4M6 16h9")

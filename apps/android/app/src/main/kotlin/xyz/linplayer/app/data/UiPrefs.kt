@@ -26,6 +26,23 @@ object UiPrefs {
     const val K_SHOT_LOGO_POS = "shot_logo_pos"
     private const val K_LONG_SHOT = "long_shot"
 
+    val hideHomeLibraries = mutableStateOf(false)
+    val searchHistory = mutableStateOf<List<String>>(emptyList())
+
+    fun setHideHomeLibraries(ctx: Context, hidden: Boolean) {
+        hideHomeLibraries.value = hidden
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putBoolean("hide_home_libraries", hidden).apply()
+    }
+
+    /** 只记录明确提交的关键词，保持最近顺序，最多10条。 */
+    fun recordSearch(ctx: Context, text: String) {
+        val word = text.trim()
+        if (word.isEmpty()) return
+        searchHistory.value = (listOf(word) + searchHistory.value).distinct().take(10)
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit()
+            .putString("search_history", org.json.JSONArray(searchHistory.value).toString()).apply()
+    }
+
     /** `system` / `dark` / `light`。 */
     val theme = mutableStateOf("system")
 
@@ -109,6 +126,11 @@ object UiPrefs {
 
     fun load(ctx: Context) {
         val sp = ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE)
+        hideHomeLibraries.value = sp.getBoolean("hide_home_libraries", false)
+        searchHistory.value = runCatching {
+            val array = org.json.JSONArray(sp.getString("search_history", "[]"))
+            (0 until array.length()).map { array.getString(it) }.filter { it.isNotBlank() }.distinct().take(10)
+        }.getOrDefault(emptyList())
         theme.value = sp.getString(K_THEME, "system") ?: "system"
         engine.value = sp.getString(K_ENGINE, "mpv") ?: "mpv"
         val font = sp.getString(K_FONT, "").orEmpty()

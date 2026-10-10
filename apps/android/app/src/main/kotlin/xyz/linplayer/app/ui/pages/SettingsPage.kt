@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.ui.theme.LpText
+
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
@@ -205,7 +207,7 @@ fun SettingsPage(nav: NavController) {
 @Composable
 private fun GroupLabel(t: String) =
     Text(t, Modifier.padding(start = Sp.x20, top = Sp.x20, bottom = Sp.x8),
-        color = Lp.colors.fg2, fontSize = 13.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.Medium)
+        color = Lp.colors.fg2, style = LpText.filter)
 
 /** 设置二级页。各面板**进入时各自拉自己的配置**;同一面板里的多个请求**必须并发**。 */
 @Composable
@@ -290,6 +292,11 @@ private fun AppearancePanel() {
                 xyz.linplayer.app.data.UiPrefs.setFont(ctx,
                     xyz.linplayer.app.data.UiPrefs.fontOptions.first { it.first == label }.second)
             }, sub = "内置字体，切换立即生效；字幕字体不受影响")
+        Hairline()
+        LpCell("隐藏媒体库海报展示", mediaStyle = true,
+            sub = "隐藏首页顶部媒体库入口和继续观看标题",
+            switch = xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value,
+            onSwitch = { xyz.linplayer.app.data.UiPrefs.setHideHomeLibraries(ctx, it) })
         Hairline()
         ThemePickerCell()
     }
@@ -626,7 +633,7 @@ private fun SourceRow(
         verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(name, color = Lp.colors.fg, fontSize = 14.sp, maxLines = 1,
+            Text(name, color = Lp.colors.fg, style = LpText.list, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Dim3(url)
         }
@@ -738,7 +745,7 @@ private fun MpvConfPanel() {
     }
     if (active && text.isNotBlank()) Panel(Modifier.padding(horizontal = Sp.x16)) {
         Text(text.lineSequence().take(20).joinToString("\n"),
-            Modifier.padding(Sp.x12), color = Lp.colors.fg2, fontSize = 12.sp)
+            Modifier.padding(Sp.x12), color = Lp.colors.fg2, style = LpText.caption)
     }
 }
 
@@ -893,7 +900,7 @@ private fun StoragePanel() {
         launch { paths = runCatching { app.call("system.dataPaths") }.getOrNull().obj().str("root") }
         launch {
             size = runCatching { app.call("system.cacheSize") }.getOrNull().obj()
-                .long("bytes")?.let { "%.1f MB".format((it + app.detailCache.sizeBytes()) / 1024.0 / 1024.0) }
+                .long("bytes")?.let { "%.1f MB".format((it + app.detailCache.sizeBytes() + app.browseCache.sizeBytes()) / 1024.0 / 1024.0) }
         }
     }
     /* 导出日志。**必须让用户自己挑位置** —— 上一版写进应用私有目录然后弹一句
@@ -940,6 +947,8 @@ private fun StoragePanel() {
             scope.launch {
                 runCatching {
                     app.detailCache.clear()
+                    app.browseCache.clear()
+                    xyz.linplayer.app.data.PageCache.clear()
                     app.call("system.clearCache")
                 }
                     .onSuccess {
@@ -1387,7 +1396,7 @@ private fun SyncAccountsPanel() {
                     Column(Modifier.padding(Sp.x16)) {
                         Dim2("打开 ${d.str("verification_url") ?: ""}")
                         Spacer(Modifier.height(Sp.x6))
-                        Text((d.str("user_code") ?: ""), color = Lp.colors.acc, fontSize = 22.sp)
+                        Text((d.str("user_code") ?: ""), color = Lp.colors.acc, style = LpText.heading.copy(fontSize = 22.sp, lineHeight = 28.sp))
                     }
                 }
             }

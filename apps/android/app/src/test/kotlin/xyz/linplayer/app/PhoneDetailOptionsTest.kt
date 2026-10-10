@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.semantics.SemanticsProperties
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
@@ -46,6 +47,7 @@ import xyz.linplayer.app.tv.item
 import xyz.linplayer.app.tv.account
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.displayMediaPath
+import xyz.linplayer.app.ui.pages.Version
 import xyz.linplayer.app.ui.pages.DetailPage
 import xyz.linplayer.app.ui.theme.LpTheme
 
@@ -76,14 +78,14 @@ class PhoneDetailOptionsTest {
         ret("prefs.getPrefs", buildJsonObject { put("audio_lang", "jpn"); put("sub_lang", "chi") })
         ret("prefs.setPrefs", JsonNull)
     }
-    private fun open(core: FakeCore, route: Route.Detail = Route.Detail("m1", "Movie")) {
+    private fun open(core: FakeCore, route: Route.Detail = Route.Detail("m1", "Movie"), fontScale: Float = 1.3f) {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalApp provides app,
-                    LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
+                    LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
                     val nav = rememberNavController()
                     NavHost(nav, startDestination = route) {
                         composable<Route.Detail> { DetailPage(nav, it) }
@@ -104,6 +106,76 @@ class PhoneDetailOptionsTest {
         return rule.onNode(hasContentDescription(label) and hasClickAction()).performScrollTo()
     }
     private fun dialogShot(name: String) = rule.onNode(isDialog()).captureRoboImage("build/detail-options/$name.png")
+
+    private fun fullTrackCore() = core().episode().apply {
+        ret("emby.seriesSeasons", arr(item("sh", "第1季", "Season")))
+        ret("emby.itemMedia", arr(buildJsonObject {
+            put("id", "v1"); put("name", "2160p.WEB-DL.DoVi.HDR10.HEVC"); put("preferred", true)
+            put("streams", arr(
+                buildJsonObject { put("type_", "Video"); put("codec", "hevc"); put("height", 2160)
+                    put("video_range_type", "DOVIWithHDR10") },
+                buildJsonObject { put("type_", "Audio"); put("codec", "eac3"); put("language", "kor")
+                    put("display_title", "Korean EAC3 5.1(side)（默认）")
+                    put("title", "Korean [EAC3 5.1 640 kbps]"); put("bitrate", 640000)
+                    put("channel_layout", "5.1(side)"); put("is_default", true) },
+                buildJsonObject { put("type_", "Subtitle"); put("codec", "ass"); put("language", "chi")
+                    put("display_title", "TraditionalChinese [Full] Chinese ASS")
+                    put("title", "TraditionalChinese [Full]") },
+            ))
+        }))
+    }
+
+    @Test fun fullTrackInformationKeepsDynamicRangeAndOriginalNames() {
+        open(fullTrackCore(), Route.Detail("sh8", "Episode"), fontScale = 1f)
+        for (text in listOf("4K Dolby Vision HEVC", "Korean EAC3 5.1(side)（默认）",
+            "Korean [EAC3 5.1 640 kbps]", "TraditionalChinese [Full] Chinese ASS",
+            "TraditionalChinese [Full]")) rule.onNodeWithText(text).assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/detail-options/full-tracks-light.png")
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/detail-options/full-tracks-dark.png")
+        option("字幕").performClick()
+        rule.onNode(hasText("TraditionalChinese [Full]") and hasAnyAncestor(isDialog())).assertIsDisplayed()
+    }
+
+    @Test fun fullTrackNamesDoNotEllipsizeAtDoubleFontScale() {
+        open(fullTrackCore(), Route.Detail("sh8", "Episode"), fontScale = 2f)
+        for (text in listOf("Korean EAC3 5.1(side)（默认）", "Korean [EAC3 5.1 640 kbps]",
+            "TraditionalChinese [Full] Chinese ASS", "TraditionalChinese [Full]")) {
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            rule.onNodeWithText(text).performScrollTo().performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            assertFalse("完整轨道名称不应被省略", layouts.single().hasVisualOverflow)
+        }
+        rule.onNodeWithContentDescription("字幕").performScrollTo()
+        rule.onRoot().captureRoboImage("build/detail-options/full-tracks-double-font.png")
+    }
+
+    @Test fun missingTitlesUseKnownTrackFieldsAndClosedSubtitlesHaveNoOldCaption() {
+        val core = core().apply {
+            ret("emby.itemMedia", arr(buildJsonObject {
+                put("id", "v1"); put("name", "标准版"); put("preferred", true)
+                put("streams", arr(
+                    buildJsonObject { put("type_", "Video"); put("codec", "hevc"); put("height", 2160)
+                        put("video_range_type", "HDR10Plus") },
+                    buildJsonObject { put("type_", "Audio"); put("codec", "eac3"); put("language", "kor")
+                        put("title", "未标注"); put("channel_layout", "5.1(side)"); put("bitrate", 640000) },
+                    buildJsonObject { put("type_", "Subtitle"); put("codec", "ass"); put("language", "chi")
+                        put("title", "简体中文特效") },
+                ))
+            }))
+        }
+        open(core, fontScale = 1f)
+        rule.onNodeWithText("4K HDR10+ HEVC").assertIsDisplayed()
+        rule.onNodeWithText("韩语 EAC3 5.1(side)").assertIsDisplayed()
+        rule.onNodeWithText("韩语 [EAC3 5.1(side) 640 kbps]").assertIsDisplayed()
+        rule.onNodeWithText("简体中文特效 ASS").assertIsDisplayed()
+        rule.onNodeWithText("简体中文特效").assertIsDisplayed()
+        rule.onNodeWithText("未标注").assertDoesNotExist()
+        option("字幕").performClick()
+        rule.onNodeWithText("不显示字幕").performClick()
+        rule.onNodeWithText("关闭").assertIsDisplayed()
+        rule.onNodeWithText("简体中文特效").assertDoesNotExist()
+        rule.onNodeWithText("简体中文特效 ASS").assertDoesNotExist()
+    }
 
     @Test fun unknownAudioLabelsAreHiddenAndSubtitlePreviewPrefersSimplified() {
         val core = core().apply {
@@ -179,6 +251,7 @@ class PhoneDetailOptionsTest {
         rule.onNodeWithContentDescription("收起简介").performClick()
         vertical.performScrollToNode(hasText("媒体信息"))
         rule.onNodeWithText("/Videos/fixture/stream.mp4").assertIsDisplayed()
+        vertical.performScrollToNode(hasText("添加于", substring = true))
         rule.onNodeWithText("添加于", substring = true).assertIsDisplayed()
         rule.onNodeWithTag("detail.media.tracks").performScrollTo()
         rule.onNodeWithText("位深: 8").assertIsDisplayed()
@@ -227,6 +300,29 @@ class PhoneDetailOptionsTest {
         rule.onRoot().captureRoboImage("build/detail-options/compact-dark-watched.png")
     }
 
+    @Test fun longEpisodeHeaderExpandsAtDoubleFontScale() {
+        val series = "这是一部名称非常长的剧集用于检查双倍字号标题是否完整展示"
+        val name = "特别篇包含一段非常长的单集名称检查头部文字不会被图片比例裁切"
+        val core = core().episode().apply {
+            ret("emby.itemDetail", buildJsonObject {
+                put("id", "sh8"); put("type_", "Episode"); put("name", name)
+                put("series_name", series); put("season_no", 1); put("episode_no", 8)
+            })
+        }
+        open(core, Route.Detail("sh8", "Episode"), fontScale = 2f)
+        for (text in listOf(series, "S1E8：$name")) {
+            val results = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            rule.onNodeWithText(text).assertIsDisplayed()
+                .performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(results) }
+            org.junit.Assert.assertTrue("头部文字没有保留多行高度", results.single().lineCount >= 2)
+        }
+        val seriesBounds = rule.onNodeWithText(series).fetchSemanticsNode().boundsInRoot
+        val episodeBounds = rule.onNodeWithText("S1E8：$name").fetchSemanticsNode().boundsInRoot
+        org.junit.Assert.assertTrue("剧名与单集名重叠", seriesBounds.bottom <= episodeBounds.top)
+        org.junit.Assert.assertTrue("剧名侵入悬浮顶栏", seriesBounds.top >= 52f)
+        rule.onRoot().captureRoboImage("build/detail-options/episode-header-double-font.png")
+    }
+
     @Test fun episodeOpensAtCurrentEpisodeAndDownloadIsInToolbar() {
         val core = core().episode().apply {
             ret("emby.seriesSeasons", arr(item("sh", "第 1 季", "Season")))
@@ -244,7 +340,7 @@ class PhoneDetailOptionsTest {
         rule.waitForIdle()
         rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("来自第1季"))
+            .performScrollToNode(hasTestTag("detail.episodes"))
         rule.onNodeWithText("当前集").assertIsDisplayed()
         rule.onNodeWithText("EP 08").assertIsDisplayed()
         rule.onNodeWithText("EP 01").assertDoesNotExist()
@@ -252,12 +348,13 @@ class PhoneDetailOptionsTest {
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/detail-options/episode-current-dark.png")
         rule.onNode(hasScrollToIndexAction() and
-            SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange))
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
+            hasAnyAncestor(hasTestTag("detail.episodes")))
             .performScrollToIndex(12)
         val vertical = rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
         vertical.performScrollToNode(hasText("相似推荐"))
-        vertical.performScrollToNode(hasText("来自第1季"))
+        vertical.performScrollToNode(hasText("第1季"))
         rule.onNodeWithText("EP 13").assertIsDisplayed()
         rule.onNodeWithContentDescription("收藏").assertDoesNotExist()
         rule.onNodeWithText("收藏").assertDoesNotExist()
@@ -288,10 +385,12 @@ class PhoneDetailOptionsTest {
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
         vertical.performScrollToNode(hasText("本集简介"))
         val overview = rule.onNodeWithText("本集简介").fetchSemanticsNode().boundsInRoot
-        val season = rule.onNodeWithText("来自第1季：冬之章").fetchSemanticsNode().boundsInRoot
+        val season = rule.onNodeWithText("第1季：冬之章").fetchSemanticsNode().boundsInRoot
         org.junit.Assert.assertTrue(overview.bottom < season.top)
         rule.onNodeWithText("未看", substring = true).assertDoesNotExist()
         rule.onNodeWithText("还剩", substring = true).assertDoesNotExist()
+        vertical.performScrollToNode(hasTestTag("detail.episodes"))
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
         rule.onNodeWithText("剩余 24:48").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/detail-options/episode-reordered.png")
         vertical.performScrollToNode(hasText("角色甲"))
@@ -315,7 +414,7 @@ class PhoneDetailOptionsTest {
         open(core, Route.Detail("sh8", "Episode"))
         rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
-            .performScrollToNode(hasText("来自第1季"))
+            .performScrollToNode(hasText("第1季"))
         rule.onNodeWithContentDescription("选择季").performClick()
         rule.onAllNodes(isDialog()).assertCountEquals(0)
         rule.onNodeWithText("第2季").assertIsDisplayed()
@@ -324,8 +423,40 @@ class PhoneDetailOptionsTest {
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("build/detail-options/season-menu-dark.png")
         rule.onNodeWithText("第2季").performClick()
-        rule.onNodeWithText("来自第2季").assertIsDisplayed()
+        rule.onNodeWithText("第2季").assertIsDisplayed()
         assertEquals("sh2", core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
+    }
+
+    @Test fun genericVersionNamesUseSafeFilenameAndKeepRealNames() {
+        val remote = "https://dummy:dummy@example.invalid/Videos/Series.S01E08.2160p.HEVC.mkv?token=fixture#fragment"
+        assertEquals("Series.S01E08.2160p.HEVC.mkv", Version("v1", "默认版本", false, path = remote).displayName)
+        assertEquals("local.mkv", Version("v1", "", false, path = "C:\\Videos\\local.mkv").displayName)
+        assertEquals("导演剪辑版", Version("v1", "导演剪辑版", false, path = remote).displayName)
+        assertEquals("未提供版本名称", Version("v1", "默认版本", false).displayName)
+        assertEquals("未提供版本名称", Version("v1", "", false).displayName)
+    }
+
+    @Test fun fullVersionNameWrapsInPageAndSelectionMenu() {
+        val title = "Series.S01E08.2160p.UHD.BluRay.Dolby.Vision.HDR10.HEVC.TrueHD.Atmos.7.1.Full.Subtitles.Remux.Collection.mkv"
+        val fake = core().episode().apply {
+            ret("emby.itemMedia", arr(buildJsonObject {
+                put("id", "v1"); put("name", "默认版本"); put("preferred", true)
+                put("path", "/Videos/$title")
+            }, buildJsonObject { put("id", "v2"); put("name", "1080p 标准版") }))
+        }
+        open(fake, Route.Detail("sh8", "Episode"), fontScale = 2f)
+        fun assertComplete(inDialog: Boolean = false) {
+            val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+            val node = if (inDialog) rule.onNode(hasText(title) and hasAnyAncestor(isDialog()))
+                else rule.onNodeWithText(title)
+            node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+            org.junit.Assert.assertTrue("完整版本名应多行展示", layouts.single().lineCount > 2)
+            assertFalse("版本名不应省略", layouts.single().hasVisualOverflow)
+        }
+        rule.onNodeWithContentDescription("版本").performScrollTo()
+        assertComplete()
+        rule.onNodeWithContentDescription("版本").performClick()
+        assertComplete(inDialog = true)
     }
 
     @Test fun restartMenuIsAnchoredAndKeepsPreferredVersion() {

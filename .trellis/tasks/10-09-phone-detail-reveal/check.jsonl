@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "详情分阶段呈现、状态与交付契约"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "详情分阶段呈现、状态与交付契约"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "详情分阶段呈现、状态与交付契约"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "详情分阶段呈现、状态与交付契约"}
+{"file": ".trellis/spec/shared/build-release.md", "reason": "详情分阶段呈现、状态与交付契约"}

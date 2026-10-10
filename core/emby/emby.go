@@ -50,8 +50,12 @@ type Item struct {
 	VideoRange *string `json:"video_range"`
 
 	Played bool `json:"played"`
-	// 未看子项数。played=true 时必为 0(全看完),前端据此:有勾优先、否则显数字。
+	// 当前用户未看子项数；未提供统计时不能据 Played 推断整剧完成。
 	UnplayedItemCount int64 `json:"unplayed_item_count"`
+	// 仅整剧且服务端明确提供非负统计时为真，缺失与零未看分开。
+	UnplayedCountKnown bool `json:"unplayed_count_known,omitempty"`
+	HasBackdrop        bool `json:"has_backdrop,omitempty"`
+	HasLogo            bool `json:"has_logo,omitempty"`
 
 	Genres []string `json:"genres"`
 	Year   *int64   `json:"year"`
@@ -106,7 +110,7 @@ type rawItem struct {
 	LibraryType    *string        `json:"LibraryType"`
 	ImageTags      map[string]any `json:"ImageTags"`
 	// ★ 背景图挂在**这个数组**里,不在 ImageTags 里(写成 ImageTags["Backdrop"] 恒 false)。
-	//   只给 Hero 挑片用 —— 它不进 Item,所以不动对外的 JSON 形状。
+	//   透传存在性供手机Hero优先使用真实背景图。
 	BackdropImageTags     []string          `json:"BackdropImageTags"`
 	RunTimeTicks          *int64            `json:"RunTimeTicks"`
 	UserData              *rawUserData      `json:"UserData"`
@@ -317,6 +321,9 @@ func fromRaw(r rawItem) Item {
 		VideoRange:            videoRange,
 		Played:                played,
 		UnplayedItemCount:     unplayed,
+		UnplayedCountKnown:    r.Type != nil && *r.Type == "Series" && r.UserData != nil && r.UserData.UnplayedItemCount != nil && unplayed >= 0,
+		HasBackdrop:           len(r.BackdropImageTags) > 0,
+		HasLogo:               r.ImageTags["Logo"] != nil,
 		Genres:                genres,
 		Year:                  r.ProductionYear,
 		Rating:                r.CommunityRating,

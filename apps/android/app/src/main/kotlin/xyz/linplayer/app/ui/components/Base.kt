@@ -1,5 +1,6 @@
 package xyz.linplayer.app.ui.components
 
+import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -62,17 +63,16 @@ import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.unit.sp
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.theme.LpText
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
@@ -150,21 +150,21 @@ fun Modifier.buttonSkin(base: Color, corner: androidx.compose.ui.unit.Dp = R.sm)
 // ---------------------------------------------------------------- 文字
 
 @Composable fun H1(t: String, m: Modifier = Modifier) =
-    Text(t, m, color = Lp.colors.fg, fontSize = 20.sp, fontWeight = FontWeight.Bold)
+    Text(t, m, color = Lp.colors.fg, style = LpText.heading)
 
 @Composable fun H2(t: String, m: Modifier = Modifier) =
-    Text(t, m, color = Lp.colors.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+    Text(t, m, color = Lp.colors.fg, style = LpText.section)
 
 @Composable fun Body(t: String, m: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) =
-    Text(t, m, color = Lp.colors.fg, fontSize = 14.sp, lineHeight = 21.sp,
+    Text(t, m, color = Lp.colors.fg, style = LpText.body,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 
 @Composable fun Dim2(t: String, m: Modifier = Modifier, maxLines: Int = Int.MAX_VALUE) =
-    Text(t, m, color = Lp.colors.fg2, fontSize = 13.sp, lineHeight = 19.sp,
+    Text(t, m, color = Lp.colors.fg2, style = LpText.secondary,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 
 @Composable fun Dim3(t: String, m: Modifier = Modifier, maxLines: Int = 1) =
-    Text(t, m, color = Lp.colors.fg3, fontSize = 12.sp,
+    Text(t, m, color = Lp.colors.fg3, style = LpText.caption,
         maxLines = maxLines, overflow = TextOverflow.Ellipsis)
 
 // ---------------------------------------------------------------- 图标按钮
@@ -252,7 +252,7 @@ fun LpButton(
         ) {
             if (icon != null) Icon(icon, null, Modifier.size(18.dp), tint = fg)
             if (text.isNotEmpty() || loading) Text(
-                if (loading) "…" else text, color = fg, fontSize = 14.sp, fontWeight = FontWeight.Medium,
+                if (loading) "…" else text, color = fg, style = LpText.action,
             )
         }
     }
@@ -284,7 +284,8 @@ fun LpField(
             value = value,
             onValueChange = onChange,
             enabled = enabled,
-            placeholder = { Dim3(placeholder) },
+            placeholder = { Text(placeholder, style = LpText.body, color = c.fg3) },
+            textStyle = LpText.body,
             trailingIcon = trailingIcon,
             keyboardOptions = if (onSearch != null) KeyboardOptions(imeAction = ImeAction.Search) else KeyboardOptions.Default,
             keyboardActions = KeyboardActions(onSearch = { onSearch?.invoke() }),
@@ -305,7 +306,7 @@ fun LpField(
             modifier = Modifier.fillMaxWidth(),
         )
         // ★ 错误挂在字段下面,不弹 toast:行内错误才指得出是哪一项(§6.3 的 E_INVALID)
-        if (error != null) Text(error, color = c.bad, fontSize = 11.sp, modifier = Modifier.padding(top = Sp.x4))
+        if (error != null) Text(error, color = c.bad, style = LpText.caption, modifier = Modifier.padding(top = Sp.x4))
     }
 }
 
@@ -355,12 +356,11 @@ fun LpCell(
             Spacer(Modifier.width(Sp.x12))
         }
         Column(Modifier.weight(1f)) {
-            if (mediaStyle) Text(label, color = c.fg, fontSize = 15.sp, maxLines = 2,
+            Text(label, color = c.fg, style = LpText.list, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
-            else Body(label, maxLines = 2)
-            if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = 2)
+            if (sub != null) Dim2(sub, Modifier.padding(top = Sp.x2), maxLines = 2)
         }
-        if (value != null) Dim3(value, Modifier.padding(start = Sp.x8)
+        if (value != null) Dim2(value, Modifier.padding(start = Sp.x8)
             .then(if (mediaStyle) Modifier.widthIn(max = 120.dp) else Modifier))
         when {
             switch != null -> Switch(
@@ -407,7 +407,7 @@ fun SegRow(
                         .pressable({ if (!on) onPick(o) })
                         .padding(vertical = Sp.x8),
                     contentAlignment = Alignment.Center,
-                ) { Text(o, color = if (on) c.mediaOnAccent else c.fg2, fontSize = 13.sp,
+                ) { Text(o, color = if (on) c.mediaOnAccent else c.fg2, style = LpText.filter,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }
@@ -442,7 +442,7 @@ fun StepperRow(
                     // 浮点步长(0.25)直接加会攒出 1.7500000000000002,固定小数位收掉
                     onChange(kotlin.math.round((value - step).coerceIn(min, max) * 10000) / 10000)
                 })
-            Text(fmt(value), color = c.fg, fontSize = 14.sp, modifier = Modifier.width(56.dp),
+            Text(fmt(value), color = c.fg, style = LpText.action.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontFeatureSettings = "tnum"), modifier = Modifier.widthIn(min = 56.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             LpIconButton(LpIcons.plus, "增加", size = 18,
                 tint = if (value >= max) c.fg3 else c.fg, onClick = {
@@ -486,8 +486,8 @@ private fun RowHead(label: String, sub: String?, icon: ImageVector?) {
             Spacer(Modifier.width(Sp.x12))
         }
         Column {
-            Body(label)
-            if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = 3)
+            Text(label, color = Lp.colors.fg, style = LpText.list)
+            if (sub != null) Dim2(sub, Modifier.padding(top = Sp.x2), maxLines = 3)
         }
     }
 }
@@ -502,6 +502,7 @@ fun OptRow(
     selected: Boolean = false,
     badge: String? = null,
     media: Boolean = false,
+    labelMaxLines: Int = 2,
 ) {
     val c = Lp.colors
     Row(
@@ -513,11 +514,11 @@ fun OptRow(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, color = if (selected) (if (media) c.mediaIcon else c.acc) else c.fg, fontSize = 14.sp, maxLines = 2,
+            Text(label, color = if (selected) (if (media) c.mediaIcon else c.acc) else c.fg, style = LpText.action, maxLines = labelMaxLines,
                 overflow = TextOverflow.Ellipsis)
             if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = if (media) 2 else 1)
             if (media && badge != null) Text(badge, Modifier.padding(top = Sp.x4),
-                color = c.mediaIcon, fontSize = 11.sp)
+                color = c.mediaIcon, style = LpText.badge)
         }
         if (!media && badge != null) LpTag(badge)
         if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = if (media) c.mediaIcon else c.acc)
@@ -530,7 +531,7 @@ fun LpTag(text: String, m: Modifier = Modifier, danger: Boolean = false) {
     Text(
         text, m.clip(RoundedCornerShape(R.sm)).background(if (danger) c.bad.copy(alpha = .18f) else c.accDim)
             .padding(horizontal = Sp.x8, vertical = Sp.x2),
-        color = if (danger) c.bad else c.acc, fontSize = 11.sp, maxLines = 1,
+        color = if (danger) c.bad else c.acc, style = LpText.badge, maxLines = 1,
     )
 }
 
@@ -589,10 +590,10 @@ fun EmptyState(
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, Modifier.size(28.dp), tint = c.fg3) }
         Spacer(Modifier.height(Sp.x16))
-        Text(title, color = c.fg, fontSize = 16.sp, fontWeight = FontWeight.SemiBold)
+        Text(title, color = c.fg, style = LpText.section)
         if (desc != null) {
             Spacer(Modifier.height(Sp.x8))
-            Text(desc, color = c.fg2, fontSize = 13.sp, lineHeight = 20.sp,
+            Text(desc, color = c.fg2, style = LpText.secondary,
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         }
         if (actionLabel != null && onAction != null) {
@@ -612,7 +613,7 @@ fun ErrorState(message: String, onRetry: (() -> Unit)? = null, m: Modifier = Mod
     Column(m.fillMaxWidth().padding(Sp.x20), horizontalAlignment = Alignment.CenterHorizontally) {
         Icon(LpIcons.info, null, Modifier.size(24.dp), tint = c.bad)
         Spacer(Modifier.height(Sp.x8))
-        Text(message, color = c.fg2, fontSize = 13.sp, lineHeight = 20.sp,
+        Text(message, color = c.fg2, style = LpText.secondary,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
         if (onRetry != null) {
             Spacer(Modifier.height(Sp.x12))
@@ -762,7 +763,7 @@ fun LpMenuItem(
         Column(Modifier.weight(1f)) {
             Text(
                 label, color = when { danger -> c.bad; selected -> c.acc; else -> c.fg },
-                fontSize = 14.sp, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = LpText.action, maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
             if (sub != null) Dim3(sub, Modifier.padding(top = 1.dp))
         }
@@ -789,12 +790,31 @@ fun Panel(m: Modifier = Modifier, solid: Float = 1f, content: @Composable () -> 
     Column(m.fillMaxWidth().glass(R.md, solid)) { content() }
 }
 
+/** 转动的刷新箭头只更新绘制层，系统关闭动画时保持静态。 */
+@Composable
+fun LpRefreshIcon() {
+    val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
+    val angle = if (motion > 0f) {
+        val animation = rememberInfiniteTransition(label = "refresh")
+        animation.animateFloat(0f, 360f, infiniteRepeatable(tween((900 * motion).toInt().coerceAtLeast(1),
+            easing = LinearEasing)), label = "refresh.rotation")
+    } else remember { mutableStateOf(0f) }
+    Icon(LpIcons.refresh, "刷新中", Modifier.size(32.dp).graphicsLayer { rotationZ = angle.value },
+        tint = Lp.colors.mediaAccent)
+}
+
+/** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字。 */
+@Composable
+fun LoadingState(m: Modifier = Modifier.fillMaxWidth().height(120.dp)) {
+    Box(m, contentAlignment = Alignment.Center) { LpRefreshIcon() }
+}
+
 /** 三态渲染的收口:一个区块自己管自己的 Loading / Ok / Fail。 */
 @Composable
 fun <T> BlockBox(
     block: xyz.linplayer.app.data.Block<T>,
     onRetry: (() -> Unit)? = null,
-    skeleton: @Composable () -> Unit = { Skeleton(Modifier.fillMaxWidth().height(120.dp)) },
+    skeleton: @Composable () -> Unit = { LoadingState() },
     ok: @Composable (T) -> Unit,
 ) {
     when (block) {

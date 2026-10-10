@@ -65,10 +65,11 @@ class PhoneLibraryUiTest {
 
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun open(core: CorePort, fontScale: Float = 1f, dark: Boolean = false) {
+    private fun open(core: CorePort, fontScale: Float = 1f, dark: Boolean = false,
+        cache: xyz.linplayer.app.data.BrowseCache = xyz.linplayer.app.data.BrowseCache()) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
-        val app = AppState(core, scope)
+        val app = AppState(core, scope, browseCache = cache)
         runBlocking { app.boot() }
         rule.setContent {
             LpTheme(darkOverride = dark) {
@@ -87,6 +88,85 @@ class PhoneLibraryUiTest {
 
     private fun core() = FakeCore().loggedIn().library().apply {
         ret("emby.listItemsPage", page(*entries.toTypedArray()))
+    }
+
+    @Test fun cachedGridShowsInsertedPostersAtTheStart() {
+        val directory = java.nio.file.Files.createTempDirectory("library-insert-test").toFile()
+        val fake = core()
+        val cache = xyz.linplayer.app.data.BrowseCache(directory)
+        val session = runBlocking { fake.callJson("emby.currentSession", null) }.obj()!!
+        val params = xyz.linplayer.app.ui.pages.args("parent_id" to "lib-0", "query" to
+            xyz.linplayer.app.ui.pages.args("start_index" to 0, "limit" to 30,
+                "sort_by" to "DateLastContentAdded", "sort_order" to "Descending"))
+        val key = cache.key(session.str("server")!!, session.str("user_id")!!, "emby.listItemsPage" + params.toString())
+        runBlocking { cache.put(key, page(*entries.toTypedArray()), cache.generation) }
+        val gate = CompletableDeferred<Unit>()
+        val port = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.listItemsPage") {
+                    gate.await()
+                    val inserted = (1..6).map { item("new-film-$it", if (it == 1) "新入库影片" else "新影片 $it") }
+                    return page(*(inserted + entries.take(24)).toTypedArray())
+                }
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            open(port, cache = xyz.linplayer.app.data.BrowseCache(directory))
+            rule.waitUntil(5000) { rule.onAllNodesWithText("影片 1").fetchSemanticsNodes().isNotEmpty() }
+            val firstTop = rule.onNodeWithContentDescription("影片 1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
+            rule.runOnIdle { gate.complete(Unit) }
+            rule.waitForIdle()
+            rule.onNodeWithText("新入库影片").assertIsDisplayed()
+            assertEquals(firstTop, rule.onNodeWithContentDescription("新入库影片", useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot.top, .1f)
+        } finally { gate.complete(Unit); directory.deleteRecursively() }
+    }
+
+    @Test fun diskCacheAppearsWhileRefreshIsPendingAndFailureKeepsPosters() {
+        val directory = java.nio.file.Files.createTempDirectory("library-cache-test").toFile()
+        val fake = core()
+        val cache = xyz.linplayer.app.data.BrowseCache(directory)
+        val session = runBlocking { fake.callJson("emby.currentSession", null) }.obj()!!
+        val params = xyz.linplayer.app.ui.pages.args("parent_id" to "lib-0", "query" to
+            xyz.linplayer.app.ui.pages.args("start_index" to 0, "limit" to 30,
+                "sort_by" to "DateLastContentAdded", "sort_order" to "Descending"))
+        val key = cache.key(session.str("server")!!, session.str("user_id")!!, "emby.listItemsPage" + params.toString())
+        runBlocking { cache.put(key, page(*entries.toTypedArray()), cache.generation) }
+        val gate = CompletableDeferred<Unit>()
+        val port = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.listItemsPage") {
+                    gate.await()
+                    throw xyz.linplayer.app.core.CoreException("E_NETWORK", "刷新失败", true)
+                }
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            open(port, cache = xyz.linplayer.app.data.BrowseCache(directory))
+            rule.waitUntil(5000) { rule.onAllNodesWithText("影片 1").fetchSemanticsNodes().isNotEmpty() }
+            rule.onNodeWithText("影片 1").assertIsDisplayed()
+            rule.onNodeWithTag("library.refreshing").assertIsDisplayed()
+            rule.runOnIdle { gate.complete(Unit) }
+            rule.onNodeWithText("刷新失败", substring = true).assertExists()
+            rule.onNodeWithText("影片 1").assertIsDisplayed()
+            rule.onNodeWithTag("library.refreshing").assertDoesNotExist()
+        } finally { gate.complete(Unit); directory.deleteRecursively() }
+    }
+
+    @Test fun unknownTotalShortPageKeepsPlusUntilEmptyPage() {
+        val fake = core()
+        fake.on("emby.listItemsPage") { a ->
+            val offset = a?.get("query").obj()?.get("start_index").toString().toInt()
+            JsonArray(if (offset == 0) entries.take(3) else emptyList())
+        }
+        open(fake)
+        rule.waitForIdle()
+        rule.onNodeWithText("3 部").assertIsDisplayed()
+        val requests = fake.calls.filter { it.first == "emby.listItemsPage" }
+        assertEquals(2, requests.size)
+        assertEquals("3", requests.last().second?.get("query").obj()?.get("start_index").toString())
     }
 
     @Test fun firstRequestIsSmallAndColdLoadingDoesNotFillTheScreenWithSkeletons() {
@@ -124,13 +204,22 @@ class PhoneLibraryUiTest {
         open(fake)
         val first = fake.calls.first { it.first == "emby.listItemsPage" }.second?.get("query").obj()
         assertEquals("30", first?.get("limit").toString())
+        rule.onNodeWithText("30+ 部").assertIsDisplayed()
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(29)
         rule.waitUntil(3000) { fake.calls.count { it.first == "emby.listItemsPage" } >= 2 }
         val next = fake.calls.filter { it.first == "emby.listItemsPage" }[1].second?.get("query").obj()
         assertEquals("30", next?.get("start_index").toString())
-        assertEquals("120", next?.get("limit").toString())
+        assertEquals("30", next?.get("limit").toString())
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
         rule.onNodeWithText("影片 31").assertIsDisplayed()
+        for (last in listOf(59, 89, 119, 149, 159)) {
+            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(last)
+            rule.waitForIdle()
+        }
+        rule.onNodeWithText("160 部").assertIsDisplayed()
+        assertTrue(fake.calls.filter { it.first == "emby.listItemsPage" }.all {
+            it.second?.get("query").obj()?.get("limit").toString() == "30"
+        })
     }
 
     @Test fun compactGridKeepsControlsAndLastRowVisibleWithLargeFont() {
@@ -222,7 +311,7 @@ class PhoneLibraryUiTest {
         assertTrue(cleared?.containsKey("rating_min") == false)
     }
 
-    @Test fun realShellKeepsTabsAndScopedSearchInsideLibrary() {
+    @Test fun realShellTabsAlwaysLandOnTopLevelPages() {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core(), scope)
@@ -240,7 +329,7 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.onNodeWithTag("phone.tabs").assertExists()
         rule.onNodeWithTag("search.field").assertIsDisplayed()
-        rule.onNodeWithText("在这个库里搜").assertIsDisplayed()
+        rule.onNodeWithText("搜片名、剧名或演员").assertIsDisplayed()
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.runOnIdle { back.onBackPressed() }
         rule.waitForIdle()
@@ -250,8 +339,7 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("首页").performClick()
         rule.waitForIdle()
         rule.onNodeWithTag("search.field").assertDoesNotExist()
-        rule.onNodeWithText("影片 1").assertIsDisplayed()
-        rule.onNodeWithContentDescription("首页").performClick()
+        rule.onNodeWithText("影片 1").assertDoesNotExist()
         rule.onNodeWithText("继续观看").assertExists()
         rule.onNodeWithTag("phone.tabs").assertExists()
     }
