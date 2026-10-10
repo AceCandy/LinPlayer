@@ -42,17 +42,20 @@ class HomeCinemaTest {
         val community = Item.from(Json.parseToJsonElement("""{"id":"m","type_":"Movie","rating":8.6}"""))!!
         assertNull(community.doubanRating)
         for (invalid in listOf("null", "-1", "10.1")) {
-            assertNull(Item.from(Json.parseToJsonElement("""{"id":"m","douban_rating":$invalid}"""))!!.doubanRating)
+            assertNull(Item.from(Json.parseToJsonElement("""{"id":"m","DoubanRating":$invalid}"""))!!.doubanRating)
         }
-        assertEquals(8.0, Item.from(Json.parseToJsonElement("""{"id":"m","douban_rating":8}"""))!!.doubanRating!!, 0.0)
+        assertEquals(8.0, Item.from(Json.parseToJsonElement("""{"id":"m","DoubanRating":8}"""))!!.doubanRating!!, 0.0)
     }
 
     @Test fun homepageBadgesAreSmallSeparateAndUpdate() {
         var score by mutableStateOf<Double?>(8.6)
         rule.setContent {
             LpTheme(darkOverride = true) {
-                MediaCard(Item("s", "长标题仅一行显示", "Series", unplayed = 24,
-                    unplayedCountKnown = true, doubanRating = score, rating = 9.9, year = 2026),
+                MediaCard(Item.from(Json.parseToJsonElement("""{
+                    "id":"s","name":"长标题仅一行显示","type_":"Series",
+                    "unplayed_item_count":24,"unplayed_count_known":true,
+                    "DoubanRating":${score ?: "null"},"rating":9.9,"year":2026
+                }"""))!!,
                     null, {})
             }
         }

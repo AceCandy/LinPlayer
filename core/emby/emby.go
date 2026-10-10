@@ -60,6 +60,8 @@ type Item struct {
 	Genres []string `json:"genres"`
 	Year   *int64   `json:"year"`
 	Rating *float64 `json:"rating"`
+	// DoubanRating保留服务端字段名，独立于通用评分；缺失时省略。
+	DoubanRating *float64 `json:"DoubanRating,omitempty"`
 
 	// 跨服务器续播强匹配的判据。缺了不崩,但匹配会静默降级到「剧名+季集号」——
 	// 那正是跨服续播最容易假装能用的失败形态。
@@ -121,6 +123,7 @@ type rawItem struct {
 	Genres                []string          `json:"Genres"`
 	ProductionYear        *int64            `json:"ProductionYear"`
 	CommunityRating       *float64          `json:"CommunityRating"`
+	DoubanRating          *float64          `json:"DoubanRating"`
 	ProviderIDs           map[string]string `json:"ProviderIds"`
 	PresentationUniqueKey *string           `json:"PresentationUniqueKey"`
 	Path                  *string           `json:"Path"`
@@ -327,6 +330,7 @@ func fromRaw(r rawItem) Item {
 		Genres:                genres,
 		Year:                  r.ProductionYear,
 		Rating:                r.CommunityRating,
+		DoubanRating:          validDoubanRating(r.DoubanRating),
 		ProviderIDs:           providers,
 		PresentationUniqueKey: nonEmpty(r.PresentationUniqueKey),
 		Path:                  nonEmpty(r.Path),
@@ -405,4 +409,12 @@ func (c *Client) Views(ctx context.Context, s *Session) ([]Item, error) {
 		return nil, err
 	}
 	return p.Items, nil
+}
+
+// validDoubanRating只接受独立豆瓣字段的0–10分，不以通用评分补值。
+func validDoubanRating(value *float64) *float64 {
+	if value == nil || !(*value >= 0 && *value <= 10) {
+		return nil
+	}
+	return value
 }

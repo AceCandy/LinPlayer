@@ -26,7 +26,7 @@ class BrowseCacheTest {
                 put("items", buildJsonArray { add(buildJsonObject {
                     put("id", "film-a"); put("name", "缓存作品"); put("type_", "Movie")
                     put("token", "private-test-value"); put("path", "private-test-path")
-                    put("year", 2024)
+                    put("year", 2024); put("DoubanRating", 8.6)
                 }) })
                 put("total", 45); put("credentials", "private-test-value")
             }
@@ -36,6 +36,7 @@ class BrowseCacheTest {
             val stored = restarted.load(key, restarted.generation).obj()!!
             assertEquals("缓存作品", stored["items"]!!.jsonArray[0].obj().str("name"))
             assertEquals("45", stored["total"].toString())
+            assertEquals(8.6, xyz.linplayer.app.data.Item.list(stored).single().doubanRating!!, 0.0)
             assertFalse(stored.toString().contains("private-test"))
             for (other in listOf(cache.key("source-b", "user-a", "library-a:sort-a"),
                 cache.key("source-a", "user-b", "library-a:sort-a"),

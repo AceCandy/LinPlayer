@@ -119,7 +119,7 @@ data class Item(
                 unplayedCountKnown = o.bool("unplayed_count_known"),
                 hasBackdrop = o.bool("has_backdrop"),
                 hasLogo = o.bool("has_logo"),
-                doubanRating = o.dbl("douban_rating")?.takeIf { it.isFinite() && it in 0.0..10.0 },
+                doubanRating = o.dbl("DoubanRating")?.takeIf { it.isFinite() && it in 0.0..10.0 },
                 dateUpdated = o.str("date_updated"),
                 sortName = o.str("sort_name"),
                 libraryIds = o.strList("library_ids"),

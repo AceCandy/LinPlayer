@@ -47,6 +47,8 @@ type ItemDetail struct {
 	PremiereDate *string  `json:"premiere_date,omitempty"`
 	Genres       []string `json:"genres"`
 	Rating       *float64 `json:"rating"`
+	// 独立豆瓣评分与列表保持同名，不替换详情通用评分。
+	DoubanRating *float64 `json:"DoubanRating,omitempty"`
 	RuntimeSecs  float64  `json:"runtime_secs"`
 	ResumeSecs   float64  `json:"resume_secs"`
 	HasPrimary   bool     `json:"has_primary"`
@@ -262,6 +264,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 		PremiereDate: jstrPtrNonEmpty(j, "PremiereDate"),
 		Genres:       genres,
 		Rating:       jfloat(j, "CommunityRating"),
+		DoubanRating: validDoubanRating(jfloat(j, "DoubanRating")),
 		RuntimeSecs:  float64(jint64or0(j, "RunTimeTicks")) / 1e7,
 		ResumeSecs:   float64(jint64or0(ud, "PlaybackPositionTicks")) / 1e7,
 		HasPrimary:   hasPrimary,

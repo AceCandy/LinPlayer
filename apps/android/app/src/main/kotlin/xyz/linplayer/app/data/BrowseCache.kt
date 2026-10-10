@@ -122,7 +122,7 @@ class BrowseCache(private val directory: File? = null) {
         private const val MAX_BYTES = 512 * 1024
         private val fields = setOf("id", "name", "type_", "is_folder", "runtime_secs", "resume_secs",
             "series_name", "series_id", "episode_no", "season_no", "played", "unplayed_item_count",
-            "unplayed_count_known", "has_backdrop", "has_logo", "douban_rating", "year", "rating", "date_updated", "sort_name", "collection_type", "has_primary", "library_type")
+            "unplayed_count_known", "has_backdrop", "has_logo", "DoubanRating", "year", "rating", "date_updated", "sort_name", "collection_type", "has_primary", "library_type")
 
         /** 不写入地址、会话、播放信息；用户状态只是上次服务端展示快照。 */
         private fun metadata(value: JsonElement): JsonElement = when (value) {
