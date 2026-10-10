@@ -10,6 +10,8 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.*
 
@@ -17,6 +19,9 @@ import kotlinx.serialization.json.*
 class BrowseCache(private val directory: File? = null) {
     private val memory = LinkedHashMap<String, JsonElement>(64, .75f, true)
     private val disk = Mutex()
+    private val heroLock = Mutex()
+    private val heroChanges = MutableStateFlow(0L)
+    internal val heroRevision = heroChanges.asStateFlow()
     @Volatile var generation: Long = 0
         private set
 
@@ -27,6 +32,47 @@ class BrowseCache(private val directory: File? = null) {
     }
 
     @Synchronized fun peek(key: String): JsonElement? = memory[key]
+
+    /** 展示候选复用浏览缓存预算和身份键；不以图片哈希推测作品或账号。 */
+    internal suspend fun heroItems(server: String, userId: String, epoch: Long): List<Item> =
+        Item.list(load(key(server, userId, "home.heroPool"), epoch))
+
+    /** 合并已完成请求的白名单资料；观看状态只用于轮播过滤，不参与起播。 */
+    internal suspend fun recordHeroItems(server: String, userId: String, value: JsonElement, epoch: Long) =
+        heroLock.withLock {
+            withContext(Dispatchers.IO) {
+                if (epoch != generation) return@withContext
+                val source = if (value is JsonArray) value else value.obj()?.get("items") as? JsonArray
+                    ?: JsonArray(listOf(value))
+                val incoming = metadata(source).arr().mapNotNull { it.obj() }.filter {
+                    !it.str("id").isNullOrBlank() && (it.str("type_") == null ||
+                        it.str("type_") in setOf("Movie", "Series", "Episode", "Season"))
+                }
+                if (incoming.isEmpty()) return@withContext
+                val key = key(server, userId, "home.heroPool")
+                val previous = load(key, epoch).arr()
+                val rows = LinkedHashMap<String, JsonObject>()
+                previous.mapNotNull { it.obj() }.forEach { row -> row.str("id")?.let { rows[it] = row } }
+                incoming.forEach { row ->
+                    val id = row.str("id")!!
+                    if (id in rows || row.str("type_") != null)
+                        rows[id] = JsonObject(rows.remove(id).orEmpty() + row)
+                }
+                // 预算按字节裁掉最旧资料，不能让候选数量突破既有磁盘上限。
+                val sizes = rows.values.map { it.toString().toByteArray().size + 1 }
+                var bytes = sizes.sum() + 2
+                val iterator = rows.entries.iterator()
+                var removed = 0
+                while (bytes > MAX_BYTES && iterator.hasNext()) {
+                    iterator.next(); iterator.remove(); bytes -= sizes[removed++]
+                }
+                val next = JsonArray(rows.values.toList())
+                if (next != JsonArray(previous)) {
+                    put(key, next, epoch)
+                    if (epoch == generation) heroChanges.value++
+                }
+            }
+        }
 
     @Synchronized private fun remember(key: String, value: JsonElement, epoch: Long) {
         if (epoch != generation) return
@@ -106,6 +152,7 @@ class BrowseCache(private val directory: File? = null) {
         withContext(Dispatchers.IO) {
             disk.withLock {
                 synchronized(this@BrowseCache) { generation++; memory.clear() }
+                heroChanges.value++
                 directory?.listFiles()?.forEach {
                     if (!it.delete() && it.exists()) throw IOException("浏览缓存清理失败")
                 }
@@ -130,7 +177,7 @@ class BrowseCache(private val directory: File? = null) {
                 buildJsonObject {
                     fields.forEach { field -> (row[field] as? JsonPrimitive)?.let { put(field, it) } }
                     listOf("genres", "library_ids").forEach { field ->
-                        put(field, JsonArray(row[field].arr().filterIsInstance<JsonPrimitive>()))
+                        if (field in row) put(field, JsonArray(row[field].arr().filterIsInstance<JsonPrimitive>()))
                     }
                 }
             } })

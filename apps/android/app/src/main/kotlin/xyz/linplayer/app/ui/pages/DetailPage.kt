@@ -2,7 +2,6 @@ package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.ui.theme.LpText
 
-import xyz.linplayer.app.ui.components.sharedPoster
 import xyz.linplayer.app.ui.components.posterPreview
 import xyz.linplayer.app.ui.components.detailPreview
 import androidx.compose.animation.AnimatedContent
@@ -56,6 +55,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -97,12 +97,16 @@ import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.CancellationException
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.booleanOrNull
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import android.net.Uri
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
+import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
@@ -256,6 +260,34 @@ internal fun arOf(v: Version?): Float {
 
 /* ───────────────────────────── 页面 ───────────────────────────── */
 
+/** 本次运行的纯展示留存；不落盘，不作为播放版本、目标或用户操作的依据。 */
+private data class DetailPresentation(
+    val epoch: Long, val media: List<Version>?,
+    val seasons: List<Item>, val seasonImages: Set<String>, val season: Item?,
+    val episodes: List<Item>, val total: Long?, val episodeSummary: String,
+    val audioLang: String?, val subLang: String?, val subRegex: String, val subsEnabled: Boolean,
+    val serverId: String?, val lineLabel: String?, val lineCount: Int,
+)
+
+private fun detailPresentations(): LinkedHashMap<String, DetailPresentation> =
+    PageCache.get<LinkedHashMap<String, DetailPresentation>>("detail.presentations")
+        ?: LinkedHashMap<String, DetailPresentation>(16, .75f, true).also {
+            PageCache.put("detail.presentations", it)
+        }
+
+/** 列表已有字段仅作首帧展示，不含进度、收藏或可执行的所属剧链接。 */
+private fun sourceMetadata(item: Item): JsonObject = buildJsonObject {
+    put("id", item.id); put("name", item.name); put("type_", item.type)
+    put("has_backdrop", item.hasBackdrop)
+    item.year?.let { put("year", it) }
+    item.rating?.let { put("rating", it) }
+    if (item.runtimeSecs > 0) put("runtime_secs", item.runtimeSecs)
+    item.seriesName?.let { put("series_name", it) }
+    item.seasonNo?.let { put("season_no", it) }
+    item.episodeNo?.let { put("episode_no", it) }
+    put("genres", JsonArray(item.genres.map(::JsonPrimitive)))
+}
+
 /**
  * 详情页族(U1.5)。版式照草稿 03(剧 / 影)与 04(集)。
  *
@@ -282,6 +314,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val c = Lp.colors
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
+    val epoch = remember(cacheKey) { app.detailCache.generation }
+    var presentation by remember(cacheKey) { mutableStateOf(detailPresentations()[cacheKey]?.takeIf { it.epoch == epoch }) }
     if (switching) EmbySwitchSource(nav, route.itemId) { switching = false }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
@@ -297,21 +331,23 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     }
     var media by remember { mutableStateOf<Block<List<Version>>>(Block.Loading) }
     var mediaRetry by remember { mutableStateOf(0) }
-    val versions = media.valueOrNull.orEmpty()
+    val versions = media.valueOrNull ?: presentation?.media.orEmpty()
     /** ☠ 「未选」是 `null` 不是 `0` —— 传了 id 核心层就走「手动指定」分支,版本正则整个被跳过。 */
     var pickedVersion by remember { mutableStateOf<String?>(null) }
-    var seasons by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var seasonImages by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var seasons by remember { mutableStateOf(presentation?.seasons.orEmpty()) }
+    var seasonImages by remember { mutableStateOf(presentation?.seasonImages.orEmpty()) }
     var seasonLoad by remember { mutableStateOf<Block<Unit>>(Block.Loading) }
     var seasonRetry by remember { mutableStateOf(0) }
-    var curSeason by remember { mutableStateOf<Item?>(null) }
+    var curSeason by remember { mutableStateOf(presentation?.season) }
     var episodeRequest by remember { mutableStateOf(0) }
     var episodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
     var episodeTotal by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Long?>(null) }
     var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
     var episodeRetry by remember { mutableStateOf(0) }
-    LaunchedEffect(route.itemId, curSeason?.id, episodeRequest, episodeRetry) {
-        val parent = curSeason?.id ?: return@LaunchedEffect
+    // 展示可以留存，取集仍等本次真实季关系确认；刷新从首批重取，不接旧快照尾页。
+    val episodeParent = curSeason?.id.takeIf { seasonLoad is Block.Ok }
+    LaunchedEffect(route.itemId, episodeParent, episodeRequest, episodeRetry) {
+        val parent = episodeParent ?: return@LaunchedEffect
         episodeLoad = Block.Loading
         val result = try {
             app.seasonEpisodes(parent, episodes) { items, total ->
@@ -328,15 +364,17 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var similar by remember { mutableStateOf<List<Item>>(emptyList()) }
     var favorite by remember { mutableStateOf(false) }
     var played by remember { mutableStateOf(false) }
-    var audioLang by remember { mutableStateOf<String?>(null) }
-    var subLang by remember { mutableStateOf<String?>(null) }
-    var subRegex by remember { mutableStateOf("") }
-    var subsEnabled by remember { mutableStateOf(true) }
+    var audioLang by remember { mutableStateOf(presentation?.audioLang) }
+    var subLang by remember { mutableStateOf(presentation?.subLang) }
+    var subRegex by remember { mutableStateOf(presentation?.subRegex ?: "") }
+    var subsEnabled by remember { mutableStateOf(presentation?.subsEnabled ?: true) }
+    var prefsReady by remember { mutableStateOf(false) }
+    var linesReady by remember { mutableStateOf(false) }
     var sheet by remember { mutableStateOf<String?>(null) }
-    var serverId by remember { mutableStateOf<String?>(null) }
+    var serverId by remember { mutableStateOf(presentation?.serverId) }
     /** 「哪台服务器的哪条线路」。取不到线路表时只有服务器名 —— 也比「服务器线路」四个字强。 */
-    var lineLabel by remember { mutableStateOf<String?>(null) }
-    var lineCount by remember { mutableStateOf(0) }
+    var lineLabel by remember { mutableStateOf(presentation?.lineLabel) }
+    var lineCount by remember { mutableStateOf(presentation?.lineCount ?: 0) }
 
     // 展示资料可先用缓存，用户状态、分集目标与插件仍只用本次服务端结果。
     LaunchedEffect(route.itemId, detailRetry) {
@@ -355,6 +393,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         if (d is Block.Fail && d.code in setOf("E_AUTH", "E_NOTFOUND")) {
             cacheAllowed = false
             cached = null
+            presentation = null
+            detailPresentations().remove(cacheKey)
             app.detailCache.remove(cacheKey, epoch)
         } else if (o != null) {
             cacheAllowed = true
@@ -362,27 +402,28 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         }
     }
 
-    // 季失败仅重试选集；effect的key和放行条件必须使用同一份详情快照。
+    // 整剧ID由路由确定可并行取季；季/集的所属关系仍以真实详情为准。
     val seasonDetail = detail.valueOrNull
-    LaunchedEffect(route.itemId, seasonDetail, seasonRetry) {
-        val o = seasonDetail ?: return@LaunchedEffect
-        val seriesId = o.str("series_id") ?: route.itemId.takeIf { route.type == "Series" }
-        // ★ 这两个值都从**详情**里取,在发下一条命令之前就读完 ——
+    val seriesId = if (route.type == "Series") route.itemId else seasonDetail.str("series_id")
+    val wantSeason = if (route.type == "Series") null else seasonDetail.str("season_id") ?: route.itemId
+    LaunchedEffect(route.itemId, seriesId, wantSeason, seasonRetry) {
+        // ★ 所属剧/季字段在发下一条命令之前读完 ——
         //   夹在 seriesSeasons 调用后面的话,`check-android-fields.py` 的窗口
         //   会把它算成 SeasonInfo 的字段,报一条查不出所以然的假红
-        val wantSeason = o.str("season_id") ?: route.itemId
         if (seriesId != null &&
             (route.type == "Series" || route.type == "Season" || route.type == "Episode")) {
             seasonLoad = Block.Loading
             val result = app.block("emby.seriesSeasons", args("series_id" to seriesId))
             currentCoroutineContext().ensureActive()
-            seasons = result.valueOrNull.arr()
-                .mapNotNull { value -> Item.from(value)?.copy(seasonNo = value.obj().long("index_no")) }
-            seasonImages = result.valueOrNull.arr().filter { it.obj().boolOrNull("has_primary") != false }
-                .mapNotNull { it.obj().str("id") }.toSet()
-            // 集详情页要定位到**这一集所属的季**,不是第一季
-            val s = seasons.firstOrNull { it.id == wantSeason } ?: seasons.firstOrNull()
-            curSeason = s
+            if (result is Block.Ok) {
+                seasons = result.value.arr()
+                    .mapNotNull { value -> Item.from(value)?.copy(seasonNo = value.obj().long("index_no")) }
+                seasonImages = result.value.arr().filter { it.obj().boolOrNull("has_primary") != false }
+                    .mapNotNull { it.obj().str("id") }.toSet()
+                // 保留仍然存在的已选季；单集仍以本次真实所属季为准。
+                val s = seasons.firstOrNull { it.id == (wantSeason ?: curSeason?.id) } ?: seasons.firstOrNull()
+                curSeason = s
+            }
             seasonLoad = when (result) {
                 is Block.Fail -> result
                 else -> Block.Ok(Unit)
@@ -407,14 +448,17 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         launch { similar = Item.list(app.block("emby.similarItems", args("item_id" to route.itemId)).valueOrNull) }
         launch {
             val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
+            currentCoroutineContext().ensureActive()
             audioLang = p.str("audio_lang"); subLang = p.str("sub_lang")
             subRegex = p.str("sub_regex") ?: ""
             subsEnabled = p.boolOrNull("sub_enabled") != false
+            prefsReady = true
         }
         /* 线路那一行要跳线路页,而线路页认的是**账号 id**,不是当前生效的线路地址。
            拿 session.server 去传是错的 —— 换过线路之后那个值已经是中转地址了。 */
         launch {
             val raw = app.block("account.listAccounts").valueOrNull
+            currentCoroutineContext().ensureActive()
             val active = xyz.linplayer.app.data.Account.list(raw).firstOrNull { it.isActive }
             serverId = active?.id
             /* ★★ 线路那一行要写**具体是哪台的哪条**【用户定 2026-09-06】。
@@ -429,6 +473,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
             val lineName = lines.getOrNull(idx).obj()?.str("name")?.takeIf { it.isNotBlank() }
                 ?: if (lines.isEmpty()) "主线路" else "线路 ${idx + 1}"
             lineLabel = active?.name?.let { "$it · $lineName" } ?: lineName
+            linesReady = true
         }
         // 进详情页就开始预热「▶ 会播的那个条目」。fire-and-forget,失败全吞
         launch { runCatching { app.call("prefs.preloadItem", args("item_id" to route.itemId)) } }
@@ -441,7 +486,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     }
 
     val live = detail.valueOrNull
-    val d = live ?: cached
+    val source = detailPreview(route.itemId)
+    val previewMetadata = remember(source) { source?.let(::sourceMetadata) }
+    val d = live ?: cached ?: previewMetadata.takeIf { cacheAllowed }
     val people = remember(d) { d?.get("people").arr().mapNotNull {
         val p = it.obj() ?: return@mapNotNull null
         Person(p.str("id") ?: return@mapNotNull null, p.str("name") ?: "",
@@ -452,6 +499,42 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val isSeries = route.type == "Series" || route.type == "Season"
     val isSeriesEntry = route.type == "Series"
     val nextEp = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
+    val shownEpisodes = if (episodes.isNotEmpty() || episodeLoad is Block.Ok) episodes
+        else presentation?.takeIf { it.season?.id == curSeason?.id }?.episodes.orEmpty()
+    val shownNextEp = nextEp ?: shownEpisodes.firstOrNull { !it.played } ?: shownEpisodes.firstOrNull()
+    val previousSummary = presentation?.takeIf { it.season?.id == curSeason?.id }?.episodeSummary
+    val episodeSummary = when {
+        episodes.isNotEmpty() && episodeLoad is Block.Ok -> "已看 ${episodes.count { it.played }} / ${episodes.size}"
+        shownEpisodes.isNotEmpty() && episodeLoad is Block.Loading && previousSummary != null -> previousSummary
+        shownEpisodes.isNotEmpty() && episodes.isEmpty() -> presentation?.episodeSummary ?: "已加载 ${shownEpisodes.size}"
+        seasonLoad is Block.Loading -> "正在读取选集…"
+        curSeason != null && episodeLoad is Block.Loading -> "正在加载分集…" +
+            if (episodes.isNotEmpty()) " 已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: "") else ""
+        else -> "选集信息"
+    }
+    val optionsReady = media !is Block.Loading && prefsReady && linesReady
+    val initialReady = (live != null || cached != null) && when {
+        isSeries -> seasonLoad !is Block.Loading &&
+            (curSeason == null || seasonLoad is Block.Fail || episodes.isNotEmpty() || episodeLoad !is Block.Loading)
+        route.type == "BoxSet" -> true
+        else -> optionsReady
+    }
+    var bodyShown by remember { mutableStateOf(presentation != null) }
+    val showBody = bodyShown || initialReady || detail is Block.Fail
+    SideEffect {
+        if (initialReady) bodyShown = true
+        if (initialReady && live != null && cacheAllowed && app.detailCache.generation == epoch &&
+            (!isSeries || seasonLoad is Block.Ok) &&
+            (isSeries || route.type == "BoxSet" || media is Block.Ok)) {
+            val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, seasons, seasonImages, curSeason,
+                shownEpisodes.take(200), episodeTotal, episodeSummary, audioLang, subLang, subRegex, subsEnabled,
+                serverId, lineLabel, lineCount)
+            presentation = snapshot
+            val kept = detailPresentations()
+            kept[cacheKey] = snapshot
+            while (kept.size > 16) kept.remove(kept.keys.first())
+        }
+    }
     /* ☠ **合集原来一个字都画不出来。** 详情那条链只对 Series/Season 拉子项,
        而合集本身没有简介、没有年份、没有演职员 —— 整页只剩一个标题
        (用户 2026-09-08:「合集无法正确显示,显示不出来任何的东西」)。
@@ -479,6 +562,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
        所以这里分成两个值:**展示**可以回落到第一条,**发命令**仍然只认 preferred。 */
     val ver = versions.firstOrNull { it.id == pickedVersion }
         ?: defaultVersion(versions) ?: versions.firstOrNull()
+    val liveVersion = media.valueOrNull?.let { fresh ->
+        fresh.firstOrNull { it.id == pickedVersion } ?: defaultVersion(fresh)
+    }
     val contentFade = lpTween<Float>(T.T5, LinearEasing)
     val contentSize = lpTween<IntSize>(T.T5)
 
@@ -490,9 +576,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
          做成「这一次的参数」而不是改全局开关 —— 换回来不必再进一趟设置页。 */
     val toPlayer: (String, String?, Boolean) -> Unit = { target, engine, fromStart ->
         xyz.linplayer.app.ui.player.PlaybackClickTimes.navigate(nav, Route.Player(
-            target, title, pickedVersion ?: ver?.takeIf { it.preferred }?.id, engine,
+            target, title, liveVersion?.id, engine,
             // 只有播的就是这一页这一片时,手里这份宽高比才算数
-            ar = if (target == route.itemId) arOf(ver) else 0f, fromStart = fromStart))
+            ar = if (target == route.itemId) arOf(liveVersion) else 0f, fromStart = fromStart))
     }
 
     val bodyHeight = with(LocalDensity.current) {
@@ -589,7 +675,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                     if (isSeriesEntry) {
                         val summary = Triple(d.dbl("rating")?.takeIf { it > 0 },
                             d.long("year")?.toString() ?: detailDate(d)?.take(4),
-                            seasons.size.takeIf { seasonLoad is Block.Ok && it > 0 })
+                            seasons.size.takeIf { (seasonLoad is Block.Ok || presentation != null) && it > 0 })
                         DetailReveal(summary, Modifier.testTag("detail.ratings")) { current ->
                             androidx.compose.foundation.layout.FlowRow(
                                 Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12)
@@ -620,8 +706,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         d.long("child_count")?.takeIf { it > 0 && isSeries }?.let { "$it 集" },
                     )
                     DetailReveal(if (d == null) null else values, Modifier.testTag("detail.ratings")) { current ->
-                        if (current == null) Spacer(Modifier.height(with(LocalDensity.current) { 21.sp.toDp() } + Sp.x12 * 2))
-                        else if (current.isNotEmpty()) Text(
+                        if (!current.isNullOrEmpty()) Text(
                             current.joinToString(" · "),
                             Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12),
                             color = c.fg2, style = LpText.body,
@@ -639,8 +724,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         d.namedList("studios").take(3).map { Triple("studio", it.second, it.first) }
                     val plain = listOfNotNull(d.str("official_rating"), d.str("status"))
                     DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags")) { current ->
-                        if (current == null) Spacer(Modifier.height(with(LocalDensity.current) { 24.sp.toDp() } + Sp.x6 + Sp.x12))
-                        else if (current.first.isNotEmpty() || current.second.isNotEmpty()) Row(
+                        if (current != null && (current.first.isNotEmpty() || current.second.isNotEmpty())) Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                                 .padding(start = Sp.x16, end = Sp.x16, top = Sp.x12),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x6),
@@ -655,10 +739,14 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                     }
                 }
 
+                if (!showBody) item("initial-loading") {
+                    LoadingState(Modifier.fillMaxWidth().height(160.dp))
+                } else {
                 /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
                    剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
                 if (!isSeries && !isBoxSet) item("pick") {
-                    AnimatedContent(media,
+                    AnimatedContent(media.valueOrNull?.let { Block.Ok(it) }
+                            ?: presentation?.media?.let { Block.Ok(it) } ?: media,
                         modifier = Modifier.fillMaxWidth().testTag("detail.options"),
                         contentKey = { it::class },
                         transitionSpec = {
@@ -697,19 +785,23 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                             // 线路页认的是账号 ID，换过线路后的会话地址不能代替它。
                                             onClick = { nav.navigate(Route.Lines(sid, title)) }))
                                     }
-                                })
+                                }, enabled = live != null && media is Block.Ok && prefsReady && linesReady)
                             }
                         }
                     }
+                }
+                if (media is Block.Fail && presentation?.media != null && !media.isSilent) item("media-refresh-error") {
+                    val failure = media as Block.Fail
+                    xyz.linplayer.app.ui.components.ErrorState("播放选项刷新失败：${failure.message}", { mediaRetry++ })
                 }
 
                 item("actions") { Anchored(PluginAnchors.DETAIL_ACTIONS, Modifier.padding(horizontal = Sp.x16)) {
                     // 合集不是一部片,没有播放按钮 —— 但锚点位照留,插件还能往这儿挂
                     if (isBoxSet) return@Anchored
                     val target = if (isSeries) nextEp?.id ?: route.itemId else route.itemId
-                    val resume = if (isSeries) nextEp?.resumeSecs ?: 0.0 else live.dbl("resume_secs") ?: 0.0
-                    val runtime = if (isSeries) nextEp?.runtimeSecs ?: 0.0 else d.dbl("runtime_secs") ?: 0.0
-                    val continuing = resume > 0 && runtime > resume && (!isSeries || nextEp?.played != true)
+                    val resume = if (isSeries) shownNextEp?.resumeSecs ?: 0.0 else live.dbl("resume_secs") ?: 0.0
+                    val runtime = if (isSeries) shownNextEp?.runtimeSecs ?: 0.0 else d.dbl("runtime_secs") ?: 0.0
+                    val continuing = resume > 0 && runtime > resume && (!isSeries || shownNextEp?.played != true)
                     Column(Modifier.padding(top = Sp.x16)) {
                         Row(
                             Modifier.fillMaxWidth().padding(horizontal = Sp.x16).testTag("detail.actions.layout")
@@ -723,8 +815,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         ) {
                             val label = when {
                                 isSeriesEntry -> if (continuing) "继续观看" else "播放"
-                                isSeries && nextEp != null ->
-                                    "${if (continuing) "继续" else "播放"} S${nextEp.seasonNo ?: 1}E${nextEp.episodeNo ?: 1}"
+                                isSeries && shownNextEp != null ->
+                                    "${if (continuing) "继续" else "播放"} S${shownNextEp.seasonNo ?: 1}E${shownNextEp.episodeNo ?: 1}"
                                 continuing -> "继续观看"
                                 else -> "播放"
                             } + if (continuing && !isSeriesEntry) "（剩余：${fmtDur(runtime - resume)}）" else ""
@@ -738,7 +830,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                             (resume / runtime).toFloat().coerceIn(0f, 1f), 0f..1f)
                                     }
                                     .pressable({ toPlayer(target, null, false) },
-                                        { toPlayer(target, xyz.linplayer.app.data.UiPrefs.otherEngine(), false) }),
+                                        { toPlayer(target, xyz.linplayer.app.data.UiPrefs.otherEngine(), false) },
+                                        enabled = live != null && (!isSeries || nextEp != null)),
                             ) {
                                 if (continuing) Box(Modifier.matchParentSize()) {
                                     Box(Modifier.fillMaxHeight().fillMaxWidth((resume / runtime).toFloat().coerceIn(0f, 1f))
@@ -760,7 +853,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                             Box {
                                 Box(
                                     Modifier.size(if (isSeriesEntry) 52.dp else 48.dp).clip(RoundedCornerShape(R.md))
-                                        .background(c.mediaAccent).pressable({ menuOpen = !menuOpen }),
+                                        .background(c.mediaAccent).pressable({ menuOpen = !menuOpen },
+                                            enabled = live != null && (!isSeries || nextEp != null)),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Icon(LpIcons.chevD, "播放更多操作",
@@ -780,7 +874,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 .heightIn(min = bodyHeight)
                                 .testTag("detail.series.target"),
                         ) {
-                            nextEp?.let { ep -> Text(
+                            shownNextEp?.let { ep -> Text(
                                 listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" })
                                     .joinToString("").let { number ->
                                         listOf(number, ep.name).filter(String::isNotBlank).joinToString("：")
@@ -809,7 +903,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         Column(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12)) {
                             Box {
                                 Row(Modifier.then(if (isSeriesEntry) Modifier.fillMaxWidth() else Modifier).heightIn(min = 48.dp)
-                                    .then(if (curSeason != null && seasons.size > 1) Modifier.pressable({ seasonsOpen = !seasonsOpen }) else Modifier),
+                                    .then(if (curSeason != null && seasons.size > 1) Modifier.pressable({ seasonsOpen = !seasonsOpen },
+                                        enabled = seasonLoad is Block.Ok) else Modifier),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                                     Text(if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
@@ -835,16 +930,10 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                     }
                                 }
                             }
-                            Dim3(when {
-                                seasonLoad is Block.Loading -> "正在读取选集…"
-                                curSeason != null && episodeLoad is Block.Loading -> "正在加载分集…" +
-                                    if (episodes.isNotEmpty()) " 已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: "") else ""
-                                curSeason != null && episodeLoad is Block.Ok -> "已看 ${episodes.count { it.played }} / ${episodes.size}"
-                                else -> "选集信息"
-                            }, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
+                            Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
                         }
-                        if (episodes.isNotEmpty()) key(curSeason?.id) {
-                            EpisodeStrip(app, episodes, currentId = route.itemId, targetId = nextEp?.id.takeIf { isSeries },
+                        if (shownEpisodes.isNotEmpty()) key(curSeason?.id) {
+                            EpisodeStrip(app, shownEpisodes, currentId = route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
                                 expanded = isSeriesEntry,
                                 onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) })
                         } else Box(Modifier.fillMaxWidth().height(episodeStripHeight(isSeriesEntry)), contentAlignment = Alignment.Center) {
@@ -858,7 +947,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 else -> Dim3(if (curSeason == null) "暂无可用选集" else "本季暂无分集")
                             }
                         }
-                        if (episodes.isNotEmpty() && episodeLoad is Block.Fail)
+                        if (shownEpisodes.isNotEmpty() && seasonLoad is Block.Fail)
+                            xyz.linplayer.app.ui.components.ErrorState((seasonLoad as Block.Fail).message, { seasonRetry++ })
+                        if (shownEpisodes.isNotEmpty() && episodeLoad is Block.Fail)
                             xyz.linplayer.app.ui.components.ErrorState((episodeLoad as Block.Fail).message, { episodeRetry++ })
                     }
                 } }
@@ -878,7 +969,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                         curSeason = season
                                         episodeRequest++
                                     }
-                                }).semantics { contentDescription = "查看${seasonLabel(season)}分集" }) {
+                                }, enabled = seasonLoad is Block.Ok).semantics { contentDescription = "查看${seasonLabel(season)}分集" }) {
                                     Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)
                                         .clip(RoundedCornerShape(R.md))
                                         .then(if (season.id == curSeason?.id)
@@ -959,6 +1050,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                 } }
 
                 item("tail") { Anchored(PluginAnchors.DETAIL_FOOTER, Modifier.padding(horizontal = Sp.x16)) { Spacer(Modifier.height(Sp.x26)) } }
+                }
             }
         }
         }
@@ -1034,7 +1126,7 @@ private fun SeriesHead(
     var backdropFailed by remember(id) { mutableStateOf(false) }
     val useBackdrop = d != null && d.boolOrNull("has_backdrop") != false && !backdropFailed
     val imageKind = if (useBackdrop) "Backdrop" else "Primary"
-    val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) null
+    val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) posterPreview(id)
         else app.imageUrl(id, imageKind, 720)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().heightIn(min = maxWidth * 1.08f).testTag("detail.hero")) {
@@ -1079,11 +1171,9 @@ private fun SeriesHead(
                         d.str("name") ?: preview?.name ?: "", color = c.fg, style = LpText.hero,
                         maxLines = 3, overflow = TextOverflow.Ellipsis,
                     )
-                    // 未知标语仅留一行空间，确认没有后收起；不让晚到文字突然抬高标题。
                     DetailReveal(d?.let { it.str("tagline")?.takeIf(String::isNotBlank) ?: "" },
                         Modifier.testTag("detail.tagline")) { tagline ->
-                        if (tagline == null) Spacer(Modifier.height(with(LocalDensity.current) { 24.sp.toDp() } + 3.dp))
-                        else if (tagline.isNotEmpty()) {
+                        if (!tagline.isNullOrEmpty()) {
                             Spacer(Modifier.height(3.dp))
                             Text(tagline, color = c.fg.copy(alpha = .82f), style = LpText.section.copy(fontWeight = FontWeight.Normal),
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
@@ -1122,8 +1212,8 @@ private fun EpisodeHead(
                     }
                     .dissolve(0.64f, 0.99f)
             ) {
-                NetImage(if (d.boolOrNull("has_primary") == false) null else app.imageUrl(id, "Primary", 480),
-                    null, Modifier.fillMaxSize().sharedPoster(id), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id))
+                NetImage(if (d.boolOrNull("has_primary") == false) posterPreview(id) else app.imageUrl(id, "Primary", 480),
+                    null, Modifier.fillMaxSize(), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id))
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -1267,7 +1357,7 @@ private data class PickRow(
 
 /** 版本用整行浮动标题描边框，视频标签与音轨/字幕选择独立展示。 */
 @Composable
-private fun PickList(rows: List<PickRow>) {
+private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
     val c = Lp.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = Sp.x8),
         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
@@ -1277,7 +1367,7 @@ private fun PickList(rows: List<PickRow>) {
                 val labelOffset = with(LocalDensity.current) { LpText.caption.lineHeight.toDp() / 2 }
                 Box(Modifier.fillMaxWidth().padding(top = Sp.x8)
                     .semantics { contentDescription = r.label }
-                    .then(r.onClick?.let { Modifier.pressable(it) } ?: Modifier)) {
+                    .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)) {
                     Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
                         .drawBehind {
                             val stroke = 1.dp.toPx()
@@ -1316,7 +1406,7 @@ private fun PickList(rows: List<PickRow>) {
                         })
                         .border(1.dp, c.line2, RoundedCornerShape(R.sm))
                         .semantics { contentDescription = r.label }
-                        .then(r.onClick?.let { Modifier.pressable(it) } ?: Modifier)
+                        .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
                         .padding(horizontal = Sp.x12, vertical = Sp.x6),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),

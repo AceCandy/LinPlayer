@@ -121,7 +121,23 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
                 "device_id" to JsonPrimitive(deviceId()),
             ) + (args ?: JsonObject(emptyMap()))   // 调用方显式给的压过默认的
         )
-        return core.callJson(command, merged, onPartial)
+        val epoch = browseCache.generation
+        val value = core.callJson(command, merged, onPartial)
+        if (s != null && _session.value == s &&
+            merged.str("server") == s.server && merged.str("user_id") == s.userId &&
+            command in setOf("emby.listLatest", "emby.listResume", "emby.listFavorites",
+                "emby.listItemsPage", "emby.listItems", "emby.search", "emby.itemDetail",
+                "emby.seriesSeasons", "emby.seasonEpisodes", "emby.setPlayed")) {
+            // 完成的浏览资料在后台登记，页面和播放不等待候选缓存写盘。
+            val snapshot = if (command == "emby.setPlayed") JsonObject(mapOf(
+                "id" to (value.obj()?.get("item_id") ?: JsonPrimitive("")),
+                "played" to (value.obj()?.get("played") ?: JsonPrimitive(false)),
+            )) else value
+            bg.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+                browseCache.recordHeroItems(s.server, s.userId, snapshot, epoch)
+            }
+        }
+        return value
     }
 
     /** 按服务端分页取完整季；逐页通知使用不可变快照，重试可从已有项后继续。 */

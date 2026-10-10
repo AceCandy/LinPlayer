@@ -32,7 +32,7 @@ class CachedHomeImagesTest {
     private val requests = CopyOnWriteArrayList<String>()
     @After fun clean() { server?.stop(0); scope.cancel() }
 
-    private fun app(hit: (String) -> Boolean): AppState {
+    private fun app(disconnect: (String) -> Boolean = { false }, hit: (String) -> Boolean): AppState {
         val local = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server = local
         local.createContext("/") { exchange ->
@@ -42,6 +42,7 @@ class CachedHomeImagesTest {
             assertEquals("HEAD", exchange.requestMethod)
             assertEquals("fixture", exchange.requestHeaders.getFirst("X-LP-Token"))
             val src = Uri.parse(path).getQueryParameter("src").orEmpty()
+            if (disconnect(src)) { exchange.close(); return@createContext }
             val found = hit(src)
             if (found) exchange.responseHeaders.set("X-LP-Cache", "hit")
             exchange.sendResponseHeaders(if (found) 200 else 404, -1)
@@ -72,5 +73,41 @@ class CachedHomeImagesTest {
         assertTrue(app.cachedHomeImages(listOf(Item("a", "未缓存", "Movie"))).isEmpty())
         assertTrue(requests.isNotEmpty())
         assertTrue(requests.all { it.startsWith("/img-cache?") })
+    }
+
+    @Test fun entirePoolBeyondTwentyFourIsAvailableWithoutSixImageLimit() = runBlocking {
+        val app = app { true }
+        val items = (1..35).map { Item("film-$it", "作品$it", "Movie") }
+        assertEquals(items.map { it.id }, app.cachedHomeImages(items).map { it.item.id })
+        assertEquals(35, requests.size)
+    }
+
+    @Test fun watchedAndResumingItemsAlsoExcludeTheirSeries() = runBlocking {
+        val app = app { true }
+        val images = app.cachedHomeImages(listOf(
+            Item("seen", "已看电影", "Movie", played = true),
+            Item("partial", "续播电影", "Movie", resumeSecs = 60.0),
+            Item("series", "正在看剧", "Series"),
+            Item("episode", "正在看集", "Episode", seriesId = "series", resumeSecs = 20.0),
+            Item("fresh", "未看电影", "Movie"),
+        ))
+        assertEquals(listOf("fresh"), images.map { it.item.id })
+        assertFalse(requests.any { it.contains("/Items/series/") })
+    }
+
+    @Test fun multipleUnwatchedEpisodesDoNotRepeatTheSameWork() = runBlocking {
+        val app = app { true }
+        val images = app.cachedHomeImages(listOf(
+            Item("episode1", "第一集", "Episode", seriesId = "series"),
+            Item("episode2", "第二集", "Episode", seriesId = "series"),
+            Item("series", "整剧", "Series"),
+        ))
+        assertEquals(listOf("series"), images.map { it.item.id })
+    }
+
+    @Test fun oneInterruptedProbeDoesNotDiscardLaterCachedWorks() = runBlocking {
+        val app = app(disconnect = { it.contains("/Items/film-1/") }) { true }
+        val images = app.cachedHomeImages((1..35).map { Item("film-$it", "作品$it", "Movie") })
+        assertEquals((2..35).map { "film-$it" }, images.map { it.item.id })
     }
 }

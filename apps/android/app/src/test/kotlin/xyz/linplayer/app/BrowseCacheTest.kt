@@ -17,6 +17,61 @@ import xyz.linplayer.app.data.str
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
 class BrowseCacheTest {
+    @Test fun heroPoolCombinesPagesSurvivesRestartAndIsolatesAccount() = runBlocking {
+        val directory = Files.createTempDirectory("hero-pool-test").toFile()
+        try {
+            val cache = BrowseCache(directory)
+            for (page in 0..2) cache.recordHeroItems("source", "user", buildJsonArray {
+                repeat(30) { offset -> add(buildJsonObject {
+                    put("id", "film-${page * 30 + offset}"); put("name", "真实作品"); put("type_", "Movie")
+                    put("token", "private-test-value"); put("path", "private-test-path")
+                }) }
+            }, cache.generation)
+            val restarted = BrowseCache(directory)
+            assertEquals(90, restarted.heroItems("source", "user", restarted.generation).size)
+            assertTrue(restarted.heroItems("source", "another", restarted.generation).isEmpty())
+            assertTrue(restarted.heroItems("another", "user", restarted.generation).isEmpty())
+            assertFalse(directory.listFiles()!!.any { it.readText().contains("private-test") })
+            restarted.clear()
+            assertTrue(restarted.heroItems("source", "user", restarted.generation).isEmpty())
+        } finally { directory.deleteRecursively() }
+    }
+
+    @Test fun heroPoolUpdatesWatchingStatusAndRejectsWritesAfterClear() = runBlocking {
+        val cache = BrowseCache()
+        fun movie(played: Boolean) = buildJsonObject {
+            put("id", "film"); put("name", "作品"); put("type_", "Movie"); put("played", played)
+            put("genres", buildJsonArray { add("动作") })
+        }
+        cache.recordHeroItems("s", "u", movie(false), cache.generation)
+        cache.recordHeroItems("s", "u", buildJsonObject {
+            put("id", "film"); put("played", true)
+        }, cache.generation)
+        assertTrue(cache.heroItems("s", "u", cache.generation).single().played)
+        assertEquals(listOf("动作"), cache.heroItems("s", "u", cache.generation).single().genres)
+        val epoch = cache.generation
+        cache.clear()
+        cache.recordHeroItems("s", "u", movie(false), epoch)
+        assertTrue(cache.heroItems("s", "u", cache.generation).isEmpty())
+    }
+
+    @Test fun heroPoolFitsExistingByteBudgetAndEvictsOldestMetadata() = runBlocking {
+        val directory = Files.createTempDirectory("hero-budget-test").toFile()
+        try {
+            val cache = BrowseCache(directory)
+            cache.recordHeroItems("s", "u", buildJsonArray {
+                repeat(2000) { index -> add(buildJsonObject {
+                    put("id", "film-$index"); put("name", "片名".repeat(150)); put("type_", "Movie")
+                }) }
+            }, cache.generation)
+            assertTrue(cache.sizeBytes() <= 512 * 1024)
+            val pool = cache.heroItems("s", "u", cache.generation)
+            assertTrue(pool.size > 6)
+            assertEquals("film-1999", pool.last().id)
+            assertFalse(pool.any { it.id == "film-0" })
+        } finally { directory.deleteRecursively() }
+    }
+
     @Test fun restartReadsOnlyWhitelistedDataAndKeysIsolateIdentityAndQuery() = runBlocking {
         val directory = Files.createTempDirectory("browse-test").toFile()
         try {

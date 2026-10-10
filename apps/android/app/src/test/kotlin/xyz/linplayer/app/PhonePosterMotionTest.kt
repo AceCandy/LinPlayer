@@ -1023,17 +1023,28 @@ class PhonePosterMotionTest {
     @Test fun actualMovieShowsSourceTitleBeforeItsMetadataArrives() =
         checkDetailPreview(Item("m1", "Movie", "Movie"))
 
+    @Test fun sourceMetadataIsVisibleBeforeDetailAndKnownPosterSurvivesMissingFlags() =
+        checkDetailPreview(Item("m1", "来源资料", "Movie", year = 2025, rating = 7.8,
+            genres = listOf("悬疑")), missingArtwork = true)
+
     @Test fun actualDetailShowsTitleFromSourceWithoutImage() =
         checkDetailPreview(Item("m1", "无图标题", "Movie"), withImage = false)
 
     @Test fun actualEpisodeUsesSourceTextWithoutInventingSeriesLink() =
         checkDetailPreview(Item("m1", "预览集名", "Episode", seriesName = "预览剧名", seasonNo = 2, episodeNo = 3))
 
-    private fun checkDetailPreview(source: Item, withImage: Boolean = true) {
+    private fun checkDetailPreview(source: Item, withImage: Boolean = true, missingArtwork: Boolean = false) {
         images()
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
         val gate = CompletableDeferred<Unit>()
         val fake = FakeCore().loggedIn().movie()
+        if (missingArtwork) fake.ret("emby.itemDetail", kotlinx.serialization.json.buildJsonObject {
+            put("id", kotlinx.serialization.json.JsonPrimitive("m1"))
+            put("name", kotlinx.serialization.json.JsonPrimitive("沙丘 2"))
+            put("type_", kotlinx.serialization.json.JsonPrimitive("Movie"))
+            put("has_backdrop", kotlinx.serialization.json.JsonPrimitive(false))
+            put("has_primary", kotlinx.serialization.json.JsonPrimitive(false))
+        })
         var pending = false
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
@@ -1078,9 +1089,18 @@ class PhonePosterMotionTest {
                 rule.onNodeWithText("预览剧名").assertIsDisplayed().assertHasNoClickAction()
                 rule.onNodeWithText("S2E3：预览集名").assertIsDisplayed()
             } else rule.onNodeWithText(source.name).assertIsDisplayed()
+            if (missingArtwork) {
+                rule.onNodeWithText("★ 7.8 · 2025").assertIsDisplayed()
+                rule.onNodeWithText("悬疑").assertIsDisplayed().assertHasNoClickAction()
+            }
             rule.runOnIdle { gate.complete(Unit) }
             rule.mainClock.advanceTimeBy(600)
             rule.onNodeWithText("沙丘 2").assertExists()
+            if (missingArtwork) {
+                val pixels = rule.onNodeWithTag("detail.hero.image").captureToImage().toPixelMap()
+                val image = pixels[pixels.width / 2, pixels.height / 4]
+                assertTrue("详情无图旗标不能清空已展示的来源海报", image.green > image.red + .15f)
+            }
             rule.onNodeWithText(source.name, substring = true).assertDoesNotExist()
             if (source.isEpisode) rule.onNodeWithText("预览剧名").assertDoesNotExist()
         } finally {

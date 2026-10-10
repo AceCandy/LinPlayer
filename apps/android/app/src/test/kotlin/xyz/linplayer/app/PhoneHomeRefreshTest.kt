@@ -2,6 +2,9 @@ package xyz.linplayer.app
 
 import com.github.takahirom.roborazzi.captureRoboImage
 import android.app.Application
+import com.sun.net.httpserver.HttpServer
+import java.net.InetSocketAddress
+import java.util.concurrent.CopyOnWriteArrayList
 import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
@@ -66,15 +69,19 @@ class PhoneHomeRefreshTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var nav: NavHostController
+    private var imageCache: HttpServer? = null
+    private val cacheRequests = CopyOnWriteArrayList<String>()
 
     @After fun clean() {
+        imageCache?.stop(0)
         PageCache.clear()
         scope.cancel()
         xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false
     }
 
     @OptIn(coil3.annotation.DelicateCoilApi::class)
-    private fun openHome(core: CorePort, fontScale: Float = 1f, dark: Boolean = false, missingImages: Boolean = false) {
+    private fun openHome(core: CorePort, fontScale: Float = 1f, dark: Boolean = false, missingImages: Boolean = false,
+        cachedImages: Boolean = true, expectHero: Boolean = cachedImages, beforeHome: suspend (AppState) -> Unit = {}) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         if (missingImages) coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(
@@ -82,8 +89,21 @@ class PhoneHomeRefreshTest {
             .components { add(coil3.fetch.Fetcher.Factory<coil3.Uri> { _, _, _ ->
                 coil3.fetch.Fetcher { error("测试缺少封面") }
             }) }.build())
-        val app = AppState(core, scope)
-        runBlocking { app.boot() }
+        val local = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        imageCache = local
+        local.createContext("/") { exchange ->
+            cacheRequests.add(exchange.requestURI.path)
+            assertEquals("/img-cache", exchange.requestURI.path)
+            assertEquals("HEAD", exchange.requestMethod)
+            if (cachedImages) exchange.responseHeaders.set("X-LP-Cache", "hit")
+            exchange.sendResponseHeaders(if (cachedImages) 200 else 404, -1)
+            exchange.close()
+        }
+        local.start()
+        val app = AppState(object : CorePort by core {
+            override val localBaseUrl = "http://127.0.0.1:${local.address.port}"
+        }, scope)
+        runBlocking { app.boot(); beforeHome(app) }
         rule.setContent {
             LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(
@@ -94,6 +114,7 @@ class PhoneHomeRefreshTest {
                     NavHost(nav, startDestination = Route.Home) {
                         composable<Route.Home> { HomePage(nav) }
                         composable<Route.Settings> { Text("其它页面") }
+                        composable<Route.Detail> { Text("作品详情") }
                         composable<Route.Library> { Text("媒体库目标：" + it.toRoute<Route.Library>().viewId) }
                         composable<Route.Servers> { Text("服务器管理目标") }
                     }
@@ -101,6 +122,32 @@ class PhoneHomeRefreshTest {
             }
         }
         rule.waitForIdle()
+        if (expectHero) rule.waitUntil(5000) {
+            rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().isNotEmpty()
+        }
+    }
+
+    @Test fun uncachedImagesDoNotCreateHeroOrFetchOrdinaryImageRoute() {
+        val core = FakeCore().loggedIn().apply { ret("emby.listResume", arr(item("cold", "未缓存作品"))) }
+        openHome(core, cachedImages = false)
+        rule.waitUntil(5000) { cacheRequests.isNotEmpty() }
+        rule.onNodeWithTag("home.banners").assertDoesNotExist()
+        assertTrue(cacheRequests.all { it == "/img-cache" })
+    }
+
+    @Test fun heroUsesPreviouslyBrowsedLibraryOutsideHomeWithoutExtraServerQuery() {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.listResume", arr())
+            ret("emby.listLatest", arr())
+            ret("emby.listCollections", arr())
+            ret("emby.listItemsPage", arr(item("outside-home", "本地缓存的库作品"), item("newly-seen", "刚标记已看")))
+            ret("emby.setPlayed", buildJsonObject { put("item_id", "newly-seen"); put("played", true) })
+        }
+        openHome(core, beforeHome = { it.call("emby.listItemsPage"); it.call("emby.setPlayed") })
+        rule.onNodeWithText("本地缓存的库作品").assertIsDisplayed()
+        rule.onNodeWithText("刚标记已看").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "emby.listItemsPage" })
+        assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
     }
 
     @Test fun resumeShowsEpisodeAndRemainingTime() {
@@ -122,9 +169,43 @@ class PhoneHomeRefreshTest {
         rule.onNodeWithTag("home.libraries").assertDoesNotExist()
         rule.onNodeWithText("继续观看").assertDoesNotExist()
         rule.onNode(hasText("仍然显示的续播") and hasAnyAncestor(hasTestTag("home.resume"))).assertIsDisplayed()
+        val hiddenTop = rule.onNodeWithTag("home.resume").fetchSemanticsNode().boundsInRoot.top
         rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false }
         rule.onNodeWithTag("home.libraries").assertIsDisplayed()
         rule.onNodeWithText("继续观看").assertIsDisplayed()
+        val shown = rule.onNode(hasContentDescription("仍然显示的续播") and
+            hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertEquals("默认开启隐藏时也应保持同一续播位置", hiddenTop, shown.top, 1f)
+    }
+
+    @Test fun heroBackgroundEndsAtResumeImageMiddleWithEitherLibrarySetting() {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.listResume", arr(item("resume", "续播作品")))
+        }
+        openHome(core)
+        fun check() {
+            val image = rule.onNode(hasContentDescription("续播作品") and
+                hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true)
+                .fetchSemanticsNode().boundsInRoot
+            val background = rule.onNodeWithTag("home.hero.background").fetchSemanticsNode().boundsInRoot
+            assertEquals("背景下沿必须跟随续播图片中点", image.center.y, background.bottom, 1f)
+        }
+        check()
+        val resumeBefore = rule.onNode(hasContentDescription("续播作品") and
+            hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val playBefore = rule.onNode(hasText("播放") and hasAnyAncestor(hasTestTag("home.banners")))
+            .fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = true }
+        check()
+        val resumeAfter = rule.onNode(hasContentDescription("续播作品") and
+            hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertEquals("隐藏封面不能上移续播", resumeBefore.top, resumeAfter.top, 1f)
+        val playAfter = rule.onNode(hasText("播放") and hasAnyAncestor(hasTestTag("home.banners")))
+            .fetchSemanticsNode().boundsInRoot
+        assertTrue("播放入口应移入隐藏封面腾出的空间", playAfter.top > playBefore.top + 60f)
+        rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false }
+        check()
+        rule.onRoot().captureRoboImage("build/home-cinema/linked-background.png")
     }
 
     @Test fun homeDoesNotRequestNextUp() {
@@ -178,6 +259,26 @@ class PhoneHomeRefreshTest {
         assertEquals(2, core.calls.count { it.first == "emby.listResume" })
         assertTrue(core.calls.count { it.first == "emby.listLatest" } > latestCalls)
         assertEquals(viewCalls + 1, core.calls.count { it.first == "emby.views" })
+    }
+
+    @Test fun detailReturnKeepsPartiallyScrolledHeroPosition() {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.listResume", arr(item("resume", "续播作品")))
+        }
+        openHome(core)
+        val initial = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performTouchInput {
+            swipeUp(startY = height * .4f, endY = height * .3f, durationMillis = 600)
+        }
+        val before = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        assertTrue("复现须保留部分Hero并有滚动偏移", before.bottom < initial.bottom && before.bottom > 0)
+        rule.runOnIdle { nav.navigate(Route.Detail("resume", "Movie")) }
+        rule.onNodeWithText("作品详情").assertIsDisplayed()
+        rule.runOnIdle { nav.popBackStack() }
+        rule.waitForIdle()
+        val after = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        assertEquals("返回不能删除再插入首项而带走滚动位置", before.bottom, after.bottom, 1f)
     }
 
     @Test fun pullDownRefreshesHome() {
@@ -293,7 +394,7 @@ class PhoneHomeRefreshTest {
     @Test fun emptyLibrariesKeepResumeBelowToolbar() {
         val core = FakeCore().loggedIn()
         core.ret("emby.views", arr())
-        openHome(core)
+        openHome(core, expectHero = false)
         rule.onNodeWithText("这个账号下没有媒体库").assertIsDisplayed()
         rule.onNodeWithText("继续观看").assertIsDisplayed()
         assertEquals(0, core.calls.count { it.first == "emby.listLatest" })

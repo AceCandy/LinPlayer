@@ -138,7 +138,7 @@ fun NetImage(
             }
         }
         val fading by remember(fade, immediate) { derivedStateOf { !immediate && fade.value < 1f } }
-        val preview = previewUrl?.takeIf { it != url }?.let { previewData ->
+        val preview = previewUrl?.takeIf { it != url || backgroundBlur }?.let { previewData ->
             // 来源热图先显示；对它再次模糊会错过现成的内存缓存。
             androidx.compose.runtime.key(previewData) { rememberAsyncImagePainter(previewData) }
         }

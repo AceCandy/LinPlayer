@@ -5,6 +5,7 @@
 - Go 修改按现有包风格并 gofmt，不增加未请求的抽象或静默回退。
 - handler 的 context.Context 沿调用链传递，失效请求不得继续覆盖当前状态。
 - 图片通道：Emby 登录/重登使用 `AllowEmbyDefault` 转发尺寸；第三方图床使用 `AllowDefault` 保留签名 query。同 URL、同请求头合并回源，单等待者取消不影响其他等待者，全部离开或服务关闭才取消；排队取得名额后复查缓存。
+- Emby `/Items/.../Images/...` 的HTTP 200一像素PNG属于缺图占位，不能作为成功图片缓存或供图；回源时返回加载错误让宿主回退，命中旧占位时只清除该key的内存/磁盘缓存。`/img-cache`仍只返回未命中，不得为修复轮播而回源；其他图床的一像素图片保留原行为。`TestEmbyPlaceholderFailsAndRecovers`、`TestOldEmbyPlaceholderCacheEvicts`和`TestOtherOnePixelImageKeepsCaching`覆盖恢复和边界。图片HTTP状态、可解码尺寸、代理缓存与最终呈现分开核实，不能仅凭Primary请求或上游200判定图片已展示。
 - 播放问题先核查 libmpv 配置、日志与时序；不复制播放器已经提供的能力。
 - 修共享函数前核查全部调用者，包括不同宿主与入口。
 

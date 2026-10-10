@@ -7,10 +7,12 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.statusBars
@@ -40,19 +42,25 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalConfiguration
@@ -63,6 +71,7 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LocalLifecycleOwner
@@ -71,10 +80,11 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.delay
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.CachedHomeImage
+import xyz.linplayer.app.data.cachedHomeImages
+import xyz.linplayer.app.data.homeHeroCandidates
 import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
@@ -146,21 +156,35 @@ fun HomePage(nav: NavController) {
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
     val motionAccount = currentSession?.let { it.server to it.userId }
-    var banners by remember(motionAccount) { mutableStateOf<List<CachedHomeImage>>(emptyList()) }
+    var banners by keepState<List<CachedHomeImage>>("home.banners:$motionAccount") { emptyList() }
+    val heroRevision by app.browseCache.heroRevision.collectAsState()
     val bannerItems = (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty())
         .distinctBy { it.id }
-    LaunchedEffect(motionAccount, bannerItems, reload) {
-        // 候选只取首页已有真实作品，图片复用核心与Coil缓存，不额外请求推荐数据。
-        val found = bannerItems.filter { it.type in setOf("Movie", "Series", "Episode") }.shuffled().take(6)
-            .mapNotNull { item -> app.imageUrl(item.id, if (item.hasBackdrop) "Backdrop" else "Primary", 720)
-                ?.let { CachedHomeImage(item, it, item.hasBackdrop) } }
-        currentCoroutineContext().ensureActive()
-        if (app.session.value?.let { it.server to it.userId } == motionAccount) {
-            if (banners.isEmpty() && found.isNotEmpty() && !list.isScrollInProgress &&
-                list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0)
-                list.requestScrollToItem(0)
-            banners = found
+    LaunchedEffect(motionAccount, bannerItems, reload, heroRevision) {
+        // 只探测核心只读缓存路由，随机新增候选不触发远程图片下载。
+        val identity = currentSession ?: return@LaunchedEffect
+        val epoch = app.browseCache.generation
+        val pool = app.browseCache.heroItems(identity.server, identity.userId, epoch)
+        val candidates = homeHeroCandidates(bannerItems + pool)
+        // 返回时保留首项及候选顺序，避免恢复滚动位置后又删除/插入Hero。
+        val retained = banners.mapNotNull { previous -> candidates.firstOrNull { it.id == previous.item.id } }
+        val retainedIds = retained.map { it.id }.toSet()
+        banners = banners.filter { it.item.id in retainedIds }
+        fun update(found: List<CachedHomeImage>, complete: Boolean) {
+            if (app.session.value?.let { it.server to it.userId } != motionAccount || app.browseCache.generation != epoch) return
+            val byId = found.associateBy { it.item.id }
+            val kept = banners.mapNotNull { byId[it.item.id] ?: it.takeUnless { complete } }
+            val keptIds = kept.map { it.item.id }.toSet()
+            val next = kept + found.filterNot { it.item.id in keptIds }
+            if (banners.isEmpty() && next.isNotEmpty() && !list.isScrollInProgress &&
+                list.firstVisibleItemIndex == 0 && list.firstVisibleItemScrollOffset == 0) list.requestScrollToItem(0)
+            banners = next
         }
+        val cachedImages = app.cachedHomeImages(retained + candidates.filterNot { it.id in retainedIds }.shuffled()) {
+            kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main.immediate) { update(it, complete = false) }
+        }
+        currentCoroutineContext().ensureActive()
+        update(cachedImages, complete = true)
     }
     val bannerVisible by remember { derivedStateOf {
         list.layoutInfo.visibleItemsInfo.any { it.key == "banners" }
@@ -246,13 +270,21 @@ fun HomePage(nav: NavController) {
         app.invalidate.collect { if (it == "library" || it == "accounts" || it == "all") reload++ }
     }
 
-    var librariesHeight by remember(motionAccount) { mutableStateOf(0.dp) }
+    var librariesHeight by remember(motionAccount) { mutableStateOf(90.dp + Sp.x4) }
     val density = LocalDensity.current
-    val resumeHeaderHeight = with(density) {
-        if (UiPrefs.hideHomeLibraries.value) 0.dp else Sp.x26 + LpText.title.lineHeight.toDp() + Sp.x10
+    val resumeStripHeight = xyz.linplayer.app.ui.components.rowHeight(true)
+    val textMeasurer = rememberTextMeasurer()
+    val initialResumeHeaderHeight = with(density) {
+        Sp.x26 + maxOf(16.dp, textMeasurer.measure("继续观看", LpText.title).size.height.toDp()) + Sp.x10
     }
+    var resumeHeaderHeight by remember(motionAccount, density, initialResumeHeaderHeight) {
+        mutableStateOf(initialResumeHeaderHeight)
+    }
+    val hiddenHeroSpace = if (banners.isNotEmpty() && UiPrefs.hideHomeLibraries.value)
+        librariesHeight + if (resume.valueOrNull.orEmpty().isNotEmpty()) resumeHeaderHeight else 0.dp
+    else 0.dp
     val heroExtension = if (resume.valueOrNull.orEmpty().isNotEmpty())
-        (if (UiPrefs.hideHomeLibraries.value) 0.dp else librariesHeight) + resumeHeaderHeight +
+        (if (UiPrefs.hideHomeLibraries.value) 0.dp else librariesHeight + resumeHeaderHeight) +
             xyz.linplayer.app.ui.components.rowImageHeight(true) / 2
     else 0.dp
 
@@ -311,7 +343,7 @@ fun HomePage(nav: NavController) {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
-            ServerChip(accounts.firstOrNull { it.isActive }) { pickServer = !pickServer }
+            ServerChip(accounts.firstOrNull { it.isActive }, onImage = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)) { pickServer = !pickServer }
             ServerMenu(
                 open = pickServer, anchorH = anchorH, accounts = accounts,
                 onClose = { pickServer = false },
@@ -324,7 +356,8 @@ fun HomePage(nav: NavController) {
         }
         Box(Modifier.size(48.dp).pressable({ nav.navigate(Route.Settings) }),
             contentAlignment = Alignment.Center) {
-            Icon(LpIcons.settings, "设置", Modifier.size(24.dp), tint = Lp.colors.fg2)
+            Icon(LpIcons.settings, "设置", Modifier.size(24.dp),
+                tint = if (banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)) Color.White else Lp.colors.fg2)
         }
     }) { pad ->
         // 地基块失败才整页报错:只有 emby.views 是地基
@@ -344,8 +377,10 @@ fun HomePage(nav: NavController) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                 if (banners.isNotEmpty()) item("banners") {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
-                        backgroundExtension = heroExtension, onPlay = play, primaryImage = { app.imageUrl(it.id, "Primary", 720) },
-                        logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120) else null })
+                        backgroundExtension = heroExtension, onPlay = play,
+                        foregroundExtension = hiddenHeroSpace,
+                        primaryImage = { app.imageUrl(it.id, "Primary", 330)?.replaceFirst("/img?", "/img-cache?") },
+                        logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120)?.replaceFirst("/img?", "/img-cache?") else null })
                 }
                 if (!UiPrefs.hideHomeLibraries.value) item("views") {
                     Box(Modifier.fillMaxWidth().onSizeChanged {
@@ -365,8 +400,13 @@ fun HomePage(nav: NavController) {
                 }
 
                 item("resume") {
-                    RowBlock(if (UiPrefs.hideHomeLibraries.value) "" else "继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
-                        homeAccount = motionAccount, resume = true)
+                    Box(Modifier.fillMaxWidth().onSizeChanged {
+                        if (!UiPrefs.hideHomeLibraries.value)
+                            resumeHeaderHeight = (with(density) { it.height.toDp() } - resumeStripHeight).coerceAtLeast(0.dp)
+                    }) {
+                        RowBlock(if (UiPrefs.hideHomeLibraries.value) "" else "继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
+                            homeAccount = motionAccount, resume = true)
+                    }
                 }
 
                 // 每个媒体库一条「最新」轨。未到的画骨架 —— 否则首屏下半是空的
@@ -425,21 +465,46 @@ internal fun CachedHomeBanner(
     primaryImage: (Item) -> String? = { null },
     logoImage: (Item) -> String? = { null },
     backgroundExtension: Dp = 0.dp,
+    foregroundExtension: Dp = 0.dp,
 ) {
     if (images.isEmpty()) return
     val c = Lp.colors
+    val textShadow = Shadow(Color.Black, blurRadius = with(LocalDensity.current) { 6.dp.toPx() })
     val owner = LocalLifecycleOwner.current
-    var index by remember(images) { mutableStateOf(0) }
+    val ids = images.map { it.item.id }
+    var order by rememberSaveable { mutableStateOf(ids) }
+    var currentId by rememberSaveable { mutableStateOf(ids.first()) }
+    val currentIndex = ids.indexOf(currentId).takeIf { it >= 0 } ?: 0
+    SideEffect {
+        val updated = order.filter { it in ids } + ids.filterNot { it in order }
+        if (updated != order) order = updated
+        if (currentId !in ids) currentId = ids.first()
+    }
+    fun advance(direction: Int) {
+        val position = order.indexOf(currentId).coerceAtLeast(0)
+        if (direction > 0 && position == order.lastIndex && order.size > 1) {
+            val next = order.shuffled().toMutableList()
+            if (next.first() == currentId) java.util.Collections.swap(next, 0, 1)
+            order = next
+            currentId = next.first()
+        } else currentId = order[(position + direction + order.size) % order.size]
+    }
+    var progress by remember { mutableFloatStateOf(0f) }
     var touching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var manualRevision by remember { mutableStateOf(0) }
     val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
-    LaunchedEffect(owner, visible, images, touching, dragging, manualRevision, motion) {
+    LaunchedEffect(owner, visible, images.size > 1, currentId, touching, dragging, manualRevision, motion) {
+        progress = 0f
         if (!visible || touching || dragging || images.size < 2 || motion <= 0f) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
-                delay(5000)
-                index = (index + 1) % images.size
+                val started = withInfiniteAnimationFrameNanos { it }
+                do {
+                    progress = withInfiniteAnimationFrameNanos { ((it - started) / 5_000_000_000f).coerceIn(0f, 1f) }
+                } while (progress < 1f)
+                advance(1)
+                progress = 0f
             }
         }
     }
@@ -448,10 +513,11 @@ internal fun CachedHomeBanner(
     val available = (LocalConfiguration.current.screenHeightDp.dp - status - bottom).coerceAtLeast(0.dp)
     val contentMin = with(LocalDensity.current) { status + 56.dp + 64.sp.toDp() + 16.sp.toDp() + 84.dp }
     val heroHeight = (available * .42f).coerceIn(260.dp, 310.dp)
-        .coerceAtMost(available * .65f).coerceAtLeast(contentMin)
+        .coerceAtMost(available * .65f).coerceAtLeast(contentMin) + foregroundExtension
+    val toolbarStop = ((status + 56.dp) / (heroHeight + backgroundExtension)).coerceIn(0f, .7f)
     val fade = lpTween<Float>(400, LinearEasing)
     Box(Modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
-        .pointerInput(images) {
+        .pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 touching = true
@@ -460,20 +526,20 @@ internal fun CachedHomeBanner(
                 } finally { touching = false; manualRevision++ }
             }
         }
-        .pointerInput(images) {
+        .pointerInput(Unit) {
             var travel = 0f
             detectHorizontalDragGestures(
                 onDragStart = { dragging = true; travel = 0f },
                 onDragCancel = { dragging = false; manualRevision++ },
                 onDragEnd = {
                     if (kotlin.math.abs(travel) >= 40.dp.toPx())
-                        index = (index + (if (travel < 0) 1 else images.size - 1)) % images.size
+                        advance(if (travel < 0) 1 else -1)
                     dragging = false; manualRevision++
                 },
             ) { change, amount -> change.consume(); travel += amount }
         }) {
-        // 背景可溢出到后续栏目，测量占位仍是原Hero；前景手势和控件不会向下移动。
-        AnimatedContent(images[index], modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
+        // 隐藏媒体库时将腾出的高度并入Hero，后续续播卡片保持原位。
+        AnimatedContent(images[currentIndex], modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
             val height = heroHeight.roundToPx()
             val expanded = height + backgroundExtension.roundToPx()
             val placeable = measurable.measure(constraints.copy(minHeight = expanded, maxHeight = expanded))
@@ -483,11 +549,6 @@ internal fun CachedHomeBanner(
             var failed by remember(image.url) { mutableStateOf(false) }
             var logoFailed by remember(image.item.id) { mutableStateOf(false) }
             val url = if (failed) primaryImage(image.item) else image.url
-            val density = LocalDensity.current
-            var foregroundHeight by remember(image.item.id) { mutableStateOf(heroHeight / 2) }
-            val fullHeight = heroHeight + backgroundExtension
-            val titleStart = ((heroHeight - foregroundHeight) / fullHeight).coerceIn(0f, 1f)
-            val heroEnd = heroHeight / fullHeight
             Box(Modifier.fillMaxSize().testTag("home.hero.background")) {
                 NetImage(url, null, Modifier.fillMaxSize(), 0.dp, scale = ContentScale.Crop,
                     onLoadResult = { loaded ->
@@ -495,21 +556,32 @@ internal fun CachedHomeBanner(
                         // 即使海报也缺失仍保留标题与播放入口，静态底色避免布局跳动。
                     })
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to (if (c.isDark) Color.Black.copy(alpha = .6f) else c.bg.copy(alpha = .92f)),
-                    titleStart * .45f to Color.Transparent, titleStart to c.bg.copy(alpha = .91f),
-                    heroEnd to c.bg.copy(alpha = .94f), 1f to c.bg)))
+                    0f to Color.Black.copy(alpha = .74f), toolbarStop to Color.Black.copy(alpha = .66f),
+                    (toolbarStop + .12f) to Color.Transparent, .85f to Color.Transparent,
+                    .90f to c.bg.copy(alpha = .12f), .96f to c.bg.copy(alpha = .6f), 1f to c.bg)))
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .onSizeChanged { foregroundHeight = with(density) { it.height.toDp() } }
-                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
+                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
+                        .drawBehind {
+                            val feather = 40.dp.toPx()
+                            val tail = 12.dp.toPx()
+                            val inset = Sp.x16.toPx()
+                            // 遮罩延伸到屏幕两侧，上下先淡到透明再结束，避免标题栏矩形硬边。
+                            drawRect(Brush.verticalGradient(
+                                0f to Color.Transparent, .2f to Color.Black.copy(alpha = .6f),
+                                .8f to Color.Black.copy(alpha = .6f), 1f to Color.Transparent,
+                                startY = -feather, endY = size.height + tail),
+                                topLeft = Offset(-inset, -feather),
+                                size = androidx.compose.ui.geometry.Size(size.width + inset * 2, size.height + feather + tail))
+                        },
                         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                         val logo = logoImage(image.item).takeUnless { logoFailed }
                         if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
                             0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
-                        else Text(image.item.cardTitle, color = c.fg, style = LpText.hero,
+                        else Text(image.item.cardTitle, color = Color.White, style = LpText.hero.copy(shadow = textShadow),
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
-                        if (info.isNotBlank()) Text(info, color = c.fg2, style = LpText.caption,
+                        if (info.isNotBlank()) Text(info, color = Color.White.copy(alpha = .92f), style = LpText.caption.copy(shadow = textShadow),
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
                         Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(R.md)).background(c.acc)
                             .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
@@ -526,9 +598,14 @@ internal fun CachedHomeBanner(
         if (images.size > 1) Row(Modifier.align(Alignment.BottomEnd).testTag("home.hero.indicators")
             .padding(end = Sp.x16, bottom = Sp.x10),
             horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
-            images.forEachIndexed { page, _ ->
-                Box(Modifier.size(if (page == index) 26.dp else 16.dp, 3.dp).clip(RoundedCornerShape(R.pill))
-                    .background(if (page == index) c.acc else Color.White.copy(alpha = .3f)))
+            repeat(minOf(images.size, 6)) { page ->
+                val active = page == order.indexOf(currentId).coerceAtLeast(0) % minOf(images.size, 6)
+                Canvas(Modifier.size(if (active) 26.dp else 16.dp, 3.dp).clip(RoundedCornerShape(R.pill))
+                    .then(if (active) Modifier.testTag("home.hero.progress") else Modifier)) {
+                    drawRect(Color.Black.copy(alpha = .4f))
+                    drawRect(Color.White.copy(alpha = .45f))
+                    if (active) drawRect(c.acc, size = size.copy(width = size.width * progress))
+                }
             }
         }
     }
@@ -536,7 +613,7 @@ internal fun CachedHomeBanner(
 
 /** 紧凑服名入口：无底色和箭头，共用服务器图标，长名称省略。 */
 @Composable
-private fun ServerChip(account: Account?, onClick: () -> Unit) {
+private fun ServerChip(account: Account?, onImage: Boolean = false, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
     Row(
@@ -553,7 +630,8 @@ private fun ServerChip(account: Account?, onClick: () -> Unit) {
         Spacer(Modifier.width(Sp.x8))
         Text(
             account?.name ?: "服务器", Modifier.weight(1f, fill = false),
-            color = c.fg, style = LpText.title,
+            color = if (onImage) Color.White else c.fg,
+            style = if (onImage) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }

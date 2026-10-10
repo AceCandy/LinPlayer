@@ -172,6 +172,17 @@ func Put2L(key string, b []byte) {
 	Put(key, b)
 }
 
+// Remove 丢弃单张无效图片，内存与磁盘必须同步清除。
+func Remove(key string) {
+	memMu.Lock()
+	if old, ok := memMap[key]; ok {
+		memTotal -= int64(len(old.bytes))
+		delete(memMap, key)
+	}
+	memMu.Unlock()
+	_ = os.Remove(fileOf(key))
+}
+
 // Get 只读磁盘层。未命中 / 已过期 → nil。
 func Get(key string) []byte {
 	p := fileOf(key)

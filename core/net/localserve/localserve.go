@@ -24,6 +24,7 @@
 package localserve
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
@@ -32,6 +33,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"image/png"
 	"io"
 	"net"
 	"net/http"
@@ -320,7 +322,7 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request, cacheOnly b
 	/* 缓存键用**带尺寸的上游 URL**。约定 src 里**不带凭据**(凭据在白名单登记的
 	   headers 里)—— 否则重登一次 token 变了,整盘缓存就全废。 */
 	key := upstream
-	if b := imgcache.Get2L(key); b != nil {
+	if b := cachedImage(key); b != nil {
 		writeImage(w, b, true)
 		return
 	}
@@ -391,7 +393,7 @@ func (s *Server) loadImage(ctx context.Context, key, upstream string, headers ht
 		return
 	}
 	// 排队期间其它请求可能已经生成缓存，不能再次回源。
-	if f.bytes = imgcache.Get2L(upstream); f.bytes != nil {
+	if f.bytes = cachedImage(upstream); f.bytes != nil {
 		return
 	}
 	f.bytes, f.err = s.fetch(ctx, upstream, headers)
@@ -433,7 +435,34 @@ func (s *Server) fetch(ctx context.Context, u string, headers http.Header) ([]by
 	if len(b) == 0 {
 		return nil, errors.New("上游给了个空响应")
 	}
+	if isEmbyPlaceholder(u, b) {
+		return nil, errors.New("上游返回缺图占位")
+	}
 	return b, nil
+}
+
+// 缺图占位曾被当作成功缓存；访问时只清除这一张，让普通图片请求重新回源。
+func cachedImage(key string) []byte {
+	b := imgcache.Get2L(key)
+	if b != nil && isEmbyPlaceholder(key, b) {
+		imgcache.Remove(key)
+		return nil
+	}
+	return b
+}
+
+// Emby 图片接口可能用HTTP 200的一像素PNG表示缺图，不能当作可展示的海报。
+func isEmbyPlaceholder(src string, b []byte) bool {
+	u, err := url.Parse(src)
+	if err != nil {
+		return false
+	}
+	p := strings.ToLower(u.Path)
+	if !strings.Contains(p, "/items/") || !strings.Contains(p, "/images/") {
+		return false
+	}
+	cfg, err := png.DecodeConfig(bytes.NewReader(b))
+	return err == nil && cfg.Width == 1 && cfg.Height == 1
 }
 
 // withSize 把尺寸参数拼成上游认得的形状。

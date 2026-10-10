@@ -3,6 +3,8 @@ package xyz.linplayer.app
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.EnterTransition
+import androidx.compose.animation.ExitTransition
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -237,6 +239,9 @@ private fun MainShell() {
     val pageFade = lpTween<Float>(T.T8, LinearEasing)
     val exitFade = lpTween<Float>(T.T5, LinearEasing)
     val popFade = lpTween<Float>(T.T6, LinearEasing)
+    val detailMotion = xyz.linplayer.app.ui.theme.LocalMotionScale.current > 0f
+    val detailSlide = lpTween<androidx.compose.ui.unit.IntOffset>(T.T6, LpEasing.standardDecelerate)
+    val detailExit = lpTween<androidx.compose.ui.unit.IntOffset>(T.T6, LpEasing.standardAccelerate)
 
     /* ☠ 底栏从「Column 里占一格」改成「Box 上叠一层」。
        占一格的话内容区被切短,底栏上面永远是一条硬边;叠一层之后轨道从它下面穿过去,
@@ -254,17 +259,25 @@ private fun MainShell() {
             NavHost(
                 navController = nav,
                 startDestination = Route.Home,
-                // 页面转场:新页从右滑入 + 淡入。Tab 之间轻缩放 + 淡入(平级没有方向)
+                // 详情整页滑入/滑出，来源页保持可见，图片独立渐显。
                 enterTransition = {
                     val peers = initialState.destination.isTab() && targetState.destination.isTab()
-                    if (targetState.destination.hasRoute<Route.Detail>()) fadeIn(pageFade)
+                    if (targetState.destination.hasRoute<Route.Detail>()) {
+                        if (detailMotion) slideInHorizontally(detailSlide) { it } else EnterTransition.None
+                    }
                     else if (peers) scaleIn(pageScale, initialScale = .98f) + fadeIn(pageFade)
                     else slideInHorizontally(pageSlide) { it / 10 } + fadeIn(pageFade)
                 },
-                exitTransition = { fadeOut(exitFade) },
-                popEnterTransition = { fadeIn(exitFade) },
+                exitTransition = {
+                    if (targetState.destination.hasRoute<Route.Detail>()) ExitTransition.None else fadeOut(exitFade)
+                },
+                popEnterTransition = {
+                    if (initialState.destination.hasRoute<Route.Detail>()) EnterTransition.None else fadeIn(exitFade)
+                },
                 popExitTransition = {
-                    if (initialState.destination.hasRoute<Route.Detail>()) fadeOut(popFade)
+                    if (initialState.destination.hasRoute<Route.Detail>()) {
+                        if (detailMotion) slideOutHorizontally(detailExit) { it } else ExitTransition.None
+                    }
                     else slideOutHorizontally(pageSlide) { it / 10 } + fadeOut(popFade)
                 },
             ) {

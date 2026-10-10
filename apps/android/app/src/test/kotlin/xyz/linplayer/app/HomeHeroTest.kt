@@ -75,6 +75,9 @@ class HomeHeroTest {
         assertEquals(play, rule.onNodeWithText("播放").fetchSemanticsNode().boundsInRoot)
         assertEquals(lines, rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot)
         val pixels = rule.onRoot().captureToImage().toPixelMap()
+        val fullHeight = hero.height + 100
+        assertTrue("背景中段不应被九成黑遮罩覆盖", pixels[2, (fullHeight * .7f).toInt()].luminance() > .8f)
+        assertTrue("底部15%之前仍应保留原图", pixels[2, (fullHeight * .84f).toInt()].luminance() > .8f)
         assertTrue("渐变背景必须真实延伸到Hero占位之外", pixels[2, hero.bottom.toInt() + 12].luminance() > xyz.linplayer.app.ui.theme.DarkColors.bg.luminance() + .003f)
         assertTrue("渐变末尾应融入页面底色", pixels[2, hero.bottom.toInt() + 99].luminance() < .01f)
         rule.onRoot().captureRoboImage("build/home-cinema/extended-hero.png")
@@ -114,6 +117,22 @@ class HomeHeroTest {
         rule.mainClock.advanceTimeBy(3500)
         rule.onNodeWithText("作品second").assertIsDisplayed()
         rule.mainClock.advanceTimeBy(2000)
+        rule.onNodeWithText("作品first").assertIsDisplayed()
+    }
+
+    @Test fun restoredPageIsSafeWhenBannerPoolShrinksWhileAway() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        var present by mutableStateOf(true)
+        var pool by mutableStateOf(listOf(image("first"), image("second"), image("third")))
+        rule.setContent { LpTheme(darkOverride = true) {
+            val holder = androidx.compose.runtime.saveable.rememberSaveableStateHolder()
+            if (present) holder.SaveableStateProvider("home") { CachedHomeBanner(pool, false, {}) }
+        } }
+        repeat(2) { rule.onNodeWithTag("home.banners").performTouchInput { swipeLeft() } }
+        rule.onNodeWithText("作品third").assertIsDisplayed()
+        rule.runOnIdle { present = false }
+        rule.onNodeWithTag("home.banners").assertDoesNotExist()
+        rule.runOnIdle { pool = pool.take(1); present = true }
         rule.onNodeWithText("作品first").assertIsDisplayed()
     }
 
@@ -182,6 +201,79 @@ class HomeHeroTest {
         rule.mainClock.advanceTimeBy(12000)
         rule.onNodeWithText("作品first").assertIsDisplayed()
         rule.onNodeWithText("作品second").assertDoesNotExist()
+    }
+
+    @Test fun activeIndicatorFillsLeftToRightBeforeRotating() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        rule.mainClock.autoAdvance = false
+        rule.setContent { LpTheme(darkOverride = true) {
+            CachedHomeBanner(listOf(image("first"), image("second")), true, {})
+        } }
+        rule.mainClock.advanceTimeBy(2500)
+        val pixels = rule.onNodeWithTag("home.hero.progress").captureToImage().toPixelMap()
+        assertTrue("进度左半应有强调色", pixels[2, 1].red > pixels[pixels.width - 2, 1].red + .2f)
+        rule.onNodeWithText("作品first").assertIsDisplayed()
+        rule.mainClock.advanceTimeBy(3100)
+        rule.onNodeWithText("作品second").assertIsDisplayed()
+    }
+
+    @Test fun discoveringMoreCachedWorksDoesNotRestartCurrentCountdown() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        var pool by mutableStateOf(listOf(image("first"), image("second")))
+        rule.mainClock.autoAdvance = false
+        rule.setContent { LpTheme(darkOverride = true) { CachedHomeBanner(pool, true, {}) } }
+        rule.mainClock.advanceTimeBy(4500)
+        rule.runOnIdle { pool = pool + image("third") }
+        rule.mainClock.advanceTimeBy(1200)
+        rule.onNodeWithText("作品second").assertIsDisplayed()
+    }
+
+    @Test fun largePoolRotatesEveryWorkBeforeRepeatingAndKeepsIndicatorsCompact() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val images = (1..8).map { image("$it") }
+        rule.mainClock.autoAdvance = false
+        rule.setContent { LpTheme(darkOverride = true) { CachedHomeBanner(images, true, {}) } }
+        val seen = mutableSetOf<String>()
+        var previous = ""
+        rule.mainClock.advanceTimeBy(450)
+        repeat(16) { step ->
+            val title = rule.onAllNodes(hasText("作品", substring = true)).fetchSemanticsNodes().single()
+                .config[androidx.compose.ui.semantics.SemanticsProperties.Text].first { it.text.startsWith("作品") }.text
+            assertNotEquals("相邻轮不能重复最后一张", previous, title)
+            if (step % 8 == 0) seen.clear()
+            assertTrue("一轮内不能重复作品", seen.add(title))
+            previous = title
+            val width = rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot.width
+            assertTrue("大候选池不能把指示线挤出屏幕", width < 160f)
+            rule.mainClock.advanceTimeBy(5100)
+        }
+    }
+
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    @Test fun brightArtworkProtectsTheWholeTitleInBothThemes() {
+        var dark by mutableStateOf(false)
+        coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(
+            ApplicationProvider.getApplicationContext<android.content.Context>())
+            .coroutineContext(Dispatchers.Unconfined)
+            .components { add(coil3.fetch.Fetcher.Factory<coil3.Uri> { _, _, _ ->
+                coil3.fetch.Fetcher { coil3.fetch.ImageFetchResult(
+                    android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+                        .apply { eraseColor(android.graphics.Color.WHITE) }.asImage(), false, coil3.decode.DataSource.MEMORY) }
+            }) }.build())
+        val name = "这是很长的真实影片名称需要保护整行文字的可读性"
+        rule.setContent { LpTheme(darkOverride = dark) {
+            CachedHomeBanner(listOf(image("one").copy(item = image("one").item.copy(name = name))), false, {})
+        } }
+        repeat(2) { theme ->
+            val bounds = rule.onNodeWithText(name, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+            val pixels = rule.onRoot().captureToImage().toPixelMap()
+            assertTrue("亮图上标题末端也需要可读底色", pixels[(bounds.right - 2).toInt(), (bounds.bottom - 1).toInt()].luminance() < .18f)
+            val edgeY = bounds.top.toInt() + 1
+            assertTrue("标题遮罩不能在左右内边距处形成黑色矩形硬边",
+                kotlin.math.abs(pixels[15, edgeY].luminance() - pixels[17, edgeY].luminance()) < .06f)
+            rule.onRoot().captureRoboImage("build/home-cinema/bright-hero-$theme.png")
+            rule.runOnIdle { dark = true }
+        }
     }
 
     @Test

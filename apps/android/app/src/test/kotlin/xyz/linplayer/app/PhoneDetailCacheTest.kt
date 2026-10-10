@@ -14,6 +14,7 @@ import androidx.compose.ui.unit.Density
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.navigation.NavController
+import androidx.navigation.toRoute
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -52,6 +53,7 @@ class PhoneDetailCacheTest {
     @get:Rule val temp = TemporaryFolder()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var nav: NavController
+    private var started: Route.Player? = null
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
     private fun metadata(name: String) = buildJsonObject {
@@ -74,6 +76,11 @@ class PhoneDetailCacheTest {
                         exitTransition = { ExitTransition.None }) {
                         composable<Route.Home> { Text("首页") }
                         composable<Route.Detail> { DetailPage(controller, it) }
+                        composable<Route.Player> {
+                            val target = it.toRoute<Route.Player>()
+                            androidx.compose.runtime.SideEffect { started = target }
+                            Text("播放目标")
+                        }
                     }
                 }
             }
@@ -100,7 +107,7 @@ class PhoneDetailCacheTest {
             }
         }
         open(AppState(core, scope), Route.Detail("sh", "Series"))
-        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNodeWithTag("detail.episodes").assertDoesNotExist()
         rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
         rule.onNodeWithTag("detail.play.target").assertDoesNotExist()
         rule.runOnIdle { gate.complete(Unit) }
@@ -176,6 +183,29 @@ class PhoneDetailCacheTest {
     @Test fun knownMissingBackdropUsesPrimaryImage() = checkBackgroundFallback(hasBackdrop = false)
     @Test fun failedBackdropFallsBackToPrimaryImage() = checkBackgroundFallback(hasBackdrop = true)
 
+    @Test fun seriesSeasonsStartWhileDetailIsStillPending() {
+        val fake = FakeCore().loggedIn().series()
+        val detailGate = CompletableDeferred<Unit>()
+        val seasonGate = CompletableDeferred<Unit>()
+        var seasonStarted = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.itemDetail") detailGate.await()
+                if (command == "emby.seriesSeasons") { seasonStarted = true; seasonGate.await() }
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            open(AppState(core, scope), Route.Detail("sh", "Series"))
+            rule.runOnIdle { assertTrue("整剧路由已知ID，季请求不应等待详情", seasonStarted) }
+            rule.runOnIdle { detailGate.complete(Unit) }
+            rule.waitForIdle()
+            rule.runOnIdle { seasonGate.complete(Unit) }
+            rule.waitForIdle()
+            assertEquals(1, fake.calls.count { it.first == "emby.seriesSeasons" })
+        } finally { detailGate.complete(Unit); seasonGate.complete(Unit) }
+    }
+
     @OptIn(coil3.annotation.DelicateCoilApi::class)
     private fun checkBackgroundFallback(hasBackdrop: Boolean) {
         val requests = java.util.concurrent.CopyOnWriteArrayList<String>()
@@ -200,12 +230,15 @@ class PhoneDetailCacheTest {
         rule.waitForIdle()
         assertTrue("应加载Primary海报", requests.any { it.contains("Primary") })
         assertEquals("Backdrop请求应按元数据判定", hasBackdrop, requests.any { it.contains("Backdrop") })
+        val pixels = rule.onNodeWithTag("detail.hero.image").captureToImage().toPixelMap()
+        val image = pixels[pixels.width / 2, pixels.height / 4]
+        assertTrue("取色请求不能冒充头图已展示", image.green > image.red + .15f)
         rule.onRoot().captureRoboImage("build/detail-options/fallback-$hasBackdrop.png")
     }
 
-    @Test fun seriesReservesEpisodeLayoutBeforeSeasonsAndEpisodesArrive() = stableEpisodeLayout(1f)
+    @Test fun seriesShowsOneLoadingStateUntilFirstRealEpisodes() = stableEpisodeLayout(1f)
 
-    @Test fun seriesPlaceholderMatchesLargeFontEpisodeLayout() = stableEpisodeLayout(1.3f)
+    @Test fun largeFontSeriesAlsoCommitsFirstRealEpisodesTogether() = stableEpisodeLayout(1.3f)
 
     private fun stableEpisodeLayout(fontScale: Float) {
         val fake = FakeCore().loggedIn().series()
@@ -219,22 +252,21 @@ class PhoneDetailCacheTest {
             }
         }
         open(AppState(core, scope), Route.Detail("s1", "Series"), fontScale)
-        rule.onNodeWithTag("detail.episodes").performScrollTo()
-        val initial = rule.onNodeWithTag("detail.episodes").fetchSemanticsNode().boundsInRoot
-        val target = rule.onNodeWithTag("detail.actions.layout").fetchSemanticsNode().boundsInRoot
-        assertTrue(initial.height > 200f)
+        rule.onNodeWithTag("detail.episodes").assertDoesNotExist()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
+        rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
         rule.runOnIdle { seasonGate.complete(Unit) }
         rule.waitForIdle()
-        val withSeason = rule.onNodeWithTag("detail.episodes").fetchSemanticsNode().boundsInRoot
-        assertEquals(initial.top, withSeason.top, .5f)
-        assertEquals(initial.height, withSeason.height, .5f)
+        rule.onNodeWithTag("detail.episodes").assertDoesNotExist()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
         rule.runOnIdle { episodeGate.complete(Unit) }
         rule.waitForIdle()
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
         val loaded = rule.onNodeWithTag("detail.episodes").fetchSemanticsNode().boundsInRoot
-        val loadedTarget = rule.onNodeWithTag("detail.actions.layout").fetchSemanticsNode().boundsInRoot
-        assertEquals(initial.top, loaded.top, .5f)
-        assertEquals(initial.height, loaded.height, .5f)
-        assertEquals(target.height, loadedTarget.height, .5f)
+        assertTrue(loaded.height > 200f)
+        rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
+        rule.mainClock.advanceTimeBy(500)
+        assertEquals(loaded, rule.onNodeWithTag("detail.episodes").fetchSemanticsNode().boundsInRoot)
         rule.onNodeWithText("S2E1：信号", useUnmergedTree = true).assertExists()
     }
 
@@ -261,10 +293,11 @@ class PhoneDetailCacheTest {
             }
         }
         open(AppState(core, scope), Route.Detail("s1", "Series"), installImages = false)
+        rule.onNodeWithTag("detail.episodes").assertDoesNotExist()
+        rule.runOnIdle { episodeGate.complete(Unit) }
+        rule.waitForIdle()
         rule.onNodeWithTag("detail.episodes").performScrollTo()
         rule.mainClock.autoAdvance = false
-        rule.runOnIdle { episodeGate.complete(Unit) }
-        rule.mainClock.advanceTimeBy(32)
         fun contrast(): Float {
             val pixels = rule.onNodeWithText("S2E1：信号", useUnmergedTree = true).captureToImage().toPixelMap()
             val bg = pixels[0, 0]
@@ -338,13 +371,215 @@ class PhoneDetailCacheTest {
         rule.onNodeWithContentDescription("版本").assertDoesNotExist()
         rule.onNodeWithContentDescription("音轨").assertDoesNotExist()
         rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
+        rule.onNodeWithTag("detail.options").assertDoesNotExist()
         rule.runOnIdle { gate.complete(Unit) }
         rule.onNodeWithContentDescription("版本").assertIsDisplayed()
         rule.onNodeWithContentDescription("音轨").assertIsDisplayed()
         rule.onNodeWithText("正在读取播放选项…").assertDoesNotExist()
     }
 
-    @Test fun mediaOptionsGrowThroughAnIntermediateHeight() {
+    @Test fun warmMediaRefreshKeepsOptionsAndCannotUseOldVersionForPlayback() {
+        val fake = FakeCore().loggedIn().movie()
+        val first = fake.handlers.getValue("emby.itemMedia")(null).jsonArray.single().jsonObject
+        fake.ret("emby.itemMedia", JsonArray(listOf(first,
+            JsonObject(first + ("id" to JsonPrimitive("other")) + ("name" to JsonPrimitive("另一版本"))))))
+        val gate = CompletableDeferred<Unit>()
+        var requests = 0
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.itemMedia" && ++requests > 1) gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope))
+        val oldHeight = rule.onNodeWithTag("detail.options").fetchSemanticsNode().boundsInRoot.height
+        reopen()
+        rule.onNodeWithContentDescription("版本").assertIsDisplayed()
+        rule.onNodeWithContentDescription("音轨").assertIsDisplayed()
+        rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
+        assertEquals(oldHeight, rule.onNodeWithTag("detail.options").fetchSemanticsNode().boundsInRoot.height, .1f)
+        // 旧版本只供展示；尚未确认真实版本时不能操作选择器。
+        rule.onNodeWithContentDescription("版本").assertIsNotEnabled()
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.onNodeWithContentDescription("版本").assertIsEnabled()
+    }
+
+    @Test fun warmSeriesKeepsFirstEpisodesWhileFreshPagesStartFromZero() {
+        val fake = FakeCore().loggedIn().series()
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (refreshing && command == "emby.seasonEpisodes") gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope), Route.Detail("s1", "Series"))
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNode(hasText("S2E1：信号") and !hasAnyAncestor(hasTestTag("detail.series.target")), useUnmergedTree = true).assertExists()
+        rule.runOnIdle { refreshing = true; nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
+        rule.onNodeWithText("首页").assertIsDisplayed()
+        rule.runOnIdle { nav.navigate(Route.Detail("s1", "Series")) }
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNode(hasText("S2E1：信号") and !hasAnyAncestor(hasTestTag("detail.series.target")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
+        rule.onNodeWithText("正在加载分集…", substring = true).assertDoesNotExist()
+        rule.onNodeWithTag("detail.play").assertIsNotEnabled()
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.waitForIdle()
+        assertTrue(fake.calls.filter { it.first == "emby.seasonEpisodes" }.all {
+            it.second?.get("start_index") == JsonPrimitive(0)
+        })
+        rule.onNodeWithTag("detail.play").assertIsEnabled()
+    }
+
+    @Test fun warmMediaFailureKeepsOldRowsAndHasIndependentRetry() {
+        val fake = FakeCore().loggedIn().movie()
+        val handler = fake.handlers.getValue("emby.itemMedia")
+        open(AppState(fake, scope))
+        fake.on("emby.itemMedia") { throw CoreException("E_NETWORK", "媒体刷新失败", true) }
+        reopen()
+        rule.onNodeWithContentDescription("版本").assertIsDisplayed()
+        rule.onNodeWithContentDescription("音轨").assertIsDisplayed()
+        rule.onNodeWithText("媒体刷新失败", substring = true).assertExists()
+        fake.on("emby.itemMedia", handler)
+        rule.onNodeWithText("重试").performScrollTo().performClick()
+        rule.onNodeWithText("媒体刷新失败", substring = true).assertDoesNotExist()
+        assertEquals(3, fake.calls.count { it.first == "emby.itemMedia" })
+        assertEquals(2, fake.calls.count { it.first == "emby.itemDetail" })
+    }
+
+    @Test fun warmEpisodeRefreshDoesNotReplaceStatisticsWithPageLoadingText() {
+        val fake = FakeCore().loggedIn().series()
+        fake.on("emby.seasonEpisodes") { args ->
+            val index = (args?.get("start_index")?.jsonPrimitive?.int ?: 0) + 1
+            buildJsonObject {
+                put("items", xyz.linplayer.app.tv.arr(xyz.linplayer.app.tv.item("ep-$index", "分集 $index",
+                    type = "Episode", season = 1, episode = index)))
+                put("total", 2)
+            }
+        }
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (refreshing && command == "emby.seasonEpisodes" && args?.get("start_index") == JsonPrimitive(1)) gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope), Route.Detail("s1", "Series"))
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNodeWithText("已看 0 / 2").assertIsDisplayed()
+        rule.runOnIdle { refreshing = true; nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
+        rule.onNodeWithText("首页").assertIsDisplayed()
+        rule.runOnIdle { nav.navigate(Route.Detail("s1", "Series")) }
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNodeWithText("正在加载分集…", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("已看 0 / 2").assertIsDisplayed()
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.waitForIdle()
+        rule.onNodeWithText("已看 0 / 2").assertIsDisplayed()
+    }
+
+    @Test fun warmSeriesRefreshKeepsExistingSelectedSeasonAndDropsRemovedSeason() {
+        val fake = FakeCore().loggedIn().series()
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (refreshing && command == "emby.seriesSeasons") gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope), Route.Detail("s1", "Series"))
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasTestTag("detail.seasons"))
+        rule.onNodeWithContentDescription("查看第2季分集").performClick()
+        rule.waitForIdle()
+
+        fun reopenSeries() {
+            rule.runOnIdle { nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
+            rule.onNodeWithText("首页").assertIsDisplayed()
+            rule.runOnIdle { nav.navigate(Route.Detail("s1", "Series")) }
+            rule.waitForIdle()
+        }
+        rule.runOnIdle { refreshing = true }
+        reopenSeries()
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.waitForIdle()
+        assertEquals("有效的已选季不应因刷新跳回第一季", JsonPrimitive("se2"),
+            fake.calls.last { it.first == "emby.seasonEpisodes" }.second?.get("parent_id"))
+
+        fake.ret("emby.seriesSeasons", xyz.linplayer.app.tv.arr(buildJsonObject {
+            put("id", "se1"); put("name", "第1季"); put("index_no", 1)
+        }))
+        reopenSeries()
+        assertEquals("服务端已移除的季不能继续作为请求目标", JsonPrimitive("se1"),
+            fake.calls.last { it.first == "emby.seasonEpisodes" }.second?.get("parent_id"))
+    }
+
+    @Test fun playDuringWarmRefreshDoesNotSubmitCachedPreferredVersion() {
+        val fake = FakeCore().loggedIn().movie()
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (refreshing && command == "emby.itemMedia") gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope))
+        rule.runOnIdle { refreshing = true }
+        reopen()
+        rule.onNodeWithContentDescription("版本").assertIsDisplayed()
+        rule.onNodeWithTag("detail.play").performClick()
+        rule.onNodeWithText("播放目标").assertIsDisplayed()
+        assertNotNull(started)
+        assertEquals("m1", started?.itemId)
+        assertNull("缓存版本不得提交，交由核心实时解析", started?.versionId)
+        assertEquals(0f, started!!.ar, .1f)
+        rule.runOnIdle { gate.complete(Unit) }
+    }
+
+    @Test fun warmSeasonFailureKeepsEpisodesAndReportsTheActualError() {
+        val fake = FakeCore().loggedIn().series()
+        open(AppState(fake, scope), Route.Detail("s1", "Series"))
+        fake.on("emby.seriesSeasons") { throw CoreException("E_NETWORK", "季刷新失败", true) }
+        rule.runOnIdle { nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
+        rule.onNodeWithText("首页").assertIsDisplayed()
+        rule.runOnIdle { nav.navigate(Route.Detail("s1", "Series")) }
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNode(hasText("S2E1：信号") and !hasAnyAncestor(hasTestTag("detail.series.target")), useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("季刷新失败", substring = true).assertExists()
+        rule.onNodeWithTag("detail.play").assertIsNotEnabled()
+    }
+
+    @Test fun clearingCachesCannotRestoreOldMediaPresentation() {
+        val fake = FakeCore().loggedIn().movie()
+        val gate = CompletableDeferred<Unit>()
+        var refreshing = false
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (refreshing && command == "emby.itemMedia") gate.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        val app = AppState(core, scope)
+        open(app)
+        rule.runOnIdle { nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
+        rule.onNodeWithText("首页").assertIsDisplayed()
+        runBlocking { app.detailCache.clear() }
+        rule.runOnIdle { PageCache.clear(); refreshing = true; nav.navigate(Route.Detail("m1", "Movie")) }
+        rule.onNodeWithContentDescription("版本").assertDoesNotExist()
+        rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
+        rule.runOnIdle { gate.complete(Unit) }
+        rule.onNodeWithContentDescription("版本").assertIsDisplayed()
+    }
+
+    @Test fun firstMediaOptionsAppearAtTheirFinalHeight() {
         val fake = FakeCore().loggedIn().movie()
         val gate = CompletableDeferred<Unit>()
         val core = object : CorePort by fake {
@@ -355,19 +590,18 @@ class PhoneDetailCacheTest {
         }
         open(AppState(core, scope))
         fun height() = rule.onNodeWithTag("detail.options").fetchSemanticsNode().boundsInRoot.height
-        val before = height()
+        rule.onNodeWithTag("detail.options").assertDoesNotExist()
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { gate.complete(Unit) }
         rule.mainClock.advanceTimeBy(96)
         val middle = height()
         rule.mainClock.advanceTimeBy(500)
         val after = height()
-        assertTrue("loaded options must have multiple real rows", after > before + 80f)
-        assertTrue("height must interpolate instead of jump: $before, $middle, $after",
-            middle > before + 1f && middle < after - 1f)
+        assertTrue("loaded options must have multiple real rows", after > 160f)
+        assertEquals("初次正文不逐项展开高度", after, middle, .1f)
     }
 
-    @Test fun lateMetadataMovesContentGraduallyAndFadesTags() {
+    @Test fun lateMetadataFadesTagsButDoesNotExposeUnfinishedPlayLayout() {
         val fake = FakeCore().loggedIn().movie()
         val metadataGate = CompletableDeferred<Unit>()
         val mediaGate = CompletableDeferred<Unit>()
@@ -388,23 +622,20 @@ class PhoneDetailCacheTest {
         }
         open(AppState(core, scope), fontScale = 1.6f)
         assertTrue("media must start before metadata finishes", mediaStarted)
-        fun top() = rule.onNodeWithTag("detail.play").fetchSemanticsNode().boundsInRoot.top
-        val before = top()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { metadataGate.complete(Unit) }
         rule.mainClock.advanceTimeBy(96)
-        val middle = top()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
         val firstContrast = tagContrast("科幻")
         rule.mainClock.advanceTimeBy(500)
-        val after = top()
         val settledContrast = tagContrast("科幻")
-        assertTrue("metadata must interpolate downstream position: $before → $middle → $after",
-            middle > before + 1f && middle < after - 1f)
         assertTrue("tags must fade instead of appear opaque: $firstContrast → $settledContrast",
             settledContrast > .1f && firstContrast < settledContrast * .6f)
         assertFalse("metadata display must not wait for media", mediaGate.isCompleted)
         rule.runOnIdle { mediaGate.complete(Unit) }
         rule.mainClock.advanceTimeBy(500)
+        rule.onNodeWithTag("detail.play").assertExists()
     }
 
     private fun tagContrast(text: String): Float {
@@ -459,7 +690,7 @@ class PhoneDetailCacheTest {
         assertEquals(2, requests)
     }
 
-    @Test fun disabledMotionRevealsMetadataImmediatelyAndEmptyReservationsCollapse() {
+    @Test fun disabledMotionRevealsMetadataWithoutEmptyReservations() {
         val context = ApplicationProvider.getApplicationContext<Application>()
         val resolver = context.contentResolver
         val previous = Settings.Global.getFloat(resolver, Settings.Global.ANIMATOR_DURATION_SCALE, 1f)
@@ -481,8 +712,8 @@ class PhoneDetailCacheTest {
             }
             open(AppState(core, scope))
             fun height(tag: String) = rule.onNodeWithTag(tag).fetchSemanticsNode().boundsInRoot.height
-            assertTrue(height("detail.ratings") > 0)
-            assertTrue(height("detail.tagline") > 0)
+            assertEquals(0f, height("detail.ratings"), .1f)
+            assertEquals(0f, height("detail.tagline"), .1f)
             rule.mainClock.autoAdvance = false
             rule.runOnIdle { gate.complete(Unit) }
             rule.mainClock.advanceTimeBy(32)
