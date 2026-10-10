@@ -974,3 +974,230 @@
 ### Next Steps
 
 - 真机观感与帧率、缓存实际起播收益、TV/Windows设备及插件动态详情布局未验证；跨服详情账号导航边界保留。
+
+
+## Session 32: 首页海报动效对齐与容器模拟器验证
+<!-- trellis-session: v=2 fp=9d5af49dc8ba3057 -->
+
+**Date**: 2026-10-09
+**Task**: 首页海报动效对齐与容器模拟器验证
+**Branch**: `main`
+
+### Summary
+
+确认参考APK首页450ms横向放大归位，调整首页参数并保留重复横滑/导航返回语义；31项海报回归、关联测试和签名门禁通过。容器中参考应用及原生x86_64测试壳完成假数据浏览验证；ARM64模拟器翻译不兼容，真机流畅度待验。本轮不提交归档。
+
+### Main Changes
+
+- 仅调整homePosterEntrance、对应测试与设计规范；临时模拟器依赖不进入生产。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 31项海报动效回归、相关浏览/详情/导航测试、Android参数/字段/插件接线、APK签名/ABI/体积/一致性。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户安装ARM64手机包验收首页入场、反复横滑和详情返回；真机帧耗时仍未测。
+
+
+## Session 33: 手机详情资料分阶段呈现
+<!-- trellis-session: v=2 fp=dcada22c5544ebf5 -->
+
+**Date**: 2026-10-09
+**Task**: 手机详情资料分阶段呈现
+**Branch**: `main`
+
+### Summary
+
+详情评分、标签、标语留位与局部淡入高度过渡，简介演员平滑加入；保留请求缓存权限契约；72项回归和手机包门禁通过，待真机验收。
+
+### Main Changes
+
+- 局部400ms线性淡入与300ms高度过渡，缓存首帧直接显示，同展示值刷新不重播，旧过渡标签禁用导航。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] PhoneDetailCacheTest20、PhoneDetailOptionsTest12、PhonePosterMotionTest31、PhoneMotionTest4、PluginNavTest5，共72项通过；参数检查255处、隐私和diff门禁通过。
+- [OK] 标准手机出包80,371,686字节；v1/v2/v3验签通过；13个ARM64 ELF库；交付包逐字节一致。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机检查详情冷加载/热缓存/资料刷新呈现与同设备帧耗时；本轮不提交归档，前轮首页改动保留。
+
+
+## Session 34: 手机浏览快照、分页导航与搜索完善
+<!-- trellis-session: v=2 fp=e7a9f16558f6a3fe -->
+
+**Date**: 2026-10-09
+**Task**: 手机浏览快照、分页导航与搜索完善
+**Branch**: `main`
+
+### Summary
+
+完成首页静态占位、隐藏媒体库外观开关、顶栏放大、库每批30与数量/居中刷新、详情全宽标题及图标、一级导航、搜索类型和本机10条历史；新增有界展示快照，仍由服务端决定业务进度。104项回归/故障注入/渲染/参数与隐私门禁通过，手机release打包验签通过；待真机验收，未提交归档。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 35: 手机剩余接口加载占位补齐
+<!-- trellis-session: v=2 fp=74bec9a6f81c1290 -->
+
+**Date**: 2026-10-09
+**Task**: 手机剩余接口加载占位补齐
+**Branch**: `main`
+
+### Summary
+
+收藏与分面旧网格、历史下载及本机浏览条形骨架改为共用刷新反馈，BlockBox默认与手机插件宿主等待区同步；保留TV及图片占位。70项回归和浅深色收藏等待渲染、参数与隐私门禁通过；手机release出包验签在任务验证记录中补充。未真机验收，未提交归档。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 36: Android手机全界面字体审查
+<!-- trellis-session: v=2 fp=d11ad5fb25f00239 -->
+
+**Date**: 2026-10-09
+**Task**: Android手机全界面字体审查
+**Branch**: `main`
+
+### Summary
+
+只读审查15个手机页面文件及共用组件、播放器、宿主插件，形成typography-audit.md。实际Compose取证确认200%双行顶栏裁切、21sp行高继承、设置14/15sp分裂、输入提示12sp及未覆盖M3字族槽位。给出逐页清单和推荐字号/行高/字重，产品代码未改，临时探针截图清理；真机与全字体矩阵未验。
+
+### Git Commits
+
+(No commits - planning session)
+
+### Status
+
+[OK] **Completed**
+
+
+## Session 37: 手机字体统一与大字适配
+<!-- trellis-session: v=2 fp=2ac222244f3b2ed3 -->
+
+**Date**: 2026-10-09
+**Task**: 手机字体统一与大字适配
+**Branch**: `main`
+
+### Summary
+
+统一手机文字语义样式，修复顶栏与长详情标题大字布局，动态数值采用实测稳定的等宽字体；183项相关回归与收尾6项设置回归通过，手机正式包出包验签。
+
+### Main Changes
+
+- 主题与公共组件/页面字体、行高、字距统一；保留明确的紧凑例外、插件作者样式与字幕
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 三字体×100/130/200%×深浅色18组合、数字测宽与真实详情位置断言，实际渲染截图复核
+- [OK] 183项相关回归、追加6项设置回归、256处参数检查、隐私门禁与手机v1/v2/v3验签通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实手机视觉验收；TV与Android14非线性缩放未验证；工作树保持未提交
+
+
+## Session 38: 手机详情加载、头图与海报刷新补齐
+<!-- trellis-session: v=2 fp=966cfeeb924784cb -->
+
+**Date**: 2026-10-09
+**Task**: 手机详情加载、头图与海报刷新补齐
+**Branch**: `main`
+
+### Summary
+
+分集等待改刷新箭头，首位刷新展示新增海报，电影/剧集缺背景回退海报，删除重复播放目标并精简季选择，播放选项按参考录屏结构对齐；153项相关回归及手机正式出包通过。
+
+### Main Changes
+
+- 分集等待同高反馈、缺图回退与0.8宽度头部、单季无箭头和重复播放目标删除
+- 横轨/库/收藏首位新增显示，中段稳定key保留，相同首项不归零
+- 版本整行浮标描边、视频标签、音轨语言副行，保留起播与偏好规则；更新任务和规范
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 7组153项全部通过，头插超过一行的故障注入红测、窄屏/大字/深浅渲染和独立审查
+- [OK] 256处参数门禁、diff检查、隐私门禁无新增；手机pack、v1/v2/v3验签、13ARM64 ELF及产物一致检查通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待手机真机与真实服务端验收；未确认像素级完整复刻或帧耗时。不提交归档。
+
+
+## Session 39: 手机视频音轨字幕完整信息展示
+<!-- trellis-session: v=2 fp=7cb3cc932eb39a29 -->
+
+**Date**: 2026-10-10
+**Task**: 手机视频音轨字幕完整信息展示
+**Branch**: `main`
+
+### Summary
+
+按同单集双截图补齐动态范围、服务端规格及原始轨道标题，改常规字重/副行/分层底色及示意图标；相关58项通过并正式出包。
+
+### Main Changes
+
+- 视频显示Dolby Vision/HDR，音轨和字幕完整规格与真名双行，全文换行，保留实际选择和起播规则
+- 补齐真实字段夹具、200%字号/缺标题/码率回退/字幕关闭回归，规范与设计记录同步
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 58项直接相关回归通过；两个新增用例旧实现红、新实现绿，单集夹具修正后3项复测通过；独立审查无确认缺陷
+- [OK] 256处参数及隐私/diff门禁通过，正式手机APK v1/v2/v3、13ARM64 ELF和产物一致检查通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待真实手机与服务端验收；未像素级复刻。完整LogicTest既存无效内核值预期失败已记录，不改内核凑绿。
