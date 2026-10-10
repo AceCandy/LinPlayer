@@ -1,0 +1,9 @@
+# 设计
+
+改动边界为Android手机共享呈现层：Theme/UiPrefs/SettingsPage统一色系；Cards/Base统一海报与菜单；HomePage延展背景。最小差距来自homeStyle分支及mediaAccent独立蓝色token，消除两套外观而不逐页重写。已有thumb/resume/homeAccount继续控制比例、续播语义与入场动画。
+
+所有配色由LpTheme输出到Lp.colors与M3；media强调色作为兼容别名跟随acc，保留叠图固定墨色语义。Monet使用已依赖的Material3动态API；不引入依赖或复制未知Yamby实现。主题插件的默认橙金模式仍保留既有token；显式色系覆盖强调色。手机主入口传色系，TV保持默认。
+
+Hero逻辑占位不变，背景单独超出占位绘制到后续resume图片中点；测量真实列表位置，渐变在延伸末尾融入bg。前景交互限制在原Hero内，横滑/触摸/暂停保持。无续播时不延伸。
+
+当前服务端Emby输出CommunityRating=m.Rating，内部DoubanRating没有进入Emby响应；本次只说明差距，客户端不推断评分来源。

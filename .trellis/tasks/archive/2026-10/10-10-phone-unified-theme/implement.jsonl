@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "手机主题与共享组件契约"}
+{"file": ".trellis/spec/frontend/component-guidelines.md", "reason": "统一token与复用"}
+{"file": ".trellis/spec/shared/development.md", "reason": "验证与安全"}
+{"file": ".trellis/tasks/archive/2026-10/10-10-phone-unified-theme/research/findings.md", "reason": "真实代码来源核查"}
