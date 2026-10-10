@@ -143,6 +143,22 @@ class PhoneDetailCacheTest {
         assertEquals("重复选择当前季不应重拉", requests, fake.calls.count { it.first == "emby.seasonEpisodes" })
     }
 
+    @Test fun watchedEpisodesUseSharedStatusWithoutEpisodeCounts() {
+        val fake = FakeCore().loggedIn().series().apply {
+            ret("emby.seasonEpisodes", xyz.linplayer.app.tv.page(
+                xyz.linplayer.app.tv.item("watched", "完整看完单集", "Episode", played = true),
+                xyz.linplayer.app.tv.item("partial", "尚未看完单集", "Episode", runtime = 1800.0, resume = 300.0)))
+        }
+        open(AppState(fake, scope), Route.Detail("s1", "Series"))
+        rule.onNodeWithTag("detail.episodes").performScrollTo()
+        rule.onNode(hasContentDescription("已看完") and hasAnyAncestor(hasTestTag("detail.ep.watched")),
+            useUnmergedTree = true).assertIsDisplayed()
+        rule.onAllNodes(hasContentDescription("已看完") and hasAnyAncestor(hasTestTag("detail.ep.partial")),
+            useUnmergedTree = true).assertCountEquals(0)
+        rule.onAllNodes(hasContentDescription("集未观看", substring = true), useUnmergedTree = true).assertCountEquals(0)
+        assertEquals(1, fake.calls.count { it.first == "emby.itemDetail" })
+    }
+
     @Test fun movieArtworkUsesTallDetailHeader() = tallHeader("Movie")
     @Test fun episodeArtworkUsesTallDetailHeader() = tallHeader("Episode")
 
@@ -407,6 +423,8 @@ class PhoneDetailCacheTest {
         var requests = 0
         val value = buildJsonObject {
             put("id", "m1"); put("name", "缓存电影"); put("type_", "Movie")
+            // 固定不可点击样式，避免缓存与联网标签的颜色差异被误判为淡入。
+            put("capabilities", buildJsonObject { put("filters", false) })
             put("genres", buildJsonArray { add("科幻") })
         }
         val core = object : CorePort by fake {

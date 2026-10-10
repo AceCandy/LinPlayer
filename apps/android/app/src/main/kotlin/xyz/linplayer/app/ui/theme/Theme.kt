@@ -8,6 +8,9 @@ import androidx.compose.material3.LocalTextStyle
 import androidx.compose.material3.Typography
 import androidx.compose.material3.Shapes
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.dynamicDarkColorScheme
+import androidx.compose.material3.dynamicLightColorScheme
+import androidx.compose.material3.ColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
@@ -46,15 +49,14 @@ data class LpColors(
     /** 叠在画面上的玻璃底。**写死色号必须带 alpha** —— 不透明的一律进上面那些 token */
     val chip: Color,
     val isDark: Boolean,
-    /** 非首页媒体卡片配色，与首页和播放页的品牌强调色分开。 */
-    val mediaAccent: Color = Color(0xFF344B88),
-    val mediaOnAccent: Color = Color(0xFFE2E6FF),
-    val mediaPanel: Color = Color(0xD91C1C25),
-    val mediaIcon: Color = Color(0xFFA6A4B5),
-    val mediaRating: Color = Color(0xFFCACDE9),
-    val mediaRatingInk: Color = Color(0xFF202333),
-    val mediaBadgeInk: Color = Color(0xFFF5F5F7),
-)
+) {
+    /** 兼容媒体组件沿用的token名称，强调色始终来自同一色系。 */
+    val mediaAccent: Color get() = acc
+    val mediaOnAccent: Color get() = accFg
+    val mediaPanel: Color get() = s2.compositeOver(bg).copy(alpha = .9f)
+    val mediaIcon: Color get() = fg2
+    val mediaBadgeInk: Color get() = fg
+}
 
 /*
  * 调色板照 docs 的手机端草稿(Draft 04「去边界」)。
@@ -86,7 +88,6 @@ internal var LightColors = LpColors(
     acc = Color(0xFF8A5A00), accDim = Color(0x1F8A5A00), accFg = Color(0xFFFFFBF2),
     ok = Color(0xFF1F7A55), warn = Color(0xFF8A5A00), bad = Color(0xFFC7554E),
     scrim = Color(0xB3FAF7FC), chip = Color(0xC7FFFFFF), isDark = false,
-    mediaPanel = Color(0xEDF1F2FA), mediaIcon = Color(0xFF514A60), mediaBadgeInk = Color(0xFF1A1622),
 )
 
 /** 间距刻度。**允许的值只有这些** */
@@ -171,20 +172,38 @@ private fun userFontFamily(): FontFamily? {
     }
 }
 
-/**
- * 主题三态:跟随系统 / 强制深色 / 强制浅色。
- *
- * ★ **不用 Material You 动态取色。** 它会把整个界面染成用户壁纸的颜色,
- * 而本产品的底色是「影院沉浸」的一部分。这是主动放弃 M3 的默认能力(UI_MOBILE.md §1.1)。
- */
+/** 可选色系不改变静态模式的影院底色；Monet使用系统动态中性色与强调色。 */
+internal fun phonePalette(base: LpColors, color: String, dynamic: ColorScheme? = null): LpColors {
+    if (color == "monet" && dynamic != null) return base.copy(
+        bg = dynamic.background, fg = dynamic.onBackground,
+        fg2 = dynamic.onSurfaceVariant, fg3 = dynamic.onSurfaceVariant,
+        acc = dynamic.primary, accFg = dynamic.onPrimary,
+        accDim = dynamic.primary.copy(alpha = if (base.isDark) .18f else .12f),
+    )
+    val accent = when (color) {
+        "blue" -> if (base.isDark) Color(0xFF9BBAFF) else Color(0xFF315DA8)
+        "green" -> if (base.isDark) Color(0xFF82D6B0) else Color(0xFF216B4A)
+        "purple" -> if (base.isDark) Color(0xFFCAB0FF) else Color(0xFF71449C)
+        else -> return base
+    }
+    return base.copy(acc = accent, accFg = if (base.isDark) Color(0xFF151019) else Color.White,
+        accDim = accent.copy(alpha = if (base.isDark) .18f else .12f))
+}
+
+/** 深浅模式与手机色系独立；TV调用仍使用默认配色。 */
 @Composable
 fun LpTheme(
     darkOverride: Boolean? = null,
+    color: String = "amber",
     content: @Composable () -> Unit,
 ) {
-    val dark = darkOverride ?: isSystemInDarkTheme()
-    val c = if (dark) DarkColors else LightColors
+    val systemDark = isSystemInDarkTheme()
+    val dark = darkOverride ?: systemDark
     val ctx = LocalContext.current
+    val dynamic = if (color == "monet" && Build.VERSION.SDK_INT >= 31) {
+        if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
+    } else null
+    val c = phonePalette(if (dark) DarkColors else LightColors, color, dynamic)
     var motion by remember(ctx) { mutableFloatStateOf(animatorScale(ctx)) }
     DisposableEffect(ctx) {
         val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {
@@ -200,7 +219,10 @@ fun LpTheme(
     val surface = c.s1.compositeOver(c.bg)
     val surfaceAlt = c.s2.compositeOver(c.bg)
     val scheme = (if (dark) darkColorScheme() else lightColorScheme()).copy(
-        primary = c.acc, onPrimary = c.accFg, background = c.bg, onBackground = c.fg,
+        primary = c.acc, onPrimary = c.accFg, primaryContainer = c.accDim.compositeOver(c.bg), onPrimaryContainer = c.fg,
+        secondary = c.acc, onSecondary = c.accFg, secondaryContainer = surfaceAlt, onSecondaryContainer = c.fg,
+        tertiary = c.acc, onTertiary = c.accFg, tertiaryContainer = surfaceAlt, onTertiaryContainer = c.fg,
+        inversePrimary = c.acc, background = c.bg, onBackground = c.fg,
         surface = surface, onSurface = c.fg, surfaceVariant = surfaceAlt, onSurfaceVariant = c.fg2,
         surfaceContainerLowest = c.bg, surfaceContainerLow = surface, surfaceContainer = surface,
         surfaceContainerHigh = surfaceAlt, surfaceContainerHighest = c.s3.compositeOver(c.bg),

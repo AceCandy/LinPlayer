@@ -184,7 +184,9 @@ internal fun mediaItem(o: JsonObject?, progress: Double = 0.0): Item = Item(
     resumeSecs = progress,
     year = o.long("year"),
     rating = o.arr("ratings").firstOrNull().obj().dbl("value"),
+    doubanRating = o.arr("ratings").firstOrNull { (it.obj().str("source")?.lowercase() in setOf("douban", "豆瓣")) && (it.obj().dbl("max") ?: 10.0) == 10.0 }.obj().dbl("value"),
     played = o.obj("userData").bool("played"),
+    unplayedCountKnown = o.obj("userData").long("unplayedCount")?.let { it >= 0 } == true,
     unplayed = o.obj("userData").long("unplayedCount") ?: 0,
 )
 
@@ -222,8 +224,8 @@ internal fun PosterCard(
             // 角标是**源给的一句话**(「更新至 12 集」),官方卡没有这一格,叠上去
             if (remarks != null) Text(
                 remarks, Modifier.padding(Sp.x6).clip(RoundedCornerShape(R.sm))
-                    .background(Lp.colors.acc).padding(horizontal = Sp.x6, vertical = Sp.x2),
-                color = Lp.colors.accFg, fontSize = 11.sp, maxLines = 1,
+                    .background(Lp.colors.mediaPanel).padding(horizontal = Sp.x6, vertical = Sp.x2),
+                color = Lp.colors.mediaBadgeInk, fontSize = 11.sp, maxLines = 1,
             )
         }
     }

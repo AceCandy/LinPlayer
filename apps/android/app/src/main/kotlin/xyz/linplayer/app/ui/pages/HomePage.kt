@@ -58,6 +58,8 @@ import androidx.compose.ui.input.pointer.PointerEventPass
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.layout.layout
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextOverflow
@@ -244,6 +246,16 @@ fun HomePage(nav: NavController) {
         app.invalidate.collect { if (it == "library" || it == "accounts" || it == "all") reload++ }
     }
 
+    var librariesHeight by remember(motionAccount) { mutableStateOf(0.dp) }
+    val density = LocalDensity.current
+    val resumeHeaderHeight = with(density) {
+        if (UiPrefs.hideHomeLibraries.value) 0.dp else Sp.x26 + LpText.title.lineHeight.toDp() + Sp.x10
+    }
+    val heroExtension = if (resume.valueOrNull.orEmpty().isNotEmpty())
+        (if (UiPrefs.hideHomeLibraries.value) 0.dp else librariesHeight) + resumeHeaderHeight +
+            xyz.linplayer.app.ui.components.rowImageHeight(true) / 2
+    else 0.dp
+
     val open: (Item) -> Unit = { nav.navigate(Route.Detail(it.id, it.type)) }
     var pendingPlayback by remember(motionAccount) { mutableStateOf<Item?>(null) }
     LaunchedEffect(motionAccount, pendingPlayback) {
@@ -332,19 +344,23 @@ fun HomePage(nav: NavController) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                 if (banners.isNotEmpty()) item("banners") {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
-                        onPlay = play, primaryImage = { app.imageUrl(it.id, "Primary", 720) },
+                        backgroundExtension = heroExtension, onPlay = play, primaryImage = { app.imageUrl(it.id, "Primary", 720) },
                         logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120) else null })
                 }
                 if (!UiPrefs.hideHomeLibraries.value) item("views") {
-                    when (v) {
-                        is Block.Loading -> LazyRow(
-                            Modifier.padding(top = Sp.x4), contentPadding = PaddingValues(horizontal = Sp.x16),
-                            horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                        ) { items(3) { Box(Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
-                        is Block.Ok -> if (v.value.isEmpty()) EmptyState(
-                            "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
-                        ) else ViewsRow(v.value, nav)
-                        is Block.Fail -> Unit
+                    Box(Modifier.fillMaxWidth().onSizeChanged {
+                        librariesHeight = with(density) { it.height.toDp() }
+                    }) {
+                        when (v) {
+                            is Block.Loading -> LazyRow(
+                                Modifier.padding(top = Sp.x4), contentPadding = PaddingValues(horizontal = Sp.x16),
+                                horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                            ) { items(3) { Box(Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
+                            is Block.Ok -> if (v.value.isEmpty()) EmptyState(
+                                "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
+                            ) else ViewsRow(v.value, nav)
+                            is Block.Fail -> Unit
+                        }
                     }
                 }
 
@@ -367,7 +383,7 @@ fun HomePage(nav: NavController) {
                         else if (items.isNotEmpty()) LpRow(
                             view.name, items,
                             { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
-                            onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount, homeStyle = true,
+                            onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount,
                         )
                     }
                 }
@@ -408,6 +424,7 @@ internal fun CachedHomeBanner(
     onPlay: (Item) -> Unit = open,
     primaryImage: (Item) -> String? = { null },
     logoImage: (Item) -> String? = { null },
+    backgroundExtension: Dp = 0.dp,
 ) {
     if (images.isEmpty()) return
     val c = Lp.colors
@@ -455,38 +472,53 @@ internal fun CachedHomeBanner(
                 },
             ) { change, amount -> change.consume(); travel += amount }
         }) {
-        AnimatedContent(images[index], modifier = Modifier.fillMaxSize(), contentKey = { it.url },
+        // 背景可溢出到后续栏目，测量占位仍是原Hero；前景手势和控件不会向下移动。
+        AnimatedContent(images[index], modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
+            val height = heroHeight.roundToPx()
+            val expanded = height + backgroundExtension.roundToPx()
+            val placeable = measurable.measure(constraints.copy(minHeight = expanded, maxHeight = expanded))
+            layout(constraints.maxWidth, height) { placeable.placeRelative(0, 0) }
+        }, contentKey = { it.url },
             transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "homeHero") { image ->
             var failed by remember(image.url) { mutableStateOf(false) }
             var logoFailed by remember(image.item.id) { mutableStateOf(false) }
             val url = if (failed) primaryImage(image.item) else image.url
-            Box(Modifier.fillMaxSize().background(c.bg).pressable({ open(image.item) })) {
+            val density = LocalDensity.current
+            var foregroundHeight by remember(image.item.id) { mutableStateOf(heroHeight / 2) }
+            val fullHeight = heroHeight + backgroundExtension
+            val titleStart = ((heroHeight - foregroundHeight) / fullHeight).coerceIn(0f, 1f)
+            val heroEnd = heroHeight / fullHeight
+            Box(Modifier.fillMaxSize().testTag("home.hero.background")) {
                 NetImage(url, null, Modifier.fillMaxSize(), 0.dp, scale = ContentScale.Crop,
                     onLoadResult = { loaded ->
                         if (!loaded && !failed && image.backdrop) failed = true
                         // 即使海报也缺失仍保留标题与播放入口，静态底色避免布局跳动。
                     })
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to (if (c.isDark) Color.Black.copy(alpha = .6f) else c.bg.copy(alpha = .92f)), .28f to Color.Transparent,
-                    .48f to c.bg.copy(alpha = .18f), 1f to c.bg)))
-                Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
-                    verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    val logo = logoImage(image.item).takeUnless { logoFailed }
-                    if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
-                        0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
-                    else Text(image.item.cardTitle, color = c.fg, style = LpText.hero,
-                        maxLines = 2, overflow = TextOverflow.Ellipsis)
-                    val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
-                    if (info.isNotBlank()) Text(info, color = c.fg2, style = LpText.caption,
-                        maxLines = 1, overflow = TextOverflow.Ellipsis)
-                    Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(R.md)).background(c.acc)
-                        .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                        Icon(LpIcons.play, null, Modifier.size(20.dp), tint = c.accFg)
-                        Text(if (image.item.resumeSecs > 0 && !image.item.played) "继续播放" else "播放",
-                            color = c.accFg, style = LpText.action)
+                    0f to (if (c.isDark) Color.Black.copy(alpha = .6f) else c.bg.copy(alpha = .92f)),
+                    titleStart * .45f to Color.Transparent, titleStart to c.bg.copy(alpha = .91f),
+                    heroEnd to c.bg.copy(alpha = .94f), 1f to c.bg)))
+                Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
+                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                        .onSizeChanged { foregroundHeight = with(density) { it.height.toDp() } }
+                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
+                        verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                        val logo = logoImage(image.item).takeUnless { logoFailed }
+                        if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
+                            0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
+                        else Text(image.item.cardTitle, color = c.fg, style = LpText.hero,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
+                        if (info.isNotBlank()) Text(info, color = c.fg2, style = LpText.caption,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(R.md)).background(c.acc)
+                            .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                            Icon(LpIcons.play, null, Modifier.size(20.dp), tint = c.accFg)
+                            Text(if (image.item.resumeSecs > 0 && !image.item.played) "继续播放" else "播放",
+                                color = c.accFg, style = LpText.action)
+                        }
                     }
                 }
             }
@@ -575,7 +607,7 @@ private fun RowBlock(
             title, block.value,
             { app.imageUrl(it.id, "Primary", if (thumb) 220 else 330) },
             open, m = if (resume) Modifier.testTag("home.resume") else Modifier,
-            thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount, homeStyle = true,
+            thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount,
         )
         // 各块各自 catch:一个区块失败不整页报错
         is Block.Fail -> Unit

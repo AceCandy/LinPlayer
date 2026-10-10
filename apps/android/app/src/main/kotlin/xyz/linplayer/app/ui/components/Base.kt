@@ -175,7 +175,7 @@ fun LpIconButton(
     icon: ImageVector,
     desc: String?,
     m: Modifier = Modifier,
-    size: Int = 22,
+    size: Int = 24,
     tint: Color? = null,
     /** 辉光。主动作(播放键)才给 —— 满屏都在发光等于没有重点。 */
     glow: Boolean = false,
@@ -348,11 +348,7 @@ fun LpCell(
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            if (mediaStyle) Box(
-                Modifier.size(32.dp).clip(RoundedCornerShape(R.sm)).background(c.s2),
-                contentAlignment = Alignment.Center,
-            ) { Icon(icon, null, Modifier.size(19.dp), tint = c.mediaIcon) }
-            else Icon(icon, null, Modifier.size(21.dp), tint = c.fg2)
+            Icon(icon, null, Modifier.size(24.dp), tint = c.fg2)
             Spacer(Modifier.width(Sp.x12))
         }
         Column(Modifier.weight(1f)) {
@@ -366,8 +362,8 @@ fun LpCell(
             switch != null -> Switch(
                 checked = switch, onCheckedChange = onSwitch,
                 colors = SwitchDefaults.colors(
-                    checkedTrackColor = if (mediaStyle) c.mediaAccent else c.acc,
-                    checkedThumbColor = if (mediaStyle) c.mediaOnAccent else c.accFg),
+                    checkedTrackColor = c.acc,
+                    checkedThumbColor = c.accFg),
                 modifier = Modifier.padding(start = Sp.x8)
                     .then(if (mediaStyle) Modifier.semantics { contentDescription = label } else Modifier),
             )
@@ -402,12 +398,12 @@ fun SegRow(
                 Box(
                     Modifier.weight(1f).heightIn(min = Dim.tap)
                         .clip(RoundedCornerShape(R.sm))
-                        .background(if (on) c.mediaAccent else Color.Transparent)
+                        .background(if (on) c.acc else Color.Transparent)
                         .semantics { selected = on }
                         .pressable({ if (!on) onPick(o) })
                         .padding(vertical = Sp.x8),
                     contentAlignment = Alignment.Center,
-                ) { Text(o, color = if (on) c.mediaOnAccent else c.fg2, style = LpText.filter,
+                ) { Text(o, color = if (on) c.accFg else c.fg2, style = LpText.filter,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }
@@ -508,20 +504,20 @@ fun OptRow(
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .clip(RoundedCornerShape(R.sm))
-            .background(if (selected) (if (media) c.mediaAccent.copy(alpha = .18f) else c.accDim) else Color.Transparent)
+            .background(if (selected) c.accDim else Color.Transparent)
             .pressable(onClick)
             .padding(horizontal = Sp.x12, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, color = if (selected) (if (media) c.mediaIcon else c.acc) else c.fg, style = LpText.action, maxLines = labelMaxLines,
+            Text(label, color = if (selected) c.acc else c.fg, style = LpText.action, maxLines = labelMaxLines,
                 overflow = TextOverflow.Ellipsis)
             if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = if (media) 2 else 1)
             if (media && badge != null) Text(badge, Modifier.padding(top = Sp.x4),
                 color = c.mediaIcon, style = LpText.badge)
         }
         if (!media && badge != null) LpTag(badge)
-        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = if (media) c.mediaIcon else c.acc)
+        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = c.acc)
     }
 }
 

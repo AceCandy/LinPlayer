@@ -4,8 +4,6 @@ import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
-import androidx.compose.ui.graphics.Path
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -55,7 +53,6 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -186,12 +183,10 @@ fun MediaCard(
     showCaption: Boolean = true,
     /** 长按交给调用方(插件的 `onLongPress`)。[menu] 在时以菜单为准:同一块区域只能有一个长按。 */
     onLongPress: (() -> Unit)? = null,
-    /** 首页续播信息；其它轨道沿用普通卡片文案。 */
+    /** 续播轨道保留剩余时间与简短集号。 */
     resume: Boolean = false,
     /** 调用方提供首页入场时关闭默认动画，保留按压与图片淡入。 */
     entrance: Boolean = true,
-    /** 首页精简文案与可信数据角标，不改变其它页卡片。 */
-    homeStyle: Boolean = false,
 ) {
     val c = Lp.colors
     var menuOpen by remember { mutableStateOf(false) }
@@ -231,16 +226,8 @@ fun MediaCard(
                     reveal = !sharedSource,
                     onLoadResult = if (entrance) { { imageResult = it } } else null)
 
-                // 角标:剧集 → 未看集数,全看完 → 打勾;电影 → 评分。**角标要小**,它压在封面上
-                if (homeStyle) {
-                    EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
-                    DoubanRatingBadge(item.doubanRating, Modifier.align(Alignment.BottomEnd).padding(Sp.x6))
-                } else {
-                    Badge(item, Modifier.align(Alignment.TopEnd).padding(4.dp))
-                    item.rating?.takeIf { it > 0 && it.isFinite() }?.let { rating ->
-                        RatingCorner(rating, Modifier.align(Alignment.BottomEnd))
-                    }
-                }
+                EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
+                DoubanRatingBadge(item.doubanRating, Modifier.align(Alignment.BottomEnd).padding(Sp.x6))
 
                 // 仅续播轨道显示时长，普通海报即使有进度也不显示时间角标。
                 if (resume && (item.type == "Movie" || item.isEpisode) && item.runtimeSecs > 0) {
@@ -260,32 +247,17 @@ fun MediaCard(
                 // 播放进度:仅在有进度时出现
                 if (item.progress > 0f) Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp)
-                        .background(if (homeStyle) Color.White.copy(alpha = .24f) else c.line2)
+                        .background(c.line2)
                 ) {
-                    Box(Modifier.fillMaxWidth(item.progress).fillMaxSize().background(if (homeStyle) c.acc else c.mediaAccent))
+                    Box(Modifier.fillMaxWidth(item.progress).fillMaxSize().background(c.acc))
                 }
             }
             if (menu != null) CardMenu(menuOpen, { menuOpen = false }, menu)
         }
-        if (showCaption) {
-            Spacer(Modifier.height(Sp.x6))
-            // 一行 + 省略号:片名长短差别极大,不收会把行高撑成两三行,整条轨道高度乱跳
-            Text(item.cardTitle, color = c.fg, style = LpText.card,
-                maxLines = 1, overflow = TextOverflow.Ellipsis,
-                textAlign = if (homeStyle) TextAlign.Start else TextAlign.Center, modifier = Modifier.fillMaxWidth())
-            val subtitle = if (homeStyle) {
-                if (resume && item.isEpisode && item.seasonNo != null && item.episodeNo != null)
-                    "S${item.seasonNo}E${item.episodeNo}"
-                else item.year?.toString().takeUnless { resume }
-            } else if (resume && item.isEpisode) listOfNotNull(
-                if (item.seasonNo != null && item.episodeNo != null) "S${item.seasonNo}E${item.episodeNo}" else null,
-                item.name.takeIf { it.isNotBlank() && it != item.cardTitle },
-            ).joinToString(" · ").takeIf { it.isNotBlank() } else item.cardSub
-            subtitle?.let {
-                Text(it, color = c.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
-                    textAlign = if (homeStyle) TextAlign.Start else TextAlign.Center, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
-            }
-        }
+        if (showCaption) PosterCaption(item.cardTitle,
+            if (item.isEpisode && item.seasonNo != null && item.episodeNo != null)
+                "S${item.seasonNo}E${item.episodeNo}"
+            else item.year?.toString().takeUnless { resume })
     }
 }
 
@@ -293,7 +265,7 @@ fun MediaCard(
 internal fun homeEpisodeStatus(item: Item): Long? = when {
     item.isSeries && item.unplayedCountKnown && item.unplayed > 0 -> item.unplayed
     item.isSeries && item.unplayedCountKnown && item.unplayed == 0L && item.played -> 0L
-    item.type == "Movie" && item.played -> 0L
+    item.type in setOf("Movie", "Episode") && item.played -> 0L
     else -> null
 }
 
@@ -326,41 +298,16 @@ internal fun DoubanRatingBadge(rating: Double?, m: Modifier = Modifier) {
     }
 }
 
+/** 标准海报与数据源卡片共用片名/年份刻度。 */
 @Composable
-private fun Badge(item: Item, m: Modifier) {
-    val c = Lp.colors
-    when {
-        item.isSeries && item.unplayed > 0 -> Box(
-            m.width(IntrinsicSize.Max).widthIn(min = 23.dp).heightIn(min = 23.dp).clip(RoundedCornerShape(R.pill))
-                .background(c.mediaAccent).padding(horizontal = 4.dp, vertical = 1.dp),
-            contentAlignment = Alignment.Center,
-        ) { Text(item.unplayed.toString(), color = c.mediaOnAccent, style = LpText.action.copy(lineHeight = 18.sp, fontWeight = FontWeight.SemiBold, fontFeatureSettings = "tnum"), maxLines = 1, softWrap = false) }
-
-        item.played -> Box(
-            m.size(18.dp).clip(RoundedCornerShape(R.pill)).background(c.ok),
-            contentAlignment = Alignment.Center,
-        ) { Icon(LpIcons.check, "已看完", Modifier.size(11.dp), tint = Color(0xFF062418)) }
-
-
-    }
-}
-
-/** 评分独立于未看数量和已看标记，贴右下角斜切三角。 */
-@Composable
-private fun RatingCorner(rating: Double, m: Modifier) {
-    val c = Lp.colors
-    val density = LocalDensity.current
-    // 三角及文字内边距随字号一起缩放，避免大字号评分跨出斜边。
-    Box(m.size(with(density) { 40.sp.toDp() }).drawBehind {
-        drawPath(Path().apply {
-            moveTo(size.width, 0f); lineTo(size.width, size.height)
-            lineTo(0f, size.height); close()
-        }, c.mediaRating)
-    }, contentAlignment = Alignment.BottomEnd) {
-        Text("%.1f".format(java.util.Locale.ROOT, rating), color = c.mediaRatingInk,
-            style = LpText.filter,
-            modifier = Modifier.padding(end = with(density) { 3.sp.toDp() },
-                bottom = with(density) { 5.sp.toDp() }).graphicsLayer { rotationZ = -45f })
+internal fun PosterCaption(title: String, subtitle: String?) {
+    Spacer(Modifier.height(Sp.x6))
+    Text(title, color = Lp.colors.fg, style = LpText.card,
+        maxLines = 1, overflow = TextOverflow.Ellipsis,
+        textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth())
+    subtitle?.let {
+        Text(it, color = Lp.colors.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
+            textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))
     }
 }
 
@@ -397,7 +344,9 @@ private fun captionHeight(): Dp = with(LocalDensity.current) {
 /** 一条轨道该多高 = 封面 + 文字区。**两处轨道(真卡 / 骨架)共用它**,否则骨架和真卡不等高。 */
 @Composable
 fun rowHeight(thumb: Boolean): Dp =
-    (if (thumb) ThumbW * 9 / 16 else PosterW * 3 / 2) + captionHeight()
+    rowImageHeight(thumb) + captionHeight()
+
+internal fun rowImageHeight(thumb: Boolean): Dp = if (thumb) ThumbW * 9 / 16 else PosterW * 3 / 2
 
 private val PosterW = 104.dp
 private val ThumbW = 194.dp
@@ -421,7 +370,6 @@ fun LpRow(
     resume: Boolean = false,
     /** 首页以账号隔离已入场卡片，非首页沿用图片就绪入场。 */
     homeAccount: Pair<String, String>? = null,
-    homeStyle: Boolean = false,
 ) {
     val row = rememberLazyListState()
     val firstId = items.firstOrNull()?.id
@@ -433,7 +381,7 @@ fun LpRow(
         previousFirst = firstId
     }
     Column(m.fillMaxWidth()) {
-        if (title.isNotBlank()) MediaRowHeader(title, onMore, homeStyle)
+        if (title.isNotBlank()) MediaRowHeader(title, onMore)
         LazyRow(
             Modifier.fillMaxWidth().height(rowHeight(thumb)),
             state = row,
@@ -444,7 +392,7 @@ fun LpRow(
             itemsIndexed(items, key = { _, it -> it.id }, contentType = { _, _ -> if (thumb) "thumb" else "poster" }) { index, item ->
                 MediaCard(item, imageUrl(item), { onOpen(item) },
                     m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
-                    thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null, homeStyle = homeStyle)
+                    thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)
             }
         }
     }
@@ -469,16 +417,16 @@ fun LpRowSkeleton(title: String? = null, thumb: Boolean = false, m: Modifier = M
 
 /** 栏目竖杠与标题构成入口；无更多回调时只展示标题。 */
 @Composable
-internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, homeStyle: Boolean = false) {
+internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
         .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
-        .padding(top = if (homeStyle) Sp.x26 else Sp.x12, bottom = if (homeStyle) Sp.x10 else Sp.x8),
+        .padding(top = Sp.x26, bottom = Sp.x10),
         verticalAlignment = Alignment.CenterVertically) {
         Box(Modifier.size(3.dp, 16.dp).clip(RoundedCornerShape(R.pill)).background(Lp.colors.mediaIcon))
         Spacer(Modifier.width(Sp.x8))
         Text(title, color = Lp.colors.fg, style = LpText.title,
             modifier = Modifier.weight(1f))
-        if (homeStyle && onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp), tint = Lp.colors.fg2)
+        if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp), tint = Lp.colors.fg2)
     }
 }
 

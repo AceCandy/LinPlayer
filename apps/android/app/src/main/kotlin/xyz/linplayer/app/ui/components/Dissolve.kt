@@ -275,11 +275,11 @@ fun GlassIcon(
 ) {
     val c = Lp.colors
     Box(
-        m.size(44.dp)
+        m.size(48.dp)
             .buttonSkin(c.chip, R.pill)
             .pressable(onClick),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, desc, Modifier.size(22.dp), tint = c.fg) }
+    ) { Icon(icon, desc, Modifier.size(24.dp), tint = c.fg2) }
 }
 
 /**

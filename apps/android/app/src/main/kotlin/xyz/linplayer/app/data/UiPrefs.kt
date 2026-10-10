@@ -18,6 +18,7 @@ import androidx.compose.runtime.mutableStateOf
 object UiPrefs {
     private const val FILE = "lp_ui"
     private const val K_THEME = "theme"
+    private const val K_COLOR = "color_scheme"
     private const val K_ENGINE = "engine"
     private const val K_FONT = "ui_font"
     const val K_SHOT_TIME = "shot_time"
@@ -45,6 +46,15 @@ object UiPrefs {
 
     /** `system` / `dark` / `light`。 */
     val theme = mutableStateOf("system")
+
+    /** 色系与深浅模式独立，只影响本机手机呈现。 */
+    val colorScheme = mutableStateOf("amber")
+    val colorOptions = listOf("橙金" to "amber", "蓝色" to "blue", "绿色" to "green", "紫色" to "purple", "Monet" to "monet")
+    fun colorLabel(): String = colorOptions.firstOrNull { it.second == colorScheme.value }?.first ?: "橙金"
+    fun setColorScheme(ctx: Context, value: String) {
+        colorScheme.value = value.takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(K_COLOR, colorScheme.value).apply()
+    }
 
     /**
      * 内置界面字体ID，空为系统默认；不再读取用户文件路径。
@@ -132,6 +142,7 @@ object UiPrefs {
             (0 until array.length()).map { array.getString(it) }.filter { it.isNotBlank() }.distinct().take(10)
         }.getOrDefault(emptyList())
         theme.value = sp.getString(K_THEME, "system") ?: "system"
+        colorScheme.value = sp.getString(K_COLOR, "amber").takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
         engine.value = sp.getString(K_ENGINE, "mpv") ?: "mpv"
         val font = sp.getString(K_FONT, "").orEmpty()
         uiFont.value = font.takeIf { v -> fontOptions.any { it.second == v } }.orEmpty()

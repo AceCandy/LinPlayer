@@ -1494,11 +1494,8 @@ private fun EpCard(
                         .clip(RoundedCornerShape(4.dp)).background(Color.Black.copy(alpha = .65f))
                         .padding(horizontal = 5.dp, vertical = 2.dp))
             }
-            if (ep.played) Box(
-                Modifier.align(Alignment.TopEnd).padding(Sp.x6).size(18.dp)
-                    .clip(RoundedCornerShape(R.pill)).background(c.ok),
-                contentAlignment = Alignment.Center,
-            ) { Icon(LpIcons.check, "已看完", Modifier.size(11.dp), tint = Color(0xFF062418)) }
+            xyz.linplayer.app.ui.components.EpisodeStatusBadge(ep,
+                Modifier.align(Alignment.TopEnd).padding(Sp.x6))
         }
         Spacer(Modifier.height(Sp.x6))
         if (expanded) {

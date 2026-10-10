@@ -34,6 +34,8 @@ class HomeCinemaTest {
         assertNull(homeEpisodeStatus(series.copy(unplayed = -1)))
         assertNull(homeEpisodeStatus(Item("m", "电影", "Movie", unplayed = 1)))
         assertEquals(0L, homeEpisodeStatus(Item("m", "电影", "Movie", played = true)))
+        assertEquals(0L, homeEpisodeStatus(Item("ep", "分集", "Episode", played = true)))
+        assertNull(homeEpisodeStatus(Item("ep", "分集", "Episode", unplayed = 1)))
     }
 
     @Test fun communityRatingNeverBecomesDouban() {
@@ -51,7 +53,7 @@ class HomeCinemaTest {
             LpTheme(darkOverride = true) {
                 MediaCard(Item("s", "长标题仅一行显示", "Series", unplayed = 24,
                     unplayedCountKnown = true, doubanRating = score, rating = 9.9, year = 2026),
-                    null, {}, homeStyle = true)
+                    null, {})
             }
         }
         rule.onNodeWithContentDescription("24 集未观看").assertExists()
@@ -74,7 +76,7 @@ class HomeCinemaTest {
             LpTheme(darkOverride = true) {
                 LpRow("继续观看", listOf(Item("ep", "单集说明", "Episode", seriesName = "真实剧名",
                     seasonNo = 1, episodeNo = 7, runtimeSecs = 1800.0, resumeSecs = 600.0)),
-                    { null }, { opened = true }, thumb = true, resume = true, homeStyle = true,
+                    { null }, { opened = true }, thumb = true, resume = true,
                     menu = { listOf(CardAction("取消观看记录") { removed = true }) })
             }
         }

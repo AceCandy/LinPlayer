@@ -7,7 +7,7 @@
 - 手机共用组件在 ui/components；TV 采用 tv/kit 的 TvC / TvSp / TvR / TvW。
 - 手机服务器探测结果按 `server` 匹配账号、`ok` 转为卡片状态 `ok` / `down`；渲染端不可再按 `up` 判成功。缺少探测结果表示未检测，与连接失败区分；`PhoneManagementUiTest` 核验成功色及三态文字。
 - 手机主导航是 Navigation Compose / Route；TV 使用 TvNav，换集与导航轨切页遵守既有返回栈和焦点记忆。
-- 不使用 Material You 动态取色替换既定配色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
+- 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
 - 深色 → 浅色 → 深色要检查背景、说明、箭头、数值和选中项；设备强制深色的表现不能只用 JVM 截图下结论。
 - PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；首页服名不加底色。
 - 浅色文字叠图时必须在文字区铺浅色渐变底，不能沿用固定黑遮罩；浅色主按钮各个渐变停色都要满足文字对比度。系统栏跟应用主题同步，API 24/25 的白色导航图标保留深色底。
@@ -143,4 +143,6 @@
 
 - 版本正文和选择弹窗允许完整名称换行，不用两行省略；Version.displayName只用于展示，真实Name优先，空名或明确泛称才回退安全路径文件名，地址凭据/查询/片段不可展示；无名称和文件名则明确未提供，不影响preferred或提交的版本ID。OptRow仅版本菜单放开labelMaxLines，其他调用保持默认。
 
-- 首页Hero按UI_MOBILE.md当前电影Hero规格，候选仅首页已有真实作品，普通图片通道复用Coil/核心缓存，Backdrop/Logo存在性由核心提供，失败回退。触摸/横滑重置5秒计时，400ms过渡；纵滚/后台/离屏/零动画倍率暂停。首次头插仅起点复位，账号隔离与取消保留。首页官方LpRow显式homeStyle，不改变其它卡片；豆瓣只认douban_rating（当前无可靠核心来源，隐藏），Series完成只认有效统计+零未看+Played，电影无数字。Dock仅四图标，键盘隐藏、系统导航区上12dp、200ms动画与24dp滚动阈值，搜索独立选中。HomeCinemaTest/HomeHeroTest/FloatingTabTest覆盖数据与真实组件；设备安全区/播放仍需真机。
+- 首页Hero按UI_MOBILE.md当前电影Hero规格，候选仅首页已有真实作品，普通图片通道复用Coil/核心缓存，Backdrop/Logo存在性由核心提供，失败回退。触摸/横滑重置5秒计时，400ms过渡；纵滚/后台/离屏/零动画倍率暂停。首次头插仅起点复位，账号隔离与取消保留。所有手机标准海报复用MediaCard的精简片名/年份（单集保留SxEy）、EpisodeStatusBadge与DoubanRatingBadge，数据源共用PosterCaption和CardMenu；豆瓣只认douban_rating（当前无可靠核心来源，隐藏），Series完成只认有效统计+零未看+Played，电影无数字。Dock仅四图标，键盘隐藏、系统导航区上12dp、200ms动画与24dp滚动阈值，搜索独立选中。HomeCinemaTest/HomeHeroTest/FloatingTabTest覆盖数据与真实组件；设备安全区/播放仍需真机。
+
+- Hero背景可以越过其原始占位延伸到继续观看图片中点，按媒体库入口实测高度与共用栏目/图片刻度计算；前景标题、播放键、指示线和列表位置保持，背景不可拦截后续卡片点击。无续播则不延伸。PhoneColorSchemeTest/HomeHeroTest验证真实渐变溢出像素、控件几何、主题切换/持久化及API28回退；系统壁纸动态更新和设备体验仍需真机。

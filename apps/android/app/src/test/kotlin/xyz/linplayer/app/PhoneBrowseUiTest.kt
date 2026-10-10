@@ -159,7 +159,7 @@ class PhoneBrowseUiTest {
         open(core, fontScale = 1.3f)
         rule.onNodeWithText("当前").assertIsDisplayed()
         rule.onNodeWithText("电影 128  ·  剧集 42").assertIsDisplayed()
-        rule.onNodeWithText("S1E12 · 重逢", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("S1E12", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("剩余 29:59", useUnmergedTree = true).assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/browse-ui/aggregate-light-large.png")
         rule.runOnIdle { dark.value = true }
@@ -176,7 +176,7 @@ class PhoneBrowseUiTest {
         }))
         open(core)
         rule.onNodeWithText(serverName).assertIsDisplayed()
-        rule.onNodeWithText("S1E12 · 重逢", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("S1E12", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("慢服务器").assertIsDisplayed()
         rule.onNodeWithText("读取超时，请检查服务器连接后刷新", substring = true).assertIsDisplayed()
         rule.onNodeWithText("还没有添加服务器").assertDoesNotExist()

@@ -52,9 +52,9 @@ class ResumeCardTest {
                 }
             }
         }
-        rule.onNodeWithText("S1E12 · 漫长旅途中的重逢与新的开始", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("漫长旅途中的重逢与新的开始", useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithText("剩余 29:59", useUnmergedTree = true).assertIsDisplayed()
-        rule.onNodeWithText("S1E12", useUnmergedTree = true).assertIsDisplayed()
+        rule.onAllNodesWithText("S1E12", useUnmergedTree = true).assertCountEquals(2)
         rule.onRoot().captureRoboImage("build/resume-ui/${if (dark) "dark" else "light"}-$scale.png")
         rule.onNode(hasClickAction() and hasText("剩余 29:59")).performClick()
         rule.runOnIdle { assertEquals("ep", opened) }
@@ -95,9 +95,9 @@ class ResumeCardTest {
                             Item("lib2", "日韩剧", "CollectionFolder")), { "fake:${it.id}" }, {}, thumb = true)
                         LpRow("继续观看", listOf(episode, Item("movie", "远方的来信", "Movie", runtimeSecs = 3047.0)),
                             { "fake:${it.id}" }, {}, thumb = true, resume = true)
-                        LpRow("国产剧", listOf(Item("series", "余红旧事", "Series", unplayed = 24, rating = 8.0, year = 2026),
-                            Item("series2", "我不是大师", "Series", unplayed = 19, year = 2026),
-                            Item("series3", "如期", "Series", played = true, rating = 9.1, year = 2026)),
+                        LpRow("国产剧", listOf(Item("series", "余红旧事", "Series", unplayed = 24, unplayedCountKnown = true, doubanRating = 8.0, year = 2026),
+                            Item("series2", "我不是大师", "Series", unplayed = 19, unplayedCountKnown = true, year = 2026),
+                            Item("series3", "如期", "Series", played = true, unplayedCountKnown = true, doubanRating = 9.1, year = 2026)),
                             { "fake:${it.id}" }, {}, onMore = {})
                     }
                     Box(Modifier.align(Alignment.BottomCenter)) { LpTabBar(0, onSearch = {}) {} }
@@ -117,7 +117,7 @@ class ResumeCardTest {
             LpTheme(darkOverride = true) {
                 CompositionLocalProvider(LocalDensity provides Density(1f, 1.3f)) {
                     Column(Modifier.background(Lp.colors.bg)) {
-                        LpRow("长篇剧集", listOf(Item("long", "长篇剧集", "Series", unplayed = 403, rating = 8.0)), { null }, {})
+                        LpRow("长篇剧集", listOf(Item("long", "长篇剧集", "Series", unplayed = 403, unplayedCountKnown = true, doubanRating = 8.0)), { null }, {})
                     }
                 }
             }

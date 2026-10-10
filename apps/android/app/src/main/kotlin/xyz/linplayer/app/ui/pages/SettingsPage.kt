@@ -59,6 +59,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.ui.graphics.graphicsLayer
 import xyz.linplayer.app.ui.components.BtnKind
+import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LongShotTarget
@@ -276,9 +277,18 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
  */
 @Composable
 private fun AppearancePanel() {
+    var pickColor by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val theme = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
         "dark" -> "深色"; "light" -> "浅色"; else -> "跟随系统"
+    }
+    if (pickColor) LpDialog({ pickColor = false }, "色系") {
+        xyz.linplayer.app.data.UiPrefs.colorOptions.forEach { (label, id) ->
+            OptRow(label, {
+                xyz.linplayer.app.data.UiPrefs.setColorScheme(ctx, id)
+                pickColor = false
+            }, selected = id == xyz.linplayer.app.data.UiPrefs.colorScheme.value)
+        }
     }
     Panel(Modifier.padding(Sp.x16)) {
         SegRow("主题", listOf("跟随系统", "深色", "浅色"), theme, { v ->
@@ -286,6 +296,10 @@ private fun AppearancePanel() {
                 "深色" -> "dark"; "浅色" -> "light"; else -> "system"
             })
         }, sub = "深浅两套都调过。跟随系统时晚上自动变暗;这一项只影响这台设备")
+        Hairline()
+        LpCell("色系", value = xyz.linplayer.app.data.UiPrefs.colorLabel(),
+            sub = if (android.os.Build.VERSION.SDK_INT >= 31) "Monet 跟随系统壁纸配色" else "Monet 需要 Android 12，当前设备回退橙金",
+            onClick = { pickColor = true })
         Hairline()
         SegRow("界面字体", xyz.linplayer.app.data.UiPrefs.fontOptions.map { it.first },
             xyz.linplayer.app.data.UiPrefs.fontLabel(), { label ->

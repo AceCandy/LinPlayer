@@ -88,7 +88,8 @@ class MainActivity : ComponentActivity() {
         xyz.linplayer.app.ui.theme.PluginTheme.loadAtStartup(app.core, if (tvShape()) "android_tv" else "android")
 
         setContent {
-            LpTheme(darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
+            LpTheme(color = if (tvShape()) "amber" else xyz.linplayer.app.data.UiPrefs.colorScheme.value,
+                darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
                 // 只给一种明暗的主题,系统切到另一种也保持它(D70)
                 "dark" -> true; "light" -> false; else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
             }) {

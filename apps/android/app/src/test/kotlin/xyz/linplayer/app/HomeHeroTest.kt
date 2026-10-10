@@ -4,12 +4,21 @@ import android.app.Application
 import coil3.asImage
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import xyz.linplayer.app.ui.components.pressable
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.background
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.graphics.toPixelMap
+import androidx.compose.ui.graphics.luminance
 import androidx.test.core.app.ApplicationProvider
 import kotlinx.coroutines.*
 import org.junit.After
@@ -37,6 +46,41 @@ class HomeHeroTest {
 
     private fun image(id: String) = CachedHomeImage(Item(id, "作品$id", "Movie", year = 2026,
         genres = listOf("动作")), "fake:$id", true)
+
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    @Test fun extendedBackgroundDoesNotMoveControlsOrInterceptResume() {
+        var extension by mutableStateOf(0.dp)
+        var resumeClicked = false
+        coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(
+            ApplicationProvider.getApplicationContext<android.content.Context>())
+            .coroutineContext(Dispatchers.Unconfined)
+            .components { add(coil3.fetch.Fetcher.Factory<coil3.Uri> { _, _, _ ->
+                coil3.fetch.Fetcher { coil3.fetch.ImageFetchResult(
+                    android.graphics.Bitmap.createBitmap(8, 8, android.graphics.Bitmap.Config.ARGB_8888)
+                        .apply { eraseColor(android.graphics.Color.WHITE) }.asImage(),
+                    false, coil3.decode.DataSource.MEMORY) }
+            }) }.build())
+        rule.setContent { LpTheme(darkOverride = true) {
+            LazyColumn(Modifier.fillMaxSize().background(xyz.linplayer.app.ui.theme.Lp.colors.bg)) {
+                item { CachedHomeBanner(listOf(image("one"), image("two")), false, {}, backgroundExtension = extension) }
+                item { Box(Modifier.fillMaxWidth().height(120.dp).testTag("resume.target")
+                    .pressable({ resumeClicked = true })) }
+            }
+        } }
+        val hero = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        val play = rule.onNodeWithText("播放").fetchSemanticsNode().boundsInRoot
+        val lines = rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { extension = 100.dp }
+        assertEquals(hero, rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot)
+        assertEquals(play, rule.onNodeWithText("播放").fetchSemanticsNode().boundsInRoot)
+        assertEquals(lines, rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot)
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        assertTrue("渐变背景必须真实延伸到Hero占位之外", pixels[2, hero.bottom.toInt() + 12].luminance() > xyz.linplayer.app.ui.theme.DarkColors.bg.luminance() + .003f)
+        assertTrue("渐变末尾应融入页面底色", pixels[2, hero.bottom.toInt() + 99].luminance() < .01f)
+        rule.onRoot().captureRoboImage("build/home-cinema/extended-hero.png")
+        rule.onNodeWithTag("resume.target").performClick()
+        rule.runOnIdle { assertTrue(resumeClicked) }
+    }
 
     @Test fun singleItemHidesIndicatorAndPlayDoesNotOpenDetail() {
         var opened = ""

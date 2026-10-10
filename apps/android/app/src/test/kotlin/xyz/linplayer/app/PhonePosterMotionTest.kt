@@ -595,7 +595,7 @@ class PhonePosterMotionTest {
             LpTheme {
                 list = rememberLazyListState()
                 LazyColumn(Modifier.size(320.dp, 360.dp).background(Color.Black).testTag("viewport"), state = list) {
-                    item("lead") { Spacer(Modifier.height(300.dp)) }
+                    item("lead") { Spacer(Modifier.height(284.dp)) }
                     item("row") {
                         SideEffect { compositions++ }
                         LpRow("固定标题", (0..5).map { Item("row$it", "海报$it", "Movie") },
@@ -663,7 +663,7 @@ class PhonePosterMotionTest {
             LpTheme {
                 list = rememberLazyListState()
                 LazyColumn(Modifier.size(320.dp, 360.dp).background(Color.Black).testTag("viewport"), state = list) {
-                    item("lead") { Spacer(Modifier.height(280.dp)) }
+                    item("lead") { Spacer(Modifier.height(264.dp)) }
                     item("row") {
                         LpRow("冷图同排", listOf(Item("hot", "已加载", "Movie"), Item("pending", "等待图", "Movie")),
                             { "poster:${it.id}" }, {}, homeAccount = "server" to "user")
@@ -795,7 +795,7 @@ class PhonePosterMotionTest {
                 CompositionLocalProvider(LocalPosterScroll provides scroll) {
                     list = rememberLazyListState()
                     LazyColumn(Modifier.size(320.dp, 360.dp), state = list) {
-                        item("lead") { Spacer(Modifier.height(300.dp)) }
+                        item("lead") { Spacer(Modifier.height(284.dp)) }
                         item("row") {
                             LpRow("短暂离开", listOf(Item("one", "待归位海报", "Movie")), { "poster:one" }, {},
                                 homeAccount = "server" to "user")

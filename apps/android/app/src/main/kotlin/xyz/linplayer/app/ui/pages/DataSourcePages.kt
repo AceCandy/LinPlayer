@@ -126,15 +126,7 @@ internal fun SourceCard(item: JsonObject, onOpen: () -> Unit, m: Modifier = Modi
                 .background(Lp.colors.scrim).padding(horizontal = Sp.x6, vertical = Sp.x2), color = Lp.colors.fg, style = LpText.badge, maxLines = 1)
             if (progress in 0.0..1.0) Box(Modifier.align(Alignment.BottomStart).fillMaxWidth(progress.toFloat()).height(3.dp).background(Lp.colors.acc))
         }
-        Text(item.str("title") ?: "", Modifier.fillMaxWidth().padding(top = Sp.x6),
-            color = Lp.colors.fg, style = LpText.card, maxLines = 1,
-            overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis,
-            textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        item.yearText().takeIf { it.isNotEmpty() }?.let {
-            Text(it, Modifier.fillMaxWidth().padding(top = 2.dp), color = Lp.colors.fg2,
-                style = LpText.caption, maxLines = 1,
-                textAlign = androidx.compose.ui.text.style.TextAlign.Center)
-        }
+        xyz.linplayer.app.ui.components.PosterCaption(item.str("title").orEmpty(), item.yearText().takeIf { it.isNotEmpty() })
     }
 }
 

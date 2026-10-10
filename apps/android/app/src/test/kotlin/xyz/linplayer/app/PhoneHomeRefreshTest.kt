@@ -273,7 +273,7 @@ class PhoneHomeRefreshTest {
         openHome(core)
         rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-tv")
         rule.waitForIdle()
-        rule.onNodeWithText("最新剧集").assertExists()
+        rule.onNode(hasText("最新剧集") and !hasAnyAncestor(hasTestTag("home.banners"))).assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listLatest" })
     }
 
@@ -286,7 +286,7 @@ class PhoneHomeRefreshTest {
         openHome(core)
         rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("latest-lib-tv")
         rule.waitForIdle()
-        rule.onNodeWithText("后续库的最新条目").assertExists()
+        rule.onNode(hasText("后续库的最新条目") and !hasAnyAncestor(hasTestTag("home.banners"))).assertExists()
         assertEquals(2, core.calls.count { it.first == "emby.listLatest" })
     }
 

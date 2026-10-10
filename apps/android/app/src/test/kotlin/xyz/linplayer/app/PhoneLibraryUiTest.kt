@@ -229,7 +229,7 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("在这个库里搜").assertDoesNotExist()
         val poster = rule.onNodeWithText("影片 1").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue("首屏仍被大库头占用", poster.top < 180f)
-        rule.onNodeWithText("9.2", useUnmergedTree = true).assertExists()
+        rule.onNodeWithText("9.2", useUnmergedTree = true).assertDoesNotExist()
         rule.onAllNodesWithText("剩余 ", substring = true).assertCountEquals(0)
         rule.onAllNodesWithText("1小时0分", substring = true).assertCountEquals(0)
         rule.onRoot().captureRoboImage("build/library-ui/large-font.png")
@@ -329,7 +329,8 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.onNodeWithTag("phone.tabs").assertExists()
         rule.onNodeWithTag("search.field").assertIsDisplayed()
-        rule.onNodeWithText("搜片名、剧名或演员").assertIsDisplayed()
+        rule.onNode(hasText("搜片名、剧名或演员") and hasAnyAncestor(hasTestTag("search.field")),
+            useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.runOnIdle { back.onBackPressed() }
         rule.waitForIdle()
