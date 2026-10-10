@@ -1259,3 +1259,38 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 42: 修复剧集季内连播
+<!-- trellis-session: v=2 fp=cdf6e4abd7bbba94 -->
+
+**Date**: 2026-10-10
+**Task**: 修复剧集季内连播
+**Branch**: `main`
+
+### Summary
+
+修复手机、桌面、TV 季内连播及分集加载失败重试，不跨季；已提交并归档。
+
+### Main Changes
+
+- 三端季内连播边界与失败重试修复，同步 UI 正本和状态规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `28215f0c` | fix(player): 修复剧集季内连播与失败重试 |
+
+### Testing
+
+- [OK] Android 72 项相关回归、桌面 seekcheck 编译及真实页面/核心 HTTP 回归、参数/风格/隐私门禁与差异检查通过；独立复核完成。
+- [OK] 手机 release APK 与 Linux 包交付检查通过；TV 编译签名通过但 73.19 MiB 超过 60 MiB 体积门禁，未通过的最终交付文件已删除。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- TV 体积门禁待解决；真机视频、字幕切集与服务端上报联调未验；Windows 未出包。
