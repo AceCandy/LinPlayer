@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 43
+- **Total Sessions**: 44
 - **Last Active**: 2026-10-11
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1326 | Active |
+| `journal-1.md` | ~1348 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 44 | 2026-10-11 | 普通与豆瓣评分同时展示 | `b9fa8c3d` | `main` |
 | 43 | 2026-10-11 | 手机详情连续性与首页轮播提交归档 | `e957543f` | `main` |
 | 42 | 2026-10-10 | 修复剧集季内连播 | `28215f0c` | `main` |
 | 41 | 2026-10-10 | 手机全局视觉统一与可选色系交付 | `38bf3289` | `main` |

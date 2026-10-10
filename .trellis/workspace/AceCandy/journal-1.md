@@ -1324,3 +1324,25 @@
 ### Next Steps
 
 - 现有手机包未包含最后的遮罩修复，用户要求后再编包；真实ARM64观感、大候选池耗时仍待验收。
+
+
+## Session 44: 普通与豆瓣评分同时展示
+<!-- trellis-session: v=2 fp=1700776c2f5a97aa -->
+
+**Date**: 2026-10-11
+**Task**: 普通与豆瓣评分同时展示
+**Branch**: `main`
+
+### Summary
+
+共享手机海报恢复普通评分，与独立豆瓣纵排胶囊共存；插件避免将仅豆瓣重复为普通分。30项相关回归、字段参数与隐私检查通过，手机arm64出包与v2/v3验签通过。已补齐并归档10-11-phone-poster-ratings完成记录；未做真实Emby联调与真机UI，未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b9fa8c3d` | fix(android): 恢复普通评分并保留豆瓣评分 |
+
+### Status
+
+[OK] **Completed**
