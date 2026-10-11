@@ -1346,3 +1346,33 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 45: 首页A方案提交与归档补记
+<!-- trellis-session: v=2 fp=8315f5e3a5521fd7 -->
+
+**Date**: 2026-10-11
+**Task**: 首页A方案提交与归档补记
+**Branch**: `main`
+
+### Summary
+
+提交首页连续底部渐变及对应渲染回归、设计规范和禁止自动编包规则；补齐原任务归档中的后续修复和最新手机包交付记录。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `396cdbd484504c53d3228ddc0204f8c3a70b155d` | fix(android): 首页轮播采用连续底部渐变 |
+
+### Testing
+
+- [OK] 沿用无变更后的37项渲染回归和独立复核；本轮6文件隐私门禁、暂存diff检查通过。手机包已验签、核对ARM64播放库与归档一致性。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实ARM64观感及新包播放仍待用户验收；本轮未重新出包或推送。
