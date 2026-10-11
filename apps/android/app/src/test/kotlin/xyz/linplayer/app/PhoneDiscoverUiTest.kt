@@ -108,7 +108,6 @@ class PhoneDiscoverUiTest {
     @Config(qualifiers = "w320dp-h873dp-mdpi")
     fun calendarRetryAndNarrowThemes() {
         val core = FakeCore().loggedIn()
-        core.ret("prefs.getPrefs", buildJsonObject { put("calendar_unlock_order", "test-order") })
         core.on("sync.bangumiCalendar") { throw CoreException("E_NETWORK", "日历读取失败", true) }
         open(core, Route.Calendar)
         val before = core.calls.count { it.first == "sync.bangumiCalendar" }
@@ -128,10 +127,14 @@ class PhoneDiscoverUiTest {
         rule.onNodeWithText("已入库").performClick()
         rule.onNodeWithText("详情目标：series-1").assertIsDisplayed()
     }
-    @Test fun lockedCalendarDoesNotFetch() {
+    @Test fun calendarWithoutSponsorOrderFetchesImmediately() {
         val core = FakeCore().loggedIn()
+        core.ret("sync.bangumiCalendar", arr())
+        core.ret("sync.calendarLibrary", buildJsonObject {})
         open(core, Route.Calendar)
-        rule.onNodeWithText("追剧日历 · 赞助解锁").assertIsDisplayed()
-        assertEquals(0, core.calls.count { it.first == "sync.bangumiCalendar" })
+        rule.onNodeWithText("追剧日历 · 赞助解锁").assertDoesNotExist()
+        rule.onNodeWithText("本周 0 集 · 按放送日期查看").assertIsDisplayed()
+        assertEquals(1, core.calls.count { it.first == "sync.bangumiCalendar" })
+        assertEquals(0, core.calls.count { it.first == "prefs.getPrefs" || it.first.startsWith("system.afdian") })
     }
 }

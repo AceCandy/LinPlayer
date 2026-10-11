@@ -35,7 +35,7 @@ public sealed class DetailPage : PageBase
     private PluginAnchorSet _anchors = PluginAnchorSet.Empty;
 
     /// <summary>分集。<b>和头部分开拉</b> —— 见构造函数里那段注释。</summary>
-    private Task<List<CardItem>>? _episodesTask;
+    private Task<List<CardItem>?>? _episodesTask;
     private readonly ContentControl _episodesHost = new();
 
     /// <summary>
@@ -68,6 +68,10 @@ public sealed class DetailPage : PageBase
 
     /// <summary>头图区(全宽出血)。</summary>
     private readonly ContentControl _heroHost = new();
+    private readonly ContentControl _previewHost = new();
+    private readonly Sess? _displaySession = Nav.Session;
+    private bool _displayDetached;
+    private bool DisplayCurrent => !_displayDetached && Nav.Session == _displaySession;
 
     /// <summary>媒体信息 / 版本条的挂点(在播放按钮下面)。</summary>
     private readonly StackPanel _mediaHost = new() { Spacing = 10 };
@@ -121,6 +125,8 @@ public sealed class DetailPage : PageBase
     public DetailPage(CoreClient core, string server, string itemId)
     {
         _core = core; _server = server;
+        DetachedFromVisualTree += (_, _) => _displayDetached = true;
+        AttachedToVisualTree += (_, _) => _displayDetached = false;
 
         /* 窗口能拉到任意大小之后,**页面里那些写死的尺寸得自己跟上**
            (用户 2026-09-11:「里面的样式也要能够自由缩放才行呀」)。
@@ -145,6 +151,7 @@ public sealed class DetailPage : PageBase
            从 20px 撑到 1200px 的那一跳最明显。 */
         Control busy = Skeleton.Detail();
         body.Children.Add(busy);
+        body.Children.Add(_previewHost);
 
         /* 详情页<b>不能整页塞进 1560 的水槽里</b>。
            原来头图和正文一起被封在 1560 + 头部信息列又自己封了 900 ——
@@ -175,7 +182,7 @@ public sealed class DetailPage : PageBase
         {
             try
             {
-                var s = Nav.Session!;
+                var s = _displaySession!;
                 // 锚点表排在取详情之前:它是本机一次往返,而缓存命中的那条路径紧接着就画
                 _anchors = await PluginAnchorSet.Load(core);
                 /* <b>with_children = false</b>。
@@ -191,36 +198,23 @@ public sealed class DetailPage : PageBase
                    都是可以缓存的,这样下次打开就很快了…其他页面也一样」)。
                    详情页是全站被反复进出最多的一页 —— 看完一集退出来再点进去,
                    海报、简介、标签这些**一个字都没变**,却要再等一次完整往返。 */
-                var key = MetaCache.Key("emby.itemDetail", new { s.server, item_id = itemId });
+                var key = MetaCache.Key("emby.itemDetail", new { s.server, s.user_id, item_id = itemId });
                 var cached = MetaCache.Peek(key);
                 if (cached is { ValueKind: JsonValueKind.Object } c0)
-                {
-                    if (EpisodesParent(c0, itemId) is { Length: > 0 } ep0)
-                    {
-                        _episodesParent = ep0;
-                        _episodesTask = LoadEpisodes(ep0);
-                    }
-                    else if (Str(c0, "type_") == "BoxSet") _ = FillCollection(itemId);
-                    Dispatcher.UIThread.Post(() => Paint(c0));
-                    if (_episodesTask is not null)
-                    {
-                        PaintEpisodesFromCache(_episodesParent);   // 必须排在 Paint 之后,见方法注释
-                        _ = FillEpisodes();
-                    }
-                }
+                    Dispatcher.UIThread.Post(() => PaintPreview(c0));
 
-                var d = await core.EmbyItemDetail(new
+                var d = await core.CallDisplayAsync("emby.itemDetail", new
                 {
                     s.server, s.token, s.user_id, s.device_id,
                     item_id = itemId, with_children = false,
-                });
+                }, PaintPreview, retainOnFailure: false);
                 MetaCache.Put(key, d);
                 /* 内容一个字没变就<b>不要重画</b>。
                    重画一次这一页要重建海报、按钮、分集网格 —— 用户看到的是
                    「刚出来的页面当场闪一下又变回同样的样子」,那看着像 bug。
                    比的是整段原文,不是挑几个字段:挑字段就得跟着核心层的输出走,
                      漏一个就成了「改了不刷新」。 */
-                if (cached is { } c1 && c1.GetRawText() == d.GetRawText()) return;
+                // 实时结果就绪后才呈现播放和状态操作。
 
                 // 是剧 / 季才有分集。 在渲染之前就发出去,让它和布局并行跑。
                 var type = Str(d, "type_");
@@ -245,6 +239,7 @@ public sealed class DetailPage : PageBase
 
                 void Paint(JsonElement data)
                 {
+                    if (!DisplayCurrent) return;
                     _paint = Paint;
                     _painted = data;
                     KickPreload(core, s, itemId);
@@ -272,6 +267,8 @@ public sealed class DetailPage : PageBase
                 var why = LibraryPage.Advice(e);
                 Dispatcher.UIThread.Post(() =>
                 {
+                    if (e is CoreException ce && ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID")
+                        _previewHost.Content = null;
                     var at = body.Children.IndexOf(busy);
                     if (at >= 0) body.Children[at] = Dim($"加载失败:{why}");
                 });
@@ -285,20 +282,34 @@ public sealed class DetailPage : PageBase
     /// <para>不做「滚到底再拉」:剧集详情页是按季分组的,少一半集会让某一季整个空掉,
     /// 而用户看不出那是「还没拉完」还是「这季就这么几集」。</para>
     /// </summary>
-    private async Task<List<CardItem>> LoadEpisodes(string itemId)
+    private void PaintPreview(JsonElement value)
+    {
+        if (!DisplayCurrent) return;
+        _previewHost.Content = new StackPanel { Spacing = 14, Children = {
+            H1(Str(value, "name")), Dim(Str(value, "overview")), Dim("正在刷新…"),
+        } };
+    }
+
+    private async Task<List<CardItem>?> LoadEpisodes(string itemId)
     {
         var all = new List<CardItem>();
         try
         {
-            var s = Nav.Session!;
-            var key = MetaCache.Key("emby.seasonEpisodes", new { s.server, parent_id = itemId });
+            var s = _displaySession!;
+            var key = MetaCache.Key("emby.seasonEpisodes", new { s.server, s.user_id, parent_id = itemId });
             while (true)
             {
-                var page = await _core.EmbySeasonEpisodes(new
+                var prefix = all.ToList();
+                var page = await _core.CallDisplayAsync("emby.seasonEpisodes", new
                 {
                     s.server, s.token, s.user_id, s.device_id,
                     parent_id = itemId, start_index = all.Count, limit = 200,
-                });
+                }, value => {
+                    if (!DisplayCurrent || _episodesParent != itemId) return;
+                    var old = value.TryGetProperty("items", out var rows) && rows.ValueKind == JsonValueKind.Array
+                        ? rows.EnumerateArray().Select(CardItem.From).ToList() : [];
+                    _episodesHost.Content = Episodes(prefix.Concat(old).ToList());
+                }, retainOnFailure: false);
                 var got = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
                     ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
                 // 空页就停。只看 total 的话,服务端 total 报大了就是个死循环。
@@ -315,11 +326,8 @@ public sealed class DetailPage : PageBase
             上一次拉到的分集表仍然是能看的东西,给一张空表等于白白丢掉它。 */
         catch
         {
-            var s2 = Nav.Session;
-            if (s2 is not null && MetaCache.PeekList(
-                    MetaCache.Key("emby.seasonEpisodes", new { s2.server, parent_id = itemId }))
-                is { Count: > 0 } old)
-                return old.Select(CardItem.From).ToList();
+            // 失败保留已显示的列表，但不能用它选择主播放目标。
+            return null;
         }
         return all;
     }
@@ -335,16 +343,16 @@ public sealed class DetailPage : PageBase
     {
         var s = Nav.Session;
         if (s is null) return;
-        var key = MetaCache.Key("emby.collectionItems", new { s.server, item_id = itemId });
+        var key = MetaCache.Key("emby.collectionItems", new { s.server, s.user_id, item_id = itemId });
         // 缓存先行,和详情主体同一条口径:合集页也是会被反复进出的
         if (MetaCache.Peek(key) is { ValueKind: JsonValueKind.Object } hit)
             Dispatcher.UIThread.Post(() => PaintCollection(hit));
         try
         {
-            var r = await _core.EmbyCollectionItems(new
+            var r = await _core.CallDisplayAsync("emby.collectionItems", new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = itemId,
-            });
+            }, PaintCollection);
             MetaCache.Put(key, r);
             Dispatcher.UIThread.Post(() => PaintCollection(r));
         }
@@ -359,6 +367,7 @@ public sealed class DetailPage : PageBase
 
     private void PaintCollection(JsonElement r)
     {
+        if (!DisplayCurrent) return;
         _rescaleCollection = () => PaintCollection(r);
         var host = new StackPanel { Spacing = 18 };
         void Section(string title, string field, bool wide)
@@ -400,7 +409,7 @@ public sealed class DetailPage : PageBase
         var s = Nav.Session;
         if (s is null) return;
         var hit = MetaCache.PeekList(
-            MetaCache.Key("emby.seasonEpisodes", new { s.server, parent_id = itemId }));
+            MetaCache.Key("emby.seasonEpisodes", new { s.server, s.user_id, parent_id = itemId }));
         if (hit is not { Count: > 0 }) return;
         var raw = string.Concat(hit.Select(x => x.GetRawText()));
         var eps = hit.Select(CardItem.From).ToList();
@@ -415,6 +424,7 @@ public sealed class DetailPage : PageBase
     private async Task FillEpisodes()
     {
         var eps = await _episodesTask!;
+        if (eps is null) return;
         var raw = string.Concat(eps.Select(e => CardItem.ToJson(e).GetRawText()));
         /* 一个字没变就<b>不重画</b>。重画一次要重建整条分集轨 ——
            用户看到的是「刚出来的列表当场闪一下又变回同样的样子」,那看着像 bug。
@@ -571,11 +581,11 @@ public sealed class DetailPage : PageBase
         List<CardItem> items;
         try
         {
-            var s = Nav.Session!;
-            var r = await _core.EmbySimilarItems(new
+            var s = _displaySession!;
+            var r = await _core.CallDisplayAsync("emby.similarItems", new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = id, limit = 12,
-            });
+            }, value => PaintSimilar(value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().Select(CardItem.From).ToList() : []));
             items = r.ValueKind == JsonValueKind.Array
                 ? r.EnumerateArray().Select(CardItem.From).ToList() : [];
         }
@@ -584,9 +594,15 @@ public sealed class DetailPage : PageBase
             // 拉不到就当没有。相似推荐是锦上添花,为它把详情页拖红不值当
             return;
         }
-        if (items.Count == 0) return;
+        PaintSimilar(items);
+    }
+
+    private void PaintSimilar(List<CardItem> items)
+    {
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent) return;
+            if (items.Count == 0) { _similarHost.Content = null; return; }
             var host = new ContentControl();
             _rescaleSimilar = () =>
             {
@@ -967,7 +983,7 @@ public sealed class DetailPage : PageBase
         List<JsonElement> vers;
         try
         {
-            var s = Nav.Session!;
+            var s = _displaySession!;
             var d = await _core.EmbyItemMedia(new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = itemId,
@@ -1875,7 +1891,7 @@ public sealed class DetailPage : PageBase
     {
         if (_episodesTask is null) return;
         var eps = await _episodesTask;
-        if (eps.Count == 0) return;
+        if (eps is null || eps.Count == 0) return;
         var next = NextEpisode(eps);
         var label = next.SeasonNo > 0 && next.EpisodeNo > 0
             ? $"第 {next.SeasonNo} 季 · {next.Name}" : next.Name;
@@ -1938,6 +1954,7 @@ public sealed class DetailPage : PageBase
                 play.IsEnabled = false;
                 var eps = await _episodesTask;
                 play.IsEnabled = true;
+                if (eps is null) { play.Content = "分集暂未刷新，请重试"; return; }
                 if (eps.Count == 0) { play.Content = "没有可播的分集"; return; }
                 var next = NextEpisode(eps);
                 Nav.Push(new PlayerPage(_core, next.Id, next.DisplayTitle, next.ResumeSecs,
@@ -1971,7 +1988,7 @@ public sealed class DetailPage : PageBase
             var on = (string?)fav.Content == "♡ 收藏";
             try
             {
-                var s = Nav.Session!;
+                var s = _displaySession!;
                 // 参数名是 fav,不是 favorite。写错了**不报错** ——
                 // 布尔默认成 false,表现是「点收藏反而取消了收藏」。
                 await _core.EmbySetFavorite(new
@@ -2079,7 +2096,7 @@ public sealed class DetailPage : PageBase
     {
         try
         {
-            var s = Nav.Session!;
+            var s = _displaySession!;
             await _core.EmbySetPlayed(new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = id, played,
@@ -2106,7 +2123,7 @@ public sealed class DetailPage : PageBase
     {
         try
         {
-            var s = Nav.Session!;
+            var s = _displaySession!;
             await _core.PlayerPlayExternal(new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = id, resume_secs = resume,

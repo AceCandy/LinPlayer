@@ -31,6 +31,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.Icon
 import kotlinx.coroutines.FlowPreview
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.debounce
 import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.launch
@@ -40,6 +41,7 @@ import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.obj
@@ -102,14 +104,14 @@ fun SearchPage() {
         launch { servers = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull()).count { (it.kind ?: "emby") == "emby" } }
     }
     LaunchedEffect(Unit) {
-        snapshotFlow { listOf(q.trim(), aggregate, withEps, retry) }.distinctUntilChanged().debounce(400).collect { (typed, agg, eps, _) ->
-            if (agg as Boolean) return@collect          // 聚合走下面那条按提交触发的路
+        snapshotFlow { listOf(q.trim(), aggregate, withEps, retry) }.distinctUntilChanged().debounce(400).collectLatest { (typed, agg, eps, _) ->
+            if (agg as Boolean) return@collectLatest          // 聚合走下面那条按提交触发的路
             val text = typed as String
-            if (text.isEmpty()) { result = null; return@collect }
+            if (text.isEmpty()) { result = null; return@collectLatest }
             result = Block.Loading
             // ☠ `types` 必须是**数组**,传逗号串核心层读不到
             val types = if (eps as Boolean) listOf("Movie", "Series", "Episode") else listOf("Movie", "Series")
-            result = app.block("emby.search", args("query" to text, "types" to jsonArrayOf(types), "limit" to 60))
+            result = app.displayBlock("emby.search", args("query" to text, "types" to jsonArrayOf(types), "limit" to 60)) { result = Block.Ok(Item.list(it).map { item -> Hit(item, null) }) }
                 .map { v -> Item.list(v).map { Hit(it, null) } }
         }
     }
@@ -118,7 +120,13 @@ fun SearchPage() {
         aggRows.clear()
         aggBusy = true
         // partial 回调在核心层的线程上:切回自己的 scope 再动 Compose 状态
-        runCatching { app.call("source.aggregateSearch", args("query" to aggQ)) { p -> p.obj()?.let { scope.launch { aggRows.add(it) } } } }
+        runCatching { app.call("source.aggregateSearch", args("query" to aggQ)) { p -> p.obj()?.let { launch {
+            val index = aggRows.indexOfFirst { row -> row.str("server_id") == it.str("server_id") }
+            if (it.str("kind") == "emby" && it.str("error") == null && it["emby_items"].arr().isEmpty()) {
+                if (index >= 0) aggRows.removeAt(index)
+            } else if (index >= 0) { if (it.str("error") == null) aggRows[index] = it else app.toast(it.str("error").orEmpty()) }
+            else aggRows.add(it)
+        } } } }
             .onFailure { app.report(it) }
         aggBusy = false
     }

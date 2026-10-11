@@ -108,6 +108,7 @@ import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.boolOrNull
@@ -341,6 +342,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var curSeason by remember { mutableStateOf(presentation?.season) }
     var episodeRequest by remember { mutableStateOf(0) }
     var episodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
+    var confirmedEpisodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
     var episodeTotal by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Long?>(null) }
     var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
     var episodeRetry by remember { mutableStateOf(0) }
@@ -350,10 +352,13 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         val parent = episodeParent ?: return@LaunchedEffect
         episodeLoad = Block.Loading
         val result = try {
-            app.seasonEpisodes(parent, episodes) { items, total ->
+            app.seasonEpisodes(parent, confirmedEpisodes, onPage = { items, total ->
+                confirmedEpisodes = items
                 episodes = items
                 episodeTotal = total
-            }
+            }, onCached = { items, total ->
+                if (episodeLoad !is Block.Ok) { episodes = items; episodeTotal = total }
+            })
             Block.Ok(Unit)
         } catch (e: CancellationException) { throw e }
           catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
@@ -380,7 +385,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     LaunchedEffect(route.itemId, detailRetry) {
         val epoch = app.detailCache.generation
         detail = Block.Loading
-        val d = app.block("emby.itemDetail", args("item_id" to route.itemId))
+        val d = app.displayBlock("emby.itemDetail", args("item_id" to route.itemId), retainOnFailure = false) { if (detail !is Block.Ok && cacheAllowed) cached = it.obj() }
         currentCoroutineContext().ensureActive()
         detail = when (d) {
             is Block.Ok -> Block.Ok(d.value.obj() ?: JsonObject(emptyMap()))
@@ -390,7 +395,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         val o = d.valueOrNull.obj()
         favorite = o.bool("is_favorite")
         played = o.bool("played")
-        if (d is Block.Fail && d.code in setOf("E_AUTH", "E_NOTFOUND")) {
+        if (d is Block.Fail && d.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
             cacheAllowed = false
             cached = null
             presentation = null
@@ -413,7 +418,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         if (seriesId != null &&
             (route.type == "Series" || route.type == "Season" || route.type == "Episode")) {
             seasonLoad = Block.Loading
-            val result = app.block("emby.seriesSeasons", args("series_id" to seriesId))
+            val result = app.displayBlock("emby.seriesSeasons", args("series_id" to seriesId), retainOnFailure = false) { value ->
+                if (seasons.isEmpty()) seasons = value.arr().mapNotNull { Item.from(it)?.copy(seasonNo = it.obj().long("index_no")) }
+            }
             currentCoroutineContext().ensureActive()
             if (result is Block.Ok) {
                 seasons = result.value.arr()
@@ -445,7 +452,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
 
     // 辅助请求不等待磁盘、详情或媒体选项。
     LaunchedEffect(route.itemId) {
-        launch { similar = Item.list(app.block("emby.similarItems", args("item_id" to route.itemId)).valueOrNull) }
+        launch { similar = Item.list(app.displayBlock("emby.similarItems", args("item_id" to route.itemId)) { similar = Item.list(it) }.valueOrNull) }
         launch {
             val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
             currentCoroutineContext().ensureActive()
@@ -498,7 +505,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val isEpisode = route.type == "Episode"
     val isSeries = route.type == "Series" || route.type == "Season"
     val isSeriesEntry = route.type == "Series"
-    val nextEp = episodes.firstOrNull { !it.played } ?: episodes.firstOrNull()
+    val nextEp = if (episodeLoad is Block.Ok) episodes.firstOrNull { !it.played } ?: episodes.firstOrNull() else null
     val shownEpisodes = if (episodes.isNotEmpty() || episodeLoad is Block.Ok) episodes
         else presentation?.takeIf { it.season?.id == curSeason?.id }?.episodes.orEmpty()
     val shownNextEp = nextEp ?: shownEpisodes.firstOrNull { !it.played } ?: shownEpisodes.firstOrNull()
@@ -546,7 +553,11 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var boxLoading by remember(route.itemId) { mutableStateOf(isBoxSet) }
     LaunchedEffect(route.itemId, isBoxSet) {
         if (!isBoxSet) return@LaunchedEffect
-        val r = app.block("emby.collectionItems", args("item_id" to route.itemId)).valueOrNull.obj()
+        fun showBox(value: kotlinx.serialization.json.JsonElement) {
+            val o = value.obj()
+            boxMovies = Item.list(o?.get("movies")); boxSeries = Item.list(o?.get("series")); boxOthers = Item.list(o?.get("others")); boxLoading = false
+        }
+        val r = app.displayBlock("emby.collectionItems", args("item_id" to route.itemId), onCached = ::showBox).valueOrNull.obj()
         boxMovies = Item.list(r?.get("movies"))
         boxSeries = Item.list(r?.get("series"))
         boxOthers = Item.list(r?.get("others"))

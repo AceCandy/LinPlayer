@@ -15,21 +15,14 @@ namespace LinPlayer.Desktop.Core;
 /// </summary>
 public static class MetaCache
 {
-    /// <summary>
-    /// 缓存多久算新鲜。过期的<b>照样先画出来</b>,只是必定会被刷新覆盖一次。
-    ///
-    /// <para>这个值不控制「画不画」,只控制「要不要顺带清掉」——
-    /// 一条一周前的缓存也比一片骨架强,反正紧跟着就会被真数据替换。</para>
-    /// </summary>
-    private static readonly TimeSpan Keep = TimeSpan.FromDays(7);
-
     /// <summary>盘上最多留几条。 按条数,不按字节:每条都是一小段 JSON,量级已知。</summary>
-    private const int MaxFiles = 600;
+    private const int MaxFiles = 1000;
 
     private static readonly object Lock = new();
-    private static readonly Dictionary<string, string> Mem = new();
+    private static readonly object DiskLock = new();
+    private static readonly Dictionary<string, (string Json, long Used)> Mem = new();
+    private static long _revision;
     private static string _dir = "";
-    private static bool _pruned;
 
     /// <summary>启动时告诉它数据根在哪(<c>userdata/cache/meta</c>)。</summary>
     public static void Init(string dataDir)
@@ -86,13 +79,14 @@ public static class MetaCache
         string? json;
         lock (Lock)
         {
-            if (!Mem.TryGetValue(key, out json))
+            if (Mem.TryGetValue(key, out var hit)) json = hit.Json;
+            else
             {
                 if (_dir == "") return null;
                 try { json = File.ReadAllText(Path.Combine(_dir, key + ".json")); }
                 catch { return null; }   // 缓存文件不在或读不动 = 没缓存,照常走网络
-                Mem[key] = json;
             }
+            Remember(key, json);
         }
         try
         {
@@ -113,35 +107,37 @@ public static class MetaCache
         // Undefined / Null 不存:存了之后 Peek 会返回一个「有」但画不出东西的值
         if (value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return;
         var json = value.GetRawText();
-        lock (Lock) { Mem[key] = json; }
+        lock (Lock) { Remember(key, json); }
         if (_dir == "") return;
         _ = Task.Run(() =>
         {
-            try
+            lock (DiskLock)
             {
-                File.WriteAllText(Path.Combine(_dir, key + ".json"), json);
-                Prune();
+                try
+                {
+                    File.WriteAllText(Path.Combine(_dir, key + ".json"), json);
+                    Prune();
+                }
+                catch { /* 缓存写不进去不该影响用 */ }
             }
-            catch { /* 缓存写不进去不该影响用 */ }
         });
     }
 
-    /// <summary>
-    /// 超量就把最旧的删一批。
-    /// <para>一次删四分之一,不是刚好删到上限:卡着上限的话之后<b>每写一条都要扫一遍目录</b>。</para>
-    /// <para>一次会话只扫一次 —— 剩下的靠这一次删出来的余量顶着。</para>
-    /// </summary>
+    /// <summary>内存按最近读取淘汰；磁盘快照不按年龄过期。</summary>
+    private static void Remember(string key, string json)
+    {
+        Mem[key] = (json, ++_revision);
+        if (Mem.Count > MaxFiles) Mem.Remove(Mem.MinBy(x => x.Value.Used).Key);
+    }
+
+    /// <summary>每次写入后仅删除超出1000条的最旧快照。</summary>
     private static void Prune()
     {
-        lock (Lock) { if (_pruned) return; _pruned = true; }
         try
         {
             var files = new DirectoryInfo(_dir).GetFiles("*.json");
-            var old = DateTime.UtcNow - Keep;
-            foreach (var f in files.Where(f => f.LastWriteTimeUtc < old)) f.Delete();
-            files = new DirectoryInfo(_dir).GetFiles("*.json");
             if (files.Length <= MaxFiles) return;
-            foreach (var f in files.OrderBy(f => f.LastWriteTimeUtc).Take(files.Length - MaxFiles * 3 / 4))
+            foreach (var f in files.OrderBy(f => f.LastWriteTimeUtc).Take(files.Length - MaxFiles))
                 f.Delete();
         }
         catch { /* 同上 */ }

@@ -25,22 +25,32 @@ public sealed class AggregatePage : PageBase
         rows.Children.Add(busy);
         Content = Scrolled(rows);
 
+        var session = Nav.Session;
+        var kept = new Dictionary<string, JsonElement>();
+        void Show(JsonElement value) {
+            if (Nav.Session != session) return;
+            var cards = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : [];
+            while (rows.Children.Count > 1) rows.Children.RemoveAt(1);
+            if (cards.Count == 0) rows.Children.Add(Dim("还没有添加服务器。"));
+            foreach (var c in cards) {
+                var id = Str(c, "server_id");
+                var error = Str(c, "error");
+                if (error.Length > 0 && kept.TryGetValue(id, out var old)) {
+                    rows.Children.Add(CardOf(core, old));
+                    rows.Children.Add(Dim("暂未刷新:" + error));
+                } else { rows.Children.Add(CardOf(core, c)); if (error.Length == 0) kept[id] = c; }
+            }
+        }
         _ = Task.Run(async () =>
         {
             JsonElement r;
-            try { r = await core.EmbyAggregateOverview(new { }); }
+            try { r = await core.CallDisplayAsync("emby.aggregateOverview", new { }, Show); }
             catch (Exception e)
             {
                 Dispatcher.UIThread.Post(() => busy.Text = $"加载失败:{LibraryPage.Advice(e)}");
                 return;
             }
-            var cards = r.ValueKind == JsonValueKind.Array ? r.EnumerateArray().ToList() : [];
-            Dispatcher.UIThread.Post(() =>
-            {
-                rows.Children.Remove(busy);
-                if (cards.Count == 0) { rows.Children.Add(Dim("还没有添加服务器。")); return; }
-                foreach (var c in cards) rows.Children.Add(CardOf(core, c));
-            });
+            Dispatcher.UIThread.Post(() => Show(r));
         });
     }
 

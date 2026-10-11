@@ -19,6 +19,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -31,10 +33,15 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Block
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
+import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.long
@@ -70,9 +77,15 @@ fun AggregatePage(nav: NavController) {
     LongShotTarget(list)
 
 
-    // 一台服务器一组:规模统计 + 继续观看
-    var groups by xyz.linplayer.app.data.keepState<List<Overview>>("agg.groups") { emptyList() }
-    var done by xyz.linplayer.app.data.keepState("agg.done") { false }
+    val session by app.session.collectAsState()
+    val identity = session?.let { it.server to it.userId }
+    // 首页只缓存当前服续播；其它服务器的统计和续播沿用聚合快照。
+    var groups by remember(identity) { mutableStateOf(cachedOverview()) }
+    SideEffect {
+        if (app.session.value?.let { it.server to it.userId } == identity)
+            PageCache.put("agg.groups", groups)
+    }
+    var done by remember(identity) { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var failure by remember { mutableStateOf<Block.Fail?>(null) }
 
@@ -81,18 +94,35 @@ fun AggregatePage(nav: NavController) {
        **核心层根本不发**的字段名去取 —— 结果 groups 恒空,页面永远画
        「添加更多服务器才有聚合」。真实字段是 server_name / counts / resume。
        同一类错(响应字段名对不上)由 scripts/check-android-fields.py 守着。 */
-    LaunchedEffect(reload) {
-        if (reload == 0 && groups.isNotEmpty()) return@LaunchedEffect
+    LaunchedEffect(identity, reload) {
         done = false; failure = null
         try {
-            when (val result = app.block("emby.aggregateOverview")) {
-                is Block.Ok -> groups = result.value.arr().mapNotNull { Overview.from(it) }
+            val result = app.displayBlock("emby.aggregateOverview") { cached ->
+                if (groups.isEmpty()) groups = cached.arr().mapNotNull { Overview.from(it) }
+            }
+            currentCoroutineContext().ensureActive()
+            if (app.session.value?.let { it.server to it.userId } != identity) return@LaunchedEffect
+            when (result) {
+                is Block.Ok -> groups = result.value.arr().mapNotNull { Overview.from(it) }.map { fresh ->
+                    if (fresh.error == null) fresh else groups.firstOrNull { it.serverId == fresh.serverId }
+                        ?.let { fresh.copy(resume = it.resume) }
+                        ?: fresh
+                }
                 is Block.Fail -> failure = result
                 is Block.Loading -> Unit
             }
+            // 共享最新成功续播，返回时不能用首页旧快照覆盖刚刷新的聚合数据。
+            if (result is Block.Ok && PageCache.get<List<Account>>("home.accounts")?.any { it.isActive && it.aggregate } == true)
+                groups.firstOrNull { it.active && it.error == null }?.let {
+                    PageCache.put("home.resume", Block.Ok(it.resume))
+                }
         } finally {
             done = true
         }
+    }
+
+    LaunchedEffect(app, identity) {
+        app.invalidate.collect { if (it in setOf("all", "resume", "accounts")) reload++ }
     }
 
     LpScaffold("聚合视界", scrolled = rememberScrolled(list), actions = {
@@ -139,18 +169,32 @@ fun AggregatePage(nav: NavController) {
     }
 }
 
-/** 一行快捷入口。收藏 2026-09-12 提去底栏了,腾出来的位置给服务器。 */
+/** 聚合页的附加功能入口。 */
 @Composable
 private fun Shortcuts(nav: NavController) {
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {
-        Shortcut("服务器", LpIcons.server, Modifier.weight(1f)) { nav.navigate(Route.Servers) }
         Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
         Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
         Shortcut("日历", LpIcons.calendar, Modifier.weight(1f)) { nav.navigate(Route.Calendar) }
+        Shortcut("流影", LpIcons.play, Modifier.weight(1f)) { nav.navigate(Route.Liuying) }
     }
+}
+
+/** 首页与聚合快照均随账号切换清理；成功的空续播也必须覆盖旧内容。 */
+private fun cachedOverview(): List<Overview> {
+    val saved = PageCache.get<List<Overview>>("agg.groups").orEmpty()
+    val home = PageCache.get<Block<List<Item>>>("home.resume") as? Block.Ok ?: return saved
+    val account = PageCache.get<List<Account>>("home.accounts")?.firstOrNull { it.isActive }
+        ?: return saved
+    if (!account.aggregate || account.plugin != null) return saved
+    val previous = saved.firstOrNull { it.serverId == account.server }
+    val current = previous?.copy(resume = home.value) ?: Overview(
+        account.server, account.name, true, 0, 0, 0, home.value, null,
+    )
+    return if (previous == null) saved + current else saved.map { if (it.serverId == account.server) current else it }
 }
 
 @Composable

@@ -18,6 +18,7 @@
 
 ## 门禁与证据
 
+- 日历无需赞助或订单：`sync.traktCalendar` / `sync.bangumiCalendar` / `sync.calendarLibrary` / `sync.calendarDue` 不检查旧订单字段。上游账号鉴权、参数校验和提醒开关保持原契约；`TestCalendarWithoutSponsorOrder` / `TestPublicCalendarWithoutSponsorOrder` 验证无订单处理及真实 HTTP 放送表。
 - 核心变更：`bash scripts/check-core.sh`，包含 go vet、无缓存 go test、出库、FFI 头文件、C# 核心契约与差分对账。
 - 命令表或绑定变更：`bash scripts/check-bindings.sh`。
 - Emby 相关改动核查 `core/cmd/diffcheck/corpus/` 的既有差分语料及相关测试；真实 API 联调按 [基准](../shared/product-and-api.md) 执行。
@@ -74,3 +75,11 @@
 ## 首页媒体展示可靠性
 
 Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData明确提供非负UnplayedItemCount时为真；保持旧unplayed_item_count字段，不由Played补出统计。`has_backdrop`取BackdropImageTags、`has_logo`取ImageTags.Logo，缺失时省略，旧宿主忽略可选扩展。HomeUnplayedCountPresence/HomeImageCapabilities覆盖缺失、零、正数、负数与图像来源；差分对账仍保护旧字段。CommunityRating仍为rating，未确认来源不能作为豆瓣；独立DoubanRating来自MediaStationGo豆瓣快照，核心列表与详情保持同名可选字段，不增加douban_rating别名；只透传0–10分，缺失/null/越界省略，不新增评分请求。TestDoubanRatingKeepsServerFieldName验证原字段、通用评分不变与旧响应兼容。
+
+## 全端展示快照契约
+
+手机、TV、Windows/Linux共用Go `displaycache`：首页、库/收藏/搜索、筛选、详情/季/分集、人物/推荐/合集、统计及聚合的展示读取均保存持久快照。无时间过期，每个核心缓存目录最多1000条，按最近读取淘汰，单条最多512KiB；超过单条预算仍实时展示。1000条是请求结果数，不是影片数。旧宿主BrowseCache/DetailCache/MetaCache仍保留兼容，分别有1000条预算，不承诺所有缓存合计只有1000条。
+
+缓存键按实际服务器/生效线路、用户和完整查询隔离；不存凭据、URL、文件路径、媒体版本。`server_id`在盘上仅存摘要，读时按当前账号还原。详情预览不含续播位置、收藏或已看状态。核心旧快照经既有`partial`交付，最终`result`始终为本次请求的真实结果/错误，不能将快照作为播放、续播目标、换源匹配或权限判断。
+
+各端展示调用先消费快照再应用实时结果；网络失败保留旧展示，鉴权/不存在/无权限/无效参数不能回退成成功。分页快照和实时页替换同一范围；离页/取消/切换身份拒绝迟到展示。清理推进generation、移除内存/磁盘并拒绝清理前请求回写。聚合单服错误不能覆盖成功快照；流式`source.aggregateSearch`仅缓存Emby展示行，实时行按服务器替换旧行，播放换源分支不使用快照。

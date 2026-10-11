@@ -124,10 +124,19 @@ class BrowseCacheTest {
         val directory = Files.createTempDirectory("browse-test").toFile()
         try {
             val cache = BrowseCache(directory)
-            for (index in 0..70) cache.put(cache.key("s", "u", "$index"), JsonArray(emptyList()), cache.generation)
-            assertTrue(directory.listFiles()!!.size <= 64)
+            for (index in 0..1000) {
+                val key = cache.key("s", "u", "$index")
+                cache.put(key, JsonArray(emptyList()), cache.generation)
+                java.io.File(directory, key).setLastModified(1000L + index)
+            }
+            assertEquals(1000, directory.listFiles()!!.size)
+            assertNotNull(cache.peek(cache.key("s", "u", "1")))
             assertNull(cache.peek(cache.key("s", "u", "0")))
-            assertNotNull(cache.peek(cache.key("s", "u", "70")))
+            assertNotNull(cache.peek(cache.key("s", "u", "1000")))
+            val restarted = BrowseCache(directory)
+            assertNull(restarted.load(cache.key("s", "u", "0"), restarted.generation))
+            assertNotNull(restarted.load(cache.key("s", "u", "1"), restarted.generation))
+            assertNotNull(restarted.load(cache.key("s", "u", "1000"), restarted.generation))
         } finally { directory.deleteRecursively() }
     }
 }

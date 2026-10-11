@@ -144,16 +144,30 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     suspend fun seasonEpisodes(
         parentId: String,
         loaded: List<Item> = emptyList(),
+        onCached: ((List<Item>, Long?) -> Unit)? = null,
         onPage: (List<Item>, Long?) -> Unit = { _, _ -> },
     ): List<Item> {
+        // loaded只能包含本次会话onPage确认的实时前页，展示快照不得加入。
         val out = loaded.toMutableList()
         while (true) {
             currentCoroutineContext().ensureActive()
-            val page = Page.from(call("emby.seasonEpisodes", JsonObject(mapOf(
+            val before = out.toList()
+            val params = JsonObject(mapOf(
                 "parent_id" to JsonPrimitive(parentId),
                 "start_index" to JsonPrimitive(out.size),
                 "limit" to JsonPrimitive(200),
-            ))))
+            ))
+            val value = if (onCached == null) call("emby.seasonEpisodes", params) else {
+                when (val result = displayBlock("emby.seasonEpisodes", params, retainOnFailure = false) {
+                    val cached = Page.from(it)
+                    onCached(before + cached.items, cached.total)
+                }) {
+                    is Block.Ok -> result.value
+                    is Block.Fail -> throw CoreException(result.code, result.message, false)
+                    else -> error("分集结果尚未完成")
+                }
+            }
+            val page = Page.from(value)
             currentCoroutineContext().ensureActive()
             out.addAll(page.items)
             onPage(out.toList(), page.total)
@@ -241,3 +255,29 @@ suspend fun AppState.block(command: String, args: JsonObject? = null): Block<Jso
     } catch (e: Throwable) {
         Block.Fail("E_INTERNAL", e.message ?: "出错了")
     }
+
+/** 展示读取接收核心快照；返回仍等待实时结果，播放调用不使用此入口。 */
+suspend fun AppState.displayBlock(command: String, args: JsonObject? = null,
+    retainOnFailure: Boolean = true, onCached: (JsonElement) -> Unit,
+): Block<JsonElement> = kotlinx.coroutines.coroutineScope {
+    val identity = session.value
+    val snapshots = kotlinx.coroutines.channels.Channel<JsonElement>(kotlinx.coroutines.channels.Channel.UNLIMITED)
+    var cached: JsonElement? = null
+    val reader = launch {
+        for (value in snapshots) {
+            if (session.value == identity) { cached = value; onCached(value) }
+        }
+    }
+    val response = try {
+        Block.Ok(call(command, args) { value -> snapshots.trySend(value) })
+    } catch (e: kotlinx.coroutines.CancellationException) { reader.cancel(); throw e }
+      catch (e: CoreException) { Block.Fail(e.code, e.advice) }
+      catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "出错了") }
+      finally { snapshots.close() }
+    // 先消费已收到的快照，再交付实时结果，避免快速失败吞掉旧展示。
+    reader.join()
+    currentCoroutineContext().ensureActive()
+    if (session.value != identity) throw kotlinx.coroutines.CancellationException("展示会话已切换")
+    if (retainOnFailure && response is Block.Fail && response.code !in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID") && cached != null)
+        Block.Ok(cached) else response
+}

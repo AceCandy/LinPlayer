@@ -58,6 +58,7 @@ func LogsDir() string       { return sub("logs") }
 func CacheDir() string      { return sub("cache") }
 func ImageCache() string    { return sub("cache", "img") }
 func PrefetchCache() string { return sub("cache", "prefetch") }
+func DisplayCache() string  { return sub("cache", "display-v1") }
 
 // MediaCache 保存已验证版本的完整媒体块，不保存授权地址。
 func MediaCache() string { return sub("cache", "media") }

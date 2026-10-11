@@ -447,6 +447,8 @@ jobs:
       - name: Pack Android
         shell: bash
         env:
+          LP_LIUYING_URL: ${{ secrets.LP_LIUYING_URL }}
+          LP_LIUYING_ADULT_URL: ${{ secrets.LP_LIUYING_ADULT_URL }}
           LP_VERSION: ${{ needs.version.outputs.version }}
           DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
           DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}

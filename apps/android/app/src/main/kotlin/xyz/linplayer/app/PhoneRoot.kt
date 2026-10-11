@@ -287,6 +287,7 @@ private fun MainShell() {
                     src?.let { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } ?: HomePage(nav)
                 } }
                 posterComposable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
+                posterComposable<Route.Liuying> { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }
                 posterComposable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
                 posterComposable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
                 posterComposable<Route.Detail> { xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) } }

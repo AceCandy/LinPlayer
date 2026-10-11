@@ -26,11 +26,17 @@ public sealed class PersonPage : PageBase
 {
     private readonly CoreClient _core;
     private readonly string _server;
+    private readonly Sess? _session = Nav.Session;
+    private bool _detached;
+    private int _detailRevision;
+    private bool DisplayCurrent => !_detached && Nav.Session == _session;
 
     public PersonPage(CoreClient core, string server, string personId, string fallbackName)
     {
         _core = core;
         _server = server;
+        DetachedFromVisualTree += (_, _) => _detached = true;
+        AttachedToVisualTree += (_, _) => _detached = false;
 
         var body = new StackPanel { Spacing = 18 };
         var back = new Button { Classes = { "ghost" }, Content = "← 返回", HorizontalAlignment = HorizontalAlignment.Left };
@@ -75,8 +81,8 @@ public sealed class PersonPage : PageBase
         JsonElement d;
         try
         {
-            var s = Nav.Session!;
-            d = await _core.EmbyPersonDetail(new { s.server, s.token, s.user_id, s.device_id, person_id = id });
+            var s = _session!;
+            d = await _core.CallDisplayAsync("emby.personDetail", new { s.server, s.token, s.user_id, s.device_id, person_id = id }, value => { _ = PaintDetail(value, title, meta, bio, avatar); });
         }
         catch (Exception e)
         {
@@ -84,6 +90,13 @@ public sealed class PersonPage : PageBase
             return;
         }
 
+        await PaintDetail(d, title, meta, bio, avatar);
+    }
+
+    private async Task PaintDetail(JsonElement d, TextBlock title, TextBlock meta, TextBlock bio, Border avatar)
+    {
+        if (!DisplayCurrent) return;
+        var revision = ++_detailRevision;
         var name = Str(d, "name");
         var overview = Str(d, "overview");
         // 生卒 / 出生地**空是常态**:很多刮削器根本不写这几项。
@@ -95,6 +108,7 @@ public sealed class PersonPage : PageBase
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent || revision != _detailRevision) return;
             if (name.Length > 0) title.Text = name;
             meta.Text = string.Join("  ·  ", bits);
             meta.IsVisible = bits.Count > 0;
@@ -110,6 +124,7 @@ public sealed class PersonPage : PageBase
             if (bmp is null) return;
             Dispatcher.UIThread.Post(() =>
             {
+                if (!DisplayCurrent || revision != _detailRevision) return;
                 im.Source = bmp;
                 avatar.Child = im;
             });
@@ -121,11 +136,11 @@ public sealed class PersonPage : PageBase
         List<JsonElement> items;
         try
         {
-            var s = Nav.Session!;
-            var arr = await _core.EmbyPersonItems(new
+            var s = _session!;
+            var arr = await _core.CallDisplayAsync("emby.personItems", new
             {
                 s.server, s.token, s.user_id, s.device_id, person_id = id, limit = 60,
-            });
+            }, value => PaintWorks(value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : [], header, grid, msg));
             items = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
         }
         catch
@@ -135,9 +150,17 @@ public sealed class PersonPage : PageBase
             return;
         }
 
+        PaintWorks(items, header, grid, msg);
+    }
+
+    private void PaintWorks(List<JsonElement> items, TextBlock header, WrapPanel grid, TextBlock msg)
+    {
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent) return;
+            grid.Children.Clear();
             header.IsVisible = true;
+            msg.IsVisible = items.Count == 0;
             if (items.Count == 0)
             {
                 msg.Text = "没有找到参演作品。";

@@ -14,6 +14,7 @@ import (
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/displaycache"
 	"linplayer/core/emby"
 	"linplayer/core/plugin"
 )
@@ -91,7 +92,22 @@ func cmdAggregateSearch(ctx context.Context, seq int64, a map[string]any) (any, 
 	var mu sync.Mutex
 	rows := []SearchRow{}
 	eachLimited(aggregateTargets(c), aggConcurrency, func(acc config.Account) {
-		row := searchOne(ctx, c, acc, q, aggPerSource)
+		var row *SearchRow
+		if acc.PluginSource() == nil {
+			value, err := displaycache.Run(ctx, seq, "source.aggregateSearch", map[string]any{
+				"server_id": acc.Server, "query": q, "limit": aggPerSource,
+			}, func() (any, error) { return searchOne(ctx, c, acc, q, aggPerSource), nil })
+			if err != nil {
+				return
+			}
+			row, _ = value.(*SearchRow)
+			if row == nil {
+				// 成功空结果撤掉已发出的旧行，最终汇总仍保持原空结果契约。
+				bus.Partial(seq, map[string]any{"server_id": acc.Server, "kind": "emby", "emby_items": []emby.Item{}})
+			}
+		} else {
+			row = searchOne(ctx, c, acc, q, aggPerSource)
+		}
 		if row == nil {
 			return
 		}

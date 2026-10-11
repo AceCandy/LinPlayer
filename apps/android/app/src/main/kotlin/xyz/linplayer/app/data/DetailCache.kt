@@ -14,7 +14,7 @@ import kotlinx.serialization.json.*
 
 /** 只存详情展示资料；每次进入仍取服务端状态，不缓存进度、播放版本或凭据。 */
 class DetailCache(private val directory: File? = null) {
-    private val memory = LinkedHashMap<String, JsonObject>(64, .75f, true)
+    private val memory = LinkedHashMap<String, JsonObject>(1000, .75f, true)
     private val disk = Mutex()
     @Volatile var generation: Long = 0
         private set
@@ -70,7 +70,7 @@ class DetailCache(private val directory: File? = null) {
                 try {
                     if (!dir.isDirectory && !dir.mkdirs()) return@withLock
                     val target = File(dir, key)
-                    // 先腾出本条及原子写临时空间，磁盘上始终不超过 64 条的预算。
+                    // 先腾出本条及原子写临时空间，磁盘上始终不超过 1000 条的预算。
                     val others = dir.listFiles().orEmpty().filter { it != target }
                         .sortedBy { it.lastModified() }
                     val reserve = if (target.exists()) 2 else 1
@@ -117,7 +117,7 @@ class DetailCache(private val directory: File? = null) {
     }
 
     companion object {
-        private const val MAX_ENTRIES = 64
+        private const val MAX_ENTRIES = 1000
         private const val MAX_BYTES = 128 * 1024
         private val fields = setOf("id", "name", "type_", "overview", "year", "premiere_date",
             "rating", "runtime_secs", "has_primary", "has_backdrop", "series_name", "series_id",

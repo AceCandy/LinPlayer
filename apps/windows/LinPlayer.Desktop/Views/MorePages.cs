@@ -162,12 +162,21 @@ public sealed class SearchPage : PageBase
                     var rowsHost = new StackPanel { Spacing = 18 };
                     host.Content = rowsHost;
                     int hit = 0, total = 0, failed = 0;
+                    var groups = new Dictionary<string, (Control View, int Count, bool Failed)>();
                     void Add(JsonElement g)
                     {
                         if (mine != _seq) return;
+                        var id = g.TryGetProperty("server_id", out var sid) ? sid.GetString() ?? "" : "";
+                        var failure = g.TryGetProperty("error", out var ev) && ev.ValueKind == JsonValueKind.String;
+                        if (groups.TryGetValue(id, out var old)) {
+                            if (failure && !old.Failed) { status.Text = "部分来源暂未刷新:" + ev.GetString(); return; }
+                            rowsHost.Children.Remove(old.View);
+                            if (old.Failed) failed--; else { hit--; total -= old.Count; }
+                            groups.Remove(id);
+                        }
                         if (AggRow(core, g) is not { } row) return;
-                        if (g.TryGetProperty("error", out var ev) && ev.ValueKind == JsonValueKind.String) failed++;
-                        else { hit++; total += row.Count; }
+                        if (failure) failed++; else { hit++; total += row.Count; }
+                        groups[id] = (row.View, row.Count, failure);
                         rowsHost.Children.Add(row.View);
                         status.Text = $"{hit} 个来源 · 共 {total} 条" + (failed == 0 ? "" : $" · {failed} 个没搜成") + " · 每个来源最多显示 8 条,可缩小关键词";
                     }
@@ -183,11 +192,17 @@ public sealed class SearchPage : PageBase
                 }
 
                 var s = Nav.Session!;
-                var one = await core.EmbySearch(new
+                void Show(JsonElement value) {
+                    if (mine != _seq) return;
+                    var found = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().Select(CardItem.From).ToList() : [];
+                    status.Text = found.Count == 0 ? "" : $"{found.Count} 条结果";
+                    host.Content = found.Count == 0 ? NoHit(q, false) : LibraryPage.Grid(core, s.server, found, false, LibraryPage.OpenDetail(core, s.server));
+                }
+                var one = await core.CallDisplayAsync("emby.search", new
                 {
                     s.server, s.token, s.user_id, s.device_id, query = q,
                     types = new[] { "Movie", "Series" },
-                });
+                }, Show);
                 if (mine != _seq) return; // 过期结果,丢掉
                 var items = one.ValueKind == JsonValueKind.Array
                     ? one.EnumerateArray().Select(CardItem.From).ToList() : [];
@@ -497,16 +512,25 @@ public sealed class FavoritesPage : PageBase
             _ = FetchAsync();
             async Task FetchAsync()
             {
+            var preview = new ContentControl();
             try
             {
                 var s = session;
-                var res = await core.EmbyListFavorites(new { s.server, s.token, s.user_id, s.device_id,
-                    sort = want, start_index = offset, limit = 60 }, ct);
+                var res = await core.CallDisplayAsync("emby.listFavorites", new { s.server, s.token, s.user_id, s.device_id,
+                    sort = want, start_index = offset, limit = 60 }, value => {
+                        if (gen != generation || detached) return;
+                        var old = value.ValueKind == JsonValueKind.Array ? value : value.GetProperty("items");
+                        var cards = old.EnumerateArray().Select(CardItem.From).ToList();
+                        preview.Content = LibraryPage.Grid(core, s.server, cards, false, LibraryPage.OpenDetail(core, s.server));
+                        if (!rows.Children.Contains(preview)) rows.Children.Add(preview);
+                        rows.Children.Remove(busy);
+                    }, ct);
                 var raw = res.ValueKind == JsonValueKind.Array ? res : res.GetProperty("items");
                 var items = raw.EnumerateArray().Select(CardItem.From).ToList();
                 Dispatcher.UIThread.Post(() =>
                 {
                     if (gen != generation || detached) return;
+                    rows.Children.Remove(preview);
                     nextIndex = res.ValueKind == JsonValueKind.Object ? res.GetProperty("next_index").GetInt32() : offset + items.Count;
                     hasMore = res.ValueKind == JsonValueKind.Object && res.GetProperty("has_more").GetBoolean();
                     items = items.Where(it => seen.Add(it.Id)).ToList();
@@ -554,6 +578,7 @@ public sealed class FavoritesPage : PageBase
             {
                 Dispatcher.UIThread.Post(() => {
                     if (gen != generation || detached) return;
+                    if (e is CoreException ce && ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID") rows.Children.Remove(preview);
                     loading = false; more.IsEnabled = true; more.Content = "重试加载";
                     busy.Text = $"加载失败:{LibraryPage.Advice(e)}";
                     if (!rows.Children.Contains(busy)) rows.Children.Add(busy);

@@ -64,6 +64,7 @@ import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
@@ -136,10 +137,15 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
 
     suspend fun fetch(offset: Int) {
         val gen = generation
-        when (val r = app.block("emby.listFavorites", args("sort" to "更新时间", "start_index" to offset, "limit" to 60))) {
+        val prefix = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
+        when (val r = app.displayBlock("emby.listFavorites", args("sort" to "更新时间", "start_index" to offset, "limit" to 60)) { value ->
+            if (gen == generation && (offset > 0 || block !is Block.Ok)) {
+                block = Block.Ok((prefix + Page.from(value).items).distinctBy { it.id })
+            }
+        }) {
             is Block.Ok -> if (gen == generation) {
                 val page = Page.from(r.value)
-                val previous = if (offset == 0) emptyList() else (block as? Block.Ok)?.value.orEmpty()
+                val previous = prefix
                 block = Block.Ok((previous + page.items).distinctBy { it.id })
                 nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
                 hasMore = r.value.obj().bool("has_more")
@@ -161,7 +167,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     }
 
     LaunchedEffect(key, reload) {
-        if (reload == 0 && block is Block.Ok) return@LaunchedEffect
+        // 返回时保留快照，同时刷新收藏。
         generation++; loadingMore = false; moreFailed = false
         if (block !is Block.Ok) block = Block.Loading
         try { fetch(0) } finally { refreshing = false }
@@ -172,7 +178,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     LaunchedEffect(sessionKey, hasMembership, reload) {
         if (!hasMembership || (reload == 0 && libraries != null)) return@LaunchedEffect
         // 库信息只增强分类；读取失败仍展示全部收藏，旧接口无需此请求。
-        val result = app.block("emby.views")
+        val result = app.displayBlock("emby.views") { if (libraries == null) libraries = View.list(it) }
         if (result is Block.Ok) libraries = View.list(result.value)
     }
     val views = libraries.orEmpty()
@@ -493,10 +499,12 @@ fun FacetPage(nav: NavController, entry: androidx.navigation.NavBackStackEntry) 
         }
         // parent_id 空 = 不限库:按标签找片本来就不该被「你现在在哪个库」框住
         val a = mapOf("parent_id" to "", "query" to args(*q.toList().toTypedArray()))
-        when (val r = app.block("emby.listItemsPage", args(*a.toList().toTypedArray()))) {
+        when (val r = app.displayBlock("emby.listItemsPage", args(*a.toList().toTypedArray())) { value ->
+            if (offset > 0 || items.isEmpty()) { val p = Page.from(value); items = (items.take(offset) + p.items).distinctBy { it.id }; total = p.total; first = Block.Ok(Unit) }
+        }) {
             is Block.Ok -> {
                 val p = Page.from(r.value)
-                items = if (offset == 0) p.items else items + p.items
+                items = (items.take(offset) + p.items).distinctBy { it.id }
                 total = p.total
                 first = Block.Ok(Unit)
             }

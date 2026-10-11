@@ -117,6 +117,14 @@ public sealed class MediaGrid : ContentControl
         Rebuild();
     }
 
+    /// <summary>缓存页与实时页替换同一段，保留前面已经加载的分页。</summary>
+    public void ReplaceFrom(int offset, IEnumerable<CardItem> page)
+    {
+        if (_items.Count > offset) _items.RemoveRange(offset, _items.Count - offset);
+        _items.AddRange(page);
+        Rebuild();
+    }
+
     public int Count => _items.Count;
 
     private void Relayout()

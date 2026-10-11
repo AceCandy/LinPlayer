@@ -54,6 +54,7 @@ import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
@@ -302,20 +303,23 @@ fun DetailPage(r: TvRoute.Detail) {
     val ck = "tv.detail.${r.itemId}.$server"
 
     var detail by keepState<Block<JsonObject>>("$ck.d") { Block.Loading }
+    var preview by remember(r.itemId, server) { mutableStateOf<JsonObject?>(null) }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(r.itemId, reload) {
-        detail = app.block("emby.itemDetail", args("item_id" to r.itemId)).map { it.obj() ?: JsonObject(emptyMap()) }
+        detail = app.displayBlock("emby.itemDetail", args("item_id" to r.itemId), retainOnFailure = false) { preview = it.obj() }.map { it.obj() ?: JsonObject(emptyMap()) }
+        if ((detail as? Block.Fail)?.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION")) preview = null
     }
     val d = detail.valueOrNull
     val type = d.str("type_") ?: r.type
 
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
-        DetailBackdrop(r.itemId, d?.bool("has_backdrop") ?: true)
+        DetailBackdrop(r.itemId, (d ?: preview)?.bool("has_backdrop") ?: true)
         when (val b = detail) {
-            is Block.Fail -> FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试", "返回"),
-                tone = TvC.bad, onButton = { if (it == 0) reload++ else nav.pop() })
+            is Block.Fail -> Column { preview?.let { DetailHead(it, "上次浏览的资料", overlay = overlay, lines = 3) }; FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试", "返回"),
+                tone = TvC.bad, onButton = { if (it == 0) reload++ else nav.pop() }) }
             is Block.Loading -> Column(Modifier.padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
-                Skel(Modifier.width(320.dp).height(34.dp)); Spacer(Modifier.height(TvSp.x12))
+                if (preview != null) DetailHead(preview!!, "正在刷新…", overlay = overlay, lines = 3)
+                else Skel(Modifier.width(320.dp).height(34.dp)); Spacer(Modifier.height(TvSp.x12))
                 Skel(Modifier.width(420.dp).height(14.dp)); Spacer(Modifier.height(TvSp.x8))
                 Skel(Modifier.width(560.dp).height(60.dp))
             }
@@ -416,10 +420,14 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     var episodeGeneration by remember { mutableStateOf(0) }
     var retryingEpisodes by remember { mutableStateOf(false) }
 
-    suspend fun loadEpisodes(parent: String, generation: Int, loaded: List<Item> = emptyList()) {
+    val confirmedPages = remember(ck) { mutableMapOf<String, List<Item>>() }
+    suspend fun loadEpisodes(parent: String, generation: Int) {
         fun isSelected() = generation == episodeGeneration && parent == (season?.id ?: id)
         val result = try {
-            val all = app.seasonEpisodes(parent, loaded) { items, total ->
+            val all = app.seasonEpisodes(parent, confirmedPages[parent].orEmpty(), onCached = { items, total ->
+                if (isSelected()) { episodes = items; episodeTotal = total }
+            }) { items, total ->
+                confirmedPages[parent] = items
                 if (parent == targetParent && target == null) targetEpisodes = items
                 if (isSelected()) {
                     episodes = items
@@ -443,17 +451,17 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
         }
     }
     LaunchedEffect(id) {
-        launch { similar = Item.list(app.block("emby.similarItems", args("item_id" to id, "limit" to 20)).valueOrNull) }
+        launch { similar = Item.list(app.displayBlock("emby.similarItems", args("item_id" to id, "limit" to 20)) { similar = Item.list(it) }.valueOrNull) }
         launch { dl = canDownload(app) }
         if (seasons != null && target != null) {
             if (episodeLoad is Block.Loading) {
                 val parent = season?.id ?: id
                 val generation = episodeGeneration
-                episodeJob = launch { loadEpisodes(parent, generation, episodes) }
+                episodeJob = launch { loadEpisodes(parent, generation) }
             }
             return@LaunchedEffect
         }
-        val ss = seasonsOf(app.block("emby.seriesSeasons", args("series_id" to id)).valueOrNull)
+        val ss = seasonsOf(app.displayBlock("emby.seriesSeasons", args("series_id" to id), retainOnFailure = false) { if (seasons == null) seasons = seasonsOf(it) }.valueOrNull)
         val resumed = Item.list(app.block("emby.listResume", args("limit" to 50)).valueOrNull).firstOrNull { it.seriesId == id }
         // 默认选中主按钮**目标集所在的季**【用户定 2026-09-14】:看了一半的 → 第一个没看完的季 → 第一季
         val s = ss.firstOrNull { resumed != null && it.index == resumed.seasonNo }
@@ -462,17 +470,15 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
         if (targetParent != defaultParent) targetEpisodes = emptyList()
         targetParent = defaultParent
         resumedId = resumed?.id
-        if (seasons == null) {
-            seasons = ss
-            season = s
-        }
+        seasons = ss
+        if (season == null || ss.none { it.id == season?.id }) season = s
         val parent = season?.id ?: id
         val generation = episodeGeneration
         if (parent != targetParent && episodeLoad is Block.Loading) {
-            episodeJob = launch { loadEpisodes(parent, generation, episodes) }
+            episodeJob = launch { loadEpisodes(parent, generation) }
         }
         // ☠ 季列表可能为空(有些剧集直接挂剧下)→ 拿 series id 当 parent;不回落 =「点进去一集都没有」且不报错
-        loadEpisodes(defaultParent, generation, if (parent == defaultParent) episodes else targetEpisodes)
+        loadEpisodes(defaultParent, generation)
     }
     val focusMemory = LocalFocusMemory.current
     LaunchedEffect(episodeLoad) {
@@ -518,7 +524,7 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
                     }
                     val generation = if (selected) episodeGeneration else -1
                     // 播放目标重试与初始加载一样独立于浏览季，切季只淘汰它的列表写回。
-                    episodeScope.launch { loadEpisodes(parent, generation, targetEpisodes) }
+                    episodeScope.launch { loadEpisodes(parent, generation) }
                 }
             })
             // 「继续」和「从头」必须并列显式给出:PC 上藏在右键里,TV 没有右键
@@ -598,7 +604,7 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
                         episodeLoad = Block.Loading
                         val parent = season?.id ?: id
                         val generation = episodeGeneration
-                        episodeJob = episodeScope.launch { loadEpisodes(parent, generation, episodes) }
+                        episodeJob = episodeScope.launch { loadEpisodes(parent, generation) }
                     })
             }
         }
@@ -701,7 +707,7 @@ private fun MovieBody(id: String, d: JsonObject, overlay: Overlay, scope: Corout
     var similar by remember { mutableStateOf<List<Item>>(emptyList()) }
     val pick = rememberPickState(id)
     LaunchedEffect(id) {
-        launch { similar = Item.list(app.block("emby.similarItems", args("item_id" to id, "limit" to 20)).valueOrNull) }
+        launch { similar = Item.list(app.displayBlock("emby.similarItems", args("item_id" to id, "limit" to 20)) { similar = Item.list(it) }.valueOrNull) }
         launch { pick.loadPrefs(app) }
         launch {
             loadVersionCards(app, id) { pick.cards = it }
@@ -767,7 +773,10 @@ private fun BoxSetBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     val nav = LocalNav.current
     var groups by remember { mutableStateOf<List<Pair<String, List<Item>>>?>(null) }
     LaunchedEffect(id) {
-        val o = app.block("emby.collectionItems", args("item_id" to id)).valueOrNull.obj()
+        val o = app.displayBlock("emby.collectionItems", args("item_id" to id)) { value ->
+            val cached = value.obj()
+            groups = listOf("影片" to Item.list(cached?.get("movies")), "剧集" to Item.list(cached?.get("series")), "其它" to Item.list(cached?.get("others")))
+        }.valueOrNull.obj()
         groups = listOf("影片" to Item.list(o?.get("movies")), "剧集" to Item.list(o?.get("series")), "其它" to Item.list(o?.get("others")))
     }
     Column(Modifier.padding(horizontal = TvDim.safeH)) {

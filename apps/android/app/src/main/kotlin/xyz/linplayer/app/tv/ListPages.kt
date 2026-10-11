@@ -38,6 +38,7 @@ import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
@@ -99,13 +100,16 @@ fun FavoritesPage() {
     var generation by remember { mutableIntStateOf(0) }
     suspend fun fetch(offset: Int) {
         val gen = generation
-        val r = app.block("emby.listFavorites", args("sort_by" to FavBy[by].first,
-            "sort_order" to if (asc) "asc" else "desc", "start_index" to offset, "limit" to 60))
+        val prefix = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
+        val r = app.displayBlock("emby.listFavorites", args("sort_by" to FavBy[by].first,
+            "sort_order" to if (asc) "asc" else "desc", "start_index" to offset, "limit" to 60)) { value ->
+            if (gen == generation && (offset > 0 || block !is Block.Ok)) block = Block.Ok((prefix + Page.from(value).items).distinctBy { it.id })
+        }
         if (gen != generation) return
         when (r) {
             is Block.Ok -> {
                 val page = Page.from(r.value)
-                val previous = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
+                val previous = prefix
                 block = Block.Ok((previous + page.items).distinctBy { it.id })
                 nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
                 hasMore = r.value.obj().bool("has_more"); moreFailed = false

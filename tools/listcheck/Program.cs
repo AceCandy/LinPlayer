@@ -51,6 +51,17 @@ foreach (var download in new[] { false, true })
     window.Close();
     Dispatcher.UIThread.RunJobs();
 }
+// 已加载第一页后先展示第二页缓存，再用不同长度的实时页替换，不能重复追加。
+var paged = new MediaGrid(null!, "fixture", false);
+CardItem Row(string id) => CardItem.From(JsonSerializer.SerializeToElement(new { id, name = id, type_ = "Movie" }));
+paged.Append(new[] { Row("first"), Row("second") });
+paged.ReplaceFrom(2, new[] { Row("old-a"), Row("old-b") });
+paged.ReplaceFrom(2, new[] { Row("fresh") });
+var records = (List<CardItem>)typeof(MediaGrid).GetField("_items", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(paged)!;
+if (!records.Select(it => it.Id).SequenceEqual(new[] { "first", "second", "fresh" })) throw new Exception("缓存页刷新重复或损坏已加载前页");
+paged.ReplaceFrom(2, Array.Empty<CardItem>());
+if (paged.Count != 2) throw new Exception("成功空页未撤掉旧分页快照");
+Console.WriteLine("缓存分页预览与实时替换检查通过");
 Console.WriteLine("本机目录及下载列表规模检查通过");
 
 sealed class BenchApp : Application

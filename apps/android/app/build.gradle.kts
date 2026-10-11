@@ -1,4 +1,5 @@
 import java.util.Properties
+import java.net.URI
 
 plugins {
     id("com.android.application")
@@ -21,6 +22,9 @@ val keystoreProps = Properties().apply {
     if (f.exists()) f.inputStream().use { load(it) }
 }
 val hasKeystore = keystoreProps.getProperty("storeFile") != null
+val localProps = Properties().apply {
+    rootProject.file("local.properties").takeIf { it.exists() }?.inputStream()?.use { load(it) }
+}
 
 // 生成的 Kotlin 绑定(bindings/kotlin/Commands.g.kt)拉进来编。
 //
@@ -50,6 +54,16 @@ android {
         // 本地构建为空 = SDK 不启用,见 LinPlayerApp
         buildConfigField("String", "SENTRY_DSN", "\"${System.getenv("SENTRY_DSN") ?: ""}\"")
         buildConfigField("boolean", "STARTUP_DIAGNOSTICS", startupDiagnostics.toString())
+        // 私有网页地址只从环境或本地配置注入，不写入源码。
+        listOf("LP_LIUYING_URL", "LP_LIUYING_ADULT_URL").forEach { name ->
+            val value = (providers.environmentVariable(name).orNull ?: localProps.getProperty(name).orEmpty()).trim()
+            val uri = runCatching { URI(value) }.getOrNull()
+            require(value.isEmpty() || uri != null && uri.scheme in listOf("http", "https") && !uri.host.isNullOrEmpty()) {
+                "$name 必须是 HTTP/HTTPS 网页地址"
+            }
+            val quoted = value.replace("\\", "\\\\").replace("\"", "\\\"")
+            buildConfigField("String", name, "\"$quoted\"")
+        }
         manifestPlaceholders["mainLauncherAction"] = if (startupDiagnostics) "linplayer.disabled" else "android.intent.action.MAIN"
         manifestPlaceholders["diagnosticLauncherAction"] = if (startupDiagnostics) "android.intent.action.MAIN" else "linplayer.disabled"
         manifestPlaceholders["diagnosticEnabled"] = startupDiagnostics.toString()

@@ -39,6 +39,7 @@ import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.View
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.obj
@@ -79,7 +80,7 @@ fun LibraryPickerPage() {
     var blocked by keepState<Set<String>>("tv.libs.blocked.$server") { emptySet() }
     var reload by remember { mutableIntStateOf(0) }
     LaunchedEffect(server, reload) {
-        launch { views = app.block("emby.views", args("include_blocked" to true)).map { View.list(it) } }
+        launch { views = app.displayBlock("emby.views", args("include_blocked" to true)) { if (views !is Block.Ok) views = Block.Ok(View.list(it)) }.map { View.list(it) } }
         launch { blocked = runCatching { app.call("emby.blockedList") }.getOrNull().arr().mapNotNull { it.obj().str("id") }.toSet() }
     }
     Box(Modifier.fillMaxSize()) {
@@ -192,10 +193,12 @@ fun LibraryGridPage(r: TvRoute.Library) {
             put("parent_id", viewId)
             put("query", kotlinx.serialization.json.JsonObject(q))
         }
-        when (val res = app.block("emby.listItemsPage", args(*a.toList().toTypedArray()))) {
+        when (val res = app.displayBlock("emby.listItemsPage", args(*a.toList().toTypedArray())) { value ->
+            if (offset > 0 || items.isEmpty()) { val p = Page.from(value); items = (items.take(offset) + p.items).distinctBy { it.id }; total = p.total; first = Block.Ok(Unit) }
+        }) {
             is Block.Ok -> {
                 val p = Page.from(res.value)
-                items = if (offset == 0) p.items else items + p.items
+                items = (items.take(offset) + p.items).distinctBy { it.id }
                 total = p.total
                 first = Block.Ok(Unit)
                 moreFailed = false
@@ -206,14 +209,16 @@ fun LibraryGridPage(r: TvRoute.Library) {
     }
 
     LaunchedEffect(filterKey) {
-        if (fetchedAs == filterKey && first is Block.Ok) return@LaunchedEffect
+        if (fetchedAs == filterKey && first is Block.Ok) { fetch(0); return@LaunchedEffect }
         fetchedAs = filterKey
         first = Block.Loading; items = emptyList(); total = null
         fetch(0)
     }
     LaunchedEffect(viewId) {
         if (facets is Block.Ok) return@LaunchedEffect
-        facets = app.block("emby.getFilters", args("parent_id" to viewId)).map { e ->
+        facets = app.displayBlock("emby.getFilters", args("parent_id" to viewId)) { value ->
+            if (facets !is Block.Ok) facets = Block.Ok(value.obj().strList("genres") to value.obj()?.get("years").arr().mapNotNull { (it as? JsonPrimitive)?.content?.toLongOrNull() })
+        }.map { e ->
             val o = e.obj()
             filtersSupported = o?.get("capabilities").obj()?.get("filters")?.toString() != "false"
             if (!filtersSupported) { genre = null; year = null; played = 0 }

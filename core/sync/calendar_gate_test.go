@@ -2,13 +2,15 @@ package sync
 
 import (
 	"context"
-	"strings"
+	gosync "sync"
 	"testing"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
 	"linplayer/core/paths"
 )
+
+var regOnce gosync.Once
 
 // registerOnce 整个包只能注册一次(bus.Register 重复注册 panic)。
 func withCommands(t *testing.T) {
@@ -20,53 +22,36 @@ func withCommands(t *testing.T) {
 	regOnce.Do(func() { RegisterCommands("test") })
 }
 
-// TestCalendarGate_未解锁四条命令全部拒绝 —— 这是 D551 的门。
-//
-// 反向验证过:把 commands.go / library.go 的 registerGated 改回 bus.Register,
-// 四条全部返回数据,本测试四条全红。
-func TestCalendarGate_未解锁一条都不给(t *testing.T) {
+// 无订单也能进入日历处理器；上游账号鉴权、参数校验和提醒设置仍然生效。
+func TestCalendarWithoutSponsorOrder(t *testing.T) {
 	withCommands(t)
-
-	for _, cmd := range gatedCalendarCommands {
+	for _, cmd := range []string{"sync.traktCalendar", "sync.bangumiCalendar"} {
 		_, err := bus.Invoke(context.Background(), cmd, map[string]any{"only_mine": true})
-		if err == nil {
-			t.Fatalf("%s 未解锁时仍返回了数据 —— 付费门漏了", cmd)
+		if e, ok := err.(*bus.Err); !ok || e.Code != bus.EAuth {
+			t.Fatalf("%s 应只要求上游账号，实际 %v", cmd, err)
 		}
-		e, ok := err.(*bus.Err)
-		if !ok || e.Code != bus.EPermission {
-			t.Fatalf("%s 未解锁时的错误应当是 %s,实际 %v", cmd, bus.EPermission, err)
+	}
+	for _, cmd := range []string{"sync.calendarLibrary", "sync.calendarDue"} {
+		_, err := bus.Invoke(context.Background(), cmd, map[string]any{"entries": []any{}})
+		if err != nil {
+			t.Fatalf("%s 无订单也应能调用: %v", cmd, err)
 		}
+	}
+	_, err := bus.Invoke(context.Background(), "sync.calendarLibrary", map[string]any{"entries": "invalid"})
+	if e, ok := err.(*bus.Err); !ok || e.Code != bus.EInvalid {
+		t.Fatalf("无订单仍应校验 entries，实际 %v", err)
 	}
 }
 
-// TestCalendarGate_解锁后放行:证明上一条红的原因是门,不是命令本身就抛错。
-// only_mine=true 是为了让四条都在没连账号时就地返回(EAuth / 空表),不打上游。
-func TestCalendarGate_解锁后不再是门挡的(t *testing.T) {
+func TestPublicCalendarWithoutSponsorOrder(t *testing.T) {
 	withCommands(t)
-	unlockCalendar("202609210000000001")
-
-	for _, cmd := range gatedCalendarCommands {
-		_, err := bus.Invoke(context.Background(), cmd, map[string]any{"only_mine": true})
-		if e, ok := err.(*bus.Err); ok && e.Code == bus.EPermission && e.Msg == calendarLockedMsg {
-			t.Fatalf("%s 解锁后还被门挡着", cmd)
-		}
+	defer calendarServer(t, calendarFixture)()
+	value, err := bus.Invoke(context.Background(), "sync.bangumiCalendar", map[string]any{})
+	if err != nil {
+		t.Fatal(err)
 	}
-}
-
-// TestCalendarGate_新命令别漏挂门:任何名字里带 Calendar 的命令都必须在清单里。
-func TestCalendarGate_名单覆盖全部日历命令(t *testing.T) {
-	withCommands(t)
-
-	in := map[string]bool{}
-	for _, c := range gatedCalendarCommands {
-		in[c] = true
-	}
-	for _, c := range bus.Commands() {
-		if !strings.HasPrefix(c, "sync.") || !strings.Contains(strings.ToLower(c), "calendar") {
-			continue
-		}
-		if !in[c] {
-			t.Fatalf("%s 是日历命令却没走 registerGated —— 新命令漏挂付费门", c)
-		}
+	entries, ok := value.([]CalendarEntry)
+	if !ok || len(entries) != 3 {
+		t.Fatalf("无订单应正常返回公开放送表，实际 %T", value)
 	}
 }

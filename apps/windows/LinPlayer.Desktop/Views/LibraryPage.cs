@@ -85,9 +85,11 @@ public sealed class LibraryPage : PageBase
                     Dispatcher.UIThread.Post(() => Paint(hit.Select(CardItem.From).ToList()));
                 }
 
-                var views = await core.EmbyViews(new
+                var views = await core.CallDisplayAsync("emby.views", new
                 {
                     s.server, s.token, s.user_id, s.device_id, include_blocked = true,
+                }, value => {
+                    if (value.ValueKind == JsonValueKind.Array) Paint(value.EnumerateArray().Select(CardItem.From).ToList());
                 });
                 var raw = views.ValueKind == JsonValueKind.Array
                     ? views.EnumerateArray().ToList() : [];
@@ -204,7 +206,15 @@ public sealed class LibraryPage : PageBase
         try
         {
             var s = Nav.Session!;
-            var c = await core.EmbyCounts(new { s.server, s.token, s.user_id, s.device_id });
+            void Show(JsonElement value) => PaintSummary(value, target);
+            var c = await core.CallDisplayAsync("emby.counts", new { s.server, s.token, s.user_id, s.device_id }, Show);
+            Show(c);
+        }
+        catch { /* 统计条是锦上添花 */ }
+    }
+
+    private static void PaintSummary(JsonElement c, TextBlock target)
+    {
             long N(string k) => c.ValueKind == JsonValueKind.Object && c.TryGetProperty(k, out var v)
                 && v.ValueKind == JsonValueKind.Number ? v.GetInt64() : 0;
             var bits = new List<string>();
@@ -213,8 +223,6 @@ public sealed class LibraryPage : PageBase
             if (N("episode") > 0) bits.Add($"{N("episode")} 集");
             if (bits.Count > 0)
                 Dispatcher.UIThread.Post(() => target.Text = string.Join("  ·  ", bits));
-        }
-        catch { /* 统计条是锦上添花 */ }
     }
 
     internal static string Advice(Exception e) => e is CoreException c ? c.Advice : e.Message;
@@ -462,10 +470,10 @@ public sealed class LibraryGridPage : PageBase
         try
         {
             var s = Nav.Session!;
-            f = await _core.EmbyGetFilters(new
+            f = await _core.CallDisplayAsync("emby.getFilters", new
             {
                 s.server, s.token, s.user_id, s.device_id, parent_id = _parentId,
-            });
+            }, PaintFilters);
         }
         catch (Exception e)
         {
@@ -474,6 +482,11 @@ public sealed class LibraryGridPage : PageBase
         }
         finally { _filtersLoading = false; }
 
+        PaintFilters(f);
+    }
+
+    private void PaintFilters(JsonElement f)
+    {
         var genres = Strings(f, "genres");
         var years = Numbers(f, "years");
         Dispatcher.UIThread.Post(() =>
@@ -673,19 +686,27 @@ public sealed class LibraryGridPage : PageBase
             var genres = _genre.SelectedIndex > 0 ? new[] { (string)_genre.SelectedItem! } : null;
             var years = _year.SelectedIndex > 0 ? new[] { long.Parse((string)_year.SelectedItem!) } : null;
 
-            var page = await _core.EmbyListItemsPage(new
+            var offset = _loaded;
+            var page = await _core.CallDisplayAsync("emby.listItemsPage", new
             {
                 s.server, s.token, s.user_id, s.device_id,
                 parent_id = _parentId,
                 query = new
                 {
-                    limit = PageSize, start_index = _loaded,
+                    limit = PageSize, start_index = offset,
                     sort_by = by, sort_order = order, years,
                     // 落地页那一档压过下拉框:这一页存在的理由就是「只看这一个」
                     genres = _facet.Kind == "genre" ? [_facet.Value] : genres,
                     tags = _facet.Kind == "tag" ? new[] { _facet.Value } : null,
                     studio_ids = _facet.Kind == "studio" ? new[] { _facet.Value } : null,
                 },
+            }, value => {
+                if (gen != _gen) return;
+                var old = value.TryGetProperty("items", out var cached) && cached.ValueKind == JsonValueKind.Array
+                    ? cached.EnumerateArray().Select(CardItem.From).ToList() : [];
+                _first.IsVisible = false;
+                _grid.ReplaceFrom(offset, old);
+                _status.Text = "正在刷新…";
             });
             // 等这一趟网络的工夫里用户换了筛选:这批是旧筛选的结果,一个字都不能落地
             if (gen != _gen) return;
@@ -702,7 +723,7 @@ public sealed class LibraryGridPage : PageBase
                 // 那时候屏幕上已经有内容了,再闪一次骨架反而像整页重载。
                 _first.IsVisible = false;
                 using var _sp = Core.Perf.Measure($"追加 {items.Count} 条(虚拟化网格)");
-                _grid.Append(items);
+                _grid.ReplaceFrom(offset, items);
                 _status.Text = _loaded >= _total ? $"共 {_total} 项" : $"已加载 {_loaded} / {_total}";
                 if (_loaded == 0) _status.Text = "这个筛选下没有内容。";
             });

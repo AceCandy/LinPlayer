@@ -14,6 +14,7 @@ import (
 	"linplayer/core/blocklist"
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/displaycache"
 	"linplayer/core/net/localserve"
 	"linplayer/core/net/tlspolicy"
 	"linplayer/core/serverbatch"
@@ -60,7 +61,7 @@ func RegisterCommands(version string) {
 	// list 把「取会话 → 调实现 → 网络错误归到可重试」这段样板收成一处。
 	// 网络错误是**可重试**的 —— UI 据此显示「重试」而不是「重新登录」(SPEC §5.4)
 	list := func(name string, fn func(context.Context, *Session, map[string]any) (any, error)) {
-		bus.Register(name, func(ctx context.Context, seq int64, args map[string]any) (any, error) {
+		displaycache.Register(name, func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 			s, err := sessionFrom(args)
 			if err != nil {
 				return nil, err
@@ -432,7 +433,7 @@ func RegisterCommands(version string) {
 	// ★ counts 单列不走 list():这个端点在某些 fork 上是 404,
 	//   调用方**必须容忍它失败** —— 统计条是锦上添花,不该让首页整个报错。
 	//   所以它的错误码是 E_UNSUPPORTED(信息,UI 静默降级)而不是 E_NETWORK(红字 + 重试)。
-	bus.Register("emby.counts", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
+	displaycache.Register("emby.counts", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 		s, err := sessionFrom(args)
 		if err != nil {
 			return nil, err

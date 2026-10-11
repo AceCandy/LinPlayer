@@ -153,7 +153,7 @@ def doc_return_types():
     return out
 
 
-CALL = re.compile(r'\b(?:call|block|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"')
+CALL = re.compile(r'\b(?:call|block|browseBlock|displayBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"')
 NL = chr(10)
 FUNC = re.compile(NL + '(?:@Composable' + NL + ')?(?:private |internal )?fun ')
 # ☠ 新写一个取值器就要加进来。漏掉的表现是**闸门静默少数几处** ——

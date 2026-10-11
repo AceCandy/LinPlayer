@@ -192,6 +192,35 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
         finally { _partials.TryRemove(seq, out _); }
     }
 
+    /// <summary>显示核心旧快照并等待实时结果；播放入口仍使用CallAsync。</summary>
+    public async Task<JsonElement> CallDisplayAsync(string command, object? args,
+        Action<JsonElement> onCached, CancellationToken ct = default, bool retainOnFailure = true)
+    {
+        var completed = 0;
+        JsonElement? cached = null;
+        var delivered = Task.CompletedTask;
+        try
+        {
+            var result = await CallStreamAsync(command, args, value =>
+            {
+                cached = value;
+                delivered = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
+                {
+                    if (Volatile.Read(ref completed) == 0 && !ct.IsCancellationRequested) onCached(value);
+                }).GetTask();
+            }, ct).ConfigureAwait(false);
+            await delivered.ConfigureAwait(false);
+            return result;
+        }
+        catch (CoreException e) when (retainOnFailure && cached is not null &&
+            e.Code is not ("E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID"))
+        {
+            await delivered.ConfigureAwait(false);
+            return cached.Value;
+        }
+        finally { await delivered.ConfigureAwait(false); Interlocked.Exchange(ref completed, 1); }
+    }
+
     /// <summary>LP_PERF=1 时给每条命令记一行耗时。关着的时候这个方法一次都不会被调到。</summary>
     private static async Task<JsonElement> Timed(string command, Task<JsonElement> t)
     {

@@ -55,6 +55,7 @@ import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
@@ -121,7 +122,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     LaunchedEffect(pickedPerson?.id, personRetry) {
         val person = pickedPerson ?: return@LaunchedEffect
         personItems = Block.Loading
-        val response = app.block("emby.personItems", args("person_id" to person.id, "limit" to 60)).map { Item.list(it) }
+        val response = app.displayBlock("emby.personItems", args("person_id" to person.id, "limit" to 60)) { personItems = Block.Ok(Item.list(it)) }.map { Item.list(it) }
         currentCoroutineContext().ensureActive()
         personItems = response
     }
@@ -144,7 +145,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             if (text != aggQuery) { aggRun = 0; state.completedRun = 0; aggRows.clear(); aggFailure = null }
             return@LaunchedEffect
         }
-        if (state.completedQuery == Triple(text, searchType, refresh) && result != null && result !is Block.Loading) return@LaunchedEffect
+        // 返回同一查询也先展示旧值，再请求实时结果。
         try {
             delay(250)
             result = Block.Loading
@@ -153,7 +154,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 put("types", jsonArrayOf(listOf(searchType)))
                 route.viewId?.let { put("parent_id", it) }
             }
-            val response = app.block("emby.search", args(*a.toList().toTypedArray()))
+            val response = app.displayBlock("emby.search", args(*a.toList().toTypedArray())) { result = Block.Ok(Page.from(it).items) }
             currentCoroutineContext().ensureActive()
             result = when (val r = response) {
                 is Block.Ok -> Block.Ok(Page.from(r.value).items)
@@ -179,7 +180,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 val requestScope = this
                 app.call("source.aggregateSearch", args("query" to text)) { part ->
                     part.obj()?.let { row -> requestScope.launch {
-                        if (run == aggRun && aggregate && text == q.trim()) aggRows.add(row)
+                        if (run == aggRun && aggregate && text == q.trim()) {
+                            val index = aggRows.indexOfFirst { it.str("server_id") == row.str("server_id") }
+                            if (row.str("kind") == "emby" && row.str("error") == null && row["emby_items"].arr().isEmpty()) {
+                                if (index >= 0) aggRows.removeAt(index)
+                            } else if (index >= 0) {
+                                if (row.str("error") == null) aggRows[index] = row else app.toast(row.str("error").orEmpty())
+                            } else aggRows.add(row)
+                        }
                     } }
                 }
             }

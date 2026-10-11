@@ -64,7 +64,6 @@ import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
-import kotlinx.coroutines.launch
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.BlockBox
@@ -348,11 +347,7 @@ private data class Air(
 private val weekLabels = listOf("一", "二", "三", "四", "五", "六", "日")
 
 /**
- * 追剧日历(U1.14b · 付费)。版式照草稿 07。
- *
- * ☠ **赞助地址必须来自 `system.afdianSponsorUrl`,不许硬编。**
- * 2026-07-19 就栽在这:UI 里写死了一个凭空猜的主页,功能看着完全正常,
- * 而**赞助收益是零**。收款地址只能有一份。
+ * 追剧日历(U1.14b)。版式照草稿 07。
  *
  * ★ 核心层发的是**平铺数组**,不是按天分组 —— 分组在这里做。
  * ★ 主轴是**时间不是番剧**:左边一条渐隐的光,同一时段的几部挂在同一个节点上。
@@ -368,22 +363,12 @@ fun CalendarPage(nav: NavController) = androidx.compose.runtime.CompositionLocal
 private fun CalendarBody(nav: NavController) {
     val app = LocalApp.current
     var all by remember { mutableStateOf<Block<List<Air>>>(Block.Loading) }
-    var sponsorUrl by remember { mutableStateOf<String?>(null) }
-    // null = 还没问到。三态:问到之前既不画门也不拉数据,否则付过钱的人每次都闪一下门
-    var unlocked by remember { mutableStateOf<Boolean?>(null) }
     // 默认落在今天。java.time 的 DayOfWeek 就是 1=周一,和核心层同口径
     val today = java.time.LocalDate.now().dayOfWeek.value
     var day by remember { mutableStateOf(today) }
     var reload by remember { mutableStateOf(0) }
 
-    LaunchedEffect(Unit) {
-        sponsorUrl = runCatching { app.call("system.afdianSponsorUrl") }
-            .getOrNull().obj().str("url")
-        unlocked = calendarUnlocked(app)
-    }
-    LaunchedEffect(unlocked, reload) {
-        // 未解锁**连数据都不拉**(D200):拉了再盖一层门,等于白花一次上游配额
-        if (unlocked != true) return@LaunchedEffect
+    LaunchedEffect(reload) {
         all = Block.Loading
         all = when (val r = app.block("sync.bangumiCalendar")) {
             is Block.Ok -> Block.Ok(
@@ -422,10 +407,6 @@ private fun CalendarBody(nav: NavController) {
 
     LpScaffold("追剧日历", onBack = { nav.popBackStack() }) { pad ->
         Box(Modifier.fillMaxSize()) {
-            if (unlocked == false) {
-                CalendarGate(sponsorUrl) { unlocked = true }
-                return@Box
-            }
             BlockBox(all, { reload++ }) { rows ->
                 Column(Modifier.fillMaxSize()) {
                     Text("本周 ${rows.size} 集 · 按放送日期查看",
@@ -449,8 +430,7 @@ private fun CalendarBody(nav: NavController) {
                         },
                         label = "day",
                     ) { d ->
-                        Timeline(rows.filter { it.weekday == d }, isToday = d == today, pad = pad,
-                            sponsor = sponsorUrl)
+                        Timeline(rows.filter { it.weekday == d }, isToday = d == today, pad = pad)
                     }
                 }
             }
@@ -513,7 +493,7 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
  * ★ 下一个时段的节点是一颗 2.6 秒一次的脉冲点:「26 分钟后」那几部在页面上是活的。
  */
 @Composable
-private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues, sponsor: String?) {
+private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
     if (rows.isEmpty()) {
         EmptyState("这一天没有放送", "放送表按上游时区分组,这一栏是空的。", LpIcons.calendar)
         return
@@ -528,7 +508,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues, spon
         slots.forEach { (hhmm, list) ->
             item(hhmm) { Slot(hhmm, list, hhmm == nextSlot, now) }
         }
-        if (sponsor != null) item("sponsor") {
+        item("source") {
             Dim3("放送表来自 Bangumi;想只看自己追的,去设置里连 Bangumi 账号。",
                 Modifier.padding(Sp.x16), maxLines = 3)
         }
@@ -671,64 +651,4 @@ private fun countdown(at: java.time.Instant?, now: java.time.Instant): Pair<Stri
 private fun parseIso(iso: String?): java.time.Instant? {
     if (iso.isNullOrBlank()) return null
     return runCatching { java.time.Instant.parse(iso) }.getOrNull()
-}
-
-// ---------------------------------------------------------------- 付费解锁(SPEC 18.1 D200 D228)
-
-/**
- * 追剧日历是否已解锁。凭据 = 校验通过的爱发电订单号,存核心层偏好里三端共用。
- *
- * ★ **不每次联网重校**(D200「只在解锁时校验一次」):重校的后果是断网、
- *   或者代理挂了的时候,付过钱的人照样被挡在外面。仍是软锁,只抬高门槛。
- */
-internal suspend fun calendarUnlocked(app: xyz.linplayer.app.data.AppState): Boolean =
-    !runCatching { app.call("prefs.getPrefs") }.getOrNull().obj().str("calendar_unlock_order").isNullOrEmpty()
-
-/**
- * 未解锁时的整页门(照 `rust-final:ui/desktop/pages/CalendarPage.tsx` 的版式)。
- *
- * ☠ 赞助地址走 [sponsorUrl](来自 `system.afdianSponsorUrl`),**不许硬编** —— 见本文件顶部那条。
- */
-@Composable
-private fun CalendarGate(sponsorUrl: String?, onUnlocked: () -> Unit) {
-    val app = LocalApp.current
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val scope = androidx.compose.runtime.rememberCoroutineScope()
-    var order by remember { mutableStateOf("") }
-    var busy by remember { mutableStateOf(false) }
-    var err by remember { mutableStateOf<String?>(null) }
-
-    Column(
-        Modifier.fillMaxSize().padding(Sp.x26),
-        verticalArrangement = Arrangement.spacedBy(Sp.x16),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        Spacer(Modifier.height(Sp.x48))
-        Text("追剧日历 · 赞助解锁", color = Lp.colors.fg, style = LpText.heading)
-        Body("这是付费功能。在爱发电赞助后,用订单号解锁本机。")
-        xyz.linplayer.app.ui.components.LpField(order, { order = it; err = null }, "爱发电订单号",
-            Modifier.fillMaxWidth(), error = err)
-        Row(horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-            xyz.linplayer.app.ui.components.LpButton("解锁", {
-                if (order.isBlank() || busy) return@LpButton
-                busy = true
-                scope.launch {
-                    val r = runCatching { app.call("system.afdianVerify", args("order_no" to order.trim())).obj() }.getOrNull()
-                    busy = false
-                    // 每一种失败都要在输入框下面变成一句人话:核心层为此不抛错,专门回 reason
-                    if (r.bool("valid")) {
-                        app.toast("已解锁:${r.str("plan_title").orEmpty()} ${r.str("amount").orEmpty()}".trim())
-                        onUnlocked()
-                    } else err = r.str("reason") ?: "订单号无效"
-                }
-            }, loading = busy)
-            if (sponsorUrl != null) xyz.linplayer.app.ui.components.LpButton("去赞助", {
-                runCatching {
-                    ctx.startActivity(android.content.Intent(android.content.Intent.ACTION_VIEW,
-                        android.net.Uri.parse(sponsorUrl)).addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK))
-                }.onFailure { app.toast("打不开浏览器") }
-            }, kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
-        }
-        Dim3("赞助后在爱发电订单详情里复制订单号,填到上面解锁本机。", maxLines = 2)
-    }
 }

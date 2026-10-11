@@ -72,6 +72,7 @@ import xyz.linplayer.app.tv.kit.TvW
 import xyz.linplayer.app.tv.kit.tvType
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.ui.pages.map
 import xyz.linplayer.app.ui.theme.LpIcons
 
@@ -92,6 +93,7 @@ fun EpisodePage(r: TvRoute.Episode) {
 
     var epId by rememberSaveable { mutableStateOf(r.itemId) }
     var detail by remember(epId) { mutableStateOf<Block<JsonObject>>(Block.Loading) }
+    var preview by remember(epId) { mutableStateOf<JsonObject?>(null) }
     var siblings by remember { mutableStateOf<List<Item>>(emptyList()) }
     var siblingsFor by remember { mutableStateOf<String?>(null) }
     var reload by remember { mutableIntStateOf(0) }
@@ -103,12 +105,13 @@ fun EpisodePage(r: TvRoute.Episode) {
         launch { fade.animateTo(1f, tween(200)) }
         launch { pick.loadPrefs(app) }
         launch { downloadable = canDownload(app) }
-        val b = app.block("emby.itemDetail", args("item_id" to epId)).map { it.obj() ?: JsonObject(emptyMap()) }
+        val b = app.displayBlock("emby.itemDetail", args("item_id" to epId), retainOnFailure = false) { preview = it.obj() }.map { it.obj() ?: JsonObject(emptyMap()) }
         detail = b
+        if ((b as? Block.Fail)?.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) preview = null
         val d = b.valueOrNull ?: return@LaunchedEffect
         val parent = d.str("season_id") ?: d.str("series_id")
         if (parent != null && parent != siblingsFor) launch {
-            runCatching { app.seasonEpisodes(parent) }
+            runCatching { app.seasonEpisodes(parent, onCached = { items, _ -> siblings = items }) }
                 .onSuccess { siblings = it; siblingsFor = parent }
                 .onFailure { app.report(it) }
         }
@@ -121,10 +124,15 @@ fun EpisodePage(r: TvRoute.Episode) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
             DetailBackdrop(d.str("series_id") ?: epId, d?.bool("has_backdrop") ?: (d.str("series_id") != null))
         }
+        if (d == null && preview != null) Column(Modifier.padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
+            TvText(preview.str("name").orEmpty(), t.display, TvC.fg, maxLines = 2)
+            Spacer(Modifier.height(TvSp.x6))
+            TvText(preview.str("overview").orEmpty(), t.meta, TvC.fg2, maxLines = 3)
+        }
         when (val b = detail) {
             is Block.Fail -> FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试", "返回"),
                 tone = TvC.bad, onButton = { if (it == 0) reload++ else nav.pop() })
-            is Block.Loading -> if (siblings.isEmpty()) Column(Modifier.padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
+            is Block.Loading -> if (siblings.isEmpty() && preview == null) Column(Modifier.padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
                 Skel(Modifier.width(200.dp).height(12.dp)); Spacer(Modifier.height(TvSp.x6))
                 Skel(Modifier.width(360.dp).height(34.dp)); Spacer(Modifier.height(TvSp.x12))
                 Skel(Modifier.width(560.dp).height(40.dp))

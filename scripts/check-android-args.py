@@ -63,7 +63,7 @@ def go_commands():
     """command -> 它读过的参数名集合。"""
     out = {}
     # reg(...) 是 core/plugin 包装过的注册(把插件错误映射成 bus 错误),读参数的写法一样
-    reg = re.compile(r'(?:bus\.Register|list|reg)\("([a-z]+\.[A-Za-z]+)",\s*(\w+)?')
+    reg = re.compile(r'(?:bus\.Register|displaycache\.Register|list|reg)\("([a-z]+\.[A-Za-z]+)",\s*(\w+)?')
     for base, _, files in os.walk(CORE):
         for f in files:
             if not f.endswith('.go'):
@@ -116,7 +116,7 @@ def pkg_sources(d):
 
 
 CALL = re.compile(
-    r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\((.*?)\)\s*\)',
+    r'\b(?:call|block|browseBlock|displayBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\((.*?)\)\s*(?:,\s*retainOnFailure\s*=\s*(?:true|false))?\s*\)',
     re.S)
 # 前台播放服务用 send(command, "key" to value),也属于命令边界。
 SEND = re.compile(r'\bsend\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(.*?)\)', re.S)
@@ -131,9 +131,9 @@ PAIR = re.compile(r'"([A-Za-z_0-9]+)"\s+to\b')
 #   emby.search 传 view_id(核心层读 parent_id)。「点进媒体库出来的不是这个库」
 #   和「库内搜索搜的是全站」这两条症状,都是从这个盲区长出来的。
 SPREAD = re.compile(
-    r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\(\s*\*\s*(\w+)\s*\.', re.S)
+    r'\b(?:call|block|browseBlock|displayBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*args\(\s*\*\s*(\w+)\s*\.', re.S)
 # 缓存入口可先构造params再发送，仍需核查其buildMap参数。
-ALIASED = re.compile(r'\b(?:call|block|browseBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(\w+)\s*\)', re.S)
+ALIASED = re.compile(r'\b(?:call|block|browseBlock|displayBlock|callJson)\(\s*"([a-z]+\.[A-Za-z]+)"\s*,\s*(\w+)\s*\)', re.S)
 PARAMS = r'\bval\s+{name}\s*=\s*args\(\s*\*\s*(\w+)\s*\.'
 PUT = re.compile(r'\bput\(\s*"([A-Za-z_0-9]+)"')
 

@@ -54,6 +54,7 @@ import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.Page
 import xyz.linplayer.app.data.browseBlock
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.strList
@@ -160,13 +161,13 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             put("query", args(*q.toList().toTypedArray()))
         }
         val params = args(*a.toList().toTypedArray())
-        return if (offset == 0) app.browseBlock("emby.listItemsPage", params) { cached ->
-            if (items.isEmpty()) {
+        return app.browseBlock("emby.listItemsPage", params) { cached ->
+            if (offset > 0 || items.isEmpty()) {
                 val page = Page.from(cached)
-                items = page.items; total = page.total; first = Block.Ok(Unit)
+                items = (items.take(offset) + page.items).distinctBy { it.id }; total = page.total; first = Block.Ok(Unit)
                 ended = page.items.isEmpty() || page.total?.let { items.size >= it } == true
             }
-        } else app.block("emby.listItemsPage", params)
+        }
     }
 
     // 同条件先保留页面/磁盘快照；刷新已加载的范围，不能拼接不同排序的旧尾页。
@@ -192,7 +193,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                                 done = page.items.isEmpty() || count?.let { fresh.size >= it } == true
                             }
                             is Block.Fail -> {
-                                if (items.isEmpty() || response.code in setOf("E_AUTH", "E_NOTFOUND")) {
+                                if (items.isEmpty() || response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
                                     items = emptyList(); first = response
                                 } else refreshError = response.message
                                 return@launch
@@ -205,7 +206,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                     items = fresh.toList(); total = count; ended = done; first = Block.Ok(Unit)
                 }
                 if (filters !is Block.Ok) launch {
-                    filters = when (val r = app.block("emby.getFilters", args("parent_id" to route.viewId))) {
+                    filters = when (val r = app.displayBlock("emby.getFilters", args("parent_id" to route.viewId)) { if (filters !is Block.Ok) filters = Block.Ok(it.obj().strList("genres")) }) {
                         is Block.Ok -> {
                             currentCoroutineContext().ensureActive()
                             filtersSupported = r.value.obj()?.get("capabilities").obj()?.get("filters")?.toString() != "false"
@@ -231,11 +232,11 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                         is Block.Ok -> {
                             currentCoroutineContext().ensureActive()
                             val page = Page.from(response.value)
-                            items = items + page.items; total = page.total
+                            items = (items.take(size) + page.items).distinctBy { it.id }; total = page.total
                             ended = page.items.isEmpty() || total?.let { items.size >= it } == true
                         }
                         is Block.Fail -> {
-                            if (response.code in setOf("E_AUTH", "E_NOTFOUND")) {
+                            if (response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
                                 items = emptyList(); first = response; ended = true
                             } else refreshError = response.message
                         }

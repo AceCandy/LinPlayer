@@ -57,6 +57,7 @@ import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.View
 import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.obj
@@ -130,11 +131,11 @@ fun HomePage() {
         // 空栏目不在列表中；刷新时恢复占位，允许滚到后重新检查内容。
         latest = latest.filterValues { it.valueOrNull?.isEmpty() != true }
         if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
-        if (hero !is Block.Ok || reload > 0) launch { hero = keep(hero, app.block("emby.listRandom", args("limit" to 5)).map { Item.list(it) }) }
-        launch { resume = keep(resume, app.block("emby.listResume", args("limit" to 20)).map { Item.list(it) }) }
-        launch { nextUp = keep(nextUp, app.block("emby.listNextUp", args("limit" to 20)).map { Item.list(it) }) }
+        if (hero !is Block.Ok || reload > 0) launch { hero = keep(hero, app.displayBlock("emby.listRandom", args("limit" to 5)) { if (hero !is Block.Ok) hero = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
+        launch { resume = keep(resume, app.displayBlock("emby.listResume", args("limit" to 20)) { if (resume !is Block.Ok) resume = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
+        launch { nextUp = keep(nextUp, app.displayBlock("emby.listNextUp", args("limit" to 20)) { if (nextUp !is Block.Ok) nextUp = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
         launch {
-            val v = app.block("emby.views").map { View.list(it) }
+            val v = app.displayBlock("emby.views") { if (views !is Block.Ok) views = Block.Ok(View.list(it)) }.map { View.list(it) }
             views = keep(views, v)
         }
     }
@@ -145,12 +146,12 @@ fun HomePage() {
         snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.key } to views.valueOrNull }.collect { (keys, visibleViews) ->
             for (key in keys) {
                 if (key == "coll" && requested.add("coll")) {
-                    launch { collections = keep(collections, app.block("emby.listCollections").map { Item.list(it) }) }
+                    launch { collections = keep(collections, app.displayBlock("emby.listCollections") { if (collections !is Block.Ok) collections = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
                 }
                 val view = visibleViews?.firstOrNull { key == "view.${it.id}" } ?: continue
                 if (requested.add(view.id)) {
                     launch {
-                        val r = app.block("emby.listLatest", args("parent_id" to view.id, "limit" to 20)).map { Item.list(it) }
+                        val r = app.displayBlock("emby.listLatest", args("parent_id" to view.id, "limit" to 20)) { if (latest[view.id] !is Block.Ok) latest = latest + (view.id to Block.Ok(Item.list(it))) }.map { Item.list(it) }
                         latest = latest + (view.id to keep(latest[view.id] ?: Block.Loading, r))
                     }
                 }

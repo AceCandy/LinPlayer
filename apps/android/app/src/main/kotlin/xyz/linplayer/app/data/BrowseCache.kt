@@ -17,7 +17,7 @@ import kotlinx.serialization.json.*
 
 /** 首页与库首批的展示快照；按身份和查询隔离，每次进入仍向服务端刷新。 */
 class BrowseCache(private val directory: File? = null) {
-    private val memory = LinkedHashMap<String, JsonElement>(64, .75f, true)
+    private val memory = LinkedHashMap<String, JsonElement>(1000, .75f, true)
     private val disk = Mutex()
     private val heroLock = Mutex()
     private val heroChanges = MutableStateFlow(0L)
@@ -117,7 +117,7 @@ class BrowseCache(private val directory: File? = null) {
                 try {
                     if (!dir.isDirectory && !dir.mkdirs()) return@withLock
                     val target = File(dir, key)
-                    // 先腾出本条及原子写临时空间，磁盘上始终不超过 64 条的预算。
+                    // 先腾出本条及原子写临时空间，磁盘上始终不超过 1000 条的预算。
                     val others = dir.listFiles().orEmpty().filter { it != target }
                         .sortedBy { it.lastModified() }
                     val reserve = if (target.exists()) 2 else 1
@@ -165,7 +165,7 @@ class BrowseCache(private val directory: File? = null) {
     }
 
     companion object {
-        private const val MAX_ENTRIES = 64
+        private const val MAX_ENTRIES = 1000
         private const val MAX_BYTES = 512 * 1024
         private val fields = setOf("id", "name", "type_", "is_folder", "runtime_secs", "resume_secs",
             "series_name", "series_id", "episode_no", "season_no", "played", "unplayed_item_count",
@@ -205,13 +205,13 @@ suspend fun AppState.browseBlock(
         val stored = cache.load(key, epoch)
         if (!completed && stored != null && session.value == identity) onCached(stored)
     }
-    val response = block(command, args)
+    val response = displayBlock(command, args) { if (!completed) onCached(it) }
     currentCoroutineContext().ensureActive()
     completed = true
     reader.cancel()
     if (session.value != identity) throw kotlinx.coroutines.CancellationException("浏览会话已切换")
     // 缓存写入归应用所有，展示不等待磁盘；generation阻止清理后的旧写入。
     if (response is Block.Ok) bg.launch { cache.put(key, response.value, epoch) }
-    else if (response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) cache.remove(key, epoch)
+    else if (response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) cache.remove(key, epoch)
     response
 }

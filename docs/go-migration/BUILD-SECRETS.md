@@ -26,13 +26,17 @@
 | `DANDANPLAY_APP_SECRET` | 同上(也管排行榜的弹弹动漫榜) | 同上;排行榜没有动漫榜 |
 | `TMDB_API_KEY` | 排行榜的影视榜(TMDB) | 排行榜只剩动漫榜和 Bangumi 榜 |
 | `LP_BANGUMI_REDIRECT_URI` | 追剧日历的 Bangumi 授权回调页(我们的中转) | Bangumi 只能粘贴 token 登录 |
-| `LP_AFDIAN_SPONSOR_URL` | 付费追剧日历的赞助入口 | 追剧日历没有「去赞助」入口;**填错不报错,收益直接归零** |
+| `LP_AFDIAN_SPONSOR_URL` | 旧赞助 URL 命令兼容配置 | 日历已免费开放，此项不再影响日历访问 |
 | `LP_PLUGIN_MARKET_URL` | 官方插件市场 `index.json` 地址 | 插件页的市场里没有官方市场,只有用户自己订阅的仓库 |
 | `LP_SYNC_PROXY_BASE` | 自建代理(`oauth-proxy/`)**地址**,**要带 `/api` 后缀**;现在只有问题反馈 / 崩溃报告走它 | 「发送反馈」报「这个构建没有配反馈服务」 |
 | `LP_SYNC_PROXY_KEY` | 访问代理的**共享密钥**,= 代理的 `LINPLAYER_PROXY_KEY` | 同上(值填错是另一个现象:全 401) |
 | `LP_ICON_LIBRARY_SOURCES` | 服务器图标库(逗号分隔的多个 registry 地址) | 图标库页只能上传本地图片 |
 | `LP_CF_TEST_URL` | CF 优选的下载测速文件地址 | 测速跳过下载那段,排序退化成纯按延迟 |
 | `SENTRY_DSN` | 只挂在**出包**步骤:崩溃上报地址,经 `scripts/sentry-dsn.sh` 编进程序 | 发行包不带崩溃上报(日志写「未配置,本包不上报」) |
+| `LP_LIUYING_URL` | Android 手机流影默认网页 | 流影页提示尚未配置此页面 |
+| `LP_LIUYING_ADULT_URL` | Android 手机流影第二个网页 | 第二个标签提示尚未配置此页面 |
+
+流影两项由 Android Gradle 注入 `BuildConfig`，不经 Go `sealsecrets`。手机出包步骤读取同名 GitHub Secrets；本地也可在已忽略的 `apps/android/local.properties` 配置同名键，环境变量优先。地址值只允许 HTTP/HTTPS，不写进源码、示例或日志；安装包仍包含运行所需地址，不应视为凭据保险库。
 
 **全部放 Secrets,不放 Variables** —— Variables 在日志里是明文可见的,
 而这批里有几个本身就是密钥。

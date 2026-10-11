@@ -49,19 +49,19 @@ class DetailCacheTest {
         val dir = temp.newFolder()
         val cache = DetailCache(dir)
         fun key(n: Int) = cache.key("s", "u", "m$n")
-        repeat(64) { n ->
+        repeat(1000) { n ->
             cache.put(key(n), metadata("m$n"), cache.generation)
             File(dir, key(n)).setLastModified(1000L + n)
         }
         cache.load(key(0), cache.generation)
-        cache.put(key(64), metadata("m64"), cache.generation)
+        cache.put(key(1000), metadata("m1000"), cache.generation)
         assertTrue(File(dir, key(0)).exists())
         assertFalse(File(dir, key(1)).exists())
-        assertTrue(dir.listFiles()!!.size <= 64)
-        assertTrue(cache.sizeBytes() <= 64L * 128 * 1024)
-        cache.put(key(65), JsonObject(metadata("m65") + ("overview" to JsonPrimitive("a".repeat(128 * 1024)))), cache.generation)
-        assertNull(cache.peek(key(65)))
-        assertFalse(File(dir, key(65)).exists())
+        assertTrue(dir.listFiles()!!.size == 1000)
+        assertTrue(cache.sizeBytes() <= 1000L * 128 * 1024)
+        cache.put(key(1001), JsonObject(metadata("m1001") + ("overview" to JsonPrimitive("a".repeat(128 * 1024)))), cache.generation)
+        assertNull(cache.peek(key(1001)))
+        assertFalse(File(dir, key(1001)).exists())
     }
 
     @Test fun corruptAndIncompleteCacheFallsBackToNetwork() = runBlocking {

@@ -51,6 +51,8 @@ object Route {
     @Serializable data object SourceFavorites
     @Serializable data object Ranking                                         // U1.14a
     @Serializable data object Calendar                                        // U1.14b
+    /** 聚合页下的双网页入口。 */
+    @Serializable data object Liuying
     @Serializable data object Settings                                        // U1.15
     @Serializable data class SettingsSub(val group: String)                   // U1.15 二级
     /**
