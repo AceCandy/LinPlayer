@@ -4,13 +4,17 @@ import android.app.Application
 import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebView
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.navigationBars
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
 import org.junit.After
 import org.junit.Assert.*
@@ -28,9 +32,11 @@ import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
+import xyz.linplayer.app.ui.components.LocalTabClearance
 import xyz.linplayer.app.ui.pages.AggregatePage
 import xyz.linplayer.app.ui.pages.LiuyingPage
 import xyz.linplayer.app.ui.theme.LpTheme
+import xyz.linplayer.app.ui.theme.Dim
 
 /** 流影真实入口、双网页留存、暂停和返回释放；不请求实际私有页面。 */
 @RunWith(RobolectricTestRunner::class)
@@ -41,6 +47,7 @@ class PhoneLiuyingTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var app: AppState
     private lateinit var root: View
+    private var navigationBottom = 0
     private val urls = listOf("https://example.invalid/flow", "https://example.invalid/second")
 
     @After fun clean() { PageCache.clear(); scope.cancel(); app.bg.cancel() }
@@ -53,7 +60,8 @@ class PhoneLiuyingTest {
         rule.setContent {
             root = LocalView.current.rootView
             LpTheme {
-                CompositionLocalProvider(LocalApp provides app) {
+                navigationBottom = WindowInsets.navigationBars.getBottom(LocalDensity.current)
+                CompositionLocalProvider(LocalApp provides app, LocalTabClearance provides Dim.tabClearance) {
                     val nav = rememberNavController()
                     NavHost(nav, startDestination = Route.Aggregate) {
                         composable<Route.Aggregate> { AggregatePage(nav) }
@@ -72,6 +80,15 @@ class PhoneLiuyingTest {
         else -> emptyList()
     }
 
+    @Test fun webFillsWidthAndReachesNavigationSafeArea() {
+        open()
+        val bounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val web = rule.onNodeWithTag("liuying.web").fetchSemanticsNode().boundsInRoot
+        assertEquals(bounds.width, web.width, .1f)
+        assertEquals("网页底部只保留系统导航安全区", bounds.bottom - navigationBottom, web.bottom, .1f)
+        rule.onRoot().captureRoboImage("build/liuying-ui/full-content.png")
+    }
+
     @Test fun tabsLoadLazilyPreserveViewsAndPauseHiddenMedia() {
         open()
         rule.onNodeWithTag("liuying.tab.0").assertIsSelected()
@@ -85,6 +102,7 @@ class PhoneLiuyingTest {
         assertEquals(2, webViews().size)
         assertEquals(urls[1], shadowOf(second).lastLoadedUrl)
         assertEquals(View.GONE, first.visibility)
+        shadowOf(first).lastEvaluatedJavascriptCallback.onReceiveValue("null")
         assertTrue(shadowOf(first).wasOnPauseCalled())
         assertTrue(shadowOf(first).lastEvaluatedJavascript.contains("__liuyingInactive = true"))
         first.scrollTo(0, 120)
@@ -110,6 +128,36 @@ class PhoneLiuyingTest {
         assertEquals(1, shadowOf(first).goBackInvocations)
         rule.onNodeWithTag("liuying.tab.0").assertIsDisplayed()
         assertFalse(shadowOf(first).wasDestroyCalled())
+    }
+
+    @Test fun bothPagesEnableInlineMediaPlayback() {
+        open()
+        val first = webViews().single()
+        assertNotNull(first.webChromeClient)
+        assertFalse(first.settings.mediaPlaybackRequiresUserGesture)
+        rule.onNodeWithTag("liuying.tab.1").performClick()
+        val second = webViews().last()
+        assertNotNull(second.webChromeClient)
+        assertFalse(second.settings.mediaPlaybackRequiresUserGesture)
+        // 暂停由页面生命周期控制，不能改变网页加载时的自动播放策略。
+        assertFalse(first.settings.mediaPlaybackRequiresUserGesture)
+    }
+
+    @Test fun latePauseCallbackDoesNotPauseReselectedOrDestroyedPage() {
+        open()
+        val first = webViews().single()
+        rule.onNodeWithTag("liuying.tab.1").performClick()
+        val latePause = shadowOf(first).lastEvaluatedJavascriptCallback
+        rule.onNodeWithTag("liuying.tab.0").performClick()
+        latePause.onReceiveValue("null")
+        assertFalse(shadowOf(first).wasOnPauseCalled())
+        rule.onNodeWithTag("liuying.tab.1").performClick()
+        val leavingPause = shadowOf(first).lastEvaluatedJavascriptCallback
+        rule.onNodeWithContentDescription("返回").performClick()
+        rule.waitForIdle()
+        assertTrue(shadowOf(first).wasDestroyCalled())
+        leavingPause.onReceiveValue("null")
+        assertFalse(shadowOf(first).wasOnPauseCalled())
     }
 
     @Test fun missingConfigurationShowsStateWithoutCreatingWebView() {

@@ -65,6 +65,20 @@ class FloatingTabTest {
         rule.waitForIdle()
     }
 
+    @Test fun liuyingHidesGlobalBarAndReturningRestoresIt() {
+        shellWithMovie()
+        rule.onNodeWithContentDescription("聚合视界").performClick()
+        rule.onNodeWithText("流影").performClick()
+        rule.onNodeWithTag("liuying.tab.0").assertIsDisplayed()
+        rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.tab.1").performClick()
+        rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
+        rule.onNodeWithContentDescription("返回").performClick()
+        rule.onNodeWithTag("phone.tabs").assertIsDisplayed()
+        rule.onNodeWithText("下载").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/floating-ui/liuying-return.png")
+    }
+
     @Test fun realShellDetailSlidesAndReturnsToOriginalPosterPosition() {
         shellWithMovie()
         val source = rule.onNodeWithText("沙丘 2", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot

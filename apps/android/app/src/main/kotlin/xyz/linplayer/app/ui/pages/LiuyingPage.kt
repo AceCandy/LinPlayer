@@ -3,6 +3,7 @@ package xyz.linplayer.app.ui.pages
 import android.annotation.SuppressLint
 import android.graphics.Bitmap
 import android.view.View
+import android.webkit.WebChromeClient
 import android.webkit.WebResourceError
 import android.webkit.WebResourceRequest
 import android.webkit.WebResourceResponse
@@ -18,6 +19,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.selection.selectable
 import androidx.compose.foundation.selection.selectableGroup
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -86,8 +88,8 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
         }
     }
 
-    LpScaffold("流影", onBack = { back() }) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+    LpScaffold("流影", onBack = { back() }) {
+        Column(Modifier.fillMaxSize().navigationBarsPadding()) {
             Row(Modifier.fillMaxWidth().padding(Sp.x12).selectableGroup(),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                 listOf("流影", "18+").forEachIndexed { i, label ->
@@ -102,7 +104,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
             }
             if (!available) {
                 EmptyState("无法打开网页", "系统没有可用的 WebView 组件", LpIcons.globe)
-            } else Box(Modifier.weight(1f).fillMaxWidth()) {
+            } else Box(Modifier.weight(1f).fillMaxWidth().testTag("liuying.web")) {
                 AndroidView(factory = { FrameLayout(it) }, modifier = Modifier.fillMaxSize(), onRelease = { frame ->
                     frame.removeAllViews()
                     views.forEach { web -> web?.stopLoading(); web?.destroy() }
@@ -113,10 +115,12 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
                         val web = WebView(frame.context).apply {
                             settings.javaScriptEnabled = true
                             settings.domStorageEnabled = true
+                            settings.mediaPlaybackRequiresUserGesture = false
                             settings.allowFileAccess = false
                             settings.allowContentAccess = false
                             settings.useWideViewPort = true
                             settings.loadWithOverviewMode = true
+                            webChromeClient = WebChromeClient()
                             webViewClient = object : WebViewClient() {
                                 override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean =
                                     request.url.scheme !in listOf("http", "https")
@@ -160,7 +164,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
 private fun WebView.liuyingActive(active: Boolean) {
     if (tag == active) return
     tag = active
-    settings.mediaPlaybackRequiresUserGesture = !active
+    if (active) onResume()
     evaluateJavascript("""
         (() => {
             const p = HTMLMediaElement.prototype;
@@ -168,9 +172,19 @@ private fun WebView.liuyingActive(active: Boolean) {
                 p.__liuyingPlay = p.play;
                 p.play = function() { return window.__liuyingInactive ? Promise.resolve() : p.__liuyingPlay.call(this); };
             }
+            const wasInactive = window.__liuyingInactive;
             window.__liuyingInactive = ${!active};
-            if (window.__liuyingInactive) document.querySelectorAll('video,audio').forEach(x => x.pause());
+            if (window.__liuyingInactive) {
+                if (!wasInactive) window.__liuyingResume = Array.from(document.querySelectorAll('video,audio')).filter(x => !x.paused);
+                document.querySelectorAll('video,audio').forEach(x => x.pause());
+            } else {
+                const resume = window.__liuyingResume || [];
+                window.__liuyingResume = [];
+                resume.filter(x => x.isConnected).forEach(x => x.play().catch(() => {}));
+            }
         })();
-    """.trimIndent(), null)
-    if (active) onResume() else onPause()
+    """.trimIndent()) {
+        // 先记录网页播放状态，避免原生暂停先行；已切回或离页的回调不再暂停。
+        if (!active && tag == false && parent != null) onPause()
+    }
 }

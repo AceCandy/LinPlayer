@@ -165,7 +165,8 @@ private fun MainShell() {
     }
 
     val browsePage = entry != null && entry?.destination?.hasRoute<Route.Player>() != true &&
-        entry?.destination?.hasRoute<Route.AddServer>() != true
+        entry?.destination?.hasRoute<Route.AddServer>() != true &&
+        entry?.destination?.hasRoute<Route.Liuying>() != true
     var activeTab by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(tab) { if (tab >= 0) activeTab = tab }
     var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
