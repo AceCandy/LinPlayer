@@ -16,6 +16,7 @@ LinPlayer 是第三方 Emby 媒体客户端。当前为 Go 核心 + C# / Avaloni
 4. **桌面 / 手机 / TV**：读 [frontend/index.md](.trellis/spec/frontend/index.md) 和对应平台文档。
 5. 读 [思考检查入口](.trellis/spec/guides/index.md)，按领域检索 docs/lessons，再完整阅读即将修改的代码及注释。
 6. 独立复核后按适用门禁验证；最终报告已改、已验、未验及剩余风险。面向用户输出用中文。
+7. 代码修改完成后不要自动编译包，除非用户直接要求
 
 CodeGraph 使用见 [CODEGRAPH.md](CODEGRAPH.md)；实际源码以工作树为准，文本检索用 rg。
 各端最终安装包位置及检查命令以 [构建与交付规范](.trellis/spec/shared/build-release.md) 为准，不提供中间产物目录的下载入口。

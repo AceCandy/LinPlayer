@@ -56,8 +56,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
@@ -557,23 +555,16 @@ internal fun CachedHomeBanner(
                     })
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .74f), toolbarStop to Color.Black.copy(alpha = .66f),
-                    (toolbarStop + .12f) to Color.Transparent, .85f to Color.Transparent,
-                    .90f to c.bg.copy(alpha = .12f), .96f to c.bg.copy(alpha = .6f), 1f to c.bg)))
+                    (toolbarStop + .12f) to Color.Transparent)))
+                // A方案：整张背景向下连续压暗，标题不再单独铺遮罩。
+                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                    0f to Color.Transparent, .2f to Color.Transparent,
+                    .35f to Color.Black.copy(alpha = .16f), .5f to Color.Black.copy(alpha = .42f),
+                    .65f to Color.Black.copy(alpha = .66f), .8f to Color.Black.copy(alpha = .84f),
+                    .92f to Color.Black.copy(alpha = .96f), 1f to c.bg)))
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
-                        .drawBehind {
-                            val feather = 40.dp.toPx()
-                            val tail = 12.dp.toPx()
-                            val inset = Sp.x16.toPx()
-                            // 遮罩延伸到屏幕两侧，上下先淡到透明再结束，避免标题栏矩形硬边。
-                            drawRect(Brush.verticalGradient(
-                                0f to Color.Transparent, .2f to Color.Black.copy(alpha = .6f),
-                                .8f to Color.Black.copy(alpha = .6f), 1f to Color.Transparent,
-                                startY = -feather, endY = size.height + tail),
-                                topLeft = Offset(-inset, -feather),
-                                size = androidx.compose.ui.geometry.Size(size.width + inset * 2, size.height + feather + tail))
-                        },
+                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
                         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                         val logo = logoImage(image.item).takeUnless { logoFailed }
                         if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),

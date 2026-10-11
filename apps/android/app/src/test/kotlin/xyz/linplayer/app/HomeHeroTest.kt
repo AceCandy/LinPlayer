@@ -76,8 +76,14 @@ class HomeHeroTest {
         assertEquals(lines, rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot)
         val pixels = rule.onRoot().captureToImage().toPixelMap()
         val fullHeight = hero.height + 100
-        assertTrue("背景中段不应被九成黑遮罩覆盖", pixels[2, (fullHeight * .7f).toInt()].luminance() > .8f)
-        assertTrue("底部15%之前仍应保留原图", pixels[2, (fullHeight * .84f).toInt()].luminance() > .8f)
+        assertTrue("上方画面仍应保留亮度", pixels[2, (fullHeight * .35f).toInt()].luminance() > .4f)
+        assertTrue("中下部应连续压暗而非恢复亮图", pixels[2, (fullHeight * .7f).toInt()].luminance() < .35f)
+        var previous = pixels[2, (fullHeight * .35f).toInt()].luminance()
+        for (y in (fullHeight * .35f).toInt() until fullHeight.toInt() step 2) {
+            val current = pixels[2, y].luminance()
+            assertTrue("底部渐变不能先变暗再变亮，y=$y", current <= previous + .015f)
+            previous = current
+        }
         assertTrue("渐变背景必须真实延伸到Hero占位之外", pixels[2, hero.bottom.toInt() + 12].luminance() > xyz.linplayer.app.ui.theme.DarkColors.bg.luminance() + .003f)
         assertTrue("渐变末尾应融入页面底色", pixels[2, hero.bottom.toInt() + 99].luminance() < .01f)
         rule.onRoot().captureRoboImage("build/home-cinema/extended-hero.png")
