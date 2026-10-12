@@ -1398,3 +1398,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 47: 流影顶栏卍解开关与展示空间调整
+<!-- trellis-session: v=2 fp=22f5f97cd64a84ec -->
+
+**Date**: 2026-10-12
+**Task**: 流影顶栏卍解开关与展示空间调整
+**Branch**: `main`
+
+### Summary
+
+移除流影标签栏，顶栏右侧加入卍解开关，关闭普通流影、开启18+，扩大网页展示区域；同步手机设计与Android规范，6项定向回归和布局截图核查通过，完成独立复核并归档。未出包或真机播放验收。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1a736aa6` | feat(android): 流影改用顶栏卍解开关并扩大展示空间 |
+
+### Status
+
+[OK] **Completed**
