@@ -6,6 +6,7 @@ import android.view.ViewGroup
 import android.webkit.WebView
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.navigationBars
+import androidx.compose.foundation.layout.statusBars
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalView
@@ -47,6 +48,7 @@ class PhoneLiuyingTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var app: AppState
     private lateinit var root: View
+    private var contentTop = 0
     private var navigationBottom = 0
     private val urls = listOf("https://example.invalid/flow", "https://example.invalid/second")
 
@@ -60,6 +62,7 @@ class PhoneLiuyingTest {
         rule.setContent {
             root = LocalView.current.rootView
             LpTheme {
+                contentTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this) + Dim.topBar.roundToPx() }
                 navigationBottom = WindowInsets.navigationBars.getBottom(LocalDensity.current)
                 CompositionLocalProvider(LocalApp provides app, LocalTabClearance provides Dim.tabClearance) {
                     val nav = rememberNavController()
@@ -84,20 +87,25 @@ class PhoneLiuyingTest {
         open()
         val bounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
         val web = rule.onNodeWithTag("liuying.web").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithTag("liuying.tab.0").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.tab.1").assertDoesNotExist()
+        val button = rule.onNodeWithText("卍解").fetchSemanticsNode().boundsInRoot
+        assertTrue("卍解位于顶栏右侧", button.left > bounds.center.x && button.bottom <= web.top)
+        assertEquals("网页紧接顶栏，不留标签占位", contentTop.toFloat(), web.top, .1f)
         assertEquals(bounds.width, web.width, .1f)
         assertEquals("网页底部只保留系统导航安全区", bounds.bottom - navigationBottom, web.bottom, .1f)
         rule.onRoot().captureRoboImage("build/liuying-ui/full-content.png")
     }
 
-    @Test fun tabsLoadLazilyPreserveViewsAndPauseHiddenMedia() {
+    @Test fun bankaiLoadsLazilyPreservesViewsAndPausesHiddenMedia() {
         open()
-        rule.onNodeWithTag("liuying.tab.0").assertIsSelected()
+        rule.onNodeWithTag("liuying.bankai").assertIsOff()
         val first = webViews().single()
         assertEquals(urls[0], shadowOf(first).lastLoadedUrl)
         assertNull(shadowOf(first).getJavascriptInterface("LinPlayer"))
         assertFalse(first.settings.allowFileAccess)
-        rule.onNodeWithTag("liuying.tab.1").performClick()
-        rule.onNodeWithTag("liuying.tab.1").assertIsSelected()
+        rule.onNodeWithTag("liuying.bankai").performClick()
+        rule.onNodeWithTag("liuying.bankai").assertIsOn()
         val second = webViews().last()
         assertEquals(2, webViews().size)
         assertEquals(urls[1], shadowOf(second).lastLoadedUrl)
@@ -106,8 +114,8 @@ class PhoneLiuyingTest {
         assertTrue(shadowOf(first).wasOnPauseCalled())
         assertTrue(shadowOf(first).lastEvaluatedJavascript.contains("__liuyingInactive = true"))
         first.scrollTo(0, 120)
-        rule.onNodeWithTag("liuying.tab.0").performClick()
-        rule.onNodeWithTag("liuying.tab.0").assertIsSelected()
+        rule.onNodeWithTag("liuying.bankai").performClick()
+        rule.onNodeWithTag("liuying.bankai").assertIsOff()
         assertSame(first, webViews().first())
         assertEquals(120, first.scrollY)
         assertEquals(0, shadowOf(first).reloadInvocations)
@@ -126,7 +134,7 @@ class PhoneLiuyingTest {
         shadowOf(first).setCanGoBack(true)
         rule.onNodeWithContentDescription("返回").performClick()
         assertEquals(1, shadowOf(first).goBackInvocations)
-        rule.onNodeWithTag("liuying.tab.0").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.bankai").assertIsDisplayed()
         assertFalse(shadowOf(first).wasDestroyCalled())
     }
 
@@ -135,7 +143,7 @@ class PhoneLiuyingTest {
         val first = webViews().single()
         assertNotNull(first.webChromeClient)
         assertFalse(first.settings.mediaPlaybackRequiresUserGesture)
-        rule.onNodeWithTag("liuying.tab.1").performClick()
+        rule.onNodeWithTag("liuying.bankai").performClick()
         val second = webViews().last()
         assertNotNull(second.webChromeClient)
         assertFalse(second.settings.mediaPlaybackRequiresUserGesture)
@@ -146,12 +154,12 @@ class PhoneLiuyingTest {
     @Test fun latePauseCallbackDoesNotPauseReselectedOrDestroyedPage() {
         open()
         val first = webViews().single()
-        rule.onNodeWithTag("liuying.tab.1").performClick()
+        rule.onNodeWithTag("liuying.bankai").performClick()
         val latePause = shadowOf(first).lastEvaluatedJavascriptCallback
-        rule.onNodeWithTag("liuying.tab.0").performClick()
+        rule.onNodeWithTag("liuying.bankai").performClick()
         latePause.onReceiveValue("null")
         assertFalse(shadowOf(first).wasOnPauseCalled())
-        rule.onNodeWithTag("liuying.tab.1").performClick()
+        rule.onNodeWithTag("liuying.bankai").performClick()
         val leavingPause = shadowOf(first).lastEvaluatedJavascriptCallback
         rule.onNodeWithContentDescription("返回").performClick()
         rule.waitForIdle()

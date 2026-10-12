@@ -12,16 +12,14 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.navigationBarsPadding
-import androidx.compose.foundation.selection.selectable
-import androidx.compose.foundation.selection.selectableGroup
+import androidx.compose.foundation.selection.toggleable
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -38,7 +36,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -50,6 +47,7 @@ import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.LpScaffold
+import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.LpText
@@ -88,20 +86,17 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
         }
     }
 
-    LpScaffold("流影", onBack = { back() }) {
+    LpScaffold("流影", onBack = { back() }, actions = {
+        val on = selected == 1
+        Text("卍解", Modifier.testTag("liuying.bankai")
+            .heightIn(min = Dim.tap).clip(RoundedCornerShape(R.pill))
+            .background(if (on) Lp.colors.mediaAccent else Lp.colors.s1)
+            .toggleable(on, role = Role.Switch) { selected = if (it) 1 else 0 }
+            .padding(horizontal = Sp.x16, vertical = Sp.x12),
+            color = if (on) Lp.colors.mediaOnAccent else Lp.colors.fg2,
+            style = LpText.list)
+    }) {
         Column(Modifier.fillMaxSize().navigationBarsPadding()) {
-            Row(Modifier.fillMaxWidth().padding(Sp.x12).selectableGroup(),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                listOf("流影", "18+").forEachIndexed { i, label ->
-                    val on = selected == i
-                    Text(label, Modifier.weight(1f).testTag("liuying.tab.$i")
-                        .clip(RoundedCornerShape(R.md)).background(if (on) Lp.colors.mediaAccent else Lp.colors.s1)
-                        .selectable(on, role = Role.Tab) { selected = i }
-                        .padding(vertical = Sp.x12),
-                        color = if (on) Lp.colors.mediaOnAccent else Lp.colors.fg2,
-                        style = LpText.list, textAlign = TextAlign.Center)
-                }
-            }
             if (!available) {
                 EmptyState("无法打开网页", "系统没有可用的 WebView 组件", LpIcons.globe)
             } else Box(Modifier.weight(1f).fillMaxWidth().testTag("liuying.web")) {

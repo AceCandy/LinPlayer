@@ -41,7 +41,7 @@
 - 首页合集和各库最新按 LazyColumn 可见栏目触发，任务归页面作用域，离屏不重复取消；刷新保留原快照，账号变化/离页取消失效任务。
 - 手机首页不展示或请求「接下来看」。每次恢复 RESUMED 更新继续观看；首页采用紧凑服务器栏，媒体库 → 继续观看 → 各库最新 → 合集，电影Hero复用首页已有作品、不调用随机推荐；库入口及最新结果复用页面缓存，重新进入/显式下拉/失效通知时后台重取。刷新主请求组结束、失败或取消后必须收起指示器。
 - 手机聚合页快捷入口为下载、排行榜、日历、流影；先展示进程内总览快照，并以首页成功续播快照更新当前服（含空列表），不能覆盖其它服。进入/显式刷新/失效广播后台刷新总览，不另请求首页续播；刷新失败保留已有内容，换服/用户清理缓存并拒绝旧响应。回归见 `PhoneAggregateCacheTest`。
-- 聚合新增流影二级页，顶部返回与「流影 / 18+」切换，默认流影；隐藏悬浮导航且不预留其高度，网页全宽填满标签下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
+- 聚合新增流影二级页，顶部返回，右侧「卍解」开关替代标签栏，默认关闭显示普通流影、开启显示 18+；隐藏悬浮导航且不预留其高度，网页全宽填满顶栏下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
 - 手机与 TV 日历不再要求赞助或订单，进入即加载；不得读取订单偏好或先查询赞助地址。上游登录、日历库匹配及提醒开关保留；手机回归见 `PhoneDiscoverUiTest`。
 
 依据：[入口](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/MainActivity.kt)、[手机主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/theme/Theme.kt)、[TV 主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/tv/kit/TvTheme.kt)、[主题回归](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/PhoneThemeTest.kt)、[安卓历史](../../../docs/lessons/android.md)。
