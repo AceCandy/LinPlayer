@@ -168,8 +168,8 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
                 LpButton("搜索", loading = searching,
                     onClick = { scope.launch { search() } })
                 Spacer(Modifier.width(Sp.x10))
-                if (attaching) xyz.linplayer.app.ui.components.LpLoading(size = 24.dp)
-                Dim3(status, Modifier.weight(1f), maxLines = 2)
+                if (attaching) xyz.linplayer.app.ui.components.LpLoading(size = 24.dp, label = status)
+                if (!searching && !attaching) Dim3(status, Modifier.weight(1f), maxLines = 2)
             }
             Spacer(Modifier.height(Sp.x10))
             LazyColumn(Modifier.fillMaxWidth().weight(1f, fill = false)) {

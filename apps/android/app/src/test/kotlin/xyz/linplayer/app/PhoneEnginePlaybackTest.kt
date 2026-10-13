@@ -346,6 +346,42 @@ class PhoneEnginePlaybackTest {
     }
 
     @Test
+    @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
+    fun 竖屏方向按钮可请求横屏且不重启播放() {
+        val core = episodeCore()
+        showPlayer(core, "mpv", ar = 9f / 16)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+        rule.onNodeWithContentDescription("切换方向").performClick()
+        advance(rule, 1300)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
+    fun 竖屏视频保持十六比九并可通过分集卡切集() {
+        val core = episodeCore()
+        showPlayer(core, "mpv", ar = 9f / 16, fontScale = 1.3f)
+        val video = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
+        assertEquals(16f / 9, video.width / video.height, .01f)
+        val waiting = rule.onNode(hasContentDescription("正在打开…") or hasContentDescription("正在缓冲…"))
+            .fetchSemanticsNode().boundsInRoot
+        assertEquals("等待动画应居中于视频，不能算入视频下方的进度行", video.center.y, waiting.center.y, 1f)
+        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
+        rule.onNodeWithText("当前集").assertIsDisplayed()
+        rule.onNodeWithText("正在缓冲…").assertDoesNotExist()
+        rule.onNodeWithText("正在打开…").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-page.png")
+        rule.onNodeWithTag("detail.ep.sh7").performClick()
+        advance(rule, 400)
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(2, core.calls.count { it.first == "player.play" })
+        assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
+    }
+
+    @Test
     @Config(qualifiers = "w640dp-h360dp-land-mdpi", sdk = [36], application = Application::class)
     fun 小屏大字接下来卡片不遮挡控制和进度() {
         val core = episodeCore()
@@ -363,6 +399,25 @@ class PhoneEnginePlaybackTest {
         rule.onNodeWithContentDescription("字幕").performClick(); advance(rule, 300)
         rule.onNodeWithText("接下来").assertDoesNotExist()
         rule.onNodeWithText("字幕").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
+    fun 竖屏长错误仍可重试和请求退出() {
+        val core = episodeCore().apply {
+            on("emby.seasonEpisodes") {
+                throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败，请检查网络连接与服务器状态。".repeat(8), true)
+            }
+        }
+        showPlayer(core, "mpv", ar = 9f / 16, fontScale = 1.3f)
+        rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 600)
+        rule.onNodeWithText("重试").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-error.png")
+        rule.onNodeWithText("返回").assertIsDisplayed().performClick()
+        advance(rule, 300)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, activity.requestedOrientation)
     }
 
     @Test fun 季末没有下一集不显示接下来() {

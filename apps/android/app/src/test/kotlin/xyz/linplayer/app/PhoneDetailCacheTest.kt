@@ -425,6 +425,7 @@ class PhoneDetailCacheTest {
         rule.onNode(hasText("S2E1：信号") and !hasAnyAncestor(hasTestTag("detail.series.target")), useUnmergedTree = true).assertExists()
         rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
         rule.onNodeWithText("正在加载分集…", substring = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("正在加载分集…").assertIsDisplayed()
         rule.onNodeWithTag("detail.play").assertIsNotEnabled()
         rule.runOnIdle { gate.complete(Unit) }
         rule.waitForIdle()

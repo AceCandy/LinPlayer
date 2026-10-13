@@ -48,6 +48,7 @@ import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpLoading
+import xyz.linplayer.app.ui.components.LoadingLabel
 import xyz.linplayer.app.ui.pages.SettingsSubPage
 import xyz.linplayer.app.ui.theme.LocalMotionScale
 import xyz.linplayer.app.ui.theme.LpTheme
@@ -167,6 +168,16 @@ class PhoneLoadingTest {
         rule.runOnIdle { loading.value = false }
         rule.onNodeWithTag("button").performClick()
         assertEquals(1, clicks)
+    }
+
+    @Test fun inlineLoadingKeepsAccessibilityWithoutVisibleWaitingText() {
+        rule.setContent { LpTheme {
+            CompositionLocalProvider(LocalMotionScale provides 0f) {
+                LoadingLabel("正在缓冲…")
+            }
+        } }
+        rule.onNodeWithText("正在缓冲…").assertDoesNotExist()
+        rule.onNodeWithContentDescription("正在缓冲…").assertIsDisplayed()
     }
 
     private fun step(ms: Long) {

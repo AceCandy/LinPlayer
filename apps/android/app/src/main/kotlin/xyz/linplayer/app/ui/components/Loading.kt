@@ -2,12 +2,10 @@ package xyz.linplayer.app.ui.components
 
 import android.view.ContextThemeWrapper
 import android.view.View
-import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
@@ -43,8 +41,6 @@ import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.ui.theme.LocalMotionScale
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpIcons
-import xyz.linplayer.app.ui.theme.LpText
-import xyz.linplayer.app.ui.theme.Sp
 
 /** 手机原生等待的唯一动画入口；预览可显式指定样式，其余跟随本机设置。 */
 @Composable
@@ -103,13 +99,10 @@ fun LpLoading(m: Modifier = Modifier, size: Dp = 32.dp, tint: Color = Lp.colors.
     }
 }
 
-/** 保留原状态说明的行内等待，不遮盖已经加载的内容。 */
+/** 行内等待仅显示动画，原说明保留给读屏。 */
 @Composable
 fun LoadingLabel(text: String, m: Modifier = Modifier, tint: Color = Lp.colors.mediaAccent) {
-    Row(m, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-        LpLoading(size = 24.dp, tint = tint)
-        Text(text, color = tint, style = LpText.secondary)
-    }
+    Box(m) { LpLoading(size = 24.dp, tint = tint, label = text) }
 }
 
 /** 下拉阶段保留刷新手势反馈，请求进行时使用所选等待动画。 */

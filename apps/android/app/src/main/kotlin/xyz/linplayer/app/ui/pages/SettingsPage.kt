@@ -977,7 +977,7 @@ private fun StoragePanel() {
     Panel(Modifier.padding(Sp.x16)) {
         // 安卓的数据根是应用私有目录:**展示但不可点开** ——
         // 没有文件管理器能进去,给一个打不开的按钮比不给更糟
-        LpCell("数据目录", mediaStyle = true, sub = paths ?: "读取中…", arrow = false)
+        LpCell("数据目录", mediaStyle = true, sub = paths, arrow = false)
         if (paths == null) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         Hairline()
         // 这个目录**是**能进去的(Android/data/<包名>/files/logs),所以照实写出来
@@ -1046,12 +1046,12 @@ private fun MediaCachePanel() {
     Panel(Modifier.padding(Sp.x16)) {
         val bytes = capacity
         if (bytes == null) {
-            LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else "读取中…",
+            LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else null,
                 arrow = loadFailed, onClick = { if (loadFailed) reload++ })
             if (!loadFailed) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         } else {
             LpCell("保留媒体缓存", mediaStyle = true,
-                sub = if (saving) "保存中…" else "退出与重启后可复用，两种内核共享；关闭会清理已有媒体缓存",
+                sub = "退出与重启后可复用，两种内核共享；关闭会清理已有媒体缓存",
                 switch = bytes > 0L, onSwitch = { update(if (it) lastCapacity else 0L) })
             if (saving) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
             if (bytes > 0L) {

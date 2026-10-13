@@ -514,9 +514,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         episodes.isNotEmpty() && episodeLoad is Block.Ok -> "已看 ${episodes.count { it.played }} / ${episodes.size}"
         shownEpisodes.isNotEmpty() && episodeLoad is Block.Loading && previousSummary != null -> previousSummary
         shownEpisodes.isNotEmpty() && episodes.isEmpty() -> presentation?.episodeSummary ?: "已加载 ${shownEpisodes.size}"
-        seasonLoad is Block.Loading -> "正在读取选集…"
-        curSeason != null && episodeLoad is Block.Loading -> "正在加载分集…" +
-            if (episodes.isNotEmpty()) " 已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: "") else ""
+        seasonLoad is Block.Loading -> ""
+        curSeason != null && episodeLoad is Block.Loading ->
+            if (episodes.isNotEmpty()) "已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: "") else ""
         else -> "选集信息"
     }
     val optionsReady = media !is Block.Loading && prefsReady && linesReady
@@ -943,7 +943,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                             }
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
                             if (seasonLoad is Block.Loading || episodeLoad is Block.Loading)
-                                xyz.linplayer.app.ui.components.LpLoading(size = 20.dp)
+                                xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
+                                    label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id) {
                             EpisodeStrip(app, shownEpisodes, currentId = route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
@@ -1522,7 +1523,7 @@ private fun addedTime(raw: String?): String? = raw?.let {
  * ★ 文字和封面区域立即占位，图片自行渐显，不对整卡错峰隐藏。
  */
 @Composable
-private fun EpisodeStrip(
+internal fun EpisodeStrip(
     app: xyz.linplayer.app.data.AppState,
     episodes: List<Item>,
     currentId: String,
