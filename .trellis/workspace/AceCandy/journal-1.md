@@ -1420,3 +1420,108 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 48: 手机播放器对齐与统一加载动画实施及验证
+<!-- trellis-session: v=2 fp=a7f45ee6f4bdc7c6 -->
+
+**Date**: 2026-10-13
+**Task**: 手机播放器对齐与统一加载动画实施及验证
+**Branch**: `main`
+
+### Summary
+
+完成手机OSD、页内方向锁、片尾接下来与七款统一loading；相关回归197/199通过，两条搜索返回失败已在干净基线复现。独立复核及参数、隐私、diff门禁通过；设备验收未做，不出包、不提交。
+
+### Main Changes
+
+- 方向锁归播放页存续，切集与换版本保持方向，迟到尺寸不越界写回。
+- 最后30秒接下来提示共用当前季队列和停止屏障；全手机原生无定量等待使用可持久化的七款动画。
+- 首页保留横轨几何叠统一loading；Material接线防原生窗口回调绕过宿主生命周期。
+
+### Git Commits
+
+本轮实施未提交。
+
+### Testing
+
+- [基线失败] 13类199条回归，197通过；两条搜索返回存量失败与15858114一致，未删除或跳过测试。
+- [OK] 参数255调用、隐私无新增、diff空白门禁通过；播放器与loading截图及独立复核完成。
+
+### Status
+
+**实现与本地复核完成；设备验收待验证。**
+
+### Next Steps
+
+- 设备验证真实转屏、视频首帧、PiP及动画性能；任务保留in_progress，验证细节见10-12-phone-yamby-player/verification.md。
+
+
+## Session 49: 片尾提示按时长比例并限制十至三十秒
+<!-- trellis-session: v=2 fp=f782c329a24ee4fc -->
+
+**Date**: 2026-10-13
+**Task**: 片尾提示按时长比例并限制十至三十秒
+**Branch**: `main`
+
+### Summary
+
+按用户追加要求将接下来窗口改为总时长10%，最少10秒、最多30秒；显隐与卡片进度使用同一窗口。新增回归在旧实现失败，修改后50条播放器回归全通过。
+
+### Main Changes
+
+- nextUpWindow由可见判定和卡片进度共用，35秒短剧在最后10秒提示。
+
+### Git Commits
+
+本轮实施未提交。
+
+### Testing
+
+- [OK] PhoneEnginePlaybackTest35条、PhonePlayerOsdTest8条、PhonePlayerPanelTest7条全部通过；两条新回归已在旧30秒实现失败。
+- [OK] 增量独立复核、短片开始/半程截图、参数255调用、隐私和diff门禁通过。
+
+### Status
+
+**本轮实现与本地复核完成；设备验收待验证。**
+
+### Next Steps
+
+- 未出包或真机验证；整集不超过10秒仍可能起播即显示，设备播放验收继续保留。
+
+
+## Session 50: 手机播放器与统一加载动画提交归档及出包
+<!-- trellis-session: v=2 fp=de8a8777b04738df -->
+
+**Date**: 2026-10-13
+**Task**: 手机播放器与统一加载动画提交归档及出包
+**Branch**: `main`
+
+### Summary
+
+按用户授权提交手机播放器与统一loading功能、归档任务并生成2.0.0/arm64-v8a本地测试包；未推送。最新50条播放器回归全部通过，之前两条搜索返回基线失败保留记录。
+
+### Main Changes
+
+- 功能与规范提交4a78d1da；任务归档至2026-10/10-12-phone-yamby-player，归档提交510357b0。
+- 手机包归入build/android/app-arm64-v8a-release.apk，77.894MiB；既有流影本地配置保留，Go附加服务及崩溃上报凭据未配置。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4a78d1daa652637a6bb857be72d5a65f98ac2352` | feat(android): 对齐手机播放器并统一加载动画 |
+
+### Testing
+
+- [OK] 实际v1/v2/v3验签通过，包名与2.0.0/code20000正确，13个arm64 ELF及18个核心/JNI导出检查通过。
+- [OK] 六份loading资源、字体20MiB预算、APK80MiB预算及中间/最终哈希一致通过；独立产物复核完成。
+- [OK] 最新50条播放器回归、255调用参数、暂存区隐私和diff门禁通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机转屏观感、视频首帧、PiP与动画性能仍未验；本地测试包附加服务配置有限，设备验收限制随归档保留。
