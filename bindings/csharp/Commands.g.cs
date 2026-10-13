@@ -41,8 +41,11 @@ public static class LinPlayerCommandNames
     [
         "emby.aggregateOverview",
         "emby.aggregateSearch",
-        "emby.rankingCategories",
-        "emby.rankingFetch",
+        "emby.extCapabilities",
+        "emby.extRankings",
+        "emby.extRankingItems",
+        "emby.extCalendar",
+        "emby.extResolve",
         "emby.aggregateVersions",
         "emby.blockedList",
         "emby.counts",
@@ -127,6 +130,8 @@ public static class LinPlayerCommandNames
         "player.setMpvConf",
         "player.setMute",
         "player.setPause",
+        "player.danmakuBegin",
+        "player.danmakuOffset",
         "player.danmakuSet",
         "player.setDanmakuEnabled",
         "player.setDanmakuStyle",
@@ -188,6 +193,9 @@ public static class LinPlayerCommandNames
         "source.favorites",
         "source.history",
         "source.linkSwitch",
+        "danmaku.resolve",
+        "danmaku.forget",
+        "danmaku.testSource",
         "danmaku.autoLoad",
         "danmaku.cacheClear",
         "danmaku.cacheSize",
@@ -350,15 +358,21 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (45 条) ----
+    // ---- Emby 浏览与详情 · emby.* (48 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateSearch", args, ct);
-    public static Task<JsonElement> EmbyRankingCategories(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
-        => c.CallAsync("emby.rankingCategories", args, ct);
-    public static Task<JsonElement> EmbyRankingFetch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
-        => c.CallAsync("emby.rankingFetch", args, ct);
+    public static Task<JsonElement> EmbyExtCapabilities(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extCapabilities", args, ct);
+    public static Task<JsonElement> EmbyExtRankings(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extRankings", args, ct);
+    public static Task<JsonElement> EmbyExtRankingItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extRankingItems", args, ct);
+    public static Task<JsonElement> EmbyExtCalendar(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extCalendar", args, ct);
+    public static Task<JsonElement> EmbyExtResolve(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extResolve", args, ct);
     public static Task<JsonElement> EmbyAggregateVersions(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateVersions", args, ct);
     public static Task<JsonElement> EmbyBlockedList(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -486,7 +500,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> AccountUpdateAccount(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.updateAccount", args, ct);
 
-    // ---- 播放器 · player.* (53 条) ----
+    // ---- 播放器 · player.* (55 条) ----
     public static Task<JsonElement> PlayerAddSubtitle(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.addSubtitle", args, ct);
     public static Task<JsonElement> PlayerChapterInfo(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -531,6 +545,10 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("player.setMute", args, ct);
     public static Task<JsonElement> PlayerSetPause(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.setPause", args, ct);
+    public static Task<JsonElement> PlayerDanmakuBegin(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.danmakuBegin", args, ct);
+    public static Task<JsonElement> PlayerDanmakuOffset(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.danmakuOffset", args, ct);
     public static Task<JsonElement> PlayerDanmakuSet(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.danmakuSet", args, ct);
     public static Task<JsonElement> PlayerSetDanmakuEnabled(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -656,7 +674,13 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> SourceLinkSwitch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("source.linkSwitch", args, ct);
 
-    // ---- 弹幕 · danmaku.* (17 条) ----
+    // ---- 弹幕 · danmaku.* (20 条) ----
+    public static Task<JsonElement> DanmakuResolve(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("danmaku.resolve", args, ct);
+    public static Task<JsonElement> DanmakuForget(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("danmaku.forget", args, ct);
+    public static Task<JsonElement> DanmakuTestSource(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("danmaku.testSource", args, ct);
     public static Task<JsonElement> DanmakuAutoLoad(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("danmaku.autoLoad", args, ct);
     public static Task<JsonElement> DanmakuCacheClear(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

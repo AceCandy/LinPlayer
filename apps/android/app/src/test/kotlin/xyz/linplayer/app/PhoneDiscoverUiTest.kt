@@ -32,6 +32,7 @@ import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
+import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.arr
@@ -72,69 +73,83 @@ class PhoneDiscoverUiTest {
     }
 
     private fun rankings() = FakeCore().loggedIn().apply {
-        ret("emby.rankingCategories", arr(buildJsonObject { put("id", "hot"); put("label", "热门榜") }))
-        ret("emby.rankingFetch", arr(buildJsonObject {
+        ret("emby.extRankings", arr(buildJsonObject { put("id", "hot"); put("label", "热门榜") }))
+        ret("emby.extRankingItems", arr(buildJsonObject {
             put("id", "external-1"); put("rank", 1); put("title", "远方的故事"); put("rating", 8.6)
         }))
     }
     @Test fun rankingRetryFetchesSelectedCategory() {
         val core = rankings()
-        core.on("emby.rankingFetch") { throw CoreException("E_NETWORK", "榜单读取失败", true) }
+        core.on("emby.extRankingItems") { throw CoreException("E_NETWORK", "榜单读取失败", true) }
         open(core)
-        val before = core.calls.count { it.first == "emby.rankingFetch" }
-        core.ret("emby.rankingFetch", arr(buildJsonObject {
+        val before = core.calls.count { it.first == "emby.extRankingItems" }
+        core.ret("emby.extRankingItems", arr(buildJsonObject {
             put("id", "external-1"); put("rank", 1); put("title", "远方的故事")
         }))
         rule.onNodeWithText("重试").performClick()
         rule.onNodeWithText("远方的故事").assertIsDisplayed()
-        assertEquals(before + 1, core.calls.count { it.first == "emby.rankingFetch" })
-        assertEquals("hot", core.calls.last { it.first == "emby.rankingFetch" }.second.str("category_id"))
+        assertEquals(before + 1, core.calls.count { it.first == "emby.extRankingItems" })
+        assertEquals("hot", core.calls.last { it.first == "emby.extRankingItems" }.second.str("category_id"))
     }
+    @Test fun rankingPaginationAndUnsupportedState() {
+        val core = rankings()
+        core.on("emby.extRankingItems") { a ->
+            if (a.long("page") == 2L) arr() else arr(buildJsonObject {
+                put("id", "external-1"); put("rank", 1); put("title", "第一页作品")
+            })
+        }
+        open(core)
+        rule.onNodeWithText("下一页").performClick()
+        rule.onNodeWithText("下一页").assertIsNotEnabled()
+        assertEquals(2L, core.calls.last { it.first == "emby.extRankingItems" }.second.long("page"))
+        core.on("emby.extRankingItems") { throw CoreException("E_UNSUPPORTED", "扩展未开启", false) }
+        rule.onNodeWithText("上一页").performClick()
+        rule.onNodeWithText("扩展未开启", substring = true).assertIsDisplayed()
+    }
+
     @Test fun rankingThemes() {
         val core = rankings()
-        core.ret("emby.rankingFetch", arr(*(1..5).map { n -> buildJsonObject {
-            put("id", "external-$n"); put("rank", n); put("title", "远方的故事 · 第 $n 部")
+        core.ret("emby.extRankingItems", arr(*(1..5).map { n -> buildJsonObject {
+            put("source", "tmdb"); put("external_id", "$n"); put("media_type", "movie"); put("id", "external-$n"); put("rank", n); put("title", "远方的故事 · 第 $n 部")
             put("image_url", "fake:poster-$n"); put("rating", 8.6); put("subtitle", "2026 · 剧情")
         } }.toTypedArray()))
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "movie-4"); put("item_type", "Movie") })
         open(core)
         rule.onNodeWithText("热门榜").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-light.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-dark.png")
         rule.onNodeWithText("远方的故事 · 第 4 部").performClick()
-        rule.onNodeWithText("搜索目标：远方的故事 · 第 4 部").assertIsDisplayed()
+        rule.onNodeWithText("详情目标：movie-4").assertIsDisplayed()
     }
     @Test
     @Config(qualifiers = "w320dp-h873dp-mdpi")
     fun calendarRetryAndNarrowThemes() {
         val core = FakeCore().loggedIn()
-        core.on("sync.bangumiCalendar") { throw CoreException("E_NETWORK", "日历读取失败", true) }
+        core.on("emby.extCalendar") { throw CoreException("E_NETWORK", "日历读取失败", true) }
         open(core, Route.Calendar)
-        val before = core.calls.count { it.first == "sync.bangumiCalendar" }
-        core.ret("sync.calendarLibrary", buildJsonObject {
-            put("0", buildJsonObject { put("playable", false); put("series_id", "series-1") })
-        })
-        core.ret("sync.bangumiCalendar", arr(buildJsonObject {
-            put("title", "远方的故事与漫长旅途"); put("subtitle", "第二季 · 第十二集")
-            put("weekday", java.time.LocalDate.now().dayOfWeek.value); put("rating", 8.8); put("image_url", "fake:calendar")
+        val before = core.calls.count { it.first == "emby.extCalendar" }
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "series-1"); put("item_type", "Series") })
+        core.ret("emby.extCalendar", arr(buildJsonObject {
+            put("source", "bangumi"); put("external_id", "42"); put("media_type", "anime"); put("title", "远方的故事与漫长旅途"); put("subtitle", "第二季 · 第十二集")
+            put("weekday", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value); put("rating", 8.8); put("image_url", "fake:calendar")
         }))
         rule.onNodeWithText("重试").performClick()
         rule.onNodeWithText("远方的故事与漫长旅途").assertIsDisplayed()
-        assertEquals(before + 1, core.calls.count { it.first == "sync.bangumiCalendar" })
+        assertEquals(before + 1, core.calls.count { it.first == "emby.extCalendar" })
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-light-narrow.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-dark-narrow.png")
-        rule.onNodeWithText("已入库").performClick()
+        rule.onNodeWithText("查看入库").performClick()
         rule.onNodeWithText("详情目标：series-1").assertIsDisplayed()
     }
     @Test fun calendarWithoutSponsorOrderFetchesImmediately() {
         val core = FakeCore().loggedIn()
-        core.ret("sync.bangumiCalendar", arr())
-        core.ret("sync.calendarLibrary", buildJsonObject {})
+        core.ret("emby.extCalendar", arr())
         open(core, Route.Calendar)
         rule.onNodeWithText("追剧日历 · 赞助解锁").assertDoesNotExist()
-        rule.onNodeWithText("本周 0 集 · 按放送日期查看").assertIsDisplayed()
-        assertEquals(1, core.calls.count { it.first == "sync.bangumiCalendar" })
+        rule.onNodeWithText("本周 0 部 · 日本时区周历").assertIsDisplayed()
+        assertEquals(1, core.calls.count { it.first == "emby.extCalendar" })
         assertEquals(0, core.calls.count { it.first == "prefs.getPrefs" || it.first.startsWith("system.afdian") })
     }
 }

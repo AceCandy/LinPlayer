@@ -174,8 +174,6 @@ func bangumiProfile(ctx context.Context, access string) (name, uid string) {
 	return name, uid
 }
 
-
-
 // BangumiSummary 按需拉一条简介。
 //
 // ★ 为什么不在放送表里一次拉齐:实测 /calendar 的 summary 字段整周 111 条**全是空串**
@@ -204,9 +202,6 @@ func BangumiSummary(ctx context.Context, subjectID int64) (*string, error) {
 //
 // ★ 协议相对(`//lain.bgm.tv/…`)要补上 https —— 那是 Web 时代的写法,
 // 原样交给图片加载器会当成相对路径,一张都出不来。
-// MirrorImage 同 mirrorImage,给排行榜的 Bangumi 榜用同一个图片反代。
-func MirrorImage(u string) *string { return mirrorImage(u) }
-
 func mirrorImage(u string) *string {
 	u = strings.TrimSpace(u)
 	if u == "" {
@@ -311,34 +306,32 @@ func broadcastIndex(ctx context.Context) map[string]string {
 	return bcastIdx
 }
 
-// BangumiCalendar 当季放送表。onlyMine=true 只留「在看」的。
-func BangumiCalendar(ctx context.Context, a *Account, onlyMine bool) []CalendarEntry {
+// BangumiCalendar 个人在看放送表，供账号同步和开播提醒使用。
+func BangumiCalendar(ctx context.Context, a *Account) []CalendarEntry {
 	out := []CalendarEntry{}
 
 	// 1) 只看我追的:先取在看动画(subject_type=2, type=3)的 id 集合(要登录)
 	watching := map[int64]bool{}
-	if onlyMine {
-		valid := BangumiEnsureValid(ctx, a)
-		if valid == nil {
-			return out
+	valid := BangumiEnsureValid(ctx, a)
+	if valid == nil {
+		return out
+	}
+	u := BangumiAPIOfficial + "/v0/users/-/collections?subject_type=2&type=3&limit=50"
+	if b, code, err := httpx.GetJSON(ctx, httpx.Client(), u,
+		http.Header{"Authorization": {"Bearer " + valid.AccessToken}}); err == nil && code == 200 {
+		var j struct {
+			Data []struct {
+				SubjectID int64 `json:"subject_id"`
+			} `json:"data"`
 		}
-		u := BangumiAPIOfficial + "/v0/users/-/collections?subject_type=2&type=3&limit=50"
-		if b, code, err := httpx.GetJSON(ctx, httpx.Client(), u,
-			http.Header{"Authorization": {"Bearer " + valid.AccessToken}}); err == nil && code == 200 {
-			var j struct {
-				Data []struct {
-					SubjectID int64 `json:"subject_id"`
-				} `json:"data"`
-			}
-			if json.Unmarshal(b, &j) == nil {
-				for _, it := range j.Data {
-					watching[it.SubjectID] = true
-				}
+		if json.Unmarshal(b, &j) == nil {
+			for _, it := range j.Data {
+				watching[it.SubjectID] = true
 			}
 		}
-		if len(watching) == 0 {
-			return out
-		}
+	}
+	if len(watching) == 0 {
+		return out
 	}
 
 	// 2) 当季放送表
@@ -364,7 +357,7 @@ func BangumiCalendar(ctx context.Context, a *Account, onlyMine bool) []CalendarE
 				continue
 			}
 			id := int64(idF)
-			if onlyMine && !watching[id] {
+			if !watching[id] {
 				continue
 			}
 			// ★ 中文名优先,没有才用原名

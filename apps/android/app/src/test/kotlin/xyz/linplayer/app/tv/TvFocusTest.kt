@@ -5,6 +5,11 @@ import android.app.Application
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.test.assertIsDisplayed
+import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.performSemanticsAction
+import androidx.compose.ui.semantics.SemanticsActions
+import xyz.linplayer.app.data.str
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -63,6 +68,47 @@ class TvFocusTest {
 
     private fun focused(tag: String) = rule.onNode(hasTestTag(tag)).assertIsFocused()
     private fun pressBack() { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
+
+    @Test fun extensionPagingAndExactNavigation() {
+        mount(TvRoute.Discover) {
+            discover()
+            on("emby.extRankingItems") { a ->
+                if (a.long("page") == 2L) arr() else arr(buildJsonObject {
+                    put("id", "external-1"); put("title", "精确作品"); put("rank", 1)
+                    put("source", "tmdb"); put("external_id", "101"); put("media_type", "movie")
+                })
+            }
+            ret("emby.extResolve", buildJsonObject { put("item_id", "library-101"); put("item_type", "Movie") })
+        }
+        rule.onNode(hasText("下一页")).assertIsDisplayed().performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        assertEquals(2L, core.calls.last { it.first == "emby.extRankingItems" }.second.long("page"))
+        rule.onNode(hasText("这里暂时没有内容")).assertIsDisplayed()
+        rule.onNode(hasText("上一页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        rule.onNode(hasTestTag("rank.c0.0")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        assertEquals(TvRoute.Detail("library-101", "Movie"), nav.top.route)
+        assertEquals("101", core.calls.last { it.first == "emby.extResolve" }.second.str("external_id"))
+        assertFalse(core.calls.any { it.first == "emby.search" || it.first == "emby.rankingFetch" })
+    }
+
+    @Test fun extensionCalendarUsesPublicSource() {
+        mount(TvRoute.Discover) {
+            discover()
+            ret("emby.extResolve", buildJsonObject { put("item_id", "calendar-1"); put("item_type", "Series") })
+        }
+        rule.onNode(hasText("放送表")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        advance(rule, 800)
+        assertTrue("未请求扩展周历", core.calls.any { it.first == "emby.extCalendar" })
+        val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value
+        rule.onNode(hasTestTag("cal.$day.0")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        assertEquals(TvRoute.Detail("calendar-1", "Series"), nav.top.route)
+        assertEquals("bangumi", core.calls.last { it.first == "emby.extResolve" }.second.str("source"))
+        assertFalse(core.calls.any { it.first.startsWith("sync.") })
+    }
 
     @Test fun 首页只加载滚到的媒体库栏目() {
         mount {

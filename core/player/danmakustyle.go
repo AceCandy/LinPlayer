@@ -34,7 +34,9 @@ var (
 	styMu sync.RWMutex
 	sty   = dmStyleOf(config.DefaultPrefs())
 	// dmRaw 灌进来的原始语料。布局的输入,style 一变就重排一次。
-	dmRaw []danmakuItem
+	dmRaw        []danmakuItem
+	dmOffset     float64
+	dmGeneration int64
 
 	dmMu sync.Mutex
 	// dmItems 排好版的那一份。UI 层一次性取走,自己按帧插位置。
@@ -76,10 +78,13 @@ const fixSeconds = 5.0
 // ☠ **合并必须在分轨之前。** 反过来的话被合掉的那些条目已经占过轨道,
 // 屏幕上会留下一排排空行,而弹幕总数看起来又是对的。
 func relayout() {
-	s := curStyle()
 	styMu.RLock()
-	src := dmRaw
-	styMu.RUnlock()
+	defer styMu.RUnlock()
+	s := sty
+	src := append([]danmakuItem(nil), dmRaw...)
+	for i := range src {
+		src[i].Time += dmOffset
+	}
 
 	items := src
 	if s.Merge {
@@ -128,7 +133,8 @@ func mergeSame(in []danmakuItem, window float64) []danmakuItem {
 // layout 分轨。返回的每一条都带定好的 lane 和上屏用的文本;排不下的**丢掉**。
 //
 // ★ 丢掉而不是硬塞:排不下还画等于两条弹幕叠在一行上,那比少一条难看得多。
-//   范围调小本来就是用户在要求「少一点」。
+//
+//	范围调小本来就是用户在要求「少一点」。
 func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 	items := append([]danmakuItem(nil), in...)
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Time < items[j].Time })
@@ -206,7 +212,8 @@ func displayText(d danmakuItem) string {
 // textWidth 估算文本像素宽。
 //
 // ★ 只能估:精确宽度得问两端各自的排字引擎,而排版在核心层跑。
-//   估宽只影响「一轨能塞多密」和「什么时候完全走出左边」,偏一点不会画错。
+//
+//	估宽只影响「一轨能塞多密」和「什么时候完全走出左边」,偏一点不会画错。
 func textWidth(text string, scale float64) float64 {
 	w := 0.0
 	for _, r := range text {
@@ -224,13 +231,17 @@ func textWidth(text string, scale float64) float64 {
 // danmakuHeatmap 把当前语料按时间切成 buckets 段,返回每段的密度(0..1)。
 //
 // ★ 归一化到峰值而不是给绝对条数:进度条上那几十像素高的一条,
-//   用户要的是「哪儿热闹」,不是「这里有 417 条」。
+//
+//	用户要的是「哪儿热闹」,不是「这里有 417 条」。
 func danmakuHeatmap(buckets int, duration float64) []float64 {
 	if buckets <= 0 {
 		buckets = 120
 	}
 	styMu.RLock()
-	src := dmRaw
+	src := append([]danmakuItem(nil), dmRaw...)
+	for i := range src {
+		src[i].Time += dmOffset
+	}
 	styMu.RUnlock()
 	out := make([]float64, buckets)
 	if len(src) == 0 {
@@ -250,6 +261,9 @@ func danmakuHeatmap(buckets int, duration float64) []float64 {
 	}
 	peak := 0.0
 	for _, d := range src {
+		if d.Time < 0 {
+			continue
+		}
 		i := int(d.Time / duration * float64(buckets))
 		if i < 0 || i >= buckets {
 			continue
@@ -258,6 +272,9 @@ func danmakuHeatmap(buckets int, duration float64) []float64 {
 		if out[i] > peak {
 			peak = out[i]
 		}
+	}
+	if peak == 0 {
+		return out
 	}
 	for i := range out {
 		out[i] /= peak
@@ -335,8 +352,9 @@ func registerDanmakuStyle() {
 // player.danmakuLayout 把排好版的这一份整个交给 UI。
 //
 // ★ 一次取走、UI 自己按帧插位置 —— 不是每帧来问一次。
-//   每帧一次跨语言往返是上一版走 mpv `osd-overlay` 时的做法,
-//   每秒 120 次,而那 120 次全排在 mpv 的核心线程上(见 danmaku.go 顶上那段)。
+//
+//	每帧一次跨语言往返是上一版走 mpv `osd-overlay` 时的做法,
+//	每秒 120 次,而那 120 次全排在 mpv 的核心线程上(见 danmaku.go 顶上那段)。
 //
 // 字段名用单字母:一集上万条,`"time"` 换成 `"t"` 省掉的是几百 KB 的
 // 跨语言字符串。这是唯一一处这么写的地方,所以在这里说清楚:

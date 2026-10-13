@@ -204,7 +204,7 @@ func calendarDue(ctx context.Context) []CalendarEntry {
 		all = append(all, TraktCalendar(ctx, a, 2, 4, true)...)
 	}
 	if a := Load("bangumi"); a != nil {
-		all = append(all, BangumiCalendar(ctx, a, true)...)
+		all = append(all, BangumiCalendar(ctx, a)...)
 	}
 	var nf notifiedFile
 	if b, err := os.ReadFile(notifiedPath()); err == nil {

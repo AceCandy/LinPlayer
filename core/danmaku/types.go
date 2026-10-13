@@ -5,7 +5,9 @@ package danmaku
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
+	"sync"
 
 	"linplayer/core/config"
 )
@@ -27,6 +29,7 @@ type SourceConfig struct {
 	Name   string `json:"name"`
 	APIURL string `json:"api_url"`
 	// Official 弹弹Play 官方源(固定 base + 强制签名)。
+	Disabled  bool     `json:"disabled,omitempty"`
 	Official  bool     `json:"official"`
 	AuthType  AuthType `json:"auth_type,omitempty"`
 	Token     string   `json:"token,omitempty"`
@@ -103,7 +106,10 @@ type MatchCandidate struct {
 // 由宿主用 ResolveTitle / ResolveFileName 装好再传进来。
 type MatchInput struct {
 	// Title 作品标题(剧集用 seriesName,否则条目名)。
-	Title string `json:"title"`
+	Title    string `json:"title"`
+	ItemID   string `json:"item_id,omitempty"`
+	SeriesID string `json:"series_id,omitempty"`
+	SeasonID string `json:"season_id,omitempty"`
 	// AltTitles 同一部作品的**其它写法**:原名(日文 / 罗马音)、真实发布文件名、条目名……
 	// 见 TitleScore 的注释。空表 = 只用 Title。
 	AltTitles []string `json:"alt_titles"`
@@ -171,7 +177,11 @@ func DurationSecsFromTicks(ticks int64) *float64 {
 // ---------- 源配置的读写 ----------
 
 // LoadSources 从配置里读弹幕源表。
+var sourcesMu sync.Mutex
+
 func LoadSources() []SourceConfig {
+	sourcesMu.Lock()
+	defer sourcesMu.Unlock()
 	raw := config.Current().DanmakuSources
 	if len(raw) == 0 {
 		return []SourceConfig{}
@@ -186,8 +196,9 @@ func LoadSources() []SourceConfig {
 // LoadBlocklist 读落库的屏蔽词与屏蔽用户。
 //
 // ★ 和显示设置放同一份 prefs:它们一起被「备份与还原」带走
-//   (docs/backup-format.md 里 prefs 是整块透传的),
-//   另开一个配置段的话导出的备份里就少了这一块,而且没人会发现。
+//
+//	(docs/backup-format.md 里 prefs 是整块透传的),
+//	另开一个配置段的话导出的备份里就少了这一块,而且没人会发现。
 func LoadBlocklist() (words, users []string) {
 	p := config.Current().PrefsOf()
 	return p.DanmakuBlockwords, p.DanmakuBlockUsers
@@ -206,11 +217,24 @@ func SaveBlocklist(words, users []string) error {
 
 // SaveSources 写回弹幕源表。
 func SaveSources(list []SourceConfig) error {
+	sourcesMu.Lock()
+	defer sourcesMu.Unlock()
 	c := config.Current()
 	b, err := json.Marshal(list)
 	if err != nil {
 		return err
 	}
+	if len(c.DanmakuSources) > 0 {
+		var previous []SourceConfig
+		if json.Unmarshal(c.DanmakuSources, &previous) != nil {
+			return fmt.Errorf("弹幕源配置损坏，未覆盖原配置")
+		}
+	}
+	old := c.DanmakuSources
 	c.DanmakuSources = b
-	return c.Save()
+	if err := c.Save(); err != nil {
+		c.DanmakuSources = old
+		return err
+	}
+	return nil
 }

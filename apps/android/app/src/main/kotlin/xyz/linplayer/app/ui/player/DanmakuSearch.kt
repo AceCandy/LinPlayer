@@ -120,25 +120,10 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
         opened = opened + (key to eps)
     }
 
-    suspend fun attach(sourceId: String, episodeId: String, label: String) {
+    suspend fun attach(sourceId: String, anime: JsonObject, episode: JsonObject) {
         attaching = true
         try {
-        status = "正在取「$label」…"
-        val items = runCatching {
-            app.call("danmaku.load", args("source_id" to sourceId, "episode_id" to episodeId))
-        }.onFailure { app.report(it); status = "取不到这一集的弹幕" }.getOrNull() ?: return
-        runCatching {
-            app.call("player.danmakuSet", JsonObject(mapOf("items" to items)))
-            // 手动挂上就顺手把开关打开 —— 挂完不显示的话用户会以为没成功
-            if (!DanmakuStyle.enabled.value) {
-                app.call("player.setDanmakuEnabled", args("enabled" to true))
-                DanmakuStyle.enabled.value = true
-            }
-        }.onFailure { app.report(it); return }
-        // 灌完必须重取排版 —— 不取的话画面上还是上一份
-        DanmakuStyle.reloadLayout(app)
-        app.toast("挂上 " + (items as? JsonArray)?.size + " 条弹幕", ToastKind.Ok)
-        onClose()
+            if (resolveDanmakuFor(app, itemId, danmakuSelection(sourceId, anime, episode), loud = true)) onClose()
         } finally { attaching = false }
     }
 
@@ -206,7 +191,7 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
                                 val eid = ep.str("episode_id") ?: ""
                                 item("p-$key-$eid") {
                                     val label = ep.str("episode_title") ?: eid
-                                    OptRow(label, { scope.launch { attach(sid, eid, label) } },
+                                    OptRow(label, { scope.launch { attach(sid, an, ep) } },
                                         m = Modifier.padding(start = Sp.x20))
                                 }
                             }

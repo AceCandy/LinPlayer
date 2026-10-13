@@ -3,6 +3,7 @@ package sync
 import (
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -166,13 +167,30 @@ const calendarFixture = `[
    {"id":101,"name":"只有原名","rating":{"score":0},"air_date":"2026-07-06",
     "images":{"common":"//lain.bgm.tv/pic/cover/c/b.jpg"}}
  ]},
- {"weekday":{"id":7},"items":[{"id":102,"name_cn":"周日那部","air_date":"2026-07-12"}]}
+ {"weekday":{"id":7},"items":[{"id":102,"name_cn":"周日那部","air_date":"2026-07-12"},{"id":999,"name_cn":"未收藏的条目"}]}
 ]`
 
 func calendarServer(t *testing.T, body string) func() {
 	t.Helper()
+	// 个人提醒的播出时刻走本地夹具，测试不访问真实数据集。
+	if err := os.MkdirAll(paths.CacheDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(broadcastCachePath(), []byte(`{}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
+		if r.URL.Path == "/v0/users/-/collections" {
+			if r.Header.Get("Authorization") != "Bearer test-token" {
+				t.Error("个人收藏请求缺少账号鉴权")
+			}
+			_, _ = w.Write([]byte(`{"data":[{"subject_id":100},{"subject_id":101},{"subject_id":102}]}`))
+			return
+		}
+		if r.URL.Path != "/calendar" {
+			t.Errorf("意外请求路径: %s", r.URL.Path)
+		}
 		_, _ = w.Write([]byte(body))
 	}))
 	restore := setBangumiBaseForTest(srv.URL)
@@ -186,7 +204,7 @@ func TestBangumiCalendar_零分要滤掉(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	defer calendarServer(t, calendarFixture)()
 
-	got := BangumiCalendar(t.Context(), nil, false)
+	got := BangumiCalendar(t.Context(), &Account{AccessToken: "test-token"})
 	if len(got) != 3 {
 		t.Fatalf("解出 %d 条,想要 3", len(got))
 	}
@@ -208,7 +226,7 @@ func TestBangumiCalendar_中文名优先(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	defer calendarServer(t, calendarFixture)()
 
-	got := BangumiCalendar(t.Context(), nil, false)
+	got := BangumiCalendar(t.Context(), &Account{AccessToken: "test-token"})
 	if got[0].Title != "中文名" {
 		t.Fatalf("有 name_cn 却用了 %q", got[0].Title)
 	}
@@ -225,7 +243,7 @@ func TestBangumiCalendar_不给AirDate只给Weekday(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	defer calendarServer(t, calendarFixture)()
 
-	got := BangumiCalendar(t.Context(), nil, false)
+	got := BangumiCalendar(t.Context(), &Account{AccessToken: "test-token"})
 	for _, e := range got {
 		if e.AirDate != nil {
 			t.Fatalf("%q 给了 air_date(%q)—— 那是首播日不是本周日期,前端会把整条丢掉", e.Title, *e.AirDate)
@@ -244,7 +262,7 @@ func TestBangumiCalendar_海报优先large(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	defer calendarServer(t, calendarFixture)()
 
-	got := BangumiCalendar(t.Context(), nil, false)
+	got := BangumiCalendar(t.Context(), &Account{AccessToken: "test-token"})
 	if got[0].ImageURL == nil || !strings.Contains(*got[0].ImageURL, "/cover/l/") {
 		t.Fatalf("没优先取 large: %v", got[0].ImageURL)
 	}
@@ -263,7 +281,7 @@ func TestBangumiCalendar_上游挂了也给空数组(t *testing.T) {
 	defer srv.Close()
 	defer setBangumiBaseForTest(srv.URL)()
 
-	got := BangumiCalendar(t.Context(), nil, false)
+	got := BangumiCalendar(t.Context(), &Account{AccessToken: "test-token"})
 	if got == nil {
 		t.Fatal("返回了 nil —— 序列化成 null,前端 .map() 直接抛,透明窗口下就是一片黑")
 	}

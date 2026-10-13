@@ -2,6 +2,8 @@ package sync
 
 import (
 	"context"
+	"net/http"
+	"net/http/httptest"
 	gosync "sync"
 	"testing"
 
@@ -43,15 +45,42 @@ func TestCalendarWithoutSponsorOrder(t *testing.T) {
 	}
 }
 
-func TestPublicCalendarWithoutSponsorOrder(t *testing.T) {
+func TestBangumiCalendarRequiresAccount(t *testing.T) {
+	withCommands(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Error("未登录不得访问上游")
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	defer setBangumiBaseForTest(srv.URL)()
+	for _, args := range []map[string]any{{}, {"only_mine": false}} {
+		_, err := bus.Invoke(t.Context(), "sync.bangumiCalendar", args)
+		if e, ok := err.(*bus.Err); !ok || e.Code != bus.EAuth {
+			t.Fatalf("旧匿名日历入口应要求账号，实际 %v", err)
+		}
+	}
+	if got := BangumiCalendar(t.Context(), nil); got == nil || len(got) != 0 {
+		t.Fatalf("无账号内部调用应返回空数组，实际 %v", got)
+	}
+}
+
+func TestPersonalCalendarWithoutSponsorOrder(t *testing.T) {
 	withCommands(t)
 	defer calendarServer(t, calendarFixture)()
-	value, err := bus.Invoke(context.Background(), "sync.bangumiCalendar", map[string]any{})
+	if err := Save("bangumi", &Account{Service: "bangumi", AccessToken: "test-token"}); err != nil {
+		t.Fatal(err)
+	}
+	value, err := bus.Invoke(t.Context(), "sync.bangumiCalendar", map[string]any{})
 	if err != nil {
 		t.Fatal(err)
 	}
 	entries, ok := value.([]CalendarEntry)
 	if !ok || len(entries) != 3 {
-		t.Fatalf("无订单应正常返回公开放送表，实际 %T", value)
+		t.Fatalf("无订单应返回个人在看放送表，实际 %v", value)
+	}
+	for _, entry := range entries {
+		if entry.BangumiID == nil || *entry.BangumiID == 999 {
+			t.Fatalf("个人日历包含未收藏条目: %v", entry)
+		}
 	}
 }

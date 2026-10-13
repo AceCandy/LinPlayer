@@ -3,13 +3,12 @@ using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using LinPlayer.Core;
 using LinPlayer.Desktop.Core;
 
 namespace LinPlayer.Desktop.Views;
@@ -29,13 +28,12 @@ public sealed class CalendarPage : PageBase
     private readonly StackPanel _days = new() { Orientation = Orientation.Horizontal, Spacing = 10 };
     private readonly WrapPanel _wall = new() { ItemSpacing = 18, LineSpacing = 26 };
     private readonly TextBlock _status = Dim("");
-    private readonly List<Button> _sourceTabs = [];
-    private readonly Button _onlyMine = new() { Classes = { "chip" }, Content = "只看我追的" };
     private readonly DockPanel _bar;
-    private string _source = "bangumi";
     private List<JsonElement> _items = [];
-    // 放送条目下标 → 当前 Emby 服务器上的对应物(D366「已入库 / 可播」)
-    private Dictionary<int, JsonElement> _lib = [];
+    private Sess? _session = Nav.Session;
+    private CancellationTokenSource _life = new();
+    private int _revision;
+    private bool Current => !_life.IsCancellationRequested && Nav.Session == _session;
     private int _picked;
 
     private static readonly string[] WeekNames = ["", "周一", "周二", "周三", "周四", "周五", "周六", "周日"];
@@ -45,32 +43,17 @@ public sealed class CalendarPage : PageBase
         _core = core;
         _picked = TodayWeekdayJst();
 
-        var sources = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-        // 默认 Bangumi:公开放送表免登录就能返回整张表
-        foreach (var (k, label) in new[] { ("bangumi", "番剧 · Bangumi"), ("trakt", "剧集 · Trakt") })
-        {
-            var b = new Button { Classes = { "chip" }, Content = label };
-            b.Classes.Set("on", k == _source);
-            b.Click += (_, _) =>
-            {
-                if (_source == k) return;
-                _source = k;
-                foreach (var t in _sourceTabs) t.Classes.Set("on", t == b);
-                _ = Load();
-            };
-            _sourceTabs.Add(b);
-            sources.Children.Add(b);
-        }
-        _onlyMine.Click += (_, _) =>
-        {
-            _onlyMine.Classes.Set("on", !_onlyMine.Classes.Contains("on"));
-            _ = Load();
-        };
-
+        var refresh = new Button { Classes = { "ghost" }, Content = "刷新" };
+        refresh.Click += (_, _) => _ = Load();
         _bar = new DockPanel { LastChildFill = false };
-        DockPanel.SetDock(_onlyMine, Dock.Right);
-        _bar.Children.Add(_onlyMine);
-        _bar.Children.Add(sources);
+        DockPanel.SetDock(refresh, Dock.Right);
+        _bar.Children.Add(refresh);
+        _bar.Children.Add(Dim("MSG 资料中心 · Bangumi 公共周历 · 日本时区"));
+        DetachedFromVisualTree += (_, _) => { _life.Cancel(); _revision++; };
+        AttachedToVisualTree += (_, _) => { if (_life.IsCancellationRequested || _session != Nav.Session)
+        {
+            _life.Cancel(); _life.Dispose(); _life = new(); _session = Nav.Session; _ = Load();
+        } };
 
         // 空的状态行不占位:Spacing 会把它算成一行,海报墙上方平白多一道空隙
         _status.PropertyChanged += (_, e) =>
@@ -91,57 +74,30 @@ public sealed class CalendarPage : PageBase
         _ = Load();
     }
 
-    private bool OnlyMine => _onlyMine.Classes.Contains("on");
-
     private async Task Load()
     {
-        _wall.Children.Clear();
-        _days.Children.Clear();
+        var revision = ++_revision;
+        _wall.Children.Clear(); _days.Children.Clear();
         _status.Text = "加载中…";
-        var onlyMine = OnlyMine;
-
-        JsonElement arr;
+        if (_session is null) { _status.Text = "请先连接服务器"; return; }
+        void Show(JsonElement arr)
+        {
+            if (!Current || revision != _revision) return;
+            _items = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
+            Render();
+        }
         try
         {
-            arr = _source == "trakt"
-                ? await _core.SyncTraktCalendar(new { only_mine = onlyMine })
-                : await _core.SyncBangumiCalendar(new { only_mine = onlyMine });
+            var arr = await _core.CallDisplayAsync("emby.extCalendar", _session, Show, _life.Token);
+            Show(arr);
         }
+        catch (OperationCanceledException) { }
         catch (Exception e)
         {
-            // 「还没连接」是**可操作**的失败:说清楚要去哪儿连,别只说一句失败
+            if (!Current || revision != _revision) return;
+            _items = []; _wall.Children.Clear(); _days.Children.Clear();
             _status.Text = LibraryPage.Advice(e);
-            return;
         }
-
-        var items = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
-        Dispatcher.UIThread.Post(() => { _items = items; _lib = []; Render(); });
-        _ = LoadLibrary(items);
-    }
-
-    /// <summary>放送表先画出来,再去当前 Emby 服务器对「入库没有」:对得慢不该拖住整页。</summary>
-    private async Task LoadLibrary(List<JsonElement> items)
-    {
-        var q = items.Select((e, i) => new
-        {
-            key = i.ToString(), title = Str(e, "title"),
-            tmdb_id = e.TryGetProperty("tmdb_id", out var t) && t.ValueKind == JsonValueKind.Number ? t.GetInt64() : (long?)null,
-            season = e.TryGetProperty("season", out var se) && se.ValueKind == JsonValueKind.Number ? se.GetInt32() : (int?)null,
-            episode = e.TryGetProperty("episode", out var ep) && ep.ValueKind == JsonValueKind.Number ? ep.GetInt32() : (int?)null,
-        }).ToArray();
-        JsonElement hits;
-        try { hits = await _core.SyncCalendarLibrary(new { entries = q }); }
-        catch (Exception e) { Log.W("calendar", "对媒体库失败(不影响放送表): " + e.Message); return; }
-        var map = new Dictionary<int, JsonElement>();
-        if (hits.ValueKind == JsonValueKind.Object)
-            foreach (var p in hits.EnumerateObject())
-                if (int.TryParse(p.Name, out var i)) map[i] = p.Value;
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!ReferenceEquals(items, _items)) return; // 期间换了来源 / 过滤:结果作废
-            _lib = map;
-            Render();
-        });
     }
 
     private void Render()
@@ -150,9 +106,7 @@ public sealed class CalendarPage : PageBase
         _wall.Children.Clear();
         if (_items.Count == 0)
         {
-            _status.Text = OnlyMine
-                ? "你追的番里,这一季没有正在放送的。"
-                : "放送表是空的(上游没有返回条目)。";
+            _status.Text = "公共周历暂无内容。";
             return;
         }
         _status.Text = "";
@@ -233,29 +187,6 @@ public sealed class CalendarPage : PageBase
             });
         }
 
-        // 已在 Emby 媒体库里:这一集入库了标「可播」点了直接播,只有剧入库标「已入库」点了进详情(D366)
-        Action? open = null;
-        if (_lib.TryGetValue(index, out var hit) && Nav.Session is { } s)
-        {
-            var playable = hit.TryGetProperty("playable", out var pl) && pl.ValueKind == JsonValueKind.True;
-            var itemId = Str(hit, "item_id");
-            var seriesId = Str(hit, "series_id");
-            layers.Children.Add(new Border
-            {
-                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top,
-                Margin = new Thickness(6), Padding = new Thickness(6, 2), CornerRadius = new CornerRadius(999),
-                Background = playable ? Tok.Of("Accent") : new SolidColorBrush(Color.Parse("#cc000000")),
-                Child = new TextBlock
-                {
-                    Text = playable ? "可播" : "已入库", FontSize = 11.5, FontWeight = FontWeight.SemiBold,
-                    Foreground = playable ? Tok.Of("AccentInk") : Brushes.White,
-                },
-            });
-            open = playable
-                ? () => Nav.Push(new PlayerPage(_core, itemId, title, 0, serverId: s.server))
-                : () => Nav.Push(new DetailPage(_core, s.server, seriesId), () => new DetailPage(_core, s.server, seriesId));
-        }
-
         var bits = new List<string>();
         if (e.TryGetProperty("rating", out var r) && r.ValueKind == JsonValueKind.Number && r.GetDouble() > 0)
             bits.Add("★ " + r.GetDouble().ToString("0.0"));
@@ -266,12 +197,7 @@ public sealed class CalendarPage : PageBase
             Width = w, Height = h, CornerRadius = new CornerRadius(10), ClipToBounds = true,
             Background = Tok.Of("PanelAlt"), Child = layers,
         };
-        if (open is not null)
-        {
-            cover.Cursor = new Cursor(StandardCursorType.Hand);
-            cover.PointerPressed += (_, ev) => { if (ev.GetCurrentPoint(cover).Properties.IsLeftButtonPressed) open(); };
-        }
-        return new StackPanel
+        var content = new StackPanel
         {
             Width = w, Spacing = 6,
             Children =
@@ -286,6 +212,16 @@ public sealed class CalendarPage : PageBase
                 },
             },
         };
+        var button = new Button { Classes = { "ghost" }, Padding = new Thickness(0), Content = content };
+        button.Click += async (_, _) => {
+            if (_session is null) return;
+            button.IsEnabled = false;
+            try { await ExtensionNavigation.Open(_core, _session, e, _life.Token); }
+            catch (OperationCanceledException) { }
+            catch (Exception error) { if (Current) _status.Text = LibraryPage.Advice(error); }
+            finally { button.IsEnabled = true; }
+        };
+        return button;
     }
 
     private async Task Fill(Image target, string url)

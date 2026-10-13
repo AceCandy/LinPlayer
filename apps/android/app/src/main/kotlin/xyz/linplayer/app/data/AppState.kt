@@ -278,6 +278,6 @@ suspend fun AppState.displayBlock(command: String, args: JsonObject? = null,
     reader.join()
     currentCoroutineContext().ensureActive()
     if (session.value != identity) throw kotlinx.coroutines.CancellationException("展示会话已切换")
-    if (retainOnFailure && response is Block.Fail && response.code !in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID") && cached != null)
+    if (retainOnFailure && response is Block.Fail && response.code !in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED") && cached != null)
         Block.Ok(cached) else response
 }

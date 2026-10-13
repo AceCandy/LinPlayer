@@ -31,8 +31,11 @@ object LinPlayerCommandNames {
     val ALL: List<String> = listOf(
         "emby.aggregateOverview",
         "emby.aggregateSearch",
-        "emby.rankingCategories",
-        "emby.rankingFetch",
+        "emby.extCapabilities",
+        "emby.extRankings",
+        "emby.extRankingItems",
+        "emby.extCalendar",
+        "emby.extResolve",
         "emby.aggregateVersions",
         "emby.blockedList",
         "emby.counts",
@@ -117,6 +120,8 @@ object LinPlayerCommandNames {
         "player.setMpvConf",
         "player.setMute",
         "player.setPause",
+        "player.danmakuBegin",
+        "player.danmakuOffset",
         "player.danmakuSet",
         "player.setDanmakuEnabled",
         "player.setDanmakuStyle",
@@ -178,6 +183,9 @@ object LinPlayerCommandNames {
         "source.favorites",
         "source.history",
         "source.linkSwitch",
+        "danmaku.resolve",
+        "danmaku.forget",
+        "danmaku.testSource",
         "danmaku.autoLoad",
         "danmaku.cacheClear",
         "danmaku.cacheSize",
@@ -338,15 +346,21 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (45 条) ----
+// ---- Emby 浏览与详情 · emby.* (48 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateSearch", args)
-suspend fun LinPlayerCommands.embyRankingCategories(args: Map<String, Any?>? = null): JsonElement =
-    call("emby.rankingCategories", args)
-suspend fun LinPlayerCommands.embyRankingFetch(args: Map<String, Any?>? = null): JsonElement =
-    call("emby.rankingFetch", args)
+suspend fun LinPlayerCommands.embyExtCapabilities(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extCapabilities", args)
+suspend fun LinPlayerCommands.embyExtRankings(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extRankings", args)
+suspend fun LinPlayerCommands.embyExtRankingItems(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extRankingItems", args)
+suspend fun LinPlayerCommands.embyExtCalendar(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extCalendar", args)
+suspend fun LinPlayerCommands.embyExtResolve(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extResolve", args)
 suspend fun LinPlayerCommands.embyAggregateVersions(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateVersions", args)
 suspend fun LinPlayerCommands.embyBlockedList(args: Map<String, Any?>? = null): JsonElement =
@@ -474,7 +488,7 @@ suspend fun LinPlayerCommands.accountTestConnection(args: Map<String, Any?>? = n
 suspend fun LinPlayerCommands.accountUpdateAccount(args: Map<String, Any?>? = null): JsonElement =
     call("account.updateAccount", args)
 
-// ---- 播放器 · player.* (53 条) ----
+// ---- 播放器 · player.* (55 条) ----
 suspend fun LinPlayerCommands.playerAddSubtitle(args: Map<String, Any?>? = null): JsonElement =
     call("player.addSubtitle", args)
 suspend fun LinPlayerCommands.playerChapterInfo(args: Map<String, Any?>? = null): JsonElement =
@@ -519,6 +533,10 @@ suspend fun LinPlayerCommands.playerSetMute(args: Map<String, Any?>? = null): Js
     call("player.setMute", args)
 suspend fun LinPlayerCommands.playerSetPause(args: Map<String, Any?>? = null): JsonElement =
     call("player.setPause", args)
+suspend fun LinPlayerCommands.playerDanmakuBegin(args: Map<String, Any?>? = null): JsonElement =
+    call("player.danmakuBegin", args)
+suspend fun LinPlayerCommands.playerDanmakuOffset(args: Map<String, Any?>? = null): JsonElement =
+    call("player.danmakuOffset", args)
 suspend fun LinPlayerCommands.playerDanmakuSet(args: Map<String, Any?>? = null): JsonElement =
     call("player.danmakuSet", args)
 suspend fun LinPlayerCommands.playerSetDanmakuEnabled(args: Map<String, Any?>? = null): JsonElement =
@@ -644,7 +662,13 @@ suspend fun LinPlayerCommands.sourceHistory(args: Map<String, Any?>? = null): Js
 suspend fun LinPlayerCommands.sourceLinkSwitch(args: Map<String, Any?>? = null): JsonElement =
     call("source.linkSwitch", args)
 
-// ---- 弹幕 · danmaku.* (17 条) ----
+// ---- 弹幕 · danmaku.* (20 条) ----
+suspend fun LinPlayerCommands.danmakuResolve(args: Map<String, Any?>? = null): JsonElement =
+    call("danmaku.resolve", args)
+suspend fun LinPlayerCommands.danmakuForget(args: Map<String, Any?>? = null): JsonElement =
+    call("danmaku.forget", args)
+suspend fun LinPlayerCommands.danmakuTestSource(args: Map<String, Any?>? = null): JsonElement =
+    call("danmaku.testSource", args)
 suspend fun LinPlayerCommands.danmakuAutoLoad(args: Map<String, Any?>? = null): JsonElement =
     call("danmaku.autoLoad", args)
 suspend fun LinPlayerCommands.danmakuCacheClear(args: Map<String, Any?>? = null): JsonElement =

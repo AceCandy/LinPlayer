@@ -74,6 +74,8 @@ func RegisterCommands(version string) {
 		})
 	}
 
+	registerExtensionCommands(list)
+
 	list("emby.views", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		v, err := defaultClient.Views(ctx, s)
 		if err != nil {

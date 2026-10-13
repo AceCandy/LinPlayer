@@ -85,6 +85,8 @@ var root = Path.Combine(Path.GetTempPath(), "linplayer-seek-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 try {
     using var core = new CoreClient(Path.GetFullPath(args[0]), root, "test");
+    if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
+    if (args.Contains("--discovery-only")) { DiscoveryCheck.Run(core); return; }
     var page = new PlayerPage(core, "", "跳转回归", 0, isSource: true);
     Get<DispatcherTimer>(page, "_poll").Stop();
     Set(Get<object>(page, "_view"), "OnReady", null);

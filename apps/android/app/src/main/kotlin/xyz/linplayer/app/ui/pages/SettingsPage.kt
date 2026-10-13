@@ -556,7 +556,7 @@ private fun BackupPanel() {
  *   而且自动加载和手动搜索必须用同一份。
  */
 @Composable
-private fun DanmakuSettingsPanel() {
+internal fun DanmakuSettingsPanel() {
     val app = LocalApp.current
     val ctx = LocalContext.current
     val scope = rememberCoroutineScope()
@@ -565,6 +565,7 @@ private fun DanmakuSettingsPanel() {
     var words by remember { mutableStateOf("") }
     var userCount by remember { mutableStateOf(0) }
     var adding by remember { mutableStateOf(false) }
+    var editing by remember { mutableStateOf<JsonObject?>(null) }
     var editWords by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
 
@@ -572,7 +573,7 @@ private fun DanmakuSettingsPanel() {
         // 三个请求互不依赖 —— 串起来的话这一页要等三个往返才画得出来
         official = runCatching { app.call("danmaku.getOfficialDanmaku") }.getOrNull().obj()
         sources = runCatching { app.call("danmaku.getDanmakuConfig") }.getOrNull().arr()
-            .mapNotNull { it.obj() }.filter { !it.bool("official") }
+            .mapNotNull { it.obj() }
         val bw = runCatching { app.call("danmaku.getBlockwords") }.getOrNull().obj()
         words = bw?.strList("words").orEmpty().joinToString("\n")
         userCount = bw?.strList("users").orEmpty().size
@@ -606,20 +607,18 @@ private fun DanmakuSettingsPanel() {
     }
 
     Column {
-        Panel(Modifier.padding(Sp.x16)) {
-            // 「没有」和「坏了」是两件事:不可用时才把核心层给的原因摊开
-            LpCell("弹弹Play 官方源", mediaStyle = true, arrow = false,
-                value = if (official.bool("enabled")) "可用" else "不可用",
-                sub = if (official.bool("enabled")) null else official.str("reason"))
-        }
-        GroupLabel("自建源")
+        OfficialDanmakuStatus(official)
+        GroupLabel("弹幕源（按顺序自动匹配）")
         Panel(Modifier.padding(horizontal = Sp.x16)) {
             if (sources.isEmpty()) LpCell("还没有自建源", mediaStyle = true, arrow = false)
             sources.forEachIndexed { i, src ->
                 if (i > 0) Hairline()
                 SourceRow(
                     name = src.str("name") ?: "(没名字)",
-                    url = src.str("api_url") ?: "",
+                    url = if (src.bool("disabled")) "已停用" else "已启用",
+                    official = src.bool("official"),
+                    onEdit = { editing = src; adding = true },
+                    onToggle = { scope.launch { saveSources(sources.mapIndexed { j, v -> if (j == i) JsonObject(v + ("disabled" to JsonPrimitive(!v.bool("disabled")))) else v }) } },
                     canUp = i > 0, canDown = i < sources.lastIndex,
                     onMove = { d -> scope.launch { saveSources(sources.moved(i, i + d)) } },
                     onDelete = {
@@ -642,15 +641,12 @@ private fun DanmakuSettingsPanel() {
         Spacer(Modifier.height(Sp.x20))
     }
 
-    if (adding) AddSourceDialog({ adding = false }) { name, url ->
-        scope.launch {
-            saveSources(sources + JsonObject(mapOf(
-                "id" to JsonPrimitive("u" + System.currentTimeMillis()),
-                "name" to JsonPrimitive(name.ifBlank { "自建源" }),
-                "api_url" to JsonPrimitive(url.trim()),
-            )))
-        }
-        adding = false
+    if (adding) AddSourceDialog(editing, { adding = false; editing = null }) { draft ->
+        app.call("danmaku.testSource", JsonObject(mapOf("source" to draft)))
+        val next = if (editing == null) sources + draft else sources.map { if (it.str("id") == draft.str("id")) draft else it }
+        app.call("danmaku.setDanmakuConfig", JsonObject(mapOf("sources" to kotlinx.serialization.json.JsonArray(next))))
+        reload++
+        adding = false; editing = null
     }
 
     if (editWords) BlockwordsDialog(words, { editWords = false }) { ws ->
@@ -661,6 +657,15 @@ private fun DanmakuSettingsPanel() {
             }.onSuccess { words = ws.joinToString("\n"); editWords = false }
                 .onFailure { app.report(it) }
         }
+    }
+}
+
+@Composable
+private fun OfficialDanmakuStatus(official: JsonObject?) {
+    Panel(Modifier.padding(Sp.x16)) {
+        LpCell("弹弹Play 官方源", mediaStyle = true, arrow = false,
+            value = if (official.bool("enabled")) "可用" else "不可用",
+            sub = if (official.bool("enabled")) null else official.str("reason"))
     }
 }
 
@@ -676,45 +681,79 @@ internal fun <T> List<T>.moved(from: Int, to: Int): List<T> {
 @Composable
 private fun SourceRow(
     name: String, url: String, canUp: Boolean, canDown: Boolean,
+    official: Boolean, onEdit: () -> Unit, onToggle: () -> Unit,
     onMove: (Int) -> Unit, onDelete: () -> Unit,
 ) {
-    Row(
+    Column(
         Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x6, top = Sp.x6, bottom = Sp.x6),
-        verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
     ) {
-        Column(Modifier.weight(1f)) {
+        Column {
             Text(name, color = Lp.colors.fg, style = LpText.list, maxLines = 1,
                 overflow = androidx.compose.ui.text.style.TextOverflow.Ellipsis)
             Dim3(url)
         }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End,
+            verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
         // 只有一个「向下」的箭头,向上那颗把它转过来 —— 不为一个方向再画一个图标
         if (canUp) Box(Modifier.graphicsLayer { rotationZ = 180f }) {
             LpIconButton(LpIcons.chevD, "上移", size = 18) { onMove(-1) }
         }
         if (canDown) LpIconButton(LpIcons.chevD, "下移", size = 18) { onMove(1) }
-        LpIconButton(LpIcons.trash, "删除", size = 18) { onDelete() }
+        LpButton("启停", onToggle, kind = BtnKind.Secondary)
+        if (!official) {
+            LpButton("编辑", onEdit, kind = BtnKind.Secondary)
+            LpIconButton(LpIcons.trash, "删除", size = 18) { onDelete() }
+        }
     }
+        }
 }
 
-/**
- * 加一条源:**只问名字和地址**【用户 2026-09-10】。
- *
- * ★ 鉴权方式不让用户选 —— 他也不知道什么是 pathToken。核心层从地址里推
- *   (setDanmakuConfig 的 DeriveAuth),推错了也比给一个四选一的下拉框强:
- *   那个框选错了同样不报错,只是搜不到。
- */
+/** 默认只填名称和地址，特殊鉴权按需展开；测试失败保留草稿。 */
 @Composable
-private fun AddSourceDialog(onClose: () -> Unit, onAdd: (String, String) -> Unit) {
-    var name by remember { mutableStateOf("") }
-    var url by remember { mutableStateOf("") }
-    LpDialog(onClose, "添加弹幕源") {
+private fun AddSourceDialog(initial: JsonObject?, onClose: () -> Unit, onSave: suspend (JsonObject) -> Unit) {
+    val scope = rememberCoroutineScope()
+    var name by remember { mutableStateOf(initial.str("name") ?: "") }
+    var url by remember { mutableStateOf(initial.str("api_url") ?: "") }
+    var advanced by remember { mutableStateOf(false) }
+    var auth by remember { mutableStateOf(initial.str("auth_type") ?: "none") }
+    var token by remember { mutableStateOf(initial.str("token") ?: "") }
+    var appId by remember { mutableStateOf(initial.str("app_id") ?: "") }
+    var secret by remember { mutableStateOf(initial.str("app_secret") ?: "") }
+    var busy by remember { mutableStateOf(false) }
+    var error by remember { mutableStateOf("") }
+    LpDialog(onClose, if (initial == null) "添加弹幕源" else "编辑弹幕源") {
         LpField(name, { name = it }, "弹幕源名字")
-        Spacer(Modifier.height(Sp.x10))
         LpField(url, { url = it }, "弹幕源链接")
-        Spacer(Modifier.height(Sp.x16))
+        LpButton("高级鉴权", { advanced = !advanced }, kind = BtnKind.Secondary)
+        if (advanced) {
+            val modes = listOf("none", "headerToken", "queryToken", "dandanplaySignature", "pathToken")
+            val labels = listOf("自动识别", "请求头令牌", "查询参数令牌", "签名", "路径令牌（包含在地址中）")
+            LpButton("方式：" + labels.getOrElse(modes.indexOf(auth)) { "自动识别" }, {
+                auth = modes[(modes.indexOf(auth) + 1).mod(modes.size)]
+            }, kind = BtnKind.Secondary)
+            if (auth == "headerToken" || auth == "queryToken") LpField(token, { token = it }, "Token", password = true)
+            if (auth == "dandanplaySignature") {
+                LpField(appId, { appId = it }, "App ID")
+                LpField(secret, { secret = it }, "App Secret", password = true)
+            }
+        }
+        if (error.isNotBlank()) Dim3(error, maxLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
             LpButton("取消", onClose, Modifier.weight(1f), BtnKind.Secondary)
-            LpButton("添加", { if (url.isNotBlank()) onAdd(name, url) }, Modifier.weight(1f))
+            LpButton("测试并保存", {
+                if (!busy) scope.launch {
+                    busy = true; error = ""
+                    val draft = JsonObject((initial ?: JsonObject(emptyMap())) + mapOf(
+                        "id" to JsonPrimitive(initial.str("id") ?: java.util.UUID.randomUUID().toString()),
+                        "name" to JsonPrimitive(name.trim()), "api_url" to JsonPrimitive(url.trim()),
+                        "auth_type" to JsonPrimitive(auth), "token" to JsonPrimitive(token),
+                        "app_id" to JsonPrimitive(appId), "app_secret" to JsonPrimitive(secret)))
+                    try { onSave(draft) }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { error = e.message ?: "连接测试失败" }
+                    finally { busy = false }
+                }
+            }, Modifier.weight(1f), loading = busy)
         }
     }
 }

@@ -156,3 +156,37 @@ func TestSourceSearchFailureKeepsSuccessAndEmptyClears(t *testing.T) {
 		t.Fatal("成功空结果保留了旧条目")
 	}
 }
+
+func TestExtensionSnapshotIdentityAndRevocation(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	a := map[string]any{"server": "test-server", "user_id": "one", "page": 1}
+	rows := []any{map[string]any{"title": "作品", "source": "tmdb", "external_id": "101", "media_type": "movie", "rank": 1, "image_url": "https://test.invalid/private", "item_id": "live-only"}}
+	for _, command := range []string{"emby.extRankings", "emby.extRankingItems", "emby.extCalendar"} {
+		_, err := Run(context.Background(), 0, command, a, func() (any, error) { return rows, nil })
+		if err != nil {
+			t.Fatal(err)
+		}
+		b := load(key(command, a), epoch())
+		var stored []map[string]any
+		_ = json.Unmarshal(b, &stored)
+		if len(stored) != 1 || stored[0]["external_id"] != "101" || stored[0]["title"] != "作品" || stored[0]["image_url"] != nil || stored[0]["item_id"] != nil {
+			t.Fatalf("unsafe or incomplete snapshot: %s", b)
+		}
+		other := map[string]any{"server": "test-server", "user_id": "two", "page": 1}
+		if load(key(command, other), epoch()) != nil {
+			t.Fatal("cross-account snapshot")
+		}
+		other["user_id"] = "one"
+		other["page"] = 2
+		if load(key(command, other), epoch()) != nil {
+			t.Fatal("cross-page snapshot")
+		}
+		_, _ = Run(context.Background(), 0, command, a, func() (any, error) { return nil, bus.NewErr(bus.EUnsupported, "disabled") })
+		if load(key(command, a), epoch()) != nil {
+			t.Fatal("unsupported snapshot retained")
+		}
+	}
+	if commands["emby.extResolve"] || commands["emby.extCapabilities"] {
+		t.Fatal("authorization cached")
+	}
+}

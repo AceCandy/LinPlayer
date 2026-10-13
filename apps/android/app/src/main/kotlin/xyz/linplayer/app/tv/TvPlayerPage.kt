@@ -220,6 +220,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
     // ---------------------------------------------------------------- 起播
     val playbackPrefs = trackPrefs
     LaunchedEffect(target, attempt, engine, playbackPrefs) {
+        xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
         subOffPref = controller.fallback?.subOff ?: (trackPrefs?.subEnabled == false)
@@ -525,6 +526,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
     }
     DisposableEffect(Unit) {
         onDispose {
+            xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
             Libass.reset()
             // ★ 收尾走 app.bg:页面的协程作用域正被取消,挂在它上面的上报一件都不跑。**落库失败也要离页**
             val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position

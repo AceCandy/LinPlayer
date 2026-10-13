@@ -287,7 +287,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var heat by remember { mutableStateOf<List<Float>>(emptyList()) }
     /* 语料换了要重取一次。**跟着弹幕开关和热力图开关走**,不做轮询 ——
        密度是一集一份的静态数据,每秒问一次纯属白烧。 */
-    LaunchedEffect(DanmakuStyle.enabled.value, DanmakuStyle.heatmap.value, duration) {
+    LaunchedEffect(DanmakuStyle.enabled.value, DanmakuStyle.heatmap.value, DanmakuStyle.layout.value, DanmakuStyle.offset.doubleValue, duration) {
         heat = if (!DanmakuStyle.enabled.value || !DanmakuStyle.heatmap.value) emptyList()
         else runCatching {
             app.call("player.danmakuHeatmap", args("buckets" to 120, "duration" to duration))
@@ -688,6 +688,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     // 定时进度上报由前台服务负责,应用退到后台后也继续执行。
     DisposableEffect(Unit) {
         onDispose {
+            DanmakuSession.invalidate()
             app.wantsPip = false
             PlaybackService.stop(ctx)
             Libass.reset()

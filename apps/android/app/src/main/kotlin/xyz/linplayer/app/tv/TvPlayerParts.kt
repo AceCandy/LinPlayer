@@ -97,6 +97,8 @@ import xyz.linplayer.app.ui.player.exoCurrent
 import xyz.linplayer.app.ui.player.exoPick
 import xyz.linplayer.app.ui.player.exoTracks
 import xyz.linplayer.app.ui.player.loadDanmakuFor
+import xyz.linplayer.app.ui.player.resolveDanmakuFor
+import xyz.linplayer.app.ui.player.danmakuSelection
 import xyz.linplayer.app.ui.player.toggleDanmaku
 import xyz.linplayer.app.ui.theme.LpIcons
 
@@ -546,19 +548,8 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
                 PanelItem(ep.str("episode_title") ?: "第 ? 集", onClick = {
                     val sid = anime?.first ?: return@PanelItem
                     scope.launch {
-                        val items = runCatching {
-                            app.call("danmaku.load", args("source_id" to sid, "episode_id" to (ep.str("episode_id") ?: "")))
-                        }.onFailure { app.report(it) }.getOrNull() ?: return@launch
-                        runCatching {
-                            app.call("player.danmakuSet", JsonObject(mapOf("items" to items)))
-                            if (!DanmakuStyle.enabled.value) {
-                                app.call("player.setDanmakuEnabled", args("enabled" to true))
-                                DanmakuStyle.enabled.value = true
-                            }
-                        }.onFailure { app.report(it); return@launch }
-                        DanmakuStyle.reloadLayout(app)
-                        app.toast("挂上 " + (items as? JsonArray)?.size + " 条弹幕", ToastKind.Ok)
-                        overlay.close()
+                        val selected = anime?.second ?: return@launch
+                        if (resolveDanmakuFor(app, target.itemId, danmakuSelection(sid, selected, ep), loud = true)) overlay.close()
                     }
                 })
             }
@@ -567,7 +558,12 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
             PanelItem("显示弹幕", switch = DanmakuStyle.enabled.value, focused = true, onClick = {
                 scope.launch { toggleDanmaku(app, target.itemId, !DanmakuStyle.enabled.value) }
             })
-            PanelItem("重新匹配", onClick = { scope.launch { loadDanmakuFor(app, target.itemId, loud = true) } })
+            PanelItem("重新匹配", onClick = { scope.launch { loadDanmakuFor(app, target.itemId, loud = true, ignoreMemory = true) } })
+            PanelItem(DanmakuStyle.source.value.ifBlank { "尚未匹配" }, enabled = false)
+            PanelItem("清除匹配记忆", onClick = { scope.launch { resolveDanmakuFor(app, target.itemId, forget = true, loud = true) } })
+            PanelItem("时间偏移", value = "%.1f 秒".format(DanmakuStyle.offset.doubleValue), step = true,
+                onStep = { d -> scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + d * 0.5) } })
+            PanelItem("重置弹幕时间", onClick = { scope.launch { DanmakuStyle.setOffset(app, 0.0) } })
             PanelItem("搜索弹幕", chevron = true, onClick = { level = 1 })
             PanelGroup("样式")
             // 没匹配上:样式项**禁用并写原因**,不给可点但无效的项;匹配不上不弹错

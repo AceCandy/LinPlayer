@@ -54,29 +54,32 @@ func OfficialSource() (SourceConfig, bool) {
 // allowOfficial=false 时**只留自建源**(见 AllowOfficialFor)。
 func allSources(allowOfficial bool) []SourceConfig {
 	out := []SourceConfig{}
-	if allowOfficial {
-		if o, ok := OfficialSource(); ok {
-			out = append(out, o)
+	for _, c := range managedSources() {
+		if c.Disabled {
+			continue
 		}
-	}
-	return append(out, LoadSources()...)
-}
-
-// hasOfficial 这批源里有没有官方源(决定要不要过搜索闸门)。
-func hasOfficial(cfgs []SourceConfig) bool {
-	for _, c := range cfgs {
-		if c.Official {
-			return true
+		if c.ID == OfficialSourceID {
+			if !allowOfficial {
+				continue
+			}
+			o, ok := OfficialSource()
+			if ok {
+				out = append(out, o)
+			}
+			continue
 		}
+		out = append(out, c)
 	}
-	return false
+	return out
 }
 
 // RegisterCommands 由 core/commands 调用。
 func RegisterCommands() {
+	registerSourceTest()
+	registerResolve()
 	// ---- 源配置 ----
 	bus.Register("danmaku.getDanmakuConfig", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		return LoadSources(), nil
+		return managedSources(), nil
 	})
 
 	bus.Register("danmaku.setDanmakuConfig", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
@@ -92,19 +95,17 @@ func RegisterCommands() {
 		if json.Unmarshal(b, &list) != nil {
 			return nil, bus.NewErr(bus.EInvalid, "sources 不是源列表")
 		}
-		// ★ 从用户粘的地址里**推导**鉴权方式,不让他选(他也不知道啥是鉴权方式)
+		seen := map[string]bool{}
 		for i := range list {
-			if list[i].Official {
-				continue
+			c, err := normalizeSource(list[i])
+			if err != nil {
+				return nil, bus.NewErr(bus.EInvalid, "%s", err)
 			}
-			u, auth, tok := DeriveAuth(list[i].APIURL)
-			list[i].APIURL = u
-			if list[i].AuthType == "" || list[i].AuthType == AuthNone {
-				list[i].AuthType = auth
-				if tok != "" {
-					list[i].Token = tok
-				}
+			if seen[c.ID] {
+				return nil, bus.NewErr(bus.EInvalid, "弹幕源标识重复")
 			}
+			seen[c.ID] = true
+			list[i] = c
 		}
 		if list == nil {
 			list = []SourceConfig{}
@@ -151,11 +152,7 @@ func RegisterCommands() {
 		if len(cfgs) == 0 {
 			return nil, bus.NewErr(bus.EUnsupported, "还没有可用的弹幕源(去设置里添加一个)")
 		}
-		if hasOfficial(cfgs) {
-			if err := SearchGate(); err != nil {
-				return nil, &bus.Err{Code: bus.EInvalid, Msg: err.Error()}
-			}
-		}
+
 		return searchAllGrouped(ctx, cfgs, kw), nil
 	})
 
@@ -196,44 +193,15 @@ func RegisterCommands() {
 	// ★★ 返回 null 表示「**没有够可信的候选**」,不是失败。
 	//   前端据此决定要不要提示用户手动搜 —— 抛错的话它得靠解析错误文案来分辨。
 	bus.Register("danmaku.autoLoad", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		in, err := matchInputOf(a)
+		r, err := resolve(ctx, a)
 		if err != nil {
 			return nil, err
 		}
-		setLastMatch(nil)
-		cfgs := allSources(AllowOfficialFor(in.Genres))
-		if len(cfgs) == 0 {
-			return nil, nil // 没源 = 没弹幕,不是错误
-		}
-		// ★ 连看下一集先走接力:上一集的 id 加一,一次上游请求解决(见 relay.go)
-		if items, c, ok := relayLoad(ctx, cfgs, in, chConvertOf(a)); ok {
-			setLastMatch(&c)
-			return ApplyFilterAndDedup(items, filterOptionsOf(a)), nil
-		}
-		cands, err := MatchAll(ctx, cfgs, withBgmTitles(ctx, in))
-		if err != nil {
-			return nil, upstream(err)
-		}
-		if len(cands) == 0 || cands[0].Score < MinAutoScore {
-			// ★ 分不够就**不上屏**。硬上的话观众看到的是另一部片的弹幕,
-			//   那比没有弹幕糟得多 —— 而且他不会想到是匹配错了。
+		setLastMatch(r.Match)
+		if r.Match == nil {
 			return nil, nil
 		}
-		best := cands[0]
-		cfg := findSourceIn(cfgs, best.SourceID)
-		if cfg == nil {
-			return nil, nil
-		}
-		items, err := getCommentsCached(ctx, cfg, best.EpisodeID, chConvertOf(a))
-		if err != nil {
-			return nil, upstream(err)
-		}
-		// 取到东西才记接力点 —— 记一个空集会让下一集跟着一路错下去
-		if len(items) > 0 {
-			relayRemember(in, &best)
-			setLastMatch(&best)
-		}
-		return ApplyFilterAndDedup(items, filterOptionsOf(a)), nil
+		return r.Items, nil
 	})
 
 	// danmaku.lastMatch —— 上一次 autoLoad 挂上的是哪个源的哪一集。没挂上回 null。
@@ -350,7 +318,8 @@ const SearchGroupCap = 8
 // 合成一个大列表的话,一个源 429 就把整页拖成空白。
 //
 // ★ 组的顺序**就是设置里的顺序**,不按结果条数重排 —— 重排的话用户在设置里
-//   把常用源拖到第一位这件事等于没做。
+//
+//	把常用源拖到第一位这件事等于没做。
 func searchAllGrouped(ctx context.Context, cfgs []SourceConfig, keyword string) []SourceGroup {
 	out := make([]SourceGroup, len(cfgs))
 	var wg sync.WaitGroup
@@ -359,7 +328,17 @@ func searchAllGrouped(ctx context.Context, cfgs []SourceConfig, keyword string) 
 		go func(i int) {
 			defer wg.Done()
 			cfg := cfgs[i]
+			ctx, cancel := context.WithTimeout(ctx, sourceTimeout)
+			defer cancel()
 			g := SourceGroup{SourceID: cfg.ID, SourceName: cfg.Name, Animes: []Anime{}}
+			if cfg.Official {
+				if err := SearchGate(); err != nil {
+					msg := err.Error()
+					g.Error = &msg
+					out[i] = g
+					return
+				}
+			}
 			if animes, err := cfg.SearchAnime(ctx, keyword); err != nil {
 				msg := err.Error()
 				g.Error = &msg
@@ -377,14 +356,15 @@ func searchAllGrouped(ctx context.Context, cfgs []SourceConfig, keyword string) 
 }
 
 func getCommentsCached(ctx context.Context, cfg *SourceConfig, episodeID string, chConvert int) ([]Comment, error) {
-	if c := CacheGet(cfg.ID, episodeID); c != nil {
+	key := sourceFingerprint(cfg) + fmt.Sprint("-", chConvert)
+	if c := CacheGet(key, episodeID); c != nil {
 		return c, nil
 	}
 	items, err := cfg.GetComments(ctx, episodeID, chConvert)
 	if err != nil {
 		return nil, err
 	}
-	CachePut(cfg.ID, episodeID, items)
+	CachePut(key, episodeID, items)
 	if items == nil {
 		items = []Comment{}
 	}
@@ -427,8 +407,9 @@ func matchInputOf(a map[string]any) (*MatchInput, error) {
 // 开了去重跟没开一样(本仓最常见的移植坑,见 config/prefs.go 的包注释)。
 //
 // ☠ **落库的屏蔽词无条件并进来**,不管调用方传没传 options。
-//   靠调用方传的话,漏传的那条路径不报错、只是屏蔽词没生效 ——
-//   而用户会以为是词写错了,然后去改一个本来就对的词。
+//
+//	靠调用方传的话,漏传的那条路径不报错、只是屏蔽词没生效 ——
+//	而用户会以为是词写错了,然后去改一个本来就对的词。
 func filterOptionsOf(a map[string]any) FilterOptions {
 	opts := DefaultFilterOptions()
 	if raw, ok := a["options"]; ok {

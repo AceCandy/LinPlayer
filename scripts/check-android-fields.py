@@ -325,7 +325,7 @@ def scope_fields(src, spans, structs, rets, pos):
 def main():
     structs = go_struct_fields()
     rets = doc_return_types()
-    rets.update({'emby.rankingFetch': 'ranking.Entry', 'emby.blockedList': 'blocklist.Entry', 'emby.watchHistoryList': 'history.Record'})
+    rets.update({'emby.blockedList': 'blocklist.Entry', 'emby.watchHistoryList': 'history.Record'})
     for command, name in list(rets.items()):
         qualified = command.split('.')[0] + '.' + name
         if qualified in structs:

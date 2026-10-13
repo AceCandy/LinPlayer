@@ -13,7 +13,7 @@
 
 ## 全表
 
-> ★★ **发行版这十个全都要配。**「选配」这个说法在播放器上不成立 ——
+> ★★ **发行版这九个全都要配。**「选配」这个说法在播放器上不成立 ——
 > 用户不会觉得「这个版本没带弹幕凭据所以搜不到」是一种配置,他只会觉得弹幕坏了。
 > 下面那列写的是**漏配之后用户实际看到什么**,不是「可以不要」。
 >
@@ -23,8 +23,7 @@
 | 环境变量 | 管什么 | 漏配之后用户看到什么 |
 |---|---|---|
 | `DANDANPLAY_APP_ID` | 弹幕(弹弹Play) | 弹幕搜不到 |
-| `DANDANPLAY_APP_SECRET` | 同上(也管排行榜的弹弹动漫榜) | 同上;排行榜没有动漫榜 |
-| `TMDB_API_KEY` | 排行榜的影视榜(TMDB) | 排行榜只剩动漫榜和 Bangumi 榜 |
+| `DANDANPLAY_APP_SECRET` | 弹幕(弹弹Play)签名 | 弹幕搜不到 |
 | `LP_BANGUMI_REDIRECT_URI` | 追剧日历的 Bangumi 授权回调页(我们的中转) | Bangumi 只能粘贴 token 登录 |
 | `LP_AFDIAN_SPONSOR_URL` | 旧赞助 URL 命令兼容配置 | 日历已免费开放，此项不再影响日历访问 |
 | `LP_PLUGIN_MARKET_URL` | 官方插件市场 `index.json` 地址 | 插件页的市场里没有官方市场,只有用户自己订阅的仓库 |
@@ -50,6 +49,8 @@
 ★ 图标源和测速地址是 2026-09-01 从黄金实现里挪出来的:Rust 版把四条图标源和测速地址
 **硬编在 `.rs` 里**,那是既有的红线欠账。Go 侧一律注入,并各有一条测试钉住
 「源码里必须是空」(`core/prefs/iconlibrary_test.go`、`core/net/cf/speedtest_test.go`)。
+
+公共榜单迁移至 MSG 后，不再注入 `TMDB_API_KEY`；弹弹Play 的两项凭据仍用于弹幕接入，继续保留。
 
 ## 弹幕那两个是**真密钥,而且必须内置** —— 已知代价
 
@@ -143,7 +144,6 @@ LinPlayer 客户端  ───────────────────�
     LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
     LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
     LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-    TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
     LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
     LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
     LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
@@ -151,7 +151,7 @@ LinPlayer 客户端  ───────────────────�
 
 > ★★ **漏传一个是静默的**:构建照样绿,产物照样能跑,只是那个功能永远不工作。
 > 2026-07-21 就这么栽过一次(安卓 job 从建起来就没传 `DANDANPLAY_*`/`TMDB_API_KEY`)。
-> `scripts/check-workflows.sh` 里有一道闸门,十个一个都不能少(出包步骤另要 `SENTRY_DSN`)。
+> `scripts/check-workflows.sh` 里有一道闸门,九个一个都不能少(出包步骤另要 `SENTRY_DSN`)。
 
 ## 本机怎么试
 

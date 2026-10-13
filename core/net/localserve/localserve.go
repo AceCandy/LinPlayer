@@ -416,11 +416,27 @@ func (s *Server) fetch(ctx context.Context, u string, headers http.Header) ([]by
 	if req.Header.Get("User-Agent") == "" {
 		req.Header.Set("User-Agent", httpx.UA())
 	}
-	/* ★ 必须跟 301。实测某 fork 的 /Items/{id}/Images/Backdrop/0 会 **301 跳到静态文件**。
-	   不跟跳只会拿到几十字节的 HTML,然后被 Sniff 判成 octet-stream ——
-	   表现为「图不显示但也不报错」。Go 的 http.Client 默认就跟(最多 10 跳),
-	   这里依赖那个默认值,别给它装一个拒绝跳转的 CheckRedirect。 */
-	resp, err := s.Client.Do(req)
+	// 图片可跳转到静态文件；跨来源后不再携带或恢复 Emby 凭据。
+	client := *s.Client
+	previousRedirect := client.CheckRedirect
+	client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+		for _, previous := range via {
+			if next.URL.Scheme != previous.URL.Scheme || next.URL.Host != previous.URL.Host {
+				for _, name := range []string{"X-Emby-Token", "X-Emby-Authorization", "Authorization", "Cookie"} {
+					next.Header.Del(name)
+				}
+				break
+			}
+		}
+		if previousRedirect != nil {
+			return previousRedirect(next, via)
+		}
+		if len(via) >= 10 {
+			return errors.New("图片跳转次数过多")
+		}
+		return nil
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return nil, fmt.Errorf("取图失败: %w", err)
 	}

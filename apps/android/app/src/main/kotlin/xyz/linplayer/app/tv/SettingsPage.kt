@@ -450,6 +450,10 @@ private fun DanmakuGroup(overlay: Overlay) {
     }
     Column {
         if (!DanmakuStyle.loaded.value) { SkelRows(5); return@Column }
+        Group("弹幕源")
+        PanelItem("源管理与优先级", chevron = true, modifier = Modifier.memo("set.dmsources"), onClick = {
+            overlay.open { DanmakuSourcesPanel { overlay.close() } }
+        })
         Group("显示")
         PanelItem("默认显示弹幕", switch = DanmakuStyle.enabled.value, modifier = Modifier.memo("set.dm"), onClick = {
             toggle(scope, app, { DanmakuStyle.enabled.value }, { DanmakuStyle.enabled.value = it }) {

@@ -60,8 +60,11 @@
 |:--:|---|---|---|---|:--:|
 | [x] | `emby.aggregateOverview` | `aggregate_overview` | `—` | `Result<Vec<SourceOverview>, String>` | ✅ |
 | [x] | `emby.aggregateSearch` | `aggregate_search` | `query: String, include_episodes: Option<bool>` | `Result<Vec<ServerGroup>, String>` | ✅ |
-| [x] | `emby.rankingCategories` | `ranking_categories` | `—` | `Vec<ranking::Category>` | ✅ |
-| [x] | `emby.rankingFetch` | `ranking_fetch` | `category_id: String, force_refresh: Option<bool>` | `Result<Vec<ranking::Entry>, String>` | ✅ |
+| [x] | `emby.extCapabilities` | **新增** | `server, token, user_id, device_id` | `JSON` | ✅ |
+| [x] | `emby.extRankings` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
+| [x] | `emby.extRankingItems` | **新增** | `server, token, user_id, device_id, category_id: String, page: Option<int>` | `JSON[]` | ✅ |
+| [x] | `emby.extCalendar` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
+| [x] | `emby.extResolve` | **新增** | `server, token, user_id, device_id, source: String, external_id: String, media_type: String` | `{item_id, item_type}` | ✅ |
 | [x] | `emby.aggregateVersions` | **新增** | `item_id, server_id: Option<String>, version_regex: Option<String>` | `Vec<aggregate::VersionGroup>` | — | <!-- 跨服聚合同一部片的版本表。匹配判据与跨服续播共用 history.MatchCandidates -->
 | [x] | `emby.blockedList` | `blocked_list` | `—` | `Entry` | ✅ |
 | [x] | `emby.counts` | **新增** | `server, token, user_id` | `Counts` | — | <!-- 媒体库规模统计。Rust 版里 emby::counts 只被 aggregate_overview 内部调用,没单独成命令 -->
@@ -156,7 +159,9 @@
 | [x] | `player.setMpvConf` | `set_mpv_conf` | `text: String` | `Result<MpvConf, String>` | ❌ |
 | [x] | `player.setMute` | `set_mute` | `mute: bool` | `Result<(), String>` | ✅ |
 | [x] | `player.setPause` | `set_pause` | `paused: bool` | `Result<(), String>` | ✅ |
-| [x] | `player.danmakuSet` | **新增** | `items: Vec<danmaku::Comment>` | `{count: i64}` | ✅ | <!-- 把 danmaku.autoLoad 取到的弹幕灌进核心层排版。空数组=清空,换片必须发一次 -->
+| [x] | `player.danmakuBegin` | **新增** | `—` | `{generation: i64}` | ✅ |
+| [x] | `player.danmakuOffset` | **新增** | `seconds: Option<f64>` | `{seconds: f64}` | ✅ |
+| [x] | `player.danmakuSet` | **新增** | `items: Vec<danmaku::Comment>, generation: Option<i64>` | `{count: i64}` | ✅ | <!-- 把 danmaku.autoLoad 取到的弹幕灌进核心层排版。空数组=清空,换片必须发一次 -->
 | [x] | `player.setDanmakuEnabled` | **新增** | `enabled: bool` | `{enabled: bool}` | ✅ | <!-- 弹幕开关,落 prefs.danmaku_enabled。以前三端都在发一条不存在的命令 -->
 | [x] | `player.setDanmakuStyle` | **新增** | `area: f64, scale: f64, opacity: f64, speed: f64, top_lines: i64, bottom_lines: i64, merge: bool, bold: bool, heatmap: bool` | `DanmakuStyle` | ✅ | <!-- 九项显示设置,只传要改的那几个;回的是钳过之后的值,UI 照它刷读数 -->
 | [x] | `player.getDanmakuStyle` | **新增** | `—` | `DanmakuStyle` | ✅ | <!-- 面板打开时回显。不回显的话滑块从写死的默认值起手,和画面上的弹幕对不上 -->
@@ -223,10 +228,20 @@
 | [x] | `source.history` | **新增** | `—` | `[]HistoryEntry` | ✅ |
 | [x] | `source.linkSwitch` | **新增** | `from_server, from_item, to_server, to_item` | `—` | ✅ |
 
-### 弹幕 · `danmaku.*` — 17 条
+### 弹幕 · `danmaku.*` — 20 条
+
+`danmaku.resolve` 返回 items、match 和可选 warnings 字符串数组。服务器声明 danmaku.enabled 且 format=bilibili_xml 时，以当前媒体身份实时获取 raw XML，与自动或手选源叠加，统一过滤与排序；部分失败保留可用语料并返回 warnings。
+
+`resolve` 返回 `{items: Comment[], match: MatchCandidate|null}`；`input` 增加 `item_id/series_id/season_id`，账号通过 `server_id` 或 `server+user_id` 绑定。`selection` 表示手选并持久记忆；`ignore_memory` 仅本次跳过记忆；`forget` 清除当前条目及季锚点。未提供稳定身份时允许临时挂载但不记忆。
+源描述符含 `disabled`（省略为启用），官方参与排序但不返回凭据。自动逐源8秒预算，手动搜索按源并发；配置接口不执行网络测试，编辑界面先 `testSource` 再保存，排序和启停直接保存。
+`player.danmakuBegin` 清空当前语料/偏移并返回播放代数；`danmakuSet` 带相同 `generation`，旧代数拒绝挂载。`danmakuOffset.seconds` 为正时延后、负时提前，范围±600秒，仅当前语料有效。
+
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
+| [x] | `danmaku.resolve` | **新增** | `input: danmaku::MatchInput, selection: Option<danmaku::MatchCandidate>, ignore_memory: Option<bool>, server_id: Option<String>, server: Option<String>, token: Option<String>, user_id: Option<String>, ch_convert: Option<i32>` | `ResolveResult` | ✅ |
+| [x] | `danmaku.forget` | **新增** | `input: danmaku::MatchInput, server_id: Option<String>, server: Option<String>, user_id: Option<String>` | `()` | ✅ |
+| [x] | `danmaku.testSource` | **新增** | `source: SourceConfig` | `{ok: bool}` | ✅ |
 | [x] | `danmaku.autoLoad` | `danmaku_auto_load` | `input: danmaku::MatchInput, options: danmaku::FilterOptions, ch_convert: Option<i32>, anchor_key: Option<String>` | `Comment` | ✅ |
 | [x] | `danmaku.cacheClear` | `danmaku_cache_clear` | `—` | `usize` | ✅ |
 | [x] | `danmaku.cacheSize` | `danmaku_cache_size` | `—` | `u64` | ✅ |
@@ -346,7 +361,7 @@
 | [x] | `sync.bangumiLoginToken` | `bangumi_login_token` | `token: String` | `Result<linplayer_core::sync::SyncAccount, String>` | ✅ |
 | [x] | `sync.bangumiLogout` | `bangumi_logout` | `—` | `()` | ✅ |
 | [x] | `sync.bangumiSummary` | `bangumi_summary` | `subject_id: i64` | `Result<Option<String>, String>` | ✅ |
-| [x] | `sync.bangumiCalendar` | `bangumi_calendar` | `only_mine: Option<bool>` | `Result<Vec<linplayer_core::sync::calendar::CalendarEntry>, String>` | ✅ |
+| [x] | `sync.bangumiCalendar` | `bangumi_calendar` | `—` | `Result<Vec<linplayer_core::sync::calendar::CalendarEntry>, String>` | ✅ | <!-- 仅返回已登录账号的在看条目；公共日历使用 emby.extCalendar。 -->
 | [x] | `sync.calendarLibrary` | **新增** | `entries: [{key, title, tmdb_id?, season?, episode?}]` | `{key: LibraryHit}` | ✅ | <!-- 追剧日历「已入库 / 可播」(D366) -->
 | [x] | `sync.calendarDue` | **新增** | `—` | `Vec<CalendarEntry>` | ✅ | <!-- 开播提醒:新开播且没提醒过的(D366) -->
 

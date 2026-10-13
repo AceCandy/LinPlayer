@@ -1,20 +1,20 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
+using System.Threading;
 using Avalonia;
 using Avalonia.Controls;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Threading;
-using LinPlayer.Core;
 using LinPlayer.Desktop.Core;
 
 namespace LinPlayer.Desktop.Views;
 
 /// <summary>
-/// 排行榜(<c>UI_PC.md</c> §7.13)。动漫走弹弹Play,影视走 TMDB。
+/// 排行榜(<c>UI_PC.md</c> §7.13)。数据由 MSG 资料中心提供。
 ///
 /// <para>2026-09-18 重做(用户:「重做 排行榜 和 追剧日历 样式」):两个下拉框换成两排 chip ——
 /// 分类一共十来个,藏在下拉里就得点开才知道有什么;前三名单独一排大卡,其余海报墙。</para>
@@ -37,13 +37,29 @@ public sealed class RankingPage : PageBase
     private List<Cat> _all = [];
     private string _group = "";
     private string _curCat = "";
+    private Sess? _session = Nav.Session;
+    private CancellationTokenSource _life = new();
+    private int _revision;
+    private int _catalogRevision;
+    private CancellationTokenSource? _fetch;
+    private int _page = 1;
+    private readonly Button _previous = new() { Classes = { "ghost" }, Content = "上一页", IsEnabled = false };
+    private readonly Button _next = new() { Classes = { "ghost" }, Content = "下一页", IsEnabled = false };
+    private readonly TextBlock _pageLabel = Dim("第 1 页");
+    private bool Current => !_life.IsCancellationRequested && Nav.Session == _session;
 
     public RankingPage(CoreClient core)
     {
         _core = core;
-        // 手动刷新要**绕过 6 小时缓存**,否则点了没反应
-        _refresh.Click += (_, _) => { if (_curCat.Length > 0) _ = Fetch(_curCat, force: true); };
-        _refresh.IsVisible = false;
+        _refresh.Click += (_, _) => { if (_curCat.Length > 0) _ = Fetch(_curCat); else _ = Load(); };
+        _previous.Click += (_, _) => { if (_page > 1) { _page--; _ = Fetch(_curCat); } };
+        _next.Click += (_, _) => { _page++; _ = Fetch(_curCat); };
+        DetachedFromVisualTree += (_, _) => { _life.Cancel(); _revision++; };
+        AttachedToVisualTree += (_, _) => { if (_life.IsCancellationRequested || _session != Nav.Session)
+        {
+            _life.Cancel(); _life.Dispose(); _life = new(); _session = Nav.Session;
+            _curCat = ""; _podium.Children.Clear(); _grid.Children.Clear(); _ = Load();
+        } };
 
         var bar = new DockPanel { LastChildFill = false };
         DockPanel.SetDock(_refresh, Dock.Right);
@@ -53,7 +69,9 @@ public sealed class RankingPage : PageBase
         Content = Scrolled(new StackPanel
         {
             Spacing = 18,
-            Children = { H1("排行榜"), bar, _cats, _msg, _podium, _grid },
+            Children = { H1("排行榜"), bar, _cats,
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { _previous, _pageLabel, _next } },
+                _msg, _podium, _grid },
         });
 
         _ = Load();
@@ -61,49 +79,50 @@ public sealed class RankingPage : PageBase
 
     private async Task Load()
     {
+        var revision = ++_catalogRevision;
+        void Show(JsonElement value) { if (revision == _catalogRevision) RenderCategories(value); }
         _msg.Text = "加载中…";
-        List<Cat> all;
+        _msg.IsVisible = true;
         try
         {
-            var arr = SelfCheckFake ? FakeCategories() : await _core.EmbyRankingCategories();
-            all = arr.ValueKind == JsonValueKind.Array
-                ? arr.EnumerateArray()
-                    .Select(e => new Cat(Str(e, "id"), Str(e, "group"), Str(e, "label"), Str(e, "source")))
-                    .ToList()
-                : [];
+            if (!SelfCheckFake && _session is null) { _msg.Text = "请先连接服务器"; return; }
+            var arr = SelfCheckFake ? FakeCategories() : await _core.CallDisplayAsync(
+                "emby.extRankings", _session, Show, _life.Token);
+            Show(arr);
         }
+        catch (OperationCanceledException) { }
         catch (Exception e)
         {
-            _msg.Text = "拿不到榜单分类:" + LibraryPage.Advice(e);
-            return;
+            if (!Current || revision != _catalogRevision) return;
+            _revision++; _fetch?.Cancel();
+            _all = []; _groups.Children.Clear(); _cats.Children.Clear();
+            _podium.Children.Clear(); _grid.Children.Clear(); _curCat = "";
+            _msg.Text = LibraryPage.Advice(e); _msg.IsVisible = true;
         }
+    }
 
-        _all = all;
-        if (_all.Count == 0)
-        {
-            // 空表不是「出错了」,是**这个构建没带凭据**。说清楚,别画空页面。
-            _msg.Text = "这个版本没有带排行榜的凭据,所以排行榜不可用。\n" +
-                        "官方发行包里是带的;自己从源码构建时,需要在构建环境里提供 " +
-                        "DANDANPLAY_APP_ID / DANDANPLAY_APP_SECRET / TMDB_API_KEY。";
-            return;
-        }
-        _msg.Text = "";
-        _msg.IsVisible = false;
-        _refresh.IsVisible = true;
-
+    private void RenderCategories(JsonElement arr)
+    {
+        if (!Current) return;
+        _all = arr.ValueKind == JsonValueKind.Array
+            ? arr.EnumerateArray().Select(e => new Cat(Str(e, "id"), Str(e, "group"), Str(e, "label"), Str(e, "source"))).ToList() : [];
         _groups.Children.Clear();
-        // 只列**真的有分类**的组:亮一个点进去是空的页签,比不亮更让人困惑
-        foreach (var (key, label) in new[] { ("anime", "动漫"), ("movie", "电影"), ("tv", "剧集") })
+        if (_all.Count == 0 || _curCat.Length == 0)
         {
-            if (!_all.Any(c => c.Group == key)) continue;
-            var b = new Button { Classes = { "chip" }, Content = label, Tag = key, FontSize = 14, Padding = new Thickness(18, 10) };
+            _msg.Text = _all.Count == 0 ? "当前服务器暂无可用榜单" : "";
+            _msg.IsVisible = _msg.Text.Length > 0;
+        }
+        foreach (var key in _all.Select(c => c.Group).Distinct())
+        {
+            var b = new Button { Classes = { "chip" }, Content = key, Tag = key, FontSize = 14, Padding = new Thickness(18, 10) };
             b.Click += (_, _) => PickGroup(key);
             _groups.Children.Add(b);
         }
-        if (_groups.Children.FirstOrDefault() is Button { Tag: string first }) PickGroup(first);
+        if (_all.Count > 0) PickGroup(_all.Any(c => c.Group == _group) ? _group : _all[0].Group, preserve: true);
+        else { _revision++; _fetch?.Cancel(); _curCat = ""; _cats.Children.Clear(); _podium.Children.Clear(); _grid.Children.Clear(); }
     }
 
-    private void PickGroup(string g)
+    private void PickGroup(string g, bool preserve = false)
     {
         _group = g;
         foreach (var b in _groups.Children.OfType<Button>()) b.Classes.Set("on", (string?)b.Tag == g);
@@ -114,50 +133,78 @@ public sealed class RankingPage : PageBase
             b.Click += (_, _) => PickCat(c.Id);
             _cats.Children.Add(b);
         }
-        if (_cats.Children.FirstOrDefault() is Button { Tag: string id }) PickCat(id);
+        if (preserve && _all.Any(c => c.Group == g && c.Id == _curCat))
+        {
+            foreach (var b in _cats.Children.OfType<Button>()) b.Classes.Set("on", (string?)b.Tag == _curCat);
+        }
+        else if (_cats.Children.FirstOrDefault() is Button { Tag: string id }) PickCat(id);
     }
 
     private void PickCat(string id)
     {
         foreach (var b in _cats.Children.OfType<Button>()) b.Classes.Set("on", (string?)b.Tag == id);
-        _ = Fetch(id, force: false);
+        _page = 1;
+        _ = Fetch(id);
     }
 
-    private async Task Fetch(string catId, bool force)
+    private async Task Fetch(string catId)
     {
+        _fetch?.Cancel(); _fetch?.Dispose();
+        _fetch = CancellationTokenSource.CreateLinkedTokenSource(_life.Token);
+        var token = _fetch.Token;
         _curCat = catId;
-        _podium.Children.Clear();
-        _grid.Children.Clear();
-        _msg.Text = "加载中…";
-        _msg.IsVisible = true;
-
-        JsonElement arr;
+        var revision = ++_revision;
+        var page = _page;
+        _podium.Children.Clear(); _grid.Children.Clear();
+        _previous.IsEnabled = page > 1; _next.IsEnabled = false;
+        _pageLabel.Text = $"第 {page} 页";
+        _msg.Text = "加载中…"; _msg.IsVisible = true;
+        void Render(JsonElement arr)
+        {
+            if (!Current || revision != _revision) return;
+            _podium.Children.Clear(); _grid.Children.Clear();
+            var list = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
+            foreach (var (e, i) in list.Take(page == 1 ? 3 : 0).Select((e, i) => (e, i)))
+            {
+                var card = EntryButton(new PodiumCard(_core, e), e);
+                card.Margin = new Thickness(i == 0 ? 0 : 9, 0, i == 2 ? 0 : 9, 0);
+                Grid.SetColumn(card, i); _podium.Children.Add(card);
+            }
+            foreach (var e in list.Skip(page == 1 ? 3 : 0)) _grid.Children.Add(EntryButton(new RankCard(_core, e), e));
+            _podium.IsVisible = page == 1 && list.Count > 0;
+            _next.IsEnabled = list.Count > 0 && page < 500;
+            _msg.Text = list.Count == 0 ? "本页没有更多内容" : "";
+            _msg.IsVisible = _msg.Text.Length > 0;
+        }
         try
         {
-            arr = SelfCheckFake ? FakeItems(catId)
-                : await _core.EmbyRankingFetch(new { category_id = catId, force_refresh = force });
+            var s = _session;
+            if (!SelfCheckFake && s is null) return;
+            var arr = SelfCheckFake ? FakeItems(catId) : await _core.CallDisplayAsync("emby.extRankingItems",
+                new { s!.server, s.token, s.user_id, s.device_id, category_id = catId, page }, Render, token);
+            Render(arr);
         }
+        catch (OperationCanceledException) { }
         catch (Exception e)
         {
-            // 原样显示核心层给的那句话,见类注释
-            _msg.Text = LibraryPage.Advice(e);
-            return;
+            if (!Current || revision != _revision) return;
+            _podium.Children.Clear(); _grid.Children.Clear();
+            _msg.Text = LibraryPage.Advice(e); _msg.IsVisible = true;
         }
+    }
 
-        // 换分类比请求快得多:回来时用户可能已经点到别的榜了,别把旧结果画上去
-        if (_curCat != catId) return;
-
-        var list = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
-        foreach (var (e, i) in list.Take(3).Select((e, i) => (e, i)))
-        {
-            var card = new PodiumCard(_core, e) { Margin = new Thickness(i == 0 ? 0 : 9, 0, i == 2 ? 0 : 9, 0) };
-            Grid.SetColumn(card, i);
-            _podium.Children.Add(card);
-        }
-        foreach (var e in list.Skip(3)) _grid.Children.Add(new RankCard(_core, e));
-        _podium.IsVisible = list.Count > 0;
-        _msg.Text = list.Count == 0 ? "这个榜当前是空的(上游没有返回条目)。" : "";
-        _msg.IsVisible = _msg.Text != "";
+    private Button EntryButton(Control content, JsonElement entry)
+    {
+        var button = new Button { Classes = { "ghost" }, Padding = new Thickness(0), Content = content };
+        button.Click += async (_, _) => {
+            if (_session is null) return;
+            button.IsEnabled = false;
+            try { await ExtensionNavigation.Open(_core, _session, entry, _life.Token); }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { if (Current) { _msg.Text = LibraryPage.Advice(e); _msg.IsVisible = true; } }
+            finally { button.IsEnabled = true; }
+        };
+        return button;
     }
 
     /// <summary>自检用:落到指定分组(anime / movie / tv)。分类清单是异步来的,所以要等。</summary>

@@ -25,6 +25,19 @@ import xyz.linplayer.app.ui.pages.args
  *   一改都会换一套分轨结果。不重取的表现是读数变了而画面没变。
  */
 object DanmakuStyle {
+    val source = mutableStateOf("")
+    val offset = mutableDoubleStateOf(0.0)
+
+    suspend fun setOffset(app: AppState, seconds: Double) {
+        try {
+            val r = app.call("player.danmakuOffset", args("seconds" to seconds.coerceIn(-600.0, 600.0))).obj()
+            currentCoroutineContext().ensureActive()
+            offset.doubleValue = r.dbl("seconds") ?: 0.0
+            reloadLayout(app)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (e: Exception) { app.report(e) }
+    }
+
 
     /** 滚动弹幕占画面高度:0.25 / 0.5 / 1.0。 */
     val area = mutableDoubleStateOf(1.0)

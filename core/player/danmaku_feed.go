@@ -14,6 +14,7 @@ package player
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"sort"
 
 	"linplayer/core/bus"
@@ -31,6 +32,11 @@ type feedComment struct {
 
 // danmakuSet 用灌进来的语料替换当前弹幕。空数组 = 清空。
 func danmakuSet(list []feedComment) int {
+	n, _ := danmakuSetGeneration(list, nil)
+	return n
+}
+
+func danmakuSetGeneration(list []feedComment, generation *int64) (int, error) {
 	items := make([]danmakuItem, 0, len(list))
 	for _, c := range list {
 		if c.Text == "" {
@@ -52,17 +58,54 @@ func danmakuSet(list []feedComment) int {
 	     一改都要重排,而重排的输入是「合并之前、丢弃之前」的那一份。
 	     只留布局结果的话,范围调小一次就再也调不回去了 —— 丢掉的条目找不回来。 */
 	styMu.Lock()
+	if generation != nil && *generation != dmGeneration {
+		styMu.Unlock()
+		return 0, bus.NewErr(bus.EInvalid, "弹幕请求已过期")
+	}
 	dmRaw = items
+	dmOffset = 0
 	styMu.Unlock()
 	relayout()
-	return len(items)
+	return len(items), nil
 }
 
 func registerDanmakuFeed() {
 	registerDanmakuStyle()
+	bus.Register("player.danmakuBegin", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		styMu.Lock()
+		dmGeneration++
+		generation := dmGeneration
+		dmRaw = nil
+		dmOffset = 0
+		styMu.Unlock()
+		relayout()
+		return map[string]any{"generation": generation}, nil
+	})
+	bus.Register("player.danmakuOffset", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		if raw, ok := a["seconds"]; ok {
+			v, valid := raw.(float64)
+			if !valid || math.IsNaN(v) || math.IsInf(v, 0) || v < -600 || v > 600 {
+				return nil, bus.NewErr(bus.EInvalid, "弹幕偏移须在 -600 到 600 秒之间")
+			}
+			styMu.Lock()
+			dmOffset = v
+			styMu.Unlock()
+			relayout()
+		}
+		styMu.RLock()
+		v := dmOffset
+		styMu.RUnlock()
+		return map[string]any{"seconds": v}, nil
+	})
 
 	// player.danmakuSet 灌语料。传空数组 = 清空(换片时必须清,否则上一集的弹幕会跟过来)。
 	bus.Register("player.danmakuSet", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		raw, ok := a["items"]
 		if !ok {
 			return nil, bus.NewErr(bus.EInvalid, "缺少 items")
@@ -75,7 +118,19 @@ func registerDanmakuFeed() {
 		if json.Unmarshal(b, &list) != nil {
 			return nil, bus.NewErr(bus.EInvalid, "items 不是弹幕列表")
 		}
-		n := danmakuSet(list)
+		var generation *int64
+		if raw, ok := a["generation"]; ok {
+			v, valid := raw.(float64)
+			if !valid {
+				return nil, bus.NewErr(bus.EInvalid, "generation 无效")
+			}
+			n := int64(v)
+			generation = &n
+		}
+		n, err := danmakuSetGeneration(list, generation)
+		if err != nil {
+			return nil, err
+		}
 		bus.Logf("info", "弹幕语料已更新:%d 条", n)
 		return map[string]any{"count": n}, nil
 	})

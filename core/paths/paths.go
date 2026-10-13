@@ -51,14 +51,17 @@ func sub(parts ...string) string {
 
 // 下面这些就是 SPEC §10.1 那棵树。加新目录**只能加在这里**。
 
-func ConfigFile() string    { return sub("config.json") }
-func HistoryFile() string   { return sub("history.json") }
-func BlocklistFile() string { return sub("blocklist.json") }
-func LogsDir() string       { return sub("logs") }
-func CacheDir() string      { return sub("cache") }
-func ImageCache() string    { return sub("cache", "img") }
-func PrefetchCache() string { return sub("cache", "prefetch") }
-func DisplayCache() string  { return sub("cache", "display-v1") }
+func ConfigFile() string { return sub("config.json") }
+
+// DanmakuMatchesFile 保存账号隔离的手选弹幕映射，不随缓存清理。
+func DanmakuMatchesFile() string { return sub("danmaku-matches.json") }
+func HistoryFile() string        { return sub("history.json") }
+func BlocklistFile() string      { return sub("blocklist.json") }
+func LogsDir() string            { return sub("logs") }
+func CacheDir() string           { return sub("cache") }
+func ImageCache() string         { return sub("cache", "img") }
+func PrefetchCache() string      { return sub("cache", "prefetch") }
+func DisplayCache() string       { return sub("cache", "display-v1") }
 
 // MediaCache 保存已验证版本的完整媒体块，不保存授权地址。
 func MediaCache() string { return sub("cache", "media") }

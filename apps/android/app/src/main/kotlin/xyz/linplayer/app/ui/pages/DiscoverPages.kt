@@ -37,6 +37,12 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.runtime.collectAsState
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
+import xyz.linplayer.app.data.extensionBlock
+import xyz.linplayer.app.data.openExtension
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -58,7 +64,6 @@ import androidx.navigation.NavController
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.arr
-import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
@@ -93,7 +98,7 @@ import xyz.linplayer.app.ui.theme.lpTween
  * 同一类错由 `scripts/check-android-fields.py` 守着。
  *
  * ★ 榜单条目**不是本地库里的条目**:它的 id 是 TMDB / 弹弹Play 的 id,
- *   拿去开详情页必然 404。点击一律走**站内搜标题**。
+ *   点击由 MSG 按来源标识精确匹配，再进入 Emby 详情。
  *
  * 两页共用紧凑顶栏与蓝紫筛选，奖牌颜色仅用于表达榜单名次。
  */
@@ -101,7 +106,7 @@ import xyz.linplayer.app.ui.theme.lpTween
 private val GOLD = Color(0xFFFFC94D)
 // ---------------------------------------------------------------- 排行榜
 
-/** 一条榜单。字段名照 `core/ranking/ranking.go` 的 `Entry`。 */
+/** MSG 榜单的展示字段及精确来源身份。 */
 @androidx.compose.runtime.Immutable
 private data class Rank(
     val id: String,
@@ -111,6 +116,7 @@ private data class Rank(
     val rating: Double?,
     val subtitle: String?,
     val favorited: Boolean,
+    val entry: kotlinx.serialization.json.JsonObject,
 ) {
     companion object {
         fun list(e: kotlinx.serialization.json.JsonElement?): List<Rank> =
@@ -124,6 +130,7 @@ private data class Rank(
                     rating = o.dbl("rating"),
                     subtitle = o.str("subtitle"),
                     favorited = o.bool("is_favorited"),
+                    entry = o,
                 )
             }
     }
@@ -137,11 +144,7 @@ private data class Rank(
  * ★ 列表**零分隔线**:奇数行铺一层从左往右淡出的白 5%,右侧自然消失,不会在行尾切一刀。
  * ★ 取数失败必须**向上报错,不许吞成空表** —— 空表和失败在界面上长得一样,
  *   但一个该重试一个不该。
- * ★ 分类**空表**和**取不到**是两件事,界面上必须分得开:
- *   空表 = 这个构建没注入榜单凭据(本地 build 恒空);取不到 = 命令本身失败了。
- *   原来两者都画成「本地构建里没有它们」—— 于是 GitHub 构建的包(凭据是齐的)
- *   一旦这条命令出错,用户看到的是一句**假话**,而真正的错误一个字都不显示。
- *   卡在骨架上同样是最坏的表现:用户会一直等下去。
+ * ★ 分类空表和不支持/失败分别展示；无需客户端第三方凭据。
  */
 @Composable
 fun RankingPage(nav: NavController) {
@@ -156,27 +159,31 @@ fun RankingPage(nav: NavController) {
     var reload by remember { mutableStateOf(0) }
     var rankReload by remember { mutableStateOf(0) }
 
-    LaunchedEffect(reload) {
-        cats = app.block("emby.rankingCategories").map { e ->
-            e.arr().mapNotNull {
-                val o = it.obj() ?: return@mapNotNull null
-                // ★ 分类名的字段是 label,不是 name —— 取错了每个芯片都叫「榜单」
-                (o.str("id") ?: return@mapNotNull null) to (o.str("label") ?: "榜单")
-            }
+    val identity by app.session.collectAsState()
+    val scope = rememberCoroutineScope()
+    var page by remember(cur, identity) { mutableStateOf(1) }
+    LaunchedEffect(identity, reload) {
+        cats = Block.Loading
+        cur = null
+        fun categories(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull {
+            val o = it.obj() ?: return@mapNotNull null
+            (o.str("id") ?: return@mapNotNull null) to (o.str("label") ?: "榜单")
         }
+        cats = app.extensionBlock("emby.extRankings", onCached = {
+            cats = Block.Ok(categories(it))
+            cur = cats.valueOrNull?.firstOrNull()?.first
+        }).map(::categories)
         cur = cats.valueOrNull?.firstOrNull()?.first
     }
-    LaunchedEffect(cur, rankReload) {
+    LaunchedEffect(identity, cur, page, rankReload) {
         val id = cur ?: return@LaunchedEffect
         block = Block.Loading
-        block = when (val r = app.block("emby.rankingFetch", args("category_id" to id))) {
-            is Block.Ok -> Block.Ok(Rank.list(r.value))
-            is Block.Fail -> r
-            else -> Block.Loading
-        }
+        block = app.extensionBlock("emby.extRankingItems", args("category_id" to id, "page" to page),
+            onCached = { block = Block.Ok(Rank.list(it)) }).map { Rank.list(it) }
     }
-
-    val open: (Rank) -> Unit = { nav.navigate(Route.Search(q = it.title)) }
+    val open: (Rank) -> Unit = { row -> scope.launch {
+        app.openExtension(row.entry) { id, type -> nav.navigate(Route.Detail(id, type)) }
+    } }
 
     LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->
         Column(Modifier.fillMaxSize()) {
@@ -197,13 +204,18 @@ fun RankingPage(nav: NavController) {
             ) {
                 cs.forEach { (id, name) -> MediaFilterChip(name, id == cur) { cur = id } }
             }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
+                TextButton(onClick = { page-- }, enabled = page > 1) { Text("上一页") }
+                TextButton(onClick = { rankReload++ }) { Text("第 $page 页 · 刷新") }
+                TextButton(onClick = { page++ }, enabled = page < 500 && block.valueOrNull?.isNotEmpty() == true) { Text("下一页") }
+            }
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                 item("body") {
                     BlockBox(block, { rankReload++ }) { rows ->
                         if (rows.isEmpty()) EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
                         else Column {
-                            if (rows.size >= 3) Podium(rows.take(3), open)
-                            rows.drop(if (rows.size >= 3) 3 else 0)
+                            if (page == 1 && rows.size >= 3) Podium(rows.take(3), open)
+                            rows.drop(if (page == 1 && rows.size >= 3) 3 else 0)
                                 .forEachIndexed { i, r -> RankRow(r, i, open) }
                         }
                     }
@@ -327,7 +339,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
 
 // ---------------------------------------------------------------- 追剧日历
 
-/** 一条放送。字段名照 `core/sync/calendar.go` 的 `CalendarEntry`。 */
+/** MSG 公共周历；未知播出时刻保持为空。 */
 @androidx.compose.runtime.Immutable
 private data class Air(
     val title: String,
@@ -337,11 +349,7 @@ private data class Air(
     val at: java.time.Instant?,
     val image: String?,
     val rating: Double?,
-    val tmdb: Long? = null,
-    val season: Long? = null,
-    val episode: Long? = null,
-    /** 当前 Emby 服务器上的对应物(D366):playable = 这一集已入库,否则只是剧在库里。 */
-    val hit: kotlinx.serialization.json.JsonObject? = null,
+    val entry: kotlinx.serialization.json.JsonObject,
 )
 
 private val weekLabels = listOf("一", "二", "三", "四", "五", "六", "日")
@@ -364,52 +372,27 @@ private fun CalendarBody(nav: NavController) {
     val app = LocalApp.current
     var all by remember { mutableStateOf<Block<List<Air>>>(Block.Loading) }
     // 默认落在今天。java.time 的 DayOfWeek 就是 1=周一,和核心层同口径
-    val today = java.time.LocalDate.now().dayOfWeek.value
+    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value
     var day by remember { mutableStateOf(today) }
     var reload by remember { mutableStateOf(0) }
 
-    LaunchedEffect(reload) {
+    val identity by app.session.collectAsState()
+    LaunchedEffect(identity, reload) {
         all = Block.Loading
-        all = when (val r = app.block("sync.bangumiCalendar")) {
-            is Block.Ok -> Block.Ok(
-                r.value.arr().mapNotNull {
-                    val o = it.obj() ?: return@mapNotNull null
-                    val at = parseIso(o.str("broadcast_at") ?: o.str("air_date"))
-                    Air(
-                        title = o.str("title") ?: return@mapNotNull null,
-                        subtitle = o.str("subtitle"),
-                        weekday = (o.long("weekday") ?: 0).toInt(),
-                        hhmm = at?.let { i ->
-                            i.atZone(java.time.ZoneId.systemDefault())
-                                .format(java.time.format.DateTimeFormatter.ofPattern("HH:mm"))
-                        },
-                        at = at,
-                        image = o.str("image_url"),
-                        rating = o.dbl("rating"),
-                        tmdb = o.long("tmdb_id"), season = o.long("season"), episode = o.long("episode"),
-                    )
-                }
-            )
-            is Block.Fail -> r
-            else -> Block.Loading
+        fun rows(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull {
+            val o = it.obj() ?: return@mapNotNull null
+            Air(title = o.str("title") ?: return@mapNotNull null,
+                subtitle = o.str("subtitle"), weekday = (o.long("weekday") ?: 0).toInt(),
+                hhmm = null, at = null, image = o.str("image_url"), rating = o.dbl("rating"), entry = o)
         }
-        // 放送表先画出来,再去当前 Emby 服务器对「入库没有」:对得慢不该拖住整页
-        val rows = all.valueOrNull ?: return@LaunchedEffect
-        val q = rows.mapIndexed { i, a ->
-            buildMap<String, Any> {
-                put("key", i.toString()); put("title", a.title)
-                a.tmdb?.let { put("tmdb_id", it) }; a.season?.let { put("season", it) }; a.episode?.let { put("episode", it) }
-            }
-        }
-        val hits = runCatching { app.call("sync.calendarLibrary", j("entries" to q)) }.getOrNull().obj() ?: return@LaunchedEffect
-        all = Block.Ok(rows.mapIndexed { i, a -> a.copy(hit = hits[i.toString()].obj()) })
+        all = app.extensionBlock("emby.extCalendar", onCached = { all = Block.Ok(rows(it)) }).map(::rows)
     }
 
     LpScaffold("追剧日历", onBack = { nav.popBackStack() }) { pad ->
         Box(Modifier.fillMaxSize()) {
             BlockBox(all, { reload++ }) { rows ->
                 Column(Modifier.fillMaxSize()) {
-                    Text("本周 ${rows.size} 集 · 按放送日期查看",
+                    Text("本周 ${rows.size} 部 · 日本时区周历",
                         Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
                         color = Lp.colors.fg2, style = LpText.caption)
                     WeekBar(day, today, rows.groupingBy { it.weekday }.eachCount()) { day = it }
@@ -446,7 +429,7 @@ private fun CalendarBody(nav: NavController) {
 @Composable
 private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -> Unit) {
     val c = Lp.colors
-    val monday = java.time.LocalDate.now().minusDays((today - 1).toLong())
+    val monday = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).minusDays((today - 1).toLong())
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Sp.x12, vertical = Sp.x12),
         horizontalArrangement = Arrangement.spacedBy(Sp.x6),
@@ -509,7 +492,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
             item(hhmm) { Slot(hhmm, list, hhmm == nextSlot, now) }
         }
         item("source") {
-            Dim3("放送表来自 Bangumi;想只看自己追的,去设置里连 Bangumi 账号。",
+            Dim3("公共周历由 MSG 资料中心提供 · Bangumi · 不含精确播出时刻。",
                 Modifier.padding(Sp.x16), maxLines = 3)
         }
         item("tail") { Spacer(Modifier.height(Sp.x26)) }
@@ -579,6 +562,11 @@ private fun Slot(hhmm: String, list: List<Air>, isNext: Boolean, now: java.time.
 private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
     val c = Lp.colors
     val nav = LocalCalendarNav.current
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    val open = { scope.launch {
+        app.openExtension(a.entry) { id, type -> nav?.navigate(Route.Detail(id, type)) }
+    }; Unit }
     var shown by remember(a.title) { mutableStateOf(false) }
     LaunchedEffect(a.title) {
         kotlinx.coroutines.delay((index.coerceAtMost(8) * 28).toLong()); shown = true
@@ -589,7 +577,7 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
     Row(
         Modifier.fillMaxWidth().padding(bottom = Sp.x10)
             .graphicsLayer { alpha = t; translationY = (1f - t) * 28f }
-            .clip(RoundedCornerShape(16.dp)).background(c.s1)
+            .clip(RoundedCornerShape(16.dp)).background(c.s1).pressable(open)
             .padding(Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -611,17 +599,8 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
             }
             Spacer(Modifier.height(Sp.x6))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                // 已在 Emby 媒体库里:这一集入库了「可播」点了直接播,只有剧入库「已入库」点了进详情(D366)
-                a.hit?.let { h ->
-                    val playable = h.bool("playable")
-                    Text(if (playable) "可播" else "已入库",
-                        Modifier.padding(end = Sp.x6).clip(RoundedCornerShape(R.pill)).background(c.mediaAccent.copy(alpha = .12f))
-                            .pressable({
-                                if (playable) nav?.navigate(xyz.linplayer.app.ui.Route.Player(h.str("item_id") ?: "", a.title))
-                                else nav?.navigate(xyz.linplayer.app.ui.Route.Detail(h.str("series_id") ?: h.str("item_id") ?: "", "Series"))
-                            }).padding(horizontal = Sp.x8, vertical = 2.dp),
-                        color = c.mediaIcon, style = LpText.caption)
-                }
+                Text("查看入库",
+                    Modifier.padding(end = Sp.x6), color = c.mediaIcon, style = LpText.caption)
                 a.rating?.takeIf { it > 0 }?.let {
                     Text("%.1f".format(it), Modifier.padding(end = Sp.x6), color = c.mediaIcon,
                         style = LpText.number, fontWeight = FontWeight.SemiBold)

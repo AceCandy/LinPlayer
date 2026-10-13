@@ -1091,7 +1091,7 @@ public static class SettingsSections
         async Task Save()
         {
             try { await core.DanmakuSetDanmakuConfig(new { sources }); }
-            catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
+            catch (Exception e) { hint.Text = LibraryPage.Advice(e); await Reload(); }
         }
 
         void Paint()
@@ -1106,7 +1106,17 @@ public static class SettingsSections
                 {
                     Classes = { "ghost" }, Content = "↓", IsEnabled = i < sources.Count - 1,
                 };
-                var del = new Button { Classes = { "ghost" }, Content = "删除" };
+                var del = new Button { Classes = { "ghost" }, Content = "删除", IsVisible = !Bool(s, "official") };
+                var edit = new Button { Classes = { "ghost" }, Content = "编辑", IsVisible = !Bool(s, "official") };
+                edit.Click += async (_, _) => await Edit(edit, s);
+                var enabled = new Button { Classes = { "ghost" }, Content = Bool(s, "disabled") ? "启用" : "停用" };
+                enabled.Click += async (_, _) =>
+                {
+                    var values = s.EnumerateObject().ToDictionary(x => x.Name, x => (object)x.Value);
+                    values["disabled"] = !Bool(s, "disabled");
+                    sources[at] = JsonSerializer.SerializeToElement(values);
+                    await Save(); Paint();
+                };
                 async void Move(int d)
                 {
                     var item = sources[at];
@@ -1127,11 +1137,11 @@ public static class SettingsSections
                     },
                     new TextBlock
                     {
-                        Text = Str(s, "api_url"), Width = 300, Classes = { "dim" },
+                        Text = Bool(s, "disabled") ? "已停用" : "已启用", Width = 70, Classes = { "dim" },
                         VerticalAlignment = VerticalAlignment.Center,
                         TextTrimming = TextTrimming.CharacterEllipsis,
                     },
-                    up, down, del));
+                    up, down, enabled, edit, del));
             }
         }
 
@@ -1154,7 +1164,7 @@ public static class SettingsSections
                         // ★ 「没有」和「坏了」是两件事,核心层把原因写清楚了,原样转给用户
                         : "弹弹Play 官方源不可用 —— " + Str(o, "reason");
                     sources = cfg.ValueKind == JsonValueKind.Array
-                        ? cfg.EnumerateArray().Where(x => !Bool(x, "official")).ToList() : [];
+                        ? cfg.EnumerateArray().ToList() : [];
                     Paint();
                     words.Text = string.Join("\n", Strings(bw, "words"));
                     users.Text = $"屏蔽用户 {Strings(bw, "users").Length} 个";
@@ -1165,30 +1175,44 @@ public static class SettingsSections
         _ = Reload();
 
         var add = new Button { Classes = { "primary" }, Content = "添加源" };
-        add.Click += async (_, _) =>
+        async Task Edit(Control anchor, JsonElement? initial)
         {
-            /* 鉴权方式**不问用户** —— 他也不知道什么是 pathToken。核心层从地址里推
-               (setDanmakuConfig 里的 DeriveAuth),推错了也比给一个四选一的下拉框强:
-               那个框选错了同样不报错,只是搜不到。 */
-            // .field + 34:和这一页别的输入框同一套皮、同一个行高
-            var nameBox = new TextBox { Classes = { "field" }, Watermark = "弹幕源名字", MinHeight = 34 };
-            var urlBox = new TextBox
+            string Value(string key) => initial is { } value ? Str(value, key) : "";
+            TextBox Field(string key, string label) => new() { Classes = { "field" }, Text = Value(key), Watermark = label, MinHeight = 34 };
+            var nameBox = Field("name", "弹幕源名称");
+            var urlBox = Field("api_url", "API 地址");
+            var token = Field("token", "Token"); token.PasswordChar = '●';
+            var appId = Field("app_id", "App ID");
+            var secret = Field("app_secret", "App Secret"); secret.PasswordChar = '●';
+            string[] modes = ["none", "headerToken", "queryToken", "dandanplaySignature", "pathToken"];
+            var auth = new ComboBox { ItemsSource = new[] { "自动识别", "请求头令牌", "查询参数令牌", "签名", "路径令牌（包含在地址中）" }, SelectedIndex = Math.Max(0, Array.IndexOf(modes, Value("auth_type"))) };
+            var advanced = new Expander { Header = "高级鉴权", Content = new StackPanel { Spacing = 10, Children = { auth, token, appId, secret } } };
+            var error = Note("");
+            var body = new StackPanel { Spacing = 10, MinWidth = 360, Children = { nameBox, urlBox, advanced, error } };
+            while (await Dialogs.Show(anchor, initial is null ? "添加弹幕源" : "编辑弹幕源", body, "测试并保存", "取消"))
             {
-                Classes = { "field" }, Watermark = "弹幕源链接", MinHeight = 34, MinWidth = 360,
-            };
-            var body = new StackPanel { Spacing = 10, Children = { nameBox, urlBox } };
-            if (!await Dialogs.Show(add, "添加弹幕源", body, "添加", "取消")) return;
-            var u = (urlBox.Text ?? "").Trim();
-            if (u.Length == 0) { hint.Text = "地址是空的,没加。"; return; }
-            sources.Add(JsonSerializer.SerializeToElement(new
-            {
-                id = "u" + DateTimeOffset.UtcNow.ToUnixTimeMilliseconds(),
-                name = (nameBox.Text ?? "").Trim() is { Length: > 0 } n ? n : "自建源",
-                api_url = u,
-            }));
-            Paint();
-            await Save();
-        };
+                var source = JsonSerializer.SerializeToElement(new
+                {
+                    id = initial is null ? Guid.NewGuid().ToString("N") : Value("id"),
+                    name = (nameBox.Text ?? "").Trim(), api_url = (urlBox.Text ?? "").Trim(),
+                    auth_type = modes[Math.Max(0, auth.SelectedIndex)], token = token.Text ?? "",
+                    app_id = appId.Text ?? "", app_secret = secret.Text ?? "",
+                    disabled = initial is { } old && Bool(old, "disabled"),
+                });
+                try
+                {
+                    await core.DanmakuTestSource(new { source });
+                    var next = sources.ToList();
+                    var at = next.FindIndex(x => Str(x, "id") == Str(source, "id"));
+                    if (at < 0) next.Add(source); else next[at] = source;
+                    await core.DanmakuSetDanmakuConfig(new { sources = next });
+                    sources = next; Paint(); hint.Text = "连接测试通过，已保存";
+                    return;
+                }
+                catch (Exception e) { error.Text = LibraryPage.Advice(e); }
+            }
+        }
+        add.Click += async (_, _) => await Edit(add, null);
 
         var saveWords = new Button { Classes = { "primary" }, Content = "保存屏蔽词" };
         saveWords.Click += async (_, _) =>

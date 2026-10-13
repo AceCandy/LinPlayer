@@ -36,7 +36,7 @@ var commands = map[string]bool{}
 
 func init() {
 	commands["source.aggregateSearch"] = true
-	for _, name := range []string{"views", "listLatest", "listResume", "listNextUp", "listFavorites", "listCollections",
+	for _, name := range []string{"extRankings", "extRankingItems", "extCalendar", "views", "listLatest", "listResume", "listNextUp", "listFavorites", "listCollections",
 		"collectionItems", "listItemsPage", "itemDetail", "seriesSeasons", "seasonEpisodes", "listItems", "listRandom",
 		"getFilters", "search", "similarItems", "personDetail", "personItems", "counts", "aggregateOverview", "aggregateSearch"} {
 		commands["emby."+name] = true
@@ -203,7 +203,7 @@ func Run(ctx context.Context, seq int64, command string, args map[string]any, fe
 	}
 	if err != nil {
 		var fault *bus.Err
-		if errors.As(err, &fault) && (fault.Code == bus.EAuth || fault.Code == bus.ENotFound || fault.Code == bus.EPermission) {
+		if errors.As(err, &fault) && (fault.Code == bus.EAuth || fault.Code == bus.ENotFound || fault.Code == bus.EPermission || fault.Code == bus.EUnsupported || fault.Code == bus.EInvalid) {
 			mu.Lock()
 			if e == generation {
 				delete(memory, k)
@@ -252,7 +252,7 @@ func Run(ctx context.Context, seq int64, command string, args map[string]any, fe
 var fields = map[string]bool{}
 
 func init() {
-	for _, f := range []string{"id", "name", "type_", "is_folder", "has_primary", "runtime_secs", "resume_secs", "series_name", "series_id", "season_id", "episode_no", "season_no", "played", "is_favorite", "unplayed_item_count", "unplayed_count_known", "has_backdrop", "has_logo", "genres", "year", "rating", "DoubanRating", "date_updated", "sort_name", "library_ids", "library_type", "collection_type", "overview", "premiere_date", "official_rating", "status", "tagline", "child_count", "index_no", "unplayed", "boxset", "bgm_id", "tags", "studios", "people", "role", "children", "items", "total", "next_index", "has_more", "movies", "series", "others", "years", "official_ratings", "unavailable", "unsupported", "empty", "capabilities", "filters", "hide_resume", "refresh", "similar", "collections", "chapters", "provider_lookup", "kind", "emby_items", "ms", "birthday", "death_day", "birth_place", "video_height", "bitrate", "size_bytes", "video_range", "server_id", "server_name", "source_kind", "is_file_browse", "active", "counts", "movie", "episode", "resume"} {
+	for _, f := range []string{"title", "subtitle", "label", "group", "source", "external_id", "media_type", "rank", "weekday", "id", "name", "type_", "is_folder", "has_primary", "runtime_secs", "resume_secs", "series_name", "series_id", "season_id", "episode_no", "season_no", "played", "is_favorite", "unplayed_item_count", "unplayed_count_known", "has_backdrop", "has_logo", "genres", "year", "rating", "DoubanRating", "date_updated", "sort_name", "library_ids", "library_type", "collection_type", "overview", "premiere_date", "official_rating", "status", "tagline", "child_count", "index_no", "unplayed", "boxset", "bgm_id", "tags", "studios", "people", "role", "children", "items", "total", "next_index", "has_more", "movies", "series", "others", "years", "official_ratings", "unavailable", "unsupported", "empty", "capabilities", "filters", "hide_resume", "refresh", "similar", "collections", "chapters", "provider_lookup", "kind", "emby_items", "ms", "birthday", "death_day", "birth_place", "video_height", "bitrate", "size_bytes", "video_range", "server_id", "server_name", "source_kind", "is_file_browse", "active", "counts", "movie", "episode", "resume"} {
 		fields[f] = true
 	}
 }

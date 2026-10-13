@@ -11,6 +11,7 @@ package danmaku
 import (
 	"context"
 	"fmt"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -65,24 +66,20 @@ func ceil(f float64) float64 {
 	return n
 }
 
+var regularEpisode = regexp.MustCompile(`^(?:第\s*)?([0-9]+)(?:\s*[话話集期])?$`)
+
 // episodeMatches 这一集是不是要找的那一集。
 func episodeMatches(ep *Episode, epNum *int64) bool {
 	if epNum == nil || ep.EpisodeNumber == nil {
 		return false
 	}
 	raw := strings.TrimSpace(*ep.EpisodeNumber)
-	if raw == "" {
-		return false
+	m := regularEpisode.FindStringSubmatch(raw)
+	if m != nil {
+		n, err := strconv.ParseInt(m[1], 10, 64)
+		return err == nil && n == *epNum
 	}
-	if n, err := strconv.ParseInt(raw, 10, 64); err == nil {
-		return n == *epNum
-	}
-	// episodeNumber 可能是「第3话」/「03」之类,抽首个数字串比对
-	if d := digitsRe.FindString(raw); d != "" {
-		if n, err := strconv.ParseInt(d, 10, 64); err == nil {
-			return n == *epNum
-		}
-	}
+
 	return false
 }
 
@@ -92,17 +89,18 @@ func pickEpisode(eps []Episode, epNum *int64) *Episode {
 		return nil
 	}
 	if epNum != nil {
+		var found *Episode
 		for i := range eps {
 			if episodeMatches(&eps[i], epNum) {
-				return &eps[i]
+				if found != nil {
+					return nil
+				}
+				found = &eps[i]
 			}
 		}
-		// ★ 集号越界时退回**按位置**取:部分源的 episodeNumber 不规整
-		//   (有的从 0 开始,有的带 SP 混在里面)
-		if n := *epNum; n >= 1 && n <= int64(len(eps)) {
-			return &eps[n-1]
-		}
+		return found
 	}
+
 	return &eps[0]
 }
 

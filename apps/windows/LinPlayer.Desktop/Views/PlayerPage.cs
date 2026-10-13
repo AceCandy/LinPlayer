@@ -2092,6 +2092,27 @@ public sealed class PlayerPage : UserControl
     /// (用户 2026-09-18:匹配到了之后显示拉取到的弹幕源)。空 = 没挂上。
     /// </summary>
     private string _dmSource = "";
+    private CancellationTokenSource _dmCancellation = new();
+    private double _dmOffset;
+
+    private CancellationToken BeginDanmakuRequest()
+    {
+        _dmCancellation.Cancel();
+        _dmCancellation.Dispose();
+        _dmCancellation = CancellationTokenSource.CreateLinkedTokenSource(_episodeCancellation.Token);
+        return _dmCancellation.Token;
+    }
+
+    private async Task SetDanmakuOffset(double value)
+    {
+        try
+        {
+            var r = await _core.PlayerDanmakuOffset(new { seconds = Math.Clamp(value, -600, 600) });
+            _dmOffset = r.GetProperty("seconds").GetDouble();
+            await RefreshDanmakuLayout(); await RefreshHeatmap();
+        }
+        catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
+    }
 
     /// <summary>
     /// 弹幕搜索面板。<b>贴在画面右侧,不是另开一扇顶层窗口</b>。
@@ -2160,8 +2181,23 @@ public sealed class PlayerPage : UserControl
         body.Children.Add(search);
 
         var again = MenuRow("重新匹配这一集");
-        again.Click += async (_, _) => { fly?.Hide(); await AutoLoadDanmaku(true); };
+        again.Click += async (_, _) => { fly?.Hide(); await AutoLoadDanmaku(true, ignoreMemory: true); };
         body.Children.Add(again);
+
+        var forget = MenuRow("清除本集及本季匹配记忆");
+        forget.Click += async (_, _) =>
+        {
+            try { await ResolveDanmaku(forget: true); Toast.Show("已清除匹配记忆"); }
+            catch (OperationCanceledException) { }
+            catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
+        };
+        body.Children.Add(forget);
+        foreach (var (label, delta) in new[] { ("弹幕提前 0.5 秒", -0.5), ("弹幕延后 0.5 秒", 0.5), ("重置弹幕时间", 0.0) })
+        {
+            var row = MenuRow(label);
+            row.Click += async (_, _) => { await SetDanmakuOffset(delta == 0 ? 0 : _dmOffset + delta); Toast.Show($"弹幕偏移 {_dmOffset:0.0} 秒"); };
+            body.Children.Add(row);
+        }
 
         body.Children.Add(DanmakuStyleBlock());
         // DanmakuStyleBlock 把 _dmRepaint 占了,这里把开关那一行接回去 ——
@@ -2185,7 +2221,8 @@ public sealed class PlayerPage : UserControl
             _dmBtn.Content = on ? "弹幕 ●" : "弹幕";
             if (!on)
             {
-                await _core.PlayerDanmakuSet(new { items = Array.Empty<object>() });
+                _dmCancellation.Cancel();
+                await _core.PlayerDanmakuBegin();
                 _dm.Layout = null;
                 _bar.Heat = [];
                 _bar.InvalidateVisual();
@@ -2205,60 +2242,68 @@ public sealed class PlayerPage : UserControl
     /// 多季番剧每一集都匹配到第一季第一集,而分数照样够高、照样上屏 ——
     /// 那比没有弹幕糟得多。安卓侧一直是带的,PC 这边漏了。</para>
     /// </summary>
-    private async Task AutoLoadDanmaku(bool loud)
+    private async Task AutoLoadDanmaku(bool loud, bool ignoreMemory = false)
     {
-        if (NoEmby || _itemId == "" || Nav.Session is not { } s)
-        {
-            if (loud) Toast.Show("这条流没有条目信息,匹配不了");
-            return;
-        }
-        var d = await _core.EmbyItemDetail(new
-        {
-            s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
-            item_id = _itemId, with_children = false,
-        });
-        var title = Str(d, "series_name") is { Length: > 0 } sn ? sn : Str(d, "name");
-        if (title == "")
-        {
-            if (loud) Toast.Show("这一集没有片名,匹配不了");
-            return;
-        }
-        var input = new Dictionary<string, object> { ["title"] = title };
-        if (d.TryGetProperty("episode_no", out var ep) && ep.ValueKind == JsonValueKind.Number)
-            input["episode_no"] = ep.GetInt64();
-        if (d.TryGetProperty("season_no", out var se) && se.ValueKind == JsonValueKind.Number)
-            input["season_no"] = se.GetInt64();
-        if (d.TryGetProperty("genres", out var g) && g.ValueKind == JsonValueKind.Array)
-            input["genres"] = g.EnumerateArray().Select(x => x.GetString() ?? "").ToArray();
-        // 媒体库刮到了 Bangumi 条目号就带上:核心层拿它换回作品的日文原名再去搜。
-        // 中文名和弹幕源收录的名字对不上时,那是唯一能对上的一路。
-        if (d.TryGetProperty("bgm_id", out var bg) && bg.ValueKind == JsonValueKind.Number)
-            input["bgm_id"] = bg.GetInt64();
-
-        var items = await _core.DanmakuAutoLoad(new { input });
-        _dmSource = "";
-        if (items.ValueKind != JsonValueKind.Array || items.GetArrayLength() == 0)
-        {
-            // ☠ 这一句以前不看 loud,于是每起播一集就弹一次「没匹配到」
-            if (loud) Toast.Show("这一集没匹配到弹幕,可以手动搜一下");
-            return;
-        }
-        await _core.PlayerDanmakuSet(new { items });
         try
         {
-            var m = await _core.DanmakuLastMatch(new { });
-            if (m.ValueKind == JsonValueKind.Object)
-                _dmSource = string.Join(" · ", new[]
-                {
-                    Str(m, "source_name"), $"{Str(m, "anime_title")} {Str(m, "episode_title")}".Trim(),
-                }.Where(x => x.Length > 0));
+            var count = await ResolveDanmaku(ignoreMemory: ignoreMemory);
+            if (loud) Toast.Show(count == 0 ? "这一集没匹配到弹幕，可以手动搜索" : $"挂上 {count} 条弹幕");
         }
-        catch { /* 只是一行说明,取不到不影响弹幕本身 */ }
-        Dispatcher.UIThread.Post(() => _dmRepaint?.Invoke());
-        // 灌完必须重取排版 —— 不取的话画面上还是上一集那一份(或者空的)
+        catch (OperationCanceledException) { }
+        catch (Exception e) { if (loud) Toast.Show(LibraryPage.Advice(e)); }
+    }
+
+    private async Task<int> ResolveDanmaku(object? selection = null, bool ignoreMemory = false, bool forget = false)
+    {
+        var ct = BeginDanmakuRequest();
+        var generationReply = forget ? default : await _core.PlayerDanmakuBegin(ct: ct);
+        ct.ThrowIfCancellationRequested();
+        var generation = forget ? 0 : generationReply.GetProperty("generation").GetInt64();
+        if (!forget) { _dm.Layout = null; _dmSource = ""; _dmOffset = 0; }
+        var session = Nav.Session;
+        var input = new Dictionary<string, object> { ["title"] = FallbackTitle() };
+        if (!NoEmby && _itemId != "" && session is { } s)
+        {
+            var d = await _core.EmbyItemDetail(new
+            {
+                s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
+                item_id = _itemId, with_children = false,
+            }, ct);
+            ct.ThrowIfCancellationRequested();
+            input["title"] = Str(d, "series_name") is { Length: > 0 } name ? name : Str(d, "name");
+            input["item_id"] = _itemId;
+            foreach (var key in new[] { "series_id", "season_id", "episode_no", "season_no", "genres", "bgm_id" })
+                if (d.TryGetProperty(key, out var value) && value.ValueKind != JsonValueKind.Null) input[key] = value;
+        }
+        else if (selection is null && !forget) return 0;
+        var request = new Dictionary<string, object?>
+        {
+            ["input"] = input, ["selection"] = selection, ["ignore_memory"] = ignoreMemory,
+            ["server_id"] = _serverId, ["server"] = session?.server ?? "", ["user_id"] = session?.user_id ?? "",
+            ["token"] = session?.token ?? "",
+        };
+        if (forget) { await _core.DanmakuForget(request, ct); return 0; }
+        var result = await _core.DanmakuResolve(request, ct);
+        ct.ThrowIfCancellationRequested();
+        if (!Equals(session, Nav.Session)) throw new OperationCanceledException();
+        var items = result.GetProperty("items");
+        await _core.PlayerDanmakuSet(new { items, generation }, ct);
+        ct.ThrowIfCancellationRequested();
+        _dmOffset = 0;
+        var match = result.GetProperty("match");
+        _dmSource = match.ValueKind == JsonValueKind.Object
+            ? string.Join(" · ", new[] { Str(match, "source_name"), Str(match, "anime_title"), Str(match, "episode_title") }.Where(x => x.Length > 0)) : "";
+        if (result.TryGetProperty("warnings", out var warnings) && warnings.GetArrayLength() > 0)
+            _dmSource += " · 部分弹幕加载失败";
+        if (selection is not null && match.ValueKind == JsonValueKind.Object)
+        {
+            await _core.PlayerSetDanmakuEnabled(new { enabled = true }, ct);
+            ct.ThrowIfCancellationRequested(); _dmOn = true; _dmBtn.Content = "弹幕 ●";
+        }
         await RefreshDanmakuLayout();
-        if (loud) Toast.Show($"挂上 {items.GetArrayLength()} 条弹幕");
-        await RefreshHeatmap();
+        ct.ThrowIfCancellationRequested();
+        _dmRepaint?.Invoke(); await RefreshHeatmap();
+        return items.GetArrayLength();
     }
 
     /// <summary>把排好版的那一份取回来交给绘制层。灌完语料、改完设置都要调。</summary>
@@ -2315,11 +2360,14 @@ public sealed class PlayerPage : UserControl
 
     private async Task StartDanmaku()
     {
+        var ct = BeginDanmakuRequest();
         try
         {
             _dm.Layout = null;
-            await _core.PlayerDanmakuSet(new { items = Array.Empty<object>() });
-            var p = await _core.PrefsGetPrefs();
+            await _core.PlayerDanmakuBegin(ct: ct);
+            ct.ThrowIfCancellationRequested();
+            var p = await _core.PrefsGetPrefs(ct: ct);
+            ct.ThrowIfCancellationRequested();
             _dmOn = p.TryGetProperty("danmaku_enabled", out var v) && v.ValueKind == JsonValueKind.True;
             Dispatcher.UIThread.Post(() => _dmBtn.Content = _dmOn ? "弹幕 ●" : "弹幕");
             if (_dmOn) await AutoLoadDanmaku(false);
@@ -2404,24 +2452,16 @@ public sealed class PlayerPage : UserControl
 
         close.Click += (_, _) => _dmPanel.IsVisible = false;
 
-        async Task Attach(string sourceId, string epId, string label)
+        async Task Attach(string sourceId, string animeId, string animeTitle, string epId, string label)
         {
             status.Text = $"正在取「{label}」…";
             try
             {
-                var items = await _core.DanmakuLoad(new { source_id = sourceId, episode_id = epId });
-                var n = items.ValueKind == JsonValueKind.Array ? items.GetArrayLength() : 0;
-                await _core.PlayerDanmakuSet(new { items });
-                // 手动挂上就顺手把开关打开 —— 挂完不显示的话用户会以为没成功
-                if (!_dmOn)
-                {
-                    _dmOn = true;
-                    await _core.PlayerSetDanmakuEnabled(new { enabled = true });
-                    _dmBtn.Content = "弹幕 ●";
-                }
-                await RefreshHeatmap();
+                var n = await ResolveDanmaku(new { source_id = sourceId, anime_id = animeId,
+                    anime_title = animeTitle, episode_id = epId, episode_title = label });
                 status.Text = $"已挂上 {n} 条";
             }
+            catch (OperationCanceledException) { }
             catch (Exception e) { status.Text = LibraryPage.Advice(e); }
         }
 
@@ -2447,9 +2487,7 @@ public sealed class PlayerPage : UserControl
                 var epId = Str(ep, "episode_id");
                 var label = Str(ep, "episode_title") is { Length: > 0 } t ? t : epId;
                 var row = MenuRow("    " + label);
-                var full = string.Join(" · ", new[] { srcName, $"{Str(anime, "anime_title")} {label}".Trim() }
-                    .Where(x => x.Length > 0));
-                row.Click += async (_, _) => { await Attach(sourceId, epId, label); _dmSource = full; };
+                row.Click += async (_, _) => { await Attach(sourceId, animeId, Str(anime, "anime_title"), epId, label); };
                 host.Children.Add(row);
             }
         }
@@ -4580,6 +4618,7 @@ public sealed class PlayerPage : UserControl
         if (_seek.Stopped) return;
         _poll.Stop();
         _episodeCancellation.Cancel();
+        _dmCancellation.Cancel();
         object arg = new { };
         if (!NoEmby && Nav.Session is { } s)
             arg = new { s.server, s.token, s.user_id, s.device_id, server_id = _serverId, pos = _position };

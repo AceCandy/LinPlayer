@@ -104,12 +104,12 @@ echo "全部通过($i 块)"
 #   2026-09-06 再加 `build-core-android.sh`
 #   (Rust 栈已删)。**这一改不能忘** —— 闸门认不出任何构建步骤时会走下面的
 #   `checked == 0` 分支判失败,那是故意的:一个谁都拦不住的闸门比没有闸门更坏。
-# ★ 变量与 core/cmd/sealsecrets/main.go 读的那批一致(2026-09-20 排行榜/追剧日历回宿主,加回三个 + 官方插件市场,共 10 个)。
+# ★ 变量与 core/cmd/sealsecrets/main.go 读的那批一致(公共榜单由 MSG 提供后移除 TMDB_API_KEY，共 9 个)。
 #   全表与「漏配之后用户看到什么」见 docs/go-migration/BUILD-SECRETS.md。
 "$PY_BIN" - <<'PY'
 import yaml, glob, sys
 
-NEED = ['DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET', 'TMDB_API_KEY',
+NEED = ['DANDANPLAY_APP_ID', 'DANDANPLAY_APP_SECRET',
         'LP_SYNC_PROXY_BASE', 'LP_SYNC_PROXY_KEY', 'LP_BANGUMI_REDIRECT_URI',
         'LP_AFDIAN_SPONSOR_URL', 'LP_PLUGIN_MARKET_URL',
         'LP_ICON_LIBRARY_SOURCES', 'LP_CF_TEST_URL']

@@ -62,6 +62,18 @@ class DisplayCacheTest {
         } finally { scope.cancel(); app.bg.cancel() }
     }
 
+    @Test fun unsupportedExtensionRejectsOldSnapshotAndRemainsVisible() = runBlocking {
+        val scope = CoroutineScope(SupervisorJob())
+        val app = app(scope, "E_UNSUPPORTED")
+        try {
+            var shown: JsonElement? = null
+            val result = app.extensionBlock("emby.extRankings") { shown = it }
+            assertEquals(old, shown)
+            assertTrue(result is Block.Fail)
+            assertFalse((result as Block.Fail).isSilent)
+        } finally { scope.cancel(); app.bg.cancel() }
+    }
+
     @Test fun episodePreviewDoesNotBecomeConfirmedPrefix() = runBlocking {
         val scope = CoroutineScope(SupervisorJob())
         val app = AppState(object : CorePort by FakeCore() {

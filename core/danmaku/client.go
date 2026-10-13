@@ -154,9 +154,15 @@ func (c *SourceConfig) getJSON(ctx context.Context, endpoint string, extra url.V
 	if len(query) > 0 {
 		u += "?" + query.Encode()
 	}
-	b, _, err := httpx.GetJSON(ctx, httpx.Client(), u, headers)
+	b, status, err := httpx.GetJSON(ctx, httpx.Client(), u, headers)
 	if err != nil {
-		return nil, fmt.Errorf("弹幕请求失败: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("弹幕请求失败，请检查网络和源地址")
+	}
+	if status < 200 || status >= 300 {
+		return nil, fmt.Errorf("弹幕接口 HTTP %d", status)
 	}
 	var v map[string]any
 	if json.Unmarshal(b, &v) != nil {
@@ -253,7 +259,7 @@ func parseAnime(a map[string]any) Anime {
 				EpisodeID:    idStr(m["episodeId"]),
 				EpisodeTitle: jstr(m, "episodeTitle"),
 			}
-			if s := jstr(m, "episodeNumber"); s != "" {
+			if s := episodeNumberText(m["episodeNumber"]); s != "" {
 				ep.EpisodeNumber = &s
 			}
 			an.Episodes = append(an.Episodes, ep)
@@ -348,9 +354,15 @@ func (c *SourceConfig) MatchFile(ctx context.Context, fileName, fileHash string,
 	req.Header.Set("Accept", "application/json")
 	resp, err := httpx.Client().Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("弹幕请求失败: %w", err)
+		if ctx.Err() != nil {
+			return nil, ctx.Err()
+		}
+		return nil, fmt.Errorf("弹幕请求失败，请检查网络和源地址")
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("弹幕接口 HTTP %d", resp.StatusCode)
+	}
 
 	var v map[string]any
 	if json.NewDecoder(resp.Body).Decode(&v) != nil {
@@ -427,4 +439,12 @@ func idStr(v any) string {
 		return strconv.FormatInt(int64(t), 10)
 	}
 	return ""
+}
+
+func episodeNumberText(v any) string {
+	if n, ok := v.(float64); ok {
+		return strconv.FormatFloat(n, 'f', -1, 64)
+	}
+	s, _ := v.(string)
+	return s
 }

@@ -190,7 +190,6 @@ jobs:
           LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
           LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
           LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
           LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
           LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
@@ -254,7 +253,6 @@ jobs:
           LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
           LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
           LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
           LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
           LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
@@ -386,7 +384,6 @@ jobs:
           LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
           LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
           LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
           LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
           LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
@@ -456,7 +453,6 @@ jobs:
           LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
           LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
           LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
           LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
           LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
@@ -475,7 +471,6 @@ jobs:
           LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
           LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
           LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
           LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
           LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
           LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}

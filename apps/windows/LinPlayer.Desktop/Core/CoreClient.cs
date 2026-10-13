@@ -213,7 +213,7 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
             return result;
         }
         catch (CoreException e) when (retainOnFailure && cached is not null &&
-            e.Code is not ("E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID"))
+            e.Code is not ("E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID" or "E_UNSUPPORTED"))
         {
             await delivered.ConfigureAwait(false);
             return cached.Value;

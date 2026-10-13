@@ -7,7 +7,9 @@ package danmaku
 // 磁盘那层挡住跨会话的。
 
 import (
+	"crypto/sha256"
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
@@ -35,7 +37,7 @@ func cacheKey(sourceID, episodeID string) string { return sourceID + "__" + epis
 // ★ 文件名要**净化**:episodeId 在自建源上可能是任意字符串,
 // 里面一个斜杠就会把文件写到别的目录去(或者干脆写不出来)。
 func cachePath(sourceID, episodeID string) string {
-	return filepath.Join(cacheDir(), SafeKey(cacheKey(sourceID, episodeID))+".json")
+	return filepath.Join(cacheDir(), fmt.Sprintf("%x.json", sha256.Sum256([]byte(cacheKey(sourceID, episodeID)))))
 }
 
 // SafeKey 把任意 id 净化成能当文件名的形状。

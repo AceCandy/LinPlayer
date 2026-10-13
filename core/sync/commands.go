@@ -96,17 +96,11 @@ func RegisterCommands(version string) {
 	})
 
 	bus.Register("sync.bangumiCalendar", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		onlyMine := boolArg(a, "only_mine")
-		// ★ 不登录也能看**全量**放送表 —— 这是产品决定:日历对没连账号的人也有用。
-		//   只有「只看我追的」才要求登录。
-		var acc *Account
-		if onlyMine {
-			acc = Load("bangumi")
-			if acc == nil {
-				return nil, bus.NewErr(bus.EAuth, "「只看我追的」需要先连接 Bangumi")
-			}
+		acc := Load("bangumi")
+		if acc == nil {
+			return nil, bus.NewErr(bus.EAuth, "个人放送表需要先连接 Bangumi")
 		}
-		return BangumiCalendar(ctx, acc, onlyMine), nil
+		return BangumiCalendar(ctx, acc), nil
 	})
 }
 

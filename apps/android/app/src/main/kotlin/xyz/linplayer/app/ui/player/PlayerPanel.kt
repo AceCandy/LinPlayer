@@ -419,9 +419,19 @@ private fun DanmakuPanel(
         item("search") { PlayerMenuRow("搜索弹幕…", onSearch, selected = false) }
         item("again") {
             PlayerMenuRow("重新匹配这一集", {
-                scope.launch { loadDanmakuFor(app, itemId, loud = true) }
+                scope.launch { loadDanmakuFor(app, itemId, loud = true, ignoreMemory = true) }
             }, selected = false)
         }
+        item("source") { xyz.linplayer.app.ui.components.Dim3(DanmakuStyle.source.value.ifBlank { "尚未匹配" }) }
+        item("forget") { PlayerMenuRow("清除匹配记忆", {
+            scope.launch { resolveDanmakuFor(app, itemId, forget = true, loud = true) }
+        }, selected = false) }
+        item("offset") { StepRow("时间偏移", "%.1f 秒".format(DanmakuStyle.offset.doubleValue)) { up ->
+            scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + if (up) 0.5 else -0.5) }
+        } }
+        item("offsetReset") { PlayerMenuRow("重置弹幕时间", {
+            scope.launch { DanmakuStyle.setOffset(app, 0.0) }
+        }, selected = false) }
         // 范围是**三档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         item("area") {
             PlayerMenuRow("滚动范围:" + DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), {
@@ -486,12 +496,13 @@ private fun DanmakuPanel(
 internal suspend fun toggleDanmaku(
     app: xyz.linplayer.app.data.AppState, itemId: String, on: Boolean,
 ) {
+    DanmakuSession.invalidate()
     DanmakuStyle.enabled.value = on
     runCatching { app.call("player.setDanmakuEnabled", args("enabled" to on)) }
         .onFailure { app.report(it); return }
     if (on) loadDanmakuFor(app, itemId, loud = true)
     else {
-        runCatching { app.call("player.danmakuSet", argsEmptyItems()) }
+        runCatching { app.call("player.danmakuBegin") }
         DanmakuStyle.layout.value = null
     }
 }
@@ -577,58 +588,25 @@ private suspend fun pick(
  * 这一集匹配不上时它会原样留着 —— 表现是新一集播着上一集的弹幕。
  */
 internal suspend fun startDanmakuFor(app: xyz.linplayer.app.data.AppState, itemId: String) {
+    DanmakuSession.invalidate()
+    val generation = DanmakuSession.generation
+    DanmakuStyle.source.value = ""
+    DanmakuStyle.offset.doubleValue = 0.0
     DanmakuStyle.layout.value = null
-    runCatching { app.call("player.danmakuSet", argsEmptyItems()) }
+    runCatching { app.call("player.danmakuBegin") }
+    currentCoroutineContext().ensureActive()
+    if (generation != DanmakuSession.generation) return
     DanmakuStyle.load(app)
+    currentCoroutineContext().ensureActive()
+    if (generation != DanmakuSession.generation) return
     if (DanmakuStyle.enabled.value) loadDanmakuFor(app, itemId, loud = false)
 }
 
 internal suspend fun loadDanmakuFor(
-    app: xyz.linplayer.app.data.AppState, itemId: String, loud: Boolean = false,
+    app: xyz.linplayer.app.data.AppState, itemId: String, loud: Boolean = false, ignoreMemory: Boolean = false,
 ) {
-    val d = runCatching { app.call("emby.itemDetail", args("item_id" to itemId)) }
-        .getOrNull().obj() ?: return
-    currentCoroutineContext().ensureActive()
-    // ★ autoLoad 收的是**嵌套的 input 对象**(MatchInput),不是平铺参数。
-    //   平铺传过去核心层只会报「缺少 input」。
-    val title = d.str("series_name") ?: d.str("name") ?: return
-    val input = buildMap<String, kotlinx.serialization.json.JsonElement> {
-        put("title", kotlinx.serialization.json.JsonPrimitive(title))
-        d.long("episode_no")?.let {
-            put("episode_no", kotlinx.serialization.json.JsonPrimitive(it))
-        }
-        d.long("season_no")?.let {
-            put("season_no", kotlinx.serialization.json.JsonPrimitive(it))
-        }
-        put("genres", kotlinx.serialization.json.JsonArray(
-            d.strList("genres").map { kotlinx.serialization.json.JsonPrimitive(it) }))
-        /* ★ 媒体库刮到了 Bangumi 条目号就带上 —— 核心层拿它换回作品的**日文原名**
-           再去搜。中文名和弹幕源收录的名字对不上时,那是唯一能对上的一路。 */
-        d.long("bgm_id")?.let { put("bgm_id", kotlinx.serialization.json.JsonPrimitive(it)) }
-    }
-    val items = runCatching {
-        app.call("danmaku.autoLoad", kotlinx.serialization.json.JsonObject(
-            mapOf("input" to kotlinx.serialization.json.JsonObject(input))))
-    }.getOrNull()
-    currentCoroutineContext().ensureActive()
-    if (items == null || items is kotlinx.serialization.json.JsonNull) {
-        // ☠ 这一句以前不看 loud,于是每起播一集就弹一次「没匹配到」
-        if (loud) app.toast("这一集没匹配到弹幕,可以手动搜一下")
-        return
-    }
-    runCatching {
-        app.call("player.danmakuSet",
-            kotlinx.serialization.json.JsonObject(mapOf("items" to items)))
-    }.onFailure { app.report(it); return }
-    currentCoroutineContext().ensureActive()
-    // 灌完必须重取排版 —— 不取的话画面上还是上一集那份(或者空的)
-    DanmakuStyle.reloadLayout(app)
-    if (loud) app.toast("挂上 " + (items as? kotlinx.serialization.json.JsonArray)?.size + " 条弹幕",
-        ToastKind.Ok)
+    resolveDanmakuFor(app, itemId, loud = loud, ignoreMemory = ignoreMemory)
 }
-
-internal fun argsEmptyItems() = kotlinx.serialization.json.JsonObject(
-    mapOf("items" to kotlinx.serialization.json.JsonArray(emptyList())))
 
 // ---------------------------------------------------------------- Exo 的轨道表
 

@@ -4,7 +4,6 @@
 //
 //	DANDANPLAY_APP_ID     明文注入(公开标识符)
 //	DANDANPLAY_APP_SECRET 密文注入
-//	TMDB_API_KEY          密文注入(排行榜影视榜)
 //
 // ★★ 只输出**密文**。明文进 ldflags 会原样出现在构建日志和进程命令行里 ——
 // CI 的日志是公开的,那等于把密钥贴了出去。
@@ -54,7 +53,6 @@ func main() {
 	}
 	add("dandanAppID", strings.TrimSpace(os.Getenv("DANDANPLAY_APP_ID")))
 	add("dandanSecretEnc", seal(os.Getenv("DANDANPLAY_APP_SECRET")))
-	add("tmdbKeyEnc", seal(os.Getenv("TMDB_API_KEY")))
 
 	/* 自建代理(问题反馈 / 崩溃报告走它)。★ 这两个在 Rust 版里是**明文常量**并且已经进了版本库 ——
 	   LP_SYNC_PROXY_KEY 是访问代理的共享密钥,拿到源码就能拿它刷代理。Go 侧一律走注入,源码不留。
