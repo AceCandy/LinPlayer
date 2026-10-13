@@ -200,15 +200,18 @@ class MainActivity : ComponentActivity() {
      */
     override fun onUserLeaveHint() {
         super.onUserLeaveHint()
-        if (!::app.isInitialized) return
-        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-        if (isInMultiWindowMode) return
-        if (!app.wantsPip) return
-        runCatching {
+        enterPlayerPip()
+    }
+
+    /** 播放器快捷按钮与 Home 键共用系统画中画入口。 */
+    fun enterPlayerPip(): Boolean {
+        if (!::app.isInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
+        if (isInMultiWindowMode || !app.wantsPip || !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
+        return runCatching {
             enterPictureInPictureMode(
                 PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
             )
-        }
+        }.getOrDefault(false)
     }
 
     /** 走 TV 形态吗。主题要在 setContent 之前按端加载,所以这一判要能单独拿出来。 */

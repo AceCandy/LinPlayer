@@ -16,6 +16,7 @@ import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.Assert.assertFalse
 import androidx.compose.ui.graphics.toPixelMap
 import org.junit.Rule
 import org.junit.Test
@@ -52,7 +53,10 @@ class PhonePlayerOsdTest {
                             onBack = { action = "返回" }, onToggle = { action = "暂停" },
                             onSeek = { seek = it }, onSpeed = { speed.value = it },
                             onLock = { action = "锁屏" }, onShot = { action = "截屏" },
-                            onPanel = { action = it })
+                            onPanel = { action = it }, statusText = "21:34 · 83%",
+                            onPrevious = { action = "上一集" }, onNext = { action = "下一集" },
+                            onPip = { action = "画中画" }, onOrientation = { action = "方向" },
+                            onChapters = { action = "章节" })
                     }
                 }
             }
@@ -136,11 +140,12 @@ class PhonePlayerOsdTest {
         val picture = rule.onRoot().captureToImage().toPixelMap()
         val inside = picture[pause.center.x.toInt(), pause.top.toInt() + 2]
         val outside = picture[pause.center.x.toInt(), pause.top.toInt() - 2]
-        assertTrue("播放按钮不能再有黑色圆底", kotlin.math.abs(inside.red - outside.red) < .04f)
+        assertTrue("半透明圆底应压暗画面以保持图标对比", inside.red < outside.red - .04f)
         assertTrue(rewind.right < pause.left && pause.right < faster.left && shot.right < rewind.left)
         rule.onNodeWithText("25:17").assertIsDisplayed()
         rule.onNodeWithText("45:29").assertIsDisplayed()
         rule.onNodeWithText("S1E7", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/player-osd/landscape-light.png")
         rule.runOnIdle { dark.value = true }
         rule.waitForIdle()
@@ -156,6 +161,11 @@ class PhonePlayerOsdTest {
         assertEquals("audio", action)
         rule.onNodeWithContentDescription("截屏").performClick()
         assertEquals("截屏", action)
+        for ((label, expected) in listOf("上一集" to "上一集", "下一集" to "下一集",
+            "画中画" to "画中画", "切换方向" to "方向", "章节" to "章节")) {
+            rule.onNodeWithContentDescription(label).performClick()
+            assertEquals(expected, action)
+        }
         rule.runOnIdle { panel.value = true }
         rule.onNodeWithContentDescription("暂停").assertDoesNotExist()
         rule.onNodeWithContentDescription("加速").assertDoesNotExist()
@@ -167,9 +177,10 @@ class PhonePlayerOsdTest {
     fun compactLandscapeHasNoOverlappingButtonsAtLargeFont() {
         open()
         val buttons = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes()
+        rule.onRoot().captureRoboImage("build/player-osd/landscape-compact.png")
         buttons.forEachIndexed { i, a -> buttons.drop(i + 1).forEach { b ->
             val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
-            assertTrue("按钮命中区不能重叠", overlap.width <= 0f || overlap.height <= 0f)
+            assertTrue("按钮命中区不能重叠：${a.config} ${a.boundsInRoot} / ${b.config} ${b.boundsInRoot}", overlap.width <= 0f || overlap.height <= 0f)
         } }
         rule.onNodeWithContentDescription("音轨").assertIsDisplayed()
         rule.onNodeWithContentDescription("字幕").assertIsDisplayed()
@@ -184,5 +195,24 @@ class PhonePlayerOsdTest {
         rule.onNodeWithContentDescription("锁屏").assertIsDisplayed()
         rule.onNodeWithText("字幕").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/player-osd/portrait.png")
+    }
+
+    @Test fun nextUpRejectsUnknownTimeAndEndOfPlayback() {
+        for ((position, duration) in listOf(89.99 to 120.0, 120.0 to 120.0, 130.0 to 120.0,
+            -1.0 to 20.0, 0.0 to 0.0, Double.NaN to 120.0, 100.0 to Double.POSITIVE_INFINITY)) {
+            assertTrue(!xyz.linplayer.app.ui.player.nextUpVisible(position, duration))
+        }
+        assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(108.0, 120.0))
+        assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(119.9, 120.0))
+    }
+
+    @Test fun nextUpUsesTenPercentWithinTenAndThirtySeconds() {
+        for ((duration, start) in listOf(35.0 to 25.0, 100.0 to 90.0, 120.0 to 108.0,
+            200.0 to 180.0, 300.0 to 270.0, 600.0 to 570.0)) {
+            assertFalse("$duration 秒视频不能过早提示", xyz.linplayer.app.ui.player.nextUpVisible(start - .01, duration))
+            assertTrue("$duration 秒视频应在边界提示", xyz.linplayer.app.ui.player.nextUpVisible(start, duration))
+            assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(duration - .1, duration))
+            assertFalse(xyz.linplayer.app.ui.player.nextUpVisible(duration, duration))
+        }
     }
 }

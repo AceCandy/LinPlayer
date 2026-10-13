@@ -641,7 +641,7 @@ private fun IconDialog(a: Account, onClose: () -> Unit, onChanged: () -> Unit) {
         LpField(q, { q = it }, "搜图标名…", label = "图标库")
         Spacer(Modifier.height(Sp.x10))
         when {
-            lib == null -> Dim2("正在取图标库…")
+            lib == null -> xyz.linplayer.app.ui.components.LoadingLabel("正在取图标库…")
             // 「这个构建没配源」和「拉取失败」要分开说:前者点一百次刷新也没用
             items.isEmpty() && builtin == 0L && sources.isEmpty() ->
                 Dim2("还没有任何图标源。可以在下面加一个,或者直接选本地图片。")

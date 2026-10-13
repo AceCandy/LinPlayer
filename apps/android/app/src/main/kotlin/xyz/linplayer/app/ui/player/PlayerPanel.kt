@@ -54,6 +54,7 @@ import xyz.linplayer.app.ui.pages.langCn
 import androidx.compose.material3.Text
 import androidx.compose.ui.text.font.FontWeight
 import xyz.linplayer.app.ui.pages.args
+import xyz.linplayer.app.ui.pages.fmtTime
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
@@ -87,6 +88,7 @@ fun PlayerPanel(
     onMpvTracks: (List<JsonObject>) -> Unit = {},
     onExoTrackPick: ((String, String) -> Unit)? = null,
     onPlaybackTarget: (String, String?, String) -> Unit = { _, _, _ -> },
+    onSeek: (Double) -> Unit = {},
     onClose: () -> Unit,
 ) {
     val app = LocalApp.current
@@ -183,6 +185,18 @@ fun PlayerPanel(
                核心层每档都带这个判据,上一版安卓侧把它整个丢了,于是 PC 藏起来的
                档位在手机上照样列出来,点了画面一点不变 —— 那正是用户说的
                「完全没看出来效果」。`off` 永远留着:它是「关掉」不是一档效果。 */
+            "chapters" -> {
+                try {
+                    val info = app.call("player.chapterInfo", args("item_id" to itemId)).obj()
+                    currentCoroutineContext().ensureActive()
+                    options = info?.get("chapters").arr().mapNotNull {
+                        val chapter = it.obj()
+                        val at = chapter.dbl("start_secs")?.takeIf { t -> t.isFinite() && t >= 0 } ?: return@mapNotNull null
+                        Triple(at.toString(), fmtTime(at), chapter.str("name").orEmpty().ifBlank { "章节 ${fmtTime(at)}" })
+                    }.distinctBy { it.first }
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) { loadError = "章节读取失败" }
+            }
             "quality" -> {
                 val lv = runCatching { app.call("player.shaderLevels") }.getOrNull().arr()
                 options = lv.mapNotNull {
@@ -257,7 +271,7 @@ fun PlayerPanel(
         else -> when (kind) {
             "source" -> "版本与线路"; "audio" -> "音轨"; "subtitle" -> "字幕"
             "episodes" -> "选集"; "quality" -> "画面增强"; "danmaku" -> "弹幕"
-            "ratio" -> "画面比例"; "substyle" -> "字幕样式"; else -> "更多"
+            "ratio" -> "画面比例"; "chapters" -> "章节"; "substyle" -> "字幕样式"; else -> "更多"
         }
     }
 
@@ -300,7 +314,7 @@ fun PlayerPanel(
                 kind == "danmaku" -> DanmakuPanel(app, scope, itemId, onSearch = {
                     onClose(); onSearch()
                 })
-                loading && options.isEmpty() -> Dim3("正在取…")
+                loading && options.isEmpty() -> xyz.linplayer.app.ui.components.LoadingLabel("正在取…")
                 options.isEmpty() && loadError == null -> Dim3("这里没有可选项", maxLines = 2)
                 options.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), list) {
                     // 字幕面板顶上挂一个「字幕样式…」的跳板:调样式和选轨是同一件事的两步,
@@ -313,6 +327,7 @@ fun PlayerPanel(
                             if (kind == "more" || id == "substyle") onOpen(id)
                             else if (id == "interp:na") app.toast(label, ToastKind.Error)
                             else if (kind == "ratio") { onFit(VideoFit.of(id)); onClose() }
+                            else if (kind == "chapters") { id.toDoubleOrNull()?.let(onSeek); onClose() }
                             else if (kind == "source" || kind == "episodes") {
                                 onPlaybackTarget(if (kind == "source") itemId else id,
                                     if (kind == "source") id else null, label)
@@ -327,7 +342,7 @@ fun PlayerPanel(
                             sub = badge?.takeIf { (kind == "audio" || kind == "subtitle") && it != label },
                             badge = badge.takeUnless { kind == "audio" || kind == "subtitle" })
                     }
-                    if (loading) item("loading") { Dim3("正在取…") }
+                    if (loading) item("loading") { xyz.linplayer.app.ui.components.LoadingLabel("正在取…") }
                 }
             }
         }

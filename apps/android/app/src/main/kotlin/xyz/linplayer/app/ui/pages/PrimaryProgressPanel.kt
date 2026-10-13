@@ -68,7 +68,8 @@ fun PrimaryProgressPanel() {
     }
     Column(Modifier.padding(horizontal = Sp.x16)) {
         Dim2("相同资源以主服进度为准；独有资源各服保留。主服不可用或匹配不确定时正常播放，切换主服不迁移历史。", Modifier.padding(bottom = Sp.x12))
-        if (settings == null && busy) Dim2("加载中…")
+        if (settings == null && busy) xyz.linplayer.app.ui.components.LoadingLabel("加载中…")
+        else if (busy) xyz.linplayer.app.ui.components.LpLoading()
         if (settings != null) {
             Panel {
                 LpCell("未指定", value = if (settings.str("server").isNullOrEmpty()) "已选择" else null, arrow = false, onClick = if (busy) null else ({ select("") }))

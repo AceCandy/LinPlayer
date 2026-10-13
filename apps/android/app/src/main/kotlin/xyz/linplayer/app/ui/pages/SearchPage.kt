@@ -21,6 +21,7 @@ import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import xyz.linplayer.app.ui.components.LpPullIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -203,12 +204,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     LpImmersive(barHeight = 0.dp) { pad ->
+        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(refreshing, {
             if (q.isNotBlank() && !refreshing) {
                 refreshing = true
                 if (aggregate && route.viewId == null) searchAggregate() else refresh++
             }
-        }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12)) {
+        }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12), state = pullState,
+            indicator = { LpPullIndicator(pullState, refreshing) }) {
             Column(Modifier.fillMaxSize().imePadding()) {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                     Modifier.padding(horizontal = Sp.x16).testTag("search.field"),
@@ -306,7 +309,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
 
                     r is Block.Loading -> androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(),
                         contentAlignment = androidx.compose.ui.Alignment.Center) {
-                        androidx.compose.material3.CircularProgressIndicator(color = Lp.colors.mediaAccent)
+                        xyz.linplayer.app.ui.components.LpLoading()
                     }
 
                     r is Block.Fail -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {

@@ -1,6 +1,5 @@
 package xyz.linplayer.app.ui.components
 
-import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.animateFloat
@@ -67,6 +66,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
+import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.unit.dp
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpEasing
@@ -242,19 +243,22 @@ fun LpButton(
         m.heightIn(min = Dim.tap)
             .graphicsLayer { alpha = if (on) 1f else 0.45f }
             .then(skin)
+            .then(if (loading) Modifier.semantics { contentDescription = text; stateDescription = "加载中" } else Modifier)
             .pressable(onClick, onLongClick, on)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
         contentAlignment = Alignment.Center,
     ) {
         Row(
+            modifier = if (loading) Modifier.graphicsLayer { alpha = 0f }.clearAndSetSemantics {} else Modifier,
             horizontalArrangement = Arrangement.spacedBy(Sp.x6),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (icon != null) Icon(icon, null, Modifier.size(18.dp), tint = fg)
-            if (text.isNotEmpty() || loading) Text(
-                if (loading) "…" else text, color = fg, style = LpText.action,
+            if (text.isNotEmpty()) Text(
+                text, color = fg, style = LpText.action,
             )
         }
+        if (loading) LpLoading(size = 20.dp, tint = fg)
     }
 }
 
@@ -786,17 +790,10 @@ fun Panel(m: Modifier = Modifier, solid: Float = 1f, content: @Composable () -> 
     Column(m.fillMaxWidth().glass(R.md, solid)) { content() }
 }
 
-/** 转动的刷新箭头只更新绘制层，系统关闭动画时保持静态。 */
+/** 保留既有等待入口与语义，绘制跟随手机全局设置。 */
 @Composable
 fun LpRefreshIcon() {
-    val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
-    val angle = if (motion > 0f) {
-        val animation = rememberInfiniteTransition(label = "refresh")
-        animation.animateFloat(0f, 360f, infiniteRepeatable(tween((900 * motion).toInt().coerceAtLeast(1),
-            easing = LinearEasing)), label = "refresh.rotation")
-    } else remember { mutableStateOf(0f) }
-    Icon(LpIcons.refresh, "刷新中", Modifier.size(32.dp).graphicsLayer { rotationZ = angle.value },
-        tint = Lp.colors.mediaAccent)
+    LpLoading(label = "刷新中")
 }
 
 /** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字。 */

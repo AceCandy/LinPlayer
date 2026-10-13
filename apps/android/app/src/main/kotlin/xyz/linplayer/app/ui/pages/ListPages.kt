@@ -5,6 +5,7 @@ import xyz.linplayer.app.ui.theme.LpText
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import xyz.linplayer.app.ui.components.LpPullIndicator
 import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
@@ -195,9 +196,11 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
             xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
         } else MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
+        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(refreshing, {
             if (!refreshing) { refreshing = true; reload++ }
-        }, Modifier.fillMaxSize()) {
+        }, Modifier.fillMaxSize(), state = pullState,
+            indicator = { LpPullIndicator(pullState, refreshing) }) {
             Column(Modifier.fillMaxSize().then(
                 if (block is Block.Fail) Modifier.verticalScroll(rememberScrollState()) else Modifier,
             )) {
@@ -233,8 +236,8 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             // 没有当前分组的收藏时继续寻找首批；已有结果后手动分页，排序重排不触发网络请求。
                             if (!moreFailed && visible.isEmpty()) LaunchedEffect(nextIndex) { loadMore() }
-                            LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary)
+                            LpButton(if (moreFailed) "重试加载" else "加载更多",
+                                { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary, loading = loadingMore)
                         }
                     } else LazyColumn(
                         Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
@@ -252,8 +255,8 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                             }
                         }
                         if (hasMore) item(key = "more") {
-                            LpButton(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary)
+                            LpButton(if (moreFailed) "重试加载" else "加载更多",
+                                { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary, loading = loadingMore)
                         }
                     }
                 }

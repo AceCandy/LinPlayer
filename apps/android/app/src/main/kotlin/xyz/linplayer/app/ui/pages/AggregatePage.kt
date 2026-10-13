@@ -54,7 +54,6 @@ import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpRow
-import xyz.linplayer.app.ui.components.LpRowSkeleton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
@@ -132,14 +131,14 @@ fun AggregatePage(nav: NavController) {
             item("shortcuts") { Shortcuts(nav) }
 
             if (groups.isEmpty() && !done) item("skel") {
-                LpRowSkeleton(); LpRowSkeleton()
+                xyz.linplayer.app.ui.components.LoadingState()
             }
 
             failure?.takeUnless { it.isSilent }?.let { error ->
                 item("error") { ErrorState(error.message, { reload++ }) }
             }
             if (!done && groups.isNotEmpty()) item("refreshing") {
-                Dim3("正在刷新…", Modifier.padding(horizontal = Sp.x16))
+                xyz.linplayer.app.ui.components.LoadingLabel("正在刷新…", Modifier.padding(horizontal = Sp.x16))
             }
 
             groups.forEach { g ->

@@ -327,7 +327,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 SectionLabel("类型")
                 when (val f = filters) {
-                    is Block.Loading -> Dim2("正在取分面…", Modifier.padding(Sp.x12))
+                    is Block.Loading -> xyz.linplayer.app.ui.components.LoadingLabel("正在取分面…", Modifier.padding(Sp.x12))
                     // 分面拉不到要**在筛选面板里明说**,不能静默变成「此库没有分面」
                     is Block.Fail -> if (!f.isSilent) Dim2("分面取不到:${f.message}", Modifier.padding(Sp.x12))
                     is Block.Ok -> if (f.value.isEmpty()) Dim2("这个库没有类型分面", Modifier.padding(Sp.x12))

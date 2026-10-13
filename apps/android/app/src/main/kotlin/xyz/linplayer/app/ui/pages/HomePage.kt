@@ -40,6 +40,7 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import xyz.linplayer.app.ui.components.LpPullIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -365,8 +366,11 @@ fun HomePage(nav: NavController) {
             return@LpImmersive
         }
 
+        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(
             isRefreshing = refreshing,
+            state = pullState,
+            indicator = { LpPullIndicator(pullState, refreshing) },
             onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
             modifier = Modifier.fillMaxSize().padding(
                 top = if (banners.isEmpty()) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
@@ -417,7 +421,7 @@ fun HomePage(nav: NavController) {
                            首页从上到下五六条轨全带同一个后缀,那个词一个字的信息都不提供,
                            只是把每条标题拉长、把库名挤窄。 */
                         val items = latest[view.id]
-                        if (items == null) LpRowSkeleton(view.name, thumb = false)
+                        if (items == null) HomeRowLoading(view.name, thumb = false)
                         else if (items.isNotEmpty()) LpRow(
                             view.name, items,
                             { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
@@ -670,7 +674,7 @@ private fun RowBlock(
     resume: Boolean = false,
 ) {
     when (block) {
-        is Block.Loading -> LpRowSkeleton(title, thumb)
+        is Block.Loading -> HomeRowLoading(title, thumb)
         // 空轨整条不画:一条只有标题的空轨比没有它更让人困惑
         is Block.Ok -> if (block.value.isNotEmpty()) LpRow(
             title, block.value,
@@ -739,6 +743,15 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
                     shape = shape)
             }
         }
+    }
+}
+
+/** 保持横轨高度与可见范围，静态占位不闪烁，等待反馈使用所选动画。 */
+@Composable
+private fun HomeRowLoading(title: String, thumb: Boolean) {
+    Box(contentAlignment = Alignment.Center) {
+        LpRowSkeleton(title, thumb)
+        xyz.linplayer.app.ui.components.LpLoading(label = "$title · 加载中…")
     }
 }
 

@@ -195,7 +195,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
             val f = found
             if (q.isNotBlank()) {
                 when {
-                    f == null -> header { Dim3("搜索中…") }
+                    f == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("搜索中…") }
                     f.isFailure -> header { SourceError(serverId, f.exceptionOrNull()!!, { searchGen++ }) }
                     f.getOrNull()!!.isEmpty() -> header { Dim2("没有找到「$q」") }
                     else -> items(f.getOrNull()!!) { SourceCard(it, { open(it) }) }
@@ -215,7 +215,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
             }
             val h = home
             when {
-                h == null -> header { Dim3("加载中…") }
+                h == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
                 h.isFailure -> header { SourceError(serverId, h.exceptionOrNull()!!, { reload++ }) }
                 h.getOrNull() == null -> if (cont.isEmpty()) header { Dim2("这个源没有首页,在上面的搜索框里找想看的。") }
                 else -> {
@@ -295,7 +295,7 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
             }
             items(items) { SourceCard(it, { nav.navigate(Route.SourceDetail(it.str("source") ?: r.serverId, it.str("id") ?: "")) }, shape = cat.str("shape") ?: "portrait") }
             err?.let { e -> header { SourceError(r.serverId, e, { gen++ }) } }
-            if (busy) header { Dim3("加载中…") }
+            if (busy) header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
             else if (done && items.isEmpty() && err == null) header { Dim2("这个分类下没有内容") }
         }
     }
@@ -347,7 +347,7 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold(detail?.str("title") ?: "", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         val res = d
         when {
-            res == null -> Dim3("加载中…", Modifier.padding(Sp.x16))
+            res == null -> xyz.linplayer.app.ui.components.LoadingLabel("加载中…", Modifier.padding(Sp.x16))
             res.isFailure -> SourceError(r.serverId, res.exceptionOrNull()!!, { reload++ }) { switching = true }
             else -> LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
                 val x = res.getOrNull()!!

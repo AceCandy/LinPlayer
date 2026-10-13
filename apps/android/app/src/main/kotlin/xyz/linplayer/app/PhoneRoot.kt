@@ -119,13 +119,18 @@ fun PhoneRoot(app: AppState) {
     }
 }
 
-/** 第 1 步的骨架:**不是转圈,是页面轮廓**(SPEC §8.0)。 */
+/** 初始化期间保持静态轮廓，只叠一份所选等待动画，不提前露出未就绪的页面。 */
 @Composable
 private fun BootSkeleton() {
-    Column(Modifier.fillMaxSize().padding(top = 80.dp)) {
-        Skeleton(Modifier.fillMaxWidth().height(220.dp).padding(horizontal = Sp.x16), R.md)
-        LpRowSkeleton()
-        LpRowSkeleton()
+    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+        androidx.compose.runtime.CompositionLocalProvider(xyz.linplayer.app.ui.theme.LocalMotionScale provides 0f) {
+            Column(Modifier.fillMaxSize().padding(top = 80.dp)) {
+                Skeleton(Modifier.fillMaxWidth().height(220.dp).padding(horizontal = Sp.x16), R.md)
+                LpRowSkeleton()
+                LpRowSkeleton()
+            }
+        }
+        xyz.linplayer.app.ui.components.LpLoading(size = 48.dp)
     }
 }
 

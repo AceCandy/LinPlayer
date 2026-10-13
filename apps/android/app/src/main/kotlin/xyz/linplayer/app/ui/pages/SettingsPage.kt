@@ -86,6 +86,18 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import xyz.linplayer.app.ui.components.Body
+import xyz.linplayer.app.ui.components.pressable
+import xyz.linplayer.app.ui.theme.R
 
 /**
  * 设置(U1.15)。**一级列表 + 二级页**(手机没有主从两栏的宽度)。
@@ -278,6 +290,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
 @Composable
 private fun AppearancePanel() {
     var pickColor by remember { mutableStateOf(false) }
+    var pickLoading by remember { mutableStateOf(false) }
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val theme = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
         "dark" -> "深色"; "light" -> "浅色"; else -> "跟随系统"
@@ -288,6 +301,26 @@ private fun AppearancePanel() {
                 xyz.linplayer.app.data.UiPrefs.setColorScheme(ctx, id)
                 pickColor = false
             }, selected = id == xyz.linplayer.app.data.UiPrefs.colorScheme.value)
+        }
+    }
+    if (pickLoading) LpDialog({ pickLoading = false }, "加载动画") {
+        Column(Modifier.verticalScroll(rememberScrollState())) {
+            xyz.linplayer.app.data.UiPrefs.loadingOptions.forEach { (label, id) ->
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .clip(RoundedCornerShape(R.sm))
+                    .background(if (id == xyz.linplayer.app.data.UiPrefs.loadingStyle.value) Lp.colors.accDim else Color.Transparent)
+                    .semantics { selected = id == xyz.linplayer.app.data.UiPrefs.loadingStyle.value }
+                    .pressable(onClick = {
+                        xyz.linplayer.app.data.UiPrefs.setLoadingStyle(ctx, id)
+                        pickLoading = false
+                    }).padding(Sp.x12), verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
+                    xyz.linplayer.app.ui.components.LpLoading(style = id, label = "$label 预览")
+                    Body(label, Modifier.weight(1f))
+                    if (id == xyz.linplayer.app.data.UiPrefs.loadingStyle.value)
+                        Icon(LpIcons.check, null, Modifier.size(18.dp), tint = Lp.colors.acc)
+                }
+            }
         }
     }
     Panel(Modifier.padding(Sp.x16)) {
@@ -306,6 +339,9 @@ private fun AppearancePanel() {
                 xyz.linplayer.app.data.UiPrefs.setFont(ctx,
                     xyz.linplayer.app.data.UiPrefs.fontOptions.first { it.first == label }.second)
             }, sub = "内置字体，切换立即生效；字幕字体不受影响")
+        Hairline()
+        LpCell("加载动画", value = xyz.linplayer.app.data.UiPrefs.loadingLabel(),
+            sub = "全 App 原生等待统一使用，切换立即生效", onClick = { pickLoading = true })
         Hairline()
         LpCell("隐藏媒体库海报展示", mediaStyle = true,
             sub = "隐藏首页顶部媒体库入口和继续观看标题",
@@ -942,6 +978,7 @@ private fun StoragePanel() {
         // 安卓的数据根是应用私有目录:**展示但不可点开** ——
         // 没有文件管理器能进去,给一个打不开的按钮比不给更糟
         LpCell("数据目录", mediaStyle = true, sub = paths ?: "读取中…", arrow = false)
+        if (paths == null) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         Hairline()
         // 这个目录**是**能进去的(Android/data/<包名>/files/logs),所以照实写出来
         LpCell("日志目录", mediaStyle = true, sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
@@ -1011,10 +1048,12 @@ private fun MediaCachePanel() {
         if (bytes == null) {
             LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else "读取中…",
                 arrow = loadFailed, onClick = { if (loadFailed) reload++ })
+            if (!loadFailed) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         } else {
             LpCell("保留媒体缓存", mediaStyle = true,
                 sub = if (saving) "保存中…" else "退出与重启后可复用，两种内核共享；关闭会清理已有媒体缓存",
                 switch = bytes > 0L, onSwitch = { update(if (it) lastCapacity else 0L) })
+            if (saving) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
             if (bytes > 0L) {
                 Hairline()
                 StepperRow("磁盘容量上限", bytes / 1048576.0, 64.0, 4096.0, 64.0,
@@ -1127,7 +1166,7 @@ internal fun UpdateFlow(u: JsonObject?, onClose: () -> Unit) {
         if (total > 0) LinearProgressIndicator(
             progress = { (got.toFloat() / total).coerceIn(0f, 1f) },
             modifier = Modifier.fillMaxWidth(),
-        ) else LinearProgressIndicator(Modifier.fillMaxWidth())
+        ) else xyz.linplayer.app.ui.components.LpLoading()
         Spacer(Modifier.height(Sp.x12))
         Dim2(if (total > 0) "%.1f MB / %.1f MB".format(got / 1048576.0, total / 1048576.0)
              else "%.1f MB".format(got / 1048576.0))
@@ -1388,6 +1427,7 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val tr = trakt
+            if (!loaded) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(Sp.x16))
             if (!loaded) LpCell("Trakt", mediaStyle = true, value = "查询中…", arrow = false)
             else if (tr != null && tr.isNotEmpty()) {
                 LpCell("Trakt", mediaStyle = true, value = tr.str("username") ?: "已连接", arrow = false)
@@ -1418,6 +1458,7 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val bg = bangumi
+            if (!loaded) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(Sp.x16))
             if (!loaded) LpCell("Bangumi", mediaStyle = true, value = "查询中…", arrow = false)
             else if (bg != null && bg.isNotEmpty()) {
                 LpCell("Bangumi", mediaStyle = true, value = bg.str("username") ?: "已连接", arrow = false)

@@ -1,8 +1,12 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.app.Activity
+import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.SideEffect
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.media3.common.C
@@ -17,6 +21,7 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
+import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
@@ -59,6 +64,7 @@ class PhoneEnginePlaybackTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private var playbackService: ServiceController<PlaybackService>? = null
+    private lateinit var activity: Activity
 
     @After fun cleanup() {
         playbackService?.destroy()
@@ -158,6 +164,303 @@ class PhoneEnginePlaybackTest {
             put("season_id", "sh"); put("series_id", "s2"); put("season_no", 1)
             put("episode_no", id.removePrefix("sh").toInt())
         } }
+    }
+
+    @Test fun MPV切集等待新尺寸期间保持方向锁() = verifySwitchDirection("mpv")
+
+    @Test fun Media3切集等待新尺寸期间保持方向锁() = verifySwitchDirection("exo")
+    @Test fun MPV自动换集保持方向锁() = verifySwitchDirection("mpv", automatic = true)
+    @Test fun Media3自动换集保持方向锁() = verifySwitchDirection("exo", automatic = true)
+    @Test fun MPV换版本保持方向锁() = verifySwitchDirection("mpv", version = true)
+    @Test fun Media3换版本保持方向锁() = verifySwitchDirection("exo", version = true)
+
+    @Test fun 手机接下来独立于控制栏且点击复用停止屏障() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        rule.runOnIdle { core.tick(3628.75) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.runOnIdle { core.tick(3630.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+        advance(rule, 500)
+        rule.onNodeWithContentDescription("更多").assertDoesNotExist()
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+            put("item_id", "sh6"); put("position", 3635.0); put("duration", 3660.0)
+            put("paused", true); put("buffering", false)
+        })) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").performClick()
+        advance(rule, 500)
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+    }
+
+    @Test fun 短剧接下来只在最后十秒显示并可回退撤回() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        fun tickAt(position: Double) {
+            rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+                put("item_id", "sh6"); put("position", position); put("duration", 35.0)
+                put("paused", false); put("buffering", false)
+            })) }
+            advance(rule, 300)
+        }
+        tickAt(.25); tickAt(.5)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        tickAt(5.0)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        tickAt(24.99)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        tickAt(25.0)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/player-osd/next-up-short-start.png")
+        tickAt(30.0)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/player-osd/next-up-short-half.png")
+        tickAt(24.99)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+    }
+
+    private fun verifySwitchDirection(mode: String, automatic: Boolean = false, version: Boolean = false) {
+        val release = CompletableDeferred<Unit>()
+        var waiting = false
+        val core = episodeCore().apply {
+            on("emby.itemMedia") { arr(*listOf("ea", "eb").map { id -> buildJsonObject {
+                put("id", id); put("name", if (id == "ea") "2160p" else "1080p")
+                put("streams", arr(buildJsonObject {
+                    put("type_", "Video"); put("width", 1920); put("height", 1080)
+                }))
+            } }.toTypedArray()) }
+            on("player.play") { a -> buildJsonObject { put("media_source_id", if (a.str("media_source_id") == "eb") "eb" else "ea"); put("resume_secs", 0.0) } }
+        }
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "emby.itemMedia" && (args.str("item_id") == "sh7" ||
+                    version && core.calls.count { it.first == "player.play" } > 1)) {
+                    waiting = true
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { release.await() }
+                }
+                return result
+            }
+        }
+        try {
+            showPlayer(port, mode, ar = 0f)
+            assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+            if (automatic) {
+                if (mode == "mpv") {
+                    rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+                    rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+                    rule.runOnIdle { core.tick(3660.0, eof = true) }
+                } else {
+                    exoState(3_658_000); advance(rule, 300)
+                    exoState(3_658_250); advance(rule, 300)
+                    exoState(3_660_000, ended = true)
+                }
+            } else {
+                rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel(if (version) "lines" else "episodes") }
+                advance(rule, 300)
+                rule.onNode(hasText(if (version) "1080p" else "S1E7", substring = true)).performClick()
+            }
+            advance(rule, 500)
+            assertTrue("新集尺寸请求必须实际挂起", waiting)
+            assertEquals("切集不能临时释放方向锁", ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+            assertEquals(if (version) "sh6" else "sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            rule.onNodeWithContentDescription("返回").performClick()
+            advance(rule, 300)
+            assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, activity.requestedOrientation)
+            rule.runOnIdle { release.complete(Unit) }
+            advance(rule, 500)
+            assertEquals("离页后迟到尺寸不能重新锁定", ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, activity.requestedOrientation)
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun 旧目标尺寸迟到不能覆盖新集方向() = verifyLateOldDirection(exitFirst = false)
+    @Test fun 旧目标尺寸在离页后迟到不能重锁() = verifyLateOldDirection(exitFirst = true)
+
+    private fun verifyLateOldDirection(exitFirst: Boolean) {
+        val release = CompletableDeferred<Unit>()
+        var waiting = false
+        val core = episodeCore()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "emby.itemMedia") return core.callJson(command, args, onPartial)
+                val old = args.str("item_id") == "sh6"
+                if (old) {
+                    waiting = true
+                    kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { release.await() }
+                }
+                return arr(buildJsonObject {
+                    put("id", "ea"); put("streams", arr(buildJsonObject {
+                        put("type_", "Video"); put("width", if (old) 1080 else 1920); put("height", if (old) 1920 else 1080)
+                    }))
+                })
+            }
+        }
+        try {
+            showPlayer(port, "mpv", ar = 0f)
+            assertTrue(waiting)
+            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
+            advance(rule, 300)
+            rule.onNode(hasText("S1E7", substring = true)).performClick()
+            advance(rule, 500)
+            assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+            if (exitFirst) {
+                rule.onNodeWithContentDescription("返回").performClick(); advance(rule, 300)
+                assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, activity.requestedOrientation)
+            }
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 300)
+            assertEquals("旧集竖屏尺寸不能覆盖当前方向", if (exitFirst) ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+                else ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun 手动方向不被迟到媒体尺寸覆盖() {
+        val release = CompletableDeferred<Unit>()
+        val core = episodeCore()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "emby.itemMedia") release.await()
+                return result
+            }
+        }
+        try {
+            showPlayer(port, "mpv", ar = 0f)
+            rule.onNodeWithContentDescription("切换方向").performClick(); advance(rule, 300)
+            assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 300)
+            assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+        } finally { release.complete(Unit) }
+    }
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land-mdpi", sdk = [36], application = Application::class)
+    fun 小屏大字接下来卡片不遮挡控制和进度() {
+        val core = episodeCore()
+        showPlayer(core, "mpv", fontScale = 1.3f)
+        rule.runOnIdle { core.tick(3634.5) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
+        targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
+            val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
+            assertTrue("卡片与控制命中区不能重叠：${a.config} / ${b.config}", overlap.width <= 0f || overlap.height <= 0f)
+        } }
+        rule.onRoot().captureRoboImage("build/player-osd/next-up-compact.png")
+        rule.onNodeWithContentDescription("字幕").performClick(); advance(rule, 300)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithText("字幕").assertIsDisplayed()
+    }
+
+    @Test fun 季末没有下一集不显示接下来() {
+        val core = episodeCore().apply {
+            ret("emby.seasonEpisodes", buildJsonObject { put("items", arr(item("sh6", "最后一集", "Episode"))); put("total", 1) })
+        }
+        showPlayer(core, "mpv")
+        rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithContentDescription("下一集").assertIsNotEnabled()
+    }
+
+    @Test fun 分集未就绪和读取失败不显示接下来() {
+        val release = CompletableDeferred<Unit>()
+        val core = episodeCore()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.seasonEpisodes") {
+                    release.await()
+                    throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败", true)
+                }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            showPlayer(port, "mpv")
+            rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
+            rule.onNodeWithText("接下来").assertDoesNotExist()
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 300)
+            rule.onNodeWithText("接下来").assertDoesNotExist()
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun Media3接下来及上一集均复用当前内核和停止屏障() {
+        val core = episodeCore()
+        showPlayer(core, "exo")
+        exoState(3_635_000); advance(rule, 300)
+        rule.onNodeWithText("接下来").assertIsDisplayed().performClick()
+        advance(rule, 500)
+        exoState(0); advance(rule, 300)
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithContentDescription("上一集").performClick(); advance(rule, 500)
+        assertEquals("sh6", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(listOf("player.play", "player.stopPlayback", "player.play", "player.stopPlayback", "player.play"),
+            core.calls.map { it.first }.filter { it in listOf("player.play", "player.stopPlayback") })
+        assertTrue(core.calls.filter { it.first == "player.play" }.all { it.second.str("engine") == "exo" })
+    }
+
+    @Test fun MPV章节入口读取服务端时间并执行真实跳转() {
+        val core = episodeCore().apply { ret("player.seek", JsonNull) }
+        showPlayer(core, "mpv")
+        rule.onNodeWithContentDescription("章节").performClick(); advance(rule, 300)
+        assertEquals("sh6", core.calls.last { it.first == "player.chapterInfo" }.second.str("item_id"))
+        rule.onNodeWithText("章节 18:50").performClick(); advance(rule, 300)
+        assertEquals(1130.0, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, 0.0)
+    }
+
+    @Test fun 选集连续点击只提交一次在途切换() {
+        val release = CompletableDeferred<Unit>()
+        val core = episodeCore()
+        var stops = 0
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.stopPlayback") { stops++; release.await() }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            showPlayer(port, "mpv")
+            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
+            advance(rule, 300)
+            val first = rule.onNode(hasText("S1E7", substring = true)).fetchSemanticsNode().config[
+                androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+            val second = rule.onNode(hasText("S1E8", substring = true)).fetchSemanticsNode().config[
+                androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
+            rule.runOnIdle { first(); second() }
+            advance(rule, 300)
+            assertEquals("在途停止只能提交一次", 1, stops)
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 500)
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            assertEquals(2, core.calls.count { it.first == "player.play" })
+        } finally { release.complete(Unit) }
+    }
+
+    private fun exoState(position: Long, ended: Boolean = false) = rule.runOnIdle {
+        val info = ReflectionHelpers.getField<Any>(currentExo(), "playbackInfo")
+        val timeline = androidx.media3.exoplayer.source.SinglePeriodTimeline(3_660_000_000L, true, false, false, null,
+            androidx.media3.common.MediaItem.fromUri("asset:///episode-test.mp4"))
+        val period = androidx.media3.exoplayer.source.MediaSource.MediaPeriodId(timeline.getUidOfPeriod(0))
+        ReflectionHelpers.setField(info, "timeline", timeline)
+        ReflectionHelpers.setField(info, "periodId", period)
+        ReflectionHelpers.setField(info, "loadingMediaPeriodId", period)
+        ReflectionHelpers.setField(info, "positionUs", position * 1000)
+        ReflectionHelpers.setField(info, "bufferedPositionUs", position * 1000)
+        ReflectionHelpers.setField(info, "playbackState", if (ended) androidx.media3.common.Player.STATE_ENDED else androidx.media3.common.Player.STATE_READY)
     }
 
     @Test fun 手机生产起播接入阶段日志且MPV首帧明确未知() {
@@ -574,15 +877,19 @@ class PhoneEnginePlaybackTest {
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
 
-    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null) {
+    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
         rule.setContent {
             LpTheme {
-                CompositionLocalProvider(LocalApp provides app) {
+                CompositionLocalProvider(LocalApp provides app,
+                    androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
+                        androidx.compose.ui.platform.LocalDensity.current.density, fontScale)) {
+                    val context = LocalContext.current
+                    SideEffect { activity = context as Activity }
                     val nav = rememberNavController()
-                    NavHost(nav, startDestination = Route.Player("sh6", "测试剧集", versionId = "requested-version", engine = mode, ar = 16f / 9)) {
+                    NavHost(nav, startDestination = Route.Player("sh6", "测试剧集", versionId = "requested-version", engine = mode, ar = ar)) {
                         composable<Route.Player> { entry ->
                             CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides
                                 (owner ?: androidx.lifecycle.compose.LocalLifecycleOwner.current)) {

@@ -149,7 +149,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
                 val error = errors[selected]
                 if (urls[selected].isBlank()) EmptyState("暂时无法打开", "当前安装包尚未配置此页面", LpIcons.globe)
                 else if (error != null) ErrorState(error, { views[selected]?.reload() })
-                else if (loading[selected]) Dim3("正在加载…", Modifier.padding(Sp.x16))
+                else if (loading[selected]) xyz.linplayer.app.ui.components.LoadingLabel("正在加载…", Modifier.padding(Sp.x16))
             }
         }
     }

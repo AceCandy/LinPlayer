@@ -85,6 +85,7 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
     var groups by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     var status by remember { mutableStateOf("") }
     var searching by remember { mutableStateOf(false) }
+    var attaching by remember { mutableStateOf(false) }
     /** 展开了的作品:`源id|作品id` → 集表。null = 还在取。 */
     var opened by remember { mutableStateOf<Map<String, List<JsonObject>?>>(emptyMap()) }
 
@@ -120,6 +121,8 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
     }
 
     suspend fun attach(sourceId: String, episodeId: String, label: String) {
+        attaching = true
+        try {
         status = "正在取「$label」…"
         val items = runCatching {
             app.call("danmaku.load", args("source_id" to sourceId, "episode_id" to episodeId))
@@ -136,6 +139,7 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
         DanmakuStyle.reloadLayout(app)
         app.toast("挂上 " + (items as? JsonArray)?.size + " 条弹幕", ToastKind.Ok)
         onClose()
+        } finally { attaching = false }
     }
 
     Box(Modifier.fillMaxSize()) {
@@ -161,9 +165,10 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
             LpField(keyword, { keyword = it }, "片名,或者一条 Bangumi 条目链接")
             Spacer(Modifier.height(Sp.x6))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                LpButton(if (searching) "搜索中…" else "搜索",
+                LpButton("搜索", loading = searching,
                     onClick = { scope.launch { search() } })
                 Spacer(Modifier.width(Sp.x10))
+                if (attaching) xyz.linplayer.app.ui.components.LpLoading(size = 24.dp)
                 Dim3(status, Modifier.weight(1f), maxLines = 2)
             }
             Spacer(Modifier.height(Sp.x10))
@@ -195,7 +200,7 @@ fun DanmakuSearchDialog(itemId: String, title: String, onClose: () -> Unit) {
                         }
                         if (opened.containsKey(key)) {
                             val eps = opened[key]
-                            if (eps == null) item("l-$key") { Dim3("正在取集数…") }
+                            if (eps == null) item("l-$key") { xyz.linplayer.app.ui.components.LoadingLabel("正在取集数…") }
                             else if (eps.isEmpty()) item("z-$key") { Dim3("这部作品下面没有集。") }
                             else eps.forEach { ep ->
                                 val eid = ep.str("episode_id") ?: ""

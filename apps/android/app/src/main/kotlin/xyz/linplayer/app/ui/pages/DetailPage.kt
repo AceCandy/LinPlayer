@@ -942,6 +942,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 }
                             }
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
+                            if (seasonLoad is Block.Loading || episodeLoad is Block.Loading)
+                                xyz.linplayer.app.ui.components.LpLoading(size = 20.dp)
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id) {
                             EpisodeStrip(app, shownEpisodes, currentId = route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
@@ -1002,7 +1004,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                    分堆在核心层做(`emby.collectionItems`)—— 两端各分一次的话,
                    迟早在「其它类型往哪儿归」上分叉,而那种不一致没人会报上来。 */
                 if (isBoxSet) {
-                    if (boxLoading) item("boxbusy") { SectionTitle("正在取合集内容…", accent = Lp.colors.mediaIcon) }
+                    if (boxLoading) item("boxbusy") { xyz.linplayer.app.ui.components.LoadingLabel("正在取合集内容…", Modifier.padding(Sp.x16)) }
                     else if (boxMovies.isEmpty() && boxSeries.isEmpty() && boxOthers.isEmpty()) {
                         // 说清是「空的」而不是「没拉到」。空着的话和还在加载长得一样。
                         item("boxempty") { SectionTitle("这个合集里没有内容", accent = Lp.colors.mediaIcon) }

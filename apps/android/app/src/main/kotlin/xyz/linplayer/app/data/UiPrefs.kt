@@ -21,6 +21,7 @@ object UiPrefs {
     private const val K_COLOR = "color_scheme"
     private const val K_ENGINE = "engine"
     private const val K_FONT = "ui_font"
+    private const val K_LOADING = "loading_style"
     const val K_SHOT_TIME = "shot_time"
     const val K_SHOT_LOGO = "shot_logo"
     const val K_SHOT_TIME_POS = "shot_time_pos"
@@ -50,6 +51,15 @@ object UiPrefs {
     /** 色系与深浅模式独立，只影响本机手机呈现。 */
     val colorScheme = mutableStateOf("amber")
     val colorOptions = listOf("橙金" to "amber", "蓝色" to "blue", "绿色" to "green", "紫色" to "purple", "Monet" to "monet")
+    /** 手机原生等待动画；仅影响本机呈现，ID 与参考端七项保持一致。 */
+    val loadingStyle = mutableStateOf(0)
+    val loadingOptions = listOf("Material" to 0, "Style1" to 1, "Style2" to 2, "Style3" to 3,
+        "Style4" to 4, "Style5" to 5, "Style7" to 7)
+    fun loadingLabel(): String = loadingOptions.firstOrNull { it.second == loadingStyle.value }?.first ?: "Material"
+    fun setLoadingStyle(ctx: Context, id: Int) {
+        loadingStyle.value = id.takeIf { v -> loadingOptions.any { it.second == v } } ?: 0
+        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putInt(K_LOADING, loadingStyle.value).apply()
+    }
     fun colorLabel(): String = colorOptions.firstOrNull { it.second == colorScheme.value }?.first ?: "橙金"
     fun setColorScheme(ctx: Context, value: String) {
         colorScheme.value = value.takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
@@ -143,6 +153,7 @@ object UiPrefs {
         }.getOrDefault(emptyList())
         theme.value = sp.getString(K_THEME, "system") ?: "system"
         colorScheme.value = sp.getString(K_COLOR, "amber").takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
+        loadingStyle.value = sp.getInt(K_LOADING, 0).takeIf { id -> loadingOptions.any { it.second == id } } ?: 0
         engine.value = sp.getString(K_ENGINE, "mpv") ?: "mpv"
         val font = sp.getString(K_FONT, "").orEmpty()
         uiFont.value = font.takeIf { v -> fontOptions.any { it.second == v } }.orEmpty()
