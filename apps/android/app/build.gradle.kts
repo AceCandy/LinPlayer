@@ -118,9 +118,8 @@ android {
 
     packaging {
         jniLibs {
-            // .so 已经由 build-core-android.sh strip 过。压缩它会让安装后占两份空间
-            // (APK 里一份 + 解压出来一份),而现代 Android 直接从 APK 里 mmap
-            useLegacyPackaging = false
+            // 压缩原生库以减少 APK 下载体积；安装时由系统解压后加载。
+            useLegacyPackaging = true
         }
         resources.excludes += setOf("/META-INF/{AL2.0,LGPL2.1}")
     }

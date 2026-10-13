@@ -78,7 +78,7 @@ for abi in "${ABIS[@]}"; do
   sz=$(( apk_bytes / 1024 / 1024 ))
   echo "  体积 ${sz} MB"
   budget=60
-  [ "$abi" = arm64-v8a ] && budget=80 # 手机包含两套内置中文字体；其它ABI预算保持原值
+  [ "$abi" = arm64-v8a ] && budget=64 # 手机使用系统字体；其它ABI预算保持原值
   [ "$apk_bytes" -le "$((budget * 1024 * 1024))" ] || bad "$base ${sz}MB 超预算(先看 .so 有没有 strip)"
 done
 [ "$found" = 1 ] || bad "release 目录里一个 APK 都没有"

@@ -89,10 +89,10 @@
 
 ## 手机缓存与Expressive外观
 
-- UiPrefs.ui_font仅空/sans/serif，内置常规静态字体，旧文件路径回系统默认，不影响字幕；资源许可与SHA见docs/go-migration/BUNDLED-FONTS.md。手机壁纸入口与根绘制移除，TV/插件契约保留。详情背景通过有界Coil转换处理，不修改共享原图。
+- Android界面使用系统默认字体，不内置中文字体、不提供字体选择，旧ui_font偏好不再读取，不影响字幕。手机壁纸入口与根绘制移除，TV/插件契约保留。详情背景通过有界Coil转换处理，不修改共享原图。
 - Material3 1.4.0只使用公开API，形状token8/12/18/28dp和适度回弹保持影院配色；本批导航/图片/OSD/按压动画用lpTween/lpSpring，系统倍率变化由主题观察，0必须立即到位。
 - PassiveProgress是底部3dp只读Canvas：实际position、有限正duration、RTL、safeDrawing底部，OSD/面板/PiP/退场/转屏等待隐藏，锁屏可见；不可接入seek或MPV buffered轮询。
-- 手机存储页通过get/setPrefetchSettings.media_cache_bytes读取/保存全局媒体容量，省略其它字段不清空旧设置，保存失败回滚，加载失败显示重试。清理显示核心实际bytes结果。arm64手机字体资源预算20MiB、release上限80MiB，其它ABI仍60MiB。
+- 手机存储页通过get/setPrefetchSettings.media_cache_bytes读取/保存全局媒体容量，省略其它字段不清空旧设置，保存失败回滚，加载失败显示重试。清理显示核心实际bytes结果。arm64手机release上限64MiB，其它ABI仍60MiB。
 
 - 手机按压弹簧不得只用pressed布尔状态证明短Tap可见：滚动容器可能在同帧发出Press/Release。共用pressFeedback消费交互事件，短Tap补可见缩放，Cancel仅复位，onClick不等待动画；海报长按和底栏selectable复用同源反馈且保留长按/Role.Tab/selected。验收至少包括滚动容器快速Tap的真实渲染、点击即时分派和连续点击，不能只测按住再松手。归一化缩放弹簧使用0.001可见阈值，避免小幅回弹过早结束；系统动画倍率0立即到终态。
 

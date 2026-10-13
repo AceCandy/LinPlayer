@@ -20,7 +20,6 @@ object UiPrefs {
     private const val K_THEME = "theme"
     private const val K_COLOR = "color_scheme"
     private const val K_ENGINE = "engine"
-    private const val K_FONT = "ui_font"
     private const val K_LOADING = "loading_style"
     const val K_SHOT_TIME = "shot_time"
     const val K_SHOT_LOGO = "shot_logo"
@@ -65,16 +64,6 @@ object UiPrefs {
         colorScheme.value = value.takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
         ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(K_COLOR, colorScheme.value).apply()
     }
-
-    /**
-     * 内置界面字体ID，空为系统默认；不再读取用户文件路径。
-     *
-     * ★ 它进这里而不是核心层:字体得在**第一帧之前**就拿得到。走核心层是一次异步调用,
-     *   表现是每次冷启动先用默认字体画一屏、再整页换字 —— 那比不给这个功能还难看。
-     */
-    val uiFont = mutableStateOf("")
-    val fontOptions = listOf("系统默认" to "", "思源黑体" to "sans", "思源宋体" to "serif")
-    fun fontLabel(): String = fontOptions.firstOrNull { it.second == uiFont.value }?.first ?: "系统默认"
 
     /**
      * 播放键短按模式:`mpv` / `exo` / `auto`。自动先试 Media3，兼容失败时回退 MPV。
@@ -155,9 +144,6 @@ object UiPrefs {
         colorScheme.value = sp.getString(K_COLOR, "amber").takeIf { id -> colorOptions.any { it.second == id } } ?: "amber"
         loadingStyle.value = sp.getInt(K_LOADING, 0).takeIf { id -> loadingOptions.any { it.second == id } } ?: 0
         engine.value = sp.getString(K_ENGINE, "mpv") ?: "mpv"
-        val font = sp.getString(K_FONT, "").orEmpty()
-        uiFont.value = font.takeIf { v -> fontOptions.any { it.second == v } }.orEmpty()
-        if (font != uiFont.value) sp.edit().putString(K_FONT, uiFont.value).apply()
         shotTime.value = sp.getBoolean(K_SHOT_TIME, true)
         shotLogo.value = sp.getBoolean(K_SHOT_LOGO, false)
         shotTimePos.value = sp.getString(K_SHOT_TIME_POS, "br") ?: "br"
@@ -197,12 +183,6 @@ object UiPrefs {
      * 自动模式的首选是 Media3，因此长按明确用 MPV，不触发自动回退。
      */
     fun otherEngine(of: String = engine.value): String = if (of == "mpv") "exo" else "mpv"
-
-    fun setFont(ctx: Context, id: String) {
-        require(fontOptions.any { it.second == id })
-        uiFont.value = id
-        ctx.getSharedPreferences(FILE, Context.MODE_PRIVATE).edit().putString(K_FONT, id).apply()
-    }
 
     fun setEngine(ctx: Context, v: String) {
         engine.value = v

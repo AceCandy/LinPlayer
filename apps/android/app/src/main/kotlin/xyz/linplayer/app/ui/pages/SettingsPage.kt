@@ -334,12 +334,6 @@ private fun AppearancePanel() {
             sub = if (android.os.Build.VERSION.SDK_INT >= 31) "Monet 跟随系统壁纸配色" else "Monet 需要 Android 12，当前设备回退橙金",
             onClick = { pickColor = true })
         Hairline()
-        SegRow("界面字体", xyz.linplayer.app.data.UiPrefs.fontOptions.map { it.first },
-            xyz.linplayer.app.data.UiPrefs.fontLabel(), { label ->
-                xyz.linplayer.app.data.UiPrefs.setFont(ctx,
-                    xyz.linplayer.app.data.UiPrefs.fontOptions.first { it.first == label }.second)
-            }, sub = "内置字体，切换立即生效；字幕字体不受影响")
-        Hairline()
         LpCell("加载动画", value = xyz.linplayer.app.data.UiPrefs.loadingLabel(),
             sub = "全 App 原生等待统一使用，切换立即生效", onClick = { pickLoading = true })
         Hairline()

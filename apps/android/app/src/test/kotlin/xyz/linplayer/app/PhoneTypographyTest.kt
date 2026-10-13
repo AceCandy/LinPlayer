@@ -15,7 +15,6 @@ import androidx.compose.ui.text.TextLayoutResult
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.sp
 import com.github.takahirom.roborazzi.captureRoboImage
-import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
@@ -23,19 +22,16 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.ui.components.*
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpTheme
 
-/** 同一套手机组件在三字体、系统缩放和深浅色下保持可读与一致。 */
+/** 同一套手机组件在系统默认字体、系统缩放和深浅色下保持可读与一致。 */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w393dp-h873dp-mdpi", sdk = [36], application = Application::class)
 class PhoneTypographyTest {
     @get:Rule val rule = createComposeRule()
-    private val original = UiPrefs.uiFont.value
-    @After fun restore() { UiPrefs.uiFont.value = original }
 
     private fun layout(text: String): TextLayoutResult {
         val result = mutableListOf<TextLayoutResult>()
@@ -44,7 +40,7 @@ class PhoneTypographyTest {
         return result.first()
     }
 
-    @Test fun topBarAndFieldsStayReadableAcrossFontsAndScales() {
+    @Test fun topBarAndFieldsStayReadableAcrossScales() {
         val scale = mutableStateOf(1f)
         val dark = mutableStateOf(false)
         rule.setContent {
@@ -60,13 +56,13 @@ class PhoneTypographyTest {
                 }
             }
         }
-        for (font in listOf("", "sans", "serif")) for (factor in listOf(1f, 1.3f, 2f)) for (isDark in listOf(false, true)) {
-            rule.runOnIdle { UiPrefs.uiFont.value = font; scale.value = factor; dark.value = isDark }
+        for (factor in listOf(1f, 1.3f, 2f)) for (isDark in listOf(false, true)) {
+            rule.runOnIdle { scale.value = factor; dark.value = isDark }
             rule.waitForIdle()
             val subtitle = layout("30+ 部")
-            assertFalse("副标题裁切: $font/$factor/$isDark", subtitle.didOverflowHeight)
+            assertFalse("副标题裁切: $factor/$isDark", subtitle.didOverflowHeight)
             val title = layout("名称很长的媒体库标题")
-            assertFalse("标题裁切: $font/$factor/$isDark", title.didOverflowHeight)
+            assertFalse("标题裁切: $factor/$isDark", title.didOverflowHeight)
             val ordinary = layout("普通设置").layoutInput.style
             val media = layout("媒体设置").layoutInput.style
             assertEquals("设置主文案字号不同", ordinary.fontSize, media.fontSize)
@@ -75,13 +71,13 @@ class PhoneTypographyTest {
             val input = layout("输入后的片名").layoutInput.style
             assertEquals("输入提示字号不同", input.fontSize, placeholder.fontSize)
             assertEquals("输入提示行高不同", input.lineHeight, placeholder.lineHeight)
-            if ((font == "serif" && factor == 2f) || (font == "" && factor == 1f)) {
-                rule.onRoot().captureRoboImage("build/typography-${font.ifEmpty { "system" }}-$factor-$isDark.png")
+            if (factor == 1f || factor == 2f) {
+                rule.onRoot().captureRoboImage("build/typography-system-$factor-$isDark.png")
             }
         }
     }
 
-    @Test fun timeDigitsKeepTheirWidthAcrossFonts() {
+    @Test fun timeDigitsKeepTheirWidth() {
         rule.setContent {
             LpTheme {
                 Column {
@@ -91,17 +87,14 @@ class PhoneTypographyTest {
                 }
             }
         }
-        for (font in listOf("", "sans", "serif")) {
-            rule.runOnIdle { UiPrefs.uiFont.value = font }
-            rule.waitForIdle()
-            val width = layout("00:00").getLineRight(0)
-            for (value in listOf("11:11", "88:88")) {
-                assertEquals("时间数字宽度不稳定: $font/$value", width, layout(value).getLineRight(0), .1f)
-            }
+        rule.waitForIdle()
+        val width = layout("00:00").getLineRight(0)
+        for (value in listOf("11:11", "88:88")) {
+            assertEquals("时间数字宽度不稳定: $value", width, layout(value).getLineRight(0), .1f)
         }
     }
 
-    @Test fun materialSlotsKeepSelectedFontAndChineseSpacing() {
+    @Test fun materialSlotsKeepDefaultFontAndChineseSpacing() {
         val styles = mutableListOf<androidx.compose.ui.text.TextStyle>()
         rule.setContent {
             LpTheme {
@@ -113,15 +106,11 @@ class PhoneTypographyTest {
                     t.bodySmall, t.labelLarge, t.labelMedium, t.labelSmall))
             }
         }
-        for (font in listOf("", "sans", "serif")) {
-            rule.runOnIdle { UiPrefs.uiFont.value = font }
-            rule.waitForIdle()
-            val family = styles.first().fontFamily
-            for (style in styles) {
-                assertEquals("M3样式脱离已选字体: $font", family, style.fontFamily)
-                assertEquals("中文额外字距", 0.sp, style.letterSpacing)
-                assertNotEquals("缺失明确行高", androidx.compose.ui.unit.TextUnit.Unspecified, style.lineHeight)
-            }
+        rule.waitForIdle()
+        for (style in styles) {
+            assertNull("M3样式不应覆盖系统默认字体", style.fontFamily)
+            assertEquals("中文额外字距", 0.sp, style.letterSpacing)
+            assertNotEquals("缺失明确行高", androidx.compose.ui.unit.TextUnit.Unspecified, style.lineHeight)
         }
     }
 }

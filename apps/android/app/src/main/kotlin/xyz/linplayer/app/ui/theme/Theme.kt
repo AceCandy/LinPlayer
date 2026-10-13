@@ -28,8 +28,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.TextStyle
-import androidx.compose.ui.text.font.FontFamily
-import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -133,10 +131,10 @@ val LocalLpColors = staticCompositionLocalOf { DarkColors }
  */
 val LocalMotionScale: ProvidableCompositionLocal<Float> = compositionLocalOf { 1f }
 
-private fun lpTypography(f: FontFamily?): Typography {
+private fun lpTypography(): Typography {
     fun style(size: Int, height: Int, weight: FontWeight = FontWeight.Normal) = TextStyle(
         fontSize = size.sp, lineHeight = height.sp, fontWeight = weight,
-        fontFamily = f, letterSpacing = 0.sp,
+        letterSpacing = 0.sp,
     )
     return Typography(
         displayLarge = style(25, 32, FontWeight.Bold),
@@ -155,21 +153,6 @@ private fun lpTypography(f: FontFamily?): Typography {
         labelMedium = style(13, 20, FontWeight.Medium),
         labelSmall = style(11, 14, FontWeight.Medium),
     )
-}
-
-/**
- * 内置静态字体资源，兼容API24；粗字由字体族合成，不使用变量字体轴。
- */
-@Composable
-private fun userFontFamily(): FontFamily? {
-    val id = xyz.linplayer.app.data.UiPrefs.uiFont.value
-    return remember(id) {
-        when (id) {
-            "sans" -> FontFamily(Font(xyz.linplayer.app.R.font.noto_sans_sc_regular))
-            "serif" -> FontFamily(Font(xyz.linplayer.app.R.font.noto_serif_sc_regular))
-            else -> null
-        }
-    }
 }
 
 /** 可选色系不改变静态模式的影院底色；Monet使用系统动态中性色与强调色。 */
@@ -230,8 +213,7 @@ fun LpTheme(
     )
 
     // 公共文字与M3组件共用完整的字体、行高和字距，避免只改字号后继承正文行高。
-    val family = userFontFamily()
-    val typo = remember(family) { lpTypography(family) }
+    val typo = remember { lpTypography() }
     CompositionLocalProvider(LocalLpColors provides c, LocalMotionScale provides motion) {
         MaterialTheme(colorScheme = scheme, typography = typo, shapes = Shapes(
             extraSmall = RoundedCornerShape(R.sm), small = RoundedCornerShape(R.md),
