@@ -15,12 +15,12 @@
   "branch": "main",
   "base_branch": "main",
   "worktree_path": null,
-  "commit": null,
+  "commit": "c764373b",
   "pr_url": null,
   "subtasks": [],
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "用户已授权提交归档及编译手机包；核心、绑定、相关Android/桌面与MSG接口验证通过；详见verification.md。",
+  "notes": "用户已授权提交归档与手机出包。LinPlayer功能c764373b；MSG弹幕能力6226796。门禁与独立复核通过；手机包交付情况记录会话日志。",
   "meta": {}
 }
