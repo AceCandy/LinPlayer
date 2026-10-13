@@ -66,6 +66,8 @@ fun PlayerPanel(
     anchor: Rect? = null,
     speed: Double = 1.0,
     hasEpisodes: Boolean = false,
+    chapters: List<JsonObject>? = null,
+    onSwitchEngine: (() -> Unit)? = null,
     onSpeed: (Double) -> Unit = {},
     /** 这一格是插件标签时的那一行(`plugin.playerSurfaces` 的 panel),官方面板是 null。 */
     pluginPanel: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
@@ -96,6 +98,7 @@ fun PlayerPanel(
     val shownPluginPanel = if (active) pluginPanel else lastPluginPanel
 
     var options by remember(menuKind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
+    var mediaInfo by remember(menuKind, itemId, exo) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var current by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
     var episodes by remember(menuKind, itemId) { mutableStateOf<List<Item>>(emptyList()) }
     var loadError by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
@@ -107,7 +110,7 @@ fun PlayerPanel(
     val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
     var loading by remember(menuKind, itemId, exo) { mutableStateOf(true) }
 
-    LaunchedEffect(active, menuKind, itemId, exo, retry, hasEpisodes) {
+    LaunchedEffect(active, menuKind, itemId, exo, retry, hasEpisodes, onSwitchEngine != null, chapters) {
         if (!active) return@LaunchedEffect
         loading = true; loadError = null
         if (menuKind != "episodes") options = emptyList()
@@ -188,10 +191,10 @@ fun PlayerPanel(
                「完全没看出来效果」。`off` 永远留着:它是「关掉」不是一档效果。 */
             "chapters" -> {
                 try {
-                    val info = app.call("player.chapterInfo", args("item_id" to itemId)).obj()
+                    val available = chapters ?: app.call("player.chapterInfo", args("item_id" to itemId)).obj()
+                        ?.get("chapters").arr().mapNotNull { it.obj() }
                     currentCoroutineContext().ensureActive()
-                    options = info?.get("chapters").arr().mapNotNull {
-                        val chapter = it.obj()
+                    options = available.mapNotNull { chapter ->
                         val at = chapter.dbl("start_secs")?.takeIf { t -> t.isFinite() && t >= 0 } ?: return@mapNotNull null
                         Triple(at.toString(), fmtTime(at), chapter.str("name").orEmpty().ifBlank { "章节 ${fmtTime(at)}" })
                     }.distinctBy { it.first }
@@ -249,20 +252,26 @@ fun PlayerPanel(
                 options = (1..16).map { Triple((it * .25).toString(), null, "${it * .25}×") }
                 current = speed.toString()
             }
+            "info" -> {
+                try {
+                    val opts = if (exo == null) app.call("player.opts").obj() else null
+                    currentCoroutineContext().ensureActive()
+                    mediaInfo = playbackMediaInfo(exo, opts)
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) { loadError = "媒体信息读取失败" }
+            }
             "more" -> {
                 options = listOfNotNull(
                     if (hasEpisodes) Triple("episodes", null, "选集") else null,
                     Triple("ratio", null, "画面比例"),
                     Triple("source", null, "版本与线路"),
-                    Triple("audio", null, "音轨"),
                     /* ☠ **Exo 内核下没有「画面增强」这一项。** 它是 mpv 的 glsl-shaders,
                        Exo 那条路上 mpv 手里根本没有这一片 —— 挂上去是空转,
                        而 `player.setShaderLevel` 照样返回成功。
                        一颗「点开永远没效果」的按钮比没有它更糟。 */
                     if (exo == null) Triple("quality", null, "画面增强") else null,
-                    // 弹幕两个内核下都有:它画在 View 层,和 mpv 没关系(见 DanmakuLayer)
-                    Triple("danmaku", null, "弹幕"),
-                    Triple("substyle", null, "字幕样式"),
+                    Triple("info", null, "媒体信息"),
+                    if (onSwitchEngine != null) Triple("engine", null, if (exo == null) "切换到 Media3 内核" else "切换到 MPV 内核") else null,
                 )
             }
         }
@@ -276,11 +285,11 @@ fun PlayerPanel(
     val width = when (menuKind) {
         "more" -> 192.dp
         "audio", "subtitle", "ratio", "speed", "chapters" -> 200.dp
-        "substyle" -> 272.dp
+        "substyle", "info" -> 272.dp
         "danmaku" -> if (danmakuPage == "quick") 220.dp else 280.dp
         else -> 236.dp
     }
-    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku",
+    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku" || menuKind == "info",
         cornerRadius = if (menuKind == "danmaku") 12.dp else 4.dp,
         background = if (menuKind == "danmaku") Color(0xEB1D2124) else Color(0xFF1D2124),
         sidePanel = menuKind == "danmaku" && danmakuPage == "style",
@@ -301,6 +310,14 @@ fun PlayerPanel(
             menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, danmakuPage, onPage = { danmakuPage = it }, onSearch = {
                 onClose(); onSearch()
             })
+            menuKind == "info" && !loading -> LazyColumn(Modifier.fillMaxWidth()) {
+                items(mediaInfo) { (label, value) ->
+                    Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x6)) {
+                        Text(label, color = Color.White.copy(alpha = .55f), style = LpText.secondary)
+                        Text(value, color = Color.White, style = LpText.body)
+                    }
+                }
+            }
             loading && options.isEmpty() -> Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) }
             options.isEmpty() && loadError == null -> PlayerMenuNote("这里没有可选项", maxLines = 2)
             options.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), list) {
@@ -311,7 +328,8 @@ fun PlayerPanel(
                 }
                 items(options, key = { it.first }) { (id, badge, label) ->
                     PlayerMenuRow(label, {
-                        if (menuKind == "more" || id == "substyle") onOpen(id)
+                        if (menuKind == "more" && id == "engine") { onClose(); onSwitchEngine?.invoke() }
+                        else if (menuKind == "more" || id == "substyle") onOpen(id)
                         else if (id == "interp:na") app.toast(label, ToastKind.Error)
                         else if (menuKind == "ratio") { onFit(VideoFit.of(id)); onClose() }
                         else if (menuKind == "speed") { id.toDoubleOrNull()?.let(onSpeed); onClose() }
@@ -330,8 +348,8 @@ fun PlayerPanel(
                         sub = badge?.takeIf { (menuKind == "audio" || menuKind == "subtitle") && it != label },
                         badge = badge.takeUnless { menuKind == "audio" || menuKind == "subtitle" },
                         icon = if (menuKind == "more") when (id) {
-                            "episodes" -> LpIcons.list; "ratio" -> LpIcons.aspect; "source" -> LpIcons.version; "audio" -> LpIcons.music
-                            "quality" -> LpIcons.sparkle; "danmaku" -> LpIcons.danmaku; else -> LpIcons.sub
+                            "episodes" -> LpIcons.list; "ratio" -> LpIcons.aspect; "source" -> LpIcons.version
+                            "quality" -> LpIcons.sparkle; "engine" -> LpIcons.play; "info" -> LpIcons.list; else -> LpIcons.sub
                         } else null)
                 }
                 if (loading) item("loading") { Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) } }

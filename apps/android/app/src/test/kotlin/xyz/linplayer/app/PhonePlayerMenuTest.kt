@@ -55,6 +55,58 @@ class PhonePlayerMenuTest {
             buildJsonObject { put("id", "2"); put("kind", "audio"); put("title", "配音") }))
     }
 
+    @Test fun mediaInfoShowsRuntimeFieldsAndNeverPlaybackAddress() {
+        val core = core().apply { ret("player.opts", buildJsonObject {
+            put("video-codec", "hevc"); put("dwidth", "3840"); put("dheight", "2160")
+            put("container-fps", "23.976"); put("audio-codec-name", "aac"); put("hwdec-current", "mediacodec")
+            put("last_error", "private diagnostic"); put("path", "private playback address")
+        }) }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+            PlayerPanel("info", "episode", onClose = {})
+        } } }
+        rule.onNodeWithText("MPV").assertExists()
+        rule.onNodeWithText("3840 × 2160").assertExists()
+        rule.onNodeWithText("23.976 fps").assertExists()
+        rule.onNodeWithText("private diagnostic").assertDoesNotExist()
+        rule.onNodeWithText("private playback address").assertDoesNotExist()
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/media-info.png")
+    }
+
+    @Test fun media3InfoUsesCurrentFormatsWithoutReadingMpv() {
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(org.robolectric.RuntimeEnvironment.getApplication()).build()
+        try {
+            org.robolectric.util.ReflectionHelpers.setField(player, "videoFormat", androidx.media3.common.Format.Builder()
+                .setSampleMimeType("video/avc").setWidth(1920).setHeight(1080).setFrameRate(24f).build())
+            org.robolectric.util.ReflectionHelpers.setField(player, "audioFormat", androidx.media3.common.Format.Builder()
+                .setSampleMimeType("audio/mp4a-latm").setSampleRate(48000).setChannelCount(2).build())
+            val rows = playbackMediaInfo(player, buildJsonObject { put("video-codec", "旧MPV编码") }).toMap()
+            assertEquals("Media3", rows["播放内核"])
+            assertEquals("1920 × 1080", rows["分辨率"])
+            assertEquals("48000 Hz", rows["采样率"])
+            assertEquals("2", rows["声道数"])
+            assertFalse(rows.values.contains("旧MPV编码"))
+        } finally { player.release() }
+    }
+
+    @Test fun passiveStatusHidesZeroSpeedAndShowsNextNonzeroSample() {
+        val speed = mutableStateOf("")
+        rule.setContent { LpTheme {
+            Box(Modifier.fillMaxSize()) {
+                PassiveStatus("21:34 · 83%", speed.value, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
+            }
+        } }
+        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
+        rule.runOnIdle { speed.value = fmtSpeed(0, 1_000_000_000L) }
+        rule.onNodeWithText("0 KB/s").assertDoesNotExist()
+        rule.runOnIdle { speed.value = fmtSpeed(2048, 1_000_000_000L) }
+        rule.onNodeWithText("2 KB/s").assertIsDisplayed()
+        rule.runOnIdle { speed.value = fmtSpeed(0, 1_000_000_000L) }
+        rule.onNodeWithText("2 KB/s").assertDoesNotExist()
+        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
+    }
+
     @Test fun positionsStayInsideWindowAndAvoidTopBottomAndSideEntrances() {
         for (direction in LayoutDirection.entries) for (window in listOf(IntSize(320, 640), IntSize(640, 360))) {
             for (anchor in listOf(Rect(272f, 0f, 320f, 48f), Rect(160f, window.height - 48f, 208f, window.height.toFloat()),
@@ -122,6 +174,10 @@ class PhonePlayerMenuTest {
         assertFalse(popupBounds(manager!!).overlaps(
             rule.onNodeWithContentDescription("更多").fetchSemanticsNode().boundsInWindow))
         rule.onNodeWithText("更多").assertDoesNotExist()
+        rule.onNodeWithContentDescription("比例").assertDoesNotExist()
+        for (label in listOf("音轨", "弹幕", "字幕样式")) rule.onNodeWithText(label).assertDoesNotExist()
+        rule.onNodeWithText("画面比例").assertIsDisplayed()
+        rule.onNodeWithText("媒体信息").assertIsDisplayed()
         assertTrue(rule.onAllNodesWithTag("player.menu.icon", useUnmergedTree = true).fetchSemanticsNodes().isNotEmpty())
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/${if (portrait) "portrait" else "landscape"}-more-popup.png")
         // 返回键由真实Popup窗口处理。

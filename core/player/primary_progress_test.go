@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"net/http/httptest"
@@ -46,20 +47,42 @@ func Test主服零进度与回退覆盖本地最大值且从头优先(t *testing
 	runtime := int64(1200000000)
 	history.Shared().Capture(history.CaptureOpts{ScopeKey: history.ScopeKey(up.URL, "user"), Candidate: history.Candidate{ID: "item", Name: "Movie", Type: "Movie", RunTimeTicks: &runtime}, PositionTicks: 1000000000, Force: true})
 	defer progress.Shared().Invalidate()
-	for _, test := range []struct {
-		primary   int64
-		arg, want float64
-	}{{0, 80, 0}, {20000000, 80, 2}, {30000000, -1, 0}} {
-		position = test.primary
-		r, err := PlayResolve(context.Background(), s, "item", test.arg, "")
-		if err != nil {
-			t.Fatal(err)
+	for _, primaryMode := range []bool{true, false} {
+		if !primaryMode {
+			p.PrimaryProgressServer = nil
+			p.CrossServerResume = true
+			if err := c.SetPrefs(p); err != nil {
+				t.Fatal(err)
+			}
 		}
-		if r.ResumeSecs != test.want {
-			t.Fatalf("primary=%d arg=%v resume=%v want=%v", position, test.arg, r.ResumeSecs, test.want)
-		}
-		if err := Stop(context.Background(), s, 0); err != nil {
-			t.Fatal(err)
+		for _, test := range []struct {
+			primary   int64
+			arg, want float64
+			exact     bool
+		}{{0, 80, 0, false}, {20000000, 80, 2, false}, {30000000, -1, 0, false}, {20000000, 40, 40, true}, {20000000, 0, 0, true}, {20000000, 119, 119, true}, {20000000, -1, 0, true}} {
+			if !primaryMode && !test.exact {
+				continue
+			}
+			position = test.primary
+			regTransportOnce.Do(registerTransport)
+			result := call(t, 9301, "player.play", map[string]any{
+				"server": up.URL, "user_id": "user", "token": "test", "item_id": "item",
+				"engine": "exo", "resume_secs": test.arg, "resume_exact": test.exact,
+				"from_start": test.arg < 0,
+			})
+			if !result.OK {
+				t.Fatalf("起播失败: %s", result.Code)
+			}
+			var r PlayResult
+			if err := json.Unmarshal(result.Data, &r); err != nil {
+				t.Fatal(err)
+			}
+			if r.ResumeSecs != test.want {
+				t.Fatalf("primary=%d arg=%v resume=%v want=%v", position, test.arg, r.ResumeSecs, test.want)
+			}
+			if err := Stop(context.Background(), s, 0); err != nil {
+				t.Fatal(err)
+			}
 		}
 	}
 }

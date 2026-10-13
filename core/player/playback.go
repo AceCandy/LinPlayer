@@ -103,7 +103,7 @@ type PlayResult struct {
 
 // Play 起播一个 Emby 条目。返回真正用的续播位置(秒)。
 func Play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string) (*PlayResult, error) {
-	return play(ctx, s, itemID, resumeSecs, mediaSourceID, true)
+	return play(ctx, s, itemID, resumeSecs, mediaSourceID, true, false)
 }
 
 // PlayResolve 只把「该播哪条流、从第几秒开始」算出来,**不碰 mpv**。
@@ -114,10 +114,10 @@ func Play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 // 而且必须和 mpv 那条**逐字一样**。所以两条路共用同一个 play(),
 // 只在最后那三行分叉。各写一份的下场是「换个内核续播位置就不对了」。
 func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string) (*PlayResult, error) {
-	return play(ctx, s, itemID, resumeSecs, mediaSourceID, false)
+	return play(ctx, s, itemID, resumeSecs, mediaSourceID, false, false)
 }
 
-func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv bool) (*PlayResult, error) {
+func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool) (*PlayResult, error) {
 	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
 	cancelWarm()
 	c := config.Current()
@@ -185,7 +185,8 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	if prefs.PrimaryProgressServer != nil && whCtx != nil && target.RunTimeTicks > 0 {
 		whCtx.candidate.RunTimeTicks = &target.RunTimeTicks
 	}
-	if whCtx != nil && !fromStart {
+	// 切核明确位置不参与续播重算；主服上报上下文仍照常准备。
+	if whCtx != nil && !fromStart && !exactResume {
 		/* ☠ **调用方没给续播位置就自己去拿**,不要默认成 0。
 		   服务器上的进度本来就在 `candidate.PositionTicks` 里(取判据那一趟顺手带回来的),
 		   而「让每个调用方各自传一份」的写法漏一处就是**那一端整个不续播、从头放**,

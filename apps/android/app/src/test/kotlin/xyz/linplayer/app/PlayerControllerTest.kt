@@ -38,6 +38,179 @@ class PlayerControllerTest {
     private val decoderError = PlaybackException("解码初始化失败", null, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
     private val state = PlaybackSnapshot(42.5, true, 1.25, 0.4f, subOff = true)
 
+    @Test fun 手动切核等待停止且保留实际版本暂停倍速和零秒() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        val calls = mutableListOf<Pair<String, JsonObject>>()
+        val controller = PlayerController("mpv") { command, arguments ->
+            calls += command to arguments
+            when (command) {
+                "player.status" -> buildJsonObject { put("position", 0.0); put("paused", true); put("speed", 1.5); put("volume", 40) }
+                "player.tracks" -> kotlinx.serialization.json.JsonArray(emptyList())
+                "player.stopPlayback" -> { release.await(); JsonObject(emptyMap()) }
+                else -> JsonObject(emptyMap())
+            }
+        }
+        controller.resolved(buildJsonObject { put("media_source_id", "actual-version") })
+        controller.started()
+        val switched = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            assertTrue(controller.switchEngine(null, false))
+        }
+        assertEquals("mpv", controller.engine)
+        assertFalse(controller.ready)
+        assertFalse(controller.switchEngine(null, false))
+        release.complete(Unit); switched.join()
+        assertEquals("exo", controller.engine)
+        val args = controller.playbackArgs(mapOf("item_id" to "episode", "media_source_id" to "old-version"))
+        assertEquals("actual-version", args.str("media_source_id"))
+        assertEquals(0.0, args.dbl("resume_secs")!!, 0.0)
+        assertTrue(args.bool("from_start"))
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            controller.bind(player)
+            controller.begin()
+            controller.restoreState()
+            assertFalse(player.playWhenReady)
+            assertEquals(1.5f, player.playbackParameters.speed, .001f)
+            assertEquals(.4f, player.volume, .001f)
+            assertFalse(calls.any { it.first == "player.setTrack" })
+            controller.started()
+            assertTrue(controller.switchEngine(player, true))
+            assertEquals("mpv", controller.engine)
+            assertTrue(controller.fallback!!.subOff)
+            assertEquals(2, calls.count { it.first == "player.stopPlayback" })
+        } finally { player.release() }
+    }
+
+    @Test fun 已提交快进尚未到达时切核保留目标() = runBlocking {
+        val controller = PlayerController("mpv") { command, _ ->
+            if (command == "player.status") buildJsonObject { put("position", 12.0) }
+            else JsonObject(emptyMap())
+        }
+        controller.started()
+        controller.seek(75.0)
+        assertTrue(controller.switchEngine(null, false))
+        assertEquals(75.0, controller.fallback!!.position, 0.0)
+        assertTrue(controller.playbackArgs(mapOf("item_id" to "episode")).bool("resume_exact"))
+    }
+
+    @Test fun 手动切核失败不消耗自动回退机会() = runBlocking {
+        var failStop = true
+        val controller = PlayerController("auto") { command, _ ->
+            if (command == "player.stopPlayback" && failStop) error("停止失败")
+            JsonObject(emptyMap())
+        }
+        controller.started()
+        try { controller.switchEngine(null, false); fail("应报告失败") } catch (_: IllegalStateException) { }
+        failStop = false
+        assertTrue(controller.tryFallback(decoderError, state))
+    }
+
+    @Test fun 普通和强制字幕从MPV切入Media3均按唯一身份恢复() = runBlocking {
+        for (forced in listOf(false, true)) {
+            val controller = PlayerController("mpv") { command, _ ->
+                if (command == "player.tracks") kotlinx.serialization.json.JsonArray(listOf(buildJsonObject {
+                    put("id", "42"); put("kind", "sub"); put("title", "中文"); put("lang", "zh")
+                    put("forced", forced); put("codec", "subrip"); put("selected", true)
+                })) else JsonObject(emptyMap())
+            }
+            controller.started(); controller.switchEngine(null, false)
+            val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+            try {
+                controller.bind(player); controller.begin(); controller.started()
+                val group = TrackGroup(*listOf(false, true).map { flag ->
+                    Format.Builder().setSampleMimeType(MimeTypes.APPLICATION_SUBRIP).setLabel("中文").setLanguage("zh")
+                        .setSelectionFlags(if (flag) C.SELECTION_FLAG_FORCED else 0).build()
+                }.toTypedArray())
+                val info = ReflectionHelpers.getField<Any>(player, "playbackInfo")
+                val selector = ReflectionHelpers.getField<Any>(info, "trackSelectorResult")
+                ReflectionHelpers.setField(selector, "tracks", Tracks(listOf(Tracks.Group(group, false,
+                    intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED), booleanArrayOf(false, false)))))
+                controller.restoreExoTracks(player)
+                assertEquals(listOf(if (forced) 1 else 0), player.trackSelectionParameters.overrides[group]?.trackIndices)
+            } finally { player.release() }
+        }
+    }
+
+    @Test fun 手动切核失败保留当前内核并允许重试() = runBlocking {
+        var failStop = true
+        val controller = PlayerController("mpv") { command, _ ->
+            if (command == "player.stopPlayback" && failStop) error("停播失败")
+            JsonObject(emptyMap())
+        }
+        controller.started()
+        try { controller.switchEngine(null, false); fail("应报告停播失败") } catch (_: IllegalStateException) { }
+        assertEquals("mpv", controller.engine)
+        assertFalse(controller.switching)
+        failStop = false
+        controller.started()
+        assertTrue(controller.switchEngine(null, false))
+        assertEquals("exo", controller.engine)
+    }
+
+    @Test fun 切核读取期间离页不得停播或切换() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        var current = true
+        val calls = mutableListOf<String>()
+        val controller = PlayerController("mpv") { command, _ ->
+            calls += command
+            if (command == "player.status") release.await()
+            JsonObject(emptyMap())
+        }
+        controller.started()
+        val switching = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
+            assertFalse(controller.switchEngine(null, false, isCurrent = { current }))
+        }
+        current = false; release.complete(Unit); switching.join()
+        assertFalse(calls.contains("player.stopPlayback"))
+        assertEquals("mpv", controller.engine)
+    }
+
+    @Test fun 切核停止途中离页等待回执且不发布新内核() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        var current = true
+        val calls = mutableListOf<String>()
+        val controller = PlayerController("mpv") { command, _ ->
+            calls += command
+            if (command == "player.stopPlayback" && calls.count { it == command } == 1) release.await()
+            JsonObject(emptyMap())
+        }
+        controller.started()
+        val switching = launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { controller.switchEngine(null, false, isCurrent = { current }) }
+        current = false
+        switching.cancel()
+        val leaving = controller.stopIn(this, 0.0, { throw it })
+        assertEquals(1, calls.count { it == "player.stopPlayback" })
+        release.complete(Unit); switching.join(); leaving.join()
+        assertEquals("mpv", controller.engine)
+        assertEquals(2, calls.count { it == "player.stopPlayback" })
+    }
+
+    @Test fun 手动切入Media3等待真实轨表并按身份恢复一次() = runBlocking {
+        val controller = PlayerController("mpv") { command, _ ->
+            if (command == "player.tracks") kotlinx.serialization.json.JsonArray(listOf(buildJsonObject {
+                put("id", "42"); put("kind", "audio"); put("title", "原声"); put("lang", "ja"); put("selected", true)
+            })) else JsonObject(emptyMap())
+        }
+        controller.started(); controller.switchEngine(null, false)
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            controller.bind(player); controller.begin(); controller.started()
+            controller.restoreExoTracks(player)
+            assertTrue(player.trackSelectionParameters.overrides.isEmpty())
+            val group = TrackGroup(Format.Builder().setSampleMimeType(MimeTypes.AUDIO_AAC).setLabel("配音").setLanguage("zh").build(),
+                Format.Builder().setSampleMimeType(MimeTypes.AUDIO_AAC).setLabel("原声").setLanguage("ja").build())
+            val info = ReflectionHelpers.getField<Any>(player, "playbackInfo")
+            val selector = ReflectionHelpers.getField<Any>(info, "trackSelectorResult")
+            ReflectionHelpers.setField(selector, "tracks", Tracks(listOf(Tracks.Group(group, false,
+                intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED), booleanArrayOf(true, false)))))
+            controller.restoreExoTracks(player)
+            assertEquals(listOf(1), player.trackSelectionParameters.overrides[group]!!.trackIndices)
+            controller.pickExoTrack(player, "audio", "0:0")
+            controller.restoreExoTracks(player)
+            assertEquals(listOf(0), player.trackSelectionParameters.overrides[group]!!.trackIndices)
+        } finally { player.release() }
+    }
+
     @Test fun 连按累加合并且旧完成不能清新目标() = runBlocking {
         val release = CompletableDeferred<Unit>()
         val calls = mutableListOf<Double>()
@@ -529,7 +702,7 @@ class PlayerControllerTest {
                     val tracks = Tracks(listOf(Tracks.Group(group, false, intArrayOf(C.FORMAT_HANDLED, C.FORMAT_HANDLED), booleanArrayOf(false, true))))
                     ReflectionHelpers.setField(selector, "tracks", tracks)
                     val identity = controller.snapshot(player, false).subtitle
-                    assertEquals(TrackIdentity("forced SDH", "zh", if (flags == 0) null else true, bitmap), identity)
+                    assertEquals(TrackIdentity("forced SDH", "zh", flags != 0, bitmap), identity)
                 }
             }
         } finally { player.release() }

@@ -16,7 +16,7 @@
 
 - Android Emby 播放模式为 `mpv` / `exo` / `auto`，由共用 `PlayerController` 解析实际内核，不能将 `auto` 直接传给核心。存量配置和默认 MPV 保持；显式路由优先，设置变化只影响下次播放。自动先 Media3，仅明确解码/格式不支持时回退 MPV 一次；网络、鉴权、DRM、资源被抢占、损坏内容和未知错误不自动换核。自动模式长按播放明确用 MPV。
 - 回退捕获实际版本、续播、暂停、倍率、音量及选轨/字幕关闭，先停输出并等待 `player.stopPlayback` 完成，再切内核；Compose 释放旧 Media3，手机前台服务重绑新内核。零秒续播用已有 `from_start=true`。状态监听只在当前起播成功后消费；跨内核轨道按标题/语言等身份匹配，不复用运行期 ID。非 Emby 来源保持现有 MPV 路径。`PlayerControllerTest`、`PlayerEngineLifecycleTest`、`PhoneEngineSettingsTest` 与 `TvFocusTest` 覆盖这些契约，真机仍需独立验收。
-- 跨内核轨道恢复仅接受有效标题/语言的唯一匹配；两个内核的同类序号不能证明身份，重复标签或标题/语言均未知时不提交恢复选轨命令，保留新内核当前选择。歧义不消费 pending，后续唯一匹配仍可恢复；forced/SDH/位图未进入身份模型，不能声称完整语义匹配。`PlayerControllerTest` 覆盖歧义拒选、后续唯一恢复、手选音轨及字幕关闭。
+- 跨内核轨道恢复仅接受有效标题/语言的唯一匹配；两个内核的同类序号不能证明身份，重复标签或标题/语言均未知时不提交恢复选轨命令，保留新内核当前选择。歧义不消费 pending，后续唯一匹配仍可恢复；forced/位图按已知语义匹配，SDH不从标题猜测，不能声称完整语义匹配。`PlayerControllerTest` 覆盖歧义拒选、后续唯一恢复、手选音轨及字幕关闭。
 - MPV恢复、详情初选和面板手选均经控制器的transportMutex等待命令回执，与seek/stop共用屏障；手选在排队前登记，详情初选晚到不得覆盖同类手选。不可撤回的选轨命令用NonCancellable等待，手机/TV点击UNDISPATCHED登记，面板关闭不丢已登记手选；离页/换片关闭提交门并推进代数，旧排队选择失效，停播和新起播等在途命令收尾。核心永久无回执仍持续等待，不用取消提前放锁。`PlayerControllerTest`、`PhonePlayerPanelTest`、`TvTrackTimingTest`覆盖交错、面板关闭和字幕/off键盘接线，不能替代真机。
 - 用户手动选轨立即清除该类待恢复身份，晚到的旧轨不得覆盖新选择。TV 换目标先停 Media3 输出；离页通过控制器立即登记收尾任务，后续手机/TV 起播等待整次收尾（含 TV 播放标题清理），不能让旧 stop 停掉新会话。
 - 手机回退与 TV 轨表恢复窗口从 `controller.ready` 起播成功后计时，effect 的 key 与放行条件使用同一不可变快照；等待旧 stop 或慢取流时不得查询旧轨表、消费轮询次数或应用详情选轨。`PhoneEnginePlaybackTest` / `TvTrackTimingTest` 挂起起播超过 11.2 秒后再释放，断言成功后仍按身份/ff_index 恢复一次。
@@ -74,7 +74,7 @@
 - Android seek 的待跳转目标只属于 `PlayerController`，相对输入必须走 `seekBy(delta, actual, duration)`，不能以重组前捕获的 position 计算绝对目标。页面以 UNDISPATCHED 提交目标；原生命令串行，排队仅最新请求能提交。提交返回不是 seek 完成；非缓冲实际位置在1秒容差内才释放，15秒超时/失败/取消清目标，250ms页面检查兜底。上报、弹幕、续播/回退快照始终取真实位置。MPV核心没有 seek 完成闩或 seeking 字段，不得据此虚构完成事件。
 - 停止立即失效待跳转及排队请求，并等已发seek提交收尾；通知seek在提交锁内复查服务绑定代数，通知stop登记现有跨页面收尾屏障，旧停止完成不能关闭新绑定。Slider拖动值独立于轮询，按媒体与时长隔离，原生取消清值；横拖起点固定，TV预览从待跳转目标起步但不写真实 ui.position。回归覆盖 PlayerControllerTest、PhonePlayerOsdTest、PhoneEnginePlaybackTest、PlaybackServiceTest、TvRefreshRatePlaybackTest；精确落点和后台/锁屏派发仍需真机。
 
-- 跨内核字幕身份除title/language外保留可空forced/bitmap；Media3仅FORCED位存在时确认true，缺位unknown。PGS/VOBSUB/DVBSUBS MIME是位图，SSA/SubRip/VTT是文本，其它unknown；MPV只对已核实codec hdmv_pgs_subtitle/dvd_subtitle/dvb_subtitle及ass/subrip/webvtt分类。不能使用MPV image（单张图片视频）或Media3 isText（包含位图）推断字幕类型，不能按标题或caption角色猜SDH。源属性已知时目标须已知且相等，未知不是false；仍需有效title/language和唯一候选，歧义保留手选。缺语义旧身份沿原唯一标签规则；回归见PlayerControllerTest。
+- 跨内核字幕身份除title/language外保留可空forced/bitmap；Media3 1.11.0的selectionFlags为整数位掩码，FORCED位存在时true、未设时false，MPV缺失forced仍为unknown。PGS/VOBSUB/DVBSUBS MIME是位图，SSA/SubRip/VTT是文本，其它unknown；MPV只对已核实codec hdmv_pgs_subtitle/dvd_subtitle/dvb_subtitle及ass/subrip/webvtt分类。不能使用MPV image（单张图片视频）或Media3 isText（包含位图）推断字幕类型，不能按标题或caption角色猜SDH。源属性已知时目标须已知且相等，未知不是false；仍需有效title/language和唯一候选，歧义保留手选。缺语义旧身份沿原唯一标签规则；回归见PlayerControllerTest。
 
 - 跨集轨道记忆仅在本次Android播放页内有效，不写磁盘；scope为当前服务器/用户/真实Episode所属series_id，详情id必须等于当前item。换账号、换剧、电影/本地/未知上下文不沿用，离页释放。每页只保留当前剧一组成功手选；默认、详情自动初选、fallback恢复不反写。Media3采样点击Format，MPV用当前面板/轮询轨表采样点击ID，不用selected的晚到回调作为手选身份。
 - 新集先恢复全局字幕开关，再应用同剧记忆；手选更新页面subOff，关闭是独立意图。恢复仍按严格title/language及known forced/bitmap唯一匹配，标题变化/缺轨/歧义维持默认；用户当前手选、TV详情显式预选、同片fallback优先。恢复通过已有transport屏障且每类只提交一次，手选/离页/换代拒绝旧排队任务。TV起播清旧ui.tracks，普通记忆只在新轨表稳定后恢复；无表仅可恢复off。详情请求前同步clearSeriesContext，取消请求不能撤销解绑；换页面memory也失效旧在途手选的记忆回写。SessionTrackMemoryTest及手机/TV真实面板换集回归覆盖本契约；TV真实设备暂缓。
@@ -176,3 +176,11 @@
 
 
 - 手机弹幕使用220dp快捷菜单与280dp样式子页，12dp圆角、深色半透明、无全屏遮罩；子页返回先回一级，外点关闭全部。滑杆松手提交，粗体/合并重复/防止重叠直接展示。DanmakuStyle按核心成功回值更新全局偏好，load/set串行，保存完成revision重置滑杆本地预览（失败及回值不变也要恢复）；未读取成功不可提交。PhoneDanmakuPanelTest验证真实Popup、大字滚动、按键、开关、失败回读和单次提交。
+
+## 手机播放菜单与手动切核
+
+- 手机播放比例只保留在更多菜单，音轨/弹幕/字幕样式不在更多重复；章节在起播后读取并复用到菜单，空表隐藏入口，失败保留重试。媒体信息从当前内核格式或已有 `player.opts` 白名单取值，未知隐藏，不显示地址/错误原文。
+- 手动切核由 `PlayerController.switchEngine` 读取真实状态并共用停止屏障；实际版本和位置、暂停/倍率/音量保留，切核传 `resume_exact=true`（零秒同时传 `from_start`）避免核心续播重算；已提交但时钟未到的seek取目标快照。两向选轨按身份唯一匹配。手选优先于晚到恢复，不写全局内核偏好；当前播放手动切换成功后不再自动回退，失败不消耗回退机会。非 Emby 不提供切核入口，DRM 在停播前拒绝切换并保持原播放。
+- 快照读取后与停播回执后核验页面仍有效；停止一旦提交不可用取消提前释放锁，离页收尾/新页起播等待。读取失败保留旧内核，停止失败明确失败页；不能继续显示可操作的假播放状态。
+- 控件隐藏时顶部居中只读时间/电量/网速，零流量隐藏且正流量恢复；低于1KB/s显示B/s。状态和网络采样在STARTED期间运行，不因OSD收起停止；PiP/离页/失败/转屏等待不显示。
+- `PlayerControllerTest`、`PhoneEnginePlaybackTest`、`PhonePlayerMenuTest`、`PhonePlayerOsdTest` 与网速格式回归覆盖停止等待、双向切核、轨表晚到、菜单去重、状态显隐和几何；真机解码/切核首帧与系统电量仍需独立验证。

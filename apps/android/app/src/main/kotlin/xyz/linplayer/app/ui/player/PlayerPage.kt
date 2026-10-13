@@ -175,18 +175,18 @@ internal fun turningTo(want: Boolean?, portrait: Boolean): Boolean =
  *
  * ★ 口径是**整机**(TrafficStats 全设备计数),不是这一条流 —— 用户要看的是
  *   「现在到底还有没有在下东西」,而播放中同时还有封面、弹幕、上报在跑。
- * ★ 取不到(有的 ROM 返回 UNSUPPORTED)就一直不回调,界面上那一格整个不画。
+ * ★ 取不到(有的 ROM 返回 UNSUPPORTED)就清空读数,界面上那一格整个不画。
  *   摆一个恒为 0 的读数比不摆更糟。
  */
 internal suspend fun sampleNetSpeed(onText: (String) -> Unit) {
     var last = android.net.TrafficStats.getTotalRxBytes()
     var lastAt = System.nanoTime()
-    if (last == android.net.TrafficStats.UNSUPPORTED.toLong()) return
+    if (last == android.net.TrafficStats.UNSUPPORTED.toLong()) { onText(""); return }
     while (true) {
         delay(1000)
         val now = android.net.TrafficStats.getTotalRxBytes()
         val at = System.nanoTime()
-        if (now == android.net.TrafficStats.UNSUPPORTED.toLong()) return
+        if (now == android.net.TrafficStats.UNSUPPORTED.toLong()) { onText(""); return }
         onText(fmtSpeed(now - last, at - lastAt))
         last = now
         lastAt = at
@@ -195,12 +195,12 @@ internal suspend fun sampleNetSpeed(onText: (String) -> Unit) {
 
 /** 网速读数的格式【用户定 2026-09-08】。量不出来返回空串,那一格就整个不画。 */
 internal fun fmtSpeed(bytes: Long, nanos: Long): String {
-    if (nanos <= 0L || bytes < 0L) return ""
+    if (nanos <= 0L || bytes <= 0L) return ""
     val bps = bytes * 1_000_000_000.0 / nanos
     return when {
         bps >= 1024 * 1024 -> "%.1f MB/s".format(bps / 1024 / 1024)
         bps >= 1024 -> "%.0f KB/s".format(bps / 1024)
-        else -> "0 KB/s"
+        else -> "%.0f B/s".format(bps.coerceAtLeast(1.0))
     }
 }
 
@@ -375,7 +375,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     ObserveStartupTiming(exo, startupTiming)
 
     suspend fun switchTarget(id: String, versionId: String?, title: String) {
-        if (switching || leaving || latestController !== controller) return
+        if (switching || controller.switching || leaving || latestController !== controller) return
         if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
         switching = true
         try {
@@ -486,6 +486,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
         subOff = controller.fallback?.subOff ?: !playbackPrefs.subEnabled
+        controller.fallback?.let { speed = it.speed; volume = it.volume }
         finished = false
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
         buffered = 0.0
@@ -546,7 +547,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             if (exo != null && url != null) launch { loadEmbeddedFonts(url) }
             controller.restoreState()
             controller.fallback?.let { subOff = it.subOff }
-            if (controller.fallback != null) app.call("player.setAspectRatio", args("ratio" to videoFit.mpvRatio))
+            if (controller.fallback != null && exo == null) app.call("player.setAspectRatio", args("ratio" to videoFit.mpvRatio))
         }.onSuccess {
             controller.started()
             runCatching { PlaybackService.start(ctx, app, exo, route.title, controller) }.onFailure { app.report(it) }
@@ -664,7 +665,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             val tracks = if (exo == null) runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() } else emptyList()
             controller.observeTracks(tracks)
             runCatching {
-                if (exo == null) controller.restoreTracks(tracks)
+                if (exo == null) controller.restoreTracks(tracks) else controller.restoreExoTracks(exo)
                 controller.restoreSessionTracks(exo, tracks)?.let { subOff = it }
             }.onFailure { app.report(it) }
         }
@@ -811,8 +812,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var bottomBarHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
     var statusText by remember { mutableStateOf("") }
-    LaunchedEffect(controlsVisible, lifecycleOwner) {
-        if (!controlsVisible) return@LaunchedEffect
+    LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val battery = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
             val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
@@ -845,7 +845,21 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        原来它长在 [Osd] 里,而 OSD 是 `AnimatedVisibility` —— 收起来整个退出组合,
        协程被取消;每叫出一次顶栏都是从零开始数一秒,先空着再跳出一个数。 */
     var netSpeed by remember { mutableStateOf("") }
-    LaunchedEffect(Unit) { sampleNetSpeed { netSpeed = it } }
+    LaunchedEffect(lifecycleOwner) {
+        lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            netSpeed = ""
+            sampleNetSpeed { netSpeed = it }
+        }
+    }
+
+    var chapters by remember(route.itemId) { mutableStateOf<List<JsonObject>?>(emptyList()) }
+    LaunchedEffect(route.itemId, tracksReady) {
+        if (route.src != null || !tracksReady) return@LaunchedEffect
+        val loaded = runCatching { app.call("player.chapterInfo", args("item_id" to route.itemId)).obj() }
+        coroutineContext.ensureActive()
+        chapters = if (loaded.isFailure) null else loaded.getOrNull()?.get("chapters").arr().mapNotNull { it.obj() }
+            .filter { it.dbl("start_secs")?.let { at -> at.isFinite() && at >= 0 } == true }
+    }
 
     // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
     val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
@@ -1043,7 +1057,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 onPrevious = previousEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onNext = nextEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onOrientation = { manualOrientation = true; wantLandscape = portrait },
-                onChapters = if (route.src == null) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
+                onChapters = if (route.src == null && chapters?.isEmpty() != true) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
                 onPip = (activity as? xyz.linplayer.app.MainActivity)?.takeIf {
                     android.os.Build.VERSION.SDK_INT >= 26 && it.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
                 }?.let { host -> { if (!host.enterPlayerPip()) app.toast("无法打开画中画", ToastKind.Error) } },
@@ -1064,6 +1078,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 onPanel = { panelAnchorKey = it; panel = it },
                 onPanelAnchor = { k, rect -> panelAnchors[k] = rect },
             )
+        }
+
+        if (!controlsVisible && panel == null && !leaving && !(turning && !turnGaveUp) &&
+            !inPip && controller.ready && !openFailed) {
+            PassiveStatus(statusText, netSpeed,
+                Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)))
         }
 
         PassiveProgress(position, duration,
@@ -1092,7 +1112,27 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         key(controller, engine) {
             PlayerPanel(
                 panel, route.itemId, exo,
-                hasEpisodes = episodeLabel.isNotBlank(),
+                hasEpisodes = episodeLabel.isNotBlank(), chapters = chapters,
+                onSwitchEngine = if (route.src == null && controller.ready && !switching && !controller.switching && !leaving) ({
+                    scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                        if (!switching && !leaving) {
+                            switching = true
+                            try {
+                                PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
+                                controller.switchEngine(exo, subOff, isCurrent = { !leaving && latestController === controller }) {
+                                    startupTiming.close()
+                                    startupOrigin = android.os.SystemClock.elapsedRealtime() to StartupOrigin.TARGET
+                                    PlaybackService.stop(ctx)
+                                }
+                            } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                              catch (failure: Exception) {
+                                  app.report(failure)
+                                  if (!controller.ready) { failReason = "切换播放内核失败，请返回后重试"; openFailed = true }
+                              }
+                            finally { switching = false }
+                        }
+                    }
+                }) else null,
                 fit = videoFit, anchor = panelAnchors[panelAnchorKey],
                 speed = speed, onSpeed = { speed = it; doSpeed(it) },
                 pluginPanel = pluginPanels.firstOrNull { p ->
@@ -1206,7 +1246,6 @@ internal fun Osd(
                 PlayerControl(LpIcons.back, "返回", faceSize = controlFace, onClick = onBack)
                 if (portrait) Spacer(Modifier.weight(1f)) else Marquee(title, Modifier.weight(1f))
                 onPip?.let { PlayerControl(LpIcons.pip, "画中画", faceSize = controlFace, onClick = it) }
-                PlayerControl(LpIcons.aspect, "比例", modifier = menuAnchor("ratio"), faceSize = controlFace, onClick = { onPanel("ratio") })
                 onOrientation?.let { PlayerControl(LpIcons.orientation, "切换方向", faceSize = controlFace, onClick = it) }
                 onChapters?.let { PlayerControl(LpIcons.chapter, "章节", modifier = menuAnchor("chapters"), faceSize = controlFace, onClick = it) }
                 PlayerControl(LpIcons.more, "更多", modifier = menuAnchor("more"), faceSize = controlFace, onClick = { onPanel("more") })
@@ -1319,6 +1358,19 @@ private fun PlayerControl(
             Icon(icon, label, Modifier.size(if (faceSize >= 70.dp) 34.dp else if (faceSize <= 28.dp) 18.dp else 23.dp),
                 tint = Color.White.copy(alpha = if (enabled) 1f else .4f))
         }
+    }
+}
+
+/** 控件收起后保留顶部只读状态，局部底色保证亮画面上的对比。 */
+@Composable
+internal fun PassiveStatus(statusText: String, netSpeed: String, modifier: Modifier = Modifier) {
+    if (statusText.isEmpty() && netSpeed.isEmpty()) return
+    Row(modifier.padding(top = Sp.x6).testTag("player.passiveStatus")
+        .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
+        .padding(horizontal = Sp.x10, vertical = Sp.x2),
+        horizontalArrangement = Arrangement.spacedBy(Sp.x8), verticalAlignment = Alignment.CenterVertically) {
+        if (statusText.isNotEmpty()) Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
+        NetSpeed(netSpeed)
     }
 }
 

@@ -69,7 +69,7 @@ class PhonePlayerOsdTest {
     @Config(qualifiers = "w320dp-h640dp-port-mdpi")
     fun fullPortraitKeepsReferenceZonesAndAllActions() {
         open(portrait = true)
-        for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
+        for (label in listOf("返回", "画中画", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
             "上一集", "下一集", "锁屏", "加速", "减速", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
         assertProgressAndEpisodeOrder()
         val slider = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
@@ -233,7 +233,7 @@ class PhonePlayerOsdTest {
     @Config(qualifiers = "w360dp-h800dp-port-mdpi")
     fun portraitKeepsAllControlsAndDispatchesOrientation() {
         open(portrait = true)
-        for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停",
+        for (label in listOf("返回", "画中画", "切换方向", "章节", "更多", "暂停",
             "后退 10 秒", "前进 10 秒", "锁屏", "倍速", "上一集", "下一集",
             "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
         assertProgressAndEpisodeOrder()
@@ -243,7 +243,7 @@ class PhonePlayerOsdTest {
             assertTrue("竖屏按钮命中区不能重叠", overlap.width <= 0f || overlap.height <= 0f)
         } }
         for ((label, expected) in listOf("切换方向" to "方向", "上一集" to "上一集", "下一集" to "下一集",
-            "比例" to "ratio", "音轨" to "audio", "字幕" to "subtitle")) {
+            "音轨" to "audio", "字幕" to "subtitle")) {
             rule.onNodeWithContentDescription(label).performClick()
             assertEquals(expected, action)
         }
@@ -263,7 +263,7 @@ class PhonePlayerOsdTest {
     @Config(qualifiers = "w320dp-h640dp-port-mdpi")
     fun compactPortraitKeepsCriticalActionsAndScrollableExtras() {
         open(portrait = true)
-        for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停", "上一集", "下一集", "音轨", "字幕")) {
+        for (label in listOf("返回", "画中画", "切换方向", "章节", "更多", "暂停", "上一集", "下一集", "音轨", "字幕")) {
             rule.onNodeWithContentDescription(label).assertIsDisplayed()
         }
         assertProgressAndEpisodeOrder()

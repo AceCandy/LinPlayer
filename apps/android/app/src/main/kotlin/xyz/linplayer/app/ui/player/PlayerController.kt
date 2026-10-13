@@ -24,6 +24,9 @@ import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
+import xyz.linplayer.app.data.arr
+import xyz.linplayer.app.data.obj
+import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.str
@@ -294,25 +297,61 @@ internal class PlayerController(
         )
     }
 
+    /** 手动切核读取当前内核真实状态；等待已提交的 seek/选轨完成再快照。 */
+    suspend fun switchEngine(player: ExoPlayer?, subOff: Boolean, isCurrent: () -> Boolean = { true }, beforeStop: () -> Unit = {}): Boolean {
+        if (!ready || switching || !isCurrent()) return false
+        switching = true
+        try {
+            val state = transportMutex.withLock {
+                val snapshot = if (player != null) snapshot(player, subOff) else {
+                    val status = call("player.status", args()).obj()
+                    val tracks = call("player.tracks", args()).arr().mapNotNull { it.obj() }
+                    fun selected(kind: String) = tracks.firstOrNull { it.str("kind") == kind && it.bool("selected") }
+                    PlaybackSnapshot(
+                        status.dbl("position") ?: resume, status.bool("paused"),
+                        status.dbl("speed") ?: 1.0, ((status.dbl("volume") ?: 100.0) / 100).toFloat(),
+                        selected("audio")?.let(::mpvIdentity), selected("sub")?.let(::mpvIdentity),
+                        subOff || (tracks.any { it.str("kind") == "sub" } && selected("sub") == null),
+                    )
+                }
+                expireSeek()
+                // 命令回执早于画面时钟，切核仍沿用已提交的目标。
+                if (seekSubmitted) seekTarget?.let { snapshot.copy(position = it) } ?: snapshot else snapshot
+            }
+            coroutineContext.ensureActive()
+            if (!isCurrent()) return false
+            check(!state.drm) { "当前 DRM 媒体不支持切换播放内核" }
+            // 手动选择后本次播放不再自动回退，避免刚选 Media3 又被静默切走。
+            return changeEngine(if (engine == "exo") "mpv" else "exo", state, beforeStop, isCurrent).also {
+                if (it) fallbackUsed = true
+            }
+        } finally { switching = false }
+    }
+
     suspend fun tryFallback(error: PlaybackException, snapshot: PlaybackSnapshot, beforeStop: () -> Unit = {}): Boolean {
-        if (mode != "auto" || engine != "exo" || fallbackUsed || snapshot.drm || !isEngineCompatibilityError(error)) return false
+        if (mode != "auto" || engine != "exo" || fallbackUsed || switching || snapshot.drm || !isEngineCompatibilityError(error)) return false
         fallbackUsed = true
         switching = true
-        ready = false
         try {
-            beforeStop()
-            stop(snapshot.position)
-            fallback = snapshot
-            pendingAudio = snapshot.audio
-            pendingSubtitle = snapshot.subtitle
-            pendingSubOff = snapshot.subOff
-            engine = "mpv"
-            return true
-        } catch (e: CancellationException) {
-            throw e
-        } finally {
-            switching = false
-        }
+            return changeEngine("mpv", snapshot, beforeStop)
+        } finally { switching = false }
+    }
+
+    /** 旧会话停止完成后才发布新内核，页面据此释放旧输出并重新取流。 */
+    private suspend fun changeEngine(target: String, snapshot: PlaybackSnapshot, beforeStop: () -> Unit, isCurrent: () -> Boolean = { true }): Boolean {
+        coroutineContext.ensureActive()
+        if (!isCurrent()) return false
+        beforeStop()
+        // 停播已交给共享核心后不可撤回；离页收尾也必须等这个屏障释放。
+        withContext(NonCancellable) { stop(snapshot.position) }
+        coroutineContext.ensureActive()
+        if (!isCurrent()) return false
+        fallback = snapshot
+        pendingAudio = snapshot.audio
+        pendingSubtitle = snapshot.subtitle
+        pendingSubOff = snapshot.subOff
+        engine = target
+        return true
     }
 
     /** 覆盖初次起播参数，零秒必须用 from_start 表达，不能回读旧续播记录。 */
@@ -323,6 +362,7 @@ internal class PlayerController(
             mediaSourceId?.let { put("media_source_id", it) }
             remove("from_start")
             put("resume_secs", state.position)
+            put("resume_exact", true)
             if (state.position <= 0) put("from_start", true)
         }
     }.toList().toTypedArray())
@@ -335,6 +375,7 @@ internal class PlayerController(
         controls.pause(state.paused)
         transportMutex.withLock {
             if (generation != transportGeneration || !pendingSubOff) return@withLock
+            if (engine == "exo") { pendingSubOff = false; return@withLock }
             withContext(NonCancellable) {
                 call("player.setTrack", args("kind" to "sub", "id" to ""))
                 if (generation == transportGeneration) pendingSubOff = false
@@ -359,6 +400,24 @@ internal class PlayerController(
         restore("audio")
         coroutineContext.ensureActive()
         restore("sub")
+    }
+
+    /** Media3 轨表可能晚到；按身份唯一匹配，不沿用 MPV 的轨道编号。 */
+    fun restoreExoTracks(player: ExoPlayer) {
+        if (!ready || engine != "exo" || switching) return
+        for (kind in listOf("audio", "sub")) {
+            val choice = if (kind == "audio") pendingAudio else pendingSubtitle
+            if (choice == null || (kind == "sub" && fallback?.subOff == true)) continue
+            val type = if (kind == "audio") C.TRACK_TYPE_AUDIO else C.TRACK_TYPE_TEXT
+            val candidates = player.currentTracks.groups.flatMapIndexed { gi, group ->
+                if (group.type != type) emptyList() else (0 until group.length).filter { group.isTrackSupported(it) }.map { ti ->
+                    "$gi:$ti" to formatIdentity(group.getTrackFormat(ti), type)
+                }
+            }
+            val index = matchingIdentity(choice, candidates.map { it.second }) ?: continue
+            exoPick(player, if (kind == "sub") "subtitle" else kind, candidates[index].first)
+            if (kind == "audio") pendingAudio = null else pendingSubtitle = null
+        }
     }
 
     /** MPV 手选排在在途恢复后；排队期间离页或换片则失效，不复用新媒体的轨道 ID。 */
@@ -451,7 +510,7 @@ internal fun ObserveSeekTimeout(controller: PlayerController) {
 /** 两内核共享身份约束；只分类已核实的字幕格式。 */
 private fun formatIdentity(format: Format, type: Int): TrackIdentity = TrackIdentity(
     format.label, format.language,
-    forced = if (type == C.TRACK_TYPE_TEXT && format.selectionFlags and C.SELECTION_FLAG_FORCED != 0) true else null,
+    forced = if (type == C.TRACK_TYPE_TEXT) format.selectionFlags and C.SELECTION_FLAG_FORCED != 0 else null,
     bitmap = if (type != C.TRACK_TYPE_TEXT) null else when (format.sampleMimeType) {
         MimeTypes.APPLICATION_PGS, MimeTypes.APPLICATION_VOBSUB, MimeTypes.APPLICATION_DVBSUBS -> true
         MimeTypes.TEXT_SSA, MimeTypes.APPLICATION_SUBRIP, MimeTypes.TEXT_VTT -> false

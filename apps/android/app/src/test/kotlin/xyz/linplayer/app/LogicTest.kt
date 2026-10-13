@@ -520,7 +520,9 @@ class LogicTest {
         val sec = 1_000_000_000L
         assertEquals("2.0 MB/s", fmtSpeed(2L * 1024 * 1024, sec))
         assertEquals("500 KB/s", fmtSpeed(512_000, sec))
-        assertEquals("0 KB/s", fmtSpeed(100, sec))
+        assertEquals("100 B/s", fmtSpeed(100, sec))
+        assertEquals("", fmtSpeed(0, sec))
+        assertEquals("1 KB/s", fmtSpeed(1024, sec))
         assertEquals("", fmtSpeed(1024, 0))
         // 计数器回绕 / 换网卡时差值会是负数 —— 那时宁可不画
         assertEquals("", fmtSpeed(-1, sec))
@@ -569,8 +571,9 @@ class LogicTest {
     @Test fun `长按播放键换的是另一个内核`() {
         assertEquals("exo", UiPrefs.otherEngine("mpv"))
         assertEquals("mpv", UiPrefs.otherEngine("exo"))
-        // 存了个不认识的值时保守回到 exo(短按那边的 when 也把非 exo 当 mpv)
-        assertEquals("exo", UiPrefs.otherEngine("垃圾值"))
+        // 自动与未知模式沿用现有的 MPV 备用内核约定。
+        assertEquals("mpv", UiPrefs.otherEngine("auto"))
+        assertEquals("mpv", UiPrefs.otherEngine("垃圾值"))
     }
 
     /**

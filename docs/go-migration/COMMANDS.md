@@ -147,7 +147,7 @@
 | [x] | `player.mpvGet` | `mpv_get` | `name: String` | `Result<Option<String>, String>` | ✅ |
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
 | [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ |
-| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, media_source_id: Option<String>, engine: Option<String>` | `Result<PlayResult, String>` | ✅ |
+| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, media_source_id: Option<String>, engine: Option<String>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
 | [x] | `player.playExternal` | `play_external` | `item_id: String, resume_secs: f64, media_source_id: Option<String>, engine: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.playLocal` | `play_local` | `id: String, resume_secs: f64` | `Result<f64, String>` | ✅ |
 | [x] | `player.playUrl` | **新增** | `url: String, headers: Option<Map<String,String>>, title: Option<String>, start_secs: Option<f64>` | `{url, title}` | ✅ | <!-- 直接播一条地址(直播频道 / 插件找到的流)。不走 Emby 上报与续播记录 -->

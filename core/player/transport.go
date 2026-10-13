@@ -8,6 +8,7 @@ package player
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"strconv"
 	"strings"
 
@@ -35,18 +36,21 @@ func registerTransport() {
 			return nil, err
 		}
 		resume := resumeArg(a)
+		exact, _ := a["resume_exact"].(bool)
+		fromStart, _ := a["from_start"].(bool)
+		if exact && !fromStart {
+			position, ok := a["resume_secs"].(float64)
+			if !ok || position < 0 || math.IsNaN(position) || math.IsInf(position, 0) {
+				return nil, bus.NewErr(bus.EInvalid, "明确起播位置必须是非负有限秒数")
+			}
+		}
 		msid, _ := a["media_source_id"].(string)
 		/* engine:交给谁去解码渲染。空 / "mpv" = 核心层里的 libmpv(所有平台的默认);
 		   "exo" = **调用方自己播**(安卓的 ExoPlayer),核心层只把地址和续播位置算好。
 		   ★ 不认识的值一律当 mpv,不报错:内核名是 UI 传上来的字符串,
 		     拼错了该退回默认能播,而不是让用户点了播放什么都没有。 */
 		engine, _ := a["engine"].(string)
-		var out *PlayResult
-		if engine == "exo" {
-			out, err = PlayResolve(ctx, s, id, resume, msid)
-		} else {
-			out, err = Play(ctx, s, id, resume, msid)
-		}
+		out, err := play(ctx, s, id, resume, msid, engine != "exo", exact)
 		if err != nil {
 			return nil, &bus.Err{Code: bus.ENetwork, Msg: err.Error(), Retryable: true}
 		}

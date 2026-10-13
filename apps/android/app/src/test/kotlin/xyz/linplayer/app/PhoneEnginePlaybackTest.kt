@@ -413,7 +413,7 @@ class PhoneEnginePlaybackTest {
         assertEquals("竖屏片源不能缩进顶部16:9窗口", page.height, video.height, .1f)
         assertEquals(page.width, video.width, .1f)
         rule.onNodeWithTag("player.current").assertDoesNotExist()
-        for (label in listOf("返回", "比例", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
+        for (label in listOf("返回", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
             "上一集", "下一集", "锁屏", "加速", "减速", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
         val pause = rule.onNodeWithContentDescription("暂停").fetchSemanticsNode().boundsInRoot
         assertEquals(video.center.y, pause.center.y, .1f)
@@ -803,6 +803,54 @@ class PhoneEnginePlaybackTest {
         assertEquals(listOf("player.play", "player.stopPlayback", "player.play", "player.stopPlayback", "player.play"),
             core.calls.map { it.first }.filter { it in listOf("player.play", "player.stopPlayback") })
         assertTrue(core.calls.filter { it.first == "player.play" }.all { it.second.str("engine") == "exo" })
+    }
+
+    @Test fun 更多菜单双向切核保留位置版本和暂停状态() {
+        val core = episodeCore().apply {
+            for (command in listOf("player.setSpeed", "player.setVolume", "player.setPause", "player.setTrack", "player.setAspectRatio")) ret(command, JsonNull)
+            ret("player.status", buildJsonObject {
+                put("position", 42.5); put("duration", 3660); put("paused", true); put("speed", 1.5); put("volume", 40)
+            })
+        }
+        showPlayer(core, "mpv")
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithText("切换到 Media3 内核").performScrollTo().performClick(); advance(rule, 600)
+        val firstSwitch = core.calls.last { it.first == "player.play" }.second
+        assertEquals("exo", firstSwitch.str("engine"))
+        assertEquals(42.5, firstSwitch.dbl("resume_secs")!!, .001)
+        rule.runOnIdle {
+            assertFalse(currentExo().playWhenReady)
+            assertEquals(1.5f, currentExo().playbackParameters.speed, .001f)
+            assertEquals(.4f, currentExo().volume, .001f)
+        }
+        exoState(42_500); advance(rule, 300)
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithText("切换到 MPV 内核").performScrollTo().performClick(); advance(rule, 600)
+        val plays = core.calls.filter { it.first == "player.play" }
+        assertEquals(listOf("mpv", "exo", "mpv"), plays.map { it.second.str("engine") })
+        assertEquals(firstSwitch.str("media_source_id"), plays.last().second.str("media_source_id"))
+        assertEquals(42.5, plays.last().second.dbl("resume_secs")!!, .001)
+        assertEquals(listOf("player.play", "player.stopPlayback", "player.play", "player.stopPlayback", "player.play"),
+            core.calls.map { it.first }.filter { it in listOf("player.play", "player.stopPlayback") })
+        assertTrue(core.calls.last { it.first == "player.setPause" }.second.bool("paused"))
+    }
+
+    @Test fun 无章节隐藏入口且控件收起后顶部状态居中() {
+        val core = episodeCore().apply { ret("player.chapterInfo", buildJsonObject { put("chapters", kotlinx.serialization.json.JsonArray(emptyList())) }) }
+        showPlayer(core, "mpv")
+        rule.onNodeWithContentDescription("章节").assertDoesNotExist()
+        rule.onNodeWithContentDescription("比例").assertDoesNotExist()
+        rule.onNodeWithTag("player.passiveStatus").assertDoesNotExist()
+        rule.runOnIdle { core.tick(40.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(40.25) }; advance(rule, 5500)
+        rule.onNodeWithContentDescription("更多").assertDoesNotExist()
+        val status = rule.onNodeWithTag("player.passiveStatus").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertEquals(root.center.x, status.center.x, 1f)
+        assertTrue(status.bottom < root.height / 4)
+        rule.onRoot().captureRoboImage("build/player-osd/hidden-status.png")
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 300)
+        rule.onNodeWithTag("player.passiveStatus").assertDoesNotExist()
     }
 
     @Test fun MPV章节入口读取服务端时间并执行真实跳转() {

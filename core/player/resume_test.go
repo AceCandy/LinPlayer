@@ -3,6 +3,7 @@ package player
 import (
 	"testing"
 
+	"linplayer/core/bus"
 	"linplayer/core/history"
 )
 
@@ -36,5 +37,18 @@ func Test从头播放不被服务端进度顶回去(t *testing.T) {
 	}
 	if got := resumeArg(map[string]any{}); got != 0 {
 		t.Fatalf("不传 = 交给核心层定,应当是 0,得到 %v", got)
+	}
+}
+
+func Test明确续播拒绝缺失负数和非数值(t *testing.T) {
+	regTransportOnce.Do(registerTransport)
+	for _, value := range []any{nil, -2.0, "12"} {
+		result := call(t, 9302, "player.play", map[string]any{
+			"server": "http://127.0.0.1:1", "user_id": "user", "token": "test",
+			"item_id": "item", "engine": "exo", "resume_exact": true, "resume_secs": value,
+		})
+		if result.OK || result.Code != bus.EInvalid {
+			t.Fatalf("明确位置 %v 未被拒绝: %+v", value, result)
+		}
 	}
 }
