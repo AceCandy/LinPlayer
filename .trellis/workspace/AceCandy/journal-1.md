@@ -1618,3 +1618,33 @@
 ### Next Steps
 
 - 未做真机安装播放/生产MSG联调；本地官方弹幕及崩溃上报凭据未配置，与此前本地包一致，自定义源与服务器raw可用。
+
+
+## Session 54: Android 包体瘦身与手机包交付
+<!-- trellis-session: v=2 fp=34d576bb1d267a12 -->
+
+**Date**: 2026-10-13
+**Task**: Android 包体瘦身与手机包交付
+**Branch**: `main`
+
+### Summary
+
+移除内置界面字体，启用原生库压缩；手机 APK 从78.07降至28.30 MiB，任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0ea40bd7` | perf(android): 移除内置字体并压缩原生库 |
+
+### Testing
+
+- [OK] 13项相关回归、独立复核、工作流与隐私门禁通过；APK签名、ABI、压缩、Manifest提取配置及产物一致性通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 等待手机安装反馈；真机安装播放与实际安装占用未验证，进一步核心依赖裁剪仅完成初步研究。
