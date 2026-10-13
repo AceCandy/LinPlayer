@@ -1692,3 +1692,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 57: 手机缓存字幕选集与顶部状态修复
+<!-- trellis-session: v=2 fp=9ecfe618f5b06df9 -->
+
+**Date**: 2026-10-14
+**Task**: 手机缓存字幕选集与顶部状态修复
+**Branch**: `main`
+
+### Summary
+
+两核持久缓存支持可信Last-Modified；外挂ASS接入轨道表并修复新头晚到、关闭残帧和大文件；选集分页超时与重复页终止、缺季ID回退；顶部时间常驻及低电量图标。218项Android回归、核心门禁、缓存播放竞态和参数检查通过，实际渲染已验；无设备和真实片源验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `105a3333` | fix(player): 修复缓存复用字幕选轨与选集加载 |
+
+### Status
+
+[OK] **Completed**
