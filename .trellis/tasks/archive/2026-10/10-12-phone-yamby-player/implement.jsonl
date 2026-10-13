@@ -1,0 +1,7 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "最小改动、独立复核、隐私及调试产物清理"}
+{"file": ".trellis/spec/shared/build-release.md", "reason": "区分针对性测试和出包，本轮未经直接要求不生成安装包"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "Android手机Compose资源、生命周期及平台边界"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "切集及离页请求取消，迟到尺寸响应不得重锁"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "页面方向归属与本机loading偏好"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "真实布局渲染和行为验收，不将本地回归当作设备播放"}
+{"file": ".trellis/tasks/10-12-phone-yamby-player/research/player-and-loading.md", "reason": "切集根因、七款loading静态证据、入口覆盖与固定版本依赖"}
