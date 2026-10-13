@@ -163,7 +163,7 @@
 | [x] | `player.danmakuOffset` | **新增** | `seconds: Option<f64>` | `{seconds: f64}` | ✅ |
 | [x] | `player.danmakuSet` | **新增** | `items: Vec<danmaku::Comment>, generation: Option<i64>` | `{count: i64}` | ✅ | <!-- 把 danmaku.autoLoad 取到的弹幕灌进核心层排版。空数组=清空,换片必须发一次 -->
 | [x] | `player.setDanmakuEnabled` | **新增** | `enabled: bool` | `{enabled: bool}` | ✅ | <!-- 弹幕开关,落 prefs.danmaku_enabled。以前三端都在发一条不存在的命令 -->
-| [x] | `player.setDanmakuStyle` | **新增** | `area: f64, scale: f64, opacity: f64, speed: f64, top_lines: i64, bottom_lines: i64, merge: bool, bold: bool, heatmap: bool` | `DanmakuStyle` | ✅ | <!-- 九项显示设置,只传要改的那几个;回的是钳过之后的值,UI 照它刷读数 -->
+| [x] | `player.setDanmakuStyle` | **新增** | `area: f64, scale: f64, opacity: f64, speed: f64, roll_lines: i64, top_lines: i64, bottom_lines: i64, prevent_overlap: bool, merge: bool, bold: bool, heatmap: bool` | `DanmakuStyle` | ✅ | <!-- 全局显示设置,只传要改的那几个；roll_lines为0–20整数(0隐藏)，prevent_overlap默认true，保存失败回滚;回的是钳过之后的值,UI 照它刷读数 -->
 | [x] | `player.getDanmakuStyle` | **新增** | `—` | `DanmakuStyle` | ✅ | <!-- 面板打开时回显。不回显的话滑块从写死的默认值起手,和画面上的弹幕对不上 -->
 | [x] | `player.danmakuLayout` | **新增** | `—` | `DanmakuLayout` | ✅ | <!-- 排好版的弹幕(时刻/模式/轨道/宽/颜色/正文)+ 折算过的字号行高滚动时长。灌完语料、改完设置各取一次,UI 自己按帧插位置 -->
 | [x] | `player.danmakuHeatmap` | **新增** | `buckets: Option<i64>, duration: Option<f64>` | `Vec<f64>` | ✅ | <!-- 当前语料的密度(0..1),两端在进度条上画同一份 -->

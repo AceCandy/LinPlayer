@@ -63,13 +63,15 @@
 
 - 手机详情简介直接显示三行正文，点击展开/收起，无重复标题/底卡；媒体信息随选中版本更新，文件摘要位于等高横滑轨道卡上方。使用内容高度和换行适配大字号，不能固定高度截断参数；`PhoneDetailOptionsTest` 覆盖展开、横滑和深浅主题的 1.3 倍字号渲染。可选字段与路径展示契约见 [JSON 边界](type-safety.md#媒体信息可选字段)。
 
-- 手机横屏播放器采用顶部剧名、中央快退/暂停/快进、左侧截图/锁屏、右侧倍速；底部上下集在单集标题左侧，已播/总长在波浪进度条左侧同排，右侧弹幕、音轨、字幕。竖屏顶部16:9视频，额外48dp进度行；顶栏保留返回、PiP、比例、方向、章节和更多，能力条件与横屏相同，剧名放内容区。视频下沿上下集、锁屏、倍率菜单、音轨、字幕，额外弹幕/截屏/插件可横滑；窄屏不能删入口。视频叠层按videoHeight裁剪，不能把进度行算进弹幕、手势和等待/HUD中心；根容器透明保留SurfaceView透出。内容区复用既有EpisodeStrip和实时队列，点击共用停止屏障；竖屏播放失败的具体原因、重试和返回置于可滚动内容区，长错误大字不能挤掉操作。PiP使用全尺寸视频，不显示内容区。叠图控件固定白色前景；面板打开隐藏主控，横屏按底排实测高度让位，竖屏面板在整页层使用底部安全间距。`PhonePlayerOsdTest` 覆盖主题、横竖屏、小屏大字的命中与分派；`PhoneEnginePlaybackTest` 断言真实页面16:9、等待中心、方向请求不重播、当前集定位及分集切换停止顺序，设备Surface/PiP另验。
+- 手机播放器横竖屏统一使用全屏视频区域；设备方向决定控件排列，片源比例决定画面适配与初始方向，不使用顶部16:9小窗和常驻详情/分集区。竖屏画面原比例居中，顶栏返回/PiP/比例/方向/章节/更多，中央退进/暂停，右侧倍率；底部上下集与标题、时间与进度、锁屏/音轨/字幕依次排列，额外操作横滑。剧集在更多菜单接既有选集面板，电影隐藏；不改切集停止屏障。NextUp采用单行“接下来 · 第X集 ›”胶囊，无集数回退标题，默认150×36dp视觉、至少48dp触摸高度，2dp主题色底边进度，大字号可增高；独立叠在实测底栏上方并避开倍率，宽度计入末端安全区、窄卡片省略文本并隐藏装饰图标，显隐不改变底栏/滑杆宽度与位置；OSD收起保留已测高度。根容器透明保留SurfaceView透出；全屏错误原因和重试/返回仍可操作。PhoneEnginePlaybackTest覆盖两种片源比例与两内核同页转屏、底栏前后几何、卡片不重叠、菜单切集及电影入口；PhonePlayerOsdTest/PhonePlayerMenuTest覆盖控件与锚定菜单，设备播放/PiP仍另验。
 
 - 手机详情未续播按钮使用紧凑宽度并居中排列图标文字，单集简介位于播放操作之后、选集之前。季号从 `SeasonInfo.index_no` 读取，显示「第X季：自定义名称」，默认季名不重复；分集卡时长/剩余时间只在封面左下展示，封面下不再显示未看/还剩状态行。演员接入详情已有 `people[].role`，缺失/空白角色不画。`PhoneDetailOptionsTest` 覆盖真实季响应字段、默认/自定义季名、简介顺序和角色显示。
 - 手机播放器移除选集快捷按钮，横屏右下仅弹幕、音轨、字幕；音轨用音符，扬声器仍用于音量反馈。轨道语言复用 `langCn`，中文名称作为标题回落或副标题，不重复堆叠代码徽标；保留字幕关闭与真实切轨命令。`PhonePlayerPanelTest` 覆盖语言名称、未知音轨隐藏及选中请求。
 - 手机播放选集复用 `AppState.seasonEpisodes(parentId, loaded, onPage)` 逐页展示，失败保留列表并按已加载条数续取；当前集到达后只定位一次，补页不强制复位手动滚动。轨道读取失败显示错误和重试，与成功空结果区分；请求和临时状态按面板、条目及实际 Media3 实例隔离，取消不能转成空结果。`PhonePlayerPanelTest` 覆盖第80集定位、短页续取、末集可选、失败页续取及旧轨道失败晚到；选集仍交页面回调起播。
 
-- Android seek 的待跳转目标只属于 `PlayerController`，相对输入必须走 `seekBy(delta, actual, duration)`，不能以重组前捕获的 position 计算绝对目标。页面以 UNDISTPATCHED 提交目标；原生命令串行，排队仅最新请求能提交。提交返回不是 seek 完成；非缓冲实际位置在1秒容差内才释放，15秒超时/失败/取消清目标，250ms页面检查兜底。上报、弹幕、续播/回退快照始终取真实位置。MPV核心没有 seek 完成闩或 seeking 字段，不得据此虚构完成事件。
+- 手机/TV共用`DanmakuLayer`从实际position采样驱动`DmClock`；两次采样之间目标与显示钟均按帧间隔×倍率推进，不能逐帧追同一个过期position。软纠偏按经过时间计算（60Hz每帧8%，其它刷新率等效），偏差超过1秒按既有seek规则硬对；position不能重启帧循环。两端均传入buffering，paused或buffering时停止外推并对齐实际采样。`DanmakuClockTest`覆盖4Hz输入、60/90/120Hz显示、倍速及23.976fps量化；`DanmakuLayerTest`验证真实Canvas移动、暂停seek与缓冲恢复，不代替真机帧耗时验证。
+
+- Android seek 的待跳转目标只属于 `PlayerController`，相对输入必须走 `seekBy(delta, actual, duration)`，不能以重组前捕获的 position 计算绝对目标。页面以 UNDISPATCHED 提交目标；原生命令串行，排队仅最新请求能提交。提交返回不是 seek 完成；非缓冲实际位置在1秒容差内才释放，15秒超时/失败/取消清目标，250ms页面检查兜底。上报、弹幕、续播/回退快照始终取真实位置。MPV核心没有 seek 完成闩或 seeking 字段，不得据此虚构完成事件。
 - 停止立即失效待跳转及排队请求，并等已发seek提交收尾；通知seek在提交锁内复查服务绑定代数，通知stop登记现有跨页面收尾屏障，旧停止完成不能关闭新绑定。Slider拖动值独立于轮询，按媒体与时长隔离，原生取消清值；横拖起点固定，TV预览从待跳转目标起步但不写真实 ui.position。回归覆盖 PlayerControllerTest、PhonePlayerOsdTest、PhoneEnginePlaybackTest、PlaybackServiceTest、TvRefreshRatePlaybackTest；精确落点和后台/锁屏派发仍需真机。
 
 - 跨内核字幕身份除title/language外保留可空forced/bitmap；Media3仅FORCED位存在时确认true，缺位unknown。PGS/VOBSUB/DVBSUBS MIME是位图，SSA/SubRip/VTT是文本，其它unknown；MPV只对已核实codec hdmv_pgs_subtitle/dvd_subtitle/dvb_subtitle及ass/subrip/webvtt分类。不能使用MPV image（单张图片视频）或Media3 isText（包含位图）推断字幕类型，不能按标题或caption角色猜SDH。源属性已知时目标须已知且相等，未知不是false；仍需有效title/language和唯一候选，歧义保留手选。缺语义旧身份沿原唯一标签规则；回归见PlayerControllerTest。
@@ -171,3 +173,6 @@
 遵守[共享展示快照规则](../backend/quality-guidelines.md#全端展示快照契约)：共享核心无TTL、1000条预算，展示显式接收partial，最终result实时；详情旧资料只读预览，主播放目标不取缓存。各端展示入口按身份/生命周期交付缓存并替换实时结果，分页按范围替换，失败保留展示但不伪装鉴权成功。
 
 - 手机方向锁由PlayerPage页面持有，同页自动/手动切集及换版本不临时请求UNSPECIFIED；新目标未知尺寸保持现有方向，成功起播后只用实际版本尺寸直接改向。手动方向不被元数据覆盖，比例仍可更新；取消、旧controller/目标和leaving阻止迟到写回，真正离页释放。PhoneEnginePlaybackTest覆盖两内核与旧/新目标迟到响应，真实转屏与首帧另验。
+
+
+- 手机弹幕使用220dp快捷菜单与280dp样式子页，12dp圆角、深色半透明、无全屏遮罩；子页返回先回一级，外点关闭全部。滑杆松手提交，粗体/合并重复/防止重叠直接展示。DanmakuStyle按核心成功回值更新全局偏好，load/set串行，保存完成revision重置滑杆本地预览（失败及回值不变也要恢复）；未读取成功不可提交。PhoneDanmakuPanelTest验证真实Popup、大字滚动、按键、开关、失败回读和单次提交。

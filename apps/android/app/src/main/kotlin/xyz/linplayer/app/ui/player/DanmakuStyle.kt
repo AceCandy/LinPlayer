@@ -2,6 +2,11 @@ package xyz.linplayer.app.ui.player
 
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
+import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import androidx.compose.runtime.mutableStateOf
@@ -13,7 +18,7 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.ui.pages.args
 
 /**
- * 弹幕显示设置(用户 2026-09-09 点名的九项)。
+ * 当前安装全局生效的弹幕显示设置。
  *
  * ## 分工
  *
@@ -52,6 +57,8 @@ object DanmakuStyle {
     val speed = mutableDoubleStateOf(1.0)
 
     /** 置顶 / 置底最多几行。**0 是合法值** = 这一类不显示。 */
+    val rollLines = mutableIntStateOf(20)
+    val preventOverlap = mutableStateOf(true)
     val topLines = mutableIntStateOf(10)
     val bottomLines = mutableIntStateOf(10)
 
@@ -59,10 +66,13 @@ object DanmakuStyle {
     val bold = mutableStateOf(false)
     val heatmap = mutableStateOf(false)
 
-    /** 弹幕总开关。和上面九项分开落库(`prefs.danmaku_enabled`)。 */
+    /** 弹幕总开关。和样式分开落库(`prefs.danmaku_enabled`)。 */
     val enabled = mutableStateOf(false)
 
     val loaded = mutableStateOf(false)
+    val loadError = mutableStateOf<String?>(null)
+    val saveRevision = mutableIntStateOf(0)
+    private val styleMutex = Mutex()
 
     /** 排好版的那一份。null = 还没灌语料。 */
     val layout = mutableStateOf<DmLayout?>(null)
@@ -74,51 +84,51 @@ object DanmakuStyle {
         layout.value = parseDmLayout(result)
     }
 
-    suspend fun load(app: AppState) {
-        val r = runCatching { app.call("player.getDanmakuStyle") }.getOrNull().obj() ?: return
-        currentCoroutineContext().ensureActive()
-        r.dbl("area")?.let { area.doubleValue = it }
-        r.dbl("scale")?.let { scale.doubleValue = it }
-        r.dbl("opacity")?.let { opacity.doubleValue = it }
-        r.dbl("speed")?.let { speed.doubleValue = it }
-        r.long("top_lines")?.let { topLines.intValue = it.toInt() }
-        r.long("bottom_lines")?.let { bottomLines.intValue = it.toInt() }
-        merge.value = r.bool("merge")
-        bold.value = r.bool("bold")
-        heatmap.value = r.bool("heatmap")
-        val prefs = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
-        currentCoroutineContext().ensureActive()
-        enabled.value = prefs.bool("danmaku_enabled")
-        loaded.value = true
-        reloadLayout(app)
+    suspend fun load(app: AppState) = styleMutex.withLock {
+        loaded.value = false
+        loadError.value = null
+        try {
+            val r = app.call("player.getDanmakuStyle").obj() ?: error("弹幕样式为空")
+            val prefs = app.call("prefs.getPrefs").obj() ?: error("弹幕偏好为空")
+            currentCoroutineContext().ensureActive()
+            applyStyle(r)
+            enabled.value = prefs.bool("danmaku_enabled")
+            loaded.value = true
+            reloadLayout(app)
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (e: Exception) { loadError.value = "弹幕设置读取失败" }
     }
 
-    /**
-     * 改一项。
-     *
-     * ★ **照回来的值刷读数,不照发出去的值** —— 核心层会钳区间,
-     *   照发出去的值刷的话面板上会显示一个核心层根本没接受的数,
-     *   而画面上的弹幕是另一个样子。
-     */
-    suspend fun set(app: AppState, key: String, value: Any) {
-        val r = runCatching {
-            app.call("player.setDanmakuStyle", when (value) {
-                is Double -> args(key to value)
-                is Int -> args(key to value.toDouble())
-                is Boolean -> args(key to value)
-                else -> args()
-            })
-        }.onFailure { app.report(it) }.getOrNull().obj() ?: return
+    /** 按提交顺序完成保存和重排，关闭菜单不丢已提交设置；只照核心成功回值刷新。 */
+    suspend fun set(app: AppState, key: String, value: Any) = styleMutex.withLock {
+        currentCoroutineContext().ensureActive()
+        withContext(NonCancellable) {
+            try {
+                val r = app.call("player.setDanmakuStyle", when (value) {
+                    is Double -> args(key to value)
+                    is Int -> args(key to value.toDouble())
+                    is Boolean -> args(key to value)
+                    else -> args()
+                }).obj() ?: error("弹幕样式为空")
+                applyStyle(r)
+                reloadLayout(app)
+            } catch (e: Exception) { app.report(e) }
+            finally { saveRevision.intValue++ }
+        }
+    }
+
+    private fun applyStyle(r: JsonObject) {
         r.dbl("area")?.let { area.doubleValue = it }
         r.dbl("scale")?.let { scale.doubleValue = it }
         r.dbl("opacity")?.let { opacity.doubleValue = it }
         r.dbl("speed")?.let { speed.doubleValue = it }
+        r.long("roll_lines")?.let { rollLines.intValue = it.toInt() }
         r.long("top_lines")?.let { topLines.intValue = it.toInt() }
         r.long("bottom_lines")?.let { bottomLines.intValue = it.toInt() }
+        preventOverlap.value = r.bool("prevent_overlap")
         merge.value = r.bool("merge")
         bold.value = r.bool("bold")
         heatmap.value = r.bool("heatmap")
-        reloadLayout(app)
     }
 
     /* ---- 纯函数。拆出来是为了可测 —— 这两条规则的全部内容就是这几行。 ---- */

@@ -93,7 +93,7 @@ class PhonePlayerMenuTest {
                         duration = 120.0, paused = true, speed = speed.value, heat = emptyList(), pluginPanels = listOf(xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo("test", "panel", "测试插件", "plugin", false)),
                         onBack = {}, onToggle = {}, onSeek = {}, onSpeed = { speed.value = it }, onLock = {}, onShot = {},
                         onPanel = { entrance.value = it; panel.value = it }, onPanelAnchor = { k, r -> anchors[k] = r },
-                        onOrientation = {}, onChapters = {}, onPip = {}, compact = false)
+                        onOrientation = {}, onChapters = {}, onPip = {})
                     PlayerPanel(panel.value, "episode", anchor = anchors[entrance.value], speed = speed.value,
                         onSpeed = { speed.value = it }, onOpen = { panel.value = it }, onClose = { panel.value = null })
                 }

@@ -191,29 +191,32 @@ class PhoneEnginePlaybackTest {
         showPlayer(core, "mpv")
         rule.runOnIdle { core.tick(3628.75) }; advance(rule, 300)
         rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.runOnIdle { core.tick(3630.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithText("接下来 · 第7集").assertIsDisplayed()
+        val capsule = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
+        assertTrue("片尾胶囊默认宽度不超过150dp", capsule.width <= 150f)
+        assertEquals("触摸高度保留48dp", 48f, capsule.height, .1f)
         assertEquals(1, core.calls.count { it.first == "player.play" })
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
         advance(rule, 500)
         rule.onNodeWithContentDescription("更多").assertDoesNotExist()
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
         rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
             put("item_id", "sh6"); put("position", 3635.0); put("duration", 3660.0)
             put("paused", true); put("buffering", false)
         })) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
         rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").performClick()
+        rule.onNodeWithTag("player.nextUp").performClick()
         advance(rule, 500)
         assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
         assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
     }
 
     @Test fun 短剧接下来只在最后十秒显示并可回退撤回() {
@@ -227,19 +230,19 @@ class PhoneEnginePlaybackTest {
             advance(rule, 300)
         }
         tickAt(.25); tickAt(.5)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         tickAt(5.0)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         tickAt(24.99)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         tickAt(25.0)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/player-osd/next-up-short-start.png")
         tickAt(30.0)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/player-osd/next-up-short-half.png")
         tickAt(24.99)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         assertEquals(1, core.calls.count { it.first == "player.play" })
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
@@ -365,6 +368,38 @@ class PhoneEnginePlaybackTest {
     @Config(qualifiers = "w360dp-h640dp-port-mdpi")
     fun 竖屏片源按实际媒体尺寸全屏显示且保留切换入口Media3() = verifyPortraitSource("exo")
 
+    @Test fun 横屏片源切竖屏保持全屏与播放会话MPV() = verifyLandscapeSourcePortrait("mpv")
+
+    @Test fun 横屏片源切竖屏保持全屏与播放会话Media3() = verifyLandscapeSourcePortrait("exo")
+
+    private fun verifyLandscapeSourcePortrait(mode: String) {
+        val core = episodeCore().apply {
+            ret("emby.itemMedia", arr(buildJsonObject {
+                put("id", "ea")
+                put("streams", arr(buildJsonObject {
+                    put("type_", "Video"); put("width", 1920); put("height", 1080)
+                }))
+            }))
+        }
+        showPlayer(core, mode, ar = 0f, dark = true)
+        if (mode == "exo") { exoState(0); advance(rule, 300) }
+        val host = activity
+        rule.onNodeWithContentDescription("切换方向").performClick()
+        rotateViewport(360, 640)
+        assertSame(host, activity)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+        assertEquals(rule.onRoot().fetchSemanticsNode().boundsInRoot,
+            rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot)
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        if (mode == "exo") assertPortraitSurface(360, 203)
+        rule.onNodeWithContentDescription("切换方向").performClick()
+        rotateViewport(640, 360)
+        assertSame(host, activity)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
+    }
+
     private fun verifyPortraitSource(mode: String) {
         val core = portraitCore()
         showPlayer(core, mode, ar = 0f, dark = true)
@@ -392,7 +427,7 @@ class PhoneEnginePlaybackTest {
         assertEquals(lock.left, unlock.left, 1f); assertEquals(lock.top, unlock.top, 1f)
         rule.onNodeWithContentDescription("解锁").performClick(); advance(rule, 300)
         rule.runOnIdle {
-            portraitVideoBackground(360, 640)
+            videoBackground(360, 640)
         }
         if (mode == "mpv") {
             rule.runOnIdle { core.tick(2172.25) }; advance(rule, 300)
@@ -411,7 +446,7 @@ class PhoneEnginePlaybackTest {
         val landscapeVideo = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
         assertEquals(640f, landscapeVideo.width, .1f); assertEquals(360f, landscapeVideo.height, .1f)
         rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
-        rule.runOnIdle { portraitVideoBackground(640, 360) }
+        rule.runOnIdle { videoBackground(640, 360) }
         if (mode == "mpv") rule.onRoot().captureRoboImage("build/player-osd/portrait-source-landscape.png")
         else assertPortraitSurface(203, 360)
         rule.onNodeWithContentDescription("切换方向").performClick()
@@ -439,8 +474,8 @@ class PhoneEnginePlaybackTest {
     }
 
     /** 合成窗口背景用于核对原始比例和控件对比，不能作为实际视频解码证据。 */
-    private fun portraitVideoBackground(width: Int, height: Int) {
-        val frame = xyz.linplayer.app.ui.player.videoRect(width, height, 9f / 16, xyz.linplayer.app.ui.player.VideoFit.Source)
+    private fun videoBackground(width: Int, height: Int, aspect: Float = 9f / 16) {
+        val frame = xyz.linplayer.app.ui.player.videoRect(width, height, aspect, xyz.linplayer.app.ui.player.VideoFit.Source)
         val picture = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
             intArrayOf(0xFF455F48.toInt(), 0xFF244C62.toInt()))
         val background = android.graphics.drawable.LayerDrawable(arrayOf(
@@ -464,9 +499,18 @@ class PhoneEnginePlaybackTest {
     fun 竖屏片源窄屏大字接下来及面板不遮挡控制() {
         val core = portraitCore()
         showPlayer(core, "mpv", ar = 0f, fontScale = 1.3f, dark = false)
-        rule.runOnIdle { core.tick(3634.5) }; advance(rule, 300)
+        rule.runOnIdle { videoBackground(320, 640) }
+        rule.runOnIdle { core.tick(3628.5) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
+        fun controls() = listOf(rule.onNode(SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNode().boundsInRoot) +
+            listOf("上一集", "下一集", "音轨", "字幕").map {
+                rule.onNodeWithContentDescription(it).fetchSemanticsNode().boundsInRoot
+            }
+        val before = controls()
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
+        assertEquals("片尾提示出现不得改变滑杆与底栏按钮的几何", before, controls())
         val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
         targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
@@ -478,7 +522,7 @@ class PhoneEnginePlaybackTest {
         rule.onNodeWithContentDescription("弹幕").performScrollTo().assertIsDisplayed()
         rule.onNodeWithContentDescription("截屏").performScrollTo().assertIsDisplayed()
         rule.onNodeWithContentDescription("字幕").performScrollTo().performClick(); advance(rule, 300)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.onNodeWithTag("player.menu").assertIsDisplayed()
         rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
         rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
@@ -538,20 +582,20 @@ class PhoneEnginePlaybackTest {
 
     @Test
     @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
-    fun 横屏片源在竖屏小窗保持十六比九并可通过分集卡切集() {
+    fun 横屏片源在竖屏使用全屏并可通过下一集切集() {
         val core = episodeCore()
         showPlayer(core, "mpv", ar = 16f / 9, fontScale = 1.3f)
         val video = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
-        assertEquals(16f / 9, video.width / video.height, .01f)
+        assertEquals(rule.onRoot().fetchSemanticsNode().boundsInRoot, video)
         val waiting = rule.onNode(hasContentDescription("正在打开…") or hasContentDescription("正在缓冲…"))
             .fetchSemanticsNode().boundsInRoot
         assertEquals("等待动画应居中于视频，不能算入视频下方的进度行", video.center.y, waiting.center.y, 1f)
-        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
-        rule.onNodeWithText("当前集").assertIsDisplayed()
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        rule.onNodeWithTag("detail.ep.sh6").assertDoesNotExist()
         rule.onNodeWithText("正在缓冲…").assertDoesNotExist()
         rule.onNodeWithText("正在打开…").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/player-osd/portrait-page.png")
-        rule.onNodeWithTag("detail.ep.sh7").performClick()
+        rule.onNodeWithContentDescription("下一集").performClick()
         advance(rule, 400)
         assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(2, core.calls.count { it.first == "player.play" })
@@ -560,54 +604,35 @@ class PhoneEnginePlaybackTest {
     }
 
     @Test
-    @Config(qualifiers = "w360dp-h640dp-port-mdpi", sdk = [36], application = Application::class)
-    fun 竖屏正常播放展示当前集面板并保留折叠滚动位置() {
-        FakeImages.install(ApplicationProvider.getApplicationContext())
-        val core = episodeCore().apply {
-            on("emby.itemDetail") { a -> buildJsonObject {
-                val id = a.str("item_id")!!
-                put("id", id); put("name", "妾之王国"); put("series_name", "幕府将军"); put("type_", "Episode")
-                put("season_id", "sh"); put("series_id", "s2"); put("season_no", 1)
-                put("episode_no", id.removePrefix("sh").toInt())
-            } }
-        }
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi")
+    fun 横屏片源竖屏播放保持画面居中和锁定位置() {
+        val core = episodeCore()
         showPlayer(core, "mpv", ar = 16f / 9, dark = true)
-        rule.runOnIdle {
-            activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
-            core.tick(2172.25)
-        }; advance(rule, 300)
+        rule.runOnIdle { videoBackground(360, 640, 16f / 9); core.tick(2172.25) }; advance(rule, 300)
         rule.runOnIdle { core.tick(2172.75) }; advance(rule, 300)
         rule.onNode(hasContentDescription("正在打开…") or hasContentDescription("正在缓冲…")).assertDoesNotExist()
-        val header = rule.onNodeWithTag("player.current").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        val thumb = rule.onNodeWithContentDescription("当前集缩略图").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertEquals(thumb.width * 9f / 16f, thumb.height, 1f)
-        assertTrue(thumb.left >= header.left && thumb.bottom <= header.bottom)
-        rule.onNodeWithText("分集 10").assertIsDisplayed()
-        val card = rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertEquals("播放器分集采用参考卡宽", 190f, card.width, .1f)
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        rule.onNodeWithTag("detail.ep.sh6").assertDoesNotExist()
+        val video = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
+        assertEquals(rule.onRoot().fetchSemanticsNode().boundsInRoot, video)
+        val pause = rule.onNodeWithContentDescription("暂停").fetchSemanticsNode().boundsInRoot
+        assertEquals(video.center.y, pause.center.y, .1f)
         rule.onRoot().captureRoboImage("build/player-osd/portrait-page-normal.png")
         val lock = rule.onNodeWithContentDescription("锁屏").fetchSemanticsNode().boundsInRoot
         rule.onNodeWithContentDescription("锁屏").performClick(); advance(rule, 300)
         val unlock = rule.onNodeWithContentDescription("解锁").fetchSemanticsNode().boundsInRoot
-        assertEquals(lock.left, unlock.left, 1f)
-        assertEquals(lock.top, unlock.top, 1f)
+        assertEquals(lock.left, unlock.left, 1f); assertEquals(lock.top, unlock.top, 1f)
         rule.onNodeWithContentDescription("解锁").performClick(); advance(rule, 300)
-        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(7)
-        rule.onNodeWithTag("detail.ep.sh8").assertIsDisplayed()
-        val before = rule.onNodeWithTag("detail.ep.sh8").fetchSemanticsNode().boundsInRoot.left
-        val requests = core.calls.count { it.first == "emby.seasonEpisodes" }
-        rule.onNodeWithContentDescription("收起分集").performClick(); advance(rule, 300)
-        rule.onNodeWithTag("detail.ep.sh8").assertIsNotDisplayed()
-        rule.onNodeWithTag("player.current").assertIsDisplayed()
-        rule.onRoot().captureRoboImage("build/player-osd/portrait-page-collapsed.png")
-        rule.onNodeWithContentDescription("展开分集").performClick(); advance(rule, 300)
-        assertEquals(before, rule.onNodeWithTag("detail.ep.sh8").assertIsDisplayed().fetchSemanticsNode().boundsInRoot.left, 1f)
-        assertEquals(requests, core.calls.count { it.first == "emby.seasonEpisodes" })
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithText("选集").performClick(); advance(rule, 300)
+        rule.onNode(hasText("S1E7", substring = true)).performClick(); advance(rule, 400)
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
     }
 
     @Test
     @Config(qualifiers = "w320dp-h640dp-port-mdpi", sdk = [36], application = Application::class)
-    fun 窄屏大字竖屏面板可恢复且方向仍可用() {
+    fun 窄屏大字竖屏全屏控制与方向仍可用() {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val core = episodeCore()
         showPlayer(core, "mpv", ar = 16f / 9, fontScale = 1.3f, dark = false)
@@ -616,8 +641,8 @@ class PhoneEnginePlaybackTest {
             core.tick(2172.25)
         }; advance(rule, 300)
         rule.runOnIdle { core.tick(2172.75) }; advance(rule, 300)
-        rule.onNodeWithTag("player.current").assertIsDisplayed()
-        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        rule.onNodeWithTag("detail.ep.sh6").assertDoesNotExist()
         for (label in listOf("上一集", "下一集", "锁屏", "倍速", "音轨", "字幕", "切换方向"))
             rule.onNodeWithContentDescription(label).assertIsDisplayed()
         val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
@@ -627,10 +652,6 @@ class PhoneEnginePlaybackTest {
             assertTrue("小屏大字整页命中不能重叠", overlap.width <= 0f || overlap.height <= 0f)
         } }
         rule.onRoot().captureRoboImage("build/player-osd/portrait-page-compact-normal.png")
-        rule.onNodeWithContentDescription("收起分集").performClick(); advance(rule, 300)
-        rule.onNodeWithTag("detail.ep.sh6").assertIsNotDisplayed()
-        rule.onNodeWithContentDescription("展开分集").assertIsDisplayed().performClick(); advance(rule, 300)
-        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
         rule.onNodeWithContentDescription("切换方向").performClick(); advance(rule, 1300)
         assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
         assertEquals(1, core.calls.count { it.first == "player.play" })
@@ -638,22 +659,83 @@ class PhoneEnginePlaybackTest {
 
     @Test
     @Config(qualifiers = "w640dp-h360dp-land-mdpi", sdk = [36], application = Application::class)
-    fun 小屏大字接下来卡片不遮挡控制和进度() {
+    fun 小屏大字接下来卡片不遮挡控制和进度() = verifyNextUpGeometry()
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land-mdpi")
+    fun 横屏侧边安全区不挤压片尾卡片与控制() = verifyNextUpGeometry(sideInset = 24)
+
+    @Test
+    @Config(qualifiers = "w640dp-h360dp-land-mdpi")
+    fun 横屏较宽安全区不挤压片尾卡片与控制() = verifyNextUpGeometry(sideInset = 48)
+
+    @Test
+    @Config(qualifiers = "w568dp-h320dp-land-mdpi")
+    fun 更窄横屏片尾卡片仍与主控分离() = verifyNextUpGeometry()
+
+    @Test
+    @Config(qualifiers = "w568dp-h320dp-land-mdpi")
+    fun 更窄横屏有安全区时片尾卡片仍与主控分离() = verifyNextUpGeometry(sideInset = 24)
+
+    private fun verifyNextUpGeometry(sideInset: Int = 0) {
         val core = episodeCore()
         showPlayer(core, "mpv", fontScale = 1.3f)
-        rule.runOnIdle { core.tick(3634.5) }; advance(rule, 300)
+        val viewport = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { videoBackground(viewport.width.toInt(), viewport.height.toInt(), 16f / 9) }
+        if (sideInset > 0) {
+            val before = rule.onNodeWithContentDescription("字幕").fetchSemanticsNode().boundsInRoot
+            rule.runOnIdle {
+                val insets = android.view.WindowInsets.Builder().setInsets(
+                    android.view.WindowInsets.Type.navigationBars(), android.graphics.Insets.of(0, 0, sideInset, 0))
+                    .setVisible(android.view.WindowInsets.Type.navigationBars(), true).build()
+                fun dispatch(view: android.view.View) {
+                    if (view.javaClass.name.endsWith("AndroidComposeView")) view.dispatchApplyWindowInsets(insets)
+                    else if (view is android.view.ViewGroup) for (i in 0 until view.childCount) dispatch(view.getChildAt(i))
+                }
+                dispatch(activity.window.decorView)
+            }
+            advance(rule, 300)
+            assertEquals("安全区注入必须真实影响底栏", before.right - sideInset,
+                rule.onNodeWithContentDescription("字幕").fetchSemanticsNode().boundsInRoot.right, .1f)
+        }
+        rule.runOnIdle { core.tick(3628.5) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
+        fun controls() = listOf(rule.onNode(SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNode().boundsInRoot) +
+            listOf("上一集", "下一集", "音轨", "字幕").map {
+                rule.onNodeWithContentDescription(it).fetchSemanticsNode().boundsInRoot
+            }
+        val before = controls()
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertIsDisplayed()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
+        assertEquals("片尾提示出现不得改变滑杆与底栏按钮的几何", before, controls())
         val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
         targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
             val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
             assertTrue("卡片与控制命中区不能重叠：${a.config} / ${b.config}", overlap.width <= 0f || overlap.height <= 0f)
         } }
-        rule.onRoot().captureRoboImage("build/player-osd/next-up-compact.png")
+        rule.onRoot().captureRoboImage("build/player-osd/next-up-compact${if (sideInset > 0) "-inset$sideInset" else if (viewport.width < 640) "-narrow" else ""}.png")
         rule.onNodeWithContentDescription("字幕").performClick(); advance(rule, 300)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.onNodeWithTag("player.menu").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi")
+    fun 电影竖屏全屏且更多菜单不展示选集() {
+        val core = episodeCore().apply {
+            ret("emby.itemDetail", buildJsonObject {
+                put("id", "sh6"); put("name", "测试电影"); put("type_", "Movie")
+            })
+        }
+        showPlayer(core, "mpv")
+        assertEquals(rule.onRoot().fetchSemanticsNode().boundsInRoot,
+            rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot)
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("player.menu").assertIsDisplayed()
+        rule.onNodeWithText("选集").assertDoesNotExist()
     }
 
     @Test
@@ -681,7 +763,7 @@ class PhoneEnginePlaybackTest {
         }
         showPlayer(core, "mpv")
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.onNodeWithContentDescription("下一集").assertIsNotEnabled()
     }
 
@@ -700,9 +782,9 @@ class PhoneEnginePlaybackTest {
         try {
             showPlayer(port, "mpv")
             rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
-            rule.onNodeWithText("接下来").assertDoesNotExist()
+            rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
             rule.runOnIdle { release.complete(Unit) }; advance(rule, 300)
-            rule.onNodeWithText("接下来").assertDoesNotExist()
+            rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
             assertEquals(1, core.calls.count { it.first == "player.play" })
         } finally { release.complete(Unit) }
     }
@@ -711,11 +793,11 @@ class PhoneEnginePlaybackTest {
         val core = episodeCore()
         showPlayer(core, "exo")
         exoState(3_635_000); advance(rule, 300)
-        rule.onNodeWithText("接下来").assertIsDisplayed().performClick()
+        rule.onNodeWithTag("player.nextUp").assertIsDisplayed().performClick()
         advance(rule, 500)
         exoState(0); advance(rule, 300)
         assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
-        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
         rule.onNodeWithContentDescription("上一集").performClick(); advance(rule, 500)
         assertEquals("sh6", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(listOf("player.play", "player.stopPlayback", "player.play", "player.stopPlayback", "player.play"),

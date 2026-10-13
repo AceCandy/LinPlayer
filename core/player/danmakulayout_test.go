@@ -8,7 +8,7 @@ import (
 func testStyle() dmStyle {
 	return dmStyle{
 		Area: 1.0, Scale: 1.0, Opacity: 1.0, Speed: 1.0,
-		TopLines: 10, BottomLines: 10,
+		RollLines: 20, PreventOverlap: true, TopLines: 10, BottomLines: 10,
 	}
 }
 
@@ -74,7 +74,8 @@ func TestAreaLimitsRollLanes(t *testing.T) {
 // 置顶行数设成 0 = 这一类**一条都不显示**。
 //
 // ★ 这一条最容易写错成「回默认值 10」——0 在别的数值项上确实是「没设」,
-//   但在行数上它是用户真会选的一档。
+//
+//	但在行数上它是用户真会选的一档。
 func TestZeroTopLinesDropsTopDanmaku(t *testing.T) {
 	in := []danmakuItem{
 		{Time: 1, Mode: 5, Count: 1, Text: "顶"},
@@ -105,7 +106,7 @@ func TestMergeSameCounts(t *testing.T) {
 		{Time: 2.0, Mode: 1, Count: 1, Text: "草"},
 		{Time: 3.0, Mode: 1, Count: 1, Text: "草"},
 		{Time: 30.0, Mode: 1, Count: 1, Text: "草"}, // 窗口外,自成一条
-		{Time: 1.5, Mode: 5, Count: 1, Text: "草"}, // 类型不同,不合并
+		{Time: 1.5, Mode: 5, Count: 1, Text: "草"},  // 类型不同,不合并
 	}
 	out := mergeSame(in, 10.0)
 	if len(out) != 3 {

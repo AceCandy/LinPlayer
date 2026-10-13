@@ -18,6 +18,7 @@ func TestMain(m *testing.M) {
 	// ★ 只注册偏好那批。整包 RegisterCommands 会一起注册 player.play,
 	//   而那条要真 libmpv —— 测试进程里没有 DLL 就起不来。
 	registerPrefsCommands("test")
+	registerDanmakuFeed()
 	os.Exit(m.Run())
 }
 

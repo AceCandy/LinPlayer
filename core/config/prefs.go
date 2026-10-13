@@ -107,6 +107,12 @@ type Prefs struct {
 	// DanmakuSpeed 滚动速度倍率。1 = 一条弹幕横穿画面用 8 秒。
 	DanmakuSpeed float64 `json:"danmaku_speed"`
 
+	// DanmakuRollLines 限制滚动弹幕最大行数，0隐藏滚动弹幕。
+	DanmakuRollLines int `json:"danmaku_roll_lines"`
+
+	// DanmakuPreventOverlap 三类弹幕共用画面行，排不下的略过。
+	DanmakuPreventOverlap bool `json:"danmaku_prevent_overlap"`
+
 	// DanmakuTopLines / DanmakuBottomLines 置顶 / 置底弹幕最多占几行。
 	// **0 是合法值**(= 这一类不显示),所以 Clamped 不能把 0 当没设。
 	DanmakuTopLines    int `json:"danmaku_top_lines"`
@@ -418,6 +424,8 @@ func DefaultPrefs() Prefs {
 		DanmakuScale:                 1.0,
 		DanmakuOpacity:               1.0,
 		DanmakuSpeed:                 1.0,
+		DanmakuRollLines:             20,
+		DanmakuPreventOverlap:        true,
 		DanmakuTopLines:              10,
 		DanmakuBottomLines:           10,
 		DanmakuBlockwords:            []string{},
@@ -609,6 +617,9 @@ func (p Prefs) Clamped() Prefs {
 	}
 	if p.DanmakuSpeed < DanmakuSpeedMin || p.DanmakuSpeed > DanmakuSpeedMax {
 		p.DanmakuSpeed = 1.0
+	}
+	if p.DanmakuRollLines < 0 || p.DanmakuRollLines > DanmakuLinesMax {
+		p.DanmakuRollLines = DanmakuLinesMax
 	}
 	// ★ 这两项**只夹不回默认**:0 是「不显示这一类」,是用户真会选的一档。
 	if p.DanmakuTopLines < 0 || p.DanmakuTopLines > DanmakuLinesMax {

@@ -141,17 +141,21 @@ func registerDanmakuFeed() {
 	// ★ 落在 prefs 里而不是只存内存:用户关掉弹幕是**长期意愿**,
 	//   下一集又自己开起来等于没关。
 	bus.Register("player.setDanmakuEnabled", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		styleCommandMu.Lock()
+		defer styleCommandMu.Unlock()
 		on, ok := a["enabled"].(bool)
 		if !ok {
 			return nil, bus.NewErr(bus.EInvalid, "缺少 enabled")
 		}
 		c := config.Current()
+		before := c.Prefs
 		p := c.PrefsOf()
 		p.DanmakuEnabled = on
 		if err := c.SetPrefs(p); err != nil {
 			return nil, bus.NewErr(bus.EInternal, "偏好序列化失败: %v", err)
 		}
 		if err := c.Save(); err != nil {
+			c.Prefs = before
 			return nil, bus.NewErr(bus.EInternal, "配置保存失败: %v", err)
 		}
 		return map[string]any{"enabled": on}, nil

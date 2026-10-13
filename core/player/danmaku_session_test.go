@@ -9,7 +9,6 @@ import (
 )
 
 func TestDanmakuGenerationAndOffset(t *testing.T) {
-	registerDanmakuFeed()
 	call := func(cmd string, a map[string]any) any {
 		t.Helper()
 		r, err := bus.Invoke(context.Background(), cmd, a)

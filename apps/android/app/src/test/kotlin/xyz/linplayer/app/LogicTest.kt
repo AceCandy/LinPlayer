@@ -740,7 +740,7 @@ class LogicTest {
         // 一帧 60Hz、1.0 倍速:钟往前走一帧的量
         assertEquals(10.0 + 1 / 60.0, dmTick(10.0, 10.0 + 1 / 60.0, 1 / 60.0, 1.0), 1e-9)
         // ☠ 落后 0.2 秒(轮询刚来一拍)**不许一把拽过去** —— 那就是「整屏一起跳」
-        val soft = dmTick(clock = 10.0, target = 10.2, dt = 0.0, speed = 1.0)
+        val soft = dmTick(clock = 10.0, target = 10.2, dt = 1 / 60.0, speed = 1.0)
         assertTrue("要往前追", soft > 10.0)
         assertTrue("但一帧只追一小段,不许追平", soft < 10.05)
         // 差过一秒是 seek / 换片,这时候必须硬对,不然要好几秒才追得上

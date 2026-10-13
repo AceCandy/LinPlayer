@@ -1,6 +1,6 @@
 package player
 
-// 弹幕显示设置 + 布局 + 热力图(用户 2026-09-09 点名的九项)。
+// 全局弹幕显示设置、布局与热力图。
 //
 // 为什么排版留在核心层、绘制交给 UI:排一次要遍历上万条并逐轨算避让,
 // 那是「换了设置才重来一次」的活;而画一帧只是把定好的坐标乘个缩放,
@@ -20,19 +20,22 @@ import (
 
 // dmStyle 一份弹幕显示设置的快照。
 type dmStyle struct {
-	Area        float64
-	Scale       float64
-	Opacity     float64
-	Speed       float64
-	TopLines    int
-	BottomLines int
-	Merge       bool
-	Bold        bool
+	Area           float64
+	Scale          float64
+	Opacity        float64
+	Speed          float64
+	RollLines      int
+	PreventOverlap bool
+	TopLines       int
+	BottomLines    int
+	Merge          bool
+	Bold           bool
 }
 
 var (
-	styMu sync.RWMutex
-	sty   = dmStyleOf(config.DefaultPrefs())
+	styleCommandMu sync.Mutex // 样式读写按完整落盘/重排事务串行。
+	styMu          sync.RWMutex
+	sty            = dmStyleOf(config.DefaultPrefs())
 	// dmRaw 灌进来的原始语料。布局的输入,style 一变就重排一次。
 	dmRaw        []danmakuItem
 	dmOffset     float64
@@ -47,6 +50,7 @@ func dmStyleOf(p config.Prefs) dmStyle {
 	return dmStyle{
 		Area: p.DanmakuArea, Scale: p.DanmakuScale, Opacity: p.DanmakuOpacity,
 		Speed: p.DanmakuSpeed, TopLines: p.DanmakuTopLines, BottomLines: p.DanmakuBottomLines,
+		RollLines: p.DanmakuRollLines, PreventOverlap: p.DanmakuPreventOverlap,
 		Merge: p.DanmakuMerge, Bold: p.DanmakuBold,
 	}
 }
@@ -130,75 +134,71 @@ func mergeSame(in []danmakuItem, window float64) []danmakuItem {
 	return out
 }
 
-// layout 分轨。返回的每一条都带定好的 lane 和上屏用的文本;排不下的**丢掉**。
-//
-// ★ 丢掉而不是硬塞:排不下还画等于两条弹幕叠在一行上,那比少一条难看得多。
-//
-//	范围调小本来就是用户在要求「少一点」。
+// layout 按行数分轨。防重叠开启时，三种模式共同占用纵向空间直到离场。
+// 不依赖文本估宽来拼接同轨滚动弹幕，避免实际画面较窄或长句追尾；代价是密集时略过更多条目。
 func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 	items := append([]danmakuItem(nil), in...)
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Time < items[j].Time })
-
 	laneH := laneHeight * s.Scale
-	roll := rollSeconds / s.Speed
-	rollLanes := int(float64(danmakuResY) * s.Area / laneH)
-	if rollLanes < 1 {
-		rollLanes = 1
-	}
-	// free[i] = 第 i 轨最早什么时候能再放一条
-	rollFree := negInf(rollLanes)
-	topFree := negInf(s.TopLines)
-	botFree := negInf(s.BottomLines)
-
+	maxLanes := int((float64(danmakuResY) - 8) / laneH)
+	rollLanes := min(s.RollLines, maxLanes, max(1, int(float64(danmakuResY)*s.Area/laneH)))
+	limits := map[int]int{1: rollLanes, 5: min(s.TopLines, maxLanes), 4: min(s.BottomLines, maxLanes)}
+	next := map[int]int{}
+	type occupiedRow struct{ top, until float64 }
+	active := make([]occupiedRow, 0, maxLanes)
 	out := make([]danmakuItem, 0, len(items))
 	for _, d := range items {
-		d.Text = displayText(d)
-		d.w = textWidth(d.Text, s.Scale)
-		lane := -1
-		switch d.Mode {
-		case 1:
-			lane = pickLane(rollFree, d.Time)
-			if lane >= 0 {
-				// 这一轨下次能用 = 本条的**尾巴**进了画面的时刻。
-				// 用「整条走完」的话一轨一次只放得下一条,屏幕会空得离谱。
-				rollFree[lane] = d.Time + d.w/(float64(danmakuResX)+d.w)*roll
-			}
-		case 5:
-			lane = pickLane(topFree, d.Time)
-			if lane >= 0 {
-				topFree[lane] = d.Time + fixSeconds
-			}
-		case 4:
-			lane = pickLane(botFree, d.Time)
-			if lane >= 0 {
-				botFree[lane] = d.Time + fixSeconds
-			}
-		}
-		if lane < 0 {
+		count := limits[d.Mode]
+		if count <= 0 {
 			continue
 		}
+		topAt := func(lane int) float64 {
+			if d.Mode == 4 {
+				return float64(danmakuResY) - 4 - float64(lane+1)*laneH
+			}
+			return 4 + float64(lane)*laneH
+		}
+		lane := next[d.Mode] % count
+		if s.PreventOverlap {
+			kept := active[:0]
+			for _, row := range active {
+				if row.until > d.Time {
+					kept = append(kept, row)
+				}
+			}
+			active = kept
+			lane = -1
+			for i := 0; i < count; i++ {
+				top := topAt(i)
+				available := true
+				for _, row := range active {
+					if top < row.top+laneH && row.top < top+laneH {
+						available = false
+						break
+					}
+				}
+				if available {
+					lane = i
+					break
+				}
+			}
+			if lane < 0 {
+				continue
+			}
+			span := fixSeconds
+			if d.Mode == 1 {
+				span = rollSeconds / s.Speed
+			}
+			active = append(active, occupiedRow{topAt(lane), d.Time + span})
+		} else {
+			next[d.Mode] = lane + 1
+		}
+		d.Text = displayText(d)
+		d.w = textWidth(d.Text, s.Scale)
 		d.lane = lane
 		out = append(out, d)
 	}
 	return out
-}
-
-func negInf(n int) []float64 {
-	out := make([]float64, n)
-	for i := range out {
-		out[i] = math.Inf(-1)
-	}
-	return out
-}
-
-// pickLane 找一条 now 时刻空着的轨道。都占着返回 -1。
-func pickLane(free []float64, now float64) int {
-	for i, f := range free {
-		if now >= f {
-			return i
-		}
-	}
-	return -1
 }
 
 // displayText 合并过的带上 xN。
@@ -288,13 +288,35 @@ func registerDanmakuStyle() {
 	// player.getDanmakuStyle 回显。面板每次打开都要读回落库的那一份 ——
 	// 不读的话滑块从写死的默认值起手,和画面上的弹幕对不上。
 	bus.Register("player.getDanmakuStyle", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		styleCommandMu.Lock()
+		defer styleCommandMu.Unlock()
 		return styleReply(config.Current().PrefsOf()), nil
 	})
 
 	// player.setDanmakuStyle 改一项或几项,落库 + 立即重排上屏。
 	bus.Register("player.setDanmakuStyle", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		styleCommandMu.Lock()
+		defer styleCommandMu.Unlock()
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		c := config.Current()
+		before := c.Prefs
 		p := c.PrefsOf()
+		if raw, exists := a["roll_lines"]; exists {
+			v, ok := raw.(float64)
+			if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v != math.Trunc(v) || v < 0 || v > config.DanmakuLinesMax {
+				return nil, bus.NewErr(bus.EInvalid, "滚动行数须为0到20的整数")
+			}
+			p.DanmakuRollLines = int(v)
+		}
+		if raw, exists := a["prevent_overlap"]; exists {
+			v, ok := raw.(bool)
+			if !ok {
+				return nil, bus.NewErr(bus.EInvalid, "防止重叠须为开关值")
+			}
+			p.DanmakuPreventOverlap = v
+		}
 		if v, ok := numArg(a, "area"); ok {
 			p.DanmakuArea = v
 		}
@@ -326,6 +348,7 @@ func registerDanmakuStyle() {
 			return nil, bus.NewErr(bus.EInternal, "偏好序列化失败: %v", err)
 		}
 		if err := c.Save(); err != nil {
+			c.Prefs = before
 			return nil, bus.NewErr(bus.EInternal, "配置保存失败: %v", err)
 		}
 		loadDanmakuStyle()
@@ -390,21 +413,24 @@ func danmakuLayoutReply() map[string]any {
 // 具名而不是裸 map:字段名是跨语言契约,拼错了两边都不报错,只是取到 null
 // 画成空。有了这个类型 check-android-fields.py 才对得上账。
 type DanmakuStyle struct {
-	Area        float64 `json:"area"`
-	Scale       float64 `json:"scale"`
-	Opacity     float64 `json:"opacity"`
-	Speed       float64 `json:"speed"`
-	TopLines    int     `json:"top_lines"`
-	BottomLines int     `json:"bottom_lines"`
-	Merge       bool    `json:"merge"`
-	Bold        bool    `json:"bold"`
-	Heatmap     bool    `json:"heatmap"`
+	Area           float64 `json:"area"`
+	Scale          float64 `json:"scale"`
+	Opacity        float64 `json:"opacity"`
+	Speed          float64 `json:"speed"`
+	RollLines      int     `json:"roll_lines"`
+	PreventOverlap bool    `json:"prevent_overlap"`
+	TopLines       int     `json:"top_lines"`
+	BottomLines    int     `json:"bottom_lines"`
+	Merge          bool    `json:"merge"`
+	Bold           bool    `json:"bold"`
+	Heatmap        bool    `json:"heatmap"`
 }
 
 func styleReply(p config.Prefs) DanmakuStyle {
 	return DanmakuStyle{
 		Area: p.DanmakuArea, Scale: p.DanmakuScale, Opacity: p.DanmakuOpacity,
 		Speed: p.DanmakuSpeed, TopLines: p.DanmakuTopLines,
+		RollLines: p.DanmakuRollLines, PreventOverlap: p.DanmakuPreventOverlap,
 		BottomLines: p.DanmakuBottomLines, Merge: p.DanmakuMerge,
 		Bold: p.DanmakuBold, Heatmap: p.DanmakuHeatmap,
 	}

@@ -65,6 +65,7 @@ fun PlayerPanel(
     fit: VideoFit = VideoFit.Source,
     anchor: Rect? = null,
     speed: Double = 1.0,
+    hasEpisodes: Boolean = false,
     onSpeed: (Double) -> Unit = {},
     /** 这一格是插件标签时的那一行(`plugin.playerSurfaces` 的 panel),官方面板是 null。 */
     pluginPanel: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
@@ -89,6 +90,7 @@ fun PlayerPanel(
     var lastKind by remember { mutableStateOf(kind ?: "more") }
     SideEffect { if (kind != null) lastKind = kind }
     val menuKind = kind ?: lastKind
+    var danmakuPage by remember(kind, itemId, exo) { mutableStateOf("quick") }
     var lastPluginPanel by remember { mutableStateOf(pluginPanel) }
     SideEffect { if (active) lastPluginPanel = pluginPanel }
     val shownPluginPanel = if (active) pluginPanel else lastPluginPanel
@@ -105,7 +107,7 @@ fun PlayerPanel(
     val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
     var loading by remember(menuKind, itemId, exo) { mutableStateOf(true) }
 
-    LaunchedEffect(active, menuKind, itemId, exo, retry) {
+    LaunchedEffect(active, menuKind, itemId, exo, retry, hasEpisodes) {
         if (!active) return@LaunchedEffect
         loading = true; loadError = null
         if (menuKind != "episodes") options = emptyList()
@@ -249,6 +251,7 @@ fun PlayerPanel(
             }
             "more" -> {
                 options = listOfNotNull(
+                    if (hasEpisodes) Triple("episodes", null, "选集") else null,
                     Triple("ratio", null, "画面比例"),
                     Triple("source", null, "版本与线路"),
                     Triple("audio", null, "音轨"),
@@ -273,10 +276,16 @@ fun PlayerPanel(
     val width = when (menuKind) {
         "more" -> 192.dp
         "audio", "subtitle", "ratio", "speed", "chapters" -> 200.dp
-        "substyle", "danmaku" -> 272.dp
+        "substyle" -> 272.dp
+        "danmaku" -> if (danmakuPage == "quick") 220.dp else 280.dp
         else -> 236.dp
     }
-    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku", onClose = onClose) {
+    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku",
+        cornerRadius = if (menuKind == "danmaku") 12.dp else 4.dp,
+        background = if (menuKind == "danmaku") Color(0xEB1D2124) else Color(0xFF1D2124),
+        sidePanel = menuKind == "danmaku" && danmakuPage == "style",
+        onBack = if (menuKind == "danmaku" && danmakuPage != "quick") ({ danmakuPage = "quick" }) else null,
+        onClose = onClose) {
         loadError?.let {
             PlayerMenuNote(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)
             PlayerMenuRow("重试", { retry++ })
@@ -289,7 +298,7 @@ fun PlayerPanel(
                 focusNs = "${shownPluginPanel.pluginId}/${shownPluginPanel.target}.",
             )
             menuKind == "substyle" -> SubStylePanel(app, scope)
-            menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, onSearch = {
+            menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, danmakuPage, onPage = { danmakuPage = it }, onSearch = {
                 onClose(); onSearch()
             })
             loading && options.isEmpty() -> Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) }
@@ -321,7 +330,7 @@ fun PlayerPanel(
                         sub = badge?.takeIf { (menuKind == "audio" || menuKind == "subtitle") && it != label },
                         badge = badge.takeUnless { menuKind == "audio" || menuKind == "subtitle" },
                         icon = if (menuKind == "more") when (id) {
-                            "ratio" -> LpIcons.aspect; "source" -> LpIcons.version; "audio" -> LpIcons.music
+                            "episodes" -> LpIcons.list; "ratio" -> LpIcons.aspect; "source" -> LpIcons.version; "audio" -> LpIcons.music
                             "quality" -> LpIcons.sparkle; "danmaku" -> LpIcons.danmaku; else -> LpIcons.sub
                         } else null)
                 }
@@ -346,13 +355,13 @@ fun PlayerPanel(
 private fun SubStylePanel(app: xyz.linplayer.app.data.AppState, scope: kotlinx.coroutines.CoroutineScope) {
     LazyColumn(Modifier.fillMaxWidth()) {
         item("pos") {
-            SubStyleSlider("字幕位置", SubStyle.position.intValue.toFloat(), 0f..150f, 29,
+            PlayerStyleSlider("字幕位置", SubStyle.position.intValue.toFloat(), 0f..150f, 29,
                 format = { it.roundToInt().toString() }) { value ->
                 scope.launch { SubStyle.set(app, "position", value.roundToInt().coerceIn(0, 150)) }
             }
         }
         item("scale") {
-            SubStyleSlider("字幕大小", SubStyle.scale.doubleValue.toFloat(), .2f..4f, 37,
+            PlayerStyleSlider("字幕大小", SubStyle.scale.doubleValue.toFloat(), .2f..4f, 37,
                 format = { "%.1f×".format(it) }) { value ->
                 scope.launch { SubStyle.set(app, "scale", (value * 10).roundToInt() / 10.0) }
             }
@@ -380,115 +389,19 @@ private fun SubStylePanel(app: xyz.linplayer.app.data.AppState, scope: kotlinx.c
 }
 
 @Composable
-private fun SubStyleSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int,
+internal fun PlayerStyleSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int,
+    enabled: Boolean = SubStyle.loaded.value, accent: Color = PlayerMenuAccent, resetKey: Int = 0,
     format: (Float) -> String, onCommit: (Float) -> Unit) {
-    var live by remember(value) { mutableStateOf(value.coerceIn(range)) }
+    var live by remember(value, resetKey) { mutableStateOf(value.coerceIn(range)) }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), color = Color.White.copy(alpha = .7f), style = LpText.action)
             Text(format(live), color = Color.White.copy(alpha = .7f), style = LpText.number)
         }
-        Slider(live, { live = it }, enabled = SubStyle.loaded.value, valueRange = range, steps = steps,
+        Slider(live, { live = it }, enabled = enabled, valueRange = range, steps = steps,
             onValueChangeFinished = { onCommit(live) }, modifier = Modifier.semantics { contentDescription = label },
-            colors = SliderDefaults.colors(thumbColor = PlayerMenuAccent, activeTrackColor = PlayerMenuAccent,
+            colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent,
                 inactiveTrackColor = Color.White.copy(alpha = .2f)))
-    }
-}
-
-/**
- * 弹幕面板:开关 / 搜索 / 九项显示设置。
- *
- * <p>以前这一格只有「打开 / 关闭」两行,而核心层十六条 `danmaku.*` 里
- * 十一条零调用 —— 搜索、选集、换源、屏蔽词在两端都没有入口。</p>
- *
- * ★ 用步进器不用滑块:滑块拖一次会往核心层灌上百次重排,而重排要遍历几千条弹幕。
- */
-@Composable
-private fun DanmakuPanel(
-    app: xyz.linplayer.app.data.AppState,
-    scope: kotlinx.coroutines.CoroutineScope,
-    itemId: String,
-    onSearch: () -> Unit,
-) {
-    LazyColumn(Modifier.fillMaxWidth()) {
-        item("on") {
-            PlayerMenuRow("显示弹幕", {
-                scope.launch { toggleDanmaku(app, itemId, !DanmakuStyle.enabled.value) }
-            }, selected = DanmakuStyle.enabled.value)
-        }
-        item("search") { PlayerMenuRow("搜索弹幕…", onSearch, selected = false) }
-        item("again") {
-            PlayerMenuRow("重新匹配这一集", {
-                scope.launch { loadDanmakuFor(app, itemId, loud = true, ignoreMemory = true) }
-            }, selected = false)
-        }
-        item("source") { xyz.linplayer.app.ui.components.Dim3(DanmakuStyle.source.value.ifBlank { "尚未匹配" }) }
-        item("forget") { PlayerMenuRow("清除匹配记忆", {
-            scope.launch { resolveDanmakuFor(app, itemId, forget = true, loud = true) }
-        }, selected = false) }
-        item("offset") { StepRow("时间偏移", "%.1f 秒".format(DanmakuStyle.offset.doubleValue)) { up ->
-            scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + if (up) 0.5 else -0.5) }
-        } }
-        item("offsetReset") { PlayerMenuRow("重置弹幕时间", {
-            scope.launch { DanmakuStyle.setOffset(app, 0.0) }
-        }, selected = false) }
-        // 范围是**三档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
-        item("area") {
-            PlayerMenuRow("滚动范围:" + DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), {
-                scope.launch {
-                    DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue))
-                }
-            }, selected = false)
-        }
-        item("scale") {
-            StepRow("弹幕缩放", "%.1f×".format(DanmakuStyle.scale.doubleValue)) { up ->
-                scope.launch { DanmakuStyle.set(app, "scale", DanmakuStyle.step(DanmakuStyle.scale.doubleValue, up, 0.1, 0.1, 3.0)) }
-            }
-        }
-        item("opacity") {
-            StepRow("透明度", "%.0f%%".format(DanmakuStyle.opacity.doubleValue * 100)) { up ->
-                scope.launch { DanmakuStyle.set(app, "opacity", DanmakuStyle.step(DanmakuStyle.opacity.doubleValue, up, 0.1, 0.1, 1.0)) }
-            }
-        }
-        item("speed") {
-            StepRow("滚动速度", "%.1f×".format(DanmakuStyle.speed.doubleValue)) { up ->
-                scope.launch { DanmakuStyle.set(app, "speed", DanmakuStyle.step(DanmakuStyle.speed.doubleValue, up, 0.1, 0.1, 3.0)) }
-            }
-        }
-        item("top") {
-            StepRow("置顶行数", DanmakuStyle.topLines.intValue.toString()) { up ->
-                scope.launch {
-                    DanmakuStyle.set(app, "top_lines",
-                        (DanmakuStyle.topLines.intValue + if (up) 1 else -1).coerceIn(0, 20))
-                }
-            }
-        }
-        item("bottom") {
-            StepRow("置底行数", DanmakuStyle.bottomLines.intValue.toString()) { up ->
-                scope.launch {
-                    DanmakuStyle.set(app, "bottom_lines",
-                        (DanmakuStyle.bottomLines.intValue + if (up) 1 else -1).coerceIn(0, 20))
-                }
-            }
-        }
-        item("merge") {
-            PlayerMenuRow("合并重复弹幕",
-                { scope.launch { DanmakuStyle.set(app, "merge", !DanmakuStyle.merge.value) } },
-                selected = DanmakuStyle.merge.value)
-        }
-        item("bold") {
-            PlayerMenuRow("粗体弹幕",
-                { scope.launch { DanmakuStyle.set(app, "bold", !DanmakuStyle.bold.value) } },
-                selected = DanmakuStyle.bold.value)
-        }
-        item("heat") {
-            PlayerMenuRow("进度条热力图",
-                { scope.launch { DanmakuStyle.set(app, "heatmap", !DanmakuStyle.heatmap.value) } },
-                selected = DanmakuStyle.heatmap.value)
-        }
-        item("note") {
-            PlayerMenuNote("行数设成 0 就是这一类不显示。屏蔽词在设置里加。", maxLines = 3)
-        }
     }
 }
 
@@ -497,9 +410,9 @@ internal suspend fun toggleDanmaku(
     app: xyz.linplayer.app.data.AppState, itemId: String, on: Boolean,
 ) {
     DanmakuSession.invalidate()
-    DanmakuStyle.enabled.value = on
     runCatching { app.call("player.setDanmakuEnabled", args("enabled" to on)) }
         .onFailure { app.report(it); return }
+    DanmakuStyle.enabled.value = on
     if (on) loadDanmakuFor(app, itemId, loud = true)
     else {
         runCatching { app.call("player.danmakuBegin") }
@@ -514,7 +427,7 @@ internal suspend fun toggleDanmaku(
  *   在播放页(手指、还常常在动)上是点不中的。
  */
 @Composable
-private fun StepRow(label: String, readout: String, onStep: (Boolean) -> Unit) {
+internal fun StepRow(label: String, readout: String, onStep: (Boolean) -> Unit) {
     androidx.compose.foundation.layout.Row(
         Modifier.fillMaxWidth().padding(vertical = Sp.x2),
         verticalAlignment = Alignment.CenterVertically,

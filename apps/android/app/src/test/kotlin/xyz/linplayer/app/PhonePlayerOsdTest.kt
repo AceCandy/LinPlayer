@@ -4,19 +4,15 @@ import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
-import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
@@ -43,14 +39,13 @@ class PhonePlayerOsdTest {
     private var seek = 0.0
     private var action = ""
 
-    private fun open(portrait: Boolean = false, compact: Boolean = portrait) {
+    private fun open(portrait: Boolean = false) {
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(
                         listOf(Color(0xFF455F48), Color(0xFF181D26))))) {
-                        Box(if (compact) Modifier.fillMaxWidth().height((LocalConfiguration.current.screenWidthDp * 9f / 16 + 48).dp)
-                            else Modifier.fillMaxSize()) {
+                        Box(Modifier.fillMaxSize()) {
                         Osd(portrait, "1.13 MB/s",
                             title = "测试剧集", episodeLabel = "S1E7：一段用于核查横屏布局的单集标题",
                             position = 1517.0, duration = 2729.0, paused = false, speed = speed.value, buffered = 2050.0,
@@ -61,7 +56,7 @@ class PhonePlayerOsdTest {
                             onPanel = { action = it }, statusText = "21:34 · 83%",
                             onPrevious = { action = "上一集" }, onNext = { action = "下一集" },
                             onPip = { action = "画中画" }, onOrientation = { action = "方向" },
-                            onChapters = { action = "章节" }, compact = compact)
+                            onChapters = { action = "章节" })
                         }
                     }
                 }
@@ -73,7 +68,7 @@ class PhonePlayerOsdTest {
     @Test
     @Config(qualifiers = "w320dp-h640dp-port-mdpi")
     fun fullPortraitKeepsReferenceZonesAndAllActions() {
-        open(portrait = true, compact = false)
+        open(portrait = true)
         for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
             "上一集", "下一集", "锁屏", "加速", "减速", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
         assertProgressAndEpisodeOrder()
@@ -222,14 +217,14 @@ class PhonePlayerOsdTest {
 
     @Test
     @Config(qualifiers = "w360dp-h640dp-port-mdpi")
-    fun portraitCommonControlsFillFirstRow() {
+    fun portraitCommonControlsStayCenteredBelowProgress() {
         open(portrait = true)
-        val common = listOf("上一集", "下一集", "锁屏", "倍速", "音轨", "字幕")
+        val common = listOf("锁屏", "音轨", "字幕")
             .map { rule.onNodeWithContentDescription(it).fetchSemanticsNode().boundsInRoot }
         common.forEach { assertEquals(48f, it.width, .1f); assertEquals(common.first().center.y, it.center.y, .1f) }
         val gaps = common.zipWithNext { a, b -> b.left - a.right }
-        assertTrue("常用操作需在首排均匀铺开", gaps.all { it >= 4f && kotlin.math.abs(it - gaps.first()) < .5f })
-        assertTrue("字幕应位于首排右侧", common.last().right >= 340f)
+        assertTrue("常用操作居中且命中不重叠", gaps.all { it >= 0f })
+        assertEquals(180f, (common.first().left + common.last().right) / 2, .1f)
         rule.onNodeWithContentDescription("弹幕").performScrollTo().performClick()
         assertEquals("danmaku", action)
     }
@@ -241,7 +236,7 @@ class PhonePlayerOsdTest {
         for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停",
             "后退 10 秒", "前进 10 秒", "锁屏", "倍速", "上一集", "下一集",
             "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
-        assertProgressAndEpisodeOrder(episodeOrder = false)
+        assertProgressAndEpisodeOrder()
         val buttons = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes()
         buttons.forEachIndexed { i, a -> buttons.drop(i + 1).forEach { b ->
             val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
@@ -271,7 +266,7 @@ class PhonePlayerOsdTest {
         for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停", "上一集", "下一集", "音轨", "字幕")) {
             rule.onNodeWithContentDescription(label).assertIsDisplayed()
         }
-        assertProgressAndEpisodeOrder(episodeOrder = false)
+        assertProgressAndEpisodeOrder()
         val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
         targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->

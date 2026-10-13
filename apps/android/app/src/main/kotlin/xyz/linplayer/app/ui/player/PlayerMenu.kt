@@ -5,6 +5,14 @@ import androidx.compose.animation.core.MutableTransitionState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusable
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -36,9 +44,12 @@ internal val PlayerMenuAccent = Color(0xFF9CCAFF)
 private val PlayerMenuBackground = Color(0xFF1D2124)
 
 /** 入口附近向下展开，底部入口向上展开；窄窗口和RTL均限制在窗口内。 */
-internal class PlayerMenuPositionProvider(private val anchor: Rect?, private val gap: Int) : PopupPositionProvider {
+internal class PlayerMenuPositionProvider(private val anchor: Rect?, private val gap: Int, private val sidePanel: Boolean = false) : PopupPositionProvider {
     override fun calculatePosition(anchorBounds: IntRect, windowSize: IntSize, layoutDirection: LayoutDirection,
         popupContentSize: IntSize): IntOffset {
+        if (sidePanel) return IntOffset(
+            (windowSize.width - popupContentSize.width - gap).coerceAtLeast(gap),
+            ((windowSize.height - popupContentSize.height) / 2).coerceAtLeast(gap))
         val a = anchor?.let { IntRect(it.left.toInt(), it.top.toInt(), it.right.toInt(), it.bottom.toInt()) }
             ?: IntRect(windowSize.width - gap, gap, windowSize.width - gap, gap)
         var x = if (layoutDirection == LayoutDirection.Ltr) a.left else a.right - popupContentSize.width
@@ -66,23 +77,31 @@ internal class PlayerMenuPositionProvider(private val anchor: Rect?, private val
 /** 无遮罩的播放器菜单；退出完成前保留表面，业务读取由调用方立即取消。 */
 @Composable
 internal fun PlayerMenu(open: Boolean, anchor: Rect?, width: Dp, tall: Boolean = false,
-    onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+    cornerRadius: Dp = 4.dp, background: Color = PlayerMenuBackground, sidePanel: Boolean = false,
+    onBack: (() -> Unit)? = null, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val visible = remember { MutableTransitionState(false) }
     visible.targetState = open
     if (!visible.currentState && !visible.targetState) return
     val gap = with(LocalDensity.current) { 4.dp.roundToPx() }
     val maxWidth = (LocalConfiguration.current.screenWidthDp - 8).coerceAtLeast(1).dp
     val maxHeight = minOf(if (tall) 420 else 320, LocalConfiguration.current.screenHeightDp - 8).coerceAtLeast(48).dp
-    Popup(remember(anchor, gap) { PlayerMenuPositionProvider(anchor, gap) }, onDismissRequest = onClose,
-        properties = PopupProperties(focusable = open)) {
+    val focus = remember { FocusRequester() }
+    Popup(remember(anchor, gap, sidePanel) { PlayerMenuPositionProvider(anchor, gap, sidePanel) }, onDismissRequest = onClose,
+        properties = PopupProperties(focusable = open, dismissOnBackPress = onBack == null)) {
+        LaunchedEffect(open, onBack != null) { if (open && onBack != null) focus.requestFocus() }
         AnimatedVisibility(visible, enter = fadeIn(lpTween(150)), exit = fadeOut(lpTween(100))) {
-            Column(Modifier.widthIn(max = maxWidth).width(width).heightIn(max = maxHeight)
+            Column(Modifier.then(if (onBack != null) Modifier.onPreviewKeyEvent {
+                if (it.key == Key.Back) {
+                    if (it.type == KeyEventType.KeyUp) onBack()
+                    true
+                } else false
+            }.focusRequester(focus).focusable() else Modifier).widthIn(max = maxWidth).width(width).heightIn(max = maxHeight)
                 .pointerInput(open) {
                     if (!open) awaitPointerEventScope {
                         while (true) awaitPointerEvent(PointerEventPass.Initial).changes.forEach { it.consume() }
                     }
                 }
-                .shadow(8.dp, RoundedCornerShape(4.dp)).background(PlayerMenuBackground, RoundedCornerShape(4.dp))
+                .shadow(8.dp, RoundedCornerShape(cornerRadius)).background(background, RoundedCornerShape(cornerRadius))
                 .testTag("player.menu").padding(vertical = 4.dp), content = content)
         }
     }
@@ -91,17 +110,17 @@ internal fun PlayerMenu(open: Boolean, anchor: Rect?, width: Dp, tall: Boolean =
 /** 左勾选与浅蓝文字表示当前项，保留轨道语言副标题。 */
 @Composable
 internal fun PlayerMenuRow(label: String, onClick: () -> Unit, selected: Boolean = false,
-    sub: String? = null, badge: String? = null, icon: ImageVector? = null) {
+    sub: String? = null, badge: String? = null, icon: ImageVector? = null, enabled: Boolean = true) {
     Column {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { this.selected = selected }
-            .pressable(onClick).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            .pressable(onClick, enabled = enabled).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
                 if (selected || icon != null) Icon(if (selected) LpIcons.check else icon!!, null,
                     Modifier.size(16.dp).testTag(if (selected) "player.menu.check" else "player.menu.icon"),
                     tint = if (selected) PlayerMenuAccent else Color.White.copy(alpha = .7f))
             }
             Column(Modifier.weight(1f)) {
-                Text(label, color = if (selected) PlayerMenuAccent else Color.White.copy(alpha = .7f), style = LpText.action)
+                Text(label, color = if (!enabled) Color.White.copy(alpha = .4f) else if (selected) PlayerMenuAccent else Color.White.copy(alpha = .7f), style = LpText.action)
                 if (sub != null) Text(sub, color = Color.White.copy(alpha = .5f), style = LpText.caption)
             }
             if (badge != null) Text(badge, color = Color.White.copy(alpha = .5f), style = LpText.caption)

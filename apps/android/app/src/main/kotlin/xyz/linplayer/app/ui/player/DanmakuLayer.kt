@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
+import kotlin.math.pow
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.bool
@@ -88,7 +89,7 @@ fun parseDmLayout(r: JsonObject?): DmLayout? {
 }
 
 /**
- * 弹幕钟走一帧。`target` 是轮询报回来的播放位置,`dt` 是这一帧过了多少秒。
+ * 弹幕钟走一帧。`target` 是采样位置按帧外推后的当前目标，`dt` 是帧间隔。
  *
  * 软对表而不是硬赋值:轮询一秒来 4~10 拍,每拍都把钟拽到轮询值上的话,
  * 整屏弹幕会跟着一起跳 —— 那正是用户说的「抽帧」。
@@ -96,9 +97,24 @@ fun parseDmLayout(r: JsonObject?): DmLayout? {
 fun dmTick(clock: Double, target: Double, dt: Double, speed: Double): Double {
     val next = clock + dt * speed
     val drift = target - next
-    // 差过一秒就是 seek / 换片,直接对齐;否则每帧只追 8% ——
-    // 硬对表会让整屏弹幕在每一拍轮询上一起跳一下,那正是「抽帧」的样子
-    return if (abs(drift) > 1.0) target else next + drift * 0.08
+    // 按经过的时间软对表，60Hz下每帧追8%；高刷屏不能加快纠偏。
+    return if (abs(drift) > 1.0) target else next + drift * (1.0 - 0.92.pow(dt * 60.0))
+}
+
+/** 播放采样与显示帧之间的弹幕时钟。 */
+internal class DmClock(position: Double) {
+    var now = position
+        private set
+    private var sample = position
+    private var target = position
+
+    fun tick(position: Double, dt: Double, speed: Double, stopped: Boolean = false): Double {
+        // 旧采样不能每帧把时钟拉回去；两次采样之间，目标也按倍率连续推进。
+        target = if (stopped || position != sample) position else target + dt * speed
+        sample = position
+        now = if (stopped) position else dmTick(now, target, dt, speed)
+        return now
+    }
 }
 
 /**
@@ -131,6 +147,7 @@ fun DanmakuLayer(
     paused: Boolean,
     speed: Double,
     modifier: Modifier = Modifier,
+    buffering: Boolean = false,
 ) {
     if (layout == null || layout.items.isEmpty()) return
 
@@ -140,22 +157,26 @@ fun DanmakuLayer(
        ☠ **position 不能进 LaunchedEffect 的 key。** 进了的话每来一拍轮询就
        重启一次帧循环:硬对一次表 + 起手那句 `withFrameNanos` 白丢一帧,
        一秒 4~10 次,看上去正是用户说的「弹幕滚动像抽帧」(2026-09-12)。
-       改成一条长命的循环 + 每帧软对表,见 [dmTick]。 */
+       帧循环持续运行，采样间按倍率外推目标后再软对表，见 [DmClock]。 */
     val clock = remember { mutableDoubleStateOf(position) }
+    val timeline = remember { DmClock(position) }
     val target = rememberUpdatedState(position)
-    LaunchedEffect(paused, speed) {
-        if (paused) return@LaunchedEffect
+    val stopped = paused || buffering
+    LaunchedEffect(stopped, speed) {
+        if (stopped) return@LaunchedEffect
         var last = withFrameNanos { it }
         while (true) {
             withFrameNanos { n ->
-                clock.doubleValue = dmTick(
-                    clock.doubleValue, target.value, (n - last) / 1_000_000_000.0, speed)
+                clock.doubleValue = timeline.tick(
+                    target.value, (n - last) / 1_000_000_000.0, speed)
                 last = n
             }
         }
     }
-    // 暂停时钟停了,而这期间用户可能拖了进度条 —— 那时只能硬对
-    LaunchedEffect(position, paused) { if (paused) clock.doubleValue = position }
+    // 暂停/缓冲期间不外推；拖动后的真实采样仍须对齐。
+    LaunchedEffect(position, stopped) {
+        if (stopped) clock.doubleValue = timeline.tick(position, 0.0, speed, stopped = true)
+    }
 
     // 两支笔跨帧复用:每帧新建 Paint 会把 GC 拖进渲染帧里
     val fill = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
