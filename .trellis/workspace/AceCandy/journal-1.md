@@ -1583,3 +1583,38 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 53: 资料中心与弹幕任务归档及手机包交付
+<!-- trellis-session: v=2 fp=2d548b9a9679cf90 -->
+
+**Date**: 2026-10-13
+**Task**: 资料中心与弹幕任务归档及手机包交付
+**Branch**: `main`
+
+### Summary
+
+提交MSG聚合扩展接入、旧三方榜单采集清理及全端弹幕源管理/匹配记忆/时间校准/服务器raw叠加。两项任务已归档；MSG弹幕能力另仓提交6226796。生成2.0.0 arm64手机release包，78.07MiB，归入build/android/app-arm64-v8a-release.apk。
+
+### Main Changes
+
+- 直接main提交与归档，无PR；MSG并行资料库任务保持原状，未推送或部署。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `c764373b` | feat: 接入资料中心扩展并统一多端弹幕源 |
+
+### Testing
+
+- [OK] 核心、绑定、Android弹幕回归、桌面FFI及MSG临时PostgreSQL接口测试通过；本轮工作流50块、凭据接线和桌面风格7项通过；暂存隐私检查与diff检查通过。
+- [OK] pack-android通过；apksigner实际验证v1/v2/v3签名；版本2.0.0、versionCode20000、minSdk24、arm64-v8a；ELF机器类型及JNI符号检查通过；归档APK和本次核心库哈希一致。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未做真机安装播放/生产MSG联调；本地官方弹幕及崩溃上报凭据未配置，与此前本地包一致，自定义源与服务器raw可用。
