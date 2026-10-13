@@ -1670,3 +1670,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 56: 手机播放菜单与切核审查交付
+<!-- trellis-session: v=2 fp=24938d316ef42fe1 -->
+
+**Date**: 2026-10-14
+**Task**: 手机播放菜单与切核审查交付
+**Branch**: `main`
+
+### Summary
+
+完善手机播放菜单、媒体信息、双向切核和隐藏状态条，修复seek目标与核心续播覆盖、字幕恢复及失败回退；Android 173项及核心、绑定、参数门禁通过。归档后生成手机ARM64安装包，真机播放另验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `689c3a55` | feat(player): 精简手机播放菜单并支持双向切核 |
+
+### Status
+
+[OK] **Completed**
