@@ -55,8 +55,10 @@ object Libass {
     private const val TAG = "lp-libass-kt"
 
     private val lock = Any()
-    /** 每条轨的 ASS 头。解封装时就到了,比切轨请求早 —— 所以先存下来。 */
+    /** 每条轨的ASS头或完整外挂脚本；按轨ID等待选择与数据两端会合。 */
     private val heads = LinkedHashMap<String, ByteArray?>()
+    /** 完整外挂脚本使用assOpenFile，内封头使用assOpen。 */
+    private val fileTracks = HashSet<String>()
     private var active: String? = null
     private var opened = false
     /** 想放的那条轨。数据还没到就先记下来,等第一批数据到了自己开 —— 见 [activateTrack]。 */
@@ -95,6 +97,14 @@ object Libass {
         Unit
     }
 
+    /** 完整外挂ASS按轨道保存；数据晚到时只打开当前选中的轨道。 */
+    fun file(id: String, bytes: ByteArray) = synchronized(lock) {
+        heads[id] = bytes
+        fileTracks.add(id)
+        if (id == wanted) openLocked(id, wantedFonts)
+        Unit
+    }
+
     /**
      * 一条事件。**时间由调用方给**,因为解析器那一侧根本拿不到 —— 见 [assCarrier]。
      *
@@ -114,13 +124,20 @@ object Libass {
         wanted = id
         wantedFonts = fontsDir
         if (active == id && opened) return true
+        // 新轨的头尚未到达时先撤旧轨，否则header会误认为已开轨而不再补开。
+        if (opened) {
+            Native.assClose()
+            opened = false
+            active = null
+            pendingForce = true
+        }
         return openLocked(id, fontsDir)
     }
 
     private fun openLocked(id: String, fontsDir: String): Boolean {
         if (!heads.containsKey(id)) return false      // 头还没到,等 header() 来补开
         val h = heads[id]
-        val rc = Native.assOpen(h, fontsDir)
+        val rc = if (id in fileTracks && h != null) Native.assOpenFile(h, fontsDir) else Native.assOpen(h, fontsDir)
         val styles = h?.let { String(it, Charsets.UTF_8).split("Style:").size - 1 } ?: 0
         Logs.d(TAG, "开轨 $id rc=$rc 头 ${h?.size ?: 0} 字节 样式 $styles 条")
         if (rc != 0) {
@@ -135,31 +152,12 @@ object Libass {
         return true
     }
 
-    /** 切到一份外挂 .ass / .ssa(整份文件)。 */
-    fun activateFile(key: String, bytes: ByteArray, fontsDir: String): Boolean = synchronized(lock) {
-        if (!available) return false
-        /* ☠ 外挂 .ass 和内封 ASS **抢同一个渲染器**,到达顺序却是随机的:
-           外挂要走一趟网络(几百毫秒),内封等解封装。上一版没有主次、谁后到谁赢,
-           而且外挂那条还顺手把 `wanted` 清了 —— 内封再也开不回来。
-           规矩:**选中的内封轨说了算,外挂只补空缺**。 */
-        if (wanted != null) return false
-        if (active == key && opened) return true
-        if (Native.assOpenFile(bytes, fontsDir) != 0) {
-            opened = false; active = null
-            return false
-        }
-        active = key
-        opened = true
-        fed = 0; drawn = 0
-        applySizeLocked()
-        return true
-    }
-
     fun deactivate() = synchronized(lock) {
         if (opened) Native.assClose()
         opened = false
         active = null
         wanted = null
+        pendingForce = true
     }
 
     /** 换一部片:连缓存一起清。留着就是把上一集的字幕喂给下一集。 */
@@ -169,6 +167,8 @@ object Libass {
         active = null
         wanted = null
         heads.clear()
+        fileTracks.clear()
+        pendingForce = true
         // ★ 字体名单跟着清,但**已经灌进 libass 库里的字体不撤** ——
         //   撤要销毁整个 ASS_Library(字体目录重扫几十毫秒),而多留几份
         //   上一集的字体只是占点内存,libass 按名字查,不会画错。
@@ -225,12 +225,16 @@ object Libass {
      *   对白字幕那点省电全没了。先问一句、变了才画。
      */
     fun changed(posMs: Long): Boolean = synchronized(lock) {
-        opened && (pendingForce || Native.assChanged(posMs))
+        pendingForce || (opened && Native.assChanged(posMs))
     }
 
     /** -1 出错 / 0 和上一帧一样 / 1 位图已更新。 */
     fun render(bmp: Bitmap, posMs: Long, force: Boolean): Int = synchronized(lock) {
-        if (!opened) return -1
+        if (!opened) {
+            bmp.eraseColor(android.graphics.Color.TRANSPARENT)
+            pendingForce = false
+            return 1
+        }
         val f = force || pendingForce
         pendingForce = false
         val rc = Native.assRender(bmp, posMs, f)
@@ -240,10 +244,8 @@ object Libass {
 }
 
 /**
- * 拦下 ASS/SSA 的原始事件交给 libass,**自己一条 cue 都不输出**。
- *
- * ☠ 不输出是有意的:输出了的话 media3 会把它当普通字幕再画一遍,
- * 屏幕上就是两层字。别的格式(SRT / VTT / PGS)原样交给 media3 自己那套。
+ * ASS/SSA交给libass：内封事件搭非可见cue传递时间，外挂传完整脚本。
+ * 普通文本不重复绘制；SRT / VTT / PGS仍交给Media3默认解析器。
  */
 @OptIn(UnstableApi::class)
 class LibassParserFactory(private val fontsDir: String) : SubtitleParser.Factory {
@@ -315,10 +317,14 @@ internal class SafeParser(
  * 解出时间、把正文原样递过去。
  */
 @OptIn(UnstableApi::class)
-private class LibassParser(private val id: String, format: Format) : SubtitleParser {
+internal class LibassParser(
+    private val id: String, format: Format,
+    private val storeFile: (String, ByteArray) -> Unit = Libass::file,
+) : SubtitleParser {
+    private val wholeFile = format.initializationData.isEmpty()
 
     init {
-        Libass.header(id, assHeaderOf(format.initializationData))
+        if (!wholeFile) Libass.header(id, assHeaderOf(format.initializationData))
     }
 
     override fun parse(
@@ -326,6 +332,11 @@ private class LibassParser(private val id: String, format: Format) : SubtitlePar
         outputOptions: SubtitleParser.OutputOptions,
         output: Consumer<CuesWithTiming>,
     ) {
+        // 外挂输入是完整脚本，不能套用Matroska单条事件的时间/字段顺序。
+        if (wholeFile) {
+            if (length > 0) storeFile(id, data.copyOfRange(offset, offset + length))
+            return
+        }
         val ev = splitMedia3Dialogue(String(data, offset, length, Charsets.UTF_8)) ?: return
         /* 起点填 0 是**对的**:`SubtitleTranscodingTrackOutput` 会把它加到样本时间上,
            我们要的正是「这条样本自己的时刻」。真正的 ASS 事件到 [assPayload] 才落地。 */

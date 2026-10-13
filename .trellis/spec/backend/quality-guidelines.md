@@ -64,7 +64,7 @@
 
 ## 持久共享媒体缓存
 
-- 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合强ETag和总长。每次起播重新解析授权与探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
+- 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合可信版本和总长：优先强ETag，无ETag时允许Date至少晚于Last-Modified 60秒的有效修改时间；弱ETag不回退。后续块响应须匹配同一验证器及有效范围，no-store拒绝写入。每次起播重新解析授权与探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
 - 4MiB块保持边收边吐与头尾固定槽；完整块附64字节位置/哈希头，临时写→Sync→关闭→rename才发布，恢复与读取校验损坏，索引不保存URL或账号原文。单片数据+元数据≤128MiB，全局默认1GiB含会话ring/持久块/索引/在途临时写，TTL7天与LRU在访问/配置时执行。
 - 磁盘读写/清理/淘汰共用屏障，活动条目可安全失效重取，不能无限pin超预算；写盘失败由连接内有界ready载体继续供给，消费后释放。Close取消origin与连接并等worker退出，再关盘，保留完整持久块。清理关闭活动临时文件兼容Windows，旧句柄禁写。
 - worker认领inFlight和推进fetchCursor必须同锁原子完成；否则供给端会误判被淘汰而重复下载。取数取消后已收到的完整已验证块可提交，残块不可发布。

@@ -489,3 +489,89 @@ func BenchmarkPersistentRestoreFullWindow(b *testing.B) {
 		d.close()
 	}
 }
+
+// 只有Last-Modified的静态文件也能复用；更新或条件Range失败不得拼接旧块。
+func TestPersistentLastModified(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	var downloads atomic.Int64
+	var version atomic.Int64
+	version.Store(1)
+	modified := func() string { return time.Unix(1700000000+version.Load()*120, 0).UTC().Format(http.TimeFormat) }
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		a, b, _ := parseRange(r.Header.Get("Range"))
+		if b < 0 || b >= testTotal {
+			b = testTotal - 1
+		}
+		if b > a {
+			downloads.Add(1)
+			if r.Header.Get("If-Range") != modified() {
+				t.Errorf("missing conditional range")
+			}
+		}
+		w.Header().Set("Last-Modified", modified())
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", a, b, testTotal))
+		w.Header().Set("Content-Length", strconv.FormatInt(b-a+1, 10))
+		w.WriteHeader(206)
+		data := bodyAt(a, int(b-a+1))
+		for i := range data {
+			data[i] ^= byte(version.Load())
+		}
+		_, _ = w.Write(data)
+	}))
+	defer up.Close()
+	open := func() *Handle {
+		h, e := StartCached(context.Background(), up.URL, 2, 128<<20, false, CacheOptions{Identity: "same-file", Budget: 1 << 30})
+		if e != nil {
+			t.Fatal(e)
+		}
+		return h
+	}
+	h := open()
+	expectVersion(t, h, 0, 1)
+	h.Close()
+	before := downloads.Load()
+	h = open()
+	expectVersion(t, h, 0, 1)
+	h.Close()
+	if downloads.Load() != before {
+		t.Fatal("Last-Modified cache downloaded again")
+	}
+	version.Store(2)
+	h = open()
+	defer h.Close()
+	expectVersion(t, h, 0, 2)
+	if downloads.Load() <= before {
+		t.Fatal("changed file reused old cache")
+	}
+}
+
+func TestCacheValidatorDateSafety(t *testing.T) {
+	date := time.Unix(1700000300, 0).UTC()
+	base := http.Header{"Date": {date.Format(http.TimeFormat)}, "Last-Modified": {date.Add(-time.Minute).Format(http.TimeFormat)}}
+	for _, tc := range []struct {
+		name string
+		edit func(http.Header)
+		want bool
+	}{
+		{"old", func(h http.Header) {}, true},
+		{"recent", func(h http.Header) { h.Set("Last-Modified", date.Add(-59*time.Second).Format(http.TimeFormat)) }, false},
+		{"future", func(h http.Header) { h.Set("Last-Modified", date.Add(time.Second).Format(http.TimeFormat)) }, false},
+		{"no-date", func(h http.Header) { h.Del("Date") }, false},
+		{"bad-date", func(h http.Header) { h.Set("Date", "invalid") }, false},
+		{"no-modified", func(h http.Header) { h.Del("Last-Modified") }, false},
+		{"no-store", func(h http.Header) { h.Set("Cache-Control", "private, no-store") }, false},
+		{"weak-etag", func(h http.Header) { h.Set("ETag", `W/"weak"`) }, false},
+		{"strong-etag", func(h http.Header) { h.Set("ETag", `"strong"`) }, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			h := base.Clone()
+			tc.edit(h)
+			if (cacheValidator(h) != "") != tc.want {
+				t.Fatal("unexpected validator")
+			}
+			if h.Get("ETag") == `"strong"` && cacheValidator(h) != `"strong"` {
+				t.Fatal("must prefer strong ETag")
+			}
+		})
+	}
+}

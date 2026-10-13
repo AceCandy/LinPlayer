@@ -24,6 +24,61 @@ class SeasonEpisodesTest {
 
     @Test fun 未知总数遇空页才停止() = checkPages(150, listOf(0, 150, 300, 403), knownTotal = false)
 
+    @Test fun 重复首批不能无限翻页() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val core = FakeCore()
+        var calls = 0
+        core.on("emby.seasonEpisodes") {
+            calls++
+            check(calls < 4) { "不应一直请求重复页" }
+            buildJsonObject { put("items", buildJsonArray {
+                add(buildJsonObject { put("id", "one"); put("name", "第一集") })
+            }) }
+        }
+        val app = AppState(core, scope)
+        try {
+            val result = runCatching { app.seasonEpisodes("season") }
+            org.junit.Assert.assertTrue(result.isFailure)
+            assertEquals(2, calls)
+        } finally { app.bg.cancel(); scope.cancel(); Dispatchers.resetMain() }
+    }
+
+    @Test fun 已知季Id时不因缺失季号丢失当前集() = runBlocking {
+        Dispatchers.setMain(Dispatchers.Unconfined)
+        val scope = CoroutineScope(Dispatchers.Unconfined)
+        val core = FakeCore().apply {
+            ret("emby.seasonEpisodes", buildJsonObject { put("total", 1); put("items", buildJsonArray {
+                add(buildJsonObject { put("id", "one"); put("name", "第一集"); put("episode_no", 1) })
+            }) })
+        }
+        val app = AppState(core, scope)
+        try {
+            val detail = buildJsonObject { put("type_", "Episode"); put("season_id", "season"); put("season_no", 1) }
+            assertEquals(listOf("one"), xyz.linplayer.app.ui.player.playbackSeason(app, detail, "one").map { it.id })
+        } finally { app.bg.cancel(); scope.cancel(); Dispatchers.resetMain() }
+    }
+
+    @Test fun 分页请求超时结束等待并允许再次请求() = kotlinx.coroutines.test.runTest {
+        Dispatchers.setMain(kotlinx.coroutines.test.UnconfinedTestDispatcher(testScheduler))
+        val fake = FakeCore()
+        var hang = true
+        val port = object : xyz.linplayer.app.core.CorePort by fake {
+            override suspend fun callJson(command: String, args: kotlinx.serialization.json.JsonObject?, onPartial: ((kotlinx.serialization.json.JsonElement) -> Unit)?): kotlinx.serialization.json.JsonElement {
+                if (command == "emby.seasonEpisodes" && hang) kotlinx.coroutines.awaitCancellation()
+                return buildJsonObject { put("items", buildJsonArray {}) }
+            }
+        }
+        val app = AppState(port, backgroundScope)
+        try {
+            val error = runCatching { app.seasonEpisodes("season") }.exceptionOrNull()
+            org.junit.Assert.assertTrue(error is xyz.linplayer.app.core.CoreException)
+            assertEquals(20_000L, testScheduler.currentTime)
+            hang = false
+            assertEquals(emptyList<Item>(), app.seasonEpisodes("season"))
+        } finally { app.bg.cancel(); Dispatchers.resetMain() }
+    }
+
     private fun checkPages(pageSize: Int, expectedStarts: List<Int>, knownTotal: Boolean = true) = runBlocking {
         val core = FakeCore()
         val starts = mutableListOf<Int>()

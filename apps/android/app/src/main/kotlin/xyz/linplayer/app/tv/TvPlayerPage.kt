@@ -74,7 +74,6 @@ import xyz.linplayer.app.ui.player.advancedNaturally
 import xyz.linplayer.app.ui.player.failureDiag
 import xyz.linplayer.app.ui.player.load
 import xyz.linplayer.app.ui.player.loadEmbeddedFonts
-import xyz.linplayer.app.ui.player.loadExternalAss
 import xyz.linplayer.app.ui.player.rememberExoPlayer
 import xyz.linplayer.app.ui.player.sampleNetSpeed
 import xyz.linplayer.app.ui.player.startDanmakuFor
@@ -256,7 +255,6 @@ fun TvPlayerPage(r: TvRoute.Player) {
                         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                             .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, subOffPref).build()
                         exo.load(url, res.dbl("resume_secs") ?: 0.0, res?.get("external_subs"))
-                        if (!subOffPref) launch { loadExternalAss(app, res?.get("external_subs")) }
                         launch { loadEmbeddedFonts(url) }
                     }
                     controller.restoreState()

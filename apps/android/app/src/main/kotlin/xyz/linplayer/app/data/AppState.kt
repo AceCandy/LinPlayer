@@ -157,18 +157,23 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
                 "start_index" to JsonPrimitive(out.size),
                 "limit" to JsonPrimitive(200),
             ))
-            val value = if (onCached == null) call("emby.seasonEpisodes", params) else {
-                when (val result = displayBlock("emby.seasonEpisodes", params, retainOnFailure = false) {
-                    val cached = Page.from(it)
-                    onCached(before + cached.items, cached.total)
-                }) {
-                    is Block.Ok -> result.value
-                    is Block.Fail -> throw CoreException(result.code, result.message, false)
-                    else -> error("分集结果尚未完成")
+            val value = kotlinx.coroutines.withTimeoutOrNull(20_000) {
+                if (onCached == null) call("emby.seasonEpisodes", params) else {
+                    when (val result = displayBlock("emby.seasonEpisodes", params, retainOnFailure = false) {
+                        val cached = Page.from(it)
+                        onCached(before + cached.items, cached.total)
+                    }) {
+                        is Block.Ok -> result.value
+                        is Block.Fail -> throw CoreException(result.code, result.message, false)
+                        else -> error("分集结果尚未完成")
+                    }
                 }
-            }
+            } ?: throw CoreException("E_NETWORK", "选集加载超时，请重试", true)
             val page = Page.from(value)
             currentCoroutineContext().ensureActive()
+            // 忽略StartIndex的服务端可能不断返回首批；不能追加重复项后无限翻页。
+            val known = out.mapTo(HashSet()) { it.id }
+            check(page.items.all { it.id.isNotBlank() && known.add(it.id) }) { "分集分页返回重复内容，请重试" }
             out.addAll(page.items)
             onPage(out.toList(), page.total)
             if (page.items.isEmpty() || page.total?.let { out.size >= it } == true) return out

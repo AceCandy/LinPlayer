@@ -50,6 +50,43 @@ class PhonePlayerPanelTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @After fun clean() { scope.cancel() }
 
+    @Test fun missingSeasonIdUsesSeriesAndKnownSeason() {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.itemDetail", buildJsonObject { put("series_id", "series"); put("season_no", 2) })
+            on("emby.seasonEpisodes") { a ->
+                assertEquals("series", a.str("parent_id"))
+                buildJsonObject { put("total", 2); put("items", buildJsonArray {
+                    add(item("other", "其它季", "Episode", season = 1, episode = 1))
+                    add(item("current", "当前季", "Episode", season = 2, episode = 1))
+                }) }
+            }
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+            PlayerPanel("episodes", "current", onClose = {})
+        } } }
+        rule.waitForIdle()
+        rule.onNodeWithText("S2E1 当前季").assertIsDisplayed()
+        rule.onNodeWithText("S1E1 其它季").assertDoesNotExist()
+    }
+
+    @Test fun mpvSubtitleMenuUpdatesWhenTracksArriveLate() {
+        val core = FakeCore().loggedIn().apply { ret("player.tracks", buildJsonArray {}) }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+            PlayerPanel("subtitle", "current", onClose = {})
+        } } }
+        rule.waitForIdle()
+        rule.onNodeWithText("晚到字幕").assertDoesNotExist()
+        core.ret("player.tracks", buildJsonArray { add(buildJsonObject {
+            put("id", "2"); put("kind", "sub"); put("title", "晚到字幕")
+        }) })
+        rule.waitUntil(5_000) { rule.onAllNodesWithText("晚到字幕").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("晚到字幕").assertIsDisplayed()
+    }
+
     @Test fun longSeasonLocatesCurrentOnceAndKeepsManualScrollDuringPaging() {
         val secondPage = CompletableDeferred<Unit>()
         val lastPage = CompletableDeferred<Unit>()

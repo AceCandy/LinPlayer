@@ -1,0 +1,11 @@
+# 设计
+
+两内核已共用play/startPrefetch，不新增独立缓存。保留强ETag优先；缺ETag时仅接受有效Date比Last-Modified晚至少60秒的响应，并在每块响应核查相同validator、范围、大小和禁止存储标记。缺可信版本继续会话缓存。
+
+Media3外挂ASS改走SubtitleConfiguration + 现有libass解析工厂；完整文件与MKV事件分开处理，按明确轨ID存储，只有选中轨激活。移除旁路首个ASS下载，避免不可选、抢轨与迟到覆盖。轨道面板监听Media3变更，MPV面板可见时轮询。
+
+分集分页对重复/不推进页失败，不让错误总数造成无限追加；面板支持series_id+season_no回退，当前季ID已知时不因分集缺季号过滤丢失。
+
+时间/低电量独立固定顶部，控制栏留出位置；网速仍持续采样但只控件展开绘制。
+
+证据：MediaStationGo fa61d42ca8dba8437e9e47e295d6c642efe7a834 本地ServeContent用ModTime无显式ETag，有既存工作树修改未动。Media3版本1.11.0官方tag中DefaultMediaSourceFactory 609-646外挂走SubtitleExtractor，Format无初始化头；不能当MKV单条事件解析。没有真实用户媒体响应或真机证据。

@@ -90,21 +90,22 @@ class PhonePlayerMenuTest {
         } finally { player.release() }
     }
 
-    @Test fun passiveStatusHidesZeroSpeedAndShowsNextNonzeroSample() {
-        val speed = mutableStateOf("")
+    @Test fun passiveStatusOnlyShowsBatteryBelowTwentyPercent() {
+        val battery = mutableStateOf(20)
         rule.setContent { LpTheme {
             Box(Modifier.fillMaxSize()) {
-                PassiveStatus("21:34 · 83%", speed.value, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
+                PassiveStatus("21:34", battery.value, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
             }
         } }
-        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
-        rule.runOnIdle { speed.value = fmtSpeed(0, 1_000_000_000L) }
-        rule.onNodeWithText("0 KB/s").assertDoesNotExist()
-        rule.runOnIdle { speed.value = fmtSpeed(2048, 1_000_000_000L) }
-        rule.onNodeWithText("2 KB/s").assertIsDisplayed()
-        rule.runOnIdle { speed.value = fmtSpeed(0, 1_000_000_000L) }
-        rule.onNodeWithText("2 KB/s").assertDoesNotExist()
-        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
+        rule.onNodeWithText("21:34").assertIsDisplayed()
+        rule.onNodeWithContentDescription("电量 20%").assertDoesNotExist()
+        rule.runOnIdle { battery.value = 19 }
+        rule.onNodeWithContentDescription("电量 19%").assertIsDisplayed()
+        rule.onNodeWithText("19").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/player-osd/top-status-low-battery.png")
+        rule.runOnIdle { battery.value = -1 }
+        rule.onNodeWithText("19").assertDoesNotExist()
+        rule.onNodeWithText("21:34").assertIsDisplayed()
     }
 
     @Test fun positionsStayInsideWindowAndAvoidTopBottomAndSideEntrances() {

@@ -835,12 +835,12 @@ class PhoneEnginePlaybackTest {
         assertTrue(core.calls.last { it.first == "player.setPause" }.second.bool("paused"))
     }
 
-    @Test fun 无章节隐藏入口且控件收起后顶部状态居中() {
+    @Test fun 无章节隐藏入口且顶部状态始终固定居中() {
         val core = episodeCore().apply { ret("player.chapterInfo", buildJsonObject { put("chapters", kotlinx.serialization.json.JsonArray(emptyList())) }) }
         showPlayer(core, "mpv")
         rule.onNodeWithContentDescription("章节").assertDoesNotExist()
         rule.onNodeWithContentDescription("比例").assertDoesNotExist()
-        rule.onNodeWithTag("player.passiveStatus").assertDoesNotExist()
+        rule.onNodeWithTag("player.passiveStatus").assertIsDisplayed()
         rule.runOnIdle { core.tick(40.0) }; advance(rule, 300)
         rule.runOnIdle { core.tick(40.25) }; advance(rule, 5500)
         rule.onNodeWithContentDescription("更多").assertDoesNotExist()
@@ -850,7 +850,7 @@ class PhoneEnginePlaybackTest {
         assertTrue(status.bottom < root.height / 4)
         rule.onRoot().captureRoboImage("build/player-osd/hidden-status.png")
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 300)
-        rule.onNodeWithTag("player.passiveStatus").assertDoesNotExist()
+        assertEquals(status, rule.onNodeWithTag("player.passiveStatus").assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
     }
 
     @Test fun MPV章节入口读取服务端时间并执行真实跳转() {

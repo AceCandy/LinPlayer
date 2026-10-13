@@ -413,10 +413,33 @@ func (o *origin) probe(ctx context.Context, u string) error {
 	}
 	mediaType := strings.ToLower(strings.Split(o.contentType, ";")[0])
 	manifest := strings.Contains(mediaType, "mpegurl") || mediaType == "application/dash+xml"
-	if !manifest && !strings.Contains(strings.ToLower(resp.Header.Get("Cache-Control")), "no-store") && validRangeResponse(resp, 0, 0, o.totalSize) && strongETag(resp.Header.Get("ETag")) {
-		o.validator = resp.Header.Get("ETag")
+	if !manifest && !strings.Contains(strings.ToLower(resp.Header.Get("Cache-Control")), "no-store") && validRangeResponse(resp, 0, 0, o.totalSize) {
+		o.validator = cacheValidator(resp.Header)
 	}
 	return nil
+}
+
+// cacheValidator 优先强ETag；无ETag时只接受足够早的修改时间作条件Range校验。
+// Date与Last-Modified至少相隔60秒，避免同秒内修改的弱时间戳跨会话复用。
+func cacheValidator(h http.Header) string {
+	if strings.Contains(strings.ToLower(h.Get("Cache-Control")), "no-store") {
+		return ""
+	}
+	if tag := h.Get("ETag"); tag != "" {
+		if strongETag(tag) {
+			return tag
+		}
+		return ""
+	}
+	modified, err := http.ParseTime(h.Get("Last-Modified"))
+	if err != nil {
+		return ""
+	}
+	date, err := http.ParseTime(h.Get("Date"))
+	if err != nil || date.Sub(modified) < 60*time.Second {
+		return ""
+	}
+	return modified.UTC().Format(http.TimeFormat)
 }
 
 func strongETag(s string) bool {
@@ -584,7 +607,7 @@ func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *l
 	}
 	defer resp.Body.Close()
 	// 条件Range回200、范围偏移或版本变化时，不能把新版本拼到旧缓存/live里。
-	if o.validator != "" && (!validRangeResponse(resp, start, end, o.totalSize) || resp.Header.Get("ETag") != o.validator) {
+	if o.validator != "" && (!validRangeResponse(resp, start, end, o.totalSize) || cacheValidator(resp.Header) != o.validator) {
 		return false, false
 	}
 	if resp.StatusCode != http.StatusPartialContent && (resp.StatusCode < 200 || resp.StatusCode >= 300) {

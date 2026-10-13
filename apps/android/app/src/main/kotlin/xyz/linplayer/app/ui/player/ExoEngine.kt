@@ -181,16 +181,17 @@ fun ExoPlayer.load(url: String, startSecs: Double, subs: JsonElement? = null) {
     playWhenReady = true
 }
 
-/** 文本外挂字幕交给 Media3;ASS 继续由 libass 处理。每次换片重建,不继承上一集字幕。 */
+/** 外挂字幕统一进入轨道表；ASS经解析工厂交给libass，选轨与关闭沿用Media3。 */
 @OptIn(UnstableApi::class)
 internal fun exoMediaItem(url: String, subs: JsonElement?): MediaItem {
-    val configs = subs.arr().mapNotNull { raw ->
-        val o = raw.obj() ?: return@mapNotNull null
-        val uri = o.str("url")?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
-        val mime = o.str("mime_type") ?: return@mapNotNull null
-        if (mime != "text/vtt" && mime != "application/x-subrip") return@mapNotNull null
+    val sourceId = java.util.UUID.randomUUID().toString()
+    val configs = subs.arr().mapIndexedNotNull { index, raw ->
+        val o = raw.obj() ?: return@mapIndexedNotNull null
+        val uri = o.str("url")?.takeIf { it.isNotBlank() } ?: return@mapIndexedNotNull null
+        val mime = o.str("mime_type") ?: return@mapIndexedNotNull null
+        if (mime !in listOf("text/vtt", "application/x-subrip", "text/x-ssa")) return@mapIndexedNotNull null
         MediaItem.SubtitleConfiguration.Builder(Uri.parse(uri))
-            .setMimeType(mime).setLabel(o.str("title")).setLanguage(o.str("lang"))
+            .setId("external-subtitle-$sourceId-$index").setMimeType(mime).setLabel(o.str("title")).setLanguage(o.str("lang"))
             .setSelectionFlags(if (o.bool("is_default")) C.SELECTION_FLAG_DEFAULT else 0)
             .build()
     }
@@ -287,6 +288,7 @@ fun ExoSurface(
     DisposableEffect(player, subOff) {
         // 监听器只管「以后」,而这次注册可能已经晚了(subOff 一变就重挂一次)
         take(player.videoSize)
+        syncLibassTrack(player.currentTracks, subOff)
         val l = object : Player.Listener {
             override fun onVideoSizeChanged(size: VideoSize) { take(size) }
 
@@ -379,7 +381,7 @@ private fun videoOf(tracks: Tracks): Triple<Int, Int, Float>? {
  *
  * ★ 判据是「**选中的**那一条」,不是「有没有 ASS 轨」:片子里常常几条轨并存,
  *   用户选了简体 SRT 却弹出繁体 ASS 特效,那比没有特效更糟。
- * ★ 内封没有 ASS 时回落到**外挂** ASS(压制组单独发的那种,特效字幕的大头)。
+ * ★ 内封和外挂ASS共用轨道表，只打开实际选中的那一条。
  */
 @OptIn(UnstableApi::class)
 private fun syncLibassTrack(tracks: Tracks, subOff: Boolean) {
@@ -398,8 +400,7 @@ private fun syncLibassTrack(tracks: Tracks, subOff: Boolean) {
         Logs.d(TAG_EXO, "交给 libass: $ok")
         if (ok) return
     }
-    // 选中的不是 ASS:内封这条路到此为止。外挂那条由 PlayerPage 在起播时装
-    if (sel != null && !Libass.isAss(sel)) Libass.deactivate()
+    if (sel == null || !Libass.isAss(sel)) Libass.deactivate()
 }
 
 /**

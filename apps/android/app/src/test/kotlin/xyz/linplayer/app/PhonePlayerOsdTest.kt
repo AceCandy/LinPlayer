@@ -27,6 +27,7 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.ui.player.ProgressRow
 import xyz.linplayer.app.ui.player.Osd
 import xyz.linplayer.app.ui.player.PassiveProgress
+import xyz.linplayer.app.ui.player.PassiveStatus
 import xyz.linplayer.app.ui.theme.LpTheme
 
 @RunWith(RobolectricTestRunner::class)
@@ -53,10 +54,11 @@ class PhonePlayerOsdTest {
                             onBack = { action = "返回" }, onToggle = { action = "暂停" },
                             onSeek = { seek = it }, onSpeed = { speed.value = it },
                             onLock = { action = "锁屏" }, onShot = { action = "截屏" },
-                            onPanel = { action = it }, statusText = "21:34 · 83%",
+                            onPanel = { action = it },
                             onPrevious = { action = "上一集" }, onNext = { action = "下一集" },
                             onPip = { action = "画中画" }, onOrientation = { action = "方向" },
                             onChapters = { action = "章节" })
+                        PassiveStatus("21:34", 19, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
                         }
                     }
                 }
@@ -174,7 +176,7 @@ class PhonePlayerOsdTest {
         rule.onNodeWithText("45:29").assertIsDisplayed()
         assertProgressAndEpisodeOrder()
         rule.onNodeWithText("S1E7", substring = true).assertIsDisplayed()
-        rule.onNodeWithText("21:34 · 83%").assertIsDisplayed()
+        rule.onNodeWithText("21:34").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/player-osd/landscape-light.png")
         rule.runOnIdle { dark.value = true }
         rule.waitForIdle()

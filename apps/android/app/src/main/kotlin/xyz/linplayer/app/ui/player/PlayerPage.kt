@@ -536,11 +536,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 startupTiming.load()
                 exo.load(url, r.dbl("resume_secs") ?: 0.0, r?.get("external_subs"))
             }
-            /* 外挂 ASS。**压制组单独发的那种字幕才是「特效字幕」的大头** ——
-               内封 ASS 走 media3 的解析器那条路(ExoSurface 里按选中轨切),
-               外挂的核心层根本不交给 ExoPlayer,得自己取回来喂 libass。
-               ★ fire-and-forget:取不到就没有特效字幕,不该挡住播放。 */
-            if (exo != null && !subOff) launch { loadExternalAss(app, r?.get("external_subs")) }
             /* 内嵌字体(MKV 附件)。**特效字幕的字形全靠它** ——
                ExoPlayer 不解析 Attachments,不自己抠的话 libass 只能回落系统字体。
                ★ 和上面那条一样是 fire-and-forget:抠不到只是字形不对,不该挡住播放。 */
@@ -812,13 +807,15 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var bottomBarHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
     var statusText by remember { mutableStateOf("") }
+    var batteryPercent by remember { mutableStateOf(-1) }
     LaunchedEffect(lifecycleOwner) {
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
             val battery = ctx.getSystemService(android.content.Context.BATTERY_SERVICE) as android.os.BatteryManager
             val clock = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
             while (true) {
                 val percent = battery.getIntProperty(android.os.BatteryManager.BATTERY_PROPERTY_CAPACITY)
-                statusText = clock.format(java.util.Date()) + if (percent in 0..100) " · $percent%" else ""
+                statusText = clock.format(java.util.Date())
+                batteryPercent = percent
                 delay(10_000)
             }
         }
@@ -1049,7 +1046,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         ) {
             Osd(
                 portrait = portrait && !inPip,
-                netSpeed = netSpeed, statusText = statusText,
+                netSpeed = netSpeed,
                 onBottomBarHeight = { bottomBarHeight = it },
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
@@ -1080,9 +1077,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             )
         }
 
-        if (!controlsVisible && panel == null && !leaving && !(turning && !turnGaveUp) &&
+        if (!leaving && !(turning && !turnGaveUp) &&
             !inPip && controller.ready && !openFailed) {
-            PassiveStatus(statusText, netSpeed,
+            PassiveStatus(statusText, batteryPercent,
                 Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)))
         }
 
@@ -1230,7 +1227,6 @@ internal fun Osd(
     onSeekBy: (Double) -> Unit = { delta -> onSeek((position + delta).coerceIn(0.0, if (duration > 0) duration else Double.MAX_VALUE)) },
     seekKey: Any = Unit,
     buffered: Double = 0.0,
-    statusText: String = "",
     onBottomBarHeight: (Int) -> Unit = {},
     onPrevious: (() -> Unit)? = null, onNext: (() -> Unit)? = null,
     onPip: (() -> Unit)? = null, onOrientation: (() -> Unit)? = null, onChapters: (() -> Unit)? = null,
@@ -1240,7 +1236,7 @@ internal fun Osd(
         val controlWidth = maxWidth
         val controlFace = if (portrait) 36.dp else 48.dp
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
-                .safeDrawingPadding().padding(horizontal = if (portrait) Sp.x6 else Sp.x16, vertical = if (portrait) 0.dp else Sp.x12),
+                .safeDrawingPadding().padding(top = 28.dp).padding(horizontal = if (portrait) Sp.x6 else Sp.x16, vertical = 0.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (portrait) 0.dp else Sp.x8)) {
                 PlayerControl(LpIcons.back, "返回", faceSize = controlFace, onClick = onBack)
@@ -1250,9 +1246,8 @@ internal fun Osd(
                 onChapters?.let { PlayerControl(LpIcons.chapter, "章节", modifier = menuAnchor("chapters"), faceSize = controlFace, onClick = it) }
                 PlayerControl(LpIcons.more, "更多", modifier = menuAnchor("more"), faceSize = controlFace, onClick = { onPanel("more") })
             }
-            if (!portrait) Row(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 76.dp, end = Sp.x16),
+            Row(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 6.dp, end = Sp.x16),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
-                if (statusText.isNotEmpty()) Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
                 NetSpeed(netSpeed)
             }
             if (!portrait) Column(Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(start = Sp.x16),
@@ -1273,10 +1268,12 @@ internal fun Osd(
                     onClick = { onSeekBy(10.0) })
             }
             Column(Modifier.align(Alignment.CenterEnd)
-                .offset(y = if (!portrait && LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
+                .offset(y = if (!portrait && LocalConfiguration.current.screenHeightDp <= 360) (-4).dp
+                    else if (!portrait && LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
                 .safeDrawingPadding().padding(end = if (portrait) Sp.x6 else Sp.x16),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(if (portrait) Sp.x6 else Sp.x12)) {
+                verticalArrangement = Arrangement.spacedBy(if (portrait) Sp.x6
+                    else if (LocalConfiguration.current.screenHeightDp <= 360) 0.dp else Sp.x12)) {
                 PlayerControl(if (portrait) LpIcons.plus else LpIcons.minus, if (portrait) "加速" else "减速",
                     faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
                 Box(menuAnchor("speed").size(48.dp).pressable({ onPanel("speed") })
@@ -1361,16 +1358,31 @@ private fun PlayerControl(
     }
 }
 
-/** 控件收起后保留顶部只读状态，局部底色保证亮画面上的对比。 */
+/** 时间固定顶部居中；电量低于20%时在电池图标内显示，不随控件显隐移动。 */
 @Composable
-internal fun PassiveStatus(statusText: String, netSpeed: String, modifier: Modifier = Modifier) {
-    if (statusText.isEmpty() && netSpeed.isEmpty()) return
+internal fun PassiveStatus(statusText: String, batteryPercent: Int, modifier: Modifier = Modifier) {
+    if (statusText.isEmpty()) return
     Row(modifier.padding(top = Sp.x6).testTag("player.passiveStatus")
         .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
         .padding(horizontal = Sp.x10, vertical = Sp.x2),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8), verticalAlignment = Alignment.CenterVertically) {
-        if (statusText.isNotEmpty()) Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
-        NetSpeed(netSpeed)
+        Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
+        if (batteryPercent in 0..19) Box(Modifier.size(32.dp, 16.dp)
+            .semantics { contentDescription = "电量 $batteryPercent%" }, contentAlignment = Alignment.Center) {
+            androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+                val stroke = 1.dp.toPx()
+                drawRoundRect(Color.White.copy(alpha = .82f),
+                    size = androidx.compose.ui.geometry.Size(size.width - 3.dp.toPx(), size.height),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(3.dp.toPx()),
+                    style = androidx.compose.ui.graphics.drawscope.Stroke(stroke))
+                drawRoundRect(Color.White.copy(alpha = .82f),
+                    topLeft = androidx.compose.ui.geometry.Offset(size.width - 2.dp.toPx(), size.height * .3f),
+                    size = androidx.compose.ui.geometry.Size(2.dp.toPx(), size.height * .4f),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.dp.toPx()))
+            }
+            Text("$batteryPercent", Modifier.padding(end = 3.dp), color = Color.White,
+                fontSize = 10.sp, lineHeight = 12.sp, fontWeight = androidx.compose.ui.text.font.FontWeight.SemiBold)
+        }
     }
 }
 
@@ -1626,46 +1638,6 @@ internal suspend fun failureDiag(app: xyz.linplayer.app.data.AppState): String {
         d.str("last_error")?.takeIf { it.isNotBlank() },
     ).joinToString(" · ")
     return if (tail.isEmpty()) head else head + "\n" + tail
-}
-
-/**
- * 取回外挂 ASS 并交给 libass。
- *
- * ★ 判据是**内容**不是扩展名:Emby 的 `Stream.{ext}` 在有的 fork 上会转格式,
- *   而 `.ass` 结尾的地址回一份 SRT 是真会发生的。看头两百字节有没有
- *   `[Script Info]` / `[V4+ Styles]` —— 这一条比信文件名稳。
- * ★ 只取**第一份能用的**:同时挂两份 ASS 等于两层字压在一起。
- *   默认轨优先,没有默认就取第一份。
- * ★ UA 走 `LinPlayer/<版本>`(UA 三分口径)。地址里已经带着鉴权,不另附凭据。
- */
-internal suspend fun loadExternalAss(
-    app: xyz.linplayer.app.data.AppState,
-    subs: kotlinx.serialization.json.JsonElement?,
-) = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-    if (!Libass.available) return@withContext
-    val list = subs.arr().mapNotNull { it.obj() }
-    val ordered = list.sortedByDescending { it.bool("is_default") }
-    for (o in ordered) {
-        // VTT / SRT 已交给 Media3,不要重复下载并尝试作为 ASS 解析。
-        if (o.str("mime_type") in listOf("text/vtt", "application/x-subrip")) continue
-        val u = o.str("url")?.takeIf { it.isNotBlank() } ?: continue
-        val bytes = runCatching {
-            val c = java.net.URL(u).openConnection() as java.net.HttpURLConnection
-            c.connectTimeout = 8000
-            c.readTimeout = 15000
-            c.setRequestProperty("User-Agent",
-                "LinPlayer/" + xyz.linplayer.app.BuildConfig.VERSION_NAME)
-            c.inputStream.use { st -> st.readBytes() }
-        }.getOrNull() ?: continue
-        // 阻塞下载返回时可能已换集,旧任务不得再覆盖当前字幕。
-        kotlinx.coroutines.currentCoroutineContext().ensureActive()
-        // 4MB 封顶:字幕再长也到不了,到了多半是取回了一部片
-        if (bytes.isEmpty() || bytes.size > (4 shl 20)) continue
-        val head = String(bytes, 0, minOf(bytes.size, 512), Charsets.UTF_8)
-        if (!head.contains("[Script Info]") && !head.contains("[V4+ Styles]") &&
-            !head.contains("[V4 Styles]")) continue
-        if (Libass.activateFile(u, bytes, LIBASS_FONTS_DIR)) return@withContext
-    }
 }
 
 /**

@@ -19,6 +19,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.SideEffect
 import xyz.linplayer.app.ui.theme.LpIcons
 import kotlin.math.roundToInt
@@ -34,6 +35,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
@@ -124,32 +126,36 @@ fun PlayerPanel(
             } else {
                 // ☠ `player.tracks` 返回**裸数组**,轨道类型的字段名是 `kind` 不是 `type`。
                 //    两处都错的表现是音轨/字幕面板恒空,而且一句错都不报。
-                val t = try {
-                    app.call("player.tracks").also { currentCoroutineContext().ensureActive() }
-                } catch (e: CancellationException) { throw e }
-                  catch (e: Exception) {
-                    currentCoroutineContext().ensureActive()
-                    loadError = if (menuKind == "audio") "音轨读取失败" else "字幕读取失败"
+                while (true) {
+                    val t = try {
+                        app.call("player.tracks").also { currentCoroutineContext().ensureActive() }
+                    } catch (e: CancellationException) { throw e }
+                      catch (e: Exception) {
+                        currentCoroutineContext().ensureActive()
+                        loadError = if (menuKind == "audio") "音轨读取失败" else "字幕读取失败"
+                        loading = false
+                        return@LaunchedEffect
+                    }
+                    onMpvTracks(t.arr().mapNotNull { it.obj() })
+                    val want = if (menuKind == "audio") "audio" else "sub"
+                    // 字幕多给一项「关闭字幕」(id 空串 = 核心层设 sid=no),和 Exo 那边同一个理由
+                    val off = if (want == "sub") listOf(Triple("", null, "关闭字幕")) else emptyList()
+                    options = off + t.arr().mapNotNull {
+                        val o = it.obj() ?: return@mapNotNull null
+                        if (o.str("kind") != want) return@mapNotNull null
+                        val language = trackLanguage(o.str("lang"), menuKind)
+                        Triple(
+                            o.str("id") ?: return@mapNotNull null,
+                            language,
+                            o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (want != "audio" || it != "未标注") }
+                                ?: language ?: "轨道",
+                        )
+                    }
+                    current = t.arr().firstOrNull { it.obj().str("kind") == want && it.obj().bool("selected") }
+                        .obj().str("id") ?: if (want == "sub") "" else null
                     loading = false
-                    return@LaunchedEffect
+                    delay(1000)
                 }
-                onMpvTracks(t.arr().mapNotNull { it.obj() })
-                val want = if (menuKind == "audio") "audio" else "sub"
-                // 字幕多给一项「关闭字幕」(id 空串 = 核心层设 sid=no),和 Exo 那边同一个理由
-                val off = if (want == "sub") listOf(Triple("", null, "关闭字幕")) else emptyList()
-                options = off + t.arr().mapNotNull {
-                    val o = it.obj() ?: return@mapNotNull null
-                    if (o.str("kind") != want) return@mapNotNull null
-                    val language = trackLanguage(o.str("lang"), menuKind)
-                    Triple(
-                        o.str("id") ?: return@mapNotNull null,
-                        language,
-                        o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (want != "audio" || it != "未标注") }
-                            ?: language ?: "轨道",
-                    )
-                }
-                current = t.arr().firstOrNull { it.obj().str("kind") == want && it.obj().bool("selected") }
-                    .obj().str("id") ?: if (want == "sub") "" else null
             }
             "source" -> {
                 val m = runCatching { app.call("emby.itemMedia", args("item_id" to itemId)) }
@@ -165,19 +171,20 @@ fun PlayerPanel(
                 try {
                     val d = app.call("emby.itemDetail", args("item_id" to itemId)).obj()
                     currentCoroutineContext().ensureActive()
-                    // ★ 季的主键叫 season_id(核心层这次补上的);Emby 的 ParentId 不在详情里
-                    val season = d.str("season_id")
-                    if (season != null) {
-                        current = itemId
-                        // 首批即可选集；重试从已加载项之后续取，避免丢掉当前列表。
-                        app.seasonEpisodes(season, episodes) { items, _ ->
-                            episodes = items
-                            options = items.map {
-                                Triple(it.id, "${(it.runtimeSecs / 60).toInt()} 分钟",
-                                    "S${it.seasonNo ?: 1}E${it.episodeNo ?: 1} ${it.name}")
-                            }
+                    val season = d.str("season_id")?.takeIf { it.isNotBlank() }
+                    val number = d.long("season_no")
+                    val parent = season ?: d.str("series_id")?.takeIf { it.isNotBlank() && number != null }
+                    checkNotNull(parent) { "无法确认当前季" }
+                    current = itemId
+                    // 缓存原始分页以保留重试游标，显示时才过滤剧级查询中的其它季。
+                    app.seasonEpisodes(parent, episodes) { items, _ ->
+                        episodes = items
+                        options = items.filter { season != null || it.seasonNo == number }.map {
+                            Triple(it.id, "${(it.runtimeSecs / 60).toInt()} 分钟",
+                                "S${it.seasonNo ?: number ?: 1}E${it.episodeNo ?: 1} ${it.name}")
                         }
                     }
+                    check(options.any { it.first == itemId }) { "当前集不在分集列表中" }
                 } catch (e: CancellationException) { throw e }
                   catch (e: Exception) {
                     currentCoroutineContext().ensureActive()
@@ -277,6 +284,20 @@ fun PlayerPanel(
         }
         currentCoroutineContext().ensureActive()
         loading = false
+    }
+
+    DisposableEffect(active, menuKind, exo) {
+        val player = exo?.takeIf { active && menuKind in listOf("audio", "subtitle") }
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                if (player != null) {
+                    options = exoTracks(player, menuKind)
+                    current = exoCurrent(player, menuKind)
+                }
+            }
+        }
+        player?.addListener(listener)
+        onDispose { player?.removeListener(listener) }
     }
 
     LaunchedEffect(active, menuKind) { if (active && menuKind == "substyle" && !SubStyle.loaded.value) SubStyle.load(app) }
@@ -570,6 +591,7 @@ internal fun exoTracks(
                     ?: trackLanguage(f.language, kind),
                 // ASS 标出来:用户才知道这条是带特效的那一条
                 if (Libass.isAss(f)) "特效" else null,
+                if (!g.isTrackSupported(ti)) "当前内核不支持" else null,
             ).joinToString(" · ").ifBlank { "轨道 ${gi + 1}-${ti + 1}" }
             out.add(Triple("$gi:$ti", trackLanguage(f.language, kind), name))
         }
@@ -609,6 +631,7 @@ internal fun exoPick(exo: androidx.media3.exoplayer.ExoPlayer, kind: String, id:
     val ti = id.substringAfter(':').toIntOrNull() ?: return
     val g = exo.currentTracks.groups.getOrNull(gi) ?: return
     if (ti !in 0 until g.length) return
+    check(g.isTrackSupported(ti)) { "当前内核不支持此轨道，请切换到 MPV 内核" }
     val type = g.type
     exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
         .setTrackTypeDisabled(type, false)

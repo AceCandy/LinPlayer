@@ -14,7 +14,7 @@ internal suspend fun playbackSeason(app: AppState, detail: JsonObject?, itemId: 
     val number = detail.long("season_no")
     val parent = season ?: detail.str("series_id")?.takeIf { it.isNotBlank() && number != null }
     checkNotNull(parent) { "无法确认当前季，请重试" }
-    val episodes = app.seasonEpisodes(parent).filter { number == null || it.seasonNo == number }
+    val episodes = app.seasonEpisodes(parent).filter { season != null || it.seasonNo == number }
     check(episodes.any { it.id == itemId }) { "当前集不在分集列表中，请重试" }
     return episodes.sortedBy { it.episodeNo }
 }
