@@ -20,6 +20,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -43,6 +44,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import androidx.compose.runtime.key
+import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.layout.boundsInWindow
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -54,11 +60,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
+import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -70,6 +78,7 @@ import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.semantics.stateDescription
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.unit.LayoutDirection
@@ -103,9 +112,7 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.plugin.PluginPlayer
 import xyz.linplayer.app.ui.Route
-import xyz.linplayer.app.ui.components.Dim3
-import xyz.linplayer.app.ui.components.LpMenu
-import xyz.linplayer.app.ui.components.LpMenuItem
+import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
@@ -271,7 +278,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     var osd by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf<String?>(null) }
-    var osdClearance by remember { mutableStateOf(92.dp) }
+    var episodesExpanded by rememberSaveable { mutableStateOf(true) }
+    val panelAnchors = remember { mutableStateMapOf<String, Rect>() }
+    var panelAnchorKey by remember { mutableStateOf("more") }
     var dmSearch by remember { mutableStateOf(false) }
     var srcSwitch by remember { mutableStateOf(false) }
     /** 弹幕密度。空表 = 不画(关了热力图、或者这一集没弹幕)。 */
@@ -730,7 +739,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     DisposableEffect(exo) {
         PluginPlayer.host = object : PluginPlayer.Host {
             override fun openPanel(which: String) {
-                panel = PluginPlayer.phoneKind(which, exo != null)
+                val kind = PluginPlayer.phoneKind(which, exo != null)
+                panelAnchorKey = kind
+                panel = kind
                 osd = true
             }
             override fun setOsdVisible(visible: Boolean) { osd = visible }
@@ -799,7 +810,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        不然那台设备上顶栏永远出不来。 */
     val turning = turningTo(wantLandscape, portrait)
     var turnGaveUp by remember(wantLandscape) { mutableStateOf(false) }
-    val controlsVisible = (osd && !locked || panel != null) && !(leaving || turning && !turnGaveUp)
+    val controlsVisible = (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
     val nextUp = nextEpisode?.takeIf {
         nextUpVisible(position, duration) && controller.ready && !switching && !finished &&
             !leaving && !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
@@ -856,7 +867,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
        它在整棵 View 树**下面**,不挡洞。
        这一条是 MP 内核「只有声音没有画面」的第一嫌疑。 */
     BoxWithConstraints(Modifier.fillMaxSize()) {
-        val compact = portrait && !inPip
+        val viewportWidth = maxWidth
+        // 设备竖屏与片源竖屏分开；已知竖屏片源使用完整播放区域。
+        val compact = portrait && !inPip && !(srcAr > 0f && srcAr < 1f)
         val videoHeight = if (compact) maxWidth * 9 / 16 else maxHeight
         val viewportHeight = if (compact) videoHeight + 48.dp else maxHeight
         Box(Modifier.fillMaxWidth().height(viewportHeight)) {
@@ -900,7 +913,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                    上一版那句话等于让用户去导诊断包,而他只想知道是不是自己的问题;
                    对我们这边也一样 —— 「有声音没画面」这类报告拿不到 vo / 解码器
                    的实际取值就只能靠猜,一来一回好几轮。 */
-                Dim3(failReason ?: "原因还没拿到。设置 → 存储与数据目录 → 导出日志。", maxLines = 6)
+                Text(failReason ?: "原因还没拿到。设置 → 存储与数据目录 → 导出日志。",
+                    color = Color.White.copy(alpha = .82f), style = LpText.caption, maxLines = 6, overflow = TextOverflow.Ellipsis)
                 Spacer(Modifier.height(Sp.x16))
                 if (finished) xyz.linplayer.app.ui.components.LpButton("重试", {
                     openFailed = false; failReason = null; episodeResult = null; episodeRetry++
@@ -918,7 +932,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
               被判成上下:表现正是「左右滑顺带把音量也调了」。
               现在:攒够 [DRAG_SLOP] 再定方向,定了这一次手势就不再改;而且主方向要比
               副方向多出一截([lockAxis] 的 ratio),斜着划的那一下什么都不触发。 */
-        if (!locked) Box(
+        if (!locked && !openFailed) Box(
             videoLayerModifier.pointerInput(controller, engine) {
                 detectTapGestures(
                     onTap = { osd = !osd },
@@ -990,7 +1004,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         if (locked) Box(videoLayerModifier.pointerInput(Unit) { detectTapGestures { } })
 
         // 声明了 interactive 的才挂在手势层之上;仍在 OSD 之下,盖不住暂停和进度条
-        Box(videoLayerModifier) { xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true) }
+        if (!openFailed) Box(videoLayerModifier) { xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true) }
 
         /* 出画之后的缓冲提示。黑幕撤了但流还没跟上时,得有个东西说明在等 ——
            没有它的话画面卡住和播放器死了长得一模一样。 */
@@ -1023,15 +1037,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             exit = fadeOut(xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3)),
         ) {
             Osd(
-                portrait = compact, netSpeed = netSpeed, statusText = statusText, panelOpen = panel != null,
-                nextUpSpace = if (!compact && nextUp != null) nextUpWidth + Sp.x16 else 0.dp,
+                portrait = portrait && !inPip, compact = compact,
+                netSpeed = netSpeed, statusText = statusText,
+                nextUpSpace = if (!portrait && nextUp != null) nextUpWidth + Sp.x16 else 0.dp,
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
                 pluginPanels = pluginPanels,
                 onPrevious = previousEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onNext = nextEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onOrientation = { manualOrientation = true; wantLandscape = portrait },
-                onChapters = if (route.src == null) ({ panel = "chapters" }) else null,
+                onChapters = if (route.src == null) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
                 onPip = (activity as? xyz.linplayer.app.MainActivity)?.takeIf {
                     android.os.Build.VERSION.SDK_INT >= 26 && it.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
                 }?.let { host -> { if (!host.enterPlayerPip()) app.toast("无法打开画中画", ToastKind.Error) } },
@@ -1049,8 +1064,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                         else app.toast("这一帧截不下来", ToastKind.Error)
                     }
                 },
-                onPanel = { panel = it },
-                onBottomHeight = { osdClearance = it + Sp.x12 },
+                onPanel = { panelAnchorKey = it; panel = it },
+                onPanelAnchor = { k, rect -> panelAnchors[k] = rect },
             )
         }
 
@@ -1061,18 +1076,20 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
 
         // 片尾提示独立于控制栏，始终以实际位置判断；拖动预览不触发换集提示。
         if (!compact && nextUp != null) {
-            NextUp(nextUp, duration - position, duration, nextUpWidth, Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
-                .padding(end = Sp.x16, bottom = Sp.x16)) {
+            NextUp(nextUp, duration - position, duration, nextUpWidth,
+                Modifier.align(if (portrait) Alignment.TopEnd else Alignment.BottomEnd).safeDrawingPadding()
+                    .padding(end = Sp.x16, top = if (portrait) 64.dp else 0.dp, bottom = if (portrait) 0.dp else Sp.x16)) {
                 switchEpisode(nextUp)
             }
         }
 
         // 锁屏后只有解锁按钮 —— 它就长在锁屏钮刚才那个位置上
-        if (locked) Box(Modifier.align(if (compact) Alignment.BottomStart else Alignment.CenterStart).safeDrawingPadding()
-            .padding(start = if (compact) Sp.x6 + if (episodeLabel.isNotBlank()) 96.dp else 0.dp else Sp.x16,
-                bottom = if (compact) 48.dp else 0.dp)
-            .offset(y = if (compact) 0.dp else 30.dp)) {
-            PlayerControl(LpIcons.lock, "解锁") { locked = false }
+        if (locked) Box(Modifier.align(if (portrait && !inPip) Alignment.BottomStart else Alignment.CenterStart).safeDrawingPadding()
+            .padding(start = if (compact && episodeLabel.isNotBlank()) Sp.x16 + (viewportWidth - Sp.x16 * 2 - 48.dp) * 2 / 5
+                else if (portrait && !inPip && !compact) (viewportWidth - 48.dp * 3) / 2 else Sp.x16,
+                bottom = if (compact) 48.dp else if (portrait && !inPip) Sp.x6 else 0.dp)
+            .offset(y = if (portrait && !inPip) 0.dp else 30.dp)) {
+            PlayerControl(LpIcons.lock, "解锁", faceSize = if (compact) 28.dp else if (portrait && !inPip) 36.dp else 48.dp) { locked = false }
         }
 
         }
@@ -1091,28 +1108,57 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 if (nextUp != null) NextUp(nextUp, duration - position, duration, nextUpWidth,
                     Modifier.align(Alignment.End).padding(horizontal = Sp.x16, vertical = Sp.x8)) { switchEpisode(nextUp) }
-                Text(playTitle, Modifier.padding(horizontal = Sp.x16), color = c.fg, style = LpText.title)
-                if (episodeLabel.isNotBlank()) Text(episodeLabel, Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
-                    color = c.fg2, style = LpText.body)
-                if (episodeLabel.isNotBlank() && !openFailed) when {
-                    episodeResult == null -> xyz.linplayer.app.ui.components.LoadingState()
-                    episodeResult?.isFailure == true -> xyz.linplayer.app.ui.components.ErrorState(
-                        "分集加载失败", { episodeRetry++ })
-                    episodes.isNotEmpty() -> {
-                        Text("分集", Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12), color = c.fg, style = LpText.section)
-                        xyz.linplayer.app.ui.pages.EpisodeStrip(app, episodes, route.itemId, targetId = null, onOpen = ::switchEpisode)
+                Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(topStart = R.xl, topEnd = R.xl))
+                    .background(c.mediaPanel).padding(top = Sp.x8, bottom = Sp.x20)) {
+                    Box(Modifier.align(Alignment.CenterHorizontally).width(Sp.x34).height(Sp.x4)
+                        .clip(RoundedCornerShape(R.pill)).background(c.line2))
+                    Row(Modifier.fillMaxWidth().testTag("player.current").padding(Sp.x20),
+                        verticalAlignment = Alignment.Top, horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
+                        NetImage(if (route.src == null) app.imageUrl(route.itemId, "Primary", 330) else null,
+                            "当前集缩略图", Modifier.width(120.dp).aspectRatio(16f / 9f), corner = R.md,
+                            placeholder = { Box(Modifier.fillMaxSize().background(c.s3), contentAlignment = Alignment.Center) {
+                                Icon(LpIcons.image, null, Modifier.size(Sp.x26), tint = c.fg2)
+                            } })
+                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(Sp.x4)) {
+                            Text(playTitle, color = c.fg, style = LpText.heading, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                            if (episodeLabel.isNotBlank()) Text(episodeLabel, color = c.fg, style = LpText.heading,
+                                maxLines = 3, overflow = TextOverflow.Ellipsis)
+                        }
+                        if (episodeLabel.isNotBlank() && !openFailed) Box(Modifier.size(48.dp)
+                            .clip(RoundedCornerShape(R.pill)).background(c.s3)
+                            .pressable({ episodesExpanded = !episodesExpanded }), contentAlignment = Alignment.Center) {
+                            Icon(LpIcons.chevD, if (episodesExpanded) "收起分集" else "展开分集",
+                                Modifier.size(Sp.x26).rotate(if (episodesExpanded) 0f else 180f), tint = c.fg)
+                        }
+                    }
+                    // 保留组合与横轨锚点；收起只裁剪高度并撤掉读屏入口。
+                    Column(Modifier.fillMaxWidth().heightIn(max = if (episodesExpanded) androidx.compose.ui.unit.Dp.Infinity else 0.dp)
+                        .clipToBounds().then(if (episodesExpanded) Modifier else Modifier.clearAndSetSemantics { })) {
+                        if (episodeLabel.isNotBlank() && !openFailed) when {
+                            episodeResult == null -> xyz.linplayer.app.ui.components.LoadingState()
+                            episodeResult?.isFailure == true -> xyz.linplayer.app.ui.components.ErrorState(
+                                "分集加载失败", { episodeRetry++ })
+                            episodes.isNotEmpty() -> {
+                                Box(Modifier.fillMaxWidth().padding(horizontal = Sp.x20).height(Dim.hairline).background(c.line2))
+                                Text("分集 ${episodes.size}", Modifier.padding(horizontal = Sp.x20, vertical = Sp.x20),
+                                    color = c.fg, style = LpText.title)
+                                xyz.linplayer.app.ui.pages.EpisodeStrip(app, episodes, route.itemId, targetId = null,
+                                    playbackStyle = true, onOpen = ::switchEpisode)
+                            }
+                        }
                     }
                 }
             }
             if (locked) Box(Modifier.fillMaxSize().pointerInput(Unit) { detectTapGestures { } })
         }
 
-        panel?.let {
+        key(controller, engine) {
             PlayerPanel(
-                it, route.itemId, exo,
-                fit = videoFit, bottomClearance = if (compact) Sp.x12 else osdClearance,
+                panel, route.itemId, exo,
+                fit = videoFit, anchor = panelAnchors[panelAnchorKey],
+                speed = speed, onSpeed = { speed = it; doSpeed(it) },
                 pluginPanel = pluginPanels.firstOrNull { p ->
-                    xyz.linplayer.app.ui.plugin.pluginPanelKind(p) == it
+                    xyz.linplayer.app.ui.plugin.pluginPanelKind(p) == panel
                 },
                 onOpen = { k -> panel = k },
                 onSearch = { dmSearch = true },
@@ -1185,17 +1231,17 @@ private val BottomVeil = Brush.verticalGradient(
     listOf(Color.Transparent, Color.Black.copy(alpha = .74f)),
 )
 
-/** 共用顶部快捷入口；竖屏主控置于视频，常用操作与进度排列在下沿。 */
+/** 共用顶部快捷入口；窄屏排列与小窗高度独立，竖屏片源全屏时控件叠在画面上。 */
 @Composable
 internal fun Osd(
-    portrait: Boolean, netSpeed: String, panelOpen: Boolean = false,
+    portrait: Boolean, netSpeed: String,
     title: String, episodeLabel: String = "", position: Double, duration: Double, paused: Boolean, speed: Double,
     heat: List<Float>,
     pluginPanels: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>,
     onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Double) -> Unit,
     onSpeed: (Double) -> Unit, onLock: () -> Unit, onShot: () -> Unit,
     onPanel: (String) -> Unit,
-    onBottomHeight: (androidx.compose.ui.unit.Dp) -> Unit = {},
+    onPanelAnchor: (String, Rect) -> Unit = { _, _ -> },
     onSeekBy: (Double) -> Unit = { delta -> onSeek((position + delta).coerceIn(0.0, if (duration > 0) duration else Double.MAX_VALUE)) },
     seekKey: Any = Unit,
     buffered: Double = 0.0,
@@ -1203,52 +1249,64 @@ internal fun Osd(
     nextUpSpace: androidx.compose.ui.unit.Dp = 0.dp,
     onPrevious: (() -> Unit)? = null, onNext: (() -> Unit)? = null,
     onPip: (() -> Unit)? = null, onOrientation: (() -> Unit)? = null, onChapters: (() -> Unit)? = null,
+    compact: Boolean = portrait,
 ) {
-    val density = LocalDensity.current
-    Box(Modifier.fillMaxSize()) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        fun menuAnchor(kind: String) = Modifier.onGloballyPositioned { onPanelAnchor(kind, it.boundsInWindow()) }
+        val controlWidth = maxWidth
+        val controlFace = if (compact) 28.dp else if (portrait) 36.dp else 48.dp
             Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
                 .safeDrawingPadding().padding(horizontal = if (portrait) Sp.x6 else Sp.x16, vertical = if (portrait) 0.dp else Sp.x12),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(if (portrait) 0.dp else Sp.x8)) {
-                PlayerControl(LpIcons.back, "返回", onClick = onBack)
+                PlayerControl(LpIcons.back, "返回", faceSize = controlFace, onClick = onBack)
                 if (portrait) Spacer(Modifier.weight(1f)) else Marquee(title, Modifier.weight(1f))
-                onPip?.let { PlayerControl(LpIcons.pip, "画中画", onClick = it) }
-                PlayerControl(LpIcons.aspect, "比例", onClick = { onPanel("ratio") })
-                onOrientation?.let { PlayerControl(LpIcons.orientation, "切换方向", onClick = it) }
-                onChapters?.let { PlayerControl(LpIcons.chapter, "章节", onClick = it) }
-                PlayerControl(LpIcons.more, "更多", onClick = { onPanel("more") })
+                onPip?.let { PlayerControl(LpIcons.pip, "画中画", faceSize = controlFace, onClick = it) }
+                PlayerControl(LpIcons.aspect, "比例", modifier = menuAnchor("ratio"), faceSize = controlFace, onClick = { onPanel("ratio") })
+                onOrientation?.let { PlayerControl(LpIcons.orientation, "切换方向", faceSize = controlFace, onClick = it) }
+                onChapters?.let { PlayerControl(LpIcons.chapter, "章节", modifier = menuAnchor("chapters"), faceSize = controlFace, onClick = it) }
+                PlayerControl(LpIcons.more, "更多", modifier = menuAnchor("more"), faceSize = controlFace, onClick = { onPanel("more") })
             }
             if (!portrait) Row(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 76.dp, end = Sp.x16),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
                 if (statusText.isNotEmpty()) Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
                 NetSpeed(netSpeed)
             }
-            if (!portrait && !panelOpen) Column(Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(start = Sp.x16),
+            if (!portrait) Column(Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(start = Sp.x16),
                 verticalArrangement = Arrangement.spacedBy(Sp.x16)) {
                 PlayerControl(LpIcons.camera, "截屏", onClick = onShot)
                 PlayerControl(LpIcons.unlock, "锁屏", onClick = onLock)
             }
-            if (!panelOpen) Row(Modifier.align(Alignment.Center).offset(y = if (portrait) (-24).dp else 0.dp), verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (portrait) Sp.x12 else Sp.x26)) {
+            Row(Modifier.align(Alignment.Center).offset(y = if (compact) (-24).dp else 0.dp), verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) Sp.x12
+                    else if (portrait && maxWidth < 360.dp) Sp.x20 else Sp.x26)) {
                 PlayerControl(LpIcons.rewind, "后退 10 秒", size = if (portrait) 48.dp else 56.dp,
+                    faceSize = if (compact) 36.dp else if (portrait) 48.dp else 56.dp,
                     onClick = { onSeekBy(-10.0) })
                 PlayerControl(if (paused) LpIcons.play else LpIcons.pause, if (paused) "播放" else "暂停",
-                    size = if (portrait) 56.dp else 76.dp, onClick = onToggle)
+                    size = if (compact) 56.dp else if (portrait) 64.dp else 76.dp,
+                    faceSize = if (compact) 50.dp else if (portrait) 64.dp else 76.dp, onClick = onToggle)
                 PlayerControl(LpIcons.forward, "前进 10 秒", size = if (portrait) 48.dp else 56.dp,
+                    faceSize = if (compact) 36.dp else if (portrait) 48.dp else 56.dp,
                     onClick = { onSeekBy(10.0) })
             }
-            if (!portrait && !panelOpen) Column(Modifier.align(Alignment.CenterEnd)
-                .offset(y = if (LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
-                .safeDrawingPadding().padding(end = Sp.x16),
+            if (!compact) Column(Modifier.align(Alignment.CenterEnd)
+                .offset(y = if (!portrait && LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
+                .safeDrawingPadding().padding(end = if (portrait) Sp.x6 else Sp.x16),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
-                PlayerControl(LpIcons.minus, "减速", onClick = { onSpeed(step(speed, -1)) })
-                Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
-                    style = LpText.number.copy(fontSize = 15.sp, lineHeight = 20.sp))
-                PlayerControl(LpIcons.plus, "加速", onClick = { onSpeed(step(speed, +1)) })
+                verticalArrangement = Arrangement.spacedBy(if (portrait) Sp.x6 else Sp.x12)) {
+                PlayerControl(if (portrait) LpIcons.plus else LpIcons.minus, if (portrait) "加速" else "减速",
+                    faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
+                Box(menuAnchor("speed").size(48.dp).pressable({ onPanel("speed") })
+                    .semantics { contentDescription = "倍速" }, contentAlignment = Alignment.Center) {
+                    Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
+                        style = LpText.number.copy(fontSize = 15.sp, lineHeight = 20.sp))
+                }
+                PlayerControl(if (portrait) LpIcons.minus else LpIcons.plus, if (portrait) "减速" else "加速",
+                    faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) -1 else +1)) })
             }
             if (!portrait) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
-                .safeDrawingPadding().onSizeChanged { onBottomHeight(with(density) { it.height.toDp() }) }
+                .safeDrawingPadding()
                 .padding(start = Sp.x12, end = Sp.x12 + nextUpSpace, top = Sp.x6, bottom = Sp.x6)) {
                 if (episodeLabel.isNotBlank()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     PlayerControl(LpIcons.skipPrev, "上一集", enabled = onPrevious != null, onClick = { onPrevious?.invoke() })
@@ -1258,50 +1316,60 @@ internal fun Osd(
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered) }
-                    PlayerControl(LpIcons.danmaku, "弹幕", onClick = { onPanel("danmaku") })
-                    PlayerControl(LpIcons.music, "音轨", onClick = { onPanel("audio") })
-                    PlayerControl(LpIcons.sub, "字幕", onClick = { onPanel("subtitle") })
+                    PlayerControl(LpIcons.danmaku, "弹幕", modifier = menuAnchor("danmaku"), onClick = { onPanel("danmaku") })
+                    PlayerControl(LpIcons.music, "音轨", modifier = menuAnchor("audio"), onClick = { onPanel("audio") })
+                    PlayerControl(LpIcons.sub, "字幕", modifier = menuAnchor("subtitle"), onClick = { onPanel("subtitle") })
                 }
                 if (pluginPanels.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
                     pluginPanels.forEach { p ->
-                        Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon)) {
+                        Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon),
+                        modifier = menuAnchor(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))) {
                             onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))
                         }
                     }
                 }
             }
         if (portrait) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-            .onSizeChanged { onBottomHeight(with(density) { it.height.toDp() }) }) {
-            if (!panelOpen) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x6),
+            .then(if (compact) Modifier else Modifier.background(BottomVeil).safeDrawingPadding().padding(bottom = Sp.x6))) {
+            if (!compact) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x6), verticalAlignment = Alignment.CenterVertically) {
+                    if (episodeLabel.isNotBlank()) {
+                        PlayerControl(LpIcons.skipPrev, "上一集", faceSize = controlFace, enabled = onPrevious != null, onClick = { onPrevious?.invoke() })
+                        PlayerControl(LpIcons.skipNext, "下一集", faceSize = controlFace, enabled = onNext != null, onClick = { onNext?.invoke() })
+                    }
+                    Marquee(episodeLabel.ifBlank { title }, Modifier.weight(1f).padding(horizontal = Sp.x6, vertical = Sp.x6))
+                }
+                ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered)
+            }
+            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically) {
-                if (episodeLabel.isNotBlank()) {
-                    PlayerControl(LpIcons.skipPrev, "上一集", enabled = onPrevious != null, onClick = { onPrevious?.invoke() })
-                    PlayerControl(LpIcons.skipNext, "下一集", enabled = onNext != null, onClick = { onNext?.invoke() })
-                }
-                PlayerControl(LpIcons.unlock, "锁屏", onClick = onLock)
-                var speedOpen by remember { mutableStateOf(false) }
-                Box {
-                    Box(Modifier.size(48.dp).clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f))
-                        .pressable({ speedOpen = true }).semantics { contentDescription = "倍速" },
-                        contentAlignment = Alignment.Center) {
-                        Text("%.2f×".format(speed).replace(".00", ""), color = Color.White, style = LpText.number)
+                Row(Modifier.width(controlWidth).padding(horizontal = Sp.x16),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = if (compact) Arrangement.SpaceBetween else Arrangement.Center) {
+                    if (compact && episodeLabel.isNotBlank()) {
+                        PlayerControl(LpIcons.skipPrev, "上一集", faceSize = controlFace, enabled = onPrevious != null, onClick = { onPrevious?.invoke() })
+                        PlayerControl(LpIcons.skipNext, "下一集", faceSize = controlFace, enabled = onNext != null, onClick = { onNext?.invoke() })
                     }
-                    LpMenu(speedOpen, { speedOpen = false }) {
-                        LpMenuItem("减速", { onSpeed(step(speed, -1)); speedOpen = false })
-                        LpMenuItem("加速", { onSpeed(step(speed, +1)); speedOpen = false })
+                    PlayerControl(LpIcons.unlock, "锁屏", faceSize = controlFace, onClick = onLock)
+                    if (compact) {
+                        Box(menuAnchor("speed").size(48.dp).clip(RoundedCornerShape(R.pill))
+                            .pressable({ onPanel("speed") }).semantics { contentDescription = "倍速" },
+                            contentAlignment = Alignment.Center) {
+                            Text("%.2f×".format(speed).replace(".00", ""), color = Color.White, style = LpText.number)
+                        }
                     }
+                    PlayerControl(LpIcons.music, "音轨", modifier = menuAnchor("audio"), faceSize = controlFace, onClick = { onPanel("audio") })
+                    PlayerControl(LpIcons.sub, "字幕", modifier = menuAnchor("subtitle"), faceSize = controlFace, onClick = { onPanel("subtitle") })
                 }
-                PlayerControl(LpIcons.music, "音轨", onClick = { onPanel("audio") })
-                PlayerControl(LpIcons.sub, "字幕", onClick = { onPanel("subtitle") })
-                PlayerControl(LpIcons.danmaku, "弹幕", onClick = { onPanel("danmaku") })
-                PlayerControl(LpIcons.camera, "截屏", onClick = onShot)
+                PlayerControl(LpIcons.danmaku, "弹幕", modifier = menuAnchor("danmaku"), faceSize = controlFace, onClick = { onPanel("danmaku") })
+                PlayerControl(LpIcons.camera, "截屏", faceSize = controlFace, onClick = onShot)
                 pluginPanels.forEach { p ->
-                    Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon)) {
+                    Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon),
+                        modifier = menuAnchor(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))) {
                         onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))
                     }
                 }
             }
-            Box(Modifier.fillMaxWidth().background(Color.Black)) {
+            if (compact) Box(Modifier.fillMaxWidth().background(Color.Black)) {
                 ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered)
             }
         }
@@ -1312,12 +1380,17 @@ internal fun Osd(
 @Composable
 private fun PlayerControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
-    size: androidx.compose.ui.unit.Dp = 48.dp, enabled: Boolean = true, onClick: () -> Unit,
+    size: androidx.compose.ui.unit.Dp = 48.dp, enabled: Boolean = true,
+    faceSize: androidx.compose.ui.unit.Dp = size, modifier: Modifier = Modifier, onClick: () -> Unit,
 ) {
-    Box(Modifier.size(size).clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f))
+    Box(modifier.size(size).clip(RoundedCornerShape(R.pill))
         .pressable(onClick, enabled = enabled),
         contentAlignment = Alignment.Center) {
-        Icon(icon, label, Modifier.size(if (size >= 70.dp) 34.dp else 23.dp), tint = Color.White.copy(alpha = if (enabled) 1f else .4f))
+        Box(Modifier.size(faceSize).clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f)),
+            contentAlignment = Alignment.Center) {
+            Icon(icon, label, Modifier.size(if (faceSize >= 70.dp) 34.dp else if (faceSize <= 28.dp) 18.dp else 23.dp),
+                tint = Color.White.copy(alpha = if (enabled) 1f else .4f))
+        }
     }
 }
 
@@ -1401,10 +1474,11 @@ private fun step(cur: Double, dir: Int) =
 private fun Chip(
     label: String,
     icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
+    modifier: Modifier = Modifier,
     onClick: () -> Unit,
 ) {
     Row(
-        Modifier.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.pill))
+        modifier.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.pill))
             .pressable(onClick).padding(horizontal = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {

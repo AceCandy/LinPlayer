@@ -39,20 +39,19 @@ import xyz.linplayer.app.ui.theme.LpTheme
 class PhonePlayerOsdTest {
     @get:Rule val rule = createComposeRule()
     private val dark = mutableStateOf(false)
-    private val panel = mutableStateOf(false)
     private val speed = mutableStateOf(1.5)
     private var seek = 0.0
     private var action = ""
 
-    private fun open(portrait: Boolean = false) {
+    private fun open(portrait: Boolean = false, compact: Boolean = portrait) {
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(
                         listOf(Color(0xFF455F48), Color(0xFF181D26))))) {
-                        Box(if (portrait) Modifier.fillMaxWidth().height((LocalConfiguration.current.screenWidthDp * 9f / 16 + 48).dp)
+                        Box(if (compact) Modifier.fillMaxWidth().height((LocalConfiguration.current.screenWidthDp * 9f / 16 + 48).dp)
                             else Modifier.fillMaxSize()) {
-                        Osd(portrait, "1.13 MB/s", panelOpen = panel.value,
+                        Osd(portrait, "1.13 MB/s",
                             title = "测试剧集", episodeLabel = "S1E7：一段用于核查横屏布局的单集标题",
                             position = 1517.0, duration = 2729.0, paused = false, speed = speed.value, buffered = 2050.0,
                             heat = emptyList(), pluginPanels = emptyList(),
@@ -62,13 +61,40 @@ class PhonePlayerOsdTest {
                             onPanel = { action = it }, statusText = "21:34 · 83%",
                             onPrevious = { action = "上一集" }, onNext = { action = "下一集" },
                             onPip = { action = "画中画" }, onOrientation = { action = "方向" },
-                            onChapters = { action = "章节" })
+                            onChapters = { action = "章节" }, compact = compact)
                         }
                     }
                 }
             }
         }
         rule.waitForIdle()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-port-mdpi")
+    fun fullPortraitKeepsReferenceZonesAndAllActions() {
+        open(portrait = true, compact = false)
+        for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
+            "上一集", "下一集", "锁屏", "加速", "减速", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
+        assertProgressAndEpisodeOrder()
+        val slider = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
+            .fetchSemanticsNode().boundsInRoot
+        val lock = rule.onNodeWithContentDescription("锁屏").fetchSemanticsNode().boundsInRoot
+        assertTrue("进度行应在最底部功能行上方", slider.bottom <= lock.top)
+        val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
+        targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
+            val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
+            assertTrue("全屏竖屏小屏大字命中不能重叠：${a.config} ${a.boundsInRoot} / ${b.config} ${b.boundsInRoot}", overlap.width <= 0f || overlap.height <= 0f)
+        } }
+        rule.onNodeWithContentDescription("加速").performClick(); rule.onNodeWithText("1.75×").assertIsDisplayed()
+        rule.onNodeWithContentDescription("减速").performClick(); rule.onNodeWithText("1.50×").assertIsDisplayed()
+        rule.onNodeWithContentDescription("切换方向").performClick(); assertEquals("方向", action)
+        rule.onNodeWithContentDescription("弹幕").performScrollTo().performClick(); assertEquals("danmaku", action)
+        rule.onNodeWithContentDescription("截屏").performScrollTo().performClick(); assertEquals("截屏", action)
+        rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
+        rule.onNodeWithContentDescription("加速").assertIsDisplayed()
+        rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
     }
 
     @Test fun sliderDragKeepsItsValueAcrossPlaybackPollsAndCancel() {
@@ -174,9 +200,8 @@ class PhonePlayerOsdTest {
             rule.onNodeWithContentDescription(label).performClick()
             assertEquals(expected, action)
         }
-        rule.runOnIdle { panel.value = true }
-        rule.onNodeWithContentDescription("暂停").assertDoesNotExist()
-        rule.onNodeWithContentDescription("加速").assertDoesNotExist()
+        rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
+        rule.onNodeWithContentDescription("加速").assertIsDisplayed()
         rule.onNodeWithContentDescription("更多").assertIsDisplayed()
     }
 
@@ -196,12 +221,26 @@ class PhonePlayerOsdTest {
     }
 
     @Test
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi")
+    fun portraitCommonControlsFillFirstRow() {
+        open(portrait = true)
+        val common = listOf("上一集", "下一集", "锁屏", "倍速", "音轨", "字幕")
+            .map { rule.onNodeWithContentDescription(it).fetchSemanticsNode().boundsInRoot }
+        common.forEach { assertEquals(48f, it.width, .1f); assertEquals(common.first().center.y, it.center.y, .1f) }
+        val gaps = common.zipWithNext { a, b -> b.left - a.right }
+        assertTrue("常用操作需在首排均匀铺开", gaps.all { it >= 4f && kotlin.math.abs(it - gaps.first()) < .5f })
+        assertTrue("字幕应位于首排右侧", common.last().right >= 340f)
+        rule.onNodeWithContentDescription("弹幕").performScrollTo().performClick()
+        assertEquals("danmaku", action)
+    }
+
+    @Test
     @Config(qualifiers = "w360dp-h800dp-port-mdpi")
     fun portraitKeepsAllControlsAndDispatchesOrientation() {
         open(portrait = true)
         for (label in listOf("返回", "画中画", "比例", "切换方向", "章节", "更多", "暂停",
             "后退 10 秒", "前进 10 秒", "锁屏", "倍速", "上一集", "下一集",
-            "弹幕", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
+            "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
         assertProgressAndEpisodeOrder(episodeOrder = false)
         val buttons = rule.onAllNodes(hasClickAction()).fetchSemanticsNodes()
         buttons.forEachIndexed { i, a -> buttons.drop(i + 1).forEach { b ->
@@ -209,19 +248,19 @@ class PhonePlayerOsdTest {
             assertTrue("竖屏按钮命中区不能重叠", overlap.width <= 0f || overlap.height <= 0f)
         } }
         for ((label, expected) in listOf("切换方向" to "方向", "上一集" to "上一集", "下一集" to "下一集",
-            "比例" to "ratio", "音轨" to "audio", "字幕" to "subtitle", "弹幕" to "danmaku")) {
+            "比例" to "ratio", "音轨" to "audio", "字幕" to "subtitle")) {
             rule.onNodeWithContentDescription(label).performClick()
             assertEquals(expected, action)
         }
         rule.onNodeWithContentDescription("倍速").performClick()
-        rule.onNodeWithText("加速").performClick()
-        rule.onNodeWithText("1.75×").assertIsDisplayed()
+        assertEquals("speed", action)
         rule.onRoot().captureRoboImage("build/player-osd/portrait.png")
+        rule.onNodeWithContentDescription("弹幕").performScrollTo().performClick()
+        assertEquals("danmaku", action)
         rule.onNodeWithContentDescription("截屏").performScrollTo().performClick()
         assertEquals("截屏", action)
-        rule.runOnIdle { panel.value = true }
-        rule.onNodeWithContentDescription("暂停").assertDoesNotExist()
-        rule.onNodeWithContentDescription("锁屏").assertDoesNotExist()
+        rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
+        rule.onNodeWithContentDescription("锁屏").assertIsDisplayed()
         rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
     }
 

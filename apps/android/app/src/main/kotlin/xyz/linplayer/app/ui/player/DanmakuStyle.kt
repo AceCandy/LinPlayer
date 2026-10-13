@@ -2,6 +2,8 @@ package xyz.linplayer.app.ui.player
 
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import androidx.compose.runtime.mutableStateOf
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.bool
@@ -54,12 +56,14 @@ object DanmakuStyle {
 
     /** 重新取一次排版。灌完语料、改完设置都要调。 */
     suspend fun reloadLayout(app: AppState) {
-        layout.value = parseDmLayout(
-            runCatching { app.call("player.danmakuLayout") }.getOrNull().obj())
+        val result = runCatching { app.call("player.danmakuLayout") }.getOrNull().obj()
+        currentCoroutineContext().ensureActive()
+        layout.value = parseDmLayout(result)
     }
 
     suspend fun load(app: AppState) {
         val r = runCatching { app.call("player.getDanmakuStyle") }.getOrNull().obj() ?: return
+        currentCoroutineContext().ensureActive()
         r.dbl("area")?.let { area.doubleValue = it }
         r.dbl("scale")?.let { scale.doubleValue = it }
         r.dbl("opacity")?.let { opacity.doubleValue = it }
@@ -69,8 +73,9 @@ object DanmakuStyle {
         merge.value = r.bool("merge")
         bold.value = r.bool("bold")
         heatmap.value = r.bool("heatmap")
-        enabled.value = runCatching { app.call("prefs.getPrefs") }
-            .getOrNull().obj().bool("danmaku_enabled")
+        val prefs = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
+        currentCoroutineContext().ensureActive()
+        enabled.value = prefs.bool("danmaku_enabled")
         loaded.value = true
         reloadLayout(app)
     }

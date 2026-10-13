@@ -1529,6 +1529,7 @@ internal fun EpisodeStrip(
     currentId: String,
     targetId: String?,
     expanded: Boolean = false,
+    playbackStyle: Boolean = false,
     onOpen: (Item) -> Unit,
 ) {
     val state = rememberLazyListState()
@@ -1541,27 +1542,28 @@ internal fun EpisodeStrip(
         }
     }
     LazyRow(
-        Modifier.fillMaxWidth().height(episodeStripHeight(expanded)),
+        Modifier.fillMaxWidth().height(episodeStripHeight(expanded || playbackStyle, playbackStyle)),
         state = state,
-        contentPadding = PaddingValues(horizontal = Sp.x16),
-        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+        contentPadding = PaddingValues(horizontal = if (playbackStyle) Sp.x20 else Sp.x16),
+        horizontalArrangement = Arrangement.spacedBy(if (playbackStyle) Sp.x12 else Sp.x10),
     ) {
         itemsIndexed(episodes, key = { _, e -> e.id }, contentType = { _, _ -> "ep" }) { i, ep ->
-            EpCard(app, ep, i, ep.id == currentId, ep.id == targetId, expanded) { onOpen(ep) }
+            EpCard(app, ep, i, ep.id == currentId, ep.id == targetId, expanded || playbackStyle, playbackStyle) { onOpen(ep) }
         }
     }
 }
 
 /** 等待和真实分集轨道共用几何，数据到达不挤动下面的简介与演员。 */
 @Composable
-private fun episodeStripHeight(expanded: Boolean = false) = with(LocalDensity.current) {
-    if (expanded) return@with SeriesEpCardW * 9 / 16 + Sp.x6 + LpText.body.lineHeight.toDp() * 2 +
+private fun episodeStripHeight(expanded: Boolean = false, playbackStyle: Boolean = false) = with(LocalDensity.current) {
+    if (expanded) return@with (if (playbackStyle) PlayerEpCardW else SeriesEpCardW) * 9 / 16 + Sp.x6 + LpText.body.lineHeight.toDp() * 2 +
         LpText.caption.lineHeight.toDp() + Sp.x8
     EpCardW * 9 / 16 + Sp.x6 + LpText.caption.lineHeight.toDp() + LpText.compact.lineHeight.toDp() * 2 + Sp.x8
 }
 
 private val EpCardW = 168.dp
 private val SeriesEpCardW = 224.dp
+private val PlayerEpCardW = 190.dp
 
 @Composable
 private fun EpCard(
@@ -1571,11 +1573,13 @@ private fun EpCard(
     current: Boolean,
     target: Boolean,
     expanded: Boolean,
+    playbackStyle: Boolean,
     onOpen: () -> Unit,
 ) {
     val c = Lp.colors
     Column(
-        Modifier.width(if (expanded) SeriesEpCardW else EpCardW).testTag("detail.ep.${ep.id}").pressable(onOpen)
+        Modifier.width(if (playbackStyle) PlayerEpCardW else if (expanded) SeriesEpCardW else EpCardW)
+            .testTag("detail.ep.${ep.id}").pressable(onOpen)
     ) {
         Box(
             Modifier.fillMaxWidth().aspectRatio(16f / 9f)
@@ -1606,10 +1610,11 @@ private fun EpCard(
             Text(
                 listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" }).joinToString("")
                     .let { number -> listOf(number, ep.name).filter(String::isNotBlank).joinToString("：") },
-                color = if (target) c.mediaIcon else c.fg, style = LpText.body,
+                color = if (playbackStyle && current) c.mediaAccent else if (target) c.mediaIcon else c.fg, style = LpText.body,
                 maxLines = 2, overflow = TextOverflow.Ellipsis,
             )
             if (target) Text("待播放", color = c.mediaIcon, style = LpText.caption)
+            if (playbackStyle && current) Text("当前集", color = c.mediaAccent, style = LpText.caption)
         } else {
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                 Text(

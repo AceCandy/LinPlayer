@@ -2,6 +2,8 @@ package xyz.linplayer.app.ui.player
 
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableIntStateOf
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import androidx.compose.runtime.mutableStateOf
 import xyz.linplayer.app.core.Native
 import xyz.linplayer.app.data.AppState
@@ -62,6 +64,7 @@ object SubStyle {
      */
     suspend fun load(app: AppState) {
         val r = runCatching { app.call("player.getSubStyle") }.getOrNull().obj() ?: return
+        currentCoroutineContext().ensureActive()
         r.dbl("scale")?.takeIf { it > 0 }?.let { scale.doubleValue = it }
         r.long("position")?.takeIf { it >= 0 }?.let { position.intValue = it.toInt() }
         r.dbl("border_size")?.takeIf { it >= 0 }?.let { border.doubleValue = it }

@@ -72,6 +72,18 @@ class PhoneEnginePlaybackTest {
         scope.cancel()
     }
 
+    @Test fun 全屏倍率菜单沿用实际调速与全局偏好提交() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        rule.mainClock.autoAdvance = true
+        rule.onNodeWithContentDescription("倍速").performClick(); advance(rule, 300)
+        rule.onNodeWithText("1.5×").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("player.menu").assertDoesNotExist()
+        assertEquals(1.5, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
+        assertEquals(1.5, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
     @Test fun 手机完播连续切两集且旧集停止先于新集起播() {
         val core = episodeCore()
         showPlayer(core, "mpv")
@@ -346,6 +358,172 @@ class PhoneEnginePlaybackTest {
     }
 
     @Test
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi")
+    fun 竖屏片源按实际媒体尺寸全屏显示且保留切换入口MPV() = verifyPortraitSource("mpv")
+
+    @Test
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi")
+    fun 竖屏片源按实际媒体尺寸全屏显示且保留切换入口Media3() = verifyPortraitSource("exo")
+
+    private fun verifyPortraitSource(mode: String) {
+        val core = portraitCore()
+        showPlayer(core, mode, ar = 0f, dark = true)
+        if (mode == "exo") {
+            rule.runOnIdle { currentExo().playWhenReady = true }
+            exoState(0); advance(rule, 300)
+        }
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+        val video = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
+        val page = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertEquals("竖屏片源不能缩进顶部16:9窗口", page.height, video.height, .1f)
+        assertEquals(page.width, video.width, .1f)
+        rule.onNodeWithTag("player.current").assertDoesNotExist()
+        for (label in listOf("返回", "比例", "切换方向", "章节", "更多", "暂停", "后退 10 秒", "前进 10 秒",
+            "上一集", "下一集", "锁屏", "加速", "减速", "音轨", "字幕")) rule.onNodeWithContentDescription(label).assertIsDisplayed()
+        val pause = rule.onNodeWithContentDescription("暂停").fetchSemanticsNode().boundsInRoot
+        assertEquals(video.center.y, pause.center.y, .1f)
+        val previous = rule.onNodeWithContentDescription("上一集").fetchSemanticsNode().boundsInRoot
+        val next = rule.onNodeWithContentDescription("下一集").fetchSemanticsNode().boundsInRoot
+        val title = rule.onNode(hasText("S1E6", substring = true)).fetchSemanticsNode().boundsInRoot
+        assertTrue(previous.right <= next.left && next.right <= title.left)
+        val lock = rule.onNodeWithContentDescription("锁屏").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithContentDescription("锁屏").performClick(); advance(rule, 300)
+        val unlock = rule.onNodeWithContentDescription("解锁").fetchSemanticsNode().boundsInRoot
+        assertEquals(lock.left, unlock.left, 1f); assertEquals(lock.top, unlock.top, 1f)
+        rule.onNodeWithContentDescription("解锁").performClick(); advance(rule, 300)
+        rule.runOnIdle {
+            portraitVideoBackground(360, 640)
+        }
+        if (mode == "mpv") {
+            rule.runOnIdle { core.tick(2172.25) }; advance(rule, 300)
+            rule.runOnIdle { core.tick(2172.75) }; advance(rule, 300)
+        } else {
+            exoState(2_172_250); advance(rule, 300)
+            exoState(2_172_750); advance(rule, 300)
+        }
+        if (mode == "mpv") rule.onRoot().captureRoboImage("build/player-osd/portrait-source-portrait.png")
+        else assertPortraitSurface(360, 640)
+        val host = activity
+        rule.onNodeWithContentDescription("切换方向").performClick()
+        rotateViewport(640, 360)
+        assertSame(host, activity)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+        val landscapeVideo = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
+        assertEquals(640f, landscapeVideo.width, .1f); assertEquals(360f, landscapeVideo.height, .1f)
+        rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
+        rule.runOnIdle { portraitVideoBackground(640, 360) }
+        if (mode == "mpv") rule.onRoot().captureRoboImage("build/player-osd/portrait-source-landscape.png")
+        else assertPortraitSurface(203, 360)
+        rule.onNodeWithContentDescription("切换方向").performClick()
+        rotateViewport(360, 640)
+        assertSame(host, activity)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
+        assertEquals(video, rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot)
+        if (mode == "exo") assertPortraitSurface(360, 640)
+        rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
+    }
+
+    private fun assertPortraitSurface(width: Int, height: Int) {
+        fun surface(view: android.view.View): android.view.SurfaceView? {
+            if (view is android.view.SurfaceView) return view
+            val group = view as? android.view.ViewGroup ?: return null
+            return (0 until group.childCount).firstNotNullOfOrNull { surface(group.getChildAt(it)) }
+        }
+        rule.runOnIdle {
+            val view = surface(activity.window.decorView)!!
+            assertEquals("实际Surface宽度", width, view.width)
+            assertEquals("实际Surface高度", height, view.height)
+        }
+    }
+
+    /** 合成窗口背景用于核对原始比例和控件对比，不能作为实际视频解码证据。 */
+    private fun portraitVideoBackground(width: Int, height: Int) {
+        val frame = xyz.linplayer.app.ui.player.videoRect(width, height, 9f / 16, xyz.linplayer.app.ui.player.VideoFit.Source)
+        val picture = android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+            intArrayOf(0xFF455F48.toInt(), 0xFF244C62.toInt()))
+        val background = android.graphics.drawable.LayerDrawable(arrayOf(
+            android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK), picture))
+        background.setLayerSize(1, frame.width, frame.height)
+        background.setLayerGravity(1, android.view.Gravity.CENTER)
+        activity.window.setBackgroundDrawable(background)
+    }
+
+    private fun portraitCore() = episodeCore().apply {
+        ret("emby.itemMedia", arr(buildJsonObject {
+            put("id", "ea")
+            put("streams", arr(buildJsonObject {
+                put("type_", "Video"); put("width", 1080); put("height", 1920)
+            }))
+        }))
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-port-mdpi")
+    fun 竖屏片源窄屏大字接下来及面板不遮挡控制() {
+        val core = portraitCore()
+        showPlayer(core, "mpv", ar = 0f, fontScale = 1.3f, dark = false)
+        rule.runOnIdle { core.tick(3634.5) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
+        rule.onNodeWithText("接下来").assertIsDisplayed()
+        val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
+        targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
+            val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
+            assertTrue("竖屏全屏片尾卡片与控制命中不能重叠：${a.config} / ${b.config}", overlap.width <= 0f || overlap.height <= 0f)
+        } }
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-source-next-up-compact.png")
+        rule.mainClock.autoAdvance = true
+        rule.onNodeWithContentDescription("弹幕").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithContentDescription("截屏").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithContentDescription("字幕").performScrollTo().performClick(); advance(rule, 300)
+        rule.onNodeWithText("接下来").assertDoesNotExist()
+        rule.onNodeWithTag("player.menu").assertIsDisplayed()
+        rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
+        rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-port-mdpi")
+    fun 竖屏片源完播错误仍可重试和返回() {
+        val core = portraitCore().apply {
+            on("emby.seasonEpisodes") {
+                throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败，请检查网络连接与服务器状态。".repeat(8), true)
+            }
+        }
+        showPlayer(core, "mpv", ar = 0f, fontScale = 1.3f)
+        rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 600)
+        rule.onNodeWithText("重试").assertIsDisplayed()
+        rule.onNodeWithText("返回").assertIsDisplayed().performClick(); advance(rule, 300)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED, activity.requestedOrientation)
+    }
+
+    /** 在同一宿主派发配置并重测窗口；只证明配置变化后的布局，不等同设备转屏。 */
+    private fun rotateViewport(width: Int, height: Int) {
+        rule.runOnIdle {
+            // Compose测试宿主沿用生产MainActivity的配置处理声明，保持同一组合。
+            val info = activity.packageManager.getActivityInfo(activity.componentName, 0)
+            info.configChanges = ActivityInfo.CONFIG_ORIENTATION or ActivityInfo.CONFIG_SCREEN_SIZE or
+                ActivityInfo.CONFIG_SCREEN_LAYOUT or ActivityInfo.CONFIG_SMALLEST_SCREEN_SIZE or
+                ActivityInfo.CONFIG_DENSITY or ActivityInfo.CONFIG_UI_MODE or ActivityInfo.CONFIG_KEYBOARD or
+                ActivityInfo.CONFIG_KEYBOARD_HIDDEN or ActivityInfo.CONFIG_NAVIGATION
+            Shadows.shadowOf(activity.packageManager).addOrUpdateActivity(info)
+            org.robolectric.RuntimeEnvironment.setQualifiers("w${width}dp-h${height}dp-${if (width > height) "land" else "port"}-mdpi")
+            val config = android.content.res.Configuration(activity.resources.configuration)
+            activity.onConfigurationChanged(config)
+            val decor = activity.window.decorView
+            decor.dispatchConfigurationChanged(config)
+            decor.measure(android.view.View.MeasureSpec.makeMeasureSpec(width, android.view.View.MeasureSpec.EXACTLY),
+                android.view.View.MeasureSpec.makeMeasureSpec(height, android.view.View.MeasureSpec.EXACTLY))
+            decor.layout(0, 0, width, height)
+        }
+        advance(rule, 300)
+    }
+
+    @Test
     @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
     fun 竖屏方向按钮可请求横屏且不重启播放() {
         val core = episodeCore()
@@ -360,9 +538,9 @@ class PhoneEnginePlaybackTest {
 
     @Test
     @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
-    fun 竖屏视频保持十六比九并可通过分集卡切集() {
+    fun 横屏片源在竖屏小窗保持十六比九并可通过分集卡切集() {
         val core = episodeCore()
-        showPlayer(core, "mpv", ar = 9f / 16, fontScale = 1.3f)
+        showPlayer(core, "mpv", ar = 16f / 9, fontScale = 1.3f)
         val video = rule.onNodeWithTag("player.video").fetchSemanticsNode().boundsInRoot
         assertEquals(16f / 9, video.width / video.height, .01f)
         val waiting = rule.onNode(hasContentDescription("正在打开…") or hasContentDescription("正在缓冲…"))
@@ -382,6 +560,83 @@ class PhoneEnginePlaybackTest {
     }
 
     @Test
+    @Config(qualifiers = "w360dp-h640dp-port-mdpi", sdk = [36], application = Application::class)
+    fun 竖屏正常播放展示当前集面板并保留折叠滚动位置() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val core = episodeCore().apply {
+            on("emby.itemDetail") { a -> buildJsonObject {
+                val id = a.str("item_id")!!
+                put("id", id); put("name", "妾之王国"); put("series_name", "幕府将军"); put("type_", "Episode")
+                put("season_id", "sh"); put("series_id", "s2"); put("season_no", 1)
+                put("episode_no", id.removePrefix("sh").toInt())
+            } }
+        }
+        showPlayer(core, "mpv", ar = 16f / 9, dark = true)
+        rule.runOnIdle {
+            activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+            core.tick(2172.25)
+        }; advance(rule, 300)
+        rule.runOnIdle { core.tick(2172.75) }; advance(rule, 300)
+        rule.onNode(hasContentDescription("正在打开…") or hasContentDescription("正在缓冲…")).assertDoesNotExist()
+        val header = rule.onNodeWithTag("player.current").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        val thumb = rule.onNodeWithContentDescription("当前集缩略图").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals(thumb.width * 9f / 16f, thumb.height, 1f)
+        assertTrue(thumb.left >= header.left && thumb.bottom <= header.bottom)
+        rule.onNodeWithText("分集 10").assertIsDisplayed()
+        val card = rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertEquals("播放器分集采用参考卡宽", 190f, card.width, .1f)
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-page-normal.png")
+        val lock = rule.onNodeWithContentDescription("锁屏").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithContentDescription("锁屏").performClick(); advance(rule, 300)
+        val unlock = rule.onNodeWithContentDescription("解锁").fetchSemanticsNode().boundsInRoot
+        assertEquals(lock.left, unlock.left, 1f)
+        assertEquals(lock.top, unlock.top, 1f)
+        rule.onNodeWithContentDescription("解锁").performClick(); advance(rule, 300)
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(7)
+        rule.onNodeWithTag("detail.ep.sh8").assertIsDisplayed()
+        val before = rule.onNodeWithTag("detail.ep.sh8").fetchSemanticsNode().boundsInRoot.left
+        val requests = core.calls.count { it.first == "emby.seasonEpisodes" }
+        rule.onNodeWithContentDescription("收起分集").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("detail.ep.sh8").assertIsNotDisplayed()
+        rule.onNodeWithTag("player.current").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-page-collapsed.png")
+        rule.onNodeWithContentDescription("展开分集").performClick(); advance(rule, 300)
+        assertEquals(before, rule.onNodeWithTag("detail.ep.sh8").assertIsDisplayed().fetchSemanticsNode().boundsInRoot.left, 1f)
+        assertEquals(requests, core.calls.count { it.first == "emby.seasonEpisodes" })
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-port-mdpi", sdk = [36], application = Application::class)
+    fun 窄屏大字竖屏面板可恢复且方向仍可用() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val core = episodeCore()
+        showPlayer(core, "mpv", ar = 16f / 9, fontScale = 1.3f, dark = false)
+        rule.runOnIdle {
+            activity.window.setBackgroundDrawable(android.graphics.drawable.ColorDrawable(android.graphics.Color.BLACK))
+            core.tick(2172.25)
+        }; advance(rule, 300)
+        rule.runOnIdle { core.tick(2172.75) }; advance(rule, 300)
+        rule.onNodeWithTag("player.current").assertIsDisplayed()
+        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
+        for (label in listOf("上一集", "下一集", "锁屏", "倍速", "音轨", "字幕", "切换方向"))
+            rule.onNodeWithContentDescription(label).assertIsDisplayed()
+        val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
+        targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->
+            val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
+            assertTrue("小屏大字整页命中不能重叠", overlap.width <= 0f || overlap.height <= 0f)
+        } }
+        rule.onRoot().captureRoboImage("build/player-osd/portrait-page-compact-normal.png")
+        rule.onNodeWithContentDescription("收起分集").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("detail.ep.sh6").assertIsNotDisplayed()
+        rule.onNodeWithContentDescription("展开分集").assertIsDisplayed().performClick(); advance(rule, 300)
+        rule.onNodeWithTag("detail.ep.sh6").assertIsDisplayed()
+        rule.onNodeWithContentDescription("切换方向").performClick(); advance(rule, 1300)
+        assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test
     @Config(qualifiers = "w640dp-h360dp-land-mdpi", sdk = [36], application = Application::class)
     fun 小屏大字接下来卡片不遮挡控制和进度() {
         val core = episodeCore()
@@ -398,7 +653,7 @@ class PhoneEnginePlaybackTest {
         rule.onRoot().captureRoboImage("build/player-osd/next-up-compact.png")
         rule.onNodeWithContentDescription("字幕").performClick(); advance(rule, 300)
         rule.onNodeWithText("接下来").assertDoesNotExist()
-        rule.onNodeWithText("字幕").assertIsDisplayed()
+        rule.onNodeWithTag("player.menu").assertIsDisplayed()
     }
 
     @Test
@@ -409,7 +664,7 @@ class PhoneEnginePlaybackTest {
                 throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败，请检查网络连接与服务器状态。".repeat(8), true)
             }
         }
-        showPlayer(core, "mpv", ar = 9f / 16, fontScale = 1.3f)
+        showPlayer(core, "mpv", ar = 16f / 9, fontScale = 1.3f)
         rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
         rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
         rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 600)
@@ -932,12 +1187,12 @@ class PhoneEnginePlaybackTest {
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
 
-    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f) {
+    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
         rule.setContent {
-            LpTheme {
+            LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(LocalApp provides app,
                     androidx.compose.ui.platform.LocalDensity provides androidx.compose.ui.unit.Density(
                         androidx.compose.ui.platform.LocalDensity.current.density, fontScale)) {

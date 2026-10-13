@@ -2,22 +2,26 @@ package xyz.linplayer.app.ui.player
 
 import xyz.linplayer.app.ui.theme.LpText
 
-import androidx.compose.foundation.background
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.safeDrawingPadding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material3.Slider
+import androidx.compose.material3.SliderDefaults
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.runtime.SideEffect
+import xyz.linplayer.app.ui.theme.LpIcons
+import kotlin.math.roundToInt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -28,7 +32,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
 import kotlinx.serialization.json.JsonObject
 import kotlinx.coroutines.launch
@@ -45,37 +48,24 @@ import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.strList
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
-import xyz.linplayer.app.ui.components.Dim3
-import xyz.linplayer.app.ui.components.glass
-import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.ui.pages.langCn
 import androidx.compose.material3.Text
-import androidx.compose.ui.text.font.FontWeight
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
-import xyz.linplayer.app.ui.theme.Lp
-import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
-/** 让开底排控件和进度条的高度。改了 OSD 底排的高度就要改它,否则面板压在进度条上。 */
-private val OsdClearance = 92.dp
-
-/**
- * 播放器面板。**从侧边推入,只占屏宽 42%**,不做通栏 sheet(UI_MOBILE.md §8.1 收纳手法 4)。
- *
- * ★ 「源」把**版本 + 线路合成一个入口**:有的服务器十几个版本、三十几条线路,
- *   解法不是「给个滚动条」,是分组。
- * ★ 线路是**三态**:未探(转圈)/ 探过不通(显示「—」,**不装成 0 ms**)/ 毫秒数。
- */
+/** 播放器入口锚定菜单，保留原有选轨、分页与插件操作。 */
 @Composable
 fun PlayerPanel(
-    kind: String,
+    kind: String?,
     itemId: String,
     exo: androidx.media3.exoplayer.ExoPlayer? = null,
     fit: VideoFit = VideoFit.Source,
-    bottomClearance: androidx.compose.ui.unit.Dp = OsdClearance,
+    anchor: Rect? = null,
+    speed: Double = 1.0,
+    onSpeed: (Double) -> Unit = {},
     /** 这一格是插件标签时的那一行(`plugin.playerSurfaces` 的 panel),官方面板是 null。 */
     pluginPanel: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
     onOpen: (String) -> Unit = {},
@@ -92,32 +82,40 @@ fun PlayerPanel(
     onClose: () -> Unit,
 ) {
     val app = LocalApp.current
+    // 自动读取跟随active取消；用户已点击的提交跟随播放页，不随菜单关闭取消。
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
-    val c = Lp.colors
+    val active = kind != null
+    var lastKind by remember { mutableStateOf(kind ?: "more") }
+    SideEffect { if (kind != null) lastKind = kind }
+    val menuKind = kind ?: lastKind
+    var lastPluginPanel by remember { mutableStateOf(pluginPanel) }
+    SideEffect { if (active) lastPluginPanel = pluginPanel }
+    val shownPluginPanel = if (active) pluginPanel else lastPluginPanel
 
-    var options by remember(kind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
-    var current by remember(kind, itemId, exo) { mutableStateOf<String?>(null) }
-    var episodes by remember(kind, itemId) { mutableStateOf<List<Item>>(emptyList()) }
-    var loadError by remember(kind, itemId, exo) { mutableStateOf<String?>(null) }
-    var retry by remember(kind, itemId, exo) { mutableIntStateOf(0) }
-    var positioned by remember(kind, itemId, exo) { mutableStateOf(false) }
+    var options by remember(menuKind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
+    var current by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
+    var episodes by remember(menuKind, itemId) { mutableStateOf<List<Item>>(emptyList()) }
+    var loadError by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
+    var retry by remember(menuKind, itemId, exo) { mutableIntStateOf(0) }
+    var positioned by remember(menuKind, itemId, exo) { mutableStateOf(false) }
     // 补帧和画质增强同在一个面板里,各自有「当前档」
     var currentInterp by remember { mutableStateOf<String?>(null) }
     // 核心层在安卓上拿不到窗口系统:补完超过刷新率的档由它按这个数藏掉
     val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
-    var loading by remember(kind, itemId, exo) { mutableStateOf(true) }
+    var loading by remember(menuKind, itemId, exo) { mutableStateOf(true) }
 
-    LaunchedEffect(kind, itemId, exo, retry) {
+    LaunchedEffect(active, menuKind, itemId, exo, retry) {
+        if (!active) return@LaunchedEffect
         loading = true; loadError = null
-        if (kind != "episodes") options = emptyList()
-        when (kind) {
+        if (menuKind != "episodes") options = emptyList()
+        when (menuKind) {
             "audio", "subtitle" -> if (exo != null) {
                 /* ☠☠ **Exo 内核不走 `player.tracks`。** 那条命令问的是 mpv,
                    而 Exo 那条路上 mpv 手里根本没有这一片 —— 表现是音轨/字幕面板
                    恒空、点了也没反应,而**一句错都不报**。轨道表要问 ExoPlayer 自己。 */
-                options = exoTracks(exo, kind)
-                current = exoCurrent(exo, kind)
+                options = exoTracks(exo, menuKind)
+                current = exoCurrent(exo, menuKind)
             } else {
                 // ☠ `player.tracks` 返回**裸数组**,轨道类型的字段名是 `kind` 不是 `type`。
                 //    两处都错的表现是音轨/字幕面板恒空,而且一句错都不报。
@@ -126,18 +124,18 @@ fun PlayerPanel(
                 } catch (e: CancellationException) { throw e }
                   catch (e: Exception) {
                     currentCoroutineContext().ensureActive()
-                    loadError = if (kind == "audio") "音轨读取失败" else "字幕读取失败"
+                    loadError = if (menuKind == "audio") "音轨读取失败" else "字幕读取失败"
                     loading = false
                     return@LaunchedEffect
                 }
                 onMpvTracks(t.arr().mapNotNull { it.obj() })
-                val want = if (kind == "audio") "audio" else "sub"
+                val want = if (menuKind == "audio") "audio" else "sub"
                 // 字幕多给一项「关闭字幕」(id 空串 = 核心层设 sid=no),和 Exo 那边同一个理由
                 val off = if (want == "sub") listOf(Triple("", null, "关闭字幕")) else emptyList()
                 options = off + t.arr().mapNotNull {
                     val o = it.obj() ?: return@mapNotNull null
                     if (o.str("kind") != want) return@mapNotNull null
-                    val language = trackLanguage(o.str("lang"), kind)
+                    val language = trackLanguage(o.str("lang"), menuKind)
                     Triple(
                         o.str("id") ?: return@mapNotNull null,
                         language,
@@ -151,6 +149,7 @@ fun PlayerPanel(
             "source" -> {
                 val m = runCatching { app.call("emby.itemMedia", args("item_id" to itemId)) }
                     .getOrNull()
+                currentCoroutineContext().ensureActive()
                 options = m.arr().mapNotNull {
                     val o = it.obj() ?: return@mapNotNull null
                     Triple(o.str("id") ?: return@mapNotNull null,
@@ -199,6 +198,7 @@ fun PlayerPanel(
             }
             "quality" -> {
                 val lv = runCatching { app.call("player.shaderLevels") }.getOrNull().arr()
+                currentCoroutineContext().ensureActive()
                 options = lv.mapNotNull {
                     val o = it.obj() ?: return@mapNotNull null
                     val id = o.str("id") ?: return@mapNotNull null
@@ -213,6 +213,7 @@ fun PlayerPanel(
                 val st = runCatching {
                     app.call("player.interpLevels", args("display_hz" to displayHz.toDouble()))
                 }.getOrNull().obj()
+                currentCoroutineContext().ensureActive()
                 if (st != null && !st.bool("supported")) {
                     options = options + Triple("interp:na", "补帧", st.str("reason") ?: "这台手机用不了补帧")
                 } else if (st != null) {
@@ -242,6 +243,10 @@ fun PlayerPanel(
             /* 「更多」是**跳板**,不是设置项:选一条就换一个面板。
                ☠ 上一版把它当设置项走 `pick`,而 pick 的 when 里根本没有 "more"
                   这一支 —— 落到 `else -> Unit`,表现是「更多里点什么都没反应」。 */
+            "speed" -> {
+                options = (1..16).map { Triple((it * .25).toString(), null, "${it * .25}×") }
+                current = speed.toString()
+            }
             "more" -> {
                 options = listOfNotNull(
                     Triple("ratio", null, "画面比例"),
@@ -262,151 +267,131 @@ fun PlayerPanel(
         loading = false
     }
 
-    // 字幕样式和弹幕不是「一列选项」,是开关加步进器 —— 它们不进上面那套 options 模型
-    LaunchedEffect(kind) { if (kind == "substyle" && !SubStyle.loaded.value) SubStyle.load(app) }
-    LaunchedEffect(kind) { if (kind == "danmaku") DanmakuStyle.load(app) }
+    LaunchedEffect(active, menuKind) { if (active && menuKind == "substyle" && !SubStyle.loaded.value) SubStyle.load(app) }
+    LaunchedEffect(active, menuKind) { if (active && menuKind == "danmaku") DanmakuStyle.load(app) }
 
-    val title = when {
-        pluginPanel != null -> pluginPanel.title.ifBlank { pluginPanel.target }
-        else -> when (kind) {
-            "source" -> "版本与线路"; "audio" -> "音轨"; "subtitle" -> "字幕"
-            "episodes" -> "选集"; "quality" -> "画面增强"; "danmaku" -> "弹幕"
-            "ratio" -> "画面比例"; "chapters" -> "章节"; "substyle" -> "字幕样式"; else -> "更多"
-        }
+    val width = when (menuKind) {
+        "more" -> 192.dp
+        "audio", "subtitle", "ratio", "speed", "chapters" -> 200.dp
+        "substyle", "danmaku" -> 272.dp
+        else -> 236.dp
     }
-
-    Box(Modifier.fillMaxSize()) {
-        /* scrim。★ OSD 在它之上(PlayerPage 的绘制顺序保证),面板开关期间上下栏一动不动。
-           ★ **只压到能看出「后面那层不接受点击」的程度**(0.18):这一层的职责是
-             接住面板外的点击,不是把画面调暗 —— 用户明说了面板挡画面挡得厉害。 */
-        Box(Modifier.fillMaxSize().background(c.scrim.copy(alpha = .18f))
-            .pointerInput(Unit) { detectTapClose(onClose) })
-        /* ☠☠ **面板要小**【用户定 2026-09-07:「各个按钮的弹窗都太大了」】。
-           上一版是**通高、占屏宽 46%** 的一整条侧栏 —— 切一次比例(四个选项)
-           要让出半块屏幕、盖住整条进度条。现在它按内容收:贴着右下角,
-           宽度固定一列,高度到多少算多少、封顶到半屏。
-           ★ 贴**右下角**而不是右中:那儿离拇指最近,也不压住上面的画面主体。
-           ★ 玻璃底和全站其它浮层同一块,不再自己调一套渐变。 */
-        Column(
-            Modifier.align(Alignment.BottomEnd)
-                .safeDrawingPadding()
-                .padding(end = Sp.x12, bottom = bottomClearance)
-                .width(236.dp)
-                .heightIn(max = 320.dp)
-                .glass(R.md, solid = 1.6f)
-                .padding(horizontal = Sp.x8, vertical = Sp.x8),
-        ) {
-            Text(title, Modifier.padding(horizontal = Sp.x12, vertical = Sp.x4),
-                color = c.fg, style = LpText.action.copy(fontWeight = FontWeight.SemiBold))
-            Spacer(Modifier.height(Sp.x6))
-            loadError?.let {
-                Dim3(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)
-                OptRow("重试", { retry++ }, media = kind == "audio" || kind == "subtitle")
-            }
-            when {
-                pluginPanel != null -> xyz.linplayer.app.ui.plugin.PluginSurface(
-                    pluginPanel.pluginId, pluginPanel.target, "panel",
-                    modifier = Modifier.fillMaxWidth(),
-                    claimInitialFocus = false,
-                    focusNs = "${pluginPanel.pluginId}/${pluginPanel.target}.",
-                )
-                kind == "substyle" -> SubStylePanel(app, scope)
-                kind == "danmaku" -> DanmakuPanel(app, scope, itemId, onSearch = {
-                    onClose(); onSearch()
-                })
-                loading && options.isEmpty() -> xyz.linplayer.app.ui.components.LoadingLabel("正在取…")
-                options.isEmpty() && loadError == null -> Dim3("这里没有可选项", maxLines = 2)
-                options.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), list) {
-                    // 字幕面板顶上挂一个「字幕样式…」的跳板:调样式和选轨是同一件事的两步,
-                    // 让用户退出去再从「更多」进一遍等于把它藏起来
-                    if (kind == "subtitle") item("substyle") {
-                        OptRow("字幕样式…", { onOpen("substyle") }, selected = false, media = true)
-                    }
-                    items(options, key = { it.first }) { (id, badge, label) ->
-                        OptRow(label, {
-                            if (kind == "more" || id == "substyle") onOpen(id)
-                            else if (id == "interp:na") app.toast(label, ToastKind.Error)
-                            else if (kind == "ratio") { onFit(VideoFit.of(id)); onClose() }
-                            else if (kind == "chapters") { id.toDoubleOrNull()?.let(onSeek); onClose() }
-                            else if (kind == "source" || kind == "episodes") {
-                                onPlaybackTarget(if (kind == "source") itemId else id,
-                                    if (kind == "source") id else null, label)
-                                onClose()
-                            }
-                            else {
-                                if (kind == "audio" || kind == "subtitle") onTrackPicked(kind)
-                                scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { pick(app, kind, id, exo, displayHz, onMpvTrackPick, onExoTrackPick) }
-                                onClose()
-                            }
-                        }, selected = id == current || id == currentInterp, media = kind == "audio" || kind == "subtitle",
-                            sub = badge?.takeIf { (kind == "audio" || kind == "subtitle") && it != label },
-                            badge = badge.takeUnless { kind == "audio" || kind == "subtitle" })
-                    }
-                    if (loading) item("loading") { xyz.linplayer.app.ui.components.LoadingLabel("正在取…") }
+    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku", onClose = onClose) {
+        loadError?.let {
+            PlayerMenuNote(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)
+            PlayerMenuRow("重试", { retry++ })
+        }
+        when {
+            shownPluginPanel != null -> xyz.linplayer.app.ui.plugin.PluginSurface(
+                shownPluginPanel.pluginId, shownPluginPanel.target, "panel",
+                modifier = Modifier.fillMaxWidth(),
+                claimInitialFocus = false,
+                focusNs = "${shownPluginPanel.pluginId}/${shownPluginPanel.target}.",
+            )
+            menuKind == "substyle" -> SubStylePanel(app, scope)
+            menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, onSearch = {
+                onClose(); onSearch()
+            })
+            loading && options.isEmpty() -> Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) }
+            options.isEmpty() && loadError == null -> PlayerMenuNote("这里没有可选项", maxLines = 2)
+            options.isNotEmpty() -> LazyColumn(Modifier.fillMaxWidth(), list) {
+                // 字幕面板顶上挂一个「字幕样式…」的跳板:调样式和选轨是同一件事的两步,
+                // 让用户退出去再从「更多」进一遍等于把它藏起来
+                if (menuKind == "subtitle") item("substyle") {
+                    PlayerMenuRow("字幕样式…", { onOpen("substyle") }, selected = false)
                 }
+                items(options, key = { it.first }) { (id, badge, label) ->
+                    PlayerMenuRow(label, {
+                        if (menuKind == "more" || id == "substyle") onOpen(id)
+                        else if (id == "interp:na") app.toast(label, ToastKind.Error)
+                        else if (menuKind == "ratio") { onFit(VideoFit.of(id)); onClose() }
+                        else if (menuKind == "speed") { id.toDoubleOrNull()?.let(onSpeed); onClose() }
+                        else if (menuKind == "chapters") { id.toDoubleOrNull()?.let(onSeek); onClose() }
+                        else if (menuKind == "source" || menuKind == "episodes") {
+                            onPlaybackTarget(if (menuKind == "source") itemId else id,
+                                if (menuKind == "source") id else null, label)
+                            onClose()
+                        }
+                        else {
+                            if (menuKind == "audio" || menuKind == "subtitle") onTrackPicked(menuKind)
+                            scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { pick(app, menuKind, id, exo, displayHz, onMpvTrackPick, onExoTrackPick) }
+                            onClose()
+                        }
+                    }, selected = id == current || id == currentInterp,
+                        sub = badge?.takeIf { (menuKind == "audio" || menuKind == "subtitle") && it != label },
+                        badge = badge.takeUnless { menuKind == "audio" || menuKind == "subtitle" },
+                        icon = if (menuKind == "more") when (id) {
+                            "ratio" -> LpIcons.aspect; "source" -> LpIcons.version; "audio" -> LpIcons.music
+                            "quality" -> LpIcons.sparkle; "danmaku" -> LpIcons.danmaku; else -> LpIcons.sub
+                        } else null)
+                }
+                if (loading) item("loading") { Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) } }
             }
         }
-    }
+}
 
     // 当前项到达后只定位一次；后续补页不能覆盖用户手动滚动的位置。
-    LaunchedEffect(options, current) {
+    LaunchedEffect(active, options, current) {
+        if (!active) return@LaunchedEffect
         val i = options.indexOfFirst { it.first == current }
         if (!positioned && i >= 0) {
-            list.scrollToItem(i + if (kind == "subtitle") 1 else 0)
+            list.scrollToItem(i + if (menuKind == "subtitle") 1 else 0)
             positioned = true
         }
     }
 }
 
-/**
- * 字幕样式面板:大小 / 位置 / 描边 / 粗体 / 随窗口缩放。
- *
- * ☠ **用步进器不用滑块。** 滑块拖一次会往核心层灌上百次落库(每一次都写配置文件);
- *   而这几项的实际分辨率就是一档一档的 —— 谁也不会去追求 1.37 倍的字号。
- * ★ 面板底下那行说明**必须留着**:描边和粗体对 ASS 特效字幕不生效,
- *   不写的话用户会以为那两项坏了(见 [SubStyle] 类注释)。
- */
+/** 位置与缩放拖动仅更新预览，松手一次落库；ASS限制说明保留。 */
 @Composable
-private fun SubStylePanel(
-    app: xyz.linplayer.app.data.AppState,
-    scope: kotlinx.coroutines.CoroutineScope,
-) {
+private fun SubStylePanel(app: xyz.linplayer.app.data.AppState, scope: kotlinx.coroutines.CoroutineScope) {
     LazyColumn(Modifier.fillMaxWidth()) {
-        item("scale") {
-            StepRow("字幕大小", "%.2f×".format(SubStyle.scale.doubleValue)) { up ->
-                scope.launch {
-                    SubStyle.set(app, "scale", SubStyle.stepScale(SubStyle.scale.doubleValue, up))
-                }
+        item("pos") {
+            SubStyleSlider("字幕位置", SubStyle.position.intValue.toFloat(), 0f..150f, 29,
+                format = { it.roundToInt().toString() }) { value ->
+                scope.launch { SubStyle.set(app, "position", value.roundToInt().coerceIn(0, 150)) }
             }
         }
-        // 步长 5:1 个单位是画面高度的 1%,一格一格挪要按几十下
-        item("pos") {
-            StepRow("字幕位置", SubStyle.position.intValue.toString()) { up ->
-                scope.launch {
-                    SubStyle.set(app, "position", SubStyle.stepPos(SubStyle.position.intValue, up))
-                }
+        item("scale") {
+            SubStyleSlider("字幕大小", SubStyle.scale.doubleValue.toFloat(), .2f..4f, 37,
+                format = { "%.1f×".format(it) }) { value ->
+                scope.launch { SubStyle.set(app, "scale", (value * 10).roundToInt() / 10.0) }
             }
         }
         item("border") {
             StepRow("字幕描边", "%.1f".format(SubStyle.border.doubleValue)) { up ->
-                scope.launch {
+                if (SubStyle.loaded.value) scope.launch {
                     SubStyle.set(app, "border_size", SubStyle.stepBorder(SubStyle.border.doubleValue, up))
                 }
             }
         }
         item("bold") {
-            OptRow("粗体", { scope.launch { SubStyle.set(app, "bold", !SubStyle.bold.value) } },
+            PlayerMenuRow("粗体", { if (SubStyle.loaded.value) scope.launch { SubStyle.set(app, "bold", !SubStyle.bold.value) } },
                 selected = SubStyle.bold.value)
         }
         item("bywin") {
-            OptRow("字号跟窗口缩放",
-                { scope.launch { SubStyle.set(app, "scale_by_window", !SubStyle.scaleByWindow.value) } },
+            PlayerMenuRow("字号跟窗口缩放",
+                { if (SubStyle.loaded.value) scope.launch { SubStyle.set(app, "scale_by_window", !SubStyle.scaleByWindow.value) } },
                 selected = SubStyle.scaleByWindow.value)
         }
         item("note") {
-            Dim3("100 = 画面下沿。描边和粗体对 ASS 特效字幕不生效 —— 那种字幕自带样式。",
-                maxLines = 4)
+            PlayerMenuNote("100 = 画面下沿。描边和粗体对 ASS 特效字幕不生效 —— 那种字幕自带样式。")
         }
+    }
+}
+
+@Composable
+private fun SubStyleSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int,
+    format: (Float) -> String, onCommit: (Float) -> Unit) {
+    var live by remember(value) { mutableStateOf(value.coerceIn(range)) }
+    Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
+        androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+            Text(label, Modifier.weight(1f), color = Color.White.copy(alpha = .7f), style = LpText.action)
+            Text(format(live), color = Color.White.copy(alpha = .7f), style = LpText.number)
+        }
+        Slider(live, { live = it }, enabled = SubStyle.loaded.value, valueRange = range, steps = steps,
+            onValueChangeFinished = { onCommit(live) }, modifier = Modifier.semantics { contentDescription = label },
+            colors = SliderDefaults.colors(thumbColor = PlayerMenuAccent, activeTrackColor = PlayerMenuAccent,
+                inactiveTrackColor = Color.White.copy(alpha = .2f)))
     }
 }
 
@@ -427,23 +412,23 @@ private fun DanmakuPanel(
 ) {
     LazyColumn(Modifier.fillMaxWidth()) {
         item("on") {
-            OptRow("显示弹幕", {
+            PlayerMenuRow("显示弹幕", {
                 scope.launch { toggleDanmaku(app, itemId, !DanmakuStyle.enabled.value) }
-            }, selected = DanmakuStyle.enabled.value, media = true)
+            }, selected = DanmakuStyle.enabled.value)
         }
-        item("search") { OptRow("搜索弹幕…", onSearch, selected = false, media = true) }
+        item("search") { PlayerMenuRow("搜索弹幕…", onSearch, selected = false) }
         item("again") {
-            OptRow("重新匹配这一集", {
+            PlayerMenuRow("重新匹配这一集", {
                 scope.launch { loadDanmakuFor(app, itemId, loud = true) }
-            }, selected = false, media = true)
+            }, selected = false)
         }
         // 范围是**三档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         item("area") {
-            OptRow("滚动范围:" + DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), {
+            PlayerMenuRow("滚动范围:" + DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), {
                 scope.launch {
                     DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue))
                 }
-            }, selected = false, media = true)
+            }, selected = false)
         }
         item("scale") {
             StepRow("弹幕缩放", "%.1f×".format(DanmakuStyle.scale.doubleValue)) { up ->
@@ -477,22 +462,22 @@ private fun DanmakuPanel(
             }
         }
         item("merge") {
-            OptRow("合并重复弹幕",
+            PlayerMenuRow("合并重复弹幕",
                 { scope.launch { DanmakuStyle.set(app, "merge", !DanmakuStyle.merge.value) } },
-                selected = DanmakuStyle.merge.value, media = true)
+                selected = DanmakuStyle.merge.value)
         }
         item("bold") {
-            OptRow("粗体弹幕",
+            PlayerMenuRow("粗体弹幕",
                 { scope.launch { DanmakuStyle.set(app, "bold", !DanmakuStyle.bold.value) } },
-                selected = DanmakuStyle.bold.value, media = true)
+                selected = DanmakuStyle.bold.value)
         }
         item("heat") {
-            OptRow("进度条热力图",
+            PlayerMenuRow("进度条热力图",
                 { scope.launch { DanmakuStyle.set(app, "heatmap", !DanmakuStyle.heatmap.value) } },
-                selected = DanmakuStyle.heatmap.value, media = true)
+                selected = DanmakuStyle.heatmap.value)
         }
         item("note") {
-            Dim3("行数设成 0 就是这一类不显示。屏蔽词在设置里加。", maxLines = 3)
+            PlayerMenuNote("行数设成 0 就是这一类不显示。屏蔽词在设置里加。", maxLines = 3)
         }
     }
 }
@@ -523,11 +508,11 @@ private fun StepRow(label: String, readout: String, onStep: (Boolean) -> Unit) {
         Modifier.fillMaxWidth().padding(vertical = Sp.x2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Dim3(label, Modifier.weight(1f))
+        PlayerMenuNote(label, Modifier.weight(1f))
         StepKey("−") { onStep(false) }
         androidx.compose.material3.Text(
             readout, Modifier.widthIn(min = 56.dp),
-            color = Lp.colors.fg, style = LpText.number,
+            color = Color.White.copy(alpha = .7f), style = LpText.number,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
         StepKey("+") { onStep(true) }
@@ -540,7 +525,7 @@ private fun StepKey(glyph: String, onClick: () -> Unit) = Box(
     Modifier.width(36.dp).heightIn(min = 36.dp).pressable(onClick, null),
     contentAlignment = Alignment.Center,
 ) {
-    androidx.compose.material3.Text(glyph, color = Lp.colors.fg, style = LpText.section)
+    androidx.compose.material3.Text(glyph, color = Color.White.copy(alpha = .7f), style = LpText.section)
 }
 
 private suspend fun pick(
@@ -603,6 +588,7 @@ internal suspend fun loadDanmakuFor(
 ) {
     val d = runCatching { app.call("emby.itemDetail", args("item_id" to itemId)) }
         .getOrNull().obj() ?: return
+    currentCoroutineContext().ensureActive()
     // ★ autoLoad 收的是**嵌套的 input 对象**(MatchInput),不是平铺参数。
     //   平铺传过去核心层只会报「缺少 input」。
     val title = d.str("series_name") ?: d.str("name") ?: return
@@ -624,6 +610,7 @@ internal suspend fun loadDanmakuFor(
         app.call("danmaku.autoLoad", kotlinx.serialization.json.JsonObject(
             mapOf("input" to kotlinx.serialization.json.JsonObject(input))))
     }.getOrNull()
+    currentCoroutineContext().ensureActive()
     if (items == null || items is kotlinx.serialization.json.JsonNull) {
         // ☠ 这一句以前不看 loud,于是每起播一集就弹一次「没匹配到」
         if (loud) app.toast("这一集没匹配到弹幕,可以手动搜一下")
@@ -633,6 +620,7 @@ internal suspend fun loadDanmakuFor(
         app.call("player.danmakuSet",
             kotlinx.serialization.json.JsonObject(mapOf("items" to items)))
     }.onFailure { app.report(it); return }
+    currentCoroutineContext().ensureActive()
     // 灌完必须重取排版 —— 不取的话画面上还是上一集那份(或者空的)
     DanmakuStyle.reloadLayout(app)
     if (loud) app.toast("挂上 " + (items as? kotlinx.serialization.json.JsonArray)?.size + " 条弹幕",
@@ -641,10 +629,6 @@ internal suspend fun loadDanmakuFor(
 
 internal fun argsEmptyItems() = kotlinx.serialization.json.JsonObject(
     mapOf("items" to kotlinx.serialization.json.JsonArray(emptyList())))
-
-private suspend fun androidx.compose.ui.input.pointer.PointerInputScope.detectTapClose(onClose: () -> Unit) {
-    detectTapGestures { onClose() }
-}
 
 // ---------------------------------------------------------------- Exo 的轨道表
 

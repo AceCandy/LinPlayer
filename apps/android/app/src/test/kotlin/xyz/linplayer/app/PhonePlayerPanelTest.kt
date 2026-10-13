@@ -101,7 +101,7 @@ class PhonePlayerPanelTest {
             assertEquals(listOf(0, 40, 80, 120), starts)
             rule.onNode(hasScrollToIndexAction()).performScrollToIndex(142)
             rule.onNodeWithText("S1E143 第143集").assertIsDisplayed()
-            rule.onRoot().captureRoboImage("build/player-osd/episodes-last-page.png")
+            rule.onNode(isPopup()).captureRoboImage("build/player-osd/episodes-last-page.png")
             rule.onNodeWithText("S1E143 第143集").performClick()
             assertEquals("ep143", target)
             assertEquals(true, closed)
@@ -230,7 +230,7 @@ class PhonePlayerPanelTest {
         rule.waitForIdle()
         rule.onNodeWithText("音轨读取失败").assertIsDisplayed()
         rule.onNodeWithText("这里没有可选项").assertDoesNotExist()
-        rule.onRoot().captureRoboImage("build/player-osd/audio-read-error.png")
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/audio-read-error.png")
         rule.runOnIdle { failing = false }
         rule.onNodeWithText("重试").performClick()
         rule.waitForIdle()
@@ -319,7 +319,7 @@ class PhonePlayerPanelTest {
         val opened = mutableStateOf(true)
         rule.setContent {
             LpTheme { CompositionLocalProvider(LocalApp provides app) {
-                if (opened.value) PlayerPanel("audio", "episode", onTrackPicked = controller::trackPicked,
+                PlayerPanel(if (opened.value) "audio" else null, "episode", onTrackPicked = controller::trackPicked,
                     onMpvTrackPick = controller::pickTrack, onClose = { opened.value = false })
             } }
         }
@@ -362,12 +362,13 @@ class PhonePlayerPanelTest {
             }
         }
         rule.waitForIdle()
+        rule.onNodeWithText("音轨").assertDoesNotExist()
         rule.onNodeWithText("日语").assertIsDisplayed()
         rule.onNodeWithText("英语").assertIsDisplayed()
         rule.onNodeWithText("未标注").assertDoesNotExist()
-        rule.onRoot().captureRoboImage("build/player-osd/audio-panel-light.png")
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/audio-panel-light.png")
         rule.runOnIdle { dark.value = true }
-        rule.onRoot().captureRoboImage("build/player-osd/audio-panel-dark.png")
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/audio-panel-dark.png")
         rule.onNodeWithText("英语").performClick()
         rule.waitForIdle()
         assertEquals("2", core.calls.last { it.first == "player.setTrack" }.second.str("id"))
@@ -377,7 +378,7 @@ class PhonePlayerPanelTest {
         rule.onNodeWithText("关闭字幕").assertIsDisplayed()
         rule.onNodeWithText("简体中文").assertIsDisplayed()
         rule.onNodeWithText("繁体中文").assertIsDisplayed()
-        rule.onRoot().captureRoboImage("build/player-osd/subtitle-panel-dark.png")
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/subtitle-panel-dark.png")
         rule.onNodeWithText("繁体中文").performClick()
         rule.waitForIdle()
         assertEquals("5", core.calls.last { it.first == "player.setTrack" }.second.str("id"))
