@@ -187,3 +187,6 @@
 
 - 外挂ASS/SSA与SRT/VTT统一通过Media3 SubtitleConfiguration进入轨道表，配置ID按媒体实例唯一，不含地址。1.11.0外挂SubtitleExtractor交付无初始化头的完整脚本，LibassParser交给assOpenFile；内封仍走头与样本事件。只激活选中轨；切到头尚未到达的新轨时先关闭旧轨，保留wanted供新头补开。关闭/重置要清掉位图残帧，监听重挂立即同步当前选择。不得恢复首个ASS旁路下载或静默丢弃大脚本。MPV菜单可见时更新轨表，Media3菜单监听onTracksChanged，晚到轨道可选；不支持轨道标明并拒绝假成功。
 - 分集单页请求限20秒，超时保留前页并允许重试；重复/空ID页报错，不无限追加。面板支持缺season_id时按series_id+已知season_no查询并过滤，原始列表保留分页游标；已知season_id不因分集缺season_no丢掉当前集。当前集缺失仍报错，不能误判季末。
+
+- Media3 ASS 的 NONE 字体提供者不会解析 Android 泛族名 `sans-serif`，必须传入实际可读的系统字体文件兜底；原样式/附件字体仍优先。附件先到可能已创建 ASS_Library，开轨的字体目录设置不能放在“首次建库”分支内；追加附件重建选择器时保持同一兜底。渲染返回1只说明位图已更新，透明帧不证明字幕可见；回归断言实际非透明像素、移动特效、内封/外挂、结束清屏，设备测试见 AssRenderTest。
+- 手机字幕菜单按运行期 codec/MIME 显示 ASS/SSA、SRT、WebVTT、PGS 等及文本/特效/图形类型，Media3 转码轨从 codecs 读取原 MIME；未知格式不猜测，MPV外置标记取external。第一行已显示语言时第二行不重复。时间保持顶部固定，网速位于第一排操作按钮下方，不能放在按钮上面；窄横屏/竖屏大字需断言网速和倍率按钮不重叠。

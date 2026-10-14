@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "字幕和手机布局约束"}
+{"file": ".trellis/spec/shared/development.md", "reason": "验证与隐私"}
+{"file": ".trellis/spec/shared/build-release.md", "reason": "门禁与交付"}
+{"file": ".trellis/tasks/10-14-phone-ass-render/design.md", "reason": "根因证据与边界"}

@@ -65,6 +65,11 @@ class PhonePlayerOsdTest {
             }
         }
         rule.waitForIdle()
+        val network = rule.onNodeWithText("1.13 MB/s").fetchSemanticsNode().boundsInRoot
+        val more = rule.onNodeWithContentDescription("更多").fetchSemanticsNode().boundsInRoot
+        assertTrue("网速必须在首排按钮下方", network.top >= more.bottom)
+        assertFalse("网速不能压住倍率按钮", network.overlaps(
+            rule.onNodeWithContentDescription("减速").fetchSemanticsNode().boundsInRoot))
     }
 
     @Test

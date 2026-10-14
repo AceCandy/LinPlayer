@@ -379,8 +379,8 @@ class PhonePlayerPanelTest {
                 buildJsonObject { put("id", "1"); put("kind", "audio"); put("lang", "jpn"); put("title", "原声 AAC stereo"); put("selected", true) },
                 buildJsonObject { put("id", "2"); put("kind", "audio"); put("lang", "eng") },
                 buildJsonObject { put("id", "3"); put("kind", "audio"); put("lang", "und"); put("title", "未标注") },
-                buildJsonObject { put("id", "4"); put("kind", "sub"); put("lang", "zh-Hans"); put("selected", true) },
-                buildJsonObject { put("id", "5"); put("kind", "sub"); put("lang", "zh-TW") }))
+                buildJsonObject { put("id", "4"); put("kind", "sub"); put("lang", "zh-Hans"); put("codec", "ass"); put("selected", true) },
+                buildJsonObject { put("id", "5"); put("kind", "sub"); put("lang", "zh-TW"); put("codec", "hdmv_pgs_subtitle"); put("external", true) }))
             ret("player.setTrack", JsonNull)
         }
         val app = AppState(core, scope)
@@ -415,6 +415,8 @@ class PhonePlayerPanelTest {
         rule.onNodeWithText("关闭字幕").assertIsDisplayed()
         rule.onNodeWithText("简体中文").assertIsDisplayed()
         rule.onNodeWithText("繁体中文").assertIsDisplayed()
+        rule.onNodeWithText("ASS · 特效字幕 · 内嵌").assertIsDisplayed()
+        rule.onNodeWithText("PGS · 图形字幕 · 外挂").assertIsDisplayed()
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/subtitle-panel-dark.png")
         rule.onNodeWithText("繁体中文").performClick()
         rule.waitForIdle()

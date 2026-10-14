@@ -34,6 +34,9 @@ package main
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
+#include <stdio.h>
+#include <unistd.h>
+#include <limits.h>
 
 // libass 的最小 ABI。声明在这里而不是引头文件:仓库里没有 libass 的头,
 // 而为三个 struct 指针和十来个函数去 vendor 一整套 LGPL 头文件不划算。
@@ -96,6 +99,24 @@ static ASS_Library  *g_lib;
 static ASS_Renderer *g_rend;
 static ASS_Track    *g_track;
 static pthread_mutex_t g_mu = PTHREAD_MUTEX_INITIALIZER;
+static char g_default_font[PATH_MAX];
+
+// NONE provider不会把sans-serif解析成系统字体；提供实际文件供缺失样式字体兜底。
+static void lpa_fonts_locked(const char *dir) {
+    static const char *names[] = {
+        "NotoSansCJK-Regular.ttc", "NotoSansSC-Regular.otf", "NotoSansHans-Regular.otf",
+        "DroidSansFallbackFull.ttf", "DroidSansFallback.ttf", "MiSansVF.ttf",
+        "Roboto-Regular.ttf", "RobotoStatic-Regular.ttf"
+    };
+    g_default_font[0] = 0;
+    if (!dir || !dir[0]) return;
+    ass_set_fonts_dir(g_lib, dir);
+    for (size_t i = 0; i < sizeof(names) / sizeof(names[0]); i++) {
+        int n = snprintf(g_default_font, sizeof(g_default_font), "%s/%s", dir, names[i]);
+        if (n > 0 && n < (int)sizeof(g_default_font) && access(g_default_font, R_OK) == 0) return;
+    }
+    g_default_font[0] = 0;
+}
 
 // 上一次真的画过东西没有。用来回答「detect_change=0 但位图刚被重建过」这一类,
 // 见 lp_ass_render 的 force 参数。
@@ -161,15 +182,17 @@ static int lpa_init_locked(const char *fontsDir) {
         // 附件字体。ExoPlayer 不透出 MKV 附件,所以宿主自己从容器里抠出来
         // 再走 lp_ass_add_font 灌进来(Libass.kt / MkvFonts.kt)。
         ass_set_extract_fonts(g_lib, 1);
-        if (fontsDir && fontsDir[0]) ass_set_fonts_dir(g_lib, fontsDir);
     }
+    // 附件先到也会创建g_lib，系统字体目录不能只在首次建库时设置。
+    lpa_fonts_locked(fontsDir);
     if (!g_rend) {
         g_rend = ass_renderer_init(g_lib);
         if (!g_rend) return -1;
         // 字体只从 ass_set_fonts_dir 那个目录来,provider 给 NONE。
         // ★ 自编 libmpv 的 libass 编进了 fontconfig,AUTODETECT 会去初始化一个安卓上
         //   没有配置文件的 fontconfig;显式 NONE 和原来那颗没 fontconfig 的 0.36 行为一致。
-        ass_set_fonts(g_rend, NULL, "sans-serif", LPA_FONTPROVIDER_NONE, NULL, 1);
+        ass_set_fonts(g_rend, g_default_font[0] ? g_default_font : NULL,
+                      NULL, LPA_FONTPROVIDER_NONE, NULL, 1);
         ass_set_pixel_aspect(g_rend, 1.0);
         // 渲染器是新的,把记着的样式补上去。不补的话:用户在上一集调好的
         // 字幕大小,换一集就回默认 —— 而设置页里明明还写着他调的值。
@@ -413,7 +436,7 @@ JNIEXPORT jint JNICALL Java_xyz_linplayer_app_core_Native_assAddFont(
     }
     if (g_lib) {
         ass_add_font(g_lib, nm, (const char *)p, (int)n);
-        if (g_rend) ass_set_fonts(g_rend, NULL, "sans-serif",
+        if (g_rend) ass_set_fonts(g_rend, g_default_font[0] ? g_default_font : NULL, NULL,
                                   LPA_FONTPROVIDER_NONE, NULL, 1);
     } else {
         rc = -1;

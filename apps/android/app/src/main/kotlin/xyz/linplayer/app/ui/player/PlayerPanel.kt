@@ -144,11 +144,13 @@ fun PlayerPanel(
                         val o = it.obj() ?: return@mapNotNull null
                         if (o.str("kind") != want) return@mapNotNull null
                         val language = trackLanguage(o.str("lang"), menuKind)
+                        val label = o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (want != "audio" || it != "未标注") }
+                            ?: language ?: "轨道"
                         Triple(
                             o.str("id") ?: return@mapNotNull null,
-                            language,
-                            o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (want != "audio" || it != "未标注") }
-                                ?: language ?: "轨道",
+                            if (want == "sub") listOfNotNull(language?.takeUnless { it == label }, subtitleFormat(o.str("codec")),
+                                if (o.bool("external")) "外挂" else "内嵌").joinToString(" · ") else language,
+                            label,
                         )
                     }
                     current = t.arr().firstOrNull { it.obj().str("kind") == want && it.obj().bool("selected") }
@@ -589,14 +591,31 @@ internal fun exoTracks(
             val name = listOfNotNull(
                 f.label?.takeIf { it.isNotBlank() && it != f.language && (kind != "audio" || it != "未标注") }
                     ?: trackLanguage(f.language, kind),
-                // ASS 标出来:用户才知道这条是带特效的那一条
-                if (Libass.isAss(f)) "特效" else null,
                 if (!g.isTrackSupported(ti)) "当前内核不支持" else null,
             ).joinToString(" · ").ifBlank { "轨道 ${gi + 1}-${ti + 1}" }
-            out.add(Triple("$gi:$ti", trackLanguage(f.language, kind), name))
+            val detail = if (want == androidx.media3.common.C.TRACK_TYPE_TEXT) listOfNotNull(
+                trackLanguage(f.language, kind)?.takeUnless { it == name },
+                subtitleFormat(if (f.sampleMimeType == "application/x-media3-cues") f.codecs else f.sampleMimeType),
+            ).joinToString(" · ").ifBlank { null } else trackLanguage(f.language, kind)
+            out.add(Triple("$gi:$ti", detail, name))
         }
     }
     return out
+}
+
+/** 只标识运行期已知编码；不从轨道标题猜测字幕格式。 */
+internal fun subtitleFormat(codec: String?): String? = when (codec?.lowercase(java.util.Locale.ROOT)) {
+    "ass" -> "ASS · 特效字幕"
+    "ssa" -> "SSA · 特效字幕"
+    "text/x-ssa" -> "ASS/SSA · 特效字幕"
+    "subrip", "srt", "application/x-subrip" -> "SRT · 文本字幕"
+    "webvtt", "vtt", "text/vtt" -> "WebVTT · 文本字幕"
+    "ttml", "application/ttml+xml" -> "TTML · 文本字幕"
+    "mov_text", "application/x-quicktime-tx3g" -> "TX3G · 文本字幕"
+    "hdmv_pgs_subtitle", "application/pgs" -> "PGS · 图形字幕"
+    "dvd_subtitle", "application/vobsub" -> "VobSub · 图形字幕"
+    "dvb_subtitle", "application/dvbsubs" -> "DVB · 图形字幕"
+    else -> null
 }
 
 @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)

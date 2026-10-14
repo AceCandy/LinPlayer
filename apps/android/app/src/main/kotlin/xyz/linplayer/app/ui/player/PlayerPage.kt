@@ -1235,20 +1235,22 @@ internal fun Osd(
         fun menuAnchor(kind: String) = Modifier.onGloballyPositioned { onPanelAnchor(kind, it.boundsInWindow()) }
         val controlWidth = maxWidth
         val controlFace = if (portrait) 36.dp else 48.dp
-            Row(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
-                .safeDrawingPadding().padding(top = 28.dp).padding(horizontal = if (portrait) Sp.x6 else Sp.x16, vertical = 0.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(if (portrait) 0.dp else Sp.x8)) {
-                PlayerControl(LpIcons.back, "返回", faceSize = controlFace, onClick = onBack)
-                if (portrait) Spacer(Modifier.weight(1f)) else Marquee(title, Modifier.weight(1f))
-                onPip?.let { PlayerControl(LpIcons.pip, "画中画", faceSize = controlFace, onClick = it) }
-                onOrientation?.let { PlayerControl(LpIcons.orientation, "切换方向", faceSize = controlFace, onClick = it) }
-                onChapters?.let { PlayerControl(LpIcons.chapter, "章节", modifier = menuAnchor("chapters"), faceSize = controlFace, onClick = it) }
-                PlayerControl(LpIcons.more, "更多", modifier = menuAnchor("more"), faceSize = controlFace, onClick = { onPanel("more") })
-            }
-            Row(Modifier.align(Alignment.TopEnd).safeDrawingPadding().padding(top = 6.dp, end = Sp.x16),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
-                NetSpeed(netSpeed)
+            Column(Modifier.align(Alignment.TopCenter).fillMaxWidth().background(TopVeil)
+                .safeDrawingPadding().padding(top = 28.dp)) {
+                Row(Modifier.fillMaxWidth().padding(horizontal = if (portrait) Sp.x6 else Sp.x16, vertical = 0.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(if (portrait) 0.dp else Sp.x8)) {
+                    PlayerControl(LpIcons.back, "返回", faceSize = controlFace, onClick = onBack)
+                    if (portrait) Spacer(Modifier.weight(1f)) else Marquee(title, Modifier.weight(1f))
+                    onPip?.let { PlayerControl(LpIcons.pip, "画中画", faceSize = controlFace, onClick = it) }
+                    onOrientation?.let { PlayerControl(LpIcons.orientation, "切换方向", faceSize = controlFace, onClick = it) }
+                    onChapters?.let { PlayerControl(LpIcons.chapter, "章节", modifier = menuAnchor("chapters"), faceSize = controlFace, onClick = it) }
+                    PlayerControl(LpIcons.more, "更多", modifier = menuAnchor("more"), faceSize = controlFace, onClick = { onPanel("more") })
+                }
+                Row(Modifier.align(Alignment.End).padding(end = Sp.x16),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                    NetSpeed(netSpeed)
+                }
             }
             if (!portrait) Column(Modifier.align(Alignment.CenterStart).safeDrawingPadding().padding(start = Sp.x16),
                 verticalArrangement = Arrangement.spacedBy(Sp.x16)) {

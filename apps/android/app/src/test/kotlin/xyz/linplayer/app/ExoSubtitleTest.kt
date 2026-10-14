@@ -13,6 +13,25 @@ import xyz.linplayer.app.ui.player.exoMediaItem
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
 class ExoSubtitleTest {
+    @Test fun 字幕菜单从转码前格式标注类型() {
+        val player = androidx.media3.exoplayer.ExoPlayer.Builder(org.robolectric.RuntimeEnvironment.getApplication()).build()
+        try {
+            val formats = listOf("text/x-ssa", "application/pgs", "application/x-subrip", "text/vtt", "unknown")
+            val groups = formats.mapIndexed { index, mime ->
+                val format = androidx.media3.common.Format.Builder().setSampleMimeType("application/x-media3-cues")
+                    .setCodecs(mime).setLabel("字幕$index").build()
+                androidx.media3.common.Tracks.Group(androidx.media3.common.TrackGroup("$index", format), false,
+                    intArrayOf(androidx.media3.common.C.FORMAT_HANDLED), booleanArrayOf(false))
+            }
+            val info: Any = org.robolectric.util.ReflectionHelpers.getField(player, "playbackInfo")
+            val selector: Any = org.robolectric.util.ReflectionHelpers.getField(info, "trackSelectorResult")
+            org.robolectric.util.ReflectionHelpers.setField(selector, "tracks", androidx.media3.common.Tracks(groups))
+            val tracks = xyz.linplayer.app.ui.player.exoTracks(player, "subtitle").drop(1)
+            assertEquals(listOf("ASS/SSA · 特效字幕", "PGS · 图形字幕", "SRT · 文本字幕", "WebVTT · 文本字幕", null),
+                tracks.map { it.second })
+            assertEquals(formats.indices.map { "字幕$it" }, tracks.map { it.third })
+        } finally { player.release() }
+    }
     @Test fun 外挂WebVtt进入真实MediaItem且切集清空() {
         val subs = Json.parseToJsonElement("""[{"url":"/Videos/item/Subtitles/3/Stream.vtt","mime_type":"text/vtt","title":"中文","lang":"chi","is_default":true},{"url":"/subtitle.ass","mime_type":"text/x-ssa"}]""")
         val item = exoMediaItem("/stream.mkv", subs)
