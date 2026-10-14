@@ -1758,3 +1758,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 60: Emby 季集兼容与 Android 播放器体验
+<!-- trellis-session: v=2 fp=b870b1b20446d081 -->
+
+**Date**: 2026-10-14
+**Task**: Emby 季集兼容与 Android 播放器体验
+**Branch**: `main`
+
+### Summary
+
+修复 Emby 空季及分集列表接口兼容，并完成 Android 详情字幕交互和独立播放器 Activity。
+
+### Main Changes
+
+- 增加 Emby 分集列表路由回退和空季兼容。
+- 调整详情页媒体选项、字幕单选及播放器启动方向。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a75987da` | fix(emby): 兼容空季与分集列表接口 |
+| `96a63e80` | feat(android): 独立播放器窗口与详情字幕体验 |
+
+### Testing
+
+- [OK] 已完成相关 Android 与 Go 定向测试；diff --check 通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无活动 Trellis task；如需发布可使用现有 Android release APK。

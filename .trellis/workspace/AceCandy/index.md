@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 59
+- **Total Sessions**: 60
 - **Last Active**: 2026-10-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1760 | Active |
+| `journal-1.md` | ~1796 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 60 | 2026-10-14 | Emby 季集兼容与 Android 播放器体验 | `a75987da`, `96a63e80` | `main` |
 | 59 | 2026-10-14 | 修复Media3合并后ASS轨道身份断点 | `055717de` | `main` |
 | 58 | 2026-10-14 | 手机ASS字体兜底与字幕类型、顶栏修正 | `8f88badc` | `main` |
 | 57 | 2026-10-14 | 手机缓存字幕选集与顶部状态修复 | `105a3333` | `main` |
