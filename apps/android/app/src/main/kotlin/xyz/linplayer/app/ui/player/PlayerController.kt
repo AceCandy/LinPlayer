@@ -181,7 +181,7 @@ internal class PlayerController(
     }
     fun started() { ready = true; seekEnabled = true }
 
-    suspend fun stop(position: Double, isCurrent: () -> Boolean = { true }) {
+    suspend fun stop(position: Double, handoff: Boolean = false, isCurrent: () -> Boolean = { true }) {
         seekTiming?.interrupt()
         ready = false
         seekEnabled = false
@@ -190,7 +190,7 @@ internal class PlayerController(
         transportMutex.withLock {
             if (!isCurrent()) return@withLock
             controls.stopOutput()
-            call("player.stopPlayback", args("pos" to position))
+            call("player.stopPlayback", if (handoff) args("pos" to position, "handoff" to true) else args("pos" to position))
         }
     }
 
@@ -204,7 +204,7 @@ internal class PlayerController(
         return scope.launch(start = CoroutineStart.UNDISPATCHED) {
             previous?.join()
             try {
-                stop(position, isCurrent)
+                stop(position, isCurrent = isCurrent)
                 afterStop()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { onError(failure) }

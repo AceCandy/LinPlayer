@@ -471,8 +471,8 @@ func TestC26_线程数钳位(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if h.origin.threads != c.want {
-			t.Errorf("threads=%d 该钳到 %d,实得 %d", c.in, c.want, h.origin.threads)
+		if h.origin.policy.Load().threads != c.want {
+			t.Errorf("threads=%d 该钳到 %d,实得 %d", c.in, c.want, h.origin.policy.Load().threads)
 		}
 		h.Close()
 	}
@@ -531,7 +531,7 @@ func TestC26_段被挤掉后能重拉不饿死(t *testing.T) {
 	defer s.finish()
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
-	go s.worker(ctx)
+	go s.worker(ctx, 0)
 
 	got := make(chan []byte, 1)
 	go func() { got <- s.nextBytes(c, 0) }()
@@ -689,4 +689,78 @@ func chunksAfterReading(t *testing.T, h *Handle, n int64) float64 {
 		time.Sleep(50 * time.Millisecond)
 	}
 	return best
+}
+
+// 首块被上游挂起时，准备模式不能抢跑；接管后已有连接应按设置并发取后续块。
+func TestPreparedProxyPromotesExistingStream(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	requests := make(chan int64, 16)
+	release := make(chan struct{})
+	var once sync.Once
+	var probes atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		start, end, ok := parseRange(r.Header.Get("Range"))
+		if !ok {
+			t.Error("缺少范围")
+			return
+		}
+		if end == 0 {
+			probes.Add(1)
+		} else {
+			requests <- start
+			select {
+			case <-release:
+			case <-r.Context().Done():
+				return
+			}
+		}
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes %d-%d/%d", start, end, 4*ChunkSize))
+		w.Header().Set("Content-Length", strconv.FormatInt(end-start+1, 10))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(bodyAt(start, int(end-start+1)))
+	}))
+	defer up.Close()
+	defer once.Do(func() { close(release) })
+	h, err := StartCached(context.Background(), up.URL, 4, 128<<20, false, CacheOptions{Budget: 1 << 30})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	response, err := http.Get(h.URL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	select {
+	case <-requests:
+	case <-time.After(time.Second):
+		t.Fatal("未请求首块")
+	}
+	h.SetReadAhead(4, false, 0)
+	select {
+	case <-requests:
+		t.Fatal("关闭预取时请求了后续块")
+	case <-time.After(100 * time.Millisecond):
+	}
+	h.SetReadAhead(4, true, 0)
+	for i := 0; i < 3; i++ {
+		select {
+		case <-requests:
+		case <-time.After(time.Second):
+			t.Fatal("接管未恢复四路并发预取")
+		}
+	}
+	if probes.Load() != 1 {
+		t.Fatal("接管重复探测上游")
+	}
+	once.Do(func() { close(release) })
+	data, err := io.ReadAll(response.Body)
+	if err != nil || int64(len(data)) != 4*ChunkSize {
+		t.Fatalf("接管后数据不完整: %d %v", len(data), err)
+	}
+	for i, b := range data {
+		if b != byte(i&255) {
+			t.Fatalf("接管后数据错位: %d", i)
+		}
+	}
 }

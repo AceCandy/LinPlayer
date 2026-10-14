@@ -64,6 +64,7 @@
 
 ## 持久共享媒体缓存
 
+- 准备代理接管和详情预热代理复用时，原地恢复当前服务器预取开关、线程数与码率窗口；已建立连接也读取原子策略快照，最多4个worker槽，关闭预取仅单块窗口。不得重建代理或重复探测丢掉已准备字节。`TestPreparedProxyPromotesExistingStream` 挂起首块验证接管前不抢跑、接管后四路并发及完整供给。
 - 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合可信版本和总长：优先强ETag，无ETag时允许Date至少晚于Last-Modified 60秒的有效修改时间；弱ETag不回退。后续块响应须匹配同一验证器及有效范围，no-store拒绝写入。每次起播重新解析授权与探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
 - 4MiB块保持边收边吐与头尾固定槽；完整块附64字节位置/哈希头，临时写→Sync→关闭→rename才发布，恢复与读取校验损坏，索引不保存URL或账号原文。单片数据+元数据≤128MiB，全局默认1GiB含会话ring/持久块/索引/在途临时写，TTL7天与LRU在访问/配置时执行。
 - 磁盘读写/清理/淘汰共用屏障，活动条目可安全失效重取，不能无限pin超预算；写盘失败由连接内有界ready载体继续供给，消费后释放。Close取消origin与连接并等worker退出，再关盘，保留完整持久块。清理关闭活动临时文件兼容Windows，旧句柄禁写。
@@ -98,3 +99,5 @@ Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData�
 ## 切核明确续播位置
 
 `player.play` 可选 `resume_exact=true` 要求非负有限 `resume_secs`，缺失/负数/非数值拒绝；`from_start=true` 优先从零开始。切核时跳过服务端、主服、跨服续播覆盖和已看归零，但保留主服 Link 准备与上报。省略时保持原续播语义，两内核共用同一 play 链路，不用加载后 seek 补救。`primary_progress_test.go` 通过命令入口验证主服与跨服模式下零、非零、接近片尾及从头优先；`resume_test.go` 验证非法明确位置。
+
+- 下一集准备与视频预热分阶段：prepareNext仅解析/探测，warmPrepared按完整Session和request_id匹配启停；暂停仅取消读取子context，保留target/代理/已完成块，恢复不重复ResolveStream或probe，消费/过期/取消关闭父context。TestPreparedWarmWaitsAndPausesWithoutResolvingAgain覆盖信息阶段零视频块、错误身份拒绝、暂停中断尾部请求、恢复和消费后失效；故障注入自动Warm时必须失败。

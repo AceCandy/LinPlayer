@@ -153,6 +153,9 @@ class PlayerActivityTest {
             assertTrue(core.calls.single { it.first == "plugin.shellResult" }.second.bool("data"))
             rule.onNodeWithContentDescription("返回").performClick()
             rule.waitUntil { activity.isFinishing }
+            assertEquals(android.app.Activity.RESULT_OK, shadowOf(activity).resultCode)
+            assertEquals("m1", shadowOf(activity).resultIntent.getStringExtra(PlayerActivity.PLAYED_ITEM))
+            assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
             assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_PORTRAIT, activity.requestedOrientation)
             host!!.pause().stop().destroy()
             host = null

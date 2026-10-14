@@ -31,6 +31,12 @@ internal fun PlayerLaunchPage(nav: NavController, entry: NavBackStackEntry) {
     val context = LocalContext.current
     var launched by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        result.data?.getStringExtra(PlayerActivity.PLAYED_ITEM)?.let { itemId ->
+            nav.previousBackStackEntry?.savedStateHandle?.let { state ->
+                state[PlayerActivity.PLAYED_ITEM] = itemId
+                state[PlayerActivity.PLAYBACK_RETURN] = (state.get<Int>(PlayerActivity.PLAYBACK_RETURN) ?: 0) + 1
+            }
+        }
         val next = result.data?.getStringExtra(PlayerActivity.NAV_ROUTE)?.let { name ->
             val params = result.data?.getStringExtra(PlayerActivity.NAV_PARAMS)?.let {
                 Json.decodeFromString<JsonObject>(it)

@@ -123,6 +123,8 @@ import xyz.linplayer.app.data.namedList
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.strList
+import xyz.linplayer.app.PlayerActivity
+import xyz.linplayer.app.ui.player.PlayerController
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.Dim3
@@ -305,15 +307,18 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val account = session ?: return
-    key(entry.id, account.server, account.userId) {
-        DetailContent(nav, entry, app.detailCache.key(account.server, account.userId, entry.toRoute<Route.Detail>().itemId))
+    val playedItem by entry.savedStateHandle.getStateFlow<String?>(PlayerActivity.PLAYED_ITEM, null).collectAsState()
+    val returnRevision by entry.savedStateHandle.getStateFlow(PlayerActivity.PLAYBACK_RETURN, 0).collectAsState()
+    val original = entry.toRoute<Route.Detail>()
+    val route = if (original.type == "Episode") original.copy(itemId = playedItem ?: original.itemId) else original
+    key(entry.id, account.server, account.userId, route.itemId) {
+        DetailContent(nav, route, app.detailCache.key(account.server, account.userId, route.itemId), playedItem, returnRevision)
     }
 }
 
 @Composable
-private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey: String) {
+private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: String, playedItem: String?, returnRevision: Int) {
     var switching by remember { mutableStateOf(false) }
-    val route = entry.toRoute<Route.Detail>()
     val app = LocalApp.current
     val c = Lp.colors
     val scope = rememberCoroutineScope()
@@ -346,14 +351,15 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var fallbackEpisodeParent by remember { mutableStateOf<String?>(null) }
     var episodeRequest by remember { mutableStateOf(0) }
     var episodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
-    var confirmedEpisodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
+    var confirmedEpisodes by remember(route.itemId, curSeason?.id, episodeRequest, returnRevision) { mutableStateOf<List<Item>>(emptyList()) }
     var episodeTotal by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Long?>(null) }
     var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
     var episodeRetry by remember { mutableStateOf(0) }
     // 展示可以留存，取集仍等本次真实季关系确认；刷新从首批重取，不接旧快照尾页。
     val episodeParent = (curSeason?.id ?: fallbackEpisodeParent).takeIf { seasonLoad is Block.Ok }
-    LaunchedEffect(route.itemId, episodeParent, episodeRequest, episodeRetry) {
+    LaunchedEffect(route.itemId, episodeParent, episodeRequest, episodeRetry, returnRevision) {
         val parent = episodeParent ?: return@LaunchedEffect
+        if (returnRevision > 0) PlayerController.awaitPendingStop()
         episodeLoad = Block.Loading
         val result = try {
             app.seasonEpisodes(parent, confirmedEpisodes, onPage = { items, total ->
@@ -386,7 +392,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var lineCount by remember { mutableStateOf(presentation?.lineCount ?: 0) }
 
     // 展示资料可先用缓存，用户状态、分集目标与插件仍只用本次服务端结果。
-    LaunchedEffect(route.itemId, detailRetry) {
+    LaunchedEffect(route.itemId, detailRetry, returnRevision) {
+        if (returnRevision > 0) PlayerController.awaitPendingStop()
         val epoch = app.detailCache.generation
         detail = Block.Loading
         val d = app.displayBlock("emby.itemDetail", args("item_id" to route.itemId), retainOnFailure = false) { if (detail !is Block.Ok && cacheAllowed) cached = it.obj() }
@@ -513,7 +520,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val isEpisode = route.type == "Episode"
     val isSeries = route.type == "Series" || route.type == "Season"
     val isSeriesEntry = route.type == "Series"
-    val nextEp = if (episodeLoad is Block.Ok) episodes.firstOrNull { !it.played } ?: episodes.firstOrNull() else null
+    val nextEp = if (episodeLoad is Block.Ok) episodes.firstOrNull { it.id == playedItem }
+        ?: episodes.firstOrNull { !it.played } ?: episodes.firstOrNull() else null
     val shownEpisodes = if (episodes.isNotEmpty() || episodeLoad is Block.Ok) episodes
         else presentation?.takeIf { it.season?.id == curSeason?.id }?.episodes.orEmpty()
     val shownNextEp = nextEp ?: shownEpisodes.firstOrNull { !it.played } ?: shownEpisodes.firstOrNull()
@@ -959,8 +967,8 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
                                     label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
                         }
-                        if (shownEpisodes.isNotEmpty()) key(curSeason?.id) {
-                            EpisodeStrip(app, shownEpisodes, currentId = route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
+                        if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
+                            EpisodeStrip(app, shownEpisodes, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
                                 expanded = isSeriesEntry,
                                 onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) })
                         } else Box(Modifier.fillMaxWidth().height(episodeStripHeight(isSeriesEntry)), contentAlignment = Alignment.Center) {

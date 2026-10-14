@@ -117,7 +117,7 @@ func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs
 	return play(ctx, s, itemID, resumeSecs, mediaSourceID, false, false)
 }
 
-func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool) (*PlayResult, error) {
+func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, preparedIDs ...string) (*PlayResult, error) {
 	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
 	cancelWarm()
 	c := config.Current()
@@ -141,14 +141,38 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	}()
 
 	resolveAt := time.Now()
-	target, err := prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+	var requestID string
+	if len(preparedIDs) > 0 {
+		requestID = preparedIDs[0]
+	}
+	target, preparedProxy := takePrepared(s, itemID, mediaSourceID, requestID, prefs)
+	if target == nil && requestID != "" {
+		cancelPrepared(requestID)
+	}
+	var err error
+	if target == nil {
+		target, err = prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+	}
 	bus.Logf("info", "phase=startup_resolve elapsed_ms=%d success=%t", time.Since(resolveAt).Milliseconds(), err == nil)
 	if err != nil {
 		return nil, err
 	}
 
 	proxyAt := time.Now()
-	playURL := startPrefetch(ctx, s, target, prefs)
+	var playURL string
+	if preparedProxy != nil {
+		acc := c.ActiveAccount()
+		preparedProxy.SetReadAhead(prefs.PrefetchThreads, acc != nil && prefs.PrefetchEnabledFor(acc.Server), target.Bitrate)
+		proxyMu.Lock()
+		if sharedProxy != nil {
+			sharedProxy.Close()
+		}
+		sharedProxy = preparedProxy
+		proxyMu.Unlock()
+		playURL = preparedProxy.URL
+	} else {
+		playURL = startPrefetch(ctx, s, target, prefs)
+	}
 	bus.Logf("info", "phase=startup_proxy elapsed_ms=%d", time.Since(proxyAt).Milliseconds())
 	historyAt := time.Now()
 
@@ -257,6 +281,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	current = target
 	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks}
 	currentReport = report
+	report.previousStop = pendingStopReport()
 	currentMu.Unlock()
 
 	/* 起播走 loadWith 这个**唯一入口**(见 load.go)。
@@ -552,10 +577,28 @@ func watchedNow(pos float64) bool {
 
 // Stop 停播并上报。pos 是停在哪一秒。
 func Stop(ctx context.Context, s *emby.Session, pos float64) error {
+	return stopPlayback(ctx, s, pos, false)
+}
+
+// 仅切集允许网络上报后台收尾；本地输出和历史仍在返回前停止/保存。
+func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff bool) error {
+	stopPlaybackMu.Lock()
+	defer stopPlaybackMu.Unlock()
+	// 限制后台停止任务数量，且在发布新屏障前等待旧屏障。
+	if err := awaitStopReport(ctx); err != nil {
+		return err
+	}
 	cancelWarm()
 	currentMu.Lock()
 	t := current
 	report := currentReport
+	var done chan struct{}
+	if t != nil && s != nil {
+		done = make(chan struct{})
+		stopReportMu.Lock()
+		stopReportDone = done
+		stopReportMu.Unlock()
+	}
 	currentReport = nil
 	// 停播落盘、取消补建和清空目标是同一次状态转换,补建不能穿过收尾。
 	captureHistoryLocked(pos, true)
@@ -572,6 +615,21 @@ func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 	if t == nil || s == nil {
 		return nil
 	}
+	if handoff {
+		snapshot := *s
+		go func() {
+			defer close(done)
+			reportCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
+			defer cancel()
+			_ = reportStopped(reportCtx, &snapshot, t, report, pos, watched)
+		}()
+		return nil
+	}
+	defer close(done)
+	return reportStopped(ctx, s, t, report, pos, watched)
+}
+
+func reportStopped(ctx context.Context, s *emby.Session, t *emby.PlaybackTarget, report *playbackReport, pos float64, watched bool) error {
 	if report != nil {
 		report.mu.Lock()
 		defer report.mu.Unlock()

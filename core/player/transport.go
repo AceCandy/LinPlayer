@@ -18,6 +18,7 @@ import (
 
 // registerTransport 由 RegisterCommands 调用。
 func registerTransport() {
+	registerPrepareCommands()
 	// ---- 起播 / 停播 ----
 	bus.Register("player.play", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		id, _ := a["item_id"].(string)
@@ -50,7 +51,8 @@ func registerTransport() {
 		   ★ 不认识的值一律当 mpv,不报错:内核名是 UI 传上来的字符串,
 		     拼错了该退回默认能播,而不是让用户点了播放什么都没有。 */
 		engine, _ := a["engine"].(string)
-		out, err := play(ctx, s, id, resume, msid, engine != "exo", exact)
+		prepared, _ := a["prepared_id"].(string)
+		out, err := play(ctx, s, id, resume, msid, engine != "exo", exact, prepared)
 		if err != nil {
 			return nil, &bus.Err{Code: bus.ENetwork, Msg: err.Error(), Retryable: true}
 		}
@@ -65,7 +67,8 @@ func registerTransport() {
 			_ = Stop(ctx, nil, pos)
 			return map[string]any{"stopped": true, "reported": false}, nil
 		}
-		if err := Stop(ctx, s, pos); err != nil {
+		handoff, _ := a["handoff"].(bool)
+		if err := stopPlayback(ctx, s, pos, handoff); err != nil {
 			return nil, err
 		}
 		return map[string]any{"stopped": true, "reported": true}, nil

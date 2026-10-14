@@ -49,6 +49,9 @@ func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead
 	}
 	if sharedProxy != nil {
 		if sharedProxy.Upstream() == upstreamURL && (len(options) == 0 || sharedProxy.Identity() == options[0].Identity) {
+			if len(options) > 0 {
+				sharedProxy.SetReadAhead(p.PrefetchThreads, readAhead, options[0].Bitrate)
+			}
 			return sharedProxy // ★ 命中预热:连同它已经装好的缓存一起拿回来
 		}
 		sharedProxy.Close() // 换片了:端口、goroutine、缓存文件一起收

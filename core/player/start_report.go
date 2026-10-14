@@ -15,6 +15,7 @@ import (
 // 状态随播放目标释放,不保留无界的历史任务队列。
 type playbackReport struct {
 	started      chan struct{}
+	previousStop <-chan struct{}
 	mu           sync.Mutex
 	stopped      bool
 	session      emby.Session
@@ -22,9 +23,37 @@ type playbackReport struct {
 	runtimeTicks int64
 }
 
+var stopPlaybackMu sync.Mutex
+var stopReportMu sync.Mutex
+var stopReportDone <-chan struct{}
+
+func pendingStopReport() <-chan struct{} {
+	stopReportMu.Lock()
+	defer stopReportMu.Unlock()
+	return stopReportDone
+}
+
+func awaitStopReport(ctx context.Context) error {
+	done := pendingStopReport()
+	if done == nil {
+		return nil
+	}
+	select {
+	case <-done:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (r *playbackReport) startAsync(s emby.Session, t *emby.PlaybackTarget, pos float64) {
+	previousStop := r.previousStop
 	go func() {
 		defer close(r.started)
+		// 服务端按设备记录在线状态，旧Stopped必须先于新Playing。
+		if previousStop != nil {
+			<-previousStop
+		}
 		// 命令返回后请求上下文会取消,记账使用独立且有界的预算。
 		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 		defer cancel()

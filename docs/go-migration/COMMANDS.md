@@ -147,7 +147,10 @@
 | [x] | `player.mpvGet` | `mpv_get` | `name: String` | `Result<Option<String>, String>` | ✅ |
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
 | [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ |
-| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, media_source_id: Option<String>, engine: Option<String>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
+| [x] | `player.prepareNext` | **新增** | `item_id: String, request_id: String, media_source_id: Option<String>` | `{request_id, play_url, media_source_id, external_subs} 或 {skipped}` | ❌ | <!-- prepareNext: 尊重PreloadEnabled，独立单槽且不开始上报；直连代理只解析和探测，准备后2分钟过期；warmPrepared按缓冲状态放行视频读取，头部上限8MiB。prepared_id按完整Session/条目/版本/选版规则一次消费；取消使用原request_id。stopPlayback handoff=true仅后台停止上报，旧Stopped先于新Playing；默认同步收尾。 -->
+| [x] | `player.warmPrepared` | **新增** | `request_id: String, enabled: bool` | `{matched}` | ❌ |
+| [x] | `player.cancelPrepared` | **新增** | `request_id: String` | `{canceled}` | ❌ |
+| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
 | [x] | `player.playExternal` | `play_external` | `item_id: String, resume_secs: f64, media_source_id: Option<String>, engine: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.playLocal` | `play_local` | `id: String, resume_secs: f64` | `Result<f64, String>` | ✅ |
 | [x] | `player.playUrl` | **新增** | `url: String, headers: Option<Map<String,String>>, title: Option<String>, start_secs: Option<f64>` | `{url, title}` | ✅ | <!-- 直接播一条地址(直播频道 / 插件找到的流)。不走 Emby 上报与续播记录 -->
@@ -185,7 +188,7 @@
 | [x] | `player.setVolume` | `set_volume` | `volume: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.shaderLevels` | `shader_levels` | `—` | `Vec<ShaderLevel>` | ✅ |
 | [x] | `player.status` | `status` | `—` | `Result<Value, String>` | ✅ |
-| [x] | `player.stopPlayback` | `stop_playback` | `pos: f64` | `Result<(), String>` | ✅ |
+| [x] | `player.stopPlayback` | `stop_playback` | `pos: f64, handoff: Option<bool>` | `Result<(), String>` | ✅ |
 | [x] | `player.takePending` | `player_take_pending` | `—` | `Option<serde_json::Value>` | ❌ |
 | [x] | `player.thumbnail` | **新增** | `position: f64` | `Result<Thumbnail, String>` | — | <!-- 进度条某一点的缩略图。从**本地已缓存的字节**解,走只读缓存端点 + 第二个 mpv 实例 -->
 | [x] | `player.tracks` | `tracks` | `—` | `Result<Vec<Track>, String>` | ✅ |

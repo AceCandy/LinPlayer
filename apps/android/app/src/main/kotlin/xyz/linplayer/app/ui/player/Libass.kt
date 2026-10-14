@@ -248,7 +248,11 @@ object Libass {
  * 普通文本不重复绘制；SRT / VTT / PGS仍交给Media3默认解析器。
  */
 @OptIn(UnstableApi::class)
-class LibassParserFactory(private val fontsDir: String) : SubtitleParser.Factory {
+class LibassParserFactory(
+    private val fontsDir: String,
+    private val storeHeader: (String, ByteArray?) -> Unit = Libass::header,
+    private val storeFile: (String, ByteArray) -> Unit = Libass::file,
+) : SubtitleParser.Factory {
     private val fallback = DefaultSubtitleParserFactory()
 
     // 支持面不扩大:我们只是把其中 ASS 那一类换个人画
@@ -259,7 +263,7 @@ class LibassParserFactory(private val fontsDir: String) : SubtitleParser.Factory
 
     override fun create(format: Format): SubtitleParser =
         if (Libass.available && Libass.isAss(format))
-            LibassParser(format.id ?: "ass", format)
+            LibassParser(format.id ?: "ass", format, storeHeader = storeHeader, storeFile = storeFile)
         else SafeParser(fallback.create(format), format.sampleMimeType ?: "?")
 }
 
@@ -319,12 +323,13 @@ internal class SafeParser(
 @OptIn(UnstableApi::class)
 internal class LibassParser(
     private val id: String, format: Format,
+    storeHeader: (String, ByteArray?) -> Unit = Libass::header,
     private val storeFile: (String, ByteArray) -> Unit = Libass::file,
 ) : SubtitleParser {
     private val wholeFile = format.initializationData.isEmpty()
 
     init {
-        if (!wholeFile) Libass.header(id, assHeaderOf(format.initializationData))
+        if (!wholeFile) storeHeader(id, assHeaderOf(format.initializationData))
     }
 
     override fun parse(

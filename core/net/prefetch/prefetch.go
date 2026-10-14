@@ -111,21 +111,34 @@ func StartCached(ctx context.Context, u string, threads int, cacheLimit int64, r
 	if err := ConfigureMediaCache(options.Budget); err != nil {
 		return nil, err
 	}
-	threads = min(max(threads, 2), 4)
-	window := int64(1)
-	ua := httpx.UA()
+	policy := cachedPolicy(threads, readAhead, options.Bitrate)
+	return start(ctx, u, policy.threads, min(cacheLimit, mediaLimit), policy.window, policy.ua, nil, options)
+}
+
+type fetchPolicy struct {
+	threads int
+	window  int64
+	ua      string
+}
+
+func cachedPolicy(threads int, readAhead bool, bitrate int64) *fetchPolicy {
+	p := &fetchPolicy{threads: 2, window: 1, ua: httpx.UA()}
 	if readAhead {
 		limit := MaxReadAhead
 		// 码率只用于近似预取时长，不作为媒体版本证据；先钳再乘避免溢出。
-		if options.Bitrate > 0 {
-			limit = min(limit, min(options.Bitrate, MaxReadAhead*8/60)*60/8)
+		if bitrate > 0 {
+			limit = min(limit, min(bitrate, MaxReadAhead*8/60)*60/8)
 		}
-		window = max64(1, (limit+ChunkSize-1)/ChunkSize)
-		ua = httpx.PreloadUA()
-	} else {
-		threads = 2
+		p.threads = min(max(threads, 2), 4)
+		p.window = max64(1, (limit+ChunkSize-1)/ChunkSize)
+		p.ua = httpx.PreloadUA()
 	}
-	return start(ctx, u, threads, min(cacheLimit, mediaLimit), window, ua, nil, options)
+	return p
+}
+
+// SetReadAhead 在正式接管时恢复当前预取设置，保留地址、缓存与在途读取。
+func (h *Handle) SetReadAhead(threads int, enabled bool, bitrate int64) {
+	h.origin.policy.Store(cachedPolicy(threads, enabled, bitrate))
 }
 
 // Handle 一个运行中的代理。**Close 即停服**,放行所有连接的 worker 退出。
@@ -246,18 +259,14 @@ type origin struct {
 	resolvedExp    time.Time
 	resignDisabled bool
 
-	totalSize       int64
-	contentType     string
-	threads         int
-	readAheadChunks int64
-	// ua 上游请求的 User-Agent。旁路模式下**它就是用户正在看的那一路**,
-	// 用 LinPlayerPreload 那条道会让服主在日志里把它错认成一次旁路预取。
-	ua        string
-	closed    atomic.Bool
-	stop      notifier
-	client    *http.Client
-	onInvalid ResignFn
-	disk      *diskCache
+	totalSize   int64
+	contentType string
+	policy      atomic.Pointer[fetchPolicy]
+	closed      atomic.Bool
+	stop        notifier
+	client      *http.Client
+	onInvalid   ResignFn
+	disk        *diskCache
 
 	// liveMu / liveMap 正在拉取中的分段(段号 -> 载体)。**「边收边吐」的登记处**。
 	liveMu  sync.Mutex
@@ -296,8 +305,7 @@ func StartPassthrough(ctx context.Context, upstreamURL string, cacheLimit int64,
 func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int64,
 	readAheadChunks int64, ua string, onInvalid ResignFn, cacheOptions ...CacheOptions) (*Handle, error) {
 	o := &origin{
-		url: upstreamURL, threads: threads, ua: ua,
-		readAheadChunks: readAheadChunks,
+		url: upstreamURL,
 		// ★ 预取拉上游用 LinPlayerPreload 这条 UA 道(SPEC §14.1):
 		//   服主要能把「替 mpv 提前拉的旁路请求」和「用户正在看的那一路」在日志里分开。
 		// ★ 走 tlspolicy:不走的话自签名服务器上「多线程加载」一开就取不到流
@@ -307,6 +315,7 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		onInvalid: onInvalid,
 		liveMap:   map[int64]*live{},
 	}
+	o.policy.Store(&fetchPolicy{threads: threads, window: readAheadChunks, ua: ua})
 	probeAt := time.Now()
 	if err := o.probe(ctx, upstreamURL); err != nil {
 		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
@@ -386,7 +395,7 @@ func (o *origin) probe(ctx context.Context, u string) error {
 		return err
 	}
 	req.Header.Set("Range", "bytes=0-0")
-	req.Header.Set("User-Agent", o.ua)
+	req.Header.Set("User-Agent", o.policy.Load().ua)
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := o.client.Do(req)
 	if err != nil {
@@ -571,7 +580,7 @@ func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *l
 		return true, false
 	}
 	req.Header.Set("Range", fmt.Sprintf("bytes=%d-%d", start, end))
-	req.Header.Set("User-Agent", o.ua)
+	req.Header.Set("User-Agent", o.policy.Load().ua)
 	if o.validator != "" {
 		req.Header.Set("If-Range", o.validator)
 		req.Header.Set("Accept-Encoding", "identity")

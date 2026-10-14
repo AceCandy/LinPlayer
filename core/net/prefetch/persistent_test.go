@@ -435,7 +435,7 @@ func TestWorkerClaimIsVisibleBeforeCacheLookup(t *testing.T) {
 	ctx, cancel := context.WithCancel(h.origin.ctx)
 	finished := make(chan struct{})
 	mediaStore.Lock()
-	go func() { defer close(finished); s.worker(ctx) }()
+	go func() { defer close(finished); s.worker(ctx, 0) }()
 	claimed := false
 	deadline := time.Now().Add(time.Second)
 	for time.Now().Before(deadline) {

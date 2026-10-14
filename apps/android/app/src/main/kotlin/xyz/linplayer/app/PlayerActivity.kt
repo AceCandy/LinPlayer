@@ -99,7 +99,10 @@ open class PlayerActivity : ComponentActivity() {
                                     PlayerPage(nav, entry,
                                         clickedAt = if (savedInstanceState == null && intent.hasExtra(EXTRA_CLICK))
                                             intent.getLongExtra(EXTRA_CLICK, 0) else null,
-                                        onExit = ::finish)
+                                        onExit = { itemId ->
+                                            setResult(RESULT_OK, Intent().putExtra(PLAYED_ITEM, itemId))
+                                            finish()
+                                        })
                                 }
                             }
                         }
@@ -140,6 +143,8 @@ open class PlayerActivity : ComponentActivity() {
     }
 
     companion object {
+        internal const val PLAYED_ITEM = "player.playedItem"
+        internal const val PLAYBACK_RETURN = "player.returnRevision"
         internal const val NAV_ROUTE = "player.navRoute"
         internal const val NAV_PARAMS = "player.navParams"
         internal const val NAV_REPLACE = "player.navReplace"

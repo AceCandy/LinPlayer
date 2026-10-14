@@ -97,7 +97,7 @@ private const val TAG_EXO = "lp-exo"
  */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0, explicitSubtitle: Boolean = false): ExoPlayer? {
+internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0, explicitSubtitle: Boolean = false, preload: Boolean = false): ExoPlayer? {
     val ctx = LocalContext.current
     if (!enabled) return null
     val player = remember {
@@ -114,7 +114,8 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
            「libass 初始化成功,但一条事件都没进去」—— 而那看着就像 libass 没接上。 */
         val sources = DefaultMediaSourceFactory(http)
             .setSubtitleParserFactory(LibassParserFactory(FONTS_DIR))
-        ExoPlayer.Builder(ctx)
+        if (preload) ExoPreload(ctx, http, playbackLoadControl(bufferTargetBytes), FONTS_DIR).player
+        else ExoPlayer.Builder(ctx)
             .setLoadControl(playbackLoadControl(bufferTargetBytes))
             .setMediaSourceFactory(sources)
             .build()
@@ -170,13 +171,14 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
         onDispose { player.removeListener(listener) }
     }
     ObserveMedia3Diagnostics(player)
-    DisposableEffect(player) { onDispose { player.release() } }
+    DisposableEffect(player) { onDispose { player.release(); ExoPreload.of(player)?.release() } }
     return player
 }
 
 /** 把一条地址交给 ExoPlayer,并从 [startSecs] 起播。 */
 fun ExoPlayer.load(url: String, startSecs: Double, subs: JsonElement? = null) {
-    setMediaItem(exoMediaItem(url, subs))
+    val preload = ExoPreload.of(this)
+    if (preload != null) preload.load(url, subs) else setMediaItem(exoMediaItem(url, subs))
     prepare()
     if (startSecs > 0) seekTo((startSecs * 1000).toLong())
     playWhenReady = true

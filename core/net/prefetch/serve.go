@@ -69,12 +69,13 @@ func (s *stream) finish() {
 }
 
 // worker 在窗口内顺序认领分段并拉取。
-func (s *stream) worker(ctx context.Context) {
+func (s *stream) worker(ctx context.Context, index int) {
 	for !s.over() {
 		// 认领:窗口未满且未到本次请求末段才取下一段
+		policy := s.o.policy.Load()
 		s.mu.Lock()
 		var c int64 = -1
-		if s.fetchCursor <= s.lastChunk && s.fetchCursor <= s.serveChunk+s.o.readAheadChunks-1 {
+		if index < policy.threads && s.fetchCursor <= s.lastChunk && s.fetchCursor <= s.serveChunk+policy.window-1 {
 			if !s.inFlight[s.fetchCursor] && s.ready[s.fetchCursor] == nil {
 				c = s.fetchCursor
 				// 认领与游标推进必须原子完成，否则供给端会把在飞块误判为被淘汰并重拉。
@@ -426,9 +427,10 @@ func (o *origin) handle(conn *net.TCPConn) error {
 	}
 	ctx, cancel := context.WithCancel(o.ctx)
 	defer cancel()
-	for i := 0; i < o.threads; i++ {
+	// 固定有界 worker 槽，接管后已有连接也能切换并发数与预取窗口。
+	for i := 0; i < 4; i++ {
 		o.workers.Add(1)
-		go func() { defer o.workers.Done(); s.worker(ctx) }()
+		go func() { defer o.workers.Done(); s.worker(ctx, i) }()
 	}
 	err = s.serve(conn, start, end)
 	s.finish() // 供给结束 -> 本连接 worker 退出、取消在飞的 fetch

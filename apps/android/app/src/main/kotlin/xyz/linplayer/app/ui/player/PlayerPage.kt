@@ -50,6 +50,7 @@ import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -115,6 +116,14 @@ import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
+
+/** 按实际播放秒数留出缓冲余量；启停分用30/10秒门槛，避免边界反复启停。 */
+internal fun nextPreloadAllowed(active: Boolean, buffering: Boolean, position: Double, duration: Double, buffered: Double, speed: Double): Boolean {
+    if (buffering || !position.isFinite() || !duration.isFinite() || !buffered.isFinite() ||
+        !speed.isFinite() || speed <= 0 || position < 0 || duration <= position || buffered <= position) return false
+    if (buffered >= duration - 1) return true
+    return (buffered - position) / speed >= if (active) 10.0 else 30.0
+}
 
 private const val OSD_HIDE_MS = 5000L
 
@@ -226,7 +235,7 @@ private val speedWrites = Mutex()
  */
 @Composable
 fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
-    clickedAt: Long? = null, onExit: (() -> Unit)? = null,
+    clickedAt: Long? = null, onExit: ((String?) -> Unit)? = null,
 ) {
     var route by remember(entry) { mutableStateOf(entry.toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
@@ -312,14 +321,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
        内嵌宿主保留黑幕转向再返回的路径。 */
     var leaving by remember { mutableStateOf(false) }
     val leave: () -> Unit = { leaving = true }
-    LaunchedEffect(leaving) {
-        if (!leaving) return@LaunchedEffect
-        if (onExit != null) onExit() else {
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-            delay(TurnSettleMs)
-            nav.popBackStack()
-        }
-    }
 
     /* 内核模式。★ 每个播放目标读一次就钉住:
        播到一半用户去设置里改了内核,回来时这一片的状态机会当场换一套
@@ -374,11 +375,47 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         )
         subOff = initialSubtitle?.let { it.index == null } ?: (p.boolOrNull("sub_enabled") == false)
     }
-    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null)
+    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null, preload = true)
+    val latestExo by rememberUpdatedState(exo)
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
     ObserveSeekTiming(controller)
     ObserveStartupTiming(exo, startupTiming)
+
+    var preparedFor by remember { mutableStateOf<String?>(null) }
+    var preparedRequest by remember { mutableStateOf<String?>(null) }
+    var preparedResult by remember { mutableStateOf<JsonObject?>(null) }
+    var prepareJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var selectedPrepared by remember { mutableStateOf<String?>(null) }
+
+    fun cancelPreparation() {
+        prepareJob?.cancel()
+        preparedRequest?.let { request ->
+            app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
+        }
+        selectedPrepared?.let { request ->
+            app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
+        }
+        selectedPrepared = null
+        preparedFor = null
+        preparedRequest = null
+        preparedResult = null
+        ExoPreload.of(latestExo)?.cancel()
+    }
+    fun prepareEpisode(id: String) {
+        if (preparedFor == id) return
+        cancelPreparation()
+        val request = java.util.UUID.randomUUID().toString()
+        preparedFor = id
+        preparedRequest = request
+        prepareJob = scope.launch {
+            val result = runCatching { app.call("player.prepareNext", args("item_id" to id, "request_id" to request)).obj() }
+            coroutineContext.ensureActive()
+            if (preparedRequest == request) {
+                preparedResult = result.getOrNull()
+            }
+        }
+    }
 
     suspend fun switchTarget(id: String, versionId: String?, title: String) {
         if (switching || controller.switching || leaving || latestController !== controller) return
@@ -390,12 +427,20 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
             startupTiming.close()
             val resumeAt = if (id == route.itemId) position else null
             PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
+            if (route.src == null && id != route.itemId && versionId == null) prepareEpisode(id)
+            else cancelPreparation()
             PlaybackService.stop(ctx)
-            controller.stop(position)
+            controller.stop(position, handoff = true)
+            // 只接管已就绪的准备结果，慢请求或失败不阻塞正式起播。
+            if (preparedResult.str("request_id") == null) cancelPreparation()
             coroutineContext.ensureActive()
             if (leaving) return
             panel = null
             resumeOverride = resumeAt
+            selectedPrepared = preparedResult.str("request_id")
+            preparedRequest = null
+            preparedFor = null
+            preparedResult = null
             startupOrigin = switchedAt to StartupOrigin.TARGET
             route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
                 versionId = versionId, fromStart = false, ar = 0f, subtitle = null)
@@ -438,6 +483,32 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
     val episodeAt = episodes.indexOfFirst { it.id == route.itemId }
     val previousEpisode = if (episodeAt >= 0) episodes.getOrNull(episodeAt - 1) else null
     val nextEpisode = if (episodeAt >= 0) episodes.getOrNull(episodeAt + 1) else null
+    val prepareSoon = controller.ready && !buffering && !leaving && !switching && route.src == null &&
+        duration > 0 && position >= (duration - 60).coerceAtLeast(0.0)
+    LaunchedEffect(controller, nextEpisode?.id, prepareSoon) {
+        if (prepareSoon) nextEpisode?.let { prepareEpisode(it.id) }
+    }
+    var warmingVideo by remember(controller) { mutableStateOf(false) }
+    val allowVideoWarm = prepareSoon && nextPreloadAllowed(warmingVideo, buffering, position, duration, buffered, speed)
+    val latestAllowVideoWarm by rememberUpdatedState(allowVideoWarm)
+    LaunchedEffect(controller, exo) {
+        // 串行发送启停，避免慢的“开始”响应越过后来的“暂停”。
+        snapshotFlow { preparedResult.str("request_id") to latestAllowVideoWarm }.collect { (request, enabled) ->
+            warmingVideo = enabled
+            if (request != null) {
+                if (enabled) {
+                    preparedResult.str("play_url")?.let { url -> ExoPreload.of(exo)?.prepare(url, preparedResult?.get("external_subs")) }
+                } else if (!switching) {
+                    ExoPreload.of(exo)?.cancel()
+                }
+                runCatching { app.call("player.warmPrepared", args("request_id" to request, "enabled" to enabled)) }
+                coroutineContext.ensureActive()
+            }
+        }
+    }
+    DisposableEffect(session?.server, session?.userId, session?.token) {
+        onDispose { cancelPreparation() }
+    }
     fun switchEpisode(item: xyz.linplayer.app.data.Item) {
         scope.launch {
             runCatching { switchTarget(item.id, null, listOfNotNull(item.seriesName, item.name).joinToString(" · ")) }
@@ -499,6 +570,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         PlayerController.awaitPendingStop()
         coroutineContext.ensureActive()
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
+        ExoPreload.of(latestExo)?.deactivate()
         Libass.reset()
         // 通知权限在**这里**要,不在冷启动时要(U1.27):它只在后台播放挂通知栏时有意义
         (activity as? xyz.linplayer.app.PlayerActivity)?.askNotificationPermission()
@@ -509,6 +581,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
             val a = buildMap<String, Any> {
                 put("item_id", route.itemId)
                 put("engine", engine)
+                selectedPrepared?.let { put("prepared_id", it) }
                 if (route.fromStart) put("from_start", true)
                 route.versionId?.let { put("media_source_id", it) }
                 resumeOverride?.let {
@@ -527,6 +600,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
             }
             startupTiming.request()
             val r = app.call("player.play", controller.playbackArgs(a)).obj()
+            selectedPrepared = null
             coroutineContext.ensureActive()
             startupTiming.requestComplete()
             controller.resolved(r)
@@ -701,19 +775,32 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         osd = false
     }
 
-    // 定时进度上报由前台服务负责,应用退到后台后也继续执行。
-    DisposableEffect(Unit) {
-        onDispose {
-            DanmakuSession.invalidate()
-            app.wantsPip = false
-            PlaybackService.stop(ctx)
-            Libass.reset()
-            // ★ 走 app.bg 不走 scope:后者正在被取消,launch 出去的活一件都不跑
-            // 控制器只发已有 stopPlayback，内部携带当前 PlaySessionId 的 Stopped 上报。
-            // 播完传总时长；离页收尾登记屏障，下一页不能越过这次停止。
-            val p = if (duration > 0 && position >= duration - 2) duration else position
-            latestController.stopIn(app.bg, p, app::report)
+    // 返回结果送达前先登记停止屏障，详情可立即恢复并异步等上报完成。
+    var stopRegistered by remember { mutableStateOf(false) }
+    fun stopOnExit() {
+        if (stopRegistered) return
+        stopRegistered = true
+        cancelPreparation()
+        DanmakuSession.invalidate()
+        app.wantsPip = false
+        PlaybackService.stop(ctx)
+        ExoPreload.of(latestExo)?.deactivate()
+        Libass.reset()
+        // 离页作用域会被取消；收尾由进程作用域持有，完播位置使用总时长。
+        val p = if (duration > 0 && position >= duration - 2) duration else position
+        latestController.stopIn(app.bg, p, app::report)
+    }
+    LaunchedEffect(leaving) {
+        if (!leaving) return@LaunchedEffect
+        stopOnExit()
+        if (onExit != null) onExit(route.itemId.takeIf { route.src == null }) else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            delay(TurnSettleMs)
+            nav.popBackStack()
         }
+    }
+    DisposableEffect(Unit) {
+        onDispose { stopOnExit() }
     }
 
     /* 控制分派:整页只有这四个动作要认内核。
@@ -848,9 +935,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
             }
         }
     }
-    // 推送状态没有缓冲前沿；只在手机控件可见时读取命令版的绝对时间。
-    LaunchedEffect(controller, engine, exo, controlsVisible, lifecycleOwner) {
-        if (exo != null || !controlsVisible) return@LaunchedEffect
+    // 推送状态没有缓冲前沿；预加载调度也需要采样，不依赖控件显隐。
+    val needsBufferSample = controlsVisible || prepareSoon
+    LaunchedEffect(controller, engine, exo, needsBufferSample, lifecycleOwner) {
+        if (exo != null || !needsBufferSample) return@LaunchedEffect
         lifecycleOwner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             buffered = 0.0
             while (true) {

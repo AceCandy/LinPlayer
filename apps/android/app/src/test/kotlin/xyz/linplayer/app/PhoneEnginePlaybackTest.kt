@@ -86,7 +86,8 @@ class PhoneEnginePlaybackTest {
 
     @Test fun 手机完播连续切两集且旧集停止先于新集起播() {
         val core = episodeCore()
-        showPlayer(core, "mpv")
+        var returned: String? = null
+        showPlayer(core, "mpv", onExit = { returned = it })
         for (next in listOf("sh7", "sh8")) {
             rule.runOnIdle { core.tick(3658.0) }
             advance(rule, 300)
@@ -108,6 +109,103 @@ class PhoneEnginePlaybackTest {
             }
         }
         assertEquals(3, core.calls.count { it.first == "player.play" })
+        rule.runOnIdle { core.tick(120.0) }; advance(rule, 300)
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+        advance(rule, 300)
+        rule.runOnIdle { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
+        advance(rule, 300)
+        assertEquals("sh8", returned)
+        assertEquals(3, core.calls.count { it.first == "player.stopPlayback" })
+        assertEquals(120.0, core.calls.last { it.first == "player.stopPlayback" }.second.dbl("pos")!!, .01)
+    }
+
+    @Test fun 预加载缓冲门槛考虑倍速片尾和启停滞回() {
+        fun allowed(active: Boolean = false, buffering: Boolean = false, position: Double = 100.0,
+                    duration: Double = 200.0, buffered: Double = 130.0, speed: Double = 1.0) =
+            xyz.linplayer.app.ui.player.nextPreloadAllowed(active, buffering, position, duration, buffered, speed)
+        assertTrue(allowed())
+        assertFalse(allowed(buffered = 129.0))
+        assertTrue(allowed(active = true, buffered = 110.0))
+        assertFalse(allowed(active = true, buffered = 109.0))
+        assertFalse(allowed(buffering = true))
+        assertFalse(allowed(speed = 2.0))
+        assertTrue(allowed(position = 195.0, buffered = 200.0))
+        assertFalse(allowed(buffered = Double.NaN))
+        assertFalse(allowed(position = 200.0, buffered = 200.0))
+    }
+
+    @Test fun 控件隐藏时仍按缓冲启停下一集视频且保留准备信息() {
+        val core = episodeCore().apply {
+            on("player.prepareNext") { a -> buildJsonObject { put("request_id", a.str("request_id")) } }
+            ret("player.warmPrepared", buildJsonObject { put("matched", true) })
+            ret("player.status", buildJsonObject { put("buffered", 3605.0) })
+        }
+        showPlayer(core, "mpv")
+        rule.runOnIdle {
+            core.tick(3601.0)
+            xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false)
+        }
+        advance(rule, 1500)
+        assertEquals(1, core.calls.count { it.first == "player.prepareNext" })
+        assertFalse(core.calls.any { it.first == "player.warmPrepared" && it.second.bool("enabled") })
+        rule.runOnIdle { core.ret("player.status", buildJsonObject { put("buffered", 3640.0) }) }
+        advance(rule, 1500)
+        assertTrue(core.calls.last { it.first == "player.warmPrepared" }.second.bool("enabled"))
+        rule.runOnIdle { core.ret("player.status", buildJsonObject { put("buffered", 3606.0) }) }
+        advance(rule, 1500)
+        assertFalse(core.calls.last { it.first == "player.warmPrepared" }.second.bool("enabled"))
+        rule.runOnIdle { core.ret("player.status", buildJsonObject { put("buffered", 3640.0) }) }
+        advance(rule, 1500)
+        assertTrue(core.calls.last { it.first == "player.warmPrepared" }.second.bool("enabled"))
+        assertEquals(1, core.calls.count { it.first == "player.prepareNext" })
+        assertFalse(core.calls.any { it.first == "player.cancelPrepared" })
+    }
+
+    @Test fun 片尾准备结果用于下一集且手动切集保留异步上报标记() {
+        val core = episodeCore().apply {
+            on("player.prepareNext") { a -> buildJsonObject {
+                put("request_id", a.str("request_id")); put("media_source_id", "ea")
+            } }
+            ret("player.cancelPrepared", JsonNull)
+        }
+        showPlayer(core, "mpv")
+        rule.runOnIdle { core.tick(3601.0) }; advance(rule, 300)
+        val prepared = core.calls.single { it.first == "player.prepareNext" }.second
+        assertEquals("sh7", prepared.str("item_id"))
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 100)
+        rule.onNodeWithContentDescription("下一集").performClick(); advance(rule, 600)
+        assertEquals(prepared.str("request_id"), core.calls.last { it.first == "player.play" }.second.str("prepared_id"))
+        assertTrue(core.calls.last { it.first == "player.stopPlayback" }.second.bool("handoff"))
+        assertEquals(1, core.calls.count { it.first == "player.prepareNext" })
+    }
+
+    @Test fun 慢准备不阻塞切集且迟到结果不得污染新目标() {
+        val core = episodeCore().apply {
+            on("player.prepareNext") { a -> buildJsonObject { put("request_id", a.str("request_id")) } }
+            ret("player.cancelPrepared", JsonNull)
+        }
+        val release = CompletableDeferred<Unit>()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "player.prepareNext") kotlinx.coroutines.withContext(kotlinx.coroutines.NonCancellable) { release.await() }
+                return result
+            }
+        }
+        try {
+            showPlayer(port, "mpv")
+            rule.runOnIdle { core.tick(3601.0) }; advance(rule, 300)
+            val request = core.calls.single { it.first == "player.prepareNext" }.second.str("request_id")
+            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 100)
+            rule.onNodeWithContentDescription("下一集").performClick(); advance(rule, 600)
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            assertNull(core.calls.last { it.first == "player.play" }.second.str("prepared_id"))
+            assertTrue(core.calls.any { it.first == "player.cancelPrepared" && it.second.str("request_id") == request })
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
+            assertEquals(2, core.calls.count { it.first == "player.play" })
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            assertNull(core.calls.last { it.first == "player.play" }.second.str("prepared_id"))
+        } finally { release.complete(Unit) }
     }
 
     @Test fun 手机中途断流不得自动切到下一集() {
@@ -1361,7 +1459,7 @@ class PhoneEnginePlaybackTest {
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
 
-    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null, subtitle: String? = null) {
+    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null, subtitle: String? = null, onExit: ((String?) -> Unit)? = null) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
@@ -1377,7 +1475,7 @@ class PhoneEnginePlaybackTest {
                         composable<Route.Player> { entry ->
                             CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides
                                 (owner ?: androidx.lifecycle.compose.LocalLifecycleOwner.current)) {
-                                PlayerPage(nav, entry)
+                                PlayerPage(nav, entry, onExit = onExit)
                             }
                         }
                     }
