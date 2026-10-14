@@ -1838,3 +1838,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 63: 聚合主服与刷新体验修复交付
+<!-- trellis-session: v=2 fp=ba025760e3989ad9 -->
+
+**Date**: 2026-10-15
+**Task**: 聚合主服与刷新体验修复交付
+**Branch**: `main`
+
+### Summary
+
+完成聚合主服持久化、跨服和扩展海报、统计缓存刷新及榜单分类；审查后修复取消任务覆盖刷新模式，回归先红后绿。核心完整门禁、绑定、Android 定向测试与隐私检查通过。任务已归档，Android 手机 arm64 release 包已构建，28.37 MiB，v2/v3 签名、ELF、压缩和交付一致性通过；未做真机实服验收。本地构建未配置发行凭据。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0cd4cb0b` | fix(android): 修复聚合主服、海报与刷新体验 |
+
+### Status
+
+[OK] **Completed**
