@@ -130,7 +130,7 @@ class SeasonSelectionTest {
         put("items", arr(item("$parent-$label", label, "Episode", season = if (parent == "s1") 1 else 2, episode = 1)))
     }
 
-    private fun open(tv: Boolean = false, total: Int = 1, holdAtStart: Boolean = false, resumeEpisode: Int? = null, dark: Boolean = false, episodeStates: Boolean = false) {
+    private fun open(tv: Boolean = false, total: Int = 1, holdAtStart: Boolean = false, resumeEpisode: Int? = null, dark: Boolean = false, episodeStates: Boolean = false, noSeasons: Boolean = false, seasonFailure: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val fake = FakeCore().loggedIn()
@@ -139,11 +139,12 @@ class SeasonSelectionTest {
             if (episodeStates) put("overview", overview)
         })
         fake.ret("emby.seriesSeasons", buildJsonArray {
-            for (i in 1..2) add(buildJsonObject {
+            for (i in 1..if (noSeasons) 0 else 2) add(buildJsonObject {
                 put("id", "s$i"); put("name", "第 $i 季"); put("type_", "Season")
                 put("index_no", i); put("child_count", total); put("unplayed", total)
             })
         })
+        if (seasonFailure) fake.on("emby.seriesSeasons") { throw CoreException("E_NETWORK", "季列表测试失败", true) }
         fake.ret("emby.listResume", if (resumeEpisode == null) arr() else arr(
             item("s1-${resumeEpisode - 1}", "续播目标", "Episode", season = 1, episode = resumeEpisode, seriesId = "series")))
         fake.on("emby.seasonEpisodes") { args ->
@@ -225,6 +226,74 @@ class SeasonSelectionTest {
             .performScrollToIndex(402)
         pageText("s1 分集 403", substring = true).assertIsDisplayed()
     }
+
+    @Test fun phoneWithoutSeasonsLoadsEveryPageAndPlaysEpisode() {
+        open(total = 403, noSeasons = true)
+        assertEquals(listOf("series", "series", "series"), core.episodeArgs.map { it.str("parent_id") })
+        assertEquals(listOf(0L, 150L, 300L), core.episodeArgs.map { it.long("start_index") })
+        pageText("已看 0 / 403").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("detail.play").performScrollTo().performClick()
+        assertEquals("series-0", phoneNav.currentBackStackEntry!!.toRoute<Route.Player>().itemId)
+    }
+
+    @Test fun phoneWithoutSeasonsRetriesFirstPage() {
+        open(noSeasons = true, holdAtStart = true)
+        assertEquals("series", core.pending.single().parent)
+        pageText("暂无可用选集").assertDoesNotExist()
+        rule.runOnIdle { core.pending.single().fail() }
+        rule.waitForIdle()
+        pageText("分页测试失败", substring = true).performScrollTo().assertIsDisplayed()
+        pageText("重试").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("series", "series"), core.pending.map { it.parent })
+        rule.runOnIdle { core.pending.last().complete(page("series", "直接挂集")) }
+        rule.waitForIdle()
+        pageText("直接挂集", substring = true).performScrollTo().assertIsDisplayed()
+        pageText("重试").assertDoesNotExist()
+    }
+
+    @Test fun phoneWithoutSeasonsShowsEmptyOnlyAfterEpisodesReturn() {
+        open(noSeasons = true, holdAtStart = true)
+        assertEquals("series", core.pending.single().parent)
+        pageText("暂无可用选集").assertDoesNotExist()
+        rule.runOnIdle { core.pending.single().complete(buildJsonObject {
+            put("total", 0); put("items", arr())
+        }) }
+        rule.waitForIdle()
+        pageText("暂无可用选集").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithContentDescription("正在加载分集…").assertDoesNotExist()
+    }
+
+    @Test fun phoneSeasonFailureDoesNotFallBackToSeries() {
+        open(seasonFailure = true)
+        assertTrue(core.episodeArgs.isEmpty())
+        pageText("季列表测试失败", substring = true).performScrollTo().assertIsDisplayed()
+        rule.runOnIdle { core.fake.ret("emby.seriesSeasons", arr()) }
+        pageText("重试").performScrollTo().performClick()
+        rule.waitForIdle()
+        assertEquals(listOf("series"), core.episodeArgs.map { it.str("parent_id") })
+        pageText("series 分集 1", substring = true).performScrollTo().assertIsDisplayed()
+    }
+
+    private fun emptySeasonsOnDetail(type: String, seasonId: String? = null) {
+        open(noSeasons = true)
+        rule.runOnIdle {
+            core.fake.ret("emby.itemDetail", buildJsonObject {
+                item("target", "无季列表详情", type, seriesId = "series").forEach { (k, v) -> put(k, v) }
+                if (seasonId != null) put("season_id", seasonId)
+            })
+            core.episodeArgs.clear()
+            phoneNav.navigate(Route.Detail("target", type))
+        }
+        rule.waitForIdle()
+        val parent = if (type == "Season") "target" else seasonId ?: "series"
+        assertEquals(listOf(parent), core.episodeArgs.map { it.str("parent_id") })
+        pageText("$parent 分集 1", substring = true).performScrollTo().assertIsDisplayed()
+    }
+
+    @Test fun phoneEpisodeWithoutSeasonsUsesSeries() = emptySeasonsOnDetail("Episode")
+    @Test fun phoneEpisodeWithoutSeasonsKeepsKnownSeason() = emptySeasonsOnDetail("Episode", "known-season")
+    @Test fun phoneSeasonWithoutSeasonsKeepsRouteParent() = emptySeasonsOnDetail("Season")
 
     private fun batch(start: Int, end: Int, total: Int = 12) = buildJsonObject {
         put("total", total)
@@ -474,8 +543,8 @@ class SeasonSelectionTest {
         pageText("浏览第二季", substring = true).assertExists()
     }
 
-    @Test fun phoneDiscardsResponseAfterLeaving() {
-        open(holdAtStart = true)
+    private fun phoneDiscardsResponseAfterLeaving(noSeasons: Boolean) {
+        open(holdAtStart = true, noSeasons = noSeasons)
         rule.runOnIdle { phoneNav.navigate(Route.Detail("other", "Movie")) }
         rule.waitForIdle()
         assertTrue(core.pending.single().job.isCancelled)
@@ -484,8 +553,11 @@ class SeasonSelectionTest {
         rule.runOnIdle { core.hold = false; phoneNav.popBackStack() }
         rule.waitForIdle()
         pageText("离页迟到响应", substring = true).assertDoesNotExist()
-        pageText("s1 分集 1", substring = true).performScrollTo().assertIsDisplayed()
+        pageText("${if (noSeasons) "series" else "s1"} 分集 1", substring = true).performScrollTo().assertIsDisplayed()
     }
+
+    @Test fun phoneDiscardsResponseAfterLeaving() = phoneDiscardsResponseAfterLeaving(false)
+    @Test fun phoneWithoutSeasonsDiscardsResponseAfterLeaving() = phoneDiscardsResponseAfterLeaving(true)
 
     @Test
     @Config(qualifiers = "w960dp-h540dp-mdpi")

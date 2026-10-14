@@ -299,7 +299,7 @@ func (c *Client) Seasons(ctx context.Context, s *Session, seriesID string) ([]Se
 	u := fmt.Sprintf("%s/Users/%s/Items?ParentId=%s&IncludeItemTypes=Season"+
 		"&SortBy=IndexNumber&SortOrder=Ascending&Fields=ChildCount",
 		s.Server, url.PathEscape(s.UserID), url.QueryEscape(seriesID))
-	b, err := c.getBytes(ctx, s, u)
+	b, err := c.getItemsBytes(ctx, s, u)
 	if err != nil {
 		return nil, err
 	}

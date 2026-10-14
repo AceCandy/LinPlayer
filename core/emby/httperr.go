@@ -32,7 +32,10 @@ func (e *StatusError) Error() string {
 	case http.StatusNotFound:
 		// ★ 404 在登录这一步几乎总是**地址填错**,不是「服务器没这个用户」。
 		//   写成「找不到」会把人往查账号的方向带。
-		return e.What + "失败:这个地址上没有 Emby 接口(HTTP 404),检查一下服务器地址"
+		if e.What == "登录" {
+			return e.What + "失败:这个地址上没有 Emby 接口(HTTP 404),检查一下服务器地址"
+		}
+		return e.What + "失败:服务器未找到请求的内容或接口(HTTP 404)"
 	}
 	return fmt.Sprintf("%s失败:服务器返回 HTTP %d", e.What, e.Status)
 }

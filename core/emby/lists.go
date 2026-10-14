@@ -503,6 +503,24 @@ func (c *Client) CountsOf(ctx context.Context, s *Session) (*Counts, error) {
 	}, nil
 }
 
+// getItemsBytes 兼容仅提供 /Items?UserId= 的服务端，保留列表查询的用户、分页与筛选。
+func (c *Client) getItemsBytes(ctx context.Context, s *Session, u string) ([]byte, error) {
+	b, err := c.getBytes(ctx, s, u)
+	if StatusOf(err) != http.StatusNotFound || ctx.Err() != nil {
+		return b, err
+	}
+	query, ok := strings.CutPrefix(u, s.Server+"/Users/"+url.PathEscape(s.UserID)+"/Items?")
+	if !ok {
+		return b, err
+	}
+	params, parseErr := url.ParseQuery(query)
+	if parseErr != nil {
+		return b, err
+	}
+	params.Set("UserId", s.UserID)
+	return c.getBytes(ctx, s, s.Server+"/Items?"+params.Encode())
+}
+
 // getBytes 是所有「不走 {Items} 包裹」的端点共用的取字节。
 func (c *Client) getBytes(ctx context.Context, s *Session, u string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)

@@ -369,7 +369,7 @@ func NewClient(version string) *Client {
 
 // fetchPage 取一页(含总数)。**所有 {Items} 包裹的列表端点都从这里过。**
 func (c *Client) fetchPage(ctx context.Context, s *Session, u string) (*Page, error) {
-	b, err := c.getBytes(ctx, s, u)
+	b, err := c.getItemsBytes(ctx, s, u)
 	if err != nil {
 		return nil, err
 	}

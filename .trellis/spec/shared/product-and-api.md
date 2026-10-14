@@ -46,3 +46,6 @@
 - 媒体库网格按 `ParentId` 浏览直属内容（`Recursive=false`），不固定 `IncludeItemTypes`，也不按库名或 `CollectionType` 猜测查询类型；内容类型与层级以服务器返回为准，避免电影库被误查成剧集列表或剧集库展开成散装分集。分页、排序与用户条件筛选仍沿用同一查询范围。
 - 收藏查询保留 `Filters=IsFavorite&Recursive=true`，不固定 `IncludeItemTypes`；分页与全量入口一致，由服务端返回支持的收藏类型，避免混入不支持的类型导致整页为空。
 - 涉及 API 行为的修改,需要契约回归和与 MediaStationGo 的真实联调。使用脱敏数据;mock / 单测、编译和出包通过不能替代实际登录、浏览、起播、拖动进度、续播、换集与上报验证。
+
+- `/Users/{user}/Items` 列表返回404时可回退同服务器、同前缀的 `/Items?UserId=...`；原ParentId、类型、Fields、排序和分页参数全部保留，两次请求均鉴权并使用同一context。401/403/5xx、取消、成功空结果不触发回退，条目详情路径不改写，替代请求失败保留其真实错误。`items_route_test.go`覆盖前缀、查询、分页、鉴权、失败与取消。基准为MediaStationGo fa61d42当前工作树的同一Items handler；未验证问题服务器，不能将mock通过当成实服404已解决。
+- 空季回退和接口404是不同故障分支，诊断与回归须分别覆盖；非登录请求的404仅说明内容或接口未找到，不直接指责服务器地址错误。
