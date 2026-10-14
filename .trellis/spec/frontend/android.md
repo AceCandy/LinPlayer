@@ -190,3 +190,5 @@
 
 - Media3 ASS 的 NONE 字体提供者不会解析 Android 泛族名 `sans-serif`，必须传入实际可读的系统字体文件兜底；原样式/附件字体仍优先。附件先到可能已创建 ASS_Library，开轨的字体目录设置不能放在“首次建库”分支内；追加附件重建选择器时保持同一兜底。渲染返回1只说明位图已更新，透明帧不证明字幕可见；回归断言实际非透明像素、移动特效、内封/外挂、结束清屏，设备测试见 AssRenderTest。
 - 手机字幕菜单按运行期 codec/MIME 显示 ASS/SSA、SRT、WebVTT、PGS 等及文本/特效/图形类型，Media3 转码轨从 codecs 读取原 MIME；未知格式不猜测，MPV外置标记取external。第一行已显示语言时第二行不重复。时间保持顶部固定，网速位于第一排操作按钮下方，不能放在按钮上面；窄横屏/竖屏大字需断言网速和倍率按钮不重叠。
+
+- Media3 1.11.0 的 `DefaultMediaSourceFactory` 有外挂配置时创建一层 `MergingMediaSource`，全部轨道（含主源内封）ID 被加上子源索引。`syncLibassTrack(player, tracks, subOff)` 仅在当前媒体有外挂配置时去一层前缀，再与解析器注册的原 ID 匹配；如 `0:original:track` → `original:track`，无合并时必须原样保留。合并的空后缀恢复原 null ID 的 `ass` fallback。禁止无条件取最后一段或按语言/名称串轨。`ExoAssMergeTest` 必须用真实工厂/解封装覆盖外挂切换与有无外挂的内封开轨；仅手工拼 ID 的状态机测试不能代替合并边界回归。

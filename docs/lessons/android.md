@@ -1259,3 +1259,11 @@ Compose 1.12 的 `ui` 里确实带着 `androidx.compose.ui.scrollcapture.*`,
 修复：设置实际可读字体文件作为最终兜底，样式和附件字体仍优先；每次开轨设置目录，附件刷新保留同一兜底。主线程用工作树JNI的C前导直接连接宿主libass 0.17.1做前后验证，仅JNI对象与AndroidBitmap容器用测试适配，字体选择、ASS解析、渲染及混合均运行真实代码：旧版在普通/提前建库两种次序均0像素；新版均3292像素，外挂/内封、move、字体刷新及结束清屏通过。Android设备回归保存在AssRenderTest，设备结果单独记录，不能用宿主库代替包内库验收。
 
 预防：字体修复需同时核查MPV与Media3各自初始化入口；此轮MPV已有实际族名选择，未改MPV行为。回归必须检查像素而不是开轨/返回码，区分合成样本与用户片源、宿主与设备，不能从局部单测宣布特效字幕整体已验。
+
+## 2026-10-14 · ASS数据已解析但合并后所选ID无法匹配
+
+根因类别：跨层身份契约与集成测试缺口。Media3 1.11.0 的 DefaultMediaSourceFactory 先按 SubtitleConfiguration.id 创建外挂解析器，再把主源和外挂交给 MergingMediaSource。MergingMediaPeriod.onPrepared 给每个 Format.id 加 `子源索引:`；Libass按原ID保存头/文件，选轨同步却用带前缀ID查找。外挂 `external-subtitle-…` 与所选 `1:external-subtitle-…` 不相等；主源内封只要同时配置任意外挂也会被加 `0:`。
+
+上轮字体修复解决了真实字体空图，但单点测试直接给Libass相同ID，绕过了工厂的合并步骤，因此不能证明解析到选轨的身份一致。此次在共享选轨边界仅按当前媒体外挂配置去除一层前缀，不改原ID中的冒号，不引入语言/标题猜测。手机与TV共用该入口。
+
+防复发：真实ExoPlayer + DefaultMediaSourceFactory + LibassParserFactory加载自制WAV/外挂与仅含ASS的MKV，断言实际合并ID、JNI开轨的脚本/头、切轨与关闭；另测无合并含冒号、null fallback、头晚到。JNI影子只验证调用边界，不执行像素渲染。用户具体片源及Android设备渲染仍需独立验收，不能把此断点视作用户影片唯一成因。

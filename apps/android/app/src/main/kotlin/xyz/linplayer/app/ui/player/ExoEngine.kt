@@ -288,7 +288,7 @@ fun ExoSurface(
     DisposableEffect(player, subOff) {
         // 监听器只管「以后」,而这次注册可能已经晚了(subOff 一变就重挂一次)
         take(player.videoSize)
-        syncLibassTrack(player.currentTracks, subOff)
+        syncLibassTrack(player, player.currentTracks, subOff)
         val l = object : Player.Listener {
             override fun onVideoSizeChanged(size: VideoSize) { take(size) }
 
@@ -299,7 +299,7 @@ fun ExoSurface(
                 if (ratio <= 0f) videoOf(tracks)?.let { (w, h, r) ->
                     ratio = r; videoW = w; videoH = h
                 }
-                syncLibassTrack(tracks, subOff)
+                syncLibassTrack(player, tracks, subOff)
             }
         }
         player.addListener(l)
@@ -384,7 +384,7 @@ private fun videoOf(tracks: Tracks): Triple<Int, Int, Float>? {
  * ★ 内封和外挂ASS共用轨道表，只打开实际选中的那一条。
  */
 @OptIn(UnstableApi::class)
-private fun syncLibassTrack(tracks: Tracks, subOff: Boolean) {
+internal fun syncLibassTrack(player: ExoPlayer, tracks: Tracks, subOff: Boolean) {
     if (!Libass.available || subOff) {
         Logs.d(TAG_EXO, "libass 不走这条路: available=${Libass.available} subOff=$subOff")
         Libass.deactivate(); return
@@ -396,7 +396,11 @@ private fun syncLibassTrack(tracks: Tracks, subOff: Boolean) {
     Logs.d(TAG_EXO, "选中字幕轨 id=${sel?.id} mime=${sel?.sampleMimeType}" +
         " codecs=${sel?.codecs} 判为 ASS=${Libass.isAss(sel)}")
     if (sel != null && Libass.isAss(sel)) {
-        val ok = Libass.activateTrack(sel.id ?: "ass", FONTS_DIR)
+        // DefaultMediaSourceFactory 有外挂时合并所有子源，选轨 ID 比解析器多一层索引前缀。
+        // 只去这一层，保留原 ID 内的冒号；主源内封轨也带 0: 前缀。
+        val merged = player.currentMediaItem?.localConfiguration?.subtitleConfigurations?.isNotEmpty() == true
+        val id = if (merged) sel.id?.substringAfter(':')?.ifEmpty { null } else sel.id
+        val ok = Libass.activateTrack(id ?: "ass", FONTS_DIR)
         Logs.d(TAG_EXO, "交给 libass: $ok")
         if (ok) return
     }
