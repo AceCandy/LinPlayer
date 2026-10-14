@@ -1794,3 +1794,25 @@
 ### Next Steps
 
 - 无活动 Trellis task；如需发布可使用现有 Android release APK。
+
+
+## Session 61: 播放器连播进度与下一集预加载优化
+<!-- trellis-session: v=2 fp=b8a69f0421c0a422 -->
+
+**Date**: 2026-10-14
+**Task**: 播放器连播进度与下一集预加载优化
+**Branch**: `main`
+
+### Summary
+
+提交播放器退出详情进度刷新、连播目标回传、Media3预加载接管、核心准备代理与按缓冲状态分阶段预加载；通过Android、Go race、核心和绑定门禁。重新构建Android release包。无活动Trellis任务可归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2460fb8a` | fix(android): 优化连播进度与下一集预加载 |
+
+### Status
+
+[OK] **Completed**
