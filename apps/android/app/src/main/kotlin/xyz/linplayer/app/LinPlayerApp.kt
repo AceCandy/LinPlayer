@@ -30,6 +30,16 @@ class LinPlayerApp : Application(), SingletonImageLoader.Factory {
         xyz.linplayer.app.data.BrowseCache(java.io.File(cacheDir, "browse-v1"))
     }
 
+    /** 浏览与独立播放器共用会话；事件收集不能随主 Activity 销毁。 */
+    private val appScope = kotlinx.coroutines.CoroutineScope(
+        kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
+    val appState by lazy {
+        xyz.linplayer.app.data.AppState(core, appScope, detailCache, browseCache).also { app ->
+            runCatching { android.provider.Settings.Secure.getString(contentResolver,
+                android.provider.Settings.Secure.ANDROID_ID) }.getOrNull()?.let(app::setDeviceId)
+        }
+    }
+
     override fun attachBaseContext(base: Context) {
         super.attachBaseContext(base)
         // provider 在 Application.onCreate 前执行,诊断包必须在这之前留下 JVM 异常。

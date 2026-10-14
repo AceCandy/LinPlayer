@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -37,6 +38,10 @@ import xyz.linplayer.app.ui.theme.Sp
  */
 @Composable
 fun PhonePluginDialog() {
+    // 浏览与播放是两个窗口，只有前台宿主呈现全局请求，避免在后台窗口重复弹出。
+    val lifecycle by androidx.lifecycle.compose.LocalLifecycleOwner.current.lifecycle.currentStateFlow
+        .collectAsState()
+    if (!lifecycle.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return
     val req by PluginDialogs.current
     val r = req ?: return
     val cancel = { r.reply(PluginDialogs.cancelValue(r.op)) }

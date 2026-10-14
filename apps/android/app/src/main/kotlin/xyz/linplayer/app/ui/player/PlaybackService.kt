@@ -177,7 +177,7 @@ class PlaybackService : Service() {
         scope.cancel()
         stopForeground(STOP_FOREGROUND_REMOVE)
         (getSystemService(NOTIFICATION_SERVICE) as NotificationManager).cancel(NOTI_ID)
-        if (bindingGeneration == playbackGeneration) { playbackApp = null; externalPlayer = null; externalController = null }
+        if (bindingGeneration == playbackGeneration) { playbackApp = null; externalPlayer = null; externalController = null; resumeActivity = null }
         super.onDestroy()
     }
 
@@ -303,7 +303,7 @@ class PlaybackService : Service() {
 
     private fun buildNotification(title: String, paused: Boolean): Notification {
         val open = PendingIntent.getActivity(
-            this, 0, Intent(this, MainActivity::class.java),
+            this, 0, resumeActivity ?: Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT,
         )
         return NotificationCompat.Builder(this, CHANNEL)
@@ -344,6 +344,7 @@ class PlaybackService : Service() {
         private var mediaTitle = "LinPlayer"
         private var activeService: PlaybackService? = null
         private var playbackGeneration = 0L
+        private var resumeActivity: Intent? = null
 
         /** 页面手动操作优先于失焦前保存的恢复意图。 */
         fun onUserPause(paused: Boolean) {
@@ -360,6 +361,11 @@ class PlaybackService : Service() {
 
         internal fun start(ctx: Context, app: AppState, exo: ExoPlayer?, title: String, controller: PlayerController? = null) {
             playbackGeneration++
+            // 回到仍持有解码器的窗口，不能启动 singleTask 主入口把播放器清出栈。
+            resumeActivity = (ctx as? xyz.linplayer.app.PlayerActivity)?.let {
+                Intent(ctx, it.javaClass)
+                    .addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+            }
             playbackApp = app; externalPlayer = exo; externalController = controller; mediaTitle = title
             ContextCompat.startForegroundService(ctx, Intent(ctx, PlaybackService::class.java))
         }
@@ -367,7 +373,7 @@ class PlaybackService : Service() {
             playbackGeneration++
             activeService?.polling?.cancel()
             ctx.stopService(Intent(ctx, PlaybackService::class.java))
-            playbackApp = null; externalPlayer = null; externalController = null
+            playbackApp = null; externalPlayer = null; externalController = null; resumeActivity = null
         }
     }
 }

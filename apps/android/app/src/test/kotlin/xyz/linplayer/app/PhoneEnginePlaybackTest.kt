@@ -1307,6 +1307,50 @@ class PhoneEnginePlaybackTest {
         rule.runOnIdle { assertEquals(134217728, actualBufferTarget(currentExo())) }
     }
 
+    @Test fun detailSubtitleIsAppliedAfterTracksArrive() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.play", buildJsonObject { put("media_source_id", "requested-version") })
+            ret("player.tracks", arr(buildJsonObject {
+                put("kind", "sub"); put("id", "chosen-srt"); put("ff_index", 4)
+            }))
+            ret("player.setTrack", JsonNull)
+        }
+        showPlayer(core, "mpv", subtitle = """{"sourceId":"requested-version","index":4,"codec":"subrip"}""")
+        advance(rule, 2_000)
+        assertEquals(listOf("chosen-srt"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
+    }
+
+    @Test fun detailExoSubtitleFollowsLateTracksBeyondPollingWindow() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.play", buildJsonObject { put("media_source_id", "requested-version") })
+            ret("prefs.getPrefs", buildJsonObject { put("sub_lang", "chi"); put("sub_regex", "ASS") })
+        }
+        showPlayer(core, "exo", subtitle = """{"sourceId":"requested-version","index":4,"title":"中文","language":"chi","codec":"subrip"}""")
+        advance(rule, 13_000)
+        lateinit var wanted: TrackGroup
+        rule.runOnIdle {
+            val player = currentExo()
+            fun group(mime: String) = Tracks.Group(TrackGroup(mime,
+                Format.Builder().setSampleMimeType(mime).setLabel("中文").setLanguage("zh").build()),
+                false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false))
+            val ass = group(MimeTypes.TEXT_SSA)
+            val srt = group(MimeTypes.APPLICATION_SUBRIP)
+            wanted = srt.mediaTrackGroup
+            val tracks = Tracks(listOf(ass, srt))
+            val info: Any = ReflectionHelpers.getField(player, "playbackInfo")
+            val selector: Any = ReflectionHelpers.getField(info, "trackSelectorResult")
+            ReflectionHelpers.setField(selector, "tracks", tracks)
+            val listeners: androidx.media3.common.util.ListenerSet<androidx.media3.common.Player.Listener> =
+                ReflectionHelpers.getField(player, "listeners")
+            listeners.sendEvent(androidx.media3.common.Player.EVENT_TRACKS_CHANGED) { it.onTracksChanged(tracks) }
+        }
+        advance(rule, 100)
+        rule.runOnIdle {
+            assertTrue(currentExo().trackSelectionParameters.overrides.containsKey(wanted))
+            assertEquals(1, currentExo().trackSelectionParameters.overrides.size)
+        }
+    }
+
     private fun assertNoFallback(mode: String, errorCode: Int) {
         val core = FakeCore().loggedIn().player()
         showPlayer(core, mode)
@@ -1317,7 +1361,7 @@ class PhoneEnginePlaybackTest {
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
 
-    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null) {
+    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null, subtitle: String? = null) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
@@ -1329,7 +1373,7 @@ class PhoneEnginePlaybackTest {
                     val context = LocalContext.current
                     SideEffect { activity = context as Activity }
                     val nav = rememberNavController()
-                    NavHost(nav, startDestination = Route.Player("sh6", "测试剧集", versionId = "requested-version", engine = mode, ar = ar)) {
+                    NavHost(nav, startDestination = Route.Player("sh6", "测试剧集", versionId = "requested-version", engine = mode, ar = ar, subtitle = subtitle)) {
                         composable<Route.Player> { entry ->
                             CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides
                                 (owner ?: androidx.lifecycle.compose.LocalLifecycleOwner.current)) {

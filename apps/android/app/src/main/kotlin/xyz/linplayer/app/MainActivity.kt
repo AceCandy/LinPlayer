@@ -1,7 +1,6 @@
 package xyz.linplayer.app
 
 import android.Manifest
-import android.app.PictureInPictureParams
 import android.app.UiModeManager
 import android.content.Context
 import android.content.Intent
@@ -9,8 +8,6 @@ import android.content.pm.PackageManager
 import android.content.res.Configuration
 import android.os.Build
 import android.os.Bundle
-import android.provider.Settings
-import android.util.Rational
 import androidx.activity.ComponentActivity
 import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
@@ -33,10 +30,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.ui.theme.LpTheme
 
-/**
- * 单 Activity。**双形态分流靠 UiModeManager,不是两个 Activity**(U1.1)——
- * 两个 Activity 意味着两份深链、两份生命周期、两份 surface 交接。
- */
+/** 浏览入口按设备形态分流；手机播放由独立 Activity 承载。 */
 class MainActivity : ComponentActivity() {
 
     private lateinit var app: AppState
@@ -50,6 +44,16 @@ class MainActivity : ComponentActivity() {
     private val askStorage =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒了就只是列不出文件,不拦流程 */ }
 
+    override fun onDestroy() {
+        xyz.linplayer.app.plugin.PluginShell.release(this)
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        xyz.linplayer.app.plugin.PluginShell.activate(this)
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         // 开屏必须在 super.onCreate 之前装(U1.17)。
         // ★ 不挂 setKeepOnScreenCondition:核心层已经在 Application 里起好了,
@@ -60,12 +64,7 @@ class MainActivity : ComponentActivity() {
         // 两套配色由应用控制，避免平台再次把浅色页面强制改成深色。
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
 
-        app = AppState((application as LinPlayerApp).core, lifecycleScope,
-            (application as LinPlayerApp).detailCache, (application as LinPlayerApp).browseCache)
-        // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,续播会话也对不上
-        runCatching {
-            Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        }.getOrNull()?.let { app.setDeviceId(it) }
+        app = (application as LinPlayerApp).appState
 
         // 上次崩了就自动把现场发给开发者,不问(用户说不清出了什么问题)
         if (!BuildConfig.STARTUP_DIAGNOSTICS) lifecycleScope.launch {
@@ -192,26 +191,6 @@ class MainActivity : ComponentActivity() {
         else Manifest.permission.READ_EXTERNAL_STORAGE
         if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) return
         askStorage.launch(perm)
-    }
-
-    /**
-     * 画中画(U1.25)。Home 键进 PiP。
-     * ★ 分屏 / 自由窗口下**不进 PiP**(那是两个窗口管理器在抢同一件事)。
-     */
-    override fun onUserLeaveHint() {
-        super.onUserLeaveHint()
-        enterPlayerPip()
-    }
-
-    /** 播放器快捷按钮与 Home 键共用系统画中画入口。 */
-    fun enterPlayerPip(): Boolean {
-        if (!::app.isInitialized || Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return false
-        if (isInMultiWindowMode || !app.wantsPip || !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
-        return runCatching {
-            enterPictureInPictureMode(
-                PictureInPictureParams.Builder().setAspectRatio(Rational(16, 9)).build()
-            )
-        }.getOrDefault(false)
     }
 
     /** 走 TV 形态吗。主题要在 setContent 之前按端加载,所以这一判要能单独拿出来。 */

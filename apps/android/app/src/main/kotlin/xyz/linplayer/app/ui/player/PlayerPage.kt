@@ -225,7 +225,9 @@ private val speedWrites = Mutex()
  *   各写一个播放页的下场是「换个内核续播就不对了」。
  */
 @Composable
-fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
+fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
+    clickedAt: Long? = null, onExit: (() -> Unit)? = null,
+) {
     var route by remember(entry) { mutableStateOf(entry.toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
     var resumeOverride by remember { mutableStateOf<Double?>(null) }
@@ -234,7 +236,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
     val scope = rememberCoroutineScope()
     var startupOrigin by remember(entry) {
-        val clickedAt = PlaybackClickTimes.take(entry)
+        val clickedAt = clickedAt ?: PlaybackClickTimes.take(entry)
         mutableStateOf((clickedAt ?: android.os.SystemClock.elapsedRealtime()) to
             if (clickedAt != null) StartupOrigin.CLICK else StartupOrigin.PAGE)
     }
@@ -306,16 +308,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     /** 失败时给用户看的**具体原因**,不是「原因在日志里」。见 [failureDiag]。 */
     var failReason by remember { mutableStateOf<String?>(null) }
 
-    /* 退场:**先松方向锁、等屏幕转回去,再 pop**。
-       直接 pop 的话系统拍到的是详情页横着的第一帧,转过来就是用户说的「反之也有」;
-       在这儿转,拍到的是播放页那块黑幕。等的这一下顺带把 OSD 撤了(见 [leaving])。 */
+    /* 独立窗口退出时直接结束，不在播放器内先转回竖屏。
+       内嵌宿主保留黑幕转向再返回的路径。 */
     var leaving by remember { mutableStateOf(false) }
     val leave: () -> Unit = { leaving = true }
     LaunchedEffect(leaving) {
         if (!leaving) return@LaunchedEffect
-        activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
-        delay(TurnSettleMs)
-        nav.popBackStack()
+        if (onExit != null) onExit() else {
+            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            delay(TurnSettleMs)
+            nav.popBackStack()
+        }
     }
 
     /* 内核模式。★ 每个播放目标读一次就钉住:
@@ -346,6 +349,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     /* 字幕语言偏好。**要在建 ExoPlayer 之前读到** —— ExoPlayer 的轨道选择是
        「参数变了才重选」,建完再补一次也行,但首帧那几秒会没有字幕。
        `null` = 还没读到,`""` = 没有语言偏好(那是**默认状态**,不是「关了字幕」)。 */
+    val initialSubtitle = remember(route.subtitle) {
+        route.subtitle?.let { kotlinx.serialization.json.Json.decodeFromString<InitialSubtitle>(it) }
+    }
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     var bufferTargetBytes by remember { mutableStateOf(0L) }
     /* ☠ **「关字幕」的开关是 `sub_enabled`,不是「语言偏好为空」。**
@@ -364,11 +370,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
-            subEnabled = p.boolOrNull("sub_enabled") != false,
+            subEnabled = initialSubtitle?.let { it.index != null } ?: (p.boolOrNull("sub_enabled") != false),
         )
-        subOff = p.boolOrNull("sub_enabled") == false
+        subOff = initialSubtitle?.let { it.index == null } ?: (p.boolOrNull("sub_enabled") == false)
     }
-    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes)
+    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null)
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
     ObserveSeekTiming(controller)
@@ -392,7 +398,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
             resumeOverride = resumeAt
             startupOrigin = switchedAt to StartupOrigin.TARGET
             route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
-                versionId = versionId, fromStart = false, ar = 0f)
+                versionId = versionId, fromStart = false, ar = 0f, subtitle = null)
         } finally { switching = false }
     }
     /* 画面比例【用户定 2026-09-07】。★ **不持久化** —— 和画面增强档位同一条口径:
@@ -495,7 +501,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
         Libass.reset()
         // 通知权限在**这里**要,不在冷启动时要(U1.27):它只在后台播放挂通知栏时有意义
-        (activity as? xyz.linplayer.app.MainActivity)?.askNotificationPermission()
+        (activity as? xyz.linplayer.app.PlayerActivity)?.askNotificationPermission()
         app.wantsPip = true
         runCatching {
             // 详情页选了版本就带上。没选就传空 —— **不许自己回落 versions[0]**,
@@ -652,16 +658,38 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
 
     // 恢复窗口从起播成功后计时，慢取流不能耗尽晚到轨道的重试次数。
     val tracksReady = controller.ready
+    // 外挂轨可能晚于起播很久才出现；真实轨表变化后再尝试，不受MPV轮询窗口限制。
+    var initialSubtitleGroups by remember(exo) { mutableStateOf(emptyList<androidx.media3.common.TrackGroup>()) }
+    DisposableEffect(exo, initialSubtitle) {
+        val listener = object : androidx.media3.common.Player.Listener {
+            override fun onTracksChanged(tracks: androidx.media3.common.Tracks) {
+                initialSubtitleGroups = tracks.groups.map { it.mediaTrackGroup }
+            }
+        }
+        if (initialSubtitle != null) {
+            exo?.addListener(listener)
+            exo?.let { listener.onTracksChanged(it.currentTracks) }
+        }
+        onDispose { exo?.removeListener(listener) }
+    }
+    LaunchedEffect(controller, exo, tracksReady, initialSubtitle, initialSubtitleGroups) {
+        if (exo != null && tracksReady && initialSubtitle != null) runCatching {
+            val off = controller.restoreInitialSubtitle(exo, emptyList(), initialSubtitle)
+            coroutineContext.ensureActive()
+            off?.let { subOff = it }
+        }.onFailure { if (it is kotlinx.coroutines.CancellationException) throw it else app.report(it) }
+    }
     val sessionTracks = controller.hasSessionTracks
     LaunchedEffect(controller, engine, tracksReady, controller.seriesScope, sessionTracks) {
-        if ((!sessionTracks && controller.fallback == null) || !tracksReady) return@LaunchedEffect
+        if ((!sessionTracks && controller.fallback == null && (initialSubtitle == null || exo != null)) || !tracksReady) return@LaunchedEffect
         repeat(16) {
             delay(700)
             val tracks = if (exo == null) runCatching { app.call("player.tracks") }.getOrNull().arr().mapNotNull { it.obj() } else emptyList()
             controller.observeTracks(tracks)
             runCatching {
                 if (exo == null) controller.restoreTracks(tracks) else controller.restoreExoTracks(exo)
-                controller.restoreSessionTracks(exo, tracks)?.let { subOff = it }
+                if (exo == null) initialSubtitle?.let { choice -> controller.restoreInitialSubtitle(null, tracks, choice)?.let { subOff = it } }
+                controller.restoreSessionTracks(exo, tracks, if (initialSubtitle != null) setOf("sub") else emptySet())?.let { subOff = it }
             }.onFailure { app.report(it) }
         }
     }
@@ -786,8 +814,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
     }
     DisposableEffect(activity) {
         onDispose {
-            // 退出播放页恢复原方向。留着锁的话整个 App 都跟着横过来了
-            activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
+            // 独立窗口无需解除方向；内嵌宿主必须归还方向，避免浏览页保持横屏。
+            if (onExit == null) activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
         }
     }
 
@@ -1055,7 +1083,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry) {
                 onNext = nextEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onOrientation = { manualOrientation = true; wantLandscape = portrait },
                 onChapters = if (route.src == null && chapters?.isEmpty() != true) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
-                onPip = (activity as? xyz.linplayer.app.MainActivity)?.takeIf {
+                onPip = (activity as? xyz.linplayer.app.PlayerActivity)?.takeIf {
                     android.os.Build.VERSION.SDK_INT >= 26 && it.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
                 }?.let { host -> { if (!host.enterPlayerPip()) app.toast("无法打开画中画", ToastKind.Error) } },
                 onBack = leave,

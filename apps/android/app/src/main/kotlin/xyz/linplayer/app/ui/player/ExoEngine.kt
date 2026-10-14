@@ -97,7 +97,7 @@ private const val TAG_EXO = "lp-exo"
  */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0): ExoPlayer? {
+internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0, explicitSubtitle: Boolean = false): ExoPlayer? {
     val ctx = LocalContext.current
     if (!enabled) return null
     val player = remember {
@@ -126,7 +126,7 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
        语言偏好走播放偏好里的 `sub_lang`;它是空的时候
        `selectUndeterminedTextLanguage` 兜住「没标语言」的那些轨,
        两条都命中不了的由 [preferredTrackIndex] 在轨道表到手之后再补一次。 */
-    DisposableEffect(player, prefs) {
+    DisposableEffect(player, prefs, explicitSubtitle) {
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setPreferredTextLanguage(prefs?.subLang?.takeIf { it.isNotBlank() })
             .setPreferredAudioLanguage(prefs?.audioLang?.takeIf { it.isNotBlank() })
@@ -138,6 +138,7 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
         fun apply(tracks: Tracks) {
             if (prefs == null) return
             for (type in listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT)) {
+                if (type == C.TRACK_TYPE_TEXT && explicitSubtitle) continue
                 val groups = tracks.groups.filter { it.type == type }
                 val key = groups.map { it.mediaTrackGroup }
                 if (key.isEmpty() || applied[type] == key) continue

@@ -1,0 +1,167 @@
+package xyz.linplayer.app
+
+import android.Manifest
+import android.app.PictureInPictureParams
+import android.content.Context
+import android.content.Intent
+import android.content.pm.PackageManager
+import android.os.Build
+import android.os.Bundle
+import android.util.Rational
+import androidx.activity.ComponentActivity
+import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
+import androidx.lifecycle.lifecycleScope
+import androidx.core.content.ContextCompat
+import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.composable
+import androidx.navigation.compose.rememberNavController
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
+import xyz.linplayer.app.data.str
+import xyz.linplayer.app.plugin.PluginNav
+import xyz.linplayer.app.data.AppState
+import xyz.linplayer.app.data.LocalApp
+import xyz.linplayer.app.data.UiPrefs
+import xyz.linplayer.app.ui.Route
+import xyz.linplayer.app.ui.player.PlayerPage
+import xyz.linplayer.app.ui.theme.LpTheme
+import xyz.linplayer.app.ui.theme.PluginTheme
+
+/** 手机播放窗口。方向由入口 Activity 的 Manifest 预设，切集与手动转屏复用当前窗口。 */
+open class PlayerActivity : ComponentActivity() {
+    private lateinit var app: AppState
+    protected open fun playerApp(): AppState = (application as LinPlayerApp).appState
+    private val askNotification = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
+
+    override fun onDestroy() {
+        xyz.linplayer.app.plugin.PluginShell.release(this)
+        super.onDestroy()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        xyz.linplayer.app.plugin.PluginShell.activate(this)
+    }
+
+    override fun onCreate(savedInstanceState: Bundle?) {
+        super.onCreate(savedInstanceState)
+        val route = readRoute(intent) ?: run { finish(); return }
+        app = playerApp()
+        UiPrefs.load(this)
+        if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, "android")
+        enableEdgeToEdge()
+        if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
+        setContent {
+            LpTheme(color = UiPrefs.colorScheme.value, darkOverride = when (UiPrefs.theme.value) {
+                "dark" -> true; "light" -> false; else -> PluginTheme.forcedDark
+            }) {
+                CompositionLocalProvider(LocalApp provides app) {
+                    DisposableEffect(Unit) {
+                        val previous = PluginNav.host
+                        val host = object : PluginNav.Host {
+                            override fun back() = finish()
+                            override fun push(route: String, params: JsonObject, replace: Boolean): Boolean {
+                                if (officialRoute(route) { params.str(it) } == null) return false
+                                setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, route)
+                                    .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, replace))
+                                finish()
+                                return true
+                            }
+                        }
+                        PluginNav.host = host
+                        onDispose { if (PluginNav.host === host) PluginNav.host = previous }
+                    }
+                    var ready by remember { mutableStateOf(app.loggedIn.value != null) }
+                    LaunchedEffect(Unit) {
+                        // 进程恢复时先恢复会话；正常从浏览页进入直接复用当前会话。
+                        if (!ready) { app.boot(); ready = true }
+                    }
+                    Box(Modifier.fillMaxSize().background(Color.Black)) {
+                        if (ready) {
+                            val nav = rememberNavController()
+                            NavHost(nav, startDestination = route) {
+                                composable<Route.Player> { entry ->
+                                    PlayerPage(nav, entry,
+                                        clickedAt = if (savedInstanceState == null && intent.hasExtra(EXTRA_CLICK))
+                                            intent.getLongExtra(EXTRA_CLICK, 0) else null,
+                                        onExit = ::finish)
+                                }
+                            }
+                        }
+                        xyz.linplayer.app.ui.plugin.PhonePluginDialog()
+                        ToastHost()
+                    }
+                }
+            }
+        }
+        xyz.linplayer.app.plugin.PluginShell.start(this, app, lifecycleScope)
+    }
+
+    fun askNotificationPermission() {
+        if (Build.VERSION.SDK_INT >= 33 && ContextCompat.checkSelfPermission(this,
+                Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED)
+            askNotification.launch(Manifest.permission.POST_NOTIFICATIONS)
+    }
+
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        enterPlayerPip()
+    }
+
+    fun enterPlayerPip(): Boolean {
+        if (!::app.isInitialized || Build.VERSION.SDK_INT < 26 || isFinishing ||
+            isInMultiWindowMode || !app.wantsPip ||
+            !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
+        return runCatching {
+            enterPictureInPictureMode(PictureInPictureParams.Builder()
+                .setAspectRatio(Rational(16, 9)).build())
+        }.getOrDefault(false)
+    }
+
+    override fun finish() {
+        super.finish()
+        @Suppress("DEPRECATION")
+        overridePendingTransition(0, 0)
+    }
+
+    companion object {
+        internal const val NAV_ROUTE = "player.navRoute"
+        internal const val NAV_PARAMS = "player.navParams"
+        internal const val NAV_REPLACE = "player.navReplace"
+        private const val EXTRA_ROUTE = "player.route"
+        private const val EXTRA_CLICK = "player.clickedAt"
+
+        internal fun intent(context: Context, route: Route.Player, clickedAt: Long? = null): Intent {
+            val target = when {
+                !route.ar.isFinite() || route.ar <= 0 -> PlayerActivity::class.java
+                route.ar > 1 -> PlayerActivity::class.java
+                else -> PortraitPlayerActivity::class.java
+            }
+            return Intent(context, target).putExtra(EXTRA_ROUTE, Json.encodeToString(route)).apply {
+                clickedAt?.let { putExtra(EXTRA_CLICK, it) }
+            }
+        }
+
+        internal fun readRoute(intent: Intent): Route.Player? = intent.getStringExtra(EXTRA_ROUTE)?.let {
+            runCatching { Json.decodeFromString<Route.Player>(it) }.getOrNull()
+        }
+    }
+}
+
+/** 竖片独立入口，共用播放器生命周期与控制。 */
+class PortraitPlayerActivity : PlayerActivity()

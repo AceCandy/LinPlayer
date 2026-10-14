@@ -708,4 +708,66 @@ class PlayerControllerTest {
         } finally { player.release() }
     }
 
+    @Test fun 详情字幕预选按索引一次应用且手选和版本优先() = runBlocking {
+        val calls = mutableListOf<JsonObject>()
+        val controller = PlayerController("mpv") { cmd, args ->
+            if (cmd == "player.setTrack") calls += args
+            JsonObject(emptyMap())
+        }
+        val choice = xyz.linplayer.app.ui.player.InitialSubtitle("version", 4, "中文", "chi", "subrip")
+        val tracks = listOf(buildJsonObject { put("kind", "sub"); put("id", "7"); put("ff_index", 4) })
+        controller.resolved(buildJsonObject { put("media_source_id", "version") })
+        assertNull(controller.restoreInitialSubtitle(null, tracks, choice))
+        controller.started()
+        assertNull(controller.restoreInitialSubtitle(null, tracks, choice.copy(sourceId = "other")))
+        assertNull(controller.restoreInitialSubtitle(null, emptyList(), choice))
+        assertEquals(false, controller.restoreInitialSubtitle(null, tracks, choice))
+        controller.restoreInitialSubtitle(null, tracks, choice)
+        assertEquals(listOf("7"), calls.map { it.str("id") })
+        val manual = PlayerController("mpv") { _, _ -> fail("手选后不得应用迟到预选"); JsonObject(emptyMap()) }
+        manual.resolved(buildJsonObject { put("media_source_id", "version") }); manual.started()
+        manual.trackPicked("sub")
+        assertNull(manual.restoreInitialSubtitle(null, tracks, choice))
+    }
+
+    @Test fun 详情字幕关闭走两内核真实控制() = runBlocking {
+        for (engine in listOf("mpv", "exo")) {
+            val calls = mutableListOf<JsonObject>()
+            val controller = PlayerController(engine) { _, args -> calls += args; JsonObject(emptyMap()) }
+            val exo = if (engine == "exo") ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build() else null
+            try {
+                controller.resolved(buildJsonObject { put("media_source_id", "version") }); controller.started()
+                assertEquals(true, controller.restoreInitialSubtitle(exo, emptyList(), xyz.linplayer.app.ui.player.InitialSubtitle("version")))
+                if (exo == null) assertEquals("", calls.single().str("id"))
+                else assertTrue(C.TRACK_TYPE_TEXT in exo.trackSelectionParameters.disabledTrackTypes)
+            } finally { exo?.release() }
+        }
+    }
+
+    @Test fun 详情同语言同名字幕按格式选择且歧义不猜轨() = runBlocking {
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            fun group(mime: String) = Tracks.Group(TrackGroup(mime,
+                Format.Builder().setLabel("中文").setLanguage("zh").setSampleMimeType(mime).build()),
+                false, intArrayOf(C.FORMAT_HANDLED), booleanArrayOf(false))
+            val ass = group(MimeTypes.TEXT_SSA)
+            val srt = group(MimeTypes.APPLICATION_SUBRIP)
+            val info: Any = ReflectionHelpers.getField(player, "playbackInfo")
+            val selector: Any = ReflectionHelpers.getField(info, "trackSelectorResult")
+            val controller = PlayerController("exo") { _, _ -> JsonObject(emptyMap()) }
+            controller.resolved(buildJsonObject { put("media_source_id", "version") }); controller.started()
+            val choice = xyz.linplayer.app.ui.player.InitialSubtitle("version", 4, "中文", "chi", "subrip")
+            ReflectionHelpers.setField(selector, "tracks", Tracks(listOf(ass)))
+            assertNull(controller.restoreInitialSubtitle(player, emptyList(), choice))
+            ReflectionHelpers.setField(selector, "tracks", Tracks(listOf(ass, srt)))
+            assertEquals(false, controller.restoreInitialSubtitle(player, emptyList(), choice))
+            assertTrue(player.trackSelectionParameters.overrides.containsKey(srt.mediaTrackGroup))
+            assertFalse(player.trackSelectionParameters.overrides.containsKey(ass.mediaTrackGroup))
+            val ambiguous = PlayerController("exo") { _, _ -> JsonObject(emptyMap()) }
+            ambiguous.resolved(buildJsonObject { put("media_source_id", "version") }); ambiguous.started()
+            ReflectionHelpers.setField(selector, "tracks", Tracks(listOf(srt, srt)))
+            assertNull(ambiguous.restoreInitialSubtitle(player, emptyList(), choice))
+        } finally { player.release() }
+    }
+
 }

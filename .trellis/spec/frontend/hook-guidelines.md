@@ -13,3 +13,5 @@
 代表路径：[手机媒体库](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/LibraryPage.kt)、[手机详情](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/pages/DetailPage.kt)、[桌面媒体库](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面核心接入](../../../apps/windows/LinPlayer.Desktop/Core/CoreClient.cs)。
 
 - LaunchedEffect 的请求放行条件必须与 key 使用同一个不可变快照，不能 key 读取 detail.valueOrNull、协程开始后再读取可变 detail；同步完成的前序请求可能使旧 key 的effect先发请求，再因新 key 重发。详情季加载以seasonDetail快照放行，回归断言初次一次、局部重试一次。
+
+- 手机详情仅在 `emby.seriesSeasons` 本次成功返回空列表后启用分集回退：整剧用剧 ID；Season 入口用路由季 ID；Episode 有真实 `season_id` 时保留该季，否则用真实 `series_id`。季请求失败仍报错重试，不能当空季。分集加载/错误/首批呈现按实际请求 parent 判定，不能以 `curSeason != null` 放行；成功空分集才显示空态。复用既有逐页加载和取消，回归见 `SeasonSelectionTest` 的空季分页、播放目标、首批重试、各详情入口与离页迟到响应。

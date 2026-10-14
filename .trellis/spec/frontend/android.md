@@ -172,7 +172,7 @@
 
 遵守[共享展示快照规则](../backend/quality-guidelines.md#全端展示快照契约)：共享核心无TTL、1000条预算，展示显式接收partial，最终result实时；详情旧资料只读预览，主播放目标不取缓存。各端展示入口按身份/生命周期交付缓存并替换实时结果，分页按范围替换，失败保留展示但不伪装鉴权成功。
 
-- 手机方向锁由PlayerPage页面持有，同页自动/手动切集及换版本不临时请求UNSPECIFIED；新目标未知尺寸保持现有方向，成功起播后只用实际版本尺寸直接改向。手动方向不被元数据覆盖，比例仍可更新；取消、旧controller/目标和leaving阻止迟到写回，真正离页释放。PhoneEnginePlaybackTest覆盖两内核与旧/新目标迟到响应，真实转屏与首帧另验。
+- 手机由独立PlayerActivity承载播放，方向锁在该窗口内由PlayerPage页面持有，同页自动/手动切集及换版本不临时请求UNSPECIFIED；新目标未知尺寸保持现有方向，成功起播后只用实际版本尺寸直接改向。手动方向不被元数据覆盖，比例仍可更新；取消、旧controller/目标和leaving阻止迟到写回，退出独立播放器直接finish，不先请求UNSPECIFIED转回竖屏；内嵌测试宿主离页仍释放方向。PhoneEnginePlaybackTest覆盖两内核与旧/新目标迟到响应，真实转屏与首帧另验。
 
 
 - 手机弹幕使用220dp快捷菜单与280dp样式子页，12dp圆角、深色半透明、无全屏遮罩；子页返回先回一级，外点关闭全部。滑杆松手提交，粗体/合并重复/防止重叠直接展示。DanmakuStyle按核心成功回值更新全局偏好，load/set串行，保存完成revision重置滑杆本地预览（失败及回值不变也要恢复）；未读取成功不可提交。PhoneDanmakuPanelTest验证真实Popup、大字滚动、按键、开关、失败回读和单次提交。
@@ -192,3 +192,12 @@
 - 手机字幕菜单按运行期 codec/MIME 显示 ASS/SSA、SRT、WebVTT、PGS 等及文本/特效/图形类型，Media3 转码轨从 codecs 读取原 MIME；未知格式不猜测，MPV外置标记取external。第一行已显示语言时第二行不重复。时间保持顶部固定，网速位于第一排操作按钮下方，不能放在按钮上面；窄横屏/竖屏大字需断言网速和倍率按钮不重叠。
 
 - Media3 1.11.0 的 `DefaultMediaSourceFactory` 有外挂配置时创建一层 `MergingMediaSource`，全部轨道（含主源内封）ID 被加上子源索引。`syncLibassTrack(player, tracks, subOff)` 仅在当前媒体有外挂配置时去一层前缀，再与解析器注册的原 ID 匹配；如 `0:original:track` → `original:track`，无合并时必须原样保留。合并的空后缀恢复原 null ID 的 `ass` fallback。禁止无条件取最后一段或按语言/名称串轨。`ExoAssMergeTest` 必须用真实工厂/解封装覆盖外挂切换与有无外挂的内封开轨；仅手工拼 ID 的状态机测试不能代替合并边界回归。
+
+## 手机独立播放窗口
+
+- MainActivity保留浏览与TV形态入口；手机所有Route.Player经PlayerLaunchPage启动非导出的独立Activity。已知实际版本宽高比选择sensorLandscape/sensorPortrait入口，未知默认使用sensorLandscape入口，不额外阻塞起播查询；运行中尺寸/手动方向仍由PlayerPage处理。
+- 横/竖入口共用PlayerActivity与原播放器页面，Manifest处理orientation/screenSize等配置变化，黑色窗口背景与无Activity切换动画；不能把配置测试等同于系统旋转或首帧实测。
+- 完整Route.Player通过内部Intent传递，包括src、fromStart、subtitle与点击计时。交接页通过ActivityResult返回原导航栈，不重复启动；播放器退出直接结束窗口，原浏览页不参与转屏。
+- Application持有唯一AppState及进程级事件作用域，浏览/播放共享会话和缓存；新进程恢复先boot再播放。通知只携带现有窗口component与REORDER_TO_FRONT/SINGLE_TOP，不携带旧播放路由重播；失效通知入口没有路由时直接结束。Home及按钮PiP、通知权限归PlayerActivity，后台播放仍沿用PlaybackService。
+- 插件壳事件仅由最近恢复的宿主处理，WebView容器归各自Activity；全局插件对话框仅前台宿主呈现。播放器插件导航经Activity结果回到浏览栈执行，不能直接在后台弹出交接页或启动第二套播放。MainActivity深链仍沿用singleTask，打开账号深链会结束其上的播放器。
+- PlayerActivityTest / PlayerLaunchPageTest覆盖Manifest、完整参数、一次启动与返回、通知恢复/失效、前台插件确认、退出停播和同一窗口配置切换；PluginShellHostsTest验证两窗口请求仅处理一次及WebView独立清理。真实转屏动画、解码首帧、PiP和进程回收恢复需要设备另验。

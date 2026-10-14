@@ -29,6 +29,7 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
+import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.pages.args
 
@@ -446,6 +447,49 @@ internal class PlayerController(
         }
     }
 
+    private var initialSubtitleApplied = false
+    private var initialSubtitleGroups: List<androidx.media3.common.TrackGroup>? = null
+
+    /** 详情预选按实际轨表唯一定位；手选、换版本和切核后的恢复优先，迟到轨表不能覆盖它们。 */
+    suspend fun restoreInitialSubtitle(player: ExoPlayer?, tracks: List<JsonObject>, choice: InitialSubtitle): Boolean? {
+        val generation = transportGeneration
+        return transportMutex.withLock {
+            if (!ready || !seekEnabled || generation != transportGeneration || fallback != null ||
+                "sub" in manualTracks || mediaSourceId != choice.sourceId) return@withLock null
+            val groups = player?.currentTracks?.groups?.map { it.mediaTrackGroup }
+            if (initialSubtitleApplied && (player == null || groups == initialSubtitleGroups)) return@withLock null
+            val off = choice.index == null
+            val id = if (off) { if (player == null) "" else "lp:off" }
+            else if (player == null && !choice.external) {
+                tracks.singleOrNull { it.str("kind") == "sub" && it.long("ff_index") == choice.index }?.str("id")
+            } else {
+                val codec = subtitleCodec(choice.codec)
+                val candidates = if (player == null) tracks.filter {
+                    it.str("kind") == "sub" && it.boolOrNull("external") == true &&
+                        (codec == null || subtitleCodec(it.str("codec")) == codec)
+                }.map { it.str("id") to mpvIdentity(it) }
+                else player.currentTracks.groups.flatMapIndexed { gi, group ->
+                    if (group.type != C.TRACK_TYPE_TEXT) emptyList() else (0 until group.length).mapNotNull { ti ->
+                        val format = group.getTrackFormat(ti)
+                        val mime = if (format.sampleMimeType == "application/x-media3-cues") format.codecs else format.sampleMimeType
+                        if (!group.isTrackSupported(ti) || (codec != null && subtitleCodec(mime) != codec)) null
+                        else "$gi:$ti" to formatIdentity(format, C.TRACK_TYPE_TEXT)
+                    }
+                }
+                matchingIdentity(TrackIdentity(choice.title, choice.language), candidates.map { it.second })
+                    ?.let { candidates[it].first }
+            } ?: return@withLock null
+            withContext(NonCancellable) {
+                if (player == null) call("player.setTrack", args("kind" to "sub", "id" to id)) else exoPick(player, "subtitle", id)
+                if (generation == transportGeneration) {
+                    initialSubtitleApplied = true
+                    initialSubtitleGroups = groups
+                }
+            }
+            off
+        }
+    }
+
     /** 起播后只恢复本次同剧手选；同片fallback及详情显式预选优先。 */
     suspend fun restoreSessionTracks(player: ExoPlayer?, tracks: List<JsonObject>, exclude: Set<String> = emptySet()): Boolean? {
         val generation = transportGeneration
@@ -536,7 +580,8 @@ private fun matchingIdentity(choice: TrackIdentity, tracks: List<TrackIdentity>)
         val language = value?.lowercase()?.takeIf { it.isNotBlank() && it != "und" } ?: return null
         val base = language.substringBefore('-')
         val iso3 = if (base.length == 2) runCatching { java.util.Locale.forLanguageTag(base).isO3Language }.getOrDefault(base) else base
-        return iso3 + language.removePrefix(base)
+        // Emby常用中文书目码chi，Media3将zh规范为术语码zho。
+        return (if (iso3 == "chi") "zho" else iso3) + language.removePrefix(base)
     }
     val language = languageOf(choice.language)
     if (title == null && language == null) return null

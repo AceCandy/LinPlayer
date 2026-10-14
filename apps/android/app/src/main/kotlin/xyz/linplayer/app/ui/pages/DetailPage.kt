@@ -73,6 +73,7 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import java.text.SimpleDateFormat
 import java.util.Locale
@@ -113,6 +114,8 @@ import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.ui.player.TrackCandidate
+import kotlinx.serialization.encodeToString
+import xyz.linplayer.app.ui.player.InitialSubtitle
 import xyz.linplayer.app.ui.player.preferredTrackIndex
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
@@ -249,8 +252,8 @@ internal fun defaultVersion(vs: List<Version>): Version? = vs.firstOrNull { it.p
  * 这一版画面的宽高比。拿不到就 0。
  *
  * 用处是**在进播放页之前**就把横竖屏定下来(见 `Route.Player.ar`)。
- * 0 不是「方形」,是「不知道」—— strm / 网盘源常常没有这份数据,那时不许瞎猜一个方向,
- * 交给播放页自己去问。
+ * 0 不是「方形」,是「不知道」—— 缺少尺寸时保留 0，播放器默认横屏启动，
+ * 后续再查询实际尺寸，不能伪造宽高比阻止补查。
  */
 internal fun arOf(v: Version?): Float {
     val s = v?.of("Video")?.firstOrNull() ?: return 0f
@@ -340,6 +343,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var seasonLoad by remember { mutableStateOf<Block<Unit>>(Block.Loading) }
     var seasonRetry by remember { mutableStateOf(0) }
     var curSeason by remember { mutableStateOf(presentation?.season) }
+    var fallbackEpisodeParent by remember { mutableStateOf<String?>(null) }
     var episodeRequest by remember { mutableStateOf(0) }
     var episodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
     var confirmedEpisodes by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<List<Item>>(emptyList()) }
@@ -347,7 +351,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
     var episodeRetry by remember { mutableStateOf(0) }
     // 展示可以留存，取集仍等本次真实季关系确认；刷新从首批重取，不接旧快照尾页。
-    val episodeParent = curSeason?.id.takeIf { seasonLoad is Block.Ok }
+    val episodeParent = (curSeason?.id ?: fallbackEpisodeParent).takeIf { seasonLoad is Block.Ok }
     LaunchedEffect(route.itemId, episodeParent, episodeRequest, episodeRetry) {
         val parent = episodeParent ?: return@LaunchedEffect
         episodeLoad = Block.Loading
@@ -430,6 +434,10 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                 // 保留仍然存在的已选季；单集仍以本次真实所属季为准。
                 val s = seasons.firstOrNull { it.id == (wantSeason ?: curSeason?.id) } ?: seasons.firstOrNull()
                 curSeason = s
+                // 空季列表不代表没有分集；有明确季归属时保留范围，否则直接查整剧。
+                fallbackEpisodeParent = if (seasons.isEmpty()) {
+                    if (route.type == "Season") route.itemId else seasonDetail.str("season_id") ?: seriesId
+                } else null
             }
             seasonLoad = when (result) {
                 is Block.Fail -> result
@@ -515,14 +523,14 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         shownEpisodes.isNotEmpty() && episodeLoad is Block.Loading && previousSummary != null -> previousSummary
         shownEpisodes.isNotEmpty() && episodes.isEmpty() -> presentation?.episodeSummary ?: "已加载 ${shownEpisodes.size}"
         seasonLoad is Block.Loading -> ""
-        curSeason != null && episodeLoad is Block.Loading ->
+        episodeParent != null && episodeLoad is Block.Loading ->
             if (episodes.isNotEmpty()) "已加载 ${episodes.size}" + (episodeTotal?.let { " / $it" } ?: "") else ""
         else -> "选集信息"
     }
     val optionsReady = media !is Block.Loading && prefsReady && linesReady
     val initialReady = (live != null || cached != null) && when {
         isSeries -> seasonLoad !is Block.Loading &&
-            (curSeason == null || seasonLoad is Block.Fail || episodes.isNotEmpty() || episodeLoad !is Block.Loading)
+            (episodeParent == null || seasonLoad is Block.Fail || episodes.isNotEmpty() || episodeLoad !is Block.Loading)
         route.type == "BoxSet" -> true
         else -> optionsReady
     }
@@ -576,6 +584,10 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     val liveVersion = media.valueOrNull?.let { fresh ->
         fresh.firstOrNull { it.id == pickedVersion } ?: defaultVersion(fresh)
     }
+    var pickedSubtitle by remember(ver?.id) { mutableStateOf<InitialSubtitle?>(null) }
+    val subtitle = if (!subsEnabled) null else pickedSubtitle?.let { pick ->
+        ver?.of("Subtitle")?.firstOrNull { it.index == pick.index }
+    } ?: selectedTrack(ver?.of("Subtitle"), subLang, subRegex)
     val contentFade = lpTween<Float>(T.T5, LinearEasing)
     val contentSize = lpTween<IntSize>(T.T5)
 
@@ -589,7 +601,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
         xyz.linplayer.app.ui.player.PlaybackClickTimes.navigate(nav, Route.Player(
             target, title, liveVersion?.id, engine,
             // 只有播的就是这一页这一片时,手里这份宽高比才算数
-            ar = if (target == route.itemId) arOf(liveVersion) else 0f, fromStart = fromStart))
+            ar = if (target == route.itemId) arOf(liveVersion) else 0f, fromStart = fromStart,
+            subtitle = pickedSubtitle?.takeIf { target == route.itemId && it.sourceId == liveVersion?.id }
+                ?.let { kotlinx.serialization.json.Json.encodeToString(it) }))
     }
 
     val bodyHeight = with(LocalDensity.current) {
@@ -711,7 +725,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                         return@Anchored
                     }
                     val values = listOfNotNull(
-                        d.dbl("rating")?.takeIf { it > 0 }?.let { "★ %.1f".format(it) },
+                        d.dbl("rating")?.takeIf { it > 0 && !isEpisode }?.let { "★ %.1f".format(it) },
                         detailDate(d),
                         d.dbl("runtime_secs")?.takeIf { it > 0 }?.let { fmtDur(it) },
                         d.long("child_count")?.takeIf { it > 0 && isSeries }?.let { "$it 集" },
@@ -786,7 +800,6 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                             subtitle = trackSubtitle(it, summary)))
                                     }
                                     if (!ver?.of("Subtitle").isNullOrEmpty()) {
-                                        val subtitle = if (subsEnabled) selectedTrack(ver.of("Subtitle"), subLang, subRegex) else null
                                         val summary = if (!subsEnabled) "关闭" else subtitle?.let(::subtitleSummary) ?: "无"
                                         add(PickRow("字幕", summary, LpIcons.sub, onClick = { sheet = "sub" },
                                             subtitle = subtitle?.let { trackSubtitle(it, summary) }))
@@ -942,7 +955,7 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                                 }
                             }
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
-                            if (seasonLoad is Block.Loading || episodeLoad is Block.Loading)
+                            if (seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading))
                                 xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
                                     label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
                         }
@@ -954,9 +967,9 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                             when {
                                 seasonLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
                                     (seasonLoad as Block.Fail).message, { seasonRetry++ })
-                                curSeason != null && episodeLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
+                                episodeParent != null && episodeLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
                                     (episodeLoad as Block.Fail).message, { episodeRetry++ })
-                                seasonLoad is Block.Loading || (curSeason != null && episodeLoad is Block.Loading) ->
+                                seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading) ->
                                     LoadingState(Modifier.fillMaxSize())
                                 else -> Dim3(if (curSeason == null) "暂无可用选集" else "本季暂无分集")
                             }
@@ -1092,15 +1105,20 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
                 audioLang = lang; sheet = null
                 // ☠ **两项必须一起发**:核心层的 setPrefs 是无条件覆盖,
                 //   只发 audio_lang 会把 sub_lang 清成 null
-                scope.launch { savePrefs(app, lang, subLang) }
+                scope.launch { savePrefs(app, lang, subLang, subsEnabled) }
             },
             onDismiss = { sheet = null },
         )
         "sub" -> SubDialog(
-            ver?.of("Subtitle").orEmpty(), subLang,
-            onPick = { lang ->
-                subLang = lang; subsEnabled = lang != ""; sheet = null
-                scope.launch { savePrefs(app, audioLang, lang) }
+            ver?.of("Subtitle").orEmpty(), subtitle?.index,
+            onPick = { stream ->
+                ver?.let { version ->
+                    pickedVersion = version.id
+                    pickedSubtitle = InitialSubtitle(version.id, stream?.index, stream?.title, stream?.lang,
+                        stream?.codec, stream?.isExternal ?: false)
+                }
+                subLang = stream?.lang; subsEnabled = stream != null; sheet = null
+                scope.launch { savePrefs(app, audioLang, subLang, stream != null) }
             },
             onDismiss = { sheet = null },
         )
@@ -1108,12 +1126,12 @@ private fun DetailContent(nav: NavController, entry: NavBackStackEntry, cacheKey
     }
 }
 
-private suspend fun savePrefs(app: xyz.linplayer.app.data.AppState, audio: String?, sub: String?) {
+private suspend fun savePrefs(app: xyz.linplayer.app.data.AppState, audio: String?, sub: String?, enabled: Boolean) {
     runCatching {
         app.call("prefs.setPrefs", JsonObject(buildMap {
             put("audio_lang", kotlinx.serialization.json.JsonPrimitive(audio ?: ""))
             put("sub_lang", kotlinx.serialization.json.JsonPrimitive(sub ?: ""))
-            put("sub_enabled", kotlinx.serialization.json.JsonPrimitive(sub != ""))
+            put("sub_enabled", kotlinx.serialization.json.JsonPrimitive(enabled))
         }))
     }.onFailure { app.report(it) }
 }
@@ -1373,7 +1391,7 @@ private data class PickRow(
 @Composable
 private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
     val c = Lp.colors
-    Column(Modifier.fillMaxWidth().padding(horizontal = 24.dp, vertical = Sp.x8),
+    Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x8),
         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
         rows.forEach { r ->
             if (r.label == "版本") {
@@ -1413,12 +1431,12 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
                         else -> 40.dp
                     })
                         .clip(RoundedCornerShape(R.sm))
-                        .background(when (r.label) {
-                            "音轨" -> c.mediaPanel
-                            "字幕" -> c.fg2.copy(alpha = .16f)
+                        .background(when {
+                            r.onClick != null && enabled -> c.mediaAccent.copy(alpha = .16f)
+                            r.label == "音轨" -> c.mediaPanel
                             else -> Color.Transparent
                         })
-                        .border(1.dp, c.line2, RoundedCornerShape(R.sm))
+                        .then(if (r.label == "视频") Modifier.border(1.dp, c.line2, RoundedCornerShape(R.sm)) else Modifier)
                         .semantics { contentDescription = r.label }
                         .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
                         .padding(horizontal = Sp.x12, vertical = Sp.x6),
@@ -1430,7 +1448,8 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
                         Text(r.value, color = c.fg, style = LpText.body)
                         r.subtitle?.let { Text(it, color = c.fg2, style = LpText.secondary) }
                     }
-                    if (r.onClick != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp), tint = c.fg3)
+                    if (r.onClick != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp),
+                        tint = if (enabled) c.mediaIcon else c.fg3)
                 }
             }
         }
@@ -1667,15 +1686,13 @@ private fun LangDialog(
  *   「简中 / 繁中 / 简日双语 / 特效」四条中文轨,折起来之后它们在界面上是同一行,
  *   用户根本看不出自己选中的是哪一条。第一行是轨道名(`title`,压制组写的那个),
  *   第二行小字是「语言标识 / 字幕格式」【用户定 2026-09-07】。
- * ☠ **落库的仍然是语言。** `prefs.setPrefs` 只认 `sub_lang`,核心层没有「记住某一条轨」
- *   这回事 —— 同语言的两条轨在这里选谁,起播时由播放器按同一条规则挑。
- *   播放中要精确换某一条,走播放页的字幕面板(那里是真的按轨切)。
+ * 全局仅保存语言与开关；精确轨道身份随当前版本传给播放页，不复用到其它片源。
  */
 @Composable
 private fun SubDialog(
     streams: List<Stream>,
-    current: String?,
-    onPick: (String) -> Unit,
+    current: Long?,
+    onPick: (Stream?) -> Unit,
     onDismiss: () -> Unit,
 ) {
     LpDialog(onDismiss, "字幕轨") {
@@ -1685,14 +1702,14 @@ private fun SubDialog(
             streams.forEach { st ->
                 OptRow(
                     st.label.ifBlank { langCn(st.lang) ?: "字幕轨 ${st.index}" },
-                    { onPick(st.lang.orEmpty()) },
+                    { onPick(st) },
+                    m = Modifier.semantics { selected = st.index == current },
                     media = true,
                     sub = st.langAndCodec + if (st.isExternal) " · 外挂" else "",
-                    // 只有语言能落库,所以选中态也只能按语言判 —— 同语言的几条会一起亮
-                    selected = !current.isNullOrEmpty() && st.lang == current,
+                    selected = st.index == current,
                 )
             }
-            OptRow("不显示字幕", { onPick("") }, selected = current == "", media = true)
+            OptRow("不显示字幕", { onPick(null) }, m = Modifier.semantics { selected = current == null }, selected = current == null, media = true)
             Spacer(Modifier.height(Sp.x8))
             LpButton("关闭", onDismiss, Modifier.fillMaxWidth(),
                 xyz.linplayer.app.ui.components.BtnKind.Secondary)

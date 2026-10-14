@@ -92,6 +92,7 @@ class PhoneDetailOptionsTest {
                         composable<Route.Player> {
                             val r = it.toRoute<Route.Player>()
                             Text("播放目标：${r.itemId} / ${r.versionId ?: "自动"}" + if (r.fromStart) " / 从头" else "")
+                            r.subtitle?.let { Text("字幕预选：$it") }
                         }
                     }
                 }
@@ -123,6 +124,28 @@ class PhoneDetailOptionsTest {
                     put("title", "TraditionalChinese [Full]") },
             ))
         }))
+    }
+
+    @Test fun episodeOptionsAlignWithActionsAndHideOnlyRating() {
+        val core = fullTrackCore().apply {
+            ret("emby.itemDetail", buildJsonObject {
+                put("id", "sh8"); put("name", "单集标题"); put("type_", "Episode")
+                put("rating", 8.7); put("premiere_date", "2026-08-02T00:00:00.000Z")
+                put("runtime_secs", 86)
+            })
+        }
+        open(core, Route.Detail("sh8", "Episode"), fontScale = 1f)
+        rule.onNodeWithText("★", substring = true).assertDoesNotExist()
+        rule.onNodeWithText("2026/08/02 · 1分26秒").assertExists()
+        val lefts = listOf("版本", "视频", "音轨", "字幕").map { label ->
+            rule.onNodeWithContentDescription(label).performScrollTo().fetchSemanticsNode().boundsInRoot.left
+        }
+        val actionLeft = rule.onNodeWithTag("detail.actions.layout").performScrollTo()
+            .fetchSemanticsNode().boundsInRoot.left
+        lefts.forEach { assertEquals(actionLeft, it, .5f) }
+        rule.onNodeWithContentDescription("视频").assert(hasClickAction().not())
+        rule.onNodeWithContentDescription("音轨").assert(hasClickAction().not())
+        rule.onNodeWithContentDescription("字幕").assertHasClickAction()
     }
 
     @Test fun fullTrackInformationKeepsDynamicRangeAndOriginalNames() {
@@ -503,6 +526,44 @@ class PhoneDetailOptionsTest {
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToIndex(0)
         rule.onNodeWithText("继续观看", substring = true).performScrollTo().performClick()
         rule.onNodeWithText("播放目标：m1 / v2").assertIsDisplayed()
+    }
+
+    @Test fun subtitleTracksAreSingleSelectAndOnlyExplicitOffDisablesThem() {
+        val core = core().apply {
+            ret("emby.itemMedia", arr(buildJsonObject {
+                put("id", "v1"); put("name", "测试版本"); put("preferred", true)
+                put("streams", arr(*(0..1).map { i -> buildJsonObject {
+                    put("index", i + 3); put("type_", "Subtitle"); put("language", "chi")
+                    put("codec", if (i == 0) "ass" else "subrip")
+                    put("title", if (i == 0) "中文ASS" else "中文SRT")
+                } }.toTypedArray()))
+            }))
+        }
+        open(core, fontScale = 1f)
+        option("字幕").performClick()
+        fun track(name: String) = rule.onNode(hasText(name) and hasAnyAncestor(isDialog()))
+        track("中文ASS").assertIsSelected()
+        track("中文SRT").assertIsNotSelected().performClick()
+        option("字幕").performClick()
+        track("中文ASS").assertIsNotSelected()
+        track("中文SRT").assertIsSelected().performClick()
+        val repeated = core.calls.last { it.first == "prefs.setPrefs" }.second
+        assertEquals("true", repeated?.get("sub_enabled").toString())
+        option("字幕").performClick()
+        track("中文ASS").assertIsNotSelected()
+        track("中文SRT").assertIsSelected()
+        track("不显示字幕").assertIsNotSelected().performClick()
+        val saved = core.calls.last { it.first == "prefs.setPrefs" }.second
+        assertEquals("false", saved?.get("sub_enabled").toString())
+        option("字幕").performClick()
+        track("中文ASS").assertIsNotSelected()
+        track("中文SRT").assertIsNotSelected()
+        track("不显示字幕").assertIsSelected()
+        track("中文SRT").performClick()
+        rule.onNodeWithTag("detail.play").performScrollTo().performClick()
+        rule.onNodeWithText("播放目标：m1 / v1").assertIsDisplayed()
+        rule.onNodeWithText("字幕预选：", substring = true)
+            .assertTextContains("\"index\":4", substring = true).assertTextContains("subrip", substring = true)
     }
 
     @Test fun languageDialogsPreserveOtherPreference() {

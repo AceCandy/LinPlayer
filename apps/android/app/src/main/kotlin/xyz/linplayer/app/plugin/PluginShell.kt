@@ -25,6 +25,14 @@ import java.util.concurrent.ConcurrentHashMap
  */
 object PluginShell {
     private val running = ConcurrentHashMap<Long, Job>()
+    private var foreground = java.lang.ref.WeakReference<Activity>(null)
+
+    /** 浏览和播放宿主并存时，新请求只交给最近恢复的窗口。 */
+    fun activate(activity: Activity) { foreground = java.lang.ref.WeakReference(activity) }
+
+    fun release(activity: Activity) {
+        if (foreground.get() === activity) foreground.clear()
+    }
 
     fun start(activity: Activity, app: AppState, scope: CoroutineScope) {
         WebShell.attach(activity)
@@ -37,12 +45,19 @@ object PluginShell {
                     "shell" to true)))
             }.onFailure { Logs.w("plugin", "报壳能力失败:" + it.message) }
         }
-        scope.launch {
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             app.core.events.collect { ev ->
                 val d = ev.data.obj()
+                // 取消属于原请求，不因接收窗口改变而丢失；remove保证只取消一次。
+                if (ev.name == "plugin.shellCancel") {
+                    d?.get("id")?.jsonPrimitive?.longOrNull?.let { running.remove(it)?.cancel() }
+                    return@collect
+                }
+                if (activity.isDestroyed) return@collect
+                if (foreground.get()?.isDestroyed != false) activate(activity)
+                if (foreground.get() !== activity) return@collect
                 when (ev.name) {
                     "plugin.shellRequest" -> handle(activity, app, scope, d ?: return@collect)
-                    "plugin.shellCancel" -> d?.get("id")?.jsonPrimitive?.longOrNull?.let { running.remove(it)?.cancel() }
                     "plugin.toast" -> d.str("text")?.let { app.toast(it) }
                     "plugin.autoDisabled" -> app.toast("「${d.str("name")?.takeIf { it.isNotEmpty() } ?: d.str("id")}」连续出错,已自动禁用", xyz.linplayer.app.data.ToastKind.Error)
                     "plugin.memoryKilled" -> app.toast("「${d.str("name")?.takeIf { it.isNotEmpty() } ?: d.str("id")}」插件内存占用过高,已暂停", xyz.linplayer.app.data.ToastKind.Error)
@@ -51,6 +66,8 @@ object PluginShell {
                 }
             }
         }
+        // 新窗口已订阅后才交接，避免旧窗口放弃而新窗口尚未开始收事件。
+        activate(activity)
     }
 
     private fun handle(activity: Activity, app: AppState, scope: CoroutineScope, req: JsonObject) {

@@ -77,7 +77,7 @@ import xyz.linplayer.app.ui.pages.SearchPage
 import xyz.linplayer.app.ui.pages.ServersPage
 import xyz.linplayer.app.ui.pages.SettingsPage
 import xyz.linplayer.app.ui.pages.SettingsSubPage
-import xyz.linplayer.app.ui.player.PlayerPage
+import xyz.linplayer.app.ui.player.PlayerLaunchPage
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.switchTab
 import xyz.linplayer.app.ui.theme.LpEasing
@@ -331,7 +331,7 @@ private fun MainShell() {
                 posterComposable<Route.AddServer> {
                     GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
                 }
-                posterComposable<Route.Player> { PlayerPage(nav, it) }
+                posterComposable<Route.Player> { PlayerLaunchPage(nav, it) }
             }
             }
         }
@@ -370,7 +370,7 @@ private fun androidx.navigation.NavDestination.isTab() =
  *   播放页全屏下会被系统栏顶位置(UI_MOBILE.md §6.1)。
  */
 @Composable
-private fun ToastHost() {
+internal fun ToastHost() {
     val app = LocalApp.current
     val c = Lp.colors
     var cur by remember { mutableStateOf<xyz.linplayer.app.data.Toast?>(null) }

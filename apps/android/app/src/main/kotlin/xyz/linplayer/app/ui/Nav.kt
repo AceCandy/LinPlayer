@@ -73,6 +73,8 @@ object Route {
         val src: String? = null,
         /** 本次明确从头起播，绕过续播记录，不修改全局偏好。 */
         val fromStart: Boolean = false,
+        /** 当前版本的字幕预选JSON，仅含轨道身份，不含地址。 */
+        val subtitle: String? = null,
     )
     @Serializable data object AddServer                                       // U1.2 的「添加」版式
 }

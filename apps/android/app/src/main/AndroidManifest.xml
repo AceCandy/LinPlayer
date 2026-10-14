@@ -77,7 +77,6 @@
             android:exported="true"
             android:launchMode="singleTask"
             android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode|navigation|keyboard"
-            android:supportsPictureInPicture="true"
             android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize">
 
@@ -96,6 +95,16 @@
                 <data android:scheme="linplayer" />
             </intent-filter>
         </activity>
+
+        <!-- 方向在创建窗口前由系统确定，共用播放器实现；不接受外部播放参数。 -->
+        <activity android:name=".PlayerActivity" android:exported="false"
+            android:theme="@style/Theme.LinPlayer.Player" android:screenOrientation="sensorLandscape"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode|navigation|keyboard"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true" />
+        <activity android:name=".PortraitPlayerActivity" android:exported="false"
+            android:theme="@style/Theme.LinPlayer.Player" android:screenOrientation="sensorPortrait"
+            android:configChanges="orientation|screenSize|screenLayout|smallestScreenSize|keyboardHidden|density|uiMode|navigation|keyboard"
+            android:supportsPictureInPicture="true" android:resizeableActivity="true" />
 
         <!-- 更新包交给系统装包器要一个 content:// —— Android 7 起 file:// 会当场
              FileUriExposedException。开放范围见 res/xml/file_paths.xml:只有更新包那一个目录。 -->

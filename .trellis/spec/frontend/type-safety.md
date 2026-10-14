@@ -65,3 +65,10 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 - 默认速度来自已有 `prefs.getPrefs.default_speed`，读取完成再起播；Exo 在加载前设速，mpv 沿用核心起播默认。手机显式调速调用 `player.setSpeed` / Exo 控制，并另用已有 `player.setPlaybackPrefs(default_speed)` 保存全局；保存按点击顺序串行，使用应用作用域避免离页取消。核心临时 `player.setSpeed` 语义保持，不能让TV临时加速落库。
 - 字幕选择顺序：用户正则 → 用户语言 → 两者皆空时明确简体标记 → 既有默认回落。关闭字幕优先；泛化中文不猜简繁。详情预览和Exo复用 `preferredTrackIndex`，mpv同规则；`TrackPrefsTest` / `PhoneDetailOptionsTest` 验证显式设置、简繁选择及预览一致。
 - 音轨语言为空/und及整个标题等于「未标注」时隐藏占位值，回落真实编码/轨道标签；不能全局改 `langCn` 影响字幕。
+
+## 手机详情字幕预选
+
+- 详情字幕列表按 `MediaStream.Index` 单选，不能按语言给多个轨道打勾；再次点击已选轨保持选中，只有「不显示字幕」关闭字幕。全局仍只保存语言和 `sub_enabled`，无语言的字幕也可启用。
+- 精确选择用 `InitialSubtitle` 随 `Route.Player.subtitle` 传递，仅含版本ID、轨道索引/标题/语言/格式及外挂标志；空index表示关闭，不含地址。切版本清预选，同页换目标清路由预选；真实起播版本不匹配时不得套用旧索引。
+- MPV内封轨通过ff_index定位，外挂按唯一身份匹配；Media3按真实标题、语言和格式唯一匹配（chi/zh/zho统一），歧义不猜序号。所有预选通过控制器屏障，播放页手选及切核恢复优先；Media3显式预选跳过默认文本轨偏好，并监听晚到轨表，不只依赖起播短轮询窗口。
+- 回归：PhoneDetailOptionsTest覆盖同语言ASS/SRT单选、重复点击保持选中、显式关闭与路由身份；PlayerControllerTest覆盖版本隔离、手选优先、两内核关闭、格式及语言匹配；PhoneEnginePlaybackTest覆盖真实页面接线和13秒后轨表到达。模拟轨表不替代真实片源/真机选轨验证。

@@ -29,7 +29,10 @@ object PluginNotify {
         val title = args.str("title") ?: ""
         val body = args.str("body") ?: ""
         if (!NotificationManagerCompat.from(activity).areNotificationsEnabled()) {
-            (activity as? MainActivity)?.askNotificationPermission()
+            when (activity) {
+                is MainActivity -> activity.askNotificationPermission()
+                is xyz.linplayer.app.PlayerActivity -> activity.askNotificationPermission()
+            }
             app.toast(listOf(title, body).filter { it.isNotEmpty() }.joinToString(" · "))
             return JsonNull
         }

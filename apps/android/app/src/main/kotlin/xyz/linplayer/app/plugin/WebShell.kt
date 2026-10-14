@@ -40,13 +40,13 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 
 /**
- * 插件用的 WebView(SPEC 5.8,D59 D62 D496 D497)。全部挂在 MainActivity 顶上的一层 FrameLayout 里:
+ * 插件用的 WebView(SPEC 5.8,D59 D62 D496 D497)。挂在发起请求的 Activity 顶层 FrameLayout 里:
  * 平时平移到屏幕外(不挡触摸),要用户动手时挪回来并加一条「完成」栏 —— 同一个 WebView,
  * 已经点开的播放器、过了一半的验证不会因为换窗口丢掉。
  */
 @SuppressLint("SetJavaScriptEnabled")
 object WebShell {
-    private var host: FrameLayout? = null
+    private const val HOST_TAG = "linplayer.plugin.webHost"
     // 隐藏 WebView 全局最多 3 个,超出排队(排队时间计入调用超时,D497)
     private val slots = Semaphore(3)
     private val defaultMedia = Regex("""\.(m3u8|mp4|flv)(\?|$)|/m3u8\b""", RegexOption.IGNORE_CASE)
@@ -54,9 +54,9 @@ object WebShell {
     fun available(ctx: Context): Boolean = runCatching { android.webkit.WebSettings.getDefaultUserAgent(ctx); true }.getOrDefault(false)
 
     fun attach(activity: Activity) {
-        val f = FrameLayout(activity)
+        if (activity.window.decorView.findViewWithTag<FrameLayout>(HOST_TAG) != null) return
+        val f = FrameLayout(activity).apply { tag = HOST_TAG }
         activity.addContentView(f, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        host = f
     }
 
     private class Page(val web: WebView, val frame: FrameLayout)
@@ -71,7 +71,8 @@ object WebShell {
         val frame = FrameLayout(activity)
         frame.setBackgroundColor(Color.BLACK)
         frame.addView(web, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
-        val h = host ?: error("WebView 容器还没挂上")
+        val h = activity.window.decorView.findViewWithTag<FrameLayout>(HOST_TAG)
+            ?: error("WebView 容器还没挂上")
         h.addView(frame, FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
         frame.translationX = 100000f // 屏幕外:照常加载执行,但不挡界面触摸
         return Page(web, frame)
@@ -93,7 +94,7 @@ object WebShell {
     }
 
     private fun close(p: Page) {
-        host?.removeView(p.frame)
+        (p.frame.parent as? ViewGroup)?.removeView(p.frame)
         p.web.stopLoading()
         p.web.destroy()
     }
