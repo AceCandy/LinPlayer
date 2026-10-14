@@ -1816,3 +1816,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 62: 完善下一集队列衔接并发布 Android 包
+<!-- trellis-session: v=2 fp=7255457771d02718 -->
+
+**Date**: 2026-10-14
+**Task**: 完善下一集队列衔接并发布 Android 包
+**Branch**: `main`
+
+### Summary
+
+修复 Media3/MPV 下一集队列衔接、跨集退出进度归属、MPV 倍速继承和弹幕样式初始化。核心与绑定门禁、Android 相关回归通过；提交 18c7b326。构建并验签 arm64 Android APK。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `18c7b326` | fix(android): 丝滑衔接下一集播放 |
+
+### Status
+
+[OK] **Completed**

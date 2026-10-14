@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 61
+- **Total Sessions**: 62
 - **Last Active**: 2026-10-14
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1818 | Active |
+| `journal-1.md` | ~1840 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 62 | 2026-10-14 | 完善下一集队列衔接并发布 Android 包 | `18c7b326` | `main` |
 | 61 | 2026-10-14 | 播放器连播进度与下一集预加载优化 | `2460fb8a` | `main` |
 | 60 | 2026-10-14 | Emby 季集兼容与 Android 播放器体验 | `a75987da`, `96a63e80` | `main` |
 | 59 | 2026-10-14 | 修复Media3合并后ASS轨道身份断点 | `055717de` | `main` |
