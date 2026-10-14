@@ -91,6 +91,7 @@ object LinPlayerCommandNames {
         "account.reorderAccounts",
         "account.setAccountIconFile",
         "account.setActiveLine",
+        "account.setAggregatePrimaryServer",
         "account.setActiveServer",
         "account.setCrossServerResume",
         "account.setLines",
@@ -449,7 +450,7 @@ suspend fun LinPlayerCommands.embyWatchHistoryRestoreCandidate(args: Map<String,
 suspend fun LinPlayerCommands.embyWatchHistoryScanRestore(args: Map<String, Any?>? = null): JsonElement =
     call("emby.watchHistoryScanRestore", args)
 
-// ---- 账号与线路 · account.* (21 条) ----
+// ---- 账号与线路 · account.* (22 条) ----
 suspend fun LinPlayerCommands.accountBatchAddServers(args: Map<String, Any?>? = null): JsonElement =
     call("account.batchAddServers", args)
 suspend fun LinPlayerCommands.accountBatchParse(args: Map<String, Any?>? = null): JsonElement =
@@ -478,6 +479,8 @@ suspend fun LinPlayerCommands.accountSetAccountIconFile(args: Map<String, Any?>?
     call("account.setAccountIconFile", args)
 suspend fun LinPlayerCommands.accountSetActiveLine(args: Map<String, Any?>? = null): JsonElement =
     call("account.setActiveLine", args)
+suspend fun LinPlayerCommands.accountSetAggregatePrimaryServer(args: Map<String, Any?>? = null): JsonElement =
+    call("account.setAggregatePrimaryServer", args)
 suspend fun LinPlayerCommands.accountSetActiveServer(args: Map<String, Any?>? = null): JsonElement =
     call("account.setActiveServer", args)
 suspend fun LinPlayerCommands.accountSetCrossServerResume(args: Map<String, Any?>? = null): JsonElement =

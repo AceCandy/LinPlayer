@@ -40,7 +40,7 @@
 
 - 首页合集和各库最新按 LazyColumn 可见栏目触发，任务归页面作用域，离屏不重复取消；刷新保留原快照，账号变化/离页取消失效任务。
 - 手机首页不展示或请求「接下来看」。每次恢复 RESUMED 更新继续观看；首页采用紧凑服务器栏，媒体库 → 继续观看 → 各库最新 → 合集，电影Hero复用首页已有作品、不调用随机推荐；库入口及最新结果复用页面缓存，重新进入/显式下拉/失效通知时后台重取。刷新主请求组结束、失败或取消后必须收起指示器。
-- 手机聚合页快捷入口为下载、排行榜、日历、流影；先展示进程内总览快照，并以首页成功续播快照更新当前服（含空列表），不能覆盖其它服。进入/显式刷新/失效广播后台刷新总览，不另请求首页续播；刷新失败保留已有内容，换服/用户清理缓存并拒绝旧响应。回归见 `PhoneAggregateCacheTest`。
+- 手机聚合页快捷入口为下载、排行榜、日历、流影；服务器独立 Panel，统计下直接显示无标题续播轨。进入/下拉传 `counts_only=true`，已有核心快照时只更新统计；播放/续播失效通知仍完整刷新。成功覆盖数字（含0），失败逐字段保留，首次未知不伪造0。首次无快照居中大加载，热刷新不插行、不清内容。图片用所属服 `line_url` 经代理；跨服详情确认目标线路/用户激活后导航。回归见 `PhoneAggregateCacheTest`。
 - 聚合新增流影二级页，顶部返回，右侧「卍解」开关替代标签栏，默认关闭显示普通流影、开启显示 18+；隐藏悬浮导航且不预留其高度，网页全宽填满顶栏下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
 - 手机与 TV 榜单/公共日历调用 `emby.extRankings/extRankingItems/extCalendar`，经 `extensionBlock` 消费统一快照；E_UNSUPPORTED 明确展示，不能静默或退回旧快照。榜单分页、日历日本时区，卡片经 `openExtension` 实时唯一匹配进详情，无标题搜索。个人同步和提醒保留，不查询赞助；回归见 `PhoneDiscoverUiTest`、`DisplayCacheTest`、`TvFocusTest.extension*`。
 
@@ -201,3 +201,5 @@
 - Application持有唯一AppState及进程级事件作用域，浏览/播放共享会话和缓存；新进程恢复先boot再播放。通知只携带现有窗口component与REORDER_TO_FRONT/SINGLE_TOP，不携带旧播放路由重播；失效通知入口没有路由时直接结束。Home及按钮PiP、通知权限归PlayerActivity，后台播放仍沿用PlaybackService。
 - 插件壳事件仅由最近恢复的宿主处理，WebView容器归各自Activity；全局插件对话框仅前台宿主呈现。播放器插件导航经Activity结果回到浏览栈执行，不能直接在后台弹出交接页或启动第二套播放。MainActivity深链仍沿用singleTask，打开账号深链会结束其上的播放器。
 - PlayerActivityTest / PlayerLaunchPageTest覆盖Manifest、完整参数、一次启动与返回、通知恢复/失效、前台插件确认、退出停播和同一窗口配置切换；PluginShellHostsTest验证两窗口请求仅处理一次及WebView独立清理。真实转屏动画、解码首帧、PiP和进程回收恢复需要设备另验。
+
+- 手机服务器长按设置聚合主服，与主进度服独立。`AppState.aggregatePrimary` 从账号表读取；手机扩展调用显式 `server_id`，切当前服不改变扩展来源，未指定保持当前服。榜单以 `include_disabled=true` 取得完整目录，按来源/榜单两级切换；未开启明确标识。图片三处（领奖台、列表、日历）均经 `proxiedImage`，不能直接请求受鉴权的上游地址。日历当前无精确时刻，显示未提供。`PhoneDiscoverUiTest` / `PhoneManagementUiTest` 验证接线与交互；其它宿主默认参数不变。

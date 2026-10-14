@@ -429,6 +429,9 @@ func (c *AppConfig) Remove(serverID string) bool {
 		activeServer = a.Server
 	}
 	c.AccountList = append(c.AccountList[:idx], c.AccountList[idx+1:]...)
+	if c.AggregatePrimaryServer == serverID {
+		c.AggregatePrimaryServer = ""
+	}
 	if p := c.PrefsOf(); p.PrimaryProgressServer != nil && p.PrimaryProgressServer.Server == serverID {
 		InvalidateProgressAccount()
 		p.PrimaryProgressServer = nil

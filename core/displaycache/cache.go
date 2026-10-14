@@ -68,12 +68,23 @@ func key(command string, args map[string]any) string {
 		}
 		a["accounts"] = accounts
 		a["active"] = c.Active
+		if command == "emby.aggregateOverview" {
+			// 总览按账号集合隔离，切当前服与仅刷新统计复用同一展示快照。
+			for _, field := range []string{"server", "user_id", "server_id", "active", "counts_only"} {
+				delete(a, field)
+			}
+		}
 	}
 	if info, err := os.Stat(paths.BlocklistFile()); err == nil {
 		a["blocked_revision"] = info.ModTime().UnixNano()
 	}
 	b, _ := json.Marshal(a)
 	return hash(command + "|" + string(b))
+}
+
+// Snapshot 只供展示刷新判断已取得的区块，不用于播放或权限决策。
+func Snapshot(command string, args map[string]any) any {
+	return restore(load(key(command, args), epoch()))
 }
 
 // Register 只给展示白名单增加快照；其它命令保持原处理器行为。
@@ -218,7 +229,10 @@ func Run(ctx context.Context, seq int64, command string, args map[string]any, fe
 		var raw any
 		if json.Unmarshal(b, &raw) == nil {
 			// 聚合以成功整份快照保存；单服失败不能把旧结果覆盖成空列表。
-			if command == "emby.aggregateOverview" || command == "emby.aggregateSearch" {
+			if command == "emby.aggregateOverview" {
+				mergeOverview(raw, restore(load(k, e)))
+			}
+			if command == "emby.aggregateSearch" {
 				if rows, ok := raw.([]any); ok {
 					for _, row := range rows {
 						if o, ok := row.(map[string]any); ok && o["error"] != nil {
@@ -252,8 +266,49 @@ func Run(ctx context.Context, seq int64, command string, args map[string]any, fe
 var fields = map[string]bool{}
 
 func init() {
+	fields["counts_known"] = true
+	fields["enabled"] = true
 	for _, f := range []string{"title", "subtitle", "label", "group", "source", "external_id", "media_type", "rank", "weekday", "id", "name", "type_", "is_folder", "has_primary", "runtime_secs", "resume_secs", "series_name", "series_id", "season_id", "episode_no", "season_no", "played", "is_favorite", "unplayed_item_count", "unplayed_count_known", "has_backdrop", "has_logo", "genres", "year", "rating", "DoubanRating", "date_updated", "sort_name", "library_ids", "library_type", "collection_type", "overview", "premiere_date", "official_rating", "status", "tagline", "child_count", "index_no", "unplayed", "boxset", "bgm_id", "tags", "studios", "people", "role", "children", "items", "total", "next_index", "has_more", "movies", "series", "others", "years", "official_ratings", "unavailable", "unsupported", "empty", "capabilities", "filters", "hide_resume", "refresh", "similar", "collections", "chapters", "provider_lookup", "kind", "emby_items", "ms", "birthday", "death_day", "birth_place", "video_height", "bitrate", "size_bytes", "video_range", "server_id", "server_name", "source_kind", "is_file_browse", "active", "counts", "movie", "episode", "resume"} {
 		fields[f] = true
+	}
+}
+
+// 每服独立合并统计与续播；刷新失败不能把成功快照覆盖成零或空列表。
+func mergeOverview(fresh, previous any) {
+	old := map[string]map[string]any{}
+	if rows, ok := previous.([]any); ok {
+		for _, row := range rows {
+			if v, ok := row.(map[string]any); ok {
+				id, _ := v["server_id"].(string)
+				old[id] = v
+			}
+		}
+	}
+	if rows, ok := fresh.([]any); ok {
+		for _, row := range rows {
+			v, ok := row.(map[string]any)
+			if !ok {
+				continue
+			}
+			id, _ := v["server_id"].(string)
+			before := old[id]
+			if before == nil {
+				before = old[hash(id)]
+			}
+			if v["counts_error"] != nil || v["counts_known"] == false {
+				if before["counts"] != nil {
+					v["counts"] = before["counts"]
+					v["counts_known"] = before["counts_known"] != false
+				}
+			}
+			if v["error"] != nil || v["resume_unchanged"] == true {
+				if before["resume"] != nil {
+					v["resume"] = before["resume"]
+				} else {
+					delete(v, "resume")
+				}
+			}
+		}
 	}
 }
 func project(v any) any {
@@ -293,6 +348,12 @@ func restore(b json.RawMessage) any {
 				for _, acc := range config.Current().AccountList {
 					if hash(acc.Server) == id {
 						x["server_id"] = acc.Server
+						if _, overview := x["counts"]; overview {
+							x["line_url"] = acc.ActiveLineURL()
+							x["aggregate_primary"] = acc.Server == config.Current().AggregatePrimaryServer
+							active := config.Current().ActiveAccount()
+							x["active"] = active != nil && active.Server == acc.Server
+						}
 						break
 					}
 				}

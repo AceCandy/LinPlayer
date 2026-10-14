@@ -14,6 +14,8 @@ import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -40,6 +42,7 @@ class PhoneAggregateCacheTest {
     private var cachedPartial: JsonElement? = null
     private var pending: CompletableDeferred<JsonElement>? = null
     private val core = FakeCore().loggedIn()
+    private val imageRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
 
     @After fun clean() { pending?.cancel(); PageCache.clear(); scope.cancel(); app.bg.cancel() }
 
@@ -59,7 +62,7 @@ class PhoneAggregateCacheTest {
 
     private fun open(seed: () -> Unit = {}) {
         PageCache.clear()
-        FakeImages.install(ApplicationProvider.getApplicationContext())
+        FakeImages.install(ApplicationProvider.getApplicationContext()) { imageRequests.add(it) }
         app = AppState(object : CorePort by core {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 if (command == "emby.aggregateOverview" && pending != null) {
@@ -181,5 +184,84 @@ class PhoneAggregateCacheTest {
         rule.onNodeWithText("备用线路的续播").assertIsDisplayed()
         rule.onNodeWithText("服务器 A").assertIsDisplayed()
         assertEquals(0, core.calls.count { it.first == "emby.listResume" })
+    }
+
+    @Test fun pullRefreshKeepsCountsAndCardsUntilSuccessfulReplacement() {
+        core.ret("emby.aggregateOverview", overview("缓存续播"))
+        open()
+        rule.onNodeWithContentDescription("刷新").assertDoesNotExist()
+        rule.onNodeWithText("继续观看").assertDoesNotExist()
+        val before = rule.onNodeWithText("服务器 A").fetchSemanticsNode().boundsInRoot
+        pending = CompletableDeferred()
+        rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performTouchInput { swipeDown() }
+        rule.waitForIdle()
+        assertTrue(core.calls.last { it.first == "emby.aggregateOverview" }.second.bool("counts_only"))
+        rule.onNodeWithText("电影 30").assertIsDisplayed()
+        rule.onNodeWithText("正在刷新…").assertDoesNotExist()
+        assertEquals(before, rule.onNodeWithText("服务器 A").fetchSemanticsNode().boundsInRoot)
+        val failed = overview("不应替换").arr().single().obj()!!
+        rule.runOnIdle { pending!!.complete(arr(JsonObject(failed + mapOf(
+            "counts_error" to JsonPrimitive("统计失败"), "counts_known" to JsonPrimitive(false),
+            "counts" to buildJsonObject { put("movie", 0) },
+            "resume_unchanged" to JsonPrimitive(true), "resume" to arr(),
+        )))) }
+        rule.waitForIdle()
+        rule.onNodeWithText("电影 30").assertIsDisplayed()
+        rule.onNodeWithText("缓存续播").assertIsDisplayed()
+        pending = CompletableDeferred()
+        rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performTouchInput { swipeDown() }
+        rule.waitForIdle()
+        rule.runOnIdle { pending!!.complete(arr(JsonObject(failed + mapOf(
+            "counts_known" to JsonPrimitive(true), "counts" to buildJsonObject { put("movie", 0) },
+            "resume_unchanged" to JsonPrimitive(true), "resume" to arr(),
+        )))) }
+        rule.waitForIdle()
+        rule.onNodeWithText("电影 0").assertIsDisplayed()
+        rule.onNodeWithText("缓存续播").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/aggregate-ui/refresh.png")
+    }
+
+    @Test fun resumeInvalidationDuringRefreshRequestsFreshResume() {
+        pending = CompletableDeferred()
+        cachedPartial = overview("旧续播")
+        open()
+        assertTrue(core.calls.last { it.first == "emby.aggregateOverview" }.second.bool("counts_only"))
+        rule.runOnIdle {
+            core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("data.invalidate",
+                buildJsonObject { put("scope", "resume") }))
+        }
+        rule.waitForIdle()
+        assertEquals(2, core.calls.count { it.first == "emby.aggregateOverview" })
+        assertEquals(false, core.calls.last { it.first == "emby.aggregateOverview" }.second.bool("counts_only"))
+        rule.runOnIdle { pending!!.complete(overview("更新后的续播")) }
+        rule.waitForIdle()
+        rule.onNodeWithText("更新后的续播").assertIsDisplayed()
+        rule.onNodeWithText("旧续播").assertDoesNotExist()
+    }
+
+    @Test fun otherServerImageUsesItsEffectiveLine() {
+        val row = overview("其它服续播", true).arr().single().obj()!!
+        core.ret("emby.aggregateOverview", arr(JsonObject(row +
+            ("line_url" to JsonPrimitive("https://alternate.invalid/emby")))))
+        open()
+        rule.waitUntil(5000) { imageRequests.isNotEmpty() }
+        assertTrue(imageRequests.any { android.net.Uri.decode(it).contains("src=https://alternate.invalid/emby/Items/other/Images/Primary") })
+        assertTrue(imageRequests.none { android.net.Uri.decode(it).contains("emby-a.invalid/Items/other") })
+    }
+
+    @Test fun homeSeedDoesNotHideOtherServersPersistentResumeDuringCountsRefresh() {
+        pending = CompletableDeferred()
+        cachedPartial = JsonArray(overview("旧首页续播").arr() + overview("其它服持久续播", true).arr())
+        open { seedHome("最新首页续播") }
+        rule.onNodeWithText("最新首页续播").assertIsDisplayed()
+        rule.onNodeWithText("其它服持久续播").assertIsDisplayed()
+        val countsOnly = cachedPartial!!.arr().map { row -> JsonObject(row.obj()!! + mapOf(
+            "resume_unchanged" to JsonPrimitive(true), "resume" to arr(),
+        )) }
+        rule.runOnIdle { pending!!.complete(JsonArray(countsOnly)) }
+        rule.waitForIdle()
+        rule.onNodeWithText("最新首页续播").assertIsDisplayed()
+        rule.onNodeWithText("其它服持久续播").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/aggregate-ui/servers-light.png")
     }
 }

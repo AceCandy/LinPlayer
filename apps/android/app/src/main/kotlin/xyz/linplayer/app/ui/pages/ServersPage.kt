@@ -188,6 +188,15 @@ fun ServersPage(nav: NavController) {
                        换成全站共用的 [LpMenu]:同一块玻璃,**从手指落点**长出来。 */
                     LpMenu(menuFor?.id == a.id, { menuFor = null }, Alignment.TopStart, at) {
                         if (!a.isActive) LpMenuItem("设为当前", { menuFor = null; switchTo(a) })
+                        LpMenuItem(if (a.aggregatePrimary) "取消主服" else "设为主服", {
+                            menuFor = null
+                            scope.launch {
+                                runCatching { app.call("account.setAggregatePrimaryServer",
+                                    args("server_id" to if (a.aggregatePrimary) "" else a.id)) }
+                                    .onSuccess { app.refreshSession(); reload++ }
+                                    .onFailure { app.report(it) }
+                            }
+                        })
                         LpMenuItem("编辑", { menuFor = null; editFor = a })
                         LpMenuItem("编辑图标", { menuFor = null; iconFor = a })
                         LpMenuItem("服务器线路",
@@ -222,7 +231,7 @@ fun ServersPage(nav: NavController) {
                 }
             }
             item("hint") {
-                Dim3("点一下切换服务器,长按弹出操作菜单。",
+                Dim3("点一下切换服务器，长按可设为主服。排行榜与日历始终使用主服的能力。",
                     Modifier.padding(horizontal = Sp.x26, vertical = Sp.x12))
             }
             item("tail") { Spacer(Modifier.height(Sp.x26)) }
@@ -336,6 +345,8 @@ private fun ServerCard(
             Column(Modifier.weight(1f)) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     Text(a.name, Modifier.weight(1f), color = c.fg, style = LpText.section, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (a.aggregatePrimary) Text("主服", Modifier.padding(start = Sp.x4),
+                        color = c.mediaIcon, style = LpText.badge)
                     if (active) {
                         Spacer(Modifier.padding(horizontal = Sp.x4))
                         Text("当前", Modifier.clip(RoundedCornerShape(R.sm))

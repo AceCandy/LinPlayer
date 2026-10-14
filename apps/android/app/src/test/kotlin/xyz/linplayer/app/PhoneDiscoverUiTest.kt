@@ -29,11 +29,16 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.core.CoreException
+import xyz.linplayer.app.data.activateMediaServer
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.obj
+import xyz.linplayer.app.tv.account
+import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.loggedIn
@@ -49,10 +54,11 @@ class PhoneDiscoverUiTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val dark = mutableStateOf(false)
+    private val imageRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
     private fun open(core: FakeCore, route: Any = Route.Ranking) {
-        xyz.linplayer.app.tv.FakeImages.install(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        xyz.linplayer.app.tv.FakeImages.install(androidx.test.core.app.ApplicationProvider.getApplicationContext()) { imageRequests.add(it) }
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.setContent {
@@ -116,6 +122,8 @@ class PhoneDiscoverUiTest {
         core.ret("emby.extResolve", buildJsonObject { put("item_id", "movie-4"); put("item_type", "Movie") })
         open(core)
         rule.onNodeWithText("热门榜").assertIsDisplayed()
+        rule.waitUntil(5000) { imageRequests.isNotEmpty() }
+        org.junit.Assert.assertTrue(imageRequests.all { it.startsWith("fake:/img?src=") })
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-light.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-dark.png")
@@ -136,6 +144,9 @@ class PhoneDiscoverUiTest {
         }))
         rule.onNodeWithText("重试").performClick()
         rule.onNodeWithText("远方的故事与漫长旅途").assertIsDisplayed()
+        rule.waitUntil(5000) { imageRequests.isNotEmpty() }
+        org.junit.Assert.assertTrue(imageRequests.all { it.startsWith("fake:/img?src=") })
+        rule.onNodeWithText("未提供").assertIsDisplayed()
         assertEquals(before + 1, core.calls.count { it.first == "emby.extCalendar" })
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-light-narrow.png")
         rule.runOnIdle { dark.value = true }
@@ -151,5 +162,66 @@ class PhoneDiscoverUiTest {
         rule.onNodeWithText("本周 0 部 · 日本时区周历").assertIsDisplayed()
         assertEquals(1, core.calls.count { it.first == "emby.extCalendar" })
         assertEquals(0, core.calls.count { it.first == "prefs.getPrefs" || it.first.startsWith("system.afdian") })
+    }
+
+    @Test fun rankingSystemsKeepAllCategoriesAndUsePrimaryServer() {
+        val core = rankings()
+        core.ret("account.listAccounts", arr(JsonObject(account("primary", "主服", "", false).obj()!! +
+            ("aggregate_primary" to JsonPrimitive(true)))))
+        core.ret("emby.extRankings", arr(*listOf(
+            Triple("tmdb-hot", "热门电影", "tmdb"), Triple("tmdb-tv", "热门剧集", "tmdb"),
+            Triple("douban-top", "豆瓣高分", "douban"), Triple("douban-new", "豆瓣新片", "douban"),
+        ).map { (id, label, source) -> buildJsonObject {
+            put("id", id); put("label", label); put("source", source); put("enabled", true)
+        } }.toTypedArray()))
+        open(core)
+        rule.onNodeWithText("TMDb").assertIsDisplayed()
+        rule.onNodeWithText("热门剧集").performClick()
+        rule.waitForIdle()
+        assertEquals("tmdb-tv", core.calls.last { it.first == "emby.extRankingItems" }.second.str("category_id"))
+        rule.onNodeWithText("豆瓣").performClick()
+        rule.onNodeWithText("豆瓣新片").performClick()
+        rule.waitForIdle()
+        assertEquals("douban-new", core.calls.last { it.first == "emby.extRankingItems" }.second.str("category_id"))
+        core.calls.filter { it.first.startsWith("emby.ext") }.forEach { assertEquals("primary", it.second.str("server_id")) }
+        rule.onRoot().captureRoboImage("build/discover-ui/ranking-systems.png")
+    }
+
+    @Test fun primaryMatchSwitchesToEffectiveLineBeforeDetail() {
+        val core = rankings()
+        val primaryAccount = buildJsonObject {
+            put("server", "primary"); put("name", "主服"); put("line_url", "https://alternate.invalid")
+            put("user_id", "primary-user"); put("aggregate_primary", true); put("active", true)
+        }
+        core.ret("account.listAccounts", arr(primaryAccount))
+        core.ret("emby.extRankingItems", arr(buildJsonObject {
+            put("id", "tmdb:movie:42"); put("source", "tmdb"); put("external_id", "42")
+            put("media_type", "movie"); put("title", "主服作品"); put("rank", 1)
+        }))
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "primary-item"); put("item_type", "Movie") })
+        core.on("account.setActiveServer") {
+            core.ret("emby.currentSession", buildJsonObject {
+                put("server", "https://alternate.invalid"); put("user_id", "primary-user"); put("token", "fixture")
+            })
+            arr(primaryAccount)
+        }
+        open(core)
+        rule.onNodeWithText("主服作品").performClick()
+        rule.onNodeWithText("详情目标：primary-item").assertIsDisplayed()
+        assertEquals("primary", core.calls.last { it.first == "emby.extResolve" }.second.str("server_id"))
+        assertEquals("primary", core.calls.last { it.first == "account.setActiveServer" }.second.str("server_id"))
+    }
+
+    @Test fun failedSessionRefreshDoesNotOpenCrossServerDetail() = runBlocking {
+        val core = rankings()
+        core.ret("account.setActiveServer", arr(buildJsonObject {
+            put("server", "primary"); put("line_url", "https://alternate.invalid")
+            put("user_id", "primary-user"); put("active", true)
+        }))
+        val app = AppState(core, scope)
+        app.boot()
+        core.on("emby.currentSession") { throw CoreException("E_NETWORK", "会话读取失败", true) }
+        org.junit.Assert.assertFalse(app.activateMediaServer("primary"))
+        app.bg.cancel()
     }
 }

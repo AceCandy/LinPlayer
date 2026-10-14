@@ -58,10 +58,10 @@
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
-| [x] | `emby.aggregateOverview` | `aggregate_overview` | `—` | `Result<Vec<SourceOverview>, String>` | ✅ |
+| [x] | `emby.aggregateOverview` | `aggregate_overview` | `counts_only?: bool` | `Result<Vec<SourceOverview>, String>` | ✅ |
 | [x] | `emby.aggregateSearch` | `aggregate_search` | `query: String, include_episodes: Option<bool>` | `Result<Vec<ServerGroup>, String>` | ✅ |
 | [x] | `emby.extCapabilities` | **新增** | `server, token, user_id, device_id` | `JSON` | ✅ |
-| [x] | `emby.extRankings` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
+| [x] | `emby.extRankings` | **新增** | `server, token, user_id, device_id, server_id?, include_disabled?: bool` | `JSON[]` | ✅ |
 | [x] | `emby.extRankingItems` | **新增** | `server, token, user_id, device_id, category_id: String, page: Option<int>` | `JSON[]` | ✅ |
 | [x] | `emby.extCalendar` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
 | [x] | `emby.extResolve` | **新增** | `server, token, user_id, device_id, source: String, external_id: String, media_type: String` | `{item_id, item_type}` | ✅ |
@@ -125,6 +125,7 @@
 | [x] | `account.reorderAccounts` | `reorder_accounts` | `from: usize, to: usize` | `Result<(), String>` | ✅ |
 | [x] | `account.setAccountIconFile` | `set_account_icon_file` | `server_id: String, file_path: String` | `Result<String, String>` | ✅ |
 | [x] | `account.setActiveLine` | `set_active_line` | `server_id: String, index: usize` | `Result<(), String>` | ✅ |
+| [x] | `account.setAggregatePrimaryServer` | **新增** | `server_id: String` | `JSON[]` | ✅ |
 | [x] | `account.setActiveServer` | `set_active_server` | `server_id: String` | `Result<(), String>` | ✅ |
 | [x] | `account.setCrossServerResume` | `set_cross_server_resume` | `enabled: bool` | `Result<(), String>` | ✅ |
 | [x] | `account.setLines` | `set_lines` | `server_id: String, lines: Vec<linplayer_core::config::ServerLine>` | `Result<(), String>` | ✅ |

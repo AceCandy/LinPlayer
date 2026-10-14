@@ -36,6 +36,8 @@ type AppConfig struct {
 	DeviceID string `json:"device_id"`
 	Active   *int   `json:"active"`
 	Theme    string `json:"theme"`
+	// AggregatePrimaryServer 固定聚合扩展来源，不随当前服务器切换。
+	AggregatePrimaryServer string `json:"aggregate_primary_server"`
 
 	/* LastExePath 上一次跑起来时 exe 在哪。**只用来判「程序挪窝了没有」** ——
 	   绿色包解压到哪算哪,挪一次文件夹桌面上那个快捷方式就指坏了

@@ -184,6 +184,8 @@ data class Account(
     val plugin: JsonObject? = null,
     /** 「允许聚合」(D233):聚合搜索与换源时包不包括它。 */
     val aggregate: Boolean = false,
+    val aggregatePrimary: Boolean = false,
+    val lineUrl: String = server,
 ) {
     companion object {
         fun list(e: JsonElement?): List<Account> = e.arr().mapNotNull {
@@ -200,6 +202,8 @@ data class Account(
                 kind = o.str("kind"),
                 plugin = o["plugin"].obj(),
                 aggregate = o.bool("aggregate"),
+                aggregatePrimary = o.bool("aggregate_primary"),
+                lineUrl = o.str("line_url") ?: server,
             )
         }
 

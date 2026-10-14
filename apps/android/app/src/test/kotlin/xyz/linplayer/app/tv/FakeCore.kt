@@ -60,18 +60,18 @@ object FakeImages {
         0xFF6B6B3B to 0xFF33331C, 0xFF4A3B6B to 0xFF221C33,
     )
 
-    fun install(ctx: android.content.Context) {
+    fun install(ctx: android.content.Context, onFetch: (String) -> Unit = {}) {
         val loader = ImageLoader.Builder(ctx)
-            .components { add(Factory()) }
+            .components { add(Factory(onFetch)) }
             .coroutineContext(Dispatchers.Unconfined)
             .build()
         SingletonImageLoader.setUnsafe(loader)
     }
 
-    private class Factory : Fetcher.Factory<coil3.Uri> {
+    private class Factory(val onFetch: (String) -> Unit) : Fetcher.Factory<coil3.Uri> {
         override fun create(data: coil3.Uri, options: Options, imageLoader: ImageLoader): Fetcher? =
-            // 排行榜 / 放送表的封面是外站地址,不走 localBaseUrl:测试里一律画色块,不出网
-            Fetcher { draw(data.toString()) }
+            // 记录页面实际交给图片加载器的地址；合成色块不冒充真实回源验证。
+            Fetcher { onFetch(data.toString()); draw(data.toString()) }
     }
 
     private fun bitmap(key: String): Bitmap {

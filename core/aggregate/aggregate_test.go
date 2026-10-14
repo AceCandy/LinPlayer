@@ -179,7 +179,7 @@ func TestAggregateSearch空关键词(t *testing.T) {
 	}
 }
 
-// 聚合视界:统计端点 404 时**这张卡照出**,只是数字为 0。
+// 聚合视界:统计端点 404 时卡仍显示，但统计必须标记为未知。
 //
 // ★ /Items/Counts 在某些 fork 上就是没有的。让它拖垮整页 = 那台服的用户
 // 连聚合视界都打不开。
@@ -196,8 +196,8 @@ func TestAggregateOverview统计挂了卡还在(t *testing.T) {
 	if len(cards) != 1 {
 		t.Fatalf("该有一张卡,实得 %+v", cards)
 	}
-	if cards[0].Counts.Movie != 0 {
-		t.Fatalf("统计端点 404 时数字该是 0,实得 %+v", cards[0].Counts)
+	if cards[0].CountsKnown || cards[0].CountsError == nil {
+		t.Fatal("统计端点失败不能冒充成功零值")
 	}
 	// 但「继续观看」照拉到 —— 两者各自吞错
 	if len(cards[0].Resume) != 1 {

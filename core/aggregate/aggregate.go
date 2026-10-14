@@ -40,13 +40,18 @@ type ServerGroup struct {
 
 // SourceOverview 聚合视界里的一张服务器卡。
 type SourceOverview struct {
-	ServerID     string      `json:"server_id"`
-	ServerName   string      `json:"server_name"`
-	SourceKind   string      `json:"source_kind"`
-	IsFileBrowse bool        `json:"is_file_browse"`
-	Active       bool        `json:"active"`
-	Counts       emby.Counts `json:"counts"`
-	Resume       []emby.Item `json:"resume"`
+	ServerID        string      `json:"server_id"`
+	ServerName      string      `json:"server_name"`
+	SourceKind      string      `json:"source_kind"`
+	IsFileBrowse    bool        `json:"is_file_browse"`
+	Active          bool        `json:"active"`
+	LineURL         string      `json:"line_url"`
+	Primary         bool        `json:"aggregate_primary,omitempty"`
+	Counts          emby.Counts `json:"counts"`
+	CountsKnown     bool        `json:"counts_known"`
+	CountsError     *string     `json:"counts_error,omitempty"`
+	ResumeUnchanged bool        `json:"resume_unchanged,omitempty"`
+	Resume          []emby.Item `json:"resume"`
 	// Error 这台连不上时的原因(继续观看拉不到)。以前吞掉,界面上看着像「这台什么都没在看」。
 	Error *string `json:"error,omitempty"`
 }
@@ -80,6 +85,17 @@ func RegisterCommands(version string) {
 	displaycache.Register("emby.aggregateOverview", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		c := config.Current()
 		activeServer := ""
+		cached := map[string]bool{}
+		if a["counts_only"] == true {
+			if rows, ok := displaycache.Snapshot("emby.aggregateOverview", a).([]any); ok {
+				for _, row := range rows {
+					if v, ok := row.(map[string]any); ok && v["resume"] != nil {
+						id, _ := v["server_id"].(string)
+						cached[id] = true
+					}
+				}
+			}
+		}
 		if act := c.ActiveAccount(); act != nil {
 			activeServer = act.Server
 		}
@@ -90,7 +106,9 @@ func RegisterCommands(version string) {
 			out[i] = SourceOverview{
 				ServerID: acc.Server, ServerName: acc.DisplayName(),
 				SourceKind: acc.SourceKind(), IsFileBrowse: acc.IsFileBrowse(),
-				Active: acc.Server == activeServer,
+				Active:  acc.Server == activeServer,
+				LineURL: acc.ActiveLineURL(), Primary: acc.Server == c.AggregatePrimaryServer,
+				ResumeUnchanged: cached[acc.Server],
 				// 空切片不是 nil:调用方直接 .map() 拿到 null 会抛错
 				Resume: []emby.Item{},
 			}
@@ -114,10 +132,17 @@ func RegisterCommands(version string) {
 					defer wg2.Done()
 					if cnt, err := client.CountsOf(sctx, s); err == nil && cnt != nil {
 						out[i].Counts = *cnt
+						out[i].CountsKnown = true
+					} else {
+						msg := "资源数量暂时无法更新"
+						out[i].CountsError = &msg
 					}
 				}()
 				go func() {
 					defer wg2.Done()
+					if cached[acc.Server] {
+						return
+					}
 					if items, err := client.Resume(sctx, s, 12); err == nil {
 						out[i].Resume = items
 					} else {

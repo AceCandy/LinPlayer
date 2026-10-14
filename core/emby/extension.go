@@ -205,12 +205,13 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 		}
 		out := []map[string]any{}
 		for _, v := range data.Items {
-			if v.Enabled {
-				if v.ID == "" || v.Name == "" || v.Source == "" {
-					return nil, bus.NewErr(bus.EInvalid, "服务器榜单目录格式无效")
-				}
-				out = append(out, map[string]any{"id": v.ID, "label": v.Name, "source": v.Source, "group": v.Source})
+			if !v.Enabled && a["include_disabled"] != true {
+				continue
 			}
+			if v.ID == "" || v.Name == "" || v.Source == "" {
+				return nil, bus.NewErr(bus.EInvalid, "服务器榜单目录格式无效")
+			}
+			out = append(out, map[string]any{"id": v.ID, "label": v.Name, "source": v.Source, "group": v.Source, "enabled": v.Enabled})
 		}
 		return out, nil
 	})

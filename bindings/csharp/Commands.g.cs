@@ -101,6 +101,7 @@ public static class LinPlayerCommandNames
         "account.reorderAccounts",
         "account.setAccountIconFile",
         "account.setActiveLine",
+        "account.setAggregatePrimaryServer",
         "account.setActiveServer",
         "account.setCrossServerResume",
         "account.setLines",
@@ -461,7 +462,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> EmbyWatchHistoryScanRestore(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.watchHistoryScanRestore", args, ct);
 
-    // ---- 账号与线路 · account.* (21 条) ----
+    // ---- 账号与线路 · account.* (22 条) ----
     public static Task<JsonElement> AccountBatchAddServers(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.batchAddServers", args, ct);
     public static Task<JsonElement> AccountBatchParse(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -490,6 +491,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("account.setAccountIconFile", args, ct);
     public static Task<JsonElement> AccountSetActiveLine(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.setActiveLine", args, ct);
+    public static Task<JsonElement> AccountSetAggregatePrimaryServer(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("account.setAggregatePrimaryServer", args, ct);
     public static Task<JsonElement> AccountSetActiveServer(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.setActiveServer", args, ct);
     public static Task<JsonElement> AccountSetCrossServerResume(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

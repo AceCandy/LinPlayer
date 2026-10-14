@@ -43,7 +43,8 @@ type Info struct {
 	AllowInsecureTLS bool                `json:"allow_insecure_tls"`
 	Active           bool                `json:"active"`
 	// Aggregate「允许聚合」(D233 D235)。
-	Aggregate bool `json:"aggregate"`
+	Aggregate        bool `json:"aggregate"`
+	AggregatePrimary bool `json:"aggregate_primary,omitempty"`
 	// Plugin 插件数据源才有:分组、来源角标、灰显原因、上次访问失败(SPEC 8.7)。
 	Plugin *PluginInfo `json:"plugin,omitempty"`
 }
@@ -94,7 +95,9 @@ func listOf(c *config.AppConfig) []Info {
 	out := make([]Info, 0, len(c.AccountList))
 	for i := range c.AccountList {
 		a := c.AccountList[i]
-		out = append(out, infoOf(a, act != nil && act.Server == a.Server))
+		info := infoOf(a, act != nil && act.Server == a.Server)
+		info.AggregatePrimary = a.Server == c.AggregatePrimaryServer
+		out = append(out, info)
 	}
 	return out
 }
@@ -185,6 +188,27 @@ func RegisterCommands(version string) {
 
 	bus.Register("account.listAccounts", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		return listOf(config.Current()), nil
+	})
+
+	bus.Register("account.setAggregatePrimaryServer", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		id, ok := a["server_id"].(string)
+		if !ok {
+			return nil, bus.NewErr(bus.EInvalid, "缺少服务器标识")
+		}
+		c := config.Current()
+		if id != "" {
+			acc := c.Find(id)
+			if acc == nil || acc.IsFileBrowse() || acc.PluginSource() != nil || acc.UserID == "" {
+				return nil, bus.NewErr(bus.EInvalid, "请选择已登录的 Emby 服务器")
+			}
+		}
+		previous := c.AggregatePrimaryServer
+		c.AggregatePrimaryServer = id
+		if err := commit(c); err != nil {
+			c.AggregatePrimaryServer = previous
+			return nil, err
+		}
+		return listOf(c), nil
 	})
 
 	bus.Register("account.setActiveServer", func(ctx context.Context, seq int64, a map[string]any) (any, error) {

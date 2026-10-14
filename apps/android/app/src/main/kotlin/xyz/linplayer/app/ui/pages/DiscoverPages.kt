@@ -136,6 +136,15 @@ private data class Rank(
     }
 }
 
+private data class RankingCategory(val id: String, val label: String, val source: String, val enabled: Boolean)
+
+private fun rankingSourceLabel(source: String) = when (source) {
+    "tmdb" -> "TMDb"
+    "douban" -> "豆瓣"
+    "bangumi" -> "Bangumi"
+    else -> source.ifBlank { "其它" }
+}
+
 /**
  * 排行榜(U1.14a)。版式照草稿 06。
  *
@@ -153,32 +162,44 @@ fun RankingPage(nav: NavController) {
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
 
-    var cats by remember { mutableStateOf<Block<List<Pair<String, String>>>>(Block.Loading) }
+    var cats by remember { mutableStateOf<Block<List<RankingCategory>>>(Block.Loading) }
     var cur by remember { mutableStateOf<String?>(null) }
+    var source by remember { mutableStateOf<String?>(null) }
     var block by remember { mutableStateOf<Block<List<Rank>>>(Block.Loading) }
     var reload by remember { mutableStateOf(0) }
     var rankReload by remember { mutableStateOf(0) }
 
     val identity by app.session.collectAsState()
+    val primary by app.aggregatePrimary.collectAsState()
     val scope = rememberCoroutineScope()
     var page by remember(cur, identity) { mutableStateOf(1) }
-    LaunchedEffect(identity, reload) {
+    LaunchedEffect(identity, primary, reload) {
         cats = Block.Loading
         cur = null
         fun categories(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull {
             val o = it.obj() ?: return@mapNotNull null
-            (o.str("id") ?: return@mapNotNull null) to (o.str("label") ?: "榜单")
+            RankingCategory(o.str("id") ?: return@mapNotNull null, o.str("label") ?: "榜单",
+                o.str("source") ?: o.str("group") ?: "其它", o["enabled"] == null || o.bool("enabled"))
         }
-        cats = app.extensionBlock("emby.extRankings", onCached = {
+        cats = app.extensionBlock("emby.extRankings", args("include_disabled" to true), serverId = primary, onCached = {
             cats = Block.Ok(categories(it))
-            cur = cats.valueOrNull?.firstOrNull()?.first
+            val first = cats.valueOrNull?.firstOrNull { it.enabled } ?: cats.valueOrNull?.firstOrNull()
+            source = first?.source; cur = first?.id
         }).map(::categories)
-        cur = cats.valueOrNull?.firstOrNull()?.first
+        val first = cats.valueOrNull?.firstOrNull { it.id == cur }
+            ?: cats.valueOrNull?.firstOrNull { it.enabled } ?: cats.valueOrNull?.firstOrNull()
+        source = first?.source; cur = first?.id
     }
-    LaunchedEffect(identity, cur, page, rankReload) {
-        val id = cur ?: return@LaunchedEffect
+    val selected = cats.valueOrNull?.firstOrNull { it.id == cur }
+    LaunchedEffect(identity, primary, selected, page, rankReload) {
+        val category = selected ?: return@LaunchedEffect
+        val id = category.id
+        if (!category.enabled) {
+            block = Block.Fail("E_INVALID", "主服尚未开启或配置此榜单来源")
+            return@LaunchedEffect
+        }
         block = Block.Loading
-        block = app.extensionBlock("emby.extRankingItems", args("category_id" to id, "page" to page),
+        block = app.extensionBlock("emby.extRankingItems", args("category_id" to id, "page" to page), serverId = primary,
             onCached = { block = Block.Ok(Rank.list(it)) }).map { Rank.list(it) }
     }
     val open: (Rank) -> Unit = { row -> scope.launch {
@@ -186,7 +207,7 @@ fun RankingPage(nav: NavController) {
     } }
 
     LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->
-        Column(Modifier.fillMaxSize()) {
+        Column(Modifier.fillMaxSize().padding(pad)) {
             val cf = cats
             if (cf is Block.Fail && !cf.isSilent) {
                 ErrorState(cf.message, { reload++ })
@@ -197,19 +218,33 @@ fun RankingPage(nav: NavController) {
                 EmptyState("暂无可用榜单", "稍后再来看看。", LpIcons.trophy)
                 return@Column
             }
-            if (cs != null) Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+            if (cs != null) {
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                     .padding(horizontal = Sp.x16, vertical = Sp.x8),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
-            ) {
-                cs.forEach { (id, name) -> MediaFilterChip(name, id == cur) { cur = id } }
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    cs.map { it.source }.distinct().forEach { group ->
+                        MediaFilterChip(rankingSourceLabel(group), group == source) {
+                            source = group
+                            cur = cs.firstOrNull { it.source == group && it.enabled }?.id
+                                ?: cs.first { it.source == group }.id
+                        }
+                    }
+                }
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = Sp.x16, vertical = Sp.x8),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    cs.filter { it.source == source }.forEach { category ->
+                        MediaFilterChip(category.label + if (category.enabled) "" else " · 未开启",
+                            category.id == cur) { cur = category.id }
+                    }
+                }
             }
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
                 TextButton(onClick = { page-- }, enabled = page > 1) { Text("上一页") }
                 TextButton(onClick = { rankReload++ }) { Text("第 $page 页 · 刷新") }
                 TextButton(onClick = { page++ }, enabled = page < 500 && block.valueOrNull?.isNotEmpty() == true) { Text("下一页") }
             }
-            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+            LazyColumn(Modifier.fillMaxSize(), list) {
                 item("body") {
                     BlockBox(block, { rankReload++ }) { rows ->
                         if (rows.isEmpty()) EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
@@ -268,7 +303,7 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
                 Modifier.matchParentSize().graphicsLayer { alpha = breathe }.glow(GOLD, .45f)
             )
             Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).pressable({ open(r) })) {
-                NetImage(r.image, r.title, Modifier.fillMaxSize(), 12.dp)
+                NetImage(LocalApp.current.proxiedImage(r.image), r.title, Modifier.fillMaxSize(), 12.dp)
             }
             /* 名次数字压在海报左下角、往左探出一截。
                ★ 它是这一页的**主视觉**,海报反而是配角 —— 排行榜卖的就是名次。
@@ -325,7 +360,7 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
             r.rank.toString(), Modifier.width(34.dp),
             color = c.fg2, style = LpText.number.copy(fontSize = 19.sp, lineHeight = 24.sp), fontWeight = FontWeight.Black,
         )
-        NetImage(r.image, null, Modifier.size(56.dp, 84.dp), 10.dp)
+        NetImage(LocalApp.current.proxiedImage(r.image), null, Modifier.size(56.dp, 84.dp), 10.dp)
         Spacer(Modifier.width(Sp.x12))
         Column(Modifier.weight(1f)) {
             Body(r.title, maxLines = 2)
@@ -377,7 +412,8 @@ private fun CalendarBody(nav: NavController) {
     var reload by remember { mutableStateOf(0) }
 
     val identity by app.session.collectAsState()
-    LaunchedEffect(identity, reload) {
+    val primary by app.aggregatePrimary.collectAsState()
+    LaunchedEffect(identity, primary, reload) {
         all = Block.Loading
         fun rows(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull {
             val o = it.obj() ?: return@mapNotNull null
@@ -385,11 +421,11 @@ private fun CalendarBody(nav: NavController) {
                 subtitle = o.str("subtitle"), weekday = (o.long("weekday") ?: 0).toInt(),
                 hhmm = null, at = null, image = o.str("image_url"), rating = o.dbl("rating"), entry = o)
         }
-        all = app.extensionBlock("emby.extCalendar", onCached = { all = Block.Ok(rows(it)) }).map(::rows)
+        all = app.extensionBlock("emby.extCalendar", serverId = primary, onCached = { all = Block.Ok(rows(it)) }).map(::rows)
     }
 
     LpScaffold("追剧日历", onBack = { nav.popBackStack() }) { pad ->
-        Box(Modifier.fillMaxSize()) {
+        Box(Modifier.fillMaxSize().padding(pad)) {
             BlockBox(all, { reload++ }) { rows ->
                 Column(Modifier.fillMaxSize()) {
                     Text("本周 ${rows.size} 部 · 日本时区周历",
@@ -413,7 +449,7 @@ private fun CalendarBody(nav: NavController) {
                         },
                         label = "day",
                     ) { d ->
-                        Timeline(rows.filter { it.weekday == d }, isToday = d == today, pad = pad)
+                        Timeline(rows.filter { it.weekday == d }, isToday = d == today, pad = PaddingValues())
                     }
                 }
             }
@@ -481,7 +517,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
         EmptyState("这一天没有放送", "放送表按上游时区分组,这一栏是空的。", LpIcons.calendar)
         return
     }
-    val slots = rows.groupBy { it.hhmm ?: "待定" }.toSortedMap()
+    val slots = rows.groupBy { it.hhmm ?: "未提供" }.toSortedMap()
     val now = java.time.Instant.now()
     // 「下一个时段」= 今天里第一个还没到的时刻。不是今天就没有这颗脉冲点
     val nextSlot = if (!isToday) null else slots.entries
@@ -581,7 +617,7 @@ private fun AirCard(a: Air, index: Int, now: java.time.Instant) {
             .padding(Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        NetImage(a.image, null, Modifier.size(44.dp, 62.dp), 10.dp)
+        NetImage(LocalApp.current.proxiedImage(a.image), null, Modifier.size(44.dp, 62.dp), 10.dp)
         Spacer(Modifier.width(Sp.x10))
         Column(Modifier.weight(1f)) {
             // ★ 标题不许单行截断(截成「…」= 显示不全),放开完整换行

@@ -43,6 +43,9 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     private val _session = MutableStateFlow<Session?>(null)
     val session: StateFlow<Session?> = _session.asStateFlow()
 
+    private val _aggregatePrimary = MutableStateFlow<String?>(null)
+    val aggregatePrimary: StateFlow<String?> = _aggregatePrimary.asStateFlow()
+
     private val _caps = MutableStateFlow(Capabilities.EMPTY)
     val caps: StateFlow<Capabilities> = _caps.asStateFlow()
 
@@ -90,6 +93,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
             PageCache.clear()
         }
         _session.value = s
+        _aggregatePrimary.value = accounts.firstOrNull { it.aggregatePrimary }?.server
         _activeSource.value = accounts.firstOrNull { it.isActive && it.plugin != null }
         _hasAnyAccount.value = accounts.isNotEmpty()
         _loggedIn.value = s != null || accounts.isNotEmpty()
@@ -211,8 +215,9 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         return "$base/img?src=${Uri.encode(url)}&h=${ladder(height)}"
     }
 
-    fun imageUrl(itemId: String?, kind: String = "Primary", height: Int = 330): String? {
-        val server = _session.value?.server ?: return null
+    fun imageUrl(itemId: String?, kind: String = "Primary", height: Int = 330,
+        server: String? = _session.value?.server): String? {
+        if (server.isNullOrEmpty()) return null
         val base = core.localBaseUrl
         if (itemId.isNullOrEmpty() || base.isEmpty()) return null
         // Backdrop 要带序号,Primary/Logo 不带 —— 不带的话某些 fork 直接 404

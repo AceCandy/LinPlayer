@@ -54,3 +54,26 @@ Emby 播放续播与副服回写；未指定主服时保留旧本地跨服续播
 播放器以 `danmakuBegin` 分配代数，`danmakuSet` 校验代数后替换原始语料；时间偏移只参与排版和热力统计，不累加修改原始时间，换语料归零。回归：`player/danmaku_session_test.go`。
 
 服务器 raw 弹幕按当前账号和媒体实时请求，不写第三方弹幕持久缓存；能力查询同样实时检查，不跨账号复用权限结果。叠加前复制源缓存语料，避免排序或追加修改共享底层数组。
+
+## 聚合主服与统计刷新
+
+### 1. 范围
+手机聚合扩展能力固定主服；聚合展示刷新保留统计和续播，与主进度同步独立。
+
+### 2. 签名
+`account.setAggregatePrimaryServer(server_id: string)`；空串清除。`emby.aggregateOverview(counts_only?: bool)`；`emby.extRankings(include_disabled?: bool)`。
+
+### 3. 契约
+`AppConfig.aggregate_primary_server` 持久保存稳定账号标识，不随当前服切换；账号列表新增 `aggregate_primary`。总览新增 `line_url/counts_known/counts_error/resume_unchanged`。`counts_only=true` 仅对已有续播快照的服跳过续播，首次仍取；省略时保持完整刷新。快照按账号集合、用户、线路和聚合开关隔离，切当前服复用；统计与续播独立合并，失败不覆写成功值。线路不落盘，回放从当前配置恢复。目录默认仍过滤未开启项，显式 `include_disabled=true` 返回完整目录与 `enabled`。
+
+### 4. 错误
+主服不存在/非Emby/缺用户或参数类型错误 → E_INVALID；保存失败 → E_INTERNAL并回滚内存。删除主服清除选择。统计失败标记未知，真实0保持已知；续播失败不保存为空成功。
+
+### 5. 案例
+正常：主服A、当前B时手机榜单使用A的身份；切服后统计快照仍可显示。基础：无主服沿当前服。失败：首次统计失败不显示0，已有17时失败仍展示17；保存失败不改变主服。
+
+### 6. 回归
+`aggregate_primary_test.go` 检查保存/切服/重启/删除、拒绝无效及落盘失败回滚；`refresh_test.go` 检查有效线路、缓存后统计刷新零续播请求、失败保留、首次未知和旧调用完整刷新。`PhoneAggregateCacheTest` 检查下拉不位移与真实0覆盖；`PhoneDiscoverUiTest` 检查图片代理、两级分类、主服请求及跨服详情身份。
+
+### 7. 错误与正确
+错误：用当前服地址加载所有服条目，或把统计请求失败当0。正确：图片使用所属服有效线路，统计通过已知标志区分真实0和未知；只在成功后覆盖。

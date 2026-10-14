@@ -35,7 +35,7 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 		case "capabilities":
 			_, _ = w.Write([]byte(testCapabilities))
 		case "rankings":
-			_, _ = w.Write([]byte(`{"items":[{"id":"hot","name":"热门","source":"tmdb","enabled":true},{"id":"disabled","enabled":false}]}`))
+			_, _ = w.Write([]byte(`{"items":[{"id":"hot","name":"热门","source":"tmdb","enabled":true},{"id":"disabled","name":"未开启榜单","source":"douban","enabled":false}]}`))
 		case "rankings/hot/items":
 			if r.URL.Query().Get("page") != "2" {
 				t.Error("page lost")
@@ -69,9 +69,13 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 	defer func() { defaultClient = old }()
 	h := extensionHandlers()
 	session := &Session{Server: srv.URL + "/proxy/emby/", Token: "test-token", UserID: "user"}
-	cats, err := h["emby.extRankings"](context.Background(), session, nil)
-	if err != nil || len(cats.([]map[string]any)) != 1 {
+	cats, err := h["emby.extRankings"](context.Background(), session, map[string]any{"include_disabled": true})
+	if err != nil || len(cats.([]map[string]any)) != 2 {
 		t.Fatalf("categories: %v %v", cats, err)
+	}
+	visible, err := h["emby.extRankings"](context.Background(), session, nil)
+	if err != nil || len(visible.([]map[string]any)) != 1 {
+		t.Fatalf("default categories: %v %v", visible, err)
 	}
 	rows, err := h["emby.extRankingItems"](context.Background(), session, map[string]any{"category_id": "hot", "page": float64(2)})
 	if err != nil {
@@ -100,7 +104,7 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 			assertExtensionCode(t, err, tc.code)
 		}
 	}
-	if len(requests) != 12 {
+	if len(requests) != 14 {
 		t.Fatalf("expected fresh capability and data for each command, got %d", len(requests))
 	}
 }

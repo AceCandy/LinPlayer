@@ -124,6 +124,17 @@ class PhoneManagementUiTest {
         assertEquals(0, core.calls.count { it.first == "account.removeAccount" })
     }
 
+    @Test fun serverMenuSetsPrimaryWithoutSwitchingCurrentServer() {
+        val core = servers()
+        core.ret("account.setAggregatePrimaryServer", JsonNull)
+        open(core)
+        rule.onNodeWithText("备用服务器").performTouchInput { longClick() }
+        rule.onNodeWithText("设为主服").performClick()
+        rule.waitForIdle()
+        assertEquals("management-b", core.calls.last { it.first == "account.setAggregatePrimaryServer" }.second.str("server_id"))
+        assertEquals(0, core.calls.count { it.first == "account.setActiveServer" })
+    }
+
     @Test fun settingsGroupsKeepNavigationAndBothThemes() {
         val core = FakeCore().loggedIn()
         core.ret("plugin.sidebar", arr(buildJsonObject {
