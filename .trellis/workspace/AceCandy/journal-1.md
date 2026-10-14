@@ -1860,3 +1860,40 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 64: 发现页审查修复、提交归档与手机交付
+<!-- trellis-session: v=2 fp=e11bbe497ec2f39d -->
+
+**Date**: 2026-10-15
+**Task**: 发现页审查修复、提交归档与手机交付
+**Branch**: `main`
+
+### Summary
+
+复核修复周历放送区间与独立来源误匹配；MSG main 提交178dee6，其他任务工作树保留；归档发现页任务并交付28.37MiB手机arm64包。
+
+### Main Changes
+
+- 补齐排行榜滑动加载与刷新、海报链路、新榜单体系及日历明确时间。
+- MSG 本次文件在已提交基线上隔离验证通过，并同步到 main。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a2ec1664` | fix(discover): 修复榜单滚动加载、海报与日历时间 |
+
+### Testing
+
+- [OK] LinPlayer完整核心门禁、Android相关回归、参数字段及隐私检查通过。
+- [OK] MSG handler/repository/service定向race与隔离源码回归通过；API目录类型检查和lint通过。
+- [OK] Android release构建、最终APK签名、ABI、ELF、压缩和核心库字节一致性验证通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实服务器与手机播放尚未验收；新增完整榜单和时间能力需要更新MSG。
