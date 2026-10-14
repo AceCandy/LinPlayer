@@ -11,6 +11,7 @@ import (
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/emby"
 	"linplayer/core/net/localserve"
 	"linplayer/core/net/tlspolicy"
 	"linplayer/core/paths"
@@ -20,6 +21,7 @@ import (
 func TestMain(m *testing.M) {
 	bus.Init()
 	RegisterCommands("test")
+	emby.RegisterCommands("test")
 	os.Exit(m.Run())
 }
 

@@ -20,7 +20,7 @@ func extensionHandlers() map[string]func(context.Context, *Session, map[string]a
 	return handlers
 }
 
-const testCapabilities = `{"version":"1","rankings":true,"calendar":{"enabled":true},"library_matching":{"sources":["tmdb","douban","bangumi"]}}`
+const testCapabilities = `{"version":"1","rankings":true,"calendar":{"enabled":true},"library_matching":{"sources":["tmdb","douban","bangumi","hongguo","huangguoai"]}}`
 
 func TestExtensionContractAndExactMatch(t *testing.T) {
 	matchCount := 1
@@ -42,7 +42,7 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 			}
 			_, _ = w.Write([]byte(`{"page_size":20,"items":[{"source":"tmdb","media_type":"movie","tmdb_id":123,"title":"作品","poster_url":"/emby-ext/v1/images/tmdb/movie/123/poster"}]}`))
 		case "calendar":
-			_, _ = w.Write([]byte(`{"items":[{"source":"bangumi","media_type":"anime","bangumi_id":456,"title":"周历","weekday":7}]}`))
+			_, _ = w.Write([]byte(`{"items":[{"source":"bangumi","media_type":"anime","bangumi_id":456,"title":"周历","weekday":7,"broadcast_time":"01:30","timezone":"Asia/Tokyo","time_source":"bangumi-data"}]}`))
 		case "library/matches":
 			if r.Method != "POST" {
 				t.Error("not POST")
@@ -88,6 +88,10 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 	calendar, err := h["emby.extCalendar"](context.Background(), session, nil)
 	if err != nil || calendar.([]map[string]any)[0]["weekday"] != 7 || calendar.([]map[string]any)[0]["broadcast_at"] != nil {
 		t.Fatalf("calendar: %v %v", calendar, err)
+	}
+	calJSON, _ := json.Marshal(calendar)
+	if !strings.Contains(string(calJSON), `"broadcast_time":"01:30"`) || !strings.Contains(string(calJSON), `"time_source":"bangumi-data"`) {
+		t.Fatalf("time lost: %s", calJSON)
 	}
 	for _, tc := range []struct {
 		n    int
@@ -145,5 +149,44 @@ func TestExtensionErrorsAndRedirect(t *testing.T) {
 	_, err = NewClient("test").extensionCapability(ctx, &Session{Server: srv.URL}, "")
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel: %v", err)
+	}
+}
+
+func TestExtensionIndependentCatalogIdentity(t *testing.T) {
+	for _, source := range []string{"hongguo", "huangguoai"} {
+		t.Run(source, func(t *testing.T) {
+			const id = "99999999999999999999999999999999"
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/emby-ext/v1/capabilities":
+					_, _ = w.Write([]byte(testCapabilities))
+				case "/emby-ext/v1/rankings/catalog/items":
+					_ = json.NewEncoder(w).Encode(map[string]any{"page_size": 20, "items": []any{map[string]any{"source": source, "external_id": id, "media_type": "series", "title": "作品"}}})
+				case "/emby-ext/v1/library/matches":
+					var body struct{ Items []map[string]any }
+					if json.NewDecoder(r.Body).Decode(&body) != nil || len(body.Items) != 1 || body.Items[0]["source"] != source || body.Items[0]["external_id"] != id {
+						t.Error("identity changed")
+					}
+					_, _ = w.Write([]byte(`{"items":[{"key":"item","matches":[{"item_id":"catalog-work","item_type":"Series"}]}]}`))
+				default:
+					t.Error(r.URL.Path)
+					w.WriteHeader(404)
+				}
+			}))
+			defer srv.Close()
+			h := extensionHandlers()
+			session := &Session{Server: srv.URL}
+			rows, err := h["emby.extRankingItems"](t.Context(), session, map[string]any{"category_id": "catalog"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			row := rows.([]map[string]any)[0]
+			if row["external_id"] != id {
+				t.Fatal(row)
+			}
+			if _, err := h["emby.extResolve"](t.Context(), session, row); err != nil {
+				t.Fatal(err)
+			}
+		})
 	}
 }

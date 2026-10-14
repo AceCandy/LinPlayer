@@ -94,23 +94,77 @@ class PhoneDiscoverUiTest {
         }))
         rule.onNodeWithText("重试").performClick()
         rule.onNodeWithText("远方的故事").assertIsDisplayed()
-        assertEquals(before + 1, core.calls.count { it.first == "emby.extRankingItems" })
+        assertEquals(before + 1, core.calls.count { it.first == "emby.extRankingItems" && it.second.long("page") == 1L })
         assertEquals("hot", core.calls.last { it.first == "emby.extRankingItems" }.second.str("category_id"))
     }
-    @Test fun rankingPaginationAndUnsupportedState() {
+    @Test fun rankingScrollAppendsAndPullRefreshRestartsAtFirstPage() {
         val core = rankings()
+        var refreshed = false
         core.on("emby.extRankingItems") { a ->
-            if (a.long("page") == 2L) arr() else arr(buildJsonObject {
-                put("id", "external-1"); put("rank", 1); put("title", "第一页作品")
-            })
+            val page = a.long("page") ?: 1L
+            if (page > 2) arr() else arr(*(1..20).map { offset -> buildJsonObject {
+                val n = (page - 1) * 20 + offset
+                put("id", "external-$n"); put("rank", n)
+                put("title", if (refreshed) "刷新作品 $n" else "作品 $n")
+            } }.toTypedArray())
         }
         open(core)
-        rule.onNodeWithText("下一页").performClick()
-        rule.onNodeWithText("下一页").assertIsNotEnabled()
-        assertEquals(2L, core.calls.last { it.first == "emby.extRankingItems" }.second.long("page"))
-        core.on("emby.extRankingItems") { throw CoreException("E_UNSUPPORTED", "扩展未开启", false) }
-        rule.onNodeWithText("上一页").performClick()
-        rule.onNodeWithText("扩展未开启", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("上一页").assertDoesNotExist()
+        rule.onNodeWithText("下一页").assertDoesNotExist()
+        val scroll = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        scroll.performScrollToNode(hasText("作品 20"))
+        rule.waitForIdle()
+        scroll.performScrollToNode(hasText("作品 40"))
+        rule.onNodeWithText("作品 40").assertIsDisplayed()
+        rule.waitForIdle()
+        assertEquals(listOf(1L, 2L, 3L), core.calls.filter { it.first == "emby.extRankingItems" }.map { it.second.long("page") })
+        scroll.performScrollToIndex(0)
+        refreshed = true
+        scroll.performTouchInput { swipeDown() }
+        rule.waitForIdle()
+        rule.onNodeWithText("刷新作品 1").assertIsDisplayed()
+        assertEquals(1L, core.calls.last { it.first == "emby.extRankingItems" }.second.long("page"))
+        rule.onRoot().captureRoboImage("build/discover-ui/ranking-scroll.png")
+    }
+
+    @Test fun appendFailureKeepsRowsAndRetriesSamePage() {
+        val core = rankings()
+        var fail = true
+        core.on("emby.extRankingItems") { a ->
+            val page = a.long("page") ?: 1L
+            if (page == 2L && fail) throw CoreException("E_NETWORK", "追加失败", true)
+            if (page > 2) arr() else arr(*(1..20).map { offset -> buildJsonObject {
+                val n = (page - 1) * 20 + offset
+                put("id", "external-$n"); put("rank", n); put("title", "作品 $n")
+            } }.toTypedArray())
+        }
+        open(core)
+        val scroll = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        scroll.performScrollToNode(hasText("作品 20"))
+        rule.waitForIdle()
+        scroll.performScrollToNode(hasText("重试"))
+        rule.onNodeWithText("作品 20").assertExists()
+        fail = false
+        rule.onNodeWithText("重试").performClick()
+        rule.waitForIdle()
+        scroll.performScrollToNode(hasText("作品 40"))
+        rule.onNodeWithText("作品 40").assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "emby.extRankingItems" && it.second.long("page") == 2L })
+    }
+
+    @Test fun repeatedRefreshFailureKeepsRowsAndRetry() {
+        val core = rankings()
+        open(core)
+        core.on("emby.extRankingItems") { throw CoreException("E_NETWORK", "刷新失败", true) }
+        val scroll = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        scroll.performTouchInput { swipeDown() }
+        rule.waitForIdle()
+        repeat(2) {
+            rule.onNodeWithText("远方的故事").assertIsDisplayed()
+            rule.onNodeWithText("重试").performClick()
+            rule.waitForIdle()
+        }
+        rule.onNodeWithText("重试").assertIsDisplayed()
     }
 
     @Test fun rankingThemes() {
@@ -153,6 +207,18 @@ class PhoneDiscoverUiTest {
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-dark-narrow.png")
         rule.onNodeWithText("查看入库").performClick()
         rule.onNodeWithText("详情目标：series-1").assertIsDisplayed()
+    }
+    @Test fun calendarDisplaysProvidedTime() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.extCalendar", arr(buildJsonObject {
+            put("source", "bangumi"); put("external_id", "42"); put("media_type", "anime"); put("title", "定时放送")
+            put("weekday", java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value)
+            put("broadcast_time", "01:30"); put("timezone", "Asia/Tokyo"); put("time_source", "bangumi-data")
+        }))
+        open(core, Route.Calendar)
+        rule.onNodeWithText("01:30").assertIsDisplayed()
+        rule.onNodeWithText("定时放送").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/discover-ui/calendar-time.png")
     }
     @Test fun calendarWithoutSponsorOrderFetchesImmediately() {
         val core = FakeCore().loggedIn()

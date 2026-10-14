@@ -15,6 +15,9 @@ import (
 	"linplayer/core/net/localserve"
 )
 
+// AllowExtensionImageOrigin 由账号模块接入可跨白名单重建保留的图片来源登记。
+var AllowExtensionImageOrigin = localserve.AllowDefault
+
 // extensionBase 保留反代前缀，只移除普通 Emby API 的尾部路径。
 func extensionBase(server string) (string, error) {
 	u, err := url.Parse(server)
@@ -128,17 +131,21 @@ func (c *Client) extensionCapability(ctx context.Context, s *Session, feature st
 
 // extensionEntry 保留来源身份，展示快照不能携带媒体库匹配或播放授权。
 type extensionEntry struct {
-	Source       string   `json:"source"`
-	MediaType    string   `json:"media_type"`
-	Title        string   `json:"title"`
-	OriginalName string   `json:"original_name"`
-	PosterURL    string   `json:"poster_url"`
-	Year         int      `json:"year"`
-	Rating       *float64 `json:"rating"`
-	TMDBID       int64    `json:"tmdb_id"`
-	DoubanID     string   `json:"douban_id"`
-	BangumiID    int64    `json:"bangumi_id"`
-	Weekday      int      `json:"weekday"`
+	Source        string   `json:"source"`
+	ExternalID    string   `json:"external_id"`
+	BroadcastTime *string  `json:"broadcast_time"`
+	Timezone      string   `json:"timezone"`
+	TimeSource    string   `json:"time_source"`
+	MediaType     string   `json:"media_type"`
+	Title         string   `json:"title"`
+	OriginalName  string   `json:"original_name"`
+	PosterURL     string   `json:"poster_url"`
+	Year          int      `json:"year"`
+	Rating        *float64 `json:"rating"`
+	TMDBID        int64    `json:"tmdb_id"`
+	DoubanID      string   `json:"douban_id"`
+	BangumiID     int64    `json:"bangumi_id"`
+	Weekday       int      `json:"weekday"`
 }
 
 func (e extensionEntry) view(s *Session, rank int) map[string]any {
@@ -148,6 +155,8 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 		if e.TMDBID > 0 {
 			id = strconv.FormatInt(e.TMDBID, 10)
 		}
+	case "hongguo", "huangguoai":
+		id = e.ExternalID
 	case "douban":
 		id = e.DoubanID
 	case "bangumi":
@@ -168,7 +177,7 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 			if target.User == nil && (target.Scheme == "http" || target.Scheme == "https") {
 				picture = target.String()
 				if target.Scheme != origin.Scheme || target.Host != origin.Host {
-					localserve.AllowDefault(target.Scheme+"://"+target.Host, nil)
+					AllowExtensionImageOrigin(target.Scheme+"://"+target.Host, nil)
 				}
 			}
 		}
@@ -178,7 +187,7 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 		subtitle = strconv.Itoa(e.Year)
 	}
 	return map[string]any{"id": e.Source + ":" + e.MediaType + ":" + id, "source": e.Source, "external_id": id, "media_type": e.MediaType,
-		"title": e.Title, "subtitle": subtitle, "image_url": picture, "rating": e.Rating, "rank": rank, "weekday": e.Weekday}
+		"title": e.Title, "subtitle": subtitle, "image_url": picture, "rating": e.Rating, "rank": rank, "weekday": e.Weekday, "broadcast_time": e.BroadcastTime, "timezone": e.Timezone, "time_source": e.TimeSource}
 }
 
 func registerExtensionCommands(list func(string, func(context.Context, *Session, map[string]any) (any, error))) {
@@ -261,7 +270,7 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 	// 点击时实时匹配；多匹配不能任取第一条，必须让用户知道歧义。
 	list("emby.extResolve", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		source, id, kind := str(a, "source"), str(a, "external_id"), str(a, "media_type")
-		if id == "" || (source != "tmdb" && source != "douban" && source != "bangumi") || (kind != "movie" && kind != "tv" && kind != "series" && kind != "anime") {
+		if id == "" || (source != "tmdb" && source != "douban" && source != "bangumi" && source != "hongguo" && source != "huangguoai") || (kind != "movie" && kind != "tv" && kind != "series" && kind != "anime") {
 			return nil, bus.NewErr(bus.EInvalid, "作品缺少有效的来源标识，无法精确匹配")
 		}
 		caps, err := defaultClient.extensionCapability(ctx, s, "matching")

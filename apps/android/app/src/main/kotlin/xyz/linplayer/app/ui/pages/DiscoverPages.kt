@@ -37,12 +37,19 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.snapshotFlow
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
+import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LoadingLabel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import kotlinx.coroutines.launch
 import xyz.linplayer.app.data.extensionBlock
 import xyz.linplayer.app.data.openExtension
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -142,6 +149,8 @@ private fun rankingSourceLabel(source: String) = when (source) {
     "tmdb" -> "TMDb"
     "douban" -> "豆瓣"
     "bangumi" -> "Bangumi"
+    "hongguo" -> "红果"
+    "huangguoai" -> "黄果 AI"
     else -> source.ifBlank { "其它" }
 }
 
@@ -155,6 +164,7 @@ private fun rankingSourceLabel(source: String) = when (source) {
  *   但一个该重试一个不该。
  * ★ 分类空表和不支持/失败分别展示；无需客户端第三方凭据。
  */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun RankingPage(nav: NavController) {
     val app = LocalApp.current
@@ -172,7 +182,11 @@ fun RankingPage(nav: NavController) {
     val identity by app.session.collectAsState()
     val primary by app.aggregatePrimary.collectAsState()
     val scope = rememberCoroutineScope()
-    var page by remember(cur, identity) { mutableStateOf(1) }
+    var rows by remember(identity, primary, cur) { mutableStateOf(emptyList<Rank>()) }
+    var refreshing by remember(identity, primary, cur) { mutableStateOf(false) }
+    var loadingMore by remember(identity, primary, cur) { mutableStateOf(false) }
+    var moreError by remember(identity, primary, cur) { mutableStateOf<String?>(null) }
+    var moreRetry by remember(identity, primary, cur) { mutableStateOf(0) }
     LaunchedEffect(identity, primary, reload) {
         cats = Block.Loading
         cur = null
@@ -191,23 +205,60 @@ fun RankingPage(nav: NavController) {
         source = first?.source; cur = first?.id
     }
     val selected = cats.valueOrNull?.firstOrNull { it.id == cur }
-    LaunchedEffect(identity, primary, selected, page, rankReload) {
+    LaunchedEffect(identity, primary, selected, rankReload) {
         val category = selected ?: return@LaunchedEffect
-        val id = category.id
         if (!category.enabled) {
+            rows = emptyList()
             block = Block.Fail("E_INVALID", "主服尚未开启或配置此榜单来源")
             return@LaunchedEffect
         }
-        block = Block.Loading
-        block = app.extensionBlock("emby.extRankingItems", args("category_id" to id, "page" to page), serverId = primary,
-            onCached = { block = Block.Ok(Rank.list(it)) }).map { Rank.list(it) }
+        var page = 1
+        var ended = false
+        moreError = null
+        refreshing = true
+        try {
+            if (rows.isEmpty()) block = Block.Loading
+            val first = app.extensionBlock("emby.extRankingItems",
+                args("category_id" to category.id, "page" to 1), serverId = primary,
+                onCached = { if (rows.isEmpty()) rows = Rank.list(it) }).map { Rank.list(it) }
+            block = first
+            when (first) {
+                is Block.Ok -> { rows = first.value.distinctBy { it.id }; ended = rows.isEmpty() }
+                is Block.Fail -> {
+                    if (first.code in setOf("E_AUTH", "E_PERMISSION", "E_INVALID", "E_NOTFOUND")) rows = emptyList()
+                    return@LaunchedEffect
+                }
+                else -> return@LaunchedEffect
+            }
+        } finally { refreshing = false }
+        snapshotFlow { Triple(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1, rows.size, moreRetry) }
+            .collect { (last, _, _) ->
+                if (ended || moreError != null || last < list.layoutInfo.totalItemsCount - 3) return@collect
+                loadingMore = true
+                try {
+                    val next = app.extensionBlock("emby.extRankingItems",
+                        args("category_id" to category.id, "page" to page + 1), serverId = primary,
+                        onCached = {}).map { Rank.list(it) }
+                    currentCoroutineContext().ensureActive()
+                    when (next) {
+                        is Block.Ok -> {
+                            val combined = (rows + next.value).distinctBy { it.id }
+                            ended = next.value.isEmpty() || combined.size == rows.size || page + 1 >= 500
+                            rows = combined
+                            page++
+                        }
+                        is Block.Fail -> moreError = next.message
+                        else -> Unit
+                    }
+                } finally { loadingMore = false }
+            }
     }
     val open: (Rank) -> Unit = { row -> scope.launch {
         app.openExtension(row.entry) { id, type -> nav.navigate(Route.Detail(id, type)) }
     } }
 
     LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Column(Modifier.fillMaxSize()) {
             val cf = cats
             if (cf is Block.Fail && !cf.isSilent) {
                 ErrorState(cf.message, { reload++ })
@@ -239,23 +290,31 @@ fun RankingPage(nav: NavController) {
                     }
                 }
             }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.Center) {
-                TextButton(onClick = { page-- }, enabled = page > 1) { Text("上一页") }
-                TextButton(onClick = { rankReload++ }) { Text("第 $page 页 · 刷新") }
-                TextButton(onClick = { page++ }, enabled = page < 500 && block.valueOrNull?.isNotEmpty() == true) { Text("下一页") }
-            }
-            LazyColumn(Modifier.fillMaxSize(), list) {
-                item("body") {
-                    BlockBox(block, { rankReload++ }) { rows ->
-                        if (rows.isEmpty()) EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
-                        else Column {
-                            if (page == 1 && rows.size >= 3) Podium(rows.take(3), open)
-                            rows.drop(if (page == 1 && rows.size >= 3) 3 else 0)
-                                .forEachIndexed { i, r -> RankRow(r, i, open) }
+            val pull = rememberPullToRefreshState()
+            PullToRefreshBox(isRefreshing = refreshing && rows.isNotEmpty(), state = pull,
+                indicator = { LpPullIndicator(pull, refreshing && rows.isNotEmpty()) },
+                onRefresh = { if (!refreshing) rankReload++ },
+                modifier = Modifier.weight(1f).fillMaxWidth()) {
+                LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+                    if (rows.isEmpty()) item("state") {
+                        BlockBox(block, { rankReload++ }) {
+                            EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
                         }
+                    } else {
+                        if (rows.size >= 3) item("podium") { Podium(rows.take(3), open) }
+                        itemsIndexed(rows.drop(if (rows.size >= 3) 3 else 0), key = { _, row -> row.id }) { index, row ->
+                            RankRow(row, index, open)
+                        }
+                        (block as? Block.Fail)?.let { error -> item("refresh-error") {
+                            ErrorState(error.message, { rankReload++ })
+                        } }
                     }
+                    if (loadingMore) item("loading-more") { LoadingLabel("正在加载…") }
+                    moreError?.let { error -> item("more-error") {
+                        ErrorState(error, { moreError = null; moreRetry++ })
+                    } }
+                    item("tail") { Spacer(Modifier.height(Sp.x26)) }
                 }
-                item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
         }
     }
@@ -419,7 +478,8 @@ private fun CalendarBody(nav: NavController) {
             val o = it.obj() ?: return@mapNotNull null
             Air(title = o.str("title") ?: return@mapNotNull null,
                 subtitle = o.str("subtitle"), weekday = (o.long("weekday") ?: 0).toInt(),
-                hhmm = null, at = null, image = o.str("image_url"), rating = o.dbl("rating"), entry = o)
+                hhmm = o.str("broadcast_time")?.takeIf { o.str("timezone") == "Asia/Tokyo" }
+                    ?.let { time -> runCatching { java.time.LocalTime.parse(time).format(java.time.format.DateTimeFormatter.ofPattern("HH:mm")) }.getOrNull() }, at = null, image = o.str("image_url"), rating = o.dbl("rating"), entry = o)
         }
         all = app.extensionBlock("emby.extCalendar", serverId = primary, onCached = { all = Block.Ok(rows(it)) }).map(::rows)
     }
@@ -528,7 +588,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
             item(hhmm) { Slot(hhmm, list, hhmm == nextSlot, now) }
         }
         item("source") {
-            Dim3("公共周历由 MSG 资料中心提供 · Bangumi · 不含精确播出时刻。",
+            Dim3("周历：Bangumi · 日本时区。时间：bangumi-data（CC BY 4.0）；缺失时标为未提供。",
                 Modifier.padding(Sp.x16), maxLines = 3)
         }
         item("tail") { Spacer(Modifier.height(Sp.x26)) }

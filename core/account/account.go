@@ -180,6 +180,7 @@ var client *emby.Client
 
 // RegisterCommands 由 lp_init 调用。
 func RegisterCommands(version string) {
+	emby.AllowExtensionImageOrigin = AllowImageOrigin
 	registerMiscCommands()
 	registerBatchCommands()
 	registerIconCommands()

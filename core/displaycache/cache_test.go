@@ -160,7 +160,7 @@ func TestSourceSearchFailureKeepsSuccessAndEmptyClears(t *testing.T) {
 func TestExtensionSnapshotIdentityAndRevocation(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	a := map[string]any{"server": "test-server", "user_id": "one", "page": 1}
-	rows := []any{map[string]any{"title": "作品", "source": "tmdb", "external_id": "101", "media_type": "movie", "rank": 1, "image_url": "https://test.invalid/private", "item_id": "live-only"}}
+	rows := []any{map[string]any{"title": "作品", "source": "tmdb", "external_id": "101", "media_type": "movie", "rank": 1, "image_url": "https://test.invalid/private", "item_id": "live-only", "broadcast_time": "01:30", "timezone": "Asia/Tokyo", "time_source": "bangumi-data"}}
 	for _, command := range []string{"emby.extRankings", "emby.extRankingItems", "emby.extCalendar"} {
 		_, err := Run(context.Background(), 0, command, a, func() (any, error) { return rows, nil })
 		if err != nil {
@@ -169,7 +169,7 @@ func TestExtensionSnapshotIdentityAndRevocation(t *testing.T) {
 		b := load(key(command, a), epoch())
 		var stored []map[string]any
 		_ = json.Unmarshal(b, &stored)
-		if len(stored) != 1 || stored[0]["external_id"] != "101" || stored[0]["title"] != "作品" || stored[0]["image_url"] != nil || stored[0]["item_id"] != nil {
+		if len(stored) != 1 || stored[0]["external_id"] != "101" || stored[0]["title"] != "作品" || stored[0]["image_url"] != nil || stored[0]["item_id"] != nil || stored[0]["broadcast_time"] != "01:30" || stored[0]["timezone"] != "Asia/Tokyo" || stored[0]["time_source"] != "bangumi-data" {
 			t.Fatalf("unsafe or incomplete snapshot: %s", b)
 		}
 		other := map[string]any{"server": "test-server", "user_id": "two", "page": 1}

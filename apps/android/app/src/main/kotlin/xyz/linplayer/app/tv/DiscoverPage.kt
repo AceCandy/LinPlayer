@@ -179,7 +179,8 @@ private fun CalendarPane(app: AppState, src: Int, day: Int, today: Int, onDay: (
             itemModifier = { i -> Modifier.memo("cal.day.$i") }, onSelect = { onDay(it + 1) })
         Spacer(Modifier.height(TvSp.x12))
         val block = all.map { list -> list.filter { weekdayOf(it) == day }.map { o ->
-            Entry(o.str("title") ?: "", o.str("subtitle").orEmpty(), o.str("image_url"), 0, o)
+            Entry(o.str("title") ?: "", o.str("broadcast_time")?.takeIf { o.str("timezone") == "Asia/Tokyo" }
+                ?.let { "$it · 日本时区 · ${o.str("time_source").orEmpty()}" } ?: "放送时间未提供", o.str("image_url"), 0, o)
         } }
         EntryGrid(block, rank = false, keyPrefix = "cal.$day", open = open)
     }
