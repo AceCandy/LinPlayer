@@ -1714,3 +1714,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 58: 手机ASS字体兜底与字幕类型、顶栏修正
+<!-- trellis-session: v=2 fp=a7dcdbcab2f307ce -->
+
+**Date**: 2026-10-14
+**Task**: 手机ASS字体兜底与字幕类型、顶栏修正
+**Branch**: `main`
+
+### Summary
+
+修复Media3 ASS缺失样式字体时空白和附件先到漏设字体目录；两内核字幕列表标类型，网速移到首排按钮下方。144项Android本地回归、核心门禁、宿主真实libass像素前后对照及手机包验签通过；Android软件模拟器测试启动超时，用户片源和真机未验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f88badc` | fix(player): 修复特效字幕字体兜底与顶部网速布局 |
+
+### Status
+
+[OK] **Completed**
