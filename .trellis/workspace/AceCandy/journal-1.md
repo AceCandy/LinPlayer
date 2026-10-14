@@ -1736,3 +1736,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 59: 修复Media3合并后ASS轨道身份断点
+<!-- trellis-session: v=2 fp=ab0224e01ed7bb2a -->
+
+**Date**: 2026-10-14
+**Task**: 修复Media3合并后ASS轨道身份断点
+**Branch**: `main`
+
+### Summary
+
+按当前媒体外挂配置还原所选轨道的一层合并前缀，保留原ID冒号与null回退。真实工厂加载外挂及内封MKV回归修前两项失败、修后通过；相关Android测试163项通过，独立审查及隐私门禁通过。手机APK已出包且v2/v3签名、13个ARM64压缩ELF检查通过；用户片源和真机像素仍未验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `055717de` | fix(player): 修复合并字幕轨道后特效字幕无法激活 |
+
+### Status
+
+[OK] **Completed**
