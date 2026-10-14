@@ -61,14 +61,17 @@ func registerTransport() {
 
 	bus.Register("player.stopPlayback", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		pos, _ := a["pos"].(float64)
+		expected, _ := a["item_id"].(string)
 		s, err := sessionFrom(a)
 		if err != nil {
 			// 没有会话也要能停 —— 停播是本地动作,上报才需要会话
-			_ = Stop(ctx, nil, pos)
+			if stopErr := stopPlayback(ctx, nil, pos, false, expected); stopErr != nil {
+				return nil, stopErr
+			}
 			return map[string]any{"stopped": true, "reported": false}, nil
 		}
 		handoff, _ := a["handoff"].(bool)
-		if err := stopPlayback(ctx, s, pos, handoff); err != nil {
+		if err := stopPlayback(ctx, s, pos, handoff, expected); err != nil {
 			return nil, err
 		}
 		return map[string]any{"stopped": true, "reported": true}, nil
@@ -82,6 +85,10 @@ func registerTransport() {
 		currentMu.Lock()
 		t, report := current, currentReport
 		currentMu.Unlock()
+		expected, _ := a["item_id"].(string)
+		if expected != "" && (t == nil || t.ItemID != expected) {
+			return map[string]any{"reported": false, "why": "播放目标已变化"}, nil
+		}
 		if t == nil {
 			// 没在播就上报 = 调用方状态错了,但这不该报错打扰用户
 			return map[string]any{"reported": false, "why": "没有正在进行的播放"}, nil
@@ -310,6 +317,9 @@ func registerTransport() {
 	// ★ 判「播完」必须读 **eof-reached 属性**,不能等 END_FILE 事件 ——
 	//   keep-open=yes 时文件不卸载,END_FILE **永远不发**。
 	bus.Register("player.status", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		queueMu.Lock()
+		defer queueMu.Unlock()
+		syncQueuedMpvLocked()
 		t := Current()
 		out := map[string]any{
 			"position": propF("time-pos"),

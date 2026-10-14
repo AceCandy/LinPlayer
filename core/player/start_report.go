@@ -21,6 +21,7 @@ type playbackReport struct {
 	session      emby.Session
 	primary      *progress.Link
 	runtimeTicks int64
+	useMpv       bool // 原生会话可在跨集停止时读取内核实际位置。
 }
 
 var stopPlaybackMu sync.Mutex

@@ -38,6 +38,33 @@ class PlayerControllerTest {
     private val decoderError = PlaybackException("解码初始化失败", null, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
     private val state = PlaybackSnapshot(42.5, true, 1.25, 0.4f, subOff = true)
 
+    @Test fun 队列接管期间退出在接管后读取新集位置() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        var position = 998.0
+        var stoppedAt: Double? = null
+        var stoppedItem: String? = null
+        val controller = PlayerController("exo") { command, arguments ->
+            if (command == "player.stopPlayback") {
+                stoppedAt = arguments.dbl("pos")
+                stoppedItem = arguments.str("item_id")
+            }
+            JsonObject(emptyMap())
+        }
+        controller.playbackArgs(mapOf("item_id" to "old"))
+        val handoff = PlayerController.handoffIn(this) {
+            release.await()
+            controller.resolved(buildJsonObject { put("item_id", "next") })
+            position = 0.5
+        }
+        val stop = controller.stopIn(this, position, { throw it }, positionAtStop = { position })
+        assertNull(stoppedAt)
+        release.complete(Unit)
+        handoff.join()
+        stop.join()
+        assertEquals(0.5, stoppedAt!!, 0.001)
+        assertEquals("next", stoppedItem)
+    }
+
     @Test fun 手动切核等待停止且保留实际版本暂停倍速和零秒() = runBlocking {
         val release = CompletableDeferred<Unit>()
         val calls = mutableListOf<Pair<String, JsonObject>>()

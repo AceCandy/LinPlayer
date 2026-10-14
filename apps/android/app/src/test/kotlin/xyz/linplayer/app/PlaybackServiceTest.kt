@@ -202,6 +202,7 @@ class PlaybackServiceTest {
             val seekLogs = mutableListOf<String>()
             playerController.seekTiming = xyz.linplayer.app.ui.player.SeekTiming({ 0L }, seekLogs::add)
             playerController.bind(exo)
+            playerController.started()
             PlaybackService.start(ctx, app, exo, "测试影片", playerController)
             val controller = Robolectric.buildService(PlaybackService::class.java).create()
             try {

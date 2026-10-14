@@ -98,7 +98,7 @@ class ExoAssMergeTest {
             })
             try {
                 val mkv = files.newFile("embedded-$merged.mkv")
-                mkv.writeBytes(javaClass.getResourceAsStream("/subtitles/embedded.mkv")!!.use { it.readBytes() })
+                mkv.writeBytes(this@ExoAssMergeTest.javaClass.getResourceAsStream("/subtitles/embedded.mkv")!!.use { it.readBytes() })
                 val ass = files.newFile("external-$merged.ass")
                 ass.writeBytes(javaClass.getResourceAsStream("/subtitles/embedded.ass")!!.use { it.readBytes() })
                 val subs = if (merged) Json.parseToJsonElement(
@@ -145,7 +145,7 @@ class ExoAssMergeTest {
         })
         try {
             val mkv = files.newFile("prepared.mkv")
-            mkv.writeBytes(javaClass.getResourceAsStream("/subtitles/embedded.mkv")!!.use { it.readBytes() })
+            mkv.writeBytes(this@ExoAssMergeTest.javaClass.getResourceAsStream("/subtitles/embedded.mkv")!!.use { it.readBytes() })
             val ass = files.newFile("prepared.ass")
             ass.writeBytes(javaClass.getResourceAsStream("/subtitles/embedded.ass")!!.use { it.readBytes() })
             val subs = Json.parseToJsonElement("""[{"url":"${ass.toURI()}","mime_type":"text/x-ssa"}]""")
@@ -173,6 +173,42 @@ class ExoAssMergeTest {
                 .setOverrideForType(TrackSelectionOverride(groups[1].mediaTrackGroup, 0)).build()
             await(player) { ShadowAssNative.opened.lastOrNull() == "file:" + ass.readText() }
             assertFalse("旧地址不能再次消费", owner.load("file:///another.mkv", null))
+        } finally { player.release(); owner.release(); Libass.reset() }
+    }
+
+    @Test fun 真实预载源追加队列切换后不重载且清理旧队列() {
+        Libass.reset()
+        val owner = xyz.linplayer.app.ui.player.ExoPreload(RuntimeEnvironment.getApplication(),
+            androidx.media3.datasource.DefaultDataSource.Factory(RuntimeEnvironment.getApplication()),
+            xyz.linplayer.app.ui.player.playbackLoadControl(0), "/system/fonts")
+        val player = owner.player
+        try {
+            val media = listOf("current", "next").map { name -> files.newFile("$name.mkv").apply {
+                writeBytes(this@ExoAssMergeTest.javaClass.getResourceAsStream("/subtitles/embedded.mkv")!!.use { it.readBytes() })
+            } }
+            player.setMediaItem(exoMediaItem(media[0].toURI().toString(), null))
+            player.prepare()
+            await(player) { player.currentTracks.groups.isNotEmpty() }
+            val manager = org.robolectric.util.ReflectionHelpers.getField<androidx.media3.exoplayer.source.preload.DefaultPreloadManager>(owner, "manager")
+            var complete = false
+            manager.addListener(object : androidx.media3.exoplayer.source.preload.PreloadManagerListener {
+                override fun onCompleted(item: androidx.media3.common.MediaItem) { complete = true }
+            })
+            owner.prepare(media[1].toURI().toString(), null)
+            await(player) { complete }
+            var transitions = 0
+            assertTrue(owner.queue(media[1].toURI().toString(), null) { transitions++ })
+            assertEquals(2, player.mediaItemCount)
+            assertEquals(0, transitions)
+            // 经过真实Media3队列切换；设备解码与片尾时序另行验收。
+            player.seekToNextMediaItem()
+            await(player) { transitions == 1 && player.currentTracks.groups.isNotEmpty() }
+            assertEquals(media[1].toURI().toString(), player.currentMediaItem!!.localConfiguration!!.uri.toString())
+            owner.trimPrevious()
+            assertEquals(1, player.mediaItemCount)
+            owner.cancel()
+            assertEquals(1, transitions)
+            assertNotEquals(Player.STATE_IDLE, player.playbackState)
         } finally { player.release(); owner.release(); Libass.reset() }
     }
 

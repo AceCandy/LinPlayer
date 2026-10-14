@@ -547,13 +547,17 @@ internal suspend fun startDanmakuFor(app: xyz.linplayer.app.data.AppState, itemI
     DanmakuStyle.source.value = ""
     DanmakuStyle.offset.doubleValue = 0.0
     DanmakuStyle.layout.value = null
-    runCatching { app.call("player.danmakuBegin") }
+    val coreGeneration = runCatching {
+        app.call("player.danmakuBegin").obj().long("generation")
+    }.getOrNull()
     currentCoroutineContext().ensureActive()
     if (generation != DanmakuSession.generation) return
     DanmakuStyle.load(app)
     currentCoroutineContext().ensureActive()
     if (generation != DanmakuSession.generation) return
-    if (DanmakuStyle.enabled.value) loadDanmakuFor(app, itemId, loud = false)
+    if (coreGeneration != null && DanmakuStyle.loaded.value && DanmakuStyle.enabled.value) {
+        resolveDanmakuFor(app, itemId, loud = false, beginGeneration = coreGeneration)
+    }
 }
 
 internal suspend fun loadDanmakuFor(

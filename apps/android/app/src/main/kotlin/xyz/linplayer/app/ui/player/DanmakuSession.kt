@@ -23,6 +23,7 @@ internal object DanmakuSession {
 internal suspend fun resolveDanmakuFor(
     app: AppState, itemId: String, selection: JsonObject? = null,
     ignoreMemory: Boolean = false, forget: Boolean = false, loud: Boolean = false,
+    beginGeneration: Long? = null,
 ): Boolean {
     val job = currentCoroutineContext()[kotlinx.coroutines.Job]
     if (DanmakuSession.requestJob !== job) DanmakuSession.requestJob?.cancel()
@@ -33,7 +34,7 @@ internal suspend fun resolveDanmakuFor(
     val identity = args("server" to (session?.server ?: ""), "user_id" to (session?.userId ?: ""),
         "token" to (session?.token ?: ""))
     try {
-        val coreGeneration = if (forget) 0L else DanmakuSession.applyLock.withLock {
+        val coreGeneration = if (forget) 0L else beginGeneration ?: DanmakuSession.applyLock.withLock {
             currentCoroutineContext().ensureActive()
             if (!valid()) return false
             DanmakuStyle.layout.value = null

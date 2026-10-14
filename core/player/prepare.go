@@ -2,6 +2,7 @@ package player
 
 import (
 	"context"
+	"math"
 	"sync"
 	"time"
 
@@ -31,6 +32,7 @@ var preparedMu sync.Mutex
 var preparedNext *preparedPlayback
 
 func cancelPrepared(requestID string) {
+	cancelQueued(requestID)
 	preparedMu.Lock()
 	p := preparedNext
 	if p == nil || (requestID != "" && p.requestID != requestID) {
@@ -181,6 +183,32 @@ func registerPrepareCommands() {
 			return nil, err
 		}
 		return map[string]any{"matched": warmPrepared(s, request, enabled)}, nil
+	})
+
+	bus.Register("player.queuePrepared", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		request, _ := a["request_id"].(string)
+		previous, _ := a["current_item_id"].(string)
+		engine, _ := a["engine"].(string)
+		if request == "" || previous == "" || (engine != "mpv" && engine != "exo") {
+			return nil, bus.NewErr(bus.EInvalid, "排队参数无效")
+		}
+		s, err := sessionFrom(a)
+		if err != nil {
+			return nil, err
+		}
+		return queuePrepared(ctx, s, request, previous, engine)
+	})
+	bus.Register("player.advanceQueued", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		request, _ := a["request_id"].(string)
+		pos, _ := a["pos"].(float64)
+		if request == "" || pos < 0 || math.IsNaN(pos) || math.IsInf(pos, 0) {
+			return nil, bus.NewErr(bus.EInvalid, "排队接管参数无效")
+		}
+		s, err := sessionFrom(a)
+		if err != nil {
+			return nil, err
+		}
+		return advanceQueued(s, request, pos)
 	})
 
 	bus.Register("player.cancelPrepared", func(ctx context.Context, seq int64, a map[string]any) (any, error) {

@@ -6,6 +6,7 @@ import (
 	"testing"
 
 	"linplayer/core/bus"
+	"linplayer/core/config"
 )
 
 func TestDanmakuGenerationAndOffset(t *testing.T) {
@@ -48,5 +49,32 @@ func TestDanmakuGenerationAndOffset(t *testing.T) {
 	styMu.RUnlock()
 	if offset != 0 || raw != 10 {
 		t.Fatalf("换片没有重置: %v %v", offset, raw)
+	}
+}
+
+func TestDanmakuBeginLoadsPersistedStyle(t *testing.T) {
+	setup(t)
+	prefs := config.Current().PrefsOf()
+	prefs.DanmakuRollLines = 0
+	if err := config.Current().SetPrefs(prefs); err != nil {
+		t.Fatal(err)
+	}
+	if err := config.Current().Save(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := config.Load(); err != nil {
+		t.Fatal(err)
+	}
+	styMu.Lock()
+	sty = dmStyleOf(config.DefaultPrefs())
+	styMu.Unlock()
+	if _, err := bus.Invoke(context.Background(), "player.danmakuBegin", nil); err != nil {
+		t.Fatal(err)
+	}
+	danmakuSet([]feedComment{{Time: 1, Text: "应被已保存的零滚动行设置隐藏", Mode: 1}})
+	dmMu.Lock()
+	defer dmMu.Unlock()
+	if len(dmItems) != 0 {
+		t.Fatal("首次加载仍用默认弹幕布局")
 	}
 }

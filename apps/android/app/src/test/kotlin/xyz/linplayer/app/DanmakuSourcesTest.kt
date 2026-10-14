@@ -118,4 +118,37 @@ class DanmakuSourcesTest {
         assertEquals("手选源", DanmakuStyle.source.value)
         assertEquals(1, fake.calls.count { it.first == "player.danmakuSet" })
     }
+
+    @Test fun 播放页自动匹配复用清理语料时取得的代数() = runBlocking {
+        val generation = 40L
+        val fake = FakeCore().loggedIn().apply {
+            ret("player.danmakuBegin", buildJsonObject { put("generation", generation) })
+            ret("player.getDanmakuStyle", buildJsonObject {
+                put("area", 1.0); put("scale", 1.0); put("opacity", 1.0); put("speed", 1.0)
+                put("roll_lines", 20); put("top_lines", 10); put("bottom_lines", 10)
+                put("prevent_overlap", true); put("merge", false); put("bold", false); put("heatmap", false)
+            })
+            on("prefs.getPrefs") { buildJsonObject { put("danmaku_enabled", true) } }
+            ret("emby.itemDetail", buildJsonObject {
+                put("name", "作品"); put("series_id", "series"); put("season_id", "season"); put("episode_no", 1)
+            })
+            on("danmaku.resolve") { buildJsonObject {
+                put("items", buildJsonArray { add(buildJsonObject { put("text", "自动弹幕") }) })
+                put("match", buildJsonObject { put("source_name", "测试源") })
+            } }
+            ret("player.danmakuSet", JsonNull)
+            ret("player.danmakuLayout", buildJsonObject { put("items", buildJsonArray { add(buildJsonObject {
+                put("t", 0.0); put("m", 1); put("l", 0); put("w", 10.0); put("c", 0xFFFFFF); put("u", "自动弹幕")
+            }) }) })
+        }
+        val app = AppState(fake, scope); app.boot()
+
+        startDanmakuFor(app, "episode")
+
+        assertEquals(1, fake.calls.count { it.first == "player.danmakuBegin" })
+        val set = fake.calls.single { it.first == "player.danmakuSet" }.second
+        assertEquals(generation, set.long("generation"))
+        assertTrue(DanmakuStyle.enabled.value)
+        assertEquals("自动弹幕", DanmakuStyle.layout.value?.items?.single()?.text)
+    }
 }

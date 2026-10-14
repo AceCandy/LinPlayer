@@ -32,6 +32,7 @@ import xyz.linplayer.app.MainActivity
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.dbl
+import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.ui.pages.args
 
@@ -128,7 +129,7 @@ class PlaybackService : Service() {
                 val ready = exo?.let { it.playbackState != androidx.media3.common.Player.STATE_IDLE }
                     ?: (o != null && ((o.dbl("duration") ?: 0.0) > 0 || (o.dbl("position") ?: 0.0) > 0))
                 externalController?.expireSeek()
-                if (!ready) { delay(500); continue }
+                if (!ready || externalController?.ready == false) { delay(500); continue }
                 val wasPaused = paused
                 position = exo?.currentPosition?.div(1000.0) ?: o.dbl("position") ?: 0.0
                 paused = exo?.let { !it.playWhenReady } ?: o.bool("paused")
@@ -149,7 +150,7 @@ class PlaybackService : Service() {
                 )
                 notify(mediaTitle, paused)
                 if (((!paused && ++ticks % 20 == 0) || (!wasPaused && paused)) && position > 0) runCatching {
-                    app.call("emby.reportProgress", args("pos" to position, "paused" to paused))
+                    app.call("emby.reportProgress", args("pos" to position, "paused" to paused, "item_id" to (externalController?.itemId ?: o.str("item_id") ?: "")))
                 }
                 delay(500)
             }

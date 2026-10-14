@@ -266,6 +266,31 @@ class PhoneEnginePlaybackTest {
         assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
     }
 
+    @Test fun MPV队列实际切入后更新目标且不重复停止起播() {
+        val core = episodeCore().apply {
+            on("player.prepareNext") { a -> buildJsonObject { put("request_id", a.str("request_id")); put("play_url", "http://127.0.0.1/next") } }
+            ret("player.status", buildJsonObject { put("buffered", 3660.0) })
+            ret("player.warmPrepared", JsonNull)
+            on("player.queuePrepared") { a -> buildJsonObject {
+                put("request_id", a.str("request_id")); put("item_id", "sh7"); put("media_source_id", "next-version"); put("resume_secs", 0.0)
+            } }
+        }
+        var returned: String? = null
+        showPlayer(core, "mpv", onExit = { returned = it })
+        rule.runOnIdle { core.tick(3651.0) }; advance(rule, 1800)
+        val request = core.calls.single { it.first == "player.queuePrepared" }.second.str("request_id")
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.queueAdvanced", buildJsonObject {
+            put("request_id", request); put("item_id", "sh7"); put("media_source_id", "next-version"); put("resume_secs", 0.0)
+        })) }; advance(rule, 600)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
+        rule.runOnIdle { core.tick(8.0) }; advance(rule, 300)
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }; advance(rule, 300)
+        rule.runOnIdle { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }; advance(rule, 300)
+        assertEquals("sh7", returned)
+    }
+
     private fun episodeCore() = FakeCore().loggedIn().player().apply {
         ret("player.stopPlayback", JsonNull)
         on("emby.itemDetail") { a -> buildJsonObject {

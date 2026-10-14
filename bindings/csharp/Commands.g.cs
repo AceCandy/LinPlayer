@@ -120,6 +120,8 @@ public static class LinPlayerCommandNames
         "player.opts",
         "player.prepareNext",
         "player.warmPrepared",
+        "player.queuePrepared",
+        "player.advanceQueued",
         "player.cancelPrepared",
         "player.play",
         "player.playExternal",
@@ -503,7 +505,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> AccountUpdateAccount(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.updateAccount", args, ct);
 
-    // ---- 播放器 · player.* (58 条) ----
+    // ---- 播放器 · player.* (60 条) ----
     public static Task<JsonElement> PlayerAddSubtitle(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.addSubtitle", args, ct);
     public static Task<JsonElement> PlayerChapterInfo(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -528,6 +530,10 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("player.prepareNext", args, ct);
     public static Task<JsonElement> PlayerWarmPrepared(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.warmPrepared", args, ct);
+    public static Task<JsonElement> PlayerQueuePrepared(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.queuePrepared", args, ct);
+    public static Task<JsonElement> PlayerAdvanceQueued(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.advanceQueued", args, ct);
     public static Task<JsonElement> PlayerCancelPrepared(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.cancelPrepared", args, ct);
     public static Task<JsonElement> PlayerPlay(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

@@ -164,7 +164,11 @@ internal class PlayerController(
         controls = if (player == null) MpvPlayerEngine(call) else Media3PlayerEngine(player)
     }
 
+    var itemId: String? = null
+        private set
+
     fun resolved(result: JsonObject?) {
+        result.str("item_id")?.let { itemId = it }
         mediaSourceId = result.str("media_source_id")
         resume = result.dbl("resume_secs") ?: 0.0
     }
@@ -190,12 +194,16 @@ internal class PlayerController(
         transportMutex.withLock {
             if (!isCurrent()) return@withLock
             controls.stopOutput()
-            call("player.stopPlayback", if (handoff) args("pos" to position, "handoff" to true) else args("pos" to position))
+            call("player.stopPlayback", args(*buildList<Pair<String, Any>> {
+                add("pos" to position)
+                if (handoff) add("handoff" to true)
+                itemId?.let { add("item_id" to it) }
+            }.toTypedArray()))
         }
     }
 
     /** 离页任务立即登记，新页起播等待收尾，避免旧 stop 停掉新会话。 */
-    fun stopIn(scope: CoroutineScope, position: Double, onError: (Throwable) -> Unit, isCurrent: () -> Boolean = { true }, afterStop: suspend () -> Unit = {}): Job {
+    fun stopIn(scope: CoroutineScope, position: Double, onError: (Throwable) -> Unit, isCurrent: () -> Boolean = { true }, positionAtStop: () -> Double = { position }, afterStop: suspend () -> Unit = {}): Job {
         seekTiming?.interrupt()
         seekEnabled = false
         clearSeek()
@@ -204,7 +212,7 @@ internal class PlayerController(
         return scope.launch(start = CoroutineStart.UNDISPATCHED) {
             previous?.join()
             try {
-                stop(position, isCurrent = isCurrent)
+                stop(positionAtStop(), isCurrent = isCurrent)
                 afterStop()
             } catch (cancelled: CancellationException) { throw cancelled }
             catch (failure: Exception) { onError(failure) }
@@ -215,6 +223,14 @@ internal class PlayerController(
         // 进程只有一个核心播放目标；两个页面的离页收尾共用这一道屏障。
         private var pendingStop: Job? = null
         suspend fun awaitPendingStop() { pendingStop?.join() }
+        /** 内核已经切入下一集，离页收尾必须等待会话接管完成。 */
+        fun handoffIn(scope: CoroutineScope, block: suspend () -> Unit): Job {
+            val previous = pendingStop
+            return scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                previous?.join()
+                withContext(NonCancellable) { block() }
+            }.also { pendingStop = it }
+        }
     }
 
     /** 请求串行并合并未提交目标；返回只代表命令已提交，不代表画面已到达。 */
@@ -358,6 +374,7 @@ internal class PlayerController(
     /** 覆盖初次起播参数，零秒必须用 from_start 表达，不能回读旧续播记录。 */
     fun playbackArgs(initial: Map<String, Any>): JsonObject = args(*buildMap {
         putAll(initial)
+        itemId = initial["item_id"] as? String
         put("engine", engine)
         fallback?.let { state ->
             mediaSourceId?.let { put("media_source_id", it) }

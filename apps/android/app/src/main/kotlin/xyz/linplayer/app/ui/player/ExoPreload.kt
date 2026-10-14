@@ -3,6 +3,7 @@ package xyz.linplayer.app.ui.player
 import android.content.Context
 import androidx.annotation.OptIn
 import androidx.media3.common.MediaItem
+import androidx.media3.common.Player
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -47,7 +48,47 @@ internal class ExoPreload(context: Context, private val dataSource: DataSource.F
     private var pending: Entry? = null
     private var playing: Entry? = null
 
-    init { owners[player] = this }
+    private var queued: Entry? = null
+    private var onAdvance: (() -> Unit)? = null
+    init {
+        owners[player] = this
+        player.addListener(object : Player.Listener {
+            override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                val next = queued ?: return
+                if (mediaItem != next.item) return
+                val callback = onAdvance
+                queued = null; onAdvance = null
+                playing?.subtitles?.deactivate()
+                Libass.reset()
+                next.subtitles.activate()
+                playing?.let { manager.remove(it.item) }
+                playing = next
+                callback?.invoke()
+            }
+        })
+    }
+
+    /** 追加已预载源，由同一播放器完成片尾衔接；回调仅在实际媒体切入后执行。 */
+    fun queue(url: String, subs: JsonElement?, onTransition: () -> Unit): Boolean {
+        val next = pending?.takeIf { it.url == url && it.subs == subs } ?: return false
+        val source = manager.getMediaSource(next.item) ?: return false
+        queued = next; pending = null; onAdvance = onTransition
+        player.addMediaSource(source)
+        return true
+    }
+
+    fun cancelQueue() {
+        val next = queued ?: return
+        queued = null; onAdvance = null
+        for (i in player.mediaItemCount - 1 downTo 0) {
+            if (player.getMediaItemAt(i) == next.item && i != player.currentMediaItemIndex) player.removeMediaItem(i)
+        }
+        manager.remove(next.item)
+    }
+
+    fun trimPrevious() {
+        if (player.currentMediaItemIndex > 0) player.removeMediaItems(0, player.currentMediaItemIndex)
+    }
 
     fun prepare(url: String, subs: JsonElement?) {
         if (pending?.let { it.url == url && it.subs == subs } == true) return
@@ -63,11 +104,13 @@ internal class ExoPreload(context: Context, private val dataSource: DataSource.F
     }
 
     fun cancel() {
+        cancelQueue()
         pending?.let { manager.remove(it.item) }
         pending = null
     }
 
     fun load(url: String, subs: JsonElement?): Boolean {
+        cancelQueue()
         val next = pending?.takeIf { it.url == url && it.subs == subs }
         val source = next?.let { manager.getMediaSource(it.item) }
         playing?.subtitles?.deactivate()

@@ -110,6 +110,8 @@ object LinPlayerCommandNames {
         "player.opts",
         "player.prepareNext",
         "player.warmPrepared",
+        "player.queuePrepared",
+        "player.advanceQueued",
         "player.cancelPrepared",
         "player.play",
         "player.playExternal",
@@ -491,7 +493,7 @@ suspend fun LinPlayerCommands.accountTestConnection(args: Map<String, Any?>? = n
 suspend fun LinPlayerCommands.accountUpdateAccount(args: Map<String, Any?>? = null): JsonElement =
     call("account.updateAccount", args)
 
-// ---- 播放器 · player.* (58 条) ----
+// ---- 播放器 · player.* (60 条) ----
 suspend fun LinPlayerCommands.playerAddSubtitle(args: Map<String, Any?>? = null): JsonElement =
     call("player.addSubtitle", args)
 suspend fun LinPlayerCommands.playerChapterInfo(args: Map<String, Any?>? = null): JsonElement =
@@ -516,6 +518,10 @@ suspend fun LinPlayerCommands.playerPrepareNext(args: Map<String, Any?>? = null)
     call("player.prepareNext", args)
 suspend fun LinPlayerCommands.playerWarmPrepared(args: Map<String, Any?>? = null): JsonElement =
     call("player.warmPrepared", args)
+suspend fun LinPlayerCommands.playerQueuePrepared(args: Map<String, Any?>? = null): JsonElement =
+    call("player.queuePrepared", args)
+suspend fun LinPlayerCommands.playerAdvanceQueued(args: Map<String, Any?>? = null): JsonElement =
+    call("player.advanceQueued", args)
 suspend fun LinPlayerCommands.playerCancelPrepared(args: Map<String, Any?>? = null): JsonElement =
     call("player.cancelPrepared", args)
 suspend fun LinPlayerCommands.playerPlay(args: Map<String, Any?>? = null): JsonElement =

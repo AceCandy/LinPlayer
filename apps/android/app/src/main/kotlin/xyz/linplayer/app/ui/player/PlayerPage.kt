@@ -327,8 +327,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
        —— 位置、时长、暂停三个值来源全变,而 ExoPlayer 手里根本没有这一片。
        所以设置页那一行明说「退出当前播放再进才生效」。 */
     // 数据源播放只走 mpv:取流、解析、请求头都在核心层,ExoPlayer 那条路拿不到这些
+    var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
     val controller = remember(route.itemId, route.versionId) {
-        PlayerController(if (route.src != null) "mpv" else initialMode) { command, arguments ->
+        PlayerController(adoptedPlayback.str("engine") ?: if (route.src != null) "mpv" else initialMode) { command, arguments ->
             app.call(command, arguments)
         }
     }
@@ -387,8 +388,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
     var preparedResult by remember { mutableStateOf<JsonObject?>(null) }
     var prepareJob by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var selectedPrepared by remember { mutableStateOf<String?>(null) }
+    var queuedRequest by remember { mutableStateOf<String?>(null) }
+    var queuedItem by remember { mutableStateOf<xyz.linplayer.app.data.Item?>(null) }
+    var queueHandoff by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
+    var queueAttempt by remember(controller) { mutableStateOf<String?>(null) }
 
     fun cancelPreparation() {
+        queuedRequest?.let { request ->
+            ExoPreload.of(latestExo)?.cancelQueue()
+            app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
+        }
+        queuedRequest = null; queuedItem = null
         prepareJob?.cancel()
         preparedRequest?.let { request ->
             app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
@@ -430,6 +440,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
             if (route.src == null && id != route.itemId && versionId == null) prepareEpisode(id)
             else cancelPreparation()
             PlaybackService.stop(ctx)
+            queuedRequest?.let { cancelPreparation() }
             controller.stop(position, handoff = true)
             // 只接管已就绪的准备结果，慢请求或失败不阻塞正式起播。
             if (preparedResult.str("request_id") == null) cancelPreparation()
@@ -483,10 +494,36 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
     val episodeAt = episodes.indexOfFirst { it.id == route.itemId }
     val previousEpisode = if (episodeAt >= 0) episodes.getOrNull(episodeAt - 1) else null
     val nextEpisode = if (episodeAt >= 0) episodes.getOrNull(episodeAt + 1) else null
+    fun adoptQueued(result: JsonObject, item: xyz.linplayer.app.data.Item, actualEngine: String) {
+        adoptedPlayback = JsonObject(result + args("engine" to actualEngine))
+        selectedPrepared = null
+        preparedFor = null; preparedRequest = null; preparedResult = null
+        queuedRequest = null; queuedItem = null
+        panel = null
+        position = if (actualEngine == "exo") latestExo?.currentPosition?.div(1000.0) ?: 0.0 else result.dbl("resume_secs") ?: 0.0
+        duration = if (actualEngine == "exo") latestExo?.duration?.takeIf { it > 0 }?.div(1000.0) ?: 0.0 else 0.0
+        buffered = 0.0
+        route = route.copy(itemId = item.id, title = listOfNotNull(item.seriesName, item.name).joinToString(" · "),
+            versionId = null, fromStart = false, ar = 0f, subtitle = null)
+    }
+    LaunchedEffect(Unit) {
+        app.core.events.collect { event ->
+            val result = event.data.obj() ?: return@collect
+            if (event.name == "player.queueCanceled" && result.str("request_id") == queuedRequest) {
+                cancelPreparation()
+                return@collect
+            }
+            if (event.name != "player.queueAdvanced") return@collect
+            val item = queuedItem ?: return@collect
+            if (latestExo == null && result.str("request_id") == queuedRequest && result.str("item_id") == item.id) {
+                adoptQueued(result, item, "mpv")
+            }
+        }
+    }
     val prepareSoon = controller.ready && !buffering && !leaving && !switching && route.src == null &&
         duration > 0 && position >= (duration - 60).coerceAtLeast(0.0)
     LaunchedEffect(controller, nextEpisode?.id, prepareSoon) {
-        if (prepareSoon) nextEpisode?.let { prepareEpisode(it.id) }
+        if (prepareSoon && queuedRequest == null) nextEpisode?.let { prepareEpisode(it.id) }
     }
     var warmingVideo by remember(controller) { mutableStateOf(false) }
     val allowVideoWarm = prepareSoon && nextPreloadAllowed(warmingVideo, buffering, position, duration, buffered, speed)
@@ -495,7 +532,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         // 串行发送启停，避免慢的“开始”响应越过后来的“暂停”。
         snapshotFlow { preparedResult.str("request_id") to latestAllowVideoWarm }.collect { (request, enabled) ->
             warmingVideo = enabled
-            if (request != null) {
+            if (request != null && request != queuedRequest) {
                 if (enabled) {
                     preparedResult.str("play_url")?.let { url -> ExoPreload.of(exo)?.prepare(url, preparedResult?.get("external_subs")) }
                 } else if (!switching) {
@@ -504,6 +541,57 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
                 runCatching { app.call("player.warmPrepared", args("request_id" to request, "enabled" to enabled)) }
                 coroutineContext.ensureActive()
             }
+        }
+    }
+    // 当前集已缓冲至片尾才接入内核队列，避免与当前解码争抢带宽。
+    val queueSoon = prepareSoon && duration - position <= 10.0 && buffered >= duration - 1.0
+    LaunchedEffect(controller, queueSoon, preparedResult) {
+        val request = preparedResult.str("request_id") ?: return@LaunchedEffect
+        val item = nextEpisode ?: return@LaunchedEffect
+        if (!queueSoon || queueAttempt == request || switching || leaving) return@LaunchedEffect
+        queueAttempt = request
+        queuedRequest = request; queuedItem = item
+        val result = try {
+            app.call("player.queuePrepared", args("request_id" to request,
+                "current_item_id" to route.itemId, "engine" to engine)).obj()
+        } catch (failure: Exception) {
+            if (queuedRequest == request) { queuedRequest = null; queuedItem = null }
+            app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            null
+        } ?: return@LaunchedEffect
+        if (latestController !== controller || leaving || switching || preparedRequest != request) {
+            if (queuedRequest == request) { queuedRequest = null; queuedItem = null }
+            app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
+            return@LaunchedEffect
+        }
+        if (exo != null) {
+            val owner = ExoPreload.of(exo)
+            val accepted = owner?.queue(result.str("play_url") ?: "", result["external_subs"]) {
+                if (queuedRequest != request || switching) return@queue
+                queuedRequest = null; preparedRequest = null; preparedResult = null
+                val previousDuration = duration
+                position = exo.currentPosition / 1000.0
+                switching = true
+                queueHandoff = PlayerController.handoffIn(app.bg) {
+                    try {
+                        controller.begin()
+                        val resume = result.dbl("resume_secs") ?: 0.0
+                        if (resume > 0) exo.seekTo((resume * 1000).toLong())
+                        val adopted = app.call("player.advanceQueued", args("request_id" to request, "pos" to previousDuration)).obj()
+                            ?: error("下一集会话接管失败")
+                        // 离页可能仍持有旧控制器，停止身份与接管后的进度必须同步。
+                        controller.resolved(adopted)
+                        owner.trimPrevious()
+                        adoptQueued(adopted, item, "exo")
+                    } catch (failure: Exception) {
+                        exo.pause()
+                        failReason = "下一集会话接管失败"; openFailed = true
+                        app.report(failure)
+                    } finally { switching = false }
+                }
+            } == true
+            if (!accepted) cancelPreparation()
         }
     }
     DisposableEffect(session?.server, session?.userId, session?.token) {
@@ -516,8 +604,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         }
     }
 
-    LaunchedEffect(controller, finished, episodeResult, leaving) {
-        if (!finished || leaving) return@LaunchedEffect
+    LaunchedEffect(controller, finished, episodeResult, leaving, queuedRequest) {
+        if (!finished || leaving || queuedRequest != null) return@LaunchedEffect
         val result = episodeResult ?: return@LaunchedEffect
         try {
             val episodes = result.getOrThrow()
@@ -565,6 +653,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         subOff = controller.fallback?.subOff ?: !playbackPrefs.subEnabled
         controller.fallback?.let { speed = it.speed; volume = it.volume }
         finished = false
+        val adopted = adoptedPlayback?.takeIf { it.str("item_id") == route.itemId }
+        if (adopted != null) {
+            adoptedPlayback = null
+            controller.resolved(adopted)
+            controller.started()
+            buffering = exo?.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+            if (exo != null) launch { loadEmbeddedFonts(adopted.str("play_url") ?: return@launch) }
+            PlaybackService.start(ctx, app, exo, route.title, controller)
+            return@LaunchedEffect
+        }
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
         buffered = 0.0
         PlayerController.awaitPendingStop()
@@ -788,10 +886,13 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         Libass.reset()
         // 离页作用域会被取消；收尾由进程作用域持有，完播位置使用总时长。
         val p = if (duration > 0 && position >= duration - 2) duration else position
-        latestController.stopIn(app.bg, p, app::report)
+        latestController.stopIn(app.bg, p, app::report, positionAtStop = {
+            if (duration > 0 && position >= duration - 2) duration else position
+        })
     }
     LaunchedEffect(leaving) {
         if (!leaving) return@LaunchedEffect
+        queueHandoff?.join()
         stopOnExit()
         if (onExit != null) onExit(route.itemId.takeIf { route.src == null }) else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
@@ -1230,6 +1331,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
                         if (!switching && !leaving) {
                             switching = true
+                            cancelPreparation()
                             try {
                                 PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
                                 controller.switchEngine(exo, subOff, isCurrent = { !leaving && latestController === controller }) {

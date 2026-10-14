@@ -72,10 +72,15 @@ func danmakuSetGeneration(list []feedComment, generation *int64) (int, error) {
 func registerDanmakuFeed() {
 	registerDanmakuStyle()
 	bus.Register("player.danmakuBegin", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		styleCommandMu.Lock()
+		defer styleCommandMu.Unlock()
 		if err := ctx.Err(); err != nil {
 			return nil, err
 		}
+		style := dmStyleOf(config.Current().PrefsOf())
 		styMu.Lock()
+		// 弹幕会话独立于播放内核，首次排版前加载已保存样式。
+		sty = style
 		dmGeneration++
 		generation := dmGeneration
 		dmRaw = nil

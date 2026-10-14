@@ -116,6 +116,11 @@ typedef struct lp_mpv_event {
     void *data;
 } lp_mpv_event;
 
+static int64_t lp_start_entry(void *event) {
+    lp_mpv_event *e = (lp_mpv_event*)event;
+    return e && e->data ? *((int64_t*)e->data) : -1;
+}
+
 typedef struct lp_log_msg {
     const char *prefix;
     const char *level;
@@ -383,6 +388,8 @@ func drainEvents(h unsafe.Pointer) {
 			continue
 		}
 		switch int(C.lp_event_id(ev)) {
+		case evStartFile:
+			onQueuedMpvStart(int64(C.lp_start_entry(ev)))
 		case evFileLoaded:
 			onFileLoaded()
 		case evLogMessage:
@@ -450,6 +457,8 @@ func pumpStatus() {
 		if !videoOutReady() {
 			continue
 		}
+		queueMu.Lock()
+		syncQueuedMpvLocked()
 		f := statusFields(prop, propF, renderCalls.Load())
 		// item_id 让插件那边认得出「换集了」(SPEC 9.1 的 player.episodeChange)。
 		// 没在播时是空串 —— 空串和「有条目但 id 取不到」要分得开,所以不发 nil
@@ -458,6 +467,7 @@ func pumpStatus() {
 		} else {
 			f["item_id"] = ""
 		}
+		queueMu.Unlock()
 		bus.Emit("player.status", f, "player.status")
 	}
 }

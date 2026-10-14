@@ -118,6 +118,7 @@ func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs
 }
 
 func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, preparedIDs ...string) (*PlayResult, error) {
+	cancelQueued("")
 	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
 	cancelWarm()
 	c := config.Current()
@@ -183,76 +184,13 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		return nil, ctx.Err()
 	}
 	bus.Logf("info", "phase=startup_history_wait elapsed_ms=%d", time.Since(historyAt).Milliseconds())
-	// 负数 = 调用方明说从头放:服务端进度、跨服续播、看完回零这一整段都不许再改它
-	fromStart := resumeSecs < 0
-	if fromStart {
-		resumeSecs = 0
+	resumeSecs, primary, err := resolvePlaybackPosition(ctx, s, target, whCtx, prefs, resumeSecs, exactResume)
+	if err != nil {
+		return nil, err
 	}
-	var primary *progress.Link
-	var primaryState *emby.ProgressSnapshot
-	if prefs.PrimaryProgressServer != nil && whCtx != nil {
-		progressAt := time.Now()
-		primaryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-		primary, primaryState, err = progress.Shared().Prepare(primaryCtx, prefsClient, c, s, whCtx.candidate, whCtx.seriesTmdbID, target.MediaSourceID, target.RunTimeTicks)
-		cancel()
-		bus.Logf("info", "phase=startup_primary_progress elapsed_ms=%d success=%t", time.Since(progressAt).Milliseconds(), err == nil)
-		if err != nil {
-			progress.Shared().Note("主服进度未能采用，已按所在服进度播放")
-			bus.Emit("progress.primary", map[string]any{"message": "主服进度未能采用，已按所在服进度播放"}, "")
-		} else {
-			progress.Shared().Note("")
-		}
-	}
-	if ctx.Err() != nil {
-		return nil, ctx.Err()
-	}
-	if prefs.PrimaryProgressServer != nil && whCtx != nil && target.RunTimeTicks > 0 {
-		whCtx.candidate.RunTimeTicks = &target.RunTimeTicks
-	}
-	// 切核明确位置不参与续播重算；主服上报上下文仍照常准备。
-	if whCtx != nil && !fromStart && !exactResume {
-		/* ☠ **调用方没给续播位置就自己去拿**,不要默认成 0。
-		   服务器上的进度本来就在 `candidate.PositionTicks` 里(取判据那一趟顺手带回来的),
-		   而「让每个调用方各自传一份」的写法漏一处就是**那一端整个不续播、从头放**,
-		   而且不报错 —— 安卓两个内核都栽在这上面(2026-09-07)。判据在核心层,
-		   调用方传 0 的含义统一为「我不知道,你来定」。 */
-		resumeSecs = resumeFor(resumeSecs, whCtx.candidate.PositionTicks)
-		if prefs.PrimaryProgressServer != nil {
-			// 主服模式不取本地最大值；不可用/独有资源沿所在服状态播放。
-			resumeSecs = float64(whCtx.candidate.PositionTicks) / float64(history.TicksPerSec)
-			if primaryState != nil {
-				resumeSecs = float64(primaryState.PositionTicks) / float64(history.TicksPerSec)
-				whCtx.candidate.Played = primaryState.Played
-			}
-		}
-		// ★ 调用方传进来的 resumeSecs 只是**这一台** Emby 的进度;
-		//   跨服续播开着时,本地记录里别的服务器上更靠后的进度会覆盖它(取最大)。
-		if prefs.PrimaryProgressServer == nil {
-			remote := int64(resumeSecs * float64(history.TicksPerSec))
-			if t := history.Shared().ResolveResumeTicks(whCtx.scope, whCtx.candidate,
-				whCtx.seriesTmdbID, &remote, whCtx.candidate.Played, prefs.CrossServerResume); t != nil {
-				resumeSecs = float64(*t) / float64(history.TicksPerSec)
-			}
-		}
-		/* ☆☆ **看完了的片再点播放,从头开始**(用户 2026-09-03)。
-
-		   不做这一步的表现很难归因:服务器把进度停在 99%,卸载时又没清,
-		   于是 `loadfile ... start=<几乎片长>` —— mpv 当场 EOF。
-		   播放页判「播完了」直接退出去,看起来像「点了播放没反应」,
-		   而且全程一条错不报。上一轮自检就是被它卡了六轮。
-
-		   ★ 判据用的是用户那条阈值,不是「等于片长」。
-		     它得和「算不算已观看」完全一致:两处分开写就会出现
-		     「标了已看完却仍从 97% 续播」这种自相矛盾的状态。 */
-		if rt := whCtx.candidate.RunTimeTicks; rt != nil && *rt > 0 {
-			runtime := float64(*rt) / float64(history.TicksPerSec)
-			if prefs.WatchedAt(resumeSecs, runtime) {
-				bus.Logf("info", "这一集已经看到 %.0f%%(阈值 %d%%),从头放",
-					resumeSecs/runtime*100, prefs.WatchedThresholdPercent)
-				resumeSecs = 0
-			}
-		}
-	}
+	queueMu.Lock()
+	defer queueMu.Unlock()
+	cancelQueuedLocked("")
 	currentMu.Lock()
 	cancelHistoryRetryLocked()
 	currentCtx = whCtx
@@ -279,7 +217,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	currentMu.Lock()
 	pendingSubs = target.ExternalSubs
 	current = target
-	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks}
+	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks, useMpv: useMpv}
 	currentReport = report
 	report.previousStop = pendingStopReport()
 	currentMu.Unlock()
@@ -335,6 +273,83 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		//   「界面自己拼地址」那一类事故的入口(反代只在 /emby/ 下处理 Range)。
 		PlayURL: playURL,
 	}, nil
+}
+
+// resolvePlaybackPosition 两核与提前排队共用续播及主服同步规则，不改变当前播放。
+func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.PlaybackTarget, whCtx *historyContext, prefs config.Prefs, resumeSecs float64, exactResume bool) (float64, *progress.Link, error) {
+	c := config.Current()
+	// 负数 = 调用方明说从头放:服务端进度、跨服续播、看完回零这一整段都不许再改它
+	fromStart := resumeSecs < 0
+	if fromStart {
+		resumeSecs = 0
+	}
+	var err error
+	var primary *progress.Link
+	var primaryState *emby.ProgressSnapshot
+	if prefs.PrimaryProgressServer != nil && whCtx != nil {
+		progressAt := time.Now()
+		primaryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+		primary, primaryState, err = progress.Shared().Prepare(primaryCtx, prefsClient, c, s, whCtx.candidate, whCtx.seriesTmdbID, target.MediaSourceID, target.RunTimeTicks)
+		cancel()
+		bus.Logf("info", "phase=startup_primary_progress elapsed_ms=%d success=%t", time.Since(progressAt).Milliseconds(), err == nil)
+		if err != nil {
+			progress.Shared().Note("主服进度未能采用，已按所在服进度播放")
+			bus.Emit("progress.primary", map[string]any{"message": "主服进度未能采用，已按所在服进度播放"}, "")
+		} else {
+			progress.Shared().Note("")
+		}
+	}
+	if ctx.Err() != nil {
+		return 0, nil, ctx.Err()
+	}
+	if prefs.PrimaryProgressServer != nil && whCtx != nil && target.RunTimeTicks > 0 {
+		whCtx.candidate.RunTimeTicks = &target.RunTimeTicks
+	}
+	// 切核明确位置不参与续播重算；主服上报上下文仍照常准备。
+	if whCtx != nil && !fromStart && !exactResume {
+		/* ☠ **调用方没给续播位置就自己去拿**,不要默认成 0。
+		   服务器上的进度本来就在 `candidate.PositionTicks` 里(取判据那一趟顺手带回来的),
+		   而「让每个调用方各自传一份」的写法漏一处就是**那一端整个不续播、从头放**,
+		   而且不报错 —— 安卓两个内核都栽在这上面(2026-09-07)。判据在核心层,
+		   调用方传 0 的含义统一为「我不知道,你来定」。 */
+		resumeSecs = resumeFor(resumeSecs, whCtx.candidate.PositionTicks)
+		if prefs.PrimaryProgressServer != nil {
+			// 主服模式不取本地最大值；不可用/独有资源沿所在服状态播放。
+			resumeSecs = float64(whCtx.candidate.PositionTicks) / float64(history.TicksPerSec)
+			if primaryState != nil {
+				resumeSecs = float64(primaryState.PositionTicks) / float64(history.TicksPerSec)
+				whCtx.candidate.Played = primaryState.Played
+			}
+		}
+		// ★ 调用方传进来的 resumeSecs 只是**这一台** Emby 的进度;
+		//   跨服续播开着时,本地记录里别的服务器上更靠后的进度会覆盖它(取最大)。
+		if prefs.PrimaryProgressServer == nil {
+			remote := int64(resumeSecs * float64(history.TicksPerSec))
+			if t := history.Shared().ResolveResumeTicks(whCtx.scope, whCtx.candidate,
+				whCtx.seriesTmdbID, &remote, whCtx.candidate.Played, prefs.CrossServerResume); t != nil {
+				resumeSecs = float64(*t) / float64(history.TicksPerSec)
+			}
+		}
+		/* ☆☆ **看完了的片再点播放,从头开始**(用户 2026-09-03)。
+
+		   不做这一步的表现很难归因:服务器把进度停在 99%,卸载时又没清,
+		   于是 `loadfile ... start=<几乎片长>` —— mpv 当场 EOF。
+		   播放页判「播完了」直接退出去,看起来像「点了播放没反应」,
+		   而且全程一条错不报。上一轮自检就是被它卡了六轮。
+
+		   ★ 判据用的是用户那条阈值,不是「等于片长」。
+		     它得和「算不算已观看」完全一致:两处分开写就会出现
+		     「标了已看完却仍从 97% 续播」这种自相矛盾的状态。 */
+		if rt := whCtx.candidate.RunTimeTicks; rt != nil && *rt > 0 {
+			runtime := float64(*rt) / float64(history.TicksPerSec)
+			if prefs.WatchedAt(resumeSecs, runtime) {
+				bus.Logf("info", "这一集已经看到 %.0f%%(阈值 %d%%),从头放",
+					resumeSecs/runtime*100, prefs.WatchedThresholdPercent)
+				resumeSecs = 0
+			}
+		}
+	}
+	return resumeSecs, primary, nil
 }
 
 // startPrefetch 起本地代理,返回真正交给 mpv 的地址。
@@ -581,7 +596,8 @@ func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 }
 
 // 仅切集允许网络上报后台收尾；本地输出和历史仍在返回前停止/保存。
-func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff bool) error {
+func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff bool, expectedItems ...string) error {
+	cancelQueued("")
 	stopPlaybackMu.Lock()
 	defer stopPlaybackMu.Unlock()
 	// 限制后台停止任务数量，且在发布新屏障前等待旧屏障。
@@ -589,9 +605,20 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 		return err
 	}
 	cancelWarm()
+	queueMu.Lock()
+	cancelQueuedLocked("")
 	currentMu.Lock()
 	t := current
 	report := currentReport
+	// 页面可能尚未收到原生换集事件，不能把上一集的退出位置记给下一集。
+	if t != nil && len(expectedItems) > 0 && expectedItems[0] != "" && expectedItems[0] != t.ItemID {
+		if report == nil || !report.useMpv {
+			currentMu.Unlock()
+			queueMu.Unlock()
+			return bus.NewErr(bus.EInvalid, "停止目标已变化")
+		}
+		pos = propF("time-pos")
+	}
 	var done chan struct{}
 	if t != nil && s != nil {
 		done = make(chan struct{})
@@ -612,6 +639,7 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 	_ = command("stop")
 	closeSharedProxy()
 	thumbs.close()
+	queueMu.Unlock()
 	if t == nil || s == nil {
 		return nil
 	}
