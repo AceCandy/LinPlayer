@@ -16,18 +16,16 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.net.ConnectException
 
-/** 当前账号已知作品的本地缓存图片，不持久化地址或凭据。 */
+/** 当前账号轮播候选及缓存预览地址，不持久化地址或凭据。 */
 @Immutable
 internal data class CachedHomeImage(val item: Item, val url: String, val backdrop: Boolean)
 
-/** 仅访问核心回环缓存路由；没有缓存时跳过，不允许重定向或回源。 */
+/** 候选扫描只读缓存；缺图候选由当前可见轮播按需获取原图。 */
 internal suspend fun AppState.cachedHomeImages(
     items: List<Item>, onBatch: suspend (List<CachedHomeImage>) -> Unit = {},
 ): List<CachedHomeImage> {
     val identity = session.value ?: return emptyList()
-    val token = core.localToken
     val candidates = homeHeroCandidates(items)
-    val base = core.localBaseUrl
     return withContext(Dispatchers.IO) {
         val found = mutableListOf<CachedHomeImage>()
         val probes = Semaphore(4)
@@ -37,35 +35,9 @@ internal suspend fun AppState.cachedHomeImages(
                 currentCoroutineContext().ensureActive()
                 if (session.value?.let { it.server to it.userId } != (identity.server to identity.userId))
                     throw kotlinx.coroutines.CancellationException("轮播会话已切换")
-                for (kind in listOf("Backdrop", "Primary")) {
-                    val segment = if (kind == "Backdrop") "Backdrop/0" else kind
-                    val upstream = "${identity.server.trimEnd('/')}/Items/${item.id}/Images/$segment?quality=90"
-                    for (height in listOf(720, 1080, 480, 330, 220, 120)) {
-                        val address = "$base/img-cache?src=${Uri.encode(upstream)}&h=$height"
-                        currentCoroutineContext().ensureActive()
-                        // 先校验地址再创建连接，非核心通道不能接收凭据。
-                        val uri = Uri.parse(address)
-                        if (uri.scheme != "http" || uri.host != "127.0.0.1" || uri.path != "/img-cache") continue
-                        val url = URL(address)
-                        val connection = url.openConnection() as HttpURLConnection
-                        val hit = try {
-                            connection.requestMethod = "HEAD"
-                            connection.instanceFollowRedirects = false
-                            connection.connectTimeout = 1000
-                            connection.readTimeout = 1000
-                            connection.setRequestProperty("X-LP-Token", token)
-                            connection.responseCode == HttpURLConnection.HTTP_OK &&
-                                connection.getHeaderField("X-LP-Cache") == "hit"
-                        } catch (e: ConnectException) { throw e }
-                          catch (_: IOException) { return@withPermit null }
-                          finally { connection.disconnect() }
-                        currentCoroutineContext().ensureActive()
-                        if (hit) {
-                            return@withPermit CachedHomeImage(item, address, kind == "Backdrop")
-                        }
-                    }
-                }
-                null
+                cachedHeroImage(item) ?: CachedHomeImage(item,
+                    imageUrl(item.id, "Backdrop", original = true, server = identity.server)
+                        ?.replaceFirst("/img?", "/img-cache?") ?: return@withPermit null, true)
             } } }.awaitAll().filterNotNull() } } catch (_: ConnectException) { break }
             found.addAll(hits)
             currentCoroutineContext().ensureActive()
@@ -73,6 +45,38 @@ internal suspend fun AppState.cachedHomeImages(
         }
         found
     }
+}
+
+/** 原图缓存优先，其次兼容已有缩略图；探测绝不回源。 */
+internal suspend fun AppState.cachedHeroImage(item: Item): CachedHomeImage? = withContext(Dispatchers.IO) {
+    val identity = session.value ?: return@withContext null
+    val token = core.localToken
+    for (kind in listOf("Backdrop", "Primary")) {
+        val addresses = listOfNotNull(imageUrl(item.id, kind, server = identity.server, original = true)) +
+            listOf(1080, 720, 480, 330, 220, 120).mapNotNull { imageUrl(item.id, kind, it, identity.server) }
+        for (source in addresses) {
+            currentCoroutineContext().ensureActive()
+            val address = source.replaceFirst("/img?", "/img-cache?")
+            val uri = Uri.parse(address)
+            if (uri.scheme != "http" || uri.host != "127.0.0.1" || uri.path != "/img-cache") continue
+            val connection = URL(address).openConnection() as HttpURLConnection
+            val hit = try {
+                connection.requestMethod = "HEAD"
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 1000
+                connection.readTimeout = 1000
+                connection.setRequestProperty("X-LP-Token", token)
+                connection.responseCode == HttpURLConnection.HTTP_OK && connection.getHeaderField("X-LP-Cache") == "hit"
+            } catch (e: ConnectException) { throw e }
+              catch (_: IOException) { return@withContext null }
+              finally { connection.disconnect() }
+            currentCoroutineContext().ensureActive()
+            if (session.value?.let { it.server to it.userId } != (identity.server to identity.userId))
+                throw kotlinx.coroutines.CancellationException("轮播会话已切换")
+            if (hit) return@withContext CachedHomeImage(item, address, kind == "Backdrop")
+        }
+    }
+    null
 }
 
 /** 分集观看记录同时排除所属剧，避免换成同剧海报后又进入轮播。 */

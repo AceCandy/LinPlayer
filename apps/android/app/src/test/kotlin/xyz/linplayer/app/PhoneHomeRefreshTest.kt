@@ -163,11 +163,11 @@ class PhoneHomeRefreshTest {
         rule.onNodeWithText("私密媒体库").assertDoesNotExist()
     }
 
-    @Test fun uncachedImagesDoNotCreateHeroOrFetchOrdinaryImageRoute() {
+    @Test fun uncachedCandidatesCanCreateHeroWithoutScanDownloadingImages() {
         val core = FakeCore().loggedIn().apply { ret("emby.listResume", arr(item("cold", "未缓存作品"))) }
-        openHome(core, cachedImages = false)
+        openHome(core, cachedImages = false, expectHero = true)
         rule.waitUntil(5000) { cacheRequests.isNotEmpty() }
-        rule.onNodeWithTag("home.banners").assertDoesNotExist()
+        rule.onNodeWithTag("home.banners").assertExists()
         assertTrue(cacheRequests.all { it == "/img-cache" })
     }
 

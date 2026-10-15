@@ -16,7 +16,7 @@ namespace LinPlayer.Desktop.Core;
 public static class Images
 {
     private static readonly HttpClient Http = new() { Timeout = TimeSpan.FromSeconds(30) };
-    private static readonly ConcurrentDictionary<string, Task<Bitmap?>> Inflight = new();
+    private static readonly ConcurrentDictionary<string, Lazy<Task<Bitmap?>>> Inflight = new();
 
     /// <summary>
     /// 解好的位图留一份。
@@ -36,33 +36,58 @@ public static class Images
     /// 拼一条 Emby 图片地址。<paramref name="kind"/> 只认 Primary / Backdrop / Logo。
     /// </summary>
     /// <summary> 尺寸交给 /img 的 h=,别写进 src —— 写进去等于每种尺寸一个缓存键。</summary>
-    public static string EmbyImageUrl(string server, string itemId, string kind)
+    public static string EmbyImageUrl(string server, string itemId, string kind, bool original = false)
     {
         // Backdrop 要带序号,Primary/Logo 不带 —— 不带的话某些 fork 直接 404
         var seg = kind == "Backdrop" ? "Backdrop/0" : kind;
-        return $"{server.TrimEnd('/')}/Items/{itemId}/Images/{seg}?quality=90";
+        return $"{server.TrimEnd('/')}/Items/{itemId}/Images/{seg}" + (original ? "" : "?quality=90");
     }
 
     /// <summary>经由本地数据通道取一张图。取不到返回 null —— <b>调用方要能画出「没有图」那一版</b>。</summary>
-    public static Task<Bitmap?> LoadAsync(CoreClient core, string upstreamUrl, int maxHeight)
+    public static Task<Bitmap?> LoadAsync(CoreClient core, string upstreamUrl, int maxHeight,
+        bool original = false, bool cacheOnly = false)
     {
         if (string.IsNullOrEmpty(core.LocalBaseUrl) || string.IsNullOrEmpty(upstreamUrl))
             return Task.FromResult<Bitmap?>(null);
 
-        var url = $"{core.LocalBaseUrl}/img?src={Uri.EscapeDataString(upstreamUrl)}&h={Ladder(maxHeight)}";
+        var route = cacheOnly ? "img-cache" : "img";
+        var url = $"{core.LocalBaseUrl}/{route}?src={Uri.EscapeDataString(upstreamUrl)}" +
+            (original ? "" : $"&h={Ladder(maxHeight)}");
+        // 原图字节共用核心缓存；解码缓存按实际显示像素分开，不把小窗口位图放大复用。
+        var height = original ? maxHeight : Ladder(maxHeight);
+        var key = original ? $"{url}#decode={height}" : url;
 
         // 命中已解码的:**同步返回**,一次 await 都不排。翻回上一页时整屏封面当场就在。
         lock (CacheLock)
         {
-            if (Cache.TryGetValue(url, out var hit))
+            if (Cache.TryGetValue(key, out var hit))
             {
-                Cache[url] = (hit.Bmp, ++_tick);
+                Cache[key] = (hit.Bmp, ++_tick);
                 return Task.FromResult<Bitmap?>(hit.Bmp);
             }
         }
 
         // 同一张图并发请求合流:一屏几十张卡里同一部剧可能出现好几次
-        return Inflight.GetOrAdd(url, u => Fetch(core, u, maxHeight));
+        // GetOrAdd可并发调用工厂；只有成功入字典的Lazy才能启动HTTP。
+        return Inflight.GetOrAdd(key, _ => new Lazy<Task<Bitmap?>>(() => Fetch(core, url, height, key))).Value;
+    }
+
+    /// <summary>轮播预览只查本地原图及已有尺寸缓存，缺图不触发下载。</summary>
+    public static async Task<Bitmap?> LoadCachedHeroAsync(CoreClient core, string server, string itemId, int height)
+    {
+        foreach (var kind in new[] { "Backdrop", "Primary" })
+        {
+            var original = await LoadAsync(core, EmbyImageUrl(server, itemId, kind, original: true),
+                height, original: true, cacheOnly: true).ConfigureAwait(false);
+            if (original is not null) return original;
+            foreach (var rung in Rungs.Reverse())
+            {
+                var cached = await LoadAsync(core, EmbyImageUrl(server, itemId, kind), rung,
+                    cacheOnly: true).ConfigureAwait(false);
+                if (cached is not null) return cached;
+            }
+        }
+        return null;
     }
 
     /// <summary>
@@ -90,13 +115,13 @@ public static class Images
     ///
     /// <para><b>不重试 404</b>:没刮削封面的库很常见,为它们空转是白烧并发名额。</para>
     /// </summary>
-    private static async Task<Bitmap?> Fetch(CoreClient core, string url, int maxHeight)
+    private static async Task<Bitmap?> Fetch(CoreClient core, string url, int maxHeight, string key)
     {
         try
         {
             for (var attempt = 0; ; attempt++)
             {
-                var (bmp, retry) = await TryFetch(core, url, maxHeight).ConfigureAwait(false);
+                var (bmp, retry) = await TryFetch(core, url, maxHeight, key).ConfigureAwait(false);
                 if (bmp is not null || !retry || attempt >= 2) return bmp;
                 // 退避:第一次 300ms,第二次 600ms。瞬时故障多半在这个量级内就过去了
                 await Task.Delay(300 * (attempt + 1)).ConfigureAwait(false);
@@ -104,12 +129,12 @@ public static class Images
         }
         finally
         {
-            Inflight.TryRemove(url, out _);
+            Inflight.TryRemove(key, out _);
         }
     }
 
     /// <summary>取一次。回 <c>(位图, 这次失败值不值得重试)</c>。</summary>
-    private static async Task<(Bitmap? Bmp, bool Retry)> TryFetch(CoreClient core, string url, int maxHeight)
+    private static async Task<(Bitmap? Bmp, bool Retry)> TryFetch(CoreClient core, string url, int maxHeight, string key)
     {
         try
         {
@@ -140,13 +165,13 @@ public static class Images
                画在 158×237 的槽里,白解了 40 倍的像素,还占着 6 MB 内存。
                而 maxHeight 是给上游的**建议**:实测某 fork 完全无视 maxWidth,
                所以「服务器会帮我们缩」这件事**不能当前提**,自己这一刀必须落。 */
-            var bmp = DecodeToHeight(ms, Ladder(maxHeight));
+            var bmp = DecodeToHeight(ms, maxHeight);
             if (Perf.On)
                 Perf.Log($"图 取{t1 - t0:0}ms 解码{Perf.Ms - t1:0}ms {ms.Length / 1024}KB " +
                          $"→{bmp.PixelSize.Width}x{bmp.PixelSize.Height} " +
                          $"线程={(Dispatcher.UIThread.CheckAccess() ? "★UI★" : "后台")}");
 
-            Remember(url, bmp);
+            Remember(key, bmp);
             return (bmp, false);
         }
         catch

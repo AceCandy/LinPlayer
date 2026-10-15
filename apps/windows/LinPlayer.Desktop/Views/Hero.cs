@@ -97,9 +97,10 @@ public sealed class Hero : Border
     private readonly Button _prev, _next;
 
     private readonly List<JsonElement> _items = [];
-    private Lazy<Task<Bitmap?>>[] _bg = [], _wash = [], _logo = [];
+    private Lazy<Task<Bitmap?>>[] _bg = [], _wash = [], _logo = [], _preview = [];
     private int _idx = -1;
     private int _generation;
+    private int _artRevision;
 
     private bool _hover;
     private bool _alive;
@@ -477,11 +478,14 @@ public sealed class Hero : Border
 
         // 按需启动当前张和下一张，避免首屏一次占满全部轮播图的回源名额。
         _bg = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(server, Id(it), "Backdrop"), 720))).ToArray();
+            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), ArtworkHeight, original: true))).ToArray();
         _wash = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(server, Id(it), "Backdrop"), 64))).ToArray();
+            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), 64, original: true))).ToArray();
         _logo = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
             Images.EmbyImageUrl(server, Id(it), "Logo"), 184))).ToArray();
+
+        _preview = _items.Select(it => new Lazy<Task<Bitmap?>>(() =>
+            Images.LoadCachedHeroAsync(_core, server, Id(it), ArtworkHeight))).ToArray();
 
         BuildDots();
         _prev.IsVisible = _next.IsVisible = _items.Count > 1;
@@ -490,7 +494,7 @@ public sealed class Hero : Border
 
     private void Start()
     {
-        if (_idx < 0) _ = Go(0);
+        _ = Go(Math.Max(0, _idx));
         // 只跑一路循环。Attached 会在「详情页返回首页」时再发一次,
         // 不守这一下就会每回来一次多一条,翻页速度成倍加快。
         if (_cycling) return;
@@ -602,12 +606,17 @@ public sealed class Hero : Border
         catch (Exception e) { Console.WriteLine("[Hero] 切图失败: " + e); }
     }
 
+    /// <summary>只约束本地解码像素，原图下载不附带缩放参数。</summary>
+    private int ArtworkHeight => Math.Max(1, (int)Math.Ceiling(Height * (TopLevel.GetTopLevel(this)?.RenderScaling ?? 1)));
+
     private async Task GoCore(int i)
     {
         if (i < 0 || i >= _items.Count) return;
         var generation = _generation;
+        var revision = ++_artRevision;
         _idx = i;
         SyncDots();
+        var preview = _preview[i].Value;
         var background = _bg[i].Value;
         var washImage = _wash[i].Value;
         RenderBody(_items[i], _logo[i].Value);
@@ -621,37 +630,47 @@ public sealed class Hero : Border
         var sharp = toA ? _sharpA : _sharpB;
         var wash = toA ? _washA : _washB;
 
+        var cached = await preview;
+        if (_idx != i || generation != _generation || revision != _artRevision || !_alive) return;
+        if (cached is not null) Paint(cached, cached);
+
         var bmp = await background;
         // 翻得比图快:等这张图的时候用户已经翻走了,别把它硬塞上去
-        if (_idx != i || generation != _generation) return;
+        if (_idx != i || generation != _generation || revision != _artRevision || !_alive) return;
         if (bmp is null)
         {
             Console.WriteLine($"[Hero] 第 {i + 1} 张没有剧照,回退海报");
             /* listRandom 只挑有剧照的条目(ImageTypes=Backdrop),但取图仍然可能失败。
                退回海报 —— 现在是 Uniform 不裁,2:3 的海报只会窄一点,不会被裁烂。 */
-            bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary"), 720);
+            bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary", original: true), ArtworkHeight, original: true);
             if (bmp is null) Console.WriteLine($"[Hero] 第 {i + 1} 张连海报也取不到(server={_server})");
-            if (_idx != i || generation != _generation || bmp is null) return;
+            if (_idx != i || generation != _generation || revision != _artRevision || !_alive || bmp is null) return;
         }
         // 氛围底取不到就拿大图顶上(它只是被拉糊当底色,清晰与否看不出来)
         var washBmp = await washImage;
-        if (_idx != i || generation != _generation) return;
-        wash.Source = washBmp ?? bmp;
-        // 羽化条要拿同一张糊图去画。少了这一句羽化层是空的 ——
-        // 不报错,只是那条缝又回来了。
-        if (toA) _washBmpA = washBmp ?? bmp; else _washBmpB = washBmp ?? bmp;
+        if (_idx != i || generation != _generation || revision != _artRevision || !_alive) return;
+        Paint(bmp, washBmp ?? bmp);
 
-        sharp.Source = bmp;
-        /* 记下这一张的宽高比,遮罩要按它对齐。
-            **不能假定 16:9**:取不到剧照时会回落海报(2:3),
-            按 16:9 算出来的左沿在海报上差着几百像素,那道缝会更明显。 */
-        var ar = bmp.PixelSize.Height > 0 ? (double)bmp.PixelSize.Width / bmp.PixelSize.Height : 16.0 / 9;
-        if (toA) _arA = ar; else _arB = ar;
-        SyncFeather();
-        _skel.IsVisible = false;
-        back.Opacity = 1;
-        _front.Opacity = 0;
-        _front = back;
+        // 预览与原图更新同一层，不再翻转层或重启淡入。
+        void Paint(Bitmap bitmap, Bitmap washBitmap)
+        {
+            wash.Source = washBitmap;
+            // 羽化条要拿同一张糊图去画。少了这一句羽化层是空的 ——
+            // 不报错,只是那条缝又回来了。
+            if (toA) _washBmpA = washBitmap; else _washBmpB = washBitmap;
+
+            sharp.Source = bitmap;
+            /* 记下这一张的宽高比,遮罩要按它对齐。
+                **不能假定 16:9**:取不到剧照时会回落海报(2:3),
+                按 16:9 算出来的左沿在海报上差着几百像素,那道缝会更明显。 */
+            var ar = bitmap.PixelSize.Height > 0 ? (double)bitmap.PixelSize.Width / bitmap.PixelSize.Height : 16.0 / 9;
+            if (toA) _arA = ar; else _arB = ar;
+            SyncFeather();
+            _skel.IsVisible = false;
+            back.Opacity = 1;
+            if (!ReferenceEquals(_front, back)) _front.Opacity = 0;
+            _front = back;
+        }
 
         /* 慢推。 <b>两层各自来回推,不复位</b> —— 这一层这次 1.00→1.07,
            下次轮到它就 1.07→1.00。每次都归零的话要先关掉过渡、设值、再打开,

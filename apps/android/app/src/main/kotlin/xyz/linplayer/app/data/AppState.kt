@@ -280,14 +280,15 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     }
 
     fun imageUrl(itemId: String?, kind: String = "Primary", height: Int = 330,
-        server: String? = _session.value?.server): String? {
+        server: String? = _session.value?.server, original: Boolean = false): String? {
         if (server.isNullOrEmpty()) return null
         val base = core.localBaseUrl
         if (itemId.isNullOrEmpty() || base.isEmpty()) return null
         // Backdrop 要带序号,Primary/Logo 不带 —— 不带的话某些 fork 直接 404
         val seg = if (kind == "Backdrop") "Backdrop/0" else kind
-        val upstream = "${server.trimEnd('/')}/Items/$itemId/Images/$seg?quality=90"
-        return "$base/img?src=${Uri.encode(upstream)}&h=${ladder(height)}"
+        // 原图同时省略质量与尺寸参数，h=0仍会被核心转为maxHeight=0。
+        val upstream = "${server.trimEnd('/')}/Items/$itemId/Images/$seg" + if (original) "" else "?quality=90"
+        return "$base/img?src=${Uri.encode(upstream)}" + if (original) "" else "&h=${ladder(height)}"
     }
 
     /**

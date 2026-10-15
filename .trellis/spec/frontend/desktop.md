@@ -27,7 +27,7 @@
 - 不用 PowerShell 5.1 批量重写中文源码；非 ASCII 的 .ps1 保留 BOM。
 - 无边框最大化与视频子窗口几何按当前 Win32 接入约束，检查工作区、DPI 与真实窗口；截图不能证明视频层可见。
 
-- 首页 Hero 图片任务按需创建，只预取当前张和下一张；异步切图同时核查条目索引和数据代次，避免旧批次覆盖新批次。
+- 首页Hero先显示/img-cache原图或已有缩略图预览，普通通道原图请求省略h/quality，按实际物理高度解码；只预取当前张和下一张。下载失败保留预览；异步切图核查条目索引、数据代次和请求代次，同项重入也拒绝旧响应。图片并发字典保存Lazy任务，仅入字典的实例启动HTTP，避免GetOrAdd并发工厂重复下载。tools/productcheck --images-only验证并发合流、图片URL、缓存探测、解码尺寸隔离与鉴权，不能代替真机画质/内存验收。
 - MetaCache 展示快照不按年龄清理，内存与磁盘各最多1000条；内存按最近读取、磁盘按最近写入淘汰。磁盘写入与淘汰串行，每次只删超额条目。现有页面先展示旧值再刷新，播放与写命令保持实时。回归入口为 `tools/cachecheck`，不代表其它尚未接入的请求已有缓存。
 
 依据：[Tok](../../../apps/windows/LinPlayer.Desktop/Views/Tok.cs)、[导航](../../../apps/windows/LinPlayer.Desktop/Views/Nav.cs)、[媒体库页面](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面经验](../../../docs/lessons/ui-desktop.md)。

@@ -6,7 +6,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.foundation.relocation.BringIntoViewRequester
 import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.ui.platform.testTag
-import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.Crossfade
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -41,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -52,6 +51,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
+import xyz.linplayer.app.data.cachedHeroImage
+import xyz.linplayer.app.data.CachedHomeImage
+import xyz.linplayer.app.ui.components.HeroArtwork
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
@@ -312,7 +314,7 @@ private fun Hero(block: Block<List<Item>>, onDetail: (Item) -> Unit) {
 }
 
 /**
- * ★ 5 张背景图**全部预先挂着**只切透明度:只挂当前那张的话换图时现拉现解码,中间闪一下黑。
+ * 当前项先展示已有缓存，再按需取原图；交叉淡入期间保留上一项。
  * ☠ 轮播在「失去焦点」时必须恢复 —— 旧实现只在获得焦点时停,首页一进来焦点就在按钮上,
  *   轮播从第一秒起永久停摆。
  * ★ **文字上什么都不加**【用户定 2026-07-20】:不加渐变、不加底、不加描边。
@@ -334,9 +336,18 @@ private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
     // 整块 Hero 请求露出:只让按钮自己露出的话,从下面回来停在按钮顶端,上面的封面在视野外(§4.3)
     Box(Modifier.testTag("home.heroBox").fillMaxWidth().height(TvDim.heroH).bringIntoViewRequester(whole).clip(TvR.lg).background(TvC.surface1)
         .onFocusChanged { paused = it.hasFocus; if (it.hasFocus) scope.launch { whole.bringIntoView() } }) {
-        items.forEachIndexed { i, it ->
-            val a by animateFloatAsState(if (i == idx) 1f else 0f, tween(500), label = "hero$i")
-            TvImage(app.imageUrl(it.id, "Backdrop", 720), Modifier.graphicsLayer { alpha = a })
+        Crossfade(cur, animationSpec = tween(500), label = "hero") { item ->
+            var preview by remember(item.id, app.session.value) { mutableStateOf<CachedHomeImage?>(null) }
+            var checked by remember(item.id, app.session.value) { mutableStateOf(false) }
+            LaunchedEffect(item.id, app.session.value) {
+                try { preview = app.cachedHeroImage(item) }
+                catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                catch (_: java.io.IOException) { /* 缓存通道暂不可用，仍可尝试原图。 */ }
+                checked = true
+            }
+            HeroArtwork(app.imageUrl(item.id, "Backdrop", original = true), preview?.url,
+                app.imageUrl(item.id, "Primary", original = true), Modifier.fillMaxSize(),
+                loadOriginal = checked && item.id == cur.id)
         }
         Column(Modifier.align(Alignment.BottomStart).padding(TvSp.x24).widthIn(max = 480.dp)) {
             TvText(cur.name, t.display, TvC.fg, weight = TvW.bold, maxLines = 2)

@@ -390,7 +390,8 @@ fun HomePage(nav: NavController) {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
                         backgroundExtension = heroExtension, onPlay = play,
                         foregroundExtension = hiddenHeroSpace,
-                        primaryImage = { app.imageUrl(it.id, "Primary", 330)?.replaceFirst("/img?", "/img-cache?") },
+                        originalImage = { app.imageUrl(it.id, "Backdrop", original = true) },
+                        primaryImage = { app.imageUrl(it.id, "Primary", original = true) },
                         logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120)?.replaceFirst("/img?", "/img-cache?") else null })
                 }
                 if (!UiPrefs.hideHomeLibraries.value) item("views") {
@@ -473,6 +474,7 @@ internal fun CachedHomeBanner(
     visible: Boolean,
     open: (Item) -> Unit,
     onPlay: (Item) -> Unit = open,
+    originalImage: (Item) -> String? = { null },
     primaryImage: (Item) -> String? = { null },
     logoImage: (Item) -> String? = { null },
     backgroundExtension: Dp = 0.dp,
@@ -557,15 +559,12 @@ internal fun CachedHomeBanner(
             layout(constraints.maxWidth, height) { placeable.placeRelative(0, 0) }
         }, contentKey = { it.url },
             transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "homeHero") { image ->
-            var failed by remember(image.url) { mutableStateOf(false) }
             var logoFailed by remember(image.item.id) { mutableStateOf(false) }
-            val url = if (failed) primaryImage(image.item) else image.url
             Box(Modifier.fillMaxSize().testTag("home.hero.background")) {
-                NetImage(url, null, Modifier.fillMaxSize(), 0.dp, scale = ContentScale.Crop,
-                    onLoadResult = { loaded ->
-                        if (!loaded && !failed && image.backdrop) failed = true
-                        // 即使海报也缺失仍保留标题与播放入口，静态底色避免布局跳动。
-                    })
+                xyz.linplayer.app.ui.components.HeroArtwork(
+                    originalImage(image.item) ?: image.url, image.url, primaryImage(image.item),
+                    Modifier.fillMaxSize(), loadOriginal = image.item.id == images[currentIndex].item.id,
+                )
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                     0f to Color.Black.copy(alpha = .74f), toolbarStop to Color.Black.copy(alpha = .66f),
                     (toolbarStop + .12f) to Color.Transparent)))

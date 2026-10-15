@@ -65,13 +65,35 @@ class CachedHomeImagesTest {
         assertTrue(images[0].backdrop)
         assertFalse(images[1].backdrop)
         assertTrue(images.all { Uri.parse(it.url).path == "/img-cache" })
+        assertTrue("已有原图缓存优先，不能强制1080",
+            images.all { Uri.parse(it.url).getQueryParameter("h") == null })
         assertFalse(requests.any { it.contains("person") })
     }
 
-    @Test fun missingCacheProducesNoBannerAndNoOrdinaryImageRequests() = runBlocking {
+    @Test fun missingCacheKeepsCandidateWithoutDownloadingDuringScan() = runBlocking {
         val app = app { false }
-        assertTrue(app.cachedHomeImages(listOf(Item("a", "未缓存", "Movie"))).isEmpty())
+        assertEquals("a", app.cachedHomeImages(listOf(Item("a", "未缓存", "Movie"))).single().item.id)
         assertTrue(requests.isNotEmpty())
+        assertTrue(requests.all { it.startsWith("/img-cache?") })
+    }
+
+    @Test fun originalImageUrlHasNoResizeOrQualityParameters() = runBlocking {
+        val app = app { false }
+        val url = Uri.parse(app.imageUrl("a", "Backdrop", original = true))
+        assertEquals("/img", url.path)
+        assertEquals(setOf("src"), url.queryParameterNames)
+        val upstream = Uri.parse(url.getQueryParameter("src"))
+        assertTrue(upstream.path!!.endsWith("/Items/a/Images/Backdrop/0"))
+        assertNull(upstream.query)
+        val normal = Uri.parse(app.imageUrl("a", "Backdrop", 720))
+        assertEquals("720", normal.getQueryParameter("h"))
+        assertEquals("90", Uri.parse(normal.getQueryParameter("src")).getQueryParameter("quality"))
+    }
+
+    @Test fun originalMissStillUsesExistingThumbnailAsPreview() = runBlocking {
+        val app = app { it.contains("quality=90") }
+        val image = app.cachedHomeImages(listOf(Item("a", "旧缓存", "Movie"))).single()
+        assertEquals("1080", Uri.parse(image.url).getQueryParameter("h"))
         assertTrue(requests.all { it.startsWith("/img-cache?") })
     }
 
@@ -108,6 +130,6 @@ class CachedHomeImagesTest {
     @Test fun oneInterruptedProbeDoesNotDiscardLaterCachedWorks() = runBlocking {
         val app = app(disconnect = { it.contains("/Items/film-1/") }) { true }
         val images = app.cachedHomeImages((1..35).map { Item("film-$it", "作品$it", "Movie") })
-        assertEquals((2..35).map { "film-$it" }, images.map { it.item.id })
+        assertEquals((1..35).map { "film-$it" }, images.map { it.item.id })
     }
 }

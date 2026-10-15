@@ -14,6 +14,7 @@ using LinPlayer.Desktop.Views;
 
 // 真核心层 + Avalonia 渲染:验证分页接线、TCP 请求取消及导航返回恢复。
 AppBuilder.Configure<CheckApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
+if (args.Contains("--images-only")) { ImageChecks.Run(); return; }
 var root = Path.Combine(Path.GetTempPath(), "linplayer-product-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 using var upstream = new Upstream();
