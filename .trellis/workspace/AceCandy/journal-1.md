@@ -1955,3 +1955,41 @@
 ### Next Steps
 
 - 真机验收系统PiP动画、桌面往返及真实播放；未推送远端。
+
+
+## Session 67: 轮播原图加载审查修复与出包
+<!-- trellis-session: v=2 fp=cf75152d80fff8aa -->
+
+**Date**: 2026-10-15
+**Task**: 轮播原图加载审查修复与出包
+**Branch**: `main`
+
+### Summary
+
+手机、TV与桌面轮播缓存先显并按需加载无尺寸/质量限制的原图；复核后以16线程回归确认并修复桌面图片工厂重复请求，独立复核通过。任务已归档，Android手机arm64 Release包已交付。
+
+### Main Changes
+
+- 三端原图下载、缓存预览与失败保留；同项异步结果隔离；设计与执行规范同步。
+- 桌面Inflight改为Lazy任务，避免并发GetOrAdd工厂重复启动HTTP。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fb54c532` | fix: 轮播缓存预览后按需加载原图 |
+
+### Testing
+
+- [OK] Android相关51项回归通过；缓存预览故障注入先红后绿。
+- [OK] 桌面真实图片加载器与Hero控件检查通过；16线程合流修前失败、修后通过。
+- [OK] 样式7项、Android参数名264处、敏感信息及diff门禁通过。
+- [OK] 手机Release构建成功：2.0.0，29770330字节；v2/v3签名、13个压缩ARM64 ELF、extractNativeLibs及APK/核心库一致性检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未做真机实服画质、流量、内存验收；本地包沿用未配置官方弹幕凭据和崩溃上报的构建条件。
