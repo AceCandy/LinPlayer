@@ -1897,3 +1897,25 @@
 ### Next Steps
 
 - 真实服务器与手机播放尚未验收；新增完整榜单和时间能力需要更新MSG。
+
+
+## Session 65: 手机本服隐私空间
+<!-- trellis-session: v=2 fp=a516070970752028 -->
+
+**Date**: 2026-10-15
+**Task**: 手机本服隐私空间
+**Branch**: `main`
+
+### Summary
+
+长按服名无PIN进入，仅当前服务器成人内容与服务端续播；禁用私密跨服查询、本地历史和主服同步。相关Go与Android回归、参数绑定和独立复核通过；真实MSG联调与真机尚未验证。按用户要求提交归档，随后构建手机arm64安装包。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `507eecfb` | feat(android): 新增仅本服的成人隐私空间 |
+
+### Status
+
+[OK] **Completed**
