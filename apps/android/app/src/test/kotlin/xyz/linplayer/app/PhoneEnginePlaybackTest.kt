@@ -312,6 +312,8 @@ class PhoneEnginePlaybackTest {
     @Test fun 手机接下来独立于控制栏且点击复用停止屏障() {
         val core = episodeCore()
         showPlayer(core, "mpv")
+        // 合成背景只用于检查叠层对比度，不代表真实解码帧。
+        rule.runOnIdle { videoBackground(960, 440, 16f / 9) }
         rule.runOnIdle { core.tick(3628.75) }; advance(rule, 300)
         rule.runOnIdle { core.tick(3629.0) }; advance(rule, 300)
         rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
@@ -325,7 +327,11 @@ class PhoneEnginePlaybackTest {
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
         advance(rule, 500)
         rule.onNodeWithContentDescription("更多").assertDoesNotExist()
-        rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
+        val hiddenCapsule = rule.onNodeWithTag("player.nextUp").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("控件收起时片尾卡片靠近底边", hiddenCapsule.top > capsule.top)
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertEquals("片尾卡片在底部留8dp间距", root.bottom - 8f, hiddenCapsule.bottom, .1f)
+        rule.onRoot().captureRoboImage("build/player-osd/next-up-hidden.png")
         rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
             put("item_id", "sh6"); put("position", 3635.0); put("duration", 3660.0)
             put("paused", true); put("buffering", false)
@@ -818,6 +824,8 @@ class PhoneEnginePlaybackTest {
                 dispatch(activity.window.decorView)
             }
             advance(rule, 300)
+            val clock = rule.onNodeWithTag("player.passiveStatus").fetchSemanticsNode().boundsInRoot
+            assertEquals("单侧安全区不能把时间挤离屏幕正中", viewport.center.x, clock.center.x, 1f)
             assertEquals("安全区注入必须真实影响底栏", before.right - sideInset,
                 rule.onNodeWithContentDescription("字幕").fetchSemanticsNode().boundsInRoot.right, .1f)
         }
@@ -956,6 +964,52 @@ class PhoneEnginePlaybackTest {
         assertEquals(listOf("player.play", "player.stopPlayback", "player.play", "player.stopPlayback", "player.play"),
             core.calls.map { it.first }.filter { it in listOf("player.play", "player.stopPlayback") })
         assertTrue(core.calls.last { it.first == "player.setPause" }.second.bool("paused"))
+    }
+
+    @Test fun 小窗立即移除控件菜单且返回后不重新起播() {
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("player.menu").assertIsDisplayed()
+        rule.runOnIdle {
+            (activity as androidx.activity.ComponentActivity).onPictureInPictureModeChanged(true, activity.resources.configuration)
+        }
+        advance(rule, 32)
+        rule.onNodeWithTag("player.video").assertExists()
+        rule.onNodeWithContentDescription("更多").assertDoesNotExist()
+        rule.onNodeWithTag("player.menu").assertDoesNotExist()
+        rule.onNodeWithTag("player.passiveStatus").assertDoesNotExist()
+        rule.onNodeWithContentDescription("正在缓冲…").assertDoesNotExist()
+        rule.runOnIdle {
+            (activity as androidx.activity.ComponentActivity).onPictureInPictureModeChanged(false, activity.resources.configuration)
+        }
+        advance(rule, 300)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+    }
+
+    @Test fun 缓冲时控件收起仍保留网速且加载动画放大() {
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(1000)
+        val core = episodeCore()
+        showPlayer(core, "mpv")
+        // 合成背景只用于检查叠层对比度，不代表真实解码帧。
+        rule.runOnIdle { videoBackground(960, 440, 16f / 9) }
+        rule.runOnIdle { core.tick(40.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(40.25) }; advance(rule, 300)
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false)
+            core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+                put("position", 40.25); put("duration", 3660); put("buffering", true)
+            }))
+        }
+        advance(rule, 1500)
+        rule.onNodeWithContentDescription("更多").assertDoesNotExist()
+        rule.onNodeWithText("0 B/s").assertIsDisplayed()
+        val loading = rule.onNodeWithContentDescription("正在缓冲…").fetchSemanticsNode().boundsInRoot
+        assertEquals(120f, loading.width, .1f)
+        rule.onRoot().captureRoboImage("build/player-osd/buffering-hidden.png")
+        rule.runOnIdle { core.tick(40.5) }; advance(rule, 300)
+        rule.onNodeWithText("0 B/s").assertDoesNotExist()
     }
 
     @Test fun 无章节隐藏入口且顶部状态始终固定居中() {

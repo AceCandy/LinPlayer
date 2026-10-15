@@ -98,6 +98,36 @@ class PlayerActivityTest {
         controller.destroy()
     }
 
+    @Test fun manualPipOpensHomeOnlyAfterSuccessfulEntry() {
+        val core = FakeCore().loggedIn().player()
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        shadowOf(context).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        shadowOf(context.packageManager).setSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE, true)
+        val intent = PlayerActivity.intent(context, Route.Player("m1", "测试", engine = "mpv", ar = 16f / 9))
+            .setClass(context, TestPlayerActivity::class.java)
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java, intent).setup()
+        rule.waitUntil(5_000) { app.wantsPip }
+        val activity = host!!.get()
+        rule.runOnIdle {
+            activity.pipResult = false
+            assertFalse(activity.enterPlayerPip(returnToHome = true))
+            assertNull(shadowOf(activity).nextStartedActivity)
+            activity.pipResult = true
+            assertTrue(activity.enterPlayerPip())
+            assertNull("Home 手势不能重复启动桌面", shadowOf(activity).nextStartedActivity)
+            assertTrue(activity.enterPlayerPip(returnToHome = true))
+            val home = shadowOf(activity).nextStartedActivity
+            assertEquals(Intent.ACTION_MAIN, home.action)
+            assertTrue(home.hasCategory(Intent.CATEGORY_HOME))
+            assertTrue(home.flags and Intent.FLAG_ACTIVITY_NEW_TASK != 0)
+            assertFalse(activity.isFinishing)
+            assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+        }
+    }
+
     @Test fun standalonePlayerKeepsPlaybackOnNotificationReturnAndFinishesWithoutUnlocking() {
         val core = FakeCore().loggedIn().player().apply { ret("player.stopPlayback", JsonNull) }
         val app = AppState(core, scope)
@@ -179,6 +209,9 @@ class PlayerActivityTest {
 }
 
 class TestPlayerActivity : PlayerActivity() {
+    var pipResult = true
+    override fun enterPictureInPictureMode(params: android.app.PictureInPictureParams): Boolean = pipResult
+
     override fun onCreate(savedInstanceState: android.os.Bundle?) {
         setTheme(R.style.Theme_LinPlayer_Player)
         super.onCreate(savedInstanceState)

@@ -135,13 +135,17 @@ open class PlayerActivity : ComponentActivity() {
         enterPlayerPip()
     }
 
-    fun enterPlayerPip(): Boolean {
+    fun enterPlayerPip(returnToHome: Boolean = false): Boolean {
         if (!::app.isInitialized || Build.VERSION.SDK_INT < 26 || isFinishing ||
-            isInMultiWindowMode || !app.wantsPip ||
+            isInPictureInPictureMode || isInMultiWindowMode || !app.wantsPip ||
             !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
         return runCatching {
-            enterPictureInPictureMode(PictureInPictureParams.Builder()
+            val entered = enterPictureInPictureMode(PictureInPictureParams.Builder()
                 .setAspectRatio(Rational(16, 9)).build())
+            // 手动小窗回到桌面，避免露出浏览窗口的黑色播放交接页；Home 手势无需重复跳转。
+            if (entered && returnToHome) startActivity(Intent(Intent.ACTION_MAIN)
+                .addCategory(Intent.CATEGORY_HOME).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            entered
         }.getOrDefault(false)
     }
 

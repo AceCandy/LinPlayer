@@ -63,6 +63,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.alpha
+import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
@@ -126,6 +128,8 @@ internal fun nextPreloadAllowed(active: Boolean, buffering: Boolean, position: D
 }
 
 private const val OSD_HIDE_MS = 5000L
+private val PlayerLoadingSize = 120.dp
+private val PlayerNetSpeedTop = 76.dp
 
 /**
  * 定方向要攒够的距离。
@@ -196,7 +200,7 @@ internal suspend fun sampleNetSpeed(onText: (String) -> Unit) {
         val now = android.net.TrafficStats.getTotalRxBytes()
         val at = System.nanoTime()
         if (now == android.net.TrafficStats.UNSUPPORTED.toLong()) { onText(""); return }
-        onText(fmtSpeed(now - last, at - lastAt))
+        onText(if (now == last && at > lastAt) "0 B/s" else fmtSpeed(now - last, at - lastAt))
         last = now
         lastAt = at
     }
@@ -1015,7 +1019,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
        不然那台设备上顶栏永远出不来。 */
     val turning = turningTo(wantLandscape, portrait)
     var turnGaveUp by remember(wantLandscape) { mutableStateOf(false) }
-    val controlsVisible = (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
+    val controlsVisible = !inPip && (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
     val nextUp = nextEpisode?.takeIf {
         nextUpVisible(position, duration) && controller.ready && !switching && !finished &&
             !leaving && !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
@@ -1108,6 +1112,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
                 m = videoModifier)
         else VideoSurface(app.core, videoModifier)
 
+        // PiP 直接移除覆盖控件，不能等 OSD 渐隐结束后才得到干净的小窗。
+        if (!inPip) {
         /* 弹幕层。**画在这儿而不是交给 mpv** —— 两个内核下都要有,
            而 mpv 的 osd-overlay 在 Exo 那条路上根本不存在(见 DanmakuLayer 顶上那段)。 */
         if (DanmakuStyle.enabled.value) DanmakuLayer(
@@ -1146,7 +1152,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
                 })
                 xyz.linplayer.app.ui.components.LpButton("返回", leave,
                     kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
-            } else if (!openFailed) xyz.linplayer.app.ui.components.LpLoading(size = 64.dp, tint = Color.White,
+            } else if (!openFailed) xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White,
                 label = if (buffering) "正在缓冲…" else "正在打开…")
         }
 
@@ -1234,7 +1240,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         /* 出画之后的缓冲提示。黑幕撤了但流还没跟上时,得有个东西说明在等 ——
            没有它的话画面卡住和播放器死了长得一模一样。 */
         if (everMoved && buffering) Box(videoLayerModifier, contentAlignment = Alignment.Center) {
-            xyz.linplayer.app.ui.components.LpLoading(size = 64.dp, tint = Color.White, label = "正在缓冲…")
+            xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White, label = "正在缓冲…")
         }
 
         // seek 预览:滑动中显示目标时间与差值
@@ -1263,7 +1269,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         ) {
             Osd(
                 portrait = portrait && !inPip,
-                netSpeed = netSpeed,
+                netSpeed = netSpeed.takeUnless { !buffering && it == "0 B/s" }.orEmpty(),
                 onBottomBarHeight = { bottomBarHeight = it },
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
@@ -1274,7 +1280,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
                 onChapters = if (route.src == null && chapters?.isEmpty() != true) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
                 onPip = (activity as? xyz.linplayer.app.PlayerActivity)?.takeIf {
                     android.os.Build.VERSION.SDK_INT >= 26 && it.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
-                }?.let { host -> { if (!host.enterPlayerPip()) app.toast("无法打开画中画", ToastKind.Error) } },
+                }?.let { host -> { if (!host.enterPlayerPip(returnToHome = true)) app.toast("无法打开画中画", ToastKind.Error) } },
                 onBack = leave,
                 onToggle = { doPause(!paused) },
                 onSeek = { t -> doSeek(t) }, onSeekBy = ::doSeekBy, seekKey = controller,
@@ -1297,7 +1303,14 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         if (!leaving && !(turning && !turnGaveUp) &&
             !inPip && controller.ready && !openFailed) {
             PassiveStatus(statusText, batteryPercent,
-                Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)))
+                Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
+        }
+
+        if (buffering && netSpeed.isNotEmpty() && !controlsVisible && !leaving && !openFailed && !(turning && !turnGaveUp)) {
+            Box(Modifier.align(Alignment.TopEnd).safeDrawingPadding()
+                .padding(top = PlayerNetSpeedTop, end = Sp.x16)
+                .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
+                .padding(horizontal = Sp.x6, vertical = Sp.x2)) { NetSpeed(netSpeed) }
         }
 
         PassiveProgress(position, duration,
@@ -1307,9 +1320,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
 
         // 片尾提示独立于控制栏，始终以实际位置判断；拖动预览不触发换集提示。
         if (nextUp != null) {
+            val nextUpAlpha by animateFloatAsState(if (controlsVisible) 1f else .5f,
+                xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3), label = "nextUpAlpha")
             NextUp(nextUp, duration - position, duration, nextUpWidth,
                 Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
-                    .padding(end = 80.dp, bottom = with(density) { bottomBarHeight.toDp() } + Sp.x8)) {
+                    .padding(end = 80.dp, bottom = if (controlsVisible) with(density) { bottomBarHeight.toDp() } else Sp.x8)
+                    .alpha(nextUpAlpha)) {
                 switchEpisode(nextUp)
             }
         }
@@ -1323,7 +1339,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         }
 
         }
-        key(controller, engine) {
+        }
+        if (!inPip) key(controller, engine) {
             PlayerPanel(
                 panel, route.itemId, exo,
                 hasEpisodes = episodeLabel.isNotBlank(), chapters = chapters,
@@ -1377,7 +1394,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
         }
 
         // 弹幕搜索是**居中模态**,所以挂在整页最上面,不在那个 236dp 的小面板里
-        if (dmSearch) DanmakuSearchDialog(route.itemId, route.title) { dmSearch = false }
+        if (!inPip && dmSearch) DanmakuSearchDialog(route.itemId, route.title) { dmSearch = false }
     }
 }
 
@@ -1582,12 +1599,12 @@ private fun PlayerControl(
 @Composable
 internal fun PassiveStatus(statusText: String, batteryPercent: Int, modifier: Modifier = Modifier) {
     if (statusText.isEmpty()) return
-    Row(modifier.padding(top = Sp.x6).testTag("player.passiveStatus")
-        .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
-        .padding(horizontal = Sp.x10, vertical = Sp.x2),
-        horizontalArrangement = Arrangement.spacedBy(Sp.x8), verticalAlignment = Alignment.CenterVertically) {
-        Text(statusText, color = Color.White.copy(alpha = .82f), style = LpText.number)
-        if (batteryPercent in 0..19) Box(Modifier.size(32.dp, 16.dp)
+    Box(modifier.padding(top = Sp.x6).testTag("player.passiveStatus")) {
+        Text(statusText, Modifier.clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
+            .padding(horizontal = Sp.x10, vertical = Sp.x2),
+            color = Color.White.copy(alpha = .82f), style = LpText.number)
+        if (batteryPercent in 0..19) Box(Modifier.align(Alignment.CenterEnd).offset(x = 40.dp).size(32.dp, 16.dp)
+            .background(Color.Black.copy(alpha = .45f), RoundedCornerShape(3.dp))
             .semantics { contentDescription = "电量 $batteryPercent%" }, contentAlignment = Alignment.Center) {
             androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
                 val stroke = 1.dp.toPx()

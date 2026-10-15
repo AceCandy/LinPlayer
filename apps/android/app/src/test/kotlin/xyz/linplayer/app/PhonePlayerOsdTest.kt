@@ -40,6 +40,17 @@ class PhonePlayerOsdTest {
     private var seek = 0.0
     private var action = ""
 
+    @Test fun clockStaysCenteredWhenLowBatteryAppears() {
+        val battery = mutableStateOf(80)
+        rule.setContent { LpTheme { Box(Modifier.fillMaxSize()) {
+            PassiveStatus("20:45", battery.value, Modifier.align(androidx.compose.ui.Alignment.TopCenter))
+        } } }
+        val before = rule.onNodeWithText("20:45").fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { battery.value = 10 }
+        assertEquals(before, rule.onNodeWithText("20:45").fetchSemanticsNode().boundsInRoot)
+        rule.onNodeWithContentDescription("电量 10%").assertIsDisplayed()
+    }
+
     private fun open(portrait: Boolean = false) {
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
