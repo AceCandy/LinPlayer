@@ -7,8 +7,8 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-1.md`
-- **Total Sessions**: 67
+- **Active File**: `journal-2.md`
+- **Total Sessions**: 68
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1995 | Active |
+| `journal-2.md` | ~44 | Active |
+| `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +30,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 68 | 2026-10-15 | 隐私空间调整归档与Windows开发包 | `0734773e` | `main` |
 | 67 | 2026-10-15 | 轮播原图加载审查修复与出包 | `fb54c532` | `main` |
 | 66 | 2026-10-15 | 手机播放提示与小窗修复及出包 | `ecd2971f` | `main` |
 | 65 | 2026-10-15 | 手机本服隐私空间 | `507eecfb` | `main` |
