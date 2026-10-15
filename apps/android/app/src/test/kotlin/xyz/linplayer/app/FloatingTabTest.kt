@@ -23,6 +23,7 @@ import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
@@ -55,27 +56,34 @@ class FloatingTabTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun shellWithMovie() {
+    private fun shellWithMovie(privateSpace: Boolean = false) {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val core = FakeCore().loggedIn().movie()
-        core.ret("emby.views", arr())
+        core.ret("emby.views", if (privateSpace) arr(buildJsonObject {
+            put("id", "adult"); put("name", "媒体库"); put("is_adult", true); put("has_primary", false)
+        }) else arr())
         core.ret("emby.listResume", arr(item("m1", "沙丘 2", runtime = 9960.0, resume = 1788.0)))
         val app = AppState(core, scope)
-        rule.setContent { LpTheme(darkOverride = true) { PhoneRoot(app) } }
+        rule.setContent { LpTheme(darkOverride = true, privateSpace = app.privateSpace.collectAsState().value) { PhoneRoot(app) } }
         rule.waitForIdle()
+        if (privateSpace) {
+            rule.onNodeWithText("服务器 A").performTouchInput { longClick() }
+            rule.waitForIdle()
+        }
     }
 
     @Test fun liuyingHidesGlobalBarAndReturningRestoresIt() {
-        shellWithMovie()
+        shellWithMovie(privateSpace = true)
         rule.onNodeWithContentDescription("聚合视界").performClick()
         rule.onNodeWithText("流影").performClick()
-        rule.onNodeWithTag("liuying.tab.0").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.bankai").assertIsDisplayed().assertIsOff()
         rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
-        rule.onNodeWithTag("liuying.tab.1").performClick()
+        rule.onNodeWithTag("liuying.bankai").performClick().assertIsOn()
         rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
         rule.onNodeWithContentDescription("返回").performClick()
         rule.onNodeWithTag("phone.tabs").assertIsDisplayed()
-        rule.onNodeWithText("下载").assertIsDisplayed()
+        rule.onNodeWithText("流影").assertIsDisplayed()
+        rule.onNodeWithText("下载").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/floating-ui/liuying-return.png")
     }
 
@@ -182,7 +190,7 @@ class FloatingTabTest {
         rule.onNodeWithContentDescription("首页").assertIsSelected()
         rule.onRoot().captureRoboImage("build/floating-ui/home.png")
         rule.onNodeWithContentDescription("聚合视界").performClick().assertIsSelected()
-        rule.onNodeWithText("服务器").assertExists()
+        rule.onNodeWithText("下载").assertExists()
         rule.onNodeWithContentDescription("收藏").performClick().assertIsSelected()
         rule.onNode(hasContentDescription("搜索") and hasAnyAncestor(hasTestTag("phone.tabs"))).performClick()
         rule.onNodeWithTag("phone.tabs").assertExists()
@@ -250,7 +258,7 @@ class FloatingTabTest {
             rule.onNodeWithTag("search.field").assertDoesNotExist()
             rule.onNodeWithText(when (name) {
                 "首页" -> "继续观看"
-                "聚合视界" -> "服务器"
+                "聚合视界" -> "下载"
                 else -> "收藏的电影"
             }).assertExists()
         }

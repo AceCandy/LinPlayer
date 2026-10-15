@@ -9,7 +9,7 @@
 - 手机主导航是 Navigation Compose / Route；TV 使用 TvNav，换集与导航轨切页遵守既有返回栈和焦点记忆。
 - 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
 - 深色 → 浅色 → 深色要检查背景、说明、箭头、数值和选中项；设备强制深色的表现不能只用 JVM 截图下结论。
-- PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；普通空间首页服名不加底色，隐私空间服名使用反色胶囊。
+- PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；普通与隐私空间首页服名均无底无框，叠图时白字阴影。
 - 浅色文字叠图时必须在文字区铺浅色渐变底，不能沿用固定黑遮罩；浅色主按钮各个渐变停色都要满足文字对比度。系统栏跟应用主题同步，API 24/25 的白色导航图标保留深色底。
 
 ## 资源与出包
@@ -209,3 +209,7 @@
 - 手机PiP直接移除播放器覆盖层（含OSD退场、菜单、解锁、加载与片尾提示），保留视频Surface组合，往返不得重复起播/停播。手动小窗成功后启动系统桌面，避免原浏览窗口的黑色交接页成为背景；Home手势不重复跳转，失败不跳桌面，ActivityResult栈保留。PlayerActivityTest验证桌面Intent/失败及播放不中断，PhoneEnginePlaybackTest验证小窗覆盖层立即消失与往返；系统PiP动画/桌面恢复需真机。播放器加载显示区120dp；片尾卡在控件展开时紧贴实测底栏上沿，收起时在底部安全区上方8dp并渐变至50%不透明度，不改变底栏几何。
 
 - 手机隐私空间顶部仍显示服名，不展示空间名称或退出提示；点服名/首页返回退出。`LpTheme(privateSpace)`统一应用深浅紫色底、表面及强调色，MainActivity和独立PlayerActivity均接入；普通主题偏好不变，退出恢复原色系。网页内容不强制改色。`PhoneThemeTest`覆盖深浅空间切换、导航入口、无跨服聚合请求和文字对比度，`PhoneHomeRefreshTest`覆盖长按进入与点服名退出。
+
+- 手机私密流光由 `PhoneRoot` 内唯一 `PrivateNeonHost` 提供 `State<Float>` 相位，`LpTheme` 下发空间标志；固定10秒基础时长，由Compose应用一次系统倍率，禁止同时手动乘LocalMotionScale；仅RESUMED且倍率>0推进。绘制层读取相位，不能每帧重组页面；后台/零倍率静态，普通空间相位为空。`privateNeonBorder(corner,inset,enabled)` 放在形状clip之前，青红渐变只旋转着色器，轮廓和多层透明宽线缓存；明确按钮/筛选胶囊/导航外壳接入，纯图标用 `privateNeonIcon`，不能挂通用pressable以免给海报或服名套框。MainShell播放交接页禁用外框，独立PlayerActivity不装宿主。`PrivateNeonTest`断言真实像素移动、无逐帧重组、后台/前台、零倍率、退出和无宿主不发光，以及按钮亮边和图标柔光；`PhoneThemeTest`验证服名底色与深浅切换，`FloatingTabTest`验证私密流影往返。真机GPU/耗电与屏幕安全区另验。
+
+- M3 FilterChip的最小交互布局高于可见表面；荧光不能画在整块最小触摸区上。MediaFilterChip在外层minimumInteractiveComponentSize保留布局空间，仅内层Surface关闭最小布局并按可见轮廓画光，点击仍由原控件接收。PrivateNeonTest同时断言深浅像素贴边和扩展区真实点击；倍率回归同时设置Compose MotionDurationScale与LocalMotionScale，验证0.5/2倍的一圈分别5/20秒，避免仅覆盖默认倍率得到假绿。

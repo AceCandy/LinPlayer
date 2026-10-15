@@ -206,6 +206,7 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, showAggregate: Boolean = true, 
     ) {
         Row(
             Modifier.fillMaxWidth(.78f).height(Dim.tabBar)
+                .privateNeonBorder(R.pill)
                 .shadow(2.dp, RoundedCornerShape(R.pill))
                 .clip(RoundedCornerShape(R.pill)).background(c.mediaPanel)
                 .border(1.dp, c.line, RoundedCornerShape(R.pill))
@@ -248,7 +249,7 @@ private fun Tab(
         )
         Icon(
             icon, label,
-            Modifier.size(24.dp),
+            Modifier.size(24.dp).privateNeonIcon(),
             tint = if (on) c.acc else c.mediaIcon,
         )
     }

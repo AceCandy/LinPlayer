@@ -49,6 +49,7 @@ import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.LpText
 import xyz.linplayer.app.ui.theme.R
@@ -89,7 +90,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
     LpScaffold("流影", onBack = { back() }, actions = {
         val on = selected == 1
         Text("卍解", Modifier.testTag("liuying.bankai")
-            .heightIn(min = Dim.tap).clip(RoundedCornerShape(R.pill))
+            .heightIn(min = Dim.tap).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
             .background(if (on) Lp.colors.mediaAccent else Lp.colors.s1)
             .toggleable(on, role = Role.Switch) { selected = if (it) 1 else 0 }
             .padding(horizontal = Sp.x16, vertical = Sp.x12),

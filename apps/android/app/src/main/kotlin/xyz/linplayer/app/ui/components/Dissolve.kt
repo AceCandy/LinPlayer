@@ -190,7 +190,7 @@ fun ToneChip(
     val c = Lp.colors
     Text(
         label,
-        m.clip(RoundedCornerShape(R.pill))
+        m.privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
             .background(if (on) c.acc else c.s2)
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x16, vertical = Sp.x8),
@@ -213,7 +213,7 @@ fun PrimaryAction(
     val c = Lp.colors
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
-            .clip(RoundedCornerShape(R.pill))
+            .privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
             .background(c.mediaAccent)
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
@@ -251,7 +251,7 @@ fun IconAction(
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
-            Modifier.size(38.dp).clip(RoundedCornerShape(R.pill))
+            Modifier.size(38.dp).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
                 .background(if (on) c.mediaAccent.copy(alpha = .18f) else c.s1),
             contentAlignment = Alignment.Center,
         ) { Icon(icon, null, Modifier.size(19.dp), tint = if (on) c.mediaIcon else c.fg2) }

@@ -110,7 +110,7 @@ class PhoneThemeTest {
                     assertTrue("私密空间文字对比度不足", contrast(foreground, background) >= 4.5f)
                 }
             }
-            assertTrue("反色服名及按钮对比度不足", contrast(c.accFg, c.acc) >= 4.5f)
+            assertTrue("私密空间按钮对比度不足", contrast(c.accFg, c.acc) >= 4.5f)
         }
     }
 
@@ -143,6 +143,8 @@ class PhoneThemeTest {
             assertTrue(app.privateSpace.value)
             assertBackground(privatePalette(base).bg)
             rule.onNodeWithText("服务器 A").assertExists()
+            val server = rule.onNodeWithText("服务器 A").captureToImage().toPixelMap()
+            assertEquals("服名底部应为页面底色，不保留胶囊", privatePalette(base).bg, server[server.width / 2, server.height - 3])
             rule.onNodeWithText("隐私空间 · 点击退出").assertDoesNotExist()
             rule.onRoot().captureRoboImage("build/phone-theme/private-home-$dark.png")
             val aggregateCalls = core.calls.count { it.first == "emby.aggregateOverview" }
@@ -302,7 +304,7 @@ class PhoneThemeTest {
 
     private fun assertBackground(expected: Color) {
         val pixels = rule.onRoot().captureToImage().toPixelMap()
-        assertEquals(expected, pixels[2, pixels.height / 2])
+        assertEquals(expected, pixels[12, pixels.height / 2])
     }
 
     private fun contrast(foreground: Color, background: Color): Float {

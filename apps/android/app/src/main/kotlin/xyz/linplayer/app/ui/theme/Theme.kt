@@ -124,6 +124,7 @@ object Dim {
 }
 
 val LocalLpColors = staticCompositionLocalOf { DarkColors }
+internal val LocalPrivateSpace = staticCompositionLocalOf { false }
 
 /**
  * 动效倍率。跟随系统的「移除动画」设置(UI_MOBILE.md §2.4)。
@@ -233,7 +234,7 @@ fun LpTheme(
 
     // 公共文字与M3组件共用完整的字体、行高和字距，避免只改字号后继承正文行高。
     val typo = remember { lpTypography() }
-    CompositionLocalProvider(LocalLpColors provides c, LocalMotionScale provides motion) {
+    CompositionLocalProvider(LocalLpColors provides c, LocalMotionScale provides motion, LocalPrivateSpace provides privateSpace) {
         MaterialTheme(colorScheme = scheme, typography = typo, shapes = Shapes(
             extraSmall = RoundedCornerShape(R.sm), small = RoundedCornerShape(R.md),
             medium = RoundedCornerShape(R.lg), large = RoundedCornerShape(R.xl), extraLarge = RoundedCornerShape(R.xl),

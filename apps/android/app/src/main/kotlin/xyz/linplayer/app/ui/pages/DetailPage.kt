@@ -149,6 +149,8 @@ import xyz.linplayer.app.ui.components.toneScene
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.components.privateNeonIcon
+import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
@@ -621,13 +623,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
     LpImmersive(bar = {
         IconButton(onClick = { nav.popBackStack() }) {
-            Icon(LpIcons.back, "返回", Modifier.size(24.dp), tint = barTint)
+            Icon(LpIcons.back, "返回", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
         Spacer(Modifier.weight(1f))
         if (!isBoxSet) {
             // Emby 的片也能换到数据源看(D525):这是跳转,不是把数据源塞进来当线路
             if (!app.privateSpace.value) IconButton(onClick = { switching = true }) {
-                Icon(LpIcons.switchSource, "换源", Modifier.size(24.dp), tint = barTint)
+                Icon(LpIcons.switchSource, "换源", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
             }
             IconButton(enabled = live != null, onClick = {
                 scope.launch {
@@ -639,12 +641,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 }
             }) {
                 if (played) Box(
-                    Modifier.size(24.dp).clip(RoundedCornerShape(R.pill)).background(barTint),
+                    Modifier.size(24.dp).privateNeonIcon().clip(RoundedCornerShape(R.pill)).background(barTint),
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(LpIcons.check, "标未看", Modifier.size(18.dp),
                         tint = if (list.firstVisibleItemIndex == 0) Color.Black else c.bg)
-                } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(24.dp), tint = barTint)
+                } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
             }
         }
         if (!isBoxSet && !isEpisode) IconButton(enabled = live != null, onClick = {
@@ -656,7 +658,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 }.onFailure { favorite = !want; app.report(it) }
             }
         }) {
-            Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp),
+            Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp).privateNeonIcon(),
                 tint = if (favorite) c.mediaIcon else barTint)
         }
         if (!isBoxSet && !app.privateSpace.value) IconButton(onClick = {
@@ -666,7 +668,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     .onFailure { app.report(it) }
             }
         }) {
-            Icon(LpIcons.download, "下载", Modifier.size(24.dp), tint = barTint)
+            Icon(LpIcons.download, "下载", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
     }) { pad ->
         val f = detail
@@ -854,7 +856,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             } + if (continuing && !isSeriesEntry) "（剩余：${fmtDur(runtime - resume)}）" else ""
                             Box(
                                 (if (continuing || isSeriesEntry) Modifier.weight(1f) else Modifier.width(132.dp)).height(IntrinsicSize.Min)
-                                    .clip(RoundedCornerShape(R.md))
+                                    .privateNeonBorder(R.md).clip(RoundedCornerShape(R.md))
                                     .background(if (continuing) c.s2 else c.mediaAccent)
                                     .testTag("detail.play")
                                     .semantics {
@@ -884,7 +886,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             val menuOffset = with(LocalDensity.current) { 52.dp.roundToPx() }
                             Box {
                                 Box(
-                                    Modifier.size(if (isSeriesEntry) 52.dp else 48.dp).clip(RoundedCornerShape(R.md))
+                                    Modifier.size(if (isSeriesEntry) 52.dp else 48.dp).privateNeonBorder(R.md).clip(RoundedCornerShape(R.md))
                                         .background(c.mediaAccent).pressable({ menuOpen = !menuOpen },
                                             enabled = live != null && (!isSeries || nextEp != null)),
                                     contentAlignment = Alignment.Center,

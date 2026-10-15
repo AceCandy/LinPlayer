@@ -120,6 +120,7 @@ import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
@@ -344,7 +345,7 @@ fun HomePage(nav: NavController) {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
-            ServerChip(accounts.firstOrNull { it.isActive }, privateSpace = privateSpace,
+            ServerChip(accounts.firstOrNull { it.isActive },
                 onImage = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list),
                 onLongClick = { if (!privateSpace) scope.launch {
                     try { app.enterPrivateSpace() }
@@ -586,7 +587,7 @@ internal fun CachedHomeBanner(
                         val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
                         if (info.isNotBlank()) Text(info, color = Color.White.copy(alpha = .92f), style = LpText.caption.copy(shadow = textShadow),
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(Modifier.heightIn(min = 48.dp).clip(RoundedCornerShape(R.md)).background(c.acc)
+                        Row(Modifier.heightIn(min = 48.dp).privateNeonBorder(R.md).clip(RoundedCornerShape(R.md)).background(c.acc)
                             .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
@@ -614,29 +615,28 @@ internal fun CachedHomeBanner(
     }
 }
 
-/** 紧凑服名入口：私密模式使用反色胶囊，长名称省略。 */
+/** 紧凑服名入口保持无底无框，叠图使用白字阴影，长名称省略。 */
 @Composable
-private fun ServerChip(account: Account?, onImage: Boolean = false, privateSpace: Boolean = false,
+private fun ServerChip(account: Account?, onImage: Boolean = false,
     onLongClick: () -> Unit, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
-    val onHero = onImage && !privateSpace
+    val onHero = onImage
     Row(
         Modifier.heightIn(min = 56.dp)
-            .then(if (privateSpace) Modifier.clip(RoundedCornerShape(R.pill)).background(c.acc) else Modifier)
             .pressable(onClick, onLongClick)
-            .padding(start = if (privateSpace) Sp.x8 else Sp.x0, end = if (privateSpace) Sp.x12 else Sp.x8),
+            .padding(end = Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
             if (icon != null) androidx.compose.foundation.Image(
                 icon, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-            ) else Icon(LpIcons.server, null, Modifier.size(24.dp), tint = if (privateSpace) c.accFg else c.acc)
+            ) else Icon(LpIcons.server, null, Modifier.size(24.dp), tint = c.acc)
         }
         Spacer(Modifier.width(Sp.x8))
         Text(
             account?.name ?: "服务器", Modifier.weight(1f, fill = false),
-            color = if (privateSpace) c.accFg else if (onHero) Color.White else c.fg,
+            color = if (onHero) Color.White else c.fg,
             style = if (onHero) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )

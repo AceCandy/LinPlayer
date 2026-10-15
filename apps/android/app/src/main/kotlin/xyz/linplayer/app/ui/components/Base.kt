@@ -144,7 +144,7 @@ fun Modifier.pressable(
 /** 共用按钮实色表面，透明主题色先合成到底色。 */
 @Composable
 fun Modifier.buttonSkin(base: Color, corner: androidx.compose.ui.unit.Dp = R.sm): Modifier {
-    return this.clip(RoundedCornerShape(corner))
+    return this.privateNeonBorder(corner).clip(RoundedCornerShape(corner))
         .background(base.compositeOver(Lp.colors.bg))
 }
 
@@ -190,7 +190,7 @@ fun LpIconButton(
         contentAlignment = Alignment.Center,
     ) {
         if (glow) Halo(c.acc, Modifier.matchParentSize())
-        Icon(icon, desc, Modifier.size(size.dp), tint = tint ?: c.fg)
+        Icon(icon, desc, Modifier.size(size.dp).privateNeonIcon(), tint = tint ?: c.fg)
     }
 }
 
@@ -233,7 +233,7 @@ fun LpButton(
         BtnKind.Ghost -> Color.Transparent
     }
     // Ghost 是「看起来不像按钮」的那一档,给它上玻璃就不是 Ghost 了
-    val skin = if (kind == BtnKind.Ghost) Modifier else Modifier.buttonSkin(bg)
+    val skin = if (kind == BtnKind.Ghost) Modifier.privateNeonBorder() else Modifier.buttonSkin(bg)
     val fg = when (kind) {
         BtnKind.Primary, BtnKind.Danger -> c.accFg
         else -> c.fg

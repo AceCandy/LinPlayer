@@ -66,6 +66,7 @@ import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
@@ -235,7 +236,7 @@ private fun cachedOverview(): List<Overview> {
 private fun Shortcut(label: String, icon: ImageVector, m: Modifier, onClick: () -> Unit) {
     val c = Lp.colors
     Column(
-        m.clip(RoundedCornerShape(R.md)).background(c.s1).pressable(onClick).padding(vertical = Sp.x12),
+        m.privateNeonBorder(R.md).clip(RoundedCornerShape(R.md)).background(c.s1).pressable(onClick).padding(vertical = Sp.x12),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Icon(icon, null, Modifier.size(20.dp), tint = c.mediaIcon)

@@ -84,6 +84,8 @@ import xyz.linplayer.app.ui.theme.LpEasing
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
+import xyz.linplayer.app.ui.components.PrivateNeonHost
+import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.T
 
 /**
@@ -93,7 +95,7 @@ import xyz.linplayer.app.ui.theme.T
  * 先画闸口再跳走会闪一下「请登录」,那比多等 80ms 难看得多。
  */
 @Composable
-fun PhoneRoot(app: AppState) {
+fun PhoneRoot(app: AppState) = PrivateNeonHost {
     androidx.compose.runtime.CompositionLocalProvider(LocalApp provides app) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
         LaunchedEffect(Unit) { app.enablePhonePrivacy(); app.boot() }
@@ -263,7 +265,8 @@ private fun MainShell() {
         LocalPosterScroll provides posterScroll
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
-    Box(Modifier.fillMaxSize()) {
+    Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
+        enabled = entry?.destination?.hasRoute<Route.Player>() != true)) {
         Box(Modifier.fillMaxSize().nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
             NavHost(

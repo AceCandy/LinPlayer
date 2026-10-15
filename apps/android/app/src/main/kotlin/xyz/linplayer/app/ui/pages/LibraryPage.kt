@@ -73,6 +73,7 @@ import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.LpRefreshIcon
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.components.privateNeonIcon
 import xyz.linplayer.app.ui.theme.Sp
 
 /** 独立有效的库内排序；DateCreated在基准服务端是最新入库时间的别名。 */
@@ -381,12 +382,12 @@ internal fun MediaSortControl(label: String, ascending: Boolean, onClick: () -> 
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Sp.x6),
     ) {
-        Icon(LpIcons.sortLines, null, Modifier.size(18.dp), tint = Lp.colors.mediaIcon)
+        Icon(LpIcons.sortLines, null, Modifier.size(18.dp).privateNeonIcon(), tint = Lp.colors.mediaIcon)
         Text(label, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
             style = LpText.filter, maxLines = 1,
             overflow = TextOverflow.Ellipsis)
         Icon(LpIcons.arrowDown, null,
-            Modifier.size(18.dp).rotate(if (ascending) 180f else 0f),
+            Modifier.size(18.dp).privateNeonIcon().rotate(if (ascending) 180f else 0f),
             tint = Lp.colors.mediaIcon)
     }
 }
