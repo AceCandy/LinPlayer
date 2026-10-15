@@ -18,6 +18,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
+import androidx.compose.runtime.getValue
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
@@ -87,7 +89,9 @@ class MainActivity : ComponentActivity() {
         xyz.linplayer.app.ui.theme.PluginTheme.loadAtStartup(app.core, if (tvShape()) "android_tv" else "android")
 
         setContent {
+            val privateSpace by app.privateSpace.collectAsStateWithLifecycle()
             LpTheme(color = if (tvShape()) "amber" else xyz.linplayer.app.data.UiPrefs.colorScheme.value,
+                privateSpace = !tvShape() && privateSpace,
                 darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
                 // 只给一种明暗的主题,系统切到另一种也保持它(D70)
                 "dark" -> true; "light" -> false; else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark

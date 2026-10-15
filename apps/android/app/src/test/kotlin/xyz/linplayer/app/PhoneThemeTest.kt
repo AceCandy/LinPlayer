@@ -7,6 +7,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
@@ -19,6 +20,9 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithContentDescription
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
 import androidx.compose.ui.unit.dp
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -64,6 +68,7 @@ import xyz.linplayer.app.ui.theme.LightColors
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.LpTheme
+import xyz.linplayer.app.ui.theme.privatePalette
 
 /** 手机浅色文字对比度及切换主题后的真实外观页渲染回归。 */
 @RunWith(RobolectricTestRunner::class)
@@ -95,6 +100,65 @@ class PhoneThemeTest {
                     contrast(foreground, background) >= 4.5f)
             }
         }
+    }
+
+    @Test fun privateTextContrast() {
+        for (base in listOf(DarkColors, LightColors)) {
+            val c = privatePalette(base)
+            for (background in listOf(c.bg, c.s1, c.s2, c.s3)) {
+                for (foreground in listOf(c.fg, c.fg2, c.fg3)) {
+                    assertTrue("私密空间文字对比度不足", contrast(foreground, background) >= 4.5f)
+                }
+            }
+            assertTrue("反色服名及按钮对比度不足", contrast(c.accFg, c.acc) >= 4.5f)
+        }
+    }
+
+    @Test fun privateDarkShellRestoresNormalPaletteAndKeepsNavigationIsolated() = privateShell(true)
+    @Test fun privateLightShellRestoresNormalPaletteAndKeepsNavigationIsolated() = privateShell(false)
+
+    private fun privateShell(dark: Boolean) {
+        PageCache.clear()
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.views", arr(buildJsonObject {
+                put("id", "adult"); put("name", "媒体库"); put("is_adult", true); put("has_primary", false)
+            }))
+            listOf("emby.listResume", "emby.listLatest", "emby.listCollections", "emby.aggregateOverview")
+                .forEach { ret(it, arr()) }
+        }
+        val app = AppState(core, scope)
+        try {
+            rule.setContent {
+                LpTheme(darkOverride = dark, privateSpace = app.privateSpace.collectAsState().value) { PhoneRoot(app) }
+            }
+            rule.waitForIdle()
+            val base = if (dark) DarkColors else LightColors
+            assertBackground(base.bg)
+            rule.onNodeWithContentDescription("聚合视界").performClick()
+            rule.onNodeWithText("流影").assertDoesNotExist()
+            rule.onNodeWithText("下载").assertExists()
+            rule.onNodeWithContentDescription("首页").performClick()
+            rule.onNodeWithText("服务器 A").performTouchInput { longClick() }
+            rule.waitForIdle()
+            assertTrue(app.privateSpace.value)
+            assertBackground(privatePalette(base).bg)
+            rule.onNodeWithText("服务器 A").assertExists()
+            rule.onNodeWithText("隐私空间 · 点击退出").assertDoesNotExist()
+            rule.onRoot().captureRoboImage("build/phone-theme/private-home-$dark.png")
+            val aggregateCalls = core.calls.count { it.first == "emby.aggregateOverview" }
+            rule.onNodeWithContentDescription("聚合视界").performClick()
+            rule.onNodeWithText("流影").assertExists()
+            rule.onNodeWithText("下载").assertDoesNotExist()
+            rule.onNodeWithText("排行榜").assertDoesNotExist()
+            assertEquals(aggregateCalls, core.calls.count { it.first == "emby.aggregateOverview" })
+            assertBackground(privatePalette(base).bg)
+            rule.onRoot().captureRoboImage("build/phone-theme/private-aggregate-$dark.png")
+            rule.onNodeWithContentDescription("首页").performClick()
+            rule.onNodeWithText("服务器 A").performClick()
+            rule.waitForIdle()
+            assertTrue(!app.privateSpace.value)
+            assertBackground(base.bg)
+        } finally { app.bg.cancel() }
     }
 
     @Test fun appearanceFollowsThemeSwitch() {

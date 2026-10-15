@@ -72,7 +72,7 @@ open class PlayerActivity : ComponentActivity() {
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
         setContent {
-            LpTheme(color = UiPrefs.colorScheme.value, darkOverride = when (UiPrefs.theme.value) {
+            LpTheme(color = UiPrefs.colorScheme.value, privateSpace = privatePlayback, darkOverride = when (UiPrefs.theme.value) {
                 "dark" -> true; "light" -> false; else -> PluginTheme.forcedDark
             }) {
                 CompositionLocalProvider(LocalApp provides app) {

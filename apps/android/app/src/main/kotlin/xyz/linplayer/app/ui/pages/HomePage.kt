@@ -614,28 +614,30 @@ internal fun CachedHomeBanner(
     }
 }
 
-/** 紧凑服名入口：无底色和箭头，共用服务器图标，长名称省略。 */
+/** 紧凑服名入口：私密模式使用反色胶囊，长名称省略。 */
 @Composable
 private fun ServerChip(account: Account?, onImage: Boolean = false, privateSpace: Boolean = false,
     onLongClick: () -> Unit, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
+    val onHero = onImage && !privateSpace
     Row(
         Modifier.heightIn(min = 56.dp)
+            .then(if (privateSpace) Modifier.clip(RoundedCornerShape(R.pill)).background(c.acc) else Modifier)
             .pressable(onClick, onLongClick)
-            .padding(end = Sp.x8),
+            .padding(start = if (privateSpace) Sp.x8 else Sp.x0, end = if (privateSpace) Sp.x12 else Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(Modifier.size(36.dp), contentAlignment = Alignment.Center) {
             if (icon != null) androidx.compose.foundation.Image(
                 icon, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit,
-            ) else Icon(LpIcons.server, null, Modifier.size(24.dp), tint = c.acc)
+            ) else Icon(LpIcons.server, null, Modifier.size(24.dp), tint = if (privateSpace) c.accFg else c.acc)
         }
         Spacer(Modifier.width(Sp.x8))
         Text(
-            (if (privateSpace) "隐私空间 · 点击退出" else account?.name ?: "服务器"), Modifier.weight(1f, fill = false),
-            color = if (onImage) Color.White else c.fg,
-            style = if (onImage) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
+            account?.name ?: "服务器", Modifier.weight(1f, fill = false),
+            color = if (privateSpace) c.accFg else if (onHero) Color.White else c.fg,
+            style = if (onHero) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
         )
     }

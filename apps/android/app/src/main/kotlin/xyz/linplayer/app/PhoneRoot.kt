@@ -353,7 +353,7 @@ private fun MainShell() {
                 if (entry?.destination?.hasRoute<Route.Search>() != true) {
                     nav.navigate(Route.Search()) { launchSingleTop = true }
                 }
-            }, showAggregate = !app.privateSpace.value) { picked ->
+            }) { picked ->
                 val target = when (picked) { 0 -> Route.Home; 1 -> Route.Aggregate; else -> Route.Favorites }
                 activeTab = picked
                 nav.switchTab(target)

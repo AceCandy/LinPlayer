@@ -49,4 +49,4 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 
 AppState只在手机启用请求分类（普通false、隐私true），缺省宿主保持无筛选。空间代数由PhoneRoot重建导航，BrowseCache/DetailCache键包含空间，切换推进generation；displayBlock/browseBlock及普通call均拒绝旧空间返回。私密搜索不写UiPrefs普通历史。独立PlayerActivity携带空间标记，失去进程解锁状态时拒绝旧Intent，运行期空间变化退出窗口；不能由恢复路由反向解锁。
 
-隐私空间的媒体请求固定当前会话；禁止聚合、本地watchHistory和覆盖server/user的请求。手机底栏、搜索与详情隐藏跨服入口；插件接管/导航不进入隐私空间。服务端缺少完整历史接口时只展示续播，不能用本地记录代替。
+隐私空间的媒体请求固定当前会话；禁止聚合、本地watchHistory和覆盖server/user的请求。手机底栏保留聚合视界但仅展示流影，不读取普通聚合快照；搜索与详情隐藏跨服入口；插件接管/导航不进入隐私空间。服务端缺少完整历史接口时只展示续播，不能用本地记录代替。

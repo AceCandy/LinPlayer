@@ -17,6 +17,8 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
+import kotlinx.serialization.json.buildJsonObject
+import kotlinx.serialization.json.put
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -56,9 +58,12 @@ class PhoneLiuyingTest {
 
     private fun open(pages: List<String> = urls) {
         PageCache.clear()
-        val core = FakeCore().loggedIn().apply { ret("emby.aggregateOverview", arr()) }
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.aggregateOverview", arr())
+            ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
+        }
         app = AppState(core, scope)
-        runBlocking { app.boot() }
+        runBlocking { app.enablePhonePrivacy(); app.boot(); app.enterPrivateSpace() }
         rule.setContent {
             root = LocalView.current.rootView
             LpTheme {
@@ -73,6 +78,10 @@ class PhoneLiuyingTest {
                 }
             }
         }
+        rule.onNodeWithText("下载").assertDoesNotExist()
+        rule.onNodeWithText("排行榜").assertDoesNotExist()
+        rule.onNodeWithText("日历").assertDoesNotExist()
+        assertEquals(0, core.calls.count { it.first == "emby.aggregateOverview" })
         rule.onNodeWithText("流影").performClick()
         rule.waitForIdle()
     }
@@ -123,7 +132,8 @@ class PhoneLiuyingTest {
         assertTrue(shadowOf(second).lastEvaluatedJavascript.contains("__liuyingInactive = true"))
         rule.onNodeWithContentDescription("返回").performClick()
         rule.waitForIdle()
-        rule.onNodeWithText("下载").assertIsDisplayed()
+        rule.onNodeWithText("流影").assertIsDisplayed()
+        rule.onNodeWithText("下载").assertDoesNotExist()
         assertTrue(shadowOf(first).wasDestroyCalled())
         assertTrue(shadowOf(second).wasDestroyCalled())
     }

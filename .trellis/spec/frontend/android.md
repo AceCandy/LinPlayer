@@ -9,7 +9,7 @@
 - 手机主导航是 Navigation Compose / Route；TV 使用 TvNav，换集与导航轨切页遵守既有返回栈和焦点记忆。
 - 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
 - 深色 → 浅色 → 深色要检查背景、说明、箭头、数值和选中项；设备强制深色的表现不能只用 JVM 截图下结论。
-- PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；首页服名不加底色。
+- PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；普通空间首页服名不加底色，隐私空间服名使用反色胶囊。
 - 浅色文字叠图时必须在文字区铺浅色渐变底，不能沿用固定黑遮罩；浅色主按钮各个渐变停色都要满足文字对比度。系统栏跟应用主题同步，API 24/25 的白色导航图标保留深色底。
 
 ## 资源与出包
@@ -40,8 +40,8 @@
 
 - 首页合集和各库最新按 LazyColumn 可见栏目触发，任务归页面作用域，离屏不重复取消；刷新保留原快照，账号变化/离页取消失效任务。
 - 手机首页不展示或请求「接下来看」。每次恢复 RESUMED 更新继续观看；首页采用紧凑服务器栏，媒体库 → 继续观看 → 各库最新 → 合集，电影Hero复用首页已有作品、不调用随机推荐；库入口及最新结果复用页面缓存，重新进入/显式下拉/失效通知时后台重取。刷新主请求组结束、失败或取消后必须收起指示器。
-- 手机聚合页快捷入口为下载、排行榜、日历、流影；服务器独立 Panel，统计下直接显示无标题续播轨。进入/下拉传 `counts_only=true`，已有核心快照时只更新统计；播放/续播失效通知仍完整刷新。成功覆盖数字（含0），失败逐字段保留，首次未知不伪造0。首次无快照居中大加载，热刷新不插行、不清内容。图片用所属服 `line_url` 经代理；跨服详情确认目标线路/用户激活后导航。回归见 `PhoneAggregateCacheTest`。
-- 聚合新增流影二级页，顶部返回，右侧「卍解」开关替代标签栏，默认关闭显示普通流影、开启显示 18+；隐藏悬浮导航且不预留其高度，网页全宽填满顶栏下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
+- 手机普通聚合页快捷入口为下载、排行榜、日历；服务器独立 Panel，统计下直接显示无标题续播轨。进入/下拉传 `counts_only=true`，已有核心快照时只更新统计；播放/续播失效通知仍完整刷新。成功覆盖数字（含0），失败逐字段保留，首次未知不伪造0。首次无快照居中大加载，热刷新不插行、不清内容。图片用所属服 `line_url` 经代理；跨服详情确认目标线路/用户激活后导航。回归见 `PhoneAggregateCacheTest`。
+- 隐私空间保留聚合 Tab，仅承载流影入口；分支在普通快照读取和请求之前返回，不开放跨服聚合。流影二级页顶部返回，右侧「卍解」开关替代标签栏，默认关闭显示普通流影、开启显示 18+；隐藏悬浮导航且不预留其高度，网页全宽填满顶栏下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
 - 手机与 TV 榜单/公共日历调用 `emby.extRankings/extRankingItems/extCalendar`，经 `extensionBlock` 消费统一快照；E_UNSUPPORTED 明确展示，不能静默或退回旧快照。手机榜单下拉刷新、触底按页追加并按来源 ID 去重，空页/无新增停止、追加失败保留条目并重试原页；列表逐项懒加载，底部 inset 放进 contentPadding。日历日本时区，卡片经 `openExtension` 实时唯一匹配进详情，无标题搜索。个人同步和提醒保留，不查询赞助；回归见 `PhoneDiscoverUiTest`、`DisplayCacheTest`、`TvFocusTest.extension*`。
 
 依据：[入口](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/MainActivity.kt)、[手机主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/theme/Theme.kt)、[TV 主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/tv/kit/TvTheme.kt)、[主题回归](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/PhoneThemeTest.kt)、[安卓历史](../../../docs/lessons/android.md)。
@@ -207,3 +207,5 @@
 - MSG 周历仅显示服务端 `broadcast_time`（HH:mm）且 `timezone=Asia/Tokyo` 的明确时间；保留 `time_source` 来源，未知仍显示“未提供”，不从星期推算播出状态。榜单体系名称包含红果、黄果 AI；是否可见由服务端目录决定。
 
 - 手机PiP直接移除播放器覆盖层（含OSD退场、菜单、解锁、加载与片尾提示），保留视频Surface组合，往返不得重复起播/停播。手动小窗成功后启动系统桌面，避免原浏览窗口的黑色交接页成为背景；Home手势不重复跳转，失败不跳桌面，ActivityResult栈保留。PlayerActivityTest验证桌面Intent/失败及播放不中断，PhoneEnginePlaybackTest验证小窗覆盖层立即消失与往返；系统PiP动画/桌面恢复需真机。播放器加载显示区120dp；片尾卡在控件展开时紧贴实测底栏上沿，收起时在底部安全区上方8dp并渐变至50%不透明度，不改变底栏几何。
+
+- 手机隐私空间顶部仍显示服名，不展示空间名称或退出提示；点服名/首页返回退出。`LpTheme(privateSpace)`统一应用深浅紫色底、表面及强调色，MainActivity和独立PlayerActivity均接入；普通主题偏好不变，退出恢复原色系。网页内容不强制改色。`PhoneThemeTest`覆盖深浅空间切换、导航入口、无跨服聚合请求和文字对比度，`PhoneHomeRefreshTest`覆盖长按进入与点服名退出。

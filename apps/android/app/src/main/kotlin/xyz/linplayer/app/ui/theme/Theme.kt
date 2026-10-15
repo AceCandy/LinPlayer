@@ -173,11 +173,29 @@ internal fun phonePalette(base: LpColors, color: String, dynamic: ColorScheme? =
         accDim = accent.copy(alpha = if (base.isDark) .18f else .12f))
 }
 
+/** 空间配色同时替换底色、表面与强调色，不覆盖用户保存的普通主题。 */
+internal fun privatePalette(base: LpColors): LpColors = if (base.isDark) base.copy(
+    bg = Color(0xFF21152D),
+    s1 = Color(0xFF2C1E3B), s2 = Color(0xFF382749), s3 = Color(0xFF443156),
+    line = Color(0x24DEB7FF), line2 = Color(0x47DEB7FF),
+    fg = Color(0xFFFAF3FF), fg2 = Color(0xFFD8C5E8), fg3 = Color(0xFFC1AFCF),
+    acc = Color(0xFFDEB7FF), accDim = Color(0x2EDEB7FF), accFg = Color(0xFF2D163E),
+    scrim = Color(0xB321152D), chip = Color(0xE6382749),
+) else base.copy(
+    bg = Color(0xFFEFE5F7),
+    s1 = Color(0xFFE6D8F0), s2 = Color(0xFFDDCBEA), s3 = Color(0xFFD2BCE1),
+    line = Color(0x1F633287), line2 = Color(0x3D633287),
+    fg = Color(0xFF291B35), fg2 = Color(0xFF483554), fg3 = Color(0xFF594265),
+    acc = Color(0xFF633287), accDim = Color(0x1F633287), accFg = Color(0xFFFFF7FF),
+    scrim = Color(0xB3EFE5F7), chip = Color(0xE6E6D8F0),
+)
+
 /** 深浅模式与手机色系独立；TV调用仍使用默认配色。 */
 @Composable
 fun LpTheme(
     darkOverride: Boolean? = null,
     color: String = "amber",
+    privateSpace: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val systemDark = isSystemInDarkTheme()
@@ -186,7 +204,8 @@ fun LpTheme(
     val dynamic = if (color == "monet" && Build.VERSION.SDK_INT >= 31) {
         if (dark) dynamicDarkColorScheme(ctx) else dynamicLightColorScheme(ctx)
     } else null
-    val c = phonePalette(if (dark) DarkColors else LightColors, color, dynamic)
+    val base = if (dark) DarkColors else LightColors
+    val c = if (privateSpace) privatePalette(base) else phonePalette(base, color, dynamic)
     var motion by remember(ctx) { mutableFloatStateOf(animatorScale(ctx)) }
     DisposableEffect(ctx) {
         val observer = object : android.database.ContentObserver(android.os.Handler(android.os.Looper.getMainLooper())) {

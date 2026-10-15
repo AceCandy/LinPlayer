@@ -78,6 +78,16 @@ import xyz.linplayer.app.ui.theme.Sp
 @Composable
 fun AggregatePage(nav: NavController) {
     val app = LocalApp.current
+    val privateSpace by app.privateSpace.collectAsState()
+    // 私密聚合页只承载流影入口，不读取普通聚合快照或发起跨服请求。
+    if (privateSpace) {
+        LpScaffold("聚合视界") { pad ->
+            Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = Sp.x16, vertical = Sp.x12)) {
+                Shortcut("流影", LpIcons.play, Modifier.fillMaxWidth()) { nav.navigate(Route.Liuying) }
+            }
+        }
+        return
+    }
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
@@ -203,7 +213,6 @@ private fun Shortcuts(nav: NavController) {
         Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
         Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
         Shortcut("日历", LpIcons.calendar, Modifier.weight(1f)) { nav.navigate(Route.Calendar) }
-        Shortcut("流影", LpIcons.play, Modifier.weight(1f)) { nav.navigate(Route.Liuying) }
     }
 }
 
