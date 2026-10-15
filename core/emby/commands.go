@@ -66,6 +66,10 @@ func RegisterCommands(version string) {
 			if err != nil {
 				return nil, err
 			}
+			ctx, err = AdultFilterContext(ctx, args)
+			if err != nil {
+				return nil, err
+			}
 			out, err := fn(ctx, s, args)
 			if err != nil {
 				return nil, classify(err)
@@ -437,6 +441,10 @@ func RegisterCommands(version string) {
 	//   所以它的错误码是 E_UNSUPPORTED(信息,UI 静默降级)而不是 E_NETWORK(红字 + 重试)。
 	displaycache.Register("emby.counts", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 		s, err := sessionFrom(args)
+		if err != nil {
+			return nil, err
+		}
+		ctx, err = AdultFilterContext(ctx, args)
 		if err != nil {
 			return nil, err
 		}

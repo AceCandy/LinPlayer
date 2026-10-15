@@ -74,6 +74,7 @@ type Item struct {
 	DateUpdated *string `json:"date_updated"`
 	SortName    *string `json:"sort_name"`
 	// 收藏的可见库归属与 Views 的库类型为可选扩展，旧服务端缺失时保持原行为。
+	IsAdult     *bool    `json:"is_adult,omitempty"`
 	LibraryIDs  []string `json:"library_ids,omitempty"`
 	LibraryType *string  `json:"library_type,omitempty"`
 
@@ -108,6 +109,7 @@ type rawItem struct {
 	Type           *string        `json:"Type"`
 	IsFolder       *bool          `json:"IsFolder"`
 	CollectionType *string        `json:"CollectionType"`
+	IsAdult        *bool          `json:"IsAdult"`
 	LibraryIDs     []string       `json:"LibraryIds"`
 	LibraryType    *string        `json:"LibraryType"`
 	ImageTags      map[string]any `json:"ImageTags"`
@@ -162,14 +164,15 @@ type rawUserData struct {
 }
 
 type rawMediaSource struct {
-	Path         *string `json:"Path"`
-	DateCreated  *string `json:"DateCreated"`
-	ID           *string `json:"Id"`
-	Name         *string `json:"Name"`
-	Container    *string `json:"Container"`
-	Size         *int64  `json:"Size"`
-	Bitrate      *int64  `json:"Bitrate"`
-	RunTimeTicks *int64  `json:"RunTimeTicks"`
+	LibraryIDs   []string `json:"LibraryIds"`
+	Path         *string  `json:"Path"`
+	DateCreated  *string  `json:"DateCreated"`
+	ID           *string  `json:"Id"`
+	Name         *string  `json:"Name"`
+	Container    *string  `json:"Container"`
+	Size         *int64   `json:"Size"`
+	Bitrate      *int64   `json:"Bitrate"`
+	RunTimeTicks *int64   `json:"RunTimeTicks"`
 	// 取流那条路要的两条地址。DirectStreamUrl 常常是**相对路径**,见 playback.go 的长注释。
 	DirectStreamURL *string `json:"DirectStreamUrl"`
 	// TranscodingURL 服务器给的转码地址。**我们从不用它**
@@ -337,6 +340,7 @@ func fromRaw(r rawItem) Item {
 		SeriesID:              nonEmpty(r.SeriesID),
 		DateUpdated:           nonEmpty(dateUpdated),
 		SortName:              nonEmpty(r.SortName),
+		IsAdult:               r.IsAdult,
 		LibraryIDs:            r.LibraryIDs,
 		LibraryType:           nonEmpty(r.LibraryType),
 		Tags:                  tags,
@@ -407,6 +411,13 @@ func (c *Client) Views(ctx context.Context, s *Session) ([]Item, error) {
 	p, err := c.fetchPage(ctx, s, u)
 	if err != nil {
 		return nil, err
+	}
+	if adult := AdultFilter(ctx); adult != nil && *adult {
+		for _, library := range p.Items {
+			if library.IsAdult == nil || !*library.IsAdult {
+				return nil, unsupported("成人库分类筛选")
+			}
+		}
 	}
 	return p.Items, nil
 }

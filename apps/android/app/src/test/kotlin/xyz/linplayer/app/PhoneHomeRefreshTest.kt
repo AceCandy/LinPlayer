@@ -8,6 +8,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 import androidx.compose.material3.Text
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Density
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.test.*
 import androidx.compose.ui.graphics.toPixelMap
@@ -110,6 +111,7 @@ class PhoneHomeRefreshTest {
                     LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, fontScale),
                 ) {
+                    androidx.compose.runtime.key(app.spaceRevision.collectAsState().value) {
                     nav = rememberNavController()
                     NavHost(nav, startDestination = Route.Home) {
                         composable<Route.Home> { HomePage(nav) }
@@ -118,6 +120,7 @@ class PhoneHomeRefreshTest {
                         composable<Route.Library> { Text("媒体库目标：" + it.toRoute<Route.Library>().viewId) }
                         composable<Route.Servers> { Text("服务器管理目标") }
                     }
+                    }
                 }
             }
         }
@@ -125,6 +128,39 @@ class PhoneHomeRefreshTest {
         if (expectHero) rule.waitUntil(5000) {
             rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().isNotEmpty()
         }
+    }
+
+    @Test fun serverLongPressEntersWithoutPinAndClickExitRestoresNormalContent() {
+        val core = FakeCore().loggedIn()
+        core.on("emby.views") { request ->
+            val value = request?.get("is_adult")?.toString()
+            kotlinx.serialization.json.buildJsonArray {
+                for (adult in listOf(false, true)) if (value == null || value == adult.toString()) add(buildJsonObject {
+                    put("id", if (adult) "private-library" else "normal-library")
+                    put("name", if (adult) "私密媒体库" else "普通媒体库")
+                    put("is_adult", adult)
+                })
+            }
+        }
+        core.ret("emby.listResume", arr())
+        core.ret("emby.listLatest", arr())
+        openHome(core, cachedImages = false) { it.enablePhonePrivacy() }
+        rule.onNodeWithText("普通媒体库").assertExists()
+        rule.onNodeWithText("私密媒体库").assertDoesNotExist()
+        rule.onNodeWithText("服务器 A").performClick()
+        rule.onNodeWithText("管理服务器…").assertExists()
+        rule.onAllNodesWithText("服务器 A").onLast().performClick()
+        rule.onNodeWithText("服务器 A").performTouchInput { longClick() }
+        rule.waitForIdle()
+        rule.onNodeWithText("隐私空间 · 点击退出").assertExists()
+        rule.onNodeWithContentDescription("观看历史").assertDoesNotExist()
+        assertEquals(0, core.calls.count { it.first == "emby.watchHistoryList" })
+        rule.onNodeWithText("私密媒体库").assertExists()
+        rule.onNodeWithText("普通媒体库").assertDoesNotExist()
+        rule.onNodeWithText("隐私空间 · 点击退出").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("普通媒体库").assertExists()
+        rule.onNodeWithText("私密媒体库").assertDoesNotExist()
     }
 
     @Test fun uncachedImagesDoNotCreateHeroOrFetchOrdinaryImageRoute() {

@@ -137,6 +137,8 @@ import xyz.linplayer.app.ui.theme.Sp
 fun HomePage(nav: NavController) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
+    val privateSpace by app.privateSpace.collectAsState()
+    androidx.activity.compose.BackHandler(enabled = privateSpace) { app.leavePrivateSpace() }
     val list = rememberLazyListState()
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
@@ -342,7 +344,14 @@ fun HomePage(nav: NavController) {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
-            ServerChip(accounts.firstOrNull { it.isActive }, onImage = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)) { pickServer = !pickServer }
+            ServerChip(accounts.firstOrNull { it.isActive }, privateSpace = privateSpace,
+                onImage = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list),
+                onLongClick = { if (!privateSpace) scope.launch {
+                    try { app.enterPrivateSpace() }
+                    catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                    catch (e: Exception) { app.report(e) }
+                } },
+            ) { if (privateSpace) app.leavePrivateSpace() else pickServer = !pickServer }
             ServerMenu(
                 open = pickServer, anchorH = anchorH, accounts = accounts,
                 onClose = { pickServer = false },
@@ -353,7 +362,7 @@ fun HomePage(nav: NavController) {
                 onAdd = { pickServer = false; nav.navigate(Route.AddServer) },
             )
         }
-        Box(Modifier.size(48.dp).pressable({ nav.navigate(Route.Settings) }),
+        if (!privateSpace) Box(Modifier.size(48.dp).pressable({ nav.navigate(Route.Settings) }),
             contentAlignment = Alignment.Center) {
             Icon(LpIcons.settings, "设置", Modifier.size(24.dp),
                 tint = if (banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)) Color.White else Lp.colors.fg2)
@@ -434,7 +443,7 @@ fun HomePage(nav: NavController) {
                         homeAccount = motionAccount)
                 }
                 // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
-                items(pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
+                items(if (privateSpace) emptyList() else pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
                     PluginHomeSection(sec, nav, motionAccount)
                 }
                 item("tail") { Spacer(Modifier.height(Sp.x26)) }
@@ -608,12 +617,13 @@ internal fun CachedHomeBanner(
 
 /** 紧凑服名入口：无底色和箭头，共用服务器图标，长名称省略。 */
 @Composable
-private fun ServerChip(account: Account?, onImage: Boolean = false, onClick: () -> Unit) {
+private fun ServerChip(account: Account?, onImage: Boolean = false, privateSpace: Boolean = false,
+    onLongClick: () -> Unit, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
     Row(
         Modifier.heightIn(min = 56.dp)
-            .pressable(onClick)
+            .pressable(onClick, onLongClick)
             .padding(end = Sp.x8),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -624,7 +634,7 @@ private fun ServerChip(account: Account?, onImage: Boolean = false, onClick: () 
         }
         Spacer(Modifier.width(Sp.x8))
         Text(
-            account?.name ?: "服务器", Modifier.weight(1f, fill = false),
+            (if (privateSpace) "隐私空间 · 点击退出" else account?.name ?: "服务器"), Modifier.weight(1f, fill = false),
             color = if (onImage) Color.White else c.fg,
             style = if (onImage) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -835,7 +845,7 @@ internal fun cardActions(
                 .onFailure { app.report(it) }
         }
     },
-) + if (serverId == null) listOf(
+) + if (serverId == null && !app.privateSpace.value) listOf(
     CardAction("下载") {
         scope.launch {
             runCatching { app.call("download.enqueue", args("item_id" to item.id)) }

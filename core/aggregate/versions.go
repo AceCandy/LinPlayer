@@ -45,6 +45,10 @@ func registerVersionCommands() {
 	     拿指纹再判一次自己只会引入「自己和自己匹配不上」这种荒唐失败。
 	   ★ 单台失败隔离:一台连不上 / 没有这部片,那台不出现,其余照出。 */
 	bus.Register("emby.aggregateVersions", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		itemID, _ := a["item_id"].(string)
 		if strings.TrimSpace(itemID) == "" {
 			return nil, bus.NewErr(bus.EInvalid, "缺少 item_id")

@@ -52,10 +52,14 @@ func cancelPrepared(requestID string) {
 }
 
 // takePrepared一次消费；账号、授权、选版偏好变化后不得使用旧地址或旧会话。
-func takePrepared(s *emby.Session, itemID, sourceID, requestID string, prefs config.Prefs) (*emby.PlaybackTarget, *prefetch.Handle) {
+func takePrepared(s *emby.Session, itemID, sourceID, requestID string, prefs config.Prefs, filters ...*bool) (*emby.PlaybackTarget, *prefetch.Handle) {
+	var adult *bool
+	if len(filters) > 0 {
+		adult = filters[0]
+	}
 	preparedMu.Lock()
 	p := preparedNext
-	if p == nil || requestID == "" || p.requestID != requestID || p.target == nil ||
+	if p == nil || !emby.SameAdultFilter(emby.AdultFilter(p.ctx), adult) || requestID == "" || p.requestID != requestID || p.target == nil ||
 		p.session != *s || p.itemID != itemID || p.sourceID != sourceID || p.versionRegex != prefs.VersionRegex {
 		preparedMu.Unlock()
 		return nil, nil
@@ -72,7 +76,7 @@ func prepareNext(ctx context.Context, s *emby.Session, itemID, sourceID, request
 	if !prefs.PreloadEnabled {
 		return map[string]any{"skipped": true}, nil
 	}
-	warmCtx, cancel := context.WithCancel(context.Background())
+	warmCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	p := &preparedPlayback{requestID: requestID, session: *s, itemID: itemID, sourceID: sourceID, versionRegex: prefs.VersionRegex, cancel: cancel, ctx: warmCtx}
 	preparedMu.Lock()
 	// 同时提交的准备命令仍只保留一个资源槽。
@@ -170,6 +174,10 @@ func registerPrepareCommands() {
 		if err != nil {
 			return nil, err
 		}
+		ctx, err = emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		return prepareNext(ctx, s, id, source, request)
 	})
 	bus.Register("player.warmPrepared", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
@@ -193,6 +201,10 @@ func registerPrepareCommands() {
 			return nil, bus.NewErr(bus.EInvalid, "排队参数无效")
 		}
 		s, err := sessionFrom(a)
+		if err != nil {
+			return nil, err
+		}
+		ctx, err = emby.AdultFilterContext(ctx, a)
 		if err != nil {
 			return nil, err
 		}

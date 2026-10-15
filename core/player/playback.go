@@ -146,7 +146,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	if len(preparedIDs) > 0 {
 		requestID = preparedIDs[0]
 	}
-	target, preparedProxy := takePrepared(s, itemID, mediaSourceID, requestID, prefs)
+	target, preparedProxy := takePrepared(s, itemID, mediaSourceID, requestID, prefs, emby.AdultFilter(ctx))
 	if target == nil && requestID != "" {
 		cancelPrepared(requestID)
 	}
@@ -246,7 +246,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	}
 
 	if whCtx == nil {
-		startHistoryRetry(target, s, resumeSecs)
+		startHistoryRetry(ctx, target, s, resumeSecs)
 	}
 
 	report.startAsync(*s, target, resumeSecs)
@@ -278,6 +278,14 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 // resolvePlaybackPosition 两核与提前排队共用续播及主服同步规则，不改变当前播放。
 func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.PlaybackTarget, whCtx *historyContext, prefs config.Prefs, resumeSecs float64, exactResume bool) (float64, *progress.Link, error) {
 	c := config.Current()
+	private := emby.AdultFilter(ctx) != nil && *emby.AdultFilter(ctx)
+	if private {
+		prefs.PrimaryProgressServer = nil
+		prefs.CrossServerResume = false
+	}
+	if whCtx != nil && len(target.LibraryIDs) > 0 {
+		whCtx.candidate.LibraryIDs = append([]string(nil), target.LibraryIDs...)
+	}
 	// 负数 = 调用方明说从头放:服务端进度、跨服续播、看完回零这一整段都不许再改它
 	fromStart := resumeSecs < 0
 	if fromStart {
@@ -313,6 +321,9 @@ func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.
 		   而且不报错 —— 安卓两个内核都栽在这上面(2026-09-07)。判据在核心层,
 		   调用方传 0 的含义统一为「我不知道,你来定」。 */
 		resumeSecs = resumeFor(resumeSecs, whCtx.candidate.PositionTicks)
+		if private {
+			resumeSecs = float64(whCtx.candidate.PositionTicks) / float64(history.TicksPerSec)
+		}
 		if prefs.PrimaryProgressServer != nil {
 			// 主服模式不取本地最大值；不可用/独有资源沿所在服状态播放。
 			resumeSecs = float64(whCtx.candidate.PositionTicks) / float64(history.TicksPerSec)
@@ -323,7 +334,7 @@ func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.
 		}
 		// ★ 调用方传进来的 resumeSecs 只是**这一台** Emby 的进度;
 		//   跨服续播开着时,本地记录里别的服务器上更靠后的进度会覆盖它(取最大)。
-		if prefs.PrimaryProgressServer == nil {
+		if !private && prefs.PrimaryProgressServer == nil {
 			remote := int64(resumeSecs * float64(history.TicksPerSec))
 			if t := history.Shared().ResolveResumeTicks(whCtx.scope, whCtx.candidate,
 				whCtx.seriesTmdbID, &remote, whCtx.candidate.Played, prefs.CrossServerResume); t != nil {
@@ -450,14 +461,14 @@ func cancelHistoryRetryLocked() {
 	}
 }
 
-func startHistoryRetry(target *emby.PlaybackTarget, s *emby.Session, pos float64) {
+func startHistoryRetry(parent context.Context, target *emby.PlaybackTarget, s *emby.Session, pos float64) {
 	currentMu.Lock()
 	defer currentMu.Unlock()
 	if current != target || currentCtx != nil {
 		return
 	}
 	cancelHistoryRetryLocked()
-	ctx, cancel := context.WithCancel(context.Background())
+	ctx, cancel := context.WithCancel(context.WithoutCancel(parent))
 	r := &historyRetry{target: target, session: *s, ctx: ctx, cancel: cancel, position: pos}
 	pendingHistory = r
 	go retryHistory(r)
@@ -476,6 +487,9 @@ func retryHistory(r *historyRetry) {
 			return
 		}
 		if h != nil {
+			if len(r.target.LibraryIDs) > 0 {
+				h.candidate.LibraryIDs = append([]string(nil), r.target.LibraryIDs...)
+			}
 			currentCtx = h
 			pendingHistory = nil
 			captureHistoryLocked(r.position, true)
@@ -517,8 +531,9 @@ func buildPlaybackHistoryContext(ctx context.Context, s *emby.Session, itemID st
 		return nil
 	}
 	cand := history.CandidateFromItem(*it)
+	cand.IsAdult = emby.AdultFilter(ctx)
 	var seriesTmdb *string
-	if includeSeries && cand.SeriesID != nil && *cand.SeriesID != "" {
+	if (cand.IsAdult == nil || !*cand.IsAdult) && includeSeries && cand.SeriesID != nil && *cand.SeriesID != "" {
 		seriesTmdb = prefsClient.SeriesTmdbID(ctx, s, *cand.SeriesID)
 	}
 	return &historyContext{
@@ -530,7 +545,7 @@ func buildPlaybackHistoryContext(ctx context.Context, s *emby.Session, itemID st
 
 // 后补标识只更新仍在播放的上下文,不改动已经决定的续播位置。
 func enrichHistoryContext(target *emby.PlaybackTarget, s emby.Session, h *historyContext) {
-	if h.candidate.SeriesID == nil || *h.candidate.SeriesID == "" {
+	if h.candidate.IsAdult != nil && *h.candidate.IsAdult || h.candidate.SeriesID == nil || *h.candidate.SeriesID == "" {
 		return
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
@@ -556,7 +571,7 @@ func captureHistory(posSecs float64, force bool) {
 // captureHistoryLocked 将目标核验和落盘保持同序,避免补建/换片交错写入错误进度。
 func captureHistoryLocked(posSecs float64, force bool) {
 	c := currentCtx
-	if c == nil {
+	if c == nil || c.candidate.IsAdult != nil && *c.candidate.IsAdult {
 		return
 	}
 	if c.candidate.RunTimeTicks == nil && c.sourceRef != nil {

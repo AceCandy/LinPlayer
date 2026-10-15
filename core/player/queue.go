@@ -64,7 +64,8 @@ func queuePrepared(ctx context.Context, s *emby.Session, request, previousID, en
 	}
 	preparedMu.Lock()
 	p := preparedNext
-	if p == nil || p.requestID != request || p.session != *s || p.target == nil || p.proxy == nil {
+	if p == nil || p.requestID != request || p.session != *s || p.target == nil || p.proxy == nil ||
+		!emby.SameAdultFilter(emby.AdultFilter(ctx), emby.AdultFilter(p.ctx)) {
 		preparedMu.Unlock()
 		return nil, bus.NewErr(bus.EInvalid, "下一集准备已失效")
 	}

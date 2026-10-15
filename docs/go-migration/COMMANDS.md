@@ -58,54 +58,54 @@
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
-| [x] | `emby.aggregateOverview` | `aggregate_overview` | `counts_only?: bool` | `Result<Vec<SourceOverview>, String>` | ✅ |
-| [x] | `emby.aggregateSearch` | `aggregate_search` | `query: String, include_episodes: Option<bool>` | `Result<Vec<ServerGroup>, String>` | ✅ |
+| [x] | `emby.aggregateOverview` | `aggregate_overview` | `counts_only?: bool, is_adult: Option<bool>` | `Result<Vec<SourceOverview>, String>` | ✅ |
+| [x] | `emby.aggregateSearch` | `aggregate_search` | `query: String, include_episodes: Option<bool>, is_adult: Option<bool>` | `Result<Vec<ServerGroup>, String>` | ✅ |
 | [x] | `emby.extCapabilities` | **新增** | `server, token, user_id, device_id` | `JSON` | ✅ |
 | [x] | `emby.extRankings` | **新增** | `server, token, user_id, device_id, server_id?, include_disabled?: bool` | `JSON[]` | ✅ |
 | [x] | `emby.extRankingItems` | **新增** | `server, token, user_id, device_id, category_id: String, page: Option<int>` | `JSON[]` | ✅ |
 | [x] | `emby.extCalendar` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
 | [x] | `emby.extResolve` | **新增** | `server, token, user_id, device_id, source: String, external_id: String, media_type: String` | `{item_id, item_type}` | ✅ |
-| [x] | `emby.aggregateVersions` | **新增** | `item_id, server_id: Option<String>, version_regex: Option<String>` | `Vec<aggregate::VersionGroup>` | — | <!-- 跨服聚合同一部片的版本表。匹配判据与跨服续播共用 history.MatchCandidates -->
+| [x] | `emby.aggregateVersions` | **新增** | `item_id, server_id: Option<String>, version_regex: Option<String>, is_adult: Option<bool>` | `Vec<aggregate::VersionGroup>` | — | <!-- 跨服聚合同一部片的版本表。匹配判据与跨服续播共用 history.MatchCandidates -->
 | [x] | `emby.blockedList` | `blocked_list` | `—` | `Entry` | ✅ |
-| [x] | `emby.counts` | **新增** | `server, token, user_id` | `Counts` | — | <!-- 媒体库规模统计。Rust 版里 emby::counts 只被 aggregate_overview 内部调用,没单独成命令 -->
+| [x] | `emby.counts` | **新增** | `server, token, user_id, is_adult: Option<bool>` | `Counts` | — | <!-- 媒体库规模统计。Rust 版里 emby::counts 只被 aggregate_overview 内部调用,没单独成命令 -->
 | [x] | `emby.currentSession` | `current_session` | `—` | `Option<LoginResult>` | ✅ |
-| [x] | `emby.getFilters` | `get_filters` | `parent_id: String` | `Filters { genres, tags, years, studios, official_ratings, unavailable?, unsupported?, empty?, capabilities? }` | ✅ |
+| [x] | `emby.getFilters` | `get_filters` | `parent_id: String, is_adult: Option<bool>` | `Filters { genres, tags, years, studios, official_ratings, unavailable?, unsupported?, empty?, capabilities? }` | ✅ |
 | [x] | `emby.isAdmin` | `is_admin` | `—` | `Result<bool, String>` | ✅ |
-| [x] | `emby.itemDetail` | `item_detail` | `item_id: String, // 缺省 = true（桌面/TV 的旧调用点不传，行为不变）。 // 手机端传 false：它按季分页拉集，不需要这一坨。 with_children: Option<bool>` | `Result<emby::ItemDetail, String>` | ✅ |
-| [x] | `emby.itemMedia` | `item_media` | `item_id: String` | `Result<Vec<emby::MediaVersion>, String>` | ✅ |
-| [x] | `emby.listCollections` | `list_collections` | `—` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.collectionItems` | **新增** | `item_id: String` | `CollectionItems` | — | <!-- 合集成员，影片/剧集分开（合集页原来一个字都画不出来） -->
-| [x] | `emby.listFavorites` | `list_favorites` | `sort?, sort_by?, sort_order?, start_index?, limit?` | `未传 limit: Item[]; 传 limit: { items, total, next_index, has_more }` | ✅ |
-| [x] | `emby.listItems` | `list_items` | `parent_id: String` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.listItemsPage` | `list_items_page` | `parent_id: String, start_index: Option<u32>, limit: Option<u32>, sort_by: Option<String>, sort_order: Option<String>, genres: Option<Vec<String>>, tags: Option<Vec<String>>, years: Option<Vec<i32>>, studios: Option<Vec<String>>, rating_min: Option<f64>, rating_max: Option<f64>` | `Page` | ✅ |
-| [x] | `emby.listLatest` | `list_latest` | `parent_id: String, limit: u32` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.listNextUp` | `list_next_up` | `limit: u32` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.listRandom` | `list_random` | `limit: u32` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.listResume` | `list_resume` | `limit: u32` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.itemDetail` | `item_detail` | `item_id: String, // 缺省 = true（桌面/TV 的旧调用点不传，行为不变）。 // 手机端传 false：它按季分页拉集，不需要这一坨。 with_children: Option<bool>, is_adult: Option<bool>` | `Result<emby::ItemDetail, String>` | ✅ |
+| [x] | `emby.itemMedia` | `item_media` | `item_id: String, is_adult: Option<bool>` | `Result<Vec<emby::MediaVersion>, String>` | ✅ |
+| [x] | `emby.listCollections` | `list_collections` | `is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.collectionItems` | **新增** | `item_id: String, is_adult: Option<bool>` | `CollectionItems` | — | <!-- 合集成员，影片/剧集分开（合集页原来一个字都画不出来） -->
+| [x] | `emby.listFavorites` | `list_favorites` | `sort?, sort_by?, sort_order?, start_index?, limit?, is_adult: Option<bool>` | `未传 limit: Item[]; 传 limit: { items, total, next_index, has_more }` | ✅ |
+| [x] | `emby.listItems` | `list_items` | `parent_id: String, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.listItemsPage` | `list_items_page` | `parent_id: String, start_index: Option<u32>, limit: Option<u32>, sort_by: Option<String>, sort_order: Option<String>, genres: Option<Vec<String>>, tags: Option<Vec<String>>, years: Option<Vec<i32>>, studios: Option<Vec<String>>, rating_min: Option<f64>, rating_max: Option<f64>, is_adult: Option<bool>` | `Page` | ✅ |
+| [x] | `emby.listLatest` | `list_latest` | `parent_id: String, limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.listNextUp` | `list_next_up` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.listRandom` | `list_random` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.listResume` | `list_resume` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.login` | `login` | `server: String, username: String, password: String` | `Result<LoginResult, String>` | ✅ |
 | [x] | `emby.logout` | **新增** | `server, token, user_id, device_id` | `{ server_ok: bool }` | — | <!-- 服务端登出。尽力而为:某 fork 该端点 404 且 token 仍可用,失败不挡本地删账号 -->
 | [x] | `emby.personDetail` | `person_detail` | `person_id: String` | `Result<emby::PersonDetail, String>` | ✅ |
-| [x] | `emby.personItems` | `person_items` | `person_id: String, limit: Option<u32>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.personItems` | `person_items` | `person_id: String, limit: Option<u32>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.permissions` | **新增** | `—` | `{is_admin, can_download, capabilities?}` | ✅ | <!-- 一次请求同时回答「是不是管理员」和「能不能下载」;缺字段一律判否 -->
 | [x] | `emby.refreshItem` | `refresh_item` | `item_id: String, full: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.relogin` | `relogin` | `server_id: String, username: String, password: String` | `Result<(), String>` | ✅ |
 | [x] | `emby.reportProgress` | `report_progress` | `pos: f64, paused: bool, item_id: Option<String>` | `Result<(), String>` | ✅ |
 | [x] | `emby.scanLibraries` | `scan_libraries` | `—` | `Result<(), String>` | ✅ |
-| [x] | `emby.search` | `search` | `query: String, types: Option<Vec<String>>, limit: Option<u32>, parent_id: Option<String>` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>` | `Page` | ✅ |
-| [x] | `emby.seriesSeasons` | `series_seasons` | `series_id: String` | `Result<Vec<emby::SeasonInfo>, String>` | ✅ |
+| [x] | `emby.search` | `search` | `query: String, types: Option<Vec<String>>, limit: Option<u32>, parent_id: Option<String>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>, is_adult: Option<bool>` | `Page` | ✅ |
+| [x] | `emby.seriesSeasons` | `series_seasons` | `series_id: String, is_adult: Option<bool>` | `Result<Vec<emby::SeasonInfo>, String>` | ✅ |
 | [x] | `emby.providers` | **新增** | `item_id: String, series_id: Option<String>` | `Map<String,String>` | ✅ | <!-- 条目的外部 id 表(tmdb/imdb/…),键小写。同步插件拿它对 Trakt 条目;分集自己没刮到就问它所属的剧 -->
 | [x] | `emby.setBlocked` | `set_blocked` | `item_id: String, name: String, blocked: bool` | `()` | ✅ |
 | [x] | `emby.setFavorite` | `set_favorite` | `item_id: String, fav: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.setPlayed` | `set_played` | `item_id: String, played: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.hideResume` | `hide_resume` | `item_id: String, hide: bool` | `Result<(), String>` | ✅ |
-| [x] | `emby.similarItems` | `similar_items` | `item_id: String` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.views` | `views` | `include_blocked: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.watchHistoryClear` | `watch_history_clear` | `—` | `()` | ✅ |
+| [x] | `emby.similarItems` | `similar_items` | `item_id: String, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.views` | `views` | `include_blocked: Option<bool>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.watchHistoryClear` | `watch_history_clear` | `is_adult: Option<bool>` | `()` | ✅ |
 | [x] | `emby.watchHistoryDelete` | `watch_history_delete` | `record_id: String` | `()` | ✅ |
-| [x] | `emby.watchHistoryList` | `watch_history_list` | `current_only: bool` | `Vec<wh::Record>` | ✅ |
-| [x] | `emby.watchHistoryRestoreCandidate` | `watch_history_restore_candidate` | `candidate: wh::RestoreCandidate` | `Result<bool, String>` | ✅ |
-| [x] | `emby.watchHistoryScanRestore` | `watch_history_scan_restore` | `—` | `Result<linplayer_core::watch_history_sync::RestoreReport, String>` | ✅ |
+| [x] | `emby.watchHistoryList` | `watch_history_list` | `current_only: bool, is_adult: Option<bool>` | `Vec<wh::Record>` | ✅ |
+| [x] | `emby.watchHistoryRestoreCandidate` | `watch_history_restore_candidate` | `candidate: wh::RestoreCandidate, is_adult: Option<bool>` | `Result<bool, String>` | ✅ |
+| [x] | `emby.watchHistoryScanRestore` | `watch_history_scan_restore` | `is_adult: Option<bool>` | `Result<linplayer_core::watch_history_sync::RestoreReport, String>` | ✅ |
 
 ### 账号与线路 · `account.*` — 21 条
 
@@ -148,12 +148,12 @@
 | [x] | `player.mpvGet` | `mpv_get` | `name: String` | `Result<Option<String>, String>` | ✅ |
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
 | [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ |
-| [x] | `player.prepareNext` | **新增** | `item_id: String, request_id: String, media_source_id: Option<String>` | `{request_id, play_url, media_source_id, external_subs} 或 {skipped}` | ❌ | <!-- prepareNext: 尊重PreloadEnabled，独立单槽且不开始上报；直连代理只解析和探测，准备后2分钟过期；warmPrepared按缓冲状态放行视频读取，头部上限8MiB。prepared_id按完整Session/条目/版本/选版规则一次消费；取消使用原request_id。stopPlayback handoff=true仅后台停止上报，旧Stopped先于新Playing；默认同步收尾。 -->
+| [x] | `player.prepareNext` | **新增** | `item_id: String, request_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `{request_id, play_url, media_source_id, external_subs} 或 {skipped}` | ❌ | <!-- prepareNext: 尊重PreloadEnabled，独立单槽且不开始上报；直连代理只解析和探测，准备后2分钟过期；warmPrepared按缓冲状态放行视频读取，头部上限8MiB。prepared_id按完整Session/条目/版本/选版规则一次消费；取消使用原request_id。stopPlayback handoff=true仅后台停止上报，旧Stopped先于新Playing；默认同步收尾。 -->
 | [x] | `player.warmPrepared` | **新增** | `request_id: String, enabled: bool` | `{matched}` | ❌ |
-| [x] | `player.queuePrepared` | **新增** | `request_id: String, current_item_id: String, engine: String` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
+| [x] | `player.queuePrepared` | **新增** | `request_id: String, current_item_id: String, engine: String, is_adult: Option<bool>` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
 | [x] | `player.advanceQueued` | **新增** | `request_id: String, pos: f64` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
 | [x] | `player.cancelPrepared` | **新增** | `request_id: String` | `{canceled}` | ❌ |
-| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
+| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>, is_adult: Option<bool>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
 | [x] | `player.playExternal` | `play_external` | `item_id: String, resume_secs: f64, media_source_id: Option<String>, engine: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.playLocal` | `play_local` | `id: String, resume_secs: f64` | `Result<f64, String>` | ✅ |
 | [x] | `player.playUrl` | **新增** | `url: String, headers: Option<Map<String,String>>, title: Option<String>, start_secs: Option<f64>` | `{url, title}` | ✅ | <!-- 直接播一条地址(直播频道 / 插件找到的流)。不走 Emby 上报与续播记录 -->
@@ -225,7 +225,7 @@
 | [x] | `source.removeGroup` | **新增** | `group` | `{removed}` | ✅ |
 | [x] | `source.serverMenus` | **新增** | `plugin_id` | `[]GroupMenu` | ✅ |
 | [x] | `source.runCommand` | **新增** | `plugin_id, command, args?` | `Json` | ✅ |
-| [x] | `source.aggregateSearch` | **新增** | `query` | `[]SearchRow(逐行 partial)` | ✅ |
+| [x] | `source.aggregateSearch` | **新增** | `query, is_adult: Option<bool>` | `[]SearchRow(逐行 partial)` | ✅ |
 | [x] | `source.switchCandidates` | **新增** | `server_id, title, year?, episode_index?, line_id?, item?, layer_order?` | `[]Candidate(逐源 partial)` | ✅ |
 | [x] | `source.checkAll` | **新增** | `group?` | `[]CheckResult(逐源 partial)` | ✅ |
 | [x] | `source.setFavorite` | **新增** | `server_id, item, favorite` | `{favorite}` | ✅ |
@@ -305,7 +305,7 @@
 | [x] | `prefs.iconLibrary` | `icon_library` | `—` | `IconLibraryReply` | ✅ |
 | [x] | `prefs.setIconSources` | `—` | `—` | `()` | ✅ |
 | [x] | `prefs.preloadCancel` | `preload_cancel` | `—` | `()` | ❌ |
-| [x] | `prefs.preloadItem` | `preload_item` | `item_id: String, media_source_id: Option<String>` | `Result<(), String>` | ❌ |
+| [x] | `prefs.preloadItem` | `preload_item` | `item_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `Result<(), String>` | ❌ |
 | [x] | `prefs.setDetailBlur` | `set_detail_blur` | `value: u8` | `Result<(), String>` | ✅ |
 | [x] | `prefs.setHomeSettings` | **新增** | `settings: HomeSettings` | `Result<(), String>` | — | <!-- 写回首页栏目设置 -->
 | [x] | `prefs.setPrefetchSettings` | `set_prefetch_settings` | `settings: PrefetchSettings` | `Result<(), String>` | ✅ | <!-- 可部分更新;省略字段保留;保存失败回滚;容量立即收紧;成功返回当前Prefs -->
@@ -453,3 +453,15 @@
 ### 媒体信息可选字段
 
 `emby.itemMedia` 的 MediaVersion 可返回 `path / date_created: string`；StreamInfo 可返回 `bit_depth: integer`、`color_space / pixel_format: string`、`is_forced: boolean`。新字段缺失/null时省略，字符串为空也省略；显式 `is_forced=false` 保留。它们来自同一次 PlaybackInfo，不改参数或绑定。Path 供文件信息展示，不能作为客户端播放地址；外壳不展示远程地址的账号和查询参数。
+
+### MSG 成人分类查询扩展
+
+上述浏览命令的 `is_adult` 只接受布尔值（不接受 null）：省略不发送筛选，显式 true/false 透传为 HTTP `IsAdult`。需要支持该扩展的 MSG 服务端；旧服务端可能忽略查询参数，不能把此参数单独当作隐私授权。支持该扩展的 MSG 在分页前将分类与账号权限求交；现有宿主默认不传。展示缓存沿完整参数隔离三态。库的 `IsAdult` 映射为可空 `is_adult`，媒体/详情/版本的 `LibraryIds` 映射为 `library_ids`；旧响应缺失时省略可选字段。
+
+### 手机隐私分类与本服进度
+
+手机普通浏览显式传 `is_adult=false`，隐私空间传 `true`，桌面/TV缺省保持原行为。播放、准备、预热与聚合版本沿同一上下文；隐私请求先核验库返回明确成人标记，拒绝忽略筛选的旧服。请求内复用核验结果，不长期缓存权限。
+
+本地 `Record.is_adult` 可空，记录主键区分普通/成人/未分类；已分类续播和历史列表只采用同类记录，旧未分类数据保留但不混入已分类空间。清空、恢复扫描按同一范围处理；缺省仍为全部。准备槽还需匹配分类。
+
+手机隐私空间不调用上述本地watchHistory或聚合命令。`player.play/queuePrepared`在`is_adult=true`时仅采用当前服实时进度，不读写本地历史，不读写主进度服；`from_start/resume_exact`仍优先，播放开始/进度/停止仍上报当前服。普通false与缺省行为保留。

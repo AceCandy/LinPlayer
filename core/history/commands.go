@@ -47,12 +47,16 @@ func SetShared(s *Store) { store = s }
 //
 //	本地和服务器从此对不上,而没有任何东西说过这件事。
 func markPlayedLocally(ctx context.Context, s *emby.Session, itemID string, played bool) {
+	if adult := emby.AdultFilter(ctx); adult != nil && *adult {
+		return // 私密标记仅保留在当前服务器。
+	}
 	it, err := emby.NewClient(system.Version).ItemForHistory(ctx, s, itemID)
 	if err != nil || it == nil {
 		bus.Logf("warn", "标记已看/未看:本地记录没跟上(取条目失败 item=%s): %v", itemID, err)
 		return
 	}
 	cand := CandidateFromItem(*it)
+	cand.IsAdult = emby.AdultFilter(ctx)
 	if _, ok := MediaKindFromItemType(cand.Type); !ok {
 		return // 剧 / 季 / 合集这类不落记录,和 Capture 的口径一致
 	}
@@ -84,14 +88,22 @@ func RegisterCommands() {
 	// current_only=true 只看当前服务器的;false 给全部(设置页的「观看记录」页要全部,
 	// 因为跨服记录正是那一页存在的理由)。
 	bus.Register("emby.watchHistoryList", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
+		records := Shared().LoadAll()
 		if only, _ := a["current_only"].(bool); only {
 			acc := config.Current().ActiveAccount()
 			if acc == nil {
 				return []Record{}, nil
 			}
-			return Shared().LoadScope(ScopeKey(acc.Server, acc.UserID)), nil
+			records = Shared().LoadScope(ScopeKey(acc.Server, acc.UserID))
 		}
-		return Shared().LoadAll(), nil
+		if adult := emby.AdultFilter(ctx); adult != nil {
+			return visibleHistoryRecords(ctx, records, adult)
+		}
+		return records, nil
 	})
 
 	bus.Register("emby.watchHistoryDelete", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
@@ -111,8 +123,19 @@ func RegisterCommands() {
 	//   调用方必须先弹二次确认 —— 核心层这里不拦(拦了就没法做「设置页里带确认的清空」),
 	//   但返回体里带上删了多少条,让 UI 能说清楚。
 	bus.Register("emby.watchHistoryClear", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		n := len(Shared().LoadAll())
-		if err := Shared().ClearAll(); err != nil {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
+		records := Shared().LoadAll()
+		if adult := emby.AdultFilter(ctx); adult != nil {
+			records, err = visibleHistoryRecords(ctx, records, adult)
+			if err != nil {
+				return nil, err
+			}
+		}
+		n, err := Shared().clearRecords(records)
+		if err != nil {
 			return nil, bus.NewErr(bus.EInternal, "清空失败: %v", err)
 		}
 		return map[string]any{"cleared": n}, nil
@@ -153,6 +176,10 @@ func registerRestoreCommands() {
 	// ★ prompt_candidates 是**要用户拍板**的那一批(可能匹配但不确定),
 	//   调用方拿去逐条问,确认了再调 watchHistoryRestoreCandidate。
 	bus.Register("emby.watchHistoryScanRestore", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		s, err := sessionOf(a)
 		if err != nil {
 			return nil, err
@@ -162,6 +189,10 @@ func registerRestoreCommands() {
 
 	// emby.watchHistoryRestoreCandidate —— 用户确认了某条候选,真的写回去。
 	bus.Register("emby.watchHistoryRestoreCandidate", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		raw, err := json.Marshal(a["candidate"])
 		if err != nil {
 			return nil, bus.NewErr(bus.EInvalid, "candidate 不合法: %v", err)
@@ -169,6 +200,15 @@ func registerRestoreCommands() {
 		var cand RestoreCandidate
 		if json.Unmarshal(raw, &cand) != nil || cand.MatchedItem.ID == "" {
 			return nil, bus.NewErr(bus.EInvalid, "candidate 不合法(缺 matched_item.id)")
+		}
+		if adult := emby.AdultFilter(ctx); adult != nil {
+			visible, err := visibleHistoryRecords(ctx, []Record{cand.Record}, adult)
+			if err != nil {
+				return nil, err
+			}
+			if len(visible) == 0 {
+				return nil, bus.NewErr(bus.EInvalid, "观看记录不属于当前空间")
+			}
 		}
 		s, err := sessionOf(a)
 		if err != nil {
@@ -182,4 +222,57 @@ func registerRestoreCommands() {
 		//   但界面不能说「已恢复」——那条记录压根没有进度可写。
 		return map[string]any{"restored": done}, nil
 	})
+}
+
+// visibleHistoryRecords 按实际播放版本所属库的当前可见性核验，重新分类或撤权后不沿用旧标签。
+func visibleHistoryRecords(ctx context.Context, records []Record, adult *bool) ([]Record, error) {
+	cfg := config.Current()
+	sessions := map[string]*emby.Session{}
+	for _, account := range cfg.AccountList {
+		if account.IsFileBrowse() || account.PluginSource() != nil {
+			continue
+		}
+		session := &emby.Session{Server: account.ActiveLineURL(), UserID: account.UserID, Token: account.Token, DeviceID: cfg.DeviceID}
+		sessions[ScopeKey(account.Server, account.UserID)] = session
+		for _, line := range account.Lines {
+			sessions[ScopeKey(line.URL, account.UserID)] = session
+		}
+	}
+	client := emby.NewClient(system.Version)
+	libraries := map[string]map[string]bool{}
+	out := []Record{}
+	for _, record := range records {
+		if len(record.LibraryIDs) == 0 {
+			// 未提供库归属的旧Emby仅使用明确的播放范围；完全未知记录不猜测。
+			if emby.SameAdultFilter(record.IsAdult, adult) {
+				out = append(out, record)
+			}
+			continue
+		}
+		session := sessions[record.ScopeKey]
+		if session == nil {
+			continue
+		}
+		visible, loaded := libraries[record.ScopeKey]
+		if !loaded {
+			views, err := client.Views(ctx, session)
+			if err != nil {
+				return nil, err
+			}
+			visible = map[string]bool{}
+			for _, view := range views {
+				if view.IsAdult != nil && *view.IsAdult == *adult || view.IsAdult == nil && !*adult {
+					visible[view.ID] = true
+				}
+			}
+			libraries[record.ScopeKey] = visible
+		}
+		for _, id := range record.LibraryIDs {
+			if visible[id] {
+				out = append(out, record)
+				break
+			}
+		}
+	}
+	return out, nil
 }

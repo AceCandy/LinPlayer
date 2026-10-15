@@ -114,7 +114,10 @@ func WritebackRangeFromWire(v string) WritebackRange {
 //
 // 时间戳用 epoch 毫秒。
 type Record struct {
-	RecordID string `json:"record_id"`
+	// IsAdult 是本次实际播放范围，nil 为尚未确认分类的旧记录。
+	IsAdult    *bool    `json:"is_adult,omitempty"`
+	LibraryIDs []string `json:"library_ids,omitempty"`
+	RecordID   string   `json:"record_id"`
 	// ScopeKey 是 `server:user_id`,见 ScopeKey()。
 	ScopeKey     string    `json:"scope_key"`
 	MediaKind    MediaKind `json:"media_kind"`
@@ -162,8 +165,10 @@ func (r Record) EffectiveFirstPlayedAt() int64 {
 // 缺了不崩,但匹配会**自动降级**到「剧名+季集号」—— 那正是跨服续播最容易
 // 假装能用的失败形态。
 type Candidate struct {
-	ID   string `json:"id"`
-	Name string `json:"name"`
+	IsAdult    *bool    `json:"is_adult,omitempty"`
+	LibraryIDs []string `json:"library_ids,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
 	// Type 是 Emby 的 Item.Type 原值(Movie / Episode / …)。
 	Type            string  `json:"type_"`
 	TmdbID          *string `json:"tmdb_id"`

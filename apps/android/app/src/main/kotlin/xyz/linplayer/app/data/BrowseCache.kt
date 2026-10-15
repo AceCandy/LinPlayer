@@ -25,8 +25,18 @@ class BrowseCache(private val directory: File? = null) {
     @Volatile var generation: Long = 0
         private set
 
+    @Volatile private var namespace = ""
+
+    /** 切空间时废止旧写入；磁盘键隔离，不复用升级前的未分类展示。 */
+    @Synchronized fun setNamespace(value: String) {
+        if (namespace == value) return
+        namespace = value
+        generation++
+        memory.clear()
+    }
+
     fun key(server: String, userId: String, query: String): String {
-        val identity = JsonArray(listOf(server, userId, query).map(::JsonPrimitive)).toString()
+        val identity = JsonArray(listOf(namespace, server, userId, query).map(::JsonPrimitive)).toString()
         return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }
@@ -195,6 +205,7 @@ suspend fun AppState.browseBlock(
     command: String, args: JsonObject? = null, onCached: (JsonElement) -> Unit,
 ): Block<JsonElement> = kotlinx.coroutines.coroutineScope {
     val identity = session.value
+    val revision = spaceRevision.value
     if (identity == null) return@coroutineScope block(command, args)
     val cache = browseCache
     val key = cache.key(identity.server, identity.userId, command + args.toString())
@@ -203,13 +214,13 @@ suspend fun AppState.browseBlock(
     cache.peek(key)?.let(onCached)
     val reader = launch {
         val stored = cache.load(key, epoch)
-        if (!completed && stored != null && session.value == identity) onCached(stored)
+        if (!completed && stored != null && session.value == identity && spaceRevision.value == revision) onCached(stored)
     }
     val response = displayBlock(command, args) { if (!completed) onCached(it) }
     currentCoroutineContext().ensureActive()
     completed = true
     reader.cancel()
-    if (session.value != identity) throw kotlinx.coroutines.CancellationException("浏览会话已切换")
+    if (session.value != identity || spaceRevision.value != revision) throw kotlinx.coroutines.CancellationException("浏览会话已切换")
     // 缓存写入归应用所有，展示不等待磁盘；generation阻止清理后的旧写入。
     if (response is Block.Ok) bg.launch { cache.put(key, response.value, epoch) }
     else if (response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) cache.remove(key, epoch)

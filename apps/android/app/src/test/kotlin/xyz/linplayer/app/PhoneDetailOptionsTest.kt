@@ -78,10 +78,16 @@ class PhoneDetailOptionsTest {
         ret("prefs.getPrefs", buildJsonObject { put("audio_lang", "jpn"); put("sub_lang", "chi") })
         ret("prefs.setPrefs", JsonNull)
     }
-    private fun open(core: FakeCore, route: Route.Detail = Route.Detail("m1", "Movie"), fontScale: Float = 1.3f) {
+    private fun open(core: FakeCore, route: Route.Detail = Route.Detail("m1", "Movie"), fontScale: Float = 1.3f, privateSpace: Boolean = false) {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope)
-        runBlocking { app.boot() }
+        runBlocking {
+            app.boot()
+            if (privateSpace) {
+                core.ret("emby.views", arr(buildJsonObject { put("id", "private"); put("is_adult", true) }))
+                app.enablePhonePrivacy(); app.enterPrivateSpace()
+            }
+        }
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalApp provides app,
@@ -124,6 +130,15 @@ class PhoneDetailOptionsTest {
                     put("title", "TraditionalChinese [Full]") },
             ))
         }))
+    }
+
+    @Test fun privateDetailKeepsLocalVersionsWithoutCrossServerSwitch() {
+        val core = core()
+        open(core, privateSpace = true)
+        rule.onNodeWithContentDescription("换源").assertDoesNotExist()
+        rule.onNodeWithContentDescription("下载").assertDoesNotExist()
+        org.junit.Assert.assertTrue(core.calls.any { it.first == "emby.itemMedia" })
+        org.junit.Assert.assertTrue(core.calls.none { it.first == "emby.aggregateVersions" })
     }
 
     @Test fun episodeOptionsAlignWithActionsAndHideOnlyRating() {

@@ -197,7 +197,7 @@ fun rememberScrolled(state: androidx.compose.foundation.lazy.grid.LazyGridState)
 
 /** 悬浮图标底栏。三个 Tab 保留独立返回栈，搜索为独立动作；外部空白不拦截页面触摸。 */
 @Composable
-fun LpTabBar(current: Int, onSearch: () -> Unit, onPick: (Int) -> Unit) {
+fun LpTabBar(current: Int, onSearch: () -> Unit, showAggregate: Boolean = true, onPick: (Int) -> Unit) {
     val c = Lp.colors
     Column(
         Modifier.fillMaxWidth().padding(top = Sp.x6, bottom = Dim.tabFloatGap +
@@ -216,7 +216,7 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, onPick: (Int) -> Unit) {
             Tab("首页", LpIcons.home, current == 0,
                 Modifier.weight(1f)) { onPick(0) }
             Tab("搜索", LpIcons.search, current == 3, Modifier.weight(1f), onClick = onSearch)
-            Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f)) { onPick(1) }
+            if (showAggregate) Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f)) { onPick(1) }
             // 服务器管理仍在聚合页；第三个入口是日常使用的收藏。
             Tab("收藏", LpIcons.star, current == 2,
                 Modifier.weight(1f)) { onPick(2) }

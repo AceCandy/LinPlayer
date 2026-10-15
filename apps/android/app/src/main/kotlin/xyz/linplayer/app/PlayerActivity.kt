@@ -25,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.lifecycle.lifecycleScope
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -62,6 +63,10 @@ open class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val route = readRoute(intent) ?: run { finish(); return }
         app = playerApp()
+        app.enablePhonePrivacy()
+        val privatePlayback = intent.getBooleanExtra(EXTRA_PRIVATE, false)
+        // 隐私播放只在已解锁的进程内恢复；进程回收不能靠旧Intent重新进入。
+        if (privatePlayback != app.privateSpace.value) { finish(); return }
         UiPrefs.load(this)
         if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, "android")
         enableEdgeToEdge()
@@ -71,6 +76,10 @@ open class PlayerActivity : ComponentActivity() {
                 "dark" -> true; "light" -> false; else -> PluginTheme.forcedDark
             }) {
                 CompositionLocalProvider(LocalApp provides app) {
+                    val privateSpace by app.privateSpace.collectAsStateWithLifecycle()
+                    LaunchedEffect(privateSpace) {
+                        if (privateSpace != privatePlayback) finish()
+                    }
                     DisposableEffect(Unit) {
                         val previous = PluginNav.host
                         val host = object : PluginNav.Host {
@@ -150,14 +159,16 @@ open class PlayerActivity : ComponentActivity() {
         internal const val NAV_REPLACE = "player.navReplace"
         private const val EXTRA_ROUTE = "player.route"
         private const val EXTRA_CLICK = "player.clickedAt"
+        private const val EXTRA_PRIVATE = "player.privateSpace"
 
-        internal fun intent(context: Context, route: Route.Player, clickedAt: Long? = null): Intent {
+        internal fun intent(context: Context, route: Route.Player, clickedAt: Long? = null, privateSpace: Boolean = false): Intent {
             val target = when {
                 !route.ar.isFinite() || route.ar <= 0 -> PlayerActivity::class.java
                 route.ar > 1 -> PlayerActivity::class.java
                 else -> PortraitPlayerActivity::class.java
             }
-            return Intent(context, target).putExtra(EXTRA_ROUTE, Json.encodeToString(route)).apply {
+            return Intent(context, target).putExtra(EXTRA_ROUTE, Json.encodeToString(route))
+                .putExtra(EXTRA_PRIVATE, privateSpace).apply {
                 clickedAt?.let { putExtra(EXTRA_CLICK, it) }
             }
         }

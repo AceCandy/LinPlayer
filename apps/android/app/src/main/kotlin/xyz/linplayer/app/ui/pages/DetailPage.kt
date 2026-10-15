@@ -325,7 +325,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val list = rememberLazyListState()
     val epoch = remember(cacheKey) { app.detailCache.generation }
     var presentation by remember(cacheKey) { mutableStateOf(detailPresentations()[cacheKey]?.takeIf { it.epoch == epoch }) }
-    if (switching) EmbySwitchSource(nav, route.itemId) { switching = false }
+    if (switching && !app.privateSpace.value) EmbySwitchSource(nav, route.itemId) { switching = false }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
 
@@ -626,7 +626,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         Spacer(Modifier.weight(1f))
         if (!isBoxSet) {
             // Emby 的片也能换到数据源看(D525):这是跳转,不是把数据源塞进来当线路
-            IconButton(onClick = { switching = true }) {
+            if (!app.privateSpace.value) IconButton(onClick = { switching = true }) {
                 Icon(LpIcons.switchSource, "换源", Modifier.size(24.dp), tint = barTint)
             }
             IconButton(enabled = live != null, onClick = {
@@ -659,7 +659,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp),
                 tint = if (favorite) c.mediaIcon else barTint)
         }
-        if (!isBoxSet) IconButton(onClick = {
+        if (!isBoxSet && !app.privateSpace.value) IconButton(onClick = {
             scope.launch {
                 runCatching { app.call("download.enqueue", args("item_id" to route.itemId)) }
                     .onSuccess { app.toast("已加入下载队列", xyz.linplayer.app.data.ToastKind.Ok) }
@@ -678,9 +678,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         // ★ 取色底铺满整屏并且**不跟着滚**:图往上走、色留在原地,那一层视差就是「华丽」的来源
         /* 插件注入位(SPEC 6.2)。详情还没回来时先给一张空表:props 是**挂载那一刻**
            读走的,拿 null 条目挂上去的插件块此后永远收不到真数据。 */
-        val anchors = rememberAnchorScope(PluginAnchors.Detail, detailProps(live))
+        val anchors = rememberAnchorScope(PluginAnchors.Detail, detailProps(if (app.privateSpace.value) null else live))
         androidx.compose.runtime.CompositionLocalProvider(
-            LocalAnchors provides if (live == null) xyz.linplayer.app.ui.plugin.AnchorScope() else anchors
+            LocalAnchors provides if (live == null || app.privateSpace.value) xyz.linplayer.app.ui.plugin.AnchorScope() else anchors
         ) {
         Box(Modifier.fillMaxSize().background(toneScene(tone, c.bg))) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {

@@ -65,6 +65,10 @@ func RegisterCommands(version string) {
 	// ★ **单台失败隔离**:一台连不上不该让整个搜索报错 —— 那台没结果就是没结果,
 	//   其余照出。所以每台的错误都被吞掉,只是不出现在结果里。
 	displaycache.Register("emby.aggregateSearch", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		query, _ := a["query"].(string)
 		c := config.Current()
 		if strings.TrimSpace(query) == "" || len(c.AccountList) == 0 {
@@ -83,6 +87,10 @@ func RegisterCommands(version string) {
 
 	// aggregateOverview 聚合视界:每台服务器一张卡(规模统计 + 继续观看)。
 	displaycache.Register("emby.aggregateOverview", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		c := config.Current()
 		activeServer := ""
 		cached := map[string]bool{}

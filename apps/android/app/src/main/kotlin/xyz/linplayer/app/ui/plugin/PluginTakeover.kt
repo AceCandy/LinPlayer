@@ -58,7 +58,7 @@ fun LoadTakeovers() {
 @Composable
 fun Takeover(route: String, official: @Composable () -> Unit) {
     val t = PluginTakeovers[route]
-    if (t == null) {
+    if (t == null || LocalApp.current.privateSpace.value) {
         official()
         return
     }

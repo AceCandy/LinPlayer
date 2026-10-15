@@ -14,6 +14,7 @@ import (
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
+	"linplayer/core/emby"
 )
 
 // registerTransport 由 RegisterCommands 调用。
@@ -21,6 +22,10 @@ func registerTransport() {
 	registerPrepareCommands()
 	// ---- 起播 / 停播 ----
 	bus.Register("player.play", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		id, _ := a["item_id"].(string)
 		if id == "" {
 			// ★ 迁移期兼容:探针用 path 直接放本地文件。产品路径一律走 item_id。

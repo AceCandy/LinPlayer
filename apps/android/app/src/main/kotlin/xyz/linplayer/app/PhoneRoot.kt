@@ -96,7 +96,7 @@ import xyz.linplayer.app.ui.theme.T
 fun PhoneRoot(app: AppState) {
     androidx.compose.runtime.CompositionLocalProvider(LocalApp provides app) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
-        LaunchedEffect(Unit) { app.boot() }
+        LaunchedEffect(Unit) { app.enablePhonePrivacy(); app.boot() }
 
         // 手机使用固定主题底色，不绘制全局壁纸。
         Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
@@ -109,7 +109,10 @@ fun PhoneRoot(app: AppState) {
                 else -> when (loggedIn) {
                 null -> BootSkeleton()
                 false -> GatePage(onDone = { app.refreshSession() })
-                true -> MainShell()
+                true -> {
+                    val revision by app.spaceRevision.collectAsStateWithLifecycle()
+                    androidx.compose.runtime.key(revision) { MainShell() }
+                }
             }
             }
             xyz.linplayer.app.ui.plugin.PhonePluginDialog()
@@ -151,6 +154,7 @@ private fun MainShell() {
     androidx.compose.runtime.DisposableEffect(nav) {
         xyz.linplayer.app.plugin.PluginNav.host = object : xyz.linplayer.app.plugin.PluginNav.Host {
             override fun push(route: String, params: kotlinx.serialization.json.JsonObject, replace: Boolean): Boolean {
+                if (app.privateSpace.value) return false
                 val r = officialRoute(route) { k -> params.str(k) } ?: return false
                 if (replace) nav.popBackStack()
                 nav.navigate(r)
@@ -331,7 +335,7 @@ private fun MainShell() {
                 posterComposable<Route.AddServer> {
                     GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
                 }
-                posterComposable<Route.Player> { PlayerLaunchPage(nav, it) }
+                posterComposable<Route.Player> { PlayerLaunchPage(nav, it, app.privateSpace.value) }
             }
             }
         }
@@ -349,7 +353,7 @@ private fun MainShell() {
                 if (entry?.destination?.hasRoute<Route.Search>() != true) {
                     nav.navigate(Route.Search()) { launchSingleTop = true }
                 }
-            }) { picked ->
+            }, showAggregate = !app.privateSpace.value) { picked ->
                 val target = when (picked) { 0 -> Route.Home; 1 -> Route.Aggregate; else -> Route.Favorites }
                 activeTab = picked
                 nav.switchTab(target)

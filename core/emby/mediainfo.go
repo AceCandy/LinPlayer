@@ -47,6 +47,7 @@ type StreamInfo struct {
 
 // MediaVersion 一个版本(= 一个 MediaSource)。
 type MediaVersion struct {
+	LibraryIDs []string `json:"library_ids,omitempty"`
 	// 媒体信息中的源标识与添加时间；Path 不用作客户端播放地址。
 	Path        *string      `json:"path,omitempty"`
 	DateCreated *string      `json:"date_created,omitempty"`
@@ -101,7 +102,8 @@ func versionFrom(m rawMediaSource) MediaVersion {
 		})
 	}
 	return MediaVersion{
-		Path: nonEmpty(m.Path), DateCreated: nonEmpty(m.DateCreated),
+		LibraryIDs: m.LibraryIDs,
+		Path:       nonEmpty(m.Path), DateCreated: nonEmpty(m.DateCreated),
 		ID:          deref(m.ID),
 		Name:        deref(m.Name),
 		Container:   nonEmpty(m.Container),
@@ -164,12 +166,16 @@ func rangeLabel(s rawMediaStream) *string {
 // 打的是同一个 PlaybackInfo 端点、同一批 MediaSource、同一套匹配文本,
 // 所以这里标出来的那条,就是真起播时会被选中的那条。
 func (c *Client) MediaVersions(ctx context.Context, s *Session, itemID, versionRegex string) ([]MediaVersion, error) {
+	if err := c.requireAdultSupport(ctx, s); err != nil {
+		return nil, err
+	}
 	u := fmt.Sprintf("%s/Items/%s/PlaybackInfo?UserId=%s",
 		s.Server, url.PathEscape(itemID), url.QueryEscape(s.UserID))
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, u, bytes.NewReader([]byte("{}")))
 	if err != nil {
 		return nil, fmt.Errorf("请求构造失败: %w", err)
 	}
+	applyAdultFilter(ctx, req)
 	req.Header.Set("X-Emby-Token", s.Token)
 	req.Header.Set("X-Emby-Authorization", c.authHeader(s.DeviceID))
 	req.Header.Set("Content-Type", "application/json")

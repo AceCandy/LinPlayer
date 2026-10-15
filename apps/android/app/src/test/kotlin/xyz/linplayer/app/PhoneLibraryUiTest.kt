@@ -40,6 +40,7 @@ import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.FakeImages
 import xyz.linplayer.app.tv.item
@@ -343,6 +344,33 @@ class PhoneLibraryUiTest {
         rule.onNodeWithText("影片 1").assertDoesNotExist()
         rule.onNodeWithText("继续观看").assertExists()
         rule.onNodeWithTag("phone.tabs").assertExists()
+    }
+
+    @Test fun privateShellHasOnlyCurrentServerBrowsing() {
+        PageCache.clear()
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val core = core().apply {
+            ret("emby.views", arr(buildJsonObject { put("id", "private"); put("name", "私密库"); put("is_adult", true) }))
+        }
+        val app = AppState(core, scope)
+        rule.setContent { LpTheme(darkOverride = false) { PhoneRoot(app) } }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("聚合视界").assertExists()
+        rule.onNodeWithText("服务器 A").performTouchInput { longClick() }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("聚合视界").assertDoesNotExist()
+        rule.onNodeWithContentDescription("观看历史").assertDoesNotExist()
+        rule.onNodeWithContentDescription("搜索").performClick()
+        rule.onNodeWithTag("search.aggregate").assertDoesNotExist()
+        rule.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("search.field"))).performTextInput("作品")
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        val request = core.calls.last { it.first == "emby.search" }.second
+        assertEquals("true", request?.get("is_adult").toString())
+        assertTrue(core.calls.none { it.first in listOf("emby.aggregateOverview", "source.aggregateSearch", "emby.watchHistoryList") })
+        rule.onNodeWithContentDescription("首页").performClick()
+        rule.onNodeWithText("隐私空间 · 点击退出").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("聚合视界").assertExists()
     }
 
     @Test fun realShellPushAndPopHaveIntermediateRenderedFrames() {

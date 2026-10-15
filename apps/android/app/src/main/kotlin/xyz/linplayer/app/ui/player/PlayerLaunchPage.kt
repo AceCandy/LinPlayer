@@ -27,7 +27,7 @@ import xyz.linplayer.app.ui.Route
 
 /** 所有手机播放路由共用此交接点；返回后弹出交接页，恢复原有浏览栈。 */
 @Composable
-internal fun PlayerLaunchPage(nav: NavController, entry: NavBackStackEntry) {
+internal fun PlayerLaunchPage(nav: NavController, entry: NavBackStackEntry, privateSpace: Boolean = false) {
     val context = LocalContext.current
     var launched by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -52,7 +52,7 @@ internal fun PlayerLaunchPage(nav: NavController, entry: NavBackStackEntry) {
     LaunchedEffect(entry) {
         if (!launched) {
             launched = true
-            launcher.launch(PlayerActivity.intent(context, entry.toRoute<Route.Player>(), PlaybackClickTimes.take(entry)),
+            launcher.launch(PlayerActivity.intent(context, entry.toRoute<Route.Player>(), PlaybackClickTimes.take(entry), privateSpace),
                 ActivityOptionsCompat.makeCustomAnimation(context, 0, 0))
         }
     }

@@ -287,6 +287,14 @@ func ScanRestore(ctx context.Context, c *emby.Client, s *emby.Session,
 	st *Store, scopeKey string) RestoreReport {
 	rep := RestoreReport{PromptCandidates: []RestoreCandidate{}, Errors: []string{}}
 	records := st.LoadScope(scopeKey)
+	if adult := emby.AdultFilter(ctx); adult != nil {
+		var err error
+		records, err = visibleHistoryRecords(ctx, records, adult)
+		if err != nil {
+			rep.Errors = append(rep.Errors, err.Error())
+			return rep
+		}
+	}
 	if len(records) == 0 {
 		return rep
 	}

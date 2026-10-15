@@ -214,6 +214,9 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 		}
 		out := []map[string]any{}
 		for _, v := range data.Items {
+			if !extensionSourceMatches(ctx, v.Source) {
+				continue
+			}
 			if !v.Enabled && a["include_disabled"] != true {
 				continue
 			}
@@ -244,6 +247,9 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 		}
 		out := []map[string]any{}
 		for i, v := range data.Items {
+			if !extensionSourceMatches(ctx, v.Source) {
+				continue
+			}
 			out = append(out, v.view(s, (page-1)*data.PageSize+i+1))
 		}
 		return out, nil
@@ -314,4 +320,10 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 		}
 		return matches[0], nil
 	})
+}
+
+// 黄果 AI 是 MSG 明确固定的成人资料来源；其它外部资料不按标题猜分类。
+func extensionSourceMatches(ctx context.Context, source string) bool {
+	adult := AdultFilter(ctx)
+	return adult == nil || *adult == (source == "huangguoai")
 }

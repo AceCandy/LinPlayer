@@ -19,8 +19,18 @@ class DetailCache(private val directory: File? = null) {
     @Volatile var generation: Long = 0
         private set
 
+    @Volatile private var namespace = ""
+
+    /** 切空间时废止旧写入；磁盘键隔离，不复用升级前的未分类展示。 */
+    @Synchronized fun setNamespace(value: String) {
+        if (namespace == value) return
+        namespace = value
+        generation++
+        memory.clear()
+    }
+
     fun key(server: String, userId: String, itemId: String): String {
-        val identity = JsonArray(listOf(server, userId, itemId).map(::JsonPrimitive)).toString()
+        val identity = JsonArray(listOf(namespace, server, userId, itemId).map(::JsonPrimitive)).toString()
         return MessageDigest.getInstance("SHA-256").digest(identity.toByteArray())
             .joinToString("") { "%02x".format(it) }
     }

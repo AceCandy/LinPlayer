@@ -523,10 +523,16 @@ func (c *Client) getItemsBytes(ctx context.Context, s *Session, u string) ([]byt
 
 // getBytes 是所有「不走 {Items} 包裹」的端点共用的取字节。
 func (c *Client) getBytes(ctx context.Context, s *Session, u string) ([]byte, error) {
+	if parsed, err := url.Parse(u); err == nil && !strings.HasSuffix(parsed.Path, "/Views") {
+		if err := c.requireAdultSupport(ctx, s); err != nil {
+			return nil, err
+		}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return nil, fmt.Errorf("请求构造失败: %w", err)
 	}
+	applyAdultFilter(ctx, req)
 	req.Header.Set("X-Emby-Token", s.Token)
 	req.Header.Set("User-Agent", c.UA)
 	/* ★★ **不要手动设 Accept-Encoding**。

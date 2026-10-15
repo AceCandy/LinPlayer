@@ -77,6 +77,19 @@ class PlayerActivityTest {
         }
     }
 
+    @Test fun privatePlaybackIntentCannotReopenAfterProcessUnlockIsLost() {
+        val core = FakeCore().loggedIn().player()
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        val intent = PlayerActivity.intent(context, Route.Player("m1", "标题"), privateSpace = true)
+            .setClass(context, TestPlayerActivity::class.java)
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java, intent).create()
+        assertTrue(host!!.get().isFinishing)
+        assertFalse(core.calls.any { it.first == "player.play" })
+    }
+
     @Test fun staleNotificationDoesNotStartAnotherPlayback() {
         val context = RuntimeEnvironment.getApplication()
         val controller = Robolectric.buildActivity(PlayerActivity::class.java,

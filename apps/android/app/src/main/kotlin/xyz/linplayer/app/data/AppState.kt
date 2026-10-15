@@ -40,6 +40,53 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         kotlinx.coroutines.CoroutineScope(
             kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
 
+    private val _privateSpace = MutableStateFlow(false)
+    val privateSpace = _privateSpace.asStateFlow()
+    private val _spaceRevision = MutableStateFlow(0L)
+    val spaceRevision = _spaceRevision.asStateFlow()
+    private var phonePrivacy = false
+
+    /** 手机开启分类隔离；TV沿用缺省请求。解锁仅在本进程有效。 */
+    fun enablePhonePrivacy() {
+        if (phonePrivacy) return
+        phonePrivacy = true
+        changeSpace(false)
+    }
+
+    private fun changeSpace(adult: Boolean) {
+        _privateSpace.value = adult
+        _spaceRevision.value++
+        val namespace = if (adult) "adult-v1" else "normal-v1"
+        browseCache.setNamespace(namespace)
+        detailCache.setNamespace(namespace)
+        PageCache.clear()
+    }
+
+    suspend fun enterPrivateSpace() {
+        val identity = _session.value ?: return
+        val revision = _spaceRevision.value
+        // 入口探测需要完整库清单；不能拿普通模式筛掉成人库后的空表判断能力。
+        val libraries = core.callJson("emby.views", JsonObject(mapOf(
+            "server" to JsonPrimitive(identity.server), "token" to JsonPrimitive(identity.token),
+            "user_id" to JsonPrimitive(identity.userId), "device_id" to JsonPrimitive(deviceId()),
+        )))
+        currentCoroutineContext().ensureActive()
+        if (_session.value != identity || _spaceRevision.value != revision) return
+        val rows = libraries.arr()
+        if (rows.isEmpty() || rows.any {
+                val flag = it.obj()?.get("is_adult") as? JsonPrimitive
+                flag == null || flag.isString || flag.content !in setOf("true", "false")
+            }) {
+            toast("当前服务器未提供成人库分类，无法进入隐私空间")
+            return
+        }
+        changeSpace(true)
+    }
+
+    fun leavePrivateSpace() {
+        if (_privateSpace.value) changeSpace(false)
+    }
+
     private val _session = MutableStateFlow<Session?>(null)
     val session: StateFlow<Session?> = _session.asStateFlow()
 
@@ -90,6 +137,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         val accounts = runCatching { Account.list(core.callJson("account.listAccounts")) }.getOrDefault(emptyList())
         // ☠ 换账号 / 退登必须清页面留存,否则上一个账号的内容会画给下一个人看
         if (_session.value?.server != s?.server || _session.value?.userId != s?.userId) {
+            leavePrivateSpace()
             PageCache.clear()
         }
         _session.value = s
@@ -116,17 +164,33 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         args: JsonObject? = null,
         onPartial: ((JsonElement) -> Unit)? = null,
     ): JsonElement {
+        val revision = _spaceRevision.value
+        // 隐私空间只使用当前服实时资料，不接入本地历史或跨服查询。
+        if (_privateSpace.value && (command.startsWith("emby.watchHistory") || command in setOf(
+                "emby.aggregateOverview", "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch")))
+            throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器", false)
+        val filtered = phonePrivacy && (command.startsWith("emby.") || command in setOf(
+            "source.aggregateSearch", "prefs.preloadItem", "player.play", "player.prepareNext", "player.queuePrepared"))
+        val requestArgs = if (filtered) JsonObject((args ?: JsonObject(emptyMap())) +
+            ("is_adult" to JsonPrimitive(_privateSpace.value))) else args
         val s = _session.value
-        val merged = if (s == null) args else JsonObject(
+        if (_privateSpace.value && filtered &&
+            (args.str("server")?.let { it != s?.server } == true || args.str("user_id")?.let { it != s?.userId } == true))
+            throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器和账号", false)
+        val merged = if (s == null) requestArgs else JsonObject(
             mapOf(
                 "server" to JsonPrimitive(s.server),
                 "token" to JsonPrimitive(s.token),
                 "user_id" to JsonPrimitive(s.userId),
                 "device_id" to JsonPrimitive(deviceId()),
-            ) + (args ?: JsonObject(emptyMap()))   // 调用方显式给的压过默认的
+            ) + (requestArgs ?: JsonObject(emptyMap()))   // 调用方显式给的压过默认的
         )
         val epoch = browseCache.generation
-        val value = core.callJson(command, merged, onPartial)
+        val value = core.callJson(command, merged) { partial ->
+            if (_spaceRevision.value == revision && _session.value == s) onPartial?.invoke(partial)
+        }
+        if (filtered && (_spaceRevision.value != revision || _session.value != s))
+            throw kotlinx.coroutines.CancellationException("浏览空间已切换")
         if (s != null && _session.value == s &&
             merged.str("server") == s.server && merged.str("user_id") == s.userId &&
             command in setOf("emby.listLatest", "emby.listResume", "emby.listFavorites",
@@ -271,11 +335,12 @@ suspend fun AppState.displayBlock(command: String, args: JsonObject? = null,
     retainOnFailure: Boolean = true, onCached: (JsonElement) -> Unit,
 ): Block<JsonElement> = kotlinx.coroutines.coroutineScope {
     val identity = session.value
+    val revision = spaceRevision.value
     val snapshots = kotlinx.coroutines.channels.Channel<JsonElement>(kotlinx.coroutines.channels.Channel.UNLIMITED)
     var cached: JsonElement? = null
     val reader = launch {
         for (value in snapshots) {
-            if (session.value == identity) { cached = value; onCached(value) }
+            if (session.value == identity && spaceRevision.value == revision) { cached = value; onCached(value) }
         }
     }
     val response = try {
@@ -287,7 +352,7 @@ suspend fun AppState.displayBlock(command: String, args: JsonObject? = null,
     // 先消费已收到的快照，再交付实时结果，避免快速失败吞掉旧展示。
     reader.join()
     currentCoroutineContext().ensureActive()
-    if (session.value != identity) throw kotlinx.coroutines.CancellationException("展示会话已切换")
+    if (session.value != identity || spaceRevision.value != revision) throw kotlinx.coroutines.CancellationException("展示会话已切换")
     if (retainOnFailure && response is Block.Fail && response.code !in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED") && cached != null)
         Block.Ok(cached) else response
 }

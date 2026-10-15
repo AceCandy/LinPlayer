@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"linplayer/core/bus"
+	"linplayer/core/emby"
 	"linplayer/core/paths"
 )
 
@@ -220,6 +221,9 @@ func (s *Store) ResolveResumeTicks(scopeKey string, candidate Candidate, seriesT
 	}
 
 	records := s.LoadScope(scopeKey)
+	if candidate.IsAdult != nil {
+		records = filterRecords(records, candidate.IsAdult)
+	}
 	existing := findExisting(records, fp, candidate.ID)
 	if existing != nil && existing.Played {
 		return normalizedRemote
@@ -254,7 +258,7 @@ func (s *Store) crossServerTicks(candidate Candidate, seriesTmdbID *string, curr
 	all := s.LoadAll()
 	var best *int64
 	for _, rec := range all {
-		if rec.ScopeKey == currentScope {
+		if rec.ScopeKey == currentScope || candidate.IsAdult != nil && !emby.SameAdultFilter(rec.IsAdult, candidate.IsAdult) {
 			continue // 本服记录已在上层处理
 		}
 		if rec.Played || rec.LastPositionTicks <= 0 {
@@ -323,9 +327,16 @@ func (s *Store) Capture(o CaptureOpts) *Record {
 	if !ok {
 		return nil
 	}
-	records := s.LoadScope(o.ScopeKey)
+	records := filterRecords(s.LoadScope(o.ScopeKey), o.Candidate.IsAdult)
 	existing := findExisting(records, fp, o.Candidate.ID)
 	recordID := BuildRecordID(o.ScopeKey, fp.MediaKind, fp.CanonicalKey)
+	if o.Candidate.IsAdult != nil {
+		if *o.Candidate.IsAdult {
+			recordID += ":adult"
+		} else {
+			recordID += ":normal"
+		}
+	}
 
 	if !o.Force && existing != nil && !o.IncrementPlayCount && !s.shouldPersist(recordID) {
 		return existing
@@ -378,6 +389,8 @@ func (s *Store) Capture(o CaptureOpts) *Record {
 	}
 
 	rec := Record{
+		IsAdult:           o.Candidate.IsAdult,
+		LibraryIDs:        append([]string(nil), o.Candidate.LibraryIDs...),
 		RecordID:          recordID,
 		ScopeKey:          o.ScopeKey,
 		MediaKind:         fp.MediaKind,
@@ -454,4 +467,41 @@ func (s *Store) RecordWritebackResult(target Record, played bool, positionTicks 
 		updated.LastPositionTicks = positionTicks
 	}
 	return s.SaveRecord(updated, nil)
+}
+
+// filterRecords 只在已确认的同一分类内复用记录，缺省调用保留旧记录语义。
+func filterRecords(records []Record, adult *bool) []Record {
+	out := []Record{}
+	for _, record := range records {
+		if emby.SameAdultFilter(record.IsAdult, adult) {
+			out = append(out, record)
+		}
+	}
+	return out
+}
+
+// clearRecords 原子删除本次查询确认可见的记录，不清掉另一空间或查询后的新增记录。
+func (s *Store) clearRecords(records []Record) (int, error) {
+	selected := map[string]bool{}
+	for _, record := range records {
+		selected[record.RecordID] = true
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	kept := []Record{}
+	removed := []string{}
+	for _, record := range s.LoadDocument().Records {
+		if selected[record.RecordID] {
+			removed = append(removed, record.RecordID)
+		} else {
+			kept = append(kept, record)
+		}
+	}
+	if err := s.writeDocument(kept); err != nil {
+		return 0, err
+	}
+	for _, id := range removed {
+		s.lastWrite.Delete(id)
+	}
+	return len(removed), nil
 }

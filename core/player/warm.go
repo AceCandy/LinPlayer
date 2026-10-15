@@ -201,6 +201,10 @@ func registerWarmCommands() {
 	// ★ 不能同步等:详情页要的是「秒开」,而预热本身要几十秒。
 	//   等它 = 把一个纯优化做成了一个卡顿。
 	bus.Register("prefs.preloadItem", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		ctx, err := emby.AdultFilterContext(ctx, a)
+		if err != nil {
+			return nil, err
+		}
 		itemID, _ := a["item_id"].(string)
 		if itemID == "" {
 			return nil, bus.NewErr(bus.EInvalid, "缺少 item_id")
@@ -219,7 +223,7 @@ func registerWarmCommands() {
 			warmCancel()
 		}
 		preloader.Cancel()
-		warmCtx, cancel := context.WithCancel(context.Background())
+		warmCtx, cancel := context.WithCancel(context.WithoutCancel(ctx))
 		warmCancel = cancel
 		warmCancelMu.Unlock()
 

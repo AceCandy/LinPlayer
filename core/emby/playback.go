@@ -33,6 +33,8 @@ type ExternalSub struct {
 // ★ PlaySessionID **必须贯穿 start/progress/stopped 三次上报** ——
 // 不贯穿的表现是「看一半退出,续播进度不落地」。
 type PlaybackTarget struct {
+	// LibraryIDs 来自实际选中版本，避免用同作品其它库的版本归类观看记录。
+	LibraryIDs    []string      `json:"-"`
 	URL           string        `json:"url"`
 	ItemID        string        `json:"item_id"`
 	MediaSourceID string        `json:"media_source_id"`
@@ -94,6 +96,9 @@ var deviceProfile = map[string]any{
 // versionRegex 只在 mediaSourceID 为空 —— 也就是用户**没有手动指定版本**时才参与。
 // 手动选的永远优先。
 func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSourceID, versionRegex string) (*PlaybackTarget, error) {
+	if err := c.requireAdultSupport(ctx, s); err != nil {
+		return nil, err
+	}
 	u := fmt.Sprintf("%s/Items/%s/PlaybackInfo?UserId=%s",
 		s.Server, url.PathEscape(itemID), url.QueryEscape(s.UserID))
 	body, _ := json.Marshal(deviceProfile)
@@ -101,6 +106,7 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 	if err != nil {
 		return nil, fmt.Errorf("请求构造失败: %w", err)
 	}
+	applyAdultFilter(ctx, req)
 	req.Header.Set("X-Emby-Token", s.Token)
 	req.Header.Set("X-Emby-Authorization", c.authHeader(s.DeviceID))
 	req.Header.Set("Content-Type", "application/json")
@@ -137,7 +143,7 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 	msID := deref(ms.ID)
 
 	target := &PlaybackTarget{
-		ItemID: itemID, MediaSourceID: msID, PlaySessionID: psid,
+		ItemID: itemID, MediaSourceID: msID, PlaySessionID: psid, LibraryIDs: ms.LibraryIDs,
 		// 取流这一跳顺手把 DV 判了 —— MediaStreams 就在同一份响应里,不用再打一次服务器。
 		// ★ 在这里算而不是丢给调用方:PlaybackInfo 的 MediaStreams 只有这条路上拿得到,
 		//   调用方手里的版本列表是**另一次请求**,两边可能选的不是同一个版本。

@@ -27,16 +27,19 @@ type Person struct {
 
 // SeasonInfo 季。
 type SeasonInfo struct {
-	ID         string `json:"id"`
-	Name       string `json:"name"`
-	IndexNo    *int64 `json:"index_no"`
-	ChildCount int64  `json:"child_count"`
-	Unplayed   int64  `json:"unplayed"`
-	HasPrimary bool   `json:"has_primary"`
+	LibraryIDs []string `json:"library_ids,omitempty"`
+	ID         string   `json:"id"`
+	Name       string   `json:"name"`
+	IndexNo    *int64   `json:"index_no"`
+	ChildCount int64    `json:"child_count"`
+	Unplayed   int64    `json:"unplayed"`
+	HasPrimary bool     `json:"has_primary"`
 }
 
 // ItemDetail 条目详情。
 type ItemDetail struct {
+	LibraryIDs   []string      `json:"library_ids,omitempty"`
+	IsAdult      *bool         `json:"is_adult,omitempty"`
 	Capabilities *Capabilities `json:"capabilities,omitempty"`
 	ID           string        `json:"id"`
 	Name         string        `json:"name"`
@@ -252,7 +255,12 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 		bgm = c.seriesBgmID(ctx, s, jstr(j, "SeriesId"))
 	}
 
+	var isAdult *bool
+	if value, ok := j["IsAdult"].(bool); ok {
+		isAdult = &value
+	}
 	return &ItemDetail{
+		LibraryIDs: jstrList(j, "LibraryIds"), IsAdult: isAdult,
 		Capabilities: capabilitiesForID(jstr(j, "ServerId")),
 		ID:           id,
 		Tags:         jstrList(j, "Tags"),
@@ -317,6 +325,7 @@ func (c *Client) Seasons(ctx context.Context, s *Session, seriesID string) ([]Se
 		ud, _ := m["UserData"].(map[string]any)
 		_, hasImg := jmap(m, "ImageTags")["Primary"]
 		out = append(out, SeasonInfo{
+			LibraryIDs: jstrList(m, "LibraryIds"),
 			ID:         jstr(m, "Id"),
 			Name:       jstr(m, "Name"),
 			IndexNo:    jint(m, "IndexNumber"),

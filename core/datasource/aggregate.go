@@ -84,6 +84,10 @@ func eachLimited[T any](xs []T, n int, f func(T)) {
 
 // cmdAggregateSearch 按回车才发(D258);每源一行,返回一行就 partial 推一行,最后回全部行。
 func cmdAggregateSearch(ctx context.Context, seq int64, a map[string]any) (any, error) {
+	ctx, err := emby.AdultFilterContext(ctx, a)
+	if err != nil {
+		return nil, err
+	}
 	q := strings.TrimSpace(str(a, "query"))
 	if q == "" {
 		return []SearchRow{}, nil
@@ -94,9 +98,11 @@ func cmdAggregateSearch(ctx context.Context, seq int64, a map[string]any) (any, 
 	eachLimited(aggregateTargets(c), aggConcurrency, func(acc config.Account) {
 		var row *SearchRow
 		if acc.PluginSource() == nil {
-			value, err := displaycache.Run(ctx, seq, "source.aggregateSearch", map[string]any{
-				"server_id": acc.Server, "query": q, "limit": aggPerSource,
-			}, func() (any, error) { return searchOne(ctx, c, acc, q, aggPerSource), nil })
+			cacheArgs := map[string]any{"server_id": acc.Server, "query": q, "limit": aggPerSource}
+			if adult := emby.AdultFilter(ctx); adult != nil {
+				cacheArgs["is_adult"] = *adult
+			}
+			value, err := displaycache.Run(ctx, seq, "source.aggregateSearch", cacheArgs, func() (any, error) { return searchOne(ctx, c, acc, q, aggPerSource), nil })
 			if err != nil {
 				return
 			}
@@ -124,6 +130,9 @@ func searchOne(ctx context.Context, c *config.AppConfig, acc config.Account, q s
 	start := time.Now()
 	row := &SearchRow{ServerID: acc.Server, ServerName: acc.DisplayName()}
 	if ps := acc.PluginSource(); ps != nil {
+		if adult := emby.AdultFilter(ctx); adult != nil && *adult {
+			return nil
+		}
 		row.Kind = "plugin"
 		sctx, cancel := context.WithTimeout(ctx, searchTimeout)
 		defer cancel()

@@ -107,7 +107,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         key = "search:${session?.server}:${session?.userId}:${source?.id}")
     if (!state.initialized) {
         state.q.value = route.q.orEmpty()
-        state.aggregate.value = onSource
+        state.aggregate.value = onSource && !app.privateSpace.value
         state.initialized = true
     }
     var q by state.q
@@ -116,7 +116,8 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     var result by state.result
     var searchType by state.type
     val ctx = androidx.compose.ui.platform.LocalContext.current
-    val history by xyz.linplayer.app.data.UiPrefs.searchHistory
+    val savedHistory by xyz.linplayer.app.data.UiPrefs.searchHistory
+    val history = if (app.privateSpace.value) emptyList() else savedHistory
     var pickedPerson by remember(state) { mutableStateOf<Item?>(null) }
     var personItems by remember(state) { mutableStateOf<Block<List<Item>>>(Block.Loading) }
     var personRetry by remember(state) { mutableStateOf(0) }
@@ -215,7 +216,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             Column(Modifier.fillMaxSize().imePadding()) {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                     Modifier.padding(horizontal = Sp.x16).testTag("search.field"),
-                    trailingIcon = if (route.viewId == null && !onSource) ({
+                    trailingIcon = if (route.viewId == null && !onSource && !app.privateSpace.value) ({
                         LpIconButton(
                             LpIcons.layers, if (aggregate) "关闭聚合搜索" else "开启聚合搜索",
                             Modifier.testTag("search.aggregate").semantics { selected = aggregate },
@@ -227,7 +228,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     }) else null,
                     onSearch = {
                         keyboard?.hide()
-                        xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, q)
+                        if (!app.privateSpace.value) xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, q)
                         if (aggregate && route.viewId == null) searchAggregate() else refresh++
                     },
                 )
@@ -340,7 +341,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                                 // 历史只在**用户真的点开了某个结果**时才记 ——
                                                 // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
                                                 val t = q.trim()
-                                                xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, t)
+                                                if (!app.privateSpace.value) xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, t)
                                                 if (picked.type == "Person") { personItems = Block.Loading; pickedPerson = picked }
                                                 else nav.navigate(Route.Detail(picked.id, picked.type))
                                             }, Modifier.weight(1f), menu = if (picked.type == "Person") null else cardActions(app, scope, picked))

@@ -15,7 +15,7 @@ import "linplayer/core/emby"
 func CandidateFromItem(it emby.Item) Candidate {
 	rt := int64(it.RuntimeSecs * float64(TicksPerSec))
 	return Candidate{
-		ID: it.ID, Name: it.Name, Type: it.Type,
+		ID: it.ID, Name: it.Name, Type: it.Type, LibraryIDs: it.LibraryIDs,
 		TmdbID:          ExtractProviderID(it.ProviderIDs, "Tmdb"),
 		SeriesID:        it.SeriesID,
 		SeriesName:      it.SeriesName,
