@@ -1919,3 +1919,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 66: 手机播放提示与小窗修复及出包
+<!-- trellis-session: v=2 fp=58303f8699bda05c -->
+
+**Date**: 2026-10-15
+**Task**: 手机播放提示与小窗修复及出包
+**Branch**: `main`
+
+### Summary
+
+修正时钟居中、加载动画、缓冲网速、片尾提示与PiP覆盖层，已提交归档并编译Android手机arm64 Release。
+
+### Main Changes
+
+- PiP立即移除播放器覆盖层，手动成功后回桌面，保留播放与返回结果链。
+- 时钟居中、120dp加载动画、缓冲零网速可见、片尾卡下移并半隐；同步设计与规范。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ecd2971f` | fix(android): 优化播放提示与小窗体验 |
+
+### Testing
+
+- [OK] 相关85项单测通过；新增场景先在旧代码复现，再修复通过；独立复核与合成背景渲染检查完成。
+- [OK] Android参数、隐私和diff检查通过。手机Release构建成功，APK 29766139字节；v2/v3签名、ARM64 ELF、原生库压缩与extractNativeLibs检查通过，最终APK与本次编译产物一致。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机验收系统PiP动画、桌面往返及真实播放；未推送远端。

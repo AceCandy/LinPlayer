@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-1.md`
-- **Total Sessions**: 65
+- **Total Sessions**: 66
 - **Last Active**: 2026-10-15
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-1.md` | ~1921 | Active |
+| `journal-1.md` | ~1957 | Active |
 <!-- @@@/auto:active-documents -->
 
 ---
@@ -29,6 +29,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 66 | 2026-10-15 | 手机播放提示与小窗修复及出包 | `ecd2971f` | `main` |
 | 65 | 2026-10-15 | 手机本服隐私空间 | `507eecfb` | `main` |
 | 64 | 2026-10-15 | 发现页审查修复、提交归档与手机交付 | `a2ec1664` | `main` |
 | 63 | 2026-10-15 | 聚合主服与刷新体验修复交付 | `0cd4cb0b` | `main` |
