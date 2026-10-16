@@ -64,3 +64,39 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 70: 手机卡片菜单与用户状态改动提交归档
+<!-- trellis-session: v=2 fp=812cc1cd09a2703a -->
+
+**Date**: 2026-10-16
+**Task**: 手机卡片菜单与用户状态改动提交归档
+**Branch**: `main`
+
+### Summary
+
+按用户要求提交全部未提交改动，包含手机卡片长按图标、收藏与已看切换、季集下载、用户状态失效刷新及对应测试与规范；无活动任务目录，归档为会话记录。本轮仅保存现状，未修改业务代码。
+
+### Main Changes
+
+- 提交21个源码、测试和规范文件；未推送远端。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fac360d4` | feat: 完善手机卡片长按操作与用户状态刷新 |
+
+### Testing
+
+- [OK] 通过：Go emby包无缓存测试及vet；Android命令参数检查；暂存区隐私扫描21文件；diff空白检查。
+- [OK] Android定向回归119项，115通过、4失败：SeasonSelectionTest.phoneAppendingKeepsScrollPosition；PhoneBrowseUiTest.separateSearchEntriesKeepTheirOwnLibraryQueries、searchReturnsWithTypedQueryResultsAndScrollWithoutRequest、aggregateRefreshFailureKeepsExistingContent。失败原因未定位，未标记为验收通过。
+- [OK] 全仓隐私扫描命中既有日志中的版本号；本次暂存内容无新增地址或凭据。未运行完整核心出库门禁，未构建安装包，未做真机及真实服务器联调。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 后续定位四项Android回归失败并完成真机及实服验收。
