@@ -50,6 +50,8 @@ type Item struct {
 	VideoRange *string `json:"video_range"`
 
 	Played bool `json:"played"`
+	// 当前用户收藏状态；旧服务器未提供时省略。
+	IsFavorite *bool `json:"is_favorite,omitempty"`
 	// 当前用户未看子项数；未提供统计时不能据 Played 推断整剧完成。
 	UnplayedItemCount int64 `json:"unplayed_item_count"`
 	// 仅整剧且服务端明确提供非负统计时为真，缺失与零未看分开。
@@ -160,6 +162,7 @@ func named(in []rawNamed) []Named {
 type rawUserData struct {
 	PlaybackPositionTicks *int64 `json:"PlaybackPositionTicks"`
 	Played                *bool  `json:"Played"`
+	IsFavorite            *bool  `json:"IsFavorite"`
 	UnplayedItemCount     *int64 `json:"UnplayedItemCount"`
 }
 
@@ -257,8 +260,10 @@ func fromRaw(r rawItem) Item {
 
 	var resumeTicks int64
 	var played bool
+	var favorite *bool
 	var unplayed int64
 	if r.UserData != nil {
+		favorite = r.UserData.IsFavorite
 		if r.UserData.PlaybackPositionTicks != nil {
 			resumeTicks = *r.UserData.PlaybackPositionTicks
 		}
@@ -326,6 +331,7 @@ func fromRaw(r rawItem) Item {
 		SizeBytes:             sizeBytes,
 		VideoRange:            videoRange,
 		Played:                played,
+		IsFavorite:            favorite,
 		UnplayedItemCount:     unplayed,
 		UnplayedCountKnown:    r.Type != nil && *r.Type == "Series" && r.UserData != nil && r.UserData.UnplayedItemCount != nil && unplayed >= 0,
 		HasBackdrop:           len(r.BackdropImageTags) > 0,

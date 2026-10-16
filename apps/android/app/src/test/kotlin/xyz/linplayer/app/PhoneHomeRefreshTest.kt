@@ -187,6 +187,23 @@ class PhoneHomeRefreshTest {
         assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
     }
 
+    @Test fun markingResumeMoviePlayedRemovesItWithoutLeavingHome() {
+        var watched = false
+        val core = FakeCore().loggedIn().apply {
+            on("emby.listResume") {
+                if (watched) arr() else arr(item("resume-mark", "待标记续播电影", runtime = 3600.0, resume = 900.0))
+            }
+            on("emby.setPlayed") { watched = true; kotlinx.serialization.json.JsonNull }
+        }
+        openHome(core)
+        rule.onNode(hasContentDescription("待标记续播电影") and hasAnyAncestor(hasTestTag("home.resume")))
+            .performScrollTo().performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("home.resume").assertDoesNotExist()
+        assertEquals(2, core.calls.count { it.first == "emby.listResume" })
+    }
+
     @Test fun resumeShowsEpisodeAndRemainingTime() {
         val core = FakeCore().loggedIn()
         core.ret("emby.listResume", arr(item("resume-ui", "重逢", "Episode",

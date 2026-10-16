@@ -27,6 +27,8 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 
 ## 手机播放返回详情
 
+- 手机手动标已看/未看成功后，详情必须重取 `played` 和 `resume_secs`，剧/季同步从首批重取分集，不能只改顶部勾标。`AppState.call` 对当前会话、当前空间的成功写入发既有失效通知：`emby.setPlayed → all`、`emby.setFavorite → library`、`emby.hideResume → resume`；失败及旧会话结果不通知。首页、收藏、媒体库和搜索按通知重读，详情标记在途禁重复提交。`PhoneDetailOptionsTest`、`PhoneHomeRefreshTest`、`PhoneBrowseUiTest`、`UserStateInvalidationTest` 覆盖续播文案、列表成员移除、失败保留及空间隔离；真实服务器仍需联调。
+
 - 正常退出由 `PlayerPage` 先登记一次 `stopIn` 收尾，再经 `PlayerActivity` 的 `player.playedItem` 返回当前 Emby 条目 ID；本地来源不回传。不能用最初的播放路由猜连播末集，也不能只依赖 Activity 销毁才登记停止。
 - `PlayerLaunchPage` 将末集和递增的 `player.returnRevision` 写入原浏览 entry 的 SavedStateHandle；同集重复退出也刷新。详情立即恢复，详情/分集查询异步等待 `PlayerController.awaitPendingStop()`；分集刷新从首批重取，不能把旧 confirmedEpisodes 当作续页起点。
 - 单集详情使用末集作为当前条目；整剧/季保留详情入口，以末集优先确定续播目标和分集滚动位置，不依赖前几集已看标记。账号、条目变化仍取消旧请求。`PlaybackReturnTest` 覆盖慢停止、3→5返回、同集重复刷新和整剧续播目标；`PhoneEnginePlaybackTest` / `PlayerActivityTest` 覆盖实际切集回传与一次停止，不能代替真机上报联调。

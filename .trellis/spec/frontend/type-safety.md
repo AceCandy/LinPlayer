@@ -72,3 +72,11 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 - 精确选择用 `InitialSubtitle` 随 `Route.Player.subtitle` 传递，仅含版本ID、轨道索引/标题/语言/格式及外挂标志；空index表示关闭，不含地址。切版本清预选，同页换目标清路由预选；真实起播版本不匹配时不得套用旧索引。
 - MPV内封轨通过ff_index定位，外挂按唯一身份匹配；Media3按真实标题、语言和格式唯一匹配（chi/zh/zho统一），歧义不猜序号。所有预选通过控制器屏障，播放页手选及切核恢复优先；Media3显式预选跳过默认文本轨偏好，并监听晚到轨表，不只依赖起播短轮询窗口。
 - 回归：PhoneDetailOptionsTest覆盖同语言ASS/SRT单选、重复点击保持选中、显式关闭与路由身份；PlayerControllerTest覆盖版本隔离、手选优先、两内核关闭、格式及语言匹配；PhoneEnginePlaybackTest覆盖真实页面接线和13秒后轨表到达。模拟轨表不替代真实片源/真机选轨验证。
+
+## 手机卡片长按用户状态
+
+- Emby 列表 `UserData.IsFavorite` → `Item.is_favorite`，季列表 `UserData.Played` → `SeasonInfo.played`；两者使用可选布尔指针与 `omitempty`，显式 false 保留，缺失不扩展旧响应。基准为 MediaStationGo `38f4bcfb` 的 Items / Season payload。
+- 手机菜单成功写入后更新本次菜单状态，失败保留原值；懒列表回收后保留成功状态，新列表快照重新校准。详情季/集不提供收藏，季下载复用 `download.enqueueSeason(parent_id=季ID)`，单集用 `download.enqueue(item_id)`；隐私空间与跨服下载限制保留。
+- 详情季/集菜单直接读取页面的季、分集状态，不能用独立 `rememberSaveable` 副本覆盖整季操作后的刷新结果；已看写入成功后重读季与分集，让角标、已看数量、待播放目标与菜单一致。`phonePlayedActionRefreshesBadgesSummaryAndTarget` 覆盖单集→整季→单集取消的联动。
+- 分集标记和下载使用详情页作用域，不能在懒列表卡片内创建提交作用域；回收卡片不取消已提交操作，离开详情页仍按页面生命周期收尾。`phoneEpisodeActionSurvivesCardRecycling` / `phoneEpisodeDownloadSurvivesCardRecycling` 挂起请求、回收卡片后验证正常完成；仅验证菜单文字和请求参数不足以证明业务状态联动。
+- `TestMenuUserState` 覆盖真实 HTTP 解析与 JSON 的 true / false / 缺失；`PhoneBrowseUiTest` 覆盖连续收藏切换和失败保留，`SeasonSelectionTest.phoneSeasonAndEpisodeLongPressActions` 覆盖季集真实长按及请求参数。渲染测试不能替代实服和真机验收。

@@ -205,6 +205,14 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
                 browseCache.recordHeroItems(s.server, s.userId, snapshot, epoch)
             }
         }
+        // 写入成功后让依赖用户状态的页面重读；失败和旧会话结果不能触发刷新。
+        if (_spaceRevision.value == revision && _session.value == s) {
+            when (command) {
+                "emby.setPlayed" -> _invalidate.emit("all")
+                "emby.setFavorite" -> _invalidate.emit("library")
+                "emby.hideResume" -> _invalidate.emit("resume")
+            }
+        }
         return value
     }
 

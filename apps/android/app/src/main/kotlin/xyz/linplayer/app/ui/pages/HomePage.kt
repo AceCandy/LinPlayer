@@ -269,7 +269,7 @@ fun HomePage(nav: NavController) {
     // 屏蔽条目后**整页重拉,不在 UI 逐个过滤** —— 首页留存各栏目列表,
     // 挨个过滤 = 把核心层的规则在 UI 再抄一遍,抄错还不报错
     LaunchedEffect(Unit) {
-        app.invalidate.collect { if (it == "library" || it == "accounts" || it == "all") reload++ }
+        app.invalidate.collect { if (it == "library" || it == "accounts" || it == "all" || it == "resume") reload++ }
     }
 
     var librariesHeight by remember(motionAccount) { mutableStateOf(90.dp + Sp.x4) }
@@ -303,11 +303,11 @@ fun HomePage(nav: NavController) {
         finally { pendingPlayback = null }
     }
     val play: (Item) -> Unit = { item -> if (pendingPlayback == null) pendingPlayback = item }
-    val menu: (Item) -> List<CardAction> = { cardActions(app, scope, it) }
+    val menu: @Composable (Item) -> List<CardAction> = { rememberCardActions(app, scope, it) }
     // 继续观看多一项「取消观看记录」(用户 2026-09-18:「我不想看 我也不想标记为已观看」)。
     // 打 HideFromResume,进度和已看状态都不动;成功后只从这一条里摘掉,别的块不受影响。
-    val resumeMenu: (Item) -> List<CardAction> = { item ->
-        cardActions(app, scope, item) + if (!canHideResume) emptyList() else listOf(CardAction("取消观看记录") {
+    val resumeMenu: @Composable (Item) -> List<CardAction> = { item ->
+        rememberCardActions(app, scope, item) + if (!canHideResume) emptyList() else listOf(CardAction("取消观看记录") {
             scope.launch {
                 runCatching { app.call("emby.hideResume", args("item_id" to item.id, "hide" to true)) }
                     .onSuccess {
@@ -680,7 +680,7 @@ private fun RowBlock(
     thumb: Boolean,
     app: xyz.linplayer.app.data.AppState,
     open: (Item) -> Unit,
-    menu: (Item) -> List<CardAction>,
+    menu: @Composable (Item) -> List<CardAction>,
     homeAccount: Pair<String, String>?,
     resume: Boolean = false,
 ) {
@@ -825,33 +825,68 @@ internal fun <T, Rn> Block<T>.map(f: (T) -> Rn): Block<Rn> = when (this) {
  * 卡片长按菜单。**这份定义是全站唯一的**(UI_MOBILE.md §4.3)——
  * 各页自己拼一套会长出「A 页有『标记已看』B 页没有」这种不一致。
  */
+@Composable
+internal fun rememberCardActions(
+    app: xyz.linplayer.app.data.AppState,
+    scope: kotlinx.coroutines.CoroutineScope,
+    item: Item,
+    serverId: String? = null,
+    favoriteAction: Boolean = true,
+): List<CardAction> {
+    // 懒列表回收卡片后仍保留本次成功写入的状态；新服务端快照会重新校准。
+    var played by rememberSaveable(item, serverId, app.session.value, app.privateSpace.value) { mutableStateOf(item.played) }
+    var favorite by rememberSaveable(item, serverId, app.session.value, app.privateSpace.value) { mutableStateOf(item.favorite) }
+    var busy by remember(item.id, serverId) { mutableStateOf(false) }
+    return cardActions(app, scope, item.copy(played = played, favorite = favorite), serverId, favoriteAction,
+        onChanged = { played = it.played; favorite = it.favorite },
+        begin = { if (busy) false else { busy = true; true } }, finish = { busy = false })
+}
+
 internal fun cardActions(
     app: xyz.linplayer.app.data.AppState,
     scope: kotlinx.coroutines.CoroutineScope,
     item: Item,
     serverId: String? = null,
-): List<CardAction> = listOf(
-    CardAction(if (item.played) "标为未看" else "标为已看") {
+    favoriteAction: Boolean = true,
+    onChanged: (Item) -> Unit = {},
+    begin: () -> Boolean = { true },
+    finish: () -> Unit = {},
+): List<CardAction> {
+    fun change(command: String, field: String, value: Boolean, updated: Item, message: String) {
+        if (!begin()) return
         scope.launch {
-            runCatching {
-                app.call("emby.setPlayed", args(*listOfNotNull("item_id" to item.id, "played" to !item.played, serverId?.let { "server_id" to it }).toTypedArray()))
-            }.onFailure { app.report(it) }
-        }
-    },
-    CardAction("收藏") {
-        scope.launch {
-            runCatching {
-                app.call("emby.setFavorite", args(*listOfNotNull("item_id" to item.id, "fav" to true, serverId?.let { "server_id" to it }).toTypedArray()))
-            }.onSuccess { app.toast("已加入收藏", xyz.linplayer.app.data.ToastKind.Ok) }
-                .onFailure { app.report(it) }
-        }
-    },
-) + if (serverId == null && !app.privateSpace.value) listOf(
-    CardAction("下载") {
-        scope.launch {
-            runCatching { app.call("download.enqueue", args("item_id" to item.id)) }
-                .onSuccess { app.toast("已加入下载队列", xyz.linplayer.app.data.ToastKind.Ok) }
-                .onFailure { app.report(it) }
+            try {
+                app.call(command, args(*listOfNotNull("item_id" to item.id, field to value,
+                    serverId?.let { "server_id" to it }).toTypedArray()))
+                onChanged(updated)
+                app.toast(message, ToastKind.Ok)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+              catch (e: Exception) { app.report(e) }
+            finally { finish() }
         }
     }
-) else emptyList()
+    val actions = mutableListOf(
+        CardAction(if (item.played) "标为未看" else "标为已看",
+            icon = if (item.played) LpIcons.checkCircle else LpIcons.check) {
+            change("emby.setPlayed", "played", !item.played, item.copy(played = !item.played),
+                if (item.played) "已标为未看" else "已标为已看")
+        },
+    )
+    if (favoriteAction) actions += CardAction(
+        if (item.favorite) "取消收藏" else "收藏", icon = if (item.favorite) LpIcons.heartOn else LpIcons.heart) {
+        change("emby.setFavorite", "fav", !item.favorite, item.copy(favorite = !item.favorite),
+            if (item.favorite) "已取消收藏" else "已加入收藏")
+    }
+    if (serverId == null && !app.privateSpace.value) actions += CardAction("下载", icon = LpIcons.download) {
+        scope.launch {
+            try {
+                if (item.type == "Season" || item.isSeries)
+                    app.call("download.enqueueSeason", args("parent_id" to item.id))
+                else app.call("download.enqueue", args("item_id" to item.id))
+                app.toast("已加入下载队列", ToastKind.Ok)
+            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+              catch (e: Exception) { app.report(e) }
+        }
+    }
+    return actions
+}

@@ -231,7 +231,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         items(visible, key = { it.id }, contentType = { "poster" }) {
                             MediaCard(it, app.imageUrl(it.id, "Primary", 330),
                                 { nav.navigate(Route.Detail(it.id, it.type)) },
-                                Modifier.fillMaxWidth().animateItem(fade, placement, fade), menu = cardActions(app, scope, it))
+                                Modifier.fillMaxWidth().animateItem(fade, placement, fade), menu = rememberCardActions(app, scope, it))
                         }
                         if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             // 没有当前分组的收藏时继续寻找首批；已有结果后手动分页，排序重排不触发网络请求。
@@ -248,7 +248,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                             item(key = group.libraryId?.let { "library.$it" } ?: "type.${group.type}") {
                                 LpRow(group.title, group.items, { app.imageUrl(it.id, "Primary", 330) },
                                     { nav.navigate(Route.Detail(it.id, it.type)) },
-                                    thumb = group.type == "Episode", menu = { cardActions(app, scope, it) },
+                                    thumb = group.type == "Episode", menu = { rememberCardActions(app, scope, it) },
                                     onMore = {
                                         nav.navigate(Route.FavoriteCategory(group.type, group.libraryId, group.title))
                                     })
@@ -549,7 +549,7 @@ fun FacetPage(nav: NavController, entry: androidx.navigation.NavBackStackEntry) 
                 items(items, key = { it.id }) {
                     MediaCard(it, app.imageUrl(it.id, "Primary", 330),
                         { nav.navigate(Route.Detail(it.id, it.type)) },
-                        Modifier.fillMaxWidth(), menu = cardActions(app, scope, it))
+                        Modifier.fillMaxWidth(), menu = rememberCardActions(app, scope, it))
                 }
             }
         }

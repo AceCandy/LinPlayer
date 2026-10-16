@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.layout.ContentScale
@@ -317,7 +318,7 @@ internal fun PosterCaption(title: String, subtitle: String?) {
 }
 
 /** 长按菜单一项。**这份定义是全站唯一的** —— 各页自己拼一套会长出不一致。 */
-data class CardAction(val label: String, val danger: Boolean = false, val onClick: () -> Unit)
+data class CardAction(val label: String, val danger: Boolean = false, val icon: ImageVector? = null, val onClick: () -> Unit)
 
 @Composable
 internal fun CardMenu(open: Boolean, onDismiss: () -> Unit, actions: List<CardAction>) {
@@ -326,7 +327,7 @@ internal fun CardMenu(open: Boolean, onDismiss: () -> Unit, actions: List<CardAc
     LpMenu(open, onDismiss, positionProvider = position,
         m = Modifier.width(140.dp).testTag("poster.menu")) {
         actions.forEach { a ->
-            LpMenuItem(a.label, { onDismiss(); a.onClick() }, danger = a.danger)
+            LpMenuItem(a.label, { onDismiss(); a.onClick() }, danger = a.danger, icon = a.icon)
         }
     }
 }
@@ -370,7 +371,7 @@ fun LpRow(
     onOpen: (Item) -> Unit,
     m: Modifier = Modifier,
     thumb: Boolean = false,
-    menu: ((Item) -> List<CardAction>)? = null,
+    menu: (@Composable (Item) -> List<CardAction>)? = null,
     onMore: (() -> Unit)? = null,
     resume: Boolean = false,
     /** 首页以账号隔离已入场卡片，非首页沿用图片就绪入场。 */

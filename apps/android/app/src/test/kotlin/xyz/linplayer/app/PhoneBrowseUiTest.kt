@@ -727,11 +727,11 @@ class PhoneBrowseUiTest {
         rule.waitForIdle()
         rule.onNodeWithText("跨服结果").assertIsDisplayed()
         rule.onNodeWithContentDescription("关闭聚合搜索").assertIsSelected()
-        assertEquals(1, searches)
+        assertEquals(2, searches) // 收藏成功后重取一次状态，返回页面不额外请求。
         rule.onNode(hasSetTextAction()).performTextReplacement("新词")
         rule.onNode(hasSetTextAction()).performImeAction()
         rule.waitForIdle()
-        assertEquals(2, searches)
+        assertEquals(3, searches)
     }
 
     @Test fun searchReturnsWithTypedQueryResultsAndScrollWithoutRequest() {
@@ -754,20 +754,82 @@ class PhoneBrowseUiTest {
         rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
     }
 
+    @Test fun unfavoriteRemovesMovieFromFavoritesImmediately() {
+        var favorite = true
+        val core = FakeCore().loggedIn().apply {
+            on("emby.listFavorites") {
+                if (favorite) page(JsonObject(item("remove-fav", "待取消收藏电影").toMutableMap().apply {
+                    put("is_favorite", JsonPrimitive(true))
+                })) else page()
+            }
+            on("emby.setFavorite") { favorite = false; kotlinx.serialization.json.JsonNull }
+        }
+        open(core, Route.Favorites)
+        rule.onNodeWithContentDescription("待取消收藏电影").performTouchInput { longClick() }
+        rule.onNodeWithText("取消收藏").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("待取消收藏电影").assertDoesNotExist()
+        assertEquals(2, core.calls.count { it.first == "emby.listFavorites" })
+    }
+
     @Test fun searchPosterLongPressHasSharedActionsWithoutBlocking() {
         val core = FakeCore().loggedIn()
         core.ret("emby.search", page(item("menu-search", "菜单结果")))
+        core.ret("emby.setFavorite", kotlinx.serialization.json.JsonNull)
         open(core, Route.Search(q = "菜单"))
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         rule.waitForIdle()
         rule.onNodeWithContentDescription("菜单结果").performTouchInput { longClick() }
         rule.onNodeWithText("标为已看").assertIsDisplayed()
         rule.onNodeWithText("下载").assertIsDisplayed()
+        rule.onNodeWithTag("poster.menu").captureRoboImage("build/menu-check/poster-light.png")
         rule.onNodeWithText("屏蔽这个条目").assertDoesNotExist()
         rule.onNodeWithText("收藏").performClick()
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.setFavorite" } }
         assertEquals("menu-search", core.calls.last { it.first == "emby.setFavorite" }.second.str("item_id"))
         rule.onNodeWithText("详情目标：menu-search").assertDoesNotExist()
+        rule.onNodeWithContentDescription("菜单结果").performTouchInput { longClick() }
+        rule.onNodeWithText("取消收藏").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.setFavorite" } == 2 }
+        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.setFavorite" }.second?.get("fav"))
+        rule.onNodeWithContentDescription("菜单结果").performTouchInput { longClick() }
+        rule.onNodeWithText("收藏").performClick()
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.setFavorite" } == 3 }
+        assertEquals(JsonPrimitive(true), core.calls.last { it.first == "emby.setFavorite" }.second?.get("fav"))
+    }
+
+    @Test fun favoriteMenuStateSurvivesLazyCardRecycling() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(*(1..60).map { item("recycle-$it", "回收结果 $it") }.toTypedArray()))
+        core.ret("emby.setFavorite", kotlinx.serialization.json.JsonNull)
+        open(core, Route.Search(q = "回收"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("回收结果 1").performTouchInput { longClick() }
+        rule.onNodeWithText("收藏").performClick()
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.setFavorite" } }
+        rule.onNodeWithTag("search.results").performScrollToIndex(20)
+        rule.onNodeWithContentDescription("回收结果 1").assertDoesNotExist()
+        rule.onNodeWithTag("search.results").performScrollToIndex(0)
+        rule.onNodeWithContentDescription("回收结果 1").performTouchInput { longClick() }
+        rule.onNodeWithText("取消收藏").assertIsDisplayed()
+    }
+
+    @Test fun favoritePosterMenuUsesServerStateAndKeepsStateOnFailure() {
+        val core = FakeCore().loggedIn()
+        core.ret("emby.search", page(JsonObject(item("fav", "已有收藏").toMutableMap().apply {
+            put("is_favorite", JsonPrimitive(true))
+        })))
+        core.on("emby.setFavorite") { throw CoreException("E_NETWORK", "测试失败", true) }
+        open(core, Route.Search(q = "收藏"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("已有收藏").performTouchInput { longClick() }
+        rule.onNodeWithText("取消收藏").performClick()
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.setFavorite" } }
+        rule.onNodeWithContentDescription("已有收藏").performTouchInput { longClick() }
+        rule.onNodeWithText("取消收藏").assertIsDisplayed()
+        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.setFavorite" }.second?.get("fav"))
     }
 
     @Test fun searchOnlyComposesNearbyPosterRowsAndCanOpenLastResult() {

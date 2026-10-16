@@ -27,6 +27,8 @@ type Person struct {
 
 // SeasonInfo 季。
 type SeasonInfo struct {
+	// 当前用户整季已看状态，缺失时不以未看数量推断。
+	Played     *bool    `json:"played,omitempty"`
 	LibraryIDs []string `json:"library_ids,omitempty"`
 	ID         string   `json:"id"`
 	Name       string   `json:"name"`
@@ -324,7 +326,12 @@ func (c *Client) Seasons(ctx context.Context, s *Session, seriesID string) ([]Se
 		}
 		ud, _ := m["UserData"].(map[string]any)
 		_, hasImg := jmap(m, "ImageTags")["Primary"]
+		var played *bool
+		if value, ok := ud["Played"].(bool); ok {
+			played = &value
+		}
 		out = append(out, SeasonInfo{
+			Played:     played,
 			LibraryIDs: jstrList(m, "LibraryIds"),
 			ID:         jstr(m, "Id"),
 			Name:       jstr(m, "Name"),

@@ -185,7 +185,7 @@ fun AggregatePage(nav: NavController) {
                                     if (g.active || app.activateMediaServer(g.serverId))
                                         nav.navigate(Route.Detail(item.id, item.type))
                                 } }, thumb = true, resume = true,
-                                menu = if (g.active) { item -> cardActions(app, scope, item) } else null)
+                                menu = if (g.active) { item -> rememberCardActions(app, scope, item) } else null)
                             Spacer(Modifier.height(Sp.x12))
                         }
                     }

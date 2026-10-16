@@ -1,6 +1,10 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.performTouchInput
+import androidx.compose.ui.test.longClick
+import kotlinx.serialization.json.JsonPrimitive
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.assertIsDisplayed
@@ -31,6 +35,8 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.input.key.Key
 import xyz.linplayer.app.tv.press
 import androidx.compose.ui.test.performScrollTo
+import androidx.compose.ui.test.performScrollToNode
+import androidx.compose.ui.test.performScrollToKey
 import androidx.compose.ui.test.performScrollToIndex
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -108,11 +114,17 @@ class SeasonSelectionTest {
                 continuation.resume(value)
             }
         }
+        var heldCommand: String? = null
+        val pendingActions = mutableListOf<Pending>()
         var hold = false
         val pending = mutableListOf<Pending>()
         val episodeArgs = mutableListOf<JsonObject?>()
 
         override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+            if (command == heldCommand) {
+                val job = currentCoroutineContext()[Job]!!
+                return suspendCoroutine { pendingActions += Pending(command, job, it) }
+            }
             if (command == "emby.seasonEpisodes") {
                 episodeArgs += args
                 if (hold) {
@@ -130,6 +142,81 @@ class SeasonSelectionTest {
         put("items", arr(item("$parent-$label", label, "Episode", season = if (parent == "s1") 1 else 2, episode = 1)))
     }
 
+    @Test fun phoneSeasonAndEpisodeLongPressActions() {
+        open(episodeStates = true, dark = true)
+        core.fake.ret("download.enqueue", kotlinx.serialization.json.JsonNull)
+        core.fake.ret("download.enqueueSeason", kotlinx.serialization.json.JsonNull)
+        rule.onNodeWithTag("detail.ep.s1-0").performScrollTo().performTouchInput { longClick() }
+        rule.onNodeWithText("标为未看").assertIsDisplayed()
+        rule.mainClock.advanceTimeBy(500)
+        rule.waitForIdle()
+        rule.onNodeWithTag("poster.menu").captureRoboImage("build/menu-check/episode-dark.png")
+        rule.onNodeWithText("标为未看").performClick()
+        rule.waitUntil(5000) { core.fake.calls.any { it.first == "emby.setPlayed" } }
+        assertEquals("s1-0", core.fake.calls.last { it.first == "emby.setPlayed" }.second.str("item_id"))
+        assertEquals(JsonPrimitive(false), core.fake.calls.last { it.first == "emby.setPlayed" }.second?.get("played"))
+        rule.onNodeWithTag("detail.ep.s1-0").performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").assertIsDisplayed()
+        rule.onNodeWithText("收藏").assertDoesNotExist()
+        rule.onNodeWithText("下载").performClick()
+        rule.waitUntil(5000) { core.fake.calls.any { it.first == "download.enqueue" } }
+        assertEquals("s1-0", core.fake.calls.last { it.first == "download.enqueue" }.second.str("item_id"))
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasContentDescription("查看第1季分集"))
+        rule.onNodeWithContentDescription("查看第1季分集").performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").performClick()
+        rule.waitUntil(5000) { core.fake.calls.count { it.first == "emby.setPlayed" } == 2 }
+        assertEquals("s1", core.fake.calls.last { it.first == "emby.setPlayed" }.second.str("item_id"))
+        rule.onNodeWithContentDescription("查看第1季分集").performTouchInput { longClick() }
+        rule.onNodeWithText("标为未看").assertIsDisplayed()
+        rule.onNodeWithText("下载").performClick()
+        rule.waitUntil(5000) { core.fake.calls.any { it.first == "download.enqueueSeason" } }
+        assertEquals("s1", core.fake.calls.last { it.first == "download.enqueueSeason" }.second.str("parent_id"))
+    }
+
+    @Test fun phonePlayedActionRefreshesBadgesSummaryAndTarget() {
+        open(total = 2)
+        rule.onNodeWithTag("detail.ep.s1-0").performScrollTo().performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").performClick()
+        rule.waitForIdle()
+        pageText("已看 1 / 2").assertIsDisplayed()
+        rule.onNode(hasContentDescription("已看完") and hasAnyAncestor(hasTestTag("detail.ep.s1-0")), useUnmergedTree = true).assertExists()
+        rule.onNode(hasText("待播放") and hasAnyAncestor(hasTestTag("detail.ep.s1-1")), useUnmergedTree = true).assertExists()
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToKey("seasons")
+        rule.onNodeWithContentDescription("查看第1季分集").performScrollTo().performTouchInput { longClick() }
+        rule.waitForIdle()
+        rule.onNodeWithText("标为已看").performClick()
+        rule.waitForIdle()
+        pageText("已看 2 / 2").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("detail.ep.s1-1").performScrollTo().performTouchInput { longClick() }
+        rule.onNodeWithText("标为未看").performClick()
+        rule.waitForIdle()
+        pageText("已看 1 / 2").assertIsDisplayed()
+    }
+
+    @Test fun phoneEpisodeActionSurvivesCardRecycling() = pendingEpisodeActionSurvives("emby.setPlayed", "标为已看")
+    @Test fun phoneEpisodeDownloadSurvivesCardRecycling() = pendingEpisodeActionSurvives("download.enqueue", "下载")
+
+    private fun pendingEpisodeActionSurvives(command: String, label: String) {
+        open(total = 60)
+        core.heldCommand = command
+        rule.onNodeWithTag("detail.ep.s1-0").performScrollTo().performTouchInput { longClick() }
+        rule.onNodeWithText(label).performClick()
+        rule.waitUntil(5000) { core.pendingActions.size == 1 }
+        val row = rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.HorizontalScrollAxisRange) and
+            hasAnyDescendant(hasTestTag("detail.ep.s1-0")))
+        row.performScrollToIndex(40)
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.ep.s1-0").assertDoesNotExist()
+        assertTrue("卡片回收不应取消用户已提交的操作", core.pendingActions.single().job.isActive)
+        rule.runOnIdle { core.pendingActions.single().complete(kotlinx.serialization.json.JsonNull) }
+        rule.waitForIdle()
+        assertTrue("操作应正常完成", core.pendingActions.single().job.isCompleted && !core.pendingActions.single().job.isCancelled)
+    }
+
     private fun open(tv: Boolean = false, total: Int = 1, holdAtStart: Boolean = false, resumeEpisode: Int? = null, dark: Boolean = false, episodeStates: Boolean = false, noSeasons: Boolean = false, seasonFailure: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
@@ -138,12 +225,22 @@ class SeasonSelectionTest {
             item("series", "测试剧集", "Series").forEach { (k, v) -> put(k, v) }
             if (episodeStates) put("overview", overview)
         })
-        fake.ret("emby.seriesSeasons", buildJsonArray {
+        val watched = mutableMapOf<String, Boolean>()
+        fun isPlayed(id: String, index: Int) = watched[id] ?: (episodeStates && index == 0)
+        fake.on("emby.setPlayed") { request ->
+            val id = request.str("item_id")!!
+            val value = request?.get("played") == JsonPrimitive(true)
+            if (id == "s1" || id == "s2") (0 until total).forEach { watched["$id-$it"] = value }
+            else watched[id] = value
+            buildJsonObject { put("item_id", id); put("played", value) }
+        }
+        fake.on("emby.seriesSeasons") { buildJsonArray {
             for (i in 1..if (noSeasons) 0 else 2) add(buildJsonObject {
                 put("id", "s$i"); put("name", "第 $i 季"); put("type_", "Season")
-                put("index_no", i); put("child_count", total); put("unplayed", total)
+                put("index_no", i); put("child_count", total); put("unplayed", (0 until total).count { !isPlayed("s$i-$it", it) })
+                put("played", total > 0 && (0 until total).all { isPlayed("s$i-$it", it) })
             })
-        })
+        } }
         if (seasonFailure) fake.on("emby.seriesSeasons") { throw CoreException("E_NETWORK", "季列表测试失败", true) }
         fake.ret("emby.listResume", if (resumeEpisode == null) arr() else arr(
             item("s1-${resumeEpisode - 1}", "续播目标", "Episode", season = 1, episode = resumeEpisode, seriesId = "series")))
@@ -158,7 +255,7 @@ class SeasonSelectionTest {
                         add(item("$parent-$i", "$parent 分集 ${i + 1}", "Episode", season = if (parent == "s1") 1 else 2, episode = i + 1,
                             runtime = if (episodeStates) 1800.0 else 0.0,
                             resume = if (episodeStates && i == 1) 120.0 else 0.0,
-                            played = episodeStates && i == 0))
+                            played = isPlayed("$parent-$i", i)))
                     }
                 })
             }

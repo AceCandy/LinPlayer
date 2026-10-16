@@ -106,6 +106,47 @@ class PhoneDetailOptionsTest {
         }
         rule.waitForIdle()
     }
+    @Test fun markingMoviePlayedAndUnplayedRefreshesResume() {
+        var watched = false
+        var resume = 900.0
+        val core = core().apply {
+            on("emby.itemDetail") {
+                buildJsonObject {
+                    item("m1", "进度刷新电影", runtime = 3600.0, resume = resume).forEach { (k, v) -> put(k, v) }
+                    put("played", watched)
+                }
+            }
+            on("emby.setPlayed") { request ->
+                watched = request?.get("played").toString() == "true"
+                resume = 0.0
+                JsonNull
+            }
+        }
+        open(core)
+        rule.onNodeWithTag("detail.play").performScrollTo().assertTextContains("继续观看", substring = true)
+        rule.onNodeWithContentDescription("标已看").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").performScrollTo().assertTextContains("播放")
+        rule.onNodeWithContentDescription("标未看").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").performScrollTo().assertTextContains("播放")
+        rule.onNodeWithContentDescription("标已看").assertExists()
+        assertEquals(3, core.calls.count { it.first == "emby.itemDetail" })
+    }
+
+    @Test fun failedPlayedChangeKeepsResumeAndDoesNotRefresh() {
+        val core = core().apply {
+            ret("emby.itemDetail", item("m1", "失败保留进度", runtime = 3600.0, resume = 900.0))
+            on("emby.setPlayed") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "测试失败", true) }
+        }
+        open(core)
+        rule.onNodeWithContentDescription("标已看").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("标已看").assertExists()
+        rule.onNodeWithTag("detail.play").performScrollTo().assertTextContains("继续观看", substring = true)
+        assertEquals(1, core.calls.count { it.first == "emby.itemDetail" })
+    }
+
     private fun option(label: String): SemanticsNodeInteraction {
         rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
@@ -304,12 +345,14 @@ class PhoneDetailOptionsTest {
     }
 
     @Test fun compactOptionsHideAbsentSubtitlesAndSingleLineAndShowExactTimeOnce() {
+        var watched = false
         val core = core().apply {
-            ret("emby.itemDetail", buildJsonObject {
+            on("emby.itemDetail") { buildJsonObject {
+                put("played", watched)
                 put("id", "m1"); put("name", "短片"); put("type_", "Movie")
                 put("year", 2026); put("premiere_date", "2026-08-02T00:00:00.000Z")
-                put("runtime_secs", 86); put("resume_secs", 30)
-            })
+                put("runtime_secs", 86); put("resume_secs", if (watched) 0 else 30)
+            } }
             ret("account.listAccounts", arr(account("http://emby-a.invalid", "服务器 A", "", true,
                 listOf("主线路" to "https://media.example.net"))))
             ret("emby.itemMedia", arr(buildJsonObject {
@@ -320,7 +363,7 @@ class PhoneDetailOptionsTest {
                         put("channel_layout", "stereo"); put("is_default", true) },
                 ))
             }))
-            ret("emby.setPlayed", JsonNull)
+            on("emby.setPlayed") { watched = true; JsonNull }
         }
         open(core)
         rule.onNodeWithText("1080p HEVC").assertIsDisplayed()

@@ -171,6 +171,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         if (q.isBlank()) return
         aggQuery = q.trim(); aggRun++
     }
+    LaunchedEffect(app, state) {
+        app.invalidate.collect {
+            if (it == "library" || it == "all") {
+                if (aggregate && route.viewId == null) searchAggregate() else refresh++
+                if (pickedPerson != null) personRetry++
+            }
+        }
+    }
     LaunchedEffect(state, aggRun, aggregate) {
         if (aggRun == 0 || !aggregate || route.viewId != null) return@LaunchedEffect
         if (state.completedRun == aggRun) return@LaunchedEffect
@@ -295,7 +303,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
                                     LpRow(name, Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
-                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { cardActions(app, scope, it, sid) })
+                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { rememberCardActions(app, scope, it, sid) })
                                 }
                             }
                         }
@@ -344,7 +352,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                                 if (!app.privateSpace.value) xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, t)
                                                 if (picked.type == "Person") { personItems = Block.Loading; pickedPerson = picked }
                                                 else nav.navigate(Route.Detail(picked.id, picked.type))
-                                            }, Modifier.weight(1f), menu = if (picked.type == "Person") null else cardActions(app, scope, picked))
+                                            }, Modifier.weight(1f), menu = if (picked.type == "Person") null else rememberCardActions(app, scope, picked))
                                         }
                                         repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
                                     }
@@ -352,7 +360,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 if (eps.isNotEmpty()) item("eps") {
                                     LpRow("分集", eps, { app.imageUrl(it.id, "Primary", 220) },
                                         { nav.navigate(Route.Detail(it.id, "Episode")) }, thumb = true,
-                                        menu = { cardActions(app, scope, it) })
+                                        menu = { rememberCardActions(app, scope, it) })
                                 }
                             }
                         }
@@ -372,7 +380,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         MediaCard(film, app.imageUrl(film.id, "Primary", 330), {
                             pickedPerson = null
                             nav.navigate(Route.Detail(film.id, film.type))
-                        }, Modifier.fillMaxWidth(), menu = cardActions(app, scope, film))
+                        }, Modifier.fillMaxWidth(), menu = rememberCardActions(app, scope, film))
                     }
                 }
             }

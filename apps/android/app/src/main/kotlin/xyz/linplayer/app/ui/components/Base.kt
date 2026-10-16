@@ -752,6 +752,7 @@ fun LpMenuItem(
     sub: String? = null,
     selected: Boolean = false,
     danger: Boolean = false,
+    icon: ImageVector? = null,
 ) {
     val c = Lp.colors
     Row(
@@ -760,6 +761,10 @@ fun LpMenuItem(
             .padding(horizontal = Sp.x12, vertical = Sp.x2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
+        if (icon != null) {
+            Icon(icon, null, Modifier.size(18.dp), tint = if (danger) c.bad else c.fg2)
+            Spacer(Modifier.width(Sp.x8))
+        }
         Column(Modifier.weight(1f)) {
             Text(
                 label, color = when { danger -> c.bad; selected -> c.acc; else -> c.fg },

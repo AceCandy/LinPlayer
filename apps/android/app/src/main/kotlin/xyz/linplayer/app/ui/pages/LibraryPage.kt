@@ -171,6 +171,10 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
 
+    LaunchedEffect(app) {
+        app.invalidate.collect { if (it == "library" || it == "all") reload++ }
+    }
+
     // 同条件先保留页面/磁盘快照；刷新已加载的范围，不能拼接不同排序的旧尾页。
     LaunchedEffect(route.viewId, filterKey, reload) {
         refreshing = true; refreshError = null
@@ -293,7 +297,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                             it2, app.imageUrl(it2.id, "Primary", 330),
                             { nav.navigate(Route.Detail(it2.id, it2.type)) },
                             Modifier.fillMaxWidth(),
-                            menu = cardActions(app, scope, it2),
+                            menu = rememberCardActions(app, scope, it2),
                         )
                     }
                 }

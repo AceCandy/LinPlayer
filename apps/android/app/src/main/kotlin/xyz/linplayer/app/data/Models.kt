@@ -63,6 +63,7 @@ data class Item(
     val episodeNo: Long? = null,
     val seasonNo: Long? = null,
     val played: Boolean = false,
+    val favorite: Boolean = false,
     /** 当前用户未看子项数；首页只在服务端明确提供统计时使用。 */
     val unplayed: Long = 0,
     val genres: List<String> = emptyList(),
@@ -112,6 +113,7 @@ data class Item(
                 episodeNo = o.long("episode_no"),
                 seasonNo = o.long("season_no"),
                 played = o.bool("played"),
+                favorite = o.bool("is_favorite"),
                 unplayed = o.long("unplayed_item_count") ?: 0,
                 genres = o.strList("genres"),
                 year = o.long("year"),
