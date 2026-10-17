@@ -171,3 +171,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 77: 修复TV构建启动形态并重新交付
+<!-- trellis-session: v=2 fp=bd1d6931dd9cdd57 -->
+
+**Date**: 2026-10-17
+**Task**: 修复TV构建启动形态并重新交付
+**Branch**: `main`
+
+### Summary
+
+旧TV包仅改名且依赖系统模式，导致普通模式设备进入手机界面。增加显式TV构建标记、启动优先级及产物门禁，独立构建TV和手机arm64-v8a包。51次回归通过，实包形态标记、签名、ABI验证通过，签名与旧包一致。已独立审查并归档；未在用户设备安装或做播放验收。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b0f7134b` | fix(android): 显式区分TV构建与设备自动形态 |
+
+### Status
+
+[OK] **Completed**
