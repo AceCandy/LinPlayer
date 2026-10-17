@@ -305,7 +305,7 @@
 | [x] | `prefs.iconLibrary` | `icon_library` | `—` | `IconLibraryReply` | ✅ |
 | [x] | `prefs.setIconSources` | `—` | `—` | `()` | ✅ |
 | [x] | `prefs.preloadCancel` | `preload_cancel` | `—` | `()` | ❌ |
-| [x] | `prefs.preloadItem` | `preload_item` | `item_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `Result<(), String>` | ❌ |
+| [x] | `prefs.preloadItem` | `preload_item` | `item_id: String, media_source_id: Option<String>, is_adult: Option<bool>, return_media: Option<bool>` | `默认立即返回预热状态；return_media=true 返回 MediaVersion[]，视频预热后台执行（关闭预热仍返回版本）` | ❌ |
 | [x] | `prefs.setDetailBlur` | `set_detail_blur` | `value: u8` | `Result<(), String>` | ✅ |
 | [x] | `prefs.setHomeSettings` | **新增** | `settings: HomeSettings` | `Result<(), String>` | — | <!-- 写回首页栏目设置 -->
 | [x] | `prefs.setPrefetchSettings` | `set_prefetch_settings` | `settings: PrefetchSettings` | `Result<(), String>` | ✅ | <!-- 可部分更新;省略字段保留;保存失败回滚;容量立即收紧;成功返回当前Prefs -->

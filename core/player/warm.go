@@ -196,7 +196,7 @@ func cancelWarm() {
 
 // registerWarmCommands 由 RegisterCommands 调用。
 func registerWarmCommands() {
-	// preloadItem 详情页预热。**fire-and-forget**:立刻返回,后台慢慢热。
+	// preloadItem 默认立即返回；return_media 等待媒体版本，但视频探测与预热仍在后台。
 	//
 	// ★ 不能同步等:详情页要的是「秒开」,而预热本身要几十秒。
 	//   等它 = 把一个纯优化做成了一个卡顿。
@@ -209,13 +209,21 @@ func registerWarmCommands() {
 		if itemID == "" {
 			return nil, bus.NewErr(bus.EInvalid, "缺少 item_id")
 		}
+		returnMedia, _ := a["return_media"].(bool)
 		p := config.Current().PrefsOf()
-		if !p.PreloadEnabled {
+		if !p.PreloadEnabled && !returnMedia {
 			return map[string]any{"skipped": "预加载已关闭"}, nil
 		}
 		s, err := sessionFrom(a)
 		if err != nil {
 			return nil, err
+		}
+		if !p.PreloadEnabled {
+			info, err := prefsClient.PlaybackInfo(ctx, s, itemID)
+			if err != nil {
+				return nil, err
+			}
+			return info.Versions(p.VersionRegex), nil
 		}
 		msID, _ := a["media_source_id"].(string)
 		warmCancelMu.Lock()
@@ -227,6 +235,21 @@ func registerWarmCommands() {
 		warmCancel = cancel
 		warmCancelMu.Unlock()
 
+		var info *emby.PlaybackInfo
+		if returnMedia {
+			// 等待版本期间同时响应页面取消；返回后由预热生命周期接管。
+			stop := context.AfterFunc(ctx, cancel)
+			info, err = prefsClient.PlaybackInfo(warmCtx, s, itemID)
+			stop()
+			if err == nil {
+				err = ctx.Err()
+			}
+			if err != nil {
+				cancel()
+				return nil, err
+			}
+		}
+
 		go func() {
 			// ★ 这个 goroutine 有自己的生命周期,别用请求的 ctx —— 那个一返回就取消了,
 			//   预热会当场被掐掉,看起来像「预热根本没工作」。
@@ -237,7 +260,13 @@ func registerWarmCommands() {
 			if ctx.Err() != nil {
 				return
 			}
-			target, err := prefsClient.ResolveStream(ctx, s, itemID, msID, p.VersionRegex)
+			var target *emby.PlaybackTarget
+			var err error
+			if info != nil {
+				target, err = prefsClient.ResolvePlaybackInfo(ctx, s, itemID, msID, p.VersionRegex, info)
+			} else {
+				target, err = prefsClient.ResolveStream(ctx, s, itemID, msID, p.VersionRegex)
+			}
 			if ctx.Err() != nil {
 				return
 			}
@@ -267,6 +296,9 @@ func registerWarmCommands() {
 				"tail_bytes": st.TailBytes, "canceled": st.Canceled,
 			}, "")
 		}()
+		if returnMedia {
+			return info.Versions(p.VersionRegex), nil
+		}
 		return map[string]any{"started": itemID}, nil
 	})
 

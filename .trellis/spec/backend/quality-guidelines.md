@@ -39,7 +39,7 @@
 `prefs.preloadItem`、`prefs.preloadCancel`、`Play` / `PlayResolve`、`Stop`；内部 `cancelWarm()` 与 `proxyFor(ctx, upstreamURL, prefs, readAhead)`。
 
 ### 3. 契约
-命令字段与响应不变，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖取流、代理初始化、字节预热；共享代理和已有缓存保留，正式播放仍独立解析 PlaybackInfo。
+默认预热模式保持原响应；可选 return_media 模式见下方契约，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖取流、代理初始化、字节预热；共享代理和已有缓存保留，正式播放仍独立解析 PlaybackInfo。
 
 ### 4. 校验 / 错误
 缺 item_id → EInvalid；预热关闭 → skipped；取消后的取流错误不记失败日志、不发 preload.done。代理初始化失败仍沿用直连回退。
@@ -101,3 +101,7 @@ Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData�
 `player.play` 可选 `resume_exact=true` 要求非负有限 `resume_secs`，缺失/负数/非数值拒绝；`from_start=true` 优先从零开始。切核时跳过服务端、主服、跨服续播覆盖和已看归零，但保留主服 Link 准备与上报。省略时保持原续播语义，两内核共用同一 play 链路，不用加载后 seek 补救。`primary_progress_test.go` 通过命令入口验证主服与跨服模式下零、非零、接近片尾及从头优先；`resume_test.go` 验证非法明确位置。
 
 - 下一集准备与视频预热分阶段：prepareNext仅解析/探测，warmPrepared按完整Session和request_id匹配启停；暂停仅取消读取子context，保留target/代理/已完成块，恢复不重复ResolveStream或probe，消费/过期/取消关闭父context。TestPreparedWarmWaitsAndPausesWithoutResolvingAgain覆盖信息阶段零视频块、错误身份拒绝、暂停中断尾部请求、恢复和消费后失效；故障注入自动Warm时必须失败。
+
+## 详情版本与预热共用响应
+
+`prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、取消、返回不等待视频探测与正式解析重新请求。

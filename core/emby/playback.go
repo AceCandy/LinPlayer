@@ -96,6 +96,21 @@ var deviceProfile = map[string]any{
 // versionRegex 只在 mediaSourceID 为空 —— 也就是用户**没有手动指定版本**时才参与。
 // 手动选的永远优先。
 func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSourceID, versionRegex string) (*PlaybackTarget, error) {
+	info, err := c.PlaybackInfo(ctx, s, itemID)
+	if err != nil {
+		return nil, err
+	}
+	return c.ResolvePlaybackInfo(ctx, s, itemID, mediaSourceID, versionRegex, info)
+}
+
+// PlaybackInfo 保存本次请求的媒体信息，仅供详情展示与预热共用，不缓存正式播放授权。
+type PlaybackInfo struct {
+	MediaSources  []rawMediaSource `json:"MediaSources"`
+	PlaySessionID *string          `json:"PlaySessionId"`
+}
+
+// PlaybackInfo 请求与正式起播相同的播放能力，尚不探测或读取视频。
+func (c *Client) PlaybackInfo(ctx context.Context, s *Session, itemID string) (*PlaybackInfo, error) {
 	if err := c.requireAdultSupport(ctx, s); err != nil {
 		return nil, err
 	}
@@ -119,14 +134,16 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("PlaybackInfo 失败: HTTP %d", resp.StatusCode)
 	}
-	var info struct {
-		MediaSources  []rawMediaSource `json:"MediaSources"`
-		PlaySessionID *string          `json:"PlaySessionId"`
-	}
+	var info PlaybackInfo
 	if err := json.NewDecoder(resp.Body).Decode(&info); err != nil {
 		return nil, fmt.Errorf("PlaybackInfo 解析失败: %w", err)
 	}
 
+	return &info, nil
+}
+
+// ResolvePlaybackInfo 从本次响应选源并探测地址；详情预热可在后台调用，不阻塞版本展示。
+func (c *Client) ResolvePlaybackInfo(ctx context.Context, s *Session, itemID, mediaSourceID, versionRegex string, info *PlaybackInfo) (*PlaybackTarget, error) {
 	// 服务器发的 PlaySessionId 优先;缺则本地兜底生成(但同一次播放内保持一致)
 	psid := ""
 	if info.PlaySessionID != nil {

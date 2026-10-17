@@ -361,7 +361,7 @@ class PhoneDetailCacheTest {
         val gate = CompletableDeferred<Unit>()
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "emby.itemMedia") gate.await()
+                if (command == "prefs.preloadItem") gate.await()
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -388,7 +388,7 @@ class PhoneDetailCacheTest {
         var requests = 0
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "emby.itemMedia" && ++requests > 1) gate.await()
+                if (command == "prefs.preloadItem" && ++requests > 1) gate.await()
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -447,7 +447,7 @@ class PhoneDetailCacheTest {
         fake.on("emby.itemMedia", handler)
         rule.onNodeWithText("重试").performScrollTo().performClick()
         rule.onNodeWithText("媒体刷新失败", substring = true).assertDoesNotExist()
-        assertEquals(3, fake.calls.count { it.first == "emby.itemMedia" })
+        assertEquals(3, fake.calls.count { it.first == "prefs.preloadItem" })
         assertEquals(2, fake.calls.count { it.first == "emby.itemDetail" })
     }
 
@@ -528,7 +528,7 @@ class PhoneDetailCacheTest {
         var refreshing = false
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (refreshing && command == "emby.itemMedia") gate.await()
+                if (refreshing && command == "prefs.preloadItem") gate.await()
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -564,7 +564,7 @@ class PhoneDetailCacheTest {
         var refreshing = false
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (refreshing && command == "emby.itemMedia") gate.await()
+                if (refreshing && command == "prefs.preloadItem") gate.await()
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -585,7 +585,7 @@ class PhoneDetailCacheTest {
         val gate = CompletableDeferred<Unit>()
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "emby.itemMedia") gate.await()
+                if (command == "prefs.preloadItem") gate.await()
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -617,7 +617,7 @@ class PhoneDetailCacheTest {
                         put("tagline", "迟到的标语"); put("genres", buildJsonArray { add("科幻") })
                     }
                 }
-                if (command == "emby.itemMedia") { mediaStarted = true; mediaGate.await() }
+                if (command == "prefs.preloadItem") { mediaStarted = true; mediaGate.await() }
                 return fake.callJson(command, args, onPartial)
             }
         }
@@ -740,7 +740,7 @@ class PhoneDetailCacheTest {
         fake.on("emby.itemMedia", handler)
         rule.onNodeWithText("重试").performClick()
         rule.onNodeWithContentDescription("版本").assertIsDisplayed()
-        assertEquals(2, fake.calls.count { it.first == "emby.itemMedia" })
+        assertEquals(2, fake.calls.count { it.first == "prefs.preloadItem" })
         assertEquals(1, fake.calls.count { it.first == "emby.itemDetail" })
     }
 

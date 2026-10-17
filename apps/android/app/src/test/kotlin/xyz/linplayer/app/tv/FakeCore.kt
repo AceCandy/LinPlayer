@@ -39,6 +39,14 @@ class FakeCore : CorePort {
     val calls = mutableListOf<Pair<String, JsonObject?>>()
     val handlers = HashMap<String, (JsonObject?) -> JsonElement>()
 
+    init {
+        on("prefs.preloadItem") { args ->
+            if ((args?.get("return_media") as? JsonPrimitive)?.content == "true")
+                handlers.getValue("emby.itemMedia")(args)
+            else JsonNull
+        }
+    }
+
     fun on(cmd: String, f: (JsonObject?) -> JsonElement) { handlers[cmd] = f }
     fun ret(cmd: String, v: JsonElement) { handlers[cmd] = { v } }
 

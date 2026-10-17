@@ -479,7 +479,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     // 媒体选项一次就绪；失败不伪装成默认版本，重试不重复其它详情请求。
     LaunchedEffect(route.itemId, mediaRetry) {
         media = Block.Loading
-        val result = app.block("emby.itemMedia", args("item_id" to route.itemId))
+        val preload = app.block("prefs.preloadItem", args("item_id" to route.itemId, "return_media" to true))
+        // 独立替换过旧核心时仍返回预热状态，沿用旧版媒体读取契约。
+        val result = if (preload is Block.Ok && preload.value !is JsonArray)
+            app.block("emby.itemMedia", args("item_id" to route.itemId)) else preload
         currentCoroutineContext().ensureActive()
         media = when (result) {
             is Block.Ok -> Block.Ok(Version.list(result.value))
@@ -520,8 +523,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             lineLabel = active?.name?.let { "$it · $lineName" } ?: lineName
             linesReady = true
         }
-        // 进详情页就开始预热「▶ 会播的那个条目」。fire-and-forget,失败全吞
-        launch { runCatching { app.call("prefs.preloadItem", args("item_id" to route.itemId)) } }
     }
 
     // 离页取消预热:留着不取消 = 用户翻十个详情就有十条流在偷偷拉

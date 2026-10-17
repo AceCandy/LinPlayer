@@ -194,16 +194,21 @@ func (c *Client) MediaVersions(ctx context.Context, s *Session, itemID, versionR
 	if err := json.NewDecoder(resp.Body).Decode(&w); err != nil {
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
-	texts := make([]string, 0, len(w.MediaSources))
-	out := make([]MediaVersion, 0, len(w.MediaSources))
-	for _, m := range w.MediaSources {
+	return (&PlaybackInfo{MediaSources: w.MediaSources}).Versions(versionRegex), nil
+}
+
+// Versions 与取流共用选版文本，仅生成展示数据，不返回播放地址或会话。
+func (info *PlaybackInfo) Versions(versionRegex string) []MediaVersion {
+	texts := make([]string, 0, len(info.MediaSources))
+	out := make([]MediaVersion, 0, len(info.MediaSources))
+	for _, m := range info.MediaSources {
 		texts = append(texts, sourceMatchText(m))
 		out = append(out, versionFrom(m))
 	}
 	if i := media.PickIndex(texts, versionRegex); i >= 0 {
 		out[i].Preferred = true
 	}
-	return out, nil
+	return out
 }
 
 // sourceMatchText 把一个版本折成一行「可匹配文本」给版本正则用。

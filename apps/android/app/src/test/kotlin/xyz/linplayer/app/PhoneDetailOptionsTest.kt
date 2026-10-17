@@ -21,6 +21,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -173,12 +174,22 @@ class PhoneDetailOptionsTest {
         }))
     }
 
+    @Test fun oldCorePreloadResponseKeepsMediaOptions() {
+        val core = core().apply { ret("prefs.preloadItem", buildJsonObject { put("started", "m1") }) }
+        open(core)
+        rule.onNodeWithContentDescription("版本").assertExists()
+        assertEquals(1, core.calls.count { it.first == "prefs.preloadItem" })
+        assertEquals(1, core.calls.count { it.first == "emby.itemMedia" })
+    }
+
     @Test fun privateDetailKeepsLocalVersionsWithoutCrossServerSwitch() {
         val core = core()
         open(core, privateSpace = true)
         rule.onNodeWithContentDescription("换源").assertDoesNotExist()
         rule.onNodeWithContentDescription("下载").assertDoesNotExist()
-        org.junit.Assert.assertTrue(core.calls.any { it.first == "emby.itemMedia" })
+        org.junit.Assert.assertEquals(1, core.calls.count { it.first == "prefs.preloadItem" })
+        org.junit.Assert.assertTrue(core.calls.single { it.first == "prefs.preloadItem" }.second?.get("return_media") == JsonPrimitive(true))
+        org.junit.Assert.assertTrue(core.calls.none { it.first == "emby.itemMedia" })
         org.junit.Assert.assertTrue(core.calls.none { it.first == "emby.aggregateVersions" })
     }
 

@@ -96,6 +96,8 @@ public sealed class DetailPage : PageBase
 
     /// <summary>这一页有没有发过预热。发两遍不会错,但会白起一次请求。</summary>
     private bool _preloaded;
+    // 同一详情重绘共用媒体请求；失败后允许重试，不持久保存播放授权。
+    private Task<JsonElement>? _mediaRequest;
 
     /// <summary>
     /// 停在详情页时提前把这一片的头部拉到本地(<c>prefs.preloadItem</c>)。
@@ -248,7 +250,7 @@ public sealed class DetailPage : PageBase
                     _previewHost.Content = null;
                     _paint = Paint;
                     _painted = data;
-                    KickPreload(core, s, itemId);
+                    if (!Playable(type)) KickPreload(core, s, itemId);
                     body.Children.Remove(busy);
                     /* 渲染要有边界。这一页的渲染抛异常时**整个进程会当场退出** ——
                        没有对话框、没有日志窗口,用户看到的是「点了详情,软件没了」。
@@ -942,8 +944,7 @@ public sealed class DetailPage : PageBase
         var overview = Str(d, "overview");
         if (_anchors.Wrap("detail.overview", overview != "" ? Overview(overview) : null, d) is { } ov)
             col.Children.Add(ov);
-        /* 媒体信息 / 版本条。**异步补,不挡头部** —— 它要多打一次 PlaybackInfo,
-           为了这一行让标题晚出来是本末倒置。 */
+        /* 媒体信息异步补齐，与后台预热共用一次 PlaybackInfo，不阻塞头部。 */
         col.Children.Add(Loose(_mediaHost));
         if (Playable(type)) _ = LoadMedia(id);
         return col;
@@ -991,18 +992,32 @@ public sealed class DetailPage : PageBase
     /// </summary>
     private async Task LoadMedia(string itemId)
     {
+        if (!DisplayCurrent) return;
+        var request = _mediaRequest ??= FetchMedia();
         List<JsonElement> vers;
         try
         {
-            var s = _displaySession!;
-            var d = await _core.EmbyItemMedia(new
-            {
-                s.server, s.token, s.user_id, s.device_id, item_id = itemId,
-            });
+            var d = await request;
             vers = d.ValueKind == JsonValueKind.Array ? d.EnumerateArray().ToList() : [];
         }
-        catch { return; } // 拿不到就整块不画 —— 详情页主体已经在屏幕上了
-        if (vers.Count == 0) return;
+        catch
+        {
+            if (_mediaRequest == request) _mediaRequest = null;
+            return;
+        }
+        if (!DisplayCurrent || vers.Count == 0) return;
+
+        async Task<JsonElement> FetchMedia()
+        {
+            var s = _displaySession!;
+            var d = await _core.PrefsPreloadItem(new
+            {
+                s.server, s.token, s.user_id, s.device_id, item_id = itemId, return_media = true,
+            });
+            // 旧核心不认识 return_media，仍返回预热状态。
+            return d.ValueKind == JsonValueKind.Array ? d :
+                await _core.EmbyItemMedia(new { s.server, s.token, s.user_id, s.device_id, item_id = itemId });
+        }
 
         /* 版本<b>按文件体积从大到小</b>排(用户 2026-09-04:「版本选择那里
            增加一个排序逻辑,按从大到小排序」)。多版本的片子里体积基本就是画质档
@@ -1023,6 +1038,7 @@ public sealed class DetailPage : PageBase
 
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent) return;
             _mediaHost.Children.Clear();
             var line = Dim("");
             // 四个选择器排一行,放不下自己折行 —— 窄窗口下不会把标题挤出去
