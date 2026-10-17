@@ -1,0 +1,5 @@
+# 修复边界
+
+共享SourcePages承载目录过滤和返回；TV以is_dir/is_video过滤，目录层级返回接BackHandler，根层仍由导航返回。AppState.boot已取得账号表，从同一快照发布当前本机源，不复用只表示插件的activeSource；PhoneRoot的TV首页据此显示既有EmptyState入口，插件与Emby路径保持。
+
+TV换版本通过既有switchTo统一清除不属于新目标的详情字幕预选，恢复仍沿PlayerController/SessionTrackMemory。验证使用真实TvRoot和真实TV播放器面板，核心仅替换为FakeCore。只改相关Android代码、测试和规范，不处理Windows工作树与AppleTV调研。

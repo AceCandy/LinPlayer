@@ -102,6 +102,10 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     private val _activeSource = MutableStateFlow<Account?>(null)
     val activeSource: StateFlow<Account?> = _activeSource.asStateFlow()
 
+    /** 当前本机文件源，与只表示插件源的activeSource分开。 */
+    private val _localSource = MutableStateFlow<Account?>(null)
+    val localSource: StateFlow<Account?> = _localSource.asStateFlow()
+
     private val _hasAnyAccount = MutableStateFlow(false)
     val hasAnyAccount: StateFlow<Boolean> = _hasAnyAccount.asStateFlow()
 
@@ -153,6 +157,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         _session.value = s
         _aggregatePrimary.value = accounts.firstOrNull { it.aggregatePrimary }?.server
         _activeSource.value = accounts.firstOrNull { it.isActive && it.plugin != null }
+        _localSource.value = accounts.firstOrNull { it.isActive && it.kind == "local" }
         _hasAnyAccount.value = accounts.isNotEmpty()
         _loggedIn.value = s != null || accounts.isNotEmpty()
     }

@@ -221,3 +221,10 @@
 
 - TV的Route.Player经PlayerLaunchPage启动横屏PlayerActivity，由TvPlaybackHost挂既有TvPlayerPage；传递版本、从头播放、数据源参数及字幕身份，不启用手机PiP。文件浏览显式传localEntry，走source.play，不按Emby条目播放或回传Emby刷新ID。
 - 正常退出先登记stopIn，再回传实际末集；伴侣与播放失败线路导航回共用浏览栈，不进入旧TV浏览页。添加服务器保留TV扫码和本地目录选择器。PlayerActivityTest覆盖字幕、切集、末集回传及本地来源。
+
+## TV共用浏览审查回归
+
+- 账号来源类型读取核心account.listAccounts的source_kind；AppState.boot从同一账号快照发布localSource，activeSource仍只表示插件源。TV本机源首页提供打开文件夹入口，不能落入Emby首页请求；切回Emby时清本机状态。手机首页路径不变。
+- TV文件浏览仅列is_dir或is_video，不能把任意非目录文件都送入播放器。遥控返回在子目录先退一层，根层再退浏览路由；屏幕返回与遥控返回的层级语义一致。
+- TV换条目或版本清除旧详情字幕预选，让同剧手选字幕按新轨身份恢复；同条目同版本重播不因本次修复丢掉有效预选。测试必须实际走详情预选→手选→版本菜单→新轨恢复，不能只断言参数被清空。
+- SharedTvBrowseTest覆盖实际TvRoot本机首页、来源切换、目录返回及过滤；TvTrackTimingTest覆盖换版本后手选字幕恢复。旧测试只覆盖Emby首页和无预选切集，无法证明上述路径成立。

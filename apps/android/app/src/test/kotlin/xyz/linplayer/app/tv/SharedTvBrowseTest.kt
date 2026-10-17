@@ -14,6 +14,8 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.serialization.json.*
+import xyz.linplayer.app.data.str
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -38,16 +40,90 @@ class SharedTvBrowseTest {
 
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun mount() {
+    private fun mount(configure: (FakeCore) -> Unit = {}) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
-        core = FakeCore().loggedIn().movie()
+        core = FakeCore().loggedIn().movie().also(configure)
         app = AppState(core, scope)
         rule.setContent {
             back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
             TvRoot(app)
         }
         rule.waitForIdle()
+    }
+
+    private fun localFiles(core: FakeCore) {
+        core.ret("emby.currentSession", JsonNull)
+        core.ret("account.listAccounts", arr(buildJsonObject {
+            put("server", "local-library"); put("name", "本地影片"); put("active", true); put("source_kind", "local")
+        }))
+        core.ret("source.currentSource", buildJsonObject { put("server_id", "local-library"); put("server_name", "本地影片"); put("kind", "local") })
+        core.on("source.listDir") { args ->
+            if (args.str("dir_id") == "folder") arr(buildJsonObject {
+                put("id", "episode"); put("name", "子目录影片.mkv"); put("is_video", true)
+            }) else arr(
+                buildJsonObject { put("id", "folder"); put("name", "剧集目录"); put("is_dir", true) },
+                buildJsonObject { put("id", "movie"); put("name", "电影.mkv"); put("is_video", true) },
+                buildJsonObject { put("id", "note"); put("name", "说明.txt"); put("is_video", false) },
+            )
+        }
+    }
+
+    private fun openFilesFromSettings() {
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
+        rule.waitForIdle()
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("文件浏览"))
+        rule.onNodeWithText("文件浏览").performClick()
+        rule.waitForIdle()
+    }
+
+    @Test fun localHomeOffersFileBrowserWithoutEmbyRequests() {
+        mount(::localFiles)
+        rule.onNodeWithText("打开文件夹").assertIsDisplayed()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("打开文件夹").assertIsFocused()
+        rule.onRoot().captureRoboImage("build/shared-tv/local-home.png")
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
+        assertFalse(core.calls.any { it.first in setOf("emby.listResume", "emby.views", "emby.listLatest") })
+        rule.onRoot().captureRoboImage("build/shared-tv/local-files.png")
+    }
+
+    @Test fun localHomeUpdatesWhenSwitchingFromEmbyAndBack() {
+        mount()
+        rule.runOnIdle { localFiles(core); kotlinx.coroutines.runBlocking { app.refreshSession() } }
+        rule.waitForIdle()
+        rule.onNodeWithText("打开文件夹").assertIsDisplayed()
+        assertEquals("local", app.localSource.value?.kind)
+        assertNull(app.activeSource.value)
+        rule.runOnIdle { core.loggedIn(); kotlinx.coroutines.runBlocking { app.refreshSession() } }
+        rule.waitForIdle()
+        assertNull(app.localSource.value)
+        rule.onNodeWithText("打开文件夹").assertDoesNotExist()
+        rule.onNodeWithContentDescription("谎言的代价").assertExists()
+    }
+
+    @Test fun televisionFileBrowserOnlyShowsFoldersAndVideos() {
+        mount(::localFiles)
+        openFilesFromSettings()
+        rule.onNodeWithText("剧集目录").assertIsDisplayed()
+        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
+        rule.onNodeWithText("说明.txt").assertDoesNotExist()
+    }
+
+    @Test fun televisionBackLeavesFolderBeforeLeavingFileBrowser() {
+        mount(::localFiles)
+        openFilesFromSettings()
+        rule.onNodeWithText("剧集目录").performClick()
+        rule.onNodeWithText("子目录影片.mkv").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
+        rule.onNodeWithText("子目录影片.mkv").assertDoesNotExist()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithText("文件浏览").assertExists()
+        rule.onNodeWithText("电影.mkv").assertDoesNotExist()
     }
 
     @Test fun actualTvEntryUsesSharedHomeAndTopNavigation() {

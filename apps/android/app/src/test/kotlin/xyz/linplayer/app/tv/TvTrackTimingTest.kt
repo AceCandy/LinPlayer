@@ -103,6 +103,44 @@ class TvTrackTimingTest {
         assertEquals(listOf("2", "9"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
     }
 
+    @Test fun 详情字幕预选不阻止换版本后的手选字幕恢复() {
+        var version = "ea"
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.setTrack", JsonNull); ret("player.stopPlayback", JsonNull)
+            on("player.play") { args ->
+                version = args.str("media_source_id") ?: "ea"
+                buildJsonObject { put("media_source_id", version) }
+            }
+            on("player.tracks") { arr(
+                buildJsonObject { put("id", if (version == "ea") "1" else "8"); put("kind", "sub"); put("title", "中文字幕"); put("lang", "zho"); put("codec", "subrip"); put("forced", false); put("selected", true); put("ff_index", 2) },
+                buildJsonObject { put("id", if (version == "ea") "2" else "9"); put("kind", "sub"); put("title", "英文字幕"); put("lang", "eng"); put("codec", "subrip"); put("forced", false); put("ff_index", 3) },
+            ) }
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val nav = TvNav().apply {
+            push(TvRoute.Player("sh6", "测试剧集", versionId = "ea", engine = "mpv",
+                subtitle = "{\"sourceId\":\"ea\",\"index\":2}"))
+        }
+        rule.mainClock.autoAdvance = false
+        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        advance(rule, 3_000)
+        assertEquals(listOf("1"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
+        rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        advance(rule, 400)
+        rule.onNodeWithText("英文字幕(内封)").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        advance(rule, 300)
+        rule.onNodeWithText("更多").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        advance(rule, 300)
+        rule.onNodeWithText("版本").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        advance(rule, 300)
+        rule.onNodeWithText("1080p").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        advance(rule, 3_000)
+        assertEquals("eb", version)
+        assertEquals(listOf("1", "2", "9"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
+    }
+
     @Test fun 慢起播不耗尽轨表窗口且起播后应用详情选轨一次() {
         val release = CompletableDeferred<Unit>()
         val core = FakeCore().loggedIn().player().apply { ret("player.setTrack", JsonNull) }

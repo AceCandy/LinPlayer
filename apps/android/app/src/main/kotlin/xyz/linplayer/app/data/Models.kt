@@ -201,7 +201,7 @@ data class Account(
                 remark = o.str("remark"),
                 userName = o.str("user_name") ?: o.str("username"),
                 isActive = o.bool("active") || o.bool("is_active"),
-                kind = o.str("kind"),
+                kind = o.str("source_kind"),
                 plugin = o["plugin"].obj(),
                 aggregate = o.bool("aggregate"),
                 aggregatePrimary = o.bool("aggregate_primary"),

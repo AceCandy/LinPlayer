@@ -218,7 +218,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
     suspend fun switchTo(next: TvRoute.Player) {
         runCatching { controller.stop(ui.position) }
         overlay.close()
-        target = next
+        target = if (next.itemId != target.itemId || next.versionId != target.versionId)
+            next.copy(subtitle = null) else next
     }
 
     fun doSeek(t: Double) {

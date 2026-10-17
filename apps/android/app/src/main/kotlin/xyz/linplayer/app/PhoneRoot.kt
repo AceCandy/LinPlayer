@@ -41,6 +41,7 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.navigation.NavDestination.Companion.hasRoute
 import androidx.navigation.toRoute
+import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.lpTween
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -322,7 +323,15 @@ private fun MainShell(tv: Boolean) {
                 // 当前是插件数据源:首页换成数据源首页(D167),Emby 那一套它一样都没有
                 posterComposable<Route.Home> { xyz.linplayer.app.ui.plugin.Takeover("home") {
                     val src by app.activeSource.collectAsStateWithLifecycle()
-                    src?.let { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } ?: HomePage(nav)
+                    val local by app.localSource.collectAsStateWithLifecycle()
+                    if (tv && local != null && !app.privateSpace.value) {
+                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                            xyz.linplayer.app.ui.components.EmptyState(
+                                "本机文件夹没有首页推荐", "打开文件夹浏览本地影片。", LpIcons.folder,
+                                "打开文件夹", onAction = { nav.navigate(Route.Browse) },
+                            )
+                        }
+                    } else src?.let { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } ?: HomePage(nav)
                 } }
                 posterComposable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
                 posterComposable<Route.Liuying> { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }

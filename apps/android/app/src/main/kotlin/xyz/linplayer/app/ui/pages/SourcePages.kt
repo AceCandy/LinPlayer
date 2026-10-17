@@ -2,6 +2,7 @@ package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.ui.theme.LpText
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -95,6 +96,8 @@ fun BrowsePage(nav: NavController) {
     var adding by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
 
+    BackHandler(enabled = tv && stack.size > 1) { stack = stack.dropLast(1) }
+
     // 谁是当前文件源 + 账号表里还有哪些本机文件夹
     LaunchedEffect(reload) {
         source = runCatching { app.call("source.currentSource") }.getOrNull().obj()
@@ -128,6 +131,7 @@ fun BrowsePage(nav: NavController) {
         state = r.fold({ v ->
             entries = v.arr().mapNotNull { e ->
                 val o = e.obj() ?: return@mapNotNull null
+                if (tv && !o.bool("is_dir") && !o.bool("is_video")) return@mapNotNull null
                 Entry(o.str("id") ?: return@mapNotNull null, o.str("name") ?: "",
                     o.bool("is_dir"), o.long("size"))
             }
