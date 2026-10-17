@@ -1,5 +1,6 @@
 package xyz.linplayer.app.core
 
+import xyz.linplayer.app.BuildConfig
 import android.util.Log
 import android.view.Surface
 import kotlinx.coroutines.CancellableContinuation
@@ -103,7 +104,8 @@ class CoreClient private constructor() : LinPlayerCommands, CorePort {
                     check(abi == LinPlayerAbi.VERSION) {
                         "核心层 ABI 是 $abi,本程序按 ${LinPlayerAbi.VERSION} 编译 —— 版本对不上,不能继续"
                     }
-                    val cfg = """{"dataDir":${q(dataDir)},"platform":"android","version":${q(version)}}"""
+                    val platform = if (BuildConfig.TV_BUILD) "android_tv" else "android"
+                    val cfg = """{"dataDir":${q(dataDir)},"platform":${q(platform)},"version":${q(version)}}"""
                     check(Native.init(cfg) == 0) { "核心层初始化失败" }
                     c.startPump()
                     instance = c

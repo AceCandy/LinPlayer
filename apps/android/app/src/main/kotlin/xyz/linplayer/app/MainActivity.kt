@@ -198,7 +198,7 @@ class MainActivity : ComponentActivity() {
     }
 
     /** 走 TV 形态吗。主题要在 setContent 之前按端加载,所以这一判要能单独拿出来。 */
-    private fun tvShape(): Boolean = isTelevision() || SelfCheck.page?.startsWith("tv") == true
+    internal fun tvShape(): Boolean = BuildConfig.TV_BUILD || isTelevision() || SelfCheck.page?.startsWith("tv") == true
 
     /** 双形态分流(SPEC §8.2):同一个 APK、同一个 Activity。 */
     private fun isTelevision(): Boolean {

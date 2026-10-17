@@ -17,6 +17,8 @@
 | Android 手机 | `bash scripts/pack-android.sh` | `build/android/app-arm64-v8a-release.apk` |
 | Android TV | `bash scripts/pack-android.sh tv` | `build/android/app-tv-armeabi-v7a-release.apk` |
 
+TV可用 `bash scripts/pack-android.sh tv arm64-v8a` 显式出64位测试包，产物为 `build/android/app-tv-arm64-v8a-release.apk`。TV参数决定界面形态、ABI参数决定CPU架构，二者不能互相替代；出包必须校验Manifest中的TV_BUILD标记，禁止复制手机包改名当TV包。
+
 Windows / Linux 脚本支持显式输出目录，但默认交付遵守本表。APK ABI 与 TV 文件名是更新器契约，不擅自改名。
 
 `build/core/`、桌面 `bin/obj`、`apps/android/app/build/outputs/apk/` 是中间位置。

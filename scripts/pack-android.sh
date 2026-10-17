@@ -2,9 +2,9 @@
 # Android 出包。照 scripts/pack-win.sh 的形状。
 #
 #   bash scripts/pack-android.sh [abi ...]      # 默认只有 arm64-v8a(x86_64 要显式传)
-#   bash scripts/pack-android.sh tv             # TV 包 = armeabi-v7a【用户定 2026-09-14】
+#   bash scripts/pack-android.sh tv [abi ...]   # TV默认armeabi-v7a，可显式指定arm64-v8a
 #
-# ★ 32 位包一律叫 `app-tv-armeabi-v7a-release.apk`:应用内更新靠名字里的 `-tv-`
+# ★ TV包一律叫 `app-tv-<abi>-release.apk`:应用内更新靠名字里的 `-tv-`
 #   认 TV 包(core/system/update.go 的 assetKeywordSetsFor),改名前先改那儿。
 #
 # ☠ **「编译通过」不是交付。** 这个脚本的判据是「装得上的、已签名的 APK」,
@@ -22,12 +22,16 @@ cd "$ROOT"
 source scripts/sentry-dsn.sh
 SDK="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-${LOCALAPPDATA:-}/Android/Sdk}}"
 OUT="$ROOT/build/android"
+TV_BUILD=false
 ABIS=()
-for a in "$@"; do [ "$a" = tv ] && ABIS+=(armeabi-v7a) || ABIS+=("$a"); done
-# ★ 默认只编 arm64-v8a【用户定 2026-09-06】。x86_64 只有模拟器用得上,
-#   32 位是 TV。要别的 ABI 就当参数传进来,映射表都还在。
-[ ${#ABIS[@]} -eq 0 ] && ABIS=(arm64-v8a)
-apk_name() { [ "$1" = armeabi-v7a ] && echo "app-tv-$1-release.apk" || echo "app-$1-release.apk"; }
+for a in "$@"; do
+  if [ "$a" = tv ]; then TV_BUILD=true; else ABIS+=("$a"); fi
+done
+# 界面形态和CPU架构分别指定，TV默认ABI保持兼容既有发布命令。
+if [ ${#ABIS[@]} -eq 0 ]; then
+  if [ "$TV_BUILD" = true ]; then ABIS=(armeabi-v7a); else ABIS=(arm64-v8a); fi
+fi
+apk_name() { [ "$TV_BUILD" = true ] && echo "app-tv-$1-release.apk" || echo "app-$1-release.apk"; }
 
 fail=0
 bad() { fail=$((fail + 1)); echo "  ✗ $1"; }
@@ -40,7 +44,7 @@ ok "liblpcore.so + libmpv.so × ${#ABIS[@]}"
 
 echo "== 2. assembleRelease =="
 abis_csv="$(IFS=,; echo "${ABIS[*]}")"
-( cd apps/android && ANDROID_HOME="$SDK" ./gradlew --no-daemon assembleRelease -Plp.abis="$abis_csv" -q ) \
+( cd apps/android && ANDROID_HOME="$SDK" ./gradlew --no-daemon assembleRelease -Plp.abis="$abis_csv" -Plp.tv="$TV_BUILD" -q ) \
   || { bad "assembleRelease 失败"; exit 1; }
 
 mkdir -p "$OUT"
@@ -53,6 +57,17 @@ for abi in "${ABIS[@]}"; do
   found=1
   base="$(apk_name "$abi")"
   cp -f "$apk" "$OUT/$base"
+
+  # 核对产物内的构建形态，防止复用或改名了另一端的旧APK。
+  aapt="$SDK/build-tools/$(ls -1 "$SDK/build-tools" | sort -V | tail -1)/aapt"
+  "$aapt" dump xmltree "$OUT/$base" AndroidManifest.xml | python3 -c '
+import re, sys
+text = sys.stdin.read()
+m = re.search(r"xyz\.linplayer\.app\.TV_BUILD[^\n]*\n[^\n]*android:value[^\n]*=(?:\(type 0x12\))?(0xffffffff|0x0)", text)
+expected = "0xffffffff" if sys.argv[1] == "true" else "0x0"
+if not m or m.group(1) != expected:
+    sys.exit("APK界面形态与请求不一致")
+' "$TV_BUILD" || { bad "$base 的界面形态校验失败"; continue; }
 
   echo "== 3. 验签 $base =="
   # ☠ 名字里带 unsigned = 没挂 signingConfig。这是硬闸门

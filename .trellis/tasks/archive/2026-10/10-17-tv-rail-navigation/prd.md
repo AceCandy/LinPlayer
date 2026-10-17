@@ -71,3 +71,6 @@
 - 最终文件：build/android/app-arm64-v8a-release.apk、build/android/app-tv-arm64-v8a-release.apk，各29,786,509字节（28.41MiB）。SHA-256：d1728e891375a793973f9c2668d8e11132dc401b0c1671d6f2e774658d29973e。
 - pack-android通过；两份产物apksigner实际验签v2/v3通过，Manifest包含LEANBACK_LAUNCHER、extractNativeLibs=true；仅含arm64-v8a，全部so为ELF64/AArch64且压缩。liblpcore/libmpv存在，核心库与本次构建哈希一致，JNI入口存在。
 - 当前本地没有配置崩溃自动上报。未验证真机安装、遥控器长按时长、播放/帧率及远距离可读性；本次交付供用户设备测试。Windows崩溃修复与AppleTV调研未纳入提交。
+
+## 交付纠正
+后续用户截图确认此前改名的TV v8a包在普通设备模式进入手机界面。上文“共用APK改名即可交付TV”的结论不足以满足TV测试要求；10-17-tv-build-shape任务补充显式构建形态、启动分流和产物门禁，重新独立构建TV/手机包。之前80项页面/焦点回归没有覆盖这一启动路径。

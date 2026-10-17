@@ -12,6 +12,7 @@ plugins {
 // 版本一退,更新检查判「已是最新」并**静默**卡死所有老用户。
 val repoRoot = rootDir.parentFile.parentFile
 val lpVersion = File(repoRoot, "VERSION").readText().trim()
+val tvBuild = providers.gradleProperty("lp.tv").orNull == "true"
 val startupDiagnostics = providers.gradleProperty("lp.startupDiagnostics").orNull == "true"
 
 // 签名材料从**不进版本库**的 keystore.properties 读(全局红线)。
@@ -54,6 +55,8 @@ android {
         // 本地构建为空 = SDK 不启用,见 LinPlayerApp
         buildConfigField("String", "SENTRY_DSN", "\"${System.getenv("SENTRY_DSN") ?: ""}\"")
         buildConfigField("boolean", "STARTUP_DIAGNOSTICS", startupDiagnostics.toString())
+        buildConfigField("boolean", "TV_BUILD", tvBuild.toString())
+        manifestPlaceholders["tvBuild"] = tvBuild.toString()
         // 私有网页地址只从环境或本地配置注入，不写入源码。
         listOf("LP_LIUYING_URL", "LP_LIUYING_ADULT_URL").forEach { name ->
             val value = (providers.environmentVariable(name).orNull ?: localProps.getProperty(name).orEmpty()).trim()

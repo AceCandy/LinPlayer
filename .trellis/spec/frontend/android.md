@@ -2,7 +2,7 @@
 
 ## 入口与主题
 
-- LinPlayerApp 初始化进程级核心；MainActivity 只按形态选择 PhoneRoot / TvRoot，Activity 重建不能重复初始化核心。
+- LinPlayerApp 初始化进程级核心；MainActivity 只按形态选择 PhoneRoot / TvRoot，Activity 重建不能重复初始化核心。TV发行包通过 `-Plp.tv=true` 生成 `BuildConfig.TV_BUILD`，启动优先此标记，再检测系统电视模式/自检入口；不得靠改名普通APK交付TV包。TV构建的核心插件平台为android_tv。Manifest同源TV_BUILD标记用于产物门禁；MainActivityShapeTest须分别用lp.tv=true/false运行，覆盖普通系统模式。
 - 手机主题在 ui/theme/Theme.kt，由 LpTheme 提供 Lp.colors；R / Sp / Dim 使用当前源码刻度，不用桌面刻度。
 - 手机共用组件在 ui/components；TV 采用 tv/kit 的 TvC / TvSp / TvR / TvW。
 - 手机服务器探测结果按 `server` 匹配账号、`ok` 转为卡片状态 `ok` / `down`；渲染端不可再按 `up` 判成功。缺少探测结果表示未检测，与连接失败区分；`PhoneManagementUiTest` 核验成功色及三态文字。
