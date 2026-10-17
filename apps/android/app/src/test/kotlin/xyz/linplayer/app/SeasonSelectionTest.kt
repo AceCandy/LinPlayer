@@ -184,12 +184,70 @@ class SeasonSelectionTest {
             assertEquals(0L, status(""""unplayed":0,"child_count":60,"unplayed_count_known":true,"played":$played"""))
         }
         assertEquals(0L, status(""""unplayed":0,"child_count":60,"played":true"""))
+        assertEquals(0L, status(""""played":true"""))
         for (fields in listOf(
             """"child_count":60""",
             """"unplayed":0,"child_count":60,"played":false""",
             """"unplayed":-1,"child_count":60,"unplayed_count_known":true""",
-            """"unplayed":0,"child_count":0,"unplayed_count_known":true,"played":true""",
+            """"unplayed":0,"child_count":0,"unplayed_count_known":true,"played":false""",
         )) org.junit.Assert.assertNull(status(fields))
+    }
+
+    @Test fun phoneSeasonBadgeUsesCompleteEpisodesWithoutSeasonStatistics() = completeSeasonBadge(buildJsonObject {})
+
+    @Test fun phoneSeasonBadgeUsesCompleteEpisodesOverStaleSeasonStatistics() = completeSeasonBadge(buildJsonObject {
+        put("child_count", 60); put("unplayed", 60); put("unplayed_count_known", true); put("played", false)
+    })
+
+    private fun completeSeasonBadge(state: JsonObject) {
+        open(total = 60, seasonState = state, allPlayed = true)
+        pageText("已看 60 / 60").performScrollTo().assertIsDisplayed()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToKey("seasons")
+        val season = rule.onNodeWithContentDescription("查看第1季分集")
+        rule.onNode(hasContentDescription("已看完") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithTag("detail.seasons").captureRoboImage("build/menu-check/season-complete.png")
+        assertEquals(1, core.episodeArgs.size)
+        season.performTouchInput { longClick() }
+        rule.onNodeWithText("标为未看").performClick()
+        rule.waitForIdle()
+        rule.onNode(hasContentDescription("60 集未观看") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertIsDisplayed()
+        assertEquals(JsonPrimitive(false), core.fake.calls.last { it.first == "emby.setPlayed" }.second?.get("played"))
+    }
+
+    @Test fun phoneSeasonBadgeDoesNotCompleteFromPartialOrFailedEpisodes() {
+        open(total = 12, holdAtStart = true, seasonState = buildJsonObject {})
+        rule.runOnIdle { core.pending[0].complete(batch(0, 8, played = true)) }
+        rule.waitForIdle()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToKey("seasons")
+        val badge = rule.onNode(hasContentDescription("已看完") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true)
+        badge.assertDoesNotExist()
+        rule.runOnIdle { core.pending[1].fail() }
+        rule.waitForIdle()
+        badge.assertDoesNotExist()
+        pageText("重试").performScrollTo().performClick()
+        rule.waitForIdle()
+        rule.runOnIdle { core.pending[2].complete(batch(8, 12, played = true)) }
+        rule.waitForIdle()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToKey("seasons")
+        badge.assertIsDisplayed()
+    }
+
+    @Test fun phoneSeasonBadgeDoesNotCompleteFromEarlyEmptyPage() {
+        open(total = 12, holdAtStart = true, seasonState = buildJsonObject {})
+        rule.runOnIdle { core.pending[0].complete(batch(0, 8, played = true)) }
+        rule.waitForIdle()
+        rule.runOnIdle { core.pending[1].complete(batch(8, 8)) }
+        rule.waitForIdle()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange)).performScrollToKey("seasons")
+        rule.onNode(hasContentDescription("已看完") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertDoesNotExist()
     }
 
     @Test fun phoneSeasonUnplayedBadgeRefreshesAfterLongPress() {
@@ -258,7 +316,7 @@ class SeasonSelectionTest {
         assertTrue("操作应正常完成", core.pendingActions.single().job.isCompleted && !core.pendingActions.single().job.isCancelled)
     }
 
-    private fun open(tv: Boolean = false, total: Int = 1, holdAtStart: Boolean = false, resumeEpisode: Int? = null, dark: Boolean = false, episodeStates: Boolean = false, noSeasons: Boolean = false, seasonFailure: Boolean = false) {
+    private fun open(tv: Boolean = false, total: Int = 1, holdAtStart: Boolean = false, resumeEpisode: Int? = null, dark: Boolean = false, episodeStates: Boolean = false, noSeasons: Boolean = false, seasonFailure: Boolean = false, seasonState: JsonObject? = null, allPlayed: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val fake = FakeCore().loggedIn()
@@ -267,7 +325,7 @@ class SeasonSelectionTest {
             if (episodeStates) put("overview", overview)
         })
         val watched = mutableMapOf<String, Boolean>()
-        fun isPlayed(id: String, index: Int) = watched[id] ?: (episodeStates && index == 0)
+        fun isPlayed(id: String, index: Int) = watched[id] ?: (allPlayed || episodeStates && index == 0)
         fake.on("emby.setPlayed") { request ->
             val id = request.str("item_id")!!
             val value = request?.get("played") == JsonPrimitive(true)
@@ -278,10 +336,14 @@ class SeasonSelectionTest {
         fake.on("emby.seriesSeasons") { buildJsonArray {
             for (i in 1..if (noSeasons) 0 else 2) add(buildJsonObject {
                 put("id", "s$i"); put("name", "第 $i 季")
-                put("index_no", i); put("child_count", total); put("unplayed", (0 until total).count { !isPlayed("s$i-$it", it) })
-                put("unplayed_count_known", true)
-                // 容器 Played 尚未同步时，也应按明确的零未看统计显示完成。
-                put("played", false)
+                put("index_no", i)
+                if (seasonState != null) seasonState.forEach { (key, value) -> put(key, value) }
+                else {
+                    put("child_count", total); put("unplayed", (0 until total).count { !isPlayed("s$i-$it", it) })
+                    put("unplayed_count_known", true)
+                    // 容器 Played 尚未同步时，也应按明确的零未看统计显示完成。
+                    put("played", false)
+                }
             })
         } }
         if (seasonFailure) fake.on("emby.seriesSeasons") { throw CoreException("E_NETWORK", "季列表测试失败", true) }
@@ -435,10 +497,10 @@ class SeasonSelectionTest {
     @Test fun phoneEpisodeWithoutSeasonsKeepsKnownSeason() = emptySeasonsOnDetail("Episode", "known-season")
     @Test fun phoneSeasonWithoutSeasonsKeepsRouteParent() = emptySeasonsOnDetail("Season")
 
-    private fun batch(start: Int, end: Int, total: Int = 12) = buildJsonObject {
+    private fun batch(start: Int, end: Int, total: Int = 12, played: Boolean = false) = buildJsonObject {
         put("total", total)
         put("items", buildJsonArray {
-            for (i in start until end) add(item("s1-$i", "渐进分集 ${i + 1}", "Episode", season = 1, episode = i + 1))
+            for (i in start until end) add(item("s1-$i", "渐进分集 ${i + 1}", "Episode", season = 1, episode = i + 1, played = played))
         })
     }
 

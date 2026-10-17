@@ -350,6 +350,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     var seasonImages by remember { mutableStateOf(presentation?.seasonImages.orEmpty()) }
     var seasonLoad by remember { mutableStateOf<Block<Unit>>(Block.Loading) }
     var seasonRetry by remember { mutableStateOf(0) }
+    var seasonEpisodeStates by remember(route.itemId, seasonRetry, returnRevision) { mutableStateOf<Map<String, Item>>(emptyMap()) }
     var curSeason by remember { mutableStateOf(presentation?.season) }
     var fallbackEpisodeParent by remember { mutableStateOf<String?>(null) }
     var episodeRequest by remember { mutableStateOf(0) }
@@ -385,6 +386,16 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
           catch (e: xyz.linplayer.app.core.CoreException) { Block.Fail(e.code, e.advice) }
           catch (e: Exception) { Block.Fail("E_INTERNAL", e.message ?: "分集加载失败") }
         currentCoroutineContext().ensureActive()
+        // 只用达到服务端总数的完整实时分集校准季状态；缓存、半页和提前空页不能推断整季完成。
+        if (result is Block.Ok && episodeTotal == confirmedEpisodes.size.toLong()) {
+            val unplayed = confirmedEpisodes.count { !it.played }.toLong()
+            seasons.firstOrNull { it.id == parent }?.let { season ->
+                seasonEpisodeStates = seasonEpisodeStates + (parent to season.copy(
+                    played = confirmedEpisodes.isNotEmpty() && unplayed == 0L,
+                    unplayed = unplayed, unplayedCountKnown = confirmedEpisodes.isNotEmpty(),
+                ))
+            }
+        }
         episodeLoad = result
     }
     var similar by remember { mutableStateOf<List<Item>>(emptyList()) }
@@ -529,6 +540,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             p.str("role")?.takeIf { it.isNotBlank() })
     } }
     val title = d.str("name") ?: ""
+    // 季响应可晚于分集刷新返回；同一刷新代次中，完整分集状态不被滞后的聚合字段覆盖。
+    val shownSeasons = seasons.map { season ->
+        seasonEpisodeStates[season.id]?.let { state -> season.copy(
+            played = state.played, unplayed = state.unplayed, unplayedCountKnown = state.unplayedCountKnown,
+        ) } ?: season
+    }
     val isEpisode = route.type == "Episode"
     val isSeries = route.type == "Series" || route.type == "Season"
     val isSeriesEntry = route.type == "Series"
@@ -561,7 +578,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         if (initialReady && live != null && cacheAllowed && app.detailCache.generation == epoch &&
             (!isSeries || seasonLoad is Block.Ok) &&
             (isSeries || route.type == "BoxSet" || media is Block.Ok)) {
-            val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, seasons, seasonImages, curSeason,
+            val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, shownSeasons, seasonImages, curSeason,
                 shownEpisodes.take(200), episodeTotal, episodeSummary, audioLang, subLang, subRegex, subsEnabled,
                 serverId, lineLabel, lineCount)
             presentation = snapshot
@@ -1011,7 +1028,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             contentPadding = PaddingValues(horizontal = Sp.x16),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x12),
                         ) {
-                            itemsIndexed(seasons, key = { _, season -> season.id }) { _, season ->
+                            itemsIndexed(shownSeasons, key = { _, season -> season.id }) { _, season ->
                                 var menuOpen by remember(season.id) { mutableStateOf(false) }
                                 val actions = cardActions(app, scope, season.copy(type = "Season"), favoriteAction = false)
                                 Box {
@@ -1405,7 +1422,11 @@ internal fun seasonItem(value: kotlinx.serialization.json.JsonElement): Item? {
         seasonNo = data.long("index_no"),
         unplayed = unplayed ?: 0,
         unplayedCountKnown = known,
-        played = nonEmpty && if (known) unplayed == 0L else data.bool("played"),
+        played = when {
+            known && unplayed != 0L -> false
+            data.bool("played") -> true
+            else -> nonEmpty && known && unplayed == 0L
+        },
     )
 }
 
