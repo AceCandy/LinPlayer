@@ -95,7 +95,7 @@ public sealed class DetailPage : PageBase
     private int _subIndex = -1;
 
     /// <summary>这一页有没有发过预热。发两遍不会错,但会白起一次请求。</summary>
-    private bool _preloaded;
+    private string? _preloadedItemId;
     // 同一详情重绘共用媒体请求；失败后允许重试，不持久保存播放授权。
     private Task<JsonElement>? _mediaRequest;
 
@@ -109,8 +109,8 @@ public sealed class DetailPage : PageBase
     /// </summary>
     private void KickPreload(CoreClient core, Sess s, string itemId)
     {
-        if (_preloaded) return;
-        _preloaded = true;
+        if (_preloadedItemId == itemId) return;
+        _preloadedItemId = itemId;
         _ = core.PrefsPreloadItem(new
         {
             s.server, s.token, s.user_id, s.device_id,
@@ -250,7 +250,6 @@ public sealed class DetailPage : PageBase
                     _previewHost.Content = null;
                     _paint = Paint;
                     _painted = data;
-                    if (!Playable(type)) KickPreload(core, s, itemId);
                     body.Children.Remove(busy);
                     /* 渲染要有边界。这一页的渲染抛异常时**整个进程会当场退出** ——
                        没有对话框、没有日志窗口,用户看到的是「点了详情,软件没了」。
@@ -1917,14 +1916,20 @@ public sealed class DetailPage : PageBase
     /// <summary>分集到了之后,把「第 N 季 · 第 M 集」补到主按钮上。</summary>
     private async Task LabelPlayLater(Button play)
     {
-        if (_episodesTask is null) return;
-        var eps = await _episodesTask;
+        var request = _episodesTask;
+        var revision = _detailRevision;
+        if (request is null) return;
+        var eps = await request;
         if (eps is null || eps.Count == 0) return;
         var next = NextEpisode(eps);
         var label = next.SeasonNo > 0 && next.EpisodeNo > 0
             ? $"第 {next.SeasonNo} 季 · {next.Name}" : next.Name;
         Dispatcher.UIThread.Post(() =>
-            play.Content = next.ResumeSecs > 0 ? $"▶ 继续观看 · {label}" : $"▶ 播放 · {label}");
+        {
+            if (!DisplayCurrent || revision != _detailRevision || request != _episodesTask) return;
+            play.Content = next.ResumeSecs > 0 ? $"▶ 继续观看 · {label}" : $"▶ 播放 · {label}";
+            KickPreload(_core, _displaySession!, next.Id);
+        });
     }
 
     /// <summary>

@@ -343,7 +343,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     }
     var media by remember { mutableStateOf<Block<List<Version>>>(Block.Loading) }
     var mediaRetry by remember { mutableStateOf(0) }
-    val versions = media.valueOrNull ?: presentation?.media.orEmpty()
+    var mediaItemId by remember { mutableStateOf<String?>(null) }
     /** ☠ 「未选」是 `null` 不是 `0` —— 传了 id 核心层就走「手动指定」分支,版本正则整个被跳过。 */
     var pickedVersion by remember { mutableStateOf<String?>(null) }
     var seasons by remember { mutableStateOf(presentation?.seasons.orEmpty()) }
@@ -359,10 +359,17 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     var episodeTotal by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Long?>(null) }
     var episodeLoad by remember(route.itemId, curSeason?.id, episodeRequest) { mutableStateOf<Block<Unit>>(Block.Loading) }
     var episodeRetry by remember { mutableStateOf(0) }
+    var played by remember { mutableStateOf(false) }
+    var refreshPlayedFromSeasons by remember { mutableStateOf(false) }
     LaunchedEffect(app, cacheKey) {
+        var revision = app.userStateRevision.value
         app.invalidate.collect { changed ->
             if (changed == "all" || changed == "library") {
-                detailRetry++
+                val stateChanged = app.userStateRevision.value != revision
+                revision = app.userStateRevision.value
+                val refreshSeasonsOnly = changed == "all" && stateChanged && route.type == "Series" &&
+                    detail is Block.Ok && seasons.isNotEmpty() && seasons.all { it.unplayedCountKnown }
+                if (refreshSeasonsOnly) refreshPlayedFromSeasons = true else detailRetry++
                 if (changed == "all") { episodeRequest++; seasonRetry++ }
             }
         }
@@ -400,7 +407,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     }
     var similar by remember { mutableStateOf<List<Item>>(emptyList()) }
     var favorite by remember { mutableStateOf(false) }
-    var played by remember { mutableStateOf(false) }
     var playedBusy by remember { mutableStateOf(false) }
     var audioLang by remember { mutableStateOf(presentation?.audioLang) }
     var subLang by remember { mutableStateOf(presentation?.subLang) }
@@ -469,26 +475,17 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     if (route.type == "Season") route.itemId else seasonDetail.str("season_id") ?: seriesId
                 } else null
             }
+            if (refreshPlayedFromSeasons) {
+                refreshPlayedFromSeasons = false
+                if (result is Block.Ok && seasons.isNotEmpty() && seasons.all { it.unplayedCountKnown }) {
+                    played = seasons.all { it.unplayed == 0L }
+                } else detailRetry++
+            }
             seasonLoad = when (result) {
                 is Block.Fail -> result
                 else -> Block.Ok(Unit)
             }
         } else seasonLoad = Block.Ok(Unit)
-    }
-
-    // 媒体选项一次就绪；失败不伪装成默认版本，重试不重复其它详情请求。
-    LaunchedEffect(route.itemId, mediaRetry) {
-        media = Block.Loading
-        val preload = app.block("prefs.preloadItem", args("item_id" to route.itemId, "return_media" to true))
-        // 独立替换过旧核心时仍返回预热状态，沿用旧版媒体读取契约。
-        val result = if (preload is Block.Ok && preload.value !is JsonArray)
-            app.block("emby.itemMedia", args("item_id" to route.itemId)) else preload
-        currentCoroutineContext().ensureActive()
-        media = when (result) {
-            is Block.Ok -> Block.Ok(Version.list(result.value))
-            is Block.Fail -> result
-            else -> Block.Loading
-        }
     }
 
     // 辅助请求不等待磁盘、详情或媒体选项。
@@ -552,6 +549,33 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val isSeriesEntry = route.type == "Series"
     val nextEp = if (episodeLoad is Block.Ok) episodes.firstOrNull { it.id == playedItem }
         ?: episodes.firstOrNull { !it.played } ?: episodes.firstOrNull() else null
+    // 容器没有播放源，必须等真实分集确认后才预热。
+    val playbackItemId = when {
+        isSeries -> nextEp?.id
+        route.type in setOf("Movie", "Episode", "Video", "MusicVideo") -> route.itemId
+        else -> null
+    }
+    // 媒体选项一次就绪；失败不伪装成默认版本，重试不重复其它详情请求。
+    LaunchedEffect(playbackItemId, mediaRetry) {
+        mediaItemId = null
+        media = Block.Loading
+        pickedVersion = null
+        val target = playbackItemId ?: return@LaunchedEffect
+        val preload = app.block("prefs.preloadItem", args("item_id" to target, "return_media" to true))
+        // 独立替换过旧核心时仍返回预热状态，沿用旧版媒体读取契约。
+        val result = if (preload is Block.Ok && preload.value !is JsonArray)
+            app.block("emby.itemMedia", args("item_id" to target)) else preload
+        currentCoroutineContext().ensureActive()
+        mediaItemId = target
+        media = when (result) {
+            is Block.Ok -> Block.Ok(Version.list(result.value))
+            is Block.Fail -> result
+            else -> Block.Loading
+        }
+    }
+
+    val currentMedia = media.valueOrNull.takeIf { mediaItemId == playbackItemId }
+    val versions = currentMedia ?: if (isSeries) emptyList() else presentation?.media.orEmpty()
     val shownEpisodes = if (episodes.isNotEmpty() || episodeLoad is Block.Ok) episodes
         else presentation?.takeIf { it.season?.id == curSeason?.id }?.episodes.orEmpty()
     val shownNextEp = nextEp ?: shownEpisodes.firstOrNull { !it.played } ?: shownEpisodes.firstOrNull()
@@ -619,7 +643,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
        所以这里分成两个值:**展示**可以回落到第一条,**发命令**仍然只认 preferred。 */
     val ver = versions.firstOrNull { it.id == pickedVersion }
         ?: defaultVersion(versions) ?: versions.firstOrNull()
-    val liveVersion = media.valueOrNull?.let { fresh ->
+    val liveVersion = currentMedia?.let { fresh ->
         fresh.firstOrNull { it.id == pickedVersion } ?: defaultVersion(fresh)
     }
     var pickedSubtitle by remember(ver?.id) { mutableStateOf<InitialSubtitle?>(null) }
@@ -637,10 +661,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
          做成「这一次的参数」而不是改全局开关 —— 换回来不必再进一趟设置页。 */
     val toPlayer: (String, String?, Boolean) -> Unit = { target, engine, fromStart ->
         xyz.linplayer.app.ui.player.PlaybackClickTimes.navigate(nav, Route.Player(
-            target, title, liveVersion?.id, engine,
+            target, title, liveVersion?.id?.takeIf { target == mediaItemId }, engine,
             // 只有播的就是这一页这一片时,手里这份宽高比才算数
-            ar = if (target == route.itemId) arOf(liveVersion) else 0f, fromStart = fromStart,
-            subtitle = pickedSubtitle?.takeIf { target == route.itemId && it.sourceId == liveVersion?.id }
+            ar = if (target == mediaItemId) arOf(liveVersion) else 0f, fromStart = fromStart,
+            subtitle = pickedSubtitle?.takeIf { target == mediaItemId && it.sourceId == liveVersion?.id }
                 ?.let { kotlinx.serialization.json.Json.encodeToString(it) }))
     }
 
@@ -994,9 +1018,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 }
                             }
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
-                            if (seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading))
-                                xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
-                                    label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
+                            // 加载提示保留占位，尾页完成时不能把正在浏览的分集向上挤动。
+                            Box(Modifier.height(20.dp)) {
+                                if (seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading))
+                                    xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
+                                        label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
+                            }
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
                             EpisodeStrip(app, shownEpisodes, actionScope = scope, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },

@@ -144,6 +144,7 @@ class SeasonSelectionTest {
 
     @Test fun phoneSeasonAndEpisodeLongPressActions() {
         open(episodeStates = true, dark = true)
+        val detailReads = core.fake.calls.count { it.first == "emby.itemDetail" }
         core.fake.ret("download.enqueue", kotlinx.serialization.json.JsonNull)
         core.fake.ret("download.enqueueSeason", kotlinx.serialization.json.JsonNull)
         rule.onNodeWithTag("detail.ep.s1-0").performScrollTo().performTouchInput { longClick() }
@@ -173,6 +174,10 @@ class SeasonSelectionTest {
         rule.onNodeWithText("下载").performClick()
         rule.waitUntil(5000) { core.fake.calls.any { it.first == "download.enqueueSeason" } }
         assertEquals("s1", core.fake.calls.last { it.first == "download.enqueueSeason" }.second.str("parent_id"))
+        assertEquals(detailReads, core.fake.calls.count { it.first == "emby.itemDetail" })
+        val preloads = core.fake.calls.filter { it.first == "prefs.preloadItem" }
+        assertTrue(preloads.isNotEmpty())
+        assertTrue(preloads.all { it.second.str("item_id")?.startsWith("s1-") == true })
     }
 
     @Test fun seasonStatisticsUseSeasonPayloadAndDoNotInventCompletion() {
