@@ -17,3 +17,9 @@
 - 独立只读审查未发现启动/插件/CI接线阻断，提出产物marker正则需要实包验证；将以实际aapt输出确认。
 - CLI默认手机、默认TV v7a、显式TV v8a及显式手机v8a四组实际解析检查通过。
 - 普通构建lp.tv=false下3项启动判断回归通过；工作流50块shell与5个构建凭据闸门通过；实际旧APK缺少TV标记被新产物门禁拒绝。
+
+## 最终交付验证
+- 修复提交b0f7134b；TV和手机使用独立构建配置，实际APK哈希不同。TV Manifest标记true（0xffffffff）、手机false（0x0），脚本实际marker校验均通过，独立审查待核实项已排除。
+- 两份arm64-v8a包apksigner v2/v3实际验证通过，全部so为ELF64/AArch64且压缩；libmpv与本次liblpcore一致性通过。新旧签名证书一致，可覆盖保留数据。
+- TV文件LinPlayer-TV-2.0.0-b0f7134b-arm64-v8a.apk，手机文件LinPlayer-Phone-2.0.0-b0f7134b-arm64-v8a.apk，均在build/android；此前错误命名的b67f2a0f独立TV副本已移除，基础路径已替换为正确构建。
+- 测试合计51次：TV构建48项、普通构建3项。未在用户模拟器安装，也未做实际设备播放/性能验收；不把入口判断回归当作用户设备验收。
