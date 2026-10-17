@@ -245,3 +245,25 @@
 ### Next Steps
 
 - 从已提交版本打arm64手机release包并验签；真机观感与播放待验。
+
+
+## Session 80: TV共用手机浏览与顶部导航
+<!-- trellis-session: v=2 fp=a5f6d8b032e2f68b -->
+
+**Date**: 2026-10-17
+**Task**: TV共用手机浏览与顶部导航
+**Branch**: `main`
+
+### Summary
+
+TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留扫码、隐私和TV播放，隐藏下载；独立审查后补齐本地播放标记，79项回归及命令参数/隐私门禁通过。未打APK，真机遥控和真实播放未验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9761e72c` | refactor(tv): 复用手机浏览页面并适配顶部导航与遥控播放 |
+
+### Status
+
+[OK] **Completed**
