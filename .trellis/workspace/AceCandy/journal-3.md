@@ -193,3 +193,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 78: 详情预热目标与分集分页稳定性
+<!-- trellis-session: v=2 fp=b85a502deb0e751c -->
+
+**Date**: 2026-10-17
+**Task**: 详情预热目标与分集分页稳定性
+**Branch**: `main`
+
+### Summary
+
+真实分集预热、手机已看局部刷新、固定加载提示占位避免尾页完成时滚动跳动。99项定向测试通过，桌面编译通过，独立审查完成，任务已归档。未打包部署或实机联调。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `79ad569b` | fix(detail): 优化分集预热与状态刷新并稳定分页布局 |
+
+### Status
+
+[OK] **Completed**
