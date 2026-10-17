@@ -270,7 +270,7 @@ fun MediaCard(
 internal fun homeEpisodeStatus(item: Item): Long? = when {
     (item.isSeries || item.type == "Season") && item.unplayedCountKnown && item.unplayed > 0 -> item.unplayed
     (item.isSeries || item.type == "Season") && item.unplayedCountKnown && item.unplayed == 0L && item.played -> 0L
-    item.type in setOf("Movie", "Episode") && item.played -> 0L
+    item.type in setOf("Movie", "Episode", "Season") && item.played -> 0L
     else -> null
 }
 

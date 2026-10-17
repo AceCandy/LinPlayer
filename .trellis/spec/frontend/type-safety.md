@@ -75,7 +75,17 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 
 ## 手机卡片长按用户状态
 
-- 季卡统计必须按 `SeasonInfo` 的 `unplayed / index_no / child_count` 转换，不使用普通 `Item` 的 `unplayed_item_count / season_no`，核心季响应也不含 `type_`。手机详情缓存与实时结果共用 `seasonItem`；正数显示未看数，零值仅在非空季且 `played=true` 时显示完成，未知/负数/空季不补完成标记。`SeasonSelectionTest.seasonStatisticsUseSeasonPayloadAndDoNotInventCompletion` 与 `phoneSeasonUnplayedBadgeRefreshesAfterLongPress` 覆盖真实字段形状、边界及长按整季标记后的角标刷新；长按触摸回归通过不代表已复现用户设备问题。
+- 季卡统计按 `SeasonInfo` 的 `unplayed / unplayed_count_known / index_no / child_count` 转换，不使用普通 `Item` 的统计字段，季响应也不含 `type_`。缓存与实时结果共用 `seasonItem`；非空季明确零未看足以显示完成，不额外要求服务端 `played=true`，菜单同步为“标为未看”。统计未知时仅以明确已看标记兜底，空季不补完成。长按触摸回归通过不代表已复现用户设备问题。
+
+### 季完成统计契约
+
+1. 范围：季响应到海报与长按菜单，修复零未看但容器 Played 未同步时缺少勾选，不修改服务端原始 Played。
+2. 签名：`emby.seriesSeasons` 参数和绑定不变，`SeasonInfo` 新增 `unplayed_count_known: bool`，false省略。
+3. 契约：仅服务端 `UserData.UnplayedItemCount` 明确为非负数时known=true；既有unplayed默认零保留。非空季known=true按数量推导展示played，否则回退服务端played。
+4. 边界：统计缺失/null/负数为未知；空季不完成；正数优先未看数量；旧缓存缺少known不能按默认零推导完成。
+5. 用例：60集、明确零未看且Played=false/null显示完成；未知零且Played=false隐藏；非空季明确已看可兜底。
+6. 回归：`TestSeasonUnplayedStatisticsPresence`检查HTTP到JSON的显式零/正数/缺失/null/负数；`seasonStatisticsUseSeasonPayloadAndDoNotInventCompletion`和`phoneSeasonUnplayedBadgeRefreshesAfterLongPress`覆盖边界与Played固定false时角标/菜单刷新。新增故障在旧逻辑下失败，修复后通过；未替代真机与实服验收。
+7. 正反例：错误是只接Played或将缺失统计默认零当完成；正确是保留统计存在性，用非空季的明确零未看判断。MSG基准d4f35f70工作树的`emby_series_payload.go`/`emby_played_hierarchy.go`按可见分集汇总（该仓有其它未提交改动）；Yamby APK仅确认角标控件存在，混淆调用链未确认，不能据此声称其具体判据。
 
 - Emby 列表 `UserData.IsFavorite` → `Item.is_favorite`，季列表 `UserData.Played` → `SeasonInfo.played`；两者使用可选布尔指针与 `omitempty`，显式 false 保留，缺失不扩展旧响应。基准为 MediaStationGo `38f4bcfb` 的 Items / Season payload。
 - 手机菜单成功写入后更新本次菜单状态，失败保留原值；懒列表回收后保留成功状态，新列表快照重新校准。详情季/集不提供收藏，季下载复用 `download.enqueueSeason(parent_id=季ID)`，单集用 `download.enqueue(item_id)`；隐私空间与跨服下载限制保留。

@@ -27,7 +27,7 @@ type Person struct {
 
 // SeasonInfo 季。
 type SeasonInfo struct {
-	// 当前用户整季已看状态，缺失时不以未看数量推断。
+	// 服务端返回的当前用户整季已看状态，缺失时保留未知。
 	Played     *bool    `json:"played,omitempty"`
 	LibraryIDs []string `json:"library_ids,omitempty"`
 	ID         string   `json:"id"`
@@ -35,7 +35,9 @@ type SeasonInfo struct {
 	IndexNo    *int64   `json:"index_no"`
 	ChildCount int64    `json:"child_count"`
 	Unplayed   int64    `json:"unplayed"`
-	HasPrimary bool     `json:"has_primary"`
+	// 仅服务端明确返回非负统计时为真，区分零未看与统计缺失。
+	UnplayedCountKnown bool `json:"unplayed_count_known,omitempty"`
+	HasPrimary         bool `json:"has_primary"`
 }
 
 // ItemDetail 条目详情。
@@ -330,15 +332,17 @@ func (c *Client) Seasons(ctx context.Context, s *Session, seriesID string) ([]Se
 		if value, ok := ud["Played"].(bool); ok {
 			played = &value
 		}
+		unplayed, unplayedKnown := ud["UnplayedItemCount"].(float64)
 		out = append(out, SeasonInfo{
-			Played:     played,
-			LibraryIDs: jstrList(m, "LibraryIds"),
-			ID:         jstr(m, "Id"),
-			Name:       jstr(m, "Name"),
-			IndexNo:    jint(m, "IndexNumber"),
-			ChildCount: jint64or0(m, "ChildCount"),
-			Unplayed:   jint64or0(ud, "UnplayedItemCount"),
-			HasPrimary: hasImg,
+			UnplayedCountKnown: unplayedKnown && unplayed >= 0,
+			Played:             played,
+			LibraryIDs:         jstrList(m, "LibraryIds"),
+			ID:                 jstr(m, "Id"),
+			Name:               jstr(m, "Name"),
+			IndexNo:            jint(m, "IndexNumber"),
+			ChildCount:         jint64or0(m, "ChildCount"),
+			Unplayed:           jint64or0(ud, "UnplayedItemCount"),
+			HasPrimary:         hasImg,
 		})
 	}
 	return out, nil

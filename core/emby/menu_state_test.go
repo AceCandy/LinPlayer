@@ -41,3 +41,39 @@ func TestMenuUserState(t *testing.T) {
 		})
 	}
 }
+
+func TestSeasonUnplayedStatisticsPresence(t *testing.T) {
+	for _, tc := range []struct {
+		name, state string
+		known       bool
+	}{
+		{"zero", `{"UnplayedItemCount":0,"Played":false}`, true},
+		{"positive", `{"UnplayedItemCount":3}`, true},
+		{"missing", `{}`, false},
+		{"null", `{"UnplayedItemCount":null}`, false},
+		{"negative", `{"UnplayedItemCount":-1}`, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				w.Write([]byte(`{"Items":[{"Id":"s1","ChildCount":3,"UserData":` + tc.state + `}]}`))
+			}))
+			defer up.Close()
+			seasons, err := NewClient("test").Seasons(context.Background(), &Session{Server: up.URL, UserID: "u"}, "series")
+			if err != nil {
+				t.Fatal(err)
+			}
+			b, err := json.Marshal(seasons[0])
+			if err != nil {
+				t.Fatal(err)
+			}
+			var got map[string]any
+			if err := json.Unmarshal(b, &got); err != nil {
+				t.Fatal(err)
+			}
+			known, _ := got["unplayed_count_known"].(bool)
+			if known != tc.known {
+				t.Fatalf("known=%v want=%v payload=%s", known, tc.known, b)
+			}
+		})
+	}
+}

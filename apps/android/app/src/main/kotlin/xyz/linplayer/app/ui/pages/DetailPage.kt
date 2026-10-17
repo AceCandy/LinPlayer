@@ -1398,12 +1398,14 @@ private fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
 internal fun seasonItem(value: kotlinx.serialization.json.JsonElement): Item? {
     val data = value.obj()
     val unplayed = data.long("unplayed")
+    val known = data.bool("unplayed_count_known") && unplayed != null && unplayed >= 0
+    val nonEmpty = (data.long("child_count") ?: 0) > 0
     return Item.from(value)?.copy(
         type = "Season",
         seasonNo = data.long("index_no"),
         unplayed = unplayed ?: 0,
-        unplayedCountKnown = unplayed != null && unplayed >= 0 &&
-            (unplayed > 0 || (data.long("child_count") ?: 0) > 0),
+        unplayedCountKnown = known,
+        played = nonEmpty && if (known) unplayed == 0L else data.bool("played"),
     )
 }
 

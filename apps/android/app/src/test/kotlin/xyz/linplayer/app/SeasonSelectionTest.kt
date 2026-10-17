@@ -179,13 +179,16 @@ class SeasonSelectionTest {
         fun status(fields: String) = xyz.linplayer.app.ui.components.homeEpisodeStatus(
             xyz.linplayer.app.ui.pages.seasonItem(kotlinx.serialization.json.Json.parseToJsonElement(
                 """{"id":"s1","index_no":1,$fields}"""))!!)
-        assertEquals(60L, status("\"unplayed\":60,\"child_count\":60"))
-        assertEquals(0L, status("\"unplayed\":0,\"child_count\":60,\"played\":true"))
+        assertEquals(60L, status(""""unplayed":60,"child_count":60,"unplayed_count_known":true"""))
+        for (played in listOf("true", "false", "null")) {
+            assertEquals(0L, status(""""unplayed":0,"child_count":60,"unplayed_count_known":true,"played":$played"""))
+        }
+        assertEquals(0L, status(""""unplayed":0,"child_count":60,"played":true"""))
         for (fields in listOf(
-            "\"child_count\":60",
-            "\"unplayed\":-1,\"child_count\":60",
-            "\"unplayed\":0,\"child_count\":60,\"played\":false",
-            "\"unplayed\":0,\"child_count\":0,\"played\":true",
+            """"child_count":60""",
+            """"unplayed":0,"child_count":60,"played":false""",
+            """"unplayed":-1,"child_count":60,"unplayed_count_known":true""",
+            """"unplayed":0,"child_count":0,"unplayed_count_known":true,"played":true""",
         )) org.junit.Assert.assertNull(status(fields))
     }
 
@@ -276,7 +279,9 @@ class SeasonSelectionTest {
             for (i in 1..if (noSeasons) 0 else 2) add(buildJsonObject {
                 put("id", "s$i"); put("name", "第 $i 季")
                 put("index_no", i); put("child_count", total); put("unplayed", (0 until total).count { !isPlayed("s$i-$it", it) })
-                put("played", total > 0 && (0 until total).all { isPlayed("s$i-$it", it) })
+                put("unplayed_count_known", true)
+                // 容器 Played 尚未同步时，也应按明确的零未看统计显示完成。
+                put("played", false)
             })
         } }
         if (seasonFailure) fake.on("emby.seriesSeasons") { throw CoreException("E_NETWORK", "季列表测试失败", true) }
