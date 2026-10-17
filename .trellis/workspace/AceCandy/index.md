@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 74
+- **Total Sessions**: 75
 - **Last Active**: 2026-10-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~129 | Active |
+| `journal-3.md` | ~151 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 75 | 2026-10-17 | 详情版本与预热请求合并 | `f1bef944` | `main` |
 | 74 | 2026-10-17 | 闭环季角标与完整分集状态并重新出包 | `08b197df` | `main` |
 | 73 | 2026-10-17 | 修正季完成判据并重新交付手机包 | `974c650f` | `main` |
 | 72 | 2026-10-17 | 修复手机季卡片观看状态并交付手机包 | `cceb268b` | `main` |

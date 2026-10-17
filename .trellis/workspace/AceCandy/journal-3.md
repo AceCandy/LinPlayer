@@ -127,3 +127,25 @@
 ### Next Steps
 
 - 未获取用户服务器真实响应，未真机验收，不能把模拟复现当作实服根因已确认。
+
+
+## Session 75: 详情版本与预热请求合并
+<!-- trellis-session: v=2 fp=99555fcf80309b69 -->
+
+**Date**: 2026-10-17
+**Task**: 详情版本与预热请求合并
+**Branch**: `main`
+
+### Summary
+
+手机和桌面详情共用一次 PlaybackInfo；正式起播重新解析，旧核心兼容回退。核心竞态测试、61项手机测试、桌面编译与独立复核通过。已提交归档，未打包或真机联调。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `f1bef944` | perf(detail): 合并版本展示与预热的播放信息请求 |
+
+### Status
+
+[OK] **Completed**
