@@ -32,12 +32,14 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.material3.Text
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -126,14 +128,17 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     var refreshing by remember { mutableStateOf(true) }
     var ended by xyz.linplayer.app.data.keepState("$ck.ended") { false }
     var refreshError by remember { mutableStateOf<String?>(null) }
-    var reload by remember { mutableStateOf(0) }
+    var reload by rememberSaveable { mutableStateOf(0) }
+    val userStateRevision by app.userStateRevision.collectAsState()
+    // 只跳过本返回栈条目已经完成的请求；取消、失败及新进入仍需加载。
+    var completedRequest by rememberSaveable { mutableStateOf<String?>(null) }
     // 排序/筛选也留住:返回后筛选条被重置回默认,和「白重拉一次」一样恼人
     var sort by xyz.linplayer.app.data.keepState("$ck.sort") { SORTS[0] }
     var sortOrder by xyz.linplayer.app.data.keepState("$ck.sortOrder") { "Descending" }
     var minRating by xyz.linplayer.app.data.keepState("$ck.rating") { RATINGS[0] }
     var genre by xyz.linplayer.app.data.keepState<String?>("$ck.genre") { null }
     var showFilter by remember { mutableStateOf(false) }
-    var filters by remember { mutableStateOf<Block<List<String>>>(Block.Loading) }
+    var filters by xyz.linplayer.app.data.keepState<Block<List<String>>>("$ck.filters") { Block.Loading }
     var filtersSupported by xyz.linplayer.app.data.keepState("$ck.filtersSupported.${app.session.value?.server}") { true }
     /* 手里这份结果是**按哪套筛选**拉回来的。没有它就分不清「返回这一页」和
        「换了筛选」,而这两件事下面那道闸要走相反的路 —— 见 LaunchedEffect。 */
@@ -141,6 +146,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
 
     val hasFilter = genre != null || minRating.second > 0
     val filterKey = "${sort.second}|$sortOrder|${minRating.second}|${genre.orEmpty()}"
+    val requestKey = "$filterKey|$reload|$userStateRevision"
 
     /* ☠ **这条命令收的是 `parent_id` + 一个嵌套的 `query` 对象**,不是平铺参数。
        平铺传过去核心层一个都读不到:`parent_id` 空 = 不限库、`query` 缺 = 默认分页,
@@ -171,12 +177,12 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         }
     }
 
-    LaunchedEffect(app) {
-        app.invalidate.collect { if (it == "library" || it == "all") reload++ }
-    }
-
-    // 同条件先保留页面/磁盘快照；刷新已加载的范围，不能拼接不同排序的旧尾页。
-    LaunchedEffect(route.viewId, filterKey, reload) {
+    // 普通返回复用结果；筛选、重试或用户状态变化时刷新原已加载范围。
+    LaunchedEffect(route.viewId, requestKey) {
+        if (completedRequest == requestKey && fetchedAs == filterKey && first is Block.Ok && filters !is Block.Loading) {
+            refreshing = false
+            return@LaunchedEffect
+        }
         refreshing = true; refreshError = null
         if (needResetLibrary(items.isNotEmpty(), first is Block.Ok, fetchedAs, filterKey)) {
             first = Block.Loading; items = emptyList(); total = null; ended = false
@@ -209,6 +215,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                     if (items.isNotEmpty() && items.firstOrNull()?.id != fresh.firstOrNull()?.id &&
                         grid.firstVisibleItemIndex == 0 && !grid.isScrollInProgress) grid.requestScrollToItem(0)
                     items = fresh.toList(); total = count; ended = done; first = Block.Ok(Unit)
+                    completedRequest = requestKey
                 }
                 if (filters !is Block.Ok) launch {
                     filters = when (val r = app.displayBlock("emby.getFilters", args("parent_id" to route.viewId)) { if (filters !is Block.Ok) filters = Block.Ok(it.obj().strList("genres")) }) {
@@ -227,7 +234,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     // 记录可见末项和累计数；新一页到达后即使仍在底部也能继续触发。
-    LaunchedEffect(route.viewId, filterKey, reload) {
+    LaunchedEffect(route.viewId, requestKey) {
         snapshotFlow { Triple(grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1, items.size, refreshing) }
             .collect { (last, size, busy) ->
                 if (busy || loadingMore || ended || first !is Block.Ok || size == 0 || last < size - 6) return@collect

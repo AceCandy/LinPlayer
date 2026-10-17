@@ -59,6 +59,8 @@ class PhoneLibraryUiTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val title = "这是一个名字很长的电影媒体库"
+    private lateinit var navigation: androidx.navigation.NavHostController
+    private lateinit var appState: AppState
     private val entries = (1..30).map {
         item("film-$it", "影片 $it", year = 2024, rating = if (it == 1) 9.2 else null,
             runtime = 3600.0, resume = 1800.0)
@@ -71,15 +73,18 @@ class PhoneLibraryUiTest {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope, browseCache = cache)
+        appState = app
         runBlocking { app.boot() }
         rule.setContent {
             LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
                     val nav = rememberNavController()
+                    navigation = nav
                     NavHost(nav, startDestination = Route.Library("lib-0", title)) {
                         composable<Route.Library> { LibraryPage(nav, it) }
                         composable<Route.Search> { Text("搜索范围：${it.toRoute<Route.Search>().viewId}") }
+                        composable<Route.Detail> { Text("详情目标：${it.toRoute<Route.Detail>().itemId}") }
                     }
                 }
             }
@@ -89,6 +94,101 @@ class PhoneLibraryUiTest {
 
     private fun core() = FakeCore().loggedIn().library().apply {
         ret("emby.listItemsPage", page(*entries.toTypedArray()))
+    }
+
+    @Test fun detailReturnKeepsSortedPagesAndScrollWithoutRequests() {
+        val fake = core()
+        fake.on("emby.listItemsPage") { a ->
+            val offset = a?.get("query").obj()?.get("start_index").toString().toInt()
+            buildJsonObject {
+                put("items", JsonArray((1..90).drop(offset).take(30).map { item("film-$it", "影片 $it") }))
+                put("total", 90)
+            }
+        }
+        open(fake)
+        rule.onNodeWithTag("library.sort").performClick()
+        rule.onNodeWithText("名称").performScrollTo().performClick()
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(29)
+        rule.waitForIdle()
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(30)
+        val top = rule.onNodeWithText("影片 31").fetchSemanticsNode().boundsInRoot.top
+        rule.onNodeWithText("影片 31").performClick()
+        rule.onNodeWithText("详情目标：film-31").assertIsDisplayed()
+        val requests = fake.calls.count { it.first in listOf("emby.listItemsPage", "emby.getFilters") }
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        assertEquals(requests, fake.calls.count { it.first in listOf("emby.listItemsPage", "emby.getFilters") })
+        rule.onNodeWithText("60+ 部").assertIsDisplayed()
+        assertEquals(top, rule.onNodeWithText("影片 31").fetchSemanticsNode().boundsInRoot.top, .1f)
+        rule.onNodeWithTag("library.refreshing").assertDoesNotExist()
+        rule.onNode(hasScrollToIndexAction()).performScrollToIndex(59)
+        rule.waitForIdle()
+        val query = fake.calls.last { it.first == "emby.listItemsPage" }.second?.get("query").obj()
+        assertEquals("60", query?.get("start_index").toString())
+        assertEquals("SortName", query.str("sort_by"))
+    }
+
+    @Test fun detailStateChangeRefreshesOnReturn() {
+        val fake = core().apply { ret("emby.setPlayed", buildJsonObject { put("item_id", "film-1"); put("played", true) }) }
+        open(fake)
+        rule.onNodeWithText("影片 1").performClick()
+        rule.onNodeWithText("详情目标：film-1").assertIsDisplayed()
+        val requests = fake.calls.count { it.first == "emby.listItemsPage" }
+        rule.runOnIdle {
+            runBlocking { appState.call("emby.setPlayed", buildJsonObject { put("item_id", "film-1"); put("played", true) }) }
+        }
+        fake.ret("emby.listItemsPage", page(item("updated", "更新后的影片")))
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        assertEquals(requests + 1, fake.calls.count { it.first == "emby.listItemsPage" })
+        rule.onNodeWithText("更新后的影片").assertIsDisplayed()
+    }
+
+    @Test fun emptyLibraryReturnDoesNotReload() {
+        val fake = core().apply { ret("emby.listItemsPage", page()) }
+        open(fake)
+        rule.onNodeWithText("这个库还没有内容").assertIsDisplayed()
+        rule.runOnIdle { navigation.navigate(Route.Detail("film-1", "Movie")) }
+        rule.onNodeWithText("详情目标：film-1").assertIsDisplayed()
+        val requests = fake.calls.count { it.first == "emby.listItemsPage" }
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        assertEquals(requests, fake.calls.count { it.first == "emby.listItemsPage" })
+        rule.onNodeWithText("这个库还没有内容").assertIsDisplayed()
+    }
+
+    @Test fun newLibraryEntryStillRefreshesCachedResults() {
+        val fake = core()
+        open(fake)
+        val requests = fake.calls.count { it.first == "emby.listItemsPage" }
+        fake.ret("emby.listItemsPage", page(item("new-film", "新入库影片")))
+        rule.runOnIdle { navigation.navigate(Route.Library("lib-0", "重新进入媒体库")) }
+        rule.waitForIdle()
+        assertEquals(requests + 1, fake.calls.count { it.first == "emby.listItemsPage" })
+        rule.onNodeWithText("新入库影片").assertIsDisplayed()
+    }
+
+    @Test fun cancelledInitialRequestLoadsAgainOnReturn() {
+        val fake = core()
+        val gate = CompletableDeferred<Unit>()
+        var requests = 0
+        val port = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.listItemsPage") { requests++; gate.await() }
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            open(port)
+            rule.onNodeWithTag("library.loading").assertIsDisplayed()
+            rule.runOnIdle { navigation.navigate(Route.Detail("film-1", "Movie")) }
+            rule.onNodeWithText("详情目标：film-1").assertIsDisplayed()
+            rule.runOnIdle { navigation.popBackStack() }
+            rule.waitForIdle()
+            assertEquals(2, requests)
+            rule.runOnIdle { gate.complete(Unit) }
+            rule.onNodeWithText("影片 1").assertIsDisplayed()
+        } finally { gate.complete(Unit) }
     }
 
     @Test fun cachedGridShowsInsertedPostersAtTheStart() {
@@ -358,7 +458,13 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("聚合视界").assertExists()
         rule.onNodeWithText("服务器 A").performTouchInput { longClick() }
         rule.waitForIdle()
-        rule.onNodeWithContentDescription("聚合视界").assertDoesNotExist()
+        assertTrue(app.privateSpace.value)
+        val privateCallsStart = core.calls.size
+        rule.onNodeWithContentDescription("聚合视界").performClick()
+        rule.onNodeWithText("流影").assertIsDisplayed()
+        rule.onNodeWithText("下载").assertDoesNotExist()
+        rule.onNodeWithText("排行榜").assertDoesNotExist()
+        rule.onNodeWithText("日历").assertDoesNotExist()
         rule.onNodeWithContentDescription("观看历史").assertDoesNotExist()
         rule.onNodeWithContentDescription("搜索").performClick()
         rule.onNodeWithTag("search.aggregate").assertDoesNotExist()
@@ -366,10 +472,13 @@ class PhoneLibraryUiTest {
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         val request = core.calls.last { it.first == "emby.search" }.second
         assertEquals("true", request?.get("is_adult").toString())
-        assertTrue(core.calls.none { it.first in listOf("emby.aggregateOverview", "source.aggregateSearch", "emby.watchHistoryList") })
+        assertTrue(core.calls.drop(privateCallsStart).none {
+            it.first in listOf("emby.aggregateOverview", "source.aggregateSearch", "emby.watchHistoryList")
+        })
         rule.onNodeWithContentDescription("首页").performClick()
-        rule.onNodeWithText("隐私空间 · 点击退出").performClick()
+        rule.onNodeWithText("服务器 A").performClick()
         rule.waitForIdle()
+        assertTrue(!app.privateSpace.value)
         rule.onNodeWithContentDescription("聚合视界").assertExists()
     }
 

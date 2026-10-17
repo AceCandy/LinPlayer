@@ -164,6 +164,39 @@ class PhoneHomeRefreshTest {
         rule.onNodeWithText("私密媒体库").assertDoesNotExist()
     }
 
+    @Test fun darkHomeToolbarKeepsGradientAfterScroll() = homeToolbarGradient(true)
+
+    @Test fun lightHomeToolbarKeepsGradientAfterScroll() = homeToolbarGradient(false)
+
+    private fun homeToolbarGradient(dark: Boolean) {
+        val core = FakeCore().loggedIn().apply {
+            ret("emby.listResume", arr(item("resume", "续播作品")))
+        }
+        openHome(core, dark = dark)
+        val initial = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)).performTouchInput {
+            swipeUp(startY = height * .4f, endY = height * .3f, durationMillis = 600)
+        }
+        val scrolled = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
+        assertTrue("须实际滚动且海报仍在顶栏下方", scrolled.bottom < initial.bottom && scrolled.bottom > 100f)
+        val settings = rule.onNodeWithContentDescription("设置").fetchSemanticsNode().boundsInRoot
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        val y = settings.bottom.toInt() - 2
+        val background = if (dark) xyz.linplayer.app.ui.theme.DarkColors.bg else xyz.linplayer.app.ui.theme.LightColors.bg
+        val color = pixels[2, y]
+        val upper = pixels[2, settings.top.toInt() + 2]
+        assertTrue("顶栏上下必须保留渐变，不能整块实心黑底",
+            kotlin.math.abs(color.red - upper.red) + kotlin.math.abs(color.green - upper.green) +
+                kotlin.math.abs(color.blue - upper.blue) > .03f)
+        assertTrue("滚动后顶栏不应变为不透明页面底色",
+            kotlin.math.abs(color.red - background.red) + kotlin.math.abs(color.green - background.green) +
+                kotlin.math.abs(color.blue - background.blue) > .03f)
+        rule.onRoot().captureRoboImage("build/home-toolbar/scrolled-$dark.png")
+        rule.onNodeWithContentDescription("设置").performClick()
+        rule.onNodeWithText("其它页面").assertIsDisplayed()
+    }
+
     @Test fun uncachedCandidatesCanCreateHeroWithoutScanDownloadingImages() {
         val core = FakeCore().loggedIn().apply { ret("emby.listResume", arr(item("cold", "未缓存作品"))) }
         openHome(core, cachedImages = false, expectHero = true)

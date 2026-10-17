@@ -341,12 +341,14 @@ fun HomePage(nav: NavController) {
     }
 
     LpImmersive(barHeight = 56.dp, barHorizontalPadding = Sp.x16,
-        barBackground = if (xyz.linplayer.app.ui.components.rememberScrolled(list)) Lp.colors.bg else Color.Transparent, bar = {
+        barBackground = if (xyz.linplayer.app.ui.components.rememberScrolled(list)) {
+            if (banners.isNotEmpty()) Color.Black.copy(alpha = .74f) else Lp.colors.bg.copy(alpha = .9f)
+        } else Color.Transparent, bar = {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
             ServerChip(accounts.firstOrNull { it.isActive },
-                onImage = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list),
+                onImage = banners.isNotEmpty(),
                 onLongClick = { if (!privateSpace) scope.launch {
                     try { app.enterPrivateSpace() }
                     catch (e: kotlinx.coroutines.CancellationException) { throw e }
@@ -366,7 +368,7 @@ fun HomePage(nav: NavController) {
         if (!privateSpace) Box(Modifier.size(48.dp).pressable({ nav.navigate(Route.Settings) }),
             contentAlignment = Alignment.Center) {
             Icon(LpIcons.settings, "设置", Modifier.size(24.dp),
-                tint = if (banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)) Color.White else Lp.colors.fg2)
+                tint = if (banners.isNotEmpty()) Color.White else Lp.colors.fg2)
         }
     }) { pad ->
         // 地基块失败才整页报错:只有 emby.views 是地基

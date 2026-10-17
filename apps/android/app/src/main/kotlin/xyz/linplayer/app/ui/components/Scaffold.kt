@@ -114,7 +114,12 @@ fun LpImmersive(
     val c = Lp.colors
     Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
         content(contentInsets())
-        Column(Modifier.fillMaxWidth().background(barBackground)) {
+        // 遮罩向下淡出，让滚动内容透出，避免顶栏底部出现纯色硬边。
+        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(
+            0f to barBackground,
+            .65f to barBackground.copy(alpha = barBackground.alpha * .9f),
+            1f to Color.Transparent,
+        ))) {
             Spacer(Modifier.windowInsetsTopHeight(WindowInsets.statusBars))
             Row(
                 Modifier.fillMaxWidth().heightIn(min = barHeight).padding(horizontal = barHorizontalPadding),

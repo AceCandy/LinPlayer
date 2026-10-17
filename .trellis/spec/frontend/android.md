@@ -40,7 +40,7 @@
 - release signingConfig 必须实际接入；签名材料在忽略的本地文件。最终 APK 统一交付路径见 [构建与交付](../shared/build-release.md)。
 
 - 首页合集和各库最新按 LazyColumn 可见栏目触发，任务归页面作用域，离屏不重复取消；刷新保留原快照，账号变化/离页取消失效任务。
-- 手机首页不展示或请求「接下来看」。每次恢复 RESUMED 更新继续观看；首页采用紧凑服务器栏，媒体库 → 继续观看 → 各库最新 → 合集，电影Hero复用首页已有作品、不调用随机推荐；库入口及最新结果复用页面缓存，重新进入/显式下拉/失效通知时后台重取。刷新主请求组结束、失败或取消后必须收起指示器。
+- 手机首页不展示或请求「接下来看」。每次恢复 RESUMED 更新继续观看；首页采用紧凑服务器栏，媒体库 → 继续观看 → 各库最新 → 合集，电影Hero复用首页已有作品、不调用随机推荐；库入口及最新结果复用页面缓存，重新进入/显式下拉/失效通知时后台重取。媒体库作品网格普通返回同一导航条目时不重取已成功的相同筛选结果，保留分页和滚动；新导航条目、筛选、重试及userStateRevision变化仍刷新原已加载范围。完成标记随导航条目保存且仅成功后提交，不能仅凭PageCache有内容跳过取消或失败请求；分面结果同时留存。PhoneLibraryUiTest覆盖普通/空列表返回零新增请求、状态变更刷新、新进入刷新和初次请求取消后返回重试。刷新主请求组结束、失败或取消后必须收起指示器。
 - 手机普通聚合页快捷入口为下载、排行榜、日历；服务器独立 Panel，统计下直接显示无标题续播轨。进入/下拉传 `counts_only=true`，已有核心快照时只更新统计；播放/续播失效通知仍完整刷新。成功覆盖数字（含0），失败逐字段保留，首次未知不伪造0。首次无快照居中大加载，热刷新不插行、不清内容。图片用所属服 `line_url` 经代理；跨服详情确认目标线路/用户激活后导航。回归见 `PhoneAggregateCacheTest`。
 - 隐私空间保留聚合 Tab，仅承载流影入口；分支在普通快照读取和请求之前返回，不开放跨服聚合。流影二级页顶部返回，右侧「卍解」开关替代标签栏，默认关闭显示普通流影、开启显示 18+；隐藏悬浮导航且不预留其高度，网页全宽填满顶栏下方至系统导航安全区的空间，返回聚合后恢复导航；网页按需加载、本页内保留位置，隐藏/后台暂停媒体，离页销毁，不暴露原生脚本桥。两地址从 `LP_LIUYING_URL` / `LP_LIUYING_ADULT_URL` 环境或本地配置注入，未配置明确提示。WebView 配置标准 WebChromeClient，自动播放策略固定允许；暂停前先记录正在播放的媒体，返回仅恢复该集合，不恢复用户已暂停或已移出页面的视频。网页脚本完成后才暂停原生 WebView，迟到回调必须检查当前状态与挂载关系；重复后台通知不得覆盖待恢复集合。回归见 `PhoneLiuyingTest`。
 - 手机与 TV 榜单/公共日历调用 `emby.extRankings/extRankingItems/extCalendar`，经 `extensionBlock` 消费统一快照；E_UNSUPPORTED 明确展示，不能静默或退回旧快照。手机榜单下拉刷新、触底按页追加并按来源 ID 去重，空页/无新增停止、追加失败保留条目并重试原页；列表逐项懒加载，底部 inset 放进 contentPadding。日历日本时区，卡片经 `openExtension` 实时唯一匹配进详情，无标题搜索。个人同步和提醒保留，不查询赞助；回归见 `PhoneDiscoverUiTest`、`DisplayCacheTest`、`TvFocusTest.extension*`。
@@ -214,3 +214,5 @@
 - 手机私密流光由 `PhoneRoot` 内唯一 `PrivateNeonHost` 提供 `State<Float>` 相位，`LpTheme` 下发空间标志；固定10秒基础时长，由Compose应用一次系统倍率，禁止同时手动乘LocalMotionScale；仅RESUMED且倍率>0推进。绘制层读取相位，不能每帧重组页面；后台/零倍率静态，普通空间相位为空。`privateNeonBorder(corner,inset,enabled)` 放在形状clip之前，青红渐变只旋转着色器，轮廓和多层透明宽线缓存；明确按钮/筛选胶囊/导航外壳接入，纯图标用 `privateNeonIcon`，不能挂通用pressable以免给海报或服名套框。MainShell播放交接页禁用外框，独立PlayerActivity不装宿主。`PrivateNeonTest`断言真实像素移动、无逐帧重组、后台/前台、零倍率、退出和无宿主不发光，以及按钮亮边和图标柔光；`PhoneThemeTest`验证服名底色与深浅切换，`FloatingTabTest`验证私密流影往返。真机GPU/耗电与屏幕安全区另验。
 
 - M3 FilterChip的最小交互布局高于可见表面；荧光不能画在整块最小触摸区上。MediaFilterChip在外层minimumInteractiveComponentSize保留布局空间，仅内层Surface关闭最小布局并按可见轮廓画光，点击仍由原控件接收。PrivateNeonTest同时断言深浅像素贴边和扩展区真实点击；倍率回归同时设置Compose MotionDurationScale与LocalMotionScale，验证0.5/2倍的一圈分别5/20秒，避免仅覆盖默认倍率得到假绿。
+
+- 手机首页滚动后的顶栏保护仍须半透明向下渐隐，禁止切换为纯色硬边；叠图服名与设置图标保持浅色。PhoneHomeRefreshTest用深浅主题实际滚动、上下像素变化及设置点击回归。
