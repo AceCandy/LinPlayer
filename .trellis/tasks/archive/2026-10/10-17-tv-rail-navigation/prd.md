@@ -64,3 +64,10 @@
 - 提交前80项回归全部通过（36焦点、3隐私、35页面截图、1实图首页、5插件路由），无跳过。参数门禁259处通过。
 - 独立审查的服名位置疑点已按源码和预览排除：i是路由索引，弹性空白在搜索0之前，不在服名6之前。其它未发现阻断问题。
 - Android共用APK按UiModeManager分流，当前两端均arm64-v8a，因此构建一次并提供手机/TV两个名称的相同已签名文件；不修改默认TV v7a策略。
+
+## 最终交付
+- 代码提交：b67f2a0fa191f68b1f569667dbdee39b00c407a3。
+- 2.0.0，versionCode 20000，minSdk24、targetSdk36；手机和TV均arm64-v8a，共用同一APK，按设备形态分流。核心内嵌2.0.0-dev+代码提交号，与本次构建一致。
+- 最终文件：build/android/app-arm64-v8a-release.apk、build/android/app-tv-arm64-v8a-release.apk，各29,786,509字节（28.41MiB）。SHA-256：d1728e891375a793973f9c2668d8e11132dc401b0c1671d6f2e774658d29973e。
+- pack-android通过；两份产物apksigner实际验签v2/v3通过，Manifest包含LEANBACK_LAUNCHER、extractNativeLibs=true；仅含arm64-v8a，全部so为ELF64/AArch64且压缩。liblpcore/libmpv存在，核心库与本次构建哈希一致，JNI入口存在。
+- 当前本地没有配置崩溃自动上报。未验证真机安装、遥控器长按时长、播放/帧率及远距离可读性；本次交付供用户设备测试。Windows崩溃修复与AppleTV调研未纳入提交。
