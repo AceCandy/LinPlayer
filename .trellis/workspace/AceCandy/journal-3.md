@@ -149,3 +149,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 76: TV顶部导航与影院首页交付
+<!-- trellis-session: v=2 fp=b9692ee2ff41c490 -->
+
+**Date**: 2026-10-17
+**Task**: TV顶部导航与影院首页交付
+**Branch**: `main`
+
+### Summary
+
+完成TV首页通栏设计与服名统一顶栏，移除TV下载和媒体库导航；80项定向回归、独立复核及参数/隐私门禁通过。提交并归档任务，交付2.0.0手机与TV arm64-v8a安装包，各28.41MiB；实际v2/v3验签、ELF64/AArch64、JNI、播放库及LEANBACK入口检查通过。未推送；真机安装、长按手感和播放性能等待设备测试。Windows崩溃修复与AppleTV调研保持未提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b67f2a0f` | feat(tv): 重设计首页与顶部导航并精简入口 |
+
+### Status
+
+[OK] **Completed**
