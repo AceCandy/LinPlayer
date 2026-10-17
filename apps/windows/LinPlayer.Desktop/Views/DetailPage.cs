@@ -98,6 +98,8 @@ public sealed class DetailPage : PageBase
     private string? _preloadedItemId;
     // 同一详情重绘共用媒体请求；失败后允许重试，不持久保存播放授权。
     private Task<JsonElement>? _mediaRequest;
+    private CancellationTokenSource _mediaCancellation = new();
+    private string? _mediaItemId;
 
     /// <summary>
     /// 停在详情页时提前把这一片的头部拉到本地(<c>prefs.preloadItem</c>)。
@@ -128,8 +130,21 @@ public sealed class DetailPage : PageBase
     public DetailPage(CoreClient core, string server, string itemId)
     {
         _core = core; _server = server;
-        DetachedFromVisualTree += (_, _) => _displayDetached = true;
-        AttachedToVisualTree += (_, _) => _displayDetached = false;
+        DetachedFromVisualTree += (_, _) =>
+        {
+            _displayDetached = true;
+            _mediaCancellation.Cancel();
+        };
+        AttachedToVisualTree += (_, _) =>
+        {
+            _displayDetached = false;
+            if (!_mediaCancellation.IsCancellationRequested) return;
+            _mediaCancellation.Dispose();
+            _mediaCancellation = new();
+            if (_mediaRequest is { IsCompletedSuccessfully: true } && _mediaHost.Children.Count > 0) return;
+            if (_mediaRequest is not { IsCompletedSuccessfully: true }) _mediaRequest = null;
+            if (_mediaItemId is { } mediaItemId) _ = LoadMedia(mediaItemId);
+        };
 
         /* 窗口能拉到任意大小之后,**页面里那些写死的尺寸得自己跟上**
            (用户 2026-09-11:「里面的样式也要能够自由缩放才行呀」)。
@@ -992,6 +1007,8 @@ public sealed class DetailPage : PageBase
     private async Task LoadMedia(string itemId)
     {
         if (!DisplayCurrent) return;
+        _mediaItemId = itemId;
+        var ct = _mediaCancellation.Token;
         var request = _mediaRequest ??= FetchMedia();
         List<JsonElement> vers;
         try
@@ -1004,7 +1021,7 @@ public sealed class DetailPage : PageBase
             if (_mediaRequest == request) _mediaRequest = null;
             return;
         }
-        if (!DisplayCurrent || vers.Count == 0) return;
+        if (ct.IsCancellationRequested || !DisplayCurrent || vers.Count == 0) return;
 
         async Task<JsonElement> FetchMedia()
         {
@@ -1012,10 +1029,10 @@ public sealed class DetailPage : PageBase
             var d = await _core.PrefsPreloadItem(new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = itemId, return_media = true,
-            });
+            }, ct);
             // 旧核心不认识 return_media，仍返回预热状态。
             return d.ValueKind == JsonValueKind.Array ? d :
-                await _core.EmbyItemMedia(new { s.server, s.token, s.user_id, s.device_id, item_id = itemId });
+                await _core.EmbyItemMedia(new { s.server, s.token, s.user_id, s.device_id, item_id = itemId }, ct);
         }
 
         /* 版本<b>按文件体积从大到小</b>排(用户 2026-09-04:「版本选择那里
@@ -1037,7 +1054,7 @@ public sealed class DetailPage : PageBase
 
         Dispatcher.UIThread.Post(() =>
         {
-            if (!DisplayCurrent) return;
+            if (ct.IsCancellationRequested || !DisplayCurrent) return;
             _mediaHost.Children.Clear();
             var line = Dim("");
             // 四个选择器排一行,放不下自己折行 —— 窄窗口下不会把标题挤出去

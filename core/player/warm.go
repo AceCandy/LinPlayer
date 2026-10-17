@@ -237,10 +237,8 @@ func registerWarmCommands() {
 
 		var info *emby.PlaybackInfo
 		if returnMedia {
-			// 等待版本期间同时响应页面取消；返回后由预热生命周期接管。
-			stop := context.AfterFunc(ctx, cancel)
-			info, err = prefsClient.PlaybackInfo(warmCtx, s, itemID)
-			stop()
+			// 媒体查询归页面请求所有；停止预热不影响当前页取得版本。
+			info, err = prefsClient.PlaybackInfo(ctx, s, itemID)
 			if err == nil {
 				err = ctx.Err()
 			}

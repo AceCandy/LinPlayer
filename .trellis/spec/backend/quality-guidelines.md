@@ -33,13 +33,13 @@
 ## 场景：详情预热取消与正式起播
 
 ### 1. 范围 / 触发
-离开详情、新详情预热、正式起播和停播必须取消旧预热，包括尚未完成的 PlaybackInfo；防止晚到请求抢带宽或替换正式播放代理。
+离开详情、新详情预热、正式起播和停播必须取消旧视频预热；默认后台模式包含尚未完成的 PlaybackInfo。return_media 的媒体查询由页面命令 context 所有，停止/替换预热不取消查询；查询完成仍返回版本，但已取消的预热不得恢复或替换正式播放代理。
 
 ### 2. 签名
 `prefs.preloadItem`、`prefs.preloadCancel`、`Play` / `PlayResolve`、`Stop`；内部 `cancelWarm()` 与 `proxyFor(ctx, upstreamURL, prefs, readAhead)`。
 
 ### 3. 契约
-默认预热模式保持原响应；可选 return_media 模式见下方契约，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖取流、代理初始化、字节预热；共享代理和已有缓存保留，正式播放仍独立解析 PlaybackInfo。
+默认预热模式保持原响应；可选 return_media 模式见下方契约，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖后台取流、代理初始化、字节预热；return_media 查询使用页面命令 ctx，页面取消时终止查询。共享代理和已有缓存保留，正式播放仍独立解析 PlaybackInfo。
 
 ### 4. 校验 / 错误
 缺 item_id → EInvalid；预热关闭 → skipped；取消后的取流错误不记失败日志、不发 preload.done。代理初始化失败仍沿用直连回退。
@@ -104,4 +104,4 @@ Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData�
 
 ## 详情版本与预热共用响应
 
-`prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、取消、返回不等待视频探测与正式解析重新请求。
+`prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、页面取消、停止/替换预热与正式起播不打断版本查询、返回不等待视频探测与正式解析重新请求。

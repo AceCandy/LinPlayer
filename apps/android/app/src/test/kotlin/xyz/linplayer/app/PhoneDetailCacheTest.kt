@@ -371,12 +371,18 @@ class PhoneDetailCacheTest {
         rule.onNodeWithContentDescription("版本").assertDoesNotExist()
         rule.onNodeWithContentDescription("音轨").assertDoesNotExist()
         rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
-        rule.onNodeWithTag("detail.play").assertDoesNotExist()
-        rule.onNodeWithTag("detail.options").assertDoesNotExist()
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasTestTag("detail.overview"))
+        rule.onNodeWithTag("detail.overview").assertIsDisplayed()
+        rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasTestTag("detail.options"))
+        rule.onNodeWithTag("detail.options").assertIsDisplayed()
         rule.runOnIdle { gate.complete(Unit) }
         rule.onNodeWithContentDescription("版本").assertIsDisplayed()
         rule.onNodeWithContentDescription("音轨").assertIsDisplayed()
         rule.onNodeWithText("正在读取播放选项…").assertDoesNotExist()
+        assertEquals(1, fake.calls.count { it.first == "emby.itemDetail" })
+        assertEquals(1, fake.calls.count { it.first == "prefs.preloadItem" })
     }
 
     @Test fun warmMediaRefreshKeepsOptionsAndCannotUseOldVersionForPlayback() {
@@ -580,7 +586,7 @@ class PhoneDetailCacheTest {
         rule.onNodeWithContentDescription("版本").assertIsDisplayed()
     }
 
-    @Test fun firstMediaOptionsAppearAtTheirFinalHeight() {
+    @Test fun mediaOptionsFillAfterMetadataIsAlreadyVisible() {
         val fake = FakeCore().loggedIn().movie()
         val gate = CompletableDeferred<Unit>()
         val core = object : CorePort by fake {
@@ -591,18 +597,16 @@ class PhoneDetailCacheTest {
         }
         open(AppState(core, scope))
         fun height() = rule.onNodeWithTag("detail.options").fetchSemanticsNode().boundsInRoot.height
-        rule.onNodeWithTag("detail.options").assertDoesNotExist()
+        rule.onNodeWithTag("detail.options").assertExists()
+        rule.onNodeWithTag("detail.play").assertExists()
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { gate.complete(Unit) }
-        rule.mainClock.advanceTimeBy(96)
-        val middle = height()
-        rule.mainClock.advanceTimeBy(500)
-        val after = height()
-        assertTrue("loaded options must have multiple real rows", after > 160f)
-        assertEquals("初次正文不逐项展开高度", after, middle, .1f)
+        rule.mainClock.advanceTimeBy(600)
+        assertTrue("loaded options must have multiple real rows", height() > 160f)
+        assertEquals(1, fake.calls.count { it.first == "emby.itemDetail" })
     }
 
-    @Test fun lateMetadataFadesTagsButDoesNotExposeUnfinishedPlayLayout() {
+    @Test fun lateMetadataDisplaysBodyBeforeMediaOptionsFinish() {
         val fake = FakeCore().loggedIn().movie()
         val metadataGate = CompletableDeferred<Unit>()
         val mediaGate = CompletableDeferred<Unit>()
@@ -627,7 +631,8 @@ class PhoneDetailCacheTest {
         rule.mainClock.autoAdvance = false
         rule.runOnIdle { metadataGate.complete(Unit) }
         rule.mainClock.advanceTimeBy(96)
-        rule.onNodeWithTag("detail.play").assertDoesNotExist()
+        rule.onNodeWithTag("detail.play").assertExists()
+        rule.onNodeWithContentDescription("版本").assertDoesNotExist()
         val firstContrast = tagContrast("科幻")
         rule.mainClock.advanceTimeBy(500)
         val settledContrast = tagContrast("科幻")

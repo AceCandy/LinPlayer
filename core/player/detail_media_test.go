@@ -118,7 +118,7 @@ func TestDetailMediaDisabledAndFailure(t *testing.T) {
 }
 
 func TestDetailMediaCancellation(t *testing.T) {
-	for _, action := range []string{"request", "leave", "play", "replace"} {
+	for _, action := range []string{"request", "leave"} {
 		t.Run(action, func(t *testing.T) {
 			regWarmOnce.Do(registerWarmCommands)
 			setup(t)
@@ -158,11 +158,8 @@ func TestDetailMediaCancellation(t *testing.T) {
 			case "request":
 				cancel()
 			case "leave":
+				cancel()
 				_, _ = bus.Invoke(context.Background(), "prefs.preloadCancel", nil)
-			case "play":
-				_, _ = PlayResolve(context.Background(), &emby.Session{Server: up.URL, Token: "test", UserID: "user"}, "new", 0, "")
-			case "replace":
-				_, _ = bus.Invoke(context.Background(), "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "new", "return_media": true})
 			}
 			select {
 			case err := <-done:
@@ -220,5 +217,78 @@ func TestDetailMediaReturnsBeforeVideoProbeAndCancelsIt(t *testing.T) {
 	warmMu.Unlock()
 	if currentProxy() != nil {
 		t.Fatal("取消后不应发布代理")
+	}
+}
+
+func TestDetailMediaWarmCancellationKeepsQuery(t *testing.T) {
+	for _, action := range []string{"cancel", "play", "replace"} {
+		t.Run(action, func(t *testing.T) {
+			regWarmOnce.Do(registerWarmCommands)
+			setup(t)
+			entered, release := make(chan struct{}), make(chan struct{})
+			var releaseOnce sync.Once
+			unblock := func() { releaseOnce.Do(func() { close(release) }) }
+			var streams atomic.Int64
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if strings.HasSuffix(r.URL.Path, "/PlaybackInfo") {
+					if strings.Contains(r.URL.Path, "/new/") {
+						http.Error(w, "failed", 503)
+						return
+					}
+					close(entered)
+					<-release
+					fmt.Fprint(w, `{"MediaSources":[{"Id":"source","Name":"4K","Container":"mkv"}]}`)
+					return
+				}
+				if strings.HasPrefix(r.URL.Path, "/Videos/old/") {
+					streams.Add(1)
+				}
+			}))
+			defer up.Close()
+			defer unblock()
+			defer cancelWarm()
+			defer closeSharedProxy()
+			done := make(chan error, 1)
+			ctx, cancel := context.WithCancel(context.Background())
+			defer cancel()
+			go func() {
+				out, err := bus.Invoke(ctx, "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "old", "return_media": true})
+				if err == nil {
+					versions := out.([]emby.MediaVersion)
+					if len(versions) != 1 || versions[0].ID != "source" {
+						err = fmt.Errorf("媒体版本未返回: %v", out)
+					}
+				}
+				done <- err
+			}()
+			select {
+			case <-entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("媒体查询未开始")
+			}
+			if streams.Load() != 0 {
+				t.Fatal("取得媒体信息前不能读取视频")
+			}
+			switch action {
+			case "cancel":
+				_, _ = bus.Invoke(context.Background(), "prefs.preloadCancel", nil)
+			case "play":
+				_, _ = PlayResolve(context.Background(), &emby.Session{Server: up.URL, Token: "test", UserID: "user"}, "new", 0, "")
+			case "replace":
+				_, _ = bus.Invoke(context.Background(), "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "new", "return_media": true})
+			}
+			unblock()
+			select {
+			case err := <-done:
+				if err != nil {
+					t.Fatalf("停止预热不应打断当前详情媒体查询: %v", err)
+				}
+			case <-time.After(5 * time.Second):
+				t.Fatal("媒体查询未完成")
+			}
+			if streams.Load() != 0 {
+				t.Fatal("查询完成不应恢复已停止的预热")
+			}
+		})
 	}
 }

@@ -599,9 +599,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         else -> optionsReady
     }
     var bodyShown by remember { mutableStateOf(presentation != null) }
-    val showBody = bodyShown || initialReady || detail is Block.Fail
+    val bodyReady = if (isSeries) initialReady else live != null || cached != null
+    val showBody = bodyShown || bodyReady || detail is Block.Fail
     SideEffect {
-        if (initialReady) bodyShown = true
+        if (bodyReady) bodyShown = true
         if (initialReady && live != null && cacheAllowed && app.detailCache.generation == epoch &&
             (!isSeries || seasonLoad is Block.Ok) &&
             (isSeries || route.type == "BoxSet" || media is Block.Ok)) {
