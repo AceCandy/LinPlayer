@@ -75,6 +75,8 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 
 ## 手机卡片长按用户状态
 
+- 季卡统计必须按 `SeasonInfo` 的 `unplayed / index_no / child_count` 转换，不使用普通 `Item` 的 `unplayed_item_count / season_no`，核心季响应也不含 `type_`。手机详情缓存与实时结果共用 `seasonItem`；正数显示未看数，零值仅在非空季且 `played=true` 时显示完成，未知/负数/空季不补完成标记。`SeasonSelectionTest.seasonStatisticsUseSeasonPayloadAndDoNotInventCompletion` 与 `phoneSeasonUnplayedBadgeRefreshesAfterLongPress` 覆盖真实字段形状、边界及长按整季标记后的角标刷新；长按触摸回归通过不代表已复现用户设备问题。
+
 - Emby 列表 `UserData.IsFavorite` → `Item.is_favorite`，季列表 `UserData.Played` → `SeasonInfo.played`；两者使用可选布尔指针与 `omitempty`，显式 false 保留，缺失不扩展旧响应。基准为 MediaStationGo `38f4bcfb` 的 Items / Season payload。
 - 手机菜单成功写入后更新本次菜单状态，失败保留原值；懒列表回收后保留成功状态，新列表快照重新校准。详情季/集不提供收藏，季下载复用 `download.enqueueSeason(parent_id=季ID)`，单集用 `download.enqueue(item_id)`；隐私空间与跨服下载限制保留。
 - 详情季/集菜单直接读取页面的季、分集状态，不能用独立 `rememberSaveable` 副本覆盖整季操作后的刷新结果；已看写入成功后重读季与分集，让角标、已看数量、待播放目标与菜单一致。`phonePlayedActionRefreshesBadgesSummaryAndTarget` 覆盖单集→整季→单集取消的联动。

@@ -268,8 +268,8 @@ fun MediaCard(
 
 /** null 为未知；零只在明确统计且已完成时表示对勾，不把空剧库误判为完成。 */
 internal fun homeEpisodeStatus(item: Item): Long? = when {
-    item.isSeries && item.unplayedCountKnown && item.unplayed > 0 -> item.unplayed
-    item.isSeries && item.unplayedCountKnown && item.unplayed == 0L && item.played -> 0L
+    (item.isSeries || item.type == "Season") && item.unplayedCountKnown && item.unplayed > 0 -> item.unplayed
+    (item.isSeries || item.type == "Season") && item.unplayedCountKnown && item.unplayed == 0L && item.played -> 0L
     item.type in setOf("Movie", "Episode") && item.played -> 0L
     else -> null
 }

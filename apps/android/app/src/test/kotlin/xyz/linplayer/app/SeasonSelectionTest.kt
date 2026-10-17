@@ -175,6 +175,44 @@ class SeasonSelectionTest {
         assertEquals("s1", core.fake.calls.last { it.first == "download.enqueueSeason" }.second.str("parent_id"))
     }
 
+    @Test fun seasonStatisticsUseSeasonPayloadAndDoNotInventCompletion() {
+        fun status(fields: String) = xyz.linplayer.app.ui.components.homeEpisodeStatus(
+            xyz.linplayer.app.ui.pages.seasonItem(kotlinx.serialization.json.Json.parseToJsonElement(
+                """{"id":"s1","index_no":1,$fields}"""))!!)
+        assertEquals(60L, status("\"unplayed\":60,\"child_count\":60"))
+        assertEquals(0L, status("\"unplayed\":0,\"child_count\":60,\"played\":true"))
+        for (fields in listOf(
+            "\"child_count\":60",
+            "\"unplayed\":-1,\"child_count\":60",
+            "\"unplayed\":0,\"child_count\":60,\"played\":false",
+            "\"unplayed\":0,\"child_count\":0,\"played\":true",
+        )) org.junit.Assert.assertNull(status(fields))
+    }
+
+    @Test fun phoneSeasonUnplayedBadgeRefreshesAfterLongPress() {
+        open(total = 60)
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToKey("seasons")
+        val season = rule.onNodeWithContentDescription("查看第1季分集")
+        rule.onNode(hasContentDescription("60 集未观看") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithTag("detail.seasons").captureRoboImage("build/menu-check/season-unplayed.png")
+        season.performTouchInput { longClick() }
+        rule.onNodeWithText("标为已看").assertIsDisplayed()
+        rule.onNodeWithText("标为已看").performClick()
+        rule.waitForIdle()
+        rule.onNode(hasContentDescription("已看完") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertIsDisplayed()
+        season.performTouchInput { longClick() }
+        rule.onNodeWithText("标为未看").performClick()
+        rule.waitForIdle()
+        rule.onNode(hasContentDescription("60 集未观看") and
+            hasAnyAncestor(hasContentDescription("查看第1季分集")), useUnmergedTree = true).assertIsDisplayed()
+        assertEquals("s1", core.fake.calls.last { it.first == "emby.setPlayed" }.second.str("item_id"))
+        assertEquals(JsonPrimitive(false), core.fake.calls.last { it.first == "emby.setPlayed" }.second?.get("played"))
+    }
+
     @Test fun phonePlayedActionRefreshesBadgesSummaryAndTarget() {
         open(total = 2)
         rule.onNodeWithTag("detail.ep.s1-0").performScrollTo().performTouchInput { longClick() }
@@ -236,7 +274,7 @@ class SeasonSelectionTest {
         }
         fake.on("emby.seriesSeasons") { buildJsonArray {
             for (i in 1..if (noSeasons) 0 else 2) add(buildJsonObject {
-                put("id", "s$i"); put("name", "第 $i 季"); put("type_", "Season")
+                put("id", "s$i"); put("name", "第 $i 季")
                 put("index_no", i); put("child_count", total); put("unplayed", (0 until total).count { !isPlayed("s$i-$it", it) })
                 put("played", total > 0 && (0 until total).all { isPlayed("s$i-$it", it) })
             })

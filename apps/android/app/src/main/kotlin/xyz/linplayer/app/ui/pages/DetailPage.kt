@@ -87,6 +87,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.semantics.ProgressBarRangeInfo
 import androidx.compose.ui.semantics.progressBarRangeInfo
 import xyz.linplayer.app.ui.components.LpMenu
+import xyz.linplayer.app.ui.components.EpisodeStatusBadge
 import xyz.linplayer.app.ui.components.LpMenuItem
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -441,12 +442,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             (route.type == "Series" || route.type == "Season" || route.type == "Episode")) {
             seasonLoad = Block.Loading
             val result = app.displayBlock("emby.seriesSeasons", args("series_id" to seriesId), retainOnFailure = false) { value ->
-                if (seasons.isEmpty()) seasons = value.arr().mapNotNull { Item.from(it)?.copy(seasonNo = it.obj().long("index_no")) }
+                if (seasons.isEmpty()) seasons = value.arr().mapNotNull { seasonItem(it) }
             }
             currentCoroutineContext().ensureActive()
             if (result is Block.Ok) {
                 seasons = result.value.arr()
-                    .mapNotNull { value -> Item.from(value)?.copy(seasonNo = value.obj().long("index_no")) }
+                    .mapNotNull { seasonItem(it) }
                 seasonImages = result.value.arr().filter { it.obj().boolOrNull("has_primary") != false }
                     .mapNotNull { it.obj().str("id") }.toSet()
                 // 保留仍然存在的已选季；单集仍以本次真实所属季为准。
@@ -1026,6 +1027,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                                 Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(R.md)) else Modifier)) {
                                             NetImage(if (season.id in seasonImages) app.imageUrl(season.id, "Primary", 330) else null,
                                                 null, Modifier.fillMaxSize(), R.md)
+                                            EpisodeStatusBadge(season, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
                                         }
                                         Spacer(Modifier.height(Sp.x6))
                                         Text(seasonLabel(season), color = if (season.id == curSeason?.id) c.mediaIcon else c.fg,
@@ -1390,6 +1392,19 @@ private fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
             }
         }
     }
+}
+
+/** 季响应使用 unplayed/index_no，不沿用普通条目的统计字段；零值本身不证明已看完。 */
+internal fun seasonItem(value: kotlinx.serialization.json.JsonElement): Item? {
+    val data = value.obj()
+    val unplayed = data.long("unplayed")
+    return Item.from(value)?.copy(
+        type = "Season",
+        seasonNo = data.long("index_no"),
+        unplayed = unplayed ?: 0,
+        unplayedCountKnown = unplayed != null && unplayed >= 0 &&
+            (unplayed > 0 || (data.long("child_count") ?: 0) > 0),
+    )
 }
 
 /** 季号来自接口；默认季名不重复，自定义名称保留。 */
