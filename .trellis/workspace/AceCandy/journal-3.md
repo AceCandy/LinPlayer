@@ -319,3 +319,33 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 未出包部署，真机联调待验证
+
+
+## Session 83: 季集图片客户端回退审查与归档
+<!-- trellis-session: v=2 fp=9da1200da91ba159 -->
+
+**Date**: 2026-10-18
+**Task**: 季集图片客户端回退审查与归档
+**Branch**: `main`
+
+### Summary
+
+仅客户端逐级回退集、季、整剧图片；独立审查无阻塞问题，原图片归属保持。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4e05b4ab` | fix(artwork): 按集季整剧回退展示图片 |
+
+### Testing
+
+- [OK] Android 78项相关测试、Go emby测试和vet、桌面images-only、参数/字段/风格及隐私检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待确认安装包平台后构建并验签；实服缺图与真机显示尚未验收。
