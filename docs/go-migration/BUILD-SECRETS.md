@@ -32,10 +32,10 @@
 | `LP_ICON_LIBRARY_SOURCES` | 服务器图标库(逗号分隔的多个 registry 地址) | 图标库页只能上传本地图片 |
 | `LP_CF_TEST_URL` | CF 优选的下载测速文件地址 | 测速跳过下载那段,排序退化成纯按延迟 |
 | `SENTRY_DSN` | 只挂在**出包**步骤:崩溃上报地址,经 `scripts/sentry-dsn.sh` 编进程序 | 发行包不带崩溃上报(日志写「未配置,本包不上报」) |
-| `LP_LIUYING_URL` | Android 手机流影默认网页 | 流影页提示尚未配置此页面 |
-| `LP_LIUYING_ADULT_URL` | Android 手机流影第二个网页 | 第二个标签提示尚未配置此页面 |
+| `LP_LIUYING_URL` | 手机、TV、桌面流影默认网页 | 流影页提示尚未配置此页面 |
+| `LP_LIUYING_ADULT_URL` | 手机、TV、桌面流影第二个网页 | 第二个标签提示尚未配置此页面 |
 
-流影两项由 Android Gradle 注入 `BuildConfig`，不经 Go `sealsecrets`。手机出包步骤读取同名 GitHub Secrets；本地也可在已忽略的 `apps/android/local.properties` 配置同名键，环境变量优先。地址值只允许 HTTP/HTTPS，不写进源码、示例或日志；安装包仍包含运行所需地址，不应视为凭据保险库。
+流影两项不经 Go `sealsecrets`：Android 手机和 TV 由 Gradle 注入 `BuildConfig`，桌面由 MSBuild 注入程序集元数据 `LiuyingUrl` / `LiuyingAdultUrl`。各端出包步骤读取同名 GitHub Secrets；本地 Android 也可在已忽略的 `apps/android/local.properties` 配置同名键，环境变量优先。地址值只允许 HTTP/HTTPS，不写进源码、示例或日志；安装包仍包含运行所需地址，不应视为凭据保险库。桌面内嵌网页分别使用 Windows WebView2 与 Linux 系统 WebKitGTK 4.1（2.40+，X11/XWayland）。
 
 **全部放 Secrets,不放 Variables** —— Variables 在日志里是明文可见的,
 而这批里有几个本身就是密钥。

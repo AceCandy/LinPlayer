@@ -85,6 +85,7 @@ val LocalAnchors = staticCompositionLocalOf { AnchorScope() }
 @Composable
 fun rememberAnchorScope(names: List<String>, props: Map<String, Any?>): AnchorScope {
     val app = LocalApp.current
+    if (app.privateSpace.value) return AnchorScope()
     var rows by remember { mutableStateOf<List<AnchorEntry>>(emptyList()) }
     LaunchedEffect(Unit) {
         val r = runCatching { app.call("plugin.anchors") }.getOrNull().arr()

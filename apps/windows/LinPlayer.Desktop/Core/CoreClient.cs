@@ -96,6 +96,14 @@ public sealed class CoreException(string code, string message, bool retryable, s
 /// </summary>
 public sealed class CoreClient : ILinPlayerCommands, IDisposable
 {
+    private readonly ConcurrentDictionary<(string Server, string User, string Token), long> _userRevisions = new();
+    /// <summary>成功的用户状态写入通知；页面自行按会话与生命周期重取。</summary>
+    public event Action? UserStateChanged;
+
+    /// <summary>按服务器、用户和凭据保留代次，离页及换号不会丢失或串用。</summary>
+    public long UserStateRevision(string server, string user, string token) =>
+        _userRevisions.GetValueOrDefault((server, user, token));
+
     private readonly object _sendGate = new();
     private long _seq;
     private readonly ConcurrentDictionary<long, TaskCompletionSource<JsonElement>> _pending = new();
@@ -134,8 +142,22 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
     }
 
     /// <summary>发一条命令,等它的 result 事件。</summary>
-    public Task<JsonElement> CallAsync(string command, object? args, CancellationToken ct = default) =>
-        Send(Interlocked.Increment(ref _seq), command, args, ct);
+    public async Task<JsonElement> CallAsync(string command, object? args, CancellationToken ct = default)
+    {
+        var scope = BrowseSpace.Current;
+        var requestArgs = scope.Arguments(command, args);
+        JsonElement result;
+        try { result = await Send(Interlocked.Increment(ref _seq), command, requestArgs, ct).ConfigureAwait(false); }
+        finally { scope.EnsureCurrent(); }
+        if (command is "emby.setFavorite" or "emby.setPlayed" or "emby.hideResume")
+        {
+            var request = JsonSerializer.SerializeToElement(args);
+            var key = (Str(request, "server") ?? "", Str(request, "user_id") ?? "", Str(request, "token") ?? "");
+            _userRevisions.AddOrUpdate(key, 1, (_, revision) => revision + 1);
+            Avalonia.Threading.Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) UserStateChanged?.Invoke(); });
+        }
+        return result;
+    }
 
     private Task<JsonElement> Send(long seq, string command, object? args, CancellationToken ct)
     {
@@ -186,16 +208,24 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
     /// </summary>
     public async Task<JsonElement> CallStreamAsync(string command, object? args, Action<JsonElement> onPartial, CancellationToken ct = default)
     {
+        var scope = BrowseSpace.Current;
+        var requestArgs = scope.Arguments(command, args);
         var seq = Interlocked.Increment(ref _seq);
-        _partials[seq] = onPartial; // 先挂回调再发命令:第一条 partial 可能比返回还早到
-        try { return await Send(seq, command, args, ct); }
-        finally { _partials.TryRemove(seq, out _); }
+        _partials[seq] = value => { if (scope.IsCurrent) onPartial(value); };
+        try
+        {
+            var result = await Send(seq, command, requestArgs, ct);
+            scope.EnsureCurrent();
+            return result;
+        }
+        finally { _partials.TryRemove(seq, out _); scope.EnsureCurrent(); }
     }
 
     /// <summary>显示核心旧快照并等待实时结果；播放入口仍使用CallAsync。</summary>
     public async Task<JsonElement> CallDisplayAsync(string command, object? args,
         Action<JsonElement> onCached, CancellationToken ct = default, bool retainOnFailure = true)
     {
+        var scope = BrowseSpace.Current;
         var completed = 0;
         JsonElement? cached = null;
         var delivered = Task.CompletedTask;
@@ -206,19 +236,38 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
                 cached = value;
                 delivered = Avalonia.Threading.Dispatcher.UIThread.InvokeAsync(() =>
                 {
-                    if (Volatile.Read(ref completed) == 0 && !ct.IsCancellationRequested) onCached(value);
+                    if (scope.IsCurrent && Volatile.Read(ref completed) == 0 && !ct.IsCancellationRequested) onCached(value);
                 }).GetTask();
             }, ct).ConfigureAwait(false);
             await delivered.ConfigureAwait(false);
+            scope.EnsureCurrent();
             return result;
         }
         catch (CoreException e) when (retainOnFailure && cached is not null &&
             e.Code is not ("E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID" or "E_UNSUPPORTED"))
         {
+            scope.EnsureCurrent();
             await delivered.ConfigureAwait(false);
+            scope.EnsureCurrent();
             return cached.Value;
         }
         finally { await delivered.ConfigureAwait(false); Interlocked.Exchange(ref completed, 1); }
+    }
+
+    /// <summary>用未筛选的库清单探测分类能力；旧会话或旧空间的探测不能解锁新页面。</summary>
+    public async Task EnterPrivateSpaceAsync(CancellationToken ct = default)
+    {
+        var scope = BrowseSpace.Current;
+        if (scope.IsPrivate || scope.Server.Length == 0) return;
+        var libraries = await Send(Interlocked.Increment(ref _seq), "emby.views", new {
+            server = scope.Server, user_id = scope.User, token = scope.Token, device_id = "linplayer-desktop",
+        }, ct);
+        scope.EnsureCurrent();
+        if (libraries.ValueKind != JsonValueKind.Array || libraries.GetArrayLength() == 0 ||
+            libraries.EnumerateArray().Any(row => row.ValueKind != JsonValueKind.Object ||
+                !row.TryGetProperty("is_adult", out var flag) || flag.ValueKind is not (JsonValueKind.True or JsonValueKind.False)))
+            throw new CoreException("E_UNSUPPORTED", "当前服务器未提供成人库分类，无法进入隐私空间", false);
+        BrowseSpace.Change(true, scope);
     }
 
     /// <summary>LP_PERF=1 时给每条命令记一行耗时。关着的时候这个方法一次都不会被调到。</summary>

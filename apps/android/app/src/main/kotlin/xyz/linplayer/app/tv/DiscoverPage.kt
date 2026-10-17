@@ -43,6 +43,7 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.kit.CardPoster
 import xyz.linplayer.app.tv.kit.PanelItem
+import xyz.linplayer.app.tv.kit.PageHead
 import xyz.linplayer.app.tv.kit.ScopeChips
 import xyz.linplayer.app.tv.kit.Skel
 import xyz.linplayer.app.tv.kit.TvC
@@ -72,9 +73,19 @@ fun DiscoverPage() {
     val nav = LocalNav.current
     val scope = rememberCoroutineScope()
     val t = tvType
+    if (app.privateSpace.value) {
+        Column(Modifier.contentArea()) {
+            PageHead("发现")
+            Spacer(Modifier.height(TvSp.x16))
+            xyz.linplayer.app.tv.kit.TvButton("流影", modifier = Modifier.memo("discover.liuying", initial = true),
+                onClick = { nav.push(TvRoute.Liuying) })
+        }
+        return
+    }
     var tab by keepState("tv.discover.tab") { 0 }
     val identity by app.session.collectAsState()
     var cats by remember(identity) { mutableStateOf<Block<List<Pair<String, String>>>>(Block.Loading) }
+    var catsFailure by remember(identity) { mutableStateOf<Block.Fail?>(null) }
     var cat by keepState<Int>("tv.rank.cat") { 0 }
     var reload by remember { mutableStateOf(0) }
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value
@@ -83,7 +94,11 @@ fun DiscoverPage() {
     LaunchedEffect(identity, reload) {
         fun categories(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull { it.obj() }
             .mapNotNull { o -> o.str("id")?.let { it to (o.str("label") ?: "榜单") } }
-        cats = app.extensionBlock("emby.extRankings", onCached = { cats = Block.Ok(categories(it)) }).map(::categories)
+        val result = app.extensionBlock("emby.extRankings", retainOnFailure = false,
+            onCached = { if (cats !is Block.Ok) cats = Block.Ok(categories(it)) }).map(::categories)
+        if (result is Block.Fail && cats is Block.Ok && result.code !in setOf("E_AUTH", "E_PERMISSION", "E_NOTFOUND", "E_INVALID", "E_UNSUPPORTED")) {
+            catsFailure = result
+        } else { cats = result; catsFailure = null }
         if (cat >= (cats.valueOrNull?.size ?: 0)) cat = 0
     }
     fun open(e: Entry) {
@@ -104,21 +119,22 @@ fun DiscoverPage() {
                         onClick = { cat = i })
                 }
             } else TvText("MSG 公共周历 · 日本时区", t.meta, TvC.fg3)
+            catsFailure?.takeIf { tab == 0 }?.let { TvText("榜单分类暂未刷新:${it.message}", t.meta, TvC.fg3, maxLines = 3) }
             PanelItem("刷新", onClick = { reload++ })
         }
         Spacer(Modifier.width(TvSp.x24))
         Box(Modifier.weight(1f)) {
-            AnimatedContent(targetState = Triple(tab, cat, reload), transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
-                label = "discover") { (tb, ct, src) ->
-                if (tb == 0) RankingPane(app, cats.valueOrNull?.getOrNull(ct), cats) { open(it) }
-                else CalendarPane(app, src, day, today, { day = it }) { open(it) }
+            AnimatedContent(targetState = Pair(tab, cat), transitionSpec = { fadeIn(tween(200)) togetherWith fadeOut(tween(120)) },
+                label = "discover") { (tb, ct) ->
+                if (tb == 0) RankingPane(app, cats.valueOrNull?.getOrNull(ct), cats, reload) { open(it) }
+                else CalendarPane(app, reload, day, today, { day = it }) { open(it) }
             }
         }
     }
 }
 
 @Composable
-private fun RankingPane(app: AppState, cat: Pair<String, String>?, cats: Block<List<Pair<String, String>>>, open: (Entry) -> Unit) {
+private fun RankingPane(app: AppState, cat: Pair<String, String>?, cats: Block<List<Pair<String, String>>>, reload: Int, open: (Entry) -> Unit) {
     val t = tvType
     if (cats is Block.Ok && cats.value.isEmpty()) {
         // ☠ **不存在「排行榜开关」**,别写「去设置里打开」:用户照着找只会翻个空
@@ -129,15 +145,29 @@ private fun RankingPane(app: AppState, cat: Pair<String, String>?, cats: Block<L
     val identity by app.session.collectAsState()
     var block by remember(c.first, identity) { mutableStateOf<Block<List<Entry>>>(Block.Loading) }
     var page by remember(c.first, identity) { mutableStateOf(1) }
+    var shownPage by remember(c.first, identity) { mutableStateOf<Int?>(null) }
+    var failure by remember(c.first, identity) { mutableStateOf<Block.Fail?>(null) }
+    var loading by remember(c.first, identity) { mutableStateOf(false) }
     var retry by remember { mutableStateOf(0) }
-    LaunchedEffect(identity, c.first, page, retry) {
-        block = Block.Loading
+    LaunchedEffect(identity, c.first, page, retry, reload) {
+        loading = true; failure = null
         fun rows(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull { it.obj() }.map { o ->
             Entry(o.str("title") ?: "", o.dbl("rating")?.let { "★ %.1f".format(it) } ?: o.str("subtitle").orEmpty(),
                 o.str("image_url"), (o.long("rank") ?: 0).toInt(), o)
         }
-        block = app.extensionBlock("emby.extRankingItems", args("category_id" to c.first, "page" to page),
-            onCached = { block = Block.Ok(rows(it)) }).map(::rows)
+        val response = app.extensionBlock("emby.extRankingItems", args("category_id" to c.first, "page" to page),
+            retainOnFailure = false, onCached = { if (shownPage == null) { block = Block.Ok(rows(it)); shownPage = page } }).map(::rows)
+        when (response) {
+            is Block.Ok -> { block = response; shownPage = page }
+            is Block.Fail -> {
+                failure = response
+                if (response.code in setOf("E_AUTH", "E_PERMISSION", "E_NOTFOUND", "E_INVALID", "E_UNSUPPORTED") || block !is Block.Ok) {
+                    block = response; shownPage = null
+                }
+            }
+            else -> Unit
+        }
+        loading = false
     }
 
     Column {
@@ -145,19 +175,23 @@ private fun RankingPane(app: AppState, cat: Pair<String, String>?, cats: Block<L
             TvText(c.second, t.title, TvC.fg, weight = TvW.semi)
         }
         Row {
-            if (page > 1) PanelItem("上一页", modifier = Modifier.weight(1f).memo("rank.previous"), onClick = { page-- })
-            PanelItem("第 $page 页 · 刷新", modifier = Modifier.weight(1f).memo("rank.refresh"), onClick = { retry++ })
-            if (page < 500 && block.valueOrNull?.isNotEmpty() == true) PanelItem("下一页", modifier = Modifier.weight(1f).memo("rank.next"), onClick = { page++ })
+            if ((shownPage ?: 1) > 1) PanelItem("上一页", modifier = Modifier.weight(1f).memo("rank.previous"), onClick = { if (!loading) { page = (shownPage ?: page) - 1; retry++ } })
+            PanelItem("第 ${shownPage ?: page} 页 · 刷新", modifier = Modifier.weight(1f).memo("rank.refresh"), onClick = { if (!loading) { page = shownPage ?: page; retry++ } })
+            if ((shownPage ?: page) < 500 && block.valueOrNull?.isNotEmpty() == true) PanelItem("下一页", modifier = Modifier.weight(1f).memo("rank.next"), onClick = { if (!loading) { page = (shownPage ?: page) + 1; retry++ } })
         }
         Spacer(Modifier.height(TvSp.x12))
+        failure?.let { error ->
+            TvText("没加载出来:${error.message}", t.meta, TvC.fg3, maxLines = 3)
+            PanelItem("重试第 $page 页", modifier = Modifier.memo("rank.retry"), onClick = { if (!loading) retry++ })
+        }
         EntryGrid(block, rank = true, keyPrefix = "rank.${c.first}", open = open)
     }
 }
 
-/** 周归组:Bangumi 给 weekday(1=周一);Trakt 给 air_date,按本地时区算星期。 */
+/** 周归组:Bangumi 给 weekday(1=周一);Trakt 给 air_date,按日本时区算星期。 */
 internal fun weekdayOf(o: JsonObject): Int? = o.long("weekday")?.toInt()?.takeIf { it in 1..7 }
     ?: (o.str("broadcast_at") ?: o.str("air_date"))?.let { iso ->
-        runCatching { java.time.Instant.parse(iso).atZone(java.time.ZoneId.systemDefault()).dayOfWeek.value }.getOrNull()
+        runCatching { java.time.Instant.parse(iso).atZone(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value }.getOrNull()
             ?: runCatching { java.time.LocalDate.parse(iso.take(10)).dayOfWeek.value }.getOrNull()
     }
 

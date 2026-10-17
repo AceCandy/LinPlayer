@@ -11,6 +11,7 @@ using Avalonia.Media;
 using Avalonia.Platform.Storage;
 using Avalonia.Media.Imaging;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using LinPlayer.Core;
 using LinPlayer.Desktop.Core;
 
@@ -19,6 +20,30 @@ namespace LinPlayer.Desktop.Views;
 /// <summary>页面的公共底子:统一的水槽与封顶宽(UI_PC §3.1)。</summary>
 public abstract class PageBase : UserControl
 {
+    private readonly BrowseSpace.Scope _space = BrowseSpace.Current;
+    protected bool SpaceCurrent => _space.IsCurrent;
+    internal bool WatchesUserState { get; private set; }
+
+    /// <summary>当前页收到写入时重取；离页期间的变更在重新挂载时补验。</summary>
+    protected void WatchUserState(CoreClient core, Action refresh)
+    {
+        WatchesUserState = true;
+        var session = Nav.Session;
+        long Revision() => session is null ? 0 : core.UserStateRevision(session.server, session.user_id, session.token);
+        var seen = Revision();
+        void Check()
+        {
+            if (!SpaceCurrent || session != Nav.Session || Revision() == seen) return;
+            seen = Revision();
+            refresh();
+        }
+        AttachedToVisualTree += (_, _) => {
+            core.UserStateChanged += Check;
+            Dispatcher.UIThread.Post(() => { if (this.GetVisualRoot() is not null) Check(); });
+        };
+        DetachedFromVisualTree += (_, _) => core.UserStateChanged -= Check;
+    }
+
     /// <summary>
     /// 页面正文的滚动容器。
     ///

@@ -1,0 +1,32 @@
+<ResourceDictionary xmlns="https://github.com/avaloniaui"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+  <!-- 仅覆盖当前空间色彩；移除此字典后恢复普通主题与插件主题。 -->
+  <ResourceDictionary.ThemeDictionaries>
+    <ResourceDictionary x:Key="Dark">
+      <Color x:Key="BgColor">#21152D</Color>
+      <Color x:Key="PanelColor">#2C1E3B</Color>
+      <Color x:Key="PanelAltColor">#382749</Color>
+      <Color x:Key="LineColor">#604873</Color>
+      <Color x:Key="LineStrongColor">#7B608F</Color>
+      <Color x:Key="InkColor">#FAF3FF</Color>
+      <Color x:Key="Ink2Color">#D8C5E8</Color>
+      <Color x:Key="Ink3Color">#C1AFCF</Color>
+      <Color x:Key="AccentColor">#DEB7FF</Color>
+      <Color x:Key="AccentInkColor">#2D163E</Color>
+      <Color x:Key="AccentSoftColor">#2EDEB7FF</Color>
+    </ResourceDictionary>
+    <ResourceDictionary x:Key="Light">
+      <Color x:Key="BgColor">#EFE5F7</Color>
+      <Color x:Key="PanelColor">#E6D8F0</Color>
+      <Color x:Key="PanelAltColor">#DDCBEA</Color>
+      <Color x:Key="LineColor">#C3A7D7</Color>
+      <Color x:Key="LineStrongColor">#A37BBC</Color>
+      <Color x:Key="InkColor">#291B35</Color>
+      <Color x:Key="Ink2Color">#483554</Color>
+      <Color x:Key="Ink3Color">#594265</Color>
+      <Color x:Key="AccentColor">#633287</Color>
+      <Color x:Key="AccentInkColor">#FFF7FF</Color>
+      <Color x:Key="AccentSoftColor">#1F633287</Color>
+    </ResourceDictionary>
+  </ResourceDictionary.ThemeDictionaries>
+</ResourceDictionary>

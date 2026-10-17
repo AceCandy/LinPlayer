@@ -25,6 +25,7 @@ sealed interface TvRoute {
     data class Library(val viewId: String? = null, val title: String = "") : TvRoute { override val rail = 2 }
     data object Favorites : TvRoute { override val rail = 3 }
     data object Discover : TvRoute { override val rail = 4 }
+    data object Liuying : TvRoute { override val rail = -1 }
     data object Downloads : TvRoute { override val rail = 5 }
     data object Servers : TvRoute { override val rail = 6 }
     data object Settings : TvRoute { override val rail = 7 }
@@ -63,6 +64,14 @@ sealed interface TvRoute {
     data class PluginPage(val id: String, val page: String, val title: String) : TvRoute { override val rail = 7 }
     /** 全局观看历史(SPEC 8.7)。导航轨的八格是定死的(§3.1),所以它从收藏页下钻。 */
     data object History : TvRoute { override val rail = 3 }
+}
+
+/** 私密空间不恢复本地、插件或跨服入口；外部导航同样经过这道边界。 */
+internal fun TvRoute.privateAllowed(): Boolean = when (this) {
+    TvRoute.Home, TvRoute.Search, is TvRoute.Library, TvRoute.Favorites, TvRoute.Discover, TvRoute.Liuying,
+    is TvRoute.Detail, is TvRoute.Episode -> true
+    is TvRoute.Player -> !localEntry && !download && src == null
+    else -> false
 }
 
 /** 轨上第 i 项对应的平级页。 */

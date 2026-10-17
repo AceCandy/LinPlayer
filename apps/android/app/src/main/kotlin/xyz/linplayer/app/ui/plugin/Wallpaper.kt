@@ -70,4 +70,5 @@ internal fun imageRef(d: JsonObject?): String {
 /** 有壁纸时页面底色让开 —— 不让的话壁纸永远被第一层不透明底盖住。 */
 @androidx.compose.runtime.Composable
 fun pageBg(official: androidx.compose.ui.graphics.Color): androidx.compose.ui.graphics.Color =
-    if (Wallpaper.content == null) official else androidx.compose.ui.graphics.Color.Transparent
+    if (xyz.linplayer.app.data.LocalApp.current.privateSpace.value || Wallpaper.content == null) official
+    else androidx.compose.ui.graphics.Color.Transparent

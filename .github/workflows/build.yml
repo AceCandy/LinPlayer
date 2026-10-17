@@ -184,6 +184,8 @@ jobs:
         shell: bash
         env:
           LP_VERSION: ${{ needs.version.outputs.version }}
+          LP_LIUYING_URL: ${{ secrets.LP_LIUYING_URL }}
+          LP_LIUYING_ADULT_URL: ${{ secrets.LP_LIUYING_ADULT_URL }}
           DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
           DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}
           LP_SYNC_PROXY_BASE: ${{ secrets.LP_SYNC_PROXY_BASE }}
@@ -247,6 +249,8 @@ jobs:
         shell: bash
         env:
           LP_VERSION: ${{ needs.version.outputs.version }}
+          LP_LIUYING_URL: ${{ secrets.LP_LIUYING_URL }}
+          LP_LIUYING_ADULT_URL: ${{ secrets.LP_LIUYING_ADULT_URL }}
           DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
           DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}
           LP_SYNC_PROXY_BASE: ${{ secrets.LP_SYNC_PROXY_BASE }}
@@ -465,6 +469,8 @@ jobs:
         shell: bash
         env:
           LP_VERSION: ${{ needs.version.outputs.version }}
+          LP_LIUYING_URL: ${{ secrets.LP_LIUYING_URL }}
+          LP_LIUYING_ADULT_URL: ${{ secrets.LP_LIUYING_ADULT_URL }}
           DANDANPLAY_APP_ID: ${{ secrets.DANDANPLAY_APP_ID }}
           DANDANPLAY_APP_SECRET: ${{ secrets.DANDANPLAY_APP_SECRET }}
           LP_SYNC_PROXY_BASE: ${{ secrets.LP_SYNC_PROXY_BASE }}

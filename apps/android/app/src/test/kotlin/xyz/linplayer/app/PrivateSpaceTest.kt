@@ -32,7 +32,7 @@ class PrivateSpaceTest {
             app.boot()
             app.call("emby.listResume")
             assertNull(core.calls.last().second?.get("is_adult"))
-            app.enablePhonePrivacy()
+            app.enablePrivacyFiltering()
             val normalKey = app.browseCache.key("s", "u", "query")
             app.call("emby.listResume")
             assertEquals(JsonPrimitive(false), core.calls.last().second?.get("is_adult"))
@@ -62,17 +62,21 @@ class PrivateSpaceTest {
         }
         val app = AppState(core, scope)
         try {
-            app.enablePhonePrivacy(); app.boot(); app.enterPrivateSpace()
+            app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace()
             val before = core.calls.size
             for (command in listOf("emby.watchHistoryList", "emby.watchHistoryClear", "emby.aggregateOverview",
-                "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch")) {
+                "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch", "source.history",
+                "source.favorites", "source.play", "source.playItem", "source.home", "source.caps", "source.continueWatching",
+                "plugin.searchActions", "plugin.devLoad", "player.playLocal", "prefs.pushSearch", "download.listTasks", "download.create")) {
                 try { app.call(command); fail("私密命令未被拒绝: $command") }
                 catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
             }
-            try {
-                app.call("emby.search", buildJsonObject { put("server", "https://other.invalid") })
-                fail("跨服请求未被拒绝")
-            } catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
+            for (field in listOf("server", "server_id", "user_id", "token")) {
+                try {
+                    app.call("emby.search", buildJsonObject { put(field, "other") })
+                    fail("其它身份请求未被拒绝: $field")
+                } catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
+            }
             assertEquals(before, core.calls.size)
             app.leavePrivateSpace()
             app.call("emby.watchHistoryList")
@@ -97,7 +101,7 @@ class PrivateSpaceTest {
         }
         val app = AppState(core, scope)
         try {
-            app.enablePhonePrivacy(); app.boot(); app.enterPrivateSpace()
+            app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace()
             var partials = 0
             val request = async { app.call("emby.listResume") { partials++ } }
             started.await()
@@ -116,7 +120,7 @@ class PrivateSpaceTest {
         }
         val app = AppState(core, scope)
         try {
-            app.enablePhonePrivacy(); app.boot(); app.enterPrivateSpace()
+            app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace()
             assertFalse(app.privateSpace.value)
             val cache = app.browseCache
             cache.setNamespace("adult-v1")

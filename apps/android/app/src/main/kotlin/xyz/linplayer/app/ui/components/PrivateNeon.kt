@@ -40,8 +40,11 @@ private val NeonRed = Color(0xFFFF426D)
 
 /** 手机浏览窗口共用一个相位；后台或零动画倍率保持静态，不驱动整页重组。 */
 @Composable
-internal fun PrivateNeonHost(content: @Composable () -> Unit) {
-    val privateSpace = LocalPrivateSpace.current
+internal fun PrivateNeonHost(content: @Composable () -> Unit) = PrivateNeonHost(true, content)
+
+@Composable
+internal fun PrivateNeonHost(enabled: Boolean, content: @Composable () -> Unit) {
+    val privateSpace = LocalPrivateSpace.current && enabled
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateAsState()
     val motion = LocalMotionScale.current
     val still = remember { mutableFloatStateOf(0f) }

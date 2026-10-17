@@ -85,7 +85,7 @@ class PhoneDetailOptionsTest {
             app.boot()
             if (privateSpace) {
                 core.ret("emby.views", arr(buildJsonObject { put("id", "private"); put("is_adult", true) }))
-                app.enablePhonePrivacy(); app.enterPrivateSpace()
+                app.enablePrivacyFiltering(); app.enterPrivateSpace()
             }
         }
         rule.setContent {

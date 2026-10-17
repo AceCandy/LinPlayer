@@ -10,6 +10,7 @@ import kotlinx.serialization.json.JsonPrimitive
 /** 扩展页必须显示不支持原因，不能沿用普通可选功能的静默降级。 */
 suspend fun AppState.extensionBlock(command: String, args: JsonObject? = null,
     serverId: String? = null,
+    retainOnFailure: Boolean = true,
     onCached: (JsonElement) -> Unit,
 ): Block<JsonElement> {
     val primary = serverId
@@ -18,7 +19,7 @@ suspend fun AppState.extensionBlock(command: String, args: JsonObject? = null,
         JsonArray(value.arr().map { row -> row.obj()?.let {
             JsonObject(it + ("server_id" to JsonPrimitive(primary)))
         } ?: row })
-    val result = displayBlock(command, request, onCached = { onCached(withSource(it)) })
+    val result = displayBlock(command, request, retainOnFailure = retainOnFailure, onCached = { onCached(withSource(it)) })
     return when {
         result is Block.Ok -> Block.Ok(withSource(result.value))
         result is Block.Fail && result.code == "E_UNSUPPORTED" -> Block.Fail("E_INVALID", result.message)

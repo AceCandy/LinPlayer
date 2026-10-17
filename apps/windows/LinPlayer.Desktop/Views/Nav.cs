@@ -44,7 +44,16 @@ public static class Nav
     private static readonly Stack<Entry> Stack = new();
     public static Action<Control>? Host;
 
-    public static Sess? Session;
+    private static Sess? _session;
+    public static Sess? Session
+    {
+        get => _session;
+        set
+        {
+            _session = value;
+            BrowseSpace.SetSession(value?.server ?? "", value?.user_id ?? "", value?.token ?? "");
+        }
+    }
 
     /// <summary>
     /// 收起外壳:标题栏 + 侧栏。<b>播放页一进去就调</b>。
@@ -131,6 +140,7 @@ public static class Nav
 
     public static void Back()
     {
+        if (Current is LiuyingPage web && web.BackInPage()) return;
         if (!CanBack) return;
         Stack.Pop();
         Host?.Invoke(Stack.Peek().Page);

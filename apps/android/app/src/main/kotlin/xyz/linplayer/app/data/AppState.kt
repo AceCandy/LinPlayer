@@ -11,6 +11,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -44,12 +45,12 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     val privateSpace = _privateSpace.asStateFlow()
     private val _spaceRevision = MutableStateFlow(0L)
     val spaceRevision = _spaceRevision.asStateFlow()
-    private var phonePrivacy = false
+    private var privacyFiltering = false
 
-    /** 手机开启分类隔离；TV沿用缺省请求。解锁仅在本进程有效。 */
-    fun enablePhonePrivacy() {
-        if (phonePrivacy) return
-        phonePrivacy = true
+    /** 浏览外壳开启分类隔离；解锁仅在本进程有效。 */
+    fun enablePrivacyFiltering() {
+        if (privacyFiltering) return
+        privacyFiltering = true
         changeSpace(false)
     }
 
@@ -63,6 +64,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     }
 
     suspend fun enterPrivateSpace() {
+        if (_privateSpace.value) return
         val identity = _session.value ?: return
         val revision = _spaceRevision.value
         // 入口探测需要完整库清单；不能拿普通模式筛掉成人库后的空表判断能力。
@@ -111,6 +113,10 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     private val _invalidate = MutableSharedFlow<String>(extraBufferCapacity = 32)
     val invalidate: SharedFlow<String> = _invalidate
 
+    /** 成功写入的代次留到页面返回，避免非重放通知在离页期间丢失。 */
+    private val _userStateRevision = MutableStateFlow(0L)
+    val userStateRevision = _userStateRevision.asStateFlow()
+
     private val _toasts = MutableSharedFlow<Toast>(extraBufferCapacity = 8)
     val toasts: SharedFlow<Toast> = _toasts
 
@@ -118,7 +124,11 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         scope.launch {
             core.events.collect { ev ->
                 when (ev.name) {
-                    "data.invalidate" -> _invalidate.tryEmit((ev.data as? JsonObject).str("scope") ?: "all")
+                    "data.invalidate" -> {
+                        val changed = (ev.data as? JsonObject).str("scope") ?: "all"
+                        if (changed in setOf("all", "library", "resume")) _userStateRevision.update { it + 1 }
+                        _invalidate.tryEmit(changed)
+                    }
                     "account.status" -> _invalidate.tryEmit("accounts")
                 }
             }
@@ -166,16 +176,20 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     ): JsonElement {
         val revision = _spaceRevision.value
         // 隐私空间只使用当前服实时资料，不接入本地历史或跨服查询。
-        if (_privateSpace.value && (command.startsWith("emby.watchHistory") || command in setOf(
+        if (_privateSpace.value && (command.startsWith("emby.watchHistory") || command.startsWith("download.") || command in setOf(
                 "emby.aggregateOverview", "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch")))
             throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器", false)
-        val filtered = phonePrivacy && (command.startsWith("emby.") || command in setOf(
+        if (_privateSpace.value && (command.startsWith("source.") || command.startsWith("plugin.") ||
+                command in setOf("player.playLocal", "prefs.pushSearch")))
+            throw CoreException("E_UNSUPPORTED", "隐私空间不使用本地记录或数据源", false)
+        val filtered = privacyFiltering && (command.startsWith("emby.") || command in setOf(
             "source.aggregateSearch", "prefs.preloadItem", "player.play", "player.prepareNext", "player.queuePrepared"))
         val requestArgs = if (filtered) JsonObject((args ?: JsonObject(emptyMap())) +
             ("is_adult" to JsonPrimitive(_privateSpace.value))) else args
         val s = _session.value
         if (_privateSpace.value && filtered &&
-            (args.str("server")?.let { it != s?.server } == true || args.str("user_id")?.let { it != s?.userId } == true))
+            (args.str("server")?.let { it != s?.server } == true || args.str("user_id")?.let { it != s?.userId } == true ||
+                args.str("token")?.let { it != s?.token } == true || args.str("server_id")?.let { it.isNotEmpty() && it != s?.server } == true))
             throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器和账号", false)
         val merged = if (s == null) requestArgs else JsonObject(
             mapOf(
@@ -206,7 +220,10 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
             }
         }
         // 写入成功后让依赖用户状态的页面重读；失败和旧会话结果不能触发刷新。
-        if (_spaceRevision.value == revision && _session.value == s) {
+        if (_spaceRevision.value == revision && _session.value == s &&
+            (s == null || (merged.str("server") == s.server && merged.str("user_id") == s.userId))) {
+            if (command in setOf("emby.setPlayed", "emby.setFavorite", "emby.hideResume"))
+                _userStateRevision.update { it + 1 }
             when (command) {
                 "emby.setPlayed" -> _invalidate.emit("all")
                 "emby.setFavorite" -> _invalidate.emit("library")

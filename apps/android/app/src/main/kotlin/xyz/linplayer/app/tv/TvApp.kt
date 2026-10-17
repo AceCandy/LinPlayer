@@ -26,7 +26,10 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
@@ -68,6 +71,9 @@ import xyz.linplayer.app.tv.kit.tvType
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.autoCheckUpdate
 import xyz.linplayer.app.ui.pages.runUpdate
+import xyz.linplayer.app.ui.components.PrivateNeonHost
+import xyz.linplayer.app.ui.components.privateNeonBorder
+import xyz.linplayer.app.ui.theme.LpTheme
 
 /** 当前活跃的是不是本机文件夹源。首页和「媒体库」轨项在它下面长得完全不一样(§7.14)。 */
 val LocalIsLocalSource = staticCompositionLocalOf { false }
@@ -79,18 +85,22 @@ val LocalIsLocalSource = staticCompositionLocalOf { false }
  */
 @Composable
 fun TvRoot(app: AppState) {
+    app.enablePrivacyFiltering()
+    val spaceRevision by app.spaceRevision.collectAsStateWithLifecycle()
     val base = LocalViewConfiguration.current
     // 长按 600ms:Android 默认 500,遥控器确认键行程长、沙发上按得慢,500 会误触(§4.4)
     val tvConfig = remember(base) {
         object : ViewConfiguration by base { override val longPressTimeoutMillis: Long = 600L }
     }
     TvFrame(app, tvConfig) {
+    key(spaceRevision) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
         val nav = remember { TvNav() }
         // 插件的 nav.*(SPEC 7.9)接到 TV 这个自管栈上。轨上的平级页走 rail(),其余入栈
         androidx.compose.runtime.DisposableEffect(nav) {
             xyz.linplayer.app.plugin.PluginNav.host = object : xyz.linplayer.app.plugin.PluginNav.Host {
                 override fun push(route: String, params: kotlinx.serialization.json.JsonObject, replace: Boolean): Boolean {
+                    if (app.privateSpace.value) return false
                     val r = tvOfficialRoute(route) { k -> params.str(k) } ?: return false
                     when {
                         replace -> nav.replaceTop(r)
@@ -148,11 +158,15 @@ fun TvRoot(app: AppState) {
             true -> TvShell(nav)
         }
     }
+    }
 }
 
 /** 主题 + 字阶 + 深色底 + Toast。拆出来是给 JVM 出图 / 焦点测试直接挂真页面用的。 */
 @Composable
 fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.current, content: @Composable () -> Unit) {
+    val privateSpace = app.privateSpace.collectAsStateWithLifecycle().value
+    SideEffect { TvC.privateMode = privateSpace }
+    DisposableEffect(app) { onDispose { TvC.privateMode = false } }
     /* 插件 UI 在 TV 上必须整个 shell 都走可聚焦的那一套。只在插件整页上给的话,
        锚点块(详情页 / 设置页)画出来的是手机控件 —— 它们**没有 FocusTarget**,
        遥控器的方向键把它们当不存在直接跳过,而截图上按钮画得好好的。 */
@@ -160,18 +174,20 @@ fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.cu
         LocalApp provides app, LocalTvType provides TypeB, LocalViewConfiguration provides config,
         xyz.linplayer.app.ui.plugin.LocalPluginTv provides true,
     ) {
-        xyz.linplayer.app.ui.plugin.LoadTakeovers()
+        if (!privateSpace) xyz.linplayer.app.ui.plugin.LoadTakeovers()
+        LpTheme(darkOverride = true, privateSpace = privateSpace) {
         MaterialTheme(colorScheme = darkColorScheme(background = TvC.bg, surface = TvC.surface2, onSurface = TvC.fg)) {
             Box(Modifier.fillMaxSize().background(
                 xyz.linplayer.app.ui.plugin.pageBg(TvC.bg))) {
                 // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
-                xyz.linplayer.app.ui.plugin.WallpaperLayer()
+                if (!privateSpace) xyz.linplayer.app.ui.plugin.WallpaperLayer()
                 content()
                 // 对话框排在 content 后面:它的 BackHandler 组合得更晚,返回键先给它(§3.4)
-                TvPluginDialog()
+                if (!privateSpace) TvPluginDialog()
                 TvToastHost()
                 xyz.linplayer.app.ui.theme.ThemeFailedToast()
             }
+        }
         }
     }
 }
@@ -191,6 +207,7 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
     var exitArmedAt by remember { mutableStateOf(Long.MIN_VALUE / 2) }
     BackHandler {
         if (nav.pop()) return@BackHandler
+        if (app.privateSpace.value) { app.leavePrivateSpace(); return@BackHandler }
         val now = SystemClock.uptimeMillis()
         // 第 4 级不用确认对话框【用户定 2026-09-14】:「再按一次」只多一次按键,不打断画面
         if (now - exitArmedAt < 2000) activity?.finish()
@@ -200,13 +217,16 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
     val session by app.session.collectAsStateWithLifecycle()
     var isLocal by remember { mutableStateOf(false) }
     LaunchedEffect(session) {
+        if (app.privateSpace.value) return@LaunchedEffect
         isLocal = runCatching { app.call("source.currentSource") }.getOrNull().obj().str("source_kind") == "local"
     }
 
     val top = nav.top
     val rail = top.route.rail
     val railReq = remember { FocusRequester() }
-    Box(Modifier.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(TvC.bg))) {
+    PrivateNeonHost(enabled = top.route !is TvRoute.Player) {
+    Box(Modifier.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(TvC.bg))
+        .privateNeonBorder(14.dp, inset = 3.dp)) {
         Box(
             Modifier.fillMaxSize().padding(start = if (rail >= 0) TvDim.railW else 0.dp)
                 // 轨上按 → 回内容区:焦点落回离开时的那个元素(§3.1)
@@ -218,11 +238,16 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
                     LocalFocusMemory provides top.memory, LocalNav provides nav, LocalIsLocalSource provides isLocal,
                     LocalRailFocus provides railReq.takeIf { rail >= 0 },
                 ) {
-                    if (booting) HomeSkeleton() else TvPage(top.route)
+                    // 清理页面留存还不足以清理正在显示的 remember 状态，换账号时一并重建。
+                    key(session?.server, session?.userId) {
+                        if (booting) HomeSkeleton() else TvPage(top.route)
+                    }
                 }
             }
         }
-        if (rail >= 0) Rail(current = rail, modifier = Modifier.focusRequester(railReq), onSelect = { i -> nav.rail(railRoute(i)) })
+        if (rail >= 0) Rail(current = rail, privateSpace = app.privateSpace.value,
+            modifier = Modifier.focusRequester(railReq), onSelect = { i -> nav.rail(railRoute(i)) })
+    }
     }
     if (!booting) UpdateCheck()
 }
@@ -249,19 +274,27 @@ private fun officialName(r: TvRoute): String = when (r) {
 
 @Composable
 private fun TvPage(r: TvRoute) {
+    val app = LocalApp.current
+    val nav = LocalNav.current
+    if (app.privateSpace.value && !r.privateAllowed()) {
+        LaunchedEffect(r) { nav.rail(TvRoute.Home) }
+        return
+    }
     // 被插件整页接管的官方页(D15 D29 D586)。没人接管时原样画官方的
     xyz.linplayer.app.ui.plugin.Takeover(officialName(r)) {
     when (r) {
         TvRoute.Home -> {
             // 当前是插件数据源:首页换成数据源首页(D167)
             val src by LocalApp.current.activeSource.collectAsStateWithLifecycle()
-            src?.let { SourceHomeTv(it.id, it.name) } ?: HomePage()
+            if (app.privateSpace.value) HomePage() else src?.let { SourceHomeTv(it.id, it.name) } ?: HomePage()
         }
         TvRoute.Search -> SearchPage()
         is TvRoute.Library -> if (r.viewId == null && LocalIsLocalSource.current) LocalBrowsePage(null)
             else if (r.viewId == null) LibraryPickerPage() else LibraryGridPage(r)
         TvRoute.Favorites -> FavoritesPage()
         TvRoute.Discover -> DiscoverPage()
+        TvRoute.Liuying -> if (app.privateSpace.value) xyz.linplayer.app.ui.pages.LiuyingContent({ nav.pop() }, tv = true)
+            else LaunchedEffect(Unit) { nav.rail(TvRoute.Home) }
         TvRoute.Downloads -> DownloadsPage()
         TvRoute.Servers -> ServersPage()
         TvRoute.Settings -> SettingsPage()
@@ -357,6 +390,7 @@ private fun keyCodeOf(k: String?): Int? = when (k) {
 
 /** 事件带 `server_id` 且不是当前服务器 → 先切服务器,**成功后**再进详情页。 */
 private suspend fun openFromPhone(app: AppState, nav: TvNav, d: JsonObject?) {
+    if (app.privateSpace.value) return
     val id = d.str("item_id") ?: return
     val server = d.str("server_id")
     if (!server.isNullOrBlank() && !switchServerIfNeeded(app, server)) return

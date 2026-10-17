@@ -34,6 +34,7 @@ class UserStateInvalidationTest {
             assertTrue(runCatching { app.call("emby.setPlayed") }.isFailure)
             yield()
             assertEquals(3, seen.size)
+            assertEquals(3L, app.userStateRevision.value)
         } finally { collector.cancelAndJoin(); scope.cancel(); app.bg.cancel() }
     }
 
@@ -52,11 +53,12 @@ class UserStateInvalidationTest {
         try {
             val write = launch { app.call("emby.setPlayed") }
             started.await()
-            app.enablePhonePrivacy()
+            app.enablePrivacyFiltering()
             response.complete(JsonNull)
             write.join()
             yield()
             assertTrue(seen.isEmpty())
+            assertEquals(0L, app.userStateRevision.value)
         } finally { response.complete(JsonNull); collector.cancelAndJoin(); scope.cancel(); app.bg.cancel() }
     }
 }

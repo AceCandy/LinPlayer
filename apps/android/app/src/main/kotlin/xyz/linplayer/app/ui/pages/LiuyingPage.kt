@@ -13,6 +13,8 @@ import android.widget.FrameLayout
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -60,6 +62,13 @@ import xyz.linplayer.app.ui.theme.Sp
 @Composable
 internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
     BuildConfig.LP_LIUYING_URL, BuildConfig.LP_LIUYING_ADULT_URL,
+)) = LiuyingContent({ nav.popBackStack() }, urls = urls)
+
+/** 手机与TV共用网页、安全配置和生命周期，外壳分别提供触屏与遥控器控件。 */
+@SuppressLint("SetJavaScriptEnabled")
+@Composable
+internal fun LiuyingContent(onExit: () -> Unit, tv: Boolean = false, urls: List<String> = listOf(
+    BuildConfig.LP_LIUYING_URL, BuildConfig.LP_LIUYING_ADULT_URL,
 )) {
     val context = LocalContext.current
     val owner = LocalLifecycleOwner.current
@@ -72,7 +81,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
 
     fun back() {
         val web = views[selected]
-        if (web?.canGoBack() == true) web.goBack() else nav.popBackStack()
+        if (web?.canGoBack() == true) web.goBack() else onExit()
     }
     BackHandler { back() }
     DisposableEffect(owner) {
@@ -87,16 +96,7 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
         }
     }
 
-    LpScaffold("流影", onBack = { back() }, actions = {
-        val on = selected == 1
-        Text("卍解", Modifier.testTag("liuying.bankai")
-            .heightIn(min = Dim.tap).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
-            .background(if (on) Lp.colors.mediaAccent else Lp.colors.s1)
-            .toggleable(on, role = Role.Switch) { selected = if (it) 1 else 0 }
-            .padding(horizontal = Sp.x16, vertical = Sp.x12),
-            color = if (on) Lp.colors.mediaOnAccent else Lp.colors.fg2,
-            style = LpText.list)
-    }) {
+    val webContent: @Composable () -> Unit = {
         Column(Modifier.fillMaxSize().navigationBarsPadding()) {
             if (!available) {
                 EmptyState("无法打开网页", "系统没有可用的 WebView 组件", LpIcons.globe)
@@ -152,6 +152,33 @@ internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
                 else if (error != null) ErrorState(error, { views[selected]?.reload() })
                 else if (loading[selected]) xyz.linplayer.app.ui.components.LoadingLabel("正在加载…", Modifier.padding(Sp.x16))
             }
+        }
+    }
+    if (tv) {
+        Column(Modifier.fillMaxSize()) {
+            Row(Modifier.fillMaxWidth().padding(Sp.x16), verticalAlignment = androidx.compose.ui.Alignment.CenterVertically) {
+                xyz.linplayer.app.tv.kit.TvButton("返回", focused = true,
+                    modifier = Modifier.testTag("liuying.back"), onClick = { back() })
+                Spacer(Modifier.weight(1f))
+                xyz.linplayer.app.tv.kit.TvText("流影", xyz.linplayer.app.tv.kit.tvType.title)
+                Spacer(Modifier.weight(1f))
+                xyz.linplayer.app.tv.kit.TvButton("卍解", primary = selected == 1,
+                    modifier = Modifier.testTag("liuying.bankai"), onClick = { selected = 1 - selected })
+            }
+            Box(Modifier.weight(1f)) { webContent() }
+        }
+    } else {
+        LpScaffold("流影", onBack = { back() }, actions = {
+        val on = selected == 1
+        Text("卍解", Modifier.testTag("liuying.bankai")
+            .heightIn(min = Dim.tap).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
+            .background(if (on) Lp.colors.mediaAccent else Lp.colors.s1)
+            .toggleable(on, role = Role.Switch) { selected = if (it) 1 else 0 }
+            .padding(horizontal = Sp.x16, vertical = Sp.x12),
+            color = if (on) Lp.colors.mediaOnAccent else Lp.colors.fg2,
+            style = LpText.list)
+    }) {
+            webContent()
         }
     }
 }

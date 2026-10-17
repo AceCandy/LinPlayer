@@ -44,7 +44,7 @@ internal static class Shortcuts
         ["nav.refresh"] = _ => { if (!Nav.CanReload) return false; Nav.Reload(); return true; },
 
         // 退栈前要先问栈顶的插件页一句(D85),两个入口都走 BackPressed
-        ["win.back"] = _ => { if (!Nav.CanBack) return false; PluginShell.BackPressed(); return true; },
+        ["win.back"] = w => { if (w.ExitPrivateSpace()) return true; if (!Nav.CanBack) return false; PluginShell.BackPressed(); return true; },
         ["win.sidebar"] = w => { w.ShortcutToggleSidebar(); return true; },
         ["win.maximize"] = w => { w.ShortcutToggleMaximize(); return true; },
         ["win.help"] = w => { ToggleHelp(w); return true; },
@@ -100,6 +100,7 @@ internal static class Shortcuts
     private static bool Escape(MainWindow w)
     {
         if (_help is not null) { ToggleHelp(w); return true; }
+        if (w.ExitPrivateSpace()) return true;
         if (!Nav.CanBack) return false;
         PluginShell.BackPressed();
         return true;

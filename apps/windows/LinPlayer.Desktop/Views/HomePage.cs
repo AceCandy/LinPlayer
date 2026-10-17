@@ -38,6 +38,7 @@ public sealed class HomePage : PageBase
     private CancellationTokenSource _lifetime = new();
     private CancellationToken _ct;
     private readonly List<Func<Task>> _retryOnReturn = [];
+    private readonly List<Func<Task>> _refreshTracks = [];
     private bool _officialStarted;
     private bool _pluginsLoaded;
 
@@ -104,7 +105,10 @@ public sealed class HomePage : PageBase
         _rows.LayoutUpdated += (_, _) => PumpLazy();
         SelfCheckHome();
         Content = _sv;
-        if (core is not null) _ = LoadAllAsync(core);
+        if (core is not null) {
+            _ = LoadAllAsync(core);
+            WatchUserState(core, () => { foreach (var run in _refreshTracks.ToArray()) _ = run(); });
+        }
     }
 
     /// <summary>
@@ -136,6 +140,7 @@ public sealed class HomePage : PageBase
     /// </summary>
     private async Task PluginHomeSections(CoreClient core)
     {
+        if (BrowseSpace.IsPrivate) return;
         if (_pluginsLoaded) return;
         var ct = _ct;
         JsonElement list;
@@ -458,6 +463,7 @@ public sealed class HomePage : PageBase
     {
         var ct = _ct;
         Dispatcher.UIThread.Post(() => {
+            if (!SpaceCurrent) return;
             if (!ct.IsCancellationRequested) action();
             else RetryWhenVisible(() => { action(); return Task.CompletedTask; });
         }, priority ?? DispatcherPriority.Normal);
@@ -465,6 +471,7 @@ public sealed class HomePage : PageBase
 
     // 导航栈会保留页面实例;取消的加载在返回后继续,已显示内容及滚动位置保持。
     private void RetryWhenVisible(Func<Task> run) => Dispatcher.UIThread.Post(() => {
+        if (!SpaceCurrent) return;
         if (_ct.IsCancellationRequested) _retryOnReturn.Add(run);
         else _ = run();
     });
@@ -512,14 +519,17 @@ public sealed class HomePage : PageBase
             从**它实际挂进去的那个容器**里摘 —— host 给了就是 host,没给才是 _rows。
              写死 _rows 的话,挂在「最新加入」小节里的轨道摘不掉,而且**不报错**:
              Remove 一个不在表里的元素返回 false,谁也不会去看那个返回值。 */
-        void Vanish() => Post(() =>
+        var runRevision = 0;
+        void Vanish(int? revision = null) => Post(() =>
         {
+            if (revision is not null && revision != runRevision) return;
             Core.Perf.Log($"轨道「{title}」<- 0 条,整条不画");
             (host ?? _rows).Children.Remove(box);
         });
 
-        void Swap(Control with) => Post(() =>
+        void Swap(Control with, int? revision = null) => Post(() =>
         {
+            if (revision is not null && revision != runRevision) return;
             var at = box.Children.IndexOf(body);
             if (at < 0) return;
             box.Children[at] = with;
@@ -549,13 +559,15 @@ public sealed class HomePage : PageBase
 
         async Task Run()
         {
+            var revision = ++runRevision;
             var ct = _ct;
             var t0 = Core.Perf.Ms;
             try
             {
                 void Preview(List<JsonElement> old) {
+                    if (revision != runRevision || ct.IsCancellationRequested) return;
                     hit = old;
-                    Swap(old.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(old, wide, resumeRow));
+                    Swap(old.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(old, wide, resumeRow), revision);
                 }
                 var result = resumeLoad is null ? null : await resumeLoad(Preview);
                 var items = result?.Items ?? (displayLoader is not null ? await displayLoader(Preview) : displayCommand is null ? await load!() :
@@ -563,8 +575,9 @@ public sealed class HomePage : PageBase
                         Preview(value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : []);
                     }, ct)));
                 ct.ThrowIfCancellationRequested();
+                if (revision != runRevision) return;
                 if (result?.Error is { } error) {
-                    Swap(Failure(error, items));
+                    Swap(Failure(error, items), revision);
                     return;
                 }
                 Core.Perf.Log($"轨道「{title}」<- 服务器 {items.Count} 条,{Core.Perf.Ms - t0:0} ms");
@@ -574,17 +587,17 @@ public sealed class HomePage : PageBase
                 // 空态要说清「为什么空」,不是干放一句「暂无数据」(§6.4)
                 // hideWhenEmpty 的轨道例外:它整条消失,连标题都不留 ——
                 // 首页上一条用户没要求过的空轨道,写什么都是噪音。
-                if (items.Count == 0 && hideWhenEmpty) Vanish();
-                else Swap(items.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(items, wide, resumeRow));
+                if (items.Count == 0 && hideWhenEmpty) Vanish(revision);
+                else Swap(items.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(items, wide, resumeRow), revision);
             }
             /* 已经用缓存画出内容之后再失败(离线 / 服务器挂了),<b>不要把内容换成一行红字</b> ——
                屏幕上那批旧数据仍然是用户能用的东西,擦掉它换成「加载失败」是纯粹的损失。 */
-            catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(Run); }
-            catch (Exception e) { if (!ct.IsCancellationRequested) Swap(Failure(e, hit)); }
+            catch (OperationCanceledException) when (ct.IsCancellationRequested) { if (revision == runRevision) RetryWhenVisible(Run); }
+            catch (Exception e) { if (revision == runRevision && !ct.IsCancellationRequested) Swap(Failure(e, hit), revision); }
         }
 
-        if (!lazy) { await Run(); return; }
-        _lazy.Add((box, Run));
+        if (!lazy) { if (onItems is null) _refreshTracks.Add(Run); await Run(); return; }
+        _lazy.Add((box, () => { if (onItems is null) _refreshTracks.Add(Run); return Run(); }));
         Post(PumpLazy, DispatcherPriority.Background);
     }
 

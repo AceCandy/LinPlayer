@@ -63,7 +63,7 @@ class PhoneLiuyingTest {
             ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
         }
         app = AppState(core, scope)
-        runBlocking { app.enablePhonePrivacy(); app.boot(); app.enterPrivateSpace() }
+        runBlocking { app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace() }
         rule.setContent {
             root = LocalView.current.rootView
             LpTheme {

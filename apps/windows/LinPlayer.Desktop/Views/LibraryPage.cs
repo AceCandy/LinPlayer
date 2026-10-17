@@ -46,6 +46,7 @@ public sealed class LibraryPage : PageBase
            2026-09-02 真栽了一次,只有真机截图才看得出来(编译全绿)。 */
         void Swap(Control with)
         {
+            if (!SpaceCurrent) return;
             var at = rows.Children.IndexOf(busy);
             if (at < 0) return;
             rows.Children[at] = with;
@@ -103,6 +104,7 @@ public sealed class LibraryPage : PageBase
 
                 void Paint(List<CardItem> items)
                 {
+                    if (!SpaceCurrent) return;
                     if (items.Count == 0) { Swap(Dim("这台服务器上没有媒体库。")); return; }
 
                     /* 库卡上<b>不再写「140 项」</b>(用户 2026-09-02:「媒体库页里面
@@ -138,6 +140,7 @@ public sealed class LibraryPage : PageBase
     /// </summary>
     private static async Task FillExtra(CoreClient core, Sess s, StackPanel host)
     {
+        var scope = BrowseSpace.Current;
         async Task One(string title, Func<Task<JsonElement>> load, bool wide, string key)
         {
             List<CardItem> items;
@@ -145,7 +148,7 @@ public sealed class LibraryPage : PageBase
             if (hit is { Count: > 0 })
             {
                 items = hit.Select(CardItem.From).ToList();
-                Dispatcher.UIThread.Post(() => Paint(core, s.server, title, items, wide, host));
+                Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) Paint(core, s.server, title, items, wide, host); });
             }
             try
             {
@@ -157,7 +160,7 @@ public sealed class LibraryPage : PageBase
                 items = raw.Select(CardItem.From).ToList();
             }
             catch { return; }   // 端点 404 / 这一段就不出现
-            Dispatcher.UIThread.Post(() => Paint(core, s.server, title, items, wide, host));
+            Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) Paint(core, s.server, title, items, wide, host); });
         }
 
         // emby.listCollections 早就注册着,UI 一次没调过 —— 又一条零调用命令
@@ -398,6 +401,10 @@ public sealed class LibraryGridPage : PageBase
         Content = sv;
         _ = LoadFilters();
         _ = LoadMore();
+        WatchUserState(core, () => {
+            _gen++; _busy = false;
+            _ = LoadMore(Math.Max(PageSize, _loaded));
+        });
     }
 
     /// <summary>
@@ -672,58 +679,67 @@ public sealed class LibraryGridPage : PageBase
         box.SelectedIndex = 0; // 它自己会触发 SelectionChanged → Requery
     }
 
-    private async Task LoadMore()
+    private async Task LoadMore(int refreshCount = 0)
     {
-        if (_busy || (_total >= 0 && _loaded >= _total)) return;
+        if (_busy || (refreshCount == 0 && _total >= 0 && _loaded >= _total)) return;
         _busy = true;
         var gen = _gen;
-        Dispatcher.UIThread.Post(() => _status.Text = "加载中…");
+        var s = Nav.Session!;
+        Dispatcher.UIThread.Post(() => { if (gen == _gen && Nav.Session == s) _status.Text = "加载中…"; });
         try
         {
-            var s = Nav.Session!;
             var (_, by, order) = Sorts[Math.Max(0, _sort.SelectedIndex)];
             // 「全部XX」是第 0 项,不是一个真的筛选值
             var genres = _genre.SelectedIndex > 0 ? new[] { (string)_genre.SelectedItem! } : null;
             var years = _year.SelectedIndex > 0 ? new[] { long.Parse((string)_year.SelectedItem!) } : null;
 
-            var offset = _loaded;
-            var page = await _core.CallDisplayAsync("emby.listItemsPage", new
-            {
-                s.server, s.token, s.user_id, s.device_id,
-                parent_id = _parentId,
-                query = new
+            var start = refreshCount > 0 ? 0 : _loaded;
+            var offset = start;
+            var items = new List<CardItem>();
+            var total = _total;
+            do {
+                var page = await _core.CallDisplayAsync("emby.listItemsPage", new
                 {
-                    limit = PageSize, start_index = offset,
-                    sort_by = by, sort_order = order, years,
-                    // 落地页那一档压过下拉框:这一页存在的理由就是「只看这一个」
-                    genres = _facet.Kind == "genre" ? [_facet.Value] : genres,
-                    tags = _facet.Kind == "tag" ? new[] { _facet.Value } : null,
-                    studio_ids = _facet.Kind == "studio" ? new[] { _facet.Value } : null,
-                },
-            }, value => {
-                if (gen != _gen) return;
-                var old = value.TryGetProperty("items", out var cached) && cached.ValueKind == JsonValueKind.Array
-                    ? cached.EnumerateArray().Select(CardItem.From).ToList() : [];
-                _first.IsVisible = false;
-                _grid.ReplaceFrom(offset, old);
-                _status.Text = "正在刷新…";
-            });
-            // 等这一趟网络的工夫里用户换了筛选:这批是旧筛选的结果,一个字都不能落地
-            if (gen != _gen) return;
-            var items = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
-                ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
-            _total = page.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number
-                ? t.GetInt32() : _loaded + items.Count;
-            _loaded += items.Count;
+                    s.server, s.token, s.user_id, s.device_id,
+                    parent_id = _parentId,
+                    query = new
+                    {
+                        limit = PageSize, start_index = offset,
+                        sort_by = by, sort_order = order, years,
+                        // 落地页那一档压过下拉框:这一页存在的理由就是「只看这一个」
+                        genres = _facet.Kind == "genre" ? [_facet.Value] : genres,
+                        tags = _facet.Kind == "tag" ? new[] { _facet.Value } : null,
+                        studio_ids = _facet.Kind == "studio" ? new[] { _facet.Value } : null,
+                    },
+                }, value => {
+                    if (gen != _gen || refreshCount > 0 || Nav.Session != s) return;
+                    var old = value.TryGetProperty("items", out var cached) && cached.ValueKind == JsonValueKind.Array
+                        ? cached.EnumerateArray().Select(CardItem.From).ToList() : [];
+                    _first.IsVisible = false;
+                    _grid.ReplaceFrom(offset, old);
+                    _status.Text = "正在刷新…";
+                }, retainOnFailure: refreshCount == 0);
+                if (gen != _gen || Nav.Session != s) return;
+                var got = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
+                    ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
+                total = page.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number
+                    ? t.GetInt32() : offset + got.Count;
+                items.AddRange(got); offset += got.Count;
+                if (got.Count == 0) { total = offset; break; }
+            } while (refreshCount > 0 && offset < refreshCount && offset < total);
+
+            if (gen != _gen || Nav.Session != s) return;
+            _total = total;
+            _loaded = start + items.Count;
 
             Dispatcher.UIThread.Post(() =>
             {
-                if (gen != _gen) return;   // Post 排队期间换了筛选,同上
+                if (gen != _gen || Nav.Session != s) return;   // Post 排队期间换了筛选或会话,同上
                 // 第一页到了就把骨架撤掉。 换排序 / 换筛选时它不再回来 ——
                 // 那时候屏幕上已经有内容了,再闪一次骨架反而像整页重载。
                 _first.IsVisible = false;
                 using var _sp = Core.Perf.Measure($"追加 {items.Count} 条(虚拟化网格)");
-                _grid.ReplaceFrom(offset, items);
+                _grid.ReplaceFrom(start, items);
                 _status.Text = _loaded >= _total ? $"共 {_total} 项" : $"已加载 {_loaded} / {_total}";
                 if (_loaded == 0) _status.Text = "这个筛选下没有内容。";
             });
@@ -734,7 +750,7 @@ public sealed class LibraryGridPage : PageBase
         {
             Dispatcher.UIThread.Post(() =>
             {
-                if (gen != _gen) return;   // 旧筛选的失败别盖在新筛选的结果上
+                if (gen != _gen || Nav.Session != s) return;   // 旧筛选的失败别盖在新筛选的结果上
                 // 失败时骨架也要撤:留着的话「加载失败」那行字底下还有一片在呼吸,
                 // 用户会以为它还在重试。
                 _first.IsVisible = false;

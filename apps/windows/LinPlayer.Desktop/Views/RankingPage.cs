@@ -43,6 +43,7 @@ public sealed class RankingPage : PageBase
     private int _catalogRevision;
     private CancellationTokenSource? _fetch;
     private int _page = 1;
+    private int? _shownPage;
     private readonly Button _previous = new() { Classes = { "ghost" }, Content = "上一页", IsEnabled = false };
     private readonly Button _next = new() { Classes = { "ghost" }, Content = "下一页", IsEnabled = false };
     private readonly TextBlock _pageLabel = Dim("第 1 页");
@@ -52,8 +53,8 @@ public sealed class RankingPage : PageBase
     {
         _core = core;
         _refresh.Click += (_, _) => { if (_curCat.Length > 0) _ = Fetch(_curCat); else _ = Load(); };
-        _previous.Click += (_, _) => { if (_page > 1) { _page--; _ = Fetch(_curCat); } };
-        _next.Click += (_, _) => { _page++; _ = Fetch(_curCat); };
+        _previous.Click += (_, _) => { if (_shownPage > 1) { _page = _shownPage.Value - 1; _ = Fetch(_curCat); } };
+        _next.Click += (_, _) => { _page = (_shownPage ?? 1) + 1; _ = Fetch(_curCat); };
         DetachedFromVisualTree += (_, _) => { _life.Cancel(); _revision++; };
         AttachedToVisualTree += (_, _) => { if (_life.IsCancellationRequested || _session != Nav.Session)
         {
@@ -143,7 +144,8 @@ public sealed class RankingPage : PageBase
     private void PickCat(string id)
     {
         foreach (var b in _cats.Children.OfType<Button>()) b.Classes.Set("on", (string?)b.Tag == id);
-        _page = 1;
+        _page = 1; _shownPage = null;
+        _podium.Children.Clear(); _grid.Children.Clear();
         _ = Fetch(id);
     }
 
@@ -155,13 +157,16 @@ public sealed class RankingPage : PageBase
         _curCat = catId;
         var revision = ++_revision;
         var page = _page;
-        _podium.Children.Clear(); _grid.Children.Clear();
-        _previous.IsEnabled = page > 1; _next.IsEnabled = false;
-        _pageLabel.Text = $"第 {page} 页";
+        _previous.IsEnabled = false; _next.IsEnabled = false;
+        _refresh.IsEnabled = false;
         _msg.Text = "加载中…"; _msg.IsVisible = true;
         void Render(JsonElement arr)
         {
             if (!Current || revision != _revision) return;
+            _refresh.Content = "↻ 刷新";
+            _shownPage = page;
+            _pageLabel.Text = $"第 {page} 页";
+            _previous.IsEnabled = page > 1;
             _podium.Children.Clear(); _grid.Children.Clear();
             var list = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
             foreach (var (e, i) in list.Take(page == 1 ? 3 : 0).Select((e, i) => (e, i)))
@@ -181,15 +186,24 @@ public sealed class RankingPage : PageBase
             var s = _session;
             if (!SelfCheckFake && s is null) return;
             var arr = SelfCheckFake ? FakeItems(catId) : await _core.CallDisplayAsync("emby.extRankingItems",
-                new { s!.server, s.token, s.user_id, s.device_id, category_id = catId, page }, Render, token);
+                new { s!.server, s.token, s.user_id, s.device_id, category_id = catId, page },
+                value => { if (_shownPage is null) Render(value); }, token, retainOnFailure: false);
             Render(arr);
         }
         catch (OperationCanceledException) { }
         catch (Exception e)
         {
             if (!Current || revision != _revision) return;
-            _podium.Children.Clear(); _grid.Children.Clear();
+            if (e is CoreException ce && ce.Code is "E_AUTH" or "E_PERMISSION" or "E_NOTFOUND" or "E_INVALID" or "E_UNSUPPORTED") {
+                _podium.Children.Clear(); _grid.Children.Clear(); _shownPage = null;
+            }
+            _previous.IsEnabled = _shownPage > 1;
+            _next.IsEnabled = _shownPage < 500;
+            _refresh.Content = $"重试第 {page} 页";
             _msg.Text = LibraryPage.Advice(e); _msg.IsVisible = true;
+        }
+        finally {
+            if (Current && revision == _revision) _refresh.IsEnabled = true;
         }
     }
 

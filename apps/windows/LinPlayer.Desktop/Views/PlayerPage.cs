@@ -1177,6 +1177,7 @@ public sealed class PlayerPage : UserControl
     /// </summary>
     private async Task LoadPluginSurfaces()
     {
+        if (BrowseSpace.IsPrivate) return;
         if (_pluginSurfacesAsked) return;
         _pluginSurfacesAsked = true;
         var overlays = await PlayerSurfaces.Load(_core, "overlay");

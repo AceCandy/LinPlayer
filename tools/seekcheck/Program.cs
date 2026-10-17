@@ -80,13 +80,16 @@ Check(seek.Target is null, "失败未释放目标");
 Console.WriteLine("跳转状态：累加/合并、边界、回执/缓冲/代数、超时、失败及停止屏障通过");
 
 // 真页面和控件入口，命令回执可挂起；不把Headless验证当作实际mpv视频呈现。
+if (args.Contains("--liuying-native")) { Environment.ExitCode = NativeWebCheck.Run(); return; }
 AppBuilder.Configure<CheckApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
 var root = Path.Combine(Path.GetTempPath(), "linplayer-seek-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 try {
     using var core = new CoreClient(Path.GetFullPath(args[0]), root, "test");
     if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
+    if (args.Contains("--user-state-only")) { UserStateCheck.Run(core); return; }
     if (args.Contains("--discovery-only")) { DiscoveryCheck.Run(core); return; }
+    if (args.Contains("--privacy-only")) { PrivacyCheck.Run(core, root); return; }
     var page = new PlayerPage(core, "", "跳转回归", 0, isSource: true);
     Get<DispatcherTimer>(page, "_poll").Stop();
     Set(Get<object>(page, "_view"), "OnReady", null);

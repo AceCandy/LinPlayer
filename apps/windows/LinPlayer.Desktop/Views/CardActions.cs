@@ -262,7 +262,8 @@ public static class CardActions
             hide.Click += async (_, _) =>
             {
                 var ok = await Run(core, "emby.hideResume", new { item_id = item.Id, hide = true },
-                    err => { if (err.Length == 0) HomePage.ForgetResume(item.Id); after?.Invoke(err); });
+                    err => { if (err.Length == 0) HomePage.ForgetResume(item.Id);
+                        if (after != DefaultAfter || Nav.Current is not PageBase { WatchesUserState: true }) after?.Invoke(err); });
                 Toast.Result(ok, "已从继续观看中移除", "移除失败");
             };
             items.Add(hide);
@@ -377,6 +378,8 @@ public static class CardActions
 
     internal static async Task ShowIfDownloadable(CoreClient core, Control down)
     {
+        if (BrowseSpace.IsPrivate) return;
+        var scope = BrowseSpace.Current;
         var s = Nav.Session;
         if (s is null) return;
         if (!DownloadOk.TryGetValue(s.server, out var ok))
@@ -391,7 +394,7 @@ public static class CardActions
             catch { return; } // 问不到权限就不画这一条 —— 宁可少给,也不摆一个必定失败的
             DownloadOk[s.server] = ok;
         }
-        if (ok) Dispatcher.UIThread.Post(() => down.IsVisible = true);
+        if (ok) Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) down.IsVisible = true; });
     }
 
     /// <summary>收藏那一条的文案 + 状态。<b>状态存在 Tag 里,不从文案反推</b> —— 文案是给人看的。</summary>
@@ -437,7 +440,9 @@ public static class CardActions
             var s = Nav.Session!;
             var merged = Merge(s, args);
             await core.CallAsync(cmd, merged);
-            after?.Invoke("");
+            // 状态写入由页面定向重验，避免默认回调重建页面丢掉筛选和滚动。
+            if (after != DefaultAfter || Nav.Current is not PageBase { WatchesUserState: true } ||
+                cmd is not ("emby.setFavorite" or "emby.setPlayed" or "emby.hideResume")) after?.Invoke("");
             return true;
         }
         catch (Exception e)

@@ -98,7 +98,7 @@ import xyz.linplayer.app.ui.theme.T
 fun PhoneRoot(app: AppState) = PrivateNeonHost {
     androidx.compose.runtime.CompositionLocalProvider(LocalApp provides app) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
-        LaunchedEffect(Unit) { app.enablePhonePrivacy(); app.boot() }
+        LaunchedEffect(Unit) { app.enablePrivacyFiltering(); app.boot() }
 
         // 手机使用固定主题底色，不绘制全局壁纸。
         Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {

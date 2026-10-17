@@ -144,7 +144,7 @@ class PhoneHomeRefreshTest {
         }
         core.ret("emby.listResume", arr())
         core.ret("emby.listLatest", arr())
-        openHome(core, cachedImages = false) { it.enablePhonePrivacy() }
+        openHome(core, cachedImages = false) { it.enablePrivacyFiltering() }
         rule.onNodeWithText("普通媒体库").assertExists()
         rule.onNodeWithText("私密媒体库").assertDoesNotExist()
         rule.onNodeWithText("服务器 A").performClick()

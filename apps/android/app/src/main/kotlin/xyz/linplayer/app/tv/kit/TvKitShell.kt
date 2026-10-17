@@ -29,6 +29,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
@@ -69,6 +70,7 @@ val railItems = listOf(
 @Composable
 fun Rail(
     current: Int, focused: Int = -1, previewExpanded: Boolean = false,
+    privateSpace: Boolean = false,
     modifier: Modifier = Modifier, onSelect: (Int) -> Unit = {},
 ) {
     var hasFocus by remember { mutableStateOf(false) }
@@ -96,14 +98,15 @@ fun Rail(
             }
             Spacer(Modifier.height(TvSp.x16))
             railItems.forEachIndexed { i, (label, icon) ->
+                if (privateSpace && i >= 5) return@forEachIndexed
                 if (i == 6) {
                     Spacer(Modifier.weight(1f))
                     Box(Modifier.fillMaxWidth().padding(horizontal = TvSp.x8).height(1.dp).background(TvC.line))
                     Spacer(Modifier.height(TvSp.x6))
                 }
                 RailItem(label, icon, on = i == current, expanded = expanded, focused = i == focused,
-                    badge = xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
-                    modifier = Modifier.focusRequester(reqs[i]), onClick = { onSelect(i) })
+                    badge = if (privateSpace) null else xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
+                    modifier = Modifier.focusRequester(reqs[i]).testTag("rail.$i"), onClick = { onSelect(i) })
             }
         }
         Box(Modifier.align(Alignment.CenterEnd).width(1.dp).fillMaxHeight().background(TvC.line))

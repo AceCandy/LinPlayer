@@ -54,6 +54,9 @@
     </ResourceDictionary>
   </ResourceDictionary.ThemeDictionaries>
 
+  <SolidColorBrush x:Key="PrivateNeonCyan" Color="#36FFF3" />
+  <SolidColorBrush x:Key="PrivateNeonRed" Color="#FF426D" />
+
   <SolidColorBrush x:Key="Bg" Color="{DynamicResource BgColor}" />
   <SolidColorBrush x:Key="Panel" Color="{DynamicResource PanelColor}" />
   <SolidColorBrush x:Key="PanelAlt" Color="{DynamicResource PanelAltColor}" />

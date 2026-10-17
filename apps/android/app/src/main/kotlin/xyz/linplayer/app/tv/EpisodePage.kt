@@ -24,6 +24,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -95,13 +96,13 @@ fun EpisodePage(r: TvRoute.Episode) {
     var detail by remember(epId) { mutableStateOf<Block<JsonObject>>(Block.Loading) }
     var preview by remember(epId) { mutableStateOf<JsonObject?>(null) }
     var siblings by remember { mutableStateOf<List<Item>>(emptyList()) }
-    var siblingsFor by remember { mutableStateOf<String?>(null) }
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var reload by remember { mutableIntStateOf(0) }
     var downloadable by remember(epId) { mutableStateOf(false) }
     val pick = rememberPickState(epId)
     val fade = remember(epId) { Animatable(if (siblings.isEmpty()) 1f else 0f) }
 
-    LaunchedEffect(epId, reload) {
+    LaunchedEffect(epId, reload, userRevision) {
         launch { fade.animateTo(1f, tween(200)) }
         launch { pick.loadPrefs(app) }
         launch { downloadable = canDownload(app) }
@@ -110,9 +111,9 @@ fun EpisodePage(r: TvRoute.Episode) {
         if ((b as? Block.Fail)?.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) preview = null
         val d = b.valueOrNull ?: return@LaunchedEffect
         val parent = d.str("season_id") ?: d.str("series_id")
-        if (parent != null && parent != siblingsFor) launch {
+        if (parent != null) launch {
             runCatching { app.seasonEpisodes(parent, onCached = { items, _ -> siblings = items }) }
-                .onSuccess { siblings = it; siblingsFor = parent }
+                .onSuccess { siblings = it }
                 .onFailure { app.report(it) }
         }
         // 跨服务器认定同一集交给核心层(剧 TMDB / 原名 + 季集号),见 loadVersionCards

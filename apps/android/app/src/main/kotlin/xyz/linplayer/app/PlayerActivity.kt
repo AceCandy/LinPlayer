@@ -63,7 +63,7 @@ open class PlayerActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         val route = readRoute(intent) ?: run { finish(); return }
         app = playerApp()
-        app.enablePhonePrivacy()
+        app.enablePrivacyFiltering()
         val privatePlayback = intent.getBooleanExtra(EXTRA_PRIVATE, false)
         // 隐私播放只在已解锁的进程内恢复；进程回收不能靠旧Intent重新进入。
         if (privatePlayback != app.privateSpace.value) { finish(); return }

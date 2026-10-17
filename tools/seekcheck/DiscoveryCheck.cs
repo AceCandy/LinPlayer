@@ -24,6 +24,7 @@ internal static class DiscoveryCheck
         var matches = new ConcurrentQueue<string>();
         var tokens = new ConcurrentQueue<string>();
         var fail = false;
+        var pageFailure = false;
         var worker = Task.Run(async () => {
             try {
                 while (server.IsListening) {
@@ -37,6 +38,9 @@ internal static class DiscoveryCheck
                         c.Response.StatusCode = fail ? 403 : 200;
                         response = new { version = "1", rankings = true, calendar = new { enabled = true }, library_matching = new { sources = new[] { "tmdb", "bangumi" } } };
                     } else if (path.EndsWith("rankings")) response = new { items = new[] { new { id = "hot", name = "热门", source = "tmdb", enabled = true } } };
+                    else if (path.EndsWith("/hot/items") && pageFailure && c.Request.QueryString["page"] == "2") {
+                        c.Response.StatusCode = 500; response = new { error = "临时失败" };
+                    }
                     else if (path.EndsWith("/hot/items")) response = new { page_size = 20, items = c.Request.QueryString["page"] == "2" ? Array.Empty<object>() : new[] { Entry("榜单作品", "tmdb", 101) } };
                     else if (path.EndsWith("calendar")) response = new { items = new[] { Entry("周历作品", "bangumi", 42) } };
                     else if (path.EndsWith("library/matches")) {
@@ -59,7 +63,12 @@ internal static class DiscoveryCheck
             var ranking = new RankingPage(core);
             Nav.Root(ranking); window.Show();
             Wait(() => Text(ranking, "榜单作品"), "榜单未从扩展接口显示");
+            pageFailure = true;
             Click(ranking, "下一页");
+            Wait(() => ranking.GetVisualDescendants().OfType<Button>().Any(b => b.Content as string == "重试第 2 页" && b.IsEnabled), "榜单失败未提供目标页重试");
+            Check(Text(ranking, "榜单作品") && Text(ranking, "第 1 页"), "翻页失败清空原内容或改写显示页码");
+            pageFailure = false;
+            Click(ranking, "重试第 2 页");
             Wait(() => Text(ranking, "本页没有更多内容"), "榜单第二页未显示空页");
             Check(!FindButton(ranking, "下一页").IsEnabled, "空页仍允许下一页");
             Click(ranking, "上一页");
@@ -68,6 +77,10 @@ internal static class DiscoveryCheck
             entry.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Wait(() => Nav.Current is DetailPage, "精确匹配后未打开详情");
             Check(matches.TryPeek(out var body) && body.Contains("\"external_id\":\"101\"") && !body.Contains("title"), "匹配身份错误");
+            var time = JsonSerializer.SerializeToElement(new { broadcast_time = "01:30", timezone = "Asia/Tokyo" });
+            Check(CalendarPage.Time(time) == "01:30", "未采用明确日本放送时刻");
+            Check(CalendarPage.Time(JsonSerializer.SerializeToElement(new { air_date = "2026-10-19T15:30:00Z" })) == "", "缺失放送时间时仍推测时刻");
+            Check(CalendarPage.Weekday(JsonSerializer.SerializeToElement(new { air_date = "2026-10-19T15:30:00Z" })) == 2, "跨日本午夜的星期错误");
             var calendar = new CalendarPage(core); Nav.Root(calendar);
             Wait(() => Text(calendar, "周历作品"), "日历未显示");
             var card = calendar.GetVisualDescendants().OfType<Button>().First(b => b.Content is StackPanel panel && Text(panel, "周历作品"));

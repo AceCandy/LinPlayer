@@ -55,6 +55,7 @@ import xyz.linplayer.app.data.cachedHeroImage
 import xyz.linplayer.app.data.CachedHomeImage
 import xyz.linplayer.app.ui.components.HeroArtwork
 import xyz.linplayer.app.data.Block
+import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.View
@@ -110,6 +111,11 @@ fun HomePage() {
 
     val session = app.session.collectAsStateWithLifecycle().value
     val server = session?.server
+    var serverName by remember(session) { mutableStateOf("服务器") }
+    LaunchedEffect(session) {
+        serverName = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
+            .firstOrNull { it.isActive }?.name ?: "服务器"
+    }
     val list = rememberLazyListState()
     val ck = "tv.home.$server"
     var hero by keepState<Block<List<Item>>>("$ck.hero") { Block.Loading }
@@ -118,18 +124,20 @@ fun HomePage() {
     var views by keepState<Block<List<View>>>("$ck.views") { Block.Loading }
     var latest by keepState<Map<String, Block<List<Item>>>>("$ck.latest") { emptyMap() }
     var collections by keepState<Block<List<Item>>>("$ck.coll") { Block.Loading }
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var reload by remember { mutableIntStateOf(0) }
     /* 插件声明的首页栏目(SPEC 6.1,D303)。桌面和手机 2026-09-21 接通,TV 这一端当时没做
        —— 官方那几行是按 Emby 的 Item 写的,插件给的是数据源形状的 JSON,得另走一条。 */
     var pluginSections by keepState<List<JsonObject>>("tv.home.plugins") { emptyList() }
     LaunchedEffect(reload) {
+        if (app.privateSpace.value) return@LaunchedEffect
         pluginSections = runCatching { app.call("plugin.homeSections") }.getOrNull().arr().mapNotNull { it.obj() }
             .filter { !it.str("id").isNullOrEmpty() && !it.str("plugin_id").isNullOrEmpty() }
     }
 
     /* 回来时后台静默刷新:结果回来才替换,**一次拉取失败不把手里已有的冲掉**。 */
     fun <T> keep(old: Block<T>, new: Block<T>) = if (new is Block.Fail && old is Block.Ok) old else new
-    LaunchedEffect(server, reload) {
+    LaunchedEffect(session, reload, userRevision) {
         // 空栏目不在列表中；刷新时恢复占位，允许滚到后重新检查内容。
         latest = latest.filterValues { it.valueOrNull?.isEmpty() != true }
         if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
@@ -143,7 +151,7 @@ fun HomePage() {
     }
 
     // 只拉当前可见栏目，栏目离屏后仍由页面作用域完成这一代请求。
-    LaunchedEffect(server, session?.userId, reload) {
+    LaunchedEffect(session, reload, userRevision) {
         val requested = mutableSetOf<String>()
         snapshotFlow { list.layoutInfo.visibleItemsInfo.map { it.key } to views.valueOrNull }.collect { (keys, visibleViews) ->
             for (key in keys) {
@@ -167,10 +175,16 @@ fun HomePage() {
         // 官方内容全空但插件有栏目时**不能**换成空状态页:那一屏正是插件栏目最该出现的时候
         pluginSections.isEmpty()
 
-    Box(Modifier.fillMaxSize()) {
+    Column(Modifier.fillMaxSize()) {
+        Row(Modifier.padding(start = TvSp.x32, end = TvDim.safeH, top = TvDim.safeV)) {
+            TvButton(serverName, LpIcons.server, neon = false, modifier = Modifier.memo("home.server"),
+                onLongClick = { scope.launch { runCatching { app.enterPrivateSpace() }.onFailure { app.report(it) } } },
+                onClick = { if (app.privateSpace.value) app.leavePrivateSpace() else nav.rail(TvRoute.Servers) })
+        }
+    Box(Modifier.weight(1f)) {
         if (allEmpty) {
             Box(Modifier.contentArea()) {
-                FullState(LpIcons.server, "这台服务器上还没有内容", buttons = listOf("去服务器页"),
+                FullState(LpIcons.server, "这台服务器上还没有内容", buttons = if (app.privateSpace.value) emptyList() else listOf("去服务器页"),
                     onButton = { nav.rail(TvRoute.Servers) })
             }
         } else {
@@ -204,6 +218,7 @@ fun HomePage() {
             }
         }
         OverlayHost(overlay)
+    }
     }
 }
 

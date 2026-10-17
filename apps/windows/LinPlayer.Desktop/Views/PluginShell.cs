@@ -169,6 +169,7 @@ public static class PluginShell
     /// </summary>
     private static async Task<object?> Navigate(JsonElement args, bool replace)
     {
+        if (BrowseSpace.IsPrivate) throw new InvalidOperationException("隐私空间不接受插件导航");
         var route = Mi.Str(args, "route");
         var p = args.TryGetProperty("params", out var pv) ? pv : default;
         var ok = await Dispatcher.UIThread.InvokeAsync(() =>
@@ -186,6 +187,7 @@ public static class PluginShell
     /// <summary>返回。播放页要走它自己的离场(D459),不然 mpv 不停,留个孤儿在出声。</summary>
     private static async Task<object?> Back()
     {
+        if (BrowseSpace.IsPrivate) throw new InvalidOperationException("隐私空间不接受插件导航");
         await Dispatcher.UIThread.InvokeAsync(() =>
         {
             if (Nav.Current is PlayerPage p) p.RequestLeave();

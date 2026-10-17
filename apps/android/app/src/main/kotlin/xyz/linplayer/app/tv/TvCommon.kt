@@ -110,6 +110,7 @@ fun ItemPoster(
 
 /** `emby.permissions.can_download`。按会话缓存:每开一次卡片面板问一次服务器不值得。 */
 suspend fun canDownload(app: AppState): Boolean {
+    if (app.privateSpace.value) return false
     val k = "tv.perm." + app.session.value?.server
     PageCache.get<Boolean>(k)?.let { return it }
     val v = runCatching { app.call("emby.permissions") }.getOrNull().obj().bool("can_download")

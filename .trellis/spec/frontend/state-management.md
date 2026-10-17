@@ -33,6 +33,22 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 - `PlayerLaunchPage` 将末集和递增的 `player.returnRevision` 写入原浏览 entry 的 SavedStateHandle；同集重复退出也刷新。详情立即恢复，详情/分集查询异步等待 `PlayerController.awaitPendingStop()`；分集刷新从首批重取，不能把旧 confirmedEpisodes 当作续页起点。
 - 单集详情使用末集作为当前条目；整剧/季保留详情入口，以末集优先确定续播目标和分集滚动位置，不依赖前几集已看标记。账号、条目变化仍取消旧请求。`PlaybackReturnTest` 覆盖慢停止、3→5返回、同集重复刷新和整剧续播目标；`PhoneEnginePlaybackTest` / `PlayerActivityTest` 覆盖实际切集回传与一次停止，不能代替真机上报联调。
 
+## 桌面与 TV 用户状态刷新
+
+- 触发：`emby.setFavorite`、`emby.setPlayed`、`emby.hideResume` 成功后，当前页面及返回的首页、收藏、媒体库、搜索、详情必须重验；共享失效事件存在不代表所有页面已消费。
+- 入口：Android `AppState.userStateRevision: StateFlow<Long>` 保留失效代次，TV 页面以它作为请求 key；桌面 `CoreClient.UserStateRevision(server, user, token)` 与 `UserStateChanged` 经 `PageBase.WatchUserState(core, refresh)` 在挂载时补验。生成绑定和核心命令签名不变。
+- 契约：Android 保留既有 `invalidate` 通知映射，成功结果须仍属于当前会话和空间；桌面代次按服务器、用户、凭据分组。TV 仅组合栈顶页，非重放广播不能承担返回刷新；桌面保留页面实例，不能靠整页重建丢弃筛选、分页与滚动。
+- 错误矩阵：写入失败不推进代次；旧会话结果不刷新新会话页面；普通刷新失败保留旧内容并提示错误；榜单鉴权、权限、不支持错误不可用缓存伪装成功。多页列表先收齐原已加载范围，再一次提交，不能后页失败却留下半份新列表。
+- 场景：详情取消收藏后返回原收藏页重读；分集标已看后整剧从首批重取季集并重算播放目标；同服切用户时仅清 `PageCache` 不会清现有 `remember`，`TvShell` 必须按服务器/用户重建页面组合。
+- 回归：`UserStateInvalidationTest` 断言成功/失败/旧空间代次；`TvFocusTest` 断言当前首页、离页返回整剧目标、同服切用户、多页失败原子保留及从零重试；`tools/seekcheck/UserStateCheck.cs` 经真实页面和 HTTP/FFI 验证详情操作、返回原收藏实例、失败及会话隔离。
+- 错误做法：只订阅 `invalidate`，或仅在请求成功处检查 generation。正确做法：保留可在返回时读取的代次，并在成功、异常、缓存回调及排队后的 UI 更新处拒绝旧代结果。
+
+## 发现页分页与公共日历
+
+- 桌面/TV保留按钮分页；请求页与已显示页分开，成功才提交显示页。普通失败保留已显示内容及页码，重试指向失败目标；切分类/账号清除上一范围。榜单请求使用 `retainOnFailure = false`，不能把旧缓存当作本次网络成功。
+- 日历只在 `timezone == "Asia/Tokyo"` 时显示 `broadcast_time`；缺失时间保持未知，不从首播日期编造时刻。星期优先有效 `weekday`（1～7），缺失时 ISO 时间按 JST 换算，不能依设备时区分组。
+- `TvFocusTest` 与 `tools/seekcheck/DiscoveryCheck.cs` 覆盖第2页失败保留第1页、失败目标重试、空页和JST跨日；自动回归不替代真实服务器及设备联调。
+
 ## 手机下一集准备
 
 - 当前集就绪、未卡顿且距片尾不超过60秒时准备同季下一集；手动切集也先发起准备，与停止收尾并行。尊重核心预加载开关；停止本地输出后仅接管已就绪结果，未就绪或失败时按请求ID取消准备并直接走正常起播，不等待准备任务完成。迟到返回不得影响新目标。
@@ -47,8 +63,14 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 - `player.stopPlayback` 可携带位置所属的 `item_id`；原生内核已跨集时，核心使用当前内核位置收尾，不把旧位置记给新集。Media3接管完成时同步旧控制器的条目身份，保证等待接管的退出任务使用同一集的身份和位置。
 - MPV队列衔接继承内核实际倍速；`player.danmakuBegin`在新弹幕会话首次排版前同步持久化样式，不依赖MPV起播或打开设置面板。
 
-## 手机隐私空间
+## 跨端隐私空间
 
-AppState只在手机启用请求分类（普通false、隐私true），缺省宿主保持无筛选。空间代数由PhoneRoot重建导航，BrowseCache/DetailCache键包含空间，切换推进generation；displayBlock/browseBlock及普通call均拒绝旧空间返回。私密搜索不写UiPrefs普通历史。独立PlayerActivity携带空间标记，失去进程解锁状态时拒绝旧Intent，运行期空间变化退出窗口；不能由恢复路由反向解锁。
+AppState在手机与TV启用请求分类（普通false、隐私true），未启用的宿主保持无筛选。空间代数由PhoneRoot/TvRoot重建导航，BrowseCache/DetailCache键包含空间，切换推进generation；displayBlock/browseBlock及普通call均拒绝旧空间返回。私密搜索不写UiPrefs普通历史。独立PlayerActivity携带空间标记，失去进程解锁状态时拒绝旧Intent，运行期空间变化退出窗口；不能由恢复路由反向解锁。
 
-隐私空间的媒体请求固定当前会话；禁止聚合、本地watchHistory和覆盖server/user的请求。手机底栏保留聚合视界但仅展示流影，不读取普通聚合快照；搜索与详情隐藏跨服入口；插件接管/导航不进入隐私空间。服务端缺少完整历史接口时只展示续播，不能用本地记录代替。
+隐私空间的媒体请求固定当前会话；禁止聚合、本地watchHistory、source/plugin/download命令、本机播放及覆盖server/server_id/user/token的请求。手机底栏保留聚合视界但仅展示流影，桌面与TV发现页同样只保留流影，不读取普通聚合快照；搜索与详情隐藏跨服入口；插件接管/导航不进入隐私空间，TV首页不沿用activeSource。服务端缺少完整历史接口时只展示续播，不能用本地记录代替。
+
+桌面由BrowseSpace保存不可变身份与空间代次，CoreClient对最终响应、partial、缓存及UI交付复核；页面自己的排队回调仍须检查SpaceCurrent。MetaCache键带空间与代次，旧键不能写入，私密元数据只存内存。切空间清导航，切账号退出；入口使用未筛选的完整媒体库探测，旧探测不能打开新空间。图片缓存沿用现有核心行为，此规则不承诺私密图片不落盘。
+
+私密主题只临时覆盖资源，退出恢复普通偏好；流光共用相位，后台/减少动效时停止，播放页隐藏。流影双网页按需创建，切换保留实例，离页销毁，返回先网页历史；Android共享WebView，Windows使用WebView2，Linux使用WebKitGTK 4.1临时上下文（2.40+，X11/XWayland）。GTK原生焦点须纳入前台判断，窗口隐藏/最小化仍停用；新窗口同时处理create和导航策略，限定HTTP(S)。运行库加载后不卸载探测句柄，避免原生线程访问已释放代码。Windows原生媒体与profile隔离仍需实测。
+
+私密空间禁止的数据源功能还须在页面入口跳过请求，不能仅依赖CoreClient拒绝后显示错误；收藏页只加载当前服Emby收藏。PrivacyCheck验证允许内容加载成功且无数据源收藏板块或错误。

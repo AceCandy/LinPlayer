@@ -46,7 +46,7 @@ public static class MetaCache
         var json = args is null ? "" : JsonSerializer.Serialize(args);
         using var sha = SHA1.Create();
         var raw = command + "|" + Strip(json);
-        return command.Replace('.', '_') + "-"
+        return BrowseSpace.Current.CachePrefix + command.Replace('.', '_') + "-"
              + Convert.ToHexString(sha.ComputeHash(Encoding.UTF8.GetBytes(raw)))[..16];
     }
 
@@ -76,13 +76,16 @@ public static class MetaCache
     /// </summary>
     public static JsonElement? Peek(string key)
     {
+        var scope = BrowseSpace.Current;
+        if (!key.StartsWith(scope.CachePrefix, StringComparison.Ordinal)) return null;
         string? json;
         lock (Lock)
         {
+            if (!scope.IsCurrent) return null;
             if (Mem.TryGetValue(key, out var hit)) json = hit.Json;
             else
             {
-                if (_dir == "") return null;
+                if (_dir == "" || scope.IsPrivate) return null;
                 try { json = File.ReadAllText(Path.Combine(_dir, key + ".json")); }
                 catch { return null; }   // 缓存文件不在或读不动 = 没缓存,照常走网络
             }
@@ -91,7 +94,7 @@ public static class MetaCache
         try
         {
             using var doc = JsonDocument.Parse(json);
-            return doc.RootElement.Clone();
+            return scope.IsCurrent ? doc.RootElement.Clone() : null;
         }
         catch { return null; }   // 缓存内容坏了当没缓存,下次刷新会覆盖掉
     }
@@ -104,15 +107,18 @@ public static class MetaCache
     /// </summary>
     public static void Put(string key, JsonElement value)
     {
+        var scope = BrowseSpace.Current;
+        if (!key.StartsWith(scope.CachePrefix, StringComparison.Ordinal)) return;
         // Undefined / Null 不存:存了之后 Peek 会返回一个「有」但画不出东西的值
         if (value.ValueKind is JsonValueKind.Undefined or JsonValueKind.Null) return;
         var json = value.GetRawText();
-        lock (Lock) { Remember(key, json); }
-        if (_dir == "") return;
+        lock (Lock) { if (!scope.IsCurrent) return; Remember(key, json); }
+        if (_dir == "" || scope.IsPrivate) return;
         _ = Task.Run(() =>
         {
             lock (DiskLock)
             {
+                if (!scope.IsCurrent) return;
                 try
                 {
                     File.WriteAllText(Path.Combine(_dir, key + ".json"), json);
@@ -122,6 +128,8 @@ public static class MetaCache
             }
         });
     }
+
+    internal static void ClearMemory() { lock (Lock) Mem.Clear(); }
 
     /// <summary>内存按最近读取淘汰；磁盘快照不按年龄过期。</summary>
     private static void Remember(string key, string json)

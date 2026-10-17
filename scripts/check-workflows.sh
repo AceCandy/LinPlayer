@@ -134,9 +134,10 @@ for f in sorted(glob.glob('.github/workflows/*.yml')):
             # 变量可以挂在 step 或 job 上,两处都算。
             env = dict((job.get('env') or {}), **(step.get('env') or {}))
             miss = [k for k in NEED if not str(env.get(k, '')).strip()]
-            # 出包步骤还要 SENTRY_DSN:缺了 = 发行包不带崩溃上报,CI 照绿
-            if run.lstrip().startswith('bash scripts/pack-') and not str(env.get('SENTRY_DSN', '')).strip():
-                miss.append('SENTRY_DSN')
+            # 外壳的上报与网页配置也须在出包步骤传入，否则核心重编通过仍会漏配。
+            if run.lstrip().startswith('bash scripts/pack-'):
+                miss.extend(k for k in ('SENTRY_DSN', 'LP_LIUYING_URL', 'LP_LIUYING_ADULT_URL')
+                            if not str(env.get(k, '')).strip())
             if miss:
                 bad.append('%s  缺少: %s' % (label, ', '.join(miss)))
 

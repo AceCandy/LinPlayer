@@ -231,28 +231,18 @@ public sealed class CalendarPage : PageBase
         Dispatcher.UIThread.Post(() => { target.Source = bmp; target.Opacity = 1; });
     }
 
-    /// <summary>
-    /// 一条的放送时刻,换算成**本地** HH:MM。取不到就空串(不编时间)。
-    ///
-    /// <para>两个来源两个字段:Trakt 给精确的 <c>air_date</c>,
-    /// Bangumi 给每周固定的 <c>broadcast_at</c>。</para>
-    /// </summary>
-    private static string Time(JsonElement e)
-    {
-        var iso = Str(e, "air_date");
-        if (iso.Length == 0) iso = Str(e, "broadcast_at");
-        if (iso.Length == 0) return "";
-        return DateTimeOffset.TryParse(iso, out var dt) ? dt.ToLocalTime().ToString("HH:mm") : "";
-    }
+    /// <summary>采用服务端明确提供的日本放送时间；未知时刻不推测。</summary>
+    internal static string Time(JsonElement e) => Str(e, "timezone") == "Asia/Tokyo" ? Str(e, "broadcast_time") : "";
 
-    private static int Weekday(JsonElement e)
+    internal static int Weekday(JsonElement e)
     {
-        if (e.TryGetProperty("weekday", out var w) && w.ValueKind == JsonValueKind.Number)
-            return w.GetInt32();
-        // Trakt 那边没有 weekday,从 air_date 现算
-        var iso = Str(e, "air_date");
-        if (iso.Length > 0 && DateTimeOffset.TryParse(iso, out var dt))
-            return ((int)dt.ToLocalTime().DayOfWeek + 6) % 7 + 1; // 周日=7
+        if (e.TryGetProperty("weekday", out var w) && w.ValueKind == JsonValueKind.Number && w.TryGetInt32(out var day) && day is >= 1 and <= 7)
+            return day;
+        var iso = Str(e, "broadcast_at");
+        if (iso.Length == 0) iso = Str(e, "air_date");
+        if (iso.Length > 0 && DateTimeOffset.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.AssumeUniversal, out var dt))
+            return ((int)dt.ToOffset(TimeSpan.FromHours(9)).DayOfWeek + 6) % 7 + 1;
         return 0;
     }
 

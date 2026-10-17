@@ -89,6 +89,7 @@ fun FavoritesPage() {
     val server = "${session?.server}.${session?.userId}"
     var by by keepState("tv.fav.by") { 0 }
     var asc by keepState("tv.fav.asc") { false }
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var block by keepState<Block<List<Item>>>("tv.fav.$server") { Block.Loading }
     // 数据源收藏按来源分组(D326 D333),和 Emby 收藏同页 —— 用户记的是「我收藏过」,不是「我在哪台收藏过」
     var srcFavs by remember { mutableStateOf<List<kotlinx.serialization.json.JsonObject>>(emptyList()) }
@@ -97,40 +98,58 @@ fun FavoritesPage() {
     var hasMore by remember(server) { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
     var moreFailed by remember { mutableStateOf(false) }
+    var refreshFailed by remember { mutableStateOf(false) }
     var generation by remember { mutableIntStateOf(0) }
-    suspend fun fetch(offset: Int) {
+    suspend fun fetch(offset: Int, refreshCount: Int = 60) {
         val gen = generation
         val prefix = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
-        val r = app.displayBlock("emby.listFavorites", args("sort_by" to FavBy[by].first,
-            "sort_order" to if (asc) "asc" else "desc", "start_index" to offset, "limit" to 60)) { value ->
-            if (gen == generation && (offset > 0 || block !is Block.Ok)) block = Block.Ok((prefix + Page.from(value).items).distinctBy { it.id })
-        }
-        if (gen != generation) return
-        when (r) {
-            is Block.Ok -> {
-                val page = Page.from(r.value)
-                val previous = prefix
-                block = Block.Ok((previous + page.items).distinctBy { it.id })
-                nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
-                hasMore = r.value.obj().bool("has_more"); moreFailed = false
+        val refreshed = mutableListOf<Item>()
+        var cursor = offset
+        var pendingMore = false
+        do {
+            val r = app.displayBlock("emby.listFavorites", args("sort_by" to FavBy[by].first,
+                "sort_order" to if (asc) "asc" else "desc", "start_index" to cursor, "limit" to 60),
+                retainOnFailure = false) { value ->
+                if (gen == generation && block !is Block.Ok) block = Block.Ok(Page.from(value).items)
             }
-            is Block.Fail -> if (offset == 0) block = r else { moreFailed = true; app.toast(r.message) }
-            else -> Unit
-        }
+            if (gen != generation) return
+            when (r) {
+                is Block.Ok -> {
+                    val page = Page.from(r.value)
+                    refreshed += page.items
+                    val next = r.value.obj().long("next_index")?.toInt() ?: cursor + page.items.size
+                    pendingMore = r.value.obj().bool("has_more") && next > cursor && page.items.isNotEmpty()
+                    cursor = next
+                }
+                is Block.Fail -> {
+                    if (offset == 0 && block !is Block.Ok) block = r
+                    else { moreFailed = true; refreshFailed = offset == 0; app.toast(r.message) }
+                    return
+                }
+                else -> return
+            }
+        } while (pendingMore && refreshed.size < refreshCount)
+        block = Block.Ok((prefix + refreshed).distinctBy { it.id })
+        nextIndex = cursor; hasMore = pendingMore; moreFailed = false; refreshFailed = false
     }
+
     fun loadMore() {
-        if (loadingMore || !hasMore) return
+        if (loadingMore || (!hasMore && !refreshFailed)) return
         loadingMore = true
         val gen = generation
-        scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
+        scope.launch {
+            try { if (refreshFailed) fetch(0, maxOf(60, block.valueOrNull?.size ?: 0)) else fetch(nextIndex) }
+            finally { if (gen == generation) loadingMore = false }
+        }
     }
-    LaunchedEffect(server, by, asc, reload) {
-        generation++; loadingMore = false; moreFailed = false
-        nextIndex = 0; hasMore = false; block = Block.Loading
-        fetch(0)
+    LaunchedEffect(server, by, asc, reload, userRevision) {
+        generation++; loadingMore = false; moreFailed = false; refreshFailed = false
+        val count = maxOf(60, block.valueOrNull?.size ?: 0)
+        fetch(0, count)
     }
     LaunchedEffect(reload) {
-        srcFavs = runCatching { app.call("source.favorites") }.getOrNull().arr().mapNotNull { it.obj() }
+        if (!app.privateSpace.value)
+            srcFavs = runCatching { app.call("source.favorites") }.getOrNull().arr().mapNotNull { it.obj() }
     }
     val cond = FavBy[by].second + if (by == 0) " ↓" else if (asc) " ↑" else " ↓"
 
@@ -163,7 +182,7 @@ fun FavoritesPage() {
                             overlay.open { FavSortPanel(by, asc, { overlay.close() }, { by = it }, { asc = it }) }
                         })
                         // 「观看历史」和「全部收藏」是一对(SPEC 8.7 D326):入口放这儿,不占导航轨的格子
-                        EntryChip("观看历史", LpIcons.rewind, modifier = Modifier.memo("fav.history"),
+                        if (!app.privateSpace.value) EntryChip("观看历史", LpIcons.rewind, modifier = Modifier.memo("fav.history"),
                             onClick = { nav.push(TvRoute.History) })
                     }
                     Spacer(Modifier.height(TvSp.x6))
@@ -220,7 +239,7 @@ fun FavoritesPage() {
                             }
                         }
                         item("end") {
-                            if (hasMore) {
+                            if (hasMore || refreshFailed) {
                                 if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
                                 PanelItem(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
                                     onClick = { loadMore() }, enabled = !loadingMore)

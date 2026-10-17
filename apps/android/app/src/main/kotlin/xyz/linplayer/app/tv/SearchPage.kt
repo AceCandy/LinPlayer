@@ -82,12 +82,13 @@ fun SearchPage() {
     val scope = rememberCoroutineScope()
     val overlay = rememberOverlay()
     val t = tvType
+    val privateSpace = app.privateSpace.value
 
     var q by keepState("tv.search.q") { "" }
     // 当前是插件数据源时没有 Emby 会话:只能聚合搜(含数据源,D258)
     val onSource = app.activeSource.collectAsStateWithLifecycle().value != null
     var aggregate by keepState("tv.search.agg") { false }
-    if (onSource) aggregate = true
+    if (privateSpace) aggregate = false else if (onSource) aggregate = true
     /** 聚合只在提交(遥控器确认 / 离开输入框)时发:每停一下就撒给所有来源太重。 */
     var aggQ by remember { mutableStateOf("") }
     /** 聚合结果**一个来源一行**(D258 D262),谁先回来谁先出现 —— 核心层就是一行一行 partial 推的。 */
@@ -97,13 +98,15 @@ fun SearchPage() {
     var history by remember { mutableStateOf<List<String>>(emptyList()) }
     var servers by remember { mutableIntStateOf(0) }
     var result by remember { mutableStateOf<Block<List<Hit>>?>(null) }
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var retry by remember { mutableIntStateOf(0) }
 
     LaunchedEffect(Unit) {
+        if (privateSpace) return@LaunchedEffect
         launch { history = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj().strList("search_history") }
         launch { servers = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull()).count { (it.kind ?: "emby") == "emby" } }
     }
-    LaunchedEffect(Unit) {
+    LaunchedEffect(userRevision) {
         snapshotFlow { listOf(q.trim(), aggregate, withEps, retry) }.distinctUntilChanged().debounce(400).collectLatest { (typed, agg, eps, _) ->
             if (agg as Boolean) return@collectLatest          // 聚合走下面那条按提交触发的路
             val text = typed as String
@@ -115,7 +118,7 @@ fun SearchPage() {
                 .map { v -> Item.list(v).map { Hit(it, null) } }
         }
     }
-    LaunchedEffect(aggQ, aggregate, retry) {
+    LaunchedEffect(aggQ, aggregate, retry, userRevision) {
         if (!aggregate || aggQ.isEmpty()) return@LaunchedEffect
         aggRows.clear()
         aggBusy = true
@@ -132,6 +135,7 @@ fun SearchPage() {
     }
 
     fun remember(term: String) {
+        if (privateSpace) return
         val w = term.trim()
         if (w.isEmpty()) return
         scope.launch {
@@ -155,6 +159,7 @@ fun SearchPage() {
                 TvTextField(q, { q = it }, "搜索片名", 300.dp, Modifier.memo("search.input", initial = true),
                     icon = LpIcons.search, onSubmit = { remember(it); aggQ = it.trim() })
                 Spacer(Modifier.height(TvSp.x16))
+                if (!privateSpace) {
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     TvText("搜索历史", t.meta, TvC.fg3)
                     Spacer(Modifier.weight(1f))
@@ -176,11 +181,12 @@ fun SearchPage() {
                         }
                     }
                 }
+                }
             }
             Spacer(Modifier.width(TvSp.x24))
             Column(Modifier.weight(1f)) {
                 Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                    if (!onSource) ScopeChips(listOf("当前服务器", "聚合全部 · $servers"), if (aggregate) 1 else 0,
+                    if (!onSource && !privateSpace) ScopeChips(listOf("当前服务器", "聚合全部 · $servers"), if (aggregate) 1 else 0,
                         itemModifier = { i -> Modifier.memo("search.scope.$i") }, onSelect = { aggregate = it == 1 })
                     ScopeChips(listOf("包括分集"), if (withEps) 0 else -1,
                         itemModifier = { Modifier.memo("search.eps") }, onSelect = { withEps = !withEps })

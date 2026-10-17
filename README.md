@@ -62,6 +62,10 @@ Linux 包不自带 libmpv，运行时按 `libmpv.so.2 → libmpv.so.1 → libmpv
 
 没装的话界面照常能开，起播时会提示缺 libmpv 并给出上面的安装命令。
 
+### Linux 流影网页组件
+
+流影使用系统 WebKitGTK 4.1（2.40 或以上），支持 X11；Wayland 会话需要 XWayland。Debian 12 可安装 `sudo apt install libwebkit2gtk-4.1-0`；网页媒体的格式支持还取决于系统 GStreamer 插件（如 `gstreamer1.0-plugins-good`、`gstreamer1.0-plugins-bad`、`gstreamer1.0-libav`）。缺少网页组件时页面会提示，Emby 浏览和 libmpv 播放不依赖它。
+
 ### 命令行
 
 主程序带一个不开窗口的命令行入口，直接调核心层命令，结果以 JSON 打到标准输出，适合写脚本或 ssh 远程用。

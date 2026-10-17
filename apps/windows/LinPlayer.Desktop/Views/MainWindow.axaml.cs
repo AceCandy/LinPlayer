@@ -22,11 +22,15 @@ namespace LinPlayer.Desktop.Views;
 public partial class MainWindow : Window
 {
     private readonly Desktop.Core.CoreClient? _core = Program.Core;
+    private readonly PrivateNeon _privateNeon;
 
     public MainWindow()
     {
         using var _ = Perf.Measure("MainWindow 构造");
         InitializeComponent();
+        var root = this.FindControl<Grid>("RootGrid")!;
+        _privateNeon = new PrivateNeon(this, root);
+        Grid.SetRowSpan(_privateNeon, 2); root.Children.Add(_privateNeon);
         Program.MainWindowRef = this;
 
         /* 窗口图标 —— 用户 2026-09-03:「软件没有图标,以前有的,用回以前那个就行」。
@@ -258,6 +262,7 @@ public partial class MainWindow : Window
     internal bool RouteTo(string route, string arg, string title = "", bool replace = false)
     {
         if (_core is null) return false;
+        if (BrowseSpace.IsPrivate) return false;
         var srv = Nav.Session?.server ?? "";
         void Go(Control p) { if (replace) Nav.Replace(p); else Nav.Push(p); }
 
@@ -1506,6 +1511,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void GoServers(string? focus = null, string? drawer = null)
     {
+        if (BrowseSpace.IsPrivate) return;
         if (_core is null) return;
         if (!string.IsNullOrEmpty(focus))
         {
@@ -1526,6 +1532,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void GoAddServer()
     {
+        if (BrowseSpace.IsPrivate) return;
         if (_core is null) return;
         foreach (var n in new[] { "NavHome", "NavLibrary", "NavSearch", "NavFavorites",
                                   "NavAggregate", "NavHistory", "NavBrowse",
@@ -1590,7 +1597,8 @@ public partial class MainWindow : Window
     /// </summary>
     private void NavRoot(string route, Func<Control> make)
     {
-        Control Build() => _takeovers.TryGetValue(route, out var t)
+        if (BrowseSpace.IsPrivate && route is not ("home" or "library" or "search" or "favorites" or "aggregate")) return;
+        Control Build() => !BrowseSpace.IsPrivate && _takeovers.TryGetValue(route, out var t)
             ? new PluginPageHost(_core!, t.Plugin, t.Page, t.Name)
             : make();
         Nav.Root(Build(), Build);
@@ -1629,6 +1637,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void Show(Control page)
     {
+        _privateNeon.SetPlaying(page is PlayerPage);
         if (Perf.On) Perf.Log($"换页 → {page.GetType().Name}");
         this.FindControl<ContentControl>("PageHost")!.Content = page;
         SyncServerSelection(page);
@@ -1643,7 +1652,7 @@ public partial class MainWindow : Window
     }
 
     /// <summary>首页。点卡片进详情 —— 库卡进网格,条目卡进详情(判断在 OpenDetail 一处)。</summary>
-    private Control Home() => _pluginServer is { } ps ? new SourceHomePage(_core!, ps, _sourceName) :
+    private Control Home() => !BrowseSpace.IsPrivate && _pluginServer is { } ps ? new SourceHomePage(_core!, ps, _sourceName) :
         new HomePage(_core, Nav.Session is null ? null
             : LibraryPage.OpenDetail(_core!, Nav.Session.server),
             _sourceName == "" ? "首页" : _sourceName);
@@ -1764,6 +1773,7 @@ public partial class MainWindow : Window
             Nav.Session = Sess.From(await _core.EmbyCurrentSession());
         }
         catch { Nav.Session = null; /* 非 Emby 账号没有会话 —— 但也不能留着上一台的 */ }
+        ApplyPrivacyUi();
     }
 
     private async void OnLoggedIn()
@@ -1773,7 +1783,8 @@ public partial class MainWindow : Window
             UpdateServerChip(await _core!.AccountListAccounts());
         }
         catch { /* 服务器名没刷新不影响用 */ }
-        try { Nav.Session = Sess.From(await _core!.EmbyCurrentSession()); } catch { /* 同上 */ }
+        try { Nav.Session = Sess.From(await _core!.EmbyCurrentSession()); } catch { Nav.Session = null; /* 不保留旧账号会话 */ }
+        ApplyPrivacyUi();
         _gated = false;   // 有服务器了,闸口撤掉 —— 快捷键和搜索随之解封
         this.FindControl<StackPanel>("NavList")!.IsVisible = true;
         this.FindControl<StackPanel>("ServerSection")!.IsVisible = true;
@@ -1784,6 +1795,49 @@ public partial class MainWindow : Window
 
     /// <summary>当前源的显示名。文件浏览页的面包屑根节点用它。</summary>
     private string _sourceName = "";
+    private JsonElement _accounts;
+
+    /// <summary>桌面从当前服的右键菜单进入，点击当前服或首页返回退出。</summary>
+    private async Task EnterPrivateSpace()
+    {
+        if (_core is null || Nav.Session is null) return;
+        try
+        {
+            await _core.EnterPrivateSpaceAsync();
+            RefreshSpace();
+        }
+        catch (OperationCanceledException) { /* 已切账号或空间，旧探测不再打开页面。 */ }
+        catch (Exception e) { Toast.Error(LibraryPage.Advice(e)); }
+    }
+
+    internal bool ExitPrivateSpace()
+    {
+        if (!BrowseSpace.IsPrivate || Nav.Current is not HomePage || Nav.CanBack) return false;
+        BrowseSpace.Change(false);
+        RefreshSpace();
+        return true;
+    }
+
+    private void RefreshSpace()
+    {
+        UpdateServerChip(_accounts);
+        ApplyPrivacyUi();
+        GoDefaultPage();
+    }
+
+    private void ApplyPrivacyUi()
+    {
+        var active = BrowseSpace.IsPrivate;
+        PrivacyTheme.Apply(active);
+        _privateNeon.SetSpace(active);
+        this.FindControl<RadioButton>("NavAggregate")!.Content = active ? "发现" : "聚合视界";
+        foreach (var (ctl, id) in NavGates)
+            if (ctl is "NavHistory" or "NavRanking" or "NavCalendar")
+                this.FindControl<RadioButton>(ctl)!.IsVisible = !active && Features.On(id);
+        this.FindControl<RadioButton>("NavSettings")!.IsVisible = !active;
+        foreach (var name in new[] { "SourceGroups", "PluginEntries", "WallpaperLayer" })
+            this.FindControl<Control>(name)!.IsVisible = !active;
+    }
 
     /// <summary>当前账号是浏览型源(本地文件夹)吗。见 <see cref="UpdateServerChip"/>。</summary>
     private bool _isBrowseAccount;
@@ -1820,6 +1874,7 @@ public partial class MainWindow : Window
     private void UpdateServerChip(JsonElement accounts)
     {
         if (accounts.ValueKind != JsonValueKind.Array) return;
+        _accounts = accounts.Clone();
         var rows = accounts.EnumerateArray().ToList();
         var active = rows.FirstOrDefault(a => a.TryGetProperty("active", out var v) && v.GetBoolean());
         if (active.ValueKind != JsonValueKind.Object) active = rows.FirstOrDefault();
@@ -1854,11 +1909,12 @@ public partial class MainWindow : Window
                「下载」同理:本机文件夹里的片子不需要再下载到本机。
                用户 2026-09-06:「本地播放没那么多东西,显示出来文件夹的视频就行了」。 */
             Gate("NavHome", "nav.home", !isBrowse);
-            Gate("NavDownload", "nav.download", !isBrowse && !isPlugin);
+            Gate("NavDownload", "nav.download", !isBrowse && !isPlugin && !BrowseSpace.IsPrivate);
             Gate("NavBrowse", "nav.browse", isBrowse);
             Gate("NavLibrary", "nav.library", !isBrowse && !isPlugin);
             Gate("NavSearch", "nav.search", !isBrowse);
             Gate("NavFavorites", "nav.favorites", !isBrowse);
+            ApplyPrivacyUi();
 
             // 浏览型源进来时,首页那一套是空的 —— 直接落到文件浏览
             if (isBrowse && Nav.Current is HomePage)
@@ -1887,7 +1943,7 @@ public partial class MainWindow : Window
         add.Click += (_, _) => GoAddServer();
         _addRow = add;
         _activeRow = null;   // 这一列整个重建了,上一轮那个引用已经不在树上
-        list.Children.Add(add);
+        if (!BrowseSpace.IsPrivate) list.Children.Add(add);
         _rowAccount.Clear();
         var groups = this.FindControl<StackPanel>("SourceGroups")!;
         groups.Children.Clear();
@@ -1902,6 +1958,7 @@ public partial class MainWindow : Window
             var server = Str(a, "server");
             var name = Str(a, "name") is { Length: > 0 } n ? n : server;
             var on = a.TryGetProperty("active", out var v) && v.ValueKind == JsonValueKind.True;
+            if (BrowseSpace.IsPrivate && !on) continue;
             // \uE968 = 一台服务器的通用图标。真图标随后由 account.icon 换上去(见 FillServerIcon)
             /* <b>先查内存里那份</b>,查到就在建行的这一刻直接贴上去。
                用户 2026-09-03:「切换服务器的时候服务器图标会闪现回到软件自己的默认图,
@@ -1927,6 +1984,7 @@ public partial class MainWindow : Window
                    会话没变,所以不必再打一次 setActiveServer,回首页就够了。 */
                 if (on)
                 {
+                    if (BrowseSpace.IsPrivate) { BrowseSpace.Change(false); RefreshSpace(); return; }
                     GoDefaultPage();
                     return;
                 }
@@ -1942,13 +2000,22 @@ public partial class MainWindow : Window
                 }
                 catch (Exception e) { Console.WriteLine("[切服务器] " + e.Message); }
             };
-            row.ContextMenu = ServerMenu(server, name, AggregateItem(server, a));
-            WireHold(row, list);
+            if (!BrowseSpace.IsPrivate)
+            {
+                row.ContextMenu = ServerMenu(server, name, AggregateItem(server, a));
+                if (on && !_isBrowseAccount && _pluginServer is null)
+                {
+                    var privacy = new MenuItem { Header = "进入隐私空间" };
+                    privacy.Click += async (_, _) => await EnterPrivateSpace();
+                    row.ContextMenu.Items.Add(privacy);
+                }
+                WireHold(row, list);
+            }
             if (on) _activeRow = row;
             list.Children.Add(row);
             _ = FillServerIcon(row, server);
         }
-        BuildSourceGroups(groups, plugins);
+        if (!BrowseSpace.IsPrivate) BuildSourceGroups(groups, plugins);
         // 重建这一列时当前页可能就是添加页(比如刚添加完一台),选中态得跟着补回来
         SyncServerSelection(Nav.Current);
         SyncCollapsed();
@@ -2316,6 +2383,7 @@ public partial class MainWindow : Window
     {
         var host = this.FindControl<StackPanel>("PluginEntries")!;
         host.Children.Clear();
+        if (BrowseSpace.IsPrivate) return;
         JsonElement list;
         try { list = await _core!.PluginSidebar(new { }); }
         catch (Exception e) { Log.W("侧栏", "取插件侧栏入口失败:" + e.Message); return; }

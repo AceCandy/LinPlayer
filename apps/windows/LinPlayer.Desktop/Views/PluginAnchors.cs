@@ -62,6 +62,7 @@ internal sealed class PluginAnchorSet
     /// <summary>拉不到就返回空集 —— 插件是增量,拉不到只该少几块,不该让官方页打不开。</summary>
     public static async Task<PluginAnchorSet> Load(CoreClient core)
     {
+        if (BrowseSpace.IsPrivate) return Empty;
         try
         {
             var by = new Dictionary<string, List<JsonElement>>();
@@ -88,6 +89,7 @@ internal sealed class PluginAnchorSet
     /// </summary>
     public Control? Wrap(string anchor, Control? official, object? props)
     {
+        if (BrowseSpace.IsPrivate) return official;
         // 清单和调用处对不上就只有这一行会说话 —— 门禁查的是清单,查不出「代码里写错了一个字」
         if (!Anchors.All.Contains(anchor)) Log.W("锚点", $"{anchor} 不在 Anchors 清单里,插件按 SPEC 20.3 的名字是找不到它的");
         if (_core is null || !_by.TryGetValue(anchor, out var list)) return official;

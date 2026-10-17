@@ -24,6 +24,7 @@ import xyz.linplayer.app.ui.pages.args
 @Composable
 fun rememberSearchActions(query: String): List<JsonObject> {
     val app = LocalApp.current
+    if (app.privateSpace.value) return emptyList()
     var rows by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     LaunchedEffect(query) {
         val q = query.trim()

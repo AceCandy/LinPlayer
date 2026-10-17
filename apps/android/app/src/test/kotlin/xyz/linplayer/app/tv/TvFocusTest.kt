@@ -10,6 +10,7 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.obj
 import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
@@ -44,6 +45,7 @@ import kotlinx.serialization.json.put
 @Config(qualifiers = RobolectricDeviceQualifiers.Television1080p, sdk = [36], application = Application::class)
 class TvFocusTest {
     @get:Rule val rule = createComposeRule()
+    private lateinit var app: AppState
     private lateinit var core: FakeCore
     private lateinit var nav: TvNav
     private lateinit var back: OnBackPressedDispatcher
@@ -55,7 +57,7 @@ class TvFocusTest {
 
     private fun mount(route: TvRoute = TvRoute.Home, intercept: ((FakeCore) -> xyz.linplayer.app.core.CorePort)? = null, setup: FakeCore.() -> Unit = {}) {
         core = FakeCore().loggedIn().apply(setup)
-        val app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main))
+        app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main))
         runBlocking { app.boot() }
         nav = TvNav().apply { if (route == TvRoute.Home) Unit else push(route) }
         rule.mainClock.autoAdvance = false
@@ -68,6 +70,140 @@ class TvFocusTest {
 
     private fun focused(tag: String) = rule.onNode(hasTestTag(tag)).assertIsFocused()
     private fun pressBack() { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
+
+    @Test fun userStateWriteRefreshesVisibleHome() {
+        var marked = false
+        mount {
+            ret("emby.setPlayed", kotlinx.serialization.json.JsonNull)
+            on("emby.listResume") { if (marked) arr() else resumeItems }
+        }
+        val before = core.calls.count { it.first == "emby.listResume" }
+        rule.runOnUiThread { marked = true; runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "r1"); put("played", true) }) } }
+        advance(rule, 800)
+        assertTrue("TV首页没有消费用户状态失效", core.calls.count { it.first == "emby.listResume" } > before)
+        rule.onNode(hasTestTag("home.resume.r1")).assertDoesNotExist()
+    }
+
+    @Test fun seriesReturnAfterEpisodeMarkRefreshesSeasonAndPlayTarget() {
+        var marked = false
+        mount(TvRoute.Detail("s1", "Series")) {
+            series()
+            ret("emby.listResume", arr())
+            on("emby.setPlayed") { marked = true; kotlinx.serialization.json.JsonNull }
+            ret("emby.seriesSeasons", arr(buildJsonObject {
+                put("id", "se1"); put("index_no", 1); put("child_count", 2); put("unplayed", 2)
+            }))
+            on("emby.seasonEpisodes") { page(
+                item("e1", "第一集", "Episode", season = 1, episode = 1, played = marked, seriesId = "s1"),
+                item("e2", "第二集", "Episode", season = 1, episode = 2, seriesId = "s1")) }
+        }
+        rule.onNode(hasText("播放 S1E1")).assertExists()
+        rule.runOnUiThread { nav.push(TvRoute.Settings) }
+        advance(rule, 300)
+        rule.runOnUiThread { runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "e1"); put("played", true) }) } }
+        val before = core.calls.count { it.first == "emby.seasonEpisodes" }
+        pressBack()
+        advance(rule, 800)
+        assertTrue("返回时沿用了已确认分集旧页", core.calls.count { it.first == "emby.seasonEpisodes" } > before)
+        rule.onNode(hasText("播放 S1E2")).assertExists()
+        assertEquals(0L, core.calls.last { it.first == "emby.seasonEpisodes" }.second.long("start_index"))
+    }
+
+    @Test fun librarySwitchingUserOnSameServerDiscardsPreviousList() {
+        mount(TvRoute.Library("library", "测试媒体库")) {
+            library()
+            on("emby.listItemsPage") { a -> buildJsonObject {
+                put("items", arr(item("owner", if (a.str("user_id") == "u") "原账号影片" else "新账号影片")))
+                put("total", 1)
+            } }
+        }
+        rule.onNode(hasText("原账号影片")).assertExists()
+        rule.runOnUiThread {
+            core.ret("emby.currentSession", buildJsonObject {
+                put("server", "http://emby-a.invalid"); put("token", "other"); put("user_id", "other")
+            })
+            runBlocking { app.refreshSession() }
+        }
+        advance(rule, 800)
+        rule.onNode(hasText("原账号影片")).assertDoesNotExist()
+        rule.onNode(hasText("新账号影片")).assertExists()
+    }
+
+    @Test fun libraryRefreshCommitsAllPagesTogetherAndRetriesFromStart() {
+        var changed = false
+        var fail = false
+        mount(TvRoute.Library("library", "测试媒体库")) {
+            library()
+            ret("emby.setPlayed", kotlinx.serialization.json.JsonNull)
+            on("emby.listItemsPage") { a ->
+                val offset = a?.get("query").obj().long("start_index") ?: 0
+                if (changed && offset == 1L && fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "临时断网", true)
+                buildJsonObject {
+                    put("items", arr(item("row$offset", "${if (changed) "刷新" else "原有"}影片$offset")))
+                    put("total", 2)
+                }
+            }
+        }
+        rule.onNode(hasText("原有影片1")).assertExists()
+        rule.runOnUiThread {
+            changed = true; fail = true
+            runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "row0"); put("played", true) }) }
+        }
+        advance(rule, 800)
+        rule.onNode(hasText("原有影片0")).assertExists()
+        rule.onNode(hasText("原有影片1")).assertExists()
+        rule.onNode(hasText("刷新影片0")).assertDoesNotExist()
+        rule.runOnUiThread { fail = false }
+        rule.onNode(hasText("没加载出来 · 按确认重试")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        advance(rule, 800)
+        rule.onNode(hasText("刷新影片0")).assertExists()
+        rule.onNode(hasText("刷新影片1")).assertExists()
+        assertEquals(listOf(0L, 1L), core.calls.filter { it.first == "emby.listItemsPage" }
+            .takeLast(2).map { it.second?.get("query").obj().long("start_index") })
+    }
+
+    @Test fun rankingFailureKeepsDisplayedPageAndRetriesFailedTarget() {
+        var fail = true
+        mount(TvRoute.Discover) {
+            discover()
+            on("emby.extRankingItems") { a ->
+                if (a.long("page") == 2L && fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "临时断网", true)
+                arr(buildJsonObject { put("id", "p${a.long("page")}"); put("title", "作品页${a.long("page")}") })
+            }
+        }
+        rule.onNode(hasText("下一页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        rule.onNode(hasText("作品页1")).assertIsDisplayed()
+        rule.onNode(hasText("第 1 页 · 刷新")).assertExists()
+        rule.runOnUiThread { fail = false }
+        rule.onNode(hasText("重试第 2 页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        rule.onNode(hasText("作品页2")).assertIsDisplayed()
+        rule.onNode(hasText("第 2 页 · 刷新")).assertExists()
+    }
+
+    @Test fun calendarFallbackUsesJapanDayRegardlessOfDeviceZone() {
+        val previous = java.util.TimeZone.getDefault()
+        try {
+            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/Los_Angeles"))
+            assertEquals(2, weekdayOf(buildJsonObject { put("air_date", "2026-10-19T15:30:00Z") }))
+            assertEquals(1, weekdayOf(buildJsonObject { put("weekday", 1); put("air_date", "2026-10-19T15:30:00Z") }))
+        } finally { java.util.TimeZone.setDefault(previous) }
+    }
+
+    @Test fun rankingCatalogRefreshFailureKeepsVisibleRanking() {
+        mount(TvRoute.Discover) { discover() }
+        rule.onNode(hasTestTag("rank.c0.0")).assertExists()
+        rule.runOnUiThread {
+            core.on("emby.extRankings") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分类临时断网", true) }
+        }
+        rule.onNode(hasText("刷新")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        advance(rule, 500)
+        rule.onNode(hasTestTag("rank.c0.0")).assertExists()
+        rule.onNode(hasText("榜单分类暂未刷新:", substring = true) and hasText("分类临时断网", substring = true)).assertExists()
+    }
 
     @Test fun extensionPagingAndExactNavigation() {
         mount(TvRoute.Discover) {

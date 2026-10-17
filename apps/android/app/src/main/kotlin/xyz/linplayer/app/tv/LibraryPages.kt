@@ -31,6 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
@@ -171,45 +172,61 @@ fun LibraryGridPage(r: TvRoute.Library) {
     var fetchedAs by keepState<String?>("$ck.as") { null }
     var moreFailed by remember { mutableStateOf(false) }
     var loadingMore by remember { mutableStateOf(false) }
+    var refreshFailed by remember { mutableStateOf(false) }
     var facets by keepState<Block<Pair<List<String>, List<Long>>>>("$ck.facets") { Block.Loading }
     var filtersSupported by keepState("$ck.filtersSupported") { true }
 
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
+    var generation by remember { mutableIntStateOf(0) }
     val filterKey = "$sort|$genre|$year|$played"
     val hasFilter = genre != null || year != null || played != 0
 
     /* ☠ `query` 是**嵌套对象**:平铺传 = 核心层读不到 = 每个库都是同一份全站列表且不报错。 */
-    suspend fun fetch(offset: Int) {
+    suspend fun fetch(offset: Int, refreshCount: Int = LibPage) {
+        val gen = generation
         val (_, by, order) = LibSorts[sort]
-        val q = buildMap<String, JsonElement> {
-            put("start_index", JsonPrimitive(offset)); put("limit", JsonPrimitive(LibPage))
-            put("sort_by", JsonPrimitive(by)); put("sort_order", JsonPrimitive(order))
-            if (filtersSupported) {
-                genre?.let { put("genres", jsonArrayOf(listOf(it))) }
-                year?.let { put("years", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(it)))) }
-                PlayedStates[played].second?.let { put("played", JsonPrimitive(it)) }
+        val refreshed = mutableListOf<Item>()
+        var cursor = offset
+        var refreshedTotal: Long? = null
+        do {
+            val q = buildMap<String, JsonElement> {
+                put("start_index", JsonPrimitive(cursor)); put("limit", JsonPrimitive(LibPage))
+                put("sort_by", JsonPrimitive(by)); put("sort_order", JsonPrimitive(order))
+                if (filtersSupported) {
+                    genre?.let { put("genres", jsonArrayOf(listOf(it))) }
+                    year?.let { put("years", kotlinx.serialization.json.JsonArray(listOf(JsonPrimitive(it)))) }
+                    PlayedStates[played].second?.let { put("played", JsonPrimitive(it)) }
+                }
             }
-        }
-        val a = buildMap<String, Any> {
-            put("parent_id", viewId)
-            put("query", kotlinx.serialization.json.JsonObject(q))
-        }
-        when (val res = app.displayBlock("emby.listItemsPage", args(*a.toList().toTypedArray())) { value ->
-            if (offset > 0 || items.isEmpty()) { val p = Page.from(value); items = (items.take(offset) + p.items).distinctBy { it.id }; total = p.total; first = Block.Ok(Unit) }
-        }) {
-            is Block.Ok -> {
-                val p = Page.from(res.value)
-                items = (items.take(offset) + p.items).distinctBy { it.id }
-                total = p.total
-                first = Block.Ok(Unit)
-                moreFailed = false
+            val res = app.displayBlock("emby.listItemsPage", args("parent_id" to viewId, "query" to JsonObject(q)),
+                retainOnFailure = false) { value ->
+                if (gen == generation && items.isEmpty()) {
+                    val p = Page.from(value); items = p.items; total = p.total; first = Block.Ok(Unit)
+                }
             }
-            is Block.Fail -> if (offset == 0) first = res else moreFailed = true
-            else -> Unit
-        }
+            if (gen != generation) return
+            when (res) {
+                is Block.Ok -> {
+                    val p = Page.from(res.value)
+                    refreshed += p.items; refreshedTotal = p.total
+                    cursor += p.items.size
+                    if (p.items.isEmpty()) break
+                }
+                is Block.Fail -> {
+                    if (offset == 0 && first !is Block.Ok) first = res
+                    else { moreFailed = true; refreshFailed = offset == 0; app.toast(res.message) }
+                    return
+                }
+                else -> return
+            }
+        } while (refreshed.size < refreshCount && refreshedTotal?.let { cursor < it } == true)
+        items = (items.take(offset) + refreshed).distinctBy { it.id }
+        total = refreshedTotal; first = Block.Ok(Unit); moreFailed = false; refreshFailed = false
     }
 
-    LaunchedEffect(filterKey) {
-        if (fetchedAs == filterKey && first is Block.Ok) { fetch(0); return@LaunchedEffect }
+    LaunchedEffect(ck, filterKey, userRevision) {
+        generation++; loadingMore = false; moreFailed = false; refreshFailed = false
+        if (fetchedAs == filterKey && first is Block.Ok) { fetch(0, maxOf(LibPage, items.size)); return@LaunchedEffect }
         fetchedAs = filterKey
         first = Block.Loading; items = emptyList(); total = null
         fetch(0)
@@ -227,9 +244,13 @@ fun LibraryGridPage(r: TvRoute.Library) {
     }
     val hasMore = total?.let { items.size < it } ?: false
     fun loadMore() {
-        if (loadingMore || !hasMore || moreFailed) return
+        if (loadingMore || (!hasMore && !refreshFailed) || moreFailed) return
         loadingMore = true
-        scope.launch { fetch(items.size); loadingMore = false }
+        val gen = generation
+        scope.launch {
+            try { if (refreshFailed) fetch(0, maxOf(LibPage, items.size)) else fetch(items.size) }
+            finally { if (gen == generation) loadingMore = false }
+        }
     }
 
     val sortLabel = LibSorts[sort].let { it.first + if (it.third == "Descending" && it.second != "SortName") " ↓" else "" }

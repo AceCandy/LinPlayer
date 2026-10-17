@@ -55,6 +55,7 @@ import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import xyz.linplayer.app.ui.theme.LpIcons
+import xyz.linplayer.app.ui.components.privateNeonBorder
 
 /*
  * TV 组件(UI_TV.md §5)。页面只能用这些件拼;草稿(ui/drafts/tv)用的也是这一份。
@@ -154,14 +155,15 @@ private fun solidColors(primary: Boolean, selected: Boolean, fake: Boolean) = Cl
 fun TvButton(
     label: String, icon: ImageVector? = null, primary: Boolean = false,
     focused: Boolean = false, fake: Boolean = false, modifier: Modifier = Modifier,
-    enabled: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit = {},
+    enabled: Boolean = true, neon: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit = {},
 ) {
     val t = tvType
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f).menuKey(onLongClick),
+        modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f).menuKey(onLongClick)
+            .privateNeonBorder(6.dp, enabled = neon),
         shape = ClickableSurfaceDefaults.shape(TvR.sm),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f, pressedScale = 0.98f),
         colors = solidColors(primary, false, fake),

@@ -20,6 +20,12 @@ public sealed class AggregatePage : PageBase
 {
     public AggregatePage(CoreClient core)
     {
+        if (BrowseSpace.IsPrivate) {
+            var open = new Button { Content = "流影", Classes = { "primary" } };
+            open.Click += (_, _) => { if (SpaceCurrent && BrowseSpace.IsPrivate) Nav.Push(new LiuyingPage()); };
+            Content = Scrolled(new StackPanel { Spacing = 18, Children = { H1("发现"), open } });
+            return;
+        }
         var rows = new StackPanel { Spacing = 18, Children = { H1("聚合视界") } };
         var busy = Dim("加载中…");
         rows.Children.Add(busy);

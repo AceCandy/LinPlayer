@@ -33,6 +33,7 @@ data class PlayerSurfaceInfo(
 @Composable
 fun rememberPlayerSurfaces(kind: String): List<PlayerSurfaceInfo> {
     val app = LocalApp.current
+    if (app.privateSpace.value) return emptyList()
     var rows by remember(kind) { mutableStateOf(emptyList<PlayerSurfaceInfo>()) }
     LaunchedEffect(kind) {
         rows = runCatching { app.call("plugin.playerSurfaces", args("kind" to kind)) }

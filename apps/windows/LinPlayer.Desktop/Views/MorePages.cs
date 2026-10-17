@@ -62,6 +62,7 @@ public sealed class SearchPage : PageBase
         {
             Content = "聚合搜索(所有来源,回车才搜)", IsChecked = false,
             VerticalAlignment = VerticalAlignment.Center,
+            IsVisible = !BrowseSpace.IsPrivate,
         };
         var status = Dim("");
         var host = new ContentControl();
@@ -72,7 +73,8 @@ public sealed class SearchPage : PageBase
         void ShowEmpty(List<string> hist)
         {
             // 历史是异步拉的:回来时已经在搜了,就别拿空态盖掉结果
-            if ((box.Text ?? "").Trim() != "") return;
+            if (!SpaceCurrent || (box.Text ?? "").Trim() != "") return;
+            if (BrowseSpace.IsPrivate) { host.Content = Dim("搜索当前服务器上的片名、剧名"); return; }
             host.Content = Empty(hist, q => { box.Text = q; box.CaretIndex = q.Length; },
                 () => _ = ClearHistory(core, ShowEmpty));
         }
@@ -102,10 +104,11 @@ public sealed class SearchPage : PageBase
 
         async Task LoadActions(string q, int mine)
         {
+            if (BrowseSpace.IsPrivate) return;
             JsonElement list;
             try { list = await core.PluginSearchActions(new { q }); }
             catch (Exception e) { Log.W("搜索", "取插件快捷动作失败,这一次只画官方结果:" + e.Message); return; }
-            if (mine != _seq || list.ValueKind != JsonValueKind.Array) return;
+            if (!SpaceCurrent || mine != _seq || list.ValueKind != JsonValueKind.Array) return;
             actions.Children.Clear();
             foreach (var it in list.EnumerateArray())
             {
@@ -128,7 +131,9 @@ public sealed class SearchPage : PageBase
             actions.IsVisible = actions.Children.Count > 0;
         }
 
-        async Task Run()
+        WatchUserState(core, () => _ = Run(true));
+
+        async Task Run(bool refresh = false)
         {
             var q = (box.Text ?? "").Trim();
             if (q == "")
@@ -146,7 +151,7 @@ public sealed class SearchPage : PageBase
             status.Text = $"正在搜「{q}」…";
             // 和官方结果各走各的:插件慢了不该拖住结果,插件挂了也不该让这一页空着
             _ = LoadActions(q, mine);
-            host.Content = Skeleton.Grid(false, 12);
+            if (!refresh) host.Content = Skeleton.Grid(false, 12);
             var all = everywhere.IsChecked == true;
             try
             {
@@ -165,7 +170,7 @@ public sealed class SearchPage : PageBase
                     var groups = new Dictionary<string, (Control View, int Count, bool Failed)>();
                     void Add(JsonElement g)
                     {
-                        if (mine != _seq) return;
+                        if (!SpaceCurrent || mine != _seq) return;
                         var id = g.TryGetProperty("server_id", out var sid) ? sid.GetString() ?? "" : "";
                         var failure = g.TryGetProperty("error", out var ev) && ev.ValueKind == JsonValueKind.String;
                         if (groups.TryGetValue(id, out var old)) {
@@ -184,7 +189,7 @@ public sealed class SearchPage : PageBase
                         g => { var c = g.Clone(); Dispatcher.UIThread.Post(() => Add(c)); });
                     Dispatcher.UIThread.Post(() =>
                     {
-                        if (mine != _seq) return;
+                        if (!SpaceCurrent || mine != _seq) return;
                         if (hit == 0 && failed == 0) { status.Text = ""; host.Content = NoHit(q, true); }
                     });
                     _ = Push(core, q);
@@ -193,7 +198,7 @@ public sealed class SearchPage : PageBase
 
                 var s = Nav.Session!;
                 void Show(JsonElement value) {
-                    if (mine != _seq) return;
+                    if (!SpaceCurrent || mine != _seq) return;
                     var found = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().Select(CardItem.From).ToList() : [];
                     status.Text = found.Count == 0 ? "" : $"{found.Count} 条结果";
                     host.Content = found.Count == 0 ? NoHit(q, false) : LibraryPage.Grid(core, s.server, found, false, LibraryPage.OpenDetail(core, s.server));
@@ -203,12 +208,12 @@ public sealed class SearchPage : PageBase
                     s.server, s.token, s.user_id, s.device_id, query = q,
                     types = new[] { "Movie", "Series" },
                 }, Show);
-                if (mine != _seq) return; // 过期结果,丢掉
+                if (!SpaceCurrent || mine != _seq) return; // 过期结果,丢掉
                 var items = one.ValueKind == JsonValueKind.Array
                     ? one.EnumerateArray().Select(CardItem.From).ToList() : [];
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (mine != _seq) return;
+                    if (!SpaceCurrent || mine != _seq) return;
                     status.Text = items.Count == 0 ? "" : $"{items.Count} 条结果" + (items.Count >= 50 ? " · 最多显示 50 条,请缩小关键词" : "");
                     host.Content = items.Count == 0
                         ? NoHit(q, false)
@@ -221,9 +226,9 @@ public sealed class SearchPage : PageBase
             }
             catch (Exception e)
             {
-                if (mine != _seq) return;
+                if (!SpaceCurrent || mine != _seq) return;
                 status.Text = $"搜索失败:{LibraryPage.Advice(e)}";
-                host.Content = new StackPanel();
+                if (!refresh) host.Content = new StackPanel();
             }
         }
 
@@ -259,7 +264,7 @@ public sealed class SearchPage : PageBase
         // 是对着一个还没上屏的控件调,静默无效。
         AttachedToVisualTree += (_, _) => Dispatcher.UIThread.Post(() => box.Focus());
         _box = box;
-        _run = Run;
+        _run = () => Run();
     }
 
     /// <summary>
@@ -338,11 +343,13 @@ public sealed class SearchPage : PageBase
     /// <summary>拉搜索历史。拉不到就当没有 —— 它不值得把这一页拖红。</summary>
     private static async Task LoadHistory(CoreClient core, Action<List<string>> show)
     {
+        if (BrowseSpace.IsPrivate) return;
+        var scope = BrowseSpace.Current;
         List<string> hist;
         try { hist = Strings(await core.PrefsGetPrefs(new { }), "search_history"); }
         // 拉不到就当没有:历史是锦上添花,为它把搜索这一屏拖红不值
         catch { return; }
-        Dispatcher.UIThread.Post(() => show(hist));
+        Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) show(hist); });
     }
 
     private static async Task ClearHistory(CoreClient core, Action<List<string>> show)
@@ -355,6 +362,7 @@ public sealed class SearchPage : PageBase
     /// <summary>记一笔。失败**不打扰用户** —— 他要的是搜索结果,不是历史。</summary>
     private static async Task Push(CoreClient core, string q)
     {
+        if (BrowseSpace.IsPrivate) return;
         try { await core.PrefsPushSearch(new { query = q }); }
         catch { /* 记不上就算了,下次还能搜 */ }
     }
@@ -471,7 +479,7 @@ public sealed class FavoritesPage : PageBase
         // 数据源收藏排在 Emby 收藏下面(D326),不跟排序档位走:它没有这些排序维度
         var srcFav = new ContentControl();
         Content = Scrolled(new StackPanel { Spacing = 26, Children = { rows, srcFav } });
-        _ = LoadSources();
+        if (!BrowseSpace.IsPrivate) _ = LoadSources();
         async Task LoadSources()
         {
             try { if (await SourceNav.FavoritesSection(core) is { } c) srcFav.Content = new StackPanel { Spacing = 14, Children = { H1("数据源收藏"), c } }; }
@@ -500,6 +508,48 @@ public sealed class FavoritesPage : PageBase
             picks.Children.Add(b);
         }
         Load();
+        WatchUserState(core, () => _ = Refresh());
+        async Task Refresh()
+        {
+            request.Cancel(); request.Dispose(); request = new CancellationTokenSource();
+            var gen = ++generation;
+            loading = true;
+            try {
+                var s = session;
+                var targetCount = Math.Max(60, nextIndex);
+                var cards = new List<CardItem>();
+                var offset = 0;
+                var pendingMore = false;
+                do {
+                    var res = await core.CallAsync("emby.listFavorites", new { s.server, s.token, s.user_id, s.device_id,
+                        sort, start_index = offset, limit = 60 }, request.Token);
+                    if (gen != generation || detached || Nav.Session != s) return;
+                    var raw = res.ValueKind == JsonValueKind.Array ? res : res.GetProperty("items");
+                    cards.AddRange(raw.EnumerateArray().Select(CardItem.From));
+                    var next = res.ValueKind == JsonValueKind.Object ? res.GetProperty("next_index").GetInt32() : cards.Count;
+                    pendingMore = res.ValueKind == JsonValueKind.Object && res.GetProperty("has_more").GetBoolean() && next > offset;
+                    offset = next;
+                } while (pendingMore && offset < targetCount);
+                cards = cards.DistinctBy(it => it.Id).ToList();
+                nextIndex = offset; hasMore = pendingMore;
+                seen = cards.Select(it => it.Id).ToHashSet();
+                restCount = cards.Count(it => it.Type != "Episode"); episodeCount = cards.Count - restCount;
+                var rest = cards.Where(it => it.Type != "Episode").ToList();
+                var eps = cards.Where(it => it.Type == "Episode").ToList();
+                while (rows.Children.Count > 2) rows.Children.RemoveAt(2);
+                posters = LibraryPage.Grid(core, s.server, rest, false);
+                episodes = LibraryPage.Grid(core, s.server, eps, true, LibraryPage.OpenDetail(core, s.server), episodeStyle: true, width: 214);
+                posters.ListMode = episodes.ListMode = GridView.IsList;
+                if (restCount > 0 && episodeCount > 0) { restHead.Text = $"影片与剧集 · {restCount}"; rows.Children.Add(restHead); }
+                episodeHead.Text = $"分集 · {episodeCount}";
+                if (restCount > 0) rows.Children.Add(posters);
+                if (episodeCount > 0) { rows.Children.Add(episodeHead); rows.Children.Add(episodes); }
+                if (seen.Count == 0) rows.Children.Add(Dim("还没有收藏。详情页点「收藏」就会出现在这里。"));
+                if (hasMore) rows.Children.Add(more);
+            } catch (OperationCanceledException) { }
+              catch (Exception e) { if (gen == generation && !detached) Toast.Error(LibraryPage.Advice(e)); }
+            finally { if (gen == generation) { loading = false; more.IsEnabled = true; } }
+        }
 
         void Fetch()
         {

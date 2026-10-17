@@ -234,7 +234,7 @@ internal suspend fun loadVersionCards(
 ) {
     val accounts = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
     val current = accounts.firstOrNull { it.isActive }
-    val others = accounts.filter { !it.isActive && (it.kind ?: "emby") == "emby" }
+    val others = if (app.privateSpace.value) emptyList() else accounts.filter { !it.isActive && (it.kind ?: "emby") == "emby" }
     var cards = listOf<VCard>()
     fun emit() = onCards(sortCards(cards))
     val mine = xyz.linplayer.app.ui.pages.Version.list(app.block("emby.itemMedia", args("item_id" to itemId)).valueOrNull)
@@ -304,8 +304,9 @@ fun DetailPage(r: TvRoute.Detail) {
 
     var detail by keepState<Block<JsonObject>>("$ck.d") { Block.Loading }
     var preview by remember(r.itemId, server) { mutableStateOf<JsonObject?>(null) }
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(r.itemId, reload) {
+    LaunchedEffect(r.itemId, server, reload, userRevision) {
         detail = app.displayBlock("emby.itemDetail", args("item_id" to r.itemId), retainOnFailure = false) { preview = it.obj() }.map { it.obj() ?: JsonObject(emptyMap()) }
         if ((detail as? Block.Fail)?.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION")) preview = null
     }
@@ -420,6 +421,8 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     var episodeGeneration by remember { mutableStateOf(0) }
     var retryingEpisodes by remember { mutableStateOf(false) }
 
+    val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
+    var seenRevision by keepState("$ck.userRevision") { userRevision }
     val confirmedPages = remember(ck) { mutableMapOf<String, List<Item>>() }
     suspend fun loadEpisodes(parent: String, generation: Int) {
         fun isSelected() = generation == episodeGeneration && parent == (season?.id ?: id)
@@ -450,10 +453,15 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
             retryingTarget = false
         }
     }
-    LaunchedEffect(id) {
+    LaunchedEffect(id, userRevision) {
+        val changed = seenRevision != userRevision
+        if (changed) {
+            episodeJob?.cancel(); episodeGeneration++
+            confirmedPages.clear(); target = null; targetError = null
+        }
         launch { similar = Item.list(app.displayBlock("emby.similarItems", args("item_id" to id, "limit" to 20)) { similar = Item.list(it) }.valueOrNull) }
         launch { dl = canDownload(app) }
-        if (seasons != null && target != null) {
+        if (!changed && seasons != null && target != null) {
             if (episodeLoad is Block.Loading) {
                 val parent = season?.id ?: id
                 val generation = episodeGeneration
@@ -471,10 +479,11 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
         targetParent = defaultParent
         resumedId = resumed?.id
         seasons = ss
+        seenRevision = userRevision
         if (season == null || ss.none { it.id == season?.id }) season = s
         val parent = season?.id ?: id
         val generation = episodeGeneration
-        if (parent != targetParent && episodeLoad is Block.Loading) {
+        if (parent != targetParent && (changed || episodeLoad is Block.Loading)) {
             episodeJob = launch { loadEpisodes(parent, generation) }
         }
         // ☠ 季列表可能为空(有些剧集直接挂剧下)→ 拿 series id 当 parent;不回落 =「点进去一集都没有」且不报错

@@ -71,7 +71,8 @@ public sealed class DetailPage : PageBase
     private readonly ContentControl _previewHost = new();
     private readonly Sess? _displaySession = Nav.Session;
     private bool _displayDetached;
-    private bool DisplayCurrent => !_displayDetached && Nav.Session == _displaySession;
+    private int _detailRevision;
+    private bool DisplayCurrent => SpaceCurrent && !_displayDetached && Nav.Session == _displaySession;
 
     /// <summary>媒体信息 / 版本条的挂点(在播放按钮下面)。</summary>
     private readonly StackPanel _mediaHost = new() { Spacing = 10 };
@@ -178,8 +179,11 @@ public sealed class DetailPage : PageBase
             },
         };
 
-        _ = Task.Run(async () =>
+        WatchUserState(core, () => _ = Load());
+        _ = Task.Run(Load);
+        async Task Load()
         {
+            var revision = Interlocked.Increment(ref _detailRevision);
             try
             {
                 var s = _displaySession!;
@@ -208,6 +212,7 @@ public sealed class DetailPage : PageBase
                     s.server, s.token, s.user_id, s.device_id,
                     item_id = itemId, with_children = false,
                 }, PaintPreview, retainOnFailure: false);
+                if (revision != _detailRevision) return;
                 MetaCache.Put(key, d);
                 /* 内容一个字没变就<b>不要重画</b>。
                    重画一次这一页要重建海报、按钮、分集网格 —— 用户看到的是
@@ -221,7 +226,7 @@ public sealed class DetailPage : PageBase
                 if (EpisodesParent(d, itemId) is { Length: > 0 } ep)
                 {
                     _episodesParent = ep;
-                    _episodesTask = LoadEpisodes(ep);
+                    _episodesTask = LoadEpisodes(ep, revision);
                 }
                 /* ☠ **合集原来一个字都画不出来。** 这条判断和 core 的 withChildren
                    判断一样只认 Series/Season,而合集本身没有简介、没有年份、
@@ -232,14 +237,15 @@ public sealed class DetailPage : PageBase
                 Dispatcher.UIThread.Post(() => Paint(d));
                 if (_episodesTask is not null)
                 {
-                    PaintEpisodesFromCache(_episodesParent);   // 必须排在 Paint 之后,见方法注释
-                    await FillEpisodes();
+                    PaintEpisodesFromCache(_episodesParent, revision);   // 必须排在 Paint 之后,见方法注释
+                    await FillEpisodes(revision);
                 }
                 return;
 
                 void Paint(JsonElement data)
                 {
-                    if (!DisplayCurrent) return;
+                    if (!DisplayCurrent || revision != _detailRevision) return;
+                    _previewHost.Content = null;
                     _paint = Paint;
                     _painted = data;
                     KickPreload(core, s, itemId);
@@ -269,11 +275,13 @@ public sealed class DetailPage : PageBase
                 {
                     if (e is CoreException ce && ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID")
                         _previewHost.Content = null;
+                    if (!DisplayCurrent || revision != _detailRevision) return;
+                    if (_paint is not null) Toast.Error(why);
                     var at = body.Children.IndexOf(busy);
                     if (at >= 0) body.Children[at] = Dim($"加载失败:{why}");
                 });
             }
-        });
+        }
     }
 
     /// <summary>
@@ -284,13 +292,13 @@ public sealed class DetailPage : PageBase
     /// </summary>
     private void PaintPreview(JsonElement value)
     {
-        if (!DisplayCurrent) return;
+        if (!DisplayCurrent || _paint is not null) return;
         _previewHost.Content = new StackPanel { Spacing = 14, Children = {
             H1(Str(value, "name")), Dim(Str(value, "overview")), Dim("正在刷新…"),
         } };
     }
 
-    private async Task<List<CardItem>?> LoadEpisodes(string itemId)
+    private async Task<List<CardItem>?> LoadEpisodes(string itemId, int revision)
     {
         var all = new List<CardItem>();
         try
@@ -305,7 +313,7 @@ public sealed class DetailPage : PageBase
                     s.server, s.token, s.user_id, s.device_id,
                     parent_id = itemId, start_index = all.Count, limit = 200,
                 }, value => {
-                    if (!DisplayCurrent || _episodesParent != itemId) return;
+                    if (!DisplayCurrent || revision != _detailRevision || _episodesParent != itemId) return;
                     var old = value.TryGetProperty("items", out var rows) && rows.ValueKind == JsonValueKind.Array
                         ? rows.EnumerateArray().Select(CardItem.From).ToList() : [];
                     _episodesHost.Content = Episodes(prefix.Concat(old).ToList());
@@ -319,6 +327,7 @@ public sealed class DetailPage : PageBase
                     ? t.GetInt32() : all.Count;
                 if (all.Count >= total) break;
             }
+            if (revision != _detailRevision) return null;
             MetaCache.PutList(key, all.Select(CardItem.ToJson).ToList());
         }
         /* 分集拉不动**不该让整页失败** —— 头部已经在屏幕上了。
@@ -404,7 +413,7 @@ public sealed class DetailPage : PageBase
     /// 于是每次进来上半页秒出、下半页干等一次往返,而要画的东西一个字都没变。
     /// 必须排在 <c>Paint()</c> 那次 Post 之后:Paint 会把内容重置成骨架。</para>
     /// </summary>
-    private void PaintEpisodesFromCache(string itemId)
+    private void PaintEpisodesFromCache(string itemId, int revision)
     {
         var s = Nav.Session;
         if (s is null) return;
@@ -415,16 +424,17 @@ public sealed class DetailPage : PageBase
         var eps = hit.Select(CardItem.From).ToList();
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent || revision != _detailRevision) return;
             _episodesRaw = raw;
             _episodesHost.Content = Episodes(eps);
         });
     }
 
     /// <summary>分集到了,把骨架换成真内容。</summary>
-    private async Task FillEpisodes()
+    private async Task FillEpisodes(int revision)
     {
         var eps = await _episodesTask!;
-        if (eps is null) return;
+        if (eps is null || revision != _detailRevision) return;
         var raw = string.Concat(eps.Select(e => CardItem.ToJson(e).GetRawText()));
         /* 一个字没变就<b>不重画</b>。重画一次要重建整条分集轨 ——
            用户看到的是「刚出来的列表当场闪一下又变回同样的样子」,那看着像 bug。
@@ -432,6 +442,7 @@ public sealed class DetailPage : PageBase
         if (raw == _episodesRaw && _episodesRaw != "") return;
         Dispatcher.UIThread.Post(() =>
         {
+            if (!DisplayCurrent || revision != _detailRevision) return;
             _episodesRaw = raw;
             _episodesHost.Content = eps.Count > 0
                 ? Episodes(eps)
@@ -523,7 +534,7 @@ public sealed class DetailPage : PageBase
            用户正在读的简介会被顶走。 */
         if (isShow)
         {
-            _episodesHost.Content = Skeleton.Grid(true, 8, EpisodeCardWidth);
+            _episodesHost.Content ??= Skeleton.Grid(true, 8, EpisodeCardWidth);
             Anchored("detail.episodes", Loose(_episodesHost));
         }
         // 合集的成员和分集共用这个挂点:两者是同一件事(「这个条目下面有什么」),
@@ -1093,6 +1104,7 @@ public sealed class DetailPage : PageBase
     /// </summary>
     private async Task LoadCrossVersions(string itemId)
     {
+        if (BrowseSpace.IsPrivate) return;
         List<JsonElement> groups;
         try
         {
