@@ -215,3 +215,33 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 79: 手机列表返回与首页顶栏渐隐修复归档
+<!-- trellis-session: v=2 fp=71c8074c87b4b9e4 -->
+
+**Date**: 2026-10-17
+**Task**: 手机列表返回与首页顶栏渐隐修复归档
+**Branch**: `main`
+
+### Summary
+
+媒体库普通返回复用筛选分页及滚动状态，状态变化仍刷新；更新隐私导航回归；首页滚动顶栏保留半透明渐隐。仅提交本轮改动，保留并行任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8537b1f9` | fix(android): 保留列表返回状态并保持首页顶栏渐隐 |
+
+### Testing
+
+- [OK] 隔离提交副本的 PhoneHomeRefreshTest 与 PhoneLibraryUiTest 共44项通过；暂存隐私门禁及diff检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 从已提交版本打arm64手机release包并验签；真机观感与播放待验。

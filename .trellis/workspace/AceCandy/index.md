@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 78
+- **Total Sessions**: 79
 - **Last Active**: 2026-10-17
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~217 | Active |
+| `journal-3.md` | ~247 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 79 | 2026-10-17 | 手机列表返回与首页顶栏渐隐修复归档 | `8537b1f9` | `main` |
 | 78 | 2026-10-17 | 详情预热目标与分集分页稳定性 | `79ad569b` | `main` |
 | 77 | 2026-10-17 | 修复TV构建启动形态并重新交付 | `b0f7134b` | `main` |
 | 76 | 2026-10-17 | TV顶部导航与影院首页交付 | `b67f2a0f` | `main` |
