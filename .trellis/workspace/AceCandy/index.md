@@ -7,9 +7,9 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-2.md`
-- **Total Sessions**: 70
-- **Last Active**: 2026-10-16
+- **Active File**: `journal-3.md`
+- **Total Sessions**: 71
+- **Last Active**: 2026-10-17
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-2.md` | ~102 | Active |
+| `journal-3.md` | ~24 | Active |
+| `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
 
@@ -30,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 71 | 2026-10-17 | 跨端同步审查修复与归档 | `df30a18e`, `7cfe6297` | `main` |
 | 70 | 2026-10-16 | 手机卡片菜单与用户状态改动提交归档 | `fac360d4` | `main` |
 | 69 | 2026-10-16 | 手机隐私空间青红流光修复与交付 | `9683664d` | `main` |
 | 68 | 2026-10-15 | 隐私空间调整归档与Windows开发包 | `0734773e` | `main` |
