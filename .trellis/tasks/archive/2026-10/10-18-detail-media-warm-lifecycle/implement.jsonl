@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "最小变更与回归纪律"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "详情查询及预热生命周期"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "离页取消与异步局部更新"}
