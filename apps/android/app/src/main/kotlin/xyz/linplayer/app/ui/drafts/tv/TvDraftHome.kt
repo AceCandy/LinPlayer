@@ -22,6 +22,9 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
@@ -31,15 +34,15 @@ import xyz.linplayer.app.ui.theme.LpIcons
 
 @Composable
 fun DraftHome(scrolled: Boolean, railFocus: Int = -1) {
-    RailShell(current = 1, railFocus = railFocus, railExpanded = railFocus >= 0) {
+    RailShell(current = 1, railFocus = railFocus) {
         val list = rememberLazyListState(initialFirstVisibleItemIndex = if (scrolled) 2 else 0)
         // 往上多露 64dp = 安全区 27 + 行标题 29 + 间距 8:只露出焦点卡的话,行标题被顶出屏幕上沿
         ProvideColumnSpec(above = 64.dp, below = TvDim.safeV) {
             LazyColumn(
                 Modifier.fillMaxSize(), state = list,
-                contentPadding = PaddingValues(top = TvDim.safeV, bottom = 64.dp),
+                contentPadding = PaddingValues(bottom = 64.dp),
             ) {
-                item { Box(Modifier.padding(start = TvSp.x32, end = TvDim.safeH)) { Hero(focusPlay = !scrolled && railFocus < 0) } }
+                item { Hero(focusPlay = !scrolled && railFocus < 0) }
                 item {
                     HomeSection("继续观看") {
                         items(continueWatching.withIndex().toList()) { (i, c) ->
@@ -65,9 +68,9 @@ fun DraftHome(scrolled: Boolean, railFocus: Int = -1) {
             }
         }
         DraftNote(when {
-            railFocus >= 0 -> "§3.1 焦点进轨:展开成 200dp 盖在内容上,内容不动 · 进轨落在首页,这里再按了一次 ↓"
+            railFocus >= 0 -> "§3.1 顶部导航 · 左右移动栏目,确认切页,下键回内容"
             scrolled -> "§4.3 往下:焦点行对齐段顶,行标题一起露出"
-            else -> "§7.2 Hero 文字上不加任何底 · 焦点在「详情」"
+            else -> "§7.2 通栏剧照与背景融合 · 焦点在「详情」"
         })
     }
 }
@@ -75,12 +78,16 @@ fun DraftHome(scrolled: Boolean, railFocus: Int = -1) {
 @Composable
 private fun Hero(focusPlay: Boolean) {
     val t = tvType
-    Box(Modifier.fillMaxWidth().height(TvDim.heroH).clip(TvR.lg).background(swatch(3))) {
+    Box(Modifier.fillMaxWidth().height(TvDim.heroH).background(swatch(3))) {
         // 草稿里的「剧照」:几块暗色几何,只为了让字压在一张有明暗的图上而不是纯色上
         Box(Modifier.align(Alignment.TopEnd).padding(top = 20.dp, end = 60.dp).size(260.dp, 180.dp).clip(TvR.lg).background(swatch(11)))
         Box(Modifier.align(Alignment.TopEnd).padding(top = 70.dp, end = 180.dp).size(140.dp).clip(TvR.pill).background(swatch(5)))
-        Column(Modifier.align(Alignment.BottomStart).padding(TvSp.x24).widthIn(max = 480.dp)) {
-            TvText("寂静的星河", t.display, TvC.fg, weight = TvW.bold, maxLines = 2)
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(0f to TvC.bg, .38f to TvC.bg.copy(alpha = .86f), .75f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(0f to TvC.bg, .22f to Color.Transparent, .55f to Color.Transparent, 1f to TvC.bg)))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = TvDim.safeH, bottom = TvSp.x24).widthIn(max = 460.dp)) {
+            TvText("为你推荐", t.meta, TvC.fg2)
+            Spacer(Modifier.height(TvSp.x8))
+            TvText("寂静的星河", 32.sp, TvC.fg, weight = TvW.bold, maxLines = 2)
             Spacer(Modifier.height(TvSp.x4))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 TvText("★ 8.6", t.meta, TvC.acc, weight = TvW.semi)
@@ -108,11 +115,11 @@ private fun HomeSection(
     rowContent: androidx.compose.foundation.lazy.LazyListScope.() -> Unit,
 ) {
     Column(Modifier.padding(top = TvSp.x20)) {
-        Box(Modifier.padding(start = TvSp.x24)) { RowTitle(title, link = link) }
+        Box(Modifier.padding(start = TvDim.safeH - TvSp.x8)) { RowTitle(title, link = link) }
         Spacer(Modifier.height(TvSp.x8))
-        ProvideRowKeyline(TvSp.x32) {
+        ProvideRowKeyline(TvDim.safeH) {
             LazyRow(
-                contentPadding = PaddingValues(start = TvSp.x32, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
+                contentPadding = PaddingValues(start = TvDim.safeH, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
                 horizontalArrangement = Arrangement.spacedBy(TvSp.x12),
                 content = rowContent,
             )
@@ -235,7 +242,7 @@ fun DraftComponentsCards() {
             TvText("组件表 ②", t.headline, TvC.fg, weight = TvW.semi)
             TvText("卡片只放大封面(1.06)并在封面外描白框,标题在封面下 6dp 不被压住;版本卡选中 = 琥珀底 + 琥珀框", t.meta, TvC.fg3)
             Spacer(Modifier.height(TvSp.x16))
-            Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x32)) {
+            Row(horizontalArrangement = Arrangement.spacedBy(TvDim.safeH)) {
                 Captioned("海报 · 常态") { CardPoster(60, "幕府将军", "2024 · 10 集", unplayed = 4) }
                 Captioned("海报 · 聚焦") { CardPoster(60, "幕府将军", "2024 · 10 集", unplayed = 4, fake = true) }
                 Captioned("横卡 · 常态") { CardWide(61, "寂静的星河 · S2E4", "剩 18 分钟", progress = .62f) }
@@ -260,13 +267,13 @@ fun DraftComponentsMore() {
     Box(Modifier.fillMaxSize().padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
         Column {
             TvText("组件表 ③", t.headline, TvC.fg, weight = TvW.semi)
-            TvText("导航轨收起只剩图标,焦点进轨才展开出文字;轨项不放大(会撑破轨宽);不可用的版本卡保留但不可聚焦", t.meta, TvC.fg3)
+            TvText("顶部导航主栏目用文字、辅助入口用图标;焦点与当前栏目独立;不可用的版本卡保留但不可聚焦", t.meta, TvC.fg3)
             Spacer(Modifier.height(TvSp.x16))
             Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x24)) {
-                Captioned("轨 · 收起") { RailItem("媒体库", LpIcons.grid, on = false, expanded = false) }
-                Captioned("收起 · 当前页") { RailItem("首页", LpIcons.home, on = true, expanded = false) }
-                Captioned("展开 · 聚焦") { RailItem("媒体库", LpIcons.grid, on = false, expanded = true, fake = true) }
-                Captioned("展开 · 当前页") { RailItem("首页", LpIcons.home, on = true, expanded = true) }
+                Captioned("辅助入口") { NavigationItem("搜索", LpIcons.search, on = false, iconOnly = true) }
+                Captioned("辅助 · 当前页") { NavigationItem("首页", LpIcons.home, on = true, iconOnly = true) }
+                Captioned("栏目 · 聚焦") { NavigationItem("收藏", LpIcons.heart, on = false, iconOnly = false, fake = true) }
+                Captioned("栏目 · 当前页") { NavigationItem("首页", LpIcons.home, on = true, iconOnly = false) }
                 Captioned("行标题 · 常态") { RowTitle("电影", link = true) }
                 Captioned("行标题 · 聚焦") { RowTitle("电影", link = true, fake = true) }
             }

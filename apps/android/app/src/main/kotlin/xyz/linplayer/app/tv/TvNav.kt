@@ -62,7 +62,7 @@ sealed interface TvRoute {
     data object Extensions : TvRoute { override val rail = 7 }
     /** 插件自己画的页面(SPEC 7.2 的 page surface)。 */
     data class PluginPage(val id: String, val page: String, val title: String) : TvRoute { override val rail = 7 }
-    /** 全局观看历史(SPEC 8.7)。导航轨的八格是定死的(§3.1),所以它从收藏页下钻。 */
+    /** 全局观看历史(SPEC 8.7)。导航栏目固定(§3.1),所以它从收藏页下钻。 */
     data object History : TvRoute { override val rail = 3 }
 }
 
@@ -166,7 +166,7 @@ fun Modifier.memo(key: String, initial: Boolean = false): Modifier {
 }
 
 /**
- * 官方路由名(插件 SPEC 20.3)→ TV 路由对象。TV 只有八格轨,表里有几页这里就没有:
+ * 官方路由名(插件 SPEC 20.3)→ TV 路由对象。TV 不提供下载管理,表里还有几页这里没有:
  * 排行榜 / 追剧日历 / 演员页在 TV 上不存在,回 null 让调用方报错,别静默不动。
  */
 fun tvOfficialRoute(route: String, p: (String) -> String?): TvRoute? = when (route) {
@@ -176,7 +176,6 @@ fun tvOfficialRoute(route: String, p: (String) -> String?): TvRoute? = when (rou
     "detail" -> TvRoute.Detail(p("id") ?: p("itemId") ?: "", p("type") ?: "Series")
     "favorites" -> TvRoute.Favorites
     "aggregate" -> TvRoute.Discover
-    "downloads" -> TvRoute.Downloads
     "servers" -> TvRoute.Servers
     "history" -> TvRoute.History
     "player" -> TvRoute.Player(p("id") ?: p("itemId") ?: "", p("title") ?: "播放")

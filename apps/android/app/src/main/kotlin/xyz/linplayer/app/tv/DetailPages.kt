@@ -414,7 +414,6 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
     var resumedId by keepState<String?>("$ck.resumedId") { null }
     var target by keepState<Item?>("$ck.target") { null }
     var similar by keepState<List<Item>>("$ck.sim") { emptyList() }
-    var dl by remember { mutableStateOf(false) }
 
     val episodeScope = rememberCoroutineScope()
     var episodeJob by remember { mutableStateOf<Job?>(null) }
@@ -460,7 +459,6 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
             confirmedPages.clear(); target = null; targetError = null
         }
         launch { similar = Item.list(app.displayBlock("emby.similarItems", args("item_id" to id, "limit" to 20)) { similar = Item.list(it) }.valueOrNull) }
-        launch { dl = canDownload(app) }
         if (!changed && seasons != null && target != null) {
             if (episodeLoad is Block.Loading) {
                 val parent = season?.id ?: id
@@ -548,15 +546,6 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
                             runCatching { app.call("emby.setPlayed", args("item_id" to id, "played" to !played)) }
                                 .onSuccess { close(); app.toast(if (played) "已标记未看" else "已标记已看", ToastKind.Ok) }
                                 .onFailure { app.report(it) }
-                        }
-                    })
-                    val s = season
-                    if (dl) PanelItem("下载本季", sub = s?.name, onClick = {
-                        scope.launch {
-                            runCatching {
-                                app.call("download.enqueueSeason", args(*listOfNotNull("parent_id" to id,
-                                    s?.index?.let { "season" to it }).toTypedArray()))
-                            }.onSuccess { close(); app.toast("已加入下载队列", ToastKind.Ok) }.onFailure { app.report(it) }
                         }
                     })
                 }
@@ -747,19 +736,12 @@ private fun MovieBody(id: String, d: JsonObject, overlay: Overlay, scope: Corout
             TvButton("更多", LpIcons.more, modifier = Modifier.memo("detail.more"), onClick = {
                 val played = d.bool("played")
                 scope.launch {
-                    val dl = canDownload(app)
                     overlay.openMore(title) { close ->
                         PanelItem(if (played) "标记未看" else "标记已看", focused = true, onClick = {
                             scope.launch {
                                 runCatching { app.call("emby.setPlayed", args("item_id" to id, "played" to !played)) }
                                     .onSuccess { close(); app.toast(if (played) "已标记未看" else "已标记已看", ToastKind.Ok) }
                                     .onFailure { app.report(it) }
-                            }
-                        })
-                        if (dl) PanelItem("下载", onClick = {
-                            scope.launch {
-                                runCatching { app.call("download.enqueue", args("item_id" to id)) }
-                                    .onSuccess { close(); app.toast("已加入下载队列", ToastKind.Ok) }.onFailure { app.report(it) }
                             }
                         })
                     }

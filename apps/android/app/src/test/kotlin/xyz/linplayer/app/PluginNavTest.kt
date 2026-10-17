@@ -40,6 +40,7 @@ class PluginNavTest {
     }
 
     @Test fun TV没有排行榜和追剧日历() {
+        assertNull(tvOfficialRoute("downloads", none))
         assertNull(tvOfficialRoute("ranking", none))
         assertNull(tvOfficialRoute("calendar", none))
         assertNotNull(tvOfficialRoute("settings.subtitle", none))

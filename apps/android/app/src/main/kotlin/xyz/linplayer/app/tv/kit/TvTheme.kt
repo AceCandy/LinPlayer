@@ -109,7 +109,8 @@ object TvDim {
     /** 内容区左边线 = 轨 64 + 32 */
     val contentStart = 96.dp
     val contentW = 816.dp
-    val heroH = 243.dp
+    val navigationH = 72.dp
+    val heroH = 260.dp
     val wideW = 160.dp; val wideH = 90.dp
     val posterW = 110.dp; val posterH = 165.dp
     val epW = 142.dp; val epH = 80.dp

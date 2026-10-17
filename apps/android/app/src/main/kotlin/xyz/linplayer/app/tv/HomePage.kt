@@ -39,6 +39,9 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.unit.sp
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -55,7 +58,6 @@ import xyz.linplayer.app.data.cachedHeroImage
 import xyz.linplayer.app.data.CachedHomeImage
 import xyz.linplayer.app.ui.components.HeroArtwork
 import xyz.linplayer.app.data.Block
-import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.View
@@ -111,11 +113,6 @@ fun HomePage() {
 
     val session = app.session.collectAsStateWithLifecycle().value
     val server = session?.server
-    var serverName by remember(session) { mutableStateOf("服务器") }
-    LaunchedEffect(session) {
-        serverName = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
-            .firstOrNull { it.isActive }?.name ?: "服务器"
-    }
     val list = rememberLazyListState()
     val ck = "tv.home.$server"
     var hero by keepState<Block<List<Item>>>("$ck.hero") { Block.Loading }
@@ -175,13 +172,7 @@ fun HomePage() {
         // 官方内容全空但插件有栏目时**不能**换成空状态页:那一屏正是插件栏目最该出现的时候
         pluginSections.isEmpty()
 
-    Column(Modifier.fillMaxSize()) {
-        Row(Modifier.padding(start = TvSp.x32, end = TvDim.safeH, top = TvDim.safeV)) {
-            TvButton(serverName, LpIcons.server, neon = false, modifier = Modifier.memo("home.server"),
-                onLongClick = { scope.launch { runCatching { app.enterPrivateSpace() }.onFailure { app.report(it) } } },
-                onClick = { if (app.privateSpace.value) app.leavePrivateSpace() else nav.rail(TvRoute.Servers) })
-        }
-    Box(Modifier.weight(1f)) {
+    Box(Modifier.fillMaxSize()) {
         if (allEmpty) {
             Box(Modifier.contentArea()) {
                 FullState(LpIcons.server, "这台服务器上还没有内容", buttons = if (app.privateSpace.value) emptyList() else listOf("去服务器页"),
@@ -190,11 +181,9 @@ fun HomePage() {
         } else {
             // 焦点卡钉在距顶 64dp = 安全区 27 + 行标题 29 + 间距 8:行标题跟着露出
             ProvideColumnKeyline(above = 64.dp) {
-                LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(top = TvDim.safeV, bottom = 64.dp)) {
+                LazyColumn(Modifier.fillMaxSize(), state = list, contentPadding = PaddingValues(bottom = 64.dp)) {
                     item("hero") {
-                        Box(Modifier.padding(start = TvSp.x32, end = TvDim.safeH)) {
-                            Hero(hero) { openItem(nav, it) }
-                        }
+                        Hero(hero) { openItem(nav, it) }
                     }
                     itemRow("resume", "继续观看", resume) { it ->
                         items(it, key = { i -> i.id }) { i -> ItemWide(i, "home.resume.${i.id}", menu) }
@@ -219,7 +208,6 @@ fun HomePage() {
         }
         OverlayHost(overlay)
     }
-    }
 }
 
 /** 插件的一条首页栏目(D303)。空的 / 拿不到的**整行不画**,不在首页上留一行空标题。 */
@@ -229,7 +217,7 @@ private fun LazyListScope.pluginRow(sec: JsonObject) {
     val title = sec.str("title")?.takeIf { it.isNotEmpty() } ?: sid
     item("ps:$pid:$sid") {
         Column(Modifier.padding(top = TvSp.x20)) {
-            Box(Modifier.padding(start = TvSp.x24)) { RowTitle(title) }
+            Box(Modifier.padding(start = TvDim.safeH - TvSp.x8)) { RowTitle(title) }
             Spacer(Modifier.height(TvSp.x8))
             if (sec.str("kind") == "custom") PluginBlock(pid, sec.str("block")?.takeIf { it.isNotEmpty() } ?: sid)
             else PluginItems(pid, sid, sec.str("shape") ?: "portrait")
@@ -240,7 +228,7 @@ private fun LazyListScope.pluginRow(sec: JsonObject) {
 /** 插件自画的那一块。可聚焦那套控件由 `TvFrame` 整个壳统一给(`LocalPluginTv`),这里不用再套。 */
 @Composable
 private fun PluginBlock(pid: String, block: String) {
-    Box(Modifier.padding(start = TvSp.x32, end = TvDim.safeH)) {
+    Box(Modifier.padding(start = TvDim.safeH, end = TvDim.safeH)) {
         xyz.linplayer.app.ui.plugin.PluginSurface(pid, block, "block", modifier = Modifier.fillMaxWidth())
     }
 }
@@ -259,13 +247,13 @@ private fun PluginItems(pid: String, sid: String, shape: String) {
     }
     val list = got ?: return
     if (list.isEmpty()) return
-    ProvideRowKeyline(TvSp.x32) {
+    ProvideRowKeyline(TvDim.safeH) {
         LazyRow(
             // 行首再按 ← 进轨(§4.4),和官方行同一条规矩
             modifier = Modifier.focusProperties {
                 exit = { d -> if (d == FocusDirection.Left) rail ?: FocusRequester.Default else FocusRequester.Default }
             },
-            contentPadding = PaddingValues(start = TvSp.x32, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
+            contentPadding = PaddingValues(start = TvDim.safeH, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
             horizontalArrangement = Arrangement.spacedBy(TvSp.x12),
         ) {
             items(list, key = { it.str("id") ?: "" }) { x ->
@@ -292,22 +280,22 @@ private fun LazyListScope.itemRow(
     item(key) {
         val rail = LocalRailFocus.current
         Column(Modifier.padding(top = TvSp.x20)) {
-            Box(Modifier.padding(start = TvSp.x24)) {
+            Box(Modifier.padding(start = TvDim.safeH - TvSp.x8)) {
                 RowTitle(title, link = link != null, modifier = Modifier.memo("home.title.$key"), onClick = { link?.invoke() })
             }
             Spacer(Modifier.height(TvSp.x8))
             when (block) {
-                is Block.Loading -> Row(Modifier.padding(start = TvSp.x32), horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
+                is Block.Loading -> Row(Modifier.padding(start = TvDim.safeH), horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
                     repeat(5) { Skel(Modifier.size(TvDim.wideW, TvDim.wideH)) }
                 }
-                is Block.Fail -> InlineError(block.message, Modifier.padding(start = TvSp.x32))
-                is Block.Ok -> ProvideRowKeyline(TvSp.x32) {
+                is Block.Fail -> InlineError(block.message, Modifier.padding(start = TvDim.safeH))
+                is Block.Ok -> ProvideRowKeyline(TvDim.safeH) {
                     LazyRow(
                         // 行首再按 ← 进轨(§4.4)。不拐的话,焦点搜索先在整页里找,别的行里左缩 8dp 的行标题会被当成「左边」
                         modifier = Modifier.focusProperties {
                             exit = { d -> if (d == FocusDirection.Left) rail ?: FocusRequester.Default else FocusRequester.Default }
                         },
-                        contentPadding = PaddingValues(start = TvSp.x32, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
+                        contentPadding = PaddingValues(start = TvDim.safeH, end = TvDim.safeH, top = TvSp.x6, bottom = TvSp.x2),
                         horizontalArrangement = Arrangement.spacedBy(TvSp.x12),
                     ) { cards(block.value) }
                 }
@@ -332,12 +320,13 @@ private fun Hero(block: Block<List<Item>>, onDetail: (Item) -> Unit) {
  * 当前项先展示已有缓存，再按需取原图；交叉淡入期间保留上一项。
  * ☠ 轮播在「失去焦点」时必须恢复 —— 旧实现只在获得焦点时停,首页一进来焦点就在按钮上,
  *   轮播从第一秒起永久停摆。
- * ★ **文字上什么都不加**【用户定 2026-07-20】:不加渐变、不加底、不加描边。
+ * 通栏图片通过两侧与底部渐变融入页面,保证亮图上的文字可读。
  */
 @Composable
 private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
     val app = LocalApp.current
     val t = tvType
+    val rail = LocalRailFocus.current
     var idx by rememberSaveable { mutableIntStateOf(0) }
     var paused by remember { mutableStateOf(false) }
     val n = items.size
@@ -349,7 +338,7 @@ private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
     val scope = rememberCoroutineScope()
     val whole = remember { BringIntoViewRequester() }
     // 整块 Hero 请求露出:只让按钮自己露出的话,从下面回来停在按钮顶端,上面的封面在视野外(§4.3)
-    Box(Modifier.testTag("home.heroBox").fillMaxWidth().height(TvDim.heroH).bringIntoViewRequester(whole).clip(TvR.lg).background(TvC.surface1)
+    Box(Modifier.testTag("home.heroBox").fillMaxWidth().height(TvDim.heroH).bringIntoViewRequester(whole).background(TvC.bg)
         .onFocusChanged { paused = it.hasFocus; if (it.hasFocus) scope.launch { whole.bringIntoView() } }) {
         Crossfade(cur, animationSpec = tween(500), label = "hero") { item ->
             var preview by remember(item.id, app.session.value) { mutableStateOf<CachedHomeImage?>(null) }
@@ -364,8 +353,14 @@ private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
                 app.imageUrl(item.id, "Primary", original = true), Modifier.fillMaxSize(),
                 loadOriginal = checked && item.id == cur.id)
         }
-        Column(Modifier.align(Alignment.BottomStart).padding(TvSp.x24).widthIn(max = 480.dp)) {
-            TvText(cur.name, t.display, TvC.fg, weight = TvW.bold, maxLines = 2)
+        Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(
+            0f to TvC.bg, .38f to TvC.bg.copy(alpha = .86f), .75f to Color.Transparent)))
+        Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+            0f to TvC.bg, .22f to Color.Transparent, .55f to Color.Transparent, 1f to TvC.bg)))
+        Column(Modifier.align(Alignment.BottomStart).padding(start = TvDim.safeH, bottom = TvSp.x24).widthIn(max = 460.dp)) {
+            TvText("为你推荐", t.meta, TvC.fg2, weight = TvW.medium)
+            Spacer(Modifier.height(TvSp.x8))
+            TvText(cur.name, 32.sp, TvC.fg, weight = TvW.bold, maxLines = 2)
             Spacer(Modifier.height(TvSp.x4))
             Row(verticalAlignment = Alignment.CenterVertically) {
                 cur.rating?.takeIf { it > 0 }?.let {
@@ -380,11 +375,11 @@ private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
             Spacer(Modifier.height(TvSp.x12))
             Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
                 // Hero 不直接起播【用户定 2026-09-14】:随机推荐的片子多半要先看一眼简介
-                TvButton("详情", LpIcons.info, primary = true, modifier = Modifier.memo("home.hero", initial = true),
+                TvButton("详情", LpIcons.info, primary = true, modifier = Modifier.memo("home.hero", initial = true).focusProperties { left = rail ?: FocusRequester.Default; up = rail ?: FocusRequester.Default },
                     onClick = { onDetail(cur) })
                 // 焦点在最后一个按钮上再按 → = 换下一部:Hero 右边没有别的东西,方向键在那是死键
                 if (n > 1) TvButton("换一部", LpIcons.refresh, onClick = { idx = (idx + 1) % n },
-                    modifier = Modifier.memo("home.heroNext").onPreviewKeyEvent {
+                    modifier = Modifier.memo("home.heroNext").focusProperties { up = rail ?: FocusRequester.Default }.onPreviewKeyEvent {
                         if (it.key != Key.DirectionRight) return@onPreviewKeyEvent false
                         if (it.type == KeyEventType.KeyDown) idx = (idx + 1) % n
                         true

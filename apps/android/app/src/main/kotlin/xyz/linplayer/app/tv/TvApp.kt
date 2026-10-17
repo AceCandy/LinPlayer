@@ -32,6 +32,8 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import xyz.linplayer.app.data.Account
 import androidx.compose.runtime.saveable.rememberSaveableStateHolder
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.staticCompositionLocalOf
@@ -56,7 +58,7 @@ import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.kit.LocalTvType
-import xyz.linplayer.app.tv.kit.Rail
+import xyz.linplayer.app.tv.kit.TopNavigation
 import xyz.linplayer.app.tv.kit.Skel
 import xyz.linplayer.app.tv.kit.TvButton
 import xyz.linplayer.app.tv.kit.TvC
@@ -221,6 +223,16 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
         isLocal = runCatching { app.call("source.currentSource") }.getOrNull().obj().str("source_kind") == "local"
     }
 
+    val scope = rememberCoroutineScope()
+    var serverName by remember(session) { mutableStateOf("服务器") }
+    LaunchedEffect(session) {
+        serverName = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
+            .firstOrNull { it.isActive }?.name ?: "服务器"
+    }
+    val enterSpace: () -> Unit = {
+        scope.launch { runCatching { app.enterPrivateSpace() }.onFailure { app.report(it) } }; Unit
+    }
+
     val top = nav.top
     val rail = top.route.rail
     val railReq = remember { FocusRequester() }
@@ -228,7 +240,7 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
     Box(Modifier.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(TvC.bg))
         .privateNeonBorder(14.dp, inset = 3.dp)) {
         Box(
-            Modifier.fillMaxSize().padding(start = if (rail >= 0) TvDim.railW else 0.dp)
+            Modifier.fillMaxSize().padding(top = if (rail >= 0) TvDim.navigationH else 0.dp)
                 // 轨上按 → 回内容区:焦点落回离开时的那个元素(§3.1)
                 .focusProperties { onEnter = { top.memory.restore() } }
                 .focusGroup(),
@@ -245,8 +257,16 @@ fun TvShell(nav: TvNav, booting: Boolean = false) {
                 }
             }
         }
-        if (rail >= 0) Rail(current = rail, privateSpace = app.privateSpace.value,
-            modifier = Modifier.focusRequester(railReq), onSelect = { i -> nav.rail(railRoute(i)) })
+        if (rail >= 0) TopNavigation(current = rail, privateSpace = app.privateSpace.value,
+            serverName = if (isLocal) "本机文件夹" else serverName,
+            onServer = { if (app.privateSpace.value) app.leavePrivateSpace() else nav.rail(TvRoute.Servers) },
+            onPrivateSpace = enterSpace,
+            onContent = { top.memory.restore() },
+            modifier = Modifier.focusRequester(railReq), onSelect = { i ->
+                val target = railRoute(i)
+                // 同一基础页不会重新组合,确认时显式回到内容;下钻页仍导航到栏目入口。
+                if (target == top.route) top.memory.restore() else nav.rail(target)
+            })
     }
     }
     if (!booting) UpdateCheck()
@@ -276,7 +296,7 @@ private fun officialName(r: TvRoute): String = when (r) {
 private fun TvPage(r: TvRoute) {
     val app = LocalApp.current
     val nav = LocalNav.current
-    if (app.privateSpace.value && !r.privateAllowed()) {
+    if (r == TvRoute.Downloads || (app.privateSpace.value && !r.privateAllowed())) {
         LaunchedEffect(r) { nav.rail(TvRoute.Home) }
         return
     }

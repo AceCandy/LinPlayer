@@ -193,8 +193,11 @@ private fun GeneralGroup(overlay: Overlay) {
         } ?: SkelRows(1)
         Group("外观")
         AppearanceRows(overlay)
-        Group("插件")
+        Group("媒体库")
         val nav = LocalNav.current
+        PanelItem("管理媒体库", sub = "显示或恢复已隐藏的媒体库", chevron = true,
+            modifier = Modifier.memo("set.libraries"), onClick = { nav.push(TvRoute.Library()) })
+        Group("插件")
         PanelItem("插件", sub = "启停、从市场安装;重启应用后生效", chevron = true, modifier = Modifier.memo("set.plugins"), onClick = { nav.push(TvRoute.Plugins) })
         PanelItem("扩展组件", sub = "补帧、jar 运行时这类大件,插件用到时才下", chevron = true, modifier = Modifier.memo("set.ext"), onClick = { nav.push(TvRoute.Extensions) })
         /* 插件声明的侧栏入口(contributes.sidebar)。TV 的导航轨是**按下标写死**的一串,

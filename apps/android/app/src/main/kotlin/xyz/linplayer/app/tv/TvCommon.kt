@@ -108,19 +108,9 @@ fun ItemPoster(
     )
 }
 
-/** `emby.permissions.can_download`。按会话缓存:每开一次卡片面板问一次服务器不值得。 */
-suspend fun canDownload(app: AppState): Boolean {
-    if (app.privateSpace.value) return false
-    val k = "tv.perm." + app.session.value?.server
-    PageCache.get<Boolean>(k)?.let { return it }
-    val v = runCatching { app.call("emby.permissions") }.getOrNull().obj().bool("can_download")
-    PageCache.put(k, v)
-    return v
-}
-
 /**
  * 卡片操作面板(§5.6)。**所有出现卡片的页面都接这一个**:
- * 卡片详情、收藏、已看和下载统一在此提供。
+ * 卡片详情、收藏和已看统一在此提供。
  *
  * [onChanged] 收到的是做了什么:`fav` / `unfav` / `played` / `unplayed` —— 页面按需移除或刷新。
  */
@@ -135,10 +125,8 @@ private fun BoxScope.CardMenu(
 ) {
     var fav by remember { mutableStateOf<Boolean?>(null) }
     var played by remember { mutableStateOf(item.played) }
-    var dl by remember { mutableStateOf(false) }
     LaunchedEffect(item.id) {
         launch { fav = runCatching { app.call("emby.itemDetail", args("item_id" to item.id)) }.getOrNull().obj()?.bool("is_favorite") }
-        launch { dl = canDownload(app) }
     }
     fun act(cmd: String, a: kotlinx.serialization.json.JsonObject, ok: String, tag: String, after: () -> Unit = {}) {
         scope.launch {
@@ -165,13 +153,7 @@ private fun BoxScope.CardMenu(
             act("emby.setPlayed", args("item_id" to item.id, "played" to !played), if (played) "已标记未看" else "已标记已看",
                 if (played) "unplayed" else "played") { played = !played }
         })
-        // can_download 为假时**不出现**:按下去才说没权限,等于摆一个不生效的项
-        if (dl) {
-            PanelGroup("其它")
-            PanelItem("下载", onClick = {
-                act("download.enqueue", args("item_id" to item.id), "已加入下载队列", "download")
-            })
-        }
+
     }
 }
 

@@ -49,7 +49,6 @@ import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
-import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
@@ -98,14 +97,12 @@ fun EpisodePage(r: TvRoute.Episode) {
     var siblings by remember { mutableStateOf<List<Item>>(emptyList()) }
     val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var reload by remember { mutableIntStateOf(0) }
-    var downloadable by remember(epId) { mutableStateOf(false) }
     val pick = rememberPickState(epId)
     val fade = remember(epId) { Animatable(if (siblings.isEmpty()) 1f else 0f) }
 
     LaunchedEffect(epId, reload, userRevision) {
         launch { fade.animateTo(1f, tween(200)) }
         launch { pick.loadPrefs(app) }
-        launch { downloadable = canDownload(app) }
         val b = app.displayBlock("emby.itemDetail", args("item_id" to epId), retainOnFailure = false) { preview = it.obj() }.map { it.obj() ?: JsonObject(emptyMap()) }
         detail = b
         if ((b as? Block.Fail)?.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) preview = null
@@ -176,18 +173,6 @@ fun EpisodePage(r: TvRoute.Episode) {
                         // 拿不到这一集的已看状态时整个按钮不画,不猜默认值(§7.6)
                         if (d.containsKey("played")) PlayedButton(app, scope, epId, d.bool("played"))
                         FavButton(app, scope, epId, d.bool("is_favorite"), "ep.fav")
-                        if (downloadable) TvButton("更多", LpIcons.more, modifier = Modifier.memo("ep.more"), onClick = {
-                            scope.launch {
-                                overlay.openMore(title) { close ->
-                                    PanelItem("下载", focused = true, onClick = {
-                                        scope.launch {
-                                            runCatching { app.call("download.enqueue", args("item_id" to epId)) }
-                                                .onSuccess { close(); app.toast("已加入下载队列", ToastKind.Ok) }.onFailure { app.report(it) }
-                                        }
-                                    })
-                                }
-                            }
-                        })
                     }
                     Spacer(Modifier.height(TvSp.x12))
                     PickBar(pick, overlay, "ep")

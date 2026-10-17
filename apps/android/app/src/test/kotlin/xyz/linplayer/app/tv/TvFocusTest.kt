@@ -12,6 +12,11 @@ import androidx.compose.ui.semantics.SemanticsActions
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.obj
 import androidx.compose.ui.test.assertIsFocused
+import androidx.compose.ui.test.assertIsNotFocused
+import androidx.compose.ui.test.assertIsSelected
+import androidx.compose.ui.test.assertIsNotSelected
+import androidx.compose.ui.test.assertWidthIsEqualTo
+import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -304,17 +309,110 @@ class TvFocusTest {
         focused("home.hero")
     }
 
-    @Test fun 左键进轨落在当前页右键回到离开时的元素() {
+    @Test fun downloadsRouteReturnsHomeWithoutLoadingTasks() {
+        mount(TvRoute.Downloads)
+        assertEquals(TvRoute.Home, nav.top.route)
+        focused("home.hero")
+        assertFalse(core.calls.any { it.first.startsWith("download.") })
+    }
+
+    @Test fun topNavigationReachesEveryEntryAndDownRestoresContent() {
         mount()
+        press(rule, Key.DirectionDown, Key.DirectionLeft)
+        rule.onNode(hasTestTag("rail.5")).assertDoesNotExist()
+        rule.onNode(hasTestTag("rail.2")).assertDoesNotExist()
+        rule.onNode(hasTestTag("rail.6")).assertDoesNotExist()
+        press(rule, Key.DirectionLeft)
+        focused("nav.server")
+        press(rule, Key.DirectionRight)
+        val order = listOf(1, 3, 4, 0, 7)
+        order.forEachIndexed { index, target ->
+            if (index > 0) press(rule, Key.DirectionRight)
+            focused("rail.$target")
+            assertEquals(TvRoute.Home, nav.top.route)
+        }
+        press(rule, Key.DirectionDown)
+        focused("home.resume.r1")
+        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionUp)
+        focused("rail.1")
+    }
+
+    @Test fun railConfirmCurrentPageRestoresContentWithoutReset() {
+        mount()
+        press(rule, Key.DirectionDown)
+        focused("home.resume.r1")
+        val entry = nav.top
+        press(rule, Key.DirectionLeft)
+        focused("rail.1")
+        press(rule, Key.DirectionCenter)
+        focused("home.resume.r1")
+        assertTrue(entry === nav.top)
+        rule.onNode(hasTestTag("rail.${nav.top.route.rail}")).assertIsNotFocused()
+    }
+
+    @Test fun railFocusDoesNotNavigateUntilConfirmedAndBackRestoresHome() {
+        mount { favorites() }
+        press(rule, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)
+        focused("rail.3")
+        rule.onNode(hasTestTag("rail.1")).assertIsSelected()
+        rule.onNode(hasTestTag("rail.3")).assertIsNotSelected()
+        listOf(0, 1, 3, 4, 7).forEach { rule.onNode(hasTestTag("rail.$it")).assertIsDisplayed() }
+        assertEquals(TvRoute.Home, nav.top.route)
+        press(rule, Key.DirectionCenter)
+        assertEquals(TvRoute.Favorites, nav.top.route)
+        pressBack()
+        assertEquals(TvRoute.Home, nav.top.route)
+        focused("home.resume.r1")
+    }
+
+    @Test fun libraryDrilldownCanReturnToHomeThroughNavigation() {
+        mount(TvRoute.Library("library", "测试媒体库")) { library() }
+        press(rule, Key.DirectionUp)
+        focused("rail.1")
+        press(rule, Key.DirectionCenter)
+        assertEquals(TvRoute.Home, nav.top.route)
+        focused("home.hero")
+    }
+
+    @Test fun serverNameOpensManagementFromTopNavigation() {
+        mount { servers() }
+        press(rule, Key.DirectionUp, Key.DirectionLeft)
+        focused("nav.server")
+        press(rule, Key.DirectionCenter)
+        assertEquals(TvRoute.Servers, nav.top.route)
+        rule.onNode(hasTestTag("home.server")).assertDoesNotExist()
+    }
+
+    @Test fun settingsRetainsLibraryManagementEntry() {
+        mount(TvRoute.Settings) { settings(); library() }
+        rule.onNode(hasTestTag("set.libraries")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        advance(rule, 300)
+        press(rule, Key.DirectionCenter)
+        advance(rule, 500)
+        assertEquals(TvRoute.Library(), nav.top.route)
+        assertTrue(core.calls.any { it.first == "emby.views" && it.second?.get("include_blocked") == kotlinx.serialization.json.JsonPrimitive(true) })
+    }
+
+    @Test fun 行首左键进顶栏下键恢复原卡片且布局不动() {
+        mount()
+        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp)
         press(rule, Key.DirectionDown, Key.DirectionRight)
         focused("home.resume.r2")
         // 从行首才进得了轨:先回到第一张
-        press(rule, Key.DirectionLeft, Key.DirectionLeft)
-        // 焦点进轨后展开,文字出来,且落在「首页」这一项(当前页),不是上次停过的项
-        rule.onNode(hasText("LinPlayer")).assertExists()
+        press(rule, Key.DirectionLeft)
+        val before = rule.onNode(hasTestTag("home.resume.r1")).fetchSemanticsNode().positionInRoot
+        press(rule, Key.DirectionLeft)
+        // 进入顶栏落在当前页;导航移动不改变内容几何。
+        rule.onNode(hasTestTag("nav.server")).assertIsDisplayed()
+        rule.onNode(hasText("LinPlayer")).assertDoesNotExist()
         rule.onNode(hasText("首页")).assertExists()
-        press(rule, Key.DirectionRight)
+        focused("rail.1")
+        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp).assertIsSelected()
+        assertEquals(before, rule.onNode(hasTestTag("home.resume.r1")).fetchSemanticsNode().positionInRoot)
+        press(rule, Key.DirectionDown)
         focused("home.resume.r1")
+        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp)
+        rule.onNode(hasTestTag("rail.${nav.top.route.rail}")).assertIsNotFocused()
     }
 
     @Test fun 从下面回到首页Hero整块露出() {

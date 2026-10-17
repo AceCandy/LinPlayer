@@ -117,6 +117,16 @@ private val playerRoute = TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王
 
 internal val cases = listOf(
     TvPageShots.Case(1, "home", content = { Shell(TvRoute.Home) }),
+    TvPageShots.Case(33, "rail-current", after = { r, _ ->
+        press(r, Key.DirectionLeft)
+    }) { Shell(TvRoute.Home) },
+    TvPageShots.Case(33, "rail-browse", after = { r, _ ->
+        press(r, Key.DirectionLeft, Key.DirectionRight)
+    }) { Shell(TvRoute.Home) },
+    TvPageShots.Case(33, "rail-settings", after = { r, _ ->
+        press(r, Key.DirectionLeft)
+        repeat(7) { press(r, Key.DirectionRight) }
+    }) { Shell(TvRoute.Home) },
     // 往下只保证露出(§4.3),往上才对齐段顶:草稿画的是「从下面回到继续观看」那一刻
     TvPageShots.Case(2, "home-scrolled", after = { r, _ ->
         press(r, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionUp, Key.DirectionUp, Key.DirectionRight)
@@ -160,7 +170,7 @@ internal val cases = listOf(
     TvPageShots.Case(30, "discover-ranking", { discover() }) { Shell(TvRoute.Discover) },
     TvPageShots.Case(31, "discover-calendar", { discover() }) { PageCache.put("tv.discover.tab", 1); Shell(TvRoute.Discover) },
     TvPageShots.Case(32, "favorites", { favorites() }) { Shell(TvRoute.Favorites) },
-    TvPageShots.Case(33, "downloads", { downloads() }, waitMs = 1200) { Shell(TvRoute.Downloads) },
+    TvPageShots.Case(33, "downloads-unavailable", waitMs = 1200) { Shell(TvRoute.Downloads) },
     TvPageShots.Case(34, "local-picker", before = {
         val ctx = ApplicationProvider.getApplicationContext<Application>()
         org.robolectric.Shadows.shadowOf(ctx).grantPermissions(android.Manifest.permission.READ_MEDIA_VIDEO)
@@ -185,5 +195,5 @@ internal val cases = listOf(
     }, after = { r, _ ->
         press(r, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionUp, Key.DirectionUp, Key.Menu)
     }) { Shell(TvRoute.Home) },
-    TvPageShots.Case(38, "rail-expanded", after = { r, _ -> press(r, Key.DirectionLeft, Key.DirectionDown) }) { Shell(TvRoute.Home) },
+    TvPageShots.Case(38, "rail-expanded", after = { r, _ -> press(r, Key.DirectionLeft, Key.DirectionRight) }) { Shell(TvRoute.Home) },
 )

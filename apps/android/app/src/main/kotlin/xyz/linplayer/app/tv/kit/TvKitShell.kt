@@ -1,7 +1,6 @@
 package xyz.linplayer.app.tv.kit
 
-import androidx.compose.animation.core.animateDpAsState
-import androidx.compose.animation.core.tween
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -37,6 +36,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -45,9 +45,14 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.tv.material3.ClickableSurfaceDefaults
+import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
@@ -61,105 +66,110 @@ val railItems = listOf(
     "服务器" to LpIcons.server, "设置" to LpIcons.settings,
 )
 
-/**
- * §3.1【用户定 2026-09-14】收起只剩图标;焦点一进轨就展开成 200dp,**盖在内容上面**,内容区不动。
- * previewExpanded 只给草稿出图用:截图没法先把焦点放进轨里再截。
- *
- * ★ 焦点进轨落在**当前页那一项**,不是上次停过的项;轨项获得焦点不切页,按确认才切。
- */
+/** 顶部主导航。索引沿用路由契约,只改变排列;焦点移动不切页。 */
 @Composable
-fun Rail(
-    current: Int, focused: Int = -1, previewExpanded: Boolean = false,
-    privateSpace: Boolean = false,
-    modifier: Modifier = Modifier, onSelect: (Int) -> Unit = {},
+fun TopNavigation(
+    current: Int, privateSpace: Boolean = false, focused: Int = -1,
+    serverName: String = "服务器", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
+    modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
 ) {
-    var hasFocus by remember { mutableStateOf(false) }
-    val expanded = previewExpanded || hasFocus
-    val w by animateDpAsState(if (expanded) TvDim.railExpandedW else TvDim.railW, tween(180), label = "rail")
+    val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
     val reqs = remember { List(railItems.size) { FocusRequester() } }
-    Box(
-        modifier.width(w).fillMaxHeight()
-            .then(if (expanded) Modifier.shadow(8.dp) else Modifier)
-            .background(TvC.rail)
-            .onFocusChanged { hasFocus = it.hasFocus }
-            // 调用方指定了焦点项(草稿)就不拐:那一项自己 requestFocus 进组时,会被拐回当前页那一项
-            .focusProperties { if (focused < 0) onEnter = { reqs[current.coerceIn(0, reqs.lastIndex)].requestFocus() } }
-            .focusGroup(),
+    Row(
+        modifier.fillMaxWidth().height(TvDim.navigationH).background(TvC.bg)
+            .padding(horizontal = TvDim.safeH)
+            .focusProperties { if (focused < 0) onEnter = { reqs[current.takeIf { it in order } ?: 1].requestFocus() } }
+            .onPreviewKeyEvent {
+                if (it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown) onContent() else false
+            }.focusGroup(),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(TvSp.x8),
     ) {
-        Column(Modifier.fillMaxSize().padding(vertical = TvDim.safeV, horizontal = TvSp.x8)) {
-            Row(Modifier.padding(start = 10.dp), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(28.dp).clip(TvR.md).background(TvC.acc), contentAlignment = Alignment.Center) {
-                    Icon(LpIcons.play, null, Modifier.size(14.dp), tint = TvC.onAcc)
-                }
-                if (expanded) {
-                    Spacer(Modifier.width(TvSp.x12))
-                    TvText("LinPlayer", tvType.title, TvC.fg, weight = TvW.semi)
-                }
+        order.forEachIndexed { position, i ->
+            if (i == 0) Spacer(Modifier.weight(1f))
+            val focusModifier = Modifier.focusRequester(reqs[i]).focusProperties {
+                left = if (position > 0) reqs[order[position - 1]] else FocusRequester.Cancel
+                right = if (position < order.lastIndex) reqs[order[position + 1]] else FocusRequester.Cancel
+                up = FocusRequester.Cancel
             }
-            Spacer(Modifier.height(TvSp.x16))
-            railItems.forEachIndexed { i, (label, icon) ->
-                if (privateSpace && i >= 5) return@forEachIndexed
-                if (i == 6) {
-                    Spacer(Modifier.weight(1f))
-                    Box(Modifier.fillMaxWidth().padding(horizontal = TvSp.x8).height(1.dp).background(TvC.line))
-                    Spacer(Modifier.height(TvSp.x6))
+            if (i == 6) {
+                Surface(
+                    onClick = onServer, onLongClick = onPrivateSpace,
+                    modifier = focusModifier.width(180.dp).height(40.dp).testTag("nav.server")
+                        .menuKey(onPrivateSpace).initialFocus(focused == 6),
+                    shape = ClickableSurfaceDefaults.shape(TvR.pill),
+                    scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
+                    colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = TvC.fg2,
+                        focusedContainerColor = TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg), focusedContentColor = TvC.fg),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(1.dp, TvC.fg.copy(alpha = .55f)), shape = TvR.pill)),
+                ) {
+                    Row(Modifier.fillMaxSize().padding(horizontal = TvSp.x12), verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+                        Text(serverName, modifier = Modifier.weight(1f), fontSize = tvType.body, fontWeight = TvW.medium,
+                            maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Icon(LpIcons.chevD, null, Modifier.size(14.dp))
+                    }
                 }
-                RailItem(label, icon, on = i == current, expanded = expanded, focused = i == focused,
+                Spacer(Modifier.width(TvSp.x16))
+            } else {
+                val (label, icon) = railItems[i]
+                NavigationItem(label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,
+                    focused = focused == i,
                     badge = if (privateSpace) null else xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
-                    modifier = Modifier.focusRequester(reqs[i]).testTag("rail.$i"), onClick = { onSelect(i) })
+                    modifier = focusModifier.testTag("rail.$i"), onClick = { onSelect(i) })
             }
         }
-        Box(Modifier.align(Alignment.CenterEnd).width(1.dp).fillMaxHeight().background(TvC.line))
     }
 }
 
-/** 轨上第 i 项对应的官方路由名(插件 SPEC 20.3),角标按它认入口。 */
+/** 第 i 项对应的官方路由名,插件角标继续按它认入口。 */
 private val railTargets = listOf(
     "search", "home", "library", "favorites", "aggregate", "downloads", "servers", "settings")
 
-/** 轨项。收起 48×44 只有图标;展开 184×44 图标 + 文字。**不放大**:轨里放大会撑破边界。 */
+/** 当前栏目短横与焦点底色分别表达位置和操作目标。 */
 @Composable
-fun RailItem(
-    label: String, icon: ImageVector, on: Boolean, expanded: Boolean, focused: Boolean = false, fake: Boolean = false,
-    badge: String? = null, modifier: Modifier = Modifier, onClick: () -> Unit = {},
+fun NavigationItem(
+    label: String, icon: ImageVector, on: Boolean, iconOnly: Boolean = false,
+    focused: Boolean = false, fake: Boolean = false, badge: String? = null,
+    modifier: Modifier = Modifier, onClick: () -> Unit = {},
 ) {
-    Surface(
-        onClick = onClick,
-        modifier = modifier.padding(vertical = TvSp.x2).size(if (expanded) 184.dp else 48.dp, 44.dp).initialFocus(focused),
-        shape = ClickableSurfaceDefaults.shape(TvR.md),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.97f),
-        colors = ClickableSurfaceDefaults.colors(
-            containerColor = if (fake) TvC.focus else if (on) TvC.accDim else Color.Transparent,
-            contentColor = when {
-                fake -> TvC.onFocus
-                on -> TvC.acc
-                expanded -> TvC.fg2
-                else -> TvC.fg3
-            },
-            focusedContainerColor = TvC.focus, focusedContentColor = TvC.onFocus,
-        ),
-    ) {
-        Row(Modifier.fillMaxSize().padding(start = 13.dp), verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(22.dp))
-            if (expanded) {
-                Spacer(Modifier.width(TvSp.x12))
-                Text(label, fontSize = tvType.body, fontWeight = if (on) TvW.semi else TvW.medium, maxLines = 1)
-            }
-            // 收起态只剩 48dp 宽,角标跟在图标右边 —— 轨里不许叠在图标上,焦点框会把它切掉
-            if (badge != null) {
-                Spacer(Modifier.width(TvSp.x4))
-                Badge(badge, TvC.bad, Color.White)
+    var hasFocus by remember { mutableStateOf(false) }
+    val focusFill = TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg)
+    val focusBorder = Border(BorderStroke(1.dp, TvC.fg.copy(alpha = .55f)), shape = TvR.pill)
+    Box {
+        Surface(
+            onClick = onClick,
+            modifier = modifier.size(if (iconOnly) 40.dp else 76.dp, 40.dp).initialFocus(focused)
+                .onFocusChanged { hasFocus = it.isFocused }
+                .semantics { selected = on; if (iconOnly) contentDescription = label },
+            shape = ClickableSurfaceDefaults.shape(TvR.pill),
+            border = ClickableSurfaceDefaults.border(border = if (fake) focusBorder else Border.None, focusedBorder = focusBorder),
+            scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = .97f),
+            colors = ClickableSurfaceDefaults.colors(
+                containerColor = if (fake) focusFill else Color.Transparent,
+                contentColor = if (on || fake) TvC.fg else TvC.fg2,
+                focusedContainerColor = focusFill, focusedContentColor = TvC.fg,
+            ),
+        ) {
+            Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                if (iconOnly) Icon(icon, null, Modifier.size(20.dp))
+                else Text(label, fontSize = tvType.body, fontWeight = if (on) TvW.semi else TvW.medium)
+                if (on) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp)
+                    .size(14.dp, 2.dp).clip(TvR.pill).background(TvC.acc))
+                if (badge != null) Box(Modifier.align(Alignment.TopEnd)) { Badge(badge, TvC.bad, Color.White) }
             }
         }
+        if (iconOnly && (hasFocus || fake)) TvText(label, tvType.meta, TvC.fg2,
+            Modifier.align(Alignment.BottomCenter).graphicsLayer { translationY = 16.dp.toPx() }, maxLines = 1)
     }
 }
 
-/** 带轨的页面外壳(草稿用)。轨**叠在内容上面**;内容区从 x=64 开始,左边 32dp 由各页自己让。 */
+/** 草稿与生产共用顶部导航,页面不因焦点位置变化重排。 */
 @Composable
-fun RailShell(current: Int, railFocus: Int = -1, railExpanded: Boolean = false, content: @Composable BoxScope.() -> Unit) {
+fun RailShell(current: Int, railFocus: Int = -1, content: @Composable BoxScope.() -> Unit) {
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
-        Box(Modifier.fillMaxSize().padding(start = TvDim.railW), content = content)
-        Rail(current, railFocus, railExpanded)
+        Box(Modifier.fillMaxSize().padding(top = TvDim.navigationH), content = content)
+        TopNavigation(current, focused = railFocus)
     }
 }
 
