@@ -1,0 +1,7 @@
+# 方案
+
+PhoneRoot/MainShell增加显式TV形态参数，TvRoot提供TV主题与600ms长按配置后复用。共享路由保留；顶部导航使用共享主题与pressable，焦点组记忆、根页返回与伴侣事件由壳层承担。LocalTvMode仅用于布局、焦点与下载能力隐藏，不派生业务状态。
+
+播放器通过原PlayerLaunchPage/PlayerActivity交接，TV窗口挂既有TvPlayerPage和TV焦点环境，沿用停止屏障与实际末集回传。保留TV首次登录扫码流程。既有独立TV页面暂不清理，避免无关大删除。
+
+HomePage仅隐藏TV重复服名栏与下载菜单；AggregatePage/DetailPage隐藏TV下载。共用pressable补TV焦点可见反馈和菜单键。其他任务未提交的详情/库刷新改动必须保留。
