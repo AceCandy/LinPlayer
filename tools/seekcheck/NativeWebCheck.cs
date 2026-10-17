@@ -57,7 +57,7 @@ internal static class NativeWebCheck
                 while (server.IsListening) {
                     var c = await server.GetContextAsync();
                     var route = c.Request.Url!.AbsolutePath;
-                    
+
                     c.Response.KeepAlive = false;
                     byte[] bytes;
                     if (route == "/tone.wav") { c.Response.ContentType = "audio/wav"; bytes = Silence(); }
