@@ -75,6 +75,8 @@ object Route {
         val fromStart: Boolean = false,
         /** 当前版本的字幕预选JSON，仅含轨道身份，不含地址。 */
         val subtitle: String? = null,
+        /** TV共用文件浏览交接，保留 source.play 的本地文件语义。 */
+        val localEntry: Boolean = false,
     )
     @Serializable data object AddServer                                       // U1.2 的「添加」版式
 }

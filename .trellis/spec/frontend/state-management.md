@@ -6,7 +6,8 @@
 | 安卓会话与页面请求入口 | AppState / LocalApp，页面用 app.call |
 | 安卓设备呈现偏好 | UiPrefs，例如主题、色系和本机播放内核偏好 |
 | 手机临时交互 | Compose 页面状态与导航路由 |
-| TV 返回栈 / 焦点记忆 | TvNav 与既有 tv/kit 状态机制 |
+| TV 浏览返回栈 / 焦点记忆 | 共用 Navigation Compose；entry SavedStateHandle保存焦点标记，Popup/Dialog不覆盖页面标记 |
+| TV 播放内部状态 | TvNav 与既有 tv/kit 状态机制 |
 | 桌面页面会话与返回栈 | Nav.Session 与 Nav |
 
 UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移进 SharedPreferences。

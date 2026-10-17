@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.LocalTvMode
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import xyz.linplayer.app.ui.components.posterPreview
@@ -714,7 +716,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp).privateNeonIcon(),
                 tint = if (favorite) c.mediaIcon else barTint)
         }
-        if (!isBoxSet && !app.privateSpace.value) IconButton(onClick = {
+        if (!isBoxSet && !app.privateSpace.value && !xyz.linplayer.app.tv.LocalTvMode.current) IconButton(onClick = {
             scope.launch {
                 runCatching { app.call("download.enqueue", args("item_id" to route.itemId)) }
                     .onSuccess { app.toast("已加入下载队列", xyz.linplayer.app.data.ToastKind.Ok) }
@@ -1233,7 +1235,7 @@ private fun SeriesHead(
     val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) posterPreview(id)
         else app.imageUrl(id, imageKind, 720)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().heightIn(min = maxWidth * 1.08f).testTag("detail.hero")) {
+        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else maxWidth * 1.08f).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
                     // 视差:图跟着滚一半 —— 海报和文字按正常速度走,两层错开才有纵深
@@ -1306,7 +1308,7 @@ private fun EpisodeHead(
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().heightIn(min = maxWidth * 1.08f).testTag("detail.hero")) {
+        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else maxWidth * 1.08f).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayer {

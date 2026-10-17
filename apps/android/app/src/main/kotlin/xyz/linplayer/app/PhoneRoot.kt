@@ -14,6 +14,9 @@ import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
@@ -95,10 +98,21 @@ import xyz.linplayer.app.ui.theme.T
  * 先画闸口再跳走会闪一下「请登录」,那比多等 80ms 难看得多。
  */
 @Composable
-fun PhoneRoot(app: AppState) = PrivateNeonHost {
-    androidx.compose.runtime.CompositionLocalProvider(LocalApp provides app) {
+fun PhoneRoot(app: AppState, tv: Boolean = false) = PrivateNeonHost {
+    androidx.compose.runtime.CompositionLocalProvider(LocalApp provides app, xyz.linplayer.app.tv.LocalTvMode provides tv) {
         val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
-        LaunchedEffect(Unit) { app.enablePrivacyFiltering(); app.boot() }
+        LaunchedEffect(Unit) {
+            app.enablePrivacyFiltering()
+            if (tv) MainActivity.SelfCheck.login?.let { login ->
+                MainActivity.SelfCheck.login = null
+                val fields = login.split("|")
+                runCatching { app.call("emby.login", xyz.linplayer.app.ui.pages.args(
+                    "server" to xyz.linplayer.app.ui.pages.withScheme(fields.getOrElse(0) { "" }),
+                    "username" to fields.getOrElse(1) { "" }, "password" to fields.getOrElse(2) { "" },
+                    "device_id" to app.deviceId())) }.onFailure { app.report(it) }
+            }
+            app.boot()
+        }
 
         // 手机使用固定主题底色，不绘制全局壁纸。
         Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
@@ -110,16 +124,21 @@ fun PhoneRoot(app: AppState) = PrivateNeonHost {
                     draft.substringAfter(":", "0").toIntOrNull() ?: 0)
                 else -> when (loggedIn) {
                 null -> BootSkeleton()
-                false -> GatePage(onDone = { app.refreshSession() })
+                false -> if (tv) {
+                    xyz.linplayer.app.tv.CompanionBridge(onHome = {}, onOpen = {})
+                    xyz.linplayer.app.tv.OnboardingPage(embedded = false)
+                } else GatePage(onDone = { app.refreshSession() })
                 true -> {
                     val revision by app.spaceRevision.collectAsStateWithLifecycle()
-                    androidx.compose.runtime.key(revision) { MainShell() }
+                    androidx.compose.runtime.key(revision) { MainShell(tv) }
                 }
             }
             }
-            xyz.linplayer.app.ui.plugin.PhonePluginDialog()
-            ToastHost()
-            xyz.linplayer.app.ui.theme.ThemeFailedToast()
+            if (!tv) {
+                xyz.linplayer.app.ui.plugin.PhonePluginDialog()
+                ToastHost()
+                xyz.linplayer.app.ui.theme.ThemeFailedToast()
+            }
         }
     }
 }
@@ -140,10 +159,12 @@ private fun BootSkeleton() {
 }
 
 @Composable
-private fun MainShell() {
+private fun MainShell(tv: Boolean) {
     val app = LocalApp.current
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
+    val tvContent = remember { androidx.compose.ui.focus.FocusRequester() }
+    if (tv) xyz.linplayer.app.tv.SharedTvNavigation(nav)
     // 「启动时自动检查更新」。放在登录之后:没进门就先弹更新是打扰
     var newVersion by androidx.compose.runtime.remember {
         androidx.compose.runtime.mutableStateOf<kotlinx.serialization.json.JsonObject?>(null)
@@ -156,7 +177,7 @@ private fun MainShell() {
     androidx.compose.runtime.DisposableEffect(nav) {
         xyz.linplayer.app.plugin.PluginNav.host = object : xyz.linplayer.app.plugin.PluginNav.Host {
             override fun push(route: String, params: kotlinx.serialization.json.JsonObject, replace: Boolean): Boolean {
-                if (app.privateSpace.value) return false
+                if (app.privateSpace.value || (tv && route == "downloads")) return false
                 val r = officialRoute(route) { k -> params.str(k) } ?: return false
                 if (replace) nav.popBackStack()
                 nav.navigate(r)
@@ -217,7 +238,7 @@ private fun MainShell() {
             MainActivity.SelfCheck.devPlugin = null
             runCatching { app.call("plugin.devLoad", xyz.linplayer.app.ui.pages.args("dir" to dir)) }.onFailure { app.report(it) }
         }
-        val p = MainActivity.SelfCheck.page ?: return@LaunchedEffect
+        val p = MainActivity.SelfCheck.page?.removePrefix("tv:") ?: return@LaunchedEffect
         MainActivity.SelfCheck.page = null
         if (p.startsWith("tvbox:")) { xyz.linplayer.app.ui.pages.selfCheckTvbox(app, nav, p.removePrefix("tvbox:")); return@LaunchedEffect }
         val parts = p.split(":")
@@ -261,13 +282,17 @@ private fun MainShell() {
        代价是每个列表都得自己留白,所以底栏高度走 LocalTabClearance 下发。 */
     androidx.compose.runtime.CompositionLocalProvider(
         xyz.linplayer.app.ui.components.LocalTabClearance provides
-            if (browsePage) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp,
+            if (browsePage && !tv) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp,
         LocalPosterScroll provides posterScroll
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
         enabled = entry?.destination?.hasRoute<Route.Player>() != true)) {
-        Box(Modifier.fillMaxSize().nestedScroll(scroll)) {
+        Box(Modifier.fillMaxSize()
+            .padding(top = if (tv && browsePage) xyz.linplayer.app.tv.kit.TvDim.navigationH else 0.dp,
+                start = if (tv && browsePage) 32.dp else 0.dp, end = if (tv && browsePage) 32.dp else 0.dp)
+            .then(if (tv) Modifier.focusRequester(tvContent).focusRestorer().focusGroup() else Modifier)
+            .nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
             NavHost(
                 navController = nav,
@@ -317,7 +342,10 @@ private fun MainShell() {
                 posterComposable<Route.Facet> { FacetPage(nav, it) }
                 posterComposable<Route.Lines> { LinesPage(nav, it) }
                 posterComposable<Route.Browse> { xyz.linplayer.app.ui.plugin.Takeover("browse") { BrowsePage(nav) } }
-                posterComposable<Route.Downloads> { xyz.linplayer.app.ui.plugin.Takeover("downloads") { DownloadsPage(nav) } }
+                posterComposable<Route.Downloads> {
+                    if (tv) LaunchedEffect(Unit) { nav.popBackStack() }
+                    else xyz.linplayer.app.ui.plugin.Takeover("downloads") { DownloadsPage(nav) }
+                }
                 posterComposable<Route.Plugins> { PluginsPage(nav, it) }
                 posterComposable<Route.PluginDetail> { xyz.linplayer.app.ui.pages.PluginDetailPage(nav, it) }
                 posterComposable<Route.PluginPage> { xyz.linplayer.app.ui.pages.PluginHostPage(nav, it) }
@@ -336,9 +364,10 @@ private fun MainShell() {
                    (用户 2026-09-12:「显示目前服务器是新添加的结果还是原来的服务器,
                    退出重进才正常」)。 */
                 posterComposable<Route.AddServer> {
-                    GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
+                    if (tv) xyz.linplayer.app.tv.OnboardingPage(embedded = true, onDone = { nav.popBackStack() })
+                    else GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
                 }
-                posterComposable<Route.Player> { PlayerLaunchPage(nav, it, app.privateSpace.value) }
+                posterComposable<Route.Player> { PlayerLaunchPage(nav, it, app.privateSpace.value, tv = tv) }
             }
             }
         }
@@ -346,7 +375,7 @@ private fun MainShell() {
            ☠ 截长屏时底栏必须让开:长图是一片片切出来拼的,底栏留着的话
              它会**在每一片里各印一条**,一路排下来像出了什么故障。 */
         AnimatedVisibility(
-            visible = browsePage && tabsVisible && WindowInsets.ime.getBottom(LocalDensity.current) == 0 &&
+            visible = !tv && browsePage && tabsVisible && WindowInsets.ime.getBottom(LocalDensity.current) == 0 &&
                 !xyz.linplayer.app.ui.components.LongShot.capturing.value,
             modifier = Modifier.align(Alignment.BottomCenter),
             enter = slideInVertically(lpTween(T.T4)) { it } + fadeIn(lpTween(T.T4)),
@@ -362,7 +391,8 @@ private fun MainShell() {
                 nav.switchTab(target)
             }
         }
-        LongShotButton(Modifier.align(Alignment.BottomEnd))
+        if (tv && browsePage) xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent)
+        if (!tv) LongShotButton(Modifier.align(Alignment.BottomEnd))
     }
     }
 }
@@ -428,6 +458,7 @@ internal fun officialRoute(route: String, p: (String) -> String?): Any? = when (
     "ranking" -> Route.Ranking
     "calendar" -> Route.Calendar
     "servers" -> Route.Servers
+    "server.lines" -> Route.Lines(p("id") ?: "", p("name") ?: "")
     "player" -> Route.Player(p("id") ?: p("itemId") ?: "", p("title") ?: "播放")
     "plugins" -> Route.Plugins(p("tab")?.toIntOrNull() ?: 0)
     "settings" -> Route.Settings

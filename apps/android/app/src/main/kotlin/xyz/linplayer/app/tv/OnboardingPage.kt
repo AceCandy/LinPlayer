@@ -64,7 +64,7 @@ import xyz.linplayer.app.ui.theme.LpIcons
  * ⚠️ `source.formSchema` 不存在(MOBILE_BLOCKERS B1),源类型表照手机端写在这一处。
  */
 @Composable
-fun OnboardingPage(embedded: Boolean) {
+fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val t = tvType
@@ -76,7 +76,7 @@ fun OnboardingPage(embedded: Boolean) {
     var busy by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
     var picking by remember { mutableStateOf(false) }
-    val nav = if (embedded) LocalNav.current else null
+    val nav = if (embedded && onDone == null) LocalNav.current else null
     // 插件提供的服务器类型(D131 D423):装了数据源插件才出现在类型片里
     var pluginForms by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     val pluginValues = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
@@ -102,7 +102,7 @@ fun OnboardingPage(embedded: Boolean) {
                 app.call("source.addSources", xyz.linplayer.app.ui.pages.j("plugin_id" to pid, "type_id" to tid, "sources" to chosen))
                 app.toast("已添加 ${chosen.size} 个源,不要的在服务器页删", ToastKind.Ok)
                 app.refreshSession()
-                nav?.pop()
+                if (onDone != null) onDone() else nav?.pop()
             } catch (e: CoreException) {
                 hint = e.advice
             } catch (e: Throwable) {
@@ -114,7 +114,7 @@ fun OnboardingPage(embedded: Boolean) {
     if (picking) {
         // 首次启动页不在返回栈里,挑文件夹就地换内容;返回键回表单
         BackHandler { picking = false }
-        LocalPickerPage(onDone = { picking = false })
+        LocalPickerPage(onDone = { picking = false; onDone?.invoke() })
         return
     }
 
@@ -134,7 +134,7 @@ fun OnboardingPage(embedded: Boolean) {
                 }
                 app.toast("已添加服务器", ToastKind.Ok)
                 app.refreshSession()
-                nav?.pop()
+                if (onDone != null) onDone() else nav?.pop()
             } catch (e: CoreException) {
                 hint = e.advice
             } catch (e: Throwable) {

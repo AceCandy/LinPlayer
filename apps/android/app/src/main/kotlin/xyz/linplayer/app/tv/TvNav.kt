@@ -51,6 +51,8 @@ sealed interface TvRoute {
         val resumeAt: Double? = null,
         /** 数据源播放:`{server_id, item, line_id, episode_id}` 的 JSON 原文,走 source.playItem。 */
         val src: String? = null,
+        /** 共用详情页预选的字幕身份，随本次版本交接。 */
+        val subtitle: String? = null,
     ) : TvRoute { override val rail = -1 }
     // 数据源(插件 SPEC 8.7)与插件页(14.7)
     data class SourceCategory(val serverId: String, val cat: String) : TvRoute { override val rail = 1 }

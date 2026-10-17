@@ -4,10 +4,10 @@
 
 - LinPlayerApp 初始化进程级核心；MainActivity 只按形态选择 PhoneRoot / TvRoot，Activity 重建不能重复初始化核心。TV发行包通过 `-Plp.tv=true` 生成 `BuildConfig.TV_BUILD`，启动优先此标记，再检测系统电视模式/自检入口；不得靠改名普通APK交付TV包。TV构建的核心插件平台为android_tv。Manifest同源TV_BUILD标记用于产物门禁；MainActivityShapeTest须分别用lp.tv=true/false运行，覆盖普通系统模式。
 - 手机主题在 ui/theme/Theme.kt，由 LpTheme 提供 Lp.colors；R / Sp / Dim 使用当前源码刻度，不用桌面刻度。
-- 手机共用组件在 ui/components；TV 采用 tv/kit 的 TvC / TvSp / TvR / TvW。
+- 手机与TV浏览页面共用 ui/components；TV顶部导航、扫码和播放器沿用 tv/kit。共享点击控件通过 LocalTvMode 提供遥控焦点与菜单键。
 - 手机服务器探测结果按 `server` 匹配账号、`ok` 转为卡片状态 `ok` / `down`；渲染端不可再按 `up` 判成功。缺少探测结果表示未检测，与连接失败区分；`PhoneManagementUiTest` 核验成功色及三态文字。
-- 手机主导航是 Navigation Compose / Route；TV 使用 TvNav，换集与导航轨切页遵守既有返回栈和焦点记忆。
-- TV 带导航页面统一72dp顶部栏、48dp安全边距,内容向下避让;最左当前服名替代品牌，主栏目首页/收藏/发现,辅助搜索/设置,原route.rail索引保持，索引2/5/6不展示独立导航项。服名普通点击服务器管理、长按/菜单键进私密、私密点击退出，移除首页重复服名；首页库标题进入完整库，设置管理媒体库保留解除隐藏入口。TV不提供下载，卡片/详情移除下载操作，插件downloads路由拒绝；旧下载路由回首页，不加载任务。左右选择、确认切页、下键恢复内容记忆;当前基础栏目确认不重建entry,下钻确认回入口。私密空间额外隐藏设置与角标，服名保留。首页通栏260dpHero用静态渐变保护文字,32sp标题与横行左对齐48dp;服名仍支持点击/长按/菜单键。TvFocusTest/TvPrivacyTest/TvPageShots覆盖行为,本地素材TvHomeDesignShot供实图评审;真机手感与帧率另验。
+- 手机与TV浏览主导航共用 PhoneRoot/MainShell、Navigation Compose / Route。TvRoot 只提供TV宿主配置；TvNav 仅保留于TV播放器内部与旧页测试，不再承载正式浏览入口。样式适配不得另写浏览请求与业务状态。
+- TV 带导航页面统一72dp顶部栏、48dp安全边距,内容向下避让;最左当前服名替代品牌，主栏目首页/收藏/发现,辅助搜索/设置,原route.rail索引保持，索引2/5/6不展示独立导航项。服名普通点击服务器管理、长按/菜单键进私密、私密点击退出，移除首页重复服名；首页库标题进入完整库，设置管理媒体库保留解除隐藏入口。TV不提供下载，卡片/详情移除下载操作，插件downloads路由拒绝；旧下载路由回首页，不加载任务。左右选择、确认切页、下键恢复内容记忆;当前基础栏目确认不重建entry,下钻确认回入口。私密空间额外隐藏设置与角标，服名保留。首页、详情、媒体库、搜索、聚合与设置复用手机页面；聚合标签为“聚合视界”。TV详情头图最小高220dp，首页轮播持有遥控焦点时暂停。SharedTvBrowseTest/TvPrivacyTest覆盖实际入口与焦点；旧TvPageShots不能证明正式入口正确，真机手感与帧率另验。
 - 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
 - 深色 → 浅色 → 深色要检查背景、说明、箭头、数值和选中项；设备强制深色的表现不能只用 JVM 截图下结论。
 - PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；普通与隐私空间首页服名均无底无框，叠图时白字阴影。
@@ -216,3 +216,8 @@
 - M3 FilterChip的最小交互布局高于可见表面；荧光不能画在整块最小触摸区上。MediaFilterChip在外层minimumInteractiveComponentSize保留布局空间，仅内层Surface关闭最小布局并按可见轮廓画光，点击仍由原控件接收。PrivateNeonTest同时断言深浅像素贴边和扩展区真实点击；倍率回归同时设置Compose MotionDurationScale与LocalMotionScale，验证0.5/2倍的一圈分别5/20秒，避免仅覆盖默认倍率得到假绿。
 
 - 手机首页滚动后的顶栏保护仍须半透明向下渐隐，禁止切换为纯色硬边；叠图服名与设置图标保持浅色。PhoneHomeRefreshTest用深浅主题实际滚动、上下像素变化及设置点击回归。
+
+## TV共用播放交接
+
+- TV的Route.Player经PlayerLaunchPage启动横屏PlayerActivity，由TvPlaybackHost挂既有TvPlayerPage；传递版本、从头播放、数据源参数及字幕身份，不启用手机PiP。文件浏览显式传localEntry，走source.play，不按Emby条目播放或回传Emby刷新ID。
+- 正常退出先登记stopIn，再回传实际末集；伴侣与播放失败线路导航回共用浏览栈，不进入旧TV浏览页。添加服务器保留TV扫码和本地目录选择器。PlayerActivityTest覆盖字幕、切集、末集回传及本地来源。

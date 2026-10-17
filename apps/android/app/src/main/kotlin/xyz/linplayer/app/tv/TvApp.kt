@@ -87,80 +87,14 @@ val LocalIsLocalSource = staticCompositionLocalOf { false }
  */
 @Composable
 fun TvRoot(app: AppState) {
-    app.enablePrivacyFiltering()
-    val spaceRevision by app.spaceRevision.collectAsStateWithLifecycle()
+    val input = androidx.compose.ui.platform.LocalInputModeManager.current
+    LaunchedEffect(input) { input.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard) }
     val base = LocalViewConfiguration.current
-    // 长按 600ms:Android 默认 500,遥控器确认键行程长、沙发上按得慢,500 会误触(§4.4)
     val tvConfig = remember(base) {
-        object : ViewConfiguration by base { override val longPressTimeoutMillis: Long = 600L }
+        object : ViewConfiguration by base { override val longPressTimeoutMillis = 600L }
     }
-    TvFrame(app, tvConfig) {
-    key(spaceRevision) {
-        val loggedIn by app.loggedIn.collectAsStateWithLifecycle()
-        val nav = remember { TvNav() }
-        // 插件的 nav.*(SPEC 7.9)接到 TV 这个自管栈上。轨上的平级页走 rail(),其余入栈
-        androidx.compose.runtime.DisposableEffect(nav) {
-            xyz.linplayer.app.plugin.PluginNav.host = object : xyz.linplayer.app.plugin.PluginNav.Host {
-                override fun push(route: String, params: kotlinx.serialization.json.JsonObject, replace: Boolean): Boolean {
-                    if (app.privateSpace.value) return false
-                    val r = tvOfficialRoute(route) { k -> params.str(k) } ?: return false
-                    when {
-                        replace -> nav.replaceTop(r)
-                        r.rail >= 0 && railRoute(r.rail) == r -> nav.rail(r)
-                        else -> nav.push(r)
-                    }
-                    return true
-                }
-                override fun back() { nav.pop() }
-            }
-            onDispose { xyz.linplayer.app.plugin.PluginNav.host = null }
-        }
-        LaunchedEffect(Unit) {
-            // 自检:先用开发版加载一个本地插件目录(和手机那条同一个开关)
-            xyz.linplayer.app.MainActivity.SelfCheck.devPlugin?.let { dir ->
-                xyz.linplayer.app.MainActivity.SelfCheck.devPlugin = null
-                runCatching { app.call("plugin.devLoad", xyz.linplayer.app.ui.pages.args("dir" to dir)) }
-            }
-            /* 自检登录:`-e lp_login "<地址>|<用户>|<密码>"`。
-               ☠ 这条原来只有手机闸口页(GatePage)接,而**电视设备永远走 TvRoot** ——
-               于是 TV 端根本没有自检登录入口,一跑就停在引导页,看起来像「TV 壳坏了」。
-               2026-09-20 想在 TV 上量一千项列表时撞到。 */
-            xyz.linplayer.app.MainActivity.SelfCheck.login?.let { sc ->
-                xyz.linplayer.app.MainActivity.SelfCheck.login = null
-                val p = sc.split("|")
-                runCatching {
-                    app.call("emby.login", xyz.linplayer.app.ui.pages.args(
-                        "server" to xyz.linplayer.app.ui.pages.withScheme(p.getOrElse(0) { "" }),
-                        "username" to p.getOrElse(1) { "" },
-                        "password" to p.getOrElse(2) { "" },
-                        "device_id" to app.deviceId(),
-                    ))
-                }.onFailure { xyz.linplayer.app.core.Logs.w("自检", "TV 登录失败: " + it.message) }
-            }
-            app.boot()
-        }
-        // 手机遥控开机即起(§9.3 默认开)。手机形态从不调这条,所以手机上不监听
-        LaunchedEffect(Unit) { runCatching { app.call("companion.start") } }
-        CompanionBridge(nav)
-        // 自检直达:`-e lp_page 'tv:pluginpage:<插件id>/<页面id>'`
-        LaunchedEffect(loggedIn, xyz.linplayer.app.MainActivity.SelfCheck.pageTick.intValue) {
-            val p = xyz.linplayer.app.MainActivity.SelfCheck.page ?: return@LaunchedEffect
-            if (!p.startsWith("tv:")) return@LaunchedEffect
-            xyz.linplayer.app.MainActivity.SelfCheck.page = null
-            val want = p.removePrefix("tv:")
-            if (want.startsWith("pluginpage:")) {
-                val raw = want.removePrefix("pluginpage:")
-                val at = raw.lastIndexOf('/')
-                if (at > 0) nav.push(TvRoute.PluginPage(raw.substring(0, at), raw.substring(at + 1), "插件页"))
-            }
-        }
-        when (loggedIn) {
-            null -> TvShell(nav, booting = true)
-            false -> OnboardingPage(embedded = false)
-            true -> TvShell(nav)
-        }
-    }
-    }
+    LaunchedEffect(app) { runCatching { app.call("companion.start") } }
+    TvFrame(app, tvConfig) { xyz.linplayer.app.PhoneRoot(app, tv = true) }
 }
 
 /** 主题 + 字阶 + 深色底 + Toast。拆出来是给 JVM 出图 / 焦点测试直接挂真页面用的。 */
@@ -376,25 +310,28 @@ private fun TvToastHost() {
  *   返回走 OnBackPressedDispatcher(和遥控器返回键落到的是同一组 BackHandler)。不另写一套。
  */
 @Composable
-private fun CompanionBridge(nav: TvNav) {
+internal fun CompanionBridge(onHome: () -> Unit, onOpen: suspend (JsonObject?) -> Unit) {
     val app = LocalApp.current
     val activity = LocalContext.current as? ComponentActivity
-    LaunchedEffect(Unit) {
+    val home by androidx.compose.runtime.rememberUpdatedState(onHome)
+    val open by androidx.compose.runtime.rememberUpdatedState(onOpen)
+    val owner = androidx.lifecycle.compose.LocalLifecycleOwner.current
+    LaunchedEffect(app, activity) {
         app.core.events.collect { ev ->
+            if (!owner.lifecycle.currentState.isAtLeast(androidx.lifecycle.Lifecycle.State.RESUMED)) return@collect
             val d = ev.data.obj()
             when (ev.name) {
                 "companion.key" -> when (val k = d.str("key")) {
                     "back" -> activity?.onBackPressedDispatcher?.onBackPressed()
-                    "home" -> nav.rail(TvRoute.Home)
+                    "home" -> home()
                     else -> keyCodeOf(k)?.let { code ->
                         val t = SystemClock.uptimeMillis()
                         activity?.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_DOWN, code, 0))
                         activity?.dispatchKeyEvent(KeyEvent(t, t, KeyEvent.ACTION_UP, code, 0))
                     }
                 }
-                // ☠ 手机上加 / 删 / 切服务器:电视要立刻换屏。旧版漏发这个广播,电视停在「添加服务器」那一屏
                 "account.status" -> app.refreshSession()
-                "companion.open" -> openFromPhone(app, nav, d)
+                "companion.open" -> open(d)
             }
         }
     }
@@ -406,15 +343,6 @@ private fun keyCodeOf(k: String?): Int? = when (k) {
     "ok" -> KeyEvent.KEYCODE_DPAD_CENTER; "menu" -> KeyEvent.KEYCODE_MENU
     "playpause" -> KeyEvent.KEYCODE_MEDIA_PLAY_PAUSE
     else -> null
-}
-
-/** 事件带 `server_id` 且不是当前服务器 → 先切服务器,**成功后**再进详情页。 */
-private suspend fun openFromPhone(app: AppState, nav: TvNav, d: JsonObject?) {
-    if (app.privateSpace.value) return
-    val id = d.str("item_id") ?: return
-    val server = d.str("server_id")
-    if (!server.isNullOrBlank() && !switchServerIfNeeded(app, server)) return
-    nav.push(if (d.str("type") == "Episode") TvRoute.Episode(id) else TvRoute.Detail(id, d.str("type") ?: "Movie"))
 }
 
 /** 「启动时自动检查更新」。关着就一次都不查(那是个会自己联网的行为,默认关)。 */

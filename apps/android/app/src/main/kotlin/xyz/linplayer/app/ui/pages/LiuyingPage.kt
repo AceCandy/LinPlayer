@@ -62,7 +62,7 @@ import xyz.linplayer.app.ui.theme.Sp
 @Composable
 internal fun LiuyingPage(nav: NavController, urls: List<String> = listOf(
     BuildConfig.LP_LIUYING_URL, BuildConfig.LP_LIUYING_ADULT_URL,
-)) = LiuyingContent({ nav.popBackStack() }, urls = urls)
+)) = LiuyingContent({ nav.popBackStack() }, tv = xyz.linplayer.app.tv.LocalTvMode.current, urls = urls)
 
 /** 手机与TV共用网页、安全配置和生命周期，外壳分别提供触屏与遥控器控件。 */
 @SuppressLint("SetJavaScriptEnabled")

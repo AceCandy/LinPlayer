@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -79,6 +81,7 @@ import xyz.linplayer.app.ui.theme.Sp
 import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.lpTween
 import xyz.linplayer.app.ui.theme.lpSpring
+import xyz.linplayer.app.tv.tvFocus
 
 /*
  * 共用组件词汇(UI_MOBILE.md §4.2)。**页面只能用它拼,不许各页自造一套**
@@ -113,7 +116,7 @@ internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier 
 @Composable
 fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    return this.pressFeedback(src)
+    return this.pressFeedback(src).tvFocus(src)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -131,7 +134,7 @@ fun Modifier.pressable(
 ): Modifier {
     val src = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    return this.pressFeedback(src)
+    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled })
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {
@@ -678,7 +681,7 @@ fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable 
                     H2(title)
                     Spacer(Modifier.height(Sp.x12))
                 }
-                content()
+                CompositionLocalProvider(LocalPosterScene provides null) { content() }
             }
         }
     }
@@ -706,7 +709,11 @@ fun LpMenu(
     content: @Composable androidx.compose.foundation.layout.ColumnScope.() -> Unit,
 ) {
     if (!open) return
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    if (tv) androidx.activity.compose.BackHandler(onBack = onDismiss)
     val panel: @Composable () -> Unit = {
+        val focus = remember { androidx.compose.ui.focus.FocusRequester() }
+        LaunchedEffect(Unit) { if (tv) { androidx.compose.runtime.withFrameNanos { }; focus.requestFocus() } }
         var shown by remember { mutableStateOf(false) }
         androidx.compose.runtime.LaunchedEffect(Unit) { shown = true }
         val sc by androidx.compose.animation.core.animateFloatAsState(
@@ -720,7 +727,7 @@ fun LpMenu(
         )
         Box(if (positionProvider != null) Modifier.padding(4.dp) else Modifier) {
             Column(
-                m
+                m.then(if (tv) Modifier.focusRequester(focus).focusGroup() else Modifier)
                     .graphicsLayer { scaleX = sc; scaleY = sc; alpha = op; transformOrigin = origin }
                     // 菜单收窄一档【用户 2026-09-07:「又大又丑」】—— 它是几条一两个字的动作,
                     // 撑到 184dp 宽、每行 48dp 高就成了一块盖住半张卡的板
@@ -731,7 +738,7 @@ fun LpMenu(
                         else Modifier.glass(R.md, solid = 1.7f))
                     .verticalScroll(androidx.compose.foundation.rememberScrollState())
                     .padding(vertical = Sp.x6),
-                content = content,
+                content = { CompositionLocalProvider(LocalPosterScene provides null) { content() } },
             )
         }
     }

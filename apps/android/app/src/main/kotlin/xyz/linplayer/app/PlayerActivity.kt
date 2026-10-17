@@ -65,10 +65,12 @@ open class PlayerActivity : ComponentActivity() {
         app = playerApp()
         app.enablePrivacyFiltering()
         val privatePlayback = intent.getBooleanExtra(EXTRA_PRIVATE, false)
+        val tv = intent.getBooleanExtra(EXTRA_TV, false)
+        var navigationResult = false
         // 隐私播放只在已解锁的进程内恢复；进程回收不能靠旧Intent重新进入。
-        if (privatePlayback != app.privateSpace.value) { finish(); return }
+        if (privatePlayback != app.privateSpace.value || (privatePlayback && route.localEntry)) { finish(); return }
         UiPrefs.load(this)
-        if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, "android")
+        if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, if (tv) "android_tv" else "android")
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
         setContent {
@@ -85,7 +87,8 @@ open class PlayerActivity : ComponentActivity() {
                         val host = object : PluginNav.Host {
                             override fun back() = finish()
                             override fun push(route: String, params: JsonObject, replace: Boolean): Boolean {
-                                if (officialRoute(route) { params.str(it) } == null) return false
+                                if (privatePlayback || (tv && route == "downloads") || officialRoute(route) { params.str(it) } == null) return false
+                                navigationResult = true
                                 setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, route)
                                     .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, replace))
                                 finish()
@@ -101,7 +104,19 @@ open class PlayerActivity : ComponentActivity() {
                         if (!ready) { app.boot(); ready = true }
                     }
                     Box(Modifier.fillMaxSize().background(Color.Black)) {
-                        if (ready) {
+                        if (ready && tv) {
+                            xyz.linplayer.app.tv.TvPlaybackHost(app, route,
+                                onExit = { itemId ->
+                                    if (!navigationResult) setResult(RESULT_OK, Intent().putExtra(PLAYED_ITEM, itemId))
+                                    finish()
+                                },
+                                onNavigate = { name, params ->
+                                    navigationResult = true
+                                    setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, name)
+                                        .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, true))
+                                    finish()
+                                })
+                        } else if (ready) {
                             val nav = rememberNavController()
                             NavHost(nav, startDestination = route) {
                                 composable<Route.Player> { entry ->
@@ -115,8 +130,10 @@ open class PlayerActivity : ComponentActivity() {
                                 }
                             }
                         }
-                        xyz.linplayer.app.ui.plugin.PhonePluginDialog()
-                        ToastHost()
+                        if (!tv) {
+                            xyz.linplayer.app.ui.plugin.PhonePluginDialog()
+                            ToastHost()
+                        }
                     }
                 }
             }
@@ -136,7 +153,7 @@ open class PlayerActivity : ComponentActivity() {
     }
 
     fun enterPlayerPip(returnToHome: Boolean = false): Boolean {
-        if (!::app.isInitialized || Build.VERSION.SDK_INT < 26 || isFinishing ||
+        if (intent.getBooleanExtra(EXTRA_TV, false) || !::app.isInitialized || Build.VERSION.SDK_INT < 26 || isFinishing ||
             isInPictureInPictureMode || isInMultiWindowMode || !app.wantsPip ||
             !packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)) return false
         return runCatching {
@@ -164,15 +181,17 @@ open class PlayerActivity : ComponentActivity() {
         private const val EXTRA_ROUTE = "player.route"
         private const val EXTRA_CLICK = "player.clickedAt"
         private const val EXTRA_PRIVATE = "player.privateSpace"
+        private const val EXTRA_TV = "player.tv"
 
-        internal fun intent(context: Context, route: Route.Player, clickedAt: Long? = null, privateSpace: Boolean = false): Intent {
+        internal fun intent(context: Context, route: Route.Player, clickedAt: Long? = null, privateSpace: Boolean = false, tv: Boolean = false): Intent {
             val target = when {
+                tv -> PlayerActivity::class.java
                 !route.ar.isFinite() || route.ar <= 0 -> PlayerActivity::class.java
                 route.ar > 1 -> PlayerActivity::class.java
                 else -> PortraitPlayerActivity::class.java
             }
             return Intent(context, target).putExtra(EXTRA_ROUTE, Json.encodeToString(route))
-                .putExtra(EXTRA_PRIVATE, privateSpace).apply {
+                .putExtra(EXTRA_PRIVATE, privateSpace).putExtra(EXTRA_TV, tv).apply {
                 clickedAt?.let { putExtra(EXTRA_CLICK, it) }
             }
         }

@@ -11,6 +11,10 @@ import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performClick
+import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.input.key.Key
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -88,6 +92,60 @@ class PlayerActivityTest {
         host = Robolectric.buildActivity(TestPlayerActivity::class.java, intent).create()
         assertTrue(host!!.get().isFinishing)
         assertFalse(core.calls.any { it.first == "player.play" })
+    }
+
+    @Test fun televisionIntentKeepsParametersRemoteControlsAndReturnsLastEpisode() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.stopPlayback", JsonNull)
+            ret("player.setTrack", JsonNull)
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        val route = Route.Player("sh6", "测试", "ea", "mpv", 9f / 16, fromStart = true,
+            subtitle = "{\"sourceId\":\"ea\",\"index\":3}")
+        val intent = PlayerActivity.intent(context, route, tv = true)
+        assertEquals(ComponentName(context, PlayerActivity::class.java), intent.component)
+        assertEquals(route, PlayerActivity.readRoute(intent))
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java,
+            intent.setClass(context, TestPlayerActivity::class.java)).setup()
+        rule.waitUntil(5_000) { core.calls.any { it.first == "player.play" } }
+        rule.onNodeWithTag("player.root").assertIsDisplayed()
+        assertEquals("ea", core.calls.single { it.first == "player.play" }.second.str("media_source_id"))
+        assertTrue(core.calls.single { it.first == "player.play" }.second.bool("from_start"))
+        rule.mainClock.advanceTimeBy(3_000)
+        rule.waitForIdle()
+        assertEquals("2", core.calls.single { it.first == "player.setTrack" }.second.str("id"))
+        rule.onNodeWithTag("player.root").performKeyInput { pressKey(Key.MediaNext) }
+        rule.waitForIdle()
+        assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        rule.onNodeWithTag("player.root").performKeyInput { pressKey(Key.MediaStop) }
+        rule.waitUntil { host!!.get().isFinishing }
+        assertEquals("sh7", shadowOf(host!!.get()).resultIntent.getStringExtra(PlayerActivity.PLAYED_ITEM))
+        assertEquals(2, core.calls.count { it.first == "player.stopPlayback" })
+        assertFalse(host!!.get().enterPlayerPip())
+    }
+
+    @Test fun televisionLocalFileUsesSourcePlaybackAndDoesNotReturnEmbyItem() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("source.play", JsonNull)
+            ret("player.stopPlayback", JsonNull)
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        val route = Route.Player("file-entry", "本地影片", localEntry = true)
+        val intent = PlayerActivity.intent(context, route, tv = true)
+            .setClass(context, TestPlayerActivity::class.java)
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java, intent).setup()
+        rule.waitUntil(5_000) { core.calls.any { it.first == "source.play" } }
+        assertEquals("file-entry", core.calls.single { it.first == "source.play" }.second.str("entry_id"))
+        assertFalse(core.calls.any { it.first == "player.play" })
+        rule.onNodeWithTag("player.root").performKeyInput { pressKey(Key.MediaStop) }
+        rule.waitUntil { host!!.get().isFinishing }
+        assertNull(shadowOf(host!!.get()).resultIntent.getStringExtra(PlayerActivity.PLAYED_ITEM))
     }
 
     @Test fun staleNotificationDoesNotStartAnotherPlayback() {

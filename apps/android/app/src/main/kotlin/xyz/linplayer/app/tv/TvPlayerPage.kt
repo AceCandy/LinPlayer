@@ -139,7 +139,7 @@ internal fun isOk(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == K
  *   出栈再入栈的话,旧页的停播和新页的起播在核心层 worker 上并发,停播可能落在起播后面。
  */
 @Composable
-fun TvPlayerPage(r: TvRoute.Player) {
+fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines: ((String) -> Unit)? = null) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
@@ -158,6 +158,9 @@ fun TvPlayerPage(r: TvRoute.Player) {
         onDispose { xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, false) }
     }
     var target by remember { mutableStateOf(r) }
+    val initialSubtitle = remember(target.subtitle) {
+        target.subtitle?.let { kotlinx.serialization.json.Json.decodeFromString<xyz.linplayer.app.ui.player.InitialSubtitle>(it) }
+    }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetried by remember(target) { mutableStateOf(false) }
     val controller = remember(target) {
@@ -182,17 +185,35 @@ fun TvPlayerPage(r: TvRoute.Player) {
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
-            subEnabled = p?.get("sub_enabled")?.let { p.bool("sub_enabled") } ?: true,
+            subEnabled = initialSubtitle?.let { it.index != null } ?: (p?.get("sub_enabled")?.let { p.bool("sub_enabled") } ?: true),
         )
         subOffPref = p?.get("sub_enabled")?.let { !p.bool("sub_enabled") } ?: false
     }
-    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes)
+    val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null)
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
     MatchTvRefreshRate(app, controller, exo, attempt)
     val root = remember { FocusRequester() }
     var leaving by remember { mutableStateOf(false) }
-    val leave: () -> Unit = { if (!leaving) { leaving = true; nav.pop() } }
+    var stopped by remember { mutableStateOf(false) }
+    fun stopPlayback() {
+        if (stopped) return
+        stopped = true
+        xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
+        Libass.reset()
+        val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
+        latestController.stopIn(app.bg, pos, app::report) {
+            runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
+        }
+    }
+    val leave: () -> Unit = {
+        if (!leaving) {
+            leaving = true
+            stopPlayback()
+            if (onExit != null) onExit(target.itemId.takeIf { !target.localEntry && !target.download && target.src == null })
+            else nav.pop()
+        }
+    }
 
     suspend fun switchTo(next: TvRoute.Player) {
         runCatching { controller.stop(ui.position) }
@@ -222,7 +243,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
-        subOffPref = controller.fallback?.subOff ?: (trackPrefs?.subEnabled == false)
+        subOffPref = controller.fallback?.subOff ?: initialSubtitle?.let { it.index == null } ?: (trackPrefs?.subEnabled == false)
         ui.tracks = emptyList()
         ui.preview = null
         finished = false
@@ -413,22 +434,26 @@ fun TvPlayerPage(r: TvRoute.Player) {
             }
             if (controller.ready && stable >= 2) runCatching {
                 controller.restoreTracks(list)
+                initialSubtitle?.let { controller.restoreInitialSubtitle(null, list, it)?.let { off -> subOffPref = off } }
                 controller.restoreSessionTracks(null, list, buildSet {
                     if (target.audioIndex != null) add("audio")
-                    if (target.subIndex != null || target.subOff) add("sub")
+                    if (target.subIndex != null || target.subOff || initialSubtitle != null) add("sub")
                 })?.let { subOffPref = it }
             }.onFailure { app.report(it) }
         }
     }
     val sessionTracks = controller.hasSessionTracks
     LaunchedEffect(controller, tracksReady, controller.seriesScope, sessionTracks, exo) {
-        if (!tracksReady || !sessionTracks) return@LaunchedEffect
+        if (!tracksReady || (!sessionTracks && initialSubtitle == null)) return@LaunchedEffect
         repeat(16) {
             delay(700)
             runCatching {
+                if (exo != null) initialSubtitle?.let {
+                    controller.restoreInitialSubtitle(exo, emptyList(), it)?.let { off -> subOffPref = off }
+                }
                 controller.restoreSessionTracks(exo, emptyList(), buildSet {
                     if (target.audioIndex != null) add("audio")
-                    if (target.subIndex != null || target.subOff) add("sub")
+                    if (target.subIndex != null || target.subOff || initialSubtitle != null) add("sub")
                 })?.let { subOffPref = it }
             }.onFailure { app.report(it) }
         }
@@ -522,17 +547,7 @@ fun TvPlayerPage(r: TvRoute.Player) {
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
     }
-    DisposableEffect(Unit) {
-        onDispose {
-            xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
-            Libass.reset()
-            // ★ 收尾走 app.bg:页面的协程作用域正被取消,挂在它上面的上报一件都不跑。**落库失败也要离页**
-            val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
-            latestController.stopIn(app.bg, pos, app::report) {
-                runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
-            }
-        }
-    }
+    DisposableEffect(Unit) { onDispose { stopPlayback() } }
 
     // ---------------------------------------------------------------- 返回键(§4.4 播放页那一列)
     // 初值不能是 0:开机两秒内 uptime 本身就小于 2000,第一下返回会被当成「再按一次」
@@ -643,7 +658,8 @@ fun TvPlayerPage(r: TvRoute.Player) {
                 scope.launch {
                     val id = xyz.linplayer.app.data.Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
                         .firstOrNull { it.isActive }?.id ?: return@launch
-                    nav.push(TvRoute.Lines(id, ""))
+                    if (onLines != null) { stopPlayback(); onLines(id) }
+                    else nav.push(TvRoute.Lines(id, ""))
                 }
             }))
         else if (!ui.everMoved) Curtain(ui)

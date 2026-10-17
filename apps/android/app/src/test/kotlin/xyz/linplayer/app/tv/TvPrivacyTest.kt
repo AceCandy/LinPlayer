@@ -45,7 +45,7 @@ class TvPrivacyTest {
                 put("id", "library"); put("name", "媒体库")
                 if (classified) put("is_adult", a?.get("is_adult")?.jsonPrimitive?.booleanOrNull ?: true)
             }) }
-            on("emby.listRandom") { a -> if (a?.get("is_adult") == JsonPrimitive(true))
+            on("emby.listResume") { a -> if (a?.get("is_adult") == JsonPrimitive(true))
                 arr(item("private", "私密作品")) else arr(item("normal", "普通作品")) }
             ret("plugin.homeSections", arr())
             ret("plugin.pageTakeovers", arr())
@@ -79,16 +79,16 @@ class TvPrivacyTest {
         mount()
         val normalColor = TvC.bg
         val normalKey = app.browseCache.key("s", "u", "query")
-        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.listRandom" }.second?.get("is_adult"))
+        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.listResume" }.second?.get("is_adult"))
         enter(longClick = true)
         assertTrue(app.privateSpace.value)
         assertNotEquals("lifecycle=${lifecycle.currentState}, revision=${app.spaceRevision.value}, mode=${TvC.privateMode}", normalColor, TvC.bg)
         assertNotEquals(normalKey, app.browseCache.key("s", "u", "query"))
-        assertEquals(JsonPrimitive(true), core.calls.last { it.first == "emby.listRandom" }.second?.get("is_adult"))
+        assertEquals(JsonPrimitive(true), core.calls.last { it.first == "emby.listResume" }.second?.get("is_adult"))
         rule.onNodeWithText("下载").assertDoesNotExist()
         listOf(0, 1, 3, 4).forEach { rule.onNodeWithTag("rail.$it").assertIsDisplayed() }
         listOf(2, 5, 6, 7).forEach { rule.onNodeWithTag("rail.$it").assertDoesNotExist() }
-        rule.onNodeWithText("私密作品").assertExists()
+        assertTrue(rule.onAllNodesWithText("私密作品").fetchSemanticsNodes().isNotEmpty())
         rule.onNodeWithText("普通作品").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/tv-privacy/home.png")
         rule.runOnUiThread { back.onBackPressed() }
@@ -97,7 +97,7 @@ class TvPrivacyTest {
         assertEquals(normalColor, TvC.bg)
         listOf(0, 1, 3, 4, 7).forEach { rule.onNodeWithTag("rail.$it").assertIsDisplayed() }
         assertEquals(normalKey, app.browseCache.key("s", "u", "query"))
-        rule.onNodeWithText("普通作品").assertExists()
+        assertTrue(rule.onAllNodesWithText("普通作品").fetchSemanticsNodes().isNotEmpty())
         rule.onNodeWithText("私密作品").assertDoesNotExist()
         // 再按返回不能恢复私密页或其保存状态。
         rule.runOnUiThread { back.onBackPressed() }
@@ -116,11 +116,11 @@ class TvPrivacyTest {
         rule.runOnUiThread { xyz.linplayer.app.plugin.PluginNav.host!!.push("search", JsonObject(emptyMap()), false) }
         advance(rule, 100)
         // 插件不能把私密导航拉到另一个页面。
-        rule.onNodeWithTag("search.input").assertDoesNotExist()
+        rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 500)
-        rule.onNodeWithTag("search.input").performTextInput("查询")
+        rule.onNode(hasSetTextAction()).performTextInput("查询")
         advance(rule, 900)
         rule.onNodeWithText("搜索历史").assertDoesNotExist()
         val calls = core.calls.drop(before)
@@ -138,7 +138,9 @@ class TvPrivacyTest {
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 300)
-        rule.onNodeWithTag("discover.liuying").assertIsFocused()
+        rule.onNodeWithText("流影").assertIsDisplayed()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("流影").assertIsFocused()
         assertFalse(core.calls.drop(before).any { it.first in setOf("emby.extRankings", "emby.aggregateOverview") })
         rule.runOnUiThread { back.onBackPressed() }
         advance(rule, 400)

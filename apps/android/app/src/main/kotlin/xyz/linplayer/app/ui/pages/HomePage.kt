@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.LocalTvMode
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.AnimatedContent
@@ -12,6 +14,8 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -136,6 +140,7 @@ import xyz.linplayer.app.ui.theme.Sp
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomePage(nav: NavController) {
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val privateSpace by app.privateSpace.collectAsState()
@@ -340,10 +345,11 @@ fun HomePage(nav: NavController) {
         }
     }
 
-    LpImmersive(barHeight = 56.dp, barHorizontalPadding = Sp.x16,
-        barBackground = if (xyz.linplayer.app.ui.components.rememberScrolled(list)) {
+    LpImmersive(barHeight = if (tv) 0.dp else 56.dp, barHorizontalPadding = Sp.x16,
+        barBackground = if (!tv && xyz.linplayer.app.ui.components.rememberScrolled(list)) {
             if (banners.isNotEmpty()) Color.Black.copy(alpha = .74f) else Lp.colors.bg.copy(alpha = .9f)
         } else Color.Transparent, bar = {
+        if (!tv) {
         // 服名使用剩余宽度，长名称省略，避免挤出设置按钮。
         var anchorH by remember { mutableStateOf(0) }
         Box(Modifier.weight(1f).onSizeChanged { anchorH = it.height }) {
@@ -370,6 +376,7 @@ fun HomePage(nav: NavController) {
             Icon(LpIcons.settings, "设置", Modifier.size(24.dp),
                 tint = if (banners.isNotEmpty()) Color.White else Lp.colors.fg2)
         }
+        }
     }) { pad ->
         // 地基块失败才整页报错:只有 emby.views 是地基
         val v = views
@@ -385,7 +392,7 @@ fun HomePage(nav: NavController) {
             indicator = { LpPullIndicator(pullState, refreshing) },
             onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
             modifier = Modifier.fillMaxSize().padding(
-                top = if (banners.isEmpty()) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
+                top = if (banners.isEmpty() && !tv) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
             ),
         ) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
@@ -506,13 +513,15 @@ internal fun CachedHomeBanner(
         } else currentId = order[(position + direction + order.size) % order.size]
     }
     var progress by remember { mutableFloatStateOf(0f) }
+    val tv = LocalTvMode.current
+    var focused by remember { mutableStateOf(false) }
     var touching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var manualRevision by remember { mutableStateOf(0) }
     val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
-    LaunchedEffect(owner, visible, images.size > 1, currentId, touching, dragging, manualRevision, motion) {
+    LaunchedEffect(owner, visible, images.size > 1, currentId, touching, dragging, focused, manualRevision, motion) {
         progress = 0f
-        if (!visible || touching || dragging || images.size < 2 || motion <= 0f) return@LaunchedEffect
+        if (!visible || touching || dragging || focused || images.size < 2 || motion <= 0f) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 val started = withInfiniteAnimationFrameNanos { it }
@@ -533,6 +542,7 @@ internal fun CachedHomeBanner(
     val toolbarStop = ((status + 56.dp) / (heroHeight + backgroundExtension)).coerceIn(0f, .7f)
     val fade = lpTween<Float>(400, LinearEasing)
     Box(Modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
+        .then(if (tv) Modifier.onFocusChanged { focused = it.hasFocus }.focusGroup() else Modifier)
         .pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
@@ -840,6 +850,7 @@ internal fun rememberCardActions(
     var favorite by rememberSaveable(item, serverId, app.session.value, app.privateSpace.value) { mutableStateOf(item.favorite) }
     var busy by remember(item.id, serverId) { mutableStateOf(false) }
     return cardActions(app, scope, item.copy(played = played, favorite = favorite), serverId, favoriteAction,
+        allowDownload = !xyz.linplayer.app.tv.LocalTvMode.current,
         onChanged = { played = it.played; favorite = it.favorite },
         begin = { if (busy) false else { busy = true; true } }, finish = { busy = false })
 }
@@ -850,6 +861,7 @@ internal fun cardActions(
     item: Item,
     serverId: String? = null,
     favoriteAction: Boolean = true,
+    allowDownload: Boolean = true,
     onChanged: (Item) -> Unit = {},
     begin: () -> Boolean = { true },
     finish: () -> Unit = {},
@@ -879,7 +891,7 @@ internal fun cardActions(
         change("emby.setFavorite", "fav", !item.favorite, item.copy(favorite = !item.favorite),
             if (item.favorite) "已取消收藏" else "已加入收藏")
     }
-    if (serverId == null && !app.privateSpace.value) actions += CardAction("下载", icon = LpIcons.download) {
+    if (allowDownload && serverId == null && !app.privateSpace.value) actions += CardAction("下载", icon = LpIcons.download) {
         scope.launch {
             try {
                 if (item.type == "Season" || item.isSeries)

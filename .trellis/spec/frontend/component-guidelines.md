@@ -1,7 +1,7 @@
 # 共用组件与主题
 
-- 页面优先复用已有组件词汇。桌面用 PageBase、Toast、Skeleton、Images.LoadAsync、Nav；手机用 LpScaffold、Panel、LpCell 等；TV 使用 tv/kit，不能套手机触摸控件取代焦点控件。
-- 桌面色彩读 Tokens.axaml / Tok.Of，手机读 Lp.colors，TV 读 TvC；布局刻度分别按平台规范，不混用。
+- 页面优先复用已有组件词汇。桌面用 PageBase、Toast、Skeleton、Images.LoadAsync、Nav；手机用 LpScaffold、Panel、LpCell 等；TV浏览复用手机页面与组件，必须提供遥控焦点、确认/菜单键和返回恢复；顶部导航与播放控制沿用tv/kit。
+- 桌面色彩读 Tokens.axaml / Tok.Of，共享浏览页读 Lp.colors，TV专用控件读 TvC；布局刻度分别按平台规范，不混用。
 - 不透明颜色走 token；叠图的半透明颜色遵守对应控件语义。改变主题时检查实际合成底色，不能只比较独立色号。
 - 主题修改覆盖正文、说明、占位、数值、图标、输入框、按钮与弹窗；检查深色、浅色及实时切换。
 - UI 按草稿逐页实现，用户点名的控件形态照留；改变控件种类需先确认。草稿与实现冲突按最新反馈核实并记录。

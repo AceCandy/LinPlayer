@@ -211,7 +211,7 @@ private fun Shortcuts(nav: NavController) {
         Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {
-        Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
+        if (!xyz.linplayer.app.tv.LocalTvMode.current) Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
         Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
         Shortcut("日历", LpIcons.calendar, Modifier.weight(1f)) { nav.navigate(Route.Calendar) }
     }

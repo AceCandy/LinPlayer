@@ -70,7 +70,7 @@ val railItems = listOf(
 @Composable
 fun TopNavigation(
     current: Int, privateSpace: Boolean = false, focused: Int = -1,
-    serverName: String = "服务器", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
+    serverName: String = "服务器", aggregateLabel: String = "发现", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
 ) {
     val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
@@ -113,7 +113,7 @@ fun TopNavigation(
                 Spacer(Modifier.width(TvSp.x16))
             } else {
                 val (label, icon) = railItems[i]
-                NavigationItem(label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,
+                NavigationItem(if (i == 4) aggregateLabel else label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,
                     focused = focused == i,
                     badge = if (privateSpace) null else xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
                     modifier = focusModifier.testTag("rail.$i"), onClick = { onSelect(i) })

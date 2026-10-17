@@ -80,6 +80,7 @@ fun BrowsePage(nav: NavController) {
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     val ctx = LocalContext.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
 
     data class Entry(val id: String, val name: String, val isDir: Boolean,
                      val size: Long?)
@@ -205,7 +206,7 @@ fun BrowsePage(nav: NavController) {
                 items(entries, key = { it.id }) { e ->
                     Row(Modifier.fillMaxWidth().pressable({
                         if (e.isDir) stack = stack + (e.id to e.name)
-                        else nav.navigate(Route.Player(e.id, e.name))
+                        else nav.navigate(Route.Player(e.id, e.name, localEntry = tv))
                     }).padding(horizontal = Sp.x16, vertical = Sp.x12),
                         verticalAlignment = Alignment.CenterVertically) {
                         Icon(if (e.isDir) LpIcons.folder else LpIcons.file, null,
