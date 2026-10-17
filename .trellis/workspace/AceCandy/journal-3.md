@@ -289,3 +289,33 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Status
 
 [OK] **Completed**
+
+
+## Session 82: 详情媒体查询与预热解耦
+<!-- trellis-session: v=2 fp=5639b1db145b588f -->
+
+**Date**: 2026-10-18
+**Task**: 详情媒体查询与预热解耦
+**Branch**: `main`
+
+### Summary
+
+详情异步补齐媒体信息，页面查询与视频预热分开取消，修复离页恢复。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aded3a41` | fix(detail): 分离媒体查询与预热并异步展示详情 |
+
+### Testing
+
+- [OK] 97项Android回归、相关Go竞态测试及vet、桌面编译和静态检查通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未出包部署，真机联调待验证

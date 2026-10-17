@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 81
-- **Last Active**: 2026-10-17
+- **Total Sessions**: 82
+- **Last Active**: 2026-10-18
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~291 | Active |
+| `journal-3.md` | ~321 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 82 | 2026-10-18 | 详情媒体查询与预热解耦 | `aded3a41` | `main` |
 | 81 | 2026-10-17 | TV共用浏览审查修复 | `27fa82df` | `main` |
 | 80 | 2026-10-17 | TV共用手机浏览与顶部导航 | `9761e72c` | `main` |
 | 79 | 2026-10-17 | 手机列表返回与首页顶栏渐隐修复归档 | `8537b1f9` | `main` |
