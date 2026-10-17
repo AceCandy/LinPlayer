@@ -267,3 +267,25 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Status
 
 [OK] **Completed**
+
+
+## Session 81: TV共用浏览审查修复
+<!-- trellis-session: v=2 fp=2623daeb8bcb3907 -->
+
+**Date**: 2026-10-17
+**Task**: TV共用浏览审查修复
+**Branch**: `main`
+
+### Summary
+
+修复本机首页入口、TV目录层级返回与视频过滤、换版本字幕恢复；账号模型按核心source_kind解析。四条红测转绿，112项手机与TV相关回归、纯遥控入口、渲染及参数/隐私门禁通过。独立复核完成，未打APK，真机实际播放与设备兼容性未验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `27fa82df` | fix(tv): 修复本机浏览返回与换版本字幕恢复 |
+
+### Status
+
+[OK] **Completed**
