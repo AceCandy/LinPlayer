@@ -92,7 +92,24 @@ fun NetImage(
     /** 共享海报已在转场中移动，保持图像连续，不叠加重新加载式的淡入。 */
     reveal: Boolean = true,
     onLoadResult: ((Boolean) -> Unit)? = null,
+    fallbackUrls: List<String> = emptyList(),
     placeholder: @Composable (() -> Unit)? = null,
+) {
+    val candidates = (listOfNotNull(url?.takeIf { it.isNotBlank() }) + fallbackUrls).distinct()
+    var candidateIndex by remember(candidates) { mutableStateOf(0) }
+    val currentUrl = candidates.getOrNull(candidateIndex)
+    NetImageCandidate(currentUrl, desc, m, corner, scale, backgroundBlur, previewUrl, reveal,
+        onLoadResult = { success ->
+            if (!success && candidateIndex < candidates.lastIndex) candidateIndex++
+            else onLoadResult?.invoke(success)
+        }, placeholder = placeholder)
+}
+
+@Composable
+private fun NetImageCandidate(
+    url: String?, desc: String?, m: Modifier, corner: androidx.compose.ui.unit.Dp,
+    scale: ContentScale, backgroundBlur: Boolean, previewUrl: String?, reveal: Boolean,
+    onLoadResult: ((Boolean) -> Unit)?, placeholder: @Composable (() -> Unit)?,
 ) {
     val report by androidx.compose.runtime.rememberUpdatedState(onLoadResult)
     LaunchedEffect(url) { if (url.isNullOrEmpty()) report?.invoke(false) }
@@ -225,7 +242,9 @@ fun MediaCard(
             ) {
                 NetImage(imageUrl, item.name, Modifier.fillMaxSize().sharedPoster(item.id, posterToken),
                     reveal = !sharedSource,
-                    onLoadResult = if (entrance) { { imageResult = it } } else null)
+                    onLoadResult = if (entrance) { { imageResult = it } } else null,
+                    fallbackUrls = xyz.linplayer.app.data.artworkFallbacks(imageUrl, item),
+                    placeholder = { Text(if (item.type == "Season") "暂无季封面" else "暂无封面", color = c.fg3) })
 
                 EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
                 Column(Modifier.align(Alignment.BottomEnd).padding(Sp.x6),

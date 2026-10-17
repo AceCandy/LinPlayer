@@ -21,6 +21,7 @@ static class ImageChecks
         var core = (CoreClient)RuntimeHelpers.GetUninitializedObject(typeof(CoreClient));
         typeof(CoreClient).GetProperty(nameof(CoreClient.LocalBaseUrl))!.SetValue(core, server.Address);
         typeof(CoreClient).GetProperty(nameof(CoreClient.LocalToken))!.SetValue(core, "fixture");
+        ArtworkFallback(core, server);
         var preview = Images.LoadCachedHeroAsync(core, "http://media.test", "film", 360);
         Wait(() => preview.IsCompleted);
         Check(preview.Result is not null, "未找到已有缩略图缓存");
@@ -86,6 +87,63 @@ static class ImageChecks
         Console.WriteLine("轮播图片:缓存探测不回源、旧缓存预览、原图无缩放参数、按显示尺寸解码、鉴权与真实Hero预览升级通过");
     }
 
+    private static void ArtworkFallback(CoreClient core, ImageServer server)
+    {
+        var urls = Images.ArtworkUrls("http://media.test", "episode", "Episode", "season", "series").ToArray();
+        Check(urls.Select(u => new Uri(u).AbsolutePath).SequenceEqual(new[] {
+            "/Items/episode/Images/Primary", "/Items/episode/Images/Backdrop/0",
+            "/Items/season/Images/Primary", "/Items/series/Images/Backdrop/0", "/Items/series/Images/Primary",
+        }), "分集图片回退顺序错误");
+        Check(Images.ArtworkUrls("http://media.test", "series", "Series", "", "other").Count() == 1,
+            "整剧不应继承其它条目的海报");
+        Check(Images.ArtworkUrls("http://media.test", "season", "Season", "", "series").Count() == 2,
+            "季海报未回退整剧");
+        server.Release.TrySetResult();
+        server.Missing = source => !source.Contains("/season/Images/Primary");
+        var item = CardItem.From(JsonSerializer.SerializeToElement(new {
+            id = "episode", name = "单集", type_ = "Episode", has_primary = false,
+            season_id = "season", series_id = "series",
+        }));
+        Check(CardItem.From(CardItem.ToJson(item)).SeasonId == "season" && !item.HasPrimary,
+            "图片归属或季ID往返错误");
+        var card = new Card(core, "http://media.test", item, true);
+        var window = new Window { Width = 400, Height = 300, Content = card };
+        try
+        {
+            window.Show();
+            Wait(() => card.GetVisualDescendants().OfType<Image>().Any(i => i.Source is Bitmap));
+            Check(server.Requests.Select(r => r.Source).SequenceEqual(urls.Take(3)), "缺图后未按顺序停在季海报");
+            var cached = Images.LoadFirstAsync(core, [urls[2]], 288);
+            Check(cached.IsCompletedSuccessfully && cached.Result is not null, "已解码缓存命中不能延后到异步更新");
+        }
+        finally { window.Close(); Dispatcher.UIThread.RunJobs(); }
+        foreach (var drawer in new[] { false, true })
+        {
+            var rowItem = item with { Id = drawer ? "drawer-episode" : "row-episode" };
+            Control row = drawer
+                ? (Control)typeof(Card).Assembly.GetType("LinPlayer.Desktop.Views.EpisodeDrawer")!
+                    .GetMethod("Row", BindingFlags.NonPublic | BindingFlags.Static)!
+                    .Invoke(null, [core, "http://media.test", rowItem, false, (Action<CardItem>)(_ => { })])!
+                : new MediaRow(core, "http://media.test", rowItem, null, wide: true);
+            var rowWindow = new Window { Width = 500, Height = 300, Content = row };
+            try
+            {
+                rowWindow.Show();
+                Wait(() => row.GetVisualDescendants().OfType<Image>().Any(i => i.Source is Bitmap));
+            }
+            finally { rowWindow.Close(); Dispatcher.UIThread.RunJobs(); }
+        }
+        server.Requests.Clear();
+        server.Missing = _ => true;
+        var missing = Images.LoadFirstAsync(core, Images.ArtworkUrls("http://media.test", "empty", "Episode", "empty-season", "empty-series"), 330);
+        Wait(() => missing.IsCompleted);
+        Check(missing.Result is null && server.Requests.Count == 5, "全部缺图没有结束回退");
+        server.Requests.Clear();
+        server.Missing = null;
+        server.Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
+        Console.WriteLine("图片回退:本集、季、整剧顺序，成功即停，全部缺图和归属不变通过");
+    }
+
     private static void Check(bool ok, string message) { if (!ok) throw new Exception(message); }
     private static void Wait(Func<bool> done)
     {
@@ -105,6 +163,7 @@ static class ImageChecks
         public TaskCompletionSource Release = new(TaskCreationOptions.RunContinuationsAsynchronously);
         public string Address { get; }
         public bool Authenticated = true;
+        public Func<string, bool>? Missing;
         public ImageServer()
         {
             using var socket = new TcpListener(IPAddress.Loopback, 0);
@@ -133,7 +192,8 @@ static class ImageChecks
             var height = request.QueryString["h"];
             Requests.Enqueue((path, request.QueryString["src"]!, height));
             if (request.Headers["X-LP-Token"] != "fixture") Authenticated = false;
-            if (path == "/img-cache" && height != "800") context.Response.StatusCode = 404;
+            if (Missing?.Invoke(request.QueryString["src"]!) == true) context.Response.StatusCode = 404;
+            else if (path == "/img-cache" && height != "800") context.Response.StatusCode = 404;
             else
             {
                 if (path == "/img") await Release.Task;

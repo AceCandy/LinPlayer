@@ -191,7 +191,7 @@ internal sealed class EpisodeDrawer : Border
             Classes = { "cover" }, Width = CoverW, Height = CoverH, CornerRadius = new CornerRadius(6),
             ClipToBounds = true, Child = new Panel { Children = { skel, ph, img } },
         };
-        if (e.HasPrimary) Card.StartArt(core, server, e, img, (int)(CoverH * 2), skel, ph);
+        if (e.HasPrimary || e.Type == "Episode") Card.StartArt(core, server, e, img, (int)(CoverH * 2), skel, ph);
         else { skel.IsVisible = false; ph.IsVisible = true; }
 
         // 看到一半的集在封面底下压一条进度 —— 和卡片同一个口径

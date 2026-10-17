@@ -744,7 +744,9 @@ public sealed class DetailPage : PageBase
             ],
         };
         var pic = Bool(d, "has_backdrop") ? "Backdrop" : Bool(d, "has_primary") ? "Primary" : "";
-        if (pic != "") _ = FillBrush(brush, art, Images.EmbyImageUrl(_server, id, pic), 720);
+        if (Str(d, "type_") is "Episode" or "Season")
+            _ = FillBrush(brush, art, Images.ArtworkUrls(_server, id, Str(d, "type_"), Str(d, "season_id"), Str(d, "series_id")), 720);
+        else if (pic != "") _ = FillBrush(brush, art, [Images.EmbyImageUrl(_server, id, pic)], 720);
         band.Children.Add(art);
         band.Children.Add(new Border { Background = HeroScrim() });
         band.Children.Add(new Border { Background = HeroBleed() });
@@ -1603,9 +1605,9 @@ public sealed class DetailPage : PageBase
     /// 再往上标题就压不住图上的高光,读起来吃力。
     /// 背景是氛围不是内容 —— 它不许和正文抢注意力,但也得存在。</para>
     /// </summary>
-    private static async Task FillBrush(ImageBrush brush, Visual layer, string url, int maxH)
+    private static async Task FillBrush(ImageBrush brush, Visual layer, IEnumerable<string> urls, int maxH)
     {
-        var bmp = await Images.LoadAsync(Program.Core!, url, maxH);
+        var bmp = await Images.LoadFirstAsync(Program.Core!, urls, maxH);
         if (bmp is null) return;
         Dispatcher.UIThread.Post(() => { brush.Source = bmp; layer.Opacity = 0.42; });
     }

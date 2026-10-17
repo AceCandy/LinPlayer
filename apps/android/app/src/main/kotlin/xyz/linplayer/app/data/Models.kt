@@ -79,6 +79,7 @@ data class Item(
     val sortName: String? = null,
     /** 服务端明确返回的可见库归属；缺失时不推测媒体库。 */
     val libraryIds: List<String> = emptyList(),
+    val seasonId: String? = null,
 ) {
     val isSeries: Boolean get() = type == "Series"
     val isEpisode: Boolean get() = type == "Episode"
@@ -110,6 +111,7 @@ data class Item(
                 resumeSecs = o.dbl("resume_secs") ?: 0.0,
                 seriesName = o.str("series_name"),
                 seriesId = o.str("series_id"),
+                seasonId = o.str("season_id"),
                 episodeNo = o.long("episode_no"),
                 seasonNo = o.long("season_no"),
                 played = o.bool("played"),

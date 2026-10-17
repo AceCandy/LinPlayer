@@ -43,6 +43,34 @@ public static class Images
         return $"{server.TrimEnd('/')}/Items/{itemId}/Images/{seg}" + (original ? "" : "?quality=90");
     }
 
+    /// <summary>展示时沿集、季、整剧回退，不修改条目的海报归属。</summary>
+    public static IEnumerable<string> ArtworkUrls(string server, string id, string type,
+        string seasonId = "", string seriesId = "")
+    {
+        yield return EmbyImageUrl(server, id, "Primary");
+        if (type == "Episode")
+        {
+            yield return EmbyImageUrl(server, id, "Backdrop");
+            if (seasonId != "" && seasonId != id)
+                yield return EmbyImageUrl(server, seasonId, "Primary");
+            if (seriesId != "" && seriesId != id)
+                yield return EmbyImageUrl(server, seriesId, "Backdrop");
+        }
+        if (type is "Episode" or "Season" && seriesId != "" && seriesId != id)
+            yield return EmbyImageUrl(server, seriesId, "Primary");
+    }
+
+    /// <summary>前一张缺失或加载失败后才请求下一张；全部失败保留调用方文字占位。</summary>
+    public static async Task<Bitmap?> LoadFirstAsync(CoreClient core, IEnumerable<string> urls, int maxHeight)
+    {
+        foreach (var url in urls.Distinct())
+        {
+            var image = await LoadAsync(core, url, maxHeight).ConfigureAwait(false);
+            if (image is not null) return image;
+        }
+        return null;
+    }
+
     /// <summary>经由本地数据通道取一张图。取不到返回 null —— <b>调用方要能画出「没有图」那一版</b>。</summary>
     public static Task<Bitmap?> LoadAsync(CoreClient core, string upstreamUrl, int maxHeight,
         bool original = false, bool cacheOnly = false)

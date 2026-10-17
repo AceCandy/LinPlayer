@@ -23,7 +23,7 @@ public sealed record CardItem(
     // 跳详情页要的是 id。列表命令一直在发这个字段,只是从来没人接。
     string SeriesId = "",
     // 动态范围短名(DV / HDR10 / HLG…),SDR 为空。播放页选集栏那行小字用
-    string VideoRange = "")
+    string VideoRange = "", string SeasonId = "")
 {
     public static CardItem From(JsonElement e) => new(
         Str(e, "id"), Str(e, "name"), Str(e, "type_"), Str(e, "series_name"),
@@ -31,7 +31,7 @@ public sealed record CardItem(
         Dbl(e, "runtime_secs"), Dbl(e, "resume_secs"),
         (int)Num(e, "season_no"), (int)Num(e, "episode_no"),
         Num(e, "video_height"), Num(e, "bitrate"), Num(e, "size_bytes"),
-        Str(e, "series_id"), Str(e, "video_range"));
+        Str(e, "series_id"), Str(e, "video_range"), Str(e, "season_id"));
 
     /// <summary>
     /// 列表里显示的标题。
@@ -136,7 +136,7 @@ public sealed record CardItem(
             runtime_secs = c.RuntimeSecs, resume_secs = c.ResumeSecs,
             season_no = c.SeasonNo, episode_no = c.EpisodeNo,
             video_height = c.VideoHeight, bitrate = c.Bitrate, size_bytes = c.SizeBytes,
-            series_id = c.SeriesId, video_range = c.VideoRange,
+            series_id = c.SeriesId, video_range = c.VideoRange, season_id = c.SeasonId,
         }));
         return doc.RootElement.Clone();
     }
@@ -220,7 +220,7 @@ public sealed class Card : Button
         // 没有封面时才显示的占位文字(而不是一块空砖)
         var ph = new TextBlock
         {
-            Text = title ?? item.Name, FontSize = TitleType(w).Size - 0.5,
+            Text = item.Type == "Season" ? "暂无季封面" : title ?? item.Name, FontSize = TitleType(w).Size - 0.5,
             Margin = new Thickness(10),
             Foreground = PlaceholderInk,
             TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
@@ -296,7 +296,7 @@ public sealed class Card : Button
         Cursor = HandCursor;
         if (onOpen is not null) Click += (_, _) => onOpen(item);
 
-        if (item.HasPrimary) StartArt(core, server, item, img, (int)(h * 2), skel, ph);
+        if (item.HasPrimary || item.Type is "Episode" or "Season") StartArt(core, server, item, img, (int)(h * 2), skel, ph);
 
         // 右键动作:标记已看 / 收藏 / 屏蔽。**一处实现,所有卡片共用**(见 CardActions)
         CardActions.Attach(this, core, item, resumeRow: resumeRow);
@@ -313,12 +313,12 @@ public sealed class Card : Button
     internal static void StartArt(CoreClient core, string server, CardItem item, Image target,
         int maxH, Control skel, Control placeholder)
     {
-        var url = Images.EmbyImageUrl(server, item.Id, "Primary");
-        var t = Images.LoadAsync(core, url, maxH);
+        var t = Images.LoadFirstAsync(core, Images.ArtworkUrls(server, item.Id, item.Type, item.SeasonId, item.SeriesId), maxH);
         // 缓存命中时 LoadAsync 返回的是一个**已完成**的 Task(它自己就是同步查表的)
         if (t.IsCompletedSuccessfully && t.Result is { } cached)
         {
             skel.IsVisible = false;
+            placeholder.IsVisible = false;
             target.Source = cached;
             target.Opacity = 1;
             return;
@@ -340,6 +340,7 @@ public sealed class Card : Button
             if (bmp is null) { placeholder.IsVisible = true; return; }
             // 图到了再淡入(过渡挂在 Image.art 的样式上)。直接塞上去会「啪」地跳一下,
             // 一屏几十张同时跳就是闪屏。
+            placeholder.IsVisible = false;
             target.Source = bmp;
             target.Opacity = 1;
         });
@@ -451,7 +452,7 @@ public sealed class MediaRow : Button
         var img = new Image { Stretch = Stretch.UniformToFill, Opacity = 0, Classes = { "art" } };
         var ph = new TextBlock
         {
-            Text = "🎬", FontSize = 14, Foreground = Tok.Of("Ink3"),
+            Text = item.Type == "Season" ? "暂无季封面" : item.Type == "Episode" ? item.PickerLabel : "🎬", FontSize = 14, Foreground = Tok.Of("Ink3"),
             HorizontalAlignment = HorizontalAlignment.Center,
             VerticalAlignment = VerticalAlignment.Center,
             IsVisible = !item.HasPrimary,
@@ -524,7 +525,7 @@ public sealed class MediaRow : Button
         Cursor = new Avalonia.Input.Cursor(Avalonia.Input.StandardCursorType.Hand);
         if (onOpen is not null) Click += (_, _) => onOpen(item);
 
-        if (item.HasPrimary) Card.StartArt(core, server, item, img, (int)(ArtHeight * 2), skel, ph);
+        if (item.HasPrimary || item.Type is "Episode" or "Season") Card.StartArt(core, server, item, img, (int)(ArtHeight * 2), skel, ph);
         // 右键菜单和卡片走同一处实现 —— 换个版式就少一半功能是最不该有的差别
         CardActions.Attach(this, core, item);
     }

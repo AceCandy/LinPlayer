@@ -4,6 +4,7 @@ import xyz.linplayer.app.tv.LocalTvMode
 
 import xyz.linplayer.app.ui.theme.LpText
 
+import xyz.linplayer.app.data.artworkFallbacks
 import xyz.linplayer.app.ui.components.posterPreview
 import xyz.linplayer.app.ui.components.detailPreview
 import androidx.compose.animation.AnimatedContent
@@ -274,7 +275,7 @@ internal fun arOf(v: Version?): Float {
 /** 本次运行的纯展示留存；不落盘，不作为播放版本、目标或用户操作的依据。 */
 private data class DetailPresentation(
     val epoch: Long, val media: List<Version>?,
-    val seasons: List<Item>, val seasonImages: Set<String>, val season: Item?,
+    val seasons: List<Item>, val season: Item?,
     val episodes: List<Item>, val total: Long?, val episodeSummary: String,
     val audioLang: String?, val subLang: String?, val subRegex: String, val subsEnabled: Boolean,
     val serverId: String?, val lineLabel: String?, val lineCount: Int,
@@ -349,7 +350,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     /** ☠ 「未选」是 `null` 不是 `0` —— 传了 id 核心层就走「手动指定」分支,版本正则整个被跳过。 */
     var pickedVersion by remember { mutableStateOf<String?>(null) }
     var seasons by remember { mutableStateOf(presentation?.seasons.orEmpty()) }
-    var seasonImages by remember { mutableStateOf(presentation?.seasonImages.orEmpty()) }
     var seasonLoad by remember { mutableStateOf<Block<Unit>>(Block.Loading) }
     var seasonRetry by remember { mutableStateOf(0) }
     var seasonEpisodeStates by remember(route.itemId, seasonRetry, returnRevision) { mutableStateOf<Map<String, Item>>(emptyMap()) }
@@ -467,8 +467,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             if (result is Block.Ok) {
                 seasons = result.value.arr()
                     .mapNotNull { seasonItem(it) }
-                seasonImages = result.value.arr().filter { it.obj().boolOrNull("has_primary") != false }
-                    .mapNotNull { it.obj().str("id") }.toSet()
                 // 保留仍然存在的已选季；单集仍以本次真实所属季为准。
                 val s = seasons.firstOrNull { it.id == (wantSeason ?: curSeason?.id) } ?: seasons.firstOrNull()
                 curSeason = s
@@ -606,7 +604,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         if (initialReady && live != null && cacheAllowed && app.detailCache.generation == epoch &&
             (!isSeries || seasonLoad is Block.Ok) &&
             (isSeries || route.type == "BoxSet" || media is Block.Ok)) {
-            val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, shownSeasons, seasonImages, curSeason,
+            val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, shownSeasons, curSeason,
                 shownEpisodes.take(200), episodeTotal, episodeSummary, audioLang, subLang, subRegex, subsEnabled,
                 serverId, lineLabel, lineCount)
             presentation = snapshot
@@ -1029,7 +1027,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             }
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
-                            EpisodeStrip(app, shownEpisodes, actionScope = scope, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
+                            EpisodeStrip(app, shownEpisodes.map { ep -> ep.copy(
+                                seasonId = ep.seasonId ?: curSeason?.id, seriesId = ep.seriesId ?: seriesId) }, actionScope = scope, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
                                 expanded = isSeriesEntry,
                                 onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) })
                         } else Box(Modifier.fillMaxWidth().height(episodeStripHeight(isSeriesEntry)), contentAlignment = Alignment.Center) {
@@ -1073,8 +1072,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                             .clip(RoundedCornerShape(R.md))
                                             .then(if (season.id == curSeason?.id)
                                                 Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(R.md)) else Modifier)) {
-                                            NetImage(if (season.id in seasonImages) app.imageUrl(season.id, "Primary", 330) else null,
-                                                null, Modifier.fillMaxSize(), R.md)
+                                            NetImage(app.imageUrl(season.id, "Primary", 330),
+                                                null, Modifier.fillMaxSize(), R.md,
+                                                fallbackUrls = artworkFallbacks(app.imageUrl(season.id, "Primary", 330), season.copy(seriesId = seriesId)),
+                                                placeholder = { Text("暂无季封面", color = c.fg3) })
                                             EpisodeStatusBadge(season, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
                                         }
                                         Spacer(Modifier.height(Sp.x6))
@@ -1249,6 +1250,8 @@ private fun SeriesHead(
             ) {
                 NetImage(imageUrl, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
                     backgroundBlur = true, previewUrl = posterPreview(id),
+                    fallbackUrls = if (!useBackdrop && d.str("type_") == "Season")
+                        artworkFallbacks(app.imageUrl(id, "Primary", 720), Item(id, "", "Season", seriesId = d.str("series_id"))) else emptyList(),
                     onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
                 // 顶上压一层:给浮在图上的状态栏和返回键留可读性。**不是给它留黑底**
                 Box(
@@ -1319,8 +1322,10 @@ private fun EpisodeHead(
                     }
                     .dissolve(0.64f, 0.99f)
             ) {
-                NetImage(if (d.boolOrNull("has_primary") == false) posterPreview(id) else app.imageUrl(id, "Primary", 480),
-                    null, Modifier.fillMaxSize(), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id))
+                NetImage(app.imageUrl(id, "Primary", 480),
+                    null, Modifier.fillMaxSize(), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id),
+                    fallbackUrls = artworkFallbacks(app.imageUrl(id, "Primary", 480),
+                        Item(id, d.str("name") ?: "", "Episode", seriesId = d.str("series_id"), seasonId = d.str("season_id"))))
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -1708,7 +1713,9 @@ private fun EpCard(
                         else Modifier
                     )
             ) {
-                NetImage(app.imageUrl(ep.id, "Primary", 330), null, Modifier.fillMaxSize(), 12.dp)
+                NetImage(app.imageUrl(ep.id, "Primary", 330), null, Modifier.fillMaxSize(), 12.dp,
+                    fallbackUrls = artworkFallbacks(app.imageUrl(ep.id, "Primary", 330), ep),
+                    placeholder = { Text("暂无图片", color = c.fg3) })
                 if (ep.progress > 0f) Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp)
                         .background(c.line2)

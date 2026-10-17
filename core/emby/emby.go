@@ -71,6 +71,8 @@ type Item struct {
 	PresentationUniqueKey *string           `json:"presentation_unique_key"`
 	Path                  *string           `json:"path"`
 	SeriesID              *string           `json:"series_id"`
+	// 所属季仅用于展示回退，不改变本集图片归属。
+	SeasonID *string `json:"season_id,omitempty"`
 
 	// 「更新时间」排序用。DateLastMediaAdded 优先(剧集新集入库才动),没有就 DateCreated。
 	DateUpdated *string `json:"date_updated"`
@@ -132,6 +134,7 @@ type rawItem struct {
 	PresentationUniqueKey *string           `json:"PresentationUniqueKey"`
 	Path                  *string           `json:"Path"`
 	SeriesID              *string           `json:"SeriesId"`
+	SeasonID              *string           `json:"SeasonId"`
 	DateCreated           *string           `json:"DateCreated"`
 	DateLastMediaAdded    *string           `json:"DateLastMediaAdded"`
 	SortName              *string           `json:"SortName"`
@@ -344,6 +347,7 @@ func fromRaw(r rawItem) Item {
 		PresentationUniqueKey: nonEmpty(r.PresentationUniqueKey),
 		Path:                  nonEmpty(r.Path),
 		SeriesID:              nonEmpty(r.SeriesID),
+		SeasonID:              nonEmpty(r.SeasonID),
 		DateUpdated:           nonEmpty(dateUpdated),
 		SortName:              nonEmpty(r.SortName),
 		IsAdult:               r.IsAdult,
