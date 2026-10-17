@@ -57,3 +57,38 @@
 ### Next Steps
 
 - 真机验证长按及实服状态刷新；长按无响应尚未复现。
+
+
+## Session 73: 修正季完成判据并重新交付手机包
+<!-- trellis-session: v=2 fp=b09296ccbdc4d6bf -->
+
+**Date**: 2026-10-17
+**Task**: 修正季完成判据并重新交付手机包
+**Branch**: `main`
+
+### Summary
+
+非空季明确零未看即可显示完成并同步长按菜单，新增统计存在性，完成归档及手机包重打。
+
+### Main Changes
+
+- 保留服务端Played原值；展示按可信统计判定，未知统计与空季不误判。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `974c650f` | fix: 按明确零未看统计显示整季完成标识 |
+
+### Testing
+
+- [OK] 核心Emby整包无缓存测试及vet、Android相关10项回归、参数/响应字段和独立复核通过；完整check-core门禁未执行。
+- [OK] 2.0.0 arm64手机release包生成，v2/v3签名、ELF/ABI、压缩/提取配置及最终文件一致性通过；SHA256 62c86e3f1785691e8e7a667a5f9b889d1bb4b0c6b807147c925df234236fabb8。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 手机真机与实服验收；Yamby具体判据尚未确认，不将推测当实现依据。
