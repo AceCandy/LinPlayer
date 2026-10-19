@@ -349,3 +349,39 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 待确认安装包平台后构建并验签；实服缺图与真机显示尚未验收。
+
+
+## Session 84: 三端演职员调整与手机包交付
+<!-- trellis-session: v=2 fp=7ec8b3f3f3fab1b9 -->
+
+**Date**: 2026-10-20
+**Task**: 三端演职员调整与手机包交付
+**Branch**: `main`
+
+### Summary
+
+三端演职员统一放大圆头像、加粗姓名、角色职务副标题及演员优先排序；任务已归档，手机release包完成并验签。保留其它未提交改动，未真机验证。
+
+### Main Changes
+
+- 仅提交演职员相关差异，两个详情页的其它修改保留在工作树；归档提交830771b5。
+- 手机包build/android/app-arm64-v8a-release.apk，版本2.0.0，28.19 MiB；由当前工作树构建，包含其它未提交修改。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2d56fe62` | feat(detail): 统一演职员头像与角色职务展示 |
+
+### Testing
+
+- [OK] 27项Android回归、Go Emby测试与vet、20条差分对账、风格及隐私门禁通过；258处Android命令参数检查通过。
+- [OK] 手机形态、非调试Manifest、13个ARM64压缩原生库、最终APK一致性和v1/v2/v3签名通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机安装确认演职员布局和真实播放；桌面真实窗口尚未验收。
