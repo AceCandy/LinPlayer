@@ -17,6 +17,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.focusable
+import androidx.compose.foundation.gestures.animateScrollBy
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -61,6 +64,12 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import xyz.linplayer.app.tv.tvFocus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
@@ -1424,23 +1433,42 @@ private fun Overview(text: String) {
 }
 
 @Composable
-private fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
+internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
     val c = Lp.colors
-    SectionTitle("演员", accent = Lp.colors.mediaIcon)
-    Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-            .padding(horizontal = Sp.x16),
+    val tv = LocalTvMode.current
+    val avatar = if (tv) 88.dp else 72.dp
+    val state = rememberLazyListState()
+    val scope = rememberCoroutineScope()
+    val interaction = remember { MutableInteractionSource() }
+    val step = with(LocalDensity.current) { (avatar + 8.dp + Sp.x12).toPx() }
+    // TV 保留整组展示焦点，左右键浏览人员，不增加无效的人物点击。
+    val input = if (tv) Modifier.tvFocus(interaction).onPreviewKeyEvent { event ->
+        val direction = when (event.key) { Key.DirectionRight -> 1; Key.DirectionLeft -> -1; else -> 0 }
+        if (event.type == KeyEventType.KeyDown &&
+            ((direction > 0 && state.canScrollForward) || (direction < 0 && state.canScrollBackward))) {
+            scope.launch { state.animateScrollBy(step * direction) }
+            true
+        } else false
+    }.focusable(interactionSource = interaction) else Modifier
+    SectionTitle("演职人员", accent = Lp.colors.mediaIcon)
+    LazyRow(
+        Modifier.fillMaxWidth().testTag("detail.people.row").then(input),
+        state = state,
+        contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (tv) Sp.x4 else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(Sp.x12),
     ) {
-        people.take(20).forEach { p ->
-            Column(Modifier.width(54.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                NetImage(app.imageUrl(p.id, "Primary", 120), p.name, Modifier.size(54.dp), R.pill)
+        itemsIndexed(people) { _, p ->
+            Column(Modifier.width(avatar + 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 144), p.name, Modifier.size(avatar), R.pill)
                 Spacer(Modifier.height(5.dp))
-                Text(p.name, color = c.fg2, style = LpText.caption, maxLines = 2,
+                Text(p.name, color = c.fg, style = LpText.caption.copy(
+                    fontSize = if (tv) 16.sp else 14.sp, lineHeight = if (tv) 22.sp else 20.sp,
+                    fontWeight = FontWeight.Bold), maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                 p.role?.let { Text(it, Modifier.padding(top = Sp.x2), color = c.fg3,
-                    style = LpText.badge.copy(lineHeight = 16.sp, fontWeight = FontWeight.Normal), maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    style = LpText.badge.copy(fontSize = if (tv) 13.sp else 11.sp,
+                        lineHeight = if (tv) 18.sp else 16.sp, fontWeight = FontWeight.Normal), maxLines = 2, overflow = TextOverflow.Ellipsis,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }

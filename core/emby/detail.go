@@ -198,8 +198,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 		}
 	}
 
-	// 演职人员:**导演优先排前**(草稿轨道从左读),其余保持服务端顺序(已按重要性)。
-	// ★ 必须是**稳定**排序 —— 不稳定的话「其余保持服务端顺序」就不成立了。
+	// 演员在前、幕后在后，同组保持服务端顺序；role 统一提供角色或职务副标题。
 	people := []Person{}
 	if arr, ok := j["People"].([]any); ok {
 		for _, v := range arr {
@@ -212,7 +211,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 				continue // 空名字的条目服务端偶尔会给,画出来是一个没脸没名的圆圈
 			}
 			var role *string
-			if r := jstr(p, "Role"); r != "" {
+			if r := personSubtitle(jstr(p, "Type"), jstr(p, "Role")); r != "" {
 				role = &r
 			}
 			_, hasImg := p["PrimaryImageTag"].(string)
@@ -224,7 +223,7 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 	}
 	sort.SliceStable(people, func(i, k int) bool {
 		rank := func(p Person) int {
-			if p.Type == "Director" {
+			if p.Type == "Actor" || p.Type == "GuestStar" {
 				return 0
 			}
 			return 1
@@ -300,6 +299,32 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 		Children:       children,
 		People:         people,
 	}, nil
+}
+
+// personSubtitle 保留演员角色，幕后显示职务；未知职务不猜测翻译。
+func personSubtitle(typ, role string) string {
+	switch typ {
+	case "Actor", "GuestStar":
+		return strings.TrimSpace(role)
+	case "Director":
+		return "导演"
+	case "Writer":
+		return "编剧"
+	case "Producer":
+		return "制片人"
+	case "ExecutiveProducer":
+		return "执行制片人"
+	case "Composer":
+		return "作曲"
+	case "Cinematographer":
+		return "摄影"
+	case "Editor":
+		return "剪辑"
+	}
+	if role = strings.TrimSpace(role); role != "" {
+		return role
+	}
+	return typ
 }
 
 // Seasons 某剧的季列表。

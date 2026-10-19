@@ -570,11 +570,11 @@ public sealed class DetailPage : PageBase
         var people = Arr2(d, "people");
         if (people.Count > 0)
         {
-            // 头像 84 在窄窗口上一排只摆得下三个,换档要整条重建(虚拟化下只造屏上那几个)
+            // 换档时重建轨道，虚拟化只创建可见人员。
             var peopleHost = new ContentControl();
             _rescalePeople = () =>
             {
-                var av = Responsive.S(Bounds.Width, 84, 56);
+                var av = Responsive.S(Bounds.Width, 112, 80);
                 peopleHost.Content = Carousel.Rail(people, x => PersonCell(x, av), av, out _);
             };
             _rescalePeople();
@@ -653,13 +653,13 @@ public sealed class DetailPage : PageBase
         var av = new Border
         {
             Width = size, Height = size, CornerRadius = new CornerRadius(999), ClipToBounds = true,
-            Background = Tok.Of("PanelAlt"),
+            Background = Tok.Of("PanelAlt"), HorizontalAlignment = HorizontalAlignment.Center,
         };
         if (Bool(p, "has_primary"))
         {
             var im = new Image { Stretch = Stretch.UniformToFill, Opacity = 0, Classes = { "art" } };
             av.Child = im;
-            _ = Fill(im, Images.EmbyImageUrl(_server, Str(p, "id"), "Primary"), 168);
+            _ = Fill(im, Images.EmbyImageUrl(_server, Str(p, "id"), "Primary"), 224);
         }
         else
         {
@@ -695,12 +695,13 @@ public sealed class DetailPage : PageBase
                 av,
                 new TextBlock
                 {
-                    Text = pname, FontSize = 12, MaxLines = 2,
+                    Text = pname, FontSize = 15, FontWeight = FontWeight.Bold, MaxLines = 2,
                     TextWrapping = TextWrapping.Wrap, TextAlignment = TextAlignment.Center,
                 },
                 new TextBlock
                 {
-                    Text = Str(p, "role"), FontSize = 11, MaxLines = 1,
+                    Text = Str(p, "role"), FontSize = 12, MaxLines = 2,
+                    TextWrapping = TextWrapping.Wrap,
                     TextTrimming = TextTrimming.CharacterEllipsis,
                     TextAlignment = TextAlignment.Center,
                     Foreground = Tok.Of("Ink3"),
