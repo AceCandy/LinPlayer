@@ -1,3 +1,5 @@
+> 2026-10-20：用户已确认将本任务后续工作并入[跨端统一与 tvOS 对齐及验收](../../../10-18-unified-product-completion/resume.md)。本任务按“后续工作已转交”归档，未勾选验收仍未通过；以下保留历史证据，后续以合并任务的交接说明为准。
+
 # 分阶段实施与验证
 
 当前任务 in_progress；最小版技术基线已签名安装。用户最新要求改为对齐现行 Android TV，原生产品对齐已按用户授权进入实施，网页承接方式仍待答复。下文 1–5 保留技术基线证据，6 起为新的产品对齐计划。检查证据与边界见 [implementation-checks.md](research/implementation-checks.md)。

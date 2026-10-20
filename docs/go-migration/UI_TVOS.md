@@ -2,7 +2,7 @@
 
 这是开发中的 tvOS 页面设计正本。用户最新要求与现行 Android TV 的共享手机页面/功能对齐，替代早期最小客户端的产品裁剪。当前电视已更新安装原生对齐阶段版；原生导航、浏览、服务器/线路、设置/私密与播放对齐已部分实现，完整范围尚未验收，网页承接方式待用户决定。Android TV 的现行设计正本不因本文改变。
 
-基准为 `TvRoot → PhoneRoot(tv=true) → ui/pages`，不是旧独立 TV 浏览页。逐页来源、差异与平台证据见 [对齐矩阵](../../.trellis/tasks/10-18-tvos-minimal-client/research/product-alignment.md)。
+基准为 `TvRoot → PhoneRoot(tv=true) → ui/pages`，不是旧独立 TV 浏览页。逐页来源、差异与平台证据见 [对齐矩阵](../../.trellis/tasks/archive/2026-10/10-18-tvos-minimal-client/research/product-alignment.md)。
 
 ## 页面路径
 

@@ -1,8 +1,8 @@
 {
   "id": "unified-product-completion",
   "name": "unified-product-completion",
-  "title": "跨端业务规则统一与 tvOS 缺项补齐",
-  "description": "补齐调研确认的首页、详情、设置及跨端队列、候选、隐私和选轨业务规则，保留平台适配与真机验收边界",
+  "title": "跨端统一与 tvOS 对齐及验收",
+  "description": "统一承接跨端核心和tvOS客户端的剩余实现、平台方案及真机验收，保留探针与产品对齐证据。",
   "status": "in_progress",
   "dev_type": null,
   "scope": null,
@@ -21,6 +21,11 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
-  "meta": {}
+  "notes": "唯一后续任务，先读resume.md。前置探针和客户端对齐任务已按转交归档，未验收项目仍开放。用户稍后继续，当前不推进实现或真机测试。",
+  "meta": {
+    "merged_from": [
+      "10-17-appletv-playback-spike",
+      "10-18-tvos-minimal-client"
+    ]
+  }
 }

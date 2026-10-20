@@ -4,4 +4,5 @@
 {"file": ".trellis/spec/frontend/type-safety.md", "reason": "会话合并、真实JSON与选轨身份"}
 {"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "取消、切季、缓存及旧响应隔离"}
 {"file": ".trellis/spec/backend/index.md", "reason": "核心与FFI职责"}
-{"file": ".trellis/tasks/10-18-tvos-minimal-client/research/contracts.md", "reason": "固定版本引擎接口、核心参数和平台未知项"}
+{"file": ".trellis/tasks/archive/2026-10/10-18-tvos-minimal-client/research/contracts.md", "reason": "固定版本引擎接口、核心参数和平台未知项"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "真实焦点和播放验收不能用静态检查替代"}

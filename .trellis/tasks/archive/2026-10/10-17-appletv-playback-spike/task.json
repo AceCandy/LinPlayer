@@ -3,7 +3,7 @@
   "name": "appletv-playback-spike",
   "title": "Apple TV 最小播放可行性验证",
   "description": "验证 tvOS 上 Go 核心接入与 Emby 最小播放闭环，先确认构建和真机条件",
-  "status": "in_progress",
+  "status": "completed",
   "dev_type": null,
   "scope": null,
   "package": null,
@@ -11,7 +11,7 @@
   "creator": "AceCandy",
   "assignee": "AceCandy",
   "createdAt": "2026-10-17",
-  "completedAt": null,
+  "completedAt": "2026-10-20",
   "branch": "main",
   "base_branch": "main",
   "worktree_path": null,
@@ -21,6 +21,9 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "",
-  "meta": {}
+  "notes": "用户于2026-10-20确认合并任务，后续实现、真机验收和已知限制转交10-18-unified-product-completion；本任务按转交归档，归档不表示未勾选验收通过。",
+  "meta": {
+    "resolution": "transferred",
+    "transferred_to": "10-18-unified-product-completion"
+  }
 }

@@ -1,3 +1,5 @@
+> 2026-10-20：用户已确认将本任务后续工作并入[跨端统一与 tvOS 对齐及验收](../../../10-18-unified-product-completion/resume.md)。本任务按“后续工作已转交”归档，未勾选验收仍未通过；以下保留历史证据，后续以合并任务的交接说明为准。
+
 # tvOS 续作入口
 
 ## 当前停点（2026-10-18）
@@ -51,4 +53,4 @@ SSH 使用已有别名 `29`，代理 socket 为 `$HOME/.ssh/linplayer-agent.sock
 6. 尚缺片头片尾消费、弹幕、插件宿主、第三方账号、备份/文件/网页承接等；网页方案仍未定，不默认为删除。
 7. 工作树有大量其它端/核心既有改动；仅处理本任务，不提交、不清理别人的文件。不为接续任务重做配对、账号登录或依赖下载。
 
-详细证据：implement.md、research/settings-current-inventory.md、research/product-alignment.md；通用构建规则：../../spec/shared/build-release.md。
+详细证据：implement.md、research/settings-current-inventory.md、research/product-alignment.md；通用构建规则：../../../../spec/shared/build-release.md。
