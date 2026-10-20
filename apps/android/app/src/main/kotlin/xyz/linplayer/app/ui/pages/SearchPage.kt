@@ -15,9 +15,6 @@ import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -70,7 +67,6 @@ import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.MediaFilterChip
-import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.BlockBox
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -118,16 +114,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val savedHistory by xyz.linplayer.app.data.UiPrefs.searchHistory
     val history = if (app.privateSpace.value) emptyList() else savedHistory
-    var pickedPerson by remember(state) { mutableStateOf<Item?>(null) }
-    var personItems by remember(state) { mutableStateOf<Block<List<Item>>>(Block.Loading) }
-    var personRetry by remember(state) { mutableStateOf(0) }
-    LaunchedEffect(pickedPerson?.id, personRetry) {
-        val person = pickedPerson ?: return@LaunchedEffect
-        personItems = Block.Loading
-        val response = app.displayBlock("emby.personItems", args("person_id" to person.id, "limit" to 60)) { personItems = Block.Ok(Item.list(it)) }.map { Item.list(it) }
-        currentCoroutineContext().ensureActive()
-        personItems = response
-    }
     val aggRows = state.aggRows
     var aggRun by state.aggRun
     var aggQuery by state.aggQuery
@@ -175,7 +161,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         app.invalidate.collect {
             if (it == "library" || it == "all") {
                 if (aggregate && route.viewId == null) searchAggregate() else refresh++
-                if (pickedPerson != null) personRetry++
             }
         }
     }
@@ -350,7 +335,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                                 // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
                                                 val t = q.trim()
                                                 if (!app.privateSpace.value) xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, t)
-                                                if (picked.type == "Person") { personItems = Block.Loading; pickedPerson = picked }
+                                                if (picked.type == "Person") nav.navigate(Route.Person(picked.id, picked.name))
                                                 else nav.navigate(Route.Detail(picked.id, picked.type))
                                             }, Modifier.weight(1f), menu = if (picked.type == "Person") null else rememberCardActions(app, scope, picked))
                                         }
@@ -364,23 +349,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 }
                             }
                         }
-                    }
-                }
-            }
-        }
-    }
-    pickedPerson?.let { person ->
-        LpDialog({ pickedPerson = null }, person.name) {
-            BlockBox(personItems, onRetry = { personRetry++ }) { films ->
-                if (films.isEmpty()) EmptyState("没有相关作品", "这个服务器没有返回该人物的作品。")
-                else LazyVerticalGrid(GridCells.Fixed(3), Modifier.height(360.dp),
-                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                    verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
-                    items(films, key = { it.id }) { film ->
-                        MediaCard(film, app.imageUrl(film.id, "Primary", 330), {
-                            pickedPerson = null
-                            nav.navigate(Route.Detail(film.id, film.type))
-                        }, Modifier.fillMaxWidth(), menu = rememberCardActions(app, scope, film))
                     }
                 }
             }

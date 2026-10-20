@@ -40,6 +40,7 @@ enum LinPlayerCommandNames {
         "emby.logout",
         "emby.personDetail",
         "emby.personItems",
+        "emby.personItemsPage",
         "emby.permissions",
         "emby.refreshItem",
         "emby.relogin",
@@ -428,6 +429,9 @@ extension LinPlayerCommands {
     }
     func embyPersonItems(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.personItems", args)
+    }
+    func embyPersonItemsPage(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("emby.personItemsPage", args)
     }
     func embyPermissions(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.permissions", args)

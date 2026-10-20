@@ -59,6 +59,7 @@ object LinPlayerCommandNames {
         "emby.logout",
         "emby.personDetail",
         "emby.personItems",
+        "emby.personItemsPage",
         "emby.permissions",
         "emby.refreshItem",
         "emby.relogin",
@@ -356,7 +357,7 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (51 条) ----
+// ---- Emby 浏览与详情 · emby.* (52 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
@@ -417,6 +418,8 @@ suspend fun LinPlayerCommands.embyPersonDetail(args: Map<String, Any?>? = null):
     call("emby.personDetail", args)
 suspend fun LinPlayerCommands.embyPersonItems(args: Map<String, Any?>? = null): JsonElement =
     call("emby.personItems", args)
+suspend fun LinPlayerCommands.embyPersonItemsPage(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.personItemsPage", args)
 suspend fun LinPlayerCommands.embyPermissions(args: Map<String, Any?>? = null): JsonElement =
     call("emby.permissions", args)
 suspend fun LinPlayerCommands.embyRefreshItem(args: Map<String, Any?>? = null): JsonElement =

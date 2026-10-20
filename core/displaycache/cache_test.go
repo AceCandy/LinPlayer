@@ -12,6 +12,30 @@ import (
 	"linplayer/core/paths"
 )
 
+func TestPersonPageSnapshotRetainsCursorAndSeparatesCategory(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	a := map[string]any{"server": "source", "user_id": "one", "person_id": "p", "type": "Movie", "start_index": 30}
+	value := map[string]any{"items": []any{map[string]any{"id": "film", "name": "作品"}}, "total": 65, "next_index": 60, "has_more": true}
+	if _, err := Run(context.Background(), 0, "emby.personItemsPage", a, func() (any, error) { return value, nil }); err != nil {
+		t.Fatal(err)
+	}
+	snapshot := Snapshot("emby.personItemsPage", a)
+	b, _ := json.Marshal(snapshot)
+	var stored map[string]any
+	if err := json.Unmarshal(b, &stored); err != nil || stored["next_index"] != float64(60) || stored["has_more"] != true || stored["total"] != float64(65) {
+		t.Fatalf("page snapshot lost cursor: %s", b)
+	}
+	a["type"] = "Series"
+	if Snapshot("emby.personItemsPage", a) != nil {
+		t.Fatal("category snapshot leaked")
+	}
+	a["type"] = "Movie"
+	a["start_index"] = 0
+	if Snapshot("emby.personItemsPage", a) != nil {
+		t.Fatal("page snapshot leaked")
+	}
+}
+
 func TestSnapshotPartialAndRealtimeResult(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	bus.Init()

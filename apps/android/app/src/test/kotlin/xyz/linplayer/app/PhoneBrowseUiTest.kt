@@ -91,6 +91,7 @@ class PhoneBrowseUiTest {
                             FavoritesPage(nav, route.type, route.libraryId, route.title)
                         }
                         composable<Route.Detail> { Text("详情目标：" + it.toRoute<Route.Detail>().itemId) }
+                        composable<Route.Person> { xyz.linplayer.app.ui.pages.PersonPage(nav, it) }
                         composable<Route.Search> { SearchPage(nav, it) }
                     }
                 }
@@ -578,14 +579,18 @@ class PhoneBrowseUiTest {
     @Test fun personResultOpensRelatedWorksRatherThanPlaybackDetail() {
         val core = FakeCore().loggedIn()
         core.ret("emby.search", page(item("person-a", "演员甲", "Person")))
-        core.ret("emby.personItems", page(item("person-film", "演员的作品")))
+        core.ret("emby.personDetail", buildJsonObject { put("id", "person-a"); put("name", "演员甲") })
+        core.ret("emby.personItemsPage", buildJsonObject {
+            put("items", arr(item("person-film", "演员的作品")))
+            put("total", 1); put("next_index", 1); put("has_more", false)
+        })
         open(core, Route.Search(q = "演员甲"))
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         rule.onNodeWithText("人物").performClick()
         rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
         rule.onNode(hasText("演员甲") and hasAnyAncestor(hasTestTag("search.results"))).performClick()
-        rule.waitUntil(5000) { core.calls.any { it.first == "emby.personItems" } }
-        assertEquals("person-a", core.calls.last { it.first == "emby.personItems" }.second.str("person_id"))
+        rule.waitUntil(5000) { core.calls.any { it.first == "emby.personItemsPage" } }
+        assertEquals("person-a", core.calls.last { it.first == "emby.personItemsPage" }.second.str("person_id"))
         rule.onNodeWithText("详情目标：person-a").assertDoesNotExist()
         rule.onNodeWithText("演员的作品").assertIsDisplayed().performClick()
         rule.onNodeWithText("详情目标：person-film").assertIsDisplayed()

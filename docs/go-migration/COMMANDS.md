@@ -88,6 +88,7 @@
 | [x] | `emby.logout` | **新增** | `server, token, user_id, device_id` | `{ server_ok: bool }` | — | <!-- 服务端登出。尽力而为:某 fork 该端点 404 且 token 仍可用,失败不挡本地删账号 -->
 | [x] | `emby.personDetail` | `person_detail` | `person_id: String` | `Result<emby::PersonDetail, String>` | ✅ |
 | [x] | `emby.personItems` | `person_items` | `person_id: String, limit: Option<u32>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.personItemsPage` | — | `person_id: String, type: String, start_index: Option<u32>, limit: Option<u32>, is_adult: Option<bool>` | `Result<emby::PersonWorksPage, String>` | ✅ |
 | [x] | `emby.permissions` | **新增** | `—` | `{is_admin, can_download, capabilities?}` | ✅ | <!-- 一次请求同时回答「是不是管理员」和「能不能下载」;缺字段一律判否 -->
 | [x] | `emby.refreshItem` | `refresh_item` | `item_id: String, full: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.relogin` | `relogin` | `server_id: String, username: String, password: String` | `Result<(), String>` | ✅ |

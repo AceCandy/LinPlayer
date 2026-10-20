@@ -305,7 +305,20 @@ func (c *Client) Detail(ctx context.Context, s *Session, itemID string, withChil
 func personSubtitle(typ, role string) string {
 	switch typ {
 	case "Actor", "GuestStar":
-		return strings.TrimSpace(role)
+		role = strings.TrimSpace(role)
+		if strings.EqualFold(role, "voice") {
+			return "配音"
+		}
+		for _, marker := range []string{"(voice)", "（voice）"} {
+			if strings.HasSuffix(strings.ToLower(role), marker) {
+				name := strings.TrimSpace(role[:len(role)-len(marker)])
+				if name == "" {
+					return "配音"
+				}
+				return name + "（配音）"
+			}
+		}
+		return role
 	case "Director":
 		return "导演"
 	case "Writer":

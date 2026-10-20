@@ -5,6 +5,9 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.ui.platform.LocalInputModeManager
+import androidx.compose.ui.input.InputMode
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
@@ -44,6 +47,7 @@ import xyz.linplayer.app.ui.theme.LpTheme
 class CastPresentationTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
+    private var opened: String? = null
     @After fun clean() { scope.cancel() }
 
     private fun mount(tv: Boolean = false, dark: Boolean = true) {
@@ -55,7 +59,9 @@ class CastPresentationTest {
         rule.setContent {
             LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(LocalTvMode provides tv) {
-                    Column(Modifier.fillMaxSize().background(Lp.colors.bg)) { People(app, people) }
+                    val input = LocalInputModeManager.current
+                    LaunchedEffect(tv) { if (tv) input.requestInputMode(InputMode.Keyboard) }
+                    Column(Modifier.fillMaxSize().background(Lp.colors.bg)) { People(app, people) { opened = it.id } }
                 }
             }
         }
@@ -64,15 +70,15 @@ class CastPresentationTest {
 
     private fun style(text: String): androidx.compose.ui.text.TextStyle {
         val layouts = mutableListOf<TextLayoutResult>()
-        rule.onNodeWithText(text).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        rule.onNodeWithText(text, useUnmergedTree = true).performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
         return layouts.single().layoutInput.style
     }
 
     private fun checkLayout(tv: Boolean) {
-        rule.onNodeWithContentDescription("演员0").assertWidthIsEqualTo(if (tv) 88.dp else 72.dp)
-        val avatar = rule.onNodeWithContentDescription("演员0").fetchSemanticsNode().boundsInRoot
-        val name = rule.onNodeWithText("演员0").fetchSemanticsNode().boundsInRoot
-        val role = rule.onNodeWithText("角色0").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithContentDescription("演员0", useUnmergedTree = true).assertWidthIsEqualTo(if (tv) 88.dp else 80.dp)
+        val avatar = rule.onNodeWithContentDescription("演员0", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val name = rule.onNodeWithText("演员0", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val role = rule.onNodeWithText("角色0", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue(avatar.bottom <= name.top && name.bottom < role.top)
         assertEquals(FontWeight.Bold, style("演员0").fontWeight)
         assertTrue(style("演员0").fontSize.value > style("角色0").fontSize.value)
@@ -88,6 +94,8 @@ class CastPresentationTest {
         rule.onNodeWithTag("detail.people.row").performScrollToIndex(22)
         rule.onNodeWithText("编剧乙").assertIsDisplayed()
         rule.onNodeWithText("编剧").assertIsDisplayed()
+        rule.onNodeWithTag("detail.person.writer").performClick()
+        assertEquals("writer", opened)
     }
 
     @Test
@@ -95,15 +103,19 @@ class CastPresentationTest {
     fun tvRemoteReachesCrewAtEnd() {
         mount(tv = true)
         checkLayout(tv = true)
-        rule.onNodeWithTag("detail.people.row").performSemanticsAction(SemanticsActions.RequestFocus)
-        repeat(24) {
+        rule.onNodeWithTag("detail.person.a0").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNodeWithTag("detail.person.a0").assertIsFocused()
+        repeat(22) {
             rule.onNodeWithTag("detail.people.row").performKeyInput { pressKey(Key.DirectionRight) }
             rule.waitForIdle()
         }
         rule.onNodeWithText("编剧乙").assertIsDisplayed()
         rule.onNodeWithText("编剧").assertIsDisplayed()
+        rule.onNodeWithTag("detail.person.writer").assertIsFocused()
+        rule.onNodeWithTag("detail.person.writer").performKeyInput { pressKey(Key.DirectionCenter) }
+        assertEquals("writer", opened)
         rule.onRoot().captureRoboImage("build/cast/tv-crew.png")
-        repeat(24) {
+        repeat(22) {
             rule.onNodeWithTag("detail.people.row").performKeyInput { pressKey(Key.DirectionLeft) }
             rule.waitForIdle()
         }

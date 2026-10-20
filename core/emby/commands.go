@@ -241,6 +241,10 @@ func RegisterCommands(version string) {
 	list("emby.personItems", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.PersonItems(ctx, s, str(a, "person_id"), intArg(a, "limit", 60))
 	})
+	list("emby.personItemsPage", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		return defaultClient.PersonItemsPage(ctx, s, str(a, "person_id"), str(a, "type"),
+			intArg(a, "start_index", 0), intArg(a, "limit", 30))
+	})
 
 	// ---- 收藏 / 已看 ----
 	// ★ 返回体带上刚设成什么:前端拿它对账自己的乐观更新,而不是各自记一份状态

@@ -69,6 +69,7 @@ public static class LinPlayerCommandNames
         "emby.logout",
         "emby.personDetail",
         "emby.personItems",
+        "emby.personItemsPage",
         "emby.permissions",
         "emby.refreshItem",
         "emby.relogin",
@@ -368,7 +369,7 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (51 条) ----
+    // ---- Emby 浏览与详情 · emby.* (52 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -429,6 +430,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("emby.personDetail", args, ct);
     public static Task<JsonElement> EmbyPersonItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.personItems", args, ct);
+    public static Task<JsonElement> EmbyPersonItemsPage(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.personItemsPage", args, ct);
     public static Task<JsonElement> EmbyPermissions(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.permissions", args, ct);
     public static Task<JsonElement> EmbyRefreshItem(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

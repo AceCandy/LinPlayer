@@ -1,5 +1,14 @@
 # 命令与 JSON 边界
 
+## 人物作品分页
+
+- `emby.personItemsPage(person_id, type, start_index=0, limit=30, is_adult?)` 只接受 Movie/Series；保留旧 `emby.personItems` 数组契约。
+- 结果 `{items,total,next_index,has_more}`：total未知为null；next_index按服务器原始页条数推进后才过滤屏蔽名单。不能用可见items数量作游标、以短页或全部被屏蔽判断结束。total是服务端分类总数，不扣客户端屏蔽项目。
+- 请求 `PersonIds` 使用人物内部ID；`Recursive=true`、`IncludeItemTypes`、`PremiereDate Descending` 与 `EnableTotalRecordCount=true` 保持一致。MSG源码基准6002c53b确认排序进入SQL；缺少计数开关时即使返回总数字段也不代表真实总数。
+- displaycache按人物/分类/页隔离，只预览partial，实时结果替换同范围，成功才推进游标；重复页报错不继续跳页。离页/切分类/账号空间取消并拒绝旧响应。
+- 作品详情返回保留分类与滚动。用户状态变化重验原已加载范围，全部成功后替换；失败保留旧列表并重试原范围。
+- 回归：Go `TestPersonItemsPage*` / `TestPersonPageSnapshot*`、Android `PersonPageTest` / `CastPresentationTest` / `SharedTvBrowseTest`、桌面 `seekcheck --person-only`。本地HTTP/FFI和渲染不替代MSG实服及真机验收。
+
 ## 调用契约
 
 Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合并 server / token / user_id / device_id；不直接绕到 app.core.callJson。调用方明确参数按现有合并规则覆盖默认值。

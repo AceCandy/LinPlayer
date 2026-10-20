@@ -39,7 +39,7 @@ func init() {
 	commands["source.aggregateSearch"] = true
 	for _, name := range []string{"extRankings", "extRankingItems", "extCalendar", "views", "listLatest", "listResume", "listNextUp", "listFavorites", "listCollections",
 		"collectionItems", "listItemsPage", "itemDetail", "seriesSeasons", "seasonEpisodes", "listItems", "listRandom",
-		"getFilters", "search", "similarItems", "personDetail", "personItems", "counts", "aggregateOverview", "aggregateSearch"} {
+		"getFilters", "search", "similarItems", "personDetail", "personItems", "personItemsPage", "counts", "aggregateOverview", "aggregateSearch"} {
 		commands["emby."+name] = true
 	}
 }

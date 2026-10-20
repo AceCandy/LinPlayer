@@ -17,9 +17,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
-import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.animateScrollBy
-import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.statusBars
@@ -69,7 +66,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
-import xyz.linplayer.app.tv.tvFocus
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
@@ -1124,7 +1120,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
                 item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(people, Modifier.testTag("detail.people"), immediate = live == null && cached != null) { current ->
-                        if (current.isNotEmpty()) People(app, current)
+                        if (current.isNotEmpty()) People(app, current) { nav.navigate(Route.Person(it.id, it.name)) }
                     }
                 } }
 
@@ -1428,33 +1424,22 @@ private fun Overview(text: String) {
 }
 
 @Composable
-internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>) {
+internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, onOpen: (Person) -> Unit) {
     val c = Lp.colors
     val tv = LocalTvMode.current
-    val avatar = if (tv) 88.dp else 72.dp
+    val avatar = if (tv) 88.dp else 80.dp
     val state = rememberLazyListState()
-    val scope = rememberCoroutineScope()
-    val interaction = remember { MutableInteractionSource() }
-    val step = with(LocalDensity.current) { (avatar + 8.dp + Sp.x12).toPx() }
-    // TV 保留整组展示焦点，左右键浏览人员，不增加无效的人物点击。
-    val input = if (tv) Modifier.tvFocus(interaction).onPreviewKeyEvent { event ->
-        val direction = when (event.key) { Key.DirectionRight -> 1; Key.DirectionLeft -> -1; else -> 0 }
-        if (event.type == KeyEventType.KeyDown &&
-            ((direction > 0 && state.canScrollForward) || (direction < 0 && state.canScrollBackward))) {
-            scope.launch { state.animateScrollBy(step * direction) }
-            true
-        } else false
-    }.focusable(interactionSource = interaction) else Modifier
     SectionTitle("演职人员", accent = Lp.colors.mediaIcon)
     LazyRow(
-        Modifier.fillMaxWidth().testTag("detail.people.row").then(input),
+        Modifier.fillMaxWidth().testTag("detail.people.row"),
         state = state,
         contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (tv) Sp.x4 else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(Sp.x12),
     ) {
         itemsIndexed(people) { _, p ->
-            Column(Modifier.width(avatar + 8.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 144), p.name, Modifier.size(avatar), R.pill)
+            Column(Modifier.width(avatar + 8.dp).testTag("detail.person.${p.id}")
+                .pressable({ onOpen(p) }, enabled = p.id.isNotBlank()), horizontalAlignment = Alignment.CenterHorizontally) {
+                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160), p.name, Modifier.size(avatar), R.pill)
                 Spacer(Modifier.height(5.dp))
                 Text(p.name, color = c.fg, style = LpText.caption.copy(
                     fontSize = if (tv) 16.sp else 14.sp, lineHeight = if (tv) 22.sp else 20.sp,

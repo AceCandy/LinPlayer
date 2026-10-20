@@ -172,6 +172,37 @@ class SharedTvBrowseTest {
         card.assertIsFocused()
     }
 
+    @Test fun castOpensPersonWorksAndReturnsToSameActor() {
+        mount { core ->
+            core.ret("emby.personDetail", buildJsonObject { put("id", "p0"); put("name", "提莫西·查拉梅") })
+            core.ret("emby.personItemsPage", buildJsonObject {
+                put("items", arr(item("person-film", "人物关联作品")))
+                put("total", 1); put("next_index", 1); put("has_more", false)
+            })
+        }
+        rule.onNodeWithContentDescription("谎言的代价").performClick()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasTestTag("detail.people"))
+        val actor = rule.onNodeWithTag("detail.person.p0")
+        actor.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        actor.assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("人物作品").assertIsDisplayed()
+        val work = rule.onNodeWithContentDescription("人物关联作品")
+        work.assertIsDisplayed().performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        work.assertIsFocused()
+        assertEquals("p0", core.calls.last { it.first == "emby.personItemsPage" }.second.str("person_id"))
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("detail.hero").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        work.assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        actor.assertIsFocused()
+    }
+
     @Test fun serverNameIsSingleManagementEntryAndPluginCannotOpenDownloads() {
         mount()
         rule.onAllNodesWithText("服务器 A").assertCountEquals(1)

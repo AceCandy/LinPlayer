@@ -216,3 +216,34 @@ func (c *Client) PersonItems(ctx context.Context, s *Session, personID string, l
 		s.Server, url.PathEscape(s.UserID), url.QueryEscape(personID), limit, cardFields)
 	return c.fetchItems(ctx, s, u)
 }
+
+// PersonWorksPage 的游标按过滤前条数推进，避免屏蔽作品导致重复或漏页。
+type PersonWorksPage struct {
+	Items     []Item `json:"items"`
+	Total     *int64 `json:"total"`
+	NextIndex int    `json:"next_index"`
+	HasMore   bool   `json:"has_more"`
+}
+
+func (c *Client) PersonItemsPage(ctx context.Context, s *Session, personID, typ string, start, limit int) (*PersonWorksPage, error) {
+	if strings.TrimSpace(personID) == "" || (typ != "Movie" && typ != "Series") || start < 0 || limit <= 0 {
+		return nil, &bus.Err{Code: bus.EInvalid, Msg: "人物、作品类型或分页参数无效"}
+	}
+	if limit > ServerPageCap {
+		limit = ServerPageCap
+	}
+	u := fmt.Sprintf("%s/Users/%s/Items?PersonIds=%s&Recursive=true&IncludeItemTypes=%s"+
+		"&EnableTotalRecordCount=true&SortBy=PremiereDate&SortOrder=Descending&StartIndex=%d&Limit=%d&Fields=%s",
+		s.Server, url.PathEscape(s.UserID), url.QueryEscape(personID), typ, start, limit, cardFields)
+	p, err := c.fetchPage(ctx, s, u)
+	if err != nil {
+		return nil, err
+	}
+	next := start + len(p.Items)
+	out := &PersonWorksPage{Items: filterBlocked(p.Items), NextIndex: next,
+		HasMore: len(p.Items) > 0 && (!p.totalKnown || int64(next) < p.Total)}
+	if p.totalKnown {
+		out.Total = &p.Total
+	}
+	return out, nil
+}

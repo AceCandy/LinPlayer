@@ -91,6 +91,7 @@ try {
     if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
     if (args.Contains("--user-state-only")) { UserStateCheck.Run(core); return; }
     if (args.Contains("--discovery-only")) { DiscoveryCheck.Run(core); return; }
+    if (args.Contains("--person-only")) { PersonCheck.Run(core); return; }
     if (args.Contains("--scroll-anchor-download-only")) { ScrollAnchorCheck.RunDownloads(core); return; }
     if (args.Contains("--privacy-only")) { PrivacyCheck.Run(core, root); return; }
     var page = new PlayerPage(core, "", "跳转回归", 0, isSource: true);
