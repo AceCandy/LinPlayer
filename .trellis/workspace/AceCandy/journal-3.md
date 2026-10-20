@@ -441,3 +441,33 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Status
 
 [OK] **Completed**
+
+
+## Session 87: 流影原生连播与能力缓存交付归档
+<!-- trellis-session: v=2 fp=befe1fe469db3945 -->
+
+**Date**: 2026-10-20
+**Task**: 流影原生连播与能力缓存交付归档
+**Branch**: `main`
+
+### Summary
+
+完成桌面及Android原生流影、仅入库随机连播、能力缓存和隐私首页过滤，修复隐私策略误拦扩展命令，按用户授权提交归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3277143d` | feat(liuying): 接入原生随机连播与服务器能力缓存 |
+
+### Testing
+
+- [OK] Android 11项定向回归、桌面HTTP/FFI检查、bus/emby测试及vet、定向race、327条绑定及264处参数检查通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机解码、实服长时间连播和大库性能尚未验证；未出安装包、推送或部署。
