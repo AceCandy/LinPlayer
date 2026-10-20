@@ -15,6 +15,7 @@ import (
 	"os"
 	"regexp"
 	"strings"
+	"time"
 
 	"linplayer/core/bus"
 )
@@ -131,6 +132,10 @@ func (c *Client) Login(ctx context.Context, server, username, password, deviceID
 		return nil, nil, bus.NewErr(bus.EUpstream, "登录响应缺少有效的令牌或用户身份")
 	}
 	s := &Session{Server: server, Token: auth.AccessToken, UserID: auth.User.ID, DeviceID: deviceID}
+	// 扩展失败不影响登录；只有登录与普通首页刷新允许更新能力。
+	capCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	_, _ = c.refreshExtensionCapabilities(capCtx, s)
+	cancel()
 	return s, &LoginResult{
 		Server:          server,
 		Token:           auth.AccessToken,

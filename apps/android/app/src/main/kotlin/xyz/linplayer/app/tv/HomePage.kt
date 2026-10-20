@@ -138,11 +138,11 @@ fun HomePage() {
         // 空栏目不在列表中；刷新时恢复占位，允许滚到后重新检查内容。
         latest = latest.filterValues { it.valueOrNull?.isEmpty() != true }
         if (collections.valueOrNull?.isEmpty() == true) collections = Block.Loading
-        if (hero !is Block.Ok || reload > 0) launch { hero = keep(hero, app.displayBlock("emby.listRandom", args("limit" to 5)) { if (hero !is Block.Ok) hero = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
+        if (hero !is Block.Ok || reload > 0) launch { hero = keep(hero, app.displayBlock("emby.listRandom", args("limit" to 5, "home" to true)) { if (hero !is Block.Ok) hero = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
         launch { resume = keep(resume, app.displayBlock("emby.listResume", args("limit" to 20)) { if (resume !is Block.Ok) resume = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
         launch { nextUp = keep(nextUp, app.displayBlock("emby.listNextUp", args("limit" to 20)) { if (nextUp !is Block.Ok) nextUp = Block.Ok(Item.list(it)) }.map { Item.list(it) }) }
         launch {
-            val v = app.displayBlock("emby.views") { if (views !is Block.Ok) views = Block.Ok(View.list(it)) }.map { View.list(it) }
+            val v = app.displayBlock("emby.views", args("home" to true)) { if (views !is Block.Ok) views = Block.Ok(View.list(it)) }.map { View.list(it) }
             views = keep(views, v)
         }
     }

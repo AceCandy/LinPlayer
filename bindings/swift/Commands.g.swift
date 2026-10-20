@@ -13,6 +13,8 @@ enum LinPlayerCommandNames {
         "emby.aggregateOverview",
         "emby.aggregateSearch",
         "emby.extCapabilities",
+        "emby.extLiuYingItems",
+        "emby.extLiuYingLabels",
         "emby.extRankings",
         "emby.extRankingItems",
         "emby.extCalendar",
@@ -348,6 +350,12 @@ extension LinPlayerCommands {
     }
     func embyExtCapabilities(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.extCapabilities", args)
+    }
+    func embyExtLiuYingItems(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("emby.extLiuYingItems", args)
+    }
+    func embyExtLiuYingLabels(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("emby.extLiuYingLabels", args)
     }
     func embyExtRankings(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.extRankings", args)

@@ -87,3 +87,21 @@ func TestScopedWritesEmitOnlyAfterSuccess(t *testing.T) {
 	default:
 	}
 }
+
+func TestPrivateLiuYingExtensionScope(t *testing.T) {
+	scope := map[string]any{"id": "liuying", "private": true, "filter": true, "server": "fixture", "user_id": "user", "token": "fixture"}
+	for _, command := range []string{"emby.extCapabilities", "emby.extLiuYingItems", "emby.extLiuYingLabels"} {
+		clean, _, err := scopeArguments(command, map[string]any{"request_scope": scope})
+		if err != nil || clean["is_adult"] != true || clean["server"] != "fixture" {
+			t.Fatalf("流影命令未限定本服放行 %s: %v %v", command, clean, err)
+		}
+		if _, _, err := scopeArguments(command, map[string]any{"request_scope": scope, "server": "other"}); err == nil {
+			t.Fatal("流影跨服请求未拒绝", command)
+		}
+	}
+	for _, command := range []string{"emby.extRankings", "emby.extCalendar", "emby.extResolve", "emby.extLiuYingUnknown"} {
+		if _, _, err := scopeArguments(command, map[string]any{"request_scope": scope}); err == nil {
+			t.Fatal("意外放行其他扩展", command)
+		}
+	}
+}

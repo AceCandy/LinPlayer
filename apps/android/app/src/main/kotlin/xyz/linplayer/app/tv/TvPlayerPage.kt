@@ -139,7 +139,7 @@ internal fun isOk(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == K
  *   出栈再入栈的话,旧页的停播和新页的起播在核心层 worker 上并发,停播可能落在起播后面。
  */
 @Composable
-fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines: ((String) -> Unit)? = null) {
+fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines: ((String) -> Unit)? = null, onCompleted: (() -> Unit)? = null) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
@@ -331,6 +331,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
     }
     LaunchedEffect(controller, finished, episodeResult, leaving) {
         if (!finished || leaving) return@LaunchedEffect
+        if (onCompleted != null) { onCompleted(); return@LaunchedEffect }
         val result = episodeResult ?: return@LaunchedEffect
         if (result.isFailure) {
             ui.failed = "无法加载下一集：${result.exceptionOrNull()?.message ?: "分集加载失败"}"

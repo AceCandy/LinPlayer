@@ -117,6 +117,7 @@ public static class Nav
     {
         if (Stack.Count == 0 || Stack.Peek().Make is not { } make) return;
         var page = make();
+        if (page is HomePage home) _ = home.RefreshCapabilitiesAsync();
         Stack.Pop();
         Stack.Push(new Entry(page, make));
         Host?.Invoke(page);

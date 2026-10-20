@@ -60,7 +60,9 @@
 |:--:|---|---|---|---|:--:|
 | [x] | `emby.aggregateOverview` | `aggregate_overview` | `counts_only?: bool, is_adult: Option<bool>` | `Result<Vec<SourceOverview>, String>` | ✅ |
 | [x] | `emby.aggregateSearch` | `aggregate_search` | `query: String, include_episodes: Option<bool>, is_adult: Option<bool>` | `Result<Vec<ServerGroup>, String>` | ✅ |
-| [x] | `emby.extCapabilities` | **新增** | `server, token, user_id, device_id` | `JSON` | ✅ |
+| [x] | `emby.extCapabilities` | **新增** | `server, token, user_id, device_id, refresh?` | `JSON` | ✅ |
+| [x] | `emby.extLiuYingItems` | **新增** | `server, token, user_id, device_id, feed, tab?, channel?, exposure?, seed, offset?, favorite?` | `JSON` | ✅ |
+| [x] | `emby.extLiuYingLabels` | **新增** | `server, token, user_id, device_id` | `JSON` | ✅ |
 | [x] | `emby.extRankings` | **新增** | `server, token, user_id, device_id, server_id?, include_disabled?: bool` | `JSON[]` | ✅ |
 | [x] | `emby.extRankingItems` | **新增** | `server, token, user_id, device_id, category_id: String, page: Option<int>` | `JSON[]` | ✅ |
 | [x] | `emby.extCalendar` | **新增** | `server, token, user_id, device_id` | `JSON[]` | ✅ |
@@ -470,3 +472,9 @@
 本地 `Record.is_adult` 可空，记录主键区分普通/成人/未分类；已分类续播和历史列表只采用同类记录，旧未分类数据保留但不混入已分类空间。清空、恢复扫描按同一范围处理；缺省仍为全部。准备槽还需匹配分类。
 
 手机隐私空间不调用上述本地watchHistory或聚合命令。`player.play/queuePrepared`在`is_adult=true`时仅采用当前服实时进度，不读写本地历史，不读写主进度服；`from_start/resume_exact`仍优先，播放开始/进度/停止仍上报当前服。普通false与缺省行为保留。
+
+### MSG 能力缓存与流影入库播放
+
+扩展能力仅登录获取一次、普通首页主动刷新时后台以 refresh=true 更新；其余调用只读按服务器/用户隔离的持久缓存，无TTL。刷新失败保留旧缓存，缓存不代替服务端权限校验。
+
+首页 emby.views / emby.listRandom 传 home=true，只在客户端剔除流影。heroCandidates 同样剔除流影作品；不改变服务器通用列表。流影扩展仅隐私空间调用，数据不含播放源地址，使用 item_id 走既有播放器解析。

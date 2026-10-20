@@ -1,47 +1,25 @@
 package xyz.linplayer.app
 
 import android.app.Application
-import android.view.View
-import android.view.ViewGroup
-import android.webkit.WebView
-import androidx.compose.foundation.layout.WindowInsets
-import androidx.compose.foundation.layout.navigationBars
-import androidx.compose.foundation.layout.statusBars
-import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.platform.LocalView
+import androidx.compose.runtime.*
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
+import kotlinx.serialization.json.*
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
-import org.robolectric.Shadows.shadowOf
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
-import xyz.linplayer.app.data.AppState
-import xyz.linplayer.app.data.LocalApp
-import xyz.linplayer.app.data.PageCache
-import xyz.linplayer.app.tv.FakeCore
-import xyz.linplayer.app.tv.arr
-import xyz.linplayer.app.tv.loggedIn
-import xyz.linplayer.app.ui.Route
-import xyz.linplayer.app.ui.components.LocalTabClearance
-import xyz.linplayer.app.ui.pages.AggregatePage
-import xyz.linplayer.app.ui.pages.LiuyingPage
+import xyz.linplayer.app.data.*
+import xyz.linplayer.app.tv.*
+import xyz.linplayer.app.ui.pages.LiuyingContent
 import xyz.linplayer.app.ui.theme.LpTheme
-import xyz.linplayer.app.ui.theme.Dim
 
-/** 流影真实入口、双网页留存、暂停和返回释放；不请求实际私有页面。 */
+/** 原生入口只消费入库候选；能力缺失与空库不能退回网页。 */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w393dp-h873dp-mdpi", sdk = [36], application = Application::class)
@@ -49,138 +27,114 @@ class PhoneLiuyingTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var app: AppState
-    private lateinit var root: View
-    private var contentTop = 0
-    private var navigationBottom = 0
-    private val urls = listOf("https://example.invalid/flow", "https://example.invalid/second")
+    private var showing by mutableStateOf(true)
 
-    @After fun clean() { PageCache.clear(); scope.cancel(); app.bg.cancel() }
+    @After fun clean() { PageCache.clear(); scope.cancel(); if (::app.isInitialized) app.bg.cancel() }
 
-    private fun open(pages: List<String> = urls) {
+    private fun open(enabled: Boolean = true, populated: Boolean = false): FakeCore {
         PageCache.clear()
-        val core = FakeCore().loggedIn().apply {
-            ret("emby.aggregateOverview", arr())
+        val core = FakeCore().loggedIn().player().apply {
             ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
+            ret("emby.extCapabilities", buildJsonObject { put("liuying", buildJsonObject { put("enabled", enabled) }) })
+            ret("emby.extLiuYingLabels", arr(
+                buildJsonObject { put("name", "tg-3398168133"); put("title", "抖奶"); put("kind", "channel") },
+                buildJsonObject { put("name", "side_breast_exposure"); put("title", "露左右"); put("kind", "exposure") },
+            ))
+            ret("emby.extLiuYingItems", buildJsonObject {
+                put("items", if (populated) arr(*listOf("ly-work-1", "ly-work-2").map { id ->
+                    buildJsonObject { put("item_id", id); put("title", id) }
+                }.toTypedArray()) else arr())
+                put("has_more", false)
+            })
+            on("emby.itemDetail") { a -> buildJsonObject { put("id", a.str("item_id")); put("type_", "Movie"); put("name", "入库视频") } }
+            ret("player.stopPlayback", JsonNull)
         }
         app = AppState(core, scope)
         runBlocking { app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace() }
-        rule.setContent {
-            root = LocalView.current.rootView
-            LpTheme {
-                contentTop = with(LocalDensity.current) { WindowInsets.statusBars.getTop(this) + Dim.topBar.roundToPx() }
-                navigationBottom = WindowInsets.navigationBars.getBottom(LocalDensity.current)
-                CompositionLocalProvider(LocalApp provides app, LocalTabClearance provides Dim.tabClearance) {
-                    val nav = rememberNavController()
-                    NavHost(nav, startDestination = Route.Aggregate) {
-                        composable<Route.Aggregate> { AggregatePage(nav) }
-                        composable<Route.Liuying> { LiuyingPage(nav, pages) }
-                    }
-                }
-            }
-        }
-        rule.onNodeWithText("下载").assertDoesNotExist()
-        rule.onNodeWithText("排行榜").assertDoesNotExist()
-        rule.onNodeWithText("日历").assertDoesNotExist()
-        assertEquals(0, core.calls.count { it.first == "emby.aggregateOverview" })
-        rule.onNodeWithText("流影").performClick()
-        rule.waitForIdle()
+        rule.mainClock.autoAdvance = false
+        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+            if (showing) LiuyingContent({ showing = false })
+        } } }
+        advance(rule, 1000)
+        return core
     }
 
-    private fun webViews(view: View = root): List<WebView> = when (view) {
-        is WebView -> listOf(view)
-        is ViewGroup -> (0 until view.childCount).flatMap { webViews(view.getChildAt(it)) }
-        else -> emptyList()
+    @Test fun missingCapabilityDoesNotRequestVideosOrLoadWebPage() {
+        val core = open(enabled = false)
+        rule.onNodeWithText("服务器未提供流影能力").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.web").assertDoesNotExist()
+        assertFalse(core.calls.any { it.first == "emby.extLiuYingItems" || it.first == "player.play" })
+        assertEquals(1, core.calls.count { it.first == "emby.extCapabilities" })
+        assertNull(core.calls.single { it.first == "emby.extCapabilities" }.second?.get("refresh"))
     }
 
-    @Test fun webFillsWidthAndReachesNavigationSafeArea() {
-        open()
-        val bounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        val web = rule.onNodeWithTag("liuying.web").fetchSemanticsNode().boundsInRoot
-        rule.onNodeWithTag("liuying.tab.0").assertDoesNotExist()
-        rule.onNodeWithTag("liuying.tab.1").assertDoesNotExist()
-        val button = rule.onNodeWithText("卍解").fetchSemanticsNode().boundsInRoot
-        assertTrue("卍解位于顶栏右侧", button.left > bounds.center.x && button.bottom <= web.top)
-        assertEquals("网页紧接顶栏，不留标签占位", contentTop.toFloat(), web.top, .1f)
-        assertEquals(bounds.width, web.width, .1f)
-        assertEquals("网页底部只保留系统导航安全区", bounds.bottom - navigationBottom, web.bottom, .1f)
-        rule.onRoot().captureRoboImage("build/liuying-ui/full-content.png")
+    @Test fun emptyLibraryAndFeedSwitchStayNativeAndUseCachedCapability() {
+        val core = open()
+        rule.onNodeWithText("暂无可播放的入库资源").assertIsDisplayed()
+        assertEquals("dance", core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("tab"))
+        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 400)
+        val args = core.calls.last { it.first == "emby.extLiuYingItems" }.second
+        assertEquals("adult", args.str("feed")); assertEquals("", args.str("tab"))
+        assertEquals("", args.str("channel")); assertEquals("", args.str("exposure"))
+        assertEquals(1, core.calls.count { it.first == "emby.extCapabilities" })
+        assertFalse(core.calls.any { it.first == "player.play" })
     }
 
-    @Test fun bankaiLoadsLazilyPreservesViewsAndPausesHiddenMedia() {
-        open()
-        rule.onNodeWithTag("liuying.bankai").assertIsOff()
-        val first = webViews().single()
-        assertEquals(urls[0], shadowOf(first).lastLoadedUrl)
-        assertNull(shadowOf(first).getJavascriptInterface("LinPlayer"))
-        assertFalse(first.settings.allowFileAccess)
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        rule.onNodeWithTag("liuying.bankai").assertIsOn()
-        val second = webViews().last()
-        assertEquals(2, webViews().size)
-        assertEquals(urls[1], shadowOf(second).lastLoadedUrl)
-        assertEquals(View.GONE, first.visibility)
-        shadowOf(first).lastEvaluatedJavascriptCallback.onReceiveValue("null")
-        assertTrue(shadowOf(first).wasOnPauseCalled())
-        assertTrue(shadowOf(first).lastEvaluatedJavascript.contains("__liuyingInactive = true"))
-        first.scrollTo(0, 120)
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        rule.onNodeWithTag("liuying.bankai").assertIsOff()
-        assertSame(first, webViews().first())
-        assertEquals(120, first.scrollY)
-        assertEquals(0, shadowOf(first).reloadInvocations)
-        assertEquals(View.GONE, second.visibility)
-        assertTrue(shadowOf(second).lastEvaluatedJavascript.contains("__liuyingInactive = true"))
-        rule.onNodeWithContentDescription("返回").performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText("流影").assertIsDisplayed()
-        rule.onNodeWithText("下载").assertDoesNotExist()
-        assertTrue(shadowOf(first).wasDestroyCalled())
-        assertTrue(shadowOf(second).wasDestroyCalled())
+    @Test fun channelAndExposureIntersectAndSourceSwitchClearsBoth() {
+        val core = open()
+        rule.onNodeWithText("抖奶").performClick(); advance(rule, 300)
+        rule.onNodeWithText("露左右").performClick(); advance(rule, 300)
+        val combined = core.calls.last { it.first == "emby.extLiuYingItems" }.second
+        assertEquals("tg-3398168133", combined.str("channel"))
+        assertEquals("side_breast_exposure", combined.str("exposure"))
+        assertEquals(3, core.calls.count { it.first == "emby.extLiuYingItems" })
+        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 300)
+        val adult = core.calls.last { it.first == "emby.extLiuYingItems" }.second
+        assertEquals("", adult.str("channel")); assertEquals("", adult.str("exposure"))
+        assertEquals(4, core.calls.count { it.first == "emby.extLiuYingItems" })
     }
 
-    @Test fun backUsesCurrentPageHistoryBeforeLeaving() {
-        open()
-        val first = webViews().single()
-        shadowOf(first).setCanGoBack(true)
-        rule.onNodeWithContentDescription("返回").performClick()
-        assertEquals(1, shadowOf(first).goBackInvocations)
-        rule.onNodeWithTag("liuying.bankai").assertIsDisplayed()
-        assertFalse(shadowOf(first).wasDestroyCalled())
+    @Test fun favoriteChangesOnlyAfterServerSuccess() {
+        val core = open(populated = true)
+        core.on("emby.setFavorite") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "收藏失败", true) }
+        rule.onNodeWithTag("liuying.controls").performScrollToIndex(4)
+        rule.onNodeWithText("收藏", useUnmergedTree = true).performClick(); advance(rule, 300)
+        rule.onNodeWithText("取消收藏").assertDoesNotExist()
+        core.ret("emby.setFavorite", JsonNull)
+        rule.onNodeWithText("收藏", useUnmergedTree = true).performClick(); advance(rule, 300)
+        rule.onNodeWithText("取消收藏").assertExists()
+        val write = core.calls.last { it.first == "emby.setFavorite" }.second
+        assertEquals("ly-work-1", write.str("item_id")); assertTrue(write.bool("fav"))
+        assertEquals(2, core.calls.count { it.first == "emby.setFavorite" })
     }
 
-    @Test fun bothPagesEnableInlineMediaPlayback() {
-        open()
-        val first = webViews().single()
-        assertNotNull(first.webChromeClient)
-        assertFalse(first.settings.mediaPlaybackRequiresUserGesture)
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        val second = webViews().last()
-        assertNotNull(second.webChromeClient)
-        assertFalse(second.settings.mediaPlaybackRequiresUserGesture)
-        // 暂停由页面生命周期控制，不能改变网页加载时的自动播放策略。
-        assertFalse(first.settings.mediaPlaybackRequiresUserGesture)
+    @Test fun completedVideoAdvancesOnceThroughExistingStopBarrier() {
+        val core = open(populated = true)
+        rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 800)
+        assertEquals(2, core.calls.count { it.first == "player.play" })
+        assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        val play = core.calls.indexOfLast { it.first == "player.play" }
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } in 0 until play)
+        rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+            put("item_id", "ly-work-1"); put("position", 3660.0); put("duration", 3660.0); put("eof", true)
+        })) }
+        advance(rule, 500)
+        assertEquals(2, core.calls.count { it.first == "player.play" })
     }
 
-    @Test fun latePauseCallbackDoesNotPauseReselectedOrDestroyedPage() {
-        open()
-        val first = webViews().single()
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        val latePause = shadowOf(first).lastEvaluatedJavascriptCallback
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        latePause.onReceiveValue("null")
-        assertFalse(shadowOf(first).wasOnPauseCalled())
-        rule.onNodeWithTag("liuying.bankai").performClick()
-        val leavingPause = shadowOf(first).lastEvaluatedJavascriptCallback
-        rule.onNodeWithContentDescription("返回").performClick()
-        rule.waitForIdle()
-        assertTrue(shadowOf(first).wasDestroyCalled())
-        leavingPause.onReceiveValue("null")
-        assertFalse(shadowOf(first).wasOnPauseCalled())
-    }
-
-    @Test fun missingConfigurationShowsStateWithoutCreatingWebView() {
-        open(listOf("", ""))
-        rule.onNodeWithText("当前安装包尚未配置此页面").assertIsDisplayed()
-        assertEquals(0, webViews().size)
+    @Test fun entryAutoPlaysAndManualNextStopsPreviousBeforeStarting() {
+        val core = open(populated = true)
+        assertEquals("ly-work-1", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertTrue(core.calls.last { it.first == "player.play" }.second.bool("from_start"))
+        rule.onNodeWithTag("liuying.controls").performScrollToIndex(5)
+        rule.onNodeWithText("换一个").performClick(); advance(rule, 800)
+        assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        val play = core.calls.indexOfLast { it.first == "player.play" }
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } in 0 until play)
+        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        rule.runOnIdle { showing = false }; advance(rule, 400)
+        assertEquals(2, core.calls.count { it.first == "player.stopPlayback" })
     }
 }

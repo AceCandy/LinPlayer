@@ -8,6 +8,7 @@ import (
 )
 
 func TestRawDanmakuCapabilityAndPaths(t *testing.T) {
+	freshConfig(t)
 	for _, prefix := range []string{"", "/proxy"} {
 		for _, caps := range []string{`{"version":"1"}`, `{"version":"1","danmaku":{"enabled":true,"format":"unknown"}}`, `{"version":"1","danmaku":{"enabled":true,"format":"bilibili_xml"}}`} {
 			calls := 0
@@ -27,6 +28,9 @@ func TestRawDanmakuCapabilityAndPaths(t *testing.T) {
 			}))
 			client := NewClient("test")
 			s := &Session{Server: srv.URL + prefix + "/emby", Token: "test-token", UserID: "u"}
+			if _, err := client.refreshExtensionCapabilities(t.Context(), s); err != nil {
+				t.Fatal(err)
+			}
 			for i := 0; i < 2; i++ {
 				if _, err := client.RawDanmaku(context.Background(), s, "item"); err != nil {
 					t.Fatal(err)
@@ -45,6 +49,7 @@ func TestRawDanmakuCapabilityAndPaths(t *testing.T) {
 }
 
 func TestRawDanmakuDoesNotRedirect(t *testing.T) {
+	freshConfig(t)
 	leaked := false
 	target := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { leaked = true }))
 	defer target.Close()
@@ -56,7 +61,12 @@ func TestRawDanmakuDoesNotRedirect(t *testing.T) {
 		http.Redirect(w, r, target.URL, 302)
 	}))
 	defer srv.Close()
-	_, err := NewClient("test").RawDanmaku(context.Background(), &Session{Server: srv.URL, Token: "test-token"}, "item")
+	client := NewClient("test")
+	session := &Session{Server: srv.URL, Token: "test-token"}
+	if _, err := client.refreshExtensionCapabilities(t.Context(), session); err != nil {
+		t.Fatal(err)
+	}
+	_, err := client.RawDanmaku(context.Background(), session, "item")
 	if err == nil || leaked {
 		t.Fatalf("err=%v leaked=%v", err, leaked)
 	}

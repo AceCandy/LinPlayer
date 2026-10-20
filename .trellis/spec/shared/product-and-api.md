@@ -49,3 +49,19 @@
 
 - `/Users/{user}/Items` 列表返回404时可回退同服务器、同前缀的 `/Items?UserId=...`；原ParentId、类型、Fields、排序和分页参数全部保留，两次请求均鉴权并使用同一context。401/403/5xx、取消、成功空结果不触发回退，条目详情路径不改写，替代请求失败保留其真实错误。`items_route_test.go`覆盖前缀、查询、分页、鉴权、失败与取消。基准为MediaStationGo fa61d42当前工作树的同一Items handler；未验证问题服务器，不能将mock通过当成实服404已解决。
 - 空季回退和接口404是不同故障分支，诊断与回归须分别覆盖；非登录请求的404仅说明内容或接口未找到，不直接指责服务器地址错误。
+
+## MSG 流影与能力缓存
+
+`/emby-ext/v1/capabilities` 只在成功登录时请求一次，普通首页主动刷新时异步后台更新一次；其余入口只读按服务器/用户隔离的持久缓存，不使用 TTL 自动探测。刷新失败保留有效旧缓存；旧令牌迟到响应不得覆盖新账号凭据取得的能力。缓存不是播放授权，服务端仍实时检查权限。
+
+MSG 标准 Emby 返回对所有播放器一致，不按客户端名称或 UA 隐藏库。仅 LinPlayer 隐私首页排除 `library_type=liuying` 库及 `ly-work-` 内容；聚合视界依据缓存 `liuying.enabled` 进入原生单屏随机播放，而非根据库是否存在决定能力。资料中心永远只提供资料，未入库视频不能成为候选，不读取来源播放地址，也不回退上游网页。候选来自当前用户可见有效库绑定，播放沿用标准 PlaybackInfo；状态仅收藏、已看/未看，无续播断点。支持普通/18+、舞蹈/直播、频道和曝光筛选，耗尽有界窗口再取下一页/新轮次。此次覆盖桌面及Android手机/TV，不新增tvOS入口或多屏。
+
+### 隐私命令策略与流影回归
+
+1. 范围：隐私空间调用本服流影及能力缓存，必须同时经过 `bus.scopeArguments` 和 Emby 命令处理器。
+2. 签名：只精确放行 `emby.extCapabilities`、`emby.extLiuYingItems`、`emby.extLiuYingLabels`；不放开整个 `emby.ext` 前缀。
+3. 契约：`request_scope.private=true` 固定当前服务器、用户和令牌并设置 `is_adult=true`；能力读取不出网。
+4. 错误：其他扩展或跨服身份仍 `E_UNSUPPORTED`；私密能力 `refresh=true` 在命令层返回 `E_INVALID`，不发HTTP。
+5. 案例：当前服流影正常读取；空入库列表显示空态；榜单、未知扩展、跨服和私密刷新均拒绝。
+6. 回归：`TestPrivateLiuYingExtensionScope` 覆盖精确策略，`TestLiuYingExtensionLibraryOnlyContract` 覆盖私密刷新不出网；桌面 `seekcheck --liuying-only` 经过真实HTTP/FFI验证缓存只读、联合筛选和取消。手机/TV测试不能替代这条核心入口链路。
+7. 禁止仅直接调用 handler 或使用页面替身测试判定隐私接线完成；正确做法是补带 `request_scope` 的策略测试和真实命令通道集成检查，防止业务实现存在却被统一策略提前拦截。

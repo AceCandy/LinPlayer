@@ -32,6 +32,8 @@ object LinPlayerCommandNames {
         "emby.aggregateOverview",
         "emby.aggregateSearch",
         "emby.extCapabilities",
+        "emby.extLiuYingItems",
+        "emby.extLiuYingLabels",
         "emby.extRankings",
         "emby.extRankingItems",
         "emby.extCalendar",
@@ -357,13 +359,17 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (52 条) ----
+// ---- Emby 浏览与详情 · emby.* (54 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateSearch", args)
 suspend fun LinPlayerCommands.embyExtCapabilities(args: Map<String, Any?>? = null): JsonElement =
     call("emby.extCapabilities", args)
+suspend fun LinPlayerCommands.embyExtLiuYingItems(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extLiuYingItems", args)
+suspend fun LinPlayerCommands.embyExtLiuYingLabels(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.extLiuYingLabels", args)
 suspend fun LinPlayerCommands.embyExtRankings(args: Map<String, Any?>? = null): JsonElement =
     call("emby.extRankings", args)
 suspend fun LinPlayerCommands.embyExtRankingItems(args: Map<String, Any?>? = null): JsonElement =

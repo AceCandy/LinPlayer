@@ -23,6 +23,7 @@ func extensionHandlers() map[string]func(context.Context, *Session, map[string]a
 const testCapabilities = `{"version":"1","rankings":true,"calendar":{"enabled":true},"library_matching":{"sources":["tmdb","douban","bangumi","hongguo","huangguoai"]}}`
 
 func TestExtensionContractAndExactMatch(t *testing.T) {
+	freshConfig(t)
 	matchCount := 1
 	requests := []string{}
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -69,6 +70,9 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 	defer func() { defaultClient = old }()
 	h := extensionHandlers()
 	session := &Session{Server: srv.URL + "/proxy/emby/", Token: "test-token", UserID: "user"}
+	if _, err := defaultClient.refreshExtensionCapabilities(t.Context(), session); err != nil {
+		t.Fatal(err)
+	}
 	cats, err := h["emby.extRankings"](context.Background(), session, map[string]any{"include_disabled": true})
 	if err != nil || len(cats.([]map[string]any)) != 2 {
 		t.Fatalf("categories: %v %v", cats, err)
@@ -108,8 +112,8 @@ func TestExtensionContractAndExactMatch(t *testing.T) {
 			assertExtensionCode(t, err, tc.code)
 		}
 	}
-	if len(requests) != 14 {
-		t.Fatalf("expected fresh capability and data for each command, got %d", len(requests))
+	if len(requests) != 8 {
+		t.Fatalf("expected one capability refresh plus data commands, got %d", len(requests))
 	}
 }
 
@@ -121,6 +125,7 @@ func assertExtensionCode(t *testing.T, err error, code string) {
 	}
 }
 func TestExtensionErrorsAndRedirect(t *testing.T) {
+	freshConfig(t)
 	for _, tc := range []struct {
 		status     int
 		body, code string
@@ -131,7 +136,12 @@ func TestExtensionErrorsAndRedirect(t *testing.T) {
 				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
-			_, err := NewClient("test").extensionCapability(context.Background(), &Session{Server: srv.URL}, "rankings")
+			client := NewClient("test")
+			session := &Session{Server: srv.URL}
+			_, err := client.refreshExtensionCapabilities(context.Background(), session)
+			if err == nil {
+				_, err = client.extensionCapability(context.Background(), session, "rankings")
+			}
 			assertExtensionCode(t, err, tc.code)
 		})
 	}
@@ -140,19 +150,20 @@ func TestExtensionErrorsAndRedirect(t *testing.T) {
 	defer target.Close()
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { http.Redirect(w, r, target.URL, 302) }))
 	defer srv.Close()
-	_, err := NewClient("test").extensionCapability(context.Background(), &Session{Server: srv.URL, Token: "test-token"}, "")
+	_, err := NewClient("test").refreshExtensionCapabilities(context.Background(), &Session{Server: srv.URL, Token: "test-token"})
 	if err == nil || called {
 		t.Fatal("redirect followed")
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
-	_, err = NewClient("test").extensionCapability(ctx, &Session{Server: srv.URL}, "")
+	_, err = NewClient("test").refreshExtensionCapabilities(ctx, &Session{Server: srv.URL})
 	if !errors.Is(err, context.Canceled) {
 		t.Fatalf("cancel: %v", err)
 	}
 }
 
 func TestExtensionIndependentCatalogIdentity(t *testing.T) {
+	freshConfig(t)
 	for _, source := range []string{"hongguo", "huangguoai"} {
 		t.Run(source, func(t *testing.T) {
 			const id = "99999999999999999999999999999999"
@@ -176,6 +187,9 @@ func TestExtensionIndependentCatalogIdentity(t *testing.T) {
 			defer srv.Close()
 			h := extensionHandlers()
 			session := &Session{Server: srv.URL}
+			if _, err := defaultClient.refreshExtensionCapabilities(t.Context(), session); err != nil {
+				t.Fatal(err)
+			}
 			rows, err := h["emby.extRankingItems"](t.Context(), session, map[string]any{"category_id": "catalog"})
 			if err != nil {
 				t.Fatal(err)

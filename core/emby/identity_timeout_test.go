@@ -7,12 +7,19 @@ import (
 	"linplayer/core/httpx"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 )
 
 func Test重新登录接受备用线路且保留账号身份(t *testing.T) {
 	freshConfig(t)
+	var capabilityCalls atomic.Int32
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/emby-ext/v1/capabilities" {
+			capabilityCalls.Add(1)
+			_, _ = w.Write([]byte(testCapabilities))
+			return
+		}
 		if r.URL.Path != "/Users/AuthenticateByName" {
 			t.Errorf("错误登录端点: %s", r.URL.Path)
 		}
@@ -24,6 +31,9 @@ func Test重新登录接受备用线路且保留账号身份(t *testing.T) {
 	_, err := bus.Invoke(context.Background(), "emby.relogin", map[string]any{"server_id": up.URL, "username": "user"})
 	if err != nil {
 		t.Fatal(err)
+	}
+	if capabilityCalls.Load() != 1 {
+		t.Fatalf("登录能力请求次数 = %d", capabilityCalls.Load())
 	}
 	if len(c.AccountList) != 1 || c.AccountList[0].Server != "https://primary.example.test" || c.AccountList[0].Token != "new" {
 		t.Fatal("重登改变了账号身份或未更新凭据")

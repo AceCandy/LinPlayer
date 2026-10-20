@@ -366,9 +366,11 @@ type Client struct {
 	HTTP *http.Client
 	UA   string
 	// Version 只给 X-Emby-Authorization 的 Version 字段用(UA 是另一条道,别复用)
-	Version  string
-	capMu    sync.Mutex
-	capCache map[string]*capabilityEntry
+	Version    string
+	capMu      sync.Mutex
+	capCache   map[string]*capabilityEntry
+	extMu      sync.Mutex
+	extPending map[string]*extensionRefresh
 }
 
 // NewClient 造一个默认客户端。

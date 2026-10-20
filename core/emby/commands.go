@@ -92,6 +92,9 @@ func RegisterCommands(version string) {
 		     库没有 series_id,而「名字对得上」在库上是错的判据 —— 两台服务器上都叫
 		     「电影」的库是两个不同的库,按名字判会一屏两台一起屏蔽。 */
 		inc, _ := a["include_blocked"].(bool)
+		if a["home"] == true {
+			v = withoutLiuYing(v)
+		}
 		return FilterBlockedLibraries(v, inc), nil
 	})
 	list("emby.listLatest", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
@@ -209,13 +212,17 @@ func RegisterCommands(version string) {
 		if err := json.Unmarshal(data, &items); err != nil {
 			return nil, bus.NewErr(bus.EInvalid, "候选格式无效")
 		}
-		return HeroCandidates(items), nil
+		return HeroCandidates(withoutLiuYing(items)), nil
 	})
 	list("emby.cachedItems", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return displaycache.Candidates(a), nil
 	})
 	list("emby.listRandom", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
-		return defaultClient.RandomPicks(ctx, s, intArg(a, "limit", 8))
+		items, err := defaultClient.RandomPicks(ctx, s, intArg(a, "limit", 8))
+		if a["home"] == true {
+			items = withoutLiuYing(items)
+		}
+		return items, err
 	})
 	list("emby.getFilters", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.FiltersOf(ctx, s, str(a, "parent_id"))

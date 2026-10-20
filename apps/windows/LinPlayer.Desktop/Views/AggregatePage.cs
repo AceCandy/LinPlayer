@@ -22,7 +22,7 @@ public sealed class AggregatePage : PageBase
     {
         if (BrowseSpace.IsPrivate) {
             var open = new Button { Content = "流影", Classes = { "primary" } };
-            open.Click += (_, _) => { if (SpaceCurrent && BrowseSpace.IsPrivate) Nav.Push(new LiuyingPage()); };
+            open.Click += (_, _) => { if (SpaceCurrent && BrowseSpace.IsPrivate) Nav.Push(new NativeLiuyingPage(core)); };
             Content = Scrolled(new StackPanel { Spacing = 18, Children = { H1("发现"), open } });
             return;
         }

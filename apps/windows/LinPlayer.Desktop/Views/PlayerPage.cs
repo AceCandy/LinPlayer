@@ -331,8 +331,9 @@ public sealed class PlayerPage : UserControl
     public PlayerPage(CoreClient core, string itemId, string title, double resumeSecs,
         bool isSource = false, string mediaSourceId = "",
         int audioIndex = -1, int subIndex = -1, bool isLocal = false,
-        string serverId = "", SourcePlay? src = null)
+        string serverId = "", SourcePlay? src = null, Func<Task>? onCompleted = null)
     {
+        _onCompleted = onCompleted;
         _src = src;
         _serverId = serverId;
         _isLocal = isLocal;
@@ -1216,12 +1217,15 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>自动与手动换集共用当前季列表；等待加载，失败时允许手动重试。</summary>
+    private readonly Func<Task>? _onCompleted;
+
     private async Task GoNext(bool finished = false)
     {
         if (_switching || _leaving || _seek.Stopped) return;
         _switching = true;
         finished |= _finishing;
         try {
+            if (finished && _onCompleted is not null) { Stop(); await _onCompleted(); return; }
             if (_src is not null && SrcNext() is { } n && !finished) {
                 Stop();
                 _leaving = true;

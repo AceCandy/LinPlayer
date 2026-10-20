@@ -111,6 +111,14 @@ public sealed class HomePage : PageBase
         }
     }
 
+    internal async Task RefreshCapabilitiesAsync()
+    {
+        if (BrowseSpace.IsPrivate || _core is null || Nav.Session is not { } s) return;
+        try { await _core.EmbyExtCapabilities(new { s.server, s.token, s.user_id, s.device_id, refresh = true }, _ct); }
+        catch (OperationCanceledException) { }
+        catch (Exception) { /* 后台更新失败保留已有能力，不阻塞首页。 */ }
+    }
+
     /// <summary>
     /// 官方内容 + 插件栏目。
     ///
@@ -255,7 +263,7 @@ public sealed class HomePage : PageBase
         libSection.Children.Add(libBusy);
 
         var views = Track("媒体库",
-            null, true, displayCommand: "emby.views", displayArgs: new { s.server, s.token, s.user_id, s.device_id },
+            null, true, displayCommand: "emby.views", displayArgs: new { s.server, s.token, s.user_id, s.device_id, home = true },
             onItems: libs => LatestPerLibrary(core, s, libSection, libBusy, libs));
         AddRow(libSection);
         /* 确认是 Emby 了就先把 Hero 的位置占住(骨架)。
@@ -345,7 +353,7 @@ public sealed class HomePage : PageBase
 
         var ct = _ct;
         List<JsonElement> all;
-        try { all = await Arr(core.CallDisplayAsync("emby.listRandom", With(s, new { limit = HeroCount }), value => {
+        try { all = await Arr(core.CallDisplayAsync("emby.listRandom", With(s, new { limit = HeroCount, home = true }), value => {
             if (value.ValueKind != JsonValueKind.Array) return;
             cached = value.EnumerateArray().ToList();
             if (cached.Count > 0) _hero.Show(_server, cached);

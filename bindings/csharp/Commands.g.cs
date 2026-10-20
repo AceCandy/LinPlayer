@@ -42,6 +42,8 @@ public static class LinPlayerCommandNames
         "emby.aggregateOverview",
         "emby.aggregateSearch",
         "emby.extCapabilities",
+        "emby.extLiuYingItems",
+        "emby.extLiuYingLabels",
         "emby.extRankings",
         "emby.extRankingItems",
         "emby.extCalendar",
@@ -369,13 +371,17 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (52 条) ----
+    // ---- Emby 浏览与详情 · emby.* (54 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateSearch", args, ct);
     public static Task<JsonElement> EmbyExtCapabilities(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.extCapabilities", args, ct);
+    public static Task<JsonElement> EmbyExtLiuYingItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extLiuYingItems", args, ct);
+    public static Task<JsonElement> EmbyExtLiuYingLabels(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.extLiuYingLabels", args, ct);
     public static Task<JsonElement> EmbyExtRankings(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.extRankings", args, ct);
     public static Task<JsonElement> EmbyExtRankingItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

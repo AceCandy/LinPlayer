@@ -69,10 +69,10 @@ func (c *Client) extensionJSON(ctx context.Context, s *Session, path string, bod
 	case 401:
 		return bus.NewErr(bus.EAuth, "登录已失效，请重新登录")
 	case 403:
-		return bus.NewErr(bus.EPermission, "当前账号无权使用榜单与日历")
+		return bus.NewErr(bus.EPermission, "当前账号无权使用这项扩展")
 	case 404:
 		if path == "capabilities" {
-			return bus.NewErr(bus.EUnsupported, "当前服务器不支持 MSG 榜单与日历扩展")
+			return bus.NewErr(bus.EUnsupported, "当前服务器不支持 MSG 扩展")
 		}
 		return bus.NewErr(bus.ENotFound, "服务器未提供这项扩展内容")
 	case 400:
@@ -94,6 +94,10 @@ func (c *Client) extensionJSON(ctx context.Context, s *Session, path string, bod
 }
 
 type extensionCapabilities struct {
+	LiuYing struct {
+		Enabled bool   `json:"enabled"`
+		Scope   string `json:"scope"`
+	} `json:"liuying"`
 	Danmaku struct {
 		Enabled bool   `json:"enabled"`
 		Format  string `json:"format"`
@@ -116,17 +120,17 @@ type extensionCapabilities struct {
 }
 
 func (c *Client) extensionCapability(ctx context.Context, s *Session, feature string) (*extensionCapabilities, error) {
-	var caps extensionCapabilities
-	if err := c.extensionJSON(ctx, s, "capabilities", nil, &caps); err != nil {
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if caps.Version != "1" {
-		return nil, bus.NewErr(bus.EUnsupported, "当前服务器不支持 MSG v1 扩展协议")
+	caps, err := c.cachedExtensionCapabilities(s)
+	if err != nil {
+		return nil, err
 	}
-	if feature == "rankings" && !caps.Rankings || feature == "calendar" && !caps.Calendar.Enabled || feature == "matching" && len(caps.LibraryMatching.Sources) == 0 {
+	if feature == "liuying" && !caps.LiuYing.Enabled || feature == "rankings" && !caps.Rankings || feature == "calendar" && !caps.Calendar.Enabled || feature == "matching" && len(caps.LibraryMatching.Sources) == 0 {
 		return nil, bus.NewErr(bus.EUnsupported, "服务器尚未开启这项扩展能力")
 	}
-	return &caps, nil
+	return caps, nil
 }
 
 // extensionEntry 保留来源身份，展示快照不能携带媒体库匹配或播放授权。
@@ -191,7 +195,14 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 }
 
 func registerExtensionCommands(list func(string, func(context.Context, *Session, map[string]any) (any, error))) {
+	registerLiuYingCommands(list)
 	list("emby.extCapabilities", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		if a["refresh"] == true {
+			if adult := AdultFilter(ctx); adult != nil && *adult {
+				return nil, bus.NewErr(bus.EInvalid, "能力只能在普通首页刷新")
+			}
+			return defaultClient.refreshExtensionCapabilities(ctx, s)
+		}
 		return defaultClient.extensionCapability(ctx, s, "")
 	})
 	list("emby.extRankings", func(ctx context.Context, s *Session, a map[string]any) (any, error) {

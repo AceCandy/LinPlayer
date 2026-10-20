@@ -228,7 +228,7 @@ fun HomePage(nav: NavController) {
                     // 服名入口读取完整本地账号表，不走网络。
                     launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
                     launch {
-                        val response = app.displayBlock("emby.views") {
+                        val response = app.displayBlock("emby.views", args("home" to true)) {
                             if (views !is Block.Ok) views = Block.Ok(View.list(it))
                         }.map { View.list(it) }
                         if (response is Block.Ok || views !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) views = response
@@ -390,7 +390,10 @@ fun HomePage(nav: NavController) {
             isRefreshing = refreshing,
             state = pullState,
             indicator = { LpPullIndicator(pullState, refreshing) },
-            onRefresh = { if (!refreshing) { refreshing = true; reload++ } },
+            onRefresh = { if (!refreshing) {
+                refreshing = true; reload++
+                if (!privateSpace) scope.launch { app.block("emby.extCapabilities", args("refresh" to true)) }
+            } },
             modifier = Modifier.fillMaxSize().padding(
                 top = if (banners.isEmpty() && !tv) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
             ),

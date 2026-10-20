@@ -238,10 +238,11 @@ private val speedWrites = Mutex()
  *   各写一个播放页的下场是「换个内核续播就不对了」。
  */
 @Composable
-fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
+fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     clickedAt: Long? = null, onExit: ((String?) -> Unit)? = null,
+    embeddedRoute: Route.Player? = null, onCompleted: (() -> Unit)? = null,
 ) {
-    var route by remember(entry) { mutableStateOf(entry.toRoute<Route.Player>()) }
+    var route by remember(entry) { mutableStateOf(embeddedRoute ?: requireNotNull(entry).toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
     var resumeOverride by remember { mutableStateOf<Double?>(null) }
     val app = LocalApp.current
@@ -249,7 +250,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
     val scope = rememberCoroutineScope()
     var startupOrigin by remember(entry) {
-        val clickedAt = clickedAt ?: PlaybackClickTimes.take(entry)
+        val clickedAt = clickedAt ?: entry?.let { PlaybackClickTimes.take(it) }
         mutableStateOf((clickedAt ?: android.os.SystemClock.elapsedRealtime()) to
             if (clickedAt != null) StartupOrigin.CLICK else StartupOrigin.PAGE)
     }
@@ -610,6 +611,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
 
     LaunchedEffect(controller, finished, episodeResult, leaving, queuedRequest) {
         if (!finished || leaving || queuedRequest != null) return@LaunchedEffect
+        if (onCompleted != null) { onCompleted(); return@LaunchedEffect }
         val result = episodeResult ?: return@LaunchedEffect
         try {
             val episodes = result.getOrThrow()
@@ -996,7 +998,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry,
     SideEffect {
         val a = activity
         val want = wantLandscape
-        if (!leaving && a != null && want != null) {
+        if (embeddedRoute == null && !leaving && a != null && want != null) {
             // SENSOR_* 而不是 *_LANDSCAPE:锁的是「横着」,不锁是哪一头朝上
             val orientation = if (want)
                 ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE
