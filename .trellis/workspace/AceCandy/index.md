@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 88
-- **Last Active**: 2026-10-20
+- **Total Sessions**: 89
+- **Last Active**: 2026-10-21
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~507 | Active |
+| `journal-3.md` | ~533 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 89 | 2026-10-21 | tvOS存储检查及首轮真机验收阶段提交 | `0fc67d4b` | `main` |
 | 88 | 2026-10-20 | 收束tvOS后续任务 | `1713d3e2` | `main` |
 | 87 | 2026-10-20 | 流影原生连播与能力缓存交付归档 | `3277143d` | `main` |
 | 86 | 2026-10-20 | 演职员人物作品页交付 | `e6526563` | `main` |

@@ -505,3 +505,29 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 用户后续继续时先读唯一resume，当前不推进实现或真机测试。
+
+
+## Session 89: tvOS存储检查及首轮真机验收阶段提交
+<!-- trellis-session: v=2 fp=910a0c51ba996b02 -->
+
+**Date**: 2026-10-21
+**Task**: tvOS存储检查及首轮真机验收阶段提交
+**Branch**: `main`
+
+### Summary
+
+隔离Keychain正常及故障注入通过，正式签名安装和清缓存后免登已验，用户确认首页导航与本次样本基本播放。阶段单独归档，总任务继续按模块审查UI细节；其它验收与本机历史风险仍保留。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0fc67d4b` | test(tvos): 补充隔离存储检查并记录首轮真机验收 |
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 按当前Android TV共享页面分模块充分对照tvOS的布局、组件、信息与交互。
