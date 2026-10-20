@@ -471,3 +471,37 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 真机解码、实服长时间连播和大库性能尚未验证；未出安装包、推送或部署。
+
+
+## Session 88: 收束tvOS后续任务
+<!-- trellis-session: v=2 fp=cdc9a1e249ce946c -->
+
+**Date**: 2026-10-20
+**Task**: 收束tvOS后续任务
+**Branch**: `main`
+
+### Summary
+
+用户确认将播放探针、tvOS客户端对齐及跨端补齐收成一个任务，前两项按后续工作转交归档，唯一入口为unified-product-completion/resume.md。
+
+### Main Changes
+
+- 完整继承原R1-R17/A1-A14和探针未验项，保留历史证据及流影tvOS范围边界，修正归档引用。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1713d3e2` | chore(task): 合并tvOS后续待办并归档前置任务 |
+
+### Testing
+
+- [OK] 独立只读复核，任务元数据、JSONL来源、Markdown链接、唯一活动任务、差异及隐私扫描通过。仅改任务文档，未运行产品编译或真机测试。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 用户后续继续时先读唯一resume，当前不推进实现或真机测试。
