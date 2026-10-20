@@ -1,6 +1,6 @@
 # 边界与设计
 
-依据 ../10-18-unified-go-core/research/next-ui-and-core.md。
+依据 ../archive/2026-10/10-18-unified-go-core/research/next-ui-and-core.md。
 
 最小差距：业务规则已由接口/缓存底座承载，但宿主仍重复季队列、候选筛选、隐私命令名单和选轨；Swift详情/设置没有完整接线。
 
