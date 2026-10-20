@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 85
+- **Total Sessions**: 86
 - **Last Active**: 2026-10-20
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~421 | Active |
+| `journal-3.md` | ~443 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 86 | 2026-10-20 | 演职员人物作品页交付 | `e6526563` | `main` |
 | 85 | 2026-10-20 | tvOS与统一核心阶段提交归档 | `00e66d84` | `main` |
 | 84 | 2026-10-20 | 三端演职员调整与手机包交付 | `2d56fe62` | `main` |
 | 83 | 2026-10-18 | 季集图片客户端回退审查与归档 | `4e05b4ab` | `main` |
