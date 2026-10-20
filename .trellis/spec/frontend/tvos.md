@@ -16,7 +16,20 @@
 
 生成/命令集合对账、Go 核心门禁、真实 tvOS C 头文件检查、整源码 `swiftc -typecheck -warnings-as-errors` 与 Swift 实质回归。检查入口不生成 .app；未经直接出包指令不调用 pack。
 
-类型检查不证明 Keychain 权限、框架嵌入、遥控焦点、实际媒体、音轨切换、进度服务端保存或 tvOS 18 兼容。正式应用真机验收当前未执行；前置探针证据不可计为正式客户端通过。最终出包另验 `-load_hidden` 符号、九个动态框架闭包/签名和第三方发行材料。
+类型检查不证明 Keychain 权限、框架嵌入、遥控焦点、实际媒体、音轨切换、进度服务端保存或 tvOS 18 兼容。正式应用已在tvOS27验证本轮更新安装、启动、新进程免登，以及正式设置清缓存后重启免登和首页恢复；清理页显示Zero KB及「已完成」，重启后真实首页资料与图片正常。设备标识连续性等Keychain其余项，以及遥控和播放验收仍开放，前置探针证据不可计为正式客户端通过。最终出包另验 `-load_hidden` 符号、九个动态框架闭包/签名和第三方发行材料。
+
+- 跨主机同步正式包须比对源清单的全部文件内容、权限及链接。本机挂载目录曾在tar -p提取后为普通文件增加执行位；按源清单显式chmod并再次逐项核对，不能直接声称权限一致。
+- 真机缓存验收使用正式设置中的system.clearCache。禁止直接用devicectl copy to的remove-existing-content模拟子目录删除：曾在指定cache目标后报7000，原核心数据根随后无法列举、重启才重建，删除边界未能保证；不能把destination当作已经验证的清理边界。此类开发工具行为须先在隔离域验证，不在正式应用数据域试错。
+
+## 模拟器 Keychain 应用内检查
+
+1. 范围：`KeychainAppCheck.m`加载`KeychainCheck.c`，直接使用生产`core/statefile/keychain.h`；不接Go初始化、正式账号或网络，不代替A1正式应用验收。
+2. 入口：`bash scripts/check-tvos-keychain.sh <已启动的arm64 tvOS模拟器UUID>`；内部调用`lp_keychain_check(name, phase)`，phase为save/verify/missing/cleanup。
+3. 身份契约：脚本为每轮生成独立bundle ID、Keychain访问组及条目名，通过`LP_CHECK_NAME`/`LP_CHECK_PHASE`传合成参数；缓存删除只针对该测试应用容器。结束清条目、卸载宿主并删除临时构建目录；调用者关闭自己启动的模拟器。
+4. 校验与错误：首次读取须为`errSecItemNotFound`；写入/覆盖/读回须成功，字节完全一致；删除后须缺失。断言、进程提前退出、超时、清条目或卸载失败均返回非零，不输出条目内容。
+5. 场景：正常写入后终止进程，清可重建缓存再启动仍读回；删除后第三个进程确认缺失。仅清缓存不改变应用身份或访问组；损坏、保存失败、退出不复活及正式免登仍由Go回归和正式应用验收负责。
+6. 必须验证：故障注入在save后删除条目，verify须因`-25300`而不是预期`0`失败；恢复源码后全流程通过。只看到脚本非零不足以证明故障被正确检出。
+7. 避免重复踩坑：当前Xcode模拟器使用链接器`-sectcreate __TEXT __entitlements <plist>`嵌入测试身份，再普通ad-hoc签名；裸进程缺权限会报`-34018`，照搬真机`codesign --entitlements`曾导致模拟器拒绝启动。工具链变化先核对`ENTITLEMENTS_DESTINATION`，不改生产存储绕过权限。
 
 ## 空会话恢复契约
 

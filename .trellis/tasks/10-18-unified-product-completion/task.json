@@ -21,7 +21,7 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "唯一后续任务，先读resume.md。前置探针和客户端对齐任务已按转交归档，未验收项目仍开放。用户稍后继续，当前不推进实现或真机测试。",
+  "notes": "本阶段存储检查、正式签名安装与首轮真机反馈单独归档至10-21-tvos-device-checkpoint；总任务保持in_progress。首页往返无跳跃、栏目聚焦即切换、详情返回焦点/位置和本次样本基本播放由用户确认。用户要求按模块深入审查UI差异，整体视觉尚未对齐；其它验收及开发工具操作对本机历史的未确认影响继续保留。",
   "meta": {
     "merged_from": [
       "10-17-appletv-playback-spike",
