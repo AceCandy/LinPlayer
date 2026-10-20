@@ -16,6 +16,7 @@ import coil3.fetch.ImageFetchResult
 import coil3.request.Options
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.serialization.json.JsonArray
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonObject
@@ -40,6 +41,11 @@ class FakeCore : CorePort {
     val handlers = HashMap<String, (JsonObject?) -> JsonElement>()
 
     init {
+        // 默认仅回放无偏好的结果；规则本身由 Go 测试覆盖。
+        ret("player.selectTrackPreferences", buildJsonObject { put("sub", ""); put("audio", "") })
+        on("emby.heroCandidates") { args ->
+            JsonArray((args?.get("items") as? JsonArray).orEmpty().mapNotNull { (it as? JsonObject)?.get("id") })
+        }
         on("prefs.preloadItem") { args ->
             if ((args?.get("return_media") as? JsonPrimitive)?.content == "true")
                 handlers.getValue("emby.itemMedia")(args)
@@ -53,7 +59,14 @@ class FakeCore : CorePort {
     override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
         calls += command to args
         val h = handlers[command] ?: throw CoreException("E_UNSUPPORTED", "替身没有 $command", false)
-        return h(args)
+        val result = h(args)
+        // 回放核心成功事件。失败处理器不会走到这里，旧空间由宿主验证。
+        val change = mapOf("emby.setPlayed" to "all", "emby.setBlocked" to "all",
+            "emby.setFavorite" to "library", "emby.hideResume" to "resume")[command]
+        val id = (args?.get("request_scope") as? JsonObject)?.get("id")
+        if (change != null && id != null) events.emit(CoreEvent("data.userState",
+            buildJsonObject { put("id", id); put("scope", change) }))
+        return result
     }
 
     override fun setSurface(surface: Surface?, w: Int, h: Int) = 0

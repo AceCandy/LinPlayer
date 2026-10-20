@@ -6,12 +6,14 @@ package blocklist
 
 import (
 	"encoding/json"
+	"errors"
 	"os"
 	"strings"
 	"sync"
 	"time"
 
 	"linplayer/core/paths"
+	"linplayer/core/statefile"
 )
 
 // Item 是被判定对象需要提供的最小信息。
@@ -53,8 +55,10 @@ func List() []Entry {
 // 表现是「屏蔽过的东西第二天自己回来了」,而且一声不吭 ——
 // 对「屏蔽媒体库 → 卡片变灰 → 右键恢复」这条闭环更致命:灰卡下次开机自己变回来,
 // 用户会以为恢复键失灵。Rust 版一直是落 blocklist.json 的,迁移时漏了这一块。
-func Set(id, name string, blocked bool) {
+func Set(id, name string, blocked bool) error {
 	mu.Lock()
+	defer mu.Unlock()
+	before := append([]Entry(nil), list...)
 	changed := false
 	found := false
 	for i := range list {
@@ -75,10 +79,21 @@ func Set(id, name string, blocked bool) {
 	}
 	snap := make([]Entry, len(list))
 	copy(snap, list)
-	mu.Unlock()
 	if changed {
-		save(snap)
+		if s := statefile.Secure(); s != nil {
+			b, err := json.Marshal(snap)
+			if err == nil {
+				err = s.Write("blocklist.json", b)
+			}
+			if err != nil {
+				list = before
+				return err
+			}
+		} else {
+			save(snap)
+		}
 	}
+	return nil
 }
 
 // File 名单落盘的位置。**唯一出口是 paths**,别的包不许自己拼路径(SPEC §10.1)。
@@ -96,6 +111,26 @@ func Load() {
 		return
 	}
 	Replace(v)
+}
+
+// LoadStrict 用于隐私状态不可丢失的平台；读取/格式错误必须阻止浏览。
+func LoadStrict() error {
+	b, err := statefile.Read(File())
+	if err != nil {
+		return err
+	}
+	var v []Entry
+	if len(b) == 0 {
+		return errors.New("屏蔽名单为空文件")
+	}
+	if err := json.Unmarshal(b, &v); err != nil {
+		return err
+	}
+	if v == nil {
+		return errors.New("屏蔽名单必须是数组")
+	}
+	Replace(v)
+	return nil
 }
 
 // save 原子写:临时文件 + rename(和配置同一个口径,SPEC §14.2)。

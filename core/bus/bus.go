@@ -80,7 +80,7 @@ func Register(name string, h Handler) {
 	if _, dup := registry[name]; dup {
 		panic("命令重复注册: " + name)
 	}
-	registry[name] = h
+	registry[name] = scopedHandler(name, h)
 }
 
 // Commands 返回已注册的命令名,给契约测试和 system.capabilities 用。

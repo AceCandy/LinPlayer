@@ -44,7 +44,7 @@ UI = os.path.join(ROOT, 'apps', 'android', 'app', 'src', 'main', 'kotlin')
 
 # 会话四件套由 AppState.call 统一注入,核心层在 sessionFrom 这个助手里读,
 # 抓不到 —— 白名单放行。
-SESSION = {'server', 'token', 'user_id', 'device_id'}
+SESSION = {'server', 'token', 'user_id', 'device_id', 'request_scope'}
 
 # 「读了一个参数」的各种写法。**漏一种就是一个假红**,而假红比没有门禁更坏
 # —— 它会训练人无视这个门禁。

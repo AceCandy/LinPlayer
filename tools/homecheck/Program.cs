@@ -21,4 +21,12 @@ Check(result.Items.Count == 0 && result.Error is null && result.Resume is not nu
 
 result = await ResumeFeed.Load(() => Success("same"), () => Success("same"), null, null);
 Check(result.Items.Count == 1, "两路结果重复");
+var streamedResume = new List<JsonElement>();
+var streamedNext = new List<JsonElement>();
+async Task<List<JsonElement>> SnapshotThenFail(List<JsonElement> target, string id) {
+    await Task.Yield(); target.AddRange(Items(id)); throw new InvalidOperationException("刷新失败");
+}
+result = await ResumeFeed.Load(() => SnapshotThenFail(streamedResume, "cached-resume"),
+    () => SnapshotThenFail(streamedNext, "cached-next"), streamedResume, streamedNext);
+Check(result.Items.Count == 2 && result.Error is not null, "核心异步快照在双路失败时丢失");
 Console.WriteLine("首页两路加载:成功、部分失败、双路失败、缓存回退及去重通过");

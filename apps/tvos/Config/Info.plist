@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<plist version="1.0"><dict>
+    <key>CFBundleIdentifier</key><string>$(PRODUCT_BUNDLE_IDENTIFIER)</string>
+    <key>CFBundleExecutable</key><string>$(EXECUTABLE_NAME)</string>
+    <key>CFBundleName</key><string>$(PRODUCT_NAME)</string>
+    <key>CFBundleDisplayName</key><string>LinPlayer</string>
+    <key>CFBundlePackageType</key><string>APPL</string>
+    <key>CFBundleShortVersionString</key><string>$(MARKETING_VERSION)</string>
+    <key>CFBundleVersion</key><string>$(CURRENT_PROJECT_VERSION)</string>
+    <key>LSRequiresIPhoneOS</key><true/>
+    <key>UILaunchScreen</key><dict/>
+    <key>NSLocalNetworkUsageDescription</key><string>连接你配置的媒体服务器并播放局域网视频。</string>
+    <key>NSAppTransportSecurity</key><dict>
+        <!-- 服务器由用户运行时输入，固定 IP 的 HTTP 媒体/字幕也经 URLSession，无法预列域名例外。
+             此例外允许 HTTP；没有覆盖 URLSession 的 HTTPS 默认信任验证。 -->
+        <key>NSAllowsArbitraryLoads</key><true/>
+    </dict>
+</dict></plist>

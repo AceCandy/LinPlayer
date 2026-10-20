@@ -43,9 +43,9 @@ class TvPrivacyTest {
         core = FakeCore().loggedIn().apply {
             on("emby.views") { a -> arr(buildJsonObject {
                 put("id", "library"); put("name", "媒体库")
-                if (classified) put("is_adult", a?.get("is_adult")?.jsonPrimitive?.booleanOrNull ?: true)
+                if (classified) put("is_adult", a?.get("request_scope")?.jsonObject?.get("private")?.jsonPrimitive?.booleanOrNull ?: true)
             }) }
-            on("emby.listResume") { a -> if (a?.get("is_adult") == JsonPrimitive(true))
+            on("emby.listResume") { a -> if (a?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true))
                 arr(item("private", "私密作品")) else arr(item("normal", "普通作品")) }
             ret("plugin.homeSections", arr())
             ret("plugin.pageTakeovers", arr())
@@ -78,13 +78,13 @@ class TvPrivacyTest {
     @Test fun rootEnablesClassificationAndSpaceChangeDiscardsNavigationAndCaches() {
         mount()
         val normalColor = TvC.bg
-        val normalKey = app.browseCache.key("s", "u", "query")
-        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.listResume" }.second?.get("is_adult"))
+        val normalRevision = app.spaceRevision.value
+        assertEquals(JsonPrimitive(false), core.calls.last { it.first == "emby.listResume" }.second?.get("request_scope")?.jsonObject?.get("private"))
         enter(longClick = true)
         assertTrue(app.privateSpace.value)
         assertNotEquals("lifecycle=${lifecycle.currentState}, revision=${app.spaceRevision.value}, mode=${TvC.privateMode}", normalColor, TvC.bg)
-        assertNotEquals(normalKey, app.browseCache.key("s", "u", "query"))
-        assertEquals(JsonPrimitive(true), core.calls.last { it.first == "emby.listResume" }.second?.get("is_adult"))
+        assertTrue(app.spaceRevision.value > normalRevision)
+        assertEquals(JsonPrimitive(true), core.calls.last { it.first == "emby.listResume" }.second?.get("request_scope")?.jsonObject?.get("private"))
         rule.onNodeWithText("下载").assertDoesNotExist()
         listOf(0, 1, 3, 4).forEach { rule.onNodeWithTag("rail.$it").assertIsDisplayed() }
         listOf(2, 5, 6, 7).forEach { rule.onNodeWithTag("rail.$it").assertDoesNotExist() }
@@ -96,7 +96,7 @@ class TvPrivacyTest {
         assertFalse(app.privateSpace.value)
         assertEquals(normalColor, TvC.bg)
         listOf(0, 1, 3, 4, 7).forEach { rule.onNodeWithTag("rail.$it").assertIsDisplayed() }
-        assertEquals(normalKey, app.browseCache.key("s", "u", "query"))
+        assertFalse(app.privateSpace.value)
         assertTrue(rule.onAllNodesWithText("普通作品").fetchSemanticsNodes().isNotEmpty())
         rule.onNodeWithText("私密作品").assertDoesNotExist()
         // 再按返回不能恢复私密页或其保存状态。
@@ -124,7 +124,7 @@ class TvPrivacyTest {
         advance(rule, 900)
         rule.onNodeWithText("搜索历史").assertDoesNotExist()
         val calls = core.calls.drop(before)
-        assertTrue(calls.any { it.first == "emby.search" && it.second?.get("is_adult") == JsonPrimitive(true) })
+        assertTrue(calls.any { it.first == "emby.search" && it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true) })
         assertFalse(calls.any { it.first in setOf("prefs.pushSearch", "plugin.searchActions", "source.aggregateSearch") })
         assertFalse(TvRoute.History.privateAllowed())
         assertFalse(TvRoute.Downloads.privateAllowed())

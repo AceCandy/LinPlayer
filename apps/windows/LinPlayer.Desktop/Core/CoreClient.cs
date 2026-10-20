@@ -149,13 +149,6 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
         JsonElement result;
         try { result = await Send(Interlocked.Increment(ref _seq), command, requestArgs, ct).ConfigureAwait(false); }
         finally { scope.EnsureCurrent(); }
-        if (command is "emby.setFavorite" or "emby.setPlayed" or "emby.hideResume")
-        {
-            var request = JsonSerializer.SerializeToElement(args);
-            var key = (Str(request, "server") ?? "", Str(request, "user_id") ?? "", Str(request, "token") ?? "");
-            _userRevisions.AddOrUpdate(key, 1, (_, revision) => revision + 1);
-            Avalonia.Threading.Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) UserStateChanged?.Invoke(); });
-        }
         return result;
     }
 
@@ -327,6 +320,15 @@ public sealed class CoreClient : ILinPlayerCommands, IDisposable
                 {
                     var name = root.TryGetProperty("name", out var n) ? n.GetString() ?? "" : "";
                     var data = root.TryGetProperty("data", out var d) ? d.Clone() : default;
+                    if (name == "data.userState")
+                    {
+                        var scope = BrowseSpace.Current;
+                        if (Str(data, "id") == scope.Revision.ToString(System.Globalization.CultureInfo.InvariantCulture))
+                        {
+                            _userRevisions.AddOrUpdate((scope.Server, scope.User, scope.Token), 1, (_, revision) => revision + 1);
+                            Avalonia.Threading.Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) UserStateChanged?.Invoke(); });
+                        }
+                    }
                     if (name == "localserve.ready")
                     {
                         LocalBaseUrl = Str(data, "baseUrl") ?? "";

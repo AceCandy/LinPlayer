@@ -10,6 +10,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.core.CorePort
+import xyz.linplayer.app.core.CoreEvent
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.tv.FakeCore
 
@@ -17,6 +18,24 @@ import xyz.linplayer.app.tv.FakeCore
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
 class UserStateInvalidationTest {
+    @Test fun subscriptionExistsBeforeDispatcherRunsFirstQueuedTask() = runBlocking {
+        val pending = ArrayDeque<Runnable>()
+        val dispatcher = object : CoroutineDispatcher() {
+            override fun dispatch(context: kotlin.coroutines.CoroutineContext, block: Runnable) { pending.addLast(block) }
+        }
+        val scope = CoroutineScope(SupervisorJob() + dispatcher)
+        val core = FakeCore().apply { ret("emby.setPlayed", JsonNull) }
+        val app = AppState(core, scope)
+        try {
+            app.call("emby.setPlayed")
+            while (pending.isNotEmpty()) pending.removeFirst().run()
+            assertEquals(1L, app.userStateRevision.value)
+        } finally {
+            scope.cancel(); app.bg.cancel()
+            while (pending.isNotEmpty()) pending.removeFirst().run()
+        }
+    }
+
     @Test fun successfulWritesInvalidateButFailuresDoNot() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val core = FakeCore()
@@ -42,10 +61,16 @@ class UserStateInvalidationTest {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
         val started = CompletableDeferred<Unit>()
         val response = CompletableDeferred<JsonElement>()
-        val app = AppState(object : CorePort by FakeCore() {
+        val fake = FakeCore()
+        val app = AppState(object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 started.complete(Unit)
-                return response.await()
+                val result = response.await()
+                fake.events.emit(CoreEvent("data.userState", buildJsonObject {
+                    put("id", args!!.getValue("request_scope").jsonObject.getValue("id"))
+                    put("scope", "all")
+                }))
+                return result
             }
         }, scope)
         val seen = mutableListOf<String>()

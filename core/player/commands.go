@@ -8,8 +8,10 @@ package player
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
+	"linplayer/core/config"
 	"strconv"
 
 	"linplayer/core/bus"
@@ -23,6 +25,29 @@ func RegisterCommands(version string) {
 	registerWarmCommands()
 	registerThumbCommands()
 	registerSubtitleCommands()
+
+	bus.Register("player.selectTrackPreferences", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
+		b, err := json.Marshal(args["tracks"])
+		if err != nil {
+			return nil, bus.NewErr(bus.EInvalid, "轨道格式无效")
+		}
+		var tracks []Track
+		if err := json.Unmarshal(b, &tracks); err != nil {
+			return nil, bus.NewErr(bus.EInvalid, "轨道格式无效")
+		}
+		prefs := config.Current().PrefsOf()
+		if raw, ok := args["prefs"]; ok {
+			b, err := json.Marshal(raw)
+			if err != nil {
+				return nil, bus.NewErr(bus.EInvalid, "轨道偏好格式无效")
+			}
+			if err := json.Unmarshal(b, &prefs); err != nil {
+				return nil, bus.NewErr(bus.EInvalid, "轨道偏好格式无效")
+			}
+		}
+		sub, audio := chooseTracks(tracks, prefs)
+		return map[string]string{"sub": sub, "audio": audio}, nil
+	})
 
 	bus.Register("debug.mpvProp", func(ctx context.Context, seq int64, args map[string]any) (any, error) {
 		name, _ := args["name"].(string)

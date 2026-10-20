@@ -1,0 +1,54 @@
+# tvOS 外壳（开发中）
+
+适用 `apps/tvos/`、`bindings/swift/` 及 tvOS 专用脚本。页面设计正本为 [UI_TVOS](../../../docs/go-migration/UI_TVOS.md)，构建/验证入口为 [开发说明](../../../apps/tvos/README.md)。Android TV 正本与现有行为不改变。
+
+- SwiftUI 管导航/焦点，UIKit `AetherPlayerView` 管视频表面。业务、账号、播放目标/续播、上报归 Go；宿主不能另写 Emby HTTP 业务客户端。
+- 生成命令只改 `gen-bindings.py`；Swift DTO 按真实 handler 定义。唯一事件泵与发送队列分离，支持多 seq、取消、partial/result/event/eof；原生字符串复制后用 `lp_free` 释放，解析失败也不漏。
+- 普通浏览显式 `is_adult=false`；分页 query 嵌套，游标按原页数量推进，不能按去重后的卡片数推进。空季成功才回退剧 ID；失败不能当空季。
+- 页面任务用 `.task(id:)` 绑定路由；账号代次变化拒绝旧结果并清图片缓存。图片使用回环通道的鉴权请求头，token 不进 query。播放重试更换视图身份，旧会话停止后再创建新会话。
+- `player.play(engine=exo)` 是现有宿主解析协议；不传未知 aether 值。普通播放让核心决定续播/选版，从头用 `from_start=true`。不从缓存取最终播放目标。
+- Aether 固定 7.39.0 默认 traits，`autoplay=false` 加载后再按前台状态播放。实际 clock 上报；停止带 `item_id` 并检查 `reported`。挂起暂停并尽力上报，回前台不自动恢复声音。
+- 音轨选择用真实 `TrackInfo.id`，不可切换路线不提供入口，异步确认实际索引；字幕只呈现已支持文本 cue，复杂格式不假成功。
+- tvOS Go 构建使用 `ios && tvos` Keychain 后端，命令注册前严格恢复配置/设备标识/屏蔽名单。读写失败不得落回缓存或放宽隐私过滤；其它平台保留文件后端。
+- 固定依赖由脚本校验，中央引擎日志关闭后才允许真实账号联调；凭据、媒体 URL、请求头和 Keychain 内容不进日志。HTTP ATS 例外及未验范围见开发说明，不宣称仅局域网放行。
+
+## Quality Check
+
+生成/命令集合对账、Go 核心门禁、真实 tvOS C 头文件检查、整源码 `swiftc -typecheck -warnings-as-errors` 与 Swift 实质回归。检查入口不生成 .app；未经直接出包指令不调用 pack。
+
+类型检查不证明 Keychain 权限、框架嵌入、遥控焦点、实际媒体、音轨切换、进度服务端保存或 tvOS 18 兼容。正式应用真机验收当前未执行；前置探针证据不可计为正式客户端通过。最终出包另验 `-load_hidden` 符号、九个动态框架闭包/签名和第三方发行材料。
+
+## 空会话恢复契约
+
+1. 适用：首次启动和退出后的 `AppModel.restoreSession`，避免未登录被误报为启动恢复失败。
+2. 签名：`emby.currentSession` 无参数；Swift 使用 `MediaSession.restore(_ value: JSONValue) throws -> MediaSession?`。
+3. 返回：handler 无账号返回 nil；`bus.dispatch` 将 nil 成功结果转换为 `{}`。Swift 同时接受 `{}` 和 `null` 为无会话；非空会话仍须包含 server/token/user_id/user_name。
+4. 错误：空值转登录页；非空但缺字段、数组等形状继续抛 `E_PROTOCOL`，不能静默降级。
+5. 用例：完整会话恢复；空对象与 null 显示登录；缺字段对象/数组报错。
+6. 回归：`CoreClientCheck.apiContracts` 覆盖上述输入，去掉空对象分支必须失败；正式首次登录页面和跨进程恢复仍需真机确认。
+7. 避免：只看 handler 注释构造 `null` fixture。应核查 handler → dispatch → 信封 → DTO 的实际形状，不能全局把空对象改成 null。
+
+## 卡片评分与状态契约
+
+- 列表 DTO 来源 `core/emby/emby.go Item`：普通评分 `rating`，豆瓣评分 **`DoubanRating`**（区分大小写），未看数 `unplayed_item_count`，可信统计 `unplayed_count_known`。Swift 新字段可选，兼容缺失/null；路由占位无评分。
+- 普通评分仅有限的 `(0,10]`，豆瓣允许 `[0,10]`；分别显示一位小数。Series/Season 未看统计可信时显示正数，可信零且 played 时才显示完成；Movie/Episode/Season 已看可显示勾。未知整剧统计不显示完成。
+- 续播角标仅 Movie/Episode 且有效 runtime；未完成且 `0 < resume < runtime` 用剩余秒数，否则总时长。普通海报不显示时间角标。
+- `CoreClientCheck` 覆盖真实大小写、缺省统计、评分边界与剩余时间；将 DoubanRating 错写为 snake_case 的故障注入必须被检出。
+- 实拍证明 tvOS 顶栏 `.plain` 配合 `.focusEffectDisabled()` 仍可能出现系统白底；本任务改为自绘 ButtonStyle 后仍需电视确认，不能凭类型检查声称焦点修复。
+
+## 核心展示缓存接入契约
+
+1. 范围：tvOS 首页、详情、库分页/筛选、收藏、搜索/聚合、人物/合集及发现页消费已有 Go displaycache，不新增宿主磁盘缓存、缓存键、TTL或失效规则。
+2. 签名：`DisplayCommands.display(command,args) -> AsyncThrowingStream<CoreDisplayUpdate,Error>`；`MediaAPI.request(command,args,snapshot:)`。CoreClient 每个 Ticket 独立持有 partial 回调，普通 call 保持原协议和最终结果。
+3. 契约：partial → snapshot，result → 最终结果；每条更新按 seq 顺序消费。MediaAPI 每次回调和最终返回都检查取消及身份 epoch。流终止取消请求；晚到 partial 在 pending 已移除时丢弃。
+4. 错误：网络失败保留已显示资料并报告失败；E_AUTH/E_NOTFOUND/E_PERMISSION/E_UNSUPPORTED/E_INVALID 清除不可继续展示的数据，与核心失效规则一致。核心实时错误不能被缓存命中吞掉。展示回调只处理可解码快照。
+5. 正常/边界/错误案例：缓存资料先显示再刷新；无缓存等实时；切账号后旧partial不落页面；取消后晚到快照无效。详情缓存刻意不含实时收藏/已看/续播，用独立 DetailPresentation 解码；实时 MediaDetail 到达前不能触发依赖该状态的操作。
+6. 测试：CoreClientCheck.displayContracts 验证快照/最终顺序、身份改变、实时失败与取消；移除流内 epoch 校验应被回归检出。真实磁盘命中/断网/跨进程和遥控仍需真机。
+7. 正反例：错误是各端各造一套缓存键，或把核心partial强转成完整实时详情；正确是共用核心存取/投影/失效，宿主只映射展示和生命周期。Android 与桌面重复持久缓存已迁入核心；此结论仅指展示缓存层，不代表全部产品与真机验收完成。
+
+## 全页面视觉与图片隔离
+
+- 正式Android TV浏览基准是PhoneRoot(tv=true)接入ui/pages；不以旧tv页面或dp/pt数字直接比较效果。
+- 共用TVSectionHeading、TVActionStyle、TVRowStyle、TVChoice和TVTextInput。输入草稿取消不写父绑定，完成才写回；核心保存仍由页面既有操作提交。密码入口固定掩码，关闭清草稿。
+- 跨服图片来源取account/aggregate返回的line_url，缓存键必须包含来源服务器。显式空来源不回退当前服。所有图片请求仍走既有核心代理鉴权；宿主不拼其它账号token。
+- check-tvos-visual.sh使用正式页面、合成核心/图片/播放表面，生成模拟器测试宿主后自动卸载。覆盖23个页面状态和3个滚动下半页，程序化滚动不算遥控验收。跨服同ID、缓存命中、身份清除和空来源有断言；移除服务器缓存键的故障注入必须失败。

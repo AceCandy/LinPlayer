@@ -53,11 +53,6 @@ class PhoneMediaCacheSettingsTest {
             ret("system.clearCache", buildJsonObject { put("bytes", 0) })
         }
         val app = AppState(core, scope)
-        val key = app.detailCache.key("server", "user", "item")
-        runBlocking {
-            app.detailCache.put(key, buildJsonObject { put("id", "item"); put("name", "缓存片名") },
-                app.detailCache.generation)
-        }
         rule.setContent {
             LpTheme { CompositionLocalProvider(LocalApp provides app) {
                 val nav = rememberNavController()
@@ -68,7 +63,6 @@ class PhoneMediaCacheSettingsTest {
         }
         rule.onNodeWithText("清理缓存").performScrollTo().performClick()
         rule.waitUntil(5000) { core.calls.any { it.first == "system.clearCache" } }
-        assertNull(app.detailCache.peek(key))
         assertEquals(1, core.calls.count { it.first == "system.clearCache" })
     }
 

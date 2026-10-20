@@ -57,6 +57,7 @@ const (
 )
 
 var initOnce sync.Once
+var initResult = eInternal
 
 // guard 是每个导出的 panic 兜底。ret 是 panic 时该返回的值。
 func guard(where string, ret *C.int32_t, code C.int32_t) {
@@ -110,6 +111,15 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 		//   迁移随后看见目标已存在就跳过 → 旧根里的账号 / token 永远搬不过来。
 		//   顺序错了不报错,只是用户升级后「服务器全没了」(SPEC §16.1)。
 		paths.SetRoot(hostCfg.DataDir)
+		// tvOS 先恢复安全状态，再开放命令和后台任务。失败状态在重复 init 时仍保留。
+		if platformStateRequired {
+			if err := paths.EnsureDirs(); err != nil {
+				return
+			}
+			if err := restorePlatformState(); err != nil {
+				return
+			}
+		}
 		if hostCfg.Version != "" {
 			system.Version = hostCfg.Version
 		}
@@ -150,21 +160,25 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 		   重启就空,表现是「屏蔽过的东西第二天自己回来了」。
 		   必须排在 paths.SetRoot 之后(它要按数据根拼路径),
 		   而且要在命令注册之前:注册完就可能有列表请求进来,那时候名单得是全的。 */
-		blocklist.Load()
+		if !platformStateRequired {
+			blocklist.Load()
+		}
 		/* ★★ 接管上一份安装的数据,**必须排在 config.Load 之前**。
 		   排在后面的话:配置读不到 → 当场生成设备 id 并保存 → 新根里落下一份空配置
 		   → 接管看见目标已存在就跳过 → 用户升级后「服务器全没了」。
 		   Rust 版栽过同一处(SPEC §16.1),顺序错了不报错。
 		   安卓的数据根由系统给,升级不会换地方,不做这件事。 */
-		if hostCfg.Platform != "android" {
+		if !platformStateRequired && hostCfg.Platform != "android" {
 			if from, n := config.AdoptPreviousInstall(); n > 0 {
 				bus.Logf("info", "新装目录是空的,已从上一份安装接管 %d 项数据:%s", n, from)
 			}
 		}
-		if _, err := config.Load(); err != nil {
-			// ★ 配置坏了**必须冒出来**,不许静默退回空配置 ——
-			//   那会在下一次保存时把用户的账号全覆盖掉(见 core/config 包注释)
-			bus.Logf("error", "配置加载失败(不会退回空配置): %v", err)
+		if !platformStateRequired {
+			if _, err := config.Load(); err != nil {
+				// ★ 配置坏了**必须冒出来**,不许静默退回空配置 ——
+				//   那会在下一次保存时把用户的账号全覆盖掉(见 core/config 包注释)
+				bus.Logf("error", "配置加载失败(不会退回空配置): %v", err)
+			}
 		}
 		// ★ 配置加载完之后把图片白名单同步一遍 —— 冷启动时账号早就在配置里了,
 		//   不同步的话一张封面都没有,而命令全都正常(最难查的那种)。
@@ -172,17 +186,19 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 
 		/* ★ 插件宿主排在 config.Load 之后:数据源是账号表里的行,startup 插件一加载就可能读写它们。
 		   Wire 要在 Start 之前:startup 插件加载时就要拿到数据源回调。 */
-		ph := plugin.Default()
-		datasource.Wire(ph)
-		localserve.PluginAssetDir = ph.PkgDir
-		ph.Start(hostCfg.Platform, system.Version)
-		go ph.AutoUpdateOnStart(context.Background())
+		if !platformStateRequired {
+			ph := plugin.Default()
+			datasource.Wire(ph)
+			localserve.PluginAssetDir = ph.PkgDir
+			ph.Start(hostCfg.Platform, system.Version)
+			go ph.AutoUpdateOnStart(context.Background())
 
-		/* 快捷方式体检。**必须排在 config.Load 之后**:它要往配置里记一句
-		   「exe 现在在哪」,而 Load 之前 Current() 回的是空配置 ——
-		   在那儿保存等于把用户的账号清空(2026-09-12 自检当场撞到)。
-		   放后台:它要起 PowerShell,同步跑就是几百毫秒的冷启动税。 */
-		go system.RepairShortcutsIfMoved()
+			/* 快捷方式体检。**必须排在 config.Load 之后**:它要往配置里记一句
+			   「exe 现在在哪」,而 Load 之前 Current() 回的是空配置 ——
+			   在那儿保存等于把用户的账号清空(2026-09-12 自检当场撞到)。
+			   放后台:它要起 PowerShell,同步跑就是几百毫秒的冷启动税。 */
+			go system.RepairShortcutsIfMoved()
+		}
 
 		// ★ 代理同理:配置里存着代理,冷启动不装上的话「设置里明明开着,
 		//   重启之后就不走代理了」—— 而且一声不吭。
@@ -193,8 +209,9 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 
 		bus.Logf("info", "核心层已启动 ABI=%d 平台=%s 数据根=%s 命令=%d 条",
 			LP_ABI, hostCfg.Platform, paths.Root(), len(bus.Commands()))
+		initResult = eOK
 	})
-	return eOK
+	return initResult
 }
 
 // lp_call 发起一条命令。立即返回(不阻塞)。结果通过事件队列以 {"t":"result"} 送回。

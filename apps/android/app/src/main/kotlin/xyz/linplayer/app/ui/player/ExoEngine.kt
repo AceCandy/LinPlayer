@@ -60,6 +60,9 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
+import kotlinx.coroutines.launch
+import androidx.compose.runtime.rememberCoroutineScope
+import xyz.linplayer.app.data.LocalApp
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
@@ -99,6 +102,8 @@ private const val TAG_EXO = "lp-exo"
 @Composable
 internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTargetBytes: Long = 0, explicitSubtitle: Boolean = false, preload: Boolean = false): ExoPlayer? {
     val ctx = LocalContext.current
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
     if (!enabled) return null
     val player = remember {
         /* ★ UA 必须是 `LinPlayer/<版本>`(UA 三分口径)。不设的话 ExoPlayer 发的是
@@ -136,6 +141,9 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
             .build()
         // 每类轨道表只应用一次;手动选轨产生的回调不能再被默认偏好覆盖。
         val applied = mutableMapOf<Int, List<androidx.media3.common.TrackGroup>>()
+        var disposed = false
+        var generation = 0
+        val jobs = mutableMapOf<Int, kotlinx.coroutines.Job>()
         fun apply(tracks: Tracks) {
             if (prefs == null) return
             for (type in listOf(C.TRACK_TYPE_AUDIO, C.TRACK_TYPE_TEXT)) {
@@ -147,20 +155,34 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
                 if (type in player.trackSelectionParameters.disabledTrackTypes) continue
                 val rows = groups.flatMap { group -> (0 until group.length).filter { group.isTrackSupported(it) }.map { group to it } }
                 val subtitle = type == C.TRACK_TYPE_TEXT
-                val index = preferredTrackIndex(rows.map { (g, i) ->
-                    val f = g.getTrackFormat(i)
-                    TrackCandidate(f.label.orEmpty(), f.language.orEmpty(), g.isTrackSelected(i))
-                }, if (subtitle) prefs.subLang else prefs.audioLang, if (subtitle) prefs.subRegex else prefs.audioRegex, subtitle)
-                if (index >= 0) {
-                    val (group, track) = rows[index]
-                    player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
-                        .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track)).build()
+                val identity = player.currentMediaItem
+                val revision = generation
+                val parameters = player.trackSelectionParameters
+                jobs.remove(type)?.cancel()
+                jobs[type] = scope.launch {
+                    try {
+                        val index = app.preferredTrackIndex(rows.map { (g, i) ->
+                            val f = g.getTrackFormat(i)
+                            TrackCandidate(f.label.orEmpty(), f.language.orEmpty(), g.isTrackSelected(i))
+                        }, if (subtitle) prefs.subLang else prefs.audioLang, if (subtitle) prefs.subRegex else prefs.audioRegex, subtitle)
+                        if (disposed || revision != generation || player.currentMediaItem != identity ||
+                            applied[type] != key || type in player.trackSelectionParameters.disabledTrackTypes ||
+                            player.trackSelectionParameters.overrides.filterKeys { it in key } != parameters.overrides.filterKeys { it in key }) return@launch
+                        if (index >= 0) {
+                            val (group, track) = rows[index]
+                            player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
+                                .setOverrideForType(TrackSelectionOverride(group.mediaTrackGroup, track)).build()
+                        }
+                    } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                      catch (e: Exception) { app.report(e) }
                 }
             }
         }
         val listener = object : Player.Listener {
             override fun onTracksChanged(tracks: Tracks) = apply(tracks)
             override fun onMediaItemTransition(mediaItem: MediaItem?, reason: Int) {
+                generation++
+                jobs.values.forEach { it.cancel() }; jobs.clear()
                 applied.clear()
                 player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
                     .clearOverridesOfType(C.TRACK_TYPE_AUDIO).clearOverridesOfType(C.TRACK_TYPE_TEXT).build()
@@ -168,7 +190,7 @@ internal fun rememberExoPlayer(enabled: Boolean, prefs: TrackPrefs?, bufferTarge
         }
         player.addListener(listener)
         apply(player.currentTracks)
-        onDispose { player.removeListener(listener) }
+        onDispose { disposed = true; jobs.values.forEach { it.cancel() }; player.removeListener(listener) }
     }
     ObserveMedia3Diagnostics(player)
     DisposableEffect(player) { onDispose { player.release(); ExoPreload.of(player)?.release() } }

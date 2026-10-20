@@ -224,7 +224,7 @@ class PhoneEnginePlaybackTest {
         val port = object : CorePort by core {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 val result = core.callJson(command, args, onPartial)
-                if (command == "emby.seasonEpisodes") release.await()
+                if (command == "emby.playbackSeason") release.await()
                 return result
             }
         }
@@ -661,7 +661,7 @@ class PhoneEnginePlaybackTest {
     @Config(qualifiers = "w320dp-h640dp-port-mdpi")
     fun 竖屏片源完播错误仍可重试和返回() {
         val core = portraitCore().apply {
-            on("emby.seasonEpisodes") {
+            on("emby.playbackSeason") {
                 throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败，请检查网络连接与服务器状态。".repeat(8), true)
             }
         }
@@ -859,6 +859,7 @@ class PhoneEnginePlaybackTest {
             ret("emby.itemDetail", buildJsonObject {
                 put("id", "sh6"); put("name", "测试电影"); put("type_", "Movie")
             })
+            ret("emby.playbackSeason", arr())
         }
         showPlayer(core, "mpv")
         assertEquals(rule.onRoot().fetchSemanticsNode().boundsInRoot,
@@ -873,7 +874,7 @@ class PhoneEnginePlaybackTest {
     @Config(qualifiers = "w360dp-h800dp-port-mdpi", sdk = [36], application = Application::class)
     fun 竖屏长错误仍可重试和请求退出() {
         val core = episodeCore().apply {
-            on("emby.seasonEpisodes") {
+            on("emby.playbackSeason") {
                 throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败，请检查网络连接与服务器状态。".repeat(8), true)
             }
         }
@@ -890,7 +891,7 @@ class PhoneEnginePlaybackTest {
 
     @Test fun 季末没有下一集不显示接下来() {
         val core = episodeCore().apply {
-            ret("emby.seasonEpisodes", buildJsonObject { put("items", arr(item("sh6", "最后一集", "Episode"))); put("total", 1) })
+            ret("emby.playbackSeason", arr(item("sh6", "最后一集", "Episode")))
         }
         showPlayer(core, "mpv")
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
@@ -903,7 +904,7 @@ class PhoneEnginePlaybackTest {
         val core = episodeCore()
         val port = object : CorePort by core {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "emby.seasonEpisodes") {
+                if (command == "emby.playbackSeason") {
                     release.await()
                     throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集读取失败", true)
                 }

@@ -7,7 +7,8 @@
 | `core/` | Go 业务核心、命令总线、C ABI 与核心测试 |
 | `apps/windows/` | Windows / Linux 共用的 C# / Avalonia 外壳 |
 | `apps/android/` | Kotlin / Compose 工程，手机与 TV 共用核心接入 |
-| `bindings/csharp/`、`bindings/kotlin/` | 从命令表生成的绑定及绑定验证工程 |
+| `apps/tvos/` | 开发中的 SwiftUI / UIKit tvOS 外壳与原生工程 |
+| `bindings/csharp/`、`bindings/kotlin/`、`bindings/swift/` | 从命令表生成的绑定及绑定验证工程 |
 | `third_party/libmpv/` | 链接所需头文件与导入库；可拉取的运行库不入仓 |
 | `oauth-proxy/` | OAuth 中转与官网静态站 |
 | `scripts/` | 构建、打包、生成与门禁的可执行入口 |

@@ -41,7 +41,7 @@ public sealed class DetailPage : PageBase
     /// <summary>
     /// 分集表挂在**谁**底下。剧 / 季就是它自己,<b>分集则是它所属的剧</b>。
     ///
-    /// <para>缓存键(<see cref="PaintEpisodesFromCache"/>)和拉取都得用同一个值 ——
+    /// <para>缓存键(核心快照)和拉取都得用同一个值 ——
     /// 用错的表现是「缓存永远不命中」,而它不报错,只是每次进来都干等一次往返。</para>
     /// </summary>
     private string _episodesParent = "";
@@ -219,18 +219,13 @@ public sealed class DetailPage : PageBase
                    都是可以缓存的,这样下次打开就很快了…其他页面也一样」)。
                    详情页是全站被反复进出最多的一页 —— 看完一集退出来再点进去,
                    海报、简介、标签这些**一个字都没变**,却要再等一次完整往返。 */
-                var key = MetaCache.Key("emby.itemDetail", new { s.server, s.user_id, item_id = itemId });
-                var cached = MetaCache.Peek(key);
-                if (cached is { ValueKind: JsonValueKind.Object } c0)
-                    Dispatcher.UIThread.Post(() => PaintPreview(c0));
-
+                // 详情展示快照统一由核心存取，页面只消费预览与实时结果。
                 var d = await core.CallDisplayAsync("emby.itemDetail", new
                 {
                     s.server, s.token, s.user_id, s.device_id,
                     item_id = itemId, with_children = false,
                 }, PaintPreview, retainOnFailure: false);
                 if (revision != _detailRevision) return;
-                MetaCache.Put(key, d);
                 /* 内容一个字没变就<b>不要重画</b>。
                    重画一次这一页要重建海报、按钮、分集网格 —— 用户看到的是
                    「刚出来的页面当场闪一下又变回同样的样子」,那看着像 bug。
@@ -254,7 +249,6 @@ public sealed class DetailPage : PageBase
                 Dispatcher.UIThread.Post(() => Paint(d));
                 if (_episodesTask is not null)
                 {
-                    PaintEpisodesFromCache(_episodesParent, revision);   // 必须排在 Paint 之后,见方法注释
                     await FillEpisodes(revision);
                 }
                 return;
@@ -289,7 +283,7 @@ public sealed class DetailPage : PageBase
                 var why = LibraryPage.Advice(e);
                 Dispatcher.UIThread.Post(() =>
                 {
-                    if (e is CoreException ce && ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID")
+                    if (e is CoreException ce && ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID" or "E_UNSUPPORTED")
                         _previewHost.Content = null;
                     if (!DisplayCurrent || revision != _detailRevision) return;
                     if (_paint is not null) Toast.Error(why);
@@ -320,35 +314,29 @@ public sealed class DetailPage : PageBase
         try
         {
             var s = _displaySession!;
-            var key = MetaCache.Key("emby.seasonEpisodes", new { s.server, s.user_id, parent_id = itemId });
-            while (true)
+            var page = await _core.CallDisplayAsync("emby.seasonEpisodes", new
             {
-                var prefix = all.ToList();
-                var page = await _core.CallDisplayAsync("emby.seasonEpisodes", new
-                {
-                    s.server, s.token, s.user_id, s.device_id,
-                    parent_id = itemId, start_index = all.Count, limit = 200,
-                }, value => {
-                    if (!DisplayCurrent || revision != _detailRevision || _episodesParent != itemId) return;
-                    var old = value.TryGetProperty("items", out var rows) && rows.ValueKind == JsonValueKind.Array
-                        ? rows.EnumerateArray().Select(CardItem.From).ToList() : [];
-                    _episodesHost.Content = Episodes(prefix.Concat(old).ToList());
-                }, retainOnFailure: false);
-                var got = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
-                    ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
-                // 空页就停。只看 total 的话,服务端 total 报大了就是个死循环。
-                if (got.Count == 0) break;
-                all.AddRange(got);
-                var total = page.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number
-                    ? t.GetInt32() : all.Count;
-                if (all.Count >= total) break;
-            }
+                s.server, s.token, s.user_id, s.device_id, parent_id = itemId, all = true,
+            }, value => {
+                if (!DisplayCurrent || revision != _detailRevision || _episodesParent != itemId) return;
+                var old = value.TryGetProperty("items", out var rows) && rows.ValueKind == JsonValueKind.Array
+                    ? rows.EnumerateArray().Select(CardItem.From).ToList() : [];
+                _episodesHost.Content = Episodes(old);
+            }, retainOnFailure: false);
+            if (page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array)
+                all.AddRange(arr.EnumerateArray().Select(CardItem.From));
             if (revision != _detailRevision) return null;
-            MetaCache.PutList(key, all.Select(CardItem.ToJson).ToList());
         }
         /* 分集拉不动**不该让整页失败** —— 头部已经在屏幕上了。
             而且这时候要<b>回落到缓存</b>:离线 / 服务器抽风时,
             上一次拉到的分集表仍然是能看的东西,给一张空表等于白白丢掉它。 */
+        catch (CoreException e) when (e.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID" or "E_UNSUPPORTED")
+        {
+            Dispatcher.UIThread.Post(() => {
+                if (DisplayCurrent && revision == _detailRevision) _episodesHost.Content = Dim(LibraryPage.Advice(e));
+            });
+            return null;
+        }
         catch
         {
             // 失败保留已显示的列表，但不能用它选择主播放目标。
@@ -368,23 +356,17 @@ public sealed class DetailPage : PageBase
     {
         var s = Nav.Session;
         if (s is null) return;
-        var key = MetaCache.Key("emby.collectionItems", new { s.server, s.user_id, item_id = itemId });
-        // 缓存先行,和详情主体同一条口径:合集页也是会被反复进出的
-        if (MetaCache.Peek(key) is { ValueKind: JsonValueKind.Object } hit)
-            Dispatcher.UIThread.Post(() => PaintCollection(hit));
         try
         {
             var r = await _core.CallDisplayAsync("emby.collectionItems", new
             {
                 s.server, s.token, s.user_id, s.device_id, item_id = itemId,
             }, PaintCollection);
-            MetaCache.Put(key, r);
             Dispatcher.UIThread.Post(() => PaintCollection(r));
         }
         catch (Exception e)
         {
             // 已经有缓存就别用报错盖掉它 —— 那是「本来看得见,刷新一下没了」
-            if (MetaCache.Peek(key) is { ValueKind: JsonValueKind.Object }) return;
             Dispatcher.UIThread.Post(() =>
                 _episodesHost.Content = Dim($"这个合集拉不出来:{LibraryPage.Advice(e)}"));
         }
@@ -420,31 +402,6 @@ public sealed class DetailPage : PageBase
 
     /// <summary>分集列表最近一次画出来的那一份(原文)。用来判「真数据和缓存一个字没变」。</summary>
     private string _episodesRaw = "";
-
-    /// <summary>
-    /// 分集缓存先行:命中就当场画,一次往返都不等。
-    ///
-    /// <para>用户 2026-09-04:「季详情页加载有点慢」。根因不是命令慢,是分集这一块
-    /// 从来没吃过缓存 —— 主体早就走了缓存先行,分集只在请求失败时才回落。
-    /// 于是每次进来上半页秒出、下半页干等一次往返,而要画的东西一个字都没变。
-    /// 必须排在 <c>Paint()</c> 那次 Post 之后:Paint 会把内容重置成骨架。</para>
-    /// </summary>
-    private void PaintEpisodesFromCache(string itemId, int revision)
-    {
-        var s = Nav.Session;
-        if (s is null) return;
-        var hit = MetaCache.PeekList(
-            MetaCache.Key("emby.seasonEpisodes", new { s.server, s.user_id, parent_id = itemId }));
-        if (hit is not { Count: > 0 }) return;
-        var raw = string.Concat(hit.Select(x => x.GetRawText()));
-        var eps = hit.Select(CardItem.From).ToList();
-        Dispatcher.UIThread.Post(() =>
-        {
-            if (!DisplayCurrent || revision != _detailRevision) return;
-            _episodesRaw = raw;
-            _episodesHost.Content = Episodes(eps);
-        });
-    }
 
     /// <summary>分集到了,把骨架换成真内容。</summary>
     private async Task FillEpisodes(int revision)

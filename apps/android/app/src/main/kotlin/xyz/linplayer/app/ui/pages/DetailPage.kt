@@ -327,7 +327,7 @@ fun DetailPage(nav: NavController, entry: NavBackStackEntry) {
     val original = entry.toRoute<Route.Detail>()
     val route = if (original.type == "Episode") original.copy(itemId = playedItem ?: original.itemId) else original
     key(entry.id, account.server, account.userId, route.itemId) {
-        DetailContent(nav, route, app.detailCache.key(account.server, account.userId, route.itemId), playedItem, returnRevision)
+        DetailContent(nav, route, listOf(account.server, account.userId, app.spaceRevision.value, route.itemId).toString(), playedItem, returnRevision)
     }
 }
 
@@ -338,7 +338,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val c = Lp.colors
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
-    val epoch = remember(cacheKey) { app.detailCache.generation }
+    val epoch = remember(cacheKey) { app.spaceRevision.value }
     var presentation by remember(cacheKey) { mutableStateOf(detailPresentations()[cacheKey]?.takeIf { it.epoch == epoch }) }
     if (switching && !app.privateSpace.value) EmbySwitchSource(nav, route.itemId) { switching = false }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
@@ -346,13 +346,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
 
     var detail by remember { mutableStateOf<Block<JsonObject>>(Block.Loading) }
-    var cached by remember { mutableStateOf(app.detailCache.peek(cacheKey)) }
+    var cached by remember { mutableStateOf<JsonObject?>(null) }
     var detailRetry by remember { mutableStateOf(0) }
     var cacheAllowed by remember { mutableStateOf(true) }
-    LaunchedEffect(cacheKey) {
-        val stored = app.detailCache.load(cacheKey, app.detailCache.generation)
-        if (detail !is Block.Ok && cacheAllowed) cached = stored
-    }
     var media by remember { mutableStateOf<Block<List<Version>>>(Block.Loading) }
     var mediaRetry by remember { mutableStateOf(0) }
     var mediaItemId by remember { mutableStateOf<String?>(null) }
@@ -434,7 +430,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     // 展示资料可先用缓存，用户状态、分集目标与插件仍只用本次服务端结果。
     LaunchedEffect(route.itemId, detailRetry, returnRevision) {
         if (returnRevision > 0) PlayerController.awaitPendingStop()
-        val epoch = app.detailCache.generation
         detail = Block.Loading
         val d = app.displayBlock("emby.itemDetail", args("item_id" to route.itemId), retainOnFailure = false) { if (detail !is Block.Ok && cacheAllowed) cached = it.obj() }
         currentCoroutineContext().ensureActive()
@@ -446,15 +441,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         val o = d.valueOrNull.obj()
         favorite = o.bool("is_favorite")
         played = o.bool("played")
-        if (d is Block.Fail && d.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
+        if (d is Block.Fail && d.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) {
             cacheAllowed = false
             cached = null
             presentation = null
             detailPresentations().remove(cacheKey)
-            app.detailCache.remove(cacheKey, epoch)
         } else if (o != null) {
             cacheAllowed = true
-            launch { app.detailCache.put(cacheKey, o, epoch) }
         }
     }
 
@@ -610,7 +603,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val showBody = bodyShown || bodyReady || detail is Block.Fail
     SideEffect {
         if (bodyReady) bodyShown = true
-        if (initialReady && live != null && cacheAllowed && app.detailCache.generation == epoch &&
+        if (initialReady && live != null && cacheAllowed && app.spaceRevision.value == epoch &&
             (!isSeries || seasonLoad is Block.Ok) &&
             (isSeries || route.type == "BoxSet" || media is Block.Ok)) {
             val snapshot = DetailPresentation(epoch, media.valueOrNull ?: presentation?.media, shownSeasons, curSeason,
@@ -774,7 +767,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         val summary = Triple(d.dbl("rating")?.takeIf { it > 0 },
                             d.long("year")?.toString() ?: detailDate(d)?.take(4),
                             seasons.size.takeIf { (seasonLoad is Block.Ok || presentation != null) && it > 0 })
-                        DetailReveal(summary, Modifier.testTag("detail.ratings")) { current ->
+                        DetailReveal(summary, Modifier.testTag("detail.ratings"), immediate = live == null && cached != null) { current ->
                             androidx.compose.foundation.layout.FlowRow(
                                 Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12)
                                     .heightIn(min = bodyHeight + 4.dp),
@@ -803,7 +796,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         d.dbl("runtime_secs")?.takeIf { it > 0 }?.let { fmtDur(it) },
                         d.long("child_count")?.takeIf { it > 0 && isSeries }?.let { "$it 集" },
                     )
-                    DetailReveal(if (d == null) null else values, Modifier.testTag("detail.ratings")) { current ->
+                    DetailReveal(if (d == null) null else values, Modifier.testTag("detail.ratings"), immediate = live == null && cached != null) { current ->
                         if (!current.isNullOrEmpty()) Text(
                             current.joinToString(" · "),
                             Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12),
@@ -821,7 +814,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         d.strList("tags").take(6).map { Triple("tag", it, it) } +
                         d.namedList("studios").take(3).map { Triple("studio", it.second, it.first) }
                     val plain = listOfNotNull(d.str("official_rating"), d.str("status"))
-                    DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags")) { current ->
+                    DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags"), immediate = live == null && cached != null) { current ->
                         if (current != null && (current.first.isNotEmpty() || current.second.isNotEmpty())) Row(
                             Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
                                 .padding(start = Sp.x16, end = Sp.x16, top = Sp.x12),
@@ -984,7 +977,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 } }
 
                 if (isEpisode || isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
-                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview")) { ov ->
+                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
                 } }
@@ -1124,13 +1117,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 }
 
                 if (!isEpisode && !isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
-                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview")) { ov ->
+                    DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
                 } }
 
                 item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
-                    DetailReveal(people, Modifier.testTag("detail.people")) { current ->
+                    DetailReveal(people, Modifier.testTag("detail.people"), immediate = live == null && cached != null) { current ->
                         if (current.isNotEmpty()) People(app, current)
                     }
                 } }
@@ -1391,12 +1384,14 @@ private fun kickerOf(type: String?): String = when (type) {
 
 /** 仅对本区展示值过渡，缓存首帧直接呈现，相同资料刷新不重播。 */
 @Composable
-private fun <Value> DetailReveal(value: Value, modifier: Modifier = Modifier, content: @Composable (Value) -> Unit) {
+private fun <Value> DetailReveal(value: Value, modifier: Modifier = Modifier, immediate: Boolean = false, content: @Composable (Value) -> Unit) {
     val fade = lpTween<Float>(T.T8, LinearEasing)
     val size = lpTween<IntSize>(T.T6)
     AnimatedContent(value, modifier = modifier.fillMaxWidth(), contentAlignment = Alignment.TopStart,
         transitionSpec = {
-            (fadeIn(fade) togetherWith fadeOut(fade)).using(SizeTransform { _, _ -> size })
+            if (immediate) (androidx.compose.animation.EnterTransition.None togetherWith androidx.compose.animation.ExitTransition.None)
+                .using(SizeTransform { _, _ -> androidx.compose.animation.core.snap() })
+            else (fadeIn(fade) togetherWith fadeOut(fade)).using(SizeTransform { _, _ -> size })
         }, label = "detailReveal") { current ->
         Column(Modifier.fillMaxWidth()) { content(current) }
     }
@@ -1857,16 +1852,21 @@ private fun SubDialog(
 /* ───────────────────────────── 小工具 ───────────────────────────── */
 
 /** 展示沿用当前语言偏好与服务端默认轨，不另选播放版本。 */
+@Composable
 private fun selectedTrack(streams: List<Stream>?, prefer: String?, pattern: String = ""): Stream? {
+    val app = LocalApp.current
     val ss = streams.orEmpty()
-    if (ss.firstOrNull()?.type == "Subtitle") {
-        val index = preferredTrackIndex(ss.map { TrackCandidate(
-            listOfNotNull(it.title, it.display).joinToString(" "), it.lang.orEmpty(), it.isDefault,
-        ) }, prefer, pattern, subtitle = true)
-        if (index >= 0) return ss[index]
+    val selected by androidx.compose.runtime.produceState<Stream?>(null, ss, prefer, pattern) {
+        value = null
+        try {
+            val index = app.preferredTrackIndex(ss.map { TrackCandidate(
+                listOfNotNull(it.title, it.display).joinToString(" "), it.lang.orEmpty(), it.isDefault,
+            ) }, prefer, pattern, subtitle = ss.firstOrNull()?.type == "Subtitle")
+            value = ss.getOrNull(index) ?: ss.firstOrNull { it.isDefault } ?: ss.firstOrNull()
+        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+          catch (e: Exception) { app.report(e) }
     }
-    return prefer?.takeIf { it.isNotEmpty() }?.let { p -> ss.firstOrNull { it.lang == p } }
-        ?: ss.firstOrNull { it.isDefault } ?: ss.firstOrNull()
+    return selected
 }
 
 /** 视频规格保留动态范围，不从版本文件名猜测HDR或杜比视界。 */

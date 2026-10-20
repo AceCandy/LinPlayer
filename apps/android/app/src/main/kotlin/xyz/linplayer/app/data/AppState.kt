@@ -25,8 +25,7 @@ import xyz.linplayer.app.core.CorePort
  * 业务状态仍由核心负责；详情缓存只保留展示资料，每次进入后台刷新。
  * 失效事件转成 Flow，由页面按自己的请求生命周期重取。
  */
-class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: DetailCache = DetailCache(),
-    val browseCache: BrowseCache = BrowseCache()) {
+class AppState(val core: CorePort, scope: CoroutineScope) {
 
     /**
      * 收尾用的作用域。**寿命跟进程,不跟 composition。**
@@ -46,6 +45,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     private val _spaceRevision = MutableStateFlow(0L)
     val spaceRevision = _spaceRevision.asStateFlow()
     private var privacyFiltering = false
+    private var requestScopeID = java.util.UUID.randomUUID().toString()
 
     /** 浏览外壳开启分类隔离；解锁仅在本进程有效。 */
     fun enablePrivacyFiltering() {
@@ -57,9 +57,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     private fun changeSpace(adult: Boolean) {
         _privateSpace.value = adult
         _spaceRevision.value++
-        val namespace = if (adult) "adult-v1" else "normal-v1"
-        browseCache.setNamespace(namespace)
-        detailCache.setNamespace(namespace)
+        requestScopeID = java.util.UUID.randomUUID().toString()
         PageCache.clear()
     }
 
@@ -125,9 +123,16 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
     val toasts: SharedFlow<Toast> = _toasts
 
     init {
-        scope.launch {
+        scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
             core.events.collect { ev ->
                 when (ev.name) {
+                    "data.userState" -> {
+                        val data = ev.data.obj()
+                        if (data.str("id") == requestScopeID) {
+                            _userStateRevision.update { it + 1 }
+                            _invalidate.tryEmit(data.str("scope") ?: "all")
+                        }
+                    }
                     "data.invalidate" -> {
                         val changed = (ev.data as? JsonObject).str("scope") ?: "all"
                         if (changed in setOf("all", "library", "resume")) _userStateRevision.update { it + 1 }
@@ -154,6 +159,7 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
             leavePrivateSpace()
             PageCache.clear()
         }
+        if (_session.value != s) requestScopeID = java.util.UUID.randomUUID().toString()
         _session.value = s
         _aggregatePrimary.value = accounts.firstOrNull { it.aggregatePrimary }?.server
         _activeSource.value = accounts.firstOrNull { it.isActive && it.plugin != null }
@@ -180,22 +186,8 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
         onPartial: ((JsonElement) -> Unit)? = null,
     ): JsonElement {
         val revision = _spaceRevision.value
-        // 隐私空间只使用当前服实时资料，不接入本地历史或跨服查询。
-        if (_privateSpace.value && (command.startsWith("emby.watchHistory") || command.startsWith("download.") || command in setOf(
-                "emby.aggregateOverview", "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch")))
-            throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器", false)
-        if (_privateSpace.value && (command.startsWith("source.") || command.startsWith("plugin.") ||
-                command in setOf("player.playLocal", "prefs.pushSearch")))
-            throw CoreException("E_UNSUPPORTED", "隐私空间不使用本地记录或数据源", false)
-        val filtered = privacyFiltering && (command.startsWith("emby.") || command in setOf(
-            "source.aggregateSearch", "prefs.preloadItem", "player.play", "player.prepareNext", "player.queuePrepared"))
-        val requestArgs = if (filtered) JsonObject((args ?: JsonObject(emptyMap())) +
-            ("is_adult" to JsonPrimitive(_privateSpace.value))) else args
         val s = _session.value
-        if (_privateSpace.value && filtered &&
-            (args.str("server")?.let { it != s?.server } == true || args.str("user_id")?.let { it != s?.userId } == true ||
-                args.str("token")?.let { it != s?.token } == true || args.str("server_id")?.let { it.isNotEmpty() && it != s?.server } == true))
-            throw CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器和账号", false)
+        val requestArgs = args
         val merged = if (s == null) requestArgs else JsonObject(
             mapOf(
                 "server" to JsonPrimitive(s.server),
@@ -204,37 +196,17 @@ class AppState(val core: CorePort, scope: CoroutineScope, val detailCache: Detai
                 "device_id" to JsonPrimitive(deviceId()),
             ) + (requestArgs ?: JsonObject(emptyMap()))   // 调用方显式给的压过默认的
         )
-        val epoch = browseCache.generation
-        val value = core.callJson(command, merged) { partial ->
+        val scopeArgs = JsonObject(mapOf(
+            "id" to JsonPrimitive(requestScopeID), "private" to JsonPrimitive(_privateSpace.value),
+            "filter" to JsonPrimitive(privacyFiltering), "server" to JsonPrimitive(s?.server.orEmpty()),
+            "user_id" to JsonPrimitive(s?.userId.orEmpty()), "token" to JsonPrimitive(s?.token.orEmpty()),
+        ))
+        val scoped = JsonObject((merged ?: JsonObject(emptyMap())) + ("request_scope" to scopeArgs))
+        val value = core.callJson(command, scoped) { partial ->
             if (_spaceRevision.value == revision && _session.value == s) onPartial?.invoke(partial)
         }
-        if (filtered && (_spaceRevision.value != revision || _session.value != s))
+        if (_spaceRevision.value != revision || _session.value != s)
             throw kotlinx.coroutines.CancellationException("浏览空间已切换")
-        if (s != null && _session.value == s &&
-            merged.str("server") == s.server && merged.str("user_id") == s.userId &&
-            command in setOf("emby.listLatest", "emby.listResume", "emby.listFavorites",
-                "emby.listItemsPage", "emby.listItems", "emby.search", "emby.itemDetail",
-                "emby.seriesSeasons", "emby.seasonEpisodes", "emby.setPlayed")) {
-            // 完成的浏览资料在后台登记，页面和播放不等待候选缓存写盘。
-            val snapshot = if (command == "emby.setPlayed") JsonObject(mapOf(
-                "id" to (value.obj()?.get("item_id") ?: JsonPrimitive("")),
-                "played" to (value.obj()?.get("played") ?: JsonPrimitive(false)),
-            )) else value
-            bg.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
-                browseCache.recordHeroItems(s.server, s.userId, snapshot, epoch)
-            }
-        }
-        // 写入成功后让依赖用户状态的页面重读；失败和旧会话结果不能触发刷新。
-        if (_spaceRevision.value == revision && _session.value == s &&
-            (s == null || (merged.str("server") == s.server && merged.str("user_id") == s.userId))) {
-            if (command in setOf("emby.setPlayed", "emby.setFavorite", "emby.hideResume"))
-                _userStateRevision.update { it + 1 }
-            when (command) {
-                "emby.setPlayed" -> _invalidate.emit("all")
-                "emby.setFavorite" -> _invalidate.emit("library")
-                "emby.hideResume" -> _invalidate.emit("resume")
-            }
-        }
         return value
     }
 

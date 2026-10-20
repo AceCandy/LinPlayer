@@ -62,7 +62,7 @@ class TvFocusTest {
 
     private fun mount(route: TvRoute = TvRoute.Home, intercept: ((FakeCore) -> xyz.linplayer.app.core.CorePort)? = null, setup: FakeCore.() -> Unit = {}) {
         core = FakeCore().loggedIn().apply(setup)
-        app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main))
+        app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
         runBlocking { app.boot() }
         nav = TvNav().apply { if (route == TvRoute.Home) Unit else push(route) }
         rule.mainClock.autoAdvance = false
@@ -84,6 +84,8 @@ class TvFocusTest {
         }
         val before = core.calls.count { it.first == "emby.listResume" }
         rule.runOnUiThread { marked = true; runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "r1"); put("played", true) }) } }
+        rule.waitUntil { app.userStateRevision.value > 0 }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
         advance(rule, 800)
         assertTrue("TV首页没有消费用户状态失效", core.calls.count { it.first == "emby.listResume" } > before)
         rule.onNode(hasTestTag("home.resume.r1")).assertDoesNotExist()
@@ -106,6 +108,7 @@ class TvFocusTest {
         rule.runOnUiThread { nav.push(TvRoute.Settings) }
         advance(rule, 300)
         rule.runOnUiThread { runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "e1"); put("played", true) }) } }
+        rule.waitUntil { app.userStateRevision.value > 0 }
         val before = core.calls.count { it.first == "emby.seasonEpisodes" }
         pressBack()
         advance(rule, 800)
@@ -154,6 +157,8 @@ class TvFocusTest {
             changed = true; fail = true
             runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "row0"); put("played", true) }) }
         }
+        rule.waitUntil { app.userStateRevision.value > 0 }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
         advance(rule, 800)
         rule.onNode(hasText("原有影片0")).assertExists()
         rule.onNode(hasText("原有影片1")).assertExists()
@@ -467,8 +472,8 @@ class TvFocusTest {
         var fail = true
         mount(TvRoute.Player("sh6", "第六集")) {
             player()
-            val response = handlers.getValue("emby.seasonEpisodes")
-            on("emby.seasonEpisodes") { a ->
+            val response = handlers.getValue("emby.playbackSeason")
+            on("emby.playbackSeason") { a ->
                 if (fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分集加载失败", true)
                 response(a)
             }
@@ -482,7 +487,7 @@ class TvFocusTest {
         rule.onNode(hasText("重试")).assertIsFocused()
         press(rule, Key.Enter)
         advance(rule, 1200)
-        assertEquals(2, core.calls.count { it.first == "emby.seasonEpisodes" })
+        assertEquals(2, core.calls.count { it.first == "emby.playbackSeason" })
         focused("next.card")
         assertEquals(1, core.calls.count { it.first == "player.play" })
     }
@@ -515,7 +520,7 @@ class TvFocusTest {
                     override suspend fun callJson(command: String, args: kotlinx.serialization.json.JsonObject?,
                         onPartial: ((kotlinx.serialization.json.JsonElement) -> Unit)?): kotlinx.serialization.json.JsonElement {
                         val result = fake.callJson(command, args, onPartial)
-                        if (command == "emby.seasonEpisodes") release.await()
+                        if (command == "emby.playbackSeason") release.await()
                         return result
                     }
                 }
@@ -550,14 +555,10 @@ class TvFocusTest {
         } finally { xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = prefs }
     }
 
-    @Test fun 季末即使返回下季条目也退出而不跨季() {
+    @Test fun 核心返回当前季末时退出而不跨季() {
         mount(TvRoute.Player("sh6", "第六集")) {
             player()
-            ret("emby.seasonEpisodes", buildJsonObject {
-                put("items", arr(item("sh6", "季末", "Episode", season = 1, episode = 6),
-                    item("s2e1", "下一季", "Episode", season = 2, episode = 1)))
-                put("total", 2)
-            })
+            ret("emby.playbackSeason", arr(item("sh6", "季末", "Episode", season = 1, episode = 6)))
         }
         core.tick(3658.0); advance(rule, 300)
         core.tick(3658.25); advance(rule, 300)

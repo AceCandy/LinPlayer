@@ -13,7 +13,8 @@
 | 播放内核 | [libmpv](https://mpv.io) | 核心层 cgo 直接调。不是子进程,是进程内库 |
 | 桌面外壳 | C# / .NET 10 + [Avalonia 11](https://avaloniaui.net) | 窗口、UI、把核心层的命令接到界面上。**Windows 与 Linux 同一份代码** |
 | 安卓外壳 | Kotlin + Jetpack Compose / Compose for TV | 手机、平板与 TV 同一个工程,按形态分流 |
-| 命令绑定 | 生成的 `Commands.g.cs` / `Commands.g.kt` | 从 `docs/go-migration/COMMANDS.md` 生成,见下文「命令契约」 |
+| tvOS 外壳 | SwiftUI / UIKit + AetherEngine 7.39.0 | 开发中；Go 使用 c-archive，详见 [tvOS 开发入口](../apps/tvos/README.md) |
+| 命令绑定 | 生成的 `Commands.g.cs` / `Commands.g.kt` / `Commands.g.swift` | 从 `docs/go-migration/COMMANDS.md` 生成,见下文「命令契约」 |
 
 四端都能出包:Windows 绿色 zip、Linux 绿色 zip(x86_64)、安卓手机 APK(arm64)、安卓 TV APK(armeabi-v7a)。
 
@@ -25,7 +26,8 @@ core/              Go 核心层。出库为 lpcore.dll / liblpcore.so
   cmd/             listcommands / diffcheck / sealsecrets 等工具
 apps/windows/      C# + Avalonia 外壳(Windows 与 Linux 共用)
 apps/android/      Kotlin + Compose 外壳(手机 / 平板 / TV)
-bindings/          从 COMMANDS.md 生成的命令绑定(csharp / kotlin)
+apps/tvos/         SwiftUI / UIKit tvOS 外壳（开发中）
+bindings/          从 COMMANDS.md 生成的命令绑定(csharp / kotlin / swift)
 third_party/
   libmpv/          libmpv 的头文件与导入库(cgo 链接用)。dll 不入库
 scripts/           构建与门禁脚本
@@ -69,7 +71,8 @@ cd core && PATH="$PWD/../third_party/libmpv:$PATH" go test ./...
 | 命令 | 管什么 |
 |---|---|
 | `bash scripts/check-core.sh` | go vet / go test / 出库 / FFI 契约 / C# 契约测试 / **18 条差分对账** |
-| `bash scripts/check-bindings.sh` | 绑定产物最新 / C# 编译 / Kotlin 编译 / **四方比对** |
+| `bash scripts/check-bindings.sh` | 绑定产物最新 / C# 编译 / Kotlin 编译 / 命令表、Go 与三端绑定对账 |
+| `bash scripts/check-tvos-ui.sh` | Mac 上编译固定 Aether 模块、正式页面类型检查及 Swift 回归；不生成 .app |
 | `bash scripts/check-workflows.sh` | workflow 的 shell 语法 + **编译期凭据闸门** |
 | `bash scripts/pack-win.sh` | 出 Windows 绿色包。**「编译通过」不是交付** |
 | `bash scripts/pack-linux.sh` | 出 Linux 绿色包(只能在 Linux 上跑)。含 libmpv 不进 DT_NEEDED、图标码位、壳版本、命令行冒烟四项自检 |
@@ -90,6 +93,7 @@ Rust 代码已经删了,但语料还在、照样有效。
 ```
 docs/go-migration/COMMANDS.md  ──gen-bindings.py──>  bindings/csharp/Commands.g.cs
         (手维护真源)                                  bindings/kotlin/Commands.g.kt
+                                                     bindings/swift/Commands.g.swift
 ```
 
 `COMMANDS.md` 是**手维护**的(2026-09-04 起)。以前它从 Tauri 注册表自动生成,

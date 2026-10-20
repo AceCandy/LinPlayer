@@ -262,7 +262,7 @@ public static class CardActions
             hide.Click += async (_, _) =>
             {
                 var ok = await Run(core, "emby.hideResume", new { item_id = item.Id, hide = true },
-                    err => { if (err.Length == 0) HomePage.ForgetResume(item.Id);
+                    err => {
                         if (after != DefaultAfter || Nav.Current is not PageBase { WatchesUserState: true }) after?.Invoke(err); });
                 Toast.Result(ok, "已从继续观看中移除", "移除失败");
             };

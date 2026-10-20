@@ -1,5 +1,9 @@
 package xyz.linplayer.app.ui.player
 
+import kotlinx.serialization.json.*
+import xyz.linplayer.app.data.obj
+import xyz.linplayer.app.data.str
+
 /** 两种内核共用的偏好口径:正则优先,语言次之,未指定偏好时优先简体字幕，再保留服务端默认。 */
 internal data class TrackPrefs(
     val subLang: String? = null, val audioLang: String? = null,
@@ -9,13 +13,21 @@ internal data class TrackPrefs(
 
 internal data class TrackCandidate(val title: String, val lang: String, val selected: Boolean)
 
-internal fun preferredTrackIndex(tracks: List<TrackCandidate>, lang: String?, pattern: String, subtitle: Boolean): Int {
-    val regex = pattern.trim().takeIf { it.isNotEmpty() }?.let { runCatching { Regex(it, RegexOption.IGNORE_CASE) }.getOrNull() }
-    if (regex != null) tracks.indexOfFirst { regex.containsMatchIn("${it.title} ${it.lang}".trim()) }.let { if (it >= 0) return it }
-    if (!lang.isNullOrBlank()) tracks.indexOfFirst { it.lang.equals(lang.trim(), ignoreCase = true) }.let { if (it >= 0) return it }
-    if (subtitle && lang.isNullOrBlank() && pattern.isBlank()) {
-        val simplified = Regex("简体|简中|simplified|zh[-_]hans|zh[-_]cn|\\bchs\\b", RegexOption.IGNORE_CASE)
-        tracks.indexOfFirst { simplified.containsMatchIn("${it.title} ${it.lang}") }.let { if (it >= 0) return it }
-    }
-    return if (subtitle && tracks.none { it.selected } && tracks.isNotEmpty()) 0 else -1
+internal suspend fun xyz.linplayer.app.data.AppState.preferredTrackIndex(tracks: List<TrackCandidate>, lang: String?, pattern: String, subtitle: Boolean): Int {
+    val kind = if (subtitle) "sub" else "audio"
+    val rows = tracks.mapIndexed { index, track -> buildJsonObject {
+        put("id", index.toString()); put("kind", kind); put("title", track.title)
+        put("lang", track.lang); put("selected", track.selected)
+    } }
+    val result = call("player.selectTrackPreferences", buildJsonObject {
+        put("tracks", JsonArray(rows))
+        put("prefs", buildJsonObject {
+            put("sub_enabled", true)
+            put("sub_lang", if (subtitle) lang.orEmpty() else "")
+            put("sub_regex", if (subtitle) pattern else "")
+            put("audio_lang", if (!subtitle) lang.orEmpty() else "")
+            put("audio_regex", if (!subtitle) pattern else "")
+        })
+    })
+    return result.obj().str(kind)?.toIntOrNull() ?: -1
 }

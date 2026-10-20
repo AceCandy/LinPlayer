@@ -190,3 +190,35 @@ func TestExtensionSnapshotIdentityAndRevocation(t *testing.T) {
 		t.Fatal("authorization cached")
 	}
 }
+
+func TestPrivateSnapshotsPersistWithSpaceIsolation(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	args := map[string]any{"server": "fixture", "user_id": "u", "item_id": "i", "is_adult": true}
+	value := map[string]any{"id": "i", "name": "私密资料"}
+	_, err := Run(context.Background(), 0, "emby.itemDetail", args, func() (any, error) { return value, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	memory = map[string]entry{}
+	mu.Unlock()
+	if Snapshot("emby.itemDetail", args) == nil {
+		t.Fatal("私密快照未从磁盘恢复")
+	}
+	for field, other := range map[string]any{"is_adult": false, "user_id": "other", "server": "other"} {
+		changed := map[string]any{}
+		for k, v := range args {
+			changed[k] = v
+		}
+		changed[field] = other
+		if Snapshot("emby.itemDetail", changed) != nil {
+			t.Fatalf("快照未按 %s 隔离", field)
+		}
+	}
+	if err := Clear(paths.ClearCache); err != nil {
+		t.Fatal(err)
+	}
+	if Snapshot("emby.itemDetail", args) != nil {
+		t.Fatal("清理后仍有私密快照")
+	}
+}

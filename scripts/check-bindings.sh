@@ -7,7 +7,7 @@
 #   1. 产物是最新的        —— 改了 COMMANDS.md 忘了重跑生成器 = 绑定里少一条命令
 #   2. C# 编得过
 #   3. Kotlin 编得过
-#   4. 四方比对            —— COMMANDS.md ↔ Go 注册表 ↔ C# ↔ Kotlin
+#   4. 五方比对            —— COMMANDS.md ↔ Go 注册表 ↔ C# ↔ Kotlin ↔ Swift
 #
 # 第 4 关是这套东西存在的理由:命令名是**字符串**,拼错了编译器不管,
 # 表现是「点了没反应」。266 × 3 = 798 次抄写机会,靠人眼是守不住的。
@@ -48,7 +48,7 @@ else
   fail=$((fail + 1))
 fi
 
-step "4. 四方比对(COMMANDS.md ↔ Go 注册表 ↔ C# ↔ Kotlin)"
+step "4. 五方比对(COMMANDS.md ↔ Go 注册表 ↔ C# ↔ Kotlin ↔ Swift)"
 TMP="$(mktemp -d)"
 trap 'rm -rf "$TMP"' EXIT
 
@@ -84,6 +84,7 @@ cmp_sets() { # $1=名字 $2=实际 $3=期望
 }
 cmp_sets "C#    " "$TMP/cs.txt" "$TMP/md.txt"
 cmp_sets "Kotlin" "$TMP/kt.txt" "$TMP/md.txt"
+cmp_sets "Swift " "$TMP/swift.txt" "$TMP/md.txt"
 
 # ★ 两个方向都要红(2026-09-21 起;迁移完成之前只查了一个方向):
 #   · Go 里有而 COMMANDS.md 没有 = **野命令**,三端绑定里根本调不到它;

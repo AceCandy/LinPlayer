@@ -10,6 +10,7 @@ import coil3.network.okhttp.OkHttpNetworkFetcherFactory
 import coil3.request.CachePolicy
 import coil3.request.crossfade
 import okhttp3.OkHttpClient
+import kotlinx.coroutines.launch
 import xyz.linplayer.app.core.CoreClient
 import xyz.linplayer.app.core.Logs
 
@@ -21,20 +22,11 @@ class LinPlayerApp : Application(), SingletonImageLoader.Factory {
     lateinit var core: CoreClient
         private set
 
-    /** Activity 重建共用同一个读写锁及内存缓存，避免旧实例写回刚清理的目录。 */
-    val detailCache by lazy {
-        xyz.linplayer.app.data.DetailCache(java.io.File(cacheDir, "detail-v1"))
-    }
-
-    val browseCache by lazy {
-        xyz.linplayer.app.data.BrowseCache(java.io.File(cacheDir, "browse-v1"))
-    }
-
     /** 浏览与独立播放器共用会话；事件收集不能随主 Activity 销毁。 */
     private val appScope = kotlinx.coroutines.CoroutineScope(
         kotlinx.coroutines.SupervisorJob() + kotlinx.coroutines.Dispatchers.Main.immediate)
     val appState by lazy {
-        xyz.linplayer.app.data.AppState(core, appScope, detailCache, browseCache).also { app ->
+        xyz.linplayer.app.data.AppState(core, appScope).also { app ->
             runCatching { android.provider.Settings.Secure.getString(contentResolver,
                 android.provider.Settings.Secure.ANDROID_ID) }.getOrNull()?.let(app::setDeviceId)
         }
@@ -57,6 +49,14 @@ class LinPlayerApp : Application(), SingletonImageLoader.Factory {
         // 日志排在核心层之前:核心层起不来本身就是最该留下记录的一种失败
         Logs.init(this)
         xyz.linplayer.app.data.Report.arm(this)
+        // 升级后只保留核心缓存，旧宿主目录已无读写者。
+        appScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+            for (name in listOf("detail-v1", "browse-v1")) {
+                val legacy = java.io.File(cacheDir, name)
+                if (legacy.exists() && !legacy.deleteRecursively())
+                    android.util.Log.w("LinPlayer", "旧展示缓存清理未完成")
+            }
+        }
         // 数据根是应用私有目录:安卓上没有「绿色包同级 userdata/」那回事,
         // 也不需要 —— 卸载即清干净,而且不用任何存储权限
         core = CoreClient.start(

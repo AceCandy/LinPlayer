@@ -7,7 +7,6 @@ internal static class BrowseSpace
 {
     internal sealed record Scope(long Revision, bool IsPrivate, string Server, string User, string Token)
     {
-        public string CachePrefix => $"{(IsPrivate ? "adult" : "normal")}-v1-{Revision}-";
         public bool IsCurrent => ReferenceEquals(this, Current);
 
         public void EnsureCurrent()
@@ -19,26 +18,10 @@ internal static class BrowseSpace
         {
             var fields = args is null ? new Dictionary<string, JsonElement>()
                 : JsonSerializer.SerializeToElement(args).EnumerateObject().ToDictionary(p => p.Name, p => p.Value.Clone());
-            if (IsPrivate && (command.StartsWith("emby.watchHistory", StringComparison.Ordinal) ||
-                command.StartsWith("download.", StringComparison.Ordinal) || command.StartsWith("plugin.", StringComparison.Ordinal) ||
-                command.StartsWith("source.", StringComparison.Ordinal) ||
-                command is "emby.aggregateOverview" or "emby.aggregateSearch" or "emby.aggregateVersions" or
-                    "player.playLocal" or "prefs.pushSearch"))
-                throw new CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器，不使用本地记录、下载或插件", false);
-            var filtered = command.StartsWith("emby.", StringComparison.Ordinal) || command is
-                "source.aggregateSearch" or "prefs.preloadItem" or "player.play" or "player.prepareNext" or "player.queuePrepared";
-            if (!filtered) return args;
-            if (IsPrivate)
-            {
-                foreach (var (key, expected) in new[] { ("server", Server), ("user_id", User), ("token", Token), ("server_id", Server) })
-                    if (fields.TryGetValue(key, out var value) && value.ValueKind == JsonValueKind.String &&
-                        value.GetString() is { Length: > 0 } actual && actual != expected)
-                        throw new CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器和账号", false);
-                fields["server"] = JsonSerializer.SerializeToElement(Server);
-                fields["user_id"] = JsonSerializer.SerializeToElement(User);
-                fields["token"] = JsonSerializer.SerializeToElement(Token);
-            }
-            fields["is_adult"] = JsonSerializer.SerializeToElement(IsPrivate);
+            fields["request_scope"] = JsonSerializer.SerializeToElement(new {
+                id = Revision.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                @private = IsPrivate, filter = true, server = Server, user_id = User, token = Token,
+            });
             return fields;
         }
     }
@@ -56,7 +39,6 @@ internal static class BrowseSpace
             if ((old.Server, old.User, old.Token) == (server, user, token)) return;
             Volatile.Write(ref _current, new Scope(old.Revision + 1, false, server, user, token));
         }
-        MetaCache.ClearMemory();
     }
 
     public static void Change(bool isPrivate, Scope? expected = null)
@@ -68,6 +50,5 @@ internal static class BrowseSpace
             if (old.IsPrivate == isPrivate) return;
             Volatile.Write(ref _current, old with { Revision = old.Revision + 1, IsPrivate = isPrivate });
         }
-        MetaCache.ClearMemory();
     }
 }

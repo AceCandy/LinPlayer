@@ -983,7 +983,7 @@ private fun StoragePanel() {
         launch { paths = runCatching { app.call("system.dataPaths") }.getOrNull().obj().str("root") }
         launch {
             size = runCatching { app.call("system.cacheSize") }.getOrNull().obj()
-                .long("bytes")?.let { "%.1f MB".format((it + app.detailCache.sizeBytes() + app.browseCache.sizeBytes()) / 1024.0 / 1024.0) }
+                .long("bytes")?.let { "%.1f MB".format(it / 1024.0 / 1024.0) }
         }
     }
     /* 导出日志。**必须让用户自己挑位置** —— 上一版写进应用私有目录然后弹一句
@@ -1030,8 +1030,6 @@ private fun StoragePanel() {
         LpCell("清理缓存", mediaStyle = true, onClick = {
             scope.launch {
                 runCatching {
-                    app.detailCache.clear()
-                    app.browseCache.clear()
                     xyz.linplayer.app.data.PageCache.clear()
                     app.call("system.clearCache")
                 }

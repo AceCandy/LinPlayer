@@ -93,7 +93,7 @@ import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.View
-import xyz.linplayer.app.data.browseBlock
+import xyz.linplayer.app.data.displayBlock
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import xyz.linplayer.app.data.UiPrefs
@@ -164,21 +164,21 @@ fun HomePage(nav: NavController) {
     val currentSession by app.session.collectAsState()
     val motionAccount = currentSession?.let { it.server to it.userId }
     var banners by keepState<List<CachedHomeImage>>("home.banners:$motionAccount") { emptyList() }
-    val heroRevision by app.browseCache.heroRevision.collectAsState()
+    val heroRevision by app.userStateRevision.collectAsState()
     val bannerItems = (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty())
         .distinctBy { it.id }
     LaunchedEffect(motionAccount, bannerItems, reload, heroRevision) {
         // 只探测核心只读缓存路由，随机新增候选不触发远程图片下载。
-        val identity = currentSession ?: return@LaunchedEffect
-        val epoch = app.browseCache.generation
-        val pool = app.browseCache.heroItems(identity.server, identity.userId, epoch)
-        val candidates = homeHeroCandidates(bannerItems + pool)
+        if (currentSession == null) return@LaunchedEffect
+        val epoch = app.spaceRevision.value
+        val pool = Item.list(app.block("emby.cachedItems").valueOrNull)
+        val candidates = app.homeHeroCandidates(bannerItems + pool)
         // 返回时保留首项及候选顺序，避免恢复滚动位置后又删除/插入Hero。
         val retained = banners.mapNotNull { previous -> candidates.firstOrNull { it.id == previous.item.id } }
         val retainedIds = retained.map { it.id }.toSet()
         banners = banners.filter { it.item.id in retainedIds }
         fun update(found: List<CachedHomeImage>, complete: Boolean) {
-            if (app.session.value?.let { it.server to it.userId } != motionAccount || app.browseCache.generation != epoch) return
+            if (app.session.value?.let { it.server to it.userId } != motionAccount || app.spaceRevision.value != epoch) return
             val byId = found.associateBy { it.item.id }
             val kept = banners.mapNotNull { byId[it.item.id] ?: it.takeUnless { complete } }
             val keptIds = kept.map { it.item.id }.toSet()
@@ -220,18 +220,18 @@ fun HomePage(nav: NavController) {
             try {
                 coroutineScope {
                     launch {
-                        val response = app.browseBlock("emby.listResume", args("limit" to 12)) {
+                        val response = app.displayBlock("emby.listResume", args("limit" to 12)) {
                             if (resume !is Block.Ok) resume = Block.Ok(Item.list(it))
                         }.map { Item.list(it) }
-                        if (response is Block.Ok || resume !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) resume = response
+                        if (response is Block.Ok || resume !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) resume = response
                     }
                     // 服名入口读取完整本地账号表，不走网络。
                     launch { accounts = Account.list(app.block("account.listAccounts").valueOrNull) }
                     launch {
-                        val response = app.browseBlock("emby.views") {
+                        val response = app.displayBlock("emby.views") {
                             if (views !is Block.Ok) views = Block.Ok(View.list(it))
                         }.map { View.list(it) }
-                        if (response is Block.Ok || views !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) views = response
+                        if (response is Block.Ok || views !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) views = response
                     }
                 }
             } finally {
@@ -250,20 +250,20 @@ fun HomePage(nav: NavController) {
             for (key in keys) {
                 if (key == "collections" && requested.add("collections")) {
                     launch {
-                        val response = app.browseBlock("emby.listCollections") {
+                        val response = app.displayBlock("emby.listCollections") {
                             if (collections !is Block.Ok) collections = Block.Ok(Item.list(it))
                         }.map { Item.list(it) }
-                        if (response is Block.Ok || collections !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND")) collections = response
+                        if (response is Block.Ok || collections !is Block.Ok || response is Block.Fail && response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) collections = response
                     }
                 }
                 val view = visibleViews?.firstOrNull { key == "latest-${it.id}" } ?: continue
                 if (requested.add(view.id)) {
                     launch {
-                        val r = app.browseBlock("emby.listLatest", args("parent_id" to view.id, "limit" to 16)) {
+                        val r = app.displayBlock("emby.listLatest", args("parent_id" to view.id, "limit" to 16)) {
                             if (view.id !in latest) latest = latest + (view.id to Item.list(it))
                         }
                         currentCoroutineContext().ensureActive()
-                        if (r is Block.Fail && r.code in setOf("E_AUTH", "E_NOTFOUND")) latest = latest - view.id
+                        if (r is Block.Fail && r.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) latest = latest - view.id
                         r.valueOrNull?.let { latest = latest + (view.id to Item.list(it)) }
                     }
                 }

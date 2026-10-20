@@ -14,7 +14,7 @@
 - C 字符串入参立即复制；lp_next_event 返回的 C 字符串由宿主 lp_free 释放。
 - 事件泵只允许单消费者，不在页面另启动 lp_next_event 消费者。
 - `core/ffi/abi.go` 的 LP_ABI 是唯一真值；导出签名、事件信封、错误形状或 surface 语义的破坏性变化才递增。
-- 生成器读取 ABI 与命令表，生成两端绑定；命令名是字符串，必须跑四方对账。
+- 生成器读取 ABI 与命令表，生成 C#/Kotlin/Swift 绑定；命令名是字符串，必须跑命令表、Go 和三端绑定的五方对账。
 
 ## 门禁与证据
 
@@ -79,9 +79,17 @@ Item的可选`unplayed_count_known`仅在Series且服务端当前用户UserData�
 
 ## 全端展示快照契约
 
-手机、TV、Windows/Linux共用Go `displaycache`：首页、库/收藏/搜索、筛选、详情/季/分集、人物/推荐/合集、统计及聚合的展示读取均保存持久快照。无时间过期，每个核心缓存目录最多1000条，按最近读取淘汰，单条最多512KiB；超过单条预算仍实时展示。1000条是请求结果数，不是影片数。旧宿主BrowseCache/DetailCache/MetaCache仍保留兼容，分别有1000条预算，不承诺所有缓存合计只有1000条。
+普通区与私密区统一使用 Go 持久展示缓存；`is_adult` 只参与空间隔离，不决定是否落盘。账号、服务器与空间之间不能混用快照，统一清理同时覆盖各空间。`TestPrivateSnapshotsPersistWithSpaceIsolation` 覆盖私密磁盘恢复、账号/服务器/空间隔离及清理。迁移以用户确认的统一策略为准，不把旧宿主特例自动提升为跨端要求。
+
+Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS 通过 `MediaAPI.request(snapshot:)` 消费核心快照。宿主 BrowseCache/DetailCache/MetaCache 已移除；页面状态与图片解码仍由 UI 持有。
+
+手机、TV、Windows/Linux共用Go `displaycache`：首页、库/收藏/搜索、筛选、详情/季/分集、人物/推荐/合集、统计及聚合的展示读取均接入核心快照，普通区与私密区均持久化。无时间过期，每个核心缓存目录最多1000条，按最近读取淘汰，单条最多512KiB；超过单条预算仍实时展示。1000条是请求结果数，不是影片数。轮播候选池也计入此预算；Android 启动后台清理废弃 detail-v1/browse-v1 目录。旧桌面 meta 目录不再读写，可由统一清理缓存移除。
 
 缓存键按实际服务器/生效线路、用户和完整查询隔离；不存凭据、URL、文件路径、媒体版本。`server_id`在盘上仅存摘要，读时按当前账号还原。详情预览不含续播位置、收藏或已看状态。核心旧快照经既有`partial`交付，最终`result`始终为本次请求的真实结果/错误，不能将快照作为播放、续播目标、换源匹配或权限判断。
+
+`emby.cachedItems` 只读当前身份/空间的核心轮播候选，不访问服务器；核心合并成功浏览结果和 setPlayed 的稀疏更新，池按 ID 去重与字节预算淘汰，不作为播放/权限真源。池键同样包含屏蔽版本。状态写入成功后失效当前账号/空间的请求快照，保留候选池；generation 拒绝迟到读回写，独立清理代次阻止清理前状态写入恢复候选。缓存键采用身份散列前缀和请求散列后缀，旧版本快照自然冷失效，未迁移旧宿主缓存文件。
+
+桌面 `emby.seasonEpisodes(all=true)` 在核心按 200 条聚合完整季，默认模式仍分页；后页错误不发布半份成功结果。超过共享单条预算时仅实时返回，不持久化。回归：candidates_test.go、season_snapshot_test.go、tools/homecheck 与 tools/seekcheck --privacy-only。
 
 各端展示调用先消费快照再应用实时结果；网络失败保留旧展示，鉴权/不存在/无权限/无效参数不能回退成成功。分页快照和实时页替换同一范围；离页/取消/切换身份拒绝迟到展示。清理推进generation、移除内存/磁盘并拒绝清理前请求回写。聚合单服错误不能覆盖成功快照；流式`source.aggregateSearch`仅缓存Emby展示行，实时行按服务器替换旧行，播放换源分支不使用快照。
 

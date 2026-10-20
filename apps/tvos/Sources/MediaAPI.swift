@@ -1,0 +1,486 @@
+import Foundation
+
+struct MediaItem: Decodable, Identifiable, Hashable {
+    let id: String
+    let name: String
+    let type_: String
+    let is_folder: Bool
+    let has_primary: Bool
+    let runtime_secs: Double
+    let resume_secs: Double
+    let series_name: String?
+    let episode_no: Int?
+    let year: Int?
+    let season_no: Int?
+    let series_id: String?
+    let season_id: String?
+    let has_backdrop: Bool?
+    let played: Bool?
+    let is_favorite: Bool?
+    var rating: Double? = nil
+    var DoubanRating: Double? = nil
+    var unplayed_item_count: Int? = nil
+    var unplayed_count_known: Bool? = nil
+    var library_ids: [String]? = nil
+    var title: String { series_name.map { "\($0) · \(name)" } ?? name }
+    static func route(id: String, name: String, type: String) -> MediaItem {
+        MediaItem(id: id, name: name, type_: type, is_folder: false, has_primary: false, runtime_secs: 0, resume_secs: 0,
+            series_name: nil, episode_no: nil, year: nil, season_no: nil, series_id: nil, season_id: nil,
+            has_backdrop: nil, played: nil, is_favorite: nil)
+    }
+    var episodeStatus: Int? {
+        if (type_ == "Series" || type_ == "Season"), unplayed_count_known == true, let count = unplayed_item_count {
+            if count > 0 { return count }
+            if count == 0 && played == true { return 0 }
+        }
+        return ["Movie", "Episode", "Season"].contains(type_) && played == true ? 0 : nil
+    }
+    func ratingText(douban: Bool = false) -> String? {
+        guard let value = douban ? DoubanRating : rating,
+              value.isFinite, (0...10).contains(value), douban || value > 0 else { return nil }
+        return String(format: "%.1f", locale: Locale(identifier: "en_US_POSIX"), value)
+    }
+    var resumeTimeText: String? {
+        guard ["Movie", "Episode"].contains(type_), runtime_secs.isFinite, runtime_secs > 0 else { return nil }
+        let remaining = played != true && resume_secs > 0 && resume_secs < runtime_secs
+        let seconds = remaining ? runtime_secs - resume_secs : runtime_secs
+        guard seconds < Double(Int.max) else { return nil }
+        let total = max(1, Int(seconds))
+        let duration = total >= 3600
+            ? String(format: "%d:%02d:%02d", total / 3600, total / 60 % 60, total % 60)
+            : String(format: "%d:%02d", total / 60, total % 60)
+        return remaining ? "剩余 " + duration : duration
+    }
+    var opensFolder: Bool { is_folder && type_ != "Series" }
+}
+
+struct ArtworkSource: Equatable {
+    let id: String
+    let kind: String
+}
+
+extension MediaItem {
+    var artworkSources: [ArtworkSource] {
+        var result: [ArtworkSource] = has_primary ? [ArtworkSource(id: id, kind: "Primary")] : []
+        if type_ == "Episode" {
+            if has_backdrop != false { result.append(ArtworkSource(id: id, kind: "Backdrop/0")) }
+            if let season_id, !season_id.isEmpty { result.append(ArtworkSource(id: season_id, kind: "Primary")) }
+            if let series_id, !series_id.isEmpty {
+                result.append(ArtworkSource(id: series_id, kind: "Backdrop/0"))
+                result.append(ArtworkSource(id: series_id, kind: "Primary"))
+            }
+        } else if type_ == "Season", let series_id, !series_id.isEmpty {
+            result.append(ArtworkSource(id: series_id, kind: "Primary"))
+        }
+        return result
+    }
+}
+
+struct MediaPage: Decodable {
+    let items: [MediaItem]
+    let total: Int
+}
+
+struct MediaDetail: Decodable {
+    let id: String
+    let name: String
+    let type_: String
+    let overview: String
+    let year: Int?
+    let genres: [String]?
+    let is_favorite: Bool
+    let played: Bool
+    let series_id: String?
+    let season_id: String?
+    let season_no: Int?
+    let episode_no: Int?
+    let people: [MediaPerson]?
+    let tags: [String]?
+    let runtime_secs: Double
+    let resume_secs: Double
+    let has_primary: Bool
+    var has_backdrop: Bool? = nil
+    var rating: Double? = nil
+    var DoubanRating: Double? = nil
+    var premiere_date: String? = nil
+    var official_rating: String? = nil
+    var status: String? = nil
+    var tagline: String? = nil
+    var studios: [MediaNamed]? = nil
+    var capabilities: [String: Bool]? = nil
+}
+
+struct MediaNamed: Decodable, Identifiable {
+    let id: String
+    let name: String
+}
+
+struct MediaPerson: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let role: String?
+    let type_: String
+    let has_primary: Bool
+}
+
+struct MediaFilters: Decodable {
+    let genres: [String]?
+    let tags: [String]?
+    let years: [Int]?
+    let unavailable: [String]?
+}
+
+struct BrowseQuery: Equatable {
+    var sort = "SortName"
+    var descending = false
+    var genre = ""
+    var tag = ""
+    var studioID = ""
+    var year = ""
+    var played = ""
+
+    func arguments(start: Int) -> [String: JSONValue] {
+        var args: [String: JSONValue] = ["start_index": .number(Double(start)), "limit": .number(40),
+            "sort_by": .string(sort), "sort_order": .string(descending ? "Descending" : "Ascending")]
+        if !genre.isEmpty { args["genres"] = .array([.string(genre)]) }
+        if !tag.isEmpty { args["tags"] = .array([.string(tag)]) }
+        if !studioID.isEmpty { args["studio_ids"] = .array([.string(studioID)]) }
+        if let value = Int(year) { args["years"] = .array([.number(Double(value))]) }
+        if !played.isEmpty { args["played"] = .bool(played == "true") }
+        return args
+    }
+}
+
+struct MediaSeason: Decodable, Identifiable {
+    let id: String
+    let name: String
+    var index_no: Int? = nil
+    var child_count: Int? = nil
+    var unplayed: Int? = nil
+    var unplayed_count_known: Bool? = nil
+    var played: Bool? = nil
+    var has_primary: Bool? = nil
+    var statusText: String? {
+        if unplayed_count_known == true, let unplayed, unplayed > 0 { return "\(unplayed) 集未看" }
+        if played == true || (unplayed_count_known == true && unplayed == 0 && (child_count ?? 0) > 0) { return "已看完" }
+        return child_count.map { "共 \($0) 集" }
+    }
+}
+
+// 展示快照不含可靠的收藏/续播状态，与可操作的实时详情分开解码。
+struct DetailPresentation: Decodable {
+    let id: String
+    let name: String
+    let overview: String
+    let year: Int?
+    let genres: [String]?
+    let rating: Double?
+    let DoubanRating: Double?
+    let premiere_date: String?
+    let official_rating: String?
+    let status: String?
+    let tagline: String?
+    let has_primary: Bool
+    let has_backdrop: Bool?
+    var tags: [String]? = nil
+    var studios: [MediaNamed]? = nil
+    let people: [MediaPerson]?
+}
+
+struct MediaVersion: Decodable, Identifiable {
+    let id: String
+    let name: String
+    let preferred: Bool
+    let container: String?
+    let size_bytes: Int64?
+    let bitrate: Int64?
+    let streams: [MediaStream]?
+}
+
+struct MediaStream: Decodable, Identifiable {
+    let index: Int
+    let type_: String
+    let codec: String
+    let title: String?
+    let display_title: String?
+    let language: String?
+    let is_external: Bool
+    let width: Int?
+    let height: Int?
+    var id: Int { index }
+    var label: String { title ?? display_title ?? [language, codec].compactMap { $0 }.joined(separator: " · ") }
+}
+
+struct InitialSubtitle {
+    let version: String
+    let stream: MediaStream?
+}
+
+struct TrackCandidate {
+    let id: Int
+    let title: String
+    let language: String
+    let codec: String
+    let external: Bool
+    let selected: Bool
+}
+
+struct TrackPreference {
+    static func explicit(_ stream: MediaStream, tracks: [TrackCandidate]) -> Int? {
+        func language(_ value: String) -> String {
+            let value = value.lowercased()
+            return ["chi", "zho", "zh"].contains(value) ? "zh" : value
+        }
+        func codec(_ value: String) -> String {
+            switch value.lowercased() {
+            case "srt", "subrip": return "subrip"
+            case "vtt", "webvtt": return "webvtt"
+            default: return value.lowercased()
+            }
+        }
+        let matching = tracks.filter {
+            $0.external == stream.is_external && codec($0.codec) == codec(stream.codec) &&
+                language($0.language) == language(stream.language ?? "")
+        }
+        if !stream.is_external, let indexed = matching.first(where: { $0.id == stream.index }) { return indexed.id }
+        let named = matching.filter { $0.title == stream.title || $0.title == stream.display_title }
+        return named.count == 1 ? named.first?.id : nil
+    }
+}
+
+struct MediaAccount: Decodable {
+    let server: String
+    let user_name: String
+    let name: String
+    let active: Bool
+    let user_id: String
+    let line_url: String
+    let aggregate: Bool?
+    let aggregate_primary: Bool?
+    let lines: [MediaLine]?
+    let active_line: Int?
+    let remark: String?
+    let allow_insecure_tls: Bool?
+}
+
+struct MediaLine: Decodable {
+    let id: String?
+    let name: String?
+    let url: String
+    let remark: String?
+}
+
+struct ServerResults: Decodable, Identifiable {
+    let server_id: String
+    let server_name: String
+    let items: [MediaItem]
+    let error: String?
+    let warning: String?
+    var id: String { server_id }
+}
+
+struct ServerOverview: Decodable, Identifiable {
+    let line_url: String?
+    struct Counts: Decodable { let movie: Int; let series: Int; let episode: Int; let boxset: Int }
+    let server_id: String
+    let server_name: String
+    let counts: Counts
+    let counts_known: Bool
+    let counts_error: String?
+    let resume: [MediaItem]?
+    let error: String?
+    var id: String { server_id }
+}
+
+struct MediaSession: Decodable {
+    let server: String
+    let token: String
+    let user_id: String
+    let user_name: String
+
+    static func restore(_ value: JSONValue) throws -> MediaSession? {
+        // 命令总线会将 handler 的 nil 成功结果转换为空对象。
+        if value == .null || value == .object([:]) { return nil }
+        return try value.decode(MediaSession.self)
+    }
+}
+
+struct PlayTarget: Decodable {
+    struct Subtitle: Decodable {
+        let url: String
+        let title: String
+        let lang: String?
+        let is_default: Bool
+        let mime_type: String?
+    }
+    let play_url: String
+    let resume_secs: Double
+    let media_source_id: String
+    let external_subs: [Subtitle]?
+}
+
+// 所有业务请求归核心；会话和失效代次在宿主统一合并，不由各页复制凭据。
+@MainActor final class MediaAPI {
+    let core: LinPlayerCommands
+    private(set) var session: MediaSession?
+    private(set) var epoch = UUID()
+    private(set) var privateSpace = false
+    var deviceID = ""
+    var onUserStateChanged: (() -> Void)?
+    var onAuthExpired: (() -> Void)?
+
+    init(core: LinPlayerCommands) { self.core = core }
+
+    func use(_ session: MediaSession?) {
+        self.session = session
+        privateSpace = false
+        epoch = UUID()
+    }
+
+    func setPrivateSpace(_ enabled: Bool) async throws {
+        guard enabled != privateSpace else { return }
+        if enabled {
+            guard let session else { throw CoreFailure(code: "E_AUTH") }
+            let generation = epoch
+            // 分类探测不能使用普通空间已过滤的库清单。
+            let result = try await core.call("emby.views", ["server": .string(session.server), "token": .string(session.token),
+                "user_id": .string(session.user_id), "device_id": .string(deviceID)])
+            try Task.checkCancellation()
+            guard generation == epoch else { throw CancellationError() }
+            guard case .array(let rows) = result, !rows.isEmpty,
+                  rows.allSatisfy({ $0["is_adult"].bool != nil }) else { throw CoreFailure(code: "E_UNSUPPORTED") }
+        }
+        privateSpace = enabled; epoch = UUID()
+    }
+
+    func request(_ command: String, _ args: [String: JSONValue] = [:], snapshot: ((JSONValue) -> Void)? = nil) async throws -> JSONValue {
+        guard let s = session else { throw CoreFailure(code: "E_AUTH") }
+        let generation = epoch
+        var all = args
+        if all["server"] == nil { all["server"] = .string(s.server) }
+        if all["token"] == nil { all["token"] = .string(s.token) }
+        if all["user_id"] == nil { all["user_id"] = .string(s.user_id) }
+        if all["device_id"] == nil { all["device_id"] = .string(deviceID) }
+        all["request_scope"] = .object(["id": .string(generation.uuidString), "private": .bool(privateSpace), "filter": .bool(true),
+            "server": .string(s.server), "user_id": .string(s.user_id), "token": .string(s.token)])
+        do {
+            let result: JSONValue
+            if let snapshot, let displayCore = core as? DisplayCommands {
+                var final: JSONValue?
+                for try await update in displayCore.display(command, all) {
+                    try Task.checkCancellation()
+                    guard epoch == generation else { throw CancellationError() }
+                    switch update {
+                    case .snapshot(let value): snapshot(value)
+                    case .result(let value): final = value
+                    }
+                }
+                guard let final else { throw CoreFailure(code: "E_PROTOCOL") }
+                result = final
+            } else { result = try await core.call(command, all) }
+            try Task.checkCancellation()
+            guard epoch == generation else { throw CancellationError() }
+            return result
+        } catch {
+            try Task.checkCancellation()
+            guard epoch == generation else { throw CancellationError() }
+            if (error as? CoreFailure)?.code == "E_AUTH", epoch == generation { onAuthExpired?() }
+            throw error
+        }
+    }
+
+    func userStateChanged(_ data: JSONValue) {
+        if data["id"].string == epoch.uuidString { onUserStateChanged?() }
+    }
+
+    func items(parent: String, start: Int, query: BrowseQuery = BrowseQuery(), snapshot: ((MediaPage) -> Void)? = nil) async throws -> MediaPage {
+        try await request("emby.listItemsPage", ["parent_id": .string(parent),
+            "query": .object(query.arguments(start: start))], snapshot: { value in
+                if let page = try? value.decode(MediaPage.self) { snapshot?(page) }
+            }).decode(MediaPage.self)
+    }
+
+    func episodes(parent: String, start: Int, snapshot: ((MediaPage) -> Void)? = nil) async throws -> MediaPage {
+        try await request("emby.seasonEpisodes", ["parent_id": .string(parent),
+            "start_index": .number(Double(start)), "limit": .number(30)], snapshot: { value in
+                if let page = try? value.decode(MediaPage.self) { snapshot?(page) }
+            }).decode(MediaPage.self)
+    }
+
+    static func appendEpisodes(_ existing: [MediaItem], page: [MediaItem]) throws -> [MediaItem] {
+        var seen = Set(existing.map(\.id))
+        guard page.allSatisfy({ !$0.id.isEmpty && seen.insert($0.id).inserted }) else { throw CoreFailure(code: "E_PROTOCOL") }
+        return existing + page
+    }
+
+    func trackPreference(_ tracks: [TrackCandidate], kind: String, prefs: JSONValue) async throws -> String {
+        let rows = tracks.map { track in JSONValue.object([
+            "id": .string(String(track.id)), "kind": .string(kind), "title": .string(track.title),
+            "lang": .string(track.language), "selected": .bool(track.selected)]) }
+        return try await request("player.selectTrackPreferences", ["tracks": .array(rows), "prefs": prefs])[kind].string ?? ""
+    }
+
+    func heroCandidates(_ items: [MediaItem]) async throws -> [MediaItem] {
+        let rows = items.map { item -> JSONValue in
+            var row: [String: JSONValue] = ["id": .string(item.id), "type_": .string(item.type_),
+                "played": .bool(item.played == true), "resume_secs": .number(item.resume_secs)]
+            if let series = item.series_id { row["series_id"] = .string(series) }
+            return .object(row)
+        }
+        let ids = Set(try await request("emby.heroCandidates", ["items": .array(rows)]).decode([String].self))
+        var seen = Set<String>()
+        return items.filter { ids.contains($0.id) && seen.insert($0.id).inserted }
+    }
+
+    func playbackSeason(item: String) async throws -> [MediaItem] {
+        try await request("emby.playbackSeason", ["item_id": .string(item)]).decode([MediaItem].self)
+    }
+
+    func play(item: String, version: String?, fromStart: Bool) async throws -> PlayTarget {
+        var args: [String: JSONValue] = ["item_id": .string(item), "engine": .string("exo")]
+        if let version, !version.isEmpty { args["media_source_id"] = .string(version) }
+        if fromStart { args["from_start"] = .bool(true) }
+        return try await request("player.play", args).decode(PlayTarget.self)
+    }
+}
+
+struct PrefetchSettings: Decodable {
+    let servers: [String]
+    let threads: Int
+    let cache_bytes: Int
+    let media_cache_bytes: Int
+
+    func arguments(server: String, enabled: Bool, threads: Int, cacheMiB: Int) -> [String: JSONValue] {
+        var revised = servers.filter { $0 != server }
+        if enabled { revised.append(server) }
+        return ["settings": .object([
+            "servers": .array(revised.map(JSONValue.string)), "threads": .number(Double(threads)),
+            "cache_bytes": .number(Double(cacheMiB) * 1024 * 1024)
+        ])]
+    }
+}
+
+struct PrimaryProgressSettings: Decodable {
+    let server: String
+    let valid: Bool
+    let pending: Int
+    let conflicts: Int
+    let error: String?
+}
+
+struct PlaybackSkip: Decodable {
+    struct Range: Decodable, Equatable {
+        let start: Double
+        let end: Double
+        func contains(_ position: Double, duration: Double) -> Bool {
+            start.isFinite && end.isFinite && start >= 0 && end > start && end <= duration && position >= start && position < end
+        }
+    }
+    let intro: Range?
+    let outro: Range?
+    let skip_auto: Bool
+    let skip_source: String
+    func active(at position: Double, duration: Double) -> Range? {
+        [intro, outro].compactMap { $0 }.first { $0.contains(position, duration: duration) }
+    }
+}

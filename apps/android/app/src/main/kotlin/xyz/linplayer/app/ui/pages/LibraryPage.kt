@@ -55,7 +55,7 @@ import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.Page
-import xyz.linplayer.app.data.browseBlock
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.obj
@@ -168,7 +168,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
             put("query", args(*q.toList().toTypedArray()))
         }
         val params = args(*a.toList().toTypedArray())
-        return app.browseBlock("emby.listItemsPage", params) { cached ->
+        return app.displayBlock("emby.listItemsPage", params, retainOnFailure = false) { cached ->
             if (offset > 0 || items.isEmpty()) {
                 val page = Page.from(cached)
                 items = (items.take(offset) + page.items).distinctBy { it.id }; total = page.total; first = Block.Ok(Unit)
@@ -204,7 +204,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                                 done = page.items.isEmpty() || count?.let { fresh.size >= it } == true
                             }
                             is Block.Fail -> {
-                                if (items.isEmpty() || response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
+                                if (items.isEmpty() || response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) {
                                     items = emptyList(); first = response
                                 } else refreshError = response.message
                                 return@launch
@@ -248,7 +248,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                             ended = page.items.isEmpty() || total?.let { items.size >= it } == true
                         }
                         is Block.Fail -> {
-                            if (response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID")) {
+                            if (response.code in setOf("E_AUTH", "E_NOTFOUND", "E_PERMISSION", "E_INVALID", "E_UNSUPPORTED")) {
                                 items = emptyList(); first = response; ended = true
                             } else refreshError = response.message
                         }

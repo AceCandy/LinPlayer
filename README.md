@@ -22,7 +22,7 @@
 </p>
 
 **LinPlayer** 是一个 Emby 第三方客户端：一份 Go 核心层，加上每个平台各自的原生界面。
-支持 **Windows / Linux / Android 手机与平板 / Android TV**，四端都有发布包。苹果全线不做。
+支持 **Windows / Linux / Android 手机与平板 / Android TV**，四端都有发布包。tvOS 正式客户端开发中，尚未发布；iOS/macOS 暂不做。
 
 ## 各端状态
 
@@ -32,6 +32,7 @@
 | **Linux** | 与 Windows **同一份代码** | 出包与命令行冒烟在 CI 上验证；**尚未在真实桌面上长期使用**，遇到问题请反馈。播放用系统的 libmpv |
 | **Android 手机 / 平板** | Kotlin + Jetpack Compose | 可用。双内核（mpv / ExoPlayer） |
 | **Android TV** | Kotlin + Compose for TV | 全部页面已接真核心层，遥控器焦点导航；**还没在真电视上验收**。32 位包，面向电视盒子 |
+| **tvOS** | SwiftUI + UIKit + AetherEngine | [最小客户端开发中](apps/tvos/README.md)。源码及类型检查已接通；正式应用尚未出包、安装与真机验收，以下功能表的 TV 列仍指 Android TV |
 
 > 2026-09-04 起项目从 **Rust 核心 + React/Tauri** 换成了 **Go 核心 + 各端原生界面**，
 > 旧栈已从仓库删除，tag [`rust-final`](https://github.com/zzzwannasleep/LinPlayer/tree/rust-final) 是它的最后状态。

@@ -1,0 +1,4 @@
+{"file":".trellis/spec/shared/development.md","reason":"最小范围、隐私与清理"}
+{"file":".trellis/spec/shared/build-release.md","reason":"实际 SSH 签名与真机验证门禁"}
+{"file":".trellis/spec/frontend/type-safety.md","reason":"命令参数与结果形状"}
+{"file":".trellis/tasks/10-17-appletv-playback-spike/research/aether-engine.md","reason":"固定版本及此前真机实测"}

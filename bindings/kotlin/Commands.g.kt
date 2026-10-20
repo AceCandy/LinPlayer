@@ -51,6 +51,8 @@ object LinPlayerCommandNames {
         "emby.listItemsPage",
         "emby.listLatest",
         "emby.listNextUp",
+        "emby.heroCandidates",
+        "emby.cachedItems",
         "emby.listRandom",
         "emby.listResume",
         "emby.login",
@@ -63,6 +65,7 @@ object LinPlayerCommandNames {
         "emby.reportProgress",
         "emby.scanLibraries",
         "emby.search",
+        "emby.playbackSeason",
         "emby.seasonEpisodes",
         "emby.seriesSeasons",
         "emby.providers",
@@ -147,6 +150,7 @@ object LinPlayerCommandNames {
         "player.interpLevels",
         "player.setInterpLevel",
         "player.interpInstall",
+        "player.selectTrackPreferences",
         "player.setTrack",
         "player.setTrackRegexes",
         "player.setVolume",
@@ -352,7 +356,7 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (48 条) ----
+// ---- Emby 浏览与详情 · emby.* (51 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
@@ -397,6 +401,10 @@ suspend fun LinPlayerCommands.embyListLatest(args: Map<String, Any?>? = null): J
     call("emby.listLatest", args)
 suspend fun LinPlayerCommands.embyListNextUp(args: Map<String, Any?>? = null): JsonElement =
     call("emby.listNextUp", args)
+suspend fun LinPlayerCommands.embyHeroCandidates(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.heroCandidates", args)
+suspend fun LinPlayerCommands.embyCachedItems(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.cachedItems", args)
 suspend fun LinPlayerCommands.embyListRandom(args: Map<String, Any?>? = null): JsonElement =
     call("emby.listRandom", args)
 suspend fun LinPlayerCommands.embyListResume(args: Map<String, Any?>? = null): JsonElement =
@@ -421,6 +429,8 @@ suspend fun LinPlayerCommands.embyScanLibraries(args: Map<String, Any?>? = null)
     call("emby.scanLibraries", args)
 suspend fun LinPlayerCommands.embySearch(args: Map<String, Any?>? = null): JsonElement =
     call("emby.search", args)
+suspend fun LinPlayerCommands.embyPlaybackSeason(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.playbackSeason", args)
 suspend fun LinPlayerCommands.embySeasonEpisodes(args: Map<String, Any?>? = null): JsonElement =
     call("emby.seasonEpisodes", args)
 suspend fun LinPlayerCommands.embySeriesSeasons(args: Map<String, Any?>? = null): JsonElement =
@@ -496,7 +506,7 @@ suspend fun LinPlayerCommands.accountTestConnection(args: Map<String, Any?>? = n
 suspend fun LinPlayerCommands.accountUpdateAccount(args: Map<String, Any?>? = null): JsonElement =
     call("account.updateAccount", args)
 
-// ---- 播放器 · player.* (60 条) ----
+// ---- 播放器 · player.* (61 条) ----
 suspend fun LinPlayerCommands.playerAddSubtitle(args: Map<String, Any?>? = null): JsonElement =
     call("player.addSubtitle", args)
 suspend fun LinPlayerCommands.playerChapterInfo(args: Map<String, Any?>? = null): JsonElement =
@@ -593,6 +603,8 @@ suspend fun LinPlayerCommands.playerSetInterpLevel(args: Map<String, Any?>? = nu
     call("player.setInterpLevel", args)
 suspend fun LinPlayerCommands.playerInterpInstall(args: Map<String, Any?>? = null): JsonElement =
     call("player.interpInstall", args)
+suspend fun LinPlayerCommands.playerSelectTrackPreferences(args: Map<String, Any?>? = null): JsonElement =
+    call("player.selectTrackPreferences", args)
 suspend fun LinPlayerCommands.playerSetTrack(args: Map<String, Any?>? = null): JsonElement =
     call("player.setTrack", args)
 suspend fun LinPlayerCommands.playerSetTrackRegexes(args: Map<String, Any?>? = null): JsonElement =

@@ -38,6 +38,8 @@ public sealed class DownloadPage : PageBase
         MaxWidth = 920, HorizontalAlignment = HorizontalAlignment.Left,
     };
     private Control _head = null!;
+    // 头部用数据项生成容器，避免刷新后复用已被虚拟化面板移除的控件容器。
+    private readonly object _headerItem = new();
     private readonly TextBlock _status = Dim("");
     private readonly ComboBox _threads = new() { Width = 130, MinHeight = 34 };
     private readonly DispatcherTimer _poll = new() { Interval = TimeSpan.FromSeconds(1) };
@@ -78,8 +80,8 @@ public sealed class DownloadPage : PageBase
         };
         _head.Margin = new Thickness(0, 0, 0, 14);
         _rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel());
-        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => item is Control header ? header : item is string section ? Section(section) : item is JsonElement entry ? Row(entry) : new Panel());
-        _rows.ItemsSource = new object[] { _head };
+        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => ReferenceEquals(item, _headerItem) ? _head : item is string section ? Section(section) : item is JsonElement entry ? Row(entry) : new Panel());
+        _rows.ItemsSource = new object[] { _headerItem };
         Content = Scrolled(_rows);
 
         // 并发数**从核心层读回来**,不是 UI 猜一个再灌下去。
@@ -153,7 +155,7 @@ public sealed class DownloadPage : PageBase
         var items = arr.ValueKind == JsonValueKind.Array ? arr.EnumerateArray().ToList() : [];
         Dispatcher.UIThread.Post(() =>
         {
-            _rows.ItemsSource = new object[] { _head };
+            _rows.ItemsSource = new object[] { _headerItem };
             if (items.Count == 0)
             {
                 _status.Text = "还没有下载任务。在详情页点「下载」加进来。";
@@ -169,7 +171,7 @@ public sealed class DownloadPage : PageBase
             var done = items.Where(x => Str(x, "status") is "completed").ToList();
             var rest = items.Where(x => !live.Contains(x) && !done.Contains(x)).ToList();
 
-            var rows = new List<object> { _head };
+            var rows = new List<object> { _headerItem };
             if (live.Count > 0)
             {
                 rows.Add($"进行中 · {live.Count}");

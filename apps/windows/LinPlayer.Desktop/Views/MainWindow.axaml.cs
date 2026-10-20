@@ -2007,7 +2007,7 @@ public partial class MainWindow : Window
                 {
                     var privacy = new MenuItem { Header = "进入隐私空间" };
                     privacy.Click += async (_, _) => await EnterPrivateSpace();
-                    row.ContextMenu.Items.Add(privacy);
+                    row.ContextMenu.ItemsSource = row.ContextMenu.ItemsSource!.Cast<Control>().Append(privacy).ToList();
                 }
                 WireHold(row, list);
             }

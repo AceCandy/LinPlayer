@@ -5,6 +5,7 @@ import android.net.Uri
 import com.sun.net.httpserver.HttpServer
 import java.net.InetSocketAddress
 import java.util.concurrent.CopyOnWriteArrayList
+import kotlinx.serialization.json.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -32,7 +33,7 @@ class CachedHomeImagesTest {
     private val requests = CopyOnWriteArrayList<String>()
     @After fun clean() { server?.stop(0); scope.cancel() }
 
-    private fun app(disconnect: (String) -> Boolean = { false }, hit: (String) -> Boolean): AppState {
+    private fun app(candidates: List<String>? = null, disconnect: (String) -> Boolean = { false }, hit: (String) -> Boolean): AppState {
         val local = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
         server = local
         local.createContext("/") { exchange ->
@@ -50,6 +51,7 @@ class CachedHomeImagesTest {
         }
         local.start()
         val fake = FakeCore().loggedIn()
+        candidates?.let { ids -> fake.ret("emby.heroCandidates", JsonArray(ids.map(::JsonPrimitive))) }
         return AppState(object : CorePort by fake {
             override val localBaseUrl = "http://127.0.0.1:${local.address.port}"
             override val localToken = "fixture"
@@ -57,7 +59,7 @@ class CachedHomeImagesTest {
     }
 
     @Test fun cachedBackgroundsArePreferredAndItemsAreNotDuplicated() = runBlocking {
-        val app = app { it.contains("/Items/a/Images/") || it.contains("/Items/b/Images/Primary") }
+        val app = app(candidates = listOf("a", "b")) { it.contains("/Items/a/Images/") || it.contains("/Items/b/Images/Primary") }
         val images = app.cachedHomeImages(listOf(Item("a", "背景", "Movie"), Item("b", "海报", "Series"),
             Item("a", "重复", "Movie"), Item("person", "人物", "Person")))
         assertEquals(2, images.size)
@@ -105,7 +107,7 @@ class CachedHomeImagesTest {
     }
 
     @Test fun watchedAndResumingItemsAlsoExcludeTheirSeries() = runBlocking {
-        val app = app { true }
+        val app = app(candidates = listOf("fresh")) { true }
         val images = app.cachedHomeImages(listOf(
             Item("seen", "已看电影", "Movie", played = true),
             Item("partial", "续播电影", "Movie", resumeSecs = 60.0),
@@ -118,7 +120,7 @@ class CachedHomeImagesTest {
     }
 
     @Test fun multipleUnwatchedEpisodesDoNotRepeatTheSameWork() = runBlocking {
-        val app = app { true }
+        val app = app(candidates = listOf("series")) { true }
         val images = app.cachedHomeImages(listOf(
             Item("episode1", "第一集", "Episode", seriesId = "series"),
             Item("episode2", "第二集", "Episode", seriesId = "series"),

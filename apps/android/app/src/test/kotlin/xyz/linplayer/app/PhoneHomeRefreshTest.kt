@@ -133,7 +133,8 @@ class PhoneHomeRefreshTest {
     @Test fun serverLongPressEntersWithoutPinAndClickExitRestoresNormalContent() {
         val core = FakeCore().loggedIn()
         core.on("emby.views") { request ->
-            val value = request?.get("is_adult")?.toString()
+            val requestScope = request?.get("request_scope") as? kotlinx.serialization.json.JsonObject
+            val value = if (requestScope?.get("filter")?.toString() == "true") requestScope["private"].toString() else null
             kotlinx.serialization.json.buildJsonArray {
                 for (adult in listOf(false, true)) if (value == null || value == adult.toString()) add(buildJsonObject {
                     put("id", if (adult) "private-library" else "normal-library")
@@ -210,13 +211,14 @@ class PhoneHomeRefreshTest {
             ret("emby.listResume", arr())
             ret("emby.listLatest", arr())
             ret("emby.listCollections", arr())
-            ret("emby.listItemsPage", arr(item("outside-home", "本地缓存的库作品"), item("newly-seen", "刚标记已看")))
-            ret("emby.setPlayed", buildJsonObject { put("item_id", "newly-seen"); put("played", true) })
+            ret("emby.heroCandidates", arr(kotlinx.serialization.json.JsonPrimitive("outside-home")))
+            ret("emby.cachedItems", arr(item("outside-home", "本地缓存的库作品"), item("newly-seen", "刚标记已看", played = true)))
         }
-        openHome(core, beforeHome = { it.call("emby.listItemsPage"); it.call("emby.setPlayed") })
+        openHome(core)
         rule.onNodeWithText("本地缓存的库作品").assertIsDisplayed()
         rule.onNodeWithText("刚标记已看").assertDoesNotExist()
-        assertEquals(1, core.calls.count { it.first == "emby.listItemsPage" })
+        assertTrue(core.calls.any { it.first == "emby.cachedItems" })
+        assertEquals(0, core.calls.count { it.first == "emby.listItemsPage" })
         assertEquals(0, core.calls.count { it.first == "emby.listRandom" })
     }
 

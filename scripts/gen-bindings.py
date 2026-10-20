@@ -52,6 +52,7 @@ ABI_GO = ROOT / "core" / "ffi" / "abi.go"
 
 OUT_CS = ROOT / "bindings" / "csharp" / "Commands.g.cs"
 OUT_KT = ROOT / "bindings" / "kotlin" / "Commands.g.kt"
+OUT_SWIFT = ROOT / "bindings" / "swift" / "Commands.g.swift"
 
 BANNER = "// 本文件由 scripts/gen-bindings.py 从 docs/go-migration/COMMANDS.md 生成。\n// 不要手改 —— 改了会在下一次生成时被覆盖,而且四方比对会红。\n"
 
@@ -215,6 +216,23 @@ object LinPlayerCommandNames {
     return "".join(out)
 
 
+def gen_swift(groups, abi):
+    out = [BANNER, "import Foundation\n\n",
+           "protocol LinPlayerCommands: AnyObject {\n",
+           "    func call(_ command: String, _ args: [String: JSONValue]) async throws -> JSONValue\n}\n\n",
+           f"enum LinPlayerAbi {{ static let version: Int32 = {abi} }}\n\n",
+           "enum LinPlayerCommandNames {\n    static let all: [String] = [\n"]
+    out.extend(f'        "{c}",\n' for _, _, cs in groups for c in cs)
+    out.append("    ]\n}\n\nextension LinPlayerCommands {\n")
+    for title, prefix, cmds in groups:
+        out.append(f"    // {title} · {prefix}.*\n")
+        for c in cmds:
+            out.append(f"    func {camel(c)}(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {{\n"
+                       f'        try await call("{c}", args)\n    }}\n')
+    out.append("}\n")
+    return "".join(out)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--check", action="store_true", help="只校验产物是否最新,不写文件")
@@ -224,7 +242,8 @@ def main():
     abi = read_abi()
     total = sum(len(cs) for _, _, cs in groups)
 
-    targets = [(OUT_CS, gen_csharp(groups, abi)), (OUT_KT, gen_kotlin(groups, abi))]
+    targets = [(OUT_CS, gen_csharp(groups, abi)), (OUT_KT, gen_kotlin(groups, abi)),
+               (OUT_SWIFT, gen_swift(groups, abi))]
 
     stale = []
     for path, content in targets:

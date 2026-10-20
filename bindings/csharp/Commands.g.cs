@@ -61,6 +61,8 @@ public static class LinPlayerCommandNames
         "emby.listItemsPage",
         "emby.listLatest",
         "emby.listNextUp",
+        "emby.heroCandidates",
+        "emby.cachedItems",
         "emby.listRandom",
         "emby.listResume",
         "emby.login",
@@ -73,6 +75,7 @@ public static class LinPlayerCommandNames
         "emby.reportProgress",
         "emby.scanLibraries",
         "emby.search",
+        "emby.playbackSeason",
         "emby.seasonEpisodes",
         "emby.seriesSeasons",
         "emby.providers",
@@ -157,6 +160,7 @@ public static class LinPlayerCommandNames
         "player.interpLevels",
         "player.setInterpLevel",
         "player.interpInstall",
+        "player.selectTrackPreferences",
         "player.setTrack",
         "player.setTrackRegexes",
         "player.setVolume",
@@ -364,7 +368,7 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (48 条) ----
+    // ---- Emby 浏览与详情 · emby.* (51 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -409,6 +413,10 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("emby.listLatest", args, ct);
     public static Task<JsonElement> EmbyListNextUp(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.listNextUp", args, ct);
+    public static Task<JsonElement> EmbyHeroCandidates(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.heroCandidates", args, ct);
+    public static Task<JsonElement> EmbyCachedItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.cachedItems", args, ct);
     public static Task<JsonElement> EmbyListRandom(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.listRandom", args, ct);
     public static Task<JsonElement> EmbyListResume(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -433,6 +441,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("emby.scanLibraries", args, ct);
     public static Task<JsonElement> EmbySearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.search", args, ct);
+    public static Task<JsonElement> EmbyPlaybackSeason(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.playbackSeason", args, ct);
     public static Task<JsonElement> EmbySeasonEpisodes(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.seasonEpisodes", args, ct);
     public static Task<JsonElement> EmbySeriesSeasons(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -508,7 +518,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> AccountUpdateAccount(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.updateAccount", args, ct);
 
-    // ---- 播放器 · player.* (60 条) ----
+    // ---- 播放器 · player.* (61 条) ----
     public static Task<JsonElement> PlayerAddSubtitle(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.addSubtitle", args, ct);
     public static Task<JsonElement> PlayerChapterInfo(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -605,6 +615,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("player.setInterpLevel", args, ct);
     public static Task<JsonElement> PlayerInterpInstall(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.interpInstall", args, ct);
+    public static Task<JsonElement> PlayerSelectTrackPreferences(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.selectTrackPreferences", args, ct);
     public static Task<JsonElement> PlayerSetTrack(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.setTrack", args, ct);
     public static Task<JsonElement> PlayerSetTrackRegexes(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

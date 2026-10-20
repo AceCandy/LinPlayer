@@ -22,7 +22,7 @@ namespace LinPlayer.Desktop.Views;
 /// <para>各块各自渲染,不设屏障 ——「不秒加载」的根因从来不是动画,是加载结构:
 /// 一个 <c>Promise.all</c> 屏障就能把最快的那块拖到最慢的那块(实测 5.5 倍)。
 /// 2026-09-03 又加两层(用户:「仍然是等全部加载完才显示」):缓存先行(命中
-/// <see cref="MetaCache"/> 就当场画旧数据,零往返),折线以下的轨道滚到了才拉 ——
+/// 核心快照 就当场画旧数据,零往返),折线以下的轨道滚到了才拉 ——
 /// 库多的服务器开场并发十几条,会把最上面那条挤在同一个连接池里排队。</para>
 /// </summary>
 public sealed class HomePage : PageBase
@@ -217,7 +217,7 @@ public sealed class HomePage : PageBase
             但**位置是先占好的**:每条轨道在发请求之前就把自己那一块(骨架)挂上去,
             所以屏幕上的顺序是固定的,不是「谁先回来谁排前面」。 */
         var resume = Track("继续观看", null, true,
-            key: MetaCache.Key("home.resume", s), resumeRow: true, resumeLoad: show => ResumeAndNextUp(core, s, show));
+            resumeRow: true, resumeLoad: show => ResumeAndNextUp(core, s, show));
 
         /* 合集。<b><c>emby.listCollections</c> 早就注册着,UI 一次没调过</b> ——
            这是本仓第五次撞上「后端领先前端」。
@@ -245,7 +245,6 @@ public sealed class HomePage : PageBase
                     ? await Arr(core.CallDisplayAsync("emby.listCollections",
                         new { s.server, s.token, s.user_id, s.device_id }, value => show(value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : []), _ct))
                     : [],
-            key: MetaCache.Key("emby.listCollections", new { s.server, s.user_id }),
             lazy: true, hideWhenEmpty: true);
 
         /* 「各库最新」这一段要**先占住位置**再去拉。
@@ -257,7 +256,6 @@ public sealed class HomePage : PageBase
 
         var views = Track("媒体库",
             null, true, displayCommand: "emby.views", displayArgs: new { s.server, s.token, s.user_id, s.device_id },
-            key: MetaCache.Key("emby.views", new { s.server, s.user_id }),
             onItems: libs => LatestPerLibrary(core, s, libSection, libBusy, libs));
         AddRow(libSection);
         /* 确认是 Emby 了就先把 Hero 的位置占住(骨架)。
@@ -343,9 +341,7 @@ public sealed class HomePage : PageBase
     /// </summary>
     private async Task HeroItems(CoreClient core, object s)
     {
-        var key = MetaCache.Key("emby.listRandom", With(s, new { hero = HeroCount }));
-        var cached = MetaCache.PeekList(key);
-        if (cached is { Count: > 0 }) _hero.Show(_server, cached);
+        List<JsonElement>? cached = null;
 
         var ct = _ct;
         List<JsonElement> all;
@@ -355,16 +351,14 @@ public sealed class HomePage : PageBase
             if (cached.Count > 0) _hero.Show(_server, cached);
         }, ct)); ct.ThrowIfCancellationRequested(); }
         catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(() => HeroItems(core, s)); return; }
-        catch { if (cached is null) _hero.Hide(); return; }
+        catch (Exception e) { if (cached is null || InvalidatesDisplay(e)) _hero.Hide(); return; }
         if (all.Count == 0) { _hero.Hide(); return; }
         /* 内容没变就<b>不要再 Show 一次</b>。Show 会重建圆点、复位轮播、重发预取,
            用户看到的是刚出来的大图当场闪一下换成同一张 —— 那看着像 bug。 */
         if (cached is not null && cached.Select(Id).SequenceEqual(all.Select(Id)))
         {
-            MetaCache.PutList(key, all);
             return;
         }
-        MetaCache.PutList(key, all);
         _hero.Show(_server, all);
     }
 
@@ -389,7 +383,7 @@ public sealed class HomePage : PageBase
             if (libs.Count == 0)
             {
                 _ = Track("最新加入", null, false, displayCommand: "emby.listLatest", displayArgs: With(s, new { limit = 16 }),
-                    key: MetaCache.Key("emby.listLatest", s), host: section);
+                    host: section);
                 return;
             }
             var n = 0;
@@ -403,7 +397,6 @@ public sealed class HomePage : PageBase
                    后面那个 › 点进这个库的网格页。 */
                 _ = Track(name,
                     null, false, displayCommand: "emby.listLatest", displayArgs: With(s, new { parent_id = id, limit = 16 }), host: section, libraryId: id,
-                    key: MetaCache.Key("emby.listLatest", With(s, new { parent_id = id })),
                     // 第一条库轨道跟「继续观看」一起算进首屏,再往下的等滚到了再拉
                     lazy: ++n + 1 > EagerRows);
             }
@@ -420,44 +413,27 @@ public sealed class HomePage : PageBase
     ///
     /// <para>两条各自吞错:NextUp 在某些 fork 上没有,不能因此把「看了一半」也弄没。</para>
     /// </summary>
-    /// <summary>
-    /// 把一条从「继续观看」的缓存里抠掉。首页重建时先画缓存再刷新,
-    /// 不抠的话刚移除的那张会先闪回来一下。键的形状必须和上面建轨道时那份一致。
-    /// </summary>
-    internal static void ForgetResume(string itemId)
-    {
-        if (Nav.Session is not { } ns) return;
-        var s = new { server = ns.server, token = ns.token, user_id = ns.user_id, device_id = ns.device_id };
-        foreach (var kind in new[] { "home.resume", "home.resume.items", "home.nextUp.items" }) {
-            var key = MetaCache.Key(kind, s);
-            if (MetaCache.PeekList(key) is { } old)
-                MetaCache.PutList(key, old.Where(it => Str(it, "id") != itemId).ToList());
-        }
-    }
-
     private async Task<ResumeFeed.Result> ResumeAndNextUp(CoreClient core, object s, Action<List<JsonElement>> show)
     {
         var ct = _ct;
-        var resumeKey = MetaCache.Key("home.resume.items", s);
-        var nextKey = MetaCache.Key("home.nextUp.items", s);
-        // 旧版只有合并缓存;首次部分失败时保留旧内容,待两路成功后自然刷新。
-        var previous = MetaCache.PeekList(MetaCache.Key("home.resume", s));
-        var oldResume = MetaCache.PeekList(resumeKey) ?? previous ?? [];
-        var oldNext = MetaCache.PeekList(nextKey) ?? previous ?? [];
+        var oldResume = new List<JsonElement>();
+        var oldNext = new List<JsonElement>();
         void Preview() => show(oldResume.Concat(oldNext).DistinctBy(it => Str(it, "series_id") is { Length: > 0 } series ? "s:" + series : "i:" + Id(it)).ToList());
-        var result = await ResumeFeed.Load(
-            () => Arr(core.CallDisplayAsync("emby.listResume", With(s, new { limit = 12 }), value => {
-                oldResume = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : []; Preview();
-            }, ct, retainOnFailure: false)),
-            () => Arr(core.CallDisplayAsync("emby.listNextUp", With(s, new { limit = 12 }), value => {
-                oldNext = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().ToList() : []; Preview();
-            }, ct, retainOnFailure: false)),
-            MetaCache.PeekList(resumeKey) ?? previous, MetaCache.PeekList(nextKey) ?? previous);
+        async Task<List<JsonElement>> Read(string command, List<JsonElement> cached) {
+            try {
+                return await Arr(core.CallDisplayAsync(command, With(s, new { limit = 12 }), value => {
+                    cached.Clear(); if (value.ValueKind == JsonValueKind.Array) cached.AddRange(value.EnumerateArray()); Preview();
+                }, ct, retainOnFailure: false));
+            } catch (CoreException e) when (InvalidatesDisplay(e)) { cached.Clear(); throw; }
+        }
+        var result = await ResumeFeed.Load(() => Read("emby.listResume", oldResume),
+            () => Read("emby.listNextUp", oldNext), oldResume, oldNext);
         ct.ThrowIfCancellationRequested();
-        if (result.Resume is not null) MetaCache.PutList(resumeKey, result.Resume);
-        if (result.NextUp is not null) MetaCache.PutList(nextKey, result.NextUp);
         return result;
     }
+
+    private static bool InvalidatesDisplay(Exception e) => e is CoreException ce &&
+        ce.Code is "E_AUTH" or "E_NOTFOUND" or "E_PERMISSION" or "E_INVALID" or "E_UNSUPPORTED";
 
     private void Post(Action action, DispatcherPriority? priority = null)
     {
@@ -494,15 +470,10 @@ public sealed class HomePage : PageBase
     /// <param name="onItems">数据到手时顺带回调一次(「各库最新」靠它拿库表)。</param>
     /// <param name="host">挂到哪儿。null = 挂到页面根上。</param>
     /// <param name="libraryId">非空 = 标题后面画一个 <c>›</c>,点了进这个库的网格页。</param>
-    /// <param name="key">
-    /// 缓存键。非空时<b>先把上一次的结果画出来</b>,再拿真数据覆盖一次。
-    /// <para>这就是「回到首页要等四五秒」的解 —— 那四五秒里屏幕上其实
-    /// **已经能画出内容了**,只是没人存过上一次的结果。</para>
-    /// </param>
     /// <param name="lazy">true = 先只占位,滚到跟前了再真去拉。</param>
     private async Task Track(string title, Func<Task<List<JsonElement>>>? load, bool wide,
         Action<List<JsonElement>>? onItems = null, StackPanel? host = null, string? libraryId = null,
-        string? key = null, bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false, Func<Action<List<JsonElement>>, Task<ResumeFeed.Result>>? resumeLoad = null, string? displayCommand = null, object? displayArgs = null, Func<Action<List<JsonElement>>, Task<List<JsonElement>>>? displayLoader = null)
+        bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false, Func<Action<List<JsonElement>>, Task<ResumeFeed.Result>>? resumeLoad = null, string? displayCommand = null, object? displayArgs = null, Func<Action<List<JsonElement>>, Task<List<JsonElement>>>? displayLoader = null)
     {
         /* 占位用**骨架**,不是「加载中…」。
            三个字只有 20px 高,内容一回来这一行从 20px 撑到 280px,
@@ -536,14 +507,7 @@ public sealed class HomePage : PageBase
             body = with;
         });
 
-        // 缓存先行:命中就当场画,一次往返都不等
-        var hit = key is null ? null : MetaCache.PeekList(key);
-        if (hit is not null)
-        {
-            Core.Perf.Log($"轨道「{title}」<- 缓存 {hit.Count} 条(零往返)");
-            if (hit.Count == 0 && hideWhenEmpty) Vanish();
-            else Swap(hit.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(hit, wide, resumeRow));
-        }
+        List<JsonElement>? hit = null;
 
         Control Failure(Exception error, List<JsonElement>? kept)
         {
@@ -581,7 +545,6 @@ public sealed class HomePage : PageBase
                     return;
                 }
                 Core.Perf.Log($"轨道「{title}」<- 服务器 {items.Count} 条,{Core.Perf.Ms - t0:0} ms");
-                if (key is not null) MetaCache.PutList(key, items);
                 hit = items;
                 onItems?.Invoke(items);
                 // 空态要说清「为什么空」,不是干放一句「暂无数据」(§6.4)
@@ -593,7 +556,7 @@ public sealed class HomePage : PageBase
             /* 已经用缓存画出内容之后再失败(离线 / 服务器挂了),<b>不要把内容换成一行红字</b> ——
                屏幕上那批旧数据仍然是用户能用的东西,擦掉它换成「加载失败」是纯粹的损失。 */
             catch (OperationCanceledException) when (ct.IsCancellationRequested) { if (revision == runRevision) RetryWhenVisible(Run); }
-            catch (Exception e) { if (revision == runRevision && !ct.IsCancellationRequested) Swap(Failure(e, hit), revision); }
+            catch (Exception e) { if (revision == runRevision && !ct.IsCancellationRequested) Swap(Failure(e, InvalidatesDisplay(e) ? null : hit), revision); }
         }
 
         if (!lazy) { if (onItems is null) _refreshTracks.Add(Run); await Run(); return; }

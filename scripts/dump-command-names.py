@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
-"""把 COMMANDS.md / C# 绑定 / Kotlin 绑定里的命令名各导出成一份排序清单。
+"""把 COMMANDS.md / C# 绑定 / Kotlin 绑定 / Swift 绑定里的命令名各导出成一份排序清单。
 
     python scripts/dump-command-names.py <仓库根> <输出目录>
 
-给 scripts/check-bindings.sh 的第 4 关(四方比对)用。单独一个文件而不是塞进
+给 scripts/check-bindings.sh 的第 4 关(五方比对)用。单独一个文件而不是塞进
 那个 shell 里的 heredoc —— heredoc 里的反斜杠转义在多层引用下极易写错。
 
 ## 两条口径,少一条这份比对就是假的
@@ -55,7 +55,8 @@ def main():
     dump("md.txt", want)
 
     for key, rel in [("cs", "bindings/csharp/Commands.g.cs"),
-                     ("kt", "bindings/kotlin/Commands.g.kt")]:
+                     ("kt", "bindings/kotlin/Commands.g.kt"),
+                     ("swift", "bindings/swift/Commands.g.swift")]:
         src = (root / rel).read_text(encoding="utf-8")
         # ☠ 这条原来写死了「**一个**点」,于是 plugin.ui.mount 这类三段命令
         #   在产物里明明有,却一条都抽不出来 —— 门禁报「C# 与 COMMANDS.md 对不上」,

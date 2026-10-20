@@ -42,6 +42,13 @@
 
 ## 1. 目标与非目标
 
+### 当前收拢方向（2026-10-18）
+
+各端原生 UI + 统一 Go 核心是持续迁移目标。Emby 协议、业务规则、配置、展示缓存的键/投影/预算/失效和播放目标决策归核心；各端保留布局、焦点、滚动、页面生命周期、图片解码及播放器/系统适配。tvOS 使用 AetherEngine，不要求与其它端使用相同播放引擎。
+
+已有宿主重复业务按功能逐项迁移，先核实独有能力、隐私和错误语义，再删除重复实现。展示缓存已收拢：桌面、Android 手机/TV、tvOS 浏览页面消费 Go 快照；轮播候选池和桌面全季聚合归核心，宿主重复持久缓存已移除。源码接线不代表真机已验收。
+
+
 ### 目标
 
 | # | 目标 | 判据 |
@@ -397,6 +404,14 @@ C# `TaskCompletionSource`、Swift `withCheckedContinuation`)。
 
 > **这是「先红」纪律最典型的一次兑现**:不做反向注入,第一版那条判据会以
 > 「红了但看起来只是阈值偏紧」的样子被调松,然后永远测不出真泄漏。
+
+### 5.3a 请求空间与用户状态通知
+
+宿主可在命令参数附加 `request_scope: {id, private, filter, server, user_id, token}`，不改变ABI版本。id是不透明的会话/浏览空间代次；scope只属于这次请求，bus在原handler之前检查私密命令及身份冲突、注入媒体分类，再移除scope，禁止将其持久化或放入缓存键。未带scope的旧调用保持原契约。身份授权仍由原命令及服务端负责。
+
+成功且未取消的用户状态写入由核心发 `data.userState {id, scope}`；setPlayed/setBlocked对应all、setFavorite对应library、hideResume对应resume。显式其它身份的请求不向当前scope广播，事件不含服务器、账号或凭据。宿主仅接受当前id并保留失效代次，页面按生命周期补验；命令结果不再重复触发同一通知。宿主仍负责取消和阻止旧响应、partial、缓存回调及排队UI更新。
+
+当前季队列由 `emby.playbackSeason` 统一，轮播候选由 `emby.heroCandidates` 统一，原生引擎轨道偏好由 `player.selectTrackPreferences` 复用核心规则。具体参数见COMMANDS；原生焦点/滚动、解码、手选优先和实际切轨不迁入Go。
 
 ### 5.4 错误模型
 

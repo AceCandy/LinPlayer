@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"linplayer/core/bus"
+	"linplayer/core/config"
 	"linplayer/core/displaycache"
 	"linplayer/core/imgcache"
 	"linplayer/core/net/prefetch"
@@ -56,7 +57,7 @@ func RegisterCommands() {
 		runtime.ReadMemStats(&ms)
 		return map[string]any{
 			"version":    Version,
-			"platform":   runtime.GOOS,
+			"platform":   platformName(),
 			"arch":       runtime.GOARCH,
 			"uptimeMs":   bus.MonoMillis(),
 			"dataRoot":   paths.Root(),
@@ -170,12 +171,20 @@ func RegisterCommands() {
 
 // Capabilities 让 UI 探测平台差异,而不是靠三份拷贝各自维护(SPEC §5.6)。
 func Capabilities() map[string]any {
-	return map[string]any{
+	caps := map[string]any{
 		"version":   Version,
-		"platform":  runtime.GOOS,
+		"platform":  platformName(),
 		"arch":      runtime.GOARCH,
 		"videoChan": VideoChannel(),
 	}
+	if platformName() == "tvos" {
+		caps["device_id"] = config.Current().DeviceID
+		caps["videoChan"] = "host"
+		caps["player"] = "aether"
+		caps["plugins"] = false
+		caps["backgroundPlayback"] = false
+	}
+	return caps
 }
 
 // VideoChannel 报告本平台走哪条视频通道(SPEC §7.2)。

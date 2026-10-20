@@ -58,14 +58,10 @@ internal static class PrivacyCheck
         var app = Application.Current!;
         var tokens = new ResourceInclude(new Uri("avares://LinPlayer/")) { Source = new Uri("avares://LinPlayer/Theme/Tokens.axaml") };
         app.Resources.MergedDictionaries.Add(tokens);
-        MetaCache.Init(dataDir);
         try {
             var s = new Sess(address.TrimEnd('/'), "fixture", "fixture", "fixture");
             Nav.Session = s;
             var normal = BrowseSpace.Current;
-            var key = MetaCache.Key("fixture", new { });
-            var value = JsonSerializer.SerializeToElement(new { name = "普通快照" });
-            MetaCache.Put(key, value);
             var unsupported = core.EnterPrivateSpaceAsync();
             Wait(() => unsupported.IsCompleted, "旧服能力探测未完成");
             Check(unsupported.IsFaulted && !BrowseSpace.IsPrivate, "无分类的服务器仍进入私密空间");
@@ -73,17 +69,15 @@ internal static class PrivacyCheck
             var enter = core.EnterPrivateSpaceAsync();
             Wait(() => enter.IsCompleted, "分类探测未完成"); enter.GetAwaiter().GetResult();
             Check(BrowseSpace.IsPrivate && queries.Contains("unfiltered"), "入口没有使用完整库清单探测");
-            var privateKey = MetaCache.Key("fixture", new { });
-            Check(privateKey != key && MetaCache.Peek(key) is null, "空间共用元数据键");
-            MetaCache.Put(key, value);
-            Check(MetaCache.Peek(key) is null, "旧空间写入被接受");
-            MetaCache.Put(privateKey, JsonSerializer.SerializeToElement(new { name = "私密快照" }));
-            Check(MetaCache.Peek(privateKey) is not null, "私密内存缓存不可用");
-            Check(!Directory.GetFiles(Path.Combine(dataDir, "cache", "meta"), "adult-*").Any(), "私密元数据已落盘");
             var search = core.CallAsync("emby.search", new { s.server, s.user_id, s.token, s.device_id, query = "private" });
             Wait(() => search.IsCompleted, "私密搜索未完成"); search.GetAwaiter().GetResult();
             Check(queries.Last() == "true", "私密搜索没有分类");
-            foreach (var command in new[] { "emby.watchHistoryList", "source.home", "source.aggregateSearch", "plugin.searchActions", "download.create", "prefs.pushSearch", "emby.aggregateVersions" }) {
+            JsonElement? cached = null;
+            var refresh = core.CallDisplayAsync("emby.search", new { s.server, s.user_id, s.token, s.device_id, query = "private" }, value => cached = value);
+            Wait(() => refresh.IsCompleted, "私密快照刷新未完成"); refresh.GetAwaiter().GetResult();
+            Check(cached is not null && cached.Value.GetRawText().Contains("私密作品"), "私密核心快照未交付");
+
+            foreach (var command in new[] { "emby.watchHistoryList", "source.home", "source.aggregateSearch", "plugin.searchActions", "download.enqueue", "prefs.pushSearch", "emby.aggregateVersions" }) {
                 var rejected = core.CallAsync(command, new { });
                 Wait(() => rejected.IsCompleted, "边界请求未结束");
                 Check(rejected.IsFaulted && rejected.Exception!.InnerException is CoreException { Code: "E_UNSUPPORTED" }, "私密边界未拦截:" + command);
@@ -98,7 +92,6 @@ internal static class PrivacyCheck
             BrowseSpace.Change(false); release.TrySetResult();
             Wait(() => late.IsCompleted, "迟到请求未结束");
             Check(late.IsCanceled, "私密结果进入了普通空间");
-            Check(MetaCache.Peek(privateKey) is null, "退出后仍读取私密快照");
             var normalSearch = core.CallAsync("emby.search", new { s.server, s.user_id, s.token, s.device_id, query = "normal" });
             Wait(() => normalSearch.IsCompleted, "普通搜索未完成"); normalSearch.GetAwaiter().GetResult();
             Check(queries.Last() == "false", "普通查询没有显式分类");

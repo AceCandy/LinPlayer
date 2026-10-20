@@ -1,0 +1,162 @@
+import SwiftUI
+
+@MainActor final class AppModel: ObservableObject {
+    @Published var api: MediaAPI?
+    @Published var account: MediaAccount?
+    @Published var ready = false
+    @Published var needsLogin = false
+    @Published var fatalError: String?
+    @Published var notice: String?
+    @Published var busy = false
+    @Published var identity = UUID()
+    @Published var userStateRevision = 0
+    @Published var privateSpace = false
+    @Published var pendingItem: MediaItem?
+    @Published var playback: PlaybackController?
+    let images: ImageLoader
+
+    init(imageConfiguration: URLSessionConfiguration = .ephemeral) {
+        images = ImageLoader(configuration: imageConfiguration)
+    }
+    private var core: CoreClient?
+    private var started = false
+    @Published var switchingPlayback = false
+    @Published var sceneActive = true
+    private var exitingPlayback = false
+    private var playbackOrigin = ""
+    @Published var returnedOrigin = ""
+    @Published var returnedItem: MediaItem?
+    @Published var returnRevision = 0
+
+    func start() async {
+        guard !started else { return }; started = true
+        do {
+            let root = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask)[0].appendingPathComponent("LinPlayer")
+            let version = Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
+            let client = try await Task.detached { try NativeCore.initialize(dataRoot: root, version: version) }.value
+            core = client
+            client.onEvent = { [weak self] name, data in
+                if name == "data.userState" {
+                    Task { @MainActor in self?.api?.userStateChanged(data) }
+                }
+                if name == "localserve.ready" {
+                    Task { @MainActor in self?.images.setChannel(base: data["baseUrl"].string, token: data["token"].string) }
+                }
+            }
+            client.start()
+            let caps = try await client.systemCapabilities()
+            guard let device = caps["device_id"].string, !device.isEmpty else { throw CoreFailure(code: "E_STORAGE") }
+            let service = MediaAPI(core: client); service.deviceID = device
+            service.onAuthExpired = { [weak self] in
+                guard let self else { return }
+                self.playback?.suspend()
+                self.api?.use(nil)
+                self.images.clearIdentity()
+                self.needsLogin = true
+                Task { await self.closePlayer() }
+            }
+            service.onUserStateChanged = { [weak self] in self?.userStateRevision += 1 }
+            api = service
+            try await restoreSession()
+            ready = true
+        } catch {
+            fatalError = "无法恢复应用必要状态。请检查系统存储与钥匙串后重新启动；现有数据未重置。"
+        }
+    }
+
+    private func restoreSession() async throws {
+        guard let core, let api else { return }
+        let value = try await core.embyCurrentSession()
+        let accounts = try await core.accountListAccounts().decode([MediaAccount].self)
+        account = accounts.first(where: \.active)
+        if let s = try MediaSession.restore(value) {
+            api.use(s); images.use(server: s.server); needsLogin = false
+        } else {
+            api.use(nil); needsLogin = true
+        }
+        privateSpace = false
+        identity = UUID()
+    }
+
+    func changePrivateSpace(_ enabled: Bool) async throws {
+        guard let api, !busy else { return }
+        busy = true; defer { busy = false }
+        await closePlayer()
+        try await api.setPrivateSpace(enabled)
+        privateSpace = enabled
+        if let server = api.session?.server { images.use(server: server) }
+        pendingItem = nil; identity = UUID()
+    }
+
+    func switchServer(_ server: String, opening item: MediaItem? = nil) async throws {
+        guard !privateSpace else { throw CoreFailure(code: "E_UNSUPPORTED") }
+        guard let core, !busy else { throw CoreFailure(code: "E_BUSY") }
+        busy = true; defer { busy = false }
+        await closePlayer()
+        let accounts = try await core.call("account.setActiveServer", ["server_id": .string(server)]).decode([MediaAccount].self)
+        guard let target = accounts.first(where: { $0.server == server && $0.active }) else { throw CoreFailure(code: "E_PROTOCOL") }
+        try await restoreSession()
+        guard api?.session?.server == target.line_url, api?.session?.user_id == target.user_id else { throw CoreFailure(code: "E_PROTOCOL") }
+        pendingItem = item
+    }
+
+    func reloadAccounts() async throws { try await restoreSession() }
+
+    func login(server: String, username: String, password: String) async throws {
+        guard let core, let api, !busy else { return }
+        busy = true; defer { busy = false }
+        if let playback { await playback.close(); self.playback = nil }
+        _ = try await core.embyLogin(["server": .string(server.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "username": .string(username), "password": .string(password), "device_id": .string(api.deviceID)])
+        try await restoreSession()
+    }
+
+    func logout() async {
+        guard let core, let api, let account, !busy else { return }
+        busy = true; defer { busy = false }
+        if let playback { await playback.close(); self.playback = nil }
+        var serverOK = false
+        do { serverOK = try await api.request("emby.logout", ["server_id": .string(account.server)])["server_ok"].bool == true }
+        catch { serverOK = false }
+        do {
+            _ = try await core.accountRemoveAccount(["server_id": .string(account.server)])
+            api.use(nil); self.account = nil; needsLogin = true; identity = UUID(); images.clearIdentity()
+            notice = serverOK ? "已退出账号。" : "本机账号已移除；服务端未确认登出。"
+        } catch {
+            notice = "本机账号移除失败，尚未完成退出。请重试。"
+        }
+    }
+
+    func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, origin: String? = nil) {
+        guard playback == nil, let api else { return }
+        playbackOrigin = origin ?? item
+        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle)
+    }
+
+    func switchPlayer(item: String, title: String, version: String? = nil, fromStart: Bool = false) async {
+        guard let old = playback, let api, !switchingPlayback, !exitingPlayback else { return }
+        switchingPlayback = true; defer { switchingPlayback = false }
+        await old.close()
+        guard playback === old, !exitingPlayback else { return }
+        let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart)
+        if !sceneActive { next.suspend() }
+        playback = next
+        userStateRevision += 1
+        if let warning = old.syncWarning { next.syncWarning = warning }
+    }
+
+    func closePlayer() async {
+        guard let player = playback else { return }
+        exitingPlayback = true
+        defer { exitingPlayback = false }
+        await player.close()
+        if playback === player {
+            returnedOrigin = playbackOrigin
+            returnedItem = .route(id: player.item, name: player.title, type: "Episode")
+            returnRevision += 1
+            playback = nil
+        }
+        userStateRevision += 1
+        if let message = player.syncWarning { notice = message }
+    }
+}

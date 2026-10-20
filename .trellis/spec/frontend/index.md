@@ -1,6 +1,6 @@
 # 原生外壳规范
 
-适用 C# / Avalonia 桌面端与 Kotlin / Compose 手机、TV；不是 React 前端。
+适用 C# / Avalonia 桌面端与 Kotlin / Compose 手机、TV，以及开发中的 SwiftUI / UIKit tvOS；不是 React 前端。
 
 | 文档 | 内容 |
 |---|---|
@@ -8,6 +8,7 @@
 | [共用组件](component-guidelines.md) | 组件复用、主题、布局与反馈 |
 | [桌面端](desktop.md) | Avalonia token、UI 线程、导航与风格刻度 |
 | [Android 手机与 TV](android.md) | Compose 主题、两套导航、资源和 JNI |
+| [tvOS](tvos.md) | Swift 绑定、Keychain、Aether 与真机门禁 |
 | [请求生命周期](hook-guidelines.md) | 任务取消、离页和旧响应 |
 | [状态归属](state-management.md) | 核心业务状态、宿主会话、设备偏好 |
 | [JSON / 类型边界](type-safety.md) | 生成绑定、参数名、空值与错误 |

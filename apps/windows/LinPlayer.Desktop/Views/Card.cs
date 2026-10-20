@@ -120,7 +120,7 @@ public sealed record CardItem(
     }
 
     /// <summary>
-    /// 转回 JSON,给 <see cref="Core.MetaCache"/> 存。
+    /// 转回 JSON,用于页面展示比较。
     ///
     /// <para>字段名<b>必须和核心层的输出一模一样</b> —— 存进去的东西
     /// 之后要用 <see cref="From"/> 读回来,名字对不上就是「缓存命中但全是空的」,

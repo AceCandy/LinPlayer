@@ -80,6 +80,8 @@
 | [x] | `emby.listItemsPage` | `list_items_page` | `parent_id: String, start_index: Option<u32>, limit: Option<u32>, sort_by: Option<String>, sort_order: Option<String>, genres: Option<Vec<String>>, tags: Option<Vec<String>>, years: Option<Vec<i32>>, studios: Option<Vec<String>>, rating_min: Option<f64>, rating_max: Option<f64>, is_adult: Option<bool>` | `Page` | ✅ |
 | [x] | `emby.listLatest` | `list_latest` | `parent_id: String, limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.listNextUp` | `list_next_up` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
+| [x] | `emby.heroCandidates` | — | `items: Item[]` | `String[]；只做候选筛选，不请求网络` | ✅ |
+| [x] | `emby.cachedItems` | — | `is_adult: Option<bool>` | `展示候选 Item[]；只读核心缓存，不请求网络，不用于播放或授权` | ✅ |
 | [x] | `emby.listRandom` | `list_random` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.listResume` | `list_resume` | `limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.login` | `login` | `server: String, username: String, password: String` | `Result<LoginResult, String>` | ✅ |
@@ -92,7 +94,8 @@
 | [x] | `emby.reportProgress` | `report_progress` | `pos: f64, paused: bool, item_id: Option<String>` | `Result<(), String>` | ✅ |
 | [x] | `emby.scanLibraries` | `scan_libraries` | `—` | `Result<(), String>` | ✅ |
 | [x] | `emby.search` | `search` | `query: String, types: Option<Vec<String>>, limit: Option<u32>, parent_id: Option<String>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
-| [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>, is_adult: Option<bool>` | `Page` | ✅ |
+| [x] | `emby.playbackSeason` | — | `item_id: String, is_adult: Option<bool>` | `Item[]；实时当前季队列，失败不作为季末` | ✅ |
+| [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>, all: Option<bool>（全季聚合）, is_adult: Option<bool>` | `Page` | ✅ |
 | [x] | `emby.seriesSeasons` | `series_seasons` | `series_id: String, is_adult: Option<bool>` | `Result<Vec<emby::SeasonInfo>, String>` | ✅ |
 | [x] | `emby.providers` | **新增** | `item_id: String, series_id: Option<String>` | `Map<String,String>` | ✅ | <!-- 条目的外部 id 表(tmdb/imdb/…),键小写。同步插件拿它对 Trakt 条目;分集自己没刮到就问它所属的剧 -->
 | [x] | `emby.setBlocked` | `set_blocked` | `item_id: String, name: String, blocked: bool` | `()` | ✅ |
@@ -186,6 +189,7 @@
 | [x] | `player.interpLevels` | **新增** | `display_hz: Option<f64>` | `InterpState` | ❌ | <!-- 补帧面板:平台/独显支不支持、组件装没装、档位表(带 will_run + note)。安卓由 UI 报 display_hz;Linux 返回 supported=false -->
 | [x] | `player.setInterpLevel` | **新增** | `level: String, display_hz: Option<f64>` | `InterpApplied` | ❌ | <!-- 挂补帧档;挂上之后跑不动由 player.interpReverted 事件通知 -->
 | [x] | `player.interpInstall` | **新增** | `pack: Option<String>` | `Result<(), String>` | ❌ | <!-- 下载补帧运行时;pack=trt 装 N 卡加速包并预建引擎。阻塞到装完,进度走 player.interpInstall 事件(stage=download/prepare) -->
+| [x] | `player.selectTrackPreferences` | — | `tracks: Track[], prefs: Option<Object>` | `{sub: String, audio: String}；空串保持，sub=no关闭，其余为传入轨ID` | ✅ |
 | [x] | `player.setTrack` | `set_track` | `kind: String, id: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setTrackRegexes` | `set_track_regexes` | `version_regex: String, sub_regex: String, audio_regex: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setVolume` | `set_volume` | `volume: f64` | `Result<(), String>` | ✅ |

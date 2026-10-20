@@ -78,23 +78,15 @@ public sealed class LibraryPage : PageBase
                 catch { /* 拿不到名单顶多是灰卡不灰,不该把整页拖红 */ }
                 // 缓存先行:库表是这一页的全部内容,而它几乎从不变 ——
                 // 每次进来等一次往返只为了拿回同样的三五行。
-                var key = MetaCache.Key("emby.views", new { s.server, s.user_id, blocked = true });
                 var cachedRaw = "";
-                if (MetaCache.PeekList(key) is { Count: > 0 } hit)
-                {
-                    cachedRaw = string.Concat(hit.Select(x => x.GetRawText()));
-                    Dispatcher.UIThread.Post(() => Paint(hit.Select(CardItem.From).ToList()));
-                }
-
                 var views = await core.CallDisplayAsync("emby.views", new
                 {
                     s.server, s.token, s.user_id, s.device_id, include_blocked = true,
                 }, value => {
-                    if (value.ValueKind == JsonValueKind.Array) Paint(value.EnumerateArray().Select(CardItem.From).ToList());
+                    if (value.ValueKind == JsonValueKind.Array) { cachedRaw = string.Concat(value.EnumerateArray().Select(x => x.GetRawText())); Paint(value.EnumerateArray().Select(CardItem.From).ToList()); }
                 });
                 var raw = views.ValueKind == JsonValueKind.Array
                     ? views.EnumerateArray().ToList() : [];
-                MetaCache.PutList(key, raw);
                 // 一个字没变就不重画 —— 重画一次整页网格会当场闪一下
                 if (cachedRaw.Length > 0 && cachedRaw == string.Concat(raw.Select(x => x.GetRawText())))
                     return;
@@ -141,26 +133,17 @@ public sealed class LibraryPage : PageBase
     private static async Task FillExtra(CoreClient core, Sess s, StackPanel host)
     {
         var scope = BrowseSpace.Current;
-        async Task One(string title, Func<Task<JsonElement>> load, bool wide, string key)
+        async Task One(string title, bool wide)
         {
-            List<CardItem> items;
-            var hit = MetaCache.PeekList(key);
-            if (hit is { Count: > 0 })
-            {
-                items = hit.Select(CardItem.From).ToList();
-                Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) Paint(core, s.server, title, items, wide, host); });
+            void Show(JsonElement value) {
+                if (!scope.IsCurrent) return;
+                var items = value.ValueKind == JsonValueKind.Array ? value.EnumerateArray().Select(CardItem.From).ToList() : [];
+                Paint(core, s.server, title, items, wide, host);
             }
-            try
-            {
-                var r = await load();
-                var raw = r.ValueKind == JsonValueKind.Array ? r.EnumerateArray().ToList() : [];
-                MetaCache.PutList(key, raw);
-                if (hit is { Count: > 0 } && string.Concat(hit.Select(x => x.GetRawText()))
-                    == string.Concat(raw.Select(x => x.GetRawText()))) return;
-                items = raw.Select(CardItem.From).ToList();
-            }
-            catch { return; }   // 端点 404 / 这一段就不出现
-            Dispatcher.UIThread.Post(() => { if (scope.IsCurrent) Paint(core, s.server, title, items, wide, host); });
+            try {
+                var result = await core.CallDisplayAsync("emby.listCollections", new { s.server, s.token, s.user_id, s.device_id }, Show);
+                Dispatcher.UIThread.Post(() => Show(result));
+            } catch { /* 合集端点不可用时不显示此段。 */ }
         }
 
         // emby.listCollections 早就注册着,UI 一次没调过 —— 又一条零调用命令
@@ -168,8 +151,7 @@ public sealed class LibraryPage : PageBase
            不要多放一个最近加入」)。首页已经**按库**各出一条最新,
            这里再来一条全局的是同一件事说第二遍,而且它把库卡往下推了一整行。
            合集留着:合集是「库这一层的另一种分法」,不是最新内容的重复。 */
-        await One("合集", () => core.EmbyListCollections(new { s.server, s.token, s.user_id, s.device_id }),
-            false, MetaCache.Key("emby.listCollections", new { s.server, s.user_id }));
+        await One("合集", false);
     }
 
     /// <summary>把一段画进去。 同名的先摘掉 —— SWR 第二遍会再画一次。</summary>

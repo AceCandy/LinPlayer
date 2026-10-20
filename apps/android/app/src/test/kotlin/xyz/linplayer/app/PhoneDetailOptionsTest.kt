@@ -269,6 +269,7 @@ class PhoneDetailOptionsTest {
 
     @Test fun unknownAudioLabelsAreHiddenAndSubtitlePreviewPrefersSimplified() {
         val core = core().apply {
+            ret("player.selectTrackPreferences", buildJsonObject { put("sub", "1"); put("audio", "0") })
             ret("prefs.getPrefs", buildJsonObject { put("sub_enabled", true) })
             ret("emby.itemMedia", arr(buildJsonObject {
                 put("id", "v1"); put("name", "标准版"); put("preferred", true)

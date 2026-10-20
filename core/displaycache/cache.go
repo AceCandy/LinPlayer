@@ -27,9 +27,10 @@ type entry struct {
 }
 
 var mu sync.Mutex
+var mutations sync.Mutex
 var memory = map[string]entry{}
 var root string
-var generation, revision uint64
+var generation, revision, cleared uint64
 
 // 展示读取显式列举；鉴权、媒体版本、播放控制和写命令不参与缓存。
 var commands = map[string]bool{}
@@ -79,7 +80,7 @@ func key(command string, args map[string]any) string {
 		a["blocked_revision"] = info.ModTime().UnixNano()
 	}
 	b, _ := json.Marshal(a)
-	return hash(command + "|" + string(b))
+	return identityPrefix(args) + hash(command + "|" + string(b))[32:]
 }
 
 // Snapshot 只供展示刷新判断已取得的区块，不用于播放或权限决策。
@@ -101,6 +102,7 @@ func epoch() uint64 {
 		root = next
 		memory = map[string]entry{}
 		generation++
+		cleared++
 	}
 	return generation
 }
@@ -194,6 +196,7 @@ func Clear(remove func() error) error {
 	mu.Lock()
 	defer mu.Unlock()
 	generation++
+	cleared++
 	memory = map[string]entry{}
 	return remove()
 }
@@ -201,7 +204,24 @@ func Clear(remove func() error) error {
 // Run 发出可选的旧展示partial，仍等待实时请求；不改最终成功结果或错误契约。
 func Run(ctx context.Context, seq int64, command string, args map[string]any, fetch func() (any, error)) (any, error) {
 	if !commands[command] {
-		return fetch()
+		epoch()
+		mu.Lock()
+		clearEpoch := cleared
+		mu.Unlock()
+		value, err := fetch()
+		if err == nil && ctx.Err() == nil && (command == "emby.setPlayed" || command == "emby.setFavorite" || command == "emby.hideResume") {
+			mutations.Lock()
+			defer mutations.Unlock()
+			next := invalidateIdentity(args, clearEpoch)
+			if command == "emby.setPlayed" && next != 0 {
+				b, _ := json.Marshal(value)
+				var raw any
+				if json.Unmarshal(b, &raw) == nil {
+					recordCandidates(command, args, raw, next)
+				}
+			}
+		}
+		return value, err
 	}
 	e := epoch()
 	k := key(command, args)
@@ -246,6 +266,7 @@ func Run(ctx context.Context, seq int64, command string, args map[string]any, fe
 					return value, nil
 				}
 			}
+			recordCandidates(command, args, raw, e)
 			safe := project(raw)
 			if command == "emby.itemDetail" {
 				if o, ok := safe.(map[string]any); ok {

@@ -25,6 +25,7 @@ import (
 	"sync"
 
 	"linplayer/core/paths"
+	"linplayer/core/statefile"
 )
 
 // AppConfig 与现有 config.json 的顶层结构对齐(12 个键)。
@@ -82,7 +83,7 @@ func defaults() *AppConfig {
 // Load 读配置。返回的错误必须冒到用户面前,不许吞。
 func Load() (*AppConfig, error) {
 	p := paths.ConfigFile()
-	b, err := os.ReadFile(p)
+	b, err := statefile.Read(p)
 	if errors.Is(err, os.ErrNotExist) {
 		c := defaults()
 		mu.Lock()
@@ -99,6 +100,9 @@ func Load() (*AppConfig, error) {
 	if err := json.Unmarshal(b, &raw); err != nil {
 		// ★ 不返回空配置。返回空配置 = 下次保存把用户的账号全覆盖掉
 		return nil, fmt.Errorf("%w: %s: %v", ErrCorrupt, p, err)
+	}
+	if raw == nil {
+		return nil, fmt.Errorf("%w: 配置必须是对象", ErrCorrupt)
 	}
 	c := defaults()
 	if err := json.Unmarshal(b, c); err != nil {
@@ -140,6 +144,9 @@ func (c *AppConfig) Save() error {
 	}
 
 	p := paths.ConfigFile()
+	if s := statefile.Secure(); s != nil {
+		return s.Write(filepath.Base(p), out)
+	}
 	if err := os.MkdirAll(filepath.Dir(p), 0o755); err != nil {
 		return err
 	}

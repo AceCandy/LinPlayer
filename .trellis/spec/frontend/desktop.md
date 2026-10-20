@@ -28,7 +28,7 @@
 - 无边框最大化与视频子窗口几何按当前 Win32 接入约束，检查工作区、DPI 与真实窗口；截图不能证明视频层可见。
 
 - 首页Hero先显示/img-cache原图或已有缩略图预览，普通通道原图请求省略h/quality，按实际物理高度解码；只预取当前张和下一张。下载失败保留预览；异步切图核查条目索引、数据代次和请求代次，同项重入也拒绝旧响应。图片并发字典保存Lazy任务，仅入字典的实例启动HTTP，避免GetOrAdd并发工厂重复下载。tools/productcheck --images-only验证并发合流、图片URL、缓存探测、解码尺寸隔离与鉴权，不能代替真机画质/内存验收。
-- MetaCache 展示快照不按年龄清理，内存与磁盘各最多1000条；内存按最近读取、磁盘按最近写入淘汰。磁盘写入与淘汰串行，每次只删超额条目。现有页面先展示旧值再刷新，播放与写命令保持实时。回归入口为 `tools/cachecheck`，不代表其它尚未接入的请求已有缓存。
+- 展示快照统一由 Go displaycache 持久化，页面通过 CallDisplayAsync 消费 partial；宿主 MetaCache 已移除。首页两路继续观看分别消费快照，失败保留对应资料并显示错误；全季通过 seasonEpisodes(all=true) 核心聚合，不再由页面另存完整列表。验证见 core/displaycache、tools/homecheck、tools/seekcheck --privacy-only。
 
 依据：[Tok](../../../apps/windows/LinPlayer.Desktop/Views/Tok.cs)、[导航](../../../apps/windows/LinPlayer.Desktop/Views/Nav.cs)、[媒体库页面](../../../apps/windows/LinPlayer.Desktop/Views/LibraryPage.cs)、[桌面经验](../../../docs/lessons/ui-desktop.md)。
 
@@ -47,3 +47,11 @@
 ## MSG 榜单与公共日历
 
 两页通过 `emby.ext*` 共用核心持久展示快照，`CallDisplayAsync` 不把鉴权/权限/不支持错误当成旧数据成功。榜单按来源分类并分页；公共日历按 JST，无客户端第三方采集。页面离开取消请求，分类/页码变化拒绝旧响应；点击由 `ExtensionNavigation` 实时精确匹配、核对当前会话后进入普通详情。回归：`tools/seekcheck --discovery-only` 跑真实页面与核心 HTTP，不代表真机或生产服务验证。
+
+## 菜单集合
+
+设置ItemsSource的菜单只能更新ItemsSource，不能调用Items.Add/Remove/Clear；扩展菜单项时保留原内容并重设源。服务器菜单构建回归用 `tools/seekcheck --server-menu-only` 覆盖当前/其他账号和重复刷新；只测页面请求无法覆盖主窗口菜单构建异常。
+
+## 虚拟列表头部
+
+Avalonia 11.3.11 中，不把反复随ItemsSource重设的同一个头部Control直接作为数据项：own-container回收后保留RecycleKey，再插入会跳过视觉挂接，注册滚动锚点时报非视觉后代。BrowsePage/DownloadPage使用普通object标记，由模板返回头部，让框架管理容器；保留虚拟化，不吞布局异常。`tools/seekcheck --scroll-anchor-only`覆盖真实文件浏览筛选、滚动、离页返回，带临时核心路径的 `--scroll-anchor-download-only`覆盖真实下载刷新。文件浏览测试已在旧实现复现同堆栈、修复后通过；不把它当作所有滚动页面或Windows实机验证。

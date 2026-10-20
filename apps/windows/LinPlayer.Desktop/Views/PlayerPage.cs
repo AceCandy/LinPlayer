@@ -1113,43 +1113,14 @@ public sealed class PlayerPage : UserControl
         if (NoEmby || _isLocal || _isSource || _itemId == "" || Nav.Session is not { } s) return true;
         try
         {
-            var d = await _core.EmbyItemDetail(new
+            var result = await _core.EmbyPlaybackSeason(new
             {
                 s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
-                item_id = _itemId, with_children = false,
+                item_id = _itemId,
             }, _episodeCancellation.Token);
-            if (Str(d, "type_") != "Episode") return true;
-            var parent = Str(d, "season_id");
-            int? season = d.TryGetProperty("season_no", out var number) && number.ValueKind == JsonValueKind.Number
-                ? number.GetInt32() : null;
-            if (parent == "") {
-                if (season is null)
-                    throw new InvalidOperationException("无法确认当前季");
-                parent = Str(d, "series_id");
-            }
-            if (parent == "") throw new InvalidOperationException("无法确认当前季");
-            /* 一次拉不完就接着拉:服务端单页上限 200(ServerPageCap),
-               而选集正是为长剧存在的 —— 只拉一页的话《海贼王》里第 300 集之后
-               在这个列表里根本不存在,而且不报错。 */
-            var eps = new List<CardItem>();
-            while (true)
-            {
-                var page = await _core.EmbySeasonEpisodes(new
-                {
-                    s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
-                    parent_id = parent, start_index = eps.Count, limit = 200,
-                }, _episodeCancellation.Token);
-                var got = page.TryGetProperty("items", out var arr) && arr.ValueKind == JsonValueKind.Array
-                    ? arr.EnumerateArray().Select(CardItem.From).ToList() : [];
-                // 空页就停。只看 total 的话,服务端 total 报大了就是个死循环。
-                if (got.Count == 0) break;
-                eps.AddRange(got);
-                var total = page.TryGetProperty("total", out var t) && t.ValueKind == JsonValueKind.Number
-                    ? t.GetInt32() : eps.Count;
-                if (eps.Count >= total) break;
-            }
             if (_seek.Stopped) return false;
-            _episodes = eps.Where(e => season is null || e.SeasonNo == season).OrderBy(e => e.EpisodeNo).ToList();
+            _episodes = result.EnumerateArray().Select(CardItem.From).ToList();
+            if (_episodes.Count == 0) return true;
             var at = _episodes.FindIndex(e => e.Id == _itemId);
             if (at < 0) throw new InvalidOperationException("当前集不在分集列表中");
             _next = _episodes.ElementAtOrDefault(at + 1);

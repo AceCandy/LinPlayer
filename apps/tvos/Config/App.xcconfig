@@ -1,0 +1,18 @@
+#include? "../../../build/tvos/Native.xcconfig"
+
+PRODUCT_BUNDLE_IDENTIFIER = xyz.linplayer.tvos
+PRODUCT_NAME = LinPlayer
+SDKROOT = appletvos
+SUPPORTED_PLATFORMS = appletvos
+TVOS_DEPLOYMENT_TARGET = 18.0
+TARGETED_DEVICE_FAMILY = 3
+SWIFT_VERSION = 5.0
+SWIFT_OBJC_BRIDGING_HEADER = Config/Bridge.h
+HEADER_SEARCH_PATHS = $(inherited) "$(SRCROOT)/../../build/tvos/core"
+CLANG_ENABLE_MODULES = YES
+ENABLE_DEBUG_DYLIB = NO
+GENERATE_INFOPLIST_FILE = NO
+INFOPLIST_FILE = Config/Info.plist
+CURRENT_PROJECT_VERSION = 1
+CODE_SIGN_STYLE = Automatic
+LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks

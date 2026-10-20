@@ -1,5 +1,6 @@
 package xyz.linplayer.app.data
 
+import kotlinx.serialization.json.*
 import android.net.Uri
 import androidx.compose.runtime.Immutable
 import kotlinx.coroutines.Dispatchers
@@ -80,13 +81,13 @@ internal suspend fun AppState.cachedHeroImage(item: Item): CachedHomeImage? = wi
 }
 
 /** 分集观看记录同时排除所属剧，避免换成同剧海报后又进入轮播。 */
-internal fun homeHeroCandidates(items: List<Item>): List<Item> {
-    val unique = items.distinctBy { it.id }
-    val excluded = unique.filter { it.played || it.resumeSecs > 0 }.flatMap {
-        listOfNotNull(it.id, it.seriesId)
-    }.toSet()
-    val series = unique.filter { it.isSeries }.map { it.id }.toSet()
-    return unique.filter { it.type in setOf("Movie", "Series", "Episode", "Season") &&
-        it.id !in excluded && it.seriesId !in excluded && it.seriesId !in series }
-        .distinctBy { it.seriesId ?: it.id }
+internal suspend fun AppState.homeHeroCandidates(items: List<Item>): List<Item> {
+    val rows = items.map { item -> buildJsonObject {
+        put("id", item.id); put("type_", item.type); put("played", item.played)
+        put("resume_secs", item.resumeSecs)
+        item.seriesId?.let { put("series_id", it) }
+    } }
+    val ids = call("emby.heroCandidates", buildJsonObject { put("items", JsonArray(rows)) }).arr()
+        .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
+    return items.distinctBy { it.id }.filter { it.id in ids }
 }

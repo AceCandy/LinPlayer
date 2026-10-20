@@ -31,6 +31,8 @@ public sealed class BrowsePage : PageBase
     private readonly StackPanel _crumbs = new() { Orientation = Orientation.Horizontal, Spacing = 6 };
     private readonly ItemsControl _rows = new();
     private Control _head = null!;
+    // 头部用数据项生成容器，避免刷新后复用已被虚拟化面板移除的控件容器。
+    private readonly object _headerItem = new();
     private readonly TextBlock _status = Dim("");
     private readonly TextBox _filter = new() { Watermark = "在当前目录里过滤", Width = 220, Classes = { "field" } };
 
@@ -59,8 +61,8 @@ public sealed class BrowsePage : PageBase
             },
         };
         _rows.ItemsPanel = new FuncTemplate<Panel?>(() => new VirtualizingStackPanel());
-        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => item is Control header ? header : item is JsonElement entry ? Row(entry) : new Panel());
-        _rows.ItemsSource = new object[] { _head };
+        _rows.ItemTemplate = new FuncDataTemplate<object>((item, _) => ReferenceEquals(item, _headerItem) ? _head : item is Control control ? control : item is JsonElement entry ? Row(entry) : new Panel());
+        _rows.ItemsSource = new object[] { _headerItem };
         Content = Scrolled(_rows);
 
         _ = Load("");
@@ -69,7 +71,7 @@ public sealed class BrowsePage : PageBase
     private async Task Load(string dirId)
     {
         _loadingDir = dirId;
-        _rows.ItemsSource = new object[] { _head };
+        _rows.ItemsSource = new object[] { _headerItem };
         _status.Text = "加载中…";
         RenderCrumbs();
 
@@ -87,7 +89,7 @@ public sealed class BrowsePage : PageBase
             {
                 var go = new Button { Content = "重新登录这个源", Classes = { "primary" }, Margin = new Thickness(0, 10, 0, 0) };
                 go.Click += (_, _) => Nav.Root(new ServersPage(_core, () => { }));
-                _rows.ItemsSource = new object[] { _head, go };
+                _rows.ItemsSource = new object[] { _headerItem, go };
             }
             return;
         }
@@ -107,7 +109,7 @@ public sealed class BrowsePage : PageBase
 
     private void Render()
     {
-        _rows.ItemsSource = new object[] { _head };
+        _rows.ItemsSource = new object[] { _headerItem };
         var kw = _filter.Text?.Trim() ?? "";
         var shown = _entries
             .Where(e => kw.Length == 0 || Str(e, "name").Contains(kw, StringComparison.OrdinalIgnoreCase))
@@ -125,7 +127,7 @@ public sealed class BrowsePage : PageBase
             ? $"这个文件夹里没有匹配「{kw}」的内容。"
             : $"{shown.Count} 项" + (shown.Count != _entries.Count ? $"(共 {_entries.Count} 项)" : "");
 
-        _rows.ItemsSource = new object[] { _head }.Concat(shown.Cast<object>()).ToList();
+        _rows.ItemsSource = new object[] { _headerItem }.Concat(shown.Cast<object>()).ToList();
     }
 
     private Control Row(JsonElement e)

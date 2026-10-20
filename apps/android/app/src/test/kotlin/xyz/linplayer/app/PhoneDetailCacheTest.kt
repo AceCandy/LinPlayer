@@ -33,7 +33,6 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.data.AppState
-import xyz.linplayer.app.data.DetailCache
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.tv.FakeCore
@@ -578,7 +577,6 @@ class PhoneDetailCacheTest {
         open(app)
         rule.runOnIdle { nav.navigate(Route.Home) { popUpTo<Route.Detail> { inclusive = true } } }
         rule.onNodeWithText("首页").assertIsDisplayed()
-        runBlocking { app.detailCache.clear() }
         rule.runOnIdle { PageCache.clear(); refreshing = true; nav.navigate(Route.Detail("m1", "Movie")) }
         rule.onNodeWithContentDescription("版本").assertDoesNotExist()
         rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
@@ -668,7 +666,7 @@ class PhoneDetailCacheTest {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 if (command == "emby.itemDetail") {
                     requests++
-                    if (requests > 1) gate.await()
+                    if (requests > 1) { onPartial?.invoke(value); gate.await() }
                     return buildJsonObject { value.forEach { (k, v) -> put(k, v) }; put("is_favorite", requests > 1) }
                 }
                 return fake.callJson(command, args, onPartial)
@@ -686,7 +684,8 @@ class PhoneDetailCacheTest {
         rule.mainClock.advanceTimeBy(1000)
         rule.onNodeWithText("首页").assertIsDisplayed()
         rule.runOnIdle { nav.navigate(Route.Detail("m1", "Movie")) }
-        rule.mainClock.advanceTimeBy(32)
+        // 核心 partial 经协程交付后再测首个已布局帧。
+        rule.mainClock.advanceTimeBy(64)
         assertEquals(2, requests)
         assertEquals("cache first frame must not fade", opaque, tagContrast("科幻"), .02f)
         rule.runOnIdle { gate.complete(Unit) }
@@ -766,7 +765,7 @@ class PhoneDetailCacheTest {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 if (command == "emby.itemDetail") {
                     requests++
-                    if (requests > 1) gate.await()
+                    if (requests > 1) { onPartial?.invoke(metadata("缓存片名")); gate.await() }
                     return metadata(if (requests == 1) "缓存片名" else "最新片名")
                 }
                 return fake.callJson(command, args, onPartial)
@@ -792,7 +791,13 @@ class PhoneDetailCacheTest {
     @Test fun networkFailureKeepsMetadataAndRetryRefreshesIt() {
         val fake = FakeCore().loggedIn().movie()
         fake.ret("emby.itemDetail", metadata("缓存片名"))
-        open(AppState(fake, scope))
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.itemDetail") onPartial?.invoke(metadata("缓存片名"))
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope))
         fake.on("emby.itemDetail") { throw CoreException("E_NETWORK", "暂时无法连接", true) }
         reopen()
         rule.onNodeWithText("缓存片名").assertIsDisplayed()
@@ -801,20 +806,18 @@ class PhoneDetailCacheTest {
         rule.onNodeWithText("恢复片名").assertIsDisplayed()
     }
 
-    @Test fun newAppInstanceUsesDiskWhileNetworkIsPending() {
-        val dir = temp.newFolder()
-        val seed = DetailCache(dir)
-        val key = seed.key("http://emby-a.invalid", "u", "m1")
-        runBlocking { seed.put(key, metadata("磁盘片名"), seed.generation) }
+    @Test fun coreSnapshotAppearsWhileNetworkIsPending() {
         val fake = FakeCore().loggedIn().movie()
         val gate = CompletableDeferred<Unit>()
         val core = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "emby.itemDetail") { gate.await(); return metadata("网络片名") }
+                if (command == "emby.itemDetail") {
+                    onPartial?.invoke(metadata("磁盘片名")); gate.await(); return metadata("网络片名")
+                }
                 return fake.callJson(command, args, onPartial)
             }
         }
-        open(AppState(core, scope, DetailCache(dir)))
+        open(AppState(core, scope))
         rule.waitUntil(5000) { rule.onAllNodesWithText("磁盘片名").fetchSemanticsNodes().isNotEmpty() }
         rule.onNodeWithContentDescription("收藏").assertIsNotEnabled()
         rule.runOnIdle { gate.complete(Unit) }
@@ -822,21 +825,19 @@ class PhoneDetailCacheTest {
         rule.onNodeWithText("磁盘片名").assertDoesNotExist()
     }
 
-    @Test fun fastNetworkResultWinsOverOldDiskMetadata() {
-        val dir = temp.newFolder()
-        val seed = DetailCache(dir)
-        val key = seed.key("http://emby-a.invalid", "u", "m1")
-        runBlocking { seed.put(key, metadata("旧资料"), seed.generation) }
-        val fake = FakeCore().loggedIn().movie().apply { ret("emby.itemDetail", metadata("新资料")) }
-        val cache = DetailCache(dir)
-        open(AppState(fake, scope, cache))
-        rule.waitUntil(5000) { cache.peek(key)?.get("name") == JsonPrimitive("新资料") }
+    @Test fun fastNetworkResultWinsOverCoreSnapshot() {
+        val fake = FakeCore().loggedIn().movie()
+        val core = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.itemDetail") {
+                    onPartial?.invoke(metadata("旧资料")); return metadata("新资料")
+                }
+                return fake.callJson(command, args, onPartial)
+            }
+        }
+        open(AppState(core, scope))
         rule.onNodeWithText("新资料").assertIsDisplayed()
         rule.onNodeWithText("旧资料").assertDoesNotExist()
-        rule.waitUntil(5000) {
-            runBlocking { DetailCache(dir).load(key, 0) }?.get("name") == JsonPrimitive("新资料")
-        }
-        rule.onNodeWithText("新资料").assertIsDisplayed()
     }
 
     @Test fun authorizationFailureRemovesCachedMetadata() = rejectsCachedMetadata("E_AUTH")
@@ -850,7 +851,6 @@ class PhoneDetailCacheTest {
         reopen()
         rule.onNodeWithText("私有资料").assertDoesNotExist()
         rule.onNodeWithText("详情已不可用", substring = true).assertIsDisplayed()
-        assertNull(app.detailCache.peek(app.detailCache.key("http://emby-a.invalid", "u", "m1")))
     }
 
     @Test fun accountSwitchDiscardsLateResponseAndKeepsNewAccountVisible() {
@@ -885,7 +885,6 @@ class PhoneDetailCacheTest {
         assertTrue("late response must actually return", returned)
         rule.onNodeWithText("旧账号资料").assertDoesNotExist()
         rule.onNodeWithText("新账号资料").assertIsDisplayed()
-        assertNull(app.detailCache.peek(app.detailCache.key("http://emby-a.invalid", "u", "m1")))
     }
 
     @Test fun leavingPagePreventsLateResponseFromPublishingCache() {
@@ -909,6 +908,5 @@ class PhoneDetailCacheTest {
         rule.runOnIdle { gate.complete(Unit) }
         rule.waitForIdle()
         assertTrue(returned)
-        assertNull(app.detailCache.peek(app.detailCache.key("http://emby-a.invalid", "u", "m1")))
     }
 }

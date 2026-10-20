@@ -135,6 +135,7 @@ fun FakeCore.player(failPlay: Boolean = false, noVideo: Boolean = false): FakeCo
         put("items", arr(*(1..10).map { n -> item("sh$n", shogunNames[n - 1], "Episode", series = "幕府将军", season = 1, episode = n, runtime = 3660.0) }.toTypedArray()))
         put("total", 10)
     })
+    ret("emby.playbackSeason", arr(*(1..10).map { n -> item("sh$n", shogunNames[n - 1], "Episode", series = "幕府将军", season = 1, episode = n, runtime = 3660.0) }.toTypedArray()))
     ret("emby.itemMedia", arr(
         version("ea", "2160p", 2160, "hevc", 24_600_000, 8_400_000_000, "HDR", "truehd", listOf("chi", "chi", "eng"), true, listOf("ass", "ass", "pgssub")),
         version("eb", "1080p", 1080, "h264", 8_100_000, 3_200_000_000, null, "aac", listOf("chi"), false),

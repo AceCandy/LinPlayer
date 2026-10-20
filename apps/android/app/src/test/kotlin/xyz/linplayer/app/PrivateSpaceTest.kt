@@ -31,57 +31,46 @@ class PrivateSpaceTest {
         try {
             app.boot()
             app.call("emby.listResume")
-            assertNull(core.calls.last().second?.get("is_adult"))
+            assertEquals(JsonPrimitive(false), core.calls.last().second?.get("request_scope")?.jsonObject?.get("filter"))
             app.enablePrivacyFiltering()
-            val normalKey = app.browseCache.key("s", "u", "query")
+            val normalRevision = app.spaceRevision.value
             app.call("emby.listResume")
-            assertEquals(JsonPrimitive(false), core.calls.last().second?.get("is_adult"))
+            assertEquals(JsonPrimitive(false), core.calls.last().second?.get("request_scope")?.jsonObject?.get("private"))
             app.enterPrivateSpace()
             assertTrue(app.privateSpace.value)
             val menu = xyz.linplayer.app.ui.pages.cardActions(app, scope,
                 Item.from(buildJsonObject { put("id", "film"); put("name", "作品") })!!)
             assertFalse(menu.any { it.label == "下载" })
-            assertNotEquals(normalKey, app.browseCache.key("s", "u", "query"))
+            assertTrue(app.spaceRevision.value > normalRevision)
             app.call("emby.listResume")
-            assertEquals(JsonPrimitive(true), core.calls.last().second?.get("is_adult"))
+            assertEquals(JsonPrimitive(true), core.calls.last().second?.get("request_scope")?.jsonObject?.get("private"))
             core.ret("emby.currentSession", buildJsonObject {
                 put("server", "https://other.invalid"); put("user_id", "u"); put("token", "t")
             })
             app.refreshSession()
             assertFalse(app.privateSpace.value)
-            assertEquals(normalKey, app.browseCache.key("s", "u", "query"))
+            assertFalse(app.privateSpace.value)
         } finally { scope.cancel(); app.bg.cancel(); PageCache.clear() }
     }
 
-    @Test fun privateSpaceRejectsLocalHistoryAndCrossServerRequests() = runBlocking {
+    @Test fun privateScopePreservesIdentityAndPropagatesCorePolicyErrors() = runBlocking {
         val scope = CoroutineScope(SupervisorJob() + Dispatchers.Unconfined)
-        val core = FakeCore().loggedIn().apply {
-            ret("emby.views", libraries())
-            ret("emby.watchHistoryList", JsonArray(emptyList()))
-            ret("source.aggregateSearch", JsonArray(emptyList()))
-        }
+        val core = FakeCore().loggedIn().apply { ret("emby.views", libraries()) }
         val app = AppState(core, scope)
         try {
             app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace()
-            val before = core.calls.size
-            for (command in listOf("emby.watchHistoryList", "emby.watchHistoryClear", "emby.aggregateOverview",
-                "emby.aggregateSearch", "emby.aggregateVersions", "source.aggregateSearch", "source.history",
-                "source.favorites", "source.play", "source.playItem", "source.home", "source.caps", "source.continueWatching",
-                "plugin.searchActions", "plugin.devLoad", "player.playLocal", "prefs.pushSearch", "download.listTasks", "download.create")) {
-                try { app.call(command); fail("私密命令未被拒绝: $command") }
-                catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
+            core.on("emby.search") { args ->
+                val request = args!!.getValue("request_scope").jsonObject
+                assertEquals(JsonPrimitive(true), request["private"])
+                assertEquals(JsonPrimitive("http://emby-a.invalid"), request["server"])
+                assertEquals(JsonPrimitive("u"), request["user_id"])
+                assertEquals(JsonPrimitive("other"), args["server"])
+                throw xyz.linplayer.app.core.CoreException("E_UNSUPPORTED", "隐私空间仅支持当前服务器", false)
             }
-            for (field in listOf("server", "server_id", "user_id", "token")) {
-                try {
-                    app.call("emby.search", buildJsonObject { put(field, "other") })
-                    fail("其它身份请求未被拒绝: $field")
-                } catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
-            }
-            assertEquals(before, core.calls.size)
-            app.leavePrivateSpace()
-            app.call("emby.watchHistoryList")
-            app.call("source.aggregateSearch")
-            assertEquals(before + 2, core.calls.size)
+            try {
+                app.call("emby.search", buildJsonObject { put("server", "other") })
+                fail("核心拒绝未透传")
+            } catch (e: xyz.linplayer.app.core.CoreException) { assertEquals("E_UNSUPPORTED", e.code) }
         } finally { scope.cancel(); app.bg.cancel(); PageCache.clear() }
     }
 
@@ -109,7 +98,6 @@ class PrivateSpaceTest {
             release.complete(Unit)
             try { request.await(); fail("迟到隐私结果未被拒绝") } catch (_: CancellationException) { }
             assertEquals(0, partials)
-            assertTrue(app.browseCache.heroItems("http://emby-a.invalid", "u", app.browseCache.generation).isEmpty())
         } finally { scope.cancel(); app.bg.cancel(); PageCache.clear() }
     }
 
@@ -122,14 +110,6 @@ class PrivateSpaceTest {
         try {
             app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace()
             assertFalse(app.privateSpace.value)
-            val cache = app.browseCache
-            cache.setNamespace("adult-v1")
-            val epoch = cache.generation
-            val privateKey = cache.key("s", "u", "query")
-            cache.setNamespace("normal-v1")
-            cache.put(privateKey, buildJsonArray { add(buildJsonObject { put("id", "private-film") }) }, epoch)
-            assertNull(cache.peek(privateKey))
-            assertNotEquals(privateKey, cache.key("s", "u", "query"))
         } finally { scope.cancel(); app.bg.cancel(); PageCache.clear() }
     }
 }

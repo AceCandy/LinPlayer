@@ -1,0 +1,141 @@
+import SwiftUI
+
+@MainActor final class ImageLoader: ObservableObject {
+    @Published private(set) var revision = 0
+    private var base: String?
+    private var token: String?
+    private var server: String?
+    private var generation = UUID()
+    private let configuration: URLSessionConfiguration
+    private var session: URLSession
+    private let cache = NSCache<NSString, UIImage>()
+
+    init(configuration: URLSessionConfiguration = .ephemeral) {
+        self.configuration = configuration
+        session = URLSession(configuration: configuration)
+        cache.totalCostLimit = 32 * 1024 * 1024
+    }
+    func setChannel(base: String?, token: String?) { self.base = base; self.token = token; revision += 1 }
+    func use(server: String) { clearIdentity(); self.server = server }
+    func clearIdentity() {
+        generation = UUID(); server = nil; cache.removeAllObjects()
+        session.invalidateAndCancel(); session = URLSession(configuration: configuration)
+        revision += 1
+    }
+
+    func load(id: String, kind: String = "Primary", height: Int = 450, server sourceServer: String? = nil) async -> UIImage? {
+        guard let base, let token, let server else { return nil }
+        let upstreamServer = sourceServer ?? server
+        let key = "\(upstreamServer):\(id):\(kind):\(height)" as NSString, epoch = generation
+        if let image = cache.object(forKey: key) { return image }
+        guard var source = URLComponents(string: upstreamServer),
+              ["http", "https"].contains(source.scheme ?? ""), source.host != nil else { return nil }
+        source.path = source.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
+            .split(separator: "/").map(String.init).reduce("") { $0 + "/" + $1 } + "/Items/\(id)/Images/\(kind)"
+        source.query = "quality=90"
+        guard let upstream = source.url?.absoluteString, var local = URLComponents(string: base + "/img") else { return nil }
+        local.queryItems = [URLQueryItem(name: "src", value: upstream), URLQueryItem(name: "h", value: String(height))]
+        guard let url = local.url else { return nil }
+        var req = URLRequest(url: url); req.setValue(token, forHTTPHeaderField: "X-LP-Token")
+        do {
+            let (data, response) = try await session.data(for: req)
+            try Task.checkCancellation()
+            guard epoch == generation, (response as? HTTPURLResponse)?.statusCode == 200,
+                  let image = UIImage(data: data) else { return nil }
+            cache.setObject(image, forKey: key, cost: Int(image.size.width * image.size.height * image.scale * image.scale * 4))
+            return image
+        } catch { return nil }
+    }
+}
+
+struct Poster: View {
+    let id: String
+    let enabled: Bool
+    @ObservedObject var loader: ImageLoader
+    var width: CGFloat = 190
+    var height: CGFloat = 285
+    var fit = false
+    var placeholder: String? = nil
+    @State private var image: UIImage?
+    var body: some View {
+        ZStack {
+            RoundedRectangle(cornerRadius: 12).fill(Color.white.opacity(0.08))
+            if let image {
+                if fit { Image(uiImage: image).resizable().scaledToFit() }
+                else { Image(uiImage: image).resizable().scaledToFill() }
+            }
+            else if let placeholder { Text(placeholder).font(.system(size: 24, weight: .medium)).lineLimit(2).padding(24) }
+            else { Image(systemName: "film").font(.largeTitle).foregroundStyle(.secondary) }
+        }
+        .frame(width: width, height: height).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+        .task(id: "\(id):\(enabled):\(loader.revision)") {
+            image = nil
+            if enabled {
+                let loaded = await loader.load(id: id)
+                guard !Task.isCancelled else { return }
+                image = loaded
+            }
+        }
+        .accessibilityHidden(true)
+    }
+}
+
+struct MediaArtwork: View {
+    let item: MediaItem
+    @ObservedObject var loader: ImageLoader
+    let width: CGFloat
+    let height: CGFloat
+    var server: String? = nil
+    @State private var image: UIImage?
+    var body: some View {
+        ZStack {
+            Color.primary.opacity(0.06)
+            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            else { Image(systemName: "film").foregroundStyle(.secondary) }
+        }.frame(width: width, height: height).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+        .task(id: "\(server ?? ""):\(item):\(loader.revision)") {
+            image = nil
+            for source in item.artworkSources {
+                let loaded = await loader.load(id: source.id, kind: source.kind, server: server)
+                guard !Task.isCancelled else { return }
+                if let loaded { image = loaded; break }
+            }
+        }.accessibilityHidden(true)
+    }
+}
+
+struct Backdrop: View {
+    let item: MediaItem
+    @ObservedObject var loader: ImageLoader
+    var height: CGFloat = 460
+    var primaryEnabled: Bool? = nil
+    @EnvironmentObject private var model: AppModel
+    @State private var image: UIImage?
+    var body: some View {
+        GeometryReader { geometry in
+            ZStack {
+                TVPalette.background(model.privateSpace)
+                if let image {
+                    Image(uiImage: image).resizable().scaledToFill()
+                        .frame(width: geometry.size.width, height: height).clipped()
+                }
+                LinearGradient(colors: [.black.opacity(0.65), .clear], startPoint: .leading, endPoint: .trailing)
+                LinearGradient(stops: [
+                    .init(color: TVPalette.background(model.privateSpace).opacity(0.5), location: 0),
+                    .init(color: .clear, location: 0.25),
+                    .init(color: TVPalette.background(model.privateSpace).opacity(0.25), location: 0.55),
+                    .init(color: TVPalette.background(model.privateSpace), location: 1)
+                ], startPoint: .top, endPoint: .bottom)
+            }.frame(width: geometry.size.width, height: height).clipped()
+        }.frame(height: height)
+        .task(id: "\(item.id):\(String(describing: item.has_backdrop)):\(primaryEnabled ?? item.has_primary):\(loader.revision)") {
+            image = nil
+            var loaded: UIImage?
+            if item.has_backdrop != false { loaded = await loader.load(id: item.id, kind: "Backdrop/0", height: 720) }
+            guard !Task.isCancelled else { return }
+            if loaded == nil && (primaryEnabled ?? item.has_primary) { loaded = await loader.load(id: item.id, height: 720) }
+            guard !Task.isCancelled else { return }
+            image = loaded
+        }
+    }
+}

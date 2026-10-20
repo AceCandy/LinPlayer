@@ -68,11 +68,10 @@ class PhoneLibraryUiTest {
 
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun open(core: CorePort, fontScale: Float = 1f, dark: Boolean = false,
-        cache: xyz.linplayer.app.data.BrowseCache = xyz.linplayer.app.data.BrowseCache()) {
+    private fun open(core: CorePort, fontScale: Float = 1f, dark: Boolean = false) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
-        val app = AppState(core, scope, browseCache = cache)
+        val app = AppState(core, scope)
         appState = app
         runBlocking { app.boot() }
         rule.setContent {
@@ -194,17 +193,11 @@ class PhoneLibraryUiTest {
     @Test fun cachedGridShowsInsertedPostersAtTheStart() {
         val directory = java.nio.file.Files.createTempDirectory("library-insert-test").toFile()
         val fake = core()
-        val cache = xyz.linplayer.app.data.BrowseCache(directory)
-        val session = runBlocking { fake.callJson("emby.currentSession", null) }.obj()!!
-        val params = xyz.linplayer.app.ui.pages.args("parent_id" to "lib-0", "query" to
-            xyz.linplayer.app.ui.pages.args("start_index" to 0, "limit" to 30,
-                "sort_by" to "DateLastContentAdded", "sort_order" to "Descending"))
-        val key = cache.key(session.str("server")!!, session.str("user_id")!!, "emby.listItemsPage" + params.toString())
-        runBlocking { cache.put(key, page(*entries.toTypedArray()), cache.generation) }
         val gate = CompletableDeferred<Unit>()
         val port = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 if (command == "emby.listItemsPage") {
+                    onPartial?.invoke(page(*entries.toTypedArray()))
                     gate.await()
                     val inserted = (1..6).map { item("new-film-$it", if (it == 1) "新入库影片" else "新影片 $it") }
                     return page(*(inserted + entries.take(24)).toTypedArray())
@@ -213,7 +206,7 @@ class PhoneLibraryUiTest {
             }
         }
         try {
-            open(port, cache = xyz.linplayer.app.data.BrowseCache(directory))
+            open(port)
             rule.waitUntil(5000) { rule.onAllNodesWithText("影片 1").fetchSemanticsNodes().isNotEmpty() }
             val firstTop = rule.onNodeWithContentDescription("影片 1", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.top
             rule.runOnIdle { gate.complete(Unit) }
@@ -224,20 +217,14 @@ class PhoneLibraryUiTest {
         } finally { gate.complete(Unit); directory.deleteRecursively() }
     }
 
-    @Test fun diskCacheAppearsWhileRefreshIsPendingAndFailureKeepsPosters() {
+    @Test fun coreSnapshotAppearsWhileRefreshIsPendingAndFailureKeepsPosters() {
         val directory = java.nio.file.Files.createTempDirectory("library-cache-test").toFile()
         val fake = core()
-        val cache = xyz.linplayer.app.data.BrowseCache(directory)
-        val session = runBlocking { fake.callJson("emby.currentSession", null) }.obj()!!
-        val params = xyz.linplayer.app.ui.pages.args("parent_id" to "lib-0", "query" to
-            xyz.linplayer.app.ui.pages.args("start_index" to 0, "limit" to 30,
-                "sort_by" to "DateLastContentAdded", "sort_order" to "Descending"))
-        val key = cache.key(session.str("server")!!, session.str("user_id")!!, "emby.listItemsPage" + params.toString())
-        runBlocking { cache.put(key, page(*entries.toTypedArray()), cache.generation) }
         val gate = CompletableDeferred<Unit>()
         val port = object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 if (command == "emby.listItemsPage") {
+                    onPartial?.invoke(page(*entries.toTypedArray()))
                     gate.await()
                     throw xyz.linplayer.app.core.CoreException("E_NETWORK", "刷新失败", true)
                 }
@@ -245,7 +232,7 @@ class PhoneLibraryUiTest {
             }
         }
         try {
-            open(port, cache = xyz.linplayer.app.data.BrowseCache(directory))
+            open(port)
             rule.waitUntil(5000) { rule.onAllNodesWithText("影片 1").fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithText("影片 1").assertIsDisplayed()
             rule.onNodeWithTag("library.refreshing").assertIsDisplayed()

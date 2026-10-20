@@ -177,10 +177,16 @@ func RegisterCommands(version string) {
 		}
 		return low, nil
 	})
+	list("emby.playbackSeason", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		return defaultClient.PlaybackSeason(ctx, s, str(a, "item_id"))
+	})
 	list("emby.seriesSeasons", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.Seasons(ctx, s, str(a, "series_id"))
 	})
 	list("emby.seasonEpisodes", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		if all, _ := a["all"].(bool); all {
+			return defaultClient.AllSeasonEpisodes(ctx, s, str(a, "parent_id"))
+		}
 		return defaultClient.SeasonEpisodes(ctx, s, str(a, "parent_id"),
 			intArg(a, "start_index", 0), intArg(a, "limit", 30))
 	})
@@ -193,6 +199,20 @@ func RegisterCommands(version string) {
 			return nil, err
 		}
 		return p.Items, nil
+	})
+	list("emby.heroCandidates", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		data, err := json.Marshal(a["items"])
+		if err != nil {
+			return nil, bus.NewErr(bus.EInvalid, "候选格式无效")
+		}
+		var items []Item
+		if err := json.Unmarshal(data, &items); err != nil {
+			return nil, bus.NewErr(bus.EInvalid, "候选格式无效")
+		}
+		return HeroCandidates(items), nil
+	})
+	list("emby.cachedItems", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		return displaycache.Candidates(a), nil
 	})
 	list("emby.listRandom", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.RandomPicks(ctx, s, intArg(a, "limit", 8))
@@ -466,7 +486,9 @@ func RegisterCommands(version string) {
 		}
 		on, _ := args["blocked"].(bool)
 		// ★ id 和名字**都要存**:分集靠 series_id 认,跨服的同一部剧 id 不同、只有名字对得上
-		blocklist.Set(id, str(args, "name"), on)
+		if err := blocklist.Set(id, str(args, "name"), on); err != nil {
+			return nil, bus.NewErr(bus.EInternal, "保存屏蔽名单失败")
+		}
 		return map[string]any{"id": id, "blocked": on}, nil
 	})
 }
