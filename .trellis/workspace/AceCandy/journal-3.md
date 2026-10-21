@@ -567,3 +567,38 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 真机视频比例、安全区、硬件滑动性能和桌面原生视频遮挡未验；普通TV一项存量测试缺LocalApp仍未修，不将构建通过等同真机播放验收。
+
+
+## Session 91: tvOS分模块UI源码对齐阶段提交归档
+<!-- trellis-session: v=2 fp=33c053afea9b9b82 -->
+
+**Date**: 2026-10-21
+**Task**: tvOS分模块UI源码对齐阶段提交归档
+**Branch**: `main`
+
+### Summary
+
+提交六模块UI对齐、同源加载样式、共有设置保存和Go实时剧集选集，并单独归档源码阶段；总任务保持进行中。
+
+### Main Changes
+
+- 首页、库搜索、详情季集人物、发现、管理设置及播放器源码对齐；Android首页消费同一实时选集命令。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `72a7e0e8` | feat(tvos): 补齐分模块界面与共享剧集播放目标 |
+
+### Testing
+
+- [OK] Emby包vet/回归、Android首页回归、328条绑定完整门禁及本批隐私检查通过。
+- [OK] 新Swift编译、同数据渲染和真机未验；核心全量门禁的日历能力缓存测试仍失败，未记为全绿。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Mac连接恢复后重建核心真实头，运行Swift检查、同内容双端渲染与剩余遥控/媒体验收；继续总任务resume.md。
