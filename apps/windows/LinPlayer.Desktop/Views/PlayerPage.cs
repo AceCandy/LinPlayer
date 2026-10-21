@@ -953,6 +953,12 @@ public sealed class PlayerPage : UserControl
             一格 5:一格 1 要滚二十下才从静音到满,一格 10 又太粗。 */
         PointerWheelChanged += (_, e) =>
         {
+            if (_feedMode) {
+                if (!IsFeedControl(e.Source) && e.Delta.Y != 0)
+                    _feedStep?.Invoke(e.Delta.Y < 0 ? 1 : -1, true);
+                e.Handled = true;
+                return;
+            }
             _lastMove = DateTime.UtcNow;
             ShowOsd(true);
             if (Fire(Actions.Hit(Actions.Player, Actions.WheelSpec(e.Delta.Y)))) e.Handled = true;
@@ -1919,6 +1925,14 @@ public sealed class PlayerPage : UserControl
 
     private void OnKey(object? sender, KeyEventArgs e)
     {
+        if (_feedMode && IsFeedControl(e.Source) && e.Key != Key.Escape) return;
+        if (_feedMode && e.Key is Key.Up or Key.Down) {
+            if (!IsFeedControl(e.Source)) {
+                _feedStep?.Invoke(e.Key == Key.Down ? 1 : -1, false);
+                e.Handled = true;
+            }
+            return;
+        }
         _lastMove = DateTime.UtcNow;
         ShowOsd(true);
         if (e.Key == Key.Escape && _drawer is not null) { CloseDrawer(); e.Handled = true; return; }
@@ -3541,6 +3555,39 @@ public sealed class PlayerPage : UserControl
         _netAt = now;
     }
 
+    private bool _feedMode;
+    private Control? _feedControls;
+    private Action<int, bool>? _feedStep;
+    private Action<double, double, bool, bool>? _feedStatus;
+
+    /// <summary>流影复用视频输出和停止屏障，仅替换控件与垂直换片输入。</summary>
+    internal void UseFeedControls(Control controls, Action<int, bool> step, Action<double, double, bool, bool> status)
+    {
+        _feedMode = true;
+        _feedControls = controls; _feedStep = step; _feedStatus = status;
+        _top.IsVisible = _bottom.IsVisible = _lock.IsVisible = false;
+        _root!.Children.Add(controls);
+        ApplyOsd();
+    }
+
+    internal void ReleaseFeedControls()
+    {
+        if (_feedControls is { } controls) _root!.Children.Remove(controls);
+        _feedControls = null; _feedStep = null; _feedStatus = null;
+    }
+
+    private bool IsFeedControl(object? source) => source is Visual visual &&
+        (visual == _feedControls || visual.GetVisualAncestors().Contains(_feedControls));
+
+    internal Task FeedSeek(double position) => SeekTo(position);
+    internal Task FeedPause() => _started && !_seek.Stopped ? TogglePause() : Task.CompletedTask;
+    internal Task FeedMute()
+    {
+        if (!_started || _seek.Stopped) return Task.CompletedTask;
+        _muted = !_muted;
+        return Send("player.setMute", new { mute = _muted });
+    }
+
     private void ShowOsd(bool on)
     {
         if (_osdOn == on) return;
@@ -3562,6 +3609,7 @@ public sealed class PlayerPage : UserControl
     /// </summary>
     private void ApplyOsd()
     {
+        if (_feedMode) { Cursor = new Cursor(StandardCursorType.Arrow); return; }
         // 锁住时上下两条一律不出来;那颗锁自己仍然跟着 OSD 显隐 ——
         // 不然锁上之后没有任何东西能解锁
         var bars = _osdOn && !_locked;
@@ -4340,6 +4388,7 @@ public sealed class PlayerPage : UserControl
         var paused = st.TryGetProperty("paused", out var p) && p.ValueKind == JsonValueKind.True;
         _muted = st.TryGetProperty("mute", out var mu) && mu.ValueKind == JsonValueKind.True;
         var eof = st.TryGetProperty("eof", out var f) && f.ValueKind == JsonValueKind.True;
+        _feedStatus?.Invoke(_position, dur, paused, _muted);
 
         /* keep-open=yes 之下 END_FILE **永远不发**(文件不卸载),
            判「播完了」只能读 eof-reached。这是「播完不同步进度」的根因。

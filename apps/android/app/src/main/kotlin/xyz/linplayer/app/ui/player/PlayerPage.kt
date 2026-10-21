@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.player
 
 import xyz.linplayer.app.ui.theme.LpText
+import androidx.compose.ui.graphics.graphicsLayer
 
 import android.app.Activity
 import android.content.pm.ActivityInfo
@@ -241,6 +242,8 @@ private val speedWrites = Mutex()
 fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     clickedAt: Long? = null, onExit: ((String?) -> Unit)? = null,
     embeddedRoute: Route.Player? = null, onCompleted: (() -> Unit)? = null,
+    feedOverlay: (@Composable (FeedPlayback) -> Unit)? = null, feedOffset: Float = 0f,
+    feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {},
 ) {
     var route by remember(entry) { mutableStateOf(embeddedRoute ?: requireNotNull(entry).toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
@@ -311,7 +314,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     LaunchedEffect(route.itemId) { startDanmakuFor(app, route.itemId) }
     /** 跟手 seek 的预览值。**松手才发命令** —— 跟着滑发是每帧一条,把核心层的 seek 闩打乱。 */
     var seekPreview by remember { mutableStateOf<Double?>(null) }
-    var volume by remember { mutableFloatStateOf(1f) }
+    var volume by remember { mutableFloatStateOf(feedVolume ?: 1f) }
     /* 亮度自己存一份。**不能每次去读 `window.attributes`** —— 没设过时它是 -1
        (「跟随系统」),拿 -1 当起点算增量的话第一下会直接跳到最暗。 */
     var brightness by remember { mutableFloatStateOf(-1f) }
@@ -680,6 +683,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         (activity as? xyz.linplayer.app.PlayerActivity)?.askNotificationPermission()
         app.wantsPip = true
         runCatching {
+            if (feedOverlay != null) feedVolume?.let { controller.volume(it) }
             // 详情页选了版本就带上。没选就传空 —— **不许自己回落 versions[0]**,
             // 那会把核心层的版本正则整个跳过
             val a = buildMap<String, Any> {
@@ -735,7 +739,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             startupTiming.failed()
             app.report(it)
             if (route.src != null) srcSwitch = true
-            if (controller.fallback != null) { failReason = it.message; openFailed = true }
+            if (controller.fallback != null || feedOverlay != null) { failReason = it.message; openFailed = true }
         }
     }
     /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
@@ -963,6 +967,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     // 返回键四级:小浮层 → 面板 → OSD → 才退出播放
     BackHandler {
         when {
+            feedOverlay != null -> leave()
             panel != null -> panel = null
             osd -> osd = false
             else -> leave()
@@ -1019,7 +1024,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
        竖版排布先画出来再整块转,正是用户报的「那一段从竖屏转向横屏的画面」。
        转不动的场合(分屏 / 折叠屏 / 无视方向请求的 ROM)最多黑 [TurnGiveUpMs] 就照常画,
        不然那台设备上顶栏永远出不来。 */
-    val turning = turningTo(wantLandscape, portrait)
+    val turning = embeddedRoute == null && turningTo(wantLandscape, portrait)
     var turnGaveUp by remember(wantLandscape) { mutableStateOf(false) }
     val controlsVisible = !inPip && (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
     val nextUp = nextEpisode?.takeIf {
@@ -1105,7 +1110,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         // 给中央退进和右侧倍率保留命中空间，卡片不参与底栏测量。
         val nextUpWidth = ((if (portrait) maxWidth - 96.dp else maxWidth / 2 - 200.dp) - endInset).coerceIn(48.dp, 150.dp)
         Box(Modifier.fillMaxSize()) {
-        val videoModifier = Modifier.fillMaxSize().testTag("player.video")
+        val videoModifier = Modifier.fillMaxSize().graphicsLayer { translationY = feedOffset }.testTag("player.video")
         val videoLayerModifier = Modifier.fillMaxSize().clipToBounds()
         // 视频层:SurfaceView。Compose 内容天然画在它上面
         // ☠ 两条**互斥**:同时挂的话 mpv 和 ExoPlayer 会各画各的,上面那层赢
@@ -1165,7 +1170,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
               被判成上下:表现正是「左右滑顺带把音量也调了」。
               现在:攒够 [DRAG_SLOP] 再定方向,定了这一次手势就不再改;而且主方向要比
               副方向多出一截([lockAxis] 的 ratio),斜着划的那一下什么都不触发。 */
-        if (!locked && !openFailed) Box(
+        if (feedOverlay == null && !locked && !openFailed) Box(
             videoLayerModifier.pointerInput(controller, engine) {
                 detectTapGestures(
                     onTap = { osd = !osd },
@@ -1265,7 +1270,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 
         // ★ OSD 抬在 scrim 之上:面板开关期间上下栏**一动不动**
         AnimatedVisibility(
-            controlsVisible,
+            feedOverlay == null && controlsVisible,
             enter = fadeIn(xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3)),
             exit = fadeOut(xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3)),
         ) {
@@ -1302,13 +1307,13 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             )
         }
 
-        if (!leaving && !(turning && !turnGaveUp) &&
+        if (feedOverlay == null && !leaving && !(turning && !turnGaveUp) &&
             !inPip && controller.ready && !openFailed) {
             PassiveStatus(statusText, batteryPercent,
                 Modifier.align(Alignment.TopCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top)))
         }
 
-        if (buffering && netSpeed.isNotEmpty() && !controlsVisible && !leaving && !openFailed && !(turning && !turnGaveUp)) {
+        if (feedOverlay == null && buffering && netSpeed.isNotEmpty() && !controlsVisible && !leaving && !openFailed && !(turning && !turnGaveUp)) {
             Box(Modifier.align(Alignment.TopEnd).safeDrawingPadding()
                 .padding(top = PlayerNetSpeedTop, end = Sp.x16)
                 .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .45f))
@@ -1316,7 +1321,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
 
         PassiveProgress(position, duration,
-            visible = !controlsVisible && panel == null && !leaving && !(turning && !turnGaveUp) &&
+            visible = feedOverlay == null && !controlsVisible && panel == null && !leaving && !(turning && !turnGaveUp) &&
                 !inPip && controller.ready && everMoved && !openFailed,
             m = Modifier.align(Alignment.BottomCenter).windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Bottom)))
 
@@ -1340,6 +1345,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             PlayerControl(LpIcons.lock, "解锁", faceSize = if (portrait && !inPip) 36.dp else 48.dp) { locked = false }
         }
 
+        feedOverlay?.invoke(FeedPlayback(
+            controller.seekTarget ?: position, duration, paused, volume <= 0f,
+            controller.ready && !openFailed && !leaving,
+            { doPause(!paused) }, ::doSeek,
+            { volume = if (volume > 0f) 0f else 1f; onFeedVolume(volume); doVolume(volume) },
+        ))
         }
         }
         if (!inPip) key(controller, engine) {
