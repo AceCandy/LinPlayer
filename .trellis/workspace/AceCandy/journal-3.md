@@ -531,3 +531,39 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 按当前Android TV共享页面分模块充分对照tvOS的布局、组件、信息与交互。
+
+
+## Session 90: 流影视频流对齐与手机包交付
+<!-- trellis-session: v=2 fp=1d4f09f0aa11b570 -->
+
+**Date**: 2026-10-21
+**Task**: 流影视频流对齐与手机包交付
+**Branch**: `main`
+
+### Summary
+
+完成流影专用播放页、当前筛选内前后切片及审查修复；已提交并归档流影任务，构建并验签Android手机arm64包，保留并行tvOS改动。
+
+### Main Changes
+
+- 代码提交ead66468；任务归档提交3e5dc87b，归档路径.trellis/tasks/archive/2026-10/10-21-liuying-feed-player。
+- 交付build/android/app-arm64-v8a-release.apk，版本2.0.0，29601135字节（28.23 MiB）；SHA-256 23c3626fcab0fcf5bdb72c32d81b7aaefa25533eb7e950d9f00efe01a63f5346。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ead66468` | feat(liuying): 重做原生视频流播放与筛选内切换 |
+
+### Testing
+
+- [OK] 此前手机/TV流影14项、普通手机播放器63项以及桌面流影/普通播放器定向回归通过；本轮提交前敏感信息20文件、参数263处、桌面风格7项与差异检查通过。
+- [OK] 手机release打包通过；最终APK v2/v3验签与单独v1校验通过，手机形态、安装时解压、13个原生库压缩/arm64 ELF、核心与构建产物一致性通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机视频比例、安全区、硬件滑动性能和桌面原生视频遮挡未验；普通TV一项存量测试缺LocalApp仍未修，不将构建通过等同真机播放验收。
