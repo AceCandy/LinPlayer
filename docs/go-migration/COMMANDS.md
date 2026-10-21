@@ -160,7 +160,7 @@
 | [x] | `player.queuePrepared` | **新增** | `request_id: String, current_item_id: String, engine: String, is_adult: Option<bool>` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
 | [x] | `player.advanceQueued` | **新增** | `request_id: String, pos: f64` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
 | [x] | `player.cancelPrepared` | **新增** | `request_id: String` | `{canceled}` | ❌ |
-| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>, is_adult: Option<bool>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。 -->
+| [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>, speed_scope: Option<String>, is_adult: Option<bool>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。speed_scope省略或空为普通倍速，liuying使用独立liuying_speed，其他值拒绝。 -->
 | [x] | `player.playExternal` | `play_external` | `item_id: String, resume_secs: f64, media_source_id: Option<String>, engine: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.playLocal` | `play_local` | `id: String, resume_secs: f64` | `Result<f64, String>` | ✅ |
 | [x] | `player.playUrl` | **新增** | `url: String, headers: Option<Map<String,String>>, title: Option<String>, start_secs: Option<f64>` | `{url, title}` | ✅ | <!-- 直接播一条地址(直播频道 / 插件找到的流)。不走 Emby 上报与续播记录 -->
@@ -180,7 +180,7 @@
 | [x] | `player.getDanmakuStyle` | **新增** | `—` | `DanmakuStyle` | ✅ | <!-- 面板打开时回显。不回显的话滑块从写死的默认值起手,和画面上的弹幕对不上 -->
 | [x] | `player.danmakuLayout` | **新增** | `—` | `DanmakuLayout` | ✅ | <!-- 排好版的弹幕(时刻/模式/轨道/宽/颜色/正文)+ 折算过的字号行高滚动时长。灌完语料、改完设置各取一次,UI 自己按帧插位置 -->
 | [x] | `player.danmakuHeatmap` | **新增** | `buckets: Option<i64>, duration: Option<f64>` | `Vec<f64>` | ✅ | <!-- 当前语料的密度(0..1),两端在进度条上画同一份 -->
-| [x] | `player.setPlaybackPrefs` | `set_playback_prefs` | `settings: PlaybackPrefs` | `Result<(), String>` | ✅ |
+| [x] | `player.setPlaybackPrefs` | `set_playback_prefs` | `settings: PlaybackPrefs` | `Result<(), String>` | ✅ | <!-- liuying_speed为流影独立倍速，默认1，支持0.25–4；部分更新不改default_speed，保存失败回滚。 -->
 | [x] | `player.setScreenshotDir` | `set_screenshot_dir` | `dir: Option<String>` | `Result<ScreenshotDir, String>` | ❌ |
 | [x] | `player.setSecondarySub` | `set_secondary_sub` | `id: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setSecondarySubOpts` | `set_secondary_sub_opts` | `delay: Option<f64>, position: Option<f64>, ass_override: Option<String>` | `Result<(), String>` | ✅ |

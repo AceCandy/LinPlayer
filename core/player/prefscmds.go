@@ -9,6 +9,7 @@ package player
 import (
 	"context"
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,8 +19,8 @@ import (
 	"linplayer/core/config"
 	"linplayer/core/emby"
 	"linplayer/core/media"
-	"linplayer/core/segments"
 	"linplayer/core/paths"
+	"linplayer/core/segments"
 	"linplayer/core/shaders"
 )
 
@@ -35,6 +36,7 @@ type PlaybackPrefs struct {
 	BufferTargetBytes       int64             `json:"buffer_target_bytes"`
 	Hwdec                   string            `json:"hwdec"`
 	DefaultSpeed            float64           `json:"default_speed"`
+	LiuYingSpeed            float64           `json:"liuying_speed"`
 	SkipIntro               bool              `json:"skip_intro"`
 	SkipOutro               bool              `json:"skip_outro"`
 	SkipAuto                bool              `json:"skip_auto"`
@@ -339,7 +341,7 @@ func registerPrefsCommands(version string) {
 		p := config.Current().PrefsOf()
 		return PlaybackPrefs{
 			BufferTargetBytes: p.BufferTargetBytes,
-			Hwdec:             p.Hwdec, DefaultSpeed: p.DefaultSpeed,
+			Hwdec:             p.Hwdec, DefaultSpeed: p.DefaultSpeed, LiuYingSpeed: p.LiuYingSpeed,
 			SkipIntro: p.SkipIntro, SkipOutro: p.SkipOutro,
 			SkipAuto: p.SkipAuto, SkipUseOnline: p.SkipUseOnline,
 			PreviewThumbs: p.PreviewThumbs, DolbyAutoSW: p.DolbyAutoSW,
@@ -374,6 +376,13 @@ func registerPrefsCommands(version string) {
 					config.SpeedMin, config.SpeedMax, v)
 			}
 			p.DefaultSpeed = v
+		}
+		if raw, exists := s["liuying_speed"]; exists {
+			v, ok := raw.(float64)
+			if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < config.SpeedMin || v > config.SpeedMax {
+				return nil, bus.NewErr(bus.EInvalid, "流影倍速只支持 %.2f~%.2f×", config.SpeedMin, config.SpeedMax)
+			}
+			p.LiuYingSpeed = v
 		}
 		// ★ 外部播放器:**给了路径就必须真的存在**。存一个打不开的路径,
 		//   等到起播时才炸,那时用户早忘了自己填过什么。

@@ -287,6 +287,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     /** ☠ 「时间真的往前走了」才撤黑幕,不是 `position > 0`。 */
     var everMoved by remember { mutableStateOf(false) }
     var speed by remember { mutableStateOf(1.0) }
+    var feedSpeedBusy by remember { mutableStateOf(false) }
     var osd by remember { mutableStateOf(true) }
     var locked by remember { mutableStateOf(false) }
     var panel by remember { mutableStateOf<String?>(null) }
@@ -374,8 +375,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         controller.manualSubtitleOff?.let { subOff = it }
     }
     LaunchedEffect(Unit) {
+        if (feedOverlay != null) speedWrites.withLock { }
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
-        speed = (p.dbl("default_speed") ?: 1.0).coerceIn(SP_MIN, SP_MAX)
+        speed = (p.dbl(if (feedOverlay != null) "liuying_speed" else "default_speed") ?: 1.0).coerceIn(SP_MIN, SP_MAX)
         bufferTargetBytes = p.long("buffer_target_bytes") ?: 0L
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
@@ -689,6 +691,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             val a = buildMap<String, Any> {
                 put("item_id", route.itemId)
                 put("engine", engine)
+                if (feedOverlay != null) put("speed_scope", "liuying")
                 selectedPrepared?.let { put("prepared_id", it) }
                 if (route.fromStart) put("from_start", true)
                 route.versionId?.let { put("media_source_id", it) }
@@ -933,6 +936,26 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         scope.launch { runCatching { controller.pause(want) } }
     }
     fun doSpeed(v: Double) {
+        if (feedOverlay != null) {
+            if (feedSpeedBusy || !controller.ready || leaving) return
+            feedSpeedBusy = true
+            val before = speed
+            // 保存跨离页完成；内核操作仍经停止屏障并校验当前播放目标。
+            app.bg.launch(start = CoroutineStart.UNDISPATCHED) {
+                speedWrites.withLock {
+                    val active = { latestController === controller && controller.ready && !leaving }
+                    try {
+                        controller.speed(v, active)
+                        app.call("player.setPlaybackPrefs", args("liuying_speed" to v))
+                        if (active()) speed = v
+                    } catch (error: Exception) {
+                        if (active()) runCatching { controller.speed(before, active) }
+                        app.report(error)
+                    } finally { feedSpeedBusy = false }
+                }
+            }
+            return
+        }
         scope.launch { runCatching { controller.speed(v) }.onFailure { app.report(it) } }
         // 全局偏好的保存不能因用户立刻离开播放页而取消。
         app.bg.launch {
@@ -1359,6 +1382,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             controller.ready && !openFailed && !leaving,
             { doPause(!paused) }, ::doSeek,
             { volume = if (volume > 0f) 0f else 1f; onFeedVolume(volume); doVolume(volume) },
+            speed, ::doSpeed, feedSpeedBusy,
         ))
         }
         }

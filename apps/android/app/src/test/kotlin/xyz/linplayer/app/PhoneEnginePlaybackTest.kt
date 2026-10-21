@@ -5,6 +5,7 @@ import android.app.Activity
 import android.content.pm.ActivityInfo
 import android.media.AudioManager
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.Composable
 import androidx.compose.runtime.SideEffect
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.*
@@ -54,6 +55,7 @@ import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.*
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.player.PlaybackService
+import xyz.linplayer.app.ui.player.FeedPlayback
 import xyz.linplayer.app.ui.player.PlayerPage
 import xyz.linplayer.app.ui.theme.LpTheme
 
@@ -81,7 +83,41 @@ class PhoneEnginePlaybackTest {
         rule.onNodeWithTag("player.menu").assertDoesNotExist()
         assertEquals(1.5, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
         assertEquals(1.5, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
+        assertNull(core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("liuying_speed"))
+        assertNull(core.calls.single { it.first == "player.play" }.second?.get("speed_scope"))
         assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 流影Media3起播与调速仅使用独立倍速() {
+        var saved = 1.5
+        lateinit var feed: FeedPlayback
+        val core = FakeCore().loggedIn().player().apply {
+            on("prefs.getPrefs") { buildJsonObject {
+                put("default_speed", 3.0); put("liuying_speed", saved); put("sub_enabled", true)
+            } }
+            on("player.play") { buildJsonObject {
+                put("media_source_id", "ea"); put("play_url", "asset:///startup-measurement.mp4"); put("resume_secs", 0.0)
+            } }
+            on("player.setPlaybackPrefs") { a ->
+                assertNull(a?.get("default_speed"))
+                saved = a.dbl("liuying_speed")!!
+                JsonNull
+            }
+        }
+        showPlayer(core, "exo", feedOverlay = { SideEffect { feed = it } })
+        rule.runOnIdle {
+            assertTrue(feed.ready)
+            assertEquals(1.5, feed.speed, .001)
+            assertEquals(1.5f, currentExo().playbackParameters.speed, .001f)
+            feed.setSpeed(2.0)
+        }
+        advance(rule, 500)
+        rule.runOnIdle {
+            assertEquals(2.0, feed.speed, .001)
+            assertEquals(2f, currentExo().playbackParameters.speed, .001f)
+        }
+        assertEquals(2.0, saved, .001)
+        assertEquals("liuying", core.calls.single { it.first == "player.play" }.second.str("speed_scope"))
     }
 
     @Test fun 手机完播连续切两集且旧集停止先于新集起播() {
@@ -1571,7 +1607,7 @@ class PhoneEnginePlaybackTest {
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
     }
 
-    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null, subtitle: String? = null, onExit: ((String?) -> Unit)? = null) {
+    private fun showPlayer(core: CorePort, mode: String, owner: androidx.lifecycle.LifecycleOwner? = null, ar: Float = 16f / 9, fontScale: Float = 1f, dark: Boolean? = null, subtitle: String? = null, onExit: ((String?) -> Unit)? = null, feedOverlay: (@Composable (FeedPlayback) -> Unit)? = null) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
@@ -1587,7 +1623,7 @@ class PhoneEnginePlaybackTest {
                         composable<Route.Player> { entry ->
                             CompositionLocalProvider(androidx.lifecycle.compose.LocalLifecycleOwner provides
                                 (owner ?: androidx.lifecycle.compose.LocalLifecycleOwner.current)) {
-                                PlayerPage(nav, entry, onExit = onExit)
+                                PlayerPage(nav, entry, onExit = onExit, feedOverlay = feedOverlay)
                             }
                         }
                     }

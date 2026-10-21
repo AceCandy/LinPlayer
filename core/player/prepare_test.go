@@ -95,7 +95,7 @@ func TestPreparedNextIsolatedAndHandoffReportsOrdered(t *testing.T) {
 	}
 	done := make(chan error, 1)
 	go func() {
-		next, e := play(context.Background(), s, "next", 0, "", false, false, "request-next")
+		next, e := play(context.Background(), s, "next", 0, "", false, false, "", "request-next")
 		if e == nil && next.PlayURL != result.(map[string]any)["play_url"] {
 			e = fmt.Errorf("没有接管准备代理")
 		}

@@ -103,7 +103,7 @@ type PlayResult struct {
 
 // Play 起播一个 Emby 条目。返回真正用的续播位置(秒)。
 func Play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string) (*PlayResult, error) {
-	return play(ctx, s, itemID, resumeSecs, mediaSourceID, true, false)
+	return play(ctx, s, itemID, resumeSecs, mediaSourceID, true, false, "")
 }
 
 // PlayResolve 只把「该播哪条流、从第几秒开始」算出来,**不碰 mpv**。
@@ -114,15 +114,17 @@ func Play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 // 而且必须和 mpv 那条**逐字一样**。所以两条路共用同一个 play(),
 // 只在最后那三行分叉。各写一份的下场是「换个内核续播位置就不对了」。
 func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string) (*PlayResult, error) {
-	return play(ctx, s, itemID, resumeSecs, mediaSourceID, false, false)
+	return play(ctx, s, itemID, resumeSecs, mediaSourceID, false, false, "")
 }
 
-func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, preparedIDs ...string) (*PlayResult, error) {
+func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, speedScope string, preparedIDs ...string) (*PlayResult, error) {
 	cancelQueued("")
 	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
 	cancelWarm()
 	c := config.Current()
 	prefs := c.PrefsOf()
+	// 只替换本次起播快照，不能回写普通播放器的默认倍速。
+	prefs.DefaultSpeed = playbackSpeed(prefs, speedScope)
 	histCtx, cancelHist := context.WithCancel(ctx)
 	defer cancelHist()
 
@@ -273,6 +275,13 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 		//   「界面自己拼地址」那一类事故的入口(反代只在 /emby/ 下处理 Range)。
 		PlayURL: playURL,
 	}, nil
+}
+
+func playbackSpeed(p config.Prefs, scope string) float64 {
+	if scope == "liuying" {
+		return p.LiuYingSpeed
+	}
+	return p.DefaultSpeed
 }
 
 // resolvePlaybackPosition 两核与提前排队共用续播及主服同步规则，不改变当前播放。

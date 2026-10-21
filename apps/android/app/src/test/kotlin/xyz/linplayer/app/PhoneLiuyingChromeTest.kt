@@ -38,6 +38,8 @@ class PhoneLiuyingChromeTest {
     @get:Rule val rule = createComposeRule()
     private var dark by mutableStateOf(true)
     private var sheet by mutableStateOf(false)
+    private var paused by mutableStateOf(false)
+    private var speed by mutableStateOf(1.5)
     private var next = 0
     private var label by mutableStateOf("")
 
@@ -53,13 +55,13 @@ class PhoneLiuyingChromeTest {
                     Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
                         listOf(Color(0xFFE4CFA6), Color(0xFF85B9B0), Color(0xFFC8DCC6))))) {
                         Text("合成亮色背景 · 非视频画面", Modifier.align(Alignment.Center))
-                        PhoneLiuyingChrome("normal", "dance", "频道1 · 全部衣着", true,
+                        PhoneLiuyingChrome("normal", "dance", true, true,
                             buildJsonObject {
                                 put("title", "光影之间，找到自己的节奏。这是一段用于检查两行标题的展示文字。")
                                 put("author", "入库作者"); put("favorite", true)
                             }, false, true,
-                            FeedPlayback(18.0, 52.0, false, false, true, {}, {}, {}),
-                            {}, {}, {}, {}, { sheet = true }, {})
+                            FeedPlayback(18.0, 52.0, paused, false, true, {}, {}, {}, speed, { speed = it }),
+                            {}, {}, {}, {}, { sheet = true }, {}, {})
                         if (sheet) PhoneLiuyingFilters(labels, true, label, "", false,
                             true, true, {}, { next++ }, { _, name -> label = name }, {}, { label = "" }, { sheet = false })
                     }
@@ -89,7 +91,25 @@ class PhoneLiuyingChromeTest {
         val rail = rule.onNodeWithTag("liuying.rail").getUnclippedBoundsInRoot()
         val details = rule.onNodeWithTag("liuying.details").getUnclippedBoundsInRoot()
         assertTrue("右侧操作不遮挡标题", rail.bottom <= details.top)
+        rule.onNodeWithTag("liuying.rail").onChildren().assertCountEquals(2)
+        rule.onNodeWithTag("liuying.bottom").onChildren().assertCountEquals(3)
+        val time = rule.onNodeWithTag("liuying.time").getUnclippedBoundsInRoot()
+        val progress = rule.onNodeWithTag("liuying.progress").getUnclippedBoundsInRoot()
+        val bottom = rule.onNodeWithTag("liuying.bottom").getUnclippedBoundsInRoot()
+        assertTrue("时间在进度条左侧且底栏在进度下方", time.right <= progress.left && progress.bottom <= bottom.top)
+        rule.onNodeWithText("收藏").assertDoesNotExist()
+        rule.onNodeWithText("上下滑动切换").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.paused").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/liuying-mobile/$name.png")
+        rule.runOnIdle { paused = true }; advance(rule, 300)
+        rule.onNodeWithTag("liuying.paused").assertIsDisplayed().assert(hasClickAction().not())
+        rule.onRoot().captureRoboImage("build/liuying-mobile/$name-paused.png")
+        rule.runOnIdle { paused = false }; advance(rule, 300)
+        rule.onNodeWithTag("liuying.speed").performClick(); advance(rule, 300)
+        rule.onNodeWithText("完成").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.speed.4.0").performScrollTo().assertIsDisplayed()
+        rule.onNode(isPopup()).captureRoboImage("build/liuying-mobile/$name-speed.png")
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
         rule.onNodeWithTag("liuying.filter").performClick(); advance(rule, 300)
         rule.onNodeWithText("完成").assertIsDisplayed()
         rule.onNodeWithTag("liuying.next").performScrollTo().assertIsDisplayed().performClick()

@@ -26,6 +26,14 @@ func registerTransport() {
 		if err != nil {
 			return nil, err
 		}
+		speedScope := ""
+		if raw, exists := a["speed_scope"]; exists {
+			var ok bool
+			speedScope, ok = raw.(string)
+			if !ok || (speedScope != "" && speedScope != "liuying") {
+				return nil, bus.NewErr(bus.EInvalid, "未知的倍速作用域")
+			}
+		}
 		id, _ := a["item_id"].(string)
 		if id == "" {
 			// ★ 迁移期兼容:探针用 path 直接放本地文件。产品路径一律走 item_id。
@@ -57,7 +65,7 @@ func registerTransport() {
 		     拼错了该退回默认能播,而不是让用户点了播放什么都没有。 */
 		engine, _ := a["engine"].(string)
 		prepared, _ := a["prepared_id"].(string)
-		out, err := play(ctx, s, id, resume, msid, engine != "exo", exact, prepared)
+		out, err := play(ctx, s, id, resume, msid, engine != "exo", exact, speedScope, prepared)
 		if err != nil {
 			return nil, &bus.Err{Code: bus.ENetwork, Msg: err.Error(), Retryable: true}
 		}

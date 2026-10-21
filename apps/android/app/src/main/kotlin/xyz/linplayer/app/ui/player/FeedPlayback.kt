@@ -10,4 +10,7 @@ data class FeedPlayback(
     val togglePause: () -> Unit,
     val seek: (Double) -> Unit,
     val toggleMute: () -> Unit,
+    val speed: Double = 1.0,
+    val setSpeed: (Double) -> Unit = {},
+    val speedBusy: Boolean = false,
 )

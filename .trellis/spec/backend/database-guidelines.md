@@ -9,6 +9,7 @@
 - 数据路径使用 `core/paths`；不在功能包另造数据根。
 - 初始化尚未完成时不从 `config.Current()` 取默认配置再写盘；后台任务遵守配置就绪约束。
 - `core/config/adopt.go` 只在新根缺配置时接管指定配置 / 历史，不顺带迁移缓存、日志或下载。扩大迁移范围需明确需求。
+- `Prefs.liuying_speed` 为流影独立持久倍率，缺省或越界回1倍；`player.setPlaybackPrefs` 仅在显式提供该键时更新，非法类型/非有限值/越界返回 `E_INVALID`，保存失败恢复内存快照。普通 `default_speed` 保持独立。`player.play(speed_scope="liuying")` 仅替换本次起播的偏好快照，不回写普通倍率；省略/空串仍普通，未知作用域拒绝。回归见 `player/liuying_speed_test.go`。
 
 ## 回归检查
 

@@ -288,7 +288,14 @@ internal class PlayerController(
         seekSubmitted = false
     }
     suspend fun pause(paused: Boolean) { if (!switching) controls.pause(paused) }
-    suspend fun speed(speed: Double) { if (!switching) controls.speed(speed) }
+    suspend fun speed(speed: Double, isCurrent: () -> Boolean = { true }) {
+        val generation = transportGeneration
+        transportMutex.withLock {
+            if (!switching && generation == transportGeneration && isCurrent()) {
+                withContext(NonCancellable) { controls.speed(speed) }
+            }
+        }
+    }
     suspend fun volume(volume: Float) { if (!switching) controls.volume(volume) }
 
     fun snapshot(player: ExoPlayer, subOff: Boolean): PlaybackSnapshot {

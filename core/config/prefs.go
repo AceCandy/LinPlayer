@@ -197,6 +197,8 @@ type Prefs struct {
 	Hwdec string `json:"hwdec"`
 	// 默认倍速。起播时应用一次,播放中用户再调**不回写**这里(那是临时调整)。
 	DefaultSpeed float64 `json:"default_speed"`
+	// LiuYingSpeed 流影独立倍速，不与普通播放器的默认倍速联动。
+	LiuYingSpeed float64 `json:"liuying_speed"`
 	// ShaderLevel 画面增强档位,起播时自动挂回来。"" / "off" = 关。
 	//
 	// ★ 2026-08-31 那条「档位故意不持久化」的口径**已作废**
@@ -439,6 +441,7 @@ func DefaultPrefs() Prefs {
 		PreloadHeadMB:                32,
 		Hwdec:                        "auto-safe",
 		DefaultSpeed:                 1.0,
+		LiuYingSpeed:                 1.0,
 		PreviewThumbs:                true,
 		SkipUseOnline:                true,
 		DolbyAutoSW:                  true,
@@ -540,6 +543,9 @@ func (p Prefs) Clamped() Prefs {
 	}
 	if p.DefaultSpeed < SpeedMin || p.DefaultSpeed > SpeedMax {
 		p.DefaultSpeed = 1.0
+	}
+	if p.LiuYingSpeed < SpeedMin || p.LiuYingSpeed > SpeedMax {
+		p.LiuYingSpeed = 1.0
 	}
 	if p.PrefetchThreads < 2 {
 		p.PrefetchThreads = 2

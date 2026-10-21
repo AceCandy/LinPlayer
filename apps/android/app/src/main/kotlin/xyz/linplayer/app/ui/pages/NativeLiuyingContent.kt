@@ -41,7 +41,7 @@ import xyz.linplayer.app.tv.TvPlayerPage
 import xyz.linplayer.app.tv.TvRoute
 import kotlin.math.abs
 
-private data class LiuYingPageWindow(val seed: String, val offset: Int, val rows: List<JsonObject>, val more: Boolean)
+internal data class LiuYingPageWindow(val seed: String, val offset: Int, val rows: List<JsonObject>, val more: Boolean)
 
 /** 候选由服务端限定入库资源；本页只持有当前有界窗口，不保存播放地址或断点。 */
 @Composable
@@ -78,6 +78,8 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
     var feedVolume by remember(session, privateSpace) { mutableStateOf<Float?>(null) }
     var expanded by remember { mutableStateOf(true) }
     var filtersOpen by remember(session, privateSpace) { mutableStateOf(false) }
+    var favoritesOpen by remember(session, privateSpace, feed) { mutableStateOf(false) }
+    var selectedPage by remember(session, privateSpace) { mutableStateOf<Pair<LiuYingPageWindow, Int>?>(null) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val videoOffset by animateFloatAsState(dragOffset, lpTween(T.T1), label = "liuyingSwipe")
     val actionScroll = rememberLazyListState()
@@ -104,7 +106,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
     }
     fun reset() {
         rows = emptyList(); index = 0; offset = 0; more = false; failure = null
-        previousWindow = null; playbackRevision++; loading = true
+        previousWindow = null; selectedPage = null; playbackRevision++; loading = true
         seed = java.util.UUID.randomUUID().toString()
         requestedSeed = seed; requestedOffset = 0; requestLast = false; revision++
     }
@@ -143,10 +145,17 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
     val loadSeed = requestedSeed
     val loadOffset = requestedOffset
     val loadLast = requestLast
+    val adoptedPage = selectedPage
     LaunchedEffect(session, privateSpace, capabilityReady, revision) {
         if (!privateSpace || !capabilityReady) return@LaunchedEffect
         loading = true; failure = null
         try {
+            if (adoptedPage != null) {
+                val (page, selectedIndex) = adoptedPage
+                rows = page.rows; seed = page.seed; offset = page.offset; more = page.more; index = selectedIndex
+                selectedPage = null
+                return@LaunchedEffect
+            }
             val result = app.call("emby.extLiuYingItems", query).obj()
             coroutineContext.ensureActive()
             rows = result?.get("items").arr().mapNotNull { it.obj() }
@@ -185,7 +194,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
         val latestPlayback by rememberUpdatedState(playback)
         val c = Lp.colors
         Box(Modifier.fillMaxSize()) {
-            if (!tv && current != null && !loading && failure == null) Box(Modifier.fillMaxSize().testTag("liuying.gesture")
+            if (!tv && (current != null || previousWindow != null) && !loading && failure == null) Box(Modifier.fillMaxSize().testTag("liuying.gesture")
                 .pointerInput(ticket) { detectTapGestures { latestPlayback?.takeIf { it.ready }?.togglePause?.invoke() } }
                 .pointerInput(ticket) {
                     var x = 0f; var y = 0f; var axis = 0
@@ -211,16 +220,11 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
                     }
                 })
             if (!tv) {
-                val summary = listOfNotNull(
-                    labels.firstOrNull { it.str("kind") == "channel" && it.str("name") == channel }?.str("title"),
-                    labels.firstOrNull { it.str("kind") == "exposure" && it.str("name") == exposure }?.str("title"),
-                    if (favorites) "只看收藏" else null,
-                ).joinToString(" · ").ifEmpty { "全部作品 · 筛选" }
-                PhoneLiuyingChrome(feed, tab, summary, capabilityReady,
+                PhoneLiuyingChrome(feed, tab, feed == "normal" && tab == "dance" && capabilityReady, capabilityReady,
                     current.takeIf { !loading && failure == null }, favoriteBusy, autoAdvance, playback,
                     onExit, ::bankai, { key ->
                         if (tab != key) { tab = key; channel = ""; exposure = ""; reset() }
-                    }, ::favorite, { filtersOpen = true }, { autoAdvance = !autoAdvance })
+                    }, ::favorite, { filtersOpen = true }, { autoAdvance = !autoAdvance }, { favoritesOpen = true })
             } else Column(Modifier.fillMaxSize().safeDrawingPadding().padding(Sp.x26)) {
                 LazyRow(Modifier.fillMaxWidth().background(c.bg.copy(alpha = .85f)).testTag("liuying.controls"),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
@@ -333,5 +337,15 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
             { move(-1) }, { move(1) }, ::selectLabel,
             { favorites = !favorites; reset() }, { channel = ""; exposure = ""; favorites = false; reset() },
             { filtersOpen = false })
+        if (!tv && favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }, { selectedTab ->
+            tab = selectedTab; channel = ""; exposure = ""; favorites = false
+            favoritesOpen = false; reset()
+        }) { selectedTab, page, selectedIndex ->
+            tab = selectedTab; channel = ""; exposure = ""; favorites = true
+            previousWindow = null; selectedPage = page to selectedIndex
+            requestedSeed = page.seed; requestedOffset = page.offset; requestLast = false
+            rows = emptyList(); failure = null; loading = true; playbackRevision++; revision++
+            favoritesOpen = false
+        }
     }
 }
