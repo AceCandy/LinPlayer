@@ -646,3 +646,39 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Status
 
 [OK] **Completed**
+
+
+## Session 94: 手机片尾下一集提示修复与出包
+<!-- trellis-session: v=2 fp=e5d00d44d7c22215 -->
+
+**Date**: 2026-10-21
+**Task**: 手机片尾下一集提示修复与出包
+**Branch**: `main`
+
+### Summary
+
+审核手机片尾下一集提示保留及悬浮布局修复，无阻塞发现；80项回归通过，生成并验签arm64手机release包。本次按用户要求不建任务，以会话记录归档，不触及在进行中的跨端总任务。
+
+### Main Changes
+
+- 片尾归零和停止屏障等待期间保留下一集提示，切换中禁用重复点击；普通右边距12dp，矮横屏68dp避让倍率，横屏靠近底部快捷按钮。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cbad16de` | fix(android): 保留片尾下一集提示并调整悬浮位置 |
+
+### Testing
+
+- [OK] PhoneEnginePlaybackTest 64项、PhonePlayerOsdTest 12项、PhoneNextUpTest 4项全部通过；独立审核无阻塞问题。
+- [OK] 六文件暂存隐私门禁及diff检查通过；全仓扫描命中旧journal-2.md版本号1.4.363.0，未修改历史内容。
+- [OK] scripts/pack-android.sh成功；build/android/app-arm64-v8a-release.apk，版本2.0.0，29619787字节；apksigner v2/v3、arm64 ELF、13个压缩原生库及最终副本一致性验证通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未真机安装、弱网连播和分屏/折叠屏验证；未推送远端。
