@@ -1,10 +1,14 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.view.KeyEvent
+import android.view.WindowManager
 import androidx.compose.runtime.*
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.Density
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
@@ -14,6 +18,9 @@ import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowWindowManagerImpl
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.*
@@ -33,7 +40,7 @@ class PhoneLiuyingTest {
 
     @After fun clean() { PageCache.clear(); scope.cancel(); if (::app.isInitialized) app.bg.cancel() }
 
-    private fun open(enabled: Boolean = true, populated: Boolean = false, more: Boolean = false): FakeCore {
+    private fun open(enabled: Boolean = true, populated: Boolean = false, more: Boolean = false, fontScale: Float = 1f): FakeCore {
         PageCache.clear()
         val core = FakeCore().loggedIn().player().apply {
             ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
@@ -54,11 +61,23 @@ class PhoneLiuyingTest {
         app = AppState(core, scope)
         runBlocking { app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace() }
         rule.mainClock.autoAdvance = false
-        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+        rule.setContent { LpTheme(privateSpace = true) { CompositionLocalProvider(LocalApp provides app,
+            LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
             if (showing) LiuyingContent({ showing = false })
         } } }
         advance(rule, 1000)
         return core
+    }
+
+    private fun openFilters() {
+        rule.onNodeWithTag("liuying.filter").performClick(); advance(rule, 300)
+    }
+
+    private fun moveVideo(next: Boolean, wait: Long = 600) {
+        openFilters()
+        rule.onNodeWithTag(if (next) "liuying.next" else "liuying.previous").performScrollTo().performClick()
+        advance(rule, wait)
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
     }
 
     @Test fun missingCapabilityDoesNotRequestVideosOrLoadWebPage() {
@@ -68,6 +87,99 @@ class PhoneLiuyingTest {
         assertFalse(core.calls.any { it.first == "emby.extLiuYingItems" || it.first == "player.play" })
         assertEquals(1, core.calls.count { it.first == "emby.extCapabilities" })
         assertNull(core.calls.single { it.first == "emby.extCapabilities" }.second?.get("refresh"))
+    }
+
+    @Test fun filterSheetStartsHiddenAndOpeningDoesNotRestartPlayback() {
+        val core = open(populated = true)
+        rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.label.tg-3398168133").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.filter").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+    }
+
+    @Test fun sheetBackAndOutsideCloseWithoutExitingOrRestarting() {
+        val core = open(populated = true)
+        openFilters()
+        rule.onNodeWithText("筛选视频").performTouchInput { click() }; advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
+        rule.runOnIdle {
+            val manager = Shadow.extract<ShadowWindowManagerImpl>(
+                RuntimeEnvironment.getApplication().getSystemService(WindowManager::class.java))
+            manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
+            manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+        }
+        advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
+        assertTrue(showing)
+        openFilters()
+        rule.onNode(isPopup()).performTouchInput { click(Offset(width / 2f, 8f)) }; advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
+        assertTrue(showing)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertFalse(core.calls.any { it.first == "player.stopPlayback" })
+    }
+
+    /** 真实流影入口和播放器组合；宿主占位背景不是解码画面，截图仅验证完整控件接线。 */
+    private fun nativeLayout(name: String, fontScale: Float = 1f) {
+        val core = open(populated = true, fontScale = fontScale)
+        rule.mainClock.autoAdvance = true
+        rule.runOnIdle { core.tick(1.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(1.25) }; advance(rule, 300)
+        for (tag in listOf("favorite", "filter", "mode", "sound", "progress"))
+            rule.onNodeWithTag("liuying.$tag").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/liuying-mobile/$name-no-decoded-frame.png")
+        openFilters()
+        rule.onNodeWithTag("liuying.next").performScrollTo().performTouchInput { click() }; advance(rule, 600)
+        rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
+        assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
+    }
+
+    @Test
+    @Config(qualifiers = "w873dp-h393dp-land-mdpi")
+    fun actualLandscapePageKeepsAllActionsAndSheetNextReachable() = nativeLayout("native-landscape")
+
+    @Test
+    @Config(qualifiers = "w320dp-h640dp-port-mdpi")
+    fun actualSmallPageLargeTextKeepsAllActionsReachable() = nativeLayout("native-small-large-text", 1.3f)
+
+    @Test fun favoritesAndClearRemainUsableAcrossFilterReloads() {
+        val core = open(populated = true)
+        openFilters()
+        rule.onNodeWithTag("liuying.label.tg-3398168133").performScrollTo().performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.label.tg-3398168133").assertIsSelected()
+        rule.onNodeWithTag("liuying.favorites").performScrollTo().performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.favorites").assertIsSelected()
+        assertTrue(core.calls.last { it.first == "emby.extLiuYingItems" }.second.bool("favorite"))
+        rule.onNodeWithTag("liuying.clear").performScrollTo().performClick(); advance(rule, 300)
+        val query = core.calls.last { it.first == "emby.extLiuYingItems" }.second
+        assertEquals("", query.str("channel")); assertEquals("", query.str("exposure"))
+        assertFalse(query.bool("favorite"))
+        rule.onNodeWithTag("liuying.favorites").assertIsNotSelected()
+        rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
+    }
+
+    @Test fun sheetDraggingDoesNotSeekOrSwitchAndProgressOnlySeeks() {
+        val core = open(populated = true)
+        rule.runOnIdle { core.tick(30.0) }; advance(rule, 300)
+        rule.runOnIdle { core.tick(30.25) }; advance(rule, 300)
+        val seeks = core.calls.count { it.first == "player.seek" }
+        openFilters()
+        rule.onNodeWithTag("liuying.actions").performTouchInput { swipeUp(); swipeDown() }; advance(rule, 300)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertEquals(seeks, core.calls.count { it.first == "player.seek" })
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.progress").performTouchInput {
+            swipe(Offset(width * .2f, height / 2f), Offset(width * .7f, height / 2f))
+        }; advance(rule, 400)
+        assertEquals(seeks + 1, core.calls.count { it.first == "player.seek" })
+        assertEquals(1, core.calls.count { it.first == "player.play" })
     }
 
     @Test fun emptyLibraryAndFeedSwitchStayNativeAndUseCachedCapability() {
@@ -84,14 +196,15 @@ class PhoneLiuyingTest {
 
     @Test fun channelAndExposureIntersectAndSourceSwitchClearsBoth() {
         val core = open()
-        rule.onNodeWithTag("liuying.actions").performScrollToIndex(8); advance(rule, 300)
-        rule.onNodeWithText("抖奶").performClick(); advance(rule, 300)
-        rule.onNodeWithTag("liuying.actions").performScrollToIndex(10); advance(rule, 300)
-        rule.onNodeWithText("露左右").performClick(); advance(rule, 300)
+        openFilters()
+        rule.onNodeWithTag("liuying.label.tg-3398168133").performScrollTo().performClick(); advance(rule, 300)
+        rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.label.side_breast_exposure").performScrollTo().performClick(); advance(rule, 300)
         val combined = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertEquals("tg-3398168133", combined.str("channel"))
         assertEquals("side_breast_exposure", combined.str("exposure"))
         assertEquals(3, core.calls.count { it.first == "emby.extLiuYingItems" })
+        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
         rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 300)
         val adult = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertEquals("", adult.str("channel")); assertEquals("", adult.str("exposure"))
@@ -101,7 +214,6 @@ class PhoneLiuyingTest {
     @Test fun favoriteChangesOnlyAfterServerSuccess() {
         val core = open(populated = true)
         core.on("emby.setFavorite") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "收藏失败", true) }
-        rule.onNodeWithTag("liuying.actions").performScrollToIndex(4); advance(rule, 300)
         rule.onNodeWithText("收藏", useUnmergedTree = true).performClick(); advance(rule, 300)
         rule.onNodeWithText("取消收藏").assertDoesNotExist()
         core.ret("emby.setFavorite", JsonNull)
@@ -130,11 +242,17 @@ class PhoneLiuyingTest {
 
     @Test fun verticalSwipeMovesWithinSelectedFeedAndCanReturn() {
         val core = open(populated = true)
-        rule.onNodeWithTag("player.video").performTouchInput { swipeDown() }; advance(rule, 300)
+        rule.onNodeWithTag("liuying.gesture").performTouchInput {
+            swipe(Offset(width * .45f, height * .3f), Offset(width * .45f, height * .65f))
+        }; advance(rule, 300)
         assertEquals(1, core.calls.count { it.first == "player.play" })
-        rule.onNodeWithTag("player.video").performTouchInput { swipeUp() }; advance(rule, 800)
+        rule.onNodeWithTag("liuying.gesture").performTouchInput {
+            swipe(Offset(width * .45f, height * .65f), Offset(width * .45f, height * .3f))
+        }; advance(rule, 800)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
-        rule.onNodeWithTag("player.video").performTouchInput { swipeDown() }; advance(rule, 800)
+        rule.onNodeWithTag("liuying.gesture").performTouchInput {
+            swipe(Offset(width * .45f, height * .3f), Offset(width * .45f, height * .65f))
+        }; advance(rule, 800)
         assertEquals("ly-work-1", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
         assertFalse(core.calls.any { it.first == "player.setVolume" })
@@ -144,7 +262,7 @@ class PhoneLiuyingTest {
         val core = open(populated = true)
         assertEquals("ly-work-1", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertTrue(core.calls.last { it.first == "player.play" }.second.bool("from_start"))
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 800)
+        moveVideo(true, 800)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         val play = core.calls.indexOfLast { it.first == "player.play" }
         assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } in 0 until play)
@@ -153,7 +271,7 @@ class PhoneLiuyingTest {
         assertEquals(2, core.calls.count { it.first == "player.stopPlayback" })
     }
 
-    @Test fun loopReplaysCurrentInsteadOfAdvancingAndControlsCanCollapse() {
+    @Test fun loopReplaysCurrentInsteadOfAdvancingAndLabelsOnlyAppearInSheet() {
         val core = open(populated = true)
         rule.onNodeWithTag("liuying.mode").performClick(); advance(rule, 300)
         rule.onNodeWithText("循环当前").assertExists()
@@ -163,11 +281,11 @@ class PhoneLiuyingTest {
         assertEquals(2, core.calls.count { it.first == "player.play" })
         assertEquals("ly-work-1", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
-        rule.onNodeWithTag("liuying.expand").performClick(); advance(rule, 300)
         rule.onNodeWithTag("liuying.next").assertDoesNotExist()
-        rule.onNodeWithTag("liuying.expand").performClick(); advance(rule, 300)
+        openFilters()
+        rule.onNodeWithTag("liuying.next").performScrollTo()
         rule.onNodeWithTag("liuying.next").assertExists()
-        rule.onNodeWithTag("liuying.actions").performScrollToIndex(8); advance(rule, 300)
+        rule.onNodeWithTag("liuying.label.tg-3398168133").performScrollTo(); advance(rule, 300)
         rule.onNodeWithText("9 部").assertIsDisplayed()
     }
 
@@ -181,8 +299,8 @@ class PhoneLiuyingTest {
                 put("has_more", false); put("offset", a.long("offset") ?: 0)
             }
         }
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 500)
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 500)
+        moveVideo(true, 500)
+        moveVideo(true, 500)
         val failed = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertEquals(2, failed.long("offset")!!.toInt())
         val seed = failed.str("seed")
@@ -193,7 +311,7 @@ class PhoneLiuyingTest {
         rule.onNodeWithText("第三条").assertExists()
         assertEquals(seed, core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("seed"))
         assertEquals("ly-work-3", core.calls.last { it.first == "player.play" }.second.str("item_id"))
-        rule.onNodeWithTag("liuying.previous").performClick(); advance(rule, 600)
+        moveVideo(false)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(3, core.calls.count { it.first == "emby.extLiuYingItems" })
     }
@@ -203,10 +321,10 @@ class PhoneLiuyingTest {
         core.ret("player.setVolume", JsonNull)
         rule.runOnIdle { core.tick(1.0) }; advance(rule, 300)
         rule.runOnIdle { core.tick(1.25) }; advance(rule, 300)
-        rule.onRoot().captureRoboImage("build/liuying/phone-feed.png")
+        rule.onRoot().captureRoboImage("build/liuying-mobile/phone-feed.png")
         rule.onNodeWithText("静音").performClick(); advance(rule, 300)
         assertEquals(0, core.calls.last { it.first == "player.setVolume" }.second.long("volume")!!.toInt())
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 600)
+        moveVideo(true)
         rule.onNodeWithText("开声音").assertExists()
         val play = core.calls.indexOfLast { it.first == "player.play" }
         val volume = core.calls.indexOfLast { it.first == "player.setVolume" }
@@ -219,10 +337,11 @@ class PhoneLiuyingTest {
         core.ret("emby.extLiuYingItems", buildJsonObject {
             put("items", arr()); put("has_more", false)
         })
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 500)
-        rule.onNodeWithTag("liuying.next").performClick(); advance(rule, 500)
+        moveVideo(true, 500)
+        moveVideo(true, 500)
         rule.onNodeWithText("暂无可播放的入库资源").assertExists()
-        rule.onNodeWithTag("liuying.previous").assertIsEnabled().performClick(); advance(rule, 600)
+        openFilters()
+        rule.onNodeWithTag("liuying.previous").performScrollTo().assertIsEnabled().performClick(); advance(rule, 600)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
     }

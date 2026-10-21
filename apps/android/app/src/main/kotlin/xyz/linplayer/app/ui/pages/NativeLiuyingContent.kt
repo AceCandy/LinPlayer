@@ -77,6 +77,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
     var autoAdvance by remember(session, privateSpace) { mutableStateOf(true) }
     var feedVolume by remember(session, privateSpace) { mutableStateOf<Float?>(null) }
     var expanded by remember { mutableStateOf(true) }
+    var filtersOpen by remember(session, privateSpace) { mutableStateOf(false) }
     var dragOffset by remember { mutableFloatStateOf(0f) }
     val videoOffset by animateFloatAsState(dragOffset, lpTween(T.T1), label = "liuyingSwipe")
     val actionScroll = rememberLazyListState()
@@ -106,6 +107,15 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
         previousWindow = null; playbackRevision++; loading = true
         seed = java.util.UUID.randomUUID().toString()
         requestedSeed = seed; requestedOffset = 0; requestLast = false; revision++
+    }
+    fun bankai() {
+        feed = if (feed == "normal") "adult" else "normal"; tab = if (feed == "normal") "dance" else ""
+        channel = ""; exposure = ""; reset()
+    }
+    fun selectLabel(kind: String, name: String) {
+        if (kind == "channel") { channel = if (channel == name) "" else name; exposure = "" }
+        else exposure = if (exposure == name) "" else name
+        reset()
     }
     fun move(delta: Int, expected: Int = ticket) {
         if (loading || failure != null || expected != playbackRevision) return
@@ -200,14 +210,23 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
                         if (axis == 2) dragOffset = (y * .35f).coerceIn(-size.height * .25f, size.height * .25f)
                     }
                 })
-            Column(Modifier.fillMaxSize().safeDrawingPadding().padding(if (tv) Sp.x26 else Sp.x8)) {
+            if (!tv) {
+                val summary = listOfNotNull(
+                    labels.firstOrNull { it.str("kind") == "channel" && it.str("name") == channel }?.str("title"),
+                    labels.firstOrNull { it.str("kind") == "exposure" && it.str("name") == exposure }?.str("title"),
+                    if (favorites) "只看收藏" else null,
+                ).joinToString(" · ").ifEmpty { "全部作品 · 筛选" }
+                PhoneLiuyingChrome(feed, tab, summary, capabilityReady,
+                    current.takeIf { !loading && failure == null }, favoriteBusy, autoAdvance, playback,
+                    onExit, ::bankai, { key ->
+                        if (tab != key) { tab = key; channel = ""; exposure = ""; reset() }
+                    }, ::favorite, { filtersOpen = true }, { autoAdvance = !autoAdvance })
+            } else Column(Modifier.fillMaxSize().safeDrawingPadding().padding(Sp.x26)) {
                 LazyRow(Modifier.fillMaxWidth().background(c.bg.copy(alpha = .85f)).testTag("liuying.controls"),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
                     item { LpButton("返回", onExit, kind = BtnKind.Ghost) }
-                    item { LpButton(if (feed == "normal") "卍解" else "卍解 · 开", {
-                        feed = if (feed == "normal") "adult" else "normal"; tab = if (feed == "normal") "dance" else ""
-                        channel = ""; exposure = ""; reset()
-                    }, m = Modifier.testTag("liuying.bankai").semantics { selected = feed == "adult" },
+                    item { LpButton(if (feed == "normal") "卍解" else "卍解 · 开", ::bankai,
+                        m = Modifier.testTag("liuying.bankai").semantics { selected = feed == "adult" },
                         kind = if (feed == "adult") BtnKind.Primary else BtnKind.Ghost, enabled = capabilityReady) }
                     if (feed == "normal") {
                         items(listOf("dance" to "舞蹈", "live" to "直播")) { (key, title) ->
@@ -244,9 +263,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
                                         val selected = channel == name || exposure == name
                                         Column(Modifier.fillMaxWidth()) {
                                             LpButton(label.str("title") ?: name, {
-                                                if (kind == "channel") { channel = if (channel == name) "" else name; exposure = "" }
-                                                else exposure = if (exposure == name) "" else name
-                                                reset()
+                                                selectLabel(kind, name)
                                             }, kind = if (selected) BtnKind.Primary else BtnKind.Ghost,
                                                 m = Modifier.fillMaxWidth().testTag("liuying.label.$name").semantics { this.selected = selected })
                                             label.long("count")?.let { Text("$it 部", Modifier.padding(horizontal = Sp.x20),
@@ -298,7 +315,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
             }
         } else {
             Box(Modifier.fillMaxSize().padding(horizontal = Sp.x20, vertical = Sp.x48)
-                .padding(end = if (expanded) (if (tv) 238.dp else 152.dp) else 0.dp)) {
+                .padding(end = if (tv && expanded) 238.dp else 0.dp)) {
             when {
                 capabilityError != null -> EmptyState("流影暂不可用", capabilityError!!, LpIcons.globe)
                 capability == false -> EmptyState("服务器未提供流影能力", "请刷新普通首页更新能力，或检查账号权限", LpIcons.globe)
@@ -309,5 +326,12 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
             }
             chrome()
         }
+        if (!tv && filtersOpen) PhoneLiuyingFilters(
+            labels, feed == "normal" && tab == "dance" && capabilityReady, channel, exposure, favorites,
+            !loading && failure == null && (previousWindow != null || current != null && (index > 0 || offset > 0)),
+            current != null && !loading && failure == null,
+            { move(-1) }, { move(1) }, ::selectLabel,
+            { favorites = !favorites; reset() }, { channel = ""; exposure = ""; favorites = false; reset() },
+            { filtersOpen = false })
     }
 }
