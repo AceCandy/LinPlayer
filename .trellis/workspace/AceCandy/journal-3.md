@@ -682,3 +682,39 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 尚未真机安装、弱网连播和分屏/折叠屏验证；未推送远端。
+
+
+## Session 95: 流影控件与独立倍速交付
+<!-- trellis-session: v=2 fp=126dfa87c2f57bab -->
+
+**Date**: 2026-10-22
+**Task**: 流影控件与独立倍速交付
+**Branch**: `main`
+
+### Summary
+
+完成手机流影控件、独立倍速、收藏列表及退出/空页回退修复，提交并归档任务；生成arm64手机Release包。
+
+### Main Changes
+
+- 只提交归档流影任务，未推送远程或处理其它任务
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dbce9088` | feat(android): 简化流影控件并隔离倍速与收藏播放 |
+
+### Testing
+
+- [OK] Android相关137项回归通过，参数266处及完整绑定门禁通过
+- [OK] 手机Release包v2/v3验签、Manifest手机标记、13个arm64原生库与压缩方式及产物一致性检查通过
+- [OK] 完整核心门禁剩1关失败：日历图片及弹幕测试；提交前HEAD相同测试复现，非本次引入，其余9关通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机验收流影播放、旋转安全区、触控与性能；本包未配置崩溃上报
