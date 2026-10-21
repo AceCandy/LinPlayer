@@ -65,3 +65,22 @@
 - 共用TVSectionHeading、TVActionStyle、TVRowStyle、TVChoice和TVTextInput。输入草稿取消不写父绑定，完成才写回；核心保存仍由页面既有操作提交。密码入口固定掩码，关闭清草稿。
 - 跨服图片来源取account/aggregate返回的line_url，缓存键必须包含来源服务器。显式空来源不回退当前服。所有图片请求仍走既有核心代理鉴权；宿主不拼其它账号token。
 - check-tvos-visual.sh使用正式页面、合成核心/图片/播放表面，生成模拟器测试宿主后自动卸载。覆盖23个页面状态和3个滚动下半页，程序化滚动不算遥控验收。跨服同ID、缓存命中、身份清除和空来源有断言；移除服务器缓存键的故障注入必须失败。
+
+## UI 对齐接线契约（2026-10-21，新增源码待运行验证）
+
+1. 范围：库评分筛选、人物分页、详情音轨预选与播放器进度使用已有核心/引擎契约；不另造业务缓存或猜测轨道、缓存进度。
+2. 签名：`emby.listItemsPage({parent_id,query:{rating_min,...}})`；`emby.personItemsPage({person_id,type,start_index,limit})`；`AppModel.openPlayer(...,audio: InitialAudio? = nil)`。业务请求的身份与空间由既有 `MediaAPI.request` 合并 `request_scope` 传入核心。
+3. 返回：人物页的 `total` 可空，以 `next_index`/`has_more` 续页；按 ID 去重不能改变游标。音轨预选只在版本一致时通过 `TrackPreference.explicit` 匹配真实引擎 ID。Aether 7.39.0 的 `PlaybackClock.bufferedPosition` 是真实 source 轴连续缓存终点；缩略图只使用核心 `thumbs/chapters` 返回的可用图片。
+4. 校验/错误：`has_more=true` 且游标不推进报 `E_PROTOCOL`；取消/身份变化拒绝旧结果。预选音轨不唯一时提示并保留等待迟到轨道，手选优先；不回退猜另一个同语言轨。缓冲仅接收有限非负值、绘制夹在有效时长内。
+5. 场景：整页作品被屏蔽仍按核心游标继续；缺 Logo 的缓存被最终有 Logo 资料替换时重新加载。榜单累计分页保留真实跨页 `rank`，只有实际排名 1/2/3 使用领奖台，后续页不得重新标冠军。
+6. 验证：`CoreClientCheck` 新增评分 query、空总数/空可见页/重复/未推进游标、Logo/类型字段、流序号不同于引擎 ID、章节字段断言；尚待在 Mac 执行。整源码 `check-tvos-ui.sh` 与同数据配对渲染通过后才记为运行检查通过；真实遥控、字幕、缓冲与选轨另验。
+7. 正反例：错误是用可见作品数翻页、流 index 直接选引擎音轨、每页前三标全榜前三或填造缓冲比例；正确是使用核心游标、版本绑定的唯一轨道映射、真实 rank 和引擎时钟。
+
+## 首页剧集与等待样式（2026-10-21）
+
+- 首页剧集主播放调用实时 `emby.seriesPlaybackTarget({series_id})`；Android与tvOS共用Go选集，电影/分集原样进入既有播放命令。请求沿用身份/空间与epoch校验，失败不猜目标；不将展示缓存续播/已看状态作起播依据。
+- 外观加载样式本机保存，0为平台系统样式，1/2/3/4/5/7复用Android同源JSON，固定Lottie4.5.1。样式4用公开的`**.Color`通配主题色，不硬编码图层名。资源/许可证/本地SPM由fetch-tvos.py和锁管理；检查宿主独立编译同版本源码。
+- 等待统一TVLoading，确定性播放/续播进度条保留；减少动态使用中间帧，离页/后台/隐藏保留栏目停止循环。ProductRoot用tvPageActive传递栏目活动状态，不能仅靠onDisappear判断opacity隐藏页。
+- 语言输入完成后即保存；字幕/主进度服/跨服续播/媒体容量即时保存并失败回滚；版本/音轨/字幕正则仍按核心整组校验提交。不要将“即时保存”扩展成拆开核心原子规则。
+- MediaVersion.displayPath仅在界面展示；远程URL去用户信息、query和fragment，本地路径保留。CoreClientCheck有本地/Windows/远程/空路径断言；新版Swift回归尚待Mac执行。
+- 本批源代码与资源已补；历史23页面图不覆盖新增加载预览，也不证明新布局视觉或真机通过。

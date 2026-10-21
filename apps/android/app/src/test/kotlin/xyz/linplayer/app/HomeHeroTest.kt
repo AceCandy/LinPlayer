@@ -321,18 +321,16 @@ class HomeHeroTest {
         assertEquals(1, requested.count { it == "fake:missing" })
     }
 
-    @Test fun seriesPlaybackUsesCurrentEpisodePlayedFlagsAcrossSeasons() = runBlocking {
+    @Test fun seriesPlaybackUsesCoreTargetWithResumeState() = runBlocking {
         val core = FakeCore().loggedIn()
-        core.ret("emby.seriesSeasons", arr(item("season1", "第一季", "Season"), item("season2", "第二季", "Season")))
-        core.on("emby.seasonEpisodes") { args ->
-            if (args?.str("parent_id") == "season1") page(item("watched", "已看", "Episode", played = true))
-            else page(item("partial", "未完整看完", "Episode", runtime = 1800.0, resume = 600.0), item("future", "下一集", "Episode"))
-        }
+        core.ret("emby.seriesPlaybackTarget", item("partial", "未完整看完", "Episode", runtime = 1800.0, resume = 600.0))
         val app = AppState(core, scope)
         app.boot()
         val target = homePlaybackTarget(app, Item("series", "剧集", "Series", played = true))
         assertEquals("partial", target.id)
-        assertEquals(2, core.calls.count { it.first == "emby.seasonEpisodes" })
         assertEquals(600.0, target.resumeSecs, 0.0)
+        val calls = core.calls.filter { it.first in setOf("emby.seriesPlaybackTarget", "emby.seriesSeasons", "emby.seasonEpisodes") }
+        assertEquals(listOf("emby.seriesPlaybackTarget"), calls.map { it.first })
+        assertEquals("series", calls.single().second?.str("series_id"))
     }
 }

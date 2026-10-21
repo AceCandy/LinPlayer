@@ -183,6 +183,9 @@ func RegisterCommands(version string) {
 	list("emby.playbackSeason", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.PlaybackSeason(ctx, s, str(a, "item_id"))
 	})
+	list("emby.seriesPlaybackTarget", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		return defaultClient.SeriesPlaybackTarget(ctx, s, str(a, "series_id"))
+	})
 	list("emby.seriesSeasons", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.Seasons(ctx, s, str(a, "series_id"))
 	})

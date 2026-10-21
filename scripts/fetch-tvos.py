@@ -15,6 +15,8 @@ import zipfile
 
 ROOT = Path(__file__).resolve().parent.parent
 LOCK = ROOT / "apps/tvos/dependencies.lock.json"
+LOADING_IDS = (1, 2, 3, 4, 5, 7)
+LOADING_ROOT = ROOT / "apps/android/app/src/main/res/raw"
 
 
 def digest(path):
@@ -55,6 +57,9 @@ def local_packages(folder):
             name = re.search(r'https://github.com/[^/]+/([^"/]+)', line)[1].removesuffix('.git')
             lines[i] = '        .package(path: "../' + name + '"),'
     p.write_text('\n'.join(lines) + '\n')
+    # 该依赖仅用于上游开发工具，Lottie目标不引用它；离线构建不拉无关工具链。
+    p = folder / "Lottie/Package.swift"
+    p.write_text(p.read_text().replace('    .package(url: "https://github.com/airbnb/swift", .upToNextMajor(from: "1.0.1")),\n', ''))
 
 
 def silence_engine(folder):
@@ -85,6 +90,7 @@ def preserve_notices(cache, lock):
     shutil.copy2(LOCK, notices / "dependencies.lock.json")
     (notices / "MODIFICATIONS.txt").write_text(
         "AetherEngine 7.39.0: EngineLog.deliver 的日志出口已禁用，以免媒体地址进入系统日志。\n"
+        "Lottie 4.5.1: 移除目标未引用的 airbnb/swift 开发工具依赖；动画资源与Android共享。\n"
         "源码重现：scripts/fetch-tvos.py；输入版本和来源见 dependencies.lock.json。\n"
         "这些文件保留固定源码包的声明；MPVKit 静态依赖的完整发行许可仍需在分发前核查。\n")
 
@@ -98,7 +104,7 @@ def main():
     args = parser.parse_args()
     cache = args.cache.resolve(); cache.mkdir(parents=True, exist_ok=True)
     lock = json.loads(LOCK.read_text())
-    fingerprint = digest(LOCK) + ":" + digest(Path(__file__))
+    fingerprint = digest(LOCK) + ":" + digest(Path(__file__)) + ":" + ":".join(digest(LOADING_ROOT / f"lp_loading_{i}.json") for i in LOADING_IDS)
     stamp = cache / "verified.json"
     if stamp.exists():
         state = json.loads(stamp.read_text())
@@ -151,7 +157,11 @@ def main():
             if dest.exists(): shutil.rmtree(dest)
             (work / name).rename(dest)
     preserve_notices(cache, lock)
-    stamp.write_text(json.dumps({"fingerprint": fingerprint, "trees": {name: tree_hash(cache / name) for name in ["Dependencies", "mpv-input", "Notices"]}}, indent=2) + "\n")
+    loading = cache / "Loading"
+    if loading.exists(): shutil.rmtree(loading)
+    loading.mkdir()
+    for i in LOADING_IDS: shutil.copy2(LOADING_ROOT / f"lp_loading_{i}.json", loading)
+    stamp.write_text(json.dumps({"fingerprint": fingerprint, "trees": {name: tree_hash(cache / name) for name in ["Dependencies", "mpv-input", "Notices", "Loading"]}}, indent=2) + "\n")
     print("tvOS 固定源码与 28 个静态切片准备完成；未构建应用。")
 
 

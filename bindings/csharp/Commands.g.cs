@@ -79,6 +79,7 @@ public static class LinPlayerCommandNames
         "emby.scanLibraries",
         "emby.search",
         "emby.playbackSeason",
+        "emby.seriesPlaybackTarget",
         "emby.seasonEpisodes",
         "emby.seriesSeasons",
         "emby.providers",
@@ -371,7 +372,7 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (54 条) ----
+    // ---- Emby 浏览与详情 · emby.* (55 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -452,6 +453,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("emby.search", args, ct);
     public static Task<JsonElement> EmbyPlaybackSeason(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.playbackSeason", args, ct);
+    public static Task<JsonElement> EmbySeriesPlaybackTarget(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.seriesPlaybackTarget", args, ct);
     public static Task<JsonElement> EmbySeasonEpisodes(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.seasonEpisodes", args, ct);
     public static Task<JsonElement> EmbySeriesSeasons(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

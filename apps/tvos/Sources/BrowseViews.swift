@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import Lottie
 
 // 与共享浏览页保持同一组品牌色；私密空间不改写普通主题偏好。
 enum TVPalette {
@@ -9,8 +10,14 @@ enum TVPalette {
     static func foreground(_ privateSpace: Bool) -> Color {
         color(light: privateSpace ? 0x291B35 : 0x1A1622, dark: privateSpace ? 0xFAF3FF : 0xF5F5F7)
     }
-    static func accent(_ privateSpace: Bool) -> Color {
-        color(light: privateSpace ? 0x633287 : 0x8A5A00, dark: privateSpace ? 0xDEB7FF : 0xF4AD39)
+    static func accent(_ privateSpace: Bool, palette: String = "amber") -> Color {
+        if privateSpace { return color(light: 0x633287, dark: 0xDEB7FF) }
+        switch palette {
+        case "blue": return color(light: 0x315DA8, dark: 0x9BBAFF)
+        case "green": return color(light: 0x216B4A, dark: 0x82D6B0)
+        case "purple": return color(light: 0x71449C, dark: 0xCAB0FF)
+        default: return color(light: 0x8A5A00, dark: 0xF4AD39)
+        }
     }
     private static func color(light: UInt32, dark: UInt32) -> Color {
         Color(uiColor: UIColor { traits in
@@ -32,7 +39,7 @@ struct LinPlayerApp: App {
         WindowGroup {
             RootView().environmentObject(model)
                 .preferredColorScheme(appearance == "system" ? nil : appearance == "light" ? .light : .dark)
-                .tint(TVPalette.accent(model.privateSpace))
+                .tint(TVPalette.accent(model.privateSpace, palette: model.colorScheme))
                 .task { await model.start() }
                 .onChange(of: phase) { _, next in
                     model.sceneActive = next == .active
@@ -48,7 +55,7 @@ struct RootView: View {
         ZStack {
             TVPalette.background(model.privateSpace).ignoresSafeArea()
             if let error = model.fatalError { Text(error).padding(80) }
-            else if !model.ready { ProgressView("正在恢复账号") }
+            else if !model.ready { TVLoading("正在恢复账号") }
             else if model.needsLogin { LoginView() }
             else if let api = model.api {
                 ProductRoot(api: api).id(model.identity)
@@ -66,8 +73,83 @@ struct RootView: View {
     }
 }
 
+private struct TVPageActiveKey: EnvironmentKey { static let defaultValue = true }
+extension EnvironmentValues {
+    var tvPageActive: Bool {
+        get { self[TVPageActiveKey.self] }
+        set { self[TVPageActiveKey.self] = newValue }
+    }
+}
+
+// 与 Android 使用同源动画；只保存本机外观偏好，不进入业务缓存。
+struct TVLoading: View {
+    static let styles = [0, 1, 2, 3, 4, 5, 7]
+    @EnvironmentObject private var model: AppModel
+    @Environment(\.scenePhase) private var phase
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.tvPageActive) private var pageActive
+    @State private var visible = false
+    var label = "加载中"
+    var style: Int? = nil
+    init(_ label: String = "加载中", style: Int? = nil) { self.label = label; self.style = style }
+    var body: some View {
+        let selected = style ?? model.loadingStyle
+        HStack(spacing: 14) {
+            if selected != 0, Self.styles.contains(selected),
+               let animation = LottieAnimation.named("lp_loading_\(selected)", subdirectory: "Loading") {
+                TVLoadingAnimation(animation: animation, themed: selected == 4,
+                    tint: TVPalette.accent(model.privateSpace, palette: model.colorScheme),
+                    playing: visible && pageActive && model.sceneActive && phase == .active && !reduceMotion,
+                    reduceMotion: reduceMotion)
+                    .id(selected).frame(width: 48, height: 48)
+            } else if reduceMotion {
+                Image(systemName: "hourglass").frame(width: 48, height: 48)
+            } else if visible && pageActive && model.sceneActive && phase == .active {
+                ProgressView().frame(width: 48, height: 48)
+            } else {
+                Color.clear.frame(width: 48, height: 48)
+            }
+            Text(label).font(.system(size: 22)).foregroundStyle(.secondary)
+        }
+        .accessibilityElement(children: .ignore).accessibilityLabel(label)
+        .onAppear { visible = true }.onDisappear { visible = false }
+    }
+}
+
+private struct TVLoadingAnimation: UIViewRepresentable {
+    @Environment(\.colorScheme) private var scheme
+    let animation: LottieAnimation
+    let themed: Bool
+    let tint: Color
+    let playing: Bool
+    let reduceMotion: Bool
+    func makeUIView(context: Context) -> LottieAnimationView {
+        let view = LottieAnimationView(animation: animation)
+        view.loopMode = .loop; view.backgroundBehavior = .pause
+        view.contentMode = .scaleAspectFit
+        return view
+    }
+    func updateUIView(_ view: LottieAnimationView, context: Context) {
+        if themed {
+            let color = UIColor(tint).resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light))
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            color.getRed(&r, green: &g, blue: &b, alpha: &a)
+            let provider = ColorValueProvider(LottieColor(r: Double(r), g: Double(g), b: Double(b), a: Double(a)))
+            view.setValueProvider(provider, keypath: AnimationKeypath(keypath: "**.Color"))
+            view.setValueProvider(provider, keypath: AnimationKeypath(keypath: "**.Stroke Color"))
+        }
+        if reduceMotion { view.pause(); view.currentProgress = 0.5 }
+        else if playing { if !view.isAnimationPlaying { view.play() } }
+        else { view.pause() }
+    }
+    static func dismantleUIView(_ view: LottieAnimationView, coordinator: ()) { view.stop() }
+}
+
 struct LoginView: View {
     @EnvironmentObject private var model: AppModel
+    @State private var name = ""
+    @State private var testing = false
+    @State private var testResult: String?
     @State private var server = ""
     @State private var username = ""
     @State private var password = ""
@@ -76,17 +158,30 @@ struct LoginView: View {
         VStack(spacing: 28) {
             Text("LinPlayer").font(.largeTitle.bold())
             Text("连接 Emby 服务器").foregroundStyle(.secondary)
+            TVTextInput("名称（可选）", text: $name)
             TVTextInput("服务器地址", text: $server, contentType: .URL)
             TVTextInput("用户名", text: $username, contentType: .username)
             TVTextInput("密码", text: $password, secure: true, contentType: .password)
             if let error { Text(error).foregroundStyle(.orange) }
+            if let testResult { Text(testResult).foregroundStyle(.secondary) }
+            HStack(spacing: 24) {
             Button(model.busy ? "正在连接…" : "连接") {
                 Task {
                     error = nil
-                    do { try await model.login(server: server, username: username, password: password); password = "" }
+                    do { try await model.login(server: server, username: username, password: password, name: name); password = "" }
                     catch { self.error = error.localizedDescription }
                 }
             }.buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled().disabled(model.busy || server.isEmpty || username.isEmpty)
+            Button(testing ? "正在测试…" : "测试连接") {
+                Task {
+                    testing = true; defer { testing = false }
+                    do {
+                        let result = try await model.testConnection(server: server, username: username, password: password)
+                        testResult = "连接成功 · " + (result["name"].string ?? "") + " · " + (result["version"].string ?? ""); error = nil
+                    } catch is CancellationError {} catch { self.error = error.localizedDescription; testResult = nil }
+                }
+            }.buttonStyle(TVActionStyle()).focusEffectDisabled().disabled(model.busy || server.isEmpty)
+            }.disabled(testing)
         }.frame(maxWidth: 720).padding(60)
     }
 }
@@ -120,7 +215,10 @@ struct MediaCard: View {
     let images: ImageLoader
     var wide = false
     var episodeCaption = false
+    var currentEpisode = false
+    var targetEpisode = false
     var imageServer: String? = nil
+    @EnvironmentObject private var model: AppModel
     @Environment(\.isFocused) private var focused
     private var width: CGFloat { wide ? 400 : 250 }
     var body: some View {
@@ -144,23 +242,34 @@ struct MediaCard: View {
                     }
                 }
                 .overlay(alignment: .bottomTrailing) {
-                    VStack(alignment: .trailing, spacing: 5) {
-                        ratingBadge(douban: false)
-                        ratingBadge(douban: true)
-                    }.padding(12)
+                    if !episodeCaption {
+                        VStack(alignment: .trailing, spacing: 5) {
+                            ratingBadge(douban: false)
+                            ratingBadge(douban: true)
+                        }.padding(12)
+                    }
                 }
                 .overlay(alignment: .bottom) {
                     if item.resume_secs > 0 && item.runtime_secs > 0 {
                         ProgressView(value: min(item.resume_secs / item.runtime_secs, 1)).padding(.horizontal, 2)
                     }
                 }
-                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(focused ? 0.65 : 0), lineWidth: 2) }
-            Text(episodeCaption ? item.name : item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
-                .font(.system(size: 26, weight: .medium)).lineLimit(1)
-            if let season = item.season_no, let episode = item.episode_no, item.type_ == "Episode" {
-                Text("S\(season)E\(episode)").font(.system(size: 20)).foregroundStyle(.secondary)
-            } else if let year = item.year, !wide {
-                Text(String(year)).font(.system(size: 20)).foregroundStyle(.secondary)
+                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(focused ? TVPalette.foreground(model.privateSpace).opacity(0.65) : TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(currentEpisode || targetEpisode ? 1 : 0), lineWidth: 2) }
+            if episodeCaption {
+                HStack {
+                    Text([item.season_no.map { "S\($0)" }, item.episode_no.map { "E\($0)" }].compactMap { $0 }.joined())
+                    Spacer()
+                    if currentEpisode || targetEpisode { Text(currentEpisode ? "当前集" : "待播放") }
+                }.font(.system(size: 22, weight: .semibold)).foregroundStyle(currentEpisode || targetEpisode ? TVPalette.accent(model.privateSpace, palette: model.colorScheme) : .secondary)
+                Text(item.name).font(.system(size: 26, weight: .medium)).lineLimit(2)
+            } else {
+                Text(item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
+                    .font(.system(size: 26, weight: .medium)).lineLimit(1)
+                if let season = item.season_no, let episode = item.episode_no, item.type_ == "Episode" {
+                    Text("S\(season)E\(episode)").font(.system(size: 20)).foregroundStyle(.secondary)
+                } else if let year = item.year, !wide {
+                    Text(String(year)).font(.system(size: 20)).foregroundStyle(.secondary)
+                }
             }
         }.frame(width: width, alignment: .topLeading)
             .scaleEffect(focused ? 1.025 : 1)
@@ -215,7 +324,7 @@ private struct TVActionLabel<Content: View>: View {
     var body: some View {
         content().font(.system(size: 25, weight: .medium)).padding(.horizontal, compact ? 18 : 28).frame(height: compact ? 46 : 72)
             .foregroundStyle(destructive ? Color.red : primary ? TVPalette.background(model.privateSpace) : TVPalette.foreground(model.privateSpace))
-            .background(primary ? TVPalette.accent(model.privateSpace) : TVPalette.foreground(model.privateSpace).opacity(focused ? 0.14 : 0.07), in: RoundedRectangle(cornerRadius: 18))
+            .background(primary ? TVPalette.accent(model.privateSpace, palette: model.colorScheme) : TVPalette.foreground(model.privateSpace).opacity(focused ? 0.14 : 0.07), in: RoundedRectangle(cornerRadius: 18))
             .overlay { RoundedRectangle(cornerRadius: 18).strokeBorder(TVPalette.foreground(model.privateSpace).opacity(focused ? 0.65 : 0), lineWidth: 2) }
             .scaleEffect(pressed ? 0.98 : 1).opacity(enabled ? 1 : 0.45)
             .animation(.easeOut(duration: 0.14), value: focused)
@@ -226,46 +335,84 @@ private struct HomeBanner: View {
     @EnvironmentObject private var model: AppModel
     let items: [MediaItem]
     let active: Bool
+    var height: CGFloat = 650
+    @State private var logo: UIImage?
+    @State private var progress: CGFloat = 0
     @State private var selected = ""
-    @FocusState private var focused: Bool
+    @State private var pendingPlay: MediaItem?
+    @State private var playError: String?
+    @FocusState private var focused: String?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     private var item: MediaItem { items.first { $0.id == selected } ?? items[0] }
-    private var timerIdentity: String { "\(item.id):\(active):\(focused):\(model.sceneActive):\(reduceMotion):\(items.count)" }
+    private var timerIdentity: String { "\(item.id):\(active):\(focused ?? ""):\(model.sceneActive):\(reduceMotion):\(items.count):\(pendingPlay?.id ?? ""):\(model.playback != nil)" }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            Backdrop(item: item, loader: model.images, height: 650)
+            NavigationLink(value: item) { Backdrop(item: item, loader: model.images, height: height) }
+                .buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focused, equals: "background").accessibilityLabel(item.name + "，查看详情")
             VStack(alignment: .leading, spacing: 18) {
-                Text(item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
-                    .font(.system(size: 52, weight: .bold)).lineLimit(2)
-                if let year = item.year { Text(String(year)).font(.system(size: 22)).foregroundStyle(.white.opacity(0.8)) }
+                if let logo {
+                    Image(uiImage: logo).resizable().scaledToFit().frame(maxWidth: 620, maxHeight: 180, alignment: .leading)
+                        .accessibilityLabel(item.name)
+                } else {
+                    Text(item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
+                        .font(.system(size: 52, weight: .bold)).lineLimit(2)
+                }
+                HStack(spacing: 18) {
+                    if let year = item.year { Text(String(year)) }
+                    if let genre = item.genres?.first { Text(genre) }
+                }.font(.system(size: 22)).foregroundStyle(.white.opacity(0.8))
                 HStack(spacing: 24) {
-                    if item.type_ == "Movie" || item.type_ == "Episode" {
+                    if ["Movie", "Episode", "Series"].contains(item.type_) {
                         Button {
-                            model.openPlayer(item: item.id, title: item.title, version: nil, fromStart: false)
-                        } label: { Label(item.resume_secs > 0 && item.played != true ? "继续播放" : "播放", systemImage: "play.fill") }
-                        .buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled().focused($focused).disabled(model.playback != nil)
+                            playError = nil; pendingPlay = item
+                        } label: { Label(pendingPlay != nil ? "正在准备播放" : item.resume_secs > 0 && item.played != true ? "继续播放" : "播放", systemImage: "play.fill") }
+                        .buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled().focused($focused, equals: "play").disabled(model.playback != nil || pendingPlay != nil)
+                    } else {
+                        NavigationLink(value: item) { Label("查看剧集", systemImage: "play.rectangle") }
+                            .buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled().focused($focused, equals: "play")
                     }
-                    NavigationLink(value: item) { Label("详情", systemImage: "info.circle") }
-                        .buttonStyle(TVActionStyle()).focusEffectDisabled().focused($focused)
                 }.font(.system(size: 24, weight: .semibold))
+                if let playError { Text(playError).font(.system(size: 22)).foregroundStyle(.orange) }
             }.padding(.horizontal, 64).padding(.bottom, 58)
-        }.frame(height: 650).foregroundStyle(.white)
+        }.frame(height: height).foregroundStyle(.white)
+        .task(id: "\(item.id):\(item.has_logo == true):\(model.images.revision)") {
+            logo = nil
+            if item.has_logo == true {
+                let image = await model.images.load(id: item.id, kind: "Logo", height: 240)
+                guard !Task.isCancelled else { return }; logo = image
+            }
+        }
+        .onChange(of: active) { _, value in if !value { pendingPlay = nil } }
+        .task(id: pendingPlay?.id) {
+            guard let requested = pendingPlay, let api = model.api else { return }
+            defer { if pendingPlay?.id == requested.id { pendingPlay = nil } }
+            do {
+                let target = try await api.homePlaybackTarget(requested)
+                try Task.checkCancellation()
+                guard active else { return }
+                model.openPlayer(item: target.id, title: target.title, version: nil, fromStart: false, origin: requested.id)
+            } catch is CancellationError {} catch { playError = error.localizedDescription }
+        }
         .overlay(alignment: .bottomTrailing) {
             if items.count > 1 {
                 HStack(spacing: 14) {
                     ForEach(items) { candidate in
                         Button { selected = candidate.id } label: {
-                            Capsule().fill(candidate.id == item.id ? Color.white : .white.opacity(0.35))
-                                .frame(width: 36, height: 6).padding(.vertical, 18)
-                        }.buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focused)
+                            Capsule().fill(.white.opacity(0.25)).frame(width: candidate.id == item.id ? 72 : 32, height: 6)
+                                .overlay(alignment: .leading) {
+                                    if candidate.id == item.id { Capsule().fill(.white).frame(width: 72 * progress, height: 6) }
+                                }.padding(.vertical, 18)
+                        }.buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focused, equals: "hero:\(candidate.id)")
                             .accessibilityLabel("切换到 " + candidate.name)
                     }
                 }.padding(.trailing, 64).padding(.bottom, 12)
             }
         }
         .task(id: timerIdentity) {
-            guard active, !focused, model.sceneActive, !reduceMotion, items.count > 1 else { return }
+            progress = 0
+            guard active, focused == nil, model.sceneActive, !reduceMotion, items.count > 1, pendingPlay == nil, model.playback == nil else { return }
             do {
+                withAnimation(.linear(duration: 5)) { progress = 1 }
                 try await Task.sleep(for: .seconds(5))
                 guard !Task.isCancelled else { return }
                 let index = items.firstIndex { $0.id == item.id } ?? 0
@@ -304,10 +451,12 @@ struct HomeView: View {
     }
 
     var body: some View {
+        GeometryReader { geometry in
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
-                if !banners.isEmpty { HomeBanner(items: banners, active: active && heroVisible && !scrolling) }
-                else { Color.clear.frame(height: bannerResolved ? 140 : 650) }
+                if !banners.isEmpty { HomeBanner(items: banners, active: active && heroVisible && !scrolling, height: max(560, min(760, geometry.size.height * 0.64))) }
+                else if bannerResolved { Color.clear.frame(height: 140) }
+                else { RoundedRectangle(cornerRadius: 0).fill(.primary.opacity(0.035)).frame(height: max(560, min(760, geometry.size.height * 0.64))) }
                 if let bannerError { RetryMessage(text: bannerError) { reload += 1 } }
                 if let libraryError { RetryMessage(text: libraryError) { reload += 1 } }
                 if !hideLibraryPosters { ScrollView(.horizontal) {
@@ -320,7 +469,7 @@ struct HomeView: View {
                     }.padding(.horizontal, 64).padding(.vertical, 12)
                 } }
                 if !resume.isEmpty {
-                    TVSectionHeading("继续观看").padding(.horizontal, 64)
+                    if !hideLibraryPosters { TVSectionHeading("继续观看").padding(.horizontal, 64) }
                     MediaRow(items: resume, wide: true)
                 }
                 if let resumeError { RetryMessage(text: resumeError) { reload += 1 } }
@@ -373,6 +522,7 @@ struct HomeView: View {
                 collectionsEnabled = enabled; configError = nil
             } catch is CancellationError {} catch { configError = error.localizedDescription }
         }
+        }
     }
 }
 
@@ -406,6 +556,8 @@ struct MediaSection: View {
     @State private var reload = 0
     @State private var loadedKey = ""
     var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+        if command != "emby.listLatest" || items?.isEmpty != true || error != nil {
         VStack(alignment: .leading, spacing: 18) {
             HStack {
                 TVSectionHeading(title)
@@ -416,7 +568,13 @@ struct MediaSection: View {
             if let items {
                 if items.isEmpty { Text("暂无内容").foregroundStyle(.secondary).padding(.horizontal, 64) }
                 else { MediaRow(items: items) }
-            } else if error == nil { ProgressView().frame(height: 485).padding(.horizontal, 64) }
+            } else if error == nil { ScrollView(.horizontal) {
+                HStack(spacing: 20) {
+                    ForEach(0..<6) { _ in RoundedRectangle(cornerRadius: 12).fill(.primary.opacity(0.05)).frame(width: 250, height: 375) }
+                }.padding(.horizontal, 64)
+            }.frame(height: 485).allowsHitTesting(false).accessibilityLabel("正在加载") }
+        }
+        }
         }
         .task(id: "\(reload):\(model.userStateRevision)") {
             let key = "\(reload):\(model.userStateRevision)"
@@ -477,27 +635,57 @@ struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
     let item: MediaItem
-    @State private var query = BrowseQuery()
+    private let defaultQuery = BrowseQuery(sort: "DateLastContentAdded", descending: true)
+    @State private var query = BrowseQuery(sort: "DateLastContentAdded", descending: true)
     @State private var filters: MediaFilters?
     @State private var filterError: String?
     @State private var reload = 0
+    @State private var showFilters = false
+    @State private var loaded = 0
+    @State private var more = true
     var body: some View {
         VStack(alignment: .leading, spacing: 20) {
-            Text(item.name).font(.system(size: 38, weight: .semibold)).padding(.horizontal, 64)
-            ScrollView(.horizontal) {
-                HStack(spacing: 16) {
-                    TVChoice(title: "排序", selection: $query.sort, options: [("SortName", "名称"), ("CommunityRating", "评分"), ("ProductionYear", "年份"), ("DateCreated", "入库时间")])
-                    Button(query.descending ? "降序" : "升序") { query.descending.toggle() }.buttonStyle(TVActionStyle(compact: true))
+            HStack {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(item.name).font(.system(size: 38, weight: .semibold))
+                    Text("已加载 \(loaded)" + (more ? "+" : "")).font(.system(size: 22)).foregroundStyle(.secondary)
+                }
+                Spacer()
+                Button { showFilters = true } label: { Label("筛选与排序", systemImage: "slider.horizontal.3") }
+                    .buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
+            }.padding(.horizontal, 64)
+            if query != defaultQuery {
+                ScrollView(.horizontal) {
+                    HStack(spacing: 16) {
+                        if !query.genre.isEmpty { filterChip(query.genre) { query.genre = "" } }
+                        if query.ratingMin > 0 { filterChip("评分 ≥ \(query.ratingMin)") { query.ratingMin = 0 } }
+                        if !query.tag.isEmpty { filterChip(query.tag) { query.tag = "" } }
+                        if !query.year.isEmpty { filterChip(query.year) { query.year = "" } }
+                        if !query.played.isEmpty { filterChip(query.played == "true" ? "已看" : "未看") { query.played = "" } }
+                        Button("重置全部") { query = defaultQuery }.buttonStyle(TVActionStyle(compact: true))
+                    }.padding(.horizontal, 64).padding(.vertical, 4)
+                }.focusEffectDisabled()
+            }
+            if let filterError { RetryMessage(text: filterError) { reload += 1 } }
+            ItemGrid(api: api, parent: item.id, episodes: false, query: query, onLoaded: { count, hasMore in loaded = count; more = hasMore }, clearFilters: query == defaultQuery ? nil : { query = defaultQuery })
+                .id(String(describing: query))
+        }.padding(.top, 28).toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
+        .onChange(of: query) { _, _ in loaded = 0; more = true }
+        .sheet(isPresented: $showFilters) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 24) {
+                    TVSectionHeading("筛选与排序")
+                    TVChoice(title: "排序", selection: $query.sort, options: [("DateLastContentAdded", "更新日期"), ("PremiereDate", "上映日期"), ("SortName", "名称"), ("CommunityRating", "评分"), ("ProductionYear", "年份"), ("DateCreated", "入库时间")])
+                    Button(query.descending ? "降序" : "升序") { query.descending.toggle() }
+                    TVChoice(title: "评分下限", selection: $query.ratingMin, options: [(0, "不限"), (9, "9 分以上"), (8, "8 分以上"), (7, "7 分以上"), (6, "6 分以上")])
                     TVChoice(title: "类型", selection: $query.genre, options: [("", "全部类型")] + (filters?.genres ?? []).map { ($0, $0) })
                     TVChoice(title: "标签", selection: $query.tag, options: [("", "全部标签")] + (filters?.tags ?? []).map { ($0, $0) })
                     TVChoice(title: "年份", selection: $query.year, options: [("", "全部年份")] + (filters?.years ?? []).map { (String($0), String($0)) })
                     TVChoice(title: "已看", selection: $query.played, options: [("", "全部"), ("true", "已看"), ("false", "未看")])
-                }.padding(.horizontal, 64).padding(.vertical, 4)
-            }.focusEffectDisabled()
-            if let filterError { RetryMessage(text: filterError) { reload += 1 } }
-            ItemGrid(api: api, parent: item.id, episodes: false, query: query)
-                .id(String(describing: query))
-        }.padding(.top, 28).toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
+                    Button("完成") { showFilters = false }
+                }.buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled().padding(64)
+            }.onExitCommand { showFilters = false }
+        }
         .task(id: reload) {
             do {
                 let result = try await api.request("emby.getFilters", ["parent_id": .string(item.id)], snapshot: { value in
@@ -508,6 +696,10 @@ struct LibraryView: View {
             } catch is CancellationError {} catch { if invalidatesDisplay(error) { filters = nil }; filterError = error.localizedDescription }
         }
     }
+    private func filterChip(_ title: String, clear: @escaping () -> Void) -> some View {
+        Button(action: clear) { Label(title, systemImage: "xmark") }.buttonStyle(TVActionStyle(primary: true, compact: true))
+    }
+
 }
 
 struct ItemGrid: View {
@@ -516,6 +708,8 @@ struct ItemGrid: View {
     let parent: String
     let episodes: Bool
     var query = BrowseQuery()
+    var onLoaded: ((Int, Bool) -> Void)? = nil
+    var clearFilters: (() -> Void)? = nil
     @StateObject private var pager = ItemPager()
     @FocusState private var focus: String?
     @State private var lastFocus: String?
@@ -531,8 +725,13 @@ struct ItemGrid: View {
                     }
                 }.padding(.horizontal, 64).padding(.vertical, 28)
                 if let error = pager.error { RetryMessage(text: error) { reload += 1 } }
-                else if pager.loading { ProgressView("正在加载") }
-                else if pager.items.isEmpty { Text("暂无内容").foregroundStyle(.secondary) }
+                else if pager.loading { TVLoading("正在加载") }
+                else if pager.items.isEmpty {
+                    VStack(spacing: 20) {
+                        Text("暂无内容").foregroundStyle(.secondary)
+                        if let clearFilters { Button("清除筛选", action: clearFilters).buttonStyle(TVActionStyle()).focusEffectDisabled() }
+                    }
+                }
                 else if pager.more { Button("加载更多") { reload += 1 }.buttonStyle(TVActionStyle()).focusEffectDisabled().padding(30) }
             }
             .onChange(of: focus) { _, next in
@@ -548,6 +747,8 @@ struct ItemGrid: View {
         }
         .task(id: "\(reload):\(model.userStateRevision)") {
             await pager.load(api: api, parent: parent, episodes: episodes, query: query, revision: model.userStateRevision)
+            guard !Task.isCancelled else { return }
+            onLoaded?(pager.items.count, pager.more)
         }
     }
 }
@@ -563,6 +764,7 @@ struct DetailView: View {
     @State private var seasons: [MediaSeason]?
     @State private var season = ""
     @FocusState private var focusedSeason: String?
+    @FocusState private var focusedStream: Int?
     @State private var error: String?
     @State private var mediaError: String?
     @State private var versionsReady = false
@@ -571,6 +773,7 @@ struct DetailView: View {
     @State private var writing = false
     @State private var actionError: String?
     @State private var selectedSubtitle: Int?
+    @State private var selectedAudio: Int?
     @State private var playbackItem: MediaItem?
     private var current: MediaItem { playbackItem ?? item }
     private var selectedVersion: MediaVersion? { versions.first { $0.id == version } ?? versions.first { $0.preferred } ?? versions.first }
@@ -592,13 +795,20 @@ struct DetailView: View {
                 ZStack(alignment: .bottomLeading) {
                     Backdrop(item: artwork, loader: model.images, height: 460, primaryEnabled: presentation?.has_primary)
                     LinearGradient(colors: [.clear, TVPalette.background(model.privateSpace)], startPoint: .top, endPoint: .bottom)
-                    Text(presentation?.name ?? current.name).font(.system(size: 44, weight: .semibold))
-                        .lineLimit(3).padding(.horizontal, 64).padding(.bottom, 28)
+                    VStack(alignment: .leading, spacing: 16) {
+                        if current.type_ == "Episode", let id = current.series_id ?? detail?.series_id {
+                            NavigationLink(value: MediaItem.route(id: id, name: current.series_name ?? "返回剧集", type: "Series")) {
+                                Label(current.series_name ?? "返回剧集", systemImage: "chevron.left").font(.system(size: 28))
+                            }.buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
+                        }
+                        Text((current.type_ == "Episode" ? episodeNumber : "") + (presentation?.name ?? current.name))
+                            .font(.system(size: 44, weight: .semibold)).lineLimit(3)
+                    }.padding(.horizontal, 64).padding(.bottom, 28)
                 }.frame(height: 460)
                 VStack(alignment: .leading, spacing: 22) {
                         if let detail = presentation {
                             HStack(spacing: 22) {
-                                if let score = artwork.ratingText() { Label(score, systemImage: "star.fill").foregroundStyle(TVPalette.accent(model.privateSpace)) }
+                                if let score = artwork.ratingText() { Label(score, systemImage: "star.fill").foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
                                 if let score = artwork.ratingText(douban: true) { Text("豆瓣 " + score).foregroundStyle(.green) }
                                 if let date = detail.premiere_date, !date.isEmpty { Text(String(date.prefix(10))) }
                                 else if let year = detail.year { Text(String(year)) }
@@ -613,9 +823,62 @@ struct DetailView: View {
                                     ForEach(detail.studios ?? []) { studio in facetLink(studio.name, query: BrowseQuery(studioID: studio.id), available: !studio.id.isEmpty) }
                                 }.padding(.vertical, 10)
                             }
-                        } else if error == nil { ProgressView("正在加载详情") }
+                        } else if error == nil { TVLoading("正在加载详情") }
                         if let error { RetryMessage(text: error) { reload += 1 } }
-                        else if detail == nil && presentation != nil { ProgressView("正在刷新详情") }
+                        else if detail == nil && presentation != nil { TVLoading("正在刷新详情") }
+                        if !series {
+                            if let mediaError { RetryMessage(text: mediaError) { mediaReload += 1 } }
+                            else if !versionsReady { TVLoading("正在获取播放信息") }
+                            else if versions.isEmpty { Text("暂无可播放版本").foregroundStyle(.secondary) }
+                            else {
+                                VStack(alignment: .leading, spacing: 18) {
+                                    Text("版本").font(.system(size: 22)).foregroundStyle(.secondary)
+                                    TVChoice(title: selectedVersion?.container?.uppercased() ?? "版本", selection: $version,
+                                        options: [("", "自动（核心偏好）")] + versions.map { ($0.id, $0.name) })
+                                    if let selectedVersion {
+                                        HStack(spacing: 20) {
+                                            Text(selectedVersion.name)
+                                            if let size = selectedVersion.size_bytes { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+                                            if let rate = selectedVersion.bitrate { Text(String(format: "%.1f Mbps", Double(rate) / 1_000_000)) }
+                                        }.font(.system(size: 22)).foregroundStyle(.secondary)
+                                        if let path = selectedVersion.displayPath {
+                                            Text(path).font(.system(size: 21)).foregroundStyle(.secondary).lineLimit(3)
+                                        }
+                                    }
+                                }.frame(maxWidth: .infinity, alignment: .leading).padding(24)
+                                    .overlay { RoundedRectangle(cornerRadius: 8).strokeBorder(.primary.opacity(0.2), lineWidth: 1) }
+                                if let selectedVersion, let streams = selectedVersion.streams {
+                                    ForEach(streams.filter { $0.type_ == "Video" }) { stream in
+                                        Label(stream.summary, systemImage: "video").font(.system(size: 24)).foregroundStyle(.secondary)
+                                    }
+                                    if streams.contains(where: { $0.type_ == "Audio" }) {
+                                        TVChoice(title: "音轨", selection: $selectedAudio,
+                                            options: [(nil, "按偏好自动选择")] + streams.filter { $0.type_ == "Audio" }.map { (Optional($0.index), $0.label) })
+                                    }
+                                    TVChoice(title: "字幕", selection: $selectedSubtitle,
+                                        options: [(nil, "按偏好自动选择"), (-1, "关闭字幕")] + streams.filter { $0.type_ == "Subtitle" && ["srt", "subrip", "vtt", "webvtt", "mov_text", "text"].contains($0.codec.lowercased()) }.map { (Optional($0.index), $0.label) })
+                                    ScrollView(.horizontal) {
+                                        LazyHStack(alignment: .top, spacing: 20) {
+                                            ForEach(streams) { stream in
+                                                VStack(alignment: .leading, spacing: 12) {
+                                                    Text(stream.type_ == "Video" ? "视频" : stream.type_ == "Audio" ? "音轨" : "字幕").font(.system(size: 22)).foregroundStyle(.secondary)
+                                                    Text(stream.label).font(.system(size: 25, weight: .semibold)).lineLimit(2)
+                                                    Text(stream.summary).font(.system(size: 22)).foregroundStyle(.secondary)
+                                                    if stream.is_external { Text("外挂").font(.system(size: 20)).foregroundStyle(.secondary) }
+                                                }.frame(width: 360, alignment: .leading).padding(24)
+                                                    .background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14))
+                                                    .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(focusedStream == stream.index ? 0.65 : 0), lineWidth: 2) }
+                                                    .focusable().focused($focusedStream, equals: stream.index).focusEffectDisabled()
+                                            }
+                                        }.padding(.vertical, 6)
+                                    }
+                                }
+                                if let account = model.account, (account.lines?.count ?? 0) > 1, !model.privateSpace {
+                                    NavigationLink("线路 · " + account.name) { AccountEditor(api: api, account: account) }
+                                }
+
+                            }
+                        }
                         if !series && versionsReady && !versions.isEmpty {
                                 HStack(spacing: 28) {
                                     Button((detail?.resume_secs ?? current.resume_secs) > 0 ? "继续播放" : "播放") { play(fromStart: false) }
@@ -631,48 +894,6 @@ struct DetailView: View {
                             }.buttonStyle(TVActionStyle()).focusEffectDisabled().disabled(writing)
                         }
                         if let actionError { Text(actionError).foregroundStyle(.orange) }
-                        if !series {
-                            if let mediaError { RetryMessage(text: mediaError) { mediaReload += 1 } }
-                            else if !versionsReady { ProgressView("正在获取播放信息") }
-                            else if versions.isEmpty { Text("暂无可播放版本").foregroundStyle(.secondary) }
-                            else {
-                                if versions.count > 1 {
-                                    TVChoice(title: "版本", selection: $version, options: [("", "自动（核心偏好）")] + versions.map { ($0.id, $0.name) })
-                                }
-                                if let selectedVersion {
-                                    HStack(spacing: 20) {
-                                        Text(selectedVersion.name)
-                                        if let size = selectedVersion.size_bytes { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
-                                        if let rate = selectedVersion.bitrate { Text(String(format: "%.1f Mbps", Double(rate) / 1_000_000)) }
-                                    }.font(.system(size: 22)).foregroundStyle(.secondary)
-                                }
-                                if let selectedVersion, let streams = selectedVersion.streams {
-                                    ForEach(streams.filter { $0.type_ == "Audio" }) { stream in
-                                        Label(stream.label, systemImage: "waveform").font(.system(size: 22)).foregroundStyle(.secondary)
-                                    }
-                                    Text("字幕预选").font(.system(size: 22)).foregroundStyle(.secondary)
-                                    ScrollView(.horizontal) {
-                                        HStack(spacing: 16) {
-                                            Button("按偏好自动选择") { selectedSubtitle = nil }
-                                                .buttonStyle(TVActionStyle(primary: selectedSubtitle == nil, compact: true))
-                                            Button("不显示字幕") { selectedSubtitle = -1 }
-                                                .buttonStyle(TVActionStyle(primary: selectedSubtitle == -1, compact: true))
-                                            ForEach(streams.filter { $0.type_ == "Subtitle" && ["srt", "subrip", "vtt", "webvtt", "mov_text", "text"].contains($0.codec.lowercased()) }) { stream in
-                                                Button(stream.label) { selectedSubtitle = stream.index }
-                                                    .buttonStyle(TVActionStyle(primary: selectedSubtitle == stream.index, compact: true))
-                                            }
-                                        }.padding(.vertical, 4)
-                                    }
-                                    Text(([selectedVersion.container] + streams.filter { $0.type_ == "Video" }.map { stream in
-                                        [stream.codec, stream.width.flatMap { width in stream.height.map { "\(width)×\($0)" } }].compactMap { $0 }.joined(separator: " · ")
-                                    }.map(Optional.init)).compactMap { $0 }.joined(separator: " · ")).foregroundStyle(.secondary)
-                                }
-                                if let account = model.account, (account.lines?.count ?? 0) > 1, !model.privateSpace {
-                                    NavigationLink("线路 · " + account.name) { AccountEditor(api: api, account: account) }
-                                }
-
-                            }
-                        }
                 }.buttonStyle(TVActionStyle()).focusEffectDisabled().padding(.horizontal, 64)
                 if let shown = presentation, !shown.overview.isEmpty {
                     VStack(alignment: .leading, spacing: 16) {
@@ -687,43 +908,45 @@ struct DetailView: View {
                 }
                 if series {
                     if let seasons {
+                        EpisodeBrowser(api: api, parent: season.isEmpty ? current.id : season, origin: item.id, seasonName: seasons.first { $0.id == season }?.name ?? "")
+                            .id(season)
                         if !seasons.isEmpty {
+                            TVSectionHeading("季").padding(.horizontal, 64)
                             ScrollView(.horizontal) {
                                 HStack(alignment: .top, spacing: 24) {
                                     ForEach(seasons) { entry in
                                         Button { season = entry.id } label: {
                                             VStack(alignment: .leading, spacing: 10) {
-                                                Poster(id: entry.id, enabled: entry.has_primary == true, loader: model.images, width: 190, height: 285)
-                                                    .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(focusedSeason == entry.id ? TVPalette.foreground(model.privateSpace).opacity(0.65) : TVPalette.accent(model.privateSpace).opacity(season == entry.id ? 1 : 0), lineWidth: 2) }
+                                                Poster(id: entry.id, enabled: entry.has_primary == true, loader: model.images, width: 190, height: 285, placeholder: "暂无季封面")
+                                                    .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(focusedSeason == entry.id ? TVPalette.foreground(model.privateSpace).opacity(0.65) : TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(season == entry.id ? 1 : 0), lineWidth: 2) }
                                                     .scaleEffect(focusedSeason == entry.id ? 1.04 : 1)
-                                                Text(entry.name).lineLimit(1)
+                                                Text(entry.name).font(.system(size: 24, weight: .medium)).lineLimit(2)
+                                                    .foregroundStyle(season == entry.id ? TVPalette.accent(model.privateSpace, palette: model.colorScheme) : TVPalette.foreground(model.privateSpace))
                                                 if let status = entry.statusText { Text(status).font(.system(size: 20)).foregroundStyle(.secondary) }
                                             }.frame(width: 190)
                                         }.buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focusedSeason, equals: entry.id)
                                     }
                                 }.padding(.horizontal, 64).padding(.vertical, 20)
                             }
-                            TVSectionHeading(seasons.first { $0.id == season }?.name ?? "选集").padding(.horizontal, 64)
                         }
-                        EpisodeBrowser(api: api, parent: season.isEmpty ? current.id : season, origin: item.id)
-                            .id(season)
                     } else if let mediaError { RetryMessage(text: mediaError) { mediaReload += 1 } }
-                    else { ProgressView("正在加载分季") }
+                    else { TVLoading("正在加载分季") }
                 }
                 if let people = presentation?.people, !people.isEmpty {
                     TVSectionHeading("演职人员").padding(.horizontal, 64)
                     ScrollView(.horizontal) {
-                        HStack(spacing: 28) {
+                        LazyHStack(alignment: .top, spacing: 28) {
                             ForEach(people) { person in
                                 NavigationLink(value: MediaItem.route(id: person.id, name: person.name, type: "Person")) {
                                     VStack {
-                                        Poster(id: person.id, enabled: person.has_primary, loader: model.images)
-                                        Text(person.name); Text(person.role ?? person.type_).foregroundStyle(.secondary)
-                                    }.frame(width: 190)
-                                }.buttonStyle(TVCardStyle()).focusEffectDisabled()
+                                        Poster(id: person.id, enabled: person.has_primary, loader: model.images, width: 176, height: 176).clipShape(Circle())
+                                        Text(person.name).font(.system(size: 26, weight: .bold)).lineLimit(2)
+                                        if let role = person.role, !role.isEmpty { Text(role).font(.system(size: 22)).foregroundStyle(.secondary).lineLimit(2) }
+                                    }.frame(width: 192).multilineTextAlignment(.center)
+                                }.buttonStyle(TVCardStyle()).focusEffectDisabled().disabled(person.id.isEmpty)
                             }
                         }.padding(.horizontal, 64)
-                    }
+                    }.frame(height: 330)
                 }
                 MediaSection(api: api, title: "相似内容", command: "emby.similarItems", args: ["item_id": .string(current.id), "limit": .number(16)])
             }
@@ -747,10 +970,10 @@ struct DetailView: View {
         }
         .onChange(of: model.returnRevision) { _, _ in
             if item.type_ == "Episode", model.returnedOrigin == item.id, let returned = model.returnedItem {
-                playbackItem = returned; selectedSubtitle = nil; version = ""; versions = []; versionsReady = false
+                playbackItem = returned; selectedSubtitle = nil; selectedAudio = nil; version = ""; versions = []; versionsReady = false
             }
         }
-        .onChange(of: version) { _, _ in selectedSubtitle = nil }
+        .onChange(of: version) { _, _ in selectedSubtitle = nil; selectedAudio = nil }
         .task(id: "\(current.id):\(mediaReload):\(model.userStateRevision)") {
             mediaError = nil
             do {
@@ -764,6 +987,13 @@ struct DetailView: View {
                 }
             } catch is CancellationError {} catch { mediaError = error.localizedDescription }
         }
+    }
+
+    private var episodeNumber: String {
+        let season = current.season_no ?? detail?.season_no
+        let episode = current.episode_no ?? detail?.episode_no
+        guard let episode else { return "" }
+        return (season.map { "S\($0)" } ?? "") + "E\(episode)："
     }
 
     @ViewBuilder private func facetLink(_ label: String, query: BrowseQuery, available: Bool = true) -> some View {
@@ -790,7 +1020,10 @@ struct DetailView: View {
         if let selectedSubtitle, let selectedVersion {
             subtitle = InitialSubtitle(version: selectedVersion.id, stream: selectedVersion.streams?.first { $0.type_ == "Subtitle" && $0.index == selectedSubtitle })
         }
-        model.openPlayer(item: current.id, title: current.title, version: version.isEmpty ? nil : version, fromStart: fromStart, subtitle: subtitle, origin: item.id)
+        let audio = selectedAudio.flatMap { index in selectedVersion.flatMap { source in
+            source.streams?.first { $0.type_ == "Audio" && $0.index == index }.map { InitialAudio(version: source.id, stream: $0) }
+        } }
+        model.openPlayer(item: current.id, title: current.title, version: version.isEmpty ? nil : version, fromStart: fromStart, subtitle: subtitle, audio: audio, origin: item.id)
     }
 }
 
@@ -799,6 +1032,9 @@ struct EpisodeBrowser: View {
     let api: MediaAPI
     let parent: String
     let origin: String
+    var seasonName = ""
+    @FocusState private var focusedEpisode: String?
+    @State private var positioned = false
     @State private var episodes: [MediaItem] = []
     @State private var staged: [MediaItem] = []
     @State private var cursor = 0
@@ -815,19 +1051,41 @@ struct EpisodeBrowser: View {
            let item = episodes.first(where: { $0.id == returned.id }) { return item }
         return episodes.first { $0.played != true } ?? episodes.first
     }
+    private var currentID: String? {
+        guard model.returnedOrigin == origin, let id = model.returnedItem?.id,
+              episodes.contains(where: { $0.id == id }) else { return nil }
+        return id
+    }
     var body: some View {
         VStack(alignment: .leading, spacing: 28) {
-            if let next {
-                Button((next.resume_secs > 0 ? "继续播放 · " : "播放 · ") + next.name) {
-                    model.openPlayer(item: next.id, title: next.title, version: nil, fromStart: false, origin: origin)
-                }.buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled()
+            HStack {
+                TVSectionHeading("继续观看")
+                Spacer()
+                Text(seasonName).font(.system(size: 24, weight: .medium)).foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme))
             }
-            if complete { Text("共 \(episodes.count) 集 · 已看 \(episodes.filter { $0.played == true }.count) 集").foregroundStyle(.secondary) }
-            if loading { ProgressView("正在加载当前季") }
+            Button(next.map { ($0.resume_secs > 0 ? "继续播放 · " : "播放 · ") + $0.name } ?? (loading ? "正在准备播放" : "暂无可播放分集")) {
+                if let next {
+                    model.openPlayer(item: next.id, title: next.title, version: nil, fromStart: false, origin: origin)
+                }
+            }.buttonStyle(TVActionStyle(primary: true)).focusEffectDisabled().disabled(next == nil || model.playback != nil)
+            Text(complete ? "共 \(episodes.count) 集 · 已看 \(episodes.filter { $0.played == true }.count) 集 · 未看 \(episodes.filter { $0.played != true }.count) 集" : "已加载 \(episodes.count) 集")
+                .font(.system(size: 22)).foregroundStyle(.secondary)
+            HStack { if loading { TVLoading("正在加载当前季") }; Spacer() }.frame(height: 40)
             if let error { RetryMessage(text: error) { reload += 1 } }
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 400), spacing: 36)], spacing: 40) {
-                ForEach(episodes) { episode in
-                    NavigationLink(value: episode) { MediaCard(item: episode, images: model.images, wide: true, episodeCaption: true) }.buttonStyle(TVCardStyle()).focusEffectDisabled()
+            ScrollViewReader { proxy in
+                ScrollView(.horizontal) {
+                    LazyHStack(alignment: .top, spacing: 28) {
+                        ForEach(episodes) { episode in
+                            NavigationLink(value: episode) { MediaCard(item: episode, images: model.images, wide: true, episodeCaption: true, currentEpisode: episode.id == currentID, targetEpisode: episode.id == next?.id) }
+                                .buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focusedEpisode, equals: episode.id).id(episode.id)
+                        }
+                    }.padding(.vertical, 16)
+                }.frame(height: 380).focusSection()
+                .onChange(of: complete) { _, value in
+                    if value && !positioned {
+                        positioned = true
+                        if focusedEpisode == nil, let id = currentID ?? next?.id { proxy.scrollTo(id, anchor: .leading) }
+                    }
                 }
             }
             if complete && episodes.isEmpty { Text("当前季暂无分集").foregroundStyle(.secondary) }
@@ -845,7 +1103,7 @@ struct EpisodeBrowser: View {
                     if page.items.isEmpty && cursor < page.total { throw CoreFailure(code: "E_PROTOCOL") }
                     staged = try MediaAPI.appendEpisodes(staged, page: page.items)
                     cursor += page.items.count; total = page.total
-                    if episodes.isEmpty { episodes = staged }
+                    episodes = staged
                     if page.items.isEmpty { break }
                 }
                 try Task.checkCancellation()

@@ -8,11 +8,16 @@ APP="$WORK/VisualCheck.app"
 ID=org.linplayer.visualcheck
 OUT="$ROOT/build/tvos-visual"
 mkdir -p "$APP" "$OUT"
+python3 "$ROOT/scripts/fetch-tvos.py" --verify
+LOADING="$ROOT/.toolchain/tvos-loading-simulator"
+python3 "$ROOT/scripts/build-tvos-loading-check.py" appletvsimulator "$LOADING"
+cp -R "$ROOT/.toolchain/tvos/Loading" "$APP/"
 SDK="$(xcrun --sdk appletvsimulator --show-sdk-path)"
 xcrun swiftc -parse-as-library -D UI_RENDER_CHECK -swift-version 5 \
   -target arm64-apple-tvos18.0-simulator -sdk "$SDK" \
   "$ROOT"/apps/tvos/Sources/{AppModel,MediaAPI,ImageLoader,BrowseViews,ProductViews,PlayerView}.swift \
-  "$ROOT"/bindings/swift/*.swift "$ROOT/apps/tvos/Tests/VisualCheck.swift" -o "$APP/VisualCheck"
+  "$ROOT"/bindings/swift/*.swift "$ROOT/apps/tvos/Tests/VisualCheck.swift" \
+  -I "$LOADING" "$LOADING/libLottie.a" -o "$APP/VisualCheck"
 python3 - "$APP/Info.plist" <<'PY'
 import plistlib, sys
 with open(sys.argv[1], 'wb') as f:

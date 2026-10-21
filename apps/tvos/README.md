@@ -17,7 +17,7 @@ bash scripts/check-tvos-ui.sh
 
 前两条可在非 Apple 主机准备输入，后两条在 Mac 执行。`build-core-tvos.sh` 只构建 Go 静态库和真实 C 头文件；`check-tvos-ui.sh` 只编译依赖模块、类型检查正式源码及运行测试可执行文件，都不生成 .app。`check-tvos.sh` 可单独运行不依赖媒体/签名的 Swift 绑定与参数回归。
 
-`dependencies.lock.json` 固定六个源码版本/树摘要、MPVKit 1.1.0-n9.0.2 的 28 个归档来源/上游 checksum 及真机切片摘要。源码树摘要基于已核查输入在本地计算，不是上游独立签发的校验值。`fetch-tvos.py` 可显式指定离线源码/原生归档，仍按同一锁校验；当前已验证离线输入路径，首次全网络获取尚未验证。
+`dependencies.lock.json` 固定七个源码版本/树摘要、MPVKit 1.1.0-n9.0.2 的 28 个归档来源/上游 checksum 及真机切片摘要。源码树摘要基于已核查输入在本地计算，不是上游独立签发的校验值。`fetch-tvos.py` 可显式指定离线源码/原生归档，仍按同一锁校验；当前已验证离线输入路径，首次全网络获取尚未验证。
 
 固定源码先校验，再将包引用改为本地路径（网络获取时）、移除失效远端 pins、禁用 Aether 中央日志出口。源码与原生库的缓存摘要在每次检查前复验，SwiftPM scratch/cache 独立放在 `.toolchain/`。不直接修改缓存中的依赖来修产品。
 
@@ -50,6 +50,12 @@ ASS/PGS 等复杂字幕明确提示不支持；HDR/DV、对象音频、最低系
 
 ## 模拟器布局检查
 
-在已启动的tvOS模拟器上运行 `bash scripts/check-tvos-visual.sh <模拟器UUID>`，截图输出到 `build/tvos-visual/`。宿主加载正式浏览、设置与PlayerView，使用合成命令/封面/视频表面；覆盖23个页面状态及3张下半页截图。脚本检测夹具断言、截图失败和进程提前退出，结束自动终止并卸载测试宿主；调用者负责关闭自己启动的模拟器。
+在已启动的tvOS模拟器上运行 `bash scripts/check-tvos-visual.sh <模拟器UUID>`，截图输出到 `build/tvos-visual/`。宿主加载正式浏览、设置与PlayerView，使用合成命令/封面/视频表面；目前已运行的版本覆盖23个页面状态及3张下半页截图；本批新增加载样式预览/资源断言，尚待重跑。脚本检测夹具断言、截图失败和进程提前退出，结束自动终止并卸载测试宿主；调用者负责关闭自己启动的模拟器。
 
 此入口会生成临时测试.app，不生成正式客户端交付包。脚本通过不等于自动视觉比对通过，需要人工查看截图；不覆盖真实Aether解码、遥控滚动、输入键盘和最低系统兼容。正式类型检查另运行check-tvos-ui.sh。
+
+## 本轮源码状态（2026-10-21）
+
+新增固定 Lottie 4.5.1，复用 Android 的六份加载 JSON；准备脚本同时校验资源摘要、保留许可证并去除未被目标引用的上游开发工具依赖。正式 Xcode 走本地 SwiftPM；类型检查/临时渲染通过 `build-tvos-loading-check.py` 为对应 SDK 编译模块，不下载额外工具链。
+
+当前绑定为328条，新增首页剧集实时选集命令，Android 与 tvOS 共用。绑定门禁、Android HomeHeroTest、Emby 包回归、固定离线输入通过；核心全量门禁仍有 `TestCalendarImageSurvivesAccountAllowlistRefresh` 因缺能力缓存失败。最新 Swift 全源码/契约回归与模拟器渲染未执行；SSH认证需恢复，不能将历史327条版本的通过记录用于本批。没有生成正式包或更新电视。

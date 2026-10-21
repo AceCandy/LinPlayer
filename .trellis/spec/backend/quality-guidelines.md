@@ -113,3 +113,7 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 ## 详情版本与预热共用响应
 
 `prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、页面取消、停止/替换预热与正式起播不打断版本查询、返回不等待视频探测与正式解析重新请求。
+
+## 首页剧集实时选集
+
+`emby.seriesPlaybackTarget({series_id,is_adult?})`经既有会话/空间包装执行，返回真实Episode Item，不加入displaycache白名单。按实时季顺序读取完整分页，过滤屏蔽后选首个未看集；全看完返回首集。仅明确成功的空Items数组回退剧ID，季JSON缺数组/非对象条目、HTTP失败、重复/不完整分集或取消都不得猜目标。`SeriesPlaybackTarget`相关回归覆盖跨季、全已看、空季、失败、取消、超过200集与格式错误；异常季响应测试先复现错误再修正。

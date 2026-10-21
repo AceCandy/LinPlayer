@@ -98,6 +98,7 @@
 | [x] | `emby.scanLibraries` | `scan_libraries` | `—` | `Result<(), String>` | ✅ |
 | [x] | `emby.search` | `search` | `query: String, types: Option<Vec<String>>, limit: Option<u32>, parent_id: Option<String>, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.playbackSeason` | — | `item_id: String, is_adult: Option<bool>` | `Item[]；实时当前季队列，失败不作为季末` | ✅ |
+| [x] | `emby.seriesPlaybackTarget` | — | `series_id: String, is_adult: Option<bool>` | `Item；实时逐季首个未看分集，全已看回首集；空季列表成功才回退剧ID` | ✅ |
 | [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>, all: Option<bool>（全季聚合）, is_adult: Option<bool>` | `Page` | ✅ |
 | [x] | `emby.seriesSeasons` | `series_seasons` | `series_id: String, is_adult: Option<bool>` | `Result<Vec<emby::SeasonInfo>, String>` | ✅ |
 | [x] | `emby.providers` | **新增** | `item_id: String, series_id: Option<String>` | `Map<String,String>` | ✅ | <!-- 条目的外部 id 表(tmdb/imdb/…),键小写。同步插件拿它对 Trakt 条目;分集自己没刮到就问它所属的剧 -->

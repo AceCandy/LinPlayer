@@ -21,7 +21,7 @@
   "children": [],
   "parent": null,
   "relatedFiles": [],
-  "notes": "本阶段存储检查、正式签名安装与首轮真机反馈单独归档至10-21-tvos-device-checkpoint；总任务保持in_progress。首页往返无跳跃、栏目聚焦即切换、详情返回焦点/位置和本次样本基本播放由用户确认。用户要求按模块深入审查UI差异，整体视觉尚未对齐；其它验收及开发工具操作对本机历史的未确认影响继续保留。",
+  "notes": "跨端统一与tvOS总任务保持in_progress。已验阶段另行归档；六模块UI源码续作已补同源加载动画、共有设置保存、安全媒体路径、季集摘要/定位、首页Go统一实时剧集播放。328条绑定门禁、Android首页回归、Emby包回归及离线固定输入通过；核心全量门禁的日历能力缓存测试仍失败。新Swift编译/契约回归、同数据视觉和遥控未验，Mac SSH此前认证失败只影响Apple验证，不阻碍本地实施。本批按用户要求单独提交源码阶段归档至10-21-tvos-ui-alignment-checkpoint；未出包/安装/推送，不能宣称整体对齐；详情见resume和research报告。",
   "meta": {
     "merged_from": [
       "10-17-appletv-playback-spike",

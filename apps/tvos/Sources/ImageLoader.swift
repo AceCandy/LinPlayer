@@ -24,16 +24,29 @@ import SwiftUI
     }
 
     func load(id: String, kind: String = "Primary", height: Int = 450, server sourceServer: String? = nil) async -> UIImage? {
-        guard let base, let token, let server else { return nil }
+        guard base != nil, token != nil, let server else { return nil }
         let upstreamServer = sourceServer ?? server
-        let key = "\(upstreamServer):\(id):\(kind):\(height)" as NSString, epoch = generation
+        let key = "\(upstreamServer):\(id):\(kind):\(height)" as NSString
         if let image = cache.object(forKey: key) { return image }
         guard var source = URLComponents(string: upstreamServer),
               ["http", "https"].contains(source.scheme ?? ""), source.host != nil else { return nil }
         source.path = source.path.trimmingCharacters(in: CharacterSet(charactersIn: "/"))
             .split(separator: "/").map(String.init).reduce("") { $0 + "/" + $1 } + "/Items/\(id)/Images/\(kind)"
         source.query = "quality=90"
-        guard let upstream = source.url?.absoluteString, var local = URLComponents(string: base + "/img") else { return nil }
+        guard let upstream = source.url?.absoluteString else { return nil }
+        return await fetch(upstream, height: height, key: key)
+    }
+
+    func loadURL(_ upstream: String, height: Int) async -> UIImage? {
+        guard let url = URL(string: upstream), ["http", "https"].contains(url.scheme ?? ""), url.host != nil else { return nil }
+        return await fetch(upstream, height: height, key: "url:\(upstream):\(height)" as NSString)
+    }
+
+    private func fetch(_ upstream: String, height: Int, key: NSString) async -> UIImage? {
+        guard let base, let token, server != nil else { return nil }
+        let epoch = generation
+        if let image = cache.object(forKey: key) { return image }
+        guard var local = URLComponents(string: base + "/img") else { return nil }
         local.queryItems = [URLQueryItem(name: "src", value: upstream), URLQueryItem(name: "h", value: String(height))]
         guard let url = local.url else { return nil }
         var req = URLRequest(url: url); req.setValue(token, forHTTPHeaderField: "X-LP-Token")
@@ -91,7 +104,7 @@ struct MediaArtwork: View {
         ZStack {
             Color.primary.opacity(0.06)
             if let image { Image(uiImage: image).resizable().scaledToFill() }
-            else { Image(systemName: "film").foregroundStyle(.secondary) }
+            else { Text(item.type_ == "Season" ? "暂无季封面" : "暂无封面").font(.system(size: 22)).foregroundStyle(.secondary) }
         }.frame(width: width, height: height).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
         .task(id: "\(server ?? ""):\(item):\(loader.revision)") {
             image = nil
@@ -119,11 +132,10 @@ struct Backdrop: View {
                     Image(uiImage: image).resizable().scaledToFill()
                         .frame(width: geometry.size.width, height: height).clipped()
                 }
-                LinearGradient(colors: [.black.opacity(0.65), .clear], startPoint: .leading, endPoint: .trailing)
                 LinearGradient(stops: [
-                    .init(color: TVPalette.background(model.privateSpace).opacity(0.5), location: 0),
-                    .init(color: .clear, location: 0.25),
-                    .init(color: TVPalette.background(model.privateSpace).opacity(0.25), location: 0.55),
+                    .init(color: TVPalette.background(model.privateSpace).opacity(0.45), location: 0),
+                    .init(color: TVPalette.background(model.privateSpace).opacity(0.1), location: 0.25),
+                    .init(color: TVPalette.background(model.privateSpace).opacity(0.7), location: 0.72),
                     .init(color: TVPalette.background(model.privateSpace), location: 1)
                 ], startPoint: .top, endPoint: .bottom)
             }.frame(width: geometry.size.width, height: height).clipped()
@@ -137,5 +149,27 @@ struct Backdrop: View {
             guard !Task.isCancelled else { return }
             image = loaded
         }
+    }
+}
+
+struct RemoteArtwork: View {
+    let url: String?
+    @ObservedObject var loader: ImageLoader
+    let width: CGFloat
+    let height: CGFloat
+    @State private var image: UIImage?
+    var body: some View {
+        ZStack {
+            Color.primary.opacity(0.06)
+            if let image { Image(uiImage: image).resizable().scaledToFill() }
+            else { Image(systemName: "photo").foregroundStyle(.secondary) }
+        }.frame(width: width, height: height).clipped().clipShape(RoundedRectangle(cornerRadius: 12))
+        .task(id: "\(url ?? ""):\(loader.revision)") {
+            image = nil
+            if let url {
+                let loaded = await loader.loadURL(url, height: Int(height * 2))
+                guard !Task.isCancelled else { return }; image = loaded
+            }
+        }.accessibilityHidden(true)
     }
 }

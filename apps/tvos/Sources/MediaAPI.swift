@@ -22,6 +22,8 @@ struct MediaItem: Decodable, Identifiable, Hashable {
     var unplayed_item_count: Int? = nil
     var unplayed_count_known: Bool? = nil
     var library_ids: [String]? = nil
+    var has_logo: Bool? = nil
+    var genres: [String]? = nil
     var title: String { series_name.map { "\($0) · \(name)" } ?? name }
     static func route(id: String, name: String, type: String) -> MediaItem {
         MediaItem(id: id, name: name, type_: type, is_folder: false, has_primary: false, runtime_secs: 0, resume_secs: 0,
@@ -81,6 +83,27 @@ struct MediaPage: Decodable {
     let total: Int
 }
 
+struct PersonWorksPage: Decodable {
+    let items: [MediaItem]
+    let total: Int?
+    let next_index: Int
+    let has_more: Bool
+}
+
+struct PersonWorksState {
+    var items: [MediaItem] = []
+    var cursor = 0
+    var more = true
+    var total: Int?
+    mutating func append(_ page: PersonWorksPage) throws {
+        // 服务端游标包含被屏蔽的作品，不能用可见卡片数推进。
+        guard !page.has_more || page.next_index > cursor else { throw CoreFailure(code: "E_PROTOCOL") }
+        var seen = Set(items.map(\.id))
+        items += page.items.filter { seen.insert($0.id).inserted }
+        cursor = page.next_index; more = page.has_more; total = page.total
+    }
+}
+
 struct MediaDetail: Decodable {
     let id: String
     let name: String
@@ -138,6 +161,7 @@ struct BrowseQuery: Equatable {
     var studioID = ""
     var year = ""
     var played = ""
+    var ratingMin = 0
 
     func arguments(start: Int) -> [String: JSONValue] {
         var args: [String: JSONValue] = ["start_index": .number(Double(start)), "limit": .number(40),
@@ -147,6 +171,7 @@ struct BrowseQuery: Equatable {
         if !studioID.isEmpty { args["studio_ids"] = .array([.string(studioID)]) }
         if let value = Int(year) { args["years"] = .array([.number(Double(value))]) }
         if !played.isEmpty { args["played"] = .bool(played == "true") }
+        if ratingMin > 0 { args["rating_min"] = .number(Double(ratingMin)) }
         return args
     }
 }
@@ -195,6 +220,15 @@ struct MediaVersion: Decodable, Identifiable {
     let size_bytes: Int64?
     let bitrate: Int64?
     let streams: [MediaStream]?
+    var path: String? = nil
+    var displayPath: String? {
+        guard let value = path?.trimmingCharacters(in: .whitespacesAndNewlines), !value.isEmpty else { return nil }
+        if value.count > 1, value.first?.isLetter == true, value[value.index(after: value.startIndex)] == ":" { return value }
+        guard let components = URLComponents(string: value.hasPrefix("//") ? "https:" + value : value) else { return nil }
+        if components.scheme == nil && components.host == nil { return value }
+        // 网络源仅展示路径，凭据、查询令牌与片段不进入界面。
+        return components.path.isEmpty ? nil : components.path
+    }
 }
 
 struct MediaStream: Decodable, Identifiable {
@@ -209,11 +243,19 @@ struct MediaStream: Decodable, Identifiable {
     let height: Int?
     var id: Int { index }
     var label: String { title ?? display_title ?? [language, codec].compactMap { $0 }.joined(separator: " · ") }
+    var summary: String {
+        ([Optional(codec.uppercased()), language, width.flatMap { width in height.map { "\(width)×\($0)" } }]).compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+    }
 }
 
 struct InitialSubtitle {
     let version: String
     let stream: MediaStream?
+}
+
+struct InitialAudio {
+    let version: String
+    let stream: MediaStream
 }
 
 struct TrackCandidate {
@@ -260,6 +302,7 @@ struct MediaAccount: Decodable {
     let lines: [MediaLine]?
     let active_line: Int?
     let remark: String?
+    var icon_url: String? = nil
     let allow_insecure_tls: Bool?
 }
 
@@ -436,6 +479,11 @@ struct PlayTarget: Decodable {
         try await request("emby.playbackSeason", ["item_id": .string(item)]).decode([MediaItem].self)
     }
 
+    func homePlaybackTarget(_ item: MediaItem) async throws -> MediaItem {
+        guard item.type_ == "Series" else { return item }
+        return try await request("emby.seriesPlaybackTarget", ["series_id": .string(item.id)]).decode(MediaItem.self)
+    }
+
     func play(item: String, version: String?, fromStart: Bool) async throws -> PlayTarget {
         var args: [String: JSONValue] = ["item_id": .string(item), "engine": .string("exo")]
         if let version, !version.isEmpty { args["media_source_id"] = .string(version) }
@@ -480,6 +528,15 @@ struct PlaybackSkip: Decodable {
     let outro: Range?
     let skip_auto: Bool
     let skip_source: String
+    var thumbs: Bool? = nil
+    var chapters: [Chapter]? = nil
+    struct Chapter: Decodable, Identifiable {
+        let index: Int
+        let start_secs: Double
+        let name: String
+        let image_url: String?
+        var id: Int { index }
+    }
     func active(at position: Double, duration: Double) -> Range? {
         [intro, outro].compactMap { $0 }.first { $0.contains(position, duration: duration) }
     }

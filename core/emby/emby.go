@@ -100,6 +100,7 @@ type Named struct {
 
 // Page 一页结果(含总数)。
 type Page struct {
+	itemsKnown bool // 区分明确空数组与缺失/null，完整季不能把异常当季末。
 	totalKnown bool
 	Items      []Item `json:"items"`
 	Total      int64  `json:"total"`
@@ -409,7 +410,7 @@ func (c *Client) fetchPage(ctx context.Context, s *Session, u string) (*Page, er
 		// 端点没给 TotalRecordCount 时退回本页条数,别让前端看到 0。
 		total = *data.TotalRecordCount
 	}
-	return &Page{Items: items, Total: total, totalKnown: data.TotalRecordCount != nil}, nil
+	return &Page{Items: items, Total: total, totalKnown: data.TotalRecordCount != nil, itemsKnown: data.Items != nil}, nil
 }
 
 // Views 列出用户可见的全部媒体库。

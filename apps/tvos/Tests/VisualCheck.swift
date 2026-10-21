@@ -1,12 +1,13 @@
 import SwiftUI
 import UIKit
+import Lottie
 
 // 只替换本检查不执行的原生核心初始化和播放器；浏览使用正式页面及MediaAPI。
 enum NativeCore {
     static func initialize(dataRoot: URL, version: String) throws -> CoreClient { throw CoreFailure(code: "E_UNSUPPORTED") }
 }
 struct VisualPlayerEngine {
-    struct Track: Identifiable { let id: Int; let name: String }
+    struct Track: Identifiable { let id: Int; let name: String; var codec = "aac"; var language: String? = "jpn"; var isExternal = false }
     struct Chapter: Identifiable { let id: Int; let name: String; let startSeconds: Double }
     let duration: Double = 9960
     let isBuffering = false
@@ -44,10 +45,16 @@ struct VideoSurface: View {
     let versions: [MediaVersion] = []
     let actualVersion = "v1", pictureMode = "fit"
     let speed: Float = 1
+    let bufferedPosition: Double = 4800
     let position: Double = 3600
     let textTracks = [VisualPlayerEngine.Track(id: 2, name: "简体中文")]
     let unsupportedSubtitleCount = 0
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil) {
+    let skipInfo: PlaybackSkip? = PlaybackSkip(intro: .init(start: 3590, end: 3690), outro: nil, skip_auto: false, skip_source: "合成区间")
+    let skipError: String? = nil
+    var activeSkip: PlaybackSkip.Range? { skipInfo?.active(at: position, duration: engine?.duration ?? 0) }
+    func retrySkip() {}
+    func skip(_ range: PlaybackSkip.Range) {}
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil) {
         self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
     }
     func suspend() {}
@@ -66,7 +73,7 @@ struct VideoSurface: View {
 @MainActor final class VisualCommands: LinPlayerCommands {
     static func item(_ id: String, _ name: String, type: String = "Movie", resume: Double = 0) -> JSONValue {
         .object(["id": .string(id), "name": .string(name), "type_": .string(type), "is_folder": .bool(false),
-            "has_primary": .bool(true), "has_backdrop": .bool(true), "runtime_secs": .number(9960), "resume_secs": .number(resume),
+            "has_primary": .bool(true), "has_backdrop": .bool(true), "has_logo": .bool(id == "film1"), "genres": .array([.string("科幻")]), "runtime_secs": .number(9960), "resume_secs": .number(resume),
             "played": .bool(false), "is_favorite": .bool(false), "year": .number(2024), "rating": .number(8.6), "DoubanRating": .number(8.3)])
     }
     let movies = [item("film1", "沙丘 2"), item("film2", "漫长的旅程"), item("film3", "星河回声"), item("film4", "远方的夏天"), item("film5", "海岸线"), item("film6", "最后一班列车")]
@@ -77,6 +84,7 @@ struct VideoSurface: View {
         case "emby.listLatest", "emby.cachedItems", "emby.similarItems", "emby.search", "emby.personItems": return .array(movies)
         case "emby.listResume": return .array([Self.item("resume", "继续探索", resume: 3600)])
         case "emby.listCollections": return .array([])
+        case "emby.seriesPlaybackTarget": return Self.item("episode1", "第 1 集 · 旅程的起点", type: "Episode")
         case "emby.seriesSeasons": return .array((1...3).map { .object(["id": .string("season\($0)"), "name": .string("第 \($0) 季"), "child_count": .number(8), "has_primary": .bool(true)]) })
         case "emby.seasonEpisodes": return .object(["items": .array((1...8).map { Self.item("episode\($0)", "第 \($0) 集 · 旅程的起点", type: "Episode") }), "total": .number(8)])
         case "emby.listItemsPage", "emby.listFavorites":
@@ -85,6 +93,12 @@ struct VideoSurface: View {
                 fields["library_ids"] = .array([.string("library")]); return .object(fields)
             }
             return .object(["items": .array(values), "total": .number(Double(values.count)), "has_more": .bool(false)])
+        case "emby.personItemsPage":
+            let start = Int(args["start_index"]?.number ?? 0)
+            let type = args["type"]?.string ?? "Movie"
+            let values = (start..<min(start + 30, 65)).map { Self.item("\(type)-\($0)", "作品 \($0 + 1)", type: type) }
+            return .object(["items": .array(values), "total": .number(65), "next_index": .number(Double(start + values.count)), "has_more": .bool(start + values.count < 65)])
+        case "account.probeLine": return .object(["ms": .number(12)])
         case "emby.getFilters": return .object(["genres": .array([.string("科幻"), .string("冒险")]), "tags": .array([.string("史诗")]), "years": .array([.number(2024)])])
         case "account.listAccounts": return .array([Self.account])
         case "emby.aggregateOverview": return .array([.object(["server_id": .string("fixture"), "server_name": .string("演示媒体库"), "line_url": .string("https://fixture.invalid"), "counts_known": .bool(true), "counts": .object(["movie": .number(128), "series": .number(32), "episode": .number(400), "boxset": .number(6)]), "resume": .array(movies)])])
@@ -92,7 +106,11 @@ struct VideoSurface: View {
         case "emby.personDetail": return .object(["name": .string("演示演员"), "overview": .string("用于检查人物简介与相关作品排列的合成资料。"), "has_primary": .bool(true)])
         case "emby.collectionItems": return .object(["movies": .array(movies), "series": .array([]), "others": .array([])])
         case "emby.extRankings": return .array([.object(["id": .string("popular"), "label": .string("热门电影"), "source": .string("fixture"), "enabled": .bool(true)])])
-        case "emby.extRankingItems", "emby.extCalendar": return .array((1...5).map { .object(["id": .string("rank\($0)"), "source": .string("fixture"), "external_id": .string("rank\($0)"), "media_type": .string("Movie"), "title": .string("第 \($0) 部演示影片"), "subtitle": .string("2024 · 科幻 / 冒险"), "rank": .number(Double($0)), "rating": .number(8.6)]) })
+        case "emby.extRankingItems", "emby.extCalendar":
+            let page = command == "emby.extCalendar" ? 1 : Int(args["page"]?.number ?? 1)
+            guard page <= 2 else { return .array([]) }
+            let start = (page - 1) * 5 + 1
+            return .array((start..<(start + 5)).map { .object(["id": .string("rank\($0)"), "source": .string("fixture"), "external_id": .string("rank\($0)"), "media_type": .string("Movie"), "title": .string("第 \($0) 部演示影片"), "subtitle": .string("2024 · 科幻 / 冒险"), "rank": .number(Double($0)), "rating": .number(8.6), "image_url": .string("https://fixture.invalid/poster"), "weekday": .number(Double(($0 - 1) % 7 + 1)), "broadcast_time": .string("20:30"), "timezone": .string("Asia/Tokyo")]) })
         case "emby.heroCandidates": return .array([.string("film1"), .string("film2")])
         case "prefs.getHomeSettings": return .object(["collections_enabled": .bool(false)])
         case "prefs.getPrefs", "player.getPlaybackPrefs": return .object(["sub_enabled": .bool(true), "default_speed": .number(1), "search_history": .array([.string("沙丘"), .string("星河"), .string("夏天")])])
@@ -109,10 +127,10 @@ struct VideoSurface: View {
             fields["overview"] = .string("在遥远的沙漠星球，年轻的旅人踏上一段关于责任与选择的旅程。面对未知的未来，他必须找到自己的道路。")
             fields["genres"] = .array([.string("科幻"), .string("冒险")]); fields["tags"] = .array([.string("史诗")])
             fields["premiere_date"] = .string("2024-03-01")
-            fields["people"] = .array([])
+            fields["people"] = .array((1...8).map { .object(["id": .string("person\($0)"), "name": .string("演示演员\($0)"), "role": .string("角色\($0)"), "type_": .string("Actor"), "has_primary": .bool(true)]) })
             return .object(fields)
         case "emby.itemMedia":
-            let versions: [JSONValue] = [.object(["id": .string("v1"), "name": .string("2160p 导演剪辑版"), "preferred": .bool(true),
+            let versions: [JSONValue] = [.object(["id": .string("v1"), "name": .string("2160p 导演剪辑版"), "preferred": .bool(true), "path": .string("/media/电影/星河回声/星河回声.mkv"),
             "container": .string("MKV"), "size_bytes": .number(66_120_000_000), "streams": .array([
                 .object(["is_external": .bool(false), "index": .number(0), "type_": .string("Video"), "codec": .string("hevc"), "width": .number(3840), "height": .number(2160)]),
                 .object(["is_external": .bool(false), "index": .number(1), "type_": .string("Audio"), "codec": .string("truehd"), "title": .string("日语原声 7.1"), "language": .string("jpn")]),
@@ -120,6 +138,8 @@ struct VideoSurface: View {
             guard case .object(var alternate) = versions[0] else { fatalError() }
             alternate["id"] = .string("v2"); alternate["name"] = .string("1080p 剧场版"); alternate["preferred"] = .bool(false)
             return .array(versions + [.object(alternate)])
+        case "player.setPlaybackPrefs", "prefs.setPrefetchSettings": return .object([:])
+        case "account.testConnection": return .object(["name": .string("演示媒体库"), "version": .string("1.0")])
         default: fatalError("视觉夹具缺少命令：" + command)
         }
     }
@@ -127,6 +147,7 @@ struct VideoSurface: View {
 
 final class VisualImages: URLProtocol {
     static var data = Data()
+    static var logoData = Data()
     private static let lock = NSLock()
     private static var requests: [String: Int] = [:]
     static func count(_ host: String) -> Int { lock.lock(); defer { lock.unlock() }; return requests[host] ?? 0 }
@@ -137,7 +158,8 @@ final class VisualImages: URLProtocol {
         let host = URL(string: source)?.host ?? ""
         Self.lock.lock(); Self.requests[host, default: 0] += 1; Self.lock.unlock()
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!, cacheStoragePolicy: .notAllowed)
-        client?.urlProtocol(self, didLoad: Self.data); client?.urlProtocolDidFinishLoading(self)
+        let isLogo = URL(string: source)?.path.hasSuffix("/Images/Logo") == true
+        client?.urlProtocol(self, didLoad: isLogo ? Self.logoData : Self.data); client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }
@@ -178,6 +200,9 @@ final class VisualImages: URLProtocol {
             Text("演示封面").font(.system(size: 80, weight: .semibold)).foregroundStyle(.white.opacity(0.6)).offset(y: 220)
         }.frame(width: 1920, height: 1080))
         VisualImages.data = asset.uiImage!.pngData()!
+        let logo = ImageRenderer(content: Text("星河回声").font(.system(size: 96, weight: .bold, design: .serif))
+            .foregroundStyle(.white).frame(width: 620, height: 180))
+        VisualImages.logoData = logo.uiImage!.pngData()!
         let core = VisualCommands(), api = MediaAPI(core: VisualCommands())
         api.use(MediaSession(server: "https://fixture.invalid", token: "fixture", user_id: "fixture", user_name: "演示账号"))
         model.api = api; model.ready = true; model.account = try! VisualCommands.account.decode(MediaAccount.self)
@@ -192,7 +217,16 @@ final class VisualImages: URLProtocol {
         let grouped = FavoriteGroup.make(items: [favorite, unknown], libraries: [library])
         precondition(Set(grouped.flatMap(\.items).map(\.id)) == [favorite.id, unknown.id], "分组不能丢失未知类型或无库归属的收藏")
         let series = try! VisualCommands.item("series", "漫长的旅程 · 关于星空与远方的一段故事", type: "Series").decode(MediaItem.self)
+        for style in TVLoading.styles where style != 0 {
+            precondition(LottieAnimation.named("lp_loading_\(style)", subdirectory: "Loading") != nil, "加载动画资源无法解析")
+        }
         pages = [
+            ("loading-styles", AnyView(VStack(alignment: .leading, spacing: 28) {
+                Text("加载动画").font(.largeTitle)
+                ForEach(TVLoading.styles, id: \.self) { style in
+                    TVLoading(style == 0 ? "系统默认" : "样式 \(style)", style: style)
+                }
+            }.padding(64))),
             ("player", AnyView(PlayerView(controller: PlaybackController(api: api, item: "film1", title: "沙丘 2", version: nil, fromStart: false)))),
             ("library", AnyView(NavigationStack { LibraryView(api: api, item: library) })),
             ("favorites", AnyView(ProductRoot(api: api, initialTab: "favorites"))),

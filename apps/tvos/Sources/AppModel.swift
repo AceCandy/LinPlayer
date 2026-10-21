@@ -1,6 +1,12 @@
 import SwiftUI
 
 @MainActor final class AppModel: ObservableObject {
+    @Published var colorScheme = UserDefaults.standard.string(forKey: "colorScheme") ?? "amber" {
+        didSet { UserDefaults.standard.set(colorScheme, forKey: "colorScheme") }
+    }
+    @Published var loadingStyle = UserDefaults.standard.integer(forKey: "loadingStyle") {
+        didSet { UserDefaults.standard.set(loadingStyle, forKey: "loadingStyle") }
+    }
     @Published var api: MediaAPI?
     @Published var account: MediaAccount?
     @Published var ready = false
@@ -102,13 +108,24 @@ import SwiftUI
 
     func reloadAccounts() async throws { try await restoreSession() }
 
-    func login(server: String, username: String, password: String) async throws {
+    func testConnection(server: String, username: String, password: String) async throws -> JSONValue {
+        guard let core, let api else { throw CoreFailure(code: "E_SESSION") }
+        return try await core.call("account.testConnection", ["server": .string(server.trimmingCharacters(in: .whitespacesAndNewlines)),
+            "username": .string(username), "password": .string(password), "device_id": .string(api.deviceID)])
+    }
+
+    func login(server: String, username: String, password: String, name: String = "") async throws {
         guard let core, let api, !busy else { return }
         busy = true; defer { busy = false }
         if let playback { await playback.close(); self.playback = nil }
         _ = try await core.embyLogin(["server": .string(server.trimmingCharacters(in: .whitespacesAndNewlines)),
             "username": .string(username), "password": .string(password), "device_id": .string(api.deviceID)])
         try await restoreSession()
+        let displayName = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !displayName.isEmpty, let account {
+            _ = try await api.request("account.updateAccount", ["server_id": .string(account.server), "name": .string(displayName)])
+            try await restoreSession()
+        }
     }
 
     func logout() async {
@@ -127,10 +144,10 @@ import SwiftUI
         }
     }
 
-    func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, origin: String? = nil) {
+    func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, origin: String? = nil) {
         guard playback == nil, let api else { return }
         playbackOrigin = origin ?? item
-        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle)
+        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle, audio: audio)
     }
 
     func switchPlayer(item: String, title: String, version: String? = nil, fromStart: Bool = false) async {

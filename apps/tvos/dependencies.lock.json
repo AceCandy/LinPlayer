@@ -31,6 +31,11 @@
       "url": "https://codeload.github.com/kishikawakatsumi/SMBClient/tar.gz/refs/tags/0.3.1",
       "version": "0.3.1",
       "tree_sha256": "7dd27d731237628b48fa365ea1a180c64bd74e956629e93173b07b6b76a3770f"
+    },
+    "Lottie": {
+      "url": "https://codeload.github.com/airbnb/lottie-ios/tar.gz/refs/tags/4.5.1",
+      "version": "4.5.1",
+      "tree_sha256": "f7d579eadb7d25891b99f6d89008cba97820ee114c67c70fc64e0be7abda724c"
     }
   },
   "mpvkit": {

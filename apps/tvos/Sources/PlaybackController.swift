@@ -14,6 +14,7 @@ import SwiftUI
     @Published var loading = true
     @Published var closing = false
     @Published var changingTrack = false
+    @Published var bufferedPosition: Double = 0
     @Published var position: Double = 0
     @Published var subtitleText = ""
     @Published var subtitleNote: String?
@@ -32,6 +33,7 @@ import SwiftUI
     private var skippedEnds = Set<Double>()
     private var queueWork: Task<Void, Never>?
     private var versionWork: Task<Void, Never>?
+    private let initialAudio: InitialAudio?
     private let initialSubtitle: InitialSubtitle?
     @Published private(set) var actualVersion = ""
     private var trackPrefs: JSONValue = .null
@@ -52,8 +54,8 @@ import SwiftUI
     private var loadingEngine = false
     private var trackWasPaused = false
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil) {
-        initialSubtitle = subtitle
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil) {
+        initialAudio = audio; initialSubtitle = subtitle
         self.api = api; self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
         do {
             let player = try AetherEngine()
@@ -70,6 +72,10 @@ import SwiftUI
                 guard let self else { return }
                 if value.isFinite && value >= 0 && abs(self.position - value) >= 1 { self.position = value }
                 Task { @MainActor in self.updateSkip() }
+            }.store(in: &subscriptions)
+            player.clock.$bufferedPosition.sink { [weak self] value in
+                guard let self, value.isFinite, value >= 0 else { return }
+                if value == 0 || abs(self.bufferedPosition - value) >= 1 { self.bufferedPosition = value }
             }.store(in: &subscriptions)
             player.clock.$sourceTime.sink { [weak self] time in self?.refreshSubtitles(at: time) }.store(in: &subscriptions)
             player.$subtitleCues.sink { [weak self] _ in
@@ -274,7 +280,10 @@ import SwiftUI
 
     func selectAudio(_ id: Int, manual: Bool = true) {
         guard audioSelectable, !changingTrack, let engine else { return }
-        if manual { manualAudio = true }
+        if manual {
+            manualAudio = true
+            if subtitleNote == "预选音轨暂不可用，请在音轨列表中选择。" { subtitleNote = nil }
+        }
         changingTrack = true
         let wasPaused = paused
         trackWasPaused = wasPaused
@@ -309,15 +318,26 @@ import SwiftUI
         }
         if !manualAudio && !changingTrack && !engine.audioTracks.isEmpty && engine.audioTracks != appliedAudio {
             let tracks = engine.audioTracks
-            appliedAudio = tracks
             let rows = candidates(tracks, selected: engine.activeAudioTrackIndex)
             audioPreferenceWork?.cancel()
-            audioPreferenceWork = Task {
-                do {
-                    let chosen = try await api.trackPreference(rows, kind: "audio", prefs: trackPrefs)
-                    guard !Task.isCancelled, !closing, !manualAudio, engine.audioTracks == tracks else { return }
-                    if let id = Int(chosen), id != engine.activeAudioTrackIndex { selectAudio(id, manual: false) }
-                } catch is CancellationError {} catch { if !closing { subtitleNote = "音轨偏好读取失败，请手动选择。" } }
+            if let initialAudio, initialAudio.version == actualVersion {
+                if let id = TrackPreference.explicit(initialAudio.stream, tracks: rows) {
+                    appliedAudio = tracks
+                    if subtitleNote == "预选音轨暂不可用，请在音轨列表中选择。" { subtitleNote = nil }
+                    if id != engine.activeAudioTrackIndex { selectAudio(id, manual: false) }
+                } else {
+                    // 保留明确预选，等待迟到轨道；不猜测同语言的其它音轨。
+                    subtitleNote = "预选音轨暂不可用，请在音轨列表中选择。"
+                }
+            } else {
+                appliedAudio = tracks
+                audioPreferenceWork = Task {
+                    do {
+                        let chosen = try await api.trackPreference(rows, kind: "audio", prefs: trackPrefs)
+                        guard !Task.isCancelled, !closing, !manualAudio, engine.audioTracks == tracks else { return }
+                        if let id = Int(chosen), id != engine.activeAudioTrackIndex { selectAudio(id, manual: false) }
+                    } catch is CancellationError {} catch { if !closing { subtitleNote = "音轨偏好读取失败，请手动选择。" } }
+                }
             }
         }
         if !manualSubtitle && !textTracks.isEmpty && textTracks != appliedSubtitles {

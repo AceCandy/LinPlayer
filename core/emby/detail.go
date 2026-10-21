@@ -14,6 +14,8 @@ import (
 	"strconv"
 	"strings"
 	"sync"
+
+	"linplayer/core/bus"
 )
 
 // Person 演职人员。
@@ -358,11 +360,14 @@ func (c *Client) Seasons(ctx context.Context, s *Session, seriesID string) ([]Se
 		return nil, fmt.Errorf("解析失败: %w", err)
 	}
 	out := []SeasonInfo{}
-	arr, _ := j["Items"].([]any)
+	arr, ok := j["Items"].([]any)
+	if !ok {
+		return nil, bus.NewErr(bus.EUpstream, "分季列表格式无效")
+	}
 	for _, v := range arr {
 		m, ok := v.(map[string]any)
 		if !ok {
-			continue
+			return nil, bus.NewErr(bus.EUpstream, "分季条目格式无效")
 		}
 		ud, _ := m["UserData"].(map[string]any)
 		_, hasImg := jmap(m, "ImageTags")["Primary"]

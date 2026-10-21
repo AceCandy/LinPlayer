@@ -214,6 +214,28 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let commands = FakeCommands(), api = MediaAPI(core: commands)
         api.deviceID = "DEVICE_PLACEHOLDER"
         api.use(MediaSession(server: "https://example.invalid", token: "TOKEN_PLACEHOLDER", user_id: "USER_PLACEHOLDER", user_name: "fixture"))
+        let beforeTarget = commands.calls.count
+        let movieTarget = try await api.homePlaybackTarget(heroMovie)
+        precondition(movieTarget.id == heroMovie.id && commands.calls.count == beforeTarget, "电影不应请求剧集选集")
+        commands.responses["emby.seriesPlaybackTarget"] = [try json(#"{"id":"episode","name":"Episode","type_":"Episode","is_folder":false,"has_primary":true,"runtime_secs":100,"resume_secs":20}"#)]
+        let seriesTarget = try await api.homePlaybackTarget(heroSeries)
+        precondition(seriesTarget.id == "episode" && seriesTarget.resume_secs == 20)
+        precondition(commands.calls.last!.0 == "emby.seriesPlaybackTarget" && commands.calls.last!.1["series_id"] == .string("series"))
+        precondition(commands.calls.last!.1["request_scope"]?["private"] == .bool(false))
+        commands.failures["emby.seriesPlaybackTarget"] = CoreFailure(code: "E_NETWORK")
+        do { _ = try await api.homePlaybackTarget(heroSeries); preconditionFailure("选集失败被当作播放成功") }
+        catch { precondition((error as? CoreFailure)?.code == "E_NETWORK") }
+        commands.failures = [:]
+        for (path, expected) in [
+            ("/media/film.mkv", "/media/film.mkv"),
+            (#"D:\Media\film.mkv"#, #"D:\Media\film.mkv"#),
+            ("https://USER_PLACEHOLDER:PASSWORD_PLACEHOLDER@example.invalid/media/film.mkv?token=TOKEN_PLACEHOLDER#FRAGMENT_PLACEHOLDER", "/media/film.mkv"),
+            ("//USER_PLACEHOLDER:PASSWORD_PLACEHOLDER@example.invalid/media/film.mkv?token=TOKEN_PLACEHOLDER", "/media/film.mkv"),
+            ("https://example.invalid?token=TOKEN_PLACEHOLDER", nil), ("  ", nil)
+        ] as [(String, String?)] {
+            let version = try JSONValue.object(["id": .string("source"), "name": .string("版本"), "preferred": .bool(true), "path": .string(path)]).decode(MediaVersion.self)
+            precondition(version.displayPath == expected, "媒体路径必须保留本地文件名并移除远程凭据和查询")
+        }
         commands.responses["emby.heroCandidates"] = [.array([.string("movie")])]
         let heroes = try await api.heroCandidates([heroMovie, heroSeries, watchedEpisode, heroMovie])
         precondition(heroes.map(\.id) == ["movie"], "必须按核心返回候选去重展示")
@@ -242,12 +264,28 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         do { _ = try JSONValue.null.decode(MediaPage.self); preconditionFailure("损坏 DTO 被接受") }
         catch { precondition((error as? CoreFailure)?.code == "E_PROTOCOL") }
         var query = BrowseQuery()
-        query.sort = "ProductionYear"; query.descending = true; query.genre = "剧情"; query.year = "2025"; query.played = "false"
+        query.sort = "ProductionYear"; query.descending = true; query.genre = "剧情"; query.year = "2025"; query.played = "false"; query.ratingMin = 8
         _ = try await api.items(parent: "library-fixture", start: 80, query: query)
         let filtered = commands.calls.last!.1
         precondition(filtered["query"]?["sort_order"] == .string("Descending"))
         precondition(filtered["query"]?["genres"] == .array([.string("剧情")]) && filtered["query"]?["played"] == .bool(false))
         precondition(filtered["query"]?["years"] == .array([.number(2025)]) && filtered["genres"] == nil)
+        precondition(filtered["query"]?["rating_min"] == .number(8) && filtered["rating_min"] == nil, "评分下限未放入核心分页query")
+        precondition(BrowseQuery().arguments(start: 0)["rating_min"] == nil)
+        let works = try json(#"{"items":[],"total":null,"next_index":30,"has_more":true}"#).decode(PersonWorksPage.self)
+        var workState = PersonWorksState()
+        try workState.append(works)
+        precondition(workState.cursor == 30 && workState.items.isEmpty && workState.more, "全页屏蔽后丢失核心游标")
+        try workState.append(PersonWorksPage(items: page.items + page.items, total: 100, next_index: 60, has_more: true))
+        precondition(workState.cursor == 60 && workState.items.count == Set(page.items.map(\.id)).count, "作品去重改变了分页游标")
+        do {
+            try workState.append(PersonWorksPage(items: [], total: 100, next_index: 60, has_more: true))
+            preconditionFailure("未推进游标仍继续翻页")
+        } catch { precondition((error as? CoreFailure)?.code == "E_PROTOCOL" && workState.cursor == 60) }
+        try workState.append(PersonWorksPage(items: [], total: 100, next_index: 100, has_more: false))
+        precondition(!workState.more && workState.cursor == 100)
+        let hero = try json(#"{"id":"hero","name":"作品","type_":"Movie","is_folder":false,"has_primary":false,"runtime_secs":0,"resume_secs":0,"has_logo":true,"genres":["科幻"]}"#).decode(MediaItem.self)
+        precondition(hero.has_logo == true && hero.genres == ["科幻"])
 
         var revisions = 0
         api.onUserStateChanged = { revisions += 1 }
@@ -287,6 +325,8 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let skips = try json(#"{"intro":{"start":10,"end":30},"outro":null,"skip_auto":false,"skip_source":"手动设定"}"#).decode(PlaybackSkip.self)
         precondition(skips.active(at: 10, duration: 100)?.end == 30)
         precondition(skips.active(at: 30, duration: 100) == nil && skips.active(at: 20, duration: 25) == nil)
+        let chapterInfo = try json(#"{"intro":null,"outro":null,"skip_auto":true,"skip_source":"","thumbs":false,"chapters":[{"index":0,"start_secs":0,"name":"开场","image_url":null}]}"#).decode(PlaybackSkip.self)
+        precondition(chapterInfo.thumbs == false && chapterInfo.chapters?.first?.name == "开场")
         let facet = BrowseQuery(studioID: "studio-fixture").arguments(start: 0)
         precondition(facet["studio_ids"] == .array([.string("studio-fixture")]) && facet["studios"] == nil)
 
@@ -299,6 +339,10 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let two = TrackCandidate(id: 101, title: "简体中文", language: "chi", codec: "subrip", external: true, selected: false)
         precondition(TrackPreference.explicit(external, tracks: [one]) == 100)
         precondition(TrackPreference.explicit(external, tracks: [one, two]) == nil, "歧义字幕被猜成首轨")
+
+        let audioStream = try json(#"{"index":2,"type_":"Audio","codec":"aac","title":"日语原声","language":"jpn","is_external":false}"#).decode(MediaStream.self)
+        let audioTrack = TrackCandidate(id: 9, title: "日语原声", language: "jpn", codec: "aac", external: false, selected: false)
+        precondition(TrackPreference.explicit(audioStream, tracks: [audioTrack]) == 9, "音轨预选误用媒体流序号代替引擎ID")
 
         let old = api.epoch
         let late = Task { try await api.request("held") }

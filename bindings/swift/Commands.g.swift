@@ -50,6 +50,7 @@ enum LinPlayerCommandNames {
         "emby.scanLibraries",
         "emby.search",
         "emby.playbackSeason",
+        "emby.seriesPlaybackTarget",
         "emby.seasonEpisodes",
         "emby.seriesSeasons",
         "emby.providers",
@@ -461,6 +462,9 @@ extension LinPlayerCommands {
     }
     func embyPlaybackSeason(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.playbackSeason", args)
+    }
+    func embySeriesPlaybackTarget(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("emby.seriesPlaybackTarget", args)
     }
     func embySeasonEpisodes(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.seasonEpisodes", args)

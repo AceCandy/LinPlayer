@@ -69,6 +69,7 @@ object LinPlayerCommandNames {
         "emby.scanLibraries",
         "emby.search",
         "emby.playbackSeason",
+        "emby.seriesPlaybackTarget",
         "emby.seasonEpisodes",
         "emby.seriesSeasons",
         "emby.providers",
@@ -359,7 +360,7 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (54 条) ----
+// ---- Emby 浏览与详情 · emby.* (55 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
@@ -440,6 +441,8 @@ suspend fun LinPlayerCommands.embySearch(args: Map<String, Any?>? = null): JsonE
     call("emby.search", args)
 suspend fun LinPlayerCommands.embyPlaybackSeason(args: Map<String, Any?>? = null): JsonElement =
     call("emby.playbackSeason", args)
+suspend fun LinPlayerCommands.embySeriesPlaybackTarget(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.seriesPlaybackTarget", args)
 suspend fun LinPlayerCommands.embySeasonEpisodes(args: Map<String, Any?>? = null): JsonElement =
     call("emby.seasonEpisodes", args)
 suspend fun LinPlayerCommands.embySeriesSeasons(args: Map<String, Any?>? = null): JsonElement =

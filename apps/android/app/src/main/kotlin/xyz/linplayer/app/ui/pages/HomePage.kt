@@ -467,17 +467,11 @@ fun HomePage(nav: NavController) {
 
 }
 
-/** 首页播放沿用既有Player入口，剧集按详情页的季/分集契约解析，不使用缓存进度起播。 */
+/** 首页播放沿用既有Player入口，剧集由核心实时选集，不使用缓存进度起播。 */
 internal suspend fun homePlaybackTarget(app: xyz.linplayer.app.data.AppState, item: Item): Item {
     if (!item.isSeries) return item
-    val seasons = Item.list(app.call("emby.seriesSeasons", args("series_id" to item.id)))
-    var first: Item? = null
-    for (season in seasons) {
-        val episodes = app.seasonEpisodes(season.id)
-        if (first == null) first = episodes.firstOrNull()
-        episodes.firstOrNull { !it.played }?.let { return it }
-    }
-    return first ?: throw IllegalStateException("没有可播放的分集")
+    return Item.from(app.call("emby.seriesPlaybackTarget", args("series_id" to item.id)))
+        ?: error("没有可播放的分集")
 }
 
 /** 全宽电影Hero；触摸/纵向滚动/离屏/后台暂停，手动操作后重新计满轮播间隔。 */
