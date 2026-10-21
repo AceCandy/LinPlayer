@@ -94,6 +94,62 @@ class PlayerActivityTest {
         assertFalse(core.calls.any { it.first == "player.play" })
     }
 
+    @Test fun pluginSourceWithoutEmbySessionKeepsPlayerOpenAfterStartupAndEarlyEof() {
+        val core = openPluginPlayer()
+        rule.onNodeWithTag("player.video").assertIsDisplayed()
+        assertFalse(host!!.get().isFinishing)
+        assertEquals(1, core.calls.count { it.first == "source.playItem" })
+        assertFalse(core.calls.any { it.first == "player.play" })
+        rule.runOnIdle {
+            core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status",
+                kotlinx.serialization.json.buildJsonObject {
+                    put("position", kotlinx.serialization.json.JsonPrimitive(0.0))
+                    put("duration", kotlinx.serialization.json.JsonPrimitive(0.0))
+                    put("eof", kotlinx.serialization.json.JsonPrimitive(true))
+                }))
+        }
+        rule.onNodeWithText("这一片没能播起来").assertIsDisplayed()
+        assertFalse(host!!.get().isFinishing)
+    }
+
+    @Test fun pluginSourceResolveFailureDoesNotFinishPlayerActivity() {
+        openPluginPlayer(fail = true)
+        rule.onNodeWithText("换源").assertIsDisplayed()
+        assertFalse(host!!.get().isFinishing)
+    }
+
+    private fun openPluginPlayer(fail: Boolean = false): FakeCore {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("emby.currentSession", JsonNull)
+            ret("account.listAccounts", xyz.linplayer.app.tv.arr(kotlinx.serialization.json.buildJsonObject {
+                put("id", kotlinx.serialization.json.JsonPrimitive("plugin:test/tvbox/a"))
+                put("server", kotlinx.serialization.json.JsonPrimitive("plugin:test/tvbox/a"))
+                put("name", kotlinx.serialization.json.JsonPrimitive("测试源"))
+                put("active", kotlinx.serialization.json.JsonPrimitive(true))
+                put("plugin", kotlinx.serialization.json.buildJsonObject {
+                    put("id", kotlinx.serialization.json.JsonPrimitive("test/tvbox"))
+                })
+            }))
+            on("source.playItem") {
+                if (fail) throw xyz.linplayer.app.core.CoreException("E_UPSTREAM", "测试取流失败", true)
+                JsonNull
+            }
+            ret("source.switchCandidates", xyz.linplayer.app.tv.arr())
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        assertNull(app.session.value)
+        assertNotNull(app.activeSource.value)
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        val route = Route.Player("source-item", "测试源影片", src =
+            """{"server_id":"plugin:test/tvbox/a","item":{"id":"source-item","title":"测试源影片","lines":[]},"line_id":"line","episode_id":"https://video.invalid/play.m3u8?name=%E6%B5%8B%E8%AF%95&part=1","resume_secs":0}""")
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java,
+            PlayerActivity.intent(context, route).setClass(context, TestPlayerActivity::class.java)).setup()
+        rule.waitUntil(5_000) { core.calls.any { it.first == "source.playItem" } }
+        return core
+    }
+
     @Test fun televisionIntentKeepsParametersRemoteControlsAndReturnsLastEpisode() {
         val core = FakeCore().loggedIn().player().apply {
             ret("player.stopPlayback", JsonNull)

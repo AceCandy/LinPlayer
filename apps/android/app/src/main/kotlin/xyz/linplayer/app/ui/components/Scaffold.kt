@@ -81,13 +81,14 @@ fun LpScaffold(
     scrolled: Boolean = false,
     actions: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
+    titleContent: (@Composable () -> Unit)? = null,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
     Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
         Column(Modifier.fillMaxSize()) {
             // ★ 没有标题**不等于没有 topbar**:首页就是「无标题但右上角有入口」。
-            LpTopBar(title, subtitle, onBack, scrolled, actions)
+            LpTopBar(title, subtitle, onBack, scrolled, titleContent = titleContent, actions = actions)
             Box(Modifier.weight(1f)) { content(contentInsets()) }
             bottomBar()
         }
@@ -143,6 +144,7 @@ fun LpTopBar(
     subtitle: String? = null,
     onBack: (() -> Unit)? = null,
     scrolled: Boolean = false,
+    titleContent: (@Composable () -> Unit)? = null,
     actions: @Composable () -> Unit = {},
 ) {
     val c = Lp.colors
@@ -162,7 +164,9 @@ fun LpTopBar(
             } else {
                 Spacer(Modifier.width(Sp.x12))
             }
-            Column(Modifier.weight(1f).padding(vertical = Sp.x4)) {
+            if (titleContent != null) {
+                Box(Modifier.weight(1f)) { titleContent() }
+            } else Column(Modifier.weight(1f).padding(vertical = Sp.x4)) {
                 if (title != null) Text(
                     title, color = c.fg, style = LpText.title,
                     maxLines = 1, overflow = TextOverflow.Ellipsis,

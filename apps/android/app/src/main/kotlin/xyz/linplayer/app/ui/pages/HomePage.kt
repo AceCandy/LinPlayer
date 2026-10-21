@@ -626,7 +626,7 @@ internal fun CachedHomeBanner(
 
 /** 紧凑服名入口保持无底无框，叠图使用白字阴影，长名称省略。 */
 @Composable
-private fun ServerChip(account: Account?, onImage: Boolean = false,
+internal fun ServerChip(account: Account?, onImage: Boolean = false, fallbackName: String = "服务器",
     onLongClick: () -> Unit, onClick: () -> Unit) {
     val c = Lp.colors
     val icon = account?.id?.let { rememberServerIcon(it) }
@@ -644,7 +644,7 @@ private fun ServerChip(account: Account?, onImage: Boolean = false,
         }
         Spacer(Modifier.width(Sp.x8))
         Text(
-            account?.name ?: "服务器", Modifier.weight(1f, fill = false),
+            account?.name ?: fallbackName, Modifier.weight(1f, fill = false),
             color = if (onHero) Color.White else c.fg,
             style = if (onHero) LpText.title.copy(shadow = Shadow(Color.Black, blurRadius = 6f)) else LpText.title,
             maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -659,7 +659,7 @@ private fun ServerChip(account: Account?, onImage: Boolean = false,
  *   顶栏那颗按钮的**展开态** —— 它不该盖住整页,也不该让人先看一遍标题。
  */
 @Composable
-private fun ServerMenu(
+internal fun ServerMenu(
     open: Boolean,
     anchorH: Int,
     accounts: List<Account>,

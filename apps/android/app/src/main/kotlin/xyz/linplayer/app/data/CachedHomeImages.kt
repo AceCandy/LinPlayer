@@ -82,6 +82,8 @@ internal suspend fun AppState.cachedHeroImage(item: Item): CachedHomeImage? = wi
 
 /** 分集观看记录同时排除所属剧，避免换成同剧海报后又进入轮播。 */
 internal suspend fun AppState.homeHeroCandidates(items: List<Item>): List<Item> {
+    // 切到插件源时旧首页可能尚未离开组合，不能再发需要 Emby 会话的查询。
+    if (session.value == null) return emptyList()
     val rows = items.map { item -> buildJsonObject {
         put("id", item.id); put("type_", item.type); put("played", item.played)
         put("resume_secs", item.resumeSecs)

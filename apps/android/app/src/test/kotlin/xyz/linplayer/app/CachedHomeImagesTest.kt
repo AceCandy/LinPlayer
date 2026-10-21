@@ -21,6 +21,7 @@ import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.cachedHomeImages
+import xyz.linplayer.app.data.homeHeroCandidates
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.loggedIn
 
@@ -70,6 +71,24 @@ class CachedHomeImagesTest {
         assertTrue("已有原图缓存优先，不能强制1080",
             images.all { Uri.parse(it.url).getQueryParameter("h") == null })
         assertFalse(requests.any { it.contains("person") })
+    }
+
+    @Test fun switchingAwayFromEmbySkipsStaleHeroCandidateQuery() = runBlocking {
+        val core = FakeCore().loggedIn().apply {
+            on("emby.heroCandidates") {
+                throw xyz.linplayer.app.core.CoreException("E_INVALID", "缺少 server 或 user_id", false)
+            }
+        }
+        val app = AppState(core, scope)
+        app.boot()
+        assertNotNull(app.session.value)
+        core.ret("emby.currentSession", JsonNull)
+        app.refreshSession()
+        assertNull(app.session.value)
+
+        assertTrue(app.homeHeroCandidates(listOf(Item("stale", "旧首页作品", "Movie"))).isEmpty())
+        assertTrue(app.cachedHomeImages(listOf(Item("stale", "旧首页作品", "Movie"))).isEmpty())
+        assertFalse(core.calls.any { it.first == "emby.heroCandidates" })
     }
 
     @Test fun missingCacheKeepsCandidateWithoutDownloadingDuringScan() = runBlocking {

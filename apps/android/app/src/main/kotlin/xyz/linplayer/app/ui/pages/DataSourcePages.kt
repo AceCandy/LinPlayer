@@ -45,6 +45,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
@@ -58,6 +59,7 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.contentOrNull
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.data.AppState
+import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.ToastKind
@@ -165,20 +167,27 @@ private fun LazyGridScope.header(content: @Composable () -> Unit) =
 @Composable
 fun SourceHomePage(nav: NavController, serverId: String, name: String) {
     val app = LocalApp.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val scope = rememberCoroutineScope()
     val grid = rememberLazyGridState()
     var reload by remember { mutableIntStateOf(0) }
     var home by remember(serverId) { mutableStateOf<Result<JsonObject?>?>(null) }
     var cont by remember(serverId) { mutableStateOf<List<JsonObject>>(emptyList()) }
-    var q by remember { mutableStateOf("") }
-    var found by remember { mutableStateOf<Result<List<JsonObject>>?>(null) }
+    var q by remember(serverId) { mutableStateOf("") }
+    var found by remember(serverId) { mutableStateOf<Result<List<JsonObject>>?>(null) }
     var searchGen by remember { mutableIntStateOf(0) }
+    var accounts by remember(serverId) { mutableStateOf<List<Account>>(emptyList()) }
+    var pickServer by remember(serverId) { mutableStateOf(false) }
+    LaunchedEffect(serverId, tv) {
+        if (!tv) accounts = Account.list(app.block("account.listAccounts").valueOrNull)
+    }
     LaunchedEffect(serverId, reload) {
         home = null
         launch { cont = runCatching { app.call("source.continueWatching", args("server_id" to serverId)) }.getOrNull().arr().mapNotNull { it.obj() } }
         val caps = runCatching { app.call("source.caps", args("server_id" to serverId)) }.getOrNull().obj()
         home = if (caps.bool("home")) runCatching { app.call("source.home", args("server_id" to serverId)).obj() } else Result.success(null)
     }
-    LaunchedEffect(q, searchGen) {
+    LaunchedEffect(serverId, q, searchGen) {
         if (q.isBlank()) { found = null; return@LaunchedEffect }
         delay(500)
         found = null
@@ -187,6 +196,32 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
     val open: (JsonObject) -> Unit = { nav.navigate(Route.SourceDetail(it.str("source") ?: serverId, it.str("id") ?: "")) }
     LpScaffold(name, scrolled = rememberScrolled(grid), actions = {
         LpIconButton(LpIcons.heart, "收藏") { nav.navigate(Route.SourceFavorites) }
+    }, titleContent = if (tv) null else {
+        {
+            var anchorH by remember { mutableIntStateOf(0) }
+            Box(Modifier.fillMaxWidth().onSizeChanged { anchorH = it.height }) {
+                ServerChip(accounts.firstOrNull { it.id == serverId }, fallbackName = name,
+                    onLongClick = {},
+                ) { pickServer = !pickServer }
+                ServerMenu(
+                    open = pickServer, anchorH = anchorH, accounts = accounts,
+                    onClose = { pickServer = false },
+                    onPick = { a ->
+                        pickServer = false
+                        if (!a.isActive) scope.launch {
+                            try {
+                                app.call("account.setActiveServer", args("server_id" to a.id))
+                                app.refreshSession()
+                                app.toast("已切到「${a.name}」", ToastKind.Ok)
+                            } catch (e: kotlinx.coroutines.CancellationException) { throw e }
+                              catch (e: Exception) { app.report(e) }
+                        }
+                    },
+                    onManage = { pickServer = false; nav.navigate(Route.Servers) },
+                    onAdd = { pickServer = false; nav.navigate(Route.AddServer) },
+                )
+            }
+        }
     }) { pad ->
         LazyVerticalGrid(GridCells.Adaptive(108.dp), Modifier.fillMaxSize(), grid,
             contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),

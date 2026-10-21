@@ -6,6 +6,8 @@
 - 手机主题在 ui/theme/Theme.kt，由 LpTheme 提供 Lp.colors；R / Sp / Dim 使用当前源码刻度，不用桌面刻度。
 - 手机与TV浏览页面共用 ui/components；TV顶部导航、扫码和播放器沿用 tv/kit。共享点击控件通过 LocalTvMode 提供遥控焦点与菜单键。
 - 手机服务器探测结果按 `server` 匹配账号、`ok` 转为卡片状态 `ok` / `down`；渲染端不可再按 `up` 判成功。缺少探测结果表示未检测，与连接失败区分；`PhoneManagementUiTest` 核验成功色及三态文字。
+- 手机普通首页的左上角始终是服务器选择入口，Emby 与插件数据源首页复用 `ServerChip` / `ServerMenu`；源内容加载、为空或失败不能阻塞账号菜单。选择其它账号走 `account.setActiveServer(server_id)` 后刷新会话，不压入新首页；切源清空旧搜索。分类/详情保留返回，Emby 隐私长按与退出语义、TV 顶栏不变。`PhoneHomeRefreshTest.sourceServerPicker*` 覆盖上述状态、源间/Emby切换、当前项不重复切服和二级页返回，避免首页替换后遗漏宿主导航。
+- 切到插件源后旧 Emby 首页可能尚未离开组合；`homeHeroCandidates` 在无 Emby 会话时返回空列表，不发送需要 `server/user_id` 的候选查询。`CachedHomeImagesTest.switchingAwayFromEmbySkipsStaleHeroCandidateQuery` 覆盖会话清空后的命令与图片请求隔离；实际切服仍需设备验证，不能只断言菜单存在。
 - 手机与TV浏览主导航共用 PhoneRoot/MainShell、Navigation Compose / Route。TvRoot 只提供TV宿主配置；TvNav 仅保留于TV播放器内部与旧页测试，不再承载正式浏览入口。样式适配不得另写浏览请求与业务状态。
 - TV 带导航页面统一72dp顶部栏、48dp安全边距,内容向下避让;最左当前服名替代品牌，主栏目首页/收藏/发现,辅助搜索/设置,原route.rail索引保持，索引2/5/6不展示独立导航项。服名普通点击服务器管理、长按/菜单键进私密、私密点击退出，移除首页重复服名；首页库标题进入完整库，设置管理媒体库保留解除隐藏入口。TV不提供下载，卡片/详情移除下载操作，插件downloads路由拒绝；旧下载路由回首页，不加载任务。左右选择、确认切页、下键恢复内容记忆;当前基础栏目确认不重建entry,下钻确认回入口。私密空间额外隐藏设置与角标，服名保留。首页、详情、媒体库、搜索、聚合与设置复用手机页面；聚合标签为“聚合视界”。TV详情头图最小高220dp，首页轮播持有遥控焦点时暂停。SharedTvBrowseTest/TvPrivacyTest覆盖实际入口与焦点；旧TvPageShots不能证明正式入口正确，真机手感与帧率另验。
 - 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
