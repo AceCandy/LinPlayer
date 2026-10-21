@@ -1028,10 +1028,11 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     var turnGaveUp by remember(wantLandscape) { mutableStateOf(false) }
     val controlsVisible = !inPip && (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
     val nextUp = nextEpisode?.takeIf {
-        nextUpVisible(position, duration) && controller.ready && !switching && !finished &&
+        nextUpVisible(position, duration) && (controller.ready || switching) &&
             !leaving && !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
     }
     var bottomBarHeight by remember { mutableStateOf(0) }
+    var episodeRowHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
     var statusText by remember { mutableStateOf("") }
     var batteryPercent by remember { mutableStateOf(-1) }
@@ -1109,6 +1110,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
         // 给中央退进和右侧倍率保留命中空间，卡片不参与底栏测量。
         val nextUpWidth = ((if (portrait) maxWidth - 96.dp else maxWidth / 2 - 200.dp) - endInset).coerceIn(48.dp, 150.dp)
+        // 矮横屏的倍率按钮延伸到底栏上方，保留其48dp命中区及4dp间隙。
+        val nextUpEnd = if (controlsVisible && !portrait && maxHeight < 360.dp) Sp.x16 + 48.dp + Sp.x4 else Sp.x12
         Box(Modifier.fillMaxSize()) {
         val videoModifier = Modifier.fillMaxSize().graphicsLayer { translationY = feedOffset }.testTag("player.video")
         val videoLayerModifier = Modifier.fillMaxSize().clipToBounds()
@@ -1278,6 +1281,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 portrait = portrait && !inPip,
                 netSpeed = netSpeed.takeUnless { !buffering && it == "0 B/s" }.orEmpty(),
                 onBottomBarHeight = { bottomBarHeight = it },
+                onEpisodeRowHeight = { episodeRowHeight = it },
+                nextUpInset = if (nextUp != null) nextUpWidth + nextUpEnd - Sp.x12 + Sp.x8 else 0.dp,
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
                 pluginPanels = pluginPanels,
@@ -1331,8 +1336,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3), label = "nextUpAlpha")
             NextUp(nextUp, duration - position, duration, nextUpWidth,
                 Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
-                    .padding(end = 80.dp, bottom = if (controlsVisible) with(density) { bottomBarHeight.toDp() } else Sp.x8)
-                    .alpha(nextUpAlpha)) {
+                    .padding(end = nextUpEnd, bottom = if (controlsVisible) with(density) {
+                        // 横屏与标题同行，紧贴快捷按钮；竖屏仍避开整行进度条。
+                        if (portrait) bottomBarHeight.toDp()
+                        else (bottomBarHeight - episodeRowHeight).toDp() - Sp.x6
+                    }.coerceAtLeast(0.dp) else Sp.x8)
+                    .alpha(nextUpAlpha), enabled = !switching) {
                 switchEpisode(nextUp)
             }
         }
@@ -1414,13 +1423,13 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 /** 提示窗口取总时长10%，最少10秒、最多30秒；显隐和卡片进度共用。 */
 internal fun nextUpWindow(duration: Double): Double = (duration * .1).coerceIn(10.0, 30.0)
 
-/** 未知时长、非有效位置及 EOF 不显示。 */
+/** 未知时长或无效位置不显示；片尾保留到播放目标切换，回退出窗口后撤下。 */
 internal fun nextUpVisible(position: Double, duration: Double): Boolean =
     position.isFinite() && position >= 0 && duration.isFinite() && duration > 0 &&
-        duration - position > 0 && duration - position <= nextUpWindow(duration)
+        duration - position <= nextUpWindow(duration)
 
 @Composable
-internal fun NextUp(item: xyz.linplayer.app.data.Item, remaining: Double, duration: Double, width: androidx.compose.ui.unit.Dp, m: Modifier, onClick: () -> Unit) {
+internal fun NextUp(item: xyz.linplayer.app.data.Item, remaining: Double, duration: Double, width: androidx.compose.ui.unit.Dp, m: Modifier, enabled: Boolean = true, onClick: () -> Unit) {
     val window = nextUpWindow(duration)
     val episode = item.episodeNo?.let { "第${it}集" } ?: item.name
     val label = "接下来 · $episode"
@@ -1429,7 +1438,7 @@ internal fun NextUp(item: xyz.linplayer.app.data.Item, remaining: Double, durati
     val accent = Lp.colors.acc
     // 视觉胶囊默认36dp高，外层上下留6dp，触摸区至少48dp且不侵入其它控件。
     Box(m.width(width).heightIn(min = 48.dp).testTag("player.nextUp")
-        .semantics { contentDescription = label }.pressable(onClick).padding(vertical = 6.dp)) {
+        .semantics { contentDescription = label }.pressable(onClick, enabled = enabled).padding(vertical = 6.dp)) {
         Box(Modifier.fillMaxWidth().heightIn(min = 36.dp).testTag("player.nextUp.face")
             .clip(RoundedCornerShape(50)).background(Color.Black.copy(alpha = .72f))) {
             Row(Modifier.fillMaxWidth().padding(horizontal = 10.dp, vertical = 8.dp),
@@ -1476,6 +1485,8 @@ internal fun Osd(
     seekKey: Any = Unit,
     buffered: Double = 0.0,
     onBottomBarHeight: (Int) -> Unit = {},
+    onEpisodeRowHeight: (Int) -> Unit = {},
+    nextUpInset: androidx.compose.ui.unit.Dp = 0.dp,
     onPrevious: (() -> Unit)? = null, onNext: (() -> Unit)? = null,
     onPip: (() -> Unit)? = null, onOrientation: (() -> Unit)? = null, onChapters: (() -> Unit)? = null,
 ) {
@@ -1538,7 +1549,10 @@ internal fun Osd(
                 .safeDrawingPadding()
                 .onSizeChanged { onBottomBarHeight(it.height) }
                 .padding(horizontal = Sp.x12, vertical = Sp.x6)) {
-                if (episodeLabel.isNotBlank()) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (episodeLabel.isNotBlank()) Row(Modifier.fillMaxWidth()
+                    .onSizeChanged { onEpisodeRowHeight(it.height) }
+                    .padding(end = nextUpInset),
+                    verticalAlignment = Alignment.CenterVertically) {
                     PlayerControl(LpIcons.skipPrev, "上一集", enabled = onPrevious != null, onClick = { onPrevious?.invoke() })
                     PlayerControl(LpIcons.skipNext, "下一集", enabled = onNext != null, onClick = { onNext?.invoke() })
                     Marquee(episodeLabel, Modifier.weight(1f).padding(horizontal = Sp.x6, vertical = Sp.x6))

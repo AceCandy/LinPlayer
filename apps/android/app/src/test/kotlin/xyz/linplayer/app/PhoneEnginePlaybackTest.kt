@@ -348,6 +348,33 @@ class PhoneEnginePlaybackTest {
         rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
     }
 
+    @Test fun 下一集未准备好时片尾提示保留直到切换目标() {
+        val core = episodeCore()
+        val preparation = CompletableDeferred<Unit>()
+        val stopping = CompletableDeferred<Unit>()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = core.callJson(command, args, onPartial)
+                if (command == "player.prepareNext") preparation.await()
+                if (command == "player.stopPlayback") stopping.await()
+                return result
+            }
+        }
+        try {
+            showPlayer(port, "mpv")
+            rule.runOnIdle { core.tick(3658.0) }; advance(rule, 300)
+            rule.runOnIdle { core.tick(3658.25) }; advance(rule, 300)
+            rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
+            rule.runOnIdle { core.tick(3660.0, eof = true) }; advance(rule, 600)
+            rule.onNodeWithTag("player.nextUp").assertIsDisplayed().assertIsNotEnabled()
+            assertEquals(1, core.calls.count { it.first == "player.play" })
+            assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+            rule.runOnIdle { stopping.complete(Unit) }; advance(rule, 600)
+            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
+            rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
+        } finally { preparation.complete(Unit); stopping.complete(Unit) }
+    }
+
     @Test fun 短剧接下来只在最后十秒显示并可回退撤回() {
         val core = episodeCore()
         showPlayer(core, "mpv")
@@ -840,6 +867,11 @@ class PhoneEnginePlaybackTest {
         rule.runOnIdle { core.tick(3635.0) }; advance(rule, 300)
         rule.onNodeWithTag("player.nextUp").assertIsDisplayed()
         assertEquals("片尾提示出现不得改变滑杆与底栏按钮的几何", before, controls())
+        val capsule = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
+        val subtitle = rule.onNodeWithContentDescription("字幕").fetchSemanticsNode().boundsInRoot
+        val endGap = if (viewport.height < 360f) 68f else 12f
+        assertEquals("片尾提示贴近右侧，矮屏避开倍率命中区", viewport.right - sideInset - endGap, capsule.right, .1f)
+        assertEquals("片尾提示紧靠快捷按钮上方", subtitle.top, capsule.bottom, .1f)
         val targets = rule.onAllNodes(hasClickAction() or SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsActions.SetProgress)).fetchSemanticsNodes()
         targets.forEachIndexed { i, a -> targets.drop(i + 1).forEach { b ->

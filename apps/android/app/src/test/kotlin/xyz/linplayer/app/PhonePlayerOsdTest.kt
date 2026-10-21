@@ -313,13 +313,15 @@ class PhonePlayerOsdTest {
         assertTrue(previous.right <= next.left && next.right <= title.left)
     }
 
-    @Test fun nextUpRejectsUnknownTimeAndEndOfPlayback() {
-        for ((position, duration) in listOf(89.99 to 120.0, 120.0 to 120.0, 130.0 to 120.0,
+    @Test fun nextUpRejectsUnknownTimeButKeepsEndOfPlayback() {
+        for ((position, duration) in listOf(89.99 to 120.0,
             -1.0 to 20.0, 0.0 to 0.0, Double.NaN to 120.0, 100.0 to Double.POSITIVE_INFINITY)) {
             assertTrue(!xyz.linplayer.app.ui.player.nextUpVisible(position, duration))
         }
         assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(108.0, 120.0))
         assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(119.9, 120.0))
+        assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(120.0, 120.0))
+        assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(120.1, 120.0))
     }
 
     @Test fun nextUpUsesTenPercentWithinTenAndThirtySeconds() {
@@ -328,7 +330,7 @@ class PhonePlayerOsdTest {
             assertFalse("$duration 秒视频不能过早提示", xyz.linplayer.app.ui.player.nextUpVisible(start - .01, duration))
             assertTrue("$duration 秒视频应在边界提示", xyz.linplayer.app.ui.player.nextUpVisible(start, duration))
             assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(duration - .1, duration))
-            assertFalse(xyz.linplayer.app.ui.player.nextUpVisible(duration, duration))
+            assertTrue(xyz.linplayer.app.ui.player.nextUpVisible(duration, duration))
         }
     }
 }
