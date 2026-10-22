@@ -156,6 +156,13 @@
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
 | [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ |
 | [x] | `player.prepareNext` | **新增** | `item_id: String, request_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `{request_id, play_url, media_source_id, external_subs} 或 {skipped}` | ❌ | <!-- prepareNext: 尊重PreloadEnabled，独立单槽且不开始上报；直连代理只解析和探测，准备后2分钟过期；warmPrepared按缓冲状态放行视频读取，头部上限8MiB。prepared_id按完整Session/条目/版本/选版规则一次消费；取消使用原request_id。stopPlayback handoff=true仅后台停止上报，旧Stopped先于新Playing；默认同步收尾。 -->
+| [x] | `player.liuyingOpen` | **新增** | `owner_id: String, generation: i64, is_adult: Option<bool>` | `{opened}` | ❌ | <!-- 手机流影仅当前隐私身份。Open初始代数1；范围代数单调递增。准备池最多3项含在途，独立于通用单槽，2分钟失效；未知owner拒绝。 -->
+| [x] | `player.liuyingPrepare` | **新增** | `owner_id: String, generation: i64, request_id: String, item_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `{request_id, play_url, media_source_id, external_subs, can_preload} 或 {skipped}` | ❌ |
+| [x] | `player.liuyingWarm` | **新增** | `owner_id: String, generation: i64, request_id: String, enabled: bool, depth: i64, is_adult: Option<bool>` | `{matched}` | ❌ | <!-- depth仅1/3/5秒，Media3负责样本深度，核心门控同代理；投机owner合计最多4个在途块。 -->
+| [x] | `player.liuyingCancel` | **新增** | `owner_id: String, generation: i64, request_id: Option<String>, is_adult: Option<bool>` | `{matched}` | ❌ |
+| [x] | `player.liuyingPlay` | **新增** | `owner_id: String, generation: i64, item_id: String, request_id: Option<String>, media_source_id: Option<String>, is_adult: Option<bool>` | `PlayResult + {playback_id, consumed_request_id}` | ❌ | <!-- 固定Media3、流影倍率、从头；复用正式play及上报，不回退MPV。消费一次，最终结果为准；不覆盖活动的正式播放。 -->
+| [x] | `player.liuyingProgress` | **新增** | `owner_id: String, generation: i64, playback_id: String, item_id: String, pos: f64, paused: bool, is_adult: Option<bool>` | `{reported}` | ❌ |
+| [x] | `player.liuyingStop` | **新增** | `owner_id: String, generation: i64, playback_id: String, item_id: String, pos: f64, handoff: Option<bool>, is_adult: Option<bool>` | `{stopped}` | ❌ | <!-- 绑定report实例与完整身份，迟到stop/progress不操作新播放；handoff沿既有停止屏障，不丢上报。 -->
 | [x] | `player.warmPrepared` | **新增** | `request_id: String, enabled: bool` | `{matched}` | ❌ |
 | [x] | `player.queuePrepared` | **新增** | `request_id: String, current_item_id: String, engine: String, is_adult: Option<bool>` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |
 | [x] | `player.advanceQueued` | **新增** | `request_id: String, pos: f64` | `{request_id, item_id, play_url, resume_secs, media_source_id, external_subs}` | ❌ |

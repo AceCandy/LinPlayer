@@ -90,7 +90,9 @@ func TestScopedWritesEmitOnlyAfterSuccess(t *testing.T) {
 
 func TestPrivateLiuYingExtensionScope(t *testing.T) {
 	scope := map[string]any{"id": "liuying", "private": true, "filter": true, "server": "fixture", "user_id": "user", "token": "fixture"}
-	for _, command := range []string{"emby.extCapabilities", "emby.extLiuYingItems", "emby.extLiuYingLabels"} {
+	for _, command := range []string{"emby.extCapabilities", "emby.extLiuYingItems", "emby.extLiuYingLabels",
+		"player.liuyingOpen", "player.liuyingPrepare", "player.liuyingWarm", "player.liuyingCancel",
+		"player.liuyingPlay", "player.liuyingProgress", "player.liuyingStop"} {
 		clean, _, err := scopeArguments(command, map[string]any{"request_scope": scope})
 		if err != nil || clean["is_adult"] != true || clean["server"] != "fixture" {
 			t.Fatalf("流影命令未限定本服放行 %s: %v %v", command, clean, err)

@@ -1,0 +1,10 @@
+{"file":".trellis/spec/shared/product-and-api.md","reason":"核对范围、身份隔离及性能证据真实性"}
+{"file":".trellis/spec/shared/development.md","reason":"审查变更边界、迟到响应和隐私文件"}
+{"file":".trellis/spec/shared/build-release.md","reason":"完整门禁、出包授权及最终交付规则"}
+{"file":".trellis/spec/frontend/android.md","reason":"通用Android播放行为不得被流影专用实现改变"}
+{"file":".trellis/spec/frontend/quality-guidelines.md","reason":"真实渲染/手势/Popup/真机与模拟验证边界"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"取消旧请求后仍给回调完成机会，拒绝假绿"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"正式播放、预热、缓存、scope与回归检查"}
+{"file":".trellis/spec/backend/database-guidelines.md","reason":"独立倍率与持久化兼容、隐私不写观看断点"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"命令、准备、接管、状态和资源释放全链路"}
+{"file":".trellis/tasks/10-22-liuying-short-video-player/research/contracts.md","reason":"核对设计所依据事实与尚需验证的限制"}

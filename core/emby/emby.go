@@ -172,15 +172,16 @@ type rawUserData struct {
 }
 
 type rawMediaSource struct {
-	LibraryIDs   []string `json:"LibraryIds"`
-	Path         *string  `json:"Path"`
-	DateCreated  *string  `json:"DateCreated"`
-	ID           *string  `json:"Id"`
-	Name         *string  `json:"Name"`
-	Container    *string  `json:"Container"`
-	Size         *int64   `json:"Size"`
-	Bitrate      *int64   `json:"Bitrate"`
-	RunTimeTicks *int64   `json:"RunTimeTicks"`
+	LibraryIDs       []string `json:"LibraryIds"`
+	Path             *string  `json:"Path"`
+	DateCreated      *string  `json:"DateCreated"`
+	ID               *string  `json:"Id"`
+	Name             *string  `json:"Name"`
+	Container        *string  `json:"Container"`
+	Size             *int64   `json:"Size"`
+	Bitrate          *int64   `json:"Bitrate"`
+	RunTimeTicks     *int64   `json:"RunTimeTicks"`
+	IsInfiniteStream bool     `json:"IsInfiniteStream"`
 	// 取流那条路要的两条地址。DirectStreamUrl 常常是**相对路径**,见 playback.go 的长注释。
 	DirectStreamURL *string `json:"DirectStreamUrl"`
 	// TranscodingURL 服务器给的转码地址。**我们从不用它**

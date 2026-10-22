@@ -98,6 +98,13 @@ enum LinPlayerCommandNames {
         "player.mpvSet",
         "player.opts",
         "player.prepareNext",
+        "player.liuyingOpen",
+        "player.liuyingPrepare",
+        "player.liuyingWarm",
+        "player.liuyingCancel",
+        "player.liuyingPlay",
+        "player.liuyingProgress",
+        "player.liuyingStop",
         "player.warmPrepared",
         "player.queuePrepared",
         "player.advanceQueued",
@@ -608,6 +615,27 @@ extension LinPlayerCommands {
     }
     func playerPrepareNext(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.prepareNext", args)
+    }
+    func playerLiuyingOpen(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingOpen", args)
+    }
+    func playerLiuyingPrepare(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingPrepare", args)
+    }
+    func playerLiuyingWarm(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingWarm", args)
+    }
+    func playerLiuyingCancel(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingCancel", args)
+    }
+    func playerLiuyingPlay(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingPlay", args)
+    }
+    func playerLiuyingProgress(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingProgress", args)
+    }
+    func playerLiuyingStop(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("player.liuyingStop", args)
     }
     func playerWarmPrepared(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.warmPrepared", args)

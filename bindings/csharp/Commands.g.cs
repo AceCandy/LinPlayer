@@ -127,6 +127,13 @@ public static class LinPlayerCommandNames
         "player.mpvSet",
         "player.opts",
         "player.prepareNext",
+        "player.liuyingOpen",
+        "player.liuyingPrepare",
+        "player.liuyingWarm",
+        "player.liuyingCancel",
+        "player.liuyingPlay",
+        "player.liuyingProgress",
+        "player.liuyingStop",
         "player.warmPrepared",
         "player.queuePrepared",
         "player.advanceQueued",
@@ -530,7 +537,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> AccountUpdateAccount(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("account.updateAccount", args, ct);
 
-    // ---- 播放器 · player.* (61 条) ----
+    // ---- 播放器 · player.* (68 条) ----
     public static Task<JsonElement> PlayerAddSubtitle(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.addSubtitle", args, ct);
     public static Task<JsonElement> PlayerChapterInfo(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -553,6 +560,20 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("player.opts", args, ct);
     public static Task<JsonElement> PlayerPrepareNext(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.prepareNext", args, ct);
+    public static Task<JsonElement> PlayerLiuyingOpen(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingOpen", args, ct);
+    public static Task<JsonElement> PlayerLiuyingPrepare(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingPrepare", args, ct);
+    public static Task<JsonElement> PlayerLiuyingWarm(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingWarm", args, ct);
+    public static Task<JsonElement> PlayerLiuyingCancel(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingCancel", args, ct);
+    public static Task<JsonElement> PlayerLiuyingPlay(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingPlay", args, ct);
+    public static Task<JsonElement> PlayerLiuyingProgress(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingProgress", args, ct);
+    public static Task<JsonElement> PlayerLiuyingStop(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("player.liuyingStop", args, ct);
     public static Task<JsonElement> PlayerWarmPrepared(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.warmPrepared", args, ct);
     public static Task<JsonElement> PlayerQueuePrepared(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

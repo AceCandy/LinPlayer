@@ -46,6 +46,10 @@ internal data class LiuYingPageWindow(val seed: String, val offset: Int, val row
 /** 候选由服务端限定入库资源；本页只持有当前有界窗口，不保存播放地址或断点。 */
 @Composable
 internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
+    if (!tv) {
+        PhoneLiuyingFeed(onExit)
+        return
+    }
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val session by app.session.collectAsState()

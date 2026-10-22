@@ -87,6 +87,9 @@ func scopeArguments(command string, args map[string]any) (map[string]any, map[st
 	switch command {
 	case "prefs.preloadItem", "player.play", "player.prepareNext", "player.queuePrepared", "player.chapterInfo":
 		media = true
+	case "player.liuyingOpen", "player.liuyingPrepare", "player.liuyingWarm", "player.liuyingCancel",
+		"player.liuyingPlay", "player.liuyingProgress", "player.liuyingStop":
+		media = true
 	}
 	if (filtered || private) && media {
 		clean["is_adult"] = private

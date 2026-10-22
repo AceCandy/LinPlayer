@@ -1,0 +1,11 @@
+{"file":".trellis/spec/shared/product-and-api.md","reason":"当前服流影、权限与能力缓存、性能证据和服务端兼容边界"}
+{"file":".trellis/spec/shared/development.md","reason":"最小变更、独立复核、隐私和未经授权不提交"}
+{"file":".trellis/spec/shared/build-release.md","reason":"核心、绑定、Android参数门禁及不自动出包"}
+{"file":".trellis/spec/frontend/android.md","reason":"Media3版本、Surface、流影控件与停止屏障既有契约"}
+{"file":".trellis/spec/frontend/hook-guidelines.md","reason":"页面请求取消、迟到结果、代次与真实故障回归"}
+{"file":".trellis/spec/frontend/state-management.md","reason":"核心与宿主状态归属、账号空间隔离及播放交接"}
+{"file":".trellis/spec/backend/directory-structure.md","reason":"核心命令注册与生成绑定归属"}
+{"file":".trellis/spec/backend/error-handling.md","reason":"专用命令输入校验与既有错误信封"}
+{"file":".trellis/spec/backend/quality-guidelines.md","reason":"准备、媒体缓存和正式播放管线的回归约束"}
+{"file":".trellis/spec/guides/cross-layer-thinking-guide.md","reason":"专用准备到正式会话的端到端数据流核对"}
+{"file":".trellis/tasks/10-22-liuying-short-video-player/research/contracts.md","reason":"已核查源码锚点、多槽单槽差异、缓存事实及未验证技术风险"}

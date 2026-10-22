@@ -46,6 +46,8 @@ type PlaybackTarget struct {
 	RunTimeTicks int64 `json:"-"`
 	// Bitrate 是选中媒体源的码率，仅估算预取时间，不证明媒体内容身份。
 	Bitrate int64 `json:"-"`
+	// 实时源不能用未来内容预载；未知时长也由调用方保守处理。
+	IsLive bool `json:"-"`
 }
 
 // deviceProfile 是发给 PlaybackInfo 的宽松档案:声明啥都能直连,促使服务器返回 DirectStreamUrl。
@@ -166,6 +168,7 @@ func (c *Client) ResolvePlaybackInfo(ctx context.Context, s *Session, itemID, me
 		//   调用方手里的版本列表是**另一次请求**,两边可能选的不是同一个版本。
 		IsDolbyVision: hasDolbyVision(ms),
 		ExternalSubs:  externalSubs(s, ms, itemID, msID),
+		IsLive:        ms.IsInfiniteStream,
 	}
 	if ms.RunTimeTicks != nil {
 		target.RunTimeTicks = *ms.RunTimeTicks

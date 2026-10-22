@@ -17,6 +17,7 @@ import (
 	"linplayer/core/config"
 	"linplayer/core/emby"
 	"linplayer/core/history"
+	"linplayer/core/net/prefetch"
 	"linplayer/core/progress"
 )
 
@@ -118,9 +119,30 @@ func PlayResolve(ctx context.Context, s *emby.Session, itemID string, resumeSecs
 }
 
 func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, speedScope string, preparedIDs ...string) (*PlayResult, error) {
-	cancelQueued("")
-	// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
-	cancelWarm()
+	requestID := ""
+	if len(preparedIDs) > 0 {
+		requestID = preparedIDs[0]
+	}
+	return playWithLiuying(ctx, s, itemID, resumeSecs, mediaSourceID, useMpv, exactResume, speedScope, requestID, nil)
+}
+
+// 默认路径保持通用单槽；只有显式流影接管使用独立准备与发布守卫。
+func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, speedScope, requestID string, start *liuyingStart) (*PlayResult, error) {
+	currentMu.Lock()
+	if start != nil && (current != nil || start.ctx.Err() != nil) {
+		currentMu.Unlock()
+		return nil, bus.NewErr(bus.EInvalid, "流影播放目标已失效或已有正式播放")
+	}
+	playbackRevision++
+	if start != nil {
+		start.revision = playbackRevision
+	}
+	currentMu.Unlock()
+	if start == nil {
+		cancelQueued("")
+		// 正式取流开始就让出带宽；已缓存字节和代理仍可复用。
+		cancelWarm()
+	}
 	c := config.Current()
 	prefs := c.PrefsOf()
 	// 只替换本次起播快照，不能回写普通播放器的默认倍速。
@@ -144,13 +166,15 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	}()
 
 	resolveAt := time.Now()
-	var requestID string
-	if len(preparedIDs) > 0 {
-		requestID = preparedIDs[0]
-	}
-	target, preparedProxy := takePrepared(s, itemID, mediaSourceID, requestID, prefs, emby.AdultFilter(ctx))
-	if target == nil && requestID != "" {
-		cancelPrepared(requestID)
+	var target *emby.PlaybackTarget
+	var preparedProxy *prefetch.Handle
+	if start != nil {
+		target, preparedProxy = takeLiuying(s, start, itemID, mediaSourceID, requestID, prefs, emby.AdultFilter(ctx))
+	} else {
+		target, preparedProxy = takePrepared(s, itemID, mediaSourceID, requestID, prefs, emby.AdultFilter(ctx))
+		if target == nil && requestID != "" {
+			cancelPrepared(requestID)
+		}
 	}
 	var err error
 	if target == nil {
@@ -163,7 +187,33 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 
 	proxyAt := time.Now()
 	var playURL string
-	if preparedProxy != nil {
+	committed := false
+	if start != nil {
+		start.proxy = preparedProxy
+		defer func() {
+			if !committed && start.proxy != nil {
+				start.proxy.Close()
+			}
+		}()
+		playURL = target.URL
+		if preparedProxy == nil && target.PlayMethod == "DirectStream" && !target.IsLive {
+			options := mediaCacheOptions(s, target)
+			options.Epoch = start.epoch
+			start.proxy, err = prefetch.StartCached(ctx, target.URL, prefs.PrefetchThreads, prefs.PrefetchCacheBytes, false, options)
+			if ctx.Err() != nil || start.epoch != prefetch.MediaCacheEpoch() {
+				return nil, context.Canceled
+			}
+			// 不支持字节代理的源仍可直连；清理代数或取消失配不降级。
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			}
+		}
+		if start.proxy != nil {
+			acc := c.ActiveAccount()
+			start.proxy.SetReadAhead(prefs.PrefetchThreads, acc != nil && prefs.PrefetchEnabledFor(acc.Server), target.Bitrate)
+			playURL = start.proxy.URL
+		}
+	} else if preparedProxy != nil {
 		acc := c.ActiveAccount()
 		preparedProxy.SetReadAhead(prefs.PrefetchThreads, acc != nil && prefs.PrefetchEnabledFor(acc.Server), target.Bitrate)
 		proxyMu.Lock()
@@ -192,10 +242,14 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	}
 	queueMu.Lock()
 	defer queueMu.Unlock()
-	cancelQueuedLocked("")
+	if start == nil {
+		cancelQueuedLocked("")
+	}
 	currentMu.Lock()
-	cancelHistoryRetryLocked()
-	currentCtx = whCtx
+	if start == nil {
+		cancelHistoryRetryLocked()
+		currentCtx = whCtx
+	}
 	currentMu.Unlock()
 
 	bus.Logf("info", "PLAY item=%s resume=%.1f psid=%s method=%s",
@@ -203,7 +257,9 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 
 	engineAt := time.Now()
 	// 画面增强按剧记:先定这一片属于哪部剧,applyPlaybackDefaults 才挂得对档位
-	setShaderScope(seriesScope(s.Server, whCtx))
+	if start == nil {
+		setShaderScope(seriesScope(s.Server, whCtx))
+	}
 	if useMpv {
 		if r := ensureMpv(); r != 0 {
 			return nil, errors.New(mpvDownMsg)
@@ -217,12 +273,32 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 	// ★ 外挂字幕**先记下来,等 FILE_LOADED 再挂**。
 	//   在 loadfile 之前挂会被 loadfile 冲掉;紧跟着挂拿到的是 -12。
 	currentMu.Lock()
+	if start != nil {
+		if ctx.Err() != nil || start.ctx.Err() != nil || current != nil ||
+			start.revision != playbackRevision || start.epoch != prefetch.MediaCacheEpoch() {
+			currentMu.Unlock()
+			return nil, context.Canceled
+		}
+		cancelHistoryRetryLocked()
+		currentCtx = whCtx
+		proxyMu.Lock()
+		if sharedProxy != nil && sharedProxy != start.proxy {
+			sharedProxy.Close()
+		}
+		sharedProxy = start.proxy
+		proxyMu.Unlock()
+	}
 	pendingSubs = target.ExternalSubs
 	current = target
 	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks, useMpv: useMpv}
 	currentReport = report
+	liuyingCurrent = nil
+	if start != nil {
+		liuyingCurrent = &liuyingBinding{owner: start.owner, playback: start.playback, report: report, proxy: start.proxy}
+	}
 	report.previousStop = pendingStopReport()
 	currentMu.Unlock()
+	committed = true
 
 	/* 起播走 loadWith 这个**唯一入口**(见 load.go)。
 	   ★ Emby 这条路不需要额外的逐流头,但**仍然要走它** ——
@@ -621,21 +697,50 @@ func Stop(ctx context.Context, s *emby.Session, pos float64) error {
 
 // 仅切集允许网络上报后台收尾；本地输出和历史仍在返回前停止/保存。
 func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff bool, expectedItems ...string) error {
-	cancelQueued("")
+	expected := ""
+	if len(expectedItems) > 0 {
+		expected = expectedItems[0]
+	}
+	return stopPlaybackOwned(ctx, s, pos, handoff, expected, nil)
+}
+
+// guard只用于流影；迟到的清理不能取消普通排队、预热或替换后的代理。
+func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handoff bool, expected string, guard *liuyingBinding) error {
+	if guard == nil {
+		cancelQueued("")
+	} else {
+		currentMu.Lock()
+		matched := liuyingMatchesLocked(s, guard.owner, guard.playback, expected)
+		currentMu.Unlock()
+		if !matched {
+			return nil
+		}
+	}
 	stopPlaybackMu.Lock()
 	defer stopPlaybackMu.Unlock()
 	// 限制后台停止任务数量，且在发布新屏障前等待旧屏障。
 	if err := awaitStopReport(ctx); err != nil {
 		return err
 	}
-	cancelWarm()
+	if guard == nil {
+		cancelWarm()
+	}
 	queueMu.Lock()
-	cancelQueuedLocked("")
 	currentMu.Lock()
+	if guard != nil && !liuyingMatchesLocked(s, guard.owner, guard.playback, expected) {
+		currentMu.Unlock()
+		queueMu.Unlock()
+		return nil
+	}
+	if guard == nil {
+		cancelQueuedLocked("")
+	} else {
+		guard = liuyingCurrent
+	}
 	t := current
 	report := currentReport
 	// 页面可能尚未收到原生换集事件，不能把上一集的退出位置记给下一集。
-	if t != nil && len(expectedItems) > 0 && expectedItems[0] != "" && expectedItems[0] != t.ItemID {
+	if t != nil && expected != "" && expected != t.ItemID {
 		if report == nil || !report.useMpv {
 			currentMu.Unlock()
 			queueMu.Unlock()
@@ -651,6 +756,8 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 		stopReportMu.Unlock()
 	}
 	currentReport = nil
+	liuyingCurrent = nil
+	playbackRevision++
 	// 停播落盘、取消补建和清空目标是同一次状态转换,补建不能穿过收尾。
 	captureHistoryLocked(pos, true)
 	watched := watchedNow(pos)
@@ -659,10 +766,19 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 	pendingSubs = nil
 	currentCtx = nil
 	currentMu.Unlock()
-	setShaderScope("")
-	_ = command("stop")
-	closeSharedProxy()
-	thumbs.close()
+	if guard == nil {
+		setShaderScope("")
+		_ = command("stop")
+		closeSharedProxy()
+		thumbs.close()
+	} else if guard.proxy != nil {
+		proxyMu.Lock()
+		if sharedProxy == guard.proxy {
+			sharedProxy = nil
+		}
+		proxyMu.Unlock()
+		guard.proxy.Close()
+	}
 	queueMu.Unlock()
 	if t == nil || s == nil {
 		return nil

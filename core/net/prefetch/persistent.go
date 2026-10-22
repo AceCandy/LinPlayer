@@ -2,6 +2,7 @@ package prefetch
 
 import (
 	"bytes"
+	"context"
 	"crypto/sha256"
 	"encoding/binary"
 	"encoding/json"
@@ -31,7 +32,19 @@ var mediaStore = struct {
 	sync.Mutex
 	budget int64
 	disks  map[*diskCache]bool
-}{budget: 1 << 30, disks: make(map[*diskCache]bool)}
+	epoch  uint64
+}{budget: 1 << 30, disks: make(map[*diskCache]bool), epoch: 1}
+
+// MediaCacheEpoch 由流影在解析前捕获，拒绝清理前请求迟到创建磁盘缓存。
+func MediaCacheEpoch() uint64 {
+	mediaStore.Lock()
+	defer mediaStore.Unlock()
+	return mediaStore.epoch
+}
+
+func cacheEpochMatches(epochs []uint64) bool {
+	return len(epochs) == 0 || epochs[0] == 0 || epochs[0] == mediaStore.epoch
+}
 
 type mediaIndex struct {
 	Version   int   `json:"version"`
@@ -60,6 +73,7 @@ func ConfigureMediaCache(budget int64) error {
 func ClearCache(clear func() error) error {
 	mediaStore.Lock()
 	defer mediaStore.Unlock()
+	mediaStore.epoch++
 	for d := range mediaStore.disks {
 		d.storeDisabled = true
 		d.slots = map[int64]int64{}
@@ -77,9 +91,12 @@ func mediaDirKey(identity, validator string, total int64) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
-func newPersistentCache(total int64, identity, validator string) (*diskCache, error) {
+func newPersistentCache(total int64, identity, validator string, epochs ...uint64) (*diskCache, error) {
 	mediaStore.Lock()
 	defer mediaStore.Unlock()
+	if !cacheEpochMatches(epochs) {
+		return nil, context.Canceled
+	}
 	// 一个槽最多含4MiB数据和64字节校验头；索引与临时写入也计入上限。
 	ring := (mediaLimit - 4096) / (ChunkSize + blockHeader)
 	if n := (total + ChunkSize - 1) / ChunkSize; ring > n {

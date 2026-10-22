@@ -47,10 +47,12 @@ internal fun PhoneLiuyingChrome(
     current: JsonObject?, favoriteBusy: Boolean, autoAdvance: Boolean, playback: FeedPlayback?,
     onExit: () -> Unit, onBankai: () -> Unit, onTab: (String) -> Unit,
     onFavorite: () -> Unit, onFilter: () -> Unit, onMode: () -> Unit, onFavorites: () -> Unit,
+    showNavigation: Boolean = true,
 ) {
     var speedOpen by remember { mutableStateOf(false) }
+    LaunchedEffect(enabled) { if (!enabled) speedOpen = false }
     Box(Modifier.fillMaxSize()) {
-        Box(Modifier.fillMaxWidth().height(180.dp).align(Alignment.TopCenter)
+        if (showNavigation) Box(Modifier.fillMaxWidth().height(180.dp).align(Alignment.TopCenter)
             .background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .65f), Color.Transparent))))
         Box(Modifier.fillMaxWidth().height(280.dp).align(Alignment.BottomCenter)
             .background(Brush.verticalGradient(listOf(Color.Transparent, Color.Black.copy(alpha = .85f)))))
@@ -58,41 +60,17 @@ internal fun PhoneLiuyingChrome(
             Modifier.align(Alignment.Center).size(88.dp).testTag("liuying.paused"),
             tint = Color.White.copy(alpha = .4f))
         Column(Modifier.fillMaxSize().safeDrawingPadding().padding(horizontal = 12.dp)) {
-            Row(Modifier.fillMaxWidth().testTag("liuying.controls"), verticalAlignment = Alignment.CenterVertically) {
-                LpIconButton(LpIcons.back, "返回", tint = Color.White, onClick = onExit)
-                Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
-                    if (feed == "normal") for ((key, title) in listOf("dance" to "舞蹈", "live" to "直播")) {
-                        Column(Modifier.widthIn(min = 64.dp).pressable({ onTab(key) }, enabled)
-                            .semantics { selected = tab == key }.padding(horizontal = 12.dp, vertical = 10.dp),
-                            horizontalAlignment = Alignment.CenterHorizontally) {
-                            Text(title, color = if (tab == key) Color.White else FeedSecondary,
-                                style = LpText.list.copy(fontWeight = FontWeight.SemiBold, shadow = FeedTextShadow))
-                            Spacer(Modifier.height(6.dp))
-                            Box(Modifier.size(20.dp, 3.dp).background(
-                                if (tab == key) Color.White else Color.Transparent, RoundedCornerShape(2.dp)))
-                        }
-                    } else Text("流影", color = Color.White, style = LpText.list)
-                }
-                Box(Modifier.size(48.dp).testTag("liuying.bankai")
-                    .semantics {
-                        selected = feed == "adult"
-                        contentDescription = "收藏视频列表"
-                        stateDescription = if (feed == "adult") "卍解已开启" else "普通流影"
-                        onLongClick("切换卍解") { onBankai(); true }
-                    }.pressable(onFavorites, onBankai, enabled), contentAlignment = Alignment.Center) {
-                    Icon(LpIcons.unlock, null, Modifier.size(26.dp),
-                        tint = if (feed == "adult") FeedAccent else Color.White)
-                }
-            }
+            if (showNavigation) PhoneLiuyingTopBar(feed, tab, enabled, onExit, onBankai, onTab, onFavorites)
+            else Spacer(Modifier.height(48.dp))
             BoxWithConstraints(Modifier.weight(1f).fillMaxWidth()) {
                 @Composable
                 fun actions(modifier: Modifier = Modifier) {
                     FeedAction(if (current.bool("favorite")) LpIcons.heartOn else LpIcons.heart,
                         if (current.bool("favorite")) "取消收藏" else "收藏", "liuying.favorite",
-                        current != null && !favoriteBusy, if (current.bool("favorite")) FeedAccent else Color.White, onFavorite,
+                        enabled && current != null && !favoriteBusy, if (current.bool("favorite")) FeedAccent else Color.White, onFavorite,
                         modifier.semantics { selected = current.bool("favorite") }, showTitle = false)
                     FeedAction(LpIcons.forward, "${playback?.speed ?: 1.0}×", "liuying.speed",
-                        playback?.ready == true && !playback.speedBusy, Color.White, { speedOpen = true },
+                        enabled && playback?.ready == true && !playback.speedBusy, Color.White, { speedOpen = true },
                         modifier.semantics { contentDescription = "流影倍速" })
                 }
                 if (maxHeight < 160.dp) {
@@ -127,7 +105,7 @@ internal fun PhoneLiuyingChrome(
                         Modifier.testTag("liuying.time"), color = FeedSecondary, style = LpText.number, maxLines = 1)
                     Slider(value, { preview = it }, valueRange = 0f..duration,
                     onValueChangeFinished = { preview?.let { playback.seek(it.toDouble()) }; preview = null },
-                    enabled = playback.ready && playback.duration > 0,
+                    enabled = enabled && playback.ready && playback.duration > 0,
                     modifier = Modifier.weight(1f).testTag("liuying.progress"),
                     thumb = {
                         // 与滑条内部最小槽位等高，避免小圆点被放在槽位顶部。
@@ -145,10 +123,10 @@ internal fun PhoneLiuyingChrome(
             }
             Row(Modifier.fillMaxWidth().testTag("liuying.bottom"), verticalAlignment = Alignment.CenterVertically) {
                 FeedBottomAction(if (autoAdvance) LpIcons.skipNext else LpIcons.sync,
-                    if (autoAdvance) "自动连播" else "循环播放", "liuying.mode", true, onMode, Modifier.weight(1f))
+                    if (autoAdvance) "自动连播" else "循环播放", "liuying.mode", enabled, onMode, Modifier.weight(1f))
                 if (showFilters) FeedBottomAction(LpIcons.filter, "筛选", "liuying.filter", enabled, onFilter, Modifier.weight(1f))
                 FeedBottomAction(LpIcons.audio, if (playback?.muted == true) "开声音" else "静音",
-                    "liuying.sound", playback?.ready == true, { playback?.toggleMute?.invoke() }, Modifier.weight(1f))
+                    "liuying.sound", enabled && playback?.ready == true, { playback?.toggleMute?.invoke() }, Modifier.weight(1f))
             }
         }
     }
@@ -161,6 +139,38 @@ internal fun PhoneLiuyingChrome(
                     if (playback.ready && !playback.speedBusy) { playback.setSpeed(speed); speedOpen = false }
                 }
             }
+        }
+    }
+}
+
+/** 导航不属于任何视频项，翻页时保持固定。 */
+@Composable
+internal fun PhoneLiuyingTopBar(feed: String, tab: String, enabled: Boolean, onExit: () -> Unit,
+    onBankai: () -> Unit, onTab: (String) -> Unit, onFavorites: () -> Unit) {
+    Row(Modifier.fillMaxWidth().testTag("liuying.controls"), verticalAlignment = Alignment.CenterVertically) {
+        LpIconButton(LpIcons.back, "返回", tint = Color.White, onClick = onExit)
+        Row(Modifier.weight(1f), horizontalArrangement = Arrangement.Center) {
+            if (feed == "normal") for ((key, title) in listOf("dance" to "舞蹈", "live" to "直播")) {
+                Column(Modifier.widthIn(min = 64.dp).pressable({ onTab(key) }, enabled)
+                    .semantics { selected = tab == key }.padding(horizontal = 12.dp, vertical = 10.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(title, color = if (tab == key) Color.White else FeedSecondary,
+                        style = LpText.list.copy(fontWeight = FontWeight.SemiBold, shadow = FeedTextShadow))
+                    Spacer(Modifier.height(6.dp))
+                    Box(Modifier.size(20.dp, 3.dp).background(
+                        if (tab == key) Color.White else Color.Transparent, RoundedCornerShape(2.dp)))
+                }
+            } else Text("流影", color = Color.White, style = LpText.list)
+        }
+        Box(Modifier.size(48.dp).testTag("liuying.bankai")
+            .semantics {
+                selected = feed == "adult"
+                contentDescription = "收藏视频列表"
+                stateDescription = if (feed == "adult") "卍解已开启" else "普通流影"
+                onLongClick("切换卍解") { onBankai(); true }
+            }.pressable(onFavorites, onBankai, enabled), contentAlignment = Alignment.Center) {
+            Icon(LpIcons.unlock, null, Modifier.size(26.dp),
+                tint = if (feed == "adult") FeedAccent else Color.White)
         }
     }
 }

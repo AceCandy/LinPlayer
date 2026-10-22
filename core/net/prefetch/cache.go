@@ -6,6 +6,7 @@ package prefetch
 // 那几次故障的正中心**,注释是从 Rust 侧逐字搬来的。
 
 import (
+	"context"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -213,9 +214,12 @@ var cacheSeq struct {
 // ★ 文件名必须**每个实例唯一**:两个会话完全可能并存(孤儿播放器还没关、新播放器已起来),
 // 同一部片 total 当然相同。一旦重名,后来者把文件截断清零,而前者的 slots 表在内存里
 // 仍然认为那些段「就绪」→ 前者读回一整块**稀疏零**并当作有效数据发给播放器。
-func newDiskCache(total, cacheBytes int64, threads int) (*diskCache, error) {
+func newDiskCache(total, cacheBytes int64, threads int, epochs ...uint64) (*diskCache, error) {
 	mediaStore.Lock()
 	defer mediaStore.Unlock()
+	if !cacheEpochMatches(epochs) {
+		return nil, context.Canceled
+	}
 	dir := paths.PrefetchCache()
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return nil, err

@@ -117,6 +117,13 @@ object LinPlayerCommandNames {
         "player.mpvSet",
         "player.opts",
         "player.prepareNext",
+        "player.liuyingOpen",
+        "player.liuyingPrepare",
+        "player.liuyingWarm",
+        "player.liuyingCancel",
+        "player.liuyingPlay",
+        "player.liuyingProgress",
+        "player.liuyingStop",
         "player.warmPrepared",
         "player.queuePrepared",
         "player.advanceQueued",
@@ -518,7 +525,7 @@ suspend fun LinPlayerCommands.accountTestConnection(args: Map<String, Any?>? = n
 suspend fun LinPlayerCommands.accountUpdateAccount(args: Map<String, Any?>? = null): JsonElement =
     call("account.updateAccount", args)
 
-// ---- 播放器 · player.* (61 条) ----
+// ---- 播放器 · player.* (68 条) ----
 suspend fun LinPlayerCommands.playerAddSubtitle(args: Map<String, Any?>? = null): JsonElement =
     call("player.addSubtitle", args)
 suspend fun LinPlayerCommands.playerChapterInfo(args: Map<String, Any?>? = null): JsonElement =
@@ -541,6 +548,20 @@ suspend fun LinPlayerCommands.playerOpts(args: Map<String, Any?>? = null): JsonE
     call("player.opts", args)
 suspend fun LinPlayerCommands.playerPrepareNext(args: Map<String, Any?>? = null): JsonElement =
     call("player.prepareNext", args)
+suspend fun LinPlayerCommands.playerLiuyingOpen(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingOpen", args)
+suspend fun LinPlayerCommands.playerLiuyingPrepare(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingPrepare", args)
+suspend fun LinPlayerCommands.playerLiuyingWarm(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingWarm", args)
+suspend fun LinPlayerCommands.playerLiuyingCancel(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingCancel", args)
+suspend fun LinPlayerCommands.playerLiuyingPlay(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingPlay", args)
+suspend fun LinPlayerCommands.playerLiuyingProgress(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingProgress", args)
+suspend fun LinPlayerCommands.playerLiuyingStop(args: Map<String, Any?>? = null): JsonElement =
+    call("player.liuyingStop", args)
 suspend fun LinPlayerCommands.playerWarmPrepared(args: Map<String, Any?>? = null): JsonElement =
     call("player.warmPrepared", args)
 suspend fun LinPlayerCommands.playerQueuePrepared(args: Map<String, Any?>? = null): JsonElement =

@@ -116,16 +116,6 @@ func (s *stream) worker(ctx context.Context, index int) {
 		   ★ 代价是这一次读要多拉不到 4MB,而且只发生在文件头/尾那两三段上 ——
 		     换掉的是「这个功能在半数片子上根本不工作」。 */
 		partial := c == s.firstChunk && s.headWithin > 0 && !s.o.disk.pinned(c)
-		var l *live
-		registered := false
-		if partial {
-			l = newLiveBased(s.headWithin, s.o.chunkLen(c)-s.headWithin)
-			s.headMu.Lock()
-			s.headLive = l
-			s.headMu.Unlock()
-		} else {
-			l, registered = s.o.liveBegin(c)
-		}
 
 		/* ★ 在飞的请求也要能取消。只靠循环顶部的 over() 判断,是「这一段拉完了才发现
 		   连接早没了」—— 播放器跳一次进度条,每条被丢下的连接还要把 threads 段(12MB)
@@ -152,11 +142,39 @@ func (s *stream) worker(ctx context.Context, index int) {
 		   ★ 仍然听 origin 的关闭(o.stop):换片 / 停播时缓存文件会被删,
 		     那时候还在写盘就是写一个已经不存在的文件。 */
 		pin := s.o.disk.pinned(c)
+		if s.o.reads != nil && s.o.reads.speculative() {
+			// 投机暂停必须连头尾块一起取消；正式/普通读取保留原有固定块语义。
+			pin = false
+		}
 		base := ctx
 		if pin {
 			base = s.o.ctx
 		}
 		fetchCtx, cancel := context.WithCancel(base)
+		release := func() {}
+		if s.o.reads != nil {
+			limited, done, err := s.o.reads.acquire(fetchCtx)
+			if err != nil {
+				cancel()
+				s.mu.Lock()
+				delete(s.inFlight, c)
+				s.failed[c] = true
+				s.mu.Unlock()
+				s.dataNotify.notifyAll()
+				return
+			}
+			fetchCtx, release = limited, done
+		}
+		var l *live
+		registered := false
+		if partial {
+			l = newLiveBased(s.headWithin, s.o.chunkLen(c)-s.headWithin)
+			s.headMu.Lock()
+			s.headLive = l
+			s.headMu.Unlock()
+		} else {
+			l, registered = s.o.liveBegin(c)
+		}
 		go func() {
 			var connGone <-chan struct{}
 			if !pin {
@@ -189,6 +207,7 @@ func (s *stream) worker(ctx context.Context, index int) {
 			}
 		}
 		s.o.liveEnd(c, l, registered) // ★ 必须在落盘之后,别留查不到的空档
+		release()
 
 		s.mu.Lock()
 		delete(s.inFlight, c)

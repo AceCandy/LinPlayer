@@ -111,6 +111,16 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 
 - 下一集准备与视频预热分阶段：prepareNext仅解析/探测，warmPrepared按完整Session和request_id匹配启停；暂停仅取消读取子context，保留target/代理/已完成块，恢复不重复ResolveStream或probe，消费/过期/取消关闭父context。TestPreparedWarmWaitsAndPausesWithoutResolvingAgain覆盖信息阶段零视频块、错误身份拒绝、暂停中断尾部请求、恢复和消费后失效；故障注入自动Warm时必须失败。
 
+## 手机流影专用接管契约
+
+1. **范围**：`core/player/liuying_*`为手机流影独立准备池；共享正式play/stop内部显式分支，不改变普通单槽、TV或桌面默认调用。
+2. **签名**：`player.liuyingOpen/Prepare/Warm/Cancel/Play/Progress/Stop`字段以COMMANDS.md为准，均经bus精确媒体分类注入私密身份。Open只接受generation=1，后续generation为1至2^31-1整数，pos非负有限，depth仅1/3/5。
+3. **契约**：owner绑定完整Session、空间与单调代数；最多三项含在途、2分钟过期、request一次消费。正式Play固定exo/流影倍率/从头，复用同一target/proxy并返回实际consumed_request_id和playback_id；发布前同锁复核owner、revision、当前播放及cache epoch。当前非空拒绝覆盖，Stop/Progress绑定report实例，不能仅凭item或PlaySessionId。
+4. **校验与错误**：非隐私身份E_UNSUPPORTED；非法参数、未知/关闭owner和已有正式播放E_INVALID。整代Cancel关闭owner，更高代也不能复活；新页面必须新owner。Warm旧请求matched=false；旧Progress reported=false；旧Stop幂等应答不表示已匹配或停止新目标。准备失败不发Playing，起播错误返回宿主，不改MPV。
+5. **正常/基本/错误**：命中原位提升且不重复取流/探测；未命中正常冷解析；普通播放提交后旧流影解析不得替换其target/proxy。退出取消未消费资源，正式会话仍按原停止屏障上报，不丢Stopped换速度。
+6. **测试**：`liuying_test.go`覆盖七命令真实bus/scope、三项与普通单槽隔离、HTTP字节复用/重进、实时源、禁预载、迟到解析、关闭owner和旧Stop；prefetch的`speculative_test.go`覆盖四块共享额度、暂停/恢复/提升及清理前解析/probe/磁盘创建/在途块写入。并发检查需列出包与实际失败，不能用局部race替代整库结论。
+7. **正反例**：错误是Cancel只关当前代、下一条迟到Prepare用更高代重新创建owner；正确是已关闭owner永远失效。缓存epoch在解析前捕获、ClearCache同锁推进、持久与临时创建同锁检查；失配不可fallback绕过。ReadControl在分配块前认领共享四块额度，取消收尾才归还，Promote唤醒等待者；普通未传ReadControl/Epoch仍走原路径。
+
 ## 详情版本与预热共用响应
 
 `prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、页面取消、停止/替换预热与正式起播不打断版本查询、返回不等待视频探测与正式解析重新请求。

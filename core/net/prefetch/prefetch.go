@@ -104,6 +104,9 @@ type CacheOptions struct {
 	Identity string
 	Bitrate  int64
 	Budget   int64
+	// 仅显式启用的流影请求使用，零值保持普通代理原行为。
+	Epoch uint64
+	Reads *ReadControl
 }
 
 // StartCached 两种内核共用的媒体代理；readAhead 只决定是否提前取数。
@@ -267,6 +270,7 @@ type origin struct {
 	client      *http.Client
 	onInvalid   ResignFn
 	disk        *diskCache
+	reads       *ReadControl
 
 	// liveMu / liveMap 正在拉取中的分段(段号 -> 载体)。**「边收边吐」的登记处**。
 	liveMu  sync.Mutex
@@ -316,9 +320,19 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		liveMap:   map[int64]*live{},
 	}
 	o.policy.Store(&fetchPolicy{threads: threads, window: readAheadChunks, ua: ua})
+	var epoch uint64
+	if len(cacheOptions) > 0 {
+		epoch, o.reads = cacheOptions[0].Epoch, cacheOptions[0].Reads
+	}
+	if epoch != 0 && epoch != MediaCacheEpoch() {
+		return nil, context.Canceled
+	}
 	probeAt := time.Now()
 	if err := o.probe(ctx, upstreamURL); err != nil {
 		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
+		return nil, err
+	}
+	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
 	bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=true version_verified=%t", time.Since(probeAt).Milliseconds(), o.validator != "")
@@ -326,11 +340,14 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 	var disk *diskCache
 	var err error
 	if len(cacheOptions) > 0 && cacheOptions[0].Budget > 0 && cacheOptions[0].Identity != "" && o.validator != "" {
-		disk, err = newPersistentCache(o.totalSize, cacheOptions[0].Identity, o.validator)
+		disk, err = newPersistentCache(o.totalSize, cacheOptions[0].Identity, o.validator, epoch)
+	}
+	if errors.Is(err, context.Canceled) {
+		return nil, err
 	}
 	if disk == nil {
 		// 磁盘不可用或没有可信版本时仍保持会话内边收边吐，不复用旧媒体字节。
-		disk, err = newDiskCache(o.totalSize, cacheLimit, threads)
+		disk, err = newDiskCache(o.totalSize, cacheLimit, threads, epoch)
 		o.validator = ""
 	}
 	if err != nil {

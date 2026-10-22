@@ -20,6 +20,7 @@ import (
 // registerTransport 由 RegisterCommands 调用。
 func registerTransport() {
 	registerPrepareCommands()
+	registerLiuyingCommands()
 	// ---- 起播 / 停播 ----
 	bus.Register("player.play", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		ctx, err := emby.AdultFilterContext(ctx, a)

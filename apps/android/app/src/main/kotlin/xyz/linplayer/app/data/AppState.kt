@@ -210,6 +210,29 @@ class AppState(val core: CorePort, scope: CoroutineScope) {
         return value
     }
 
+    /** 流影已提交请求必须拿到回执再收尾；仅stop/cancel可在原空间失效后继续。 */
+    internal fun liuyingCaller(): suspend (String, JsonObject) -> JsonElement {
+        val identity = _session.value
+        val revision = _spaceRevision.value
+        val scope = JsonObject(mapOf(
+            "id" to JsonPrimitive(requestScopeID), "private" to JsonPrimitive(_privateSpace.value),
+            "filter" to JsonPrimitive(privacyFiltering), "server" to JsonPrimitive(identity?.server.orEmpty()),
+            "user_id" to JsonPrimitive(identity?.userId.orEmpty()), "token" to JsonPrimitive(identity?.token.orEmpty()),
+        ))
+        val base = mapOf(
+            "server" to JsonPrimitive(identity?.server.orEmpty()), "user_id" to JsonPrimitive(identity?.userId.orEmpty()),
+            "token" to JsonPrimitive(identity?.token.orEmpty()), "device_id" to JsonPrimitive(deviceId()),
+        )
+        return { command, parameters ->
+            require(command in setOf("player.liuyingOpen", "player.liuyingPrepare", "player.liuyingWarm",
+                "player.liuyingPlay", "player.liuyingProgress", "player.liuyingStop", "player.liuyingCancel"))
+            val cleanup = command == "player.liuyingStop" || command == "player.liuyingCancel"
+            if (!cleanup && (identity != _session.value || revision != _spaceRevision.value))
+                throw kotlinx.coroutines.CancellationException("流影空间已切换")
+            core.callJson(command, JsonObject(base + parameters + ("request_scope" to scope)))
+        }
+    }
+
     /** 按服务端分页取完整季；逐页通知使用不可变快照，重试可从已有项后继续。 */
     suspend fun seasonEpisodes(
         parentId: String,
