@@ -23,6 +23,7 @@
 - 命令表或绑定变更：`bash scripts/check-bindings.sh`。
 - Emby 相关改动核查 `core/cmd/diffcheck/corpus/` 的既有差分语料及相关测试；真实 API 联调按 [基准](../shared/product-and-api.md) 执行。
 - 回归先证实原故障会失败，再验证修复；未执行的设备播放、服务端联调必须说明。
+- 依赖MSG扩展能力的跨包测试须在隔离配置后，通过真实登录或普通刷新命令 `emby.extCapabilities(refresh=true)` 建立同一服务器/用户的缓存；仅在HTTP mock中提供capabilities响应不等于缓存已就绪。保留图片授权、弹幕合并/单路失败及取消断言，不得靠放宽断言或绕过能力检查修绿。
 
 依据：[ABI](../../../core/ffi/abi.go)、[FFI](../../../core/ffi/main.go)、[核心门禁](../../../scripts/check-core.sh)、[绑定门禁](../../../scripts/check-bindings.sh)。
 

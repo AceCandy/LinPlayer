@@ -4,9 +4,18 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
+
+	"linplayer/core/bus"
+	"linplayer/core/emby"
 )
+
+func TestMain(m *testing.M) {
+	emby.RegisterCommands("test")
+	os.Exit(m.Run())
+}
 
 func TestServerXML(t *testing.T) {
 	items, err := parseServerXML(`<i><d p="1.234,1,25,255,0,0,0,9999999999999999999">测试&lt;&amp;</d></i>`)
@@ -61,6 +70,11 @@ func TestResolveServerOverlay(t *testing.T) {
 			}))
 			defer srv.Close()
 			isolatedSources(t, []SourceConfig{{ID: "overlay", Name: "其它源", APIURL: srv.URL}})
+			if _, err := bus.Invoke(t.Context(), "emby.extCapabilities", map[string]any{
+				"server": srv.URL, "token": "test-token", "user_id": "u", "refresh": true,
+			}); err != nil {
+				t.Fatal(err)
+			}
 			result, err := resolve(context.Background(), map[string]any{"server": srv.URL, "token": "test-token", "user_id": "u", "input": map[string]any{"title": "测试番", "item_id": "item", "episode_no": 1}})
 			if len(result.Items) != tc.want || (err != nil) != (tc.want == 0) {
 				t.Fatalf("%+v %v", result, err)

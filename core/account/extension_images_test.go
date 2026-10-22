@@ -59,6 +59,7 @@ func TestCalendarImageSurvivesAccountAllowlistRefresh(t *testing.T) {
 	localserve.SetDefault(local)
 	defer localserve.SetDefault(nil)
 	SyncImageAllowlist()
+	call(t, 8400, "emby.extCapabilities", map[string]any{"server_id": upstream.URL, "refresh": true})
 	rows := call(t, 8401, "emby.extCalendar", map[string]any{"server_id": upstream.URL})["list"].([]any)
 	pictureURL := rows[0].(map[string]any)["image_url"].(string)
 	// 修改账号备注、主服或当前服均会重建白名单，已展示的外部海报仍应可取。
