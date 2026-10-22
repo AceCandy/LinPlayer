@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 95
+- **Total Sessions**: 96
 - **Last Active**: 2026-10-22
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~720 | Active |
+| `journal-3.md` | ~756 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 96 | 2026-10-22 | 补齐日历图片与弹幕测试能力缓存 | `8bdf2080` | `main` |
 | 95 | 2026-10-22 | 流影控件与独立倍速交付 | `dbce9088` | `main` |
 | 94 | 2026-10-21 | 手机片尾下一集提示修复与出包 | `cbad16de` | `main` |
 | 93 | 2026-10-21 | 修复手机数据源切服并交付正式包 | `6a5ef488` | `main` |
