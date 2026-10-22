@@ -754,3 +754,40 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 未实服/真机验证；无需重新打包，未推送远程
+
+
+## Session 97: 流影独立短视频播放器提交归档与手机包交付
+<!-- trellis-session: v=2 fp=aa191001a4c74be1 -->
+
+**Date**: 2026-10-22
+**Task**: 流影独立短视频播放器提交归档与手机包交付
+**Branch**: `main`
+
+### Summary
+
+流影独立Media3播放链路及审查修复已提交并归档，完成ARM64手机release包；不推送远端，真机性能仍未验。
+
+### Main Changes
+
+- 仅提交本流影任务40个文件，独立会话、分层准备、共享磁盘缓存及三处审查修复；归档提交b6f39dbd，不修改另一活跃任务。
+- 手机包build/android/app-arm64-v8a-release.apk，版本2.0.0、versionCode 20000，29713678字节（28.34MiB）。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `eb50c867` | feat(android): 重建流影独立短视频播放链路与分层缓存准备 |
+
+### Testing
+
+- [OK] 203条Android定向回归通过，新增7条；269处参数检查、暂存区40文件隐私扫描和空白检查通过。核心和绑定门禁证据见归档validation.md。
+- [OK] pack-android.sh arm64-v8a通过；apksigner验证v2/v3并以min-sdk23复验v1通过，未使用默认debug证书；手机标记、13个ARM64 ELF压缩原生库及核心库一致性通过。
+- [OK] 最终APK与构建输出SHA256一致：3ccf1ced1ada9f111f064f8896cd48f3db994afe84cb9ee2af700ac70f5114a4。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未真机安装、实服联调或测量双槽首帧与连续滑动性能，AC9未验；本包未配置崩溃上报。
