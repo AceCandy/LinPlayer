@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "最小修改、隐私、独立复核与真实故障回归"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "普通Media3生命周期、实际内核与既有播放接线约束"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "下一集准备、缓冲门槛、队列接管和停止屏障契约"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "故障下先红后绿、自动回归与真机证据边界"}
+{"file": ".trellis/tasks/10-23-media3-autoplay-network-recovery/research/evidence.md", "reason": "已核查事实、测试缺口和未证实候选因果链"}
