@@ -900,3 +900,41 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 实服新增集与真机验收；桌面与旧TV状态恢复问题按用户要求留待统一处理
+
+
+## Session 102: 缺图请求修复审查与手机包交付
+<!-- trellis-session: v=2 fp=46bc856260414099 -->
+
+**Date**: 2026-10-24
+**Task**: 缺图请求修复审查与手机包交付
+**Branch**: `main`
+
+### Summary
+
+跨端按图片标记跳过确定缺图请求，图片代理保留上游404；完成独立审查、提交与ARM64手机release包交付。本次无独立任务目录，以会话日志归档，不关闭仍在进行的tvOS对齐任务。
+
+### Main Changes
+
+- Android手机/TV、桌面与tvOS修复图片标记判断，保留未知父级回退、缓存预览及同ID图片状态刷新。
+- 手机交付 build/android/app-arm64-v8a-release.apk，版本2.0.0，29719617字节；SHA256 a57c9b60ad778d5892c3c371cd6eeb2d07eef155bba4478851aec2d289be1985。未推送远程。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e8623995` | fix(images): 按图片标记跳过缺图请求并保留上游404 |
+
+### Testing
+
+- [OK] 独立审查核对核心JSON契约：has_primary始终输出，has_backdrop假值省略；未确认阻断缺陷。
+- [OK] 完整check-core门禁、localserve竞态测试、桌面images-only专项、Android175项相关回归、参数/绑定/风格及29文件暂存隐私扫描通过。Android本轮增量复核复用此前全绿结果。
+- [OK] APK验签v2/v3有效；Manifest手机模式、版本与原生库提取配置正确；13个ARM64 ELF压缩及strip后字节一致性检查通过，核心与本次重编库完全一致。
+- [OK] 全仓隐私扫描仍误报既有日志中的VulkanRT四段版本号；未修改无关日志或放宽规则。桌面依赖已有NU1903及WindowsBase警告。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未进行真机安装/真实媒体服务器联调；tvOS本轮未编译。手机包未配置崩溃上报，不代表真机验收通过。
