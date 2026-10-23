@@ -835,3 +835,38 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Status
 
 [OK] **Completed**
+
+
+## Session 100: 流影收藏隔离与手机收藏选片交付
+<!-- trellis-session: v=2 fp=d2f3a31e8a5f8b7d -->
+
+**Date**: 2026-10-23
+**Task**: 流影收藏隔离与手机收藏选片交付
+**Branch**: `main`
+
+### Summary
+
+普通收藏排除流影并隔离旧快照；手机收藏底部弹层复用海报网格，精确选片后循环，手动滑动接正常随机并避免首轮重复当前视频。已提交归档，完成2.0.0手机arm64签名包。
+
+### Main Changes
+
+- 保留收藏状态和服务端接口，过滤后按原始分页游标续取；任务归档至archive/2026-10/10-23-private-liuying-favorites。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8711b73d` | fix(liuying): 隔离普通收藏并完善手机收藏选片 |
+
+### Testing
+
+- [OK] 针对性回归先红后绿，Android手机/弹层/TV共59项通过；Go emby/displaycache/bus测试与vet此前通过；269处参数检查、diff检查及21文件秘密检查通过。
+- [OK] pack-android.sh arm64-v8a通过；APK v1/v2/v3签名、手机标记、13个arm64 ELF原生库、压缩存储和extractNativeLibs及产物一致性通过；最终包28.34 MiB。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 尚未验证真实服务器封面、真机解码/滑动与性能；本地包未配置崩溃上报，未推送远端。
