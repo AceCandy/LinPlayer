@@ -77,7 +77,8 @@
 | [x] | `emby.itemMedia` | `item_media` | `item_id: String, is_adult: Option<bool>` | `Result<Vec<emby::MediaVersion>, String>` | ✅ |
 | [x] | `emby.listCollections` | `list_collections` | `is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.collectionItems` | **新增** | `item_id: String, is_adult: Option<bool>` | `CollectionItems` | — | <!-- 合集成员，影片/剧集分开（合集页原来一个字都画不出来） -->
-| [x] | `emby.listFavorites` | `list_favorites` | `sort?, sort_by?, sort_order?, start_index?, limit?, is_adult: Option<bool>` | `未传 limit: Item[]; 传 limit: { items, total, next_index, has_more }` | ✅ |
+| [x] | `emby.listFavorites` | `list_favorites` | `sort?, sort_by?, sort_order?, start_index?, limit?, is_adult: Option<bool>` | `未看完的收藏；未传 limit: Item[]; 传 limit: { items, total, next_index, has_more }` | ✅ |
+| [x] | `emby.listWatched` | **新增** | `type: String, sort?, sort_by?, sort_order?, start_index?, limit?, is_adult: Option<bool>` | `{ items, total, next_index, has_more }；当前服已看 Movie/Series，type 必填` | ✅ |
 | [x] | `emby.listItems` | `list_items` | `parent_id: String, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
 | [x] | `emby.listItemsPage` | `list_items_page` | `parent_id: String, start_index: Option<u32>, limit: Option<u32>, sort_by: Option<String>, sort_order: Option<String>, genres: Option<Vec<String>>, tags: Option<Vec<String>>, years: Option<Vec<i32>>, studios: Option<Vec<String>>, rating_min: Option<f64>, rating_max: Option<f64>, is_adult: Option<bool>` | `Page` | ✅ |
 | [x] | `emby.listLatest` | `list_latest` | `parent_id: String, limit: u32, is_adult: Option<bool>` | `Result<Vec<Item>, String>` | ✅ |
@@ -243,9 +244,6 @@
 | [x] | `source.aggregateSearch` | **新增** | `query, is_adult: Option<bool>` | `[]SearchRow(逐行 partial)` | ✅ |
 | [x] | `source.switchCandidates` | **新增** | `server_id, title, year?, episode_index?, line_id?, item?, layer_order?` | `[]Candidate(逐源 partial)` | ✅ |
 | [x] | `source.checkAll` | **新增** | `group?` | `[]CheckResult(逐源 partial)` | ✅ |
-| [x] | `source.setFavorite` | **新增** | `server_id, item, favorite` | `{favorite}` | ✅ |
-| [x] | `source.isFavorite` | **新增** | `server_id, item_id` | `bool` | ✅ |
-| [x] | `source.favorites` | **新增** | `server_id?` | `[]FavGroup` | ✅ |
 | [x] | `source.history` | **新增** | `—` | `[]HistoryEntry` | ✅ |
 | [x] | `source.linkSwitch` | **新增** | `from_server, from_item, to_server, to_item` | `—` | ✅ |
 

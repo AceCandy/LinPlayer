@@ -237,12 +237,6 @@ fun SourceDetailTv(r: TvRoute.SourceDetail) {
                                 .filter { it.isNotEmpty() }.joinToString(" · "), tvType.meta, TvC.fg2, maxLines = 2)
                             x.str("overview")?.let { TvText(it, tvType.body, TvC.fg2, maxLines = 4) }
                             Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                                TvButton("收藏", LpIcons.heart) {
-                                    scope.launch {
-                                        runCatching { app.call("source.setFavorite", j("server_id" to r.serverId, "item" to x, "favorite" to true)) }
-                                            .onSuccess { app.toast("已收藏", ToastKind.Ok) }.onFailure { app.report(it) }
-                                    }
-                                }
                                 TvButton("换源") { overlay.open { SwitchPanelTv(r.serverId, x, line, 0) { overlay.close() } } }
                             }
                         }

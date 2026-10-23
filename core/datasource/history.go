@@ -1,15 +1,13 @@
 package datasource
 
-// 数据源收藏(D20 D326):数据源没有服务端收藏,宿主本地存条目快照;卸载插件、删订阅后照样保留(D333)。
+// 数据源观看历史与换源链路。
 
 import (
 	"context"
 	"encoding/json"
 	"os"
 	"path/filepath"
-	"sort"
 	"sync"
-	"time"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
@@ -17,122 +15,7 @@ import (
 	"linplayer/core/paths"
 )
 
-type favEntry struct {
-	ServerID string `json:"server_id"`
-	Item     Item   `json:"item"`
-	At       int64  `json:"at"`
-}
-
-var favMu sync.Mutex
-
-func favFile() string { return filepath.Join(paths.Root(), "source_favorites.json") }
-
-func loadFavs() []favEntry {
-	var v []favEntry
-	b, err := os.ReadFile(favFile())
-	if err == nil {
-		_ = json.Unmarshal(b, &v)
-	}
-	return v
-}
-
-func saveFavs(v []favEntry) error {
-	b, _ := json.Marshal(v)
-	tmp := favFile() + ".tmp"
-	if err := os.WriteFile(tmp, b, 0o644); err != nil {
-		return err
-	}
-	return os.Rename(tmp, favFile())
-}
-
-func favKey(sid, id string) string { return sid + "\x00" + id }
-
-func cmdSetFavorite(ctx context.Context, _ int64, a map[string]any) (any, error) {
-	sid, err := serverArg(a)
-	if err != nil {
-		return nil, err
-	}
-	it, _ := a["item"].(map[string]any)
-	fav, _ := a["favorite"].(bool)
-	if it == nil {
-		return nil, bus.NewErr(bus.EInvalid, "缺少 item")
-	}
-	id := Item(it).str("id")
-	favMu.Lock()
-	defer favMu.Unlock()
-	list := loadFavs()
-	kept := list[:0]
-	for _, f := range list {
-		if favKey(f.ServerID, f.Item.str("id")) != favKey(sid, id) {
-			kept = append(kept, f)
-		}
-	}
-	if fav {
-		snap := Item{}
-		for k, v := range it {
-			if k != "lines" && k != "seasons" {
-				snap[k] = v
-			}
-		}
-		snap["source"] = sid
-		kept = append(kept, favEntry{ServerID: sid, Item: snap, At: time.Now().Unix()})
-	}
-	if err := saveFavs(kept); err != nil {
-		return nil, bus.NewErr(bus.EInternal, "收藏保存失败: %v", err)
-	}
-	return map[string]bool{"favorite": fav}, nil
-}
-
-func cmdIsFavorite(ctx context.Context, _ int64, a map[string]any) (any, error) {
-	sid, id := str(a, "server_id"), str(a, "item_id")
-	favMu.Lock()
-	defer favMu.Unlock()
-	for _, f := range loadFavs() {
-		if f.ServerID == sid && f.Item.str("id") == id {
-			return true, nil
-		}
-	}
-	return false, nil
-}
-
-// FavGroup 全部收藏页按来源分组的一组。
-type FavGroup struct {
-	ServerID   string `json:"server_id"`
-	ServerName string `json:"server_name"`
-	Removed    bool   `json:"removed"` // 来源已移除(D333)
-	Items      []Item `json:"items"`
-}
-
-// cmdFavorites 数据源收藏;server_id 空 = 全部源(全局「全部收藏」里数据源那部分,D326)。
-func cmdFavorites(ctx context.Context, _ int64, a map[string]any) (any, error) {
-	only := str(a, "server_id")
-	favMu.Lock()
-	list := loadFavs()
-	favMu.Unlock()
-	sort.SliceStable(list, func(i, j int) bool { return list[i].At > list[j].At })
-	c := config.Current()
-	groups := []*FavGroup{}
-	idx := map[string]*FavGroup{}
-	for _, f := range list {
-		if only != "" && f.ServerID != only {
-			continue
-		}
-		g := idx[f.ServerID]
-		if g == nil {
-			g = &FavGroup{ServerID: f.ServerID, ServerName: f.ServerID, Items: []Item{}}
-			if acc := c.Find(f.ServerID); acc != nil {
-				g.ServerName = acc.DisplayName()
-			} else {
-				g.Removed = true
-			}
-			idx[f.ServerID] = g
-			groups = append(groups, g)
-		}
-		allowImages(f.Item)
-		g.Items = append(g.Items, f.Item)
-	}
-	return groups, nil
-}
+var linkMu sync.Mutex
 
 // HistoryEntry 全局观看历史里数据源的一条(D430 D431 D333)。
 type HistoryEntry struct {
@@ -176,8 +59,8 @@ func linkFile() string { return filepath.Join(paths.Root(), "source_links.json")
 func cmdLinkSwitch(ctx context.Context, _ int64, a map[string]any) (any, error) {
 	from := str(a, "from_server") + "#" + str(a, "from_item")
 	to := str(a, "to_server") + "#" + str(a, "to_item")
-	favMu.Lock()
-	defer favMu.Unlock()
+	linkMu.Lock()
+	defer linkMu.Unlock()
 	var ls []link
 	if b, err := os.ReadFile(linkFile()); err == nil {
 		_ = json.Unmarshal(b, &ls)

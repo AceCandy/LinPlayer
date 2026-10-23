@@ -85,7 +85,7 @@ public partial class MainWindow : Window
         this.FindControl<RadioButton>("NavBrowse")!.Checked += (_, _) =>
             NavRoot("browse", () => new BrowsePage(_core!, _sourceName));
         this.FindControl<RadioButton>("NavLibrary")!.Checked += (_, _) => Emby("library", "媒体库", () => new LibraryPage(_core!));
-        // 插件数据源没有 Emby 会话:搜索只走聚合,收藏看全部数据源的
+        // 插件数据源没有 Emby 会话:搜索只走聚合。
         this.FindControl<RadioButton>("NavSearch")!.Checked += (_, _) =>
         {
             if (_pluginServer is not null) NavRoot("search", () => new SearchPage(_core!));
@@ -93,8 +93,7 @@ public partial class MainWindow : Window
         };
         this.FindControl<RadioButton>("NavFavorites")!.Checked += (_, _) =>
         {
-            if (_pluginServer is not null) NavRoot("favorites", () => new SourceFavoritesPage(_core!));
-            else Emby("favorites", "收藏", () => new FavoritesPage(_core!));
+            Emby("favorites", "收藏", () => new FavoritesPage(_core!));
         };
         // 聚合视界和观看历史**不需要**当前会话:前者自己遍历账号表,后者读的是本地库
         this.FindControl<RadioButton>("NavAggregate")!.Checked += (_, _) => NavRoot("aggregate", () => new AggregatePage(_core!));

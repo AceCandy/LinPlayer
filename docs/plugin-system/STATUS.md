@@ -32,7 +32,7 @@
 | 换源三层 | ✅ | ✅ | ✅(分层渲染未逐行复核) |
 | 「允许聚合」开关 | ✅ | ✅ | ✅ 服务器面板 + 插件源菜单键(`tv/ServersPages.kt` `AggregateItem`) |
 | 全局观看历史 | ✅ | ✅ `ui/pages/ListPages.kt` `HistoryPage`,收藏页右上角入口 | ✅ `tv/ListPages.kt` `HistoryPageTv`,入口在收藏页 |
-| 全部收藏含数据源 | ✅ | ✅ | ✅ 并进 `source.favorites` 分组(`tv/ListPages.kt`) |
+| 数据源收藏 | 已移除 | 已移除 | 已移除；保留数据源观看历史与播放 |
 | 插件页四标签 | ✅ | ✅ | ✅ 已安装 / 市场 / 接管位 / 仓库(`tv/SourcePagesTv.kt`) |
 | 扩展组件页 | ✅ | ✅ | ✅ `tv/SourcePagesTv.kt` `ExtensionsPageTv`,设置页入口 |
 | 接管位「设了有反应」 | ⏸ | ⏸ | ⏸ 阶段 ① 只登记不渲染,但界面没说明 |

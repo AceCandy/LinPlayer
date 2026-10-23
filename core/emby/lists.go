@@ -353,7 +353,7 @@ func (c *Client) Collections(ctx context.Context, s *Session) ([]Item, error) {
 	return c.fetchAllPaged(ctx, s, u, 10000)
 }
 
-// Favorites 收藏列表(IsFavorite 过滤,跨库递归)。
+// Favorites 未看完的收藏列表，跨库递归。
 //
 // ★ 原来写 `Limit=300` —— 服务端夹到 200,收藏超过 200 条就**静默丢**,
 // 用户看不到也无从察觉。改翻页。
@@ -363,14 +363,14 @@ func (c *Client) Collections(ctx context.Context, s *Session) ([]Item, error) {
 // **完全相同**的顺序,恒为 DateCreated 降序);原版 Emby 是认的 ——
 // **别拿原版的结论替 fork 签字**。所以这里只负责把 Fields 要全,排序交给前端本地做。
 func (c *Client) Favorites(ctx context.Context, s *Session) ([]Item, error) {
-	base := fmt.Sprintf("%s/Users/%s/Items?Filters=IsFavorite&Recursive=true"+
+	base := fmt.Sprintf("%s/Users/%s/Items?Filters=IsFavorite,IsUnplayed&Recursive=true"+
 		"&Fields=PrimaryImageAspectRatio,CommunityRating,DateCreated,DateLastMediaAdded,SortName",
 		s.Server, url.PathEscape(s.UserID))
 	items, err := c.fetchAllPaged(ctx, s, base, 2000)
 	if err != nil {
 		return nil, err
 	}
-	return withoutLiuYing(items), nil
+	return filterWatchState(withoutLiuYing(items), false), nil
 }
 
 // FavoriteSorts 收藏页的排序档位,**第一条是默认档**

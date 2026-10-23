@@ -86,6 +86,7 @@ class PhoneBrowseUiTest {
                     NavHost(nav, startDestination = route) {
                         composable<Route.Aggregate> { AggregatePage(nav) }
                         composable<Route.Favorites> { FavoritesPage(nav) }
+                        composable<Route.Watched> { FavoritesPage(nav, watched = true) }
                         composable<Route.FavoriteCategory> {
                             val route = it.toRoute<Route.FavoriteCategory>()
                             FavoritesPage(nav, route.type, route.libraryId, route.title)
@@ -191,6 +192,122 @@ class PhoneBrowseUiTest {
         rule.onNodeWithText("还没有添加服务器").assertIsDisplayed()
         rule.onNodeWithText("去添加服务器").assertIsDisplayed()
         rule.onNodeWithText("重试").assertDoesNotExist()
+    }
+
+    @Test fun watchedEntryUsesCurrentServerAndOnlyMovieSeriesCategories() {
+        val delegate = FakeCore().loggedIn().apply { ret("emby.listFavorites", page()); ret("emby.listWatched", page()) }
+        val core = object : CorePort by delegate {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "emby.listWatched") return delegate.callJson(command, args, onPartial)
+                delegate.callJson(command, args, onPartial)
+                val kind = args.str("type") ?: "Movie"
+                return page(JsonObject(item("watched-$kind", "已看$kind", kind) +
+                    ("library_ids" to arr(JsonPrimitive("ignored-library")))))
+            }
+        }
+        open(core, Route.Favorites)
+        rule.onNodeWithContentDescription("数据源收藏").assertDoesNotExist()
+        rule.onNodeWithContentDescription("历史已看").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("已看Movie").assertIsDisplayed()
+        rule.onNodeWithText("电影").assertIsDisplayed()
+        rule.onNodeWithTag("favorites.sort").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/browse-ui/watched-movie-light.png")
+        rule.onNodeWithText("电视剧").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("已看Series").assertIsDisplayed()
+        rule.onNodeWithText("已看Movie").assertDoesNotExist()
+        rule.onNodeWithTag("favorites.sort").assertDoesNotExist()
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/browse-ui/watched-series-dark.png")
+        assertEquals(0, delegate.calls.count { it.first == "emby.views" || it.first == "emby.watchHistoryList" })
+        val requests = delegate.calls.filter { it.first == "emby.listWatched" }
+        assertEquals(listOf("Movie", "Series"), requests.map { it.second.str("type") })
+        val current = delegate.calls.first { it.first == "emby.listFavorites" }.second
+        requests.forEach { (_, args) ->
+            assertEquals(current.str("server"), args.str("server"))
+            assertEquals(current.str("user_id"), args.str("user_id"))
+            assertEquals(null, args.str("parent_id"))
+        }
+        rule.onNodeWithText("已看Series").performClick()
+        rule.waitForIdle()
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.waitForIdle()
+        rule.onNodeWithText("已看Series").assertIsDisplayed()
+        assertEquals("Series", delegate.calls.last { it.first == "emby.listWatched" }.second.str("type"))
+    }
+
+    @Test fun watchedRefreshBlocksAppendUntilNewCursorArrives() = refreshBlocksAppend(watched = true)
+
+    @Test fun favoriteRefreshBlocksAppendUntilNewCursorArrives() = refreshBlocksAppend(watched = false)
+
+    @Test fun watchedReturnRefreshBlocksAppendUntilNewCursorArrives() = refreshBlocksAppend(watched = true, returning = true)
+
+    private fun refreshBlocksAppend(watched: Boolean, returning: Boolean = false) {
+        val command = if (watched) "emby.listWatched" else "emby.listFavorites"
+        val core = FakeCore().loggedIn().apply { ret(command, page()) }
+        val release = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var firstPages = 0
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != (if (watched) "emby.listWatched" else "emby.listFavorites"))
+                    return core.callJson(command, args, onPartial)
+                core.callJson(command, args, onPartial)
+                val first = args?.get("start_index").toString() == "0"
+                val id = if (first) {
+                    firstPages++
+                    if (firstPages == 1) "old" else { release.await(); "fresh" }
+                } else "later"
+                return buildJsonObject {
+                    put("items", arr(item(id, id)))
+                    put("next_index", if (id == "old") 60 else if (first) 2 else 3)
+                    put("has_more", first)
+                }
+            }
+        }
+        try {
+            open(port, if (watched) Route.Watched else Route.FavoriteCategory("Movie"))
+            if (returning) {
+                rule.onNodeWithText("old").performClick()
+                rule.waitForIdle()
+                rule.runOnIdle { navigation.popBackStack() }
+                rule.waitForIdle()
+            } else pullDown()
+            assertEquals(2, firstPages)
+            rule.onNodeWithText("加载更多").performClick()
+            rule.waitForIdle()
+            assertEquals("第一页刷新期间不能使用旧游标追加", 2, core.calls.count { it.first == command })
+            release.complete(Unit)
+            rule.waitForIdle()
+            rule.onNodeWithText("old").assertDoesNotExist()
+            rule.onNodeWithText("fresh").assertIsDisplayed()
+            rule.onNodeWithText("加载更多").performClick()
+            rule.waitForIdle()
+            assertEquals("2", core.calls.last { it.first == command }.second?.get("start_index").toString())
+            rule.onNodeWithText("fresh").assertIsDisplayed()
+            rule.onNodeWithText("later").assertIsDisplayed()
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun watchedFilteredEmptyPageKeepsServerCursor() {
+        val delegate = FakeCore().loggedIn().apply { ret("emby.listWatched", page()) }
+        val core = object : CorePort by delegate {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "emby.listWatched") return delegate.callJson(command, args, onPartial)
+                delegate.callJson(command, args, onPartial)
+                val next = args?.get("start_index")?.toString() == "2"
+                return buildJsonObject {
+                    put("items", if (next) arr(item("later", "后页已看电影")) else arr())
+                    put("total", 3); put("next_index", if (next) 3 else 2); put("has_more", !next)
+                }
+            }
+        }
+        open(core, Route.Watched)
+        assertEquals(1, delegate.calls.count { it.first == "emby.listWatched" })
+        rule.onNodeWithText("加载更多").performClick()
+        rule.waitUntil(5000) { delegate.calls.count { it.first == "emby.listWatched" } == 2 }
+        rule.onNodeWithText("后页已看电影").assertIsDisplayed()
+        assertEquals("2", delegate.calls.last { it.first == "emby.listWatched" }.second?.get("start_index").toString())
     }
 
     @Test fun favoritesOverviewHasNoSortAndKeepsSeparateRows() {
@@ -371,7 +488,7 @@ class PhoneBrowseUiTest {
         val core = FakeCore().loggedIn()
         core.ret("emby.listFavorites", page(item("movie", "收藏电影")))
         open(core, Route.FavoriteCategory("Series"))
-        rule.onNodeWithText("还没有收藏电视剧").assertIsDisplayed()
+        rule.onNodeWithText("没有未看完的电视剧收藏").assertIsDisplayed()
         rule.onNodeWithText("还没有收藏任何内容").assertDoesNotExist()
     }
 
@@ -673,10 +790,9 @@ class PhoneBrowseUiTest {
         assertEquals(2, core.calls.count { it.first == "emby.search" })
     }
 
-    @Test fun aggregatePluginPosterLongPressFavoritesItsSource() {
+    @Test fun aggregatePluginPosterHasDetailsWithoutFavorites() {
         val delegate = FakeCore().loggedIn()
         delegate.ret("emby.search", page())
-        delegate.ret("source.setFavorite", JsonObject(emptyMap()))
         val picked = buildJsonObject { put("id", "source-result"); put("title", "插件结果"); put("source", "plugin-origin") }
         val row = buildJsonObject {
             put("server_id", "plugin-row"); put("server_name", "插件服"); put("kind", "plugin"); put("items", arr(picked))
@@ -693,12 +809,8 @@ class PhoneBrowseUiTest {
         rule.waitForIdle()
         rule.onNodeWithText("插件结果").performTouchInput { longClick() }
         rule.onNodeWithText("查看详情").assertIsDisplayed()
-        rule.onNodeWithText("收藏").performClick()
-        rule.waitUntil(5000) { delegate.calls.any { it.first == "source.setFavorite" } }
-        val args = delegate.calls.last { it.first == "source.setFavorite" }.second!!
-        assertEquals("plugin-origin", args.str("server_id"))
-        assertEquals(picked, args["item"])
-        assertEquals("true", args["favorite"].toString())
+        rule.onNodeWithText("收藏").assertDoesNotExist()
+        assertTrue(delegate.calls.none { it.first == "source.setFavorite" })
     }
 
     @Test fun aggregateSearchReturnsWithRowsAndRoutesMenuToOrigin() {

@@ -41,10 +41,12 @@ func TestFavoritesIgnoresLegacyMixedSnapshot(t *testing.T) {
 	bus.Init()
 	args := map[string]any{"server": "source", "user_id": "one", "start_index": 0, "limit": 60}
 	b, _ := json.Marshal(args)
-	legacyKey := identityPrefix(args) + hash("emby.listFavorites|" + string(b))[32:]
-	put(legacyKey, []byte(`{"items":[{"id":"ly-work-1"}],"next_index":1,"has_more":false}`), epoch())
-	if Snapshot("emby.listFavorites", args) != nil {
-		t.Fatal("普通收藏仍读取混有流影的旧快照")
+	for _, version := range []string{"", "|without-liuying"} {
+		legacyKey := identityPrefix(args) + hash("emby.listFavorites" + version + "|" + string(b))[32:]
+		put(legacyKey, []byte(`{"items":[{"id":"old-watched","played":true}],"next_index":1,"has_more":false}`), epoch())
+		if Snapshot("emby.listFavorites", args) != nil {
+			t.Fatal("收藏仍读取旧版全部收藏快照")
+		}
 	}
 	fresh := map[string]any{"items": []any{map[string]any{"id": "movie"}}, "next_index": 2, "has_more": false}
 	_, err := Run(t.Context(), 31, "emby.listFavorites", args, func() (any, error) {
@@ -266,5 +268,31 @@ func TestPrivateSnapshotsPersistWithSpaceIsolation(t *testing.T) {
 	}
 	if Snapshot("emby.itemDetail", args) != nil {
 		t.Fatal("清理后仍有私密快照")
+	}
+}
+
+func TestWatchedSnapshotsSeparateTypeAndIdentity(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	args := map[string]any{"server": "one", "user_id": "user", "type": "Movie", "start_index": 0}
+	value := map[string]any{"items": []any{map[string]any{"id": "film"}}, "next_index": 1, "has_more": true}
+	if _, err := Run(t.Context(), 0, "emby.listWatched", args, func() (any, error) { return value, nil }); err != nil {
+		t.Fatal(err)
+	}
+	if Snapshot("emby.listWatched", args) == nil {
+		t.Fatal("missing watched snapshot")
+	}
+	for _, change := range []struct {
+		key   string
+		value any
+	}{{"server", "two"}, {"user_id", "other"}, {"type", "Series"}, {"start_index", 60}} {
+		old := args[change.key]
+		args[change.key] = change.value
+		if Snapshot("emby.listWatched", args) != nil {
+			t.Fatalf("snapshot leaked across %s", change.key)
+		}
+		args[change.key] = old
+	}
+	if Snapshot("emby.listFavorites", args) != nil {
+		t.Fatal("watched snapshot became favorites")
 	}
 }

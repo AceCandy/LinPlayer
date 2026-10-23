@@ -393,9 +393,10 @@ struct FavoritesView: View {
                     })
                 let page = try value.decode(MediaPage.self)
                 var seen = Set(result.map(\.id)); result += page.items.filter { seen.insert($0.id).inserted }
+                let previous = next
                 next = Int(value["next_index"].number ?? Double(next + page.items.count))
                 hasMore = value["has_more"].bool ?? (!page.items.isEmpty && next < page.total)
-                if page.items.isEmpty { hasMore = false }
+                hasMore = hasMore && next > previous
             } while refresh && hasMore && next < target
             try Task.checkCancellation()
             guard generation == request else { return }

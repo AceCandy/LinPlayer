@@ -194,9 +194,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
         found = runCatching { app.call("source.searchItems", args("server_id" to serverId, "keyword" to q.trim())).obj()?.get("items").arr().mapNotNull { it.obj() } }
     }
     val open: (JsonObject) -> Unit = { nav.navigate(Route.SourceDetail(it.str("source") ?: serverId, it.str("id") ?: "")) }
-    LpScaffold(name, scrolled = rememberScrolled(grid), actions = {
-        LpIconButton(LpIcons.heart, "收藏") { nav.navigate(Route.SourceFavorites) }
-    }, titleContent = if (tv) null else {
+    LpScaffold(name, scrolled = rememberScrolled(grid), titleContent = if (tv) null else {
         {
             var anchorH by remember { mutableIntStateOf(0) }
             Box(Modifier.fillMaxWidth().onSizeChanged { anchorH = it.height }) {
@@ -340,23 +338,19 @@ private val rememberedFilters = HashMap<String, androidx.compose.runtime.snapsho
 
 // ---------------------------------------------------------------- 详情
 
-/** 数据源详情:线路 → 选集;只有一集时只有播放按钮(D463);收藏、换源(D232)。 */
+/** 数据源详情:线路 → 选集;只有一集时只有播放按钮(D463);换源(D232)。 */
 @Composable
 fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
     val r = entry.toRoute<Route.SourceDetail>()
     val app = LocalApp.current
-    val scope = rememberCoroutineScope()
     val list = androidx.compose.foundation.lazy.rememberLazyListState()
     var reload by remember { mutableIntStateOf(0) }
     var d by remember { mutableStateOf<Result<JsonObject>?>(null) }
     var line by remember { mutableStateOf("") }
-    var fav by remember { mutableStateOf(false) }
     var switching by remember { mutableStateOf(false) }
     var autoDone by remember { mutableStateOf(false) }
     LaunchedEffect(reload) {
         d = runCatching { app.call("source.detail", args("server_id" to r.serverId, "item_id" to r.itemId)).obj()!! }
-        fav = runCatching { app.call("source.isFavorite", args("server_id" to r.serverId, "item_id" to r.itemId)) }
-            .getOrNull().let { (it as? JsonPrimitive)?.contentOrNull == "true" || it.obj().bool("favorite") }
         val detail = d?.getOrNull() ?: return@LaunchedEffect
         val lines = linesOf(detail)
         line = r.autoLine?.takeIf { l -> lines.any { it.str("id") == l } }
@@ -394,12 +388,6 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
                             Dim3(listOf(x.yearText(), x.strList("countries").joinToString(" "), x.strList("genres").joinToString(" "), x.str("remarks") ?: "")
                                 .filter { it.isNotEmpty() }.joinToString(" · "), maxLines = 3)
                             Row(horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                                LpButton(if (fav) "已收藏" else "收藏", {
-                                    scope.launch {
-                                        runCatching { app.call("source.setFavorite", j("server_id" to r.serverId, "item" to x, "favorite" to !fav)) }
-                                            .onSuccess { fav = !fav }.onFailure { app.report(it) }
-                                    }
-                                }, kind = BtnKind.Secondary)
                                 LpButton("换源", { switching = true }, kind = BtnKind.Secondary)
                             }
                         }
@@ -519,37 +507,6 @@ internal fun EmbySwitchSource(nav: NavController, itemId: String, onClose: () ->
         }.onFailure { app.report(it); onClose() }
     }
     seed?.let { (server, item, idx) -> SwitchSourceDialog(nav, server, item, "", idx, 0.0, onClose) }
-}
-
-// ---------------------------------------------------------------- 收藏 / 历史(D326 D430 D431 D333)
-
-/** 全部数据源收藏,按来源分组;来源已删的仍显示但点不开。 */
-@Composable
-fun SourceFavoritesPage(nav: NavController) {
-    val app = LocalApp.current
-    val grid = rememberLazyGridState()
-    var block by remember { mutableStateOf<Block<JsonElement>>(Block.Loading) }
-    var reload by remember { mutableIntStateOf(0) }
-    LaunchedEffect(reload) { block = app.block("source.favorites") }
-    LpScaffold("数据源收藏", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(grid)) { pad ->
-        BlockBox(block, { reload++ }) { v ->
-            val groups = v.arr().mapNotNull { it.obj() }
-            if (groups.isEmpty()) EmptyState("还没有收藏", "在数据源的详情页点「收藏」加进来。", LpIcons.heart)
-            else LazyVerticalGrid(GridCells.Adaptive(108.dp), Modifier.fillMaxSize(), grid,
-                contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x10), verticalArrangement = Arrangement.spacedBy(Sp.x16)) {
-                groups.forEach { g ->
-                    val removed = g.bool("removed")
-                    header { H2((g.str("server_name") ?: "") + if (removed) "(已移除)" else "") }
-                    items(g["items"].arr().mapNotNull { it.obj() }) { it ->
-                        SourceCard(it, {
-                            if (removed) app.toast("这个来源已经移除了") else nav.navigate(Route.SourceDetail(g.str("server_id") ?: "", it.str("id") ?: ""))
-                        })
-                    }
-                }
-            }
-        }
-    }
 }
 
 /** 全局观看历史里数据源那部分,给 Emby 历史 / 首页用的横排。 */

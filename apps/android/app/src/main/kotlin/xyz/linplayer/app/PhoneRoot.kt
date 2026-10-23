@@ -245,7 +245,6 @@ private fun MainShell(tv: Boolean) {
         val parts = p.split(":")
         when (parts[0]) {
             "favoritesTab" -> nav.switchTab(Route.Favorites)
-            "srcfav" -> nav.navigate(Route.SourceFavorites)
             "browse" -> nav.navigate(Route.Browse)
             "addServer" -> nav.navigate(Route.AddServer)
             "extensions" -> nav.navigate(Route.Extensions)
@@ -341,8 +340,7 @@ private fun MainShell(tv: Boolean) {
                 posterComposable<Route.Person> { xyz.linplayer.app.ui.pages.PersonPage(nav, it) }
                 posterComposable<Route.Search> { xyz.linplayer.app.ui.plugin.Takeover("search") { SearchPage(nav, it) } }
                 posterComposable<Route.Favorites> { xyz.linplayer.app.ui.plugin.Takeover("favorites") {
-                    val src by app.activeSource.collectAsStateWithLifecycle()
-                    if (src != null) xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) else FavoritesPage(nav)
+                    FavoritesPage(nav)
                 } }
                 posterComposable<Route.FavoriteCategory> {
                     val route = it.toRoute<Route.FavoriteCategory>()
@@ -362,7 +360,7 @@ private fun MainShell(tv: Boolean) {
                 posterComposable<Route.Extensions> { xyz.linplayer.app.ui.pages.ExtensionsPage(nav) }
                 posterComposable<Route.SourceCategory> { xyz.linplayer.app.ui.pages.SourceCategoryPage(nav, it) }
                 posterComposable<Route.SourceDetail> { xyz.linplayer.app.ui.pages.SourceDetailPage(nav, it) }
-                posterComposable<Route.SourceFavorites> { xyz.linplayer.app.ui.pages.SourceFavoritesPage(nav) }
+                posterComposable<Route.Watched> { FavoritesPage(nav, watched = true) }
                 posterComposable<Route.Ranking> { xyz.linplayer.app.ui.plugin.Takeover("ranking") { RankingPage(nav) } }
                 posterComposable<Route.Calendar> { xyz.linplayer.app.ui.plugin.Takeover("calendar") { CalendarPage(nav) } }
                 posterComposable<Route.Settings> { xyz.linplayer.app.ui.plugin.Takeover("settings") { SettingsPage(nav) } }

@@ -17,7 +17,7 @@ import (
 func Test收藏类型由服务端返回(t *testing.T) {
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
-		if q.Get("Filters") != "IsFavorite" || q.Get("Recursive") != "true" {
+		if q.Get("Filters") != "IsFavorite,IsUnplayed" || q.Get("Recursive") != "true" {
 			t.Errorf("收藏范围错误: %v", q)
 		}
 		// MediaStationGo 的收藏查询遇到任何不支持的类型会整体返回空。
@@ -63,7 +63,7 @@ func Test收藏排除流影且保留原始分页(t *testing.T) {
 		{"Id": "movie", "Type": "Movie", "UserData": map[string]any{"IsFavorite": true}},
 	}
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.Method != http.MethodGet || r.URL.Query().Get("Filters") != "IsFavorite" {
+		if r.Method != http.MethodGet || r.URL.Query().Get("Filters") != "IsFavorite,IsUnplayed" {
 			t.Errorf("收藏读取不应改写状态: %s %s", r.Method, r.URL.Path)
 		}
 		start, _ := strconv.Atoi(r.URL.Query().Get("StartIndex"))
@@ -118,7 +118,7 @@ func Test收藏单页短页不提前结束且屏蔽不改变游标(t *testing.T)
 	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		calls++
 		q := r.URL.Query()
-		if q.Get("Filters") != "IsFavorite" || q.Get("SortBy") != "DateLastContentAdded" || q.Get("SortOrder") != "Descending" || q.Get("Limit") != "60" || q.Get("StartIndex") != "1999" {
+		if q.Get("Filters") != "IsFavorite,IsUnplayed" || q.Get("SortBy") != "DateLastContentAdded" || q.Get("SortOrder") != "Descending" || q.Get("Limit") != "60" || q.Get("StartIndex") != "1999" {
 			t.Errorf("分页排序契约错误: %v", q)
 		}
 		json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{{"Id": "blocked"}, {"Id": "visible"}}, "TotalRecordCount": 3000})
@@ -163,4 +163,25 @@ func Test收藏首屏受控对照(t *testing.T) {
 		t.Fatalf("请求预算或后续分页丢失: old=%d new=%d page=%+v", oldCalls, newCalls, p)
 	}
 	t.Logf("受控同进程/同上游/3000条/每请求40ms:旧首屏 %v/%d次,新首屏 %v/%d次;后续仍可分页", oldTime, oldCalls, newTime, newCalls)
+}
+
+func TestFavoritesHideCompletedWithoutChangingCursor(t *testing.T) {
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_ = json.NewEncoder(w).Encode(map[string]any{"Items": []map[string]any{
+			{"Id": "done", "Type": "Movie", "UserData": map[string]any{"Played": true}},
+			{"Id": "partial", "Type": "Movie", "UserData": map[string]any{"Played": false, "PlaybackPositionTicks": 100}},
+			{"Id": "series-done", "Type": "Series", "UserData": map[string]any{"Played": false, "UnplayedItemCount": 0}},
+			{"Id": "new-episode", "Type": "Series", "UserData": map[string]any{"Played": true, "UnplayedItemCount": 1}},
+			{"Id": "unknown", "Type": "Series", "UserData": map[string]any{"Played": false}},
+		}, "TotalRecordCount": 6})
+	}))
+	defer up.Close()
+	c, s := NewClient("test"), &Session{Server: up.URL, UserID: "u"}
+	p, err := c.FavoritesPage(t.Context(), s, 0, 60, "", "", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(p.Items) != 3 || p.Items[0].ID != "partial" || p.Items[1].ID != "new-episode" || p.Items[2].ID != "unknown" || p.NextIndex != 5 || !p.HasMore {
+		t.Fatalf("completed filter/cursor: %+v", p)
+	}
 }

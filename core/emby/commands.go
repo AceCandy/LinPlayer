@@ -124,6 +124,10 @@ func RegisterCommands(version string) {
 		}
 		return v, nil
 	})
+	list("emby.listWatched", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
+		return defaultClient.WatchedPage(ctx, s, str(a, "type"), intArg(a, "start_index", 0), intArg(a, "limit", 60),
+			str(a, "sort"), str(a, "sort_by"), str(a, "sort_order"))
+	})
 	list("emby.listCollections", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		return defaultClient.Collections(ctx, s)
 	})

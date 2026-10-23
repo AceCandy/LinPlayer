@@ -37,7 +37,7 @@ var commands = map[string]bool{}
 
 func init() {
 	commands["source.aggregateSearch"] = true
-	for _, name := range []string{"extRankings", "extRankingItems", "extCalendar", "views", "listLatest", "listResume", "listNextUp", "listFavorites", "listCollections",
+	for _, name := range []string{"extRankings", "extRankingItems", "extCalendar", "views", "listLatest", "listResume", "listNextUp", "listFavorites", "listWatched", "listCollections",
 		"collectionItems", "listItemsPage", "itemDetail", "seriesSeasons", "seasonEpisodes", "listItems", "listRandom",
 		"getFilters", "search", "similarItems", "personDetail", "personItems", "personItemsPage", "counts", "aggregateOverview", "aggregateSearch"} {
 		commands["emby."+name] = true
@@ -82,7 +82,7 @@ func key(command string, args map[string]any) string {
 	b, _ := json.Marshal(a)
 	if command == "emby.listFavorites" {
 		// 普通收藏已隔离流影，不再回显旧版混合快照。
-		command += "|without-liuying"
+		command += "|without-liuying|unplayed"
 	}
 	return identityPrefix(args) + hash(command + "|" + string(b))[32:]
 }

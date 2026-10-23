@@ -30,6 +30,7 @@ enum LinPlayerCommandNames {
         "emby.listCollections",
         "emby.collectionItems",
         "emby.listFavorites",
+        "emby.listWatched",
         "emby.listItems",
         "emby.listItemsPage",
         "emby.listLatest",
@@ -180,9 +181,6 @@ enum LinPlayerCommandNames {
         "source.aggregateSearch",
         "source.switchCandidates",
         "source.checkAll",
-        "source.setFavorite",
-        "source.isFavorite",
-        "source.favorites",
         "source.history",
         "source.linkSwitch",
         "danmaku.resolve",
@@ -409,6 +407,9 @@ extension LinPlayerCommands {
     }
     func embyListFavorites(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.listFavorites", args)
+    }
+    func embyListWatched(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("emby.listWatched", args)
     }
     func embyListItems(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("emby.listItems", args)
@@ -862,15 +863,6 @@ extension LinPlayerCommands {
     }
     func sourceCheckAll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("source.checkAll", args)
-    }
-    func sourceSetFavorite(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.setFavorite", args)
-    }
-    func sourceIsFavorite(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.isFavorite", args)
-    }
-    func sourceFavorites(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.favorites", args)
     }
     func sourceHistory(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("source.history", args)

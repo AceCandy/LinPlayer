@@ -59,6 +59,7 @@ public static class LinPlayerCommandNames
         "emby.listCollections",
         "emby.collectionItems",
         "emby.listFavorites",
+        "emby.listWatched",
         "emby.listItems",
         "emby.listItemsPage",
         "emby.listLatest",
@@ -209,9 +210,6 @@ public static class LinPlayerCommandNames
         "source.aggregateSearch",
         "source.switchCandidates",
         "source.checkAll",
-        "source.setFavorite",
-        "source.isFavorite",
-        "source.favorites",
         "source.history",
         "source.linkSwitch",
         "danmaku.resolve",
@@ -379,7 +377,7 @@ public static class LinPlayerCommandNames
 
 public static class LinPlayerCommandsExtensions
 {
-    // ---- Emby 浏览与详情 · emby.* (55 条) ----
+    // ---- Emby 浏览与详情 · emby.* (56 条) ----
     public static Task<JsonElement> EmbyAggregateOverview(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.aggregateOverview", args, ct);
     public static Task<JsonElement> EmbyAggregateSearch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -420,6 +418,8 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("emby.collectionItems", args, ct);
     public static Task<JsonElement> EmbyListFavorites(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.listFavorites", args, ct);
+    public static Task<JsonElement> EmbyListWatched(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
+        => c.CallAsync("emby.listWatched", args, ct);
     public static Task<JsonElement> EmbyListItems(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("emby.listItems", args, ct);
     public static Task<JsonElement> EmbyListItemsPage(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -675,7 +675,7 @@ public static class LinPlayerCommandsExtensions
     public static Task<JsonElement> PlayerWindowOpen(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("player.windowOpen", args, ct);
 
-    // ---- 媒体源与数据源 · source.* (30 条) ----
+    // ---- 媒体源与数据源 · source.* (27 条) ----
     public static Task<JsonElement> SourceCurrentSource(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("source.currentSource", args, ct);
     public static Task<JsonElement> SourceListDir(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
@@ -726,12 +726,6 @@ public static class LinPlayerCommandsExtensions
         => c.CallAsync("source.switchCandidates", args, ct);
     public static Task<JsonElement> SourceCheckAll(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("source.checkAll", args, ct);
-    public static Task<JsonElement> SourceSetFavorite(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
-        => c.CallAsync("source.setFavorite", args, ct);
-    public static Task<JsonElement> SourceIsFavorite(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
-        => c.CallAsync("source.isFavorite", args, ct);
-    public static Task<JsonElement> SourceFavorites(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
-        => c.CallAsync("source.favorites", args, ct);
     public static Task<JsonElement> SourceHistory(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)
         => c.CallAsync("source.history", args, ct);
     public static Task<JsonElement> SourceLinkSwitch(this ILinPlayerCommands c, object? args = null, CancellationToken ct = default)

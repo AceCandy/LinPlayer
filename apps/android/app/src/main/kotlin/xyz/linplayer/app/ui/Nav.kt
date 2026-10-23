@@ -21,6 +21,8 @@ object Route {
     @Serializable data class Person(val personId: String, val name: String)
     @Serializable data class Search(val viewId: String? = null, val q: String? = null) // U1.7
     @Serializable data object Favorites                                       // U1.9a · Tab 2
+    /** 当前服务器已看完的电影与电视剧。 */
+    @Serializable data object Watched
     /** 收藏库内网格；无 libraryId 时按兼容媒体类型显示。 */
     @Serializable data class FavoriteCategory(val type: String? = null, val libraryId: String? = null, val title: String? = null)
     /** 全局观看历史(SPEC 8.7)。本地库,跨服续播靠它 —— 和「全部收藏」是一对。 */
@@ -49,7 +51,6 @@ object Route {
         val serverId: String, val itemId: String,
         val autoLine: String? = null, val autoEp: String? = null, val autoPos: Double = 0.0, val autoIndex: Int = 0,
     )
-    @Serializable data object SourceFavorites
     @Serializable data object Ranking                                         // U1.14a
     @Serializable data object Calendar                                        // U1.14b
     /** 聚合页下的双网页入口。 */

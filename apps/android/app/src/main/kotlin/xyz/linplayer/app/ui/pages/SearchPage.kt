@@ -276,11 +276,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                             val onOpen = { nav.navigate(Route.SourceDetail(sourceId, it.str("id") ?: "")) }
                                             SourceCard(it, onOpen, Modifier.width(108.dp), menu = listOf(
                                                 xyz.linplayer.app.ui.components.CardAction("查看详情", onClick = onOpen),
-                                                xyz.linplayer.app.ui.components.CardAction("收藏") { scope.launch {
-                                                    runCatching { app.call("source.setFavorite", args("server_id" to sourceId, "item" to it, "favorite" to true)) }
-                                                        .onSuccess { app.toast("已加入收藏", xyz.linplayer.app.data.ToastKind.Ok) }
-                                                        .onFailure { app.report(it) }
-                                                } },
                                             ))
                                         }
                                     }

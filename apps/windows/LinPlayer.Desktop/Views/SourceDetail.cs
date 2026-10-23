@@ -157,40 +157,10 @@ public sealed class SourceDetailPage : PageBase
         var play = new Button { Classes = { "primary" }, Content = "▶ 播放", IsEnabled = eps.Count > 0 };
         play.Click += (_, _) => { if (eps.Count > 0) Play(_line, eps[0], 0); };
         row.Children.Add(play);
-        var fav = new Button { Classes = { "ghost" }, Content = "☆ 收藏" };
-        _ = SyncFav(fav);
-        fav.Click += async (_, _) =>
-        {
-            var want = !fav.Classes.Contains("on");
-            try
-            {
-                await _core.SourceSetFavorite(new { server_id = _server, item = _d, favorite = want });
-                SetFav(fav, want);
-                Toast.Show(want ? "已收藏" : "已取消收藏");
-            }
-            catch (Exception e) { Toast.Error("收藏失败:" + LibraryPage.Advice(e)); }
-        };
-        row.Children.Add(fav);
         var sw = new Button { Classes = { "ghost" }, Content = "⇄ 换源" };
         sw.Click += (_, _) => OpenSwitch(0);
         row.Children.Add(sw);
         return row;
-    }
-
-    private async Task SyncFav(Button b)
-    {
-        try
-        {
-            var r = await _core.SourceIsFavorite(new { server_id = _server, item_id = _itemId });
-            Dispatcher.UIThread.Post(() => SetFav(b, r.ValueKind == JsonValueKind.True));
-        }
-        catch (Exception e) { Log.W("source", "查收藏状态失败: " + e.Message); }
-    }
-
-    private static void SetFav(Button b, bool on)
-    {
-        b.Classes.Set("on", on);
-        b.Content = on ? "★ 已收藏" : "☆ 收藏";
     }
 
     private Control LineTabs(List<JsonElement> lines)

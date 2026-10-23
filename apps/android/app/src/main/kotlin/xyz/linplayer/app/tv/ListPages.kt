@@ -86,13 +86,12 @@ fun FavoritesPage() {
     val overlay = rememberOverlay()
     val t = tvType
     val session = app.session.collectAsStateWithLifecycle().value
-    val server = "${session?.server}.${session?.userId}"
+    var watchedType by keepState<String?>("tv.fav.mode.${session?.server}.${session?.userId}") { null }
+    val server = "${session?.server}.${session?.userId}.${watchedType ?: "unplayed"}"
     var by by keepState("tv.fav.by") { 0 }
     var asc by keepState("tv.fav.asc") { false }
     val userRevision by app.userStateRevision.collectAsStateWithLifecycle()
     var block by keepState<Block<List<Item>>>("tv.fav.$server") { Block.Loading }
-    // 数据源收藏按来源分组(D326 D333),和 Emby 收藏同页 —— 用户记的是「我收藏过」,不是「我在哪台收藏过」
-    var srcFavs by remember { mutableStateOf<List<kotlinx.serialization.json.JsonObject>>(emptyList()) }
     var reload by remember { mutableIntStateOf(0) }
     var nextIndex by remember(server) { mutableIntStateOf(0) }
     var hasMore by remember(server) { mutableStateOf(false) }
@@ -107,7 +106,7 @@ fun FavoritesPage() {
         var cursor = offset
         var pendingMore = false
         do {
-            val r = app.displayBlock("emby.listFavorites", args("sort_by" to FavBy[by].first,
+            val r = app.displayBlock(if (watchedType == null) "emby.listFavorites" else "emby.listWatched", args("type" to (watchedType ?: ""), "sort_by" to FavBy[by].first,
                 "sort_order" to if (asc) "asc" else "desc", "start_index" to cursor, "limit" to 60),
                 retainOnFailure = false) { value ->
                 if (gen == generation && block !is Block.Ok) block = Block.Ok(Page.from(value).items)
@@ -118,7 +117,7 @@ fun FavoritesPage() {
                     val page = Page.from(r.value)
                     refreshed += page.items
                     val next = r.value.obj().long("next_index")?.toInt() ?: cursor + page.items.size
-                    pendingMore = r.value.obj().bool("has_more") && next > cursor && page.items.isNotEmpty()
+                    pendingMore = r.value.obj().bool("has_more") && next > cursor
                     cursor = next
                 }
                 is Block.Fail -> {
@@ -128,7 +127,7 @@ fun FavoritesPage() {
                 }
                 else -> return
             }
-        } while (pendingMore && refreshed.size < refreshCount)
+        } while (pendingMore && cursor < offset + refreshCount)
         block = Block.Ok((prefix + refreshed).distinctBy { it.id })
         nextIndex = cursor; hasMore = pendingMore; moreFailed = false; refreshFailed = false
     }
@@ -138,44 +137,48 @@ fun FavoritesPage() {
         loadingMore = true
         val gen = generation
         scope.launch {
-            try { if (refreshFailed) fetch(0, maxOf(60, block.valueOrNull?.size ?: 0)) else fetch(nextIndex) }
+            try { if (refreshFailed) fetch(0, maxOf(60, nextIndex)) else fetch(nextIndex) }
             finally { if (gen == generation) loadingMore = false }
         }
     }
     LaunchedEffect(server, by, asc, reload, userRevision) {
         generation++; loadingMore = false; moreFailed = false; refreshFailed = false
-        val count = maxOf(60, block.valueOrNull?.size ?: 0)
+        val count = maxOf(60, nextIndex)
         fetch(0, count)
-    }
-    LaunchedEffect(reload) {
-        if (!app.privateSpace.value)
-            srcFavs = runCatching { app.call("source.favorites") }.getOrNull().arr().mapNotNull { it.obj() }
     }
     val cond = FavBy[by].second + if (by == 0) " ↓" else if (asc) " ↑" else " ↓"
 
     Box(Modifier.fillMaxSize()) {
         Column(Modifier.contentArea()) {
+            Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+                if (watchedType == null) EntryChip("历史已看", LpIcons.check, onClick = { watchedType = "Movie" })
+                else {
+                    EntryChip("返回收藏", LpIcons.heart, onClick = { watchedType = null })
+                    EntryChip("电影", LpIcons.check, onClick = { watchedType = "Movie" })
+                    EntryChip("电视剧", LpIcons.check, onClick = { watchedType = "Series" })
+                }
+            }
             when (val b = block) {
                 is Block.Loading -> {
-                    PageHead("收藏")
+                    PageHead(if (watchedType == null) "收藏" else "历史已看")
                     Spacer(Modifier.height(TvSp.x16))
                     Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) { repeat(6) { Skel(Modifier.size(124.dp, 186.dp)) } }
                 }
                 // 失败 FullState + 重试:旧实现失败时永远停在骨架上
                 is Block.Fail -> FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试"), tone = TvC.bad,
                     onButton = { reload++ })
-                is Block.Ok -> if (b.value.isEmpty() && srcFavs.isEmpty() && !hasMore) FullState(LpIcons.heart, "还没有收藏", sub = "在详情页按收藏,之后会出现在这里",
+                is Block.Ok -> if (b.value.isEmpty() && !hasMore) FullState(LpIcons.heart, if (watchedType == null) "没有未看完的收藏" else "暂无已看完的作品", sub = "仅显示当前服务器的内容",
                     buttons = listOf("去媒体库看看"), onButton = { nav.rail(TvRoute.Library()) })
                 else {
                     val eps = b.value.filter { it.isEpisode }
                     val rest = b.value.filterNot { it.isEpisode }
                     val menu: (Item) -> Unit = { item ->
                         overlay.openCardMenu(app, nav, scope, item) { tag ->
-                            if (tag == "unfav" || tag == "blocked") block = Block.Ok(b.value.filterNot { it.id == item.id })
+                            if ((tag == "unfav" && watchedType == null) || tag == "blocked")
+                                block = Block.Ok(b.value.filterNot { it.id == item.id })
                         }
                     }
-                    val srcCount = srcFavs.sumOf { it["items"].arr().size }
-                    PageHead("收藏", count = "${b.value.size + srcCount} 项")
+                    PageHead(if (watchedType == null) "收藏" else "历史已看", count = "${b.value.size} 项")
                     Spacer(Modifier.height(TvSp.x8))
                     Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
                         EntryChip("排序", LpIcons.sort, cond, modifier = Modifier.memo("fav.sort"), onClick = {
@@ -202,7 +205,7 @@ fun FavoritesPage() {
                             }
                         }
                         if (rest.isNotEmpty()) {
-                            item("ph") { Box(Modifier.padding(top = if (eps.isEmpty()) 0.dp else TvSp.x16, bottom = TvSp.x8)) { RowTitle("剧集与电影", trailing = "${rest.size} 项") } }
+                            item("ph") { Box(Modifier.padding(top = if (eps.isEmpty()) 0.dp else TvSp.x16, bottom = TvSp.x8)) { RowTitle(when (watchedType) { "Movie" -> "电影"; "Series" -> "电视剧"; else -> "剧集与电影" }, trailing = "${rest.size} 项") } }
                             rest.chunked(6).forEachIndexed { ri, row ->
                                 item("p$ri") {
                                     Row(Modifier.padding(bottom = TvSp.x12), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
@@ -214,36 +217,12 @@ fun FavoritesPage() {
                                 }
                             }
                         }
-                        srcFavs.forEach { g ->
-                            val sid = g.str("server_id") ?: ""
-                            val removed = g.bool("removed")
-                            val its = g["items"].arr().mapNotNull { it.obj() }
-                            if (its.isEmpty()) return@forEach
-                            item("sh:$sid") {
-                                Box(Modifier.padding(top = TvSp.x16, bottom = TvSp.x8)) {
-                                    RowTitle((g.str("server_name") ?: sid) + if (removed) "(已移除)" else "", trailing = "${its.size} 项")
-                                }
-                            }
-                            its.chunked(6).forEachIndexed { ri, row ->
-                                item("s:$sid:$ri") {
-                                    Row(Modifier.padding(bottom = TvSp.x12), horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                                        row.forEach { it ->
-                                            // 来源已移除的仍然显示但点不开(D333):藏起来用户会以为收藏丢了
-                                            SourcePoster(it, "fav.s.$sid.${it.str("id")}") {
-                                                if (removed) app.toast("这个来源已经移除了")
-                                                else nav.push(TvRoute.SourceDetail(sid, it.str("id") ?: ""))
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-                        }
                         item("end") {
                             if (hasMore || refreshFailed) {
-                                if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                                if (!moreFailed && b.value.isNotEmpty()) LaunchedEffect(nextIndex) { loadMore() }
                                 PanelItem(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
                                     onClick = { loadMore() }, enabled = !loadingMore)
-                            } else TvText("已经到底了 · 共 ${b.value.size + srcCount} 项", t.meta, TvC.fg3, Modifier.padding(vertical = TvSp.x12))
+                            } else TvText("已经到底了 · 共 ${b.value.size} 项", t.meta, TvC.fg3, Modifier.padding(vertical = TvSp.x12))
                         }
                     }
                 }

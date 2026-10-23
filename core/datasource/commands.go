@@ -21,9 +21,6 @@ func RegisterCommands(version string) {
 	bus.Register("source.aggregateSearch", cmdAggregateSearch)
 	bus.Register("source.switchCandidates", cmdSwitchCandidates)
 	bus.Register("source.checkAll", cmdCheckAll)
-	bus.Register("source.setFavorite", cmdSetFavorite)
-	bus.Register("source.isFavorite", cmdIsFavorite)
-	bus.Register("source.favorites", cmdFavorites)
 	bus.Register("source.history", cmdHistory)
 	bus.Register("source.linkSwitch", cmdLinkSwitch)
 }

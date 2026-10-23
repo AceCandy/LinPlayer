@@ -6,7 +6,6 @@ import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import xyz.linplayer.app.data.str
@@ -290,6 +289,43 @@ class TvFocusTest {
         assertEquals(listOf(0L, 2000L), offsets)
         rule.onNode(hasText("首批收藏")).assertExists()
         rule.onNode(hasText("后续收藏")).assertExists()
+    }
+
+    @Test fun watchedRemainsReachableFromEmptyFavoritesAndSwitchesType() {
+        mount(TvRoute.Favorites) {
+            ret("emby.listFavorites", page())
+            on("emby.listWatched") { args ->
+                val kind = args.str("type")!!
+                page(item("watched-$kind", "已看$kind", kind))
+            }
+        }
+        rule.onNode(hasText("历史已看")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        advance(rule, 800)
+        rule.onNode(hasText("已看Movie")).assertExists()
+        rule.onNode(hasText("电视剧")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        advance(rule, 800)
+        rule.onNode(hasText("已看Series")).assertExists()
+        rule.onNode(hasText("已看Movie")).assertDoesNotExist()
+        assertEquals(listOf("Movie", "Series"), core.calls.filter { it.first == "emby.listWatched" }.map { it.second.str("type") })
+    }
+
+    @Test fun filteredEmptyFavoritePageCanContinueWithoutUnboundedPrefetch() {
+        mount(TvRoute.Favorites) {
+            on("emby.listFavorites") { args ->
+                val offset = args.long("start_index") ?: 0
+                buildJsonObject {
+                    put("items", arr()); put("total", 100000)
+                    put("next_index", offset + 60); put("has_more", true)
+                }
+            }
+        }
+        assertEquals(1, core.calls.count { it.first == "emby.listFavorites" })
+        rule.onNode(hasText("加载更多")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        advance(rule, 800)
+        assertEquals(listOf(0L, 60L), core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") })
     }
 
     @Test fun 不支持条件筛选时保留排序并说明原因() {

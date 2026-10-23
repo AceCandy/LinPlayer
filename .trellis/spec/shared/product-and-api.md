@@ -44,7 +44,7 @@
 - 优先闭环登录、媒体库 / 继续观看、详情 / 季 / 分集、图片、PlaybackInfo / 媒体流、字幕 / 音轨、Sessions 播放开始 / 进度 / 停止,以及已看与收藏状态。客户端字段解析与播放决策须依据服务端实际返回。
 - 服务端暂缺的接口先列出差距与客户端降级方案;不擅自修改 MediaStationGo 或引入虚构端点。参考项目路径不可用时,说明无法核实的部分,不要以一般 Emby 知识替代验证。
 - 媒体库网格按 `ParentId` 浏览直属内容（`Recursive=false`），不固定 `IncludeItemTypes`，也不按库名或 `CollectionType` 猜测查询类型；内容类型与层级以服务器返回为准，避免电影库被误查成剧集列表或剧集库展开成散装分集。分页、排序与用户条件筛选仍沿用同一查询范围。
-- 收藏查询保留 `Filters=IsFavorite&Recursive=true`，不固定 `IncludeItemTypes`；分页与全量入口一致，由服务端返回支持的收藏类型，避免混入不支持的类型导致整页为空。
+- 收藏查询使用 `Filters=IsFavorite,IsUnplayed&Recursive=true`，不固定 `IncludeItemTypes`；分页与全量入口一致，由服务端返回支持的收藏类型，避免混入不支持的类型导致整页为空。
 - 涉及 API 行为的修改,需要契约回归和与 MediaStationGo 的真实联调。使用脱敏数据;mock / 单测、编译和出包通过不能替代实际登录、浏览、起播、拖动进度、续播、换集与上报验证。
 
 - `/Users/{user}/Items` 列表返回404时可回退同服务器、同前缀的 `/Items?UserId=...`；原ParentId、类型、Fields、排序和分页参数全部保留，两次请求均鉴权并使用同一context。401/403/5xx、取消、成功空结果不触发回退，条目详情路径不改写，替代请求失败保留其真实错误。`items_route_test.go`覆盖前缀、查询、分页、鉴权、失败与取消。基准为MediaStationGo fa61d42当前工作树的同一Items handler；未验证问题服务器，不能将mock通过当成实服404已解决。
@@ -70,8 +70,19 @@ MSG 标准 Emby 返回对所有播放器一致，不按客户端名称或 UA 隐
 
 1. **范围**：普通收藏与流影收藏独立展示，不能因首页已隐藏流影库就假定跨库收藏也隔离。
 2. **入口**：`emby.listFavorites` 的分页和全量结果均复用 `withoutLiuYing`；流影仍用 `emby.extLiuYingItems(favorite=true)`，不改收藏写入。
-3. **契约**：排除 `LibraryType=liuying` 或 `ly-work-` ID；`next_index/has_more/total` 保留服务端原始分页语义，total不是过滤后的精确数量。普通收藏缓存键使用 `|without-liuying` 后缀隔离旧混合快照。
+3. **契约**：排除 `LibraryType=liuying` 或 `ly-work-` ID；`next_index/has_more/total` 保留服务端原始分页语义，total不是过滤后的精确数量。普通收藏缓存键使用 `|without-liuying|unplayed` 后缀隔离旧混合快照。
 4. **校验与错误**：请求错误照常返回；过滤空页但 `has_more=true` 时仍允许续页，不伪装成全部为空，不删除或迁移收藏数据。
 5. **案例**：混合页只显示普通收藏；纯流影页可继续读取后续普通收藏；流影专用查询仍保留流影项与收藏状态。
 6. **测试**：`Test收藏排除流影且保留原始分页` 覆盖两类身份、状态与分页/全量；`TestFavoritesIgnoresLegacyMixedSnapshot` 验证旧快照不读取、不发partial且新快照可保存；`TestLiuYingExtensionLibraryOnlyContract` 验证专用收藏返回。
 7. **反例与正例**：只在界面删卡片、用过滤后数量推进游标或继续回显旧缓存均不完整；正确做法是核心统一过滤、保留原始游标，并隔离旧展示缓存。
+
+
+### 未看完收藏与历史已看
+
+1. 范围：普通 Emby 收藏只显示未看完，历史已看固定当前服务器/当前账号，跨媒体库但不跨服；流影收藏独立不变。
+2. 签名：`emby.listFavorites` 保留数组/分页双契约；`emby.listWatched(type, start_index?, limit?, sort?, sort_by?, sort_order?, is_adult?)` 返回 `{items,total,next_index,has_more}`，type 仅 Movie/Series。
+3. 契约：收藏 Filters=IsFavorite,IsUnplayed；已看 Filters=IsPlayed + IncludeItemTypes，不设 ParentId。Series 明确未看集数优先于 Played，缺统计不按默认零推导完成。完成后不写取消收藏，新增未看集后实时刷新恢复未看完。
+4. 校验与错误：非法类型 E_INVALID 且不出网；原始游标在屏蔽/流影/状态复筛前计算，过滤空页不表示末页。缓存按命令/类型/页/身份隔离，收藏新后缀不读取旧全部收藏快照。
+5. 案例：半看电影留收藏；当前上线集全看完的剧进入已看，新集后退出；未收藏的已看作品同样显示。源收藏三条命令与各端入口已移除，source.history 与播放保留，旧本地收藏文件不自动删除或转为已看。
+6. 测试：`TestFavoritesHideCompletedWithoutChangingCursor`、`TestWatchedPageCurrentUserTypeAndNewEpisode`、`TestFavoritesIgnoresLegacyMixedSnapshot`、`TestWatchedSnapshotsSeparateTypeAndIdentity`；手机 `watchedEntryUsesCurrentServerAndOnlyMovieSeriesCategories`、`watchedFilteredEmptyPageKeepsServerCursor`。真实服务器新增集后的更新仍需联调。
+7. 正反例：不能将本地播放历史改名作为全部已看，不能给普通 Items 传 IsPlayed=false 代替 Filters；应使用服务端筛选后分页，再按可信状态复筛。服务端基准为 MediaStationGo 4097a299 工作树，未修改该仓。

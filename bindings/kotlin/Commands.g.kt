@@ -49,6 +49,7 @@ object LinPlayerCommandNames {
         "emby.listCollections",
         "emby.collectionItems",
         "emby.listFavorites",
+        "emby.listWatched",
         "emby.listItems",
         "emby.listItemsPage",
         "emby.listLatest",
@@ -199,9 +200,6 @@ object LinPlayerCommandNames {
         "source.aggregateSearch",
         "source.switchCandidates",
         "source.checkAll",
-        "source.setFavorite",
-        "source.isFavorite",
-        "source.favorites",
         "source.history",
         "source.linkSwitch",
         "danmaku.resolve",
@@ -367,7 +365,7 @@ object LinPlayerCommandNames {
     )
 }
 
-// ---- Emby 浏览与详情 · emby.* (55 条) ----
+// ---- Emby 浏览与详情 · emby.* (56 条) ----
 suspend fun LinPlayerCommands.embyAggregateOverview(args: Map<String, Any?>? = null): JsonElement =
     call("emby.aggregateOverview", args)
 suspend fun LinPlayerCommands.embyAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
@@ -408,6 +406,8 @@ suspend fun LinPlayerCommands.embyCollectionItems(args: Map<String, Any?>? = nul
     call("emby.collectionItems", args)
 suspend fun LinPlayerCommands.embyListFavorites(args: Map<String, Any?>? = null): JsonElement =
     call("emby.listFavorites", args)
+suspend fun LinPlayerCommands.embyListWatched(args: Map<String, Any?>? = null): JsonElement =
+    call("emby.listWatched", args)
 suspend fun LinPlayerCommands.embyListItems(args: Map<String, Any?>? = null): JsonElement =
     call("emby.listItems", args)
 suspend fun LinPlayerCommands.embyListItemsPage(args: Map<String, Any?>? = null): JsonElement =
@@ -663,7 +663,7 @@ suspend fun LinPlayerCommands.playerWindowClose(args: Map<String, Any?>? = null)
 suspend fun LinPlayerCommands.playerWindowOpen(args: Map<String, Any?>? = null): JsonElement =
     call("player.windowOpen", args)
 
-// ---- 媒体源与数据源 · source.* (30 条) ----
+// ---- 媒体源与数据源 · source.* (27 条) ----
 suspend fun LinPlayerCommands.sourceCurrentSource(args: Map<String, Any?>? = null): JsonElement =
     call("source.currentSource", args)
 suspend fun LinPlayerCommands.sourceListDir(args: Map<String, Any?>? = null): JsonElement =
@@ -714,12 +714,6 @@ suspend fun LinPlayerCommands.sourceSwitchCandidates(args: Map<String, Any?>? = 
     call("source.switchCandidates", args)
 suspend fun LinPlayerCommands.sourceCheckAll(args: Map<String, Any?>? = null): JsonElement =
     call("source.checkAll", args)
-suspend fun LinPlayerCommands.sourceSetFavorite(args: Map<String, Any?>? = null): JsonElement =
-    call("source.setFavorite", args)
-suspend fun LinPlayerCommands.sourceIsFavorite(args: Map<String, Any?>? = null): JsonElement =
-    call("source.isFavorite", args)
-suspend fun LinPlayerCommands.sourceFavorites(args: Map<String, Any?>? = null): JsonElement =
-    call("source.favorites", args)
 suspend fun LinPlayerCommands.sourceHistory(args: Map<String, Any?>? = null): JsonElement =
     call("source.history", args)
 suspend fun LinPlayerCommands.sourceLinkSwitch(args: Map<String, Any?>? = null): JsonElement =

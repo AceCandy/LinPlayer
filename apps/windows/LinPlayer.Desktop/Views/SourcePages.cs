@@ -164,28 +164,6 @@ internal static class SourceNav
         return new StackPanel { Spacing = 14, Children = { new TextBlock { Text = "数据源", Classes = { "h2" } }, row } };
     }
 
-    /// <summary>数据源收藏,按来源分组(D326 D333)。</summary>
-    public static async Task<Control?> FavoritesSection(CoreClient core, string serverId = "")
-    {
-        var groups = Mi.ArrOf(await core.SourceFavorites(new { server_id = serverId }));
-        if (groups.Count == 0) return null;
-        var col = new StackPanel { Spacing = 26 };
-        foreach (var g in groups)
-        {
-            var srv = Mi.Str(g, "server_id");
-            var removed = g.TryGetProperty("removed", out var rm) && rm.ValueKind == JsonValueKind.True;
-            var grid = new WrapPanel { ItemSpacing = 18, LineSpacing = 26 };
-            foreach (var it in Mi.Arr(g, "items"))
-                grid.Children.Add(new SourceCard(core, it, removed ? _ => Toast.Show("这个来源已经移除了") : OpenDetail(core, srv)));
-            col.Children.Add(new StackPanel
-            {
-                Spacing = 14,
-                Children = { new TextBlock { Text = Mi.Str(g, "server_name") + (removed ? "(已移除)" : ""), Classes = { "h2" } }, grid },
-            });
-        }
-        return col;
-    }
-
     /// <summary>错误文案 + 动作(D323):限流给倒计时、需要验证给[去验证]、站点挂了给[换源]。</summary>
     public static Control ErrorBlock(CoreClient core, string serverId, Exception e, Func<Task> retry, Action? switchSource = null)
     {
@@ -568,25 +546,5 @@ public static class PluginSources
         var body = new StackPanel { Spacing = 10, Width = 420, Children = { all, new ScrollViewer { MaxHeight = 420, Content = list } } };
         if (!await Dialogs.Show(anchor, title, body, "添加", "取消")) return [];
         return boxes.Where(b => b.Box.IsChecked == true && b.Box.IsEnabled).Select(b => b.Id).ToList();
-    }
-}
-
-/// <summary>当前是插件数据源时的「收藏」:全部数据源的收藏(Emby 收藏要先切到那台服务器)。</summary>
-public sealed class SourceFavoritesPage : PageBase
-{
-    public SourceFavoritesPage(CoreClient core)
-    {
-        var body = new StackPanel { Spacing = 14, Children = { H1("收藏"), Skeleton.Grid(false, 8) } };
-        Content = Scrolled(body);
-        _ = Load();
-        // 在 UI 线程上 await:区块里的控件是 await 之后才建的
-        async Task Load()
-        {
-            Control c;
-            try { c = await SourceNav.FavoritesSection(core) ?? Dim("还没有收藏。在详情页点「收藏」加进来。"); }
-            catch (Exception e) { c = Dim(LibraryPage.Advice(e)); }
-            body.Children.RemoveAt(1);
-            body.Children.Add(c);
-        }
     }
 }

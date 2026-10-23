@@ -133,7 +133,7 @@ sealed class Upstream : IDisposable {
                     await stream.WriteAsync(body, _stop.Token);
                     return;
                 }
-                if (query.GetValueOrDefault("Filters") == "IsFavorite") {
+                if (query.GetValueOrDefault("Filters") == "IsFavorite,IsUnplayed") {
                     var offset = int.Parse(query["StartIndex"]);
                     Offsets.Enqueue(offset);
                     var body = JsonSerializer.SerializeToUtf8Bytes(new { Items = new[] { new { Id = "item" + offset, Name = "收藏" + offset, Type = "Movie" } }, TotalRecordCount = 3 });

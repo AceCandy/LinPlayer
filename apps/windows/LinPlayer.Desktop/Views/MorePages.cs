@@ -439,9 +439,11 @@ public sealed class FavoritesPage : PageBase
     /// 用户只会觉得这个开关时灵时不灵。</summary>
     private readonly Button _view;
 
-    public FavoritesPage(CoreClient core)
+    public FavoritesPage(CoreClient core, string? watchedType = null)
     {
-        var rows = new StackPanel { Spacing = 14, Children = { H1("收藏") } };
+        var watched = watchedType is not null;
+        var command = watched ? "emby.listWatched" : "emby.listFavorites";
+        var rows = new StackPanel { Spacing = 14, Children = { H1(watched ? "历史已看" : "收藏") } };
         var busy = Dim("加载中…");
         var sort = Sorts[0];
         var session = Nav.Session!;
@@ -458,15 +460,15 @@ public sealed class FavoritesPage : PageBase
         var episodeCount = 0;
         var restHead = H2("影片与剧集");
         var episodeHead = H2("分集");
+        var picks = new WrapPanel { ItemSpacing = 6, LineSpacing = 6 };
         DetachedFromVisualTree += (_, _) => { if (!detached) { detached = true; request.Cancel(); request.Dispose(); } };
         AttachedToVisualTree += (_, _) => {
             if (!detached) return;
             detached = false; request = new CancellationTokenSource(); generation++; loading = false;
             more.IsEnabled = true;
-            if (seen.Count == 0) Fetch();
+            _ = Refresh();
         };
         more.Click += (_, _) => Fetch();
-        var picks = new WrapPanel { ItemSpacing = 6, LineSpacing = 6 };
         /* 版式按重画之后还要在:这一页每换一次排序就整页重来一遍,
            而那两个网格是新造的 —— 所以按可视树现找,不是记住上一批的引用。 */
         _view = GridView.Toggle(core, list =>
@@ -476,14 +478,17 @@ public sealed class FavoritesPage : PageBase
         picks.Children.Add(_view);
         rows.Children.Add(picks);
         rows.Children.Add(busy);
-        // 数据源收藏排在 Emby 收藏下面(D326),不跟排序档位走:它没有这些排序维度
-        var srcFav = new ContentControl();
-        Content = Scrolled(new StackPanel { Spacing = 26, Children = { rows, srcFav } });
-        if (!BrowseSpace.IsPrivate) _ = LoadSources();
-        async Task LoadSources()
-        {
-            try { if (await SourceNav.FavoritesSection(core) is { } c) srcFav.Content = new StackPanel { Spacing = 14, Children = { H1("数据源收藏"), c } }; }
-            catch (Exception e) { srcFav.Content = Dim("数据源收藏读不到:" + LibraryPage.Advice(e)); }
+        Content = Scrolled(rows);
+        if (watched) {
+            foreach (var (kind, label) in new[] { ("Movie", "电影"), ("Series", "电视剧") }) {
+                var category = new Button { Classes = { "chip" }, Content = label, Tag = "type." + kind };
+                category.Click += (_, _) => { watchedType = kind; Load(); };
+                picks.Children.Add(category);
+            }
+        } else {
+            var history = new Button { Classes = { "ghost" }, Content = "历史已看" };
+            history.Click += (_, _) => Nav.Push(new FavoritesPage(core, "Movie"), () => new FavoritesPage(core, "Movie"));
+            picks.Children.Add(history);
         }
 
         // 换排序取消旧页;追加页面保持现有网格及滚动位置。
@@ -494,7 +499,7 @@ public sealed class FavoritesPage : PageBase
             generation++; nextIndex = 0; loading = false; seen.Clear();
             posters = null; episodes = null; restCount = 0; episodeCount = 0;
             foreach (var b in picks.Children.OfType<Button>())
-                b.Classes.Set("on", (string?)b.Tag == sort);
+                b.Classes.Set("on", (string?)b.Tag == sort || (string?)b.Tag == "type." + watchedType);
             while (rows.Children.Count > 2) rows.Children.RemoveAt(2);
             busy.Text = "加载中…";
             if (!rows.Children.Contains(busy)) rows.Children.Add(busy);
@@ -521,8 +526,8 @@ public sealed class FavoritesPage : PageBase
                 var offset = 0;
                 var pendingMore = false;
                 do {
-                    var res = await core.CallAsync("emby.listFavorites", new { s.server, s.token, s.user_id, s.device_id,
-                        sort, start_index = offset, limit = 60 }, request.Token);
+                    var res = await core.CallAsync(command, new { s.server, s.token, s.user_id, s.device_id,
+                        sort, type = watchedType, start_index = offset, limit = 60 }, request.Token);
                     if (gen != generation || detached || Nav.Session != s) return;
                     var raw = res.ValueKind == JsonValueKind.Array ? res : res.GetProperty("items");
                     cards.AddRange(raw.EnumerateArray().Select(CardItem.From));
@@ -544,7 +549,7 @@ public sealed class FavoritesPage : PageBase
                 episodeHead.Text = $"分集 · {episodeCount}";
                 if (restCount > 0) rows.Children.Add(posters);
                 if (episodeCount > 0) { rows.Children.Add(episodeHead); rows.Children.Add(episodes); }
-                if (seen.Count == 0) rows.Children.Add(Dim("还没有收藏。详情页点「收藏」就会出现在这里。"));
+                if (seen.Count == 0) rows.Children.Add(Dim(watched ? "暂无已看完的作品。" : "没有未看完的收藏，已看完的内容请到「历史已看」查看。"));
                 if (hasMore) rows.Children.Add(more);
             } catch (OperationCanceledException) { }
               catch (Exception e) { if (gen == generation && !detached) Toast.Error(LibraryPage.Advice(e)); }
@@ -566,8 +571,8 @@ public sealed class FavoritesPage : PageBase
             try
             {
                 var s = session;
-                var res = await core.CallDisplayAsync("emby.listFavorites", new { s.server, s.token, s.user_id, s.device_id,
-                    sort = want, start_index = offset, limit = 60 }, value => {
+                var res = await core.CallDisplayAsync(command, new { s.server, s.token, s.user_id, s.device_id,
+                    sort = want, type = watchedType, start_index = offset, limit = 60 }, value => {
                         if (gen != generation || detached) return;
                         var old = value.ValueKind == JsonValueKind.Array ? value : value.GetProperty("items");
                         var cards = old.EnumerateArray().Select(CardItem.From).ToList();
@@ -586,7 +591,7 @@ public sealed class FavoritesPage : PageBase
                     items = items.Where(it => seen.Add(it.Id)).ToList();
                     loading = false; more.IsEnabled = true; more.Content = "加载更多";
                     rows.Children.Remove(busy); rows.Children.Remove(more);
-                    if (seen.Count == 0 && !hasMore) { rows.Children.Add(Dim("还没有收藏。详情页点「收藏」就会出现在这里。")); return; }
+                    if (seen.Count == 0 && !hasMore) { rows.Children.Add(Dim(watched ? "暂无已看完的作品。" : "没有未看完的收藏，已看完的内容请到「历史已看」查看。")); return; }
 
                     /* <b>分集单独一栏,横版</b>(接着 2026-09-03 那条
                        「集封面和海报封面/季封面是不一样的,集封面是横着的」)。

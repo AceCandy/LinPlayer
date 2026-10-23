@@ -24,6 +24,7 @@ internal static class UserStateCheck
         var deny = false;
         var reads = 0;
         var listReads = 0;
+        var watchedTypes = new System.Collections.Concurrent.ConcurrentQueue<string>();
         var libraryChanged = false;
         var libraryFail = false;
         var libraryOffsets = new System.Collections.Concurrent.ConcurrentQueue<int>();
@@ -50,6 +51,12 @@ internal static class UserStateCheck
                         libraryOffsets.Enqueue(offset);
                         if (libraryFail && offset == 1) c.Response.StatusCode = 500;
                         response = new { Items = new[] { new { Id = $"row{offset}", Name = $"{(libraryChanged ? "刷新" : "原有")}影片{offset}", Type = "Movie" } }, TotalRecordCount = 2 };
+                    } else if (path.EndsWith("/Items") && c.Request.QueryString["Filters"] == "IsPlayed") {
+                        var kind = c.Request.QueryString["IncludeItemTypes"] ?? "";
+                        watchedTypes.Enqueue(kind);
+                        Check(c.Request.QueryString["ParentId"] is null && path == "/Users/fixture/Items", "历史已看不应跨服或按库查询");
+                        response = new { Items = new[] { new { Id = "watched-" + kind, Name = "已看" + kind, Type = kind,
+                            UserData = new { Played = true, UnplayedItemCount = 0, IsFavorite = false } } }, TotalRecordCount = 1 };
                     } else if (path.EndsWith("/Items")) {
                         Interlocked.Increment(ref listReads);
                         response = new { Items = new[] { Item() }, TotalRecordCount = 1 };
@@ -84,6 +91,13 @@ internal static class UserStateCheck
             Nav.Back();
             Wait(() => listReads > previousListReads, "返回收藏页未消费离页变更");
             Check(ReferenceEquals(Nav.Current, favorites), "刷新重建了原列表实例");
+            Wait(() => !Text(favorites, "回归影片"), "已看影片仍留在未看完收藏");
+            Button(favorites, "历史已看")!.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+            var watched = (FavoritesPage)Nav.Current!;
+            Wait(() => Text(watched, "已看Movie"), "历史已看电影未加载");
+            Button(watched, "电视剧")!.RaiseEvent(new RoutedEventArgs(Avalonia.Controls.Button.ClickEvent));
+            Wait(() => Text(watched, "已看Series"), "历史已看电视剧未加载");
+            Check(!Text(watched, "已看Movie") && watchedTypes.SequenceEqual(new[] { "Movie", "Series" }), "历史已看分类混用");
             var library = new LibraryGridPage(core, s.server, "library", "测试媒体库");
             Nav.Root(library);
             Wait(() => Text(library, "原有影片0") && Text(library, "原有影片1"), "媒体库两页未就绪");
@@ -111,7 +125,7 @@ internal static class UserStateCheck
             try { oldWrite.GetAwaiter().GetResult(); throw new Exception("旧会话结果未取消"); }
             catch (OperationCanceledException) { }
             Check(core.UserStateRevision(other.server, other.user_id, other.token) == otherRevision, "旧会话写入污染新账号代次");
-            Console.WriteLine("用户状态：详情/返回收藏、多页刷新失败保留及重验、写入失败与旧会话隔离通过");
+            Console.WriteLine("用户状态：详情/未看完收藏/已看分类、多页刷新失败保留及重验、写入失败与旧会话隔离通过");
         } finally {
             window.Content = null; window.Close(); Nav.Host = previousHost;
             Nav.Root(new StackPanel()); Nav.Session = previous;

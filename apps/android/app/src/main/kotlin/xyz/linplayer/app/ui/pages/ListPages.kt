@@ -59,6 +59,7 @@ import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.MediaRowHeader
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.Block
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
@@ -112,17 +113,18 @@ import xyz.linplayer.app.ui.theme.lpTween
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? = null, libraryTitle: String? = null) {
-    val isCategory = type != null || libraryId != null
+fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? = null, libraryTitle: String? = null, watched: Boolean = false) {
+    val isCategory = watched || type != null || libraryId != null
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     val grid = rememberLazyGridState()
     if (isCategory) LongShotTarget(grid)
     val session = app.session.collectAsStateWithLifecycle().value
-    val sessionKey = "fav.${session?.server}.${session?.userId}"
+    var watchedType by xyz.linplayer.app.data.keepState("watched.type.${session?.server}.${session?.userId}") { "Movie" }
+    val sessionKey = "${if (watched) "watched.$watchedType" else "fav.unplayed"}.${session?.server}.${session?.userId}"
     val key = sessionKey + when { libraryId != null -> ".library.$libraryId"; type != null -> ".$type"; else -> "" }
-    val title = libraryTitle ?: when (type) { "Movie" -> "收藏的电影"; "Series" -> "收藏的剧"; "Episode" -> "收藏的分集"; "Other" -> "其它收藏"; else -> "收藏" }
+    val title = if (watched) "历史已看" else libraryTitle ?: when (type) { "Movie" -> "收藏的电影"; "Series" -> "收藏的剧"; "Episode" -> "收藏的分集"; "Other" -> "其它收藏"; else -> "收藏" }
     var block by xyz.linplayer.app.data.keepState<Block<List<Item>>>(key) { Block.Loading }
     var libraries by xyz.linplayer.app.data.keepState<List<View>?>("$sessionKey.libraries") { null }
     var sort by xyz.linplayer.app.data.keepState("$key.sort") { FAV_SORTS[0] }
@@ -130,6 +132,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     var showSort by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    var loadingFirstPage by remember(key) { mutableStateOf(true) }
     var nextIndex by xyz.linplayer.app.data.keepState("$key.next") { 0 }
     var hasMore by xyz.linplayer.app.data.keepState("$key.more") { false }
     var loadingMore by remember { mutableStateOf(false) }
@@ -139,7 +142,9 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     suspend fun fetch(offset: Int) {
         val gen = generation
         val prefix = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
-        when (val r = app.displayBlock("emby.listFavorites", args("sort" to "更新时间", "start_index" to offset, "limit" to 60)) { value ->
+        val requestArgs = args("sort" to "更新时间", "start_index" to offset, "limit" to 60).toMutableMap()
+        if (watched) requestArgs["type"] = JsonPrimitive(watchedType)
+        when (val r = app.displayBlock(if (watched) "emby.listWatched" else "emby.listFavorites", JsonObject(requestArgs)) { value ->
             if (gen == generation && (offset > 0 || block !is Block.Ok)) {
                 block = Block.Ok((prefix + Page.from(value).items).distinctBy { it.id })
             }
@@ -161,7 +166,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
         }
     }
     fun loadMore() {
-        if (!hasMore || loadingMore) return
+        if (!hasMore || loadingMore || loadingFirstPage || refreshing) return
         loadingMore = true
         val gen = generation
         scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
@@ -170,12 +175,19 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     LaunchedEffect(key, reload) {
         // 返回时保留快照，同时刷新收藏。
         generation++; loadingMore = false; moreFailed = false
-        if (block !is Block.Ok) block = Block.Loading
-        try { fetch(0) } finally { refreshing = false }
+        val gen = generation
+        loadingFirstPage = true
+        try {
+            if (block !is Block.Ok) block = Block.Loading
+            if (session == null) { block = Block.Ok(emptyList()); hasMore = false; return@LaunchedEffect }
+            fetch(0)
+        } finally {
+            if (gen == generation) { loadingFirstPage = false; refreshing = false }
+        }
     }
     LaunchedEffect(Unit) { app.invalidate.collect { if (it == "library" || it == "all") reload++ } }
 
-    val hasMembership = (block as? Block.Ok)?.value.orEmpty().any { it.libraryIds.isNotEmpty() }
+    val hasMembership = !watched && (block as? Block.Ok)?.value.orEmpty().any { it.libraryIds.isNotEmpty() }
     LaunchedEffect(sessionKey, hasMembership, reload) {
         if (!hasMembership || (reload == 0 && libraries != null)) return@LaunchedEffect
         // 库信息只增强分类；读取失败仍展示全部收藏，旧接口无需此请求。
@@ -189,12 +201,10 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     val contentAlpha by animateFloatAsState(if (block is Block.Ok) 1f else 0f, fade, label = "favoritesContent")
 
     LpScaffold(title, onBack = if (isCategory) ({ nav.popBackStack() }) else null, actions = {
-        // 数据源的收藏单独一页(D326):它们不在 Emby 服务器上,排序档位也对不上
-        // 「观看历史」和「全部收藏」是一对(SPEC 8.7 D326)
         if (!isCategory) {
             xyz.linplayer.app.ui.components.LpIconButton(LpIcons.rewind, "观看历史") { nav.navigate(Route.History) }
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.plugin, "数据源收藏") { nav.navigate(Route.SourceFavorites) }
-        } else MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.check, "历史已看") { nav.navigate(Route.Watched) }
+        } else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
         val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
         PullToRefreshBox(refreshing, {
@@ -204,9 +214,16 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
             Column(Modifier.fillMaxSize().then(
                 if (block is Block.Fail) Modifier.verticalScroll(rememberScrollState()) else Modifier,
             )) {
+                if (watched) Row(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8), horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    listOf("Movie" to "电影", "Series" to "电视剧").forEach { (kind, label) ->
+                        LpButton(label, { watchedType = kind; grid.requestScrollToItem(0) },
+                            kind = if (watchedType == kind) BtnKind.Primary else BtnKind.Secondary)
+                    }
+                }
                 BlockBox(block, { reload++ }, skeleton = { LoadingState(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) }) { items ->
-                    val visible = remember(items, type, libraryId, sort, ascending, knownIds) {
-                        if (!isCategory) items else sortFavoriteItems(items.filter {
+                    val visible = remember(items, type, libraryId, sort, ascending, knownIds, watched, watchedType) {
+                        if (watched) items.filter { it.type == watchedType }
+                        else if (!isCategory) items else sortFavoriteItems(items.filter {
                             if (libraryId != null) libraryId in it.libraryIds
                             else it.libraryIds.none { id -> id in knownIds } && favoriteFallbackType(it) == type
                         }, sort, ascending)
@@ -219,8 +236,10 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         previousFirst = firstId
                     }
                     if (visible.isEmpty() && !hasMore) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { EmptyState(
-                        when (type) { "Movie" -> "还没有收藏电影"; "Series" -> "还没有收藏电视剧"; "Episode" -> "还没有收藏分集"; else -> "还没有收藏任何内容" },
-                        "在任意封面上长按 → 收藏,或者在详情页点右上角那颗心。收藏会跟着服务器走。",
+                        if (session == null) "请先选择 Emby 服务器" else if (watched) "暂无已看完的${if (watchedType == "Movie") "电影" else "电视剧"}"
+                        else when (type) { "Movie" -> "没有未看完的电影收藏"; "Series" -> "没有未看完的电视剧收藏"; else -> "没有未看完的收藏" },
+                        if (watched) "这里只显示当前服务器已看完的作品，电视剧有新集后会重新归为未看完。"
+                        else "收藏中已看完的内容可在右上角「历史已看」查看；收藏状态仍保留。",
                         LpIcons.heart,
                     ) } else if (isCategory) LazyVerticalGrid(
                         GridCells.Fixed(posterColumns()), Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, grid,
@@ -235,9 +254,10 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         }
                         if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
                             // 没有当前分组的收藏时继续寻找首批；已有结果后手动分页，排序重排不触发网络请求。
-                            if (!moreFailed && visible.isEmpty()) LaunchedEffect(nextIndex) { loadMore() }
+                            if (!watched && !moreFailed && visible.isEmpty()) LaunchedEffect(nextIndex, loadingFirstPage, refreshing) { loadMore() }
                             LpButton(if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary, loading = loadingMore)
+                                { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary,
+                                enabled = !loadingFirstPage && !refreshing, loading = loadingMore)
                         }
                     } else LazyColumn(
                         Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
@@ -256,7 +276,8 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         }
                         if (hasMore) item(key = "more") {
                             LpButton(if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary, loading = loadingMore)
+                                { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary,
+                                enabled = !loadingFirstPage && !refreshing, loading = loadingMore)
                         }
                     }
                 }

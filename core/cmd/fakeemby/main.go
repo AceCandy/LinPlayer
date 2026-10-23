@@ -205,7 +205,7 @@ func main() {
 		   ★★ 必须是**混着的**:电影 + 剧 + 分集。原来这条请求掉进通用列表分支,
 		     回来清一色的电影 —— 于是「分集单独一栏横版」这条在自检里
 		     <b>永远走不到</b>,而它绿不绿全看夹具有没有分集。假绿五类里的「夹具不真实」。 */
-		case r.URL.Query().Get("Filters") == "IsFavorite":
+		case r.URL.Query().Get("Filters") == "IsFavorite,IsUnplayed":
 			favs := []map[string]any{
 				item("mv-1", "某部电影", "Movie"),
 				item("mv-2", "另一部电影", "Movie"),
