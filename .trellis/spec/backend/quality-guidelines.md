@@ -114,12 +114,12 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 ## 手机流影专用接管契约
 
 1. **范围**：`core/player/liuying_*`为手机流影独立准备池；共享正式play/stop内部显式分支，不改变普通单槽、TV或桌面默认调用。
-2. **签名**：`player.liuyingOpen/Prepare/Warm/Cancel/Play/Progress/Stop`字段以COMMANDS.md为准，均经bus精确媒体分类注入私密身份。Open只接受generation=1，后续generation为1至2^31-1整数，pos非负有限，depth仅1/3/5。
-3. **契约**：owner绑定完整Session、空间与单调代数；最多三项含在途、2分钟过期、request一次消费。正式Play固定exo/流影倍率/从头，复用同一target/proxy并返回实际consumed_request_id和playback_id；发布前同锁复核owner、revision、当前播放及cache epoch。当前非空拒绝覆盖，Stop/Progress绑定report实例，不能仅凭item或PlaySessionId。
-4. **校验与错误**：非隐私身份E_UNSUPPORTED；非法参数、未知/关闭owner和已有正式播放E_INVALID。整代Cancel关闭owner，更高代也不能复活；新页面必须新owner。Warm旧请求matched=false；旧Progress reported=false；旧Stop幂等应答不表示已匹配或停止新目标。准备失败不发Playing，起播错误返回宿主，不改MPV。
-5. **正常/基本/错误**：命中原位提升且不重复取流/探测；未命中正常冷解析；普通播放提交后旧流影解析不得替换其target/proxy。退出取消未消费资源，正式会话仍按原停止屏障上报，不丢Stopped换速度。
-6. **测试**：`liuying_test.go`覆盖七命令真实bus/scope、三项与普通单槽隔离、HTTP字节复用/重进、实时源、禁预载、迟到解析、关闭owner和旧Stop；prefetch的`speculative_test.go`覆盖四块共享额度、暂停/恢复/提升及清理前解析/probe/磁盘创建/在途块写入。并发检查需列出包与实际失败，不能用局部race替代整库结论。
-7. **正反例**：错误是Cancel只关当前代、下一条迟到Prepare用更高代重新创建owner；正确是已关闭owner永远失效。缓存epoch在解析前捕获、ClearCache同锁推进、持久与临时创建同锁检查；失配不可fallback绕过。ReadControl在分配块前认领共享四块额度，取消收尾才归还，Promote唤醒等待者；普通未传ReadControl/Epoch仍走原路径。
+2. **签名**：`player.liuyingOpen/Prepare/Warm/Cancel/Play/Progress/Stop`字段以COMMANDS.md为准，Stop新增可选retain_request_id、响应retained；均经bus精确媒体分类注入私密身份。Open只接受generation=1，后续generation为1至2^31-1整数，pos非负有限，depth仅1/3/5。
+3. **契约**：owner绑定完整Session、空间与单调代数；最多五项含在途，停止移交瞬间可暂存第六项；2分钟过期、request一次消费。正式Play固定exo/流影倍率/从头，复用同一target/proxy并返回实际consumed_request_id和playback_id；发布前同锁复核owner、revision、当前播放及cache epoch。同范围有效点播Stop可把代理退回准备池，正式Playing/Stopped照常；保留沿用最初解析期限，不因回滑延长。当前非空拒绝覆盖，Stop/Progress绑定report实例，不能仅凭item或PlaySessionId。
+4. **校验与错误**：非隐私身份E_UNSUPPORTED；非法参数、未知/关闭owner和已有正式播放E_INVALID。整代Cancel关闭owner，更高代也不能复活；新页面必须新owner。Warm旧请求matched=false；旧Progress reported=false；旧Stop幂等应答不表示已匹配或停止新目标。准备失败不发Playing，起播错误返回宿主，不改MPV。保留拒绝（过期、清理代数、范围/身份/选版变化、实时源、禁预载、窗口满）返回retained=false并释放，默认未传保留字段仍关闭代理。
+5. **正常/基本/错误**：命中原位提升且不重复取流/探测；未命中正常冷解析；普通播放提交后旧流影解析不得替换其target/proxy。有效回滑不重复PlaybackInfo/probe/已缓存完整块，过期后正常重新解析。退出取消未消费资源，正式会话仍按原停止屏障上报，不丢Stopped换速度。
+6. **测试**：`liuying_test.go`覆盖七命令真实bus/scope、五项与普通单槽隔离、HTTP字节复用/重进、实时源、禁预载、迟到解析、关闭owner和旧Stop；prefetch的`speculative_test.go`覆盖四块共享额度、暂停/恢复/提升及清理前解析/probe/磁盘创建/在途块写入。新增RetainedStop/RetainedWindow/RetainHandoff测试验证同proxy、真实HTTP供给、租期不续、五项+移交一项与旧计时器隔离；SpeculativeDemotion/ConcurrentPromotion验证正式降级取消读取、恢复四块预算及并发不泄漏。并发检查需列出包与实际失败，不能用局部race替代整库结论。
+7. **正反例**：错误是Cancel只关当前代、下一条迟到Prepare用更高代重新创建owner；正确是已关闭owner永远失效。缓存epoch在解析前捕获、ClearCache同锁推进、持久与临时创建同锁检查；失配不可fallback绕过。ReadControl在分配块前认领共享四块额度，取消收尾才归还，Promote唤醒等待者；已播代理退回时Demote取消在途正式/已提升投机读取；再次Warm需显式许可，Promote不提前归还已认领块。过期回调核对记录指针，不按可再次使用的request_id误删新记录；普通未传ReadControl/Epoch仍走原路径。
 
 ## 详情版本与预热共用响应
 

@@ -145,6 +145,9 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	}
 	c := config.Current()
 	prefs := c.PrefsOf()
+	if start != nil {
+		start.versionRegex = prefs.VersionRegex
+	}
 	// 只替换本次起播快照，不能回写普通播放器的默认倍速。
 	prefs.DefaultSpeed = playbackSpeed(prefs, speedScope)
 	histCtx, cancelHist := context.WithCancel(ctx)
@@ -179,6 +182,9 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	var err error
 	if target == nil {
 		target, err = prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+		if start != nil {
+			start.validUntil = time.Now().Add(2 * time.Minute)
+		}
 	}
 	bus.Logf("info", "phase=startup_resolve elapsed_ms=%d success=%t", time.Since(resolveAt).Milliseconds(), err == nil)
 	if err != nil {
@@ -198,7 +204,7 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 		playURL = target.URL
 		if preparedProxy == nil && target.PlayMethod == "DirectStream" && !target.IsLive {
 			options := mediaCacheOptions(s, target)
-			options.Epoch = start.epoch
+			options.Epoch, options.Reads = start.epoch, start.reads
 			start.proxy, err = prefetch.StartCached(ctx, target.URL, prefs.PrefetchThreads, prefs.PrefetchCacheBytes, false, options)
 			if ctx.Err() != nil || start.epoch != prefetch.MediaCacheEpoch() {
 				return nil, context.Canceled
@@ -294,7 +300,7 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	currentReport = report
 	liuyingCurrent = nil
 	if start != nil {
-		liuyingCurrent = &liuyingBinding{owner: start.owner, playback: start.playback, report: report, proxy: start.proxy}
+		liuyingCurrent = &liuyingBinding{owner: start.owner, playback: start.playback, report: report, proxy: start.proxy, start: start}
 	}
 	report.previousStop = pendingStopReport()
 	currentMu.Unlock()
@@ -706,6 +712,7 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 
 // guard只用于流影；迟到的清理不能取消普通排队、预热或替换后的代理。
 func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handoff bool, expected string, guard *liuyingBinding) error {
+	requestedGuard := guard
 	if guard == nil {
 		cancelQueued("")
 	} else {
@@ -777,7 +784,13 @@ func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handof
 			sharedProxy = nil
 		}
 		proxyMu.Unlock()
-		guard.proxy.Close()
+		retained := requestedGuard != nil && retainLiuying(s, guard, t, requestedGuard.retainRequest)
+		if requestedGuard != nil {
+			requestedGuard.retained = retained
+		}
+		if !retained {
+			guard.proxy.Close()
+		}
 	}
 	queueMu.Unlock()
 	if t == nil || s == nil {

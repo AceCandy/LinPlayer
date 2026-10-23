@@ -249,3 +249,72 @@ func TestSpeculativePausedConnectionEndsAndSameProxyResumes(t *testing.T) {
 	reads.Promote()
 	expectVersion(t, h, 2, 1)
 }
+
+func TestSpeculativeDemotionCancelsFormalReadsAndRestoresSharedBudget(t *testing.T) {
+	budget := NewReadBudget()
+	r := NewReadControl(budget)
+	r.Promote()
+	formal, finish, err := r.acquire(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer finish()
+	r.Demote()
+	select {
+	case <-formal.Done():
+	case <-time.After(time.Second):
+		t.Fatal("退回准备池未停止正式读取")
+	}
+	if _, _, err := r.acquire(context.Background()); !errors.Is(err, context.Canceled) {
+		t.Fatal("保留后未获Warm许可仍能读取", err)
+	}
+	r.SetEnabled(true)
+	ctx, done, err := r.acquire(context.Background())
+	if err != nil || ctx.Err() != nil || len(budget.slots) != 1 {
+		t.Fatal("退回后读取未计入投机额度", err)
+	}
+	r.Promote()
+	r.SetEnabled(false)
+	if ctx.Err() != nil || len(budget.slots) != 1 {
+		t.Fatal("再次提升提前取消或归还在途块")
+	}
+	r.Demote()
+	select {
+	case <-ctx.Done():
+	case <-time.After(time.Second):
+		t.Fatal("再次退回未取消提升前认领的块")
+	}
+	done()
+	if len(budget.slots) != 0 {
+		t.Fatal("投机块收尾泄漏")
+	}
+}
+
+func TestSpeculativeConcurrentPromotionDemotionDoesNotLeakBudget(t *testing.T) {
+	budget := NewReadBudget()
+	r := NewReadControl(budget)
+	ctx, cancel := context.WithCancel(context.Background())
+	var workers sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		workers.Add(1)
+		go func() {
+			defer workers.Done()
+			for ctx.Err() == nil {
+				_, done, err := r.acquire(ctx)
+				if err == nil {
+					done()
+				}
+			}
+		}()
+	}
+	for i := 0; i < 1000; i++ {
+		r.SetEnabled(true)
+		r.Promote()
+		r.Demote()
+	}
+	cancel()
+	workers.Wait()
+	if len(budget.slots) != 0 {
+		t.Fatal("并发交接泄漏投机额度")
+	}
+}

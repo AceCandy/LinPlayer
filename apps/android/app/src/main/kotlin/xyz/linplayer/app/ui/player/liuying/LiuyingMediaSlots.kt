@@ -95,7 +95,7 @@ internal class LiuyingMediaSlots(private val context: Context) {
             it.samplesReady || reading && it === warming && !it.failed
         }?.let {
             DefaultPreloadManager.PreloadStatus.specifiedRangeLoaded(0, when (it.rank) { 1 -> 5_000L; 2 -> 3_000L; else -> 1_000L })
-        } ?: DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_TRACKS_SELECTED
+        } ?: DefaultPreloadManager.PreloadStatus.PRELOAD_STATUS_NOT_PRELOADED
     }.setLoadControl(load).setMediaSourceFactory(DefaultMediaSourceFactory(http))
     private val manager = builder.build()
     private val entries = linkedMapOf<String, Entry>()
@@ -292,12 +292,17 @@ internal class LiuyingMediaSlots(private val context: Context) {
     }
 
     fun silence() { slots.forEach { it.player.pause(); it.player.volume = 0f } }
-    fun detachCurrent() {
+    fun detachCurrent(retain: Boolean = false) {
         val previous = active?.entry
         active?.let(::clear)
         if (ownsSubtitles) Libass.reset()
         ownsSubtitles = false
-        previous?.let { discard(it.media.request) }
+        previous?.let {
+            if (retain) {
+                it.rank = Int.MAX_VALUE
+                it.interrupted = false
+            } else discard(it.media.request)
+        }
     }
     fun gate(play: Boolean, muted: Boolean, isForeground: Boolean) {
         foreground = isForeground
@@ -305,7 +310,11 @@ internal class LiuyingMediaSlots(private val context: Context) {
         if (!isForeground) { warm(null, false); releaseSpare() }
     }
     private fun clear(slot: Slot) {
-        slot.entry?.subtitles?.deactivate()
+        slot.entry?.let {
+            it.subtitles.deactivate()
+            // 播放器释放period后样本不再归管理器持有，回滑须重新准备片头。
+            it.samplesReady = false
+        }
         slot.player.stop()
         slot.player.clearMediaItems()
         slot.entry = null

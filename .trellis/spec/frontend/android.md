@@ -221,9 +221,9 @@
 
 ## 手机流影媒体槽与回调
 
-- `PhoneLiuyingFeed`使用VerticalPager，条目画面、标题与动作随页移动，固定顶部导航；只向当前落定页开放操作/无障碍语义。三页候选与三项未来准备分开有界，分页响应在停止拖动后以当时稳定key接入；收藏取消当前项暂留，离开后按当前key修正索引，不按旧数组位置跳片。非空末页保留可滑入的边界页，more=false时手动上滑以新seed、offset=0续轮次，不依赖自动连播开关；初始占位与末尾占位key不同，边界响应以新页保留窗口并显式定位，避免Pager跟随占位key继续跳页。失败由按钮按原请求重试，空页保留回滑。
-- `LiuyingPlaybackSession`的正式actor只保留一个在途提交及最新目标；不可撤回的Play必须接收回执并精确Stop，离页本地立即释放、核心收尾登记pendingStop。前后台、屏幕解锁、焦点、用户意图及拖动分别门控，旧Warm回执按revision补撤销；倍率保存完成后才换片。saveSpeed/stopCurrent可能挂起，返回后须在Play前再次核验foreground/unlocked；后台不提交新Play，保留最新目标待恢复。
-- `LiuyingMediaSlots`最多两个Media3实例，当前与备用复用，不按条目重建宿主；备用无声、无焦点、无正式上报。只有获得warm许可才将未来源交预载管理器；暂停未完成预载后恢复同proxy、重建媒体源revision，失败不无限重试，备用解码失败退单槽。预载失败与主动中断互斥：onError清interrupted/samplesReady，暂停、恢复和未来调度均排除failed；只有正式选中时允许重建失败源。实时/未知时长源不做未来内容预载。
+- `PhoneLiuyingFeed`使用VerticalPager，条目画面、标题与动作随页移动，固定顶部导航；只向当前落定页开放操作/无障碍语义。三页候选与前二/当前/后三媒体窗口分开有界，分页响应在停止拖动后以当时稳定key接入；收藏取消当前项暂留，离开后按当前key修正索引，不按旧数组位置跳片。非空末页保留可滑入的边界页，当前页起播即取后一批，more=false时提前以新seed、offset=0续轮次，已存在后一页不继续拉取，不依赖自动连播开关；初始占位与末尾占位key不同，边界响应以新页保留窗口并显式定位，避免Pager跟随占位key继续跳页。失败由按钮按原请求重试，空页保留回滑。
+- `LiuyingPlaybackSession`的正式actor只保留一个在途提交及最新目标；不可撤回的Play必须接收回执并精确Stop，离页本地立即释放、核心收尾登记pendingStop。前后台、屏幕解锁、焦点、用户意图及拖动分别门控，旧Warm回执按revision补撤销；倍率保存完成后才换片；切换先取消并等待在途准备收尾，空目标清理准备窗口。只采样本地进度，不再调用liuyingProgress，Playing/Stopped保留。saveSpeed/stopCurrent可能挂起，返回后须在Play前再次核验foreground/unlocked；后台不提交新Play，保留最新目标待恢复。
+- `LiuyingMediaSlots`最多两个Media3实例，当前与备用复用，不按条目重建宿主；备用无声、无焦点、无正式上报。当前READY且按倍速折算缓冲达到3秒（或缓冲到尾）即可warm，低于1秒/卡顿暂停，不等片尾；只有获得warm许可才将未来源交预载管理器；暂停未完成预载后恢复同proxy、重建媒体源revision，失败不无限重试，备用解码失败退单槽。预载失败与主动中断互斥：onError清interrupted/samplesReady，暂停、恢复和未来调度均排除failed；只有正式选中时允许重建失败源。实时/未知时长源不做未来内容预载。有效窗口内Stop返回retained=true才保留同一媒体源和代理；播放器释放period后samplesReady清零，重新准备片头，不把manager引用当作样本仍在。未获许可且没有已完成样本的源使用NOT_PRELOADED，避免选轨阶段读取已退回的代理。
 - Media3 1.11.0以实际AAR为准：预载status不能null，NOT_PRELOADED清样本，setCurrentPlayingIndex后显式invalidate。Kotlin的`LoadControl by base`不转发Java default方法，实际生命周期/选轨/缓冲/启动方法须显式覆盖；只编译不能发现起播时的not implemented异常。
 - 当前槽与管理器各16MiB目标，备用16MiB，未来样本目标合计32MiB不是进程硬限；codec、复制与正式播放内存另计。每个源的mediaId/revision唯一；实际首帧及播放器错误按Analytics事件所属媒体核验，首帧还须核对Surface。READY不算首帧，旧Surface销毁不清新绑定；仅正式槽拥有全局Libass，未接管/旧会话释放不可清别人的字幕。
 - `PhoneLiuyingTest`/`PhoneLiuyingChromeTest`验证真实Compose输入、Popup、短屏大字、倍率/静音、分页锚点、收藏成员、慢Stop下50次选择、迟到Play退出及屏幕广播/焦点接线；`LiuyingMediaSlotsTest`验证100次提升最多两实例、静音/压力释放与错代首帧/错误。JVM中的状态注入不是解码证据；真实双槽、Surface系统时序、后台零网络/声音和同条件P50/P95仍须真机验收。

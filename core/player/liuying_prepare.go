@@ -11,12 +11,13 @@ import (
 	"linplayer/core/net/prefetch"
 )
 
-// 流影准备池与通用下一集单槽隔离；在途解析也占用3项额度。
+// 流影准备池与通用单槽隔离；前二后三含在途最多5项，停播移交瞬间可暂存第6项。
 type liuyingPrepared struct {
 	*preparedPlayback
-	epoch uint64
-	reads *prefetch.ReadControl
-	done  chan struct{}
+	epoch      uint64
+	reads      *prefetch.ReadControl
+	done       chan struct{}
+	validUntil time.Time
 }
 
 type liuyingOwner struct {
@@ -144,7 +145,7 @@ func prepareLiuying(ctx context.Context, s *emby.Session, owner string, generati
 		liuyingControlMu.Unlock()
 		return nil, err
 	}
-	if o.items[request] != nil || len(o.items) >= 3 {
+	if o.items[request] != nil || len(o.items) >= 5 {
 		liuyingMu.Unlock()
 		liuyingControlMu.Unlock()
 		return nil, bus.NewErr(bus.EInvalid, "流影准备窗口已满或请求重复")
@@ -198,7 +199,8 @@ func prepareLiuying(ctx context.Context, s *emby.Session, owner string, generati
 		return nil, context.Canceled
 	}
 	p.target, p.proxy = target, h
-	p.expires = time.AfterFunc(2*time.Minute, func() { cancelLiuying(s, owner, generation, request) })
+	p.validUntil = time.Now().Add(2 * time.Minute)
+	p.expires = time.AfterFunc(time.Until(p.validUntil), func() { expireLiuying(o, p) })
 	success = true
 	liuyingMu.Unlock()
 	url := target.URL
@@ -217,7 +219,8 @@ func warmLiuying(s *emby.Session, owner string, generation int64, request string
 		return false
 	}
 	p := o.items[request]
-	if p == nil || p.target == nil || p.proxy == nil || p.epoch != prefetch.MediaCacheEpoch() {
+	if p == nil || p.target == nil || p.proxy == nil || p.epoch != prefetch.MediaCacheEpoch() ||
+		!time.Now().Before(p.validUntil) {
 		return false
 	}
 	// 样本深度由手机Media3管理器执行；核心只放行同一代理的有界读取。
@@ -236,7 +239,7 @@ func takeLiuying(s *emby.Session, start *liuyingStart, item, source, request str
 		return nil, nil
 	}
 	p := o.items[request]
-	if p == nil || p.target == nil || p.ctx.Err() != nil || p.epoch != start.epoch ||
+	if p == nil || p.target == nil || p.ctx.Err() != nil || p.epoch != start.epoch || !time.Now().Before(p.validUntil) ||
 		p.itemID != item || p.sourceID != source || p.versionRegex != prefs.VersionRegex ||
 		!emby.SameAdultFilter(emby.AdultFilter(p.ctx), adult) {
 		liuyingMu.Unlock()
@@ -248,6 +251,55 @@ func takeLiuying(s *emby.Session, start *liuyingStart, item, source, request str
 	p.cancel()
 	p.reads.Promote()
 	start.consumed = request
+	start.reads, start.validUntil = p.reads, p.validUntil
 	liuyingMu.Unlock()
 	return p.target, p.proxy
+}
+
+// 计时器按记录身份移除，已消费旧计时器不得关闭同request重新保留的代理。
+func expireLiuying(o *liuyingOwner, p *liuyingPrepared) {
+	liuyingControlMu.Lock()
+	defer liuyingControlMu.Unlock()
+	liuyingMu.Lock()
+	if liuyingPool != o || o.items[p.requestID] != p {
+		liuyingMu.Unlock()
+		return
+	}
+	delete(o.items, p.requestID)
+	liuyingMu.Unlock()
+	closeLiuyingPrepared(p)
+}
+
+// 正式记账已结束后，仅同范围内仍有效的点播代理可移回准备池；不延长原授权准备期限。
+func retainLiuying(s *emby.Session, binding *liuyingBinding, target *emby.PlaybackTarget, request string) bool {
+	prefs := config.Current().PrefsOf()
+	start := binding.start
+	if request == "" || start == nil || binding.proxy == nil || start.reads == nil ||
+		!prefs.PreloadEnabled || target.IsLive || target.RunTimeTicks <= 0 ||
+		!time.Now().Before(start.validUntil) || prefs.VersionRegex != start.versionRegex {
+		return false
+	}
+	liuyingControlMu.Lock()
+	defer liuyingControlMu.Unlock()
+	liuyingMu.Lock()
+	defer liuyingMu.Unlock()
+	o := liuyingPool
+	if o == nil || o.id != binding.owner || o.session != *s || o.generation != start.generation ||
+		o.ctx.Err() != nil || start.epoch != prefetch.MediaCacheEpoch() || len(o.items) >= 6 || o.items[request] != nil {
+		return false
+	}
+	ctx, cancel := context.WithCancel(context.WithoutCancel(start.mediaCtx))
+	stopOwner := context.AfterFunc(o.ctx, cancel)
+	p := &liuyingPrepared{
+		preparedPlayback: &preparedPlayback{requestID: request, session: *s, itemID: target.ItemID,
+			sourceID: start.source, versionRegex: start.versionRegex, target: target, proxy: binding.proxy,
+			ctx: ctx, cancel: func() { stopOwner(); cancel() }},
+		epoch: start.epoch, reads: start.reads, done: make(chan struct{}), validUntil: start.validUntil,
+	}
+	close(p.done)
+	binding.proxy.SetReadAhead(prefs.PrefetchThreads, false, target.Bitrate)
+	p.reads.Demote()
+	o.items[request] = p
+	p.expires = time.AfterFunc(time.Until(p.validUntil), func() { expireLiuying(o, p) })
+	return true
 }

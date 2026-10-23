@@ -111,7 +111,7 @@ internal fun PhoneLiuyingFeed(onExit: () -> Unit, session: LiuyingPlaybackSessio
     }
 }
 
-/** 三页候选与三项媒体准备分别有界；边界请求失败保留原页和相同seed供重试。 */
+/** 三页候选与前二后三媒体准备分别有界；失败保留原页和相同seed供重试。 */
 @Composable
 private fun PhoneLiuyingPager(
     session: LiuyingPlaybackSession, generation: Int, feed: String, tab: String, channel: String, exposure: String,
@@ -169,7 +169,8 @@ private fun PhoneLiuyingPager(
             LiuyingSelection(row.key, it, generation)
         }
         session.select(current?.let(::selection),
-            if (index < 0) emptyList() else rows.drop(index + 1).mapNotNull(::selection).take(3))
+            if (index < 0) emptyList() else rows.drop(index + 1).mapNotNull(::selection).take(3),
+            if (index < 0) emptyList() else rows.take(index).asReversed().mapNotNull(::selection).take(2))
         // 先登记最新落定目标，再撤掉拖动门，旧声音不能在两者之间恢复。
         session.drag(false)
         if (retainedFavorite != null && retainedFavorite != current?.key) {
@@ -178,6 +179,10 @@ private fun PhoneLiuyingPager(
             updated.indexOfFirst { it.key == current?.key }.takeIf { it >= 0 }?.let { pager.requestScrollToPage(it) }
             return@LaunchedEffect
         }
+    }
+    LaunchedEffect(current?.key, rows.map { it.key }, pager.isScrollInProgress, session.startedKey) {
+        if (pager.isScrollInProgress) return@LaunchedEffect
+        val index = rows.indexOfFirst { it.key == current?.key }
         if (loading || failure != null || request != null) return@LaunchedEffect
         if (current == null && rows.isNotEmpty()) {
             val last = pages.last()
@@ -186,9 +191,10 @@ private fun PhoneLiuyingPager(
             return@LaunchedEffect
         }
         if (currentRow == null) return@LaunchedEffect
-        if (rows.size - index <= 4 && current.page == pages.lastOrNull()) {
+        // 当前页起播即可取后一批；已存在后一页时不继续向前拉取。
+        if (session.startedKey == current.key && current.page == pages.lastOrNull()) {
             val last = pages.last()
-            if (last.more) request = Triple(last.seed, last.offset + last.rows.size, false)
+            request = Triple(if (last.more) last.seed else endSeed, if (last.more) last.offset + last.rows.size else 0, false)
         } else if (index < 3 && pages.firstOrNull()?.offset?.let { it > 0 } == true && current.page == pages.first()) {
             val first = pages.first()
             request = Triple(first.seed, (first.offset - 12).coerceAtLeast(0), true)

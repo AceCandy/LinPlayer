@@ -197,4 +197,31 @@ class LiuyingMediaSlotsTest {
         assertNotEquals(oldItem.mediaId, entry.item.mediaId)
         assertEquals(next, entry.media)
     }
+
+    @Test fun retainedPlaybackKeepsSourceButMustPrepareOpeningSamplesAgain() {
+        val first = media("seen")
+        slots.promote(first, 1f, false)
+        val entry = slots.active!!.entry!!
+        val manager: androidx.media3.exoplayer.source.preload.DefaultPreloadManager =
+            ReflectionHelpers.getField(slots, "manager")
+        val source = manager.getMediaSource(entry.item)
+        samplesReady(first.request)
+        slots.detachCurrent(retain = true)
+        assertFalse(entry.samplesReady)
+        assertSame(source, manager.getMediaSource(entry.item))
+        slots.promote(media("current"), 1f, false)
+        slots.prepare(first, 1)
+        assertEquals(first.request, slots.nextWarmRequest())
+        slots.warm(first.request, true)
+        assertSame(source, manager.getMediaSource(entry.item))
+        samplesReady(first.request)
+        slots.warm(first.request, true)
+        val spare = slots.spare!!
+        assertSame(entry, spare.entry)
+        slots.detachCurrent()
+        slots.promote(first, 2f, true)
+        assertSame(spare, slots.active)
+        assertEquals(0L, slots.active!!.player.currentPosition)
+        assertFalse(slots.active!!.player.playWhenReady)
+    }
 }

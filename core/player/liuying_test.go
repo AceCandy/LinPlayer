@@ -17,6 +17,7 @@ import (
 	"linplayer/core/bus"
 	"linplayer/core/config"
 	"linplayer/core/emby"
+	"linplayer/core/net/prefetch"
 	"linplayer/core/paths"
 )
 
@@ -25,6 +26,7 @@ type liuyingFixture struct {
 	ctx      context.Context
 	resolves atomic.Int32
 	bytes    atomic.Int64
+	probes   atomic.Int32
 	starts   atomic.Int32
 	slow     chan struct{}
 	release  chan struct{}
@@ -33,6 +35,7 @@ type liuyingFixture struct {
 
 func newLiuyingFixture(t *testing.T) *liuyingFixture {
 	t.Helper()
+	regTransportOnce.Do(registerTransport)
 	paths.SetRoot(t.TempDir())
 	if _, err := config.Load(); err != nil {
 		t.Fatal(err)
@@ -62,6 +65,8 @@ func newLiuyingFixture(t *testing.T) *liuyingFixture {
 			w.Header().Set("ETag", `"v1"`)
 			if r.Header.Get("Range") != "bytes=0-0" {
 				f.bytes.Add(1)
+			} else {
+				f.probes.Add(1)
 			}
 			http.ServeContent(w, r, "video.mp4", time.Time{}, bytes.NewReader(data))
 		case strings.HasPrefix(r.URL.Path, "/Sessions/Playing"):
@@ -225,14 +230,60 @@ func liuyingResult(t *testing.T, value any) map[string]any {
 	return result
 }
 
-func TestLiuyingThreePreparedItemsAndOrdinarySlotIsolation(t *testing.T) {
+func TestLiuyingRetainedStopReplaysSameProxyWithoutResolve(t *testing.T) {
+	f := newLiuyingFixture(t)
+	value, err := playLiuying(f.ctx, f.s, "owner", 1, "", "same", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	first := liuyingResult(t, value)
+	read := func(url string) {
+		t.Helper()
+		resp, err := http.Get(url)
+		if err != nil {
+			t.Fatal(err)
+		}
+		n, err := io.Copy(io.Discard, resp.Body)
+		resp.Body.Close()
+		if err != nil || n != 8<<20 {
+			t.Fatal("保留媒体供给不完整", n, err)
+		}
+	}
+	read(first["play_url"].(string))
+	requests, probes := f.bytes.Load(), f.probes.Load()
+	stop, err := bus.Invoke(f.ctx, "player.liuyingStop", map[string]any{
+		"server": f.s.Server, "user_id": f.s.UserID, "token": f.s.Token, "device_id": f.s.DeviceID,
+		"is_adult": true, "owner_id": "owner", "generation": float64(1),
+		"playback_id": first["playback_id"], "item_id": "same", "pos": float64(4),
+		"retain_request_id": "return",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if liuyingResult(t, stop)["retained"] != true {
+		t.Fatal("停止未把有效媒体移回流影准备池")
+	}
+	value, err = playLiuying(f.ctx, f.s, "owner", 1, "return", "same", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	again := liuyingResult(t, value)
+	read(again["play_url"].(string))
+	if f.resolves.Load() != 1 || again["consumed_request_id"] != "return" ||
+		again["play_url"] != first["play_url"] || again["resume_secs"] != float64(0) ||
+		again["playback_id"] == first["playback_id"] || f.bytes.Load() != requests || f.probes.Load() != probes {
+		t.Fatal("回滑未原位接管、重复解析或复用了正式播放身份")
+	}
+}
+
+func TestLiuyingFivePreparedItemsAndOrdinarySlotIsolation(t *testing.T) {
 	f := newLiuyingFixture(t)
 	ordinary, err := prepareNext(f.ctx, f.s, "ordinary", "", "ordinary")
 	if err != nil {
 		t.Fatal(err)
 	}
 	var first map[string]any
-	for _, id := range []string{"a", "b", "c"} {
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
 		value, err := prepareLiuying(f.ctx, f.s, "owner", 1, id, id, "")
 		if err != nil {
 			t.Fatal(err)
@@ -241,8 +292,8 @@ func TestLiuyingThreePreparedItemsAndOrdinarySlotIsolation(t *testing.T) {
 			first = value.(map[string]any)
 		}
 	}
-	if _, err := prepareLiuying(f.ctx, f.s, "owner", 1, "d", "d", ""); err == nil {
-		t.Fatal("第四个准备未拒绝")
+	if _, err := prepareLiuying(f.ctx, f.s, "owner", 1, "f", "f", ""); err == nil {
+		t.Fatal("第六个投机准备未拒绝")
 	}
 	if f.starts.Load() != 0 || Current() != nil || f.bytes.Load() != 0 {
 		t.Fatal("准备启动了正式播放或媒体读取")
@@ -255,7 +306,7 @@ func TestLiuyingThreePreparedItemsAndOrdinarySlotIsolation(t *testing.T) {
 	if result["consumed_request_id"] != "a" || result["play_url"] != first["play_url"] || result["resume_secs"] != float64(0) {
 		t.Fatal("未原位接管或没有从头开始")
 	}
-	if f.resolves.Load() != 4 {
+	if f.resolves.Load() != 6 {
 		t.Fatal("准备命中后重复解析")
 	}
 	cancelLiuying(f.s, "owner", 1, "a")
@@ -270,6 +321,101 @@ func TestLiuyingThreePreparedItemsAndOrdinarySlotIsolation(t *testing.T) {
 		t.Fatal("流影修改了通用准备单槽")
 	}
 	proxy.Close()
+}
+
+func TestLiuyingRetainedWindowRejectsInvalidationAndDoesNotRenewLease(t *testing.T) {
+	for _, invalidation := range []string{"expired", "clear", "disabled", "version", "generation", "live"} {
+		t.Run(invalidation, func(t *testing.T) {
+			f := newLiuyingFixture(t)
+			item := "same"
+			if invalidation == "live" {
+				item = "live"
+			}
+			value, err := playLiuying(f.ctx, f.s, "owner", 1, "", item, "")
+			if err != nil {
+				t.Fatal(err)
+			}
+			id := liuyingResult(t, value)["playback_id"].(string)
+			currentMu.Lock()
+			start := liuyingCurrent.start
+			original := start.validUntil
+			if invalidation == "expired" {
+				start.validUntil = time.Now().Add(-time.Second)
+			}
+			currentMu.Unlock()
+			switch invalidation {
+			case "clear":
+				if err := prefetch.ClearCache(paths.ClearCache); err != nil {
+					t.Fatal(err)
+				}
+			case "disabled", "version":
+				p := config.Current().PrefsOf()
+				if invalidation == "disabled" {
+					p.PreloadEnabled = false
+				} else {
+					p.VersionRegex = "different"
+				}
+				if err := config.Current().SetPrefs(p); err != nil {
+					t.Fatal(err)
+				}
+			case "generation":
+				if _, err := prepareLiuying(f.ctx, f.s, "owner", 2, "next", "next", ""); err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { cancelLiuying(f.s, "owner", 2, "") })
+			}
+			guard := &liuyingBinding{owner: "owner", playback: id, retainRequest: "return"}
+			if err := stopPlaybackOwned(f.ctx, f.s, 1, false, item, guard); err != nil {
+				t.Fatal(err)
+			}
+			if guard.retained {
+				t.Fatal("失效或不可预载目标被保留")
+			}
+			if invalidation != "expired" && start.validUntil != original {
+				t.Fatal("停止延长了授权准备期限")
+			}
+		})
+	}
+}
+
+func TestLiuyingRetainHandoffHasOneBoundedExtraSlotAndOldExpiryCannotCloseReuse(t *testing.T) {
+	f := newLiuyingFixture(t)
+	value, err := playLiuying(f.ctx, f.s, "owner", 1, "", "current", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"a", "b", "c", "d", "e"} {
+		if _, err := prepareLiuying(f.ctx, f.s, "owner", 1, id, id, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+	guard := &liuyingBinding{owner: "owner", playback: liuyingResult(t, value)["playback_id"].(string), retainRequest: "return"}
+	if err := stopPlaybackOwned(f.ctx, f.s, 1, false, "current", guard); err != nil || !guard.retained {
+		t.Fatal("满窗口不能移交当前媒体", err)
+	}
+	liuyingMu.Lock()
+	o := liuyingPool
+	old := o.items["return"]
+	count := len(o.items)
+	liuyingMu.Unlock()
+	if count != 6 {
+		t.Fatal("移交窗口数量错误", count)
+	}
+	value, err = playLiuying(f.ctx, f.s, "owner", 1, "return", "current", "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	guard = &liuyingBinding{owner: "owner", playback: liuyingResult(t, value)["playback_id"].(string), retainRequest: "return"}
+	if err := stopPlaybackOwned(f.ctx, f.s, 1, false, "current", guard); err != nil || !guard.retained {
+		t.Fatal(err)
+	}
+	expireLiuying(o, old)
+	liuyingMu.Lock()
+	fresh := o.items["return"]
+	liuyingMu.Unlock()
+	if fresh == nil || fresh == old || fresh.proxy != old.proxy || fresh.validUntil != old.validUntil {
+		t.Fatal("旧计时器误删回收项或反复回滑延长有效期")
+	}
 }
 
 func TestLiuyingLateStopCannotStopSameItemReplayOrOrdinary(t *testing.T) {

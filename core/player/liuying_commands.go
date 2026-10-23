@@ -19,6 +19,10 @@ type liuyingStart struct {
 	epoch, revision           uint64
 	ctx                       context.Context
 	proxy                     *prefetch.Handle
+	reads                     *prefetch.ReadControl
+	validUntil                time.Time
+	source, versionRegex      string
+	mediaCtx                  context.Context
 }
 
 // 归属绑定正式report实例，而不是可能重复的item或PlaySessionId；由currentMu保护。
@@ -26,6 +30,9 @@ type liuyingBinding struct {
 	owner, playback string
 	report          *playbackReport
 	proxy           *prefetch.Handle
+	start           *liuyingStart
+	retainRequest   string
+	retained        bool
 }
 
 var liuyingCurrent *liuyingBinding
@@ -88,7 +95,9 @@ func playLiuying(ctx context.Context, s *emby.Session, owner string, generation 
 	defer cancel()
 	stopOwner := context.AfterFunc(ownerCtx, cancel)
 	defer stopOwner()
-	start := &liuyingStart{owner: owner, generation: generation, epoch: prefetch.MediaCacheEpoch(), playback: liuyingID(), ctx: ownerCtx}
+	start := &liuyingStart{owner: owner, generation: generation, epoch: prefetch.MediaCacheEpoch(), playback: liuyingID(),
+		ctx: ownerCtx, mediaCtx: context.WithoutCancel(ctx), source: source, reads: prefetch.NewReadControl(o.budget)}
+	start.reads.Promote()
 	result, err := playWithLiuying(ctx, s, item, -1, source, false, false, "liuying", request, start)
 	if err != nil {
 		return nil, err
@@ -194,13 +203,17 @@ func registerLiuyingCommands() {
 			return nil, err
 		}
 		handoff, _ := a["handoff"].(bool)
+		retainRequest, _ := a["retain_request_id"].(string)
+		if len(retainRequest) > 128 {
+			return nil, bus.NewErr(bus.EInvalid, "流影保留请求无效")
+		}
 		liuyingTransportMu.Lock()
 		defer liuyingTransportMu.Unlock()
-		guard := &liuyingBinding{owner: owner, playback: playback}
+		guard := &liuyingBinding{owner: owner, playback: playback, retainRequest: retainRequest}
 		if err := stopPlaybackOwned(ctx, s, pos, handoff, item, guard); err != nil {
 			return nil, err
 		}
-		return map[string]any{"stopped": true}, nil
+		return map[string]any{"stopped": true, "retained": guard.retained}, nil
 	})
 }
 

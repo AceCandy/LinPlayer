@@ -46,7 +46,25 @@ func (r *ReadControl) SetEnabled(enabled bool) {
 func (r *ReadControl) Promote() {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if r.promoted {
+		return
+	}
 	r.promoted = true
+	if r.active == nil || r.active.Err() != nil {
+		r.active, r.cancel = context.WithCancel(context.Background())
+	}
+	close(r.changed)
+	r.changed = make(chan struct{})
+}
+
+// Demote 将已停止的流影代理退回准备池，终止正式读取，恢复投机预算和启停门控。
+func (r *ReadControl) Demote() {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.cancel != nil {
+		r.cancel()
+	}
+	r.promoted, r.enabled = false, false
 	close(r.changed)
 	r.changed = make(chan struct{})
 }
@@ -63,7 +81,9 @@ func (r *ReadControl) acquire(parent context.Context) (context.Context, func(), 
 		enabled, promoted, active, changed := r.enabled, r.promoted, r.active, r.changed
 		r.mu.Unlock()
 		if promoted {
-			return parent, func() {}, nil
+			ctx, cancel := context.WithCancel(parent)
+			stop := context.AfterFunc(active, cancel)
+			return ctx, func() { stop(); cancel() }, nil
 		}
 		if !enabled {
 			// 结束当前供给连接，不能让已关闭的预载连接无限等待恢复。

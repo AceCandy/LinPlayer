@@ -109,7 +109,7 @@ class PhoneLiuyingTest {
     }
 
     /** 仅注入Media3采样与真实监听器，不把状态注入当作解码/首帧证据。 */
-    private fun sample(seconds: Double, eof: Boolean = false) {
+    private fun sample(seconds: Double, eof: Boolean = false, bufferedSeconds: Double = 0.0) {
         val player = session.slots.active!!.player
         val old = ReflectionHelpers.getField<Any>(player, "playbackInfo")
         val child = androidx.media3.exoplayer.source.SinglePeriodTimeline(3_660_000_000L, true, false, false, null,
@@ -129,7 +129,7 @@ class PhoneLiuyingTest {
         ReflectionHelpers.setField(info, "periodId", period)
         ReflectionHelpers.setField(info, "loadingMediaPeriodId", period)
         ReflectionHelpers.setField(info, "positionUs", (seconds * 1_000_000).toLong())
-        ReflectionHelpers.setField(info, "bufferedPositionUs", (seconds * 1_000_000).toLong())
+        ReflectionHelpers.setField(info, "bufferedPositionUs", ((seconds + bufferedSeconds) * 1_000_000).toLong())
         ReflectionHelpers.setField(info, "playbackState", if (eof) Player.STATE_ENDED else Player.STATE_READY)
         runBlocking { session.tick() }
         if (eof) {
@@ -303,7 +303,7 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.favoriteItem.ly-work-14").performScrollTo().performClick(); advance(rule, 600)
         rule.onNodeWithTag("liuying.favoriteSheet").assertDoesNotExist()
         assertEquals("ly-work-14", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(count, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(count + 2, core.calls.count { it.first == "emby.extLiuYingItems" })
         moveVideo(false)
         assertEquals("ly-work-13", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
         moveVideo(false)
@@ -506,7 +506,7 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.next").performScrollTo().performTouchInput { click() }; advance(rule, 600)
         rule.onNodeWithTag("liuying.sheet").assertIsDisplayed()
         assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
         rule.onNodeWithText("完成").performClick(); advance(rule, 300)
         rule.onNodeWithTag("liuying.sheet").assertDoesNotExist()
     }
@@ -625,7 +625,7 @@ class PhoneLiuyingTest {
             swipe(Offset(width * .45f, height * .3f), Offset(width * .45f, height * .65f))
         }; advance(rule, 800)
         assertEquals("ly-work-1", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
         assertFalse(core.calls.any { it.first == "player.setVolume" })
     }
 
@@ -637,6 +637,135 @@ class PhoneLiuyingTest {
         }; advance(rule, 800)
     }
 
+    @Test fun firstPlaybackFetchesNextBatchWithoutApproachingPageEnd() {
+        val core = open {
+            on("emby.extLiuYingItems") { a -> buildJsonObject {
+                val offset = a.long("offset") ?: 0
+                put("items", arr(*(0 until 12).map { n -> buildJsonObject {
+                    put("item_id", "early-${offset + n}"); put("title", "early-${offset + n}")
+                } }.toTypedArray()))
+                put("has_more", true)
+            } }
+        }
+        advance(rule, 500)
+        assertEquals("early-0", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
+        assertEquals(listOf(0L, 12L), core.calls.filter { it.first == "emby.extLiuYingItems" }.map { it.second.long("offset") })
+        advance(rule, 2000)
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
+    }
+
+    @Test fun samplingAndPauseNeverSendLiuyingProgressButStillStop() {
+        val core = open(populated = true)
+        rule.runOnIdle {
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(11))
+            scope.launch { session.tick() }
+        }
+        advance(rule, 300)
+        rule.runOnIdle {
+            session.togglePause()
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofSeconds(11))
+            scope.launch { session.tick() }
+        }
+        advance(rule, 300)
+        assertFalse(core.calls.any { it.first == "player.liuyingProgress" })
+        rule.runOnIdle { showing = false }; advance(rule, 500)
+        assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
+        assertEquals(1, core.calls.count { it.first == "player.liuyingStop" })
+    }
+
+    @Test fun twoSeenItemsAndThreeFutureItemsSurviveDirectionChangeWithoutReprepare() {
+        val core = open {
+            on("emby.extLiuYingItems") { a -> buildJsonObject {
+                put("items", if (a.long("offset") == 0L) arr(*(0 until 12).map { n ->
+                    buildJsonObject { put("item_id", "window-$n"); put("title", "window-$n") }
+                }.toTypedArray()) else arr())
+                put("has_more", true)
+            } }
+            on("player.liuyingPrepare") { a -> buildJsonObject {
+                put("request_id", a.str("request_id")); put("can_preload", true)
+                put("play_url", "http://127.0.0.1:${mediaServer.localPort}/${a.str("item_id")}.mp4")
+                put("media_source_id", "test")
+            } }
+            on("player.liuyingPlay") { a -> buildJsonObject {
+                put("playback_id", "test-${calls.count { it.first == "player.liuyingPlay" }}")
+                put("consumed_request_id", a.str("request_id"))
+                put("play_url", "http://127.0.0.1:${mediaServer.localPort}/${a.str("item_id")}.mp4")
+                put("media_source_id", "test")
+            } }
+            on("player.liuyingStop") { a -> buildJsonObject {
+                put("stopped", true); put("retained", !a.str("retain_request_id").isNullOrEmpty())
+            } }
+        }
+        swipeVideo(); swipeVideo()
+        val before = core.calls.count { it.first == "player.liuyingPrepare" }
+        val seen = core.calls.filter { it.first == "player.liuyingStop" }.associate {
+            it.second.str("item_id") to it.second.str("retain_request_id")
+        }
+        val prepared: Map<String, LiuyingMedia> = ReflectionHelpers.getField(session, "prepared")
+        assertEquals(setOf("window-0", "window-1", "window-3", "window-4", "window-5"), prepared.values.map { it.item }.toSet())
+        swipeVideo(false); swipeVideo(false)
+        val replay = core.calls.last { it.first == "player.liuyingPlay" }.second
+        assertEquals("window-0", replay.str("item_id"))
+        assertEquals(seen["window-0"], replay.str("request_id"))
+        assertEquals(before, core.calls.count { it.first == "player.liuyingPrepare" })
+        assertEquals(0L, session.slots.active!!.player.currentPosition)
+        assertFalse(core.calls.any { it.first == "player.liuyingProgress" })
+    }
+
+    @Test fun warmStartsNearBeginningWithThreeSecondsBufferedAndYieldsWhenLow() {
+        val core = open(populated = true) {
+            on("player.liuyingPrepare") { a -> buildJsonObject {
+                put("request_id", a.str("request_id")); put("can_preload", true)
+                put("play_url", "http://127.0.0.1:${mediaServer.localPort}/${a.str("item_id")}.mp4")
+                put("media_source_id", "test")
+            } }
+            ret("player.liuyingWarm", buildJsonObject { put("matched", true) })
+        }
+        rule.runOnIdle { sample(1.0, bufferedSeconds = 3.0) }
+        advance(rule, 100)
+        assertTrue(core.calls.any { it.first == "player.liuyingWarm" && it.second.bool("enabled") })
+        rule.runOnIdle { sample(1.5, bufferedSeconds = .5) }
+        advance(rule, 100)
+        assertFalse(core.calls.last { it.first == "player.liuyingWarm" }.second.bool("enabled"))
+        assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
+    }
+
+    @Test fun lateCancelledPreparationIsRemovedBeforeLatestSelectionPlays() {
+        val release = CompletableDeferred<Unit>()
+        val started = CompletableDeferred<Unit>()
+        var held = false
+        val core = open(populated = true, wrap = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.liuyingPrepare" && !held) {
+                    held = true
+                    return withContext(NonCancellable) {
+                        started.complete(Unit); release.await()
+                        buildJsonObject {
+                            put("request_id", args.str("request_id")); put("can_preload", true)
+                            put("play_url", "http://127.0.0.1:${mediaServer.localPort}/late.mp4")
+                            put("media_source_id", "test")
+                        }
+                    }
+                }
+                return fake.callJson(command, args, onPartial)
+            }
+        } })
+        try {
+            assertTrue(started.isCompleted)
+            rule.runOnIdle {
+                session.select(LiuyingSelection("latest", "latest", 1), emptyList())
+            }; advance(rule, 200)
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
+            val played = core.calls.last { it.first == "player.liuyingPlay" }
+            assertEquals("latest", played.second.str("item_id"))
+            assertEquals("", played.second.str("request_id"))
+            val cancel = core.calls.indexOfLast { it.first == "player.liuyingCancel" && !it.second.str("request_id").isNullOrEmpty() }
+            assertTrue(cancel in 0 until core.calls.indexOfLast { it.first == "player.liuyingPlay" })
+            val prepared: Map<String, LiuyingMedia> = ReflectionHelpers.getField(session, "prepared")
+            assertTrue(prepared.isEmpty())
+        } finally { release.complete(Unit) }
+    }
+
     @Test fun manualEndSwipeInLoopModeKeepsFiltersAndRetainsNewRoundInFullWindow() {
         val rounds = linkedMapOf<String, Int>()
         val core = open(populated = true) {
@@ -646,7 +775,7 @@ class PhoneLiuyingTest {
                 put("has_more", false)
             } }
         }
-        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
         assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
         openFilters()
         rule.onNodeWithTag("liuying.label.tg-3398168133").performScrollTo().performClick(); advance(rule, 300)
@@ -655,7 +784,7 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.mode").performClick(); advance(rule, 300)
         val initial = core.calls.last { it.first == "emby.extLiuYingItems" }.second!!
         val count = core.calls.count { it.first == "emby.extLiuYingItems" }
-        val firstRound = rounds.size
+        val firstRound = rounds.size - 1
         repeat(3) { index ->
             val oldSeed = core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("seed")
             swipeVideo()
@@ -673,9 +802,19 @@ class PhoneLiuyingTest {
     }
 
     @Test fun failedEndSwipeRetriesSameRoundAndEmptyResultStillAllowsSwipeBack() {
-        val core = open(populated = true)
+        var firstSeed: String? = null
+        val core = open(populated = true) {
+            on("emby.extLiuYingItems") { a ->
+                if (firstSeed == null) firstSeed = a.str("seed")
+                if (a.str("seed") != firstSeed) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "新轮次失败", true)
+                buildJsonObject {
+                    put("items", arr(*listOf("ly-work-1", "ly-work-2").map { id -> buildJsonObject {
+                        put("item_id", id); put("title", id)
+                    } }.toTypedArray())); put("has_more", false)
+                }
+            }
+        }
         swipeVideo()
-        core.on("emby.extLiuYingItems") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "新轮次失败", true) }
         swipeVideo()
         rule.onNodeWithText("新轮次失败").assertIsDisplayed()
         val failed = core.calls.last { it.first == "emby.extLiuYingItems" }.second
@@ -770,7 +909,7 @@ class PhoneLiuyingTest {
         assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
         val play = core.calls.indexOfLast { it.first == "player.liuyingPlay" }
         assertTrue(core.calls.indexOfLast { it.first == "player.liuyingStop" } in 0 until play)
-        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
         rule.runOnIdle { showing = false }; advance(rule, 400)
         assertEquals(2, core.calls.count { it.first == "player.liuyingStop" })
     }
@@ -784,7 +923,7 @@ class PhoneLiuyingTest {
         rule.runOnIdle { sample(3660.0, eof = true) }; advance(rule, 800)
         assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
         assertEquals("ly-work-1", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(2, core.calls.count { it.first == "emby.extLiuYingItems" })
         rule.onNodeWithTag("liuying.next").assertDoesNotExist()
         openFilters()
         rule.onNodeWithTag("liuying.next").performScrollTo()
@@ -817,13 +956,13 @@ class PhoneLiuyingTest {
         val beforeRetry = core.calls.count { it.first == "emby.extLiuYingItems" }
         rule.runOnIdle { fail = false }
         rule.onNodeWithTag("liuying.pageRetry").performClick(); advance(rule, 800)
-        assertEquals(beforeRetry + 1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(beforeRetry + 2, core.calls.count { it.first == "emby.extLiuYingItems" })
         rule.onNodeWithText("第三条").assertExists()
-        assertEquals(seed, core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("seed"))
+        assertEquals(seed, core.calls.filter { it.first == "emby.extLiuYingItems" }[beforeRetry].second.str("seed"))
         assertEquals("ly-work-3", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
         moveVideo(false)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(beforeRetry + 1, core.calls.count { it.first == "emby.extLiuYingItems" })
+        assertEquals(beforeRetry + 2, core.calls.count { it.first == "emby.extLiuYingItems" })
     }
 
     @Test fun muteSurvivesVideoSwitchAndFeedControlsRender() {

@@ -31,17 +31,19 @@ internal class LiuyingPlaybackSession(
     private var playedGeneration = 1
     private var generation = 1
     private var future: List<LiuyingSelection> = emptyList()
+    private var previous: List<LiuyingSelection> = emptyList()
+    private var backwards = false
+    private var currentMedia: LiuyingMedia? = null
     private val prepared = linkedMapOf<String, LiuyingMedia>()
     private var preparation: Job? = null
     private var opened = false
     private var retrying = false
+    private var switching = false
     private var memoryLimited = false
     private var leaving = false
     private var warming: String? = null
     private var warmAllowed = false
     private var saveSpeed: Job? = null
-    private var lastProgress = 0L
-    private var progress: Job? = null
     private var pauseWarm: Job? = null
     private var warmRevision = 0L
     private val call = app.liuyingCaller()
@@ -71,6 +73,18 @@ internal class LiuyingPlaybackSession(
     var onNeedFocus: () -> Unit = {}
     var onEnded: () -> Unit = {}
     var onPlayingChanged: (Boolean) -> Unit = {}
+    val startedKey: String? get() = selected?.takeIf { it == desired && playback != null }?.key
+
+    private fun neighbours() = (if (backwards) previous + future else future + previous).distinctBy { it.key }
+    private suspend fun prunePrepared() {
+        val keep = (neighbours().map { it.key } + listOfNotNull(desired?.key)).toSet()
+        for (key in prepared.keys.toList()) if (key !in keep) {
+            val removed = prepared.remove(key) ?: continue
+            slots.discard(removed.request)
+            command("Cancel", args("request_id" to removed.request))
+        }
+        slots.retain(prepared.values.map { it.request }.toSet())
+    }
 
     private fun valid() = !leaving && app.session.value == identity &&
         app.spaceRevision.value == space && app.privateSpace.value
@@ -92,17 +106,33 @@ internal class LiuyingPlaybackSession(
                 }
                 while (valid()) {
                     val target = desired
-                    if (target == null) { stopCurrent(); break }
+                    if (target == null) {
+                        switching = true
+                        preparation?.cancelAndJoin()
+                        prunePrepared()
+                        stopCurrent()
+                        break
+                    }
                     if (target == selected && playback != null && !retrying) break
                     if (!foreground || !unlocked) break
                     retrying = false
+                    switching = true
                     saveSpeed?.join()
+                    preparation?.cancelAndJoin()
+                    prunePrepared()
                     stopCurrent()
                     // 保存和停止可能挂起，提交新播放前重新核验前台与解锁状态。
                     if (!valid() || !foreground || !unlocked) break
                     if (desired != target) continue
                     generation = target.generation
-                    val media = prepared[target.key]?.takeIf { SystemClock.elapsedRealtime() - it.createdAt < 110_000 }
+                    val cached = prepared[target.key]
+                    val media = cached?.takeIf { SystemClock.elapsedRealtime() - it.createdAt < 110_000 }
+                    if (cached != null && media == null) {
+                        prepared.remove(target.key); slots.discard(cached.request)
+                        command("Cancel", args("request_id" to cached.request))
+                    }
+                    if (!valid() || !foreground || !unlocked) break
+                    if (desired != target) continue
                     val result = command("Play", args("item_id" to target.item, "request_id" to media?.request.orEmpty())).obj()
                         ?: error("流影未返回播放结果")
                     playback = result.str("playback_id")?.takeIf { it.isNotEmpty() } ?: error("流影未返回会话标识")
@@ -116,10 +146,12 @@ internal class LiuyingPlaybackSession(
                     )
                     val reusable = media?.takeIf { it.request == finalMedia.request && it.url == finalMedia.url &&
                         it.source == finalMedia.source && it.subtitles == finalMedia.subtitles }
-                    slots.promote(reusable ?: finalMedia, speed.toFloat(), muted)
+                    currentMedia = reusable ?: finalMedia
+                    slots.promote(currentMedia!!, speed.toFloat(), muted)
                     prepared.remove(target.key)
-                    position = 0.0; duration = 0.0; lastProgress = 0; error = null
+                    position = 0.0; duration = 0.0; error = null
                     applyGate()
+                    switching = false
                     preparationSignal.trySend(Unit)
                     break
                 }
@@ -128,6 +160,8 @@ internal class LiuyingPlaybackSession(
                 else break
             } catch (failure: Exception) {
                 if (valid()) error = failure.message ?: "流影播放失败"
+            } finally {
+                switching = false
             }
         }
     }
@@ -136,15 +170,10 @@ internal class LiuyingPlaybackSession(
             if (!valid() || !opened) continue
             preparation?.join()
             preparation = launch {
-                val wanted = future
+                if (switching || selected != desired || playback == null) return@launch
+                val wanted = neighbours()
                 val gen = generation
-                val keep = (wanted.map { it.key } + listOfNotNull(desired?.key)).toSet()
-                for (key in prepared.keys.toList()) if (key !in keep) {
-                    val removed = prepared.remove(key) ?: continue
-                    slots.discard(removed.request)
-                    command("Cancel", args("request_id" to removed.request), gen)
-                }
-                slots.retain(prepared.values.map { it.request }.toSet())
+                prunePrepared()
                 if (!foreground || !unlocked) return@launch
                 for ((index, target) in wanted.withIndex()) {
                     ensureActive()
@@ -187,13 +216,16 @@ internal class LiuyingPlaybackSession(
         slots.onEnded = { if (valid() && selected == desired) onEnded() }
     }
 
-    fun select(target: LiuyingSelection?, next: List<LiuyingSelection>) {
+    fun select(target: LiuyingSelection?, next: List<LiuyingSelection>, before: List<LiuyingSelection> = emptyList()) {
         if (!valid()) return
-        if (desired == target && future == next.take(if (memoryLimited) 0 else 3)) return
+        if (desired == target && future == next.take(if (memoryLimited) 0 else 3) &&
+            previous == before.take(if (memoryLimited) 0 else 2)) return
         val changed = desired != target
         val rangeChanged = target != null && target.generation != generation
+        if (changed) backwards = previous.any { it == target }
         desired = target
         future = if (memoryLimited) emptyList() else next.take(3)
+        previous = if (memoryLimited) emptyList() else before.take(2)
         if (selected != target) {
             slots.silence()
             error = null; buffering = true; position = 0.0; duration = 0.0
@@ -203,7 +235,11 @@ internal class LiuyingPlaybackSession(
                 if (foreground && unlocked) onNeedFocus()
             }
         }
-        if (rangeChanged) generation = target.generation
+        if (rangeChanged) {
+            generation = target.generation
+            prepared.values.forEach { slots.discard(it.request) }
+            prepared.clear()
+        }
         preparation?.cancel()
         warmRevision++
         slots.warm(null, false)
@@ -216,9 +252,22 @@ internal class LiuyingPlaybackSession(
         slots.silence()
         val pos = stopPosition ?: (slots.active?.player?.currentPosition?.div(1000.0) ?: 0.0).coerceAtLeast(0.0)
         stopPosition = pos
-        slots.detachCurrent()
-        command("Stop", args("playback_id" to id, "item_id" to old.item, "pos" to pos, "handoff" to true), playedGeneration)
-        playback = null; selected = null; stopPosition = null
+        val media = currentMedia?.takeIf {
+            valid() && !memoryLimited && old.generation == generation && old in neighbours() &&
+                SystemClock.elapsedRealtime() - it.createdAt < 110_000
+        }
+        slots.detachCurrent(retain = media != null)
+        val result = command("Stop", args("playback_id" to id, "item_id" to old.item, "pos" to pos,
+            "handoff" to true, "retain_request_id" to media?.request.orEmpty()), playedGeneration).obj()
+        if (media != null) {
+            if (result.bool("retained") && valid() && old.generation == generation && old in neighbours()) {
+                prepared[old.key] = media
+            } else {
+                slots.discard(media.request)
+                if (result.bool("retained")) command("Cancel", args("request_id" to media.request), playedGeneration)
+            }
+        }
+        playback = null; selected = null; stopPosition = null; currentMedia = null
     }
 
     fun environment(resumed: Boolean, screenUnlocked: Boolean) {
@@ -279,7 +328,7 @@ internal class LiuyingPlaybackSession(
     }
     fun retry() { if (valid()) { retrying = true; error = null; signal.trySend(Unit) } }
     fun trimMemory() {
-        memoryLimited = true; future = emptyList()
+        memoryLimited = true; future = emptyList(); previous = emptyList()
         warmRevision++
         slots.warm(null, false)
         preparation?.cancel(); slots.releaseSpare()
@@ -303,7 +352,7 @@ internal class LiuyingPlaybackSession(
         }
     }
 
-    /** 由宿主唯一采样循环调用；HTTP进度按10秒节流且不叠加请求。 */
+    /** 只采样本地进度与调度准备；流影不发送周期HTTP进度。 */
     suspend fun tick() {
         if (!valid()) return
         val player = slots.active?.player
@@ -312,8 +361,8 @@ internal class LiuyingPlaybackSession(
             duration = (player.duration / 1000.0).coerceAtLeast(0.0)
             buffering = player.playbackState == Player.STATE_BUFFERING || player.playbackState == Player.STATE_IDLE
             val buffered = ((player.bufferedPosition - player.currentPosition) / 1000.0 / speed).coerceAtLeast(0.0)
-            if (buffering || buffered < 3) warmAllowed = false
-            if (!buffering && (buffered >= 10 || duration > 0 && player.bufferedPosition >= player.duration)) warmAllowed = true
+            if (buffering || buffered < 1) warmAllowed = false
+            if (!buffering && (buffered >= 3 || duration > 0 && player.bufferedPosition >= player.duration)) warmAllowed = true
         } else warmAllowed = false
         val revision = warmRevision
         val gen = generation
@@ -324,7 +373,7 @@ internal class LiuyingPlaybackSession(
             warming?.let { old -> runCatching { command("Warm", args("request_id" to old, "enabled" to false, "depth" to 1), gen) } }
             warming = null
             if (request != null && valid() && revision == warmRevision) {
-                val rank = future.indexOfFirst { prepared[it.key]?.request == request } + 1
+                val rank = neighbours().indexOfFirst { prepared[it.key]?.request == request } + 1
                 val depth = when (rank) { 1 -> 5; 2 -> 3; else -> 1 }
                 val matched = runCatching { command("Warm", args("request_id" to request, "enabled" to true, "depth" to depth), gen).obj().bool("matched") }.getOrDefault(false)
                 if (matched && valid() && revision == warmRevision) warming = request
@@ -335,20 +384,6 @@ internal class LiuyingPlaybackSession(
         }
         if (valid() && revision == warmRevision) slots.warm(warming, warming != null)
         else slots.warm(null, false)
-        val now = SystemClock.elapsedRealtime()
-        val id = playback
-        val target = selected
-        if (foreground && unlocked && id != null && target == desired && target != null &&
-            progress?.isActive != true && now - lastProgress >= 10_000) {
-            lastProgress = now
-            val pos = position
-            val paused = !userWantsPlay || !focus || dragging
-            val gen = playedGeneration
-            progress = app.bg.launch {
-                runCatching { command("Progress", args("playback_id" to id, "item_id" to target.item,
-                    "pos" to pos, "paused" to paused), gen) }
-            }
-        }
     }
 
     fun controls() = FeedPlayback(position, duration, !userWantsPlay, muted,
@@ -373,7 +408,6 @@ internal class LiuyingPlaybackSession(
         PlayerController.handoffIn(app.bg) {
             worker.join()
             saveSpeed?.join()
-            progress?.join()
             val id = playback
             val old = selected
             if (id != null && old != null) runCatching {
