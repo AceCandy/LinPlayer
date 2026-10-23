@@ -257,7 +257,8 @@ internal fun PhoneLiuyingFilters(
 }
 
 @Composable
-internal fun PhoneLiuyingSheet(title: String, tag: String, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
+internal fun PhoneLiuyingSheet(title: String, tag: String, onClose: () -> Unit,
+    showHeader: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
     Popup(alignment = Alignment.BottomCenter, onDismissRequest = onClose, properties = PopupProperties(focusable = true)) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .4f))) {
             Box(Modifier.fillMaxSize().testTag("liuying.scrim").pointerInput(Unit) { detectTapGestures { onClose() } })
@@ -267,7 +268,7 @@ internal fun PhoneLiuyingSheet(title: String, tag: String, onClose: () -> Unit, 
                 .pointerInput(Unit) { detectTapGestures { } }.navigationBarsPadding().padding(horizontal = 20.dp)) {
                 Box(Modifier.align(Alignment.CenterHorizontally).padding(top = 12.dp, bottom = 8.dp)
                     .size(32.dp, 4.dp).background(Color.White.copy(alpha = .25f), RoundedCornerShape(2.dp)))
-                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                if (showHeader) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                     Text(title, Modifier.weight(1f), color = Color.White, style = LpText.section)
                     Text("完成", Modifier.heightIn(min = 48.dp).wrapContentHeight().pressable(onClose).padding(horizontal = 8.dp),
                         color = FeedAccent, style = LpText.body)

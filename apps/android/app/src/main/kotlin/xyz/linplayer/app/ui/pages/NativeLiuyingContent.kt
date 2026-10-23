@@ -41,7 +41,8 @@ import xyz.linplayer.app.tv.TvPlayerPage
 import xyz.linplayer.app.tv.TvRoute
 import kotlin.math.abs
 
-internal data class LiuYingPageWindow(val seed: String, val offset: Int, val rows: List<JsonObject>, val more: Boolean)
+internal data class LiuYingPageWindow(val seed: String, val offset: Int, val rows: List<JsonObject>, val more: Boolean,
+    val nextOffset: Int = offset + rows.size)
 
 /** 候选由服务端限定入库资源；本页只持有当前有界窗口，不保存播放地址或断点。 */
 @Composable
@@ -341,10 +342,7 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
             { move(-1) }, { move(1) }, ::selectLabel,
             { favorites = !favorites; reset() }, { channel = ""; exposure = ""; favorites = false; reset() },
             { filtersOpen = false })
-        if (!tv && favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }, { selectedTab ->
-            tab = selectedTab; channel = ""; exposure = ""; favorites = false
-            favoritesOpen = false; reset()
-        }) { selectedTab, page, selectedIndex ->
+        if (!tv && favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }) { selectedTab, page, selectedIndex ->
             tab = selectedTab; channel = ""; exposure = ""; favorites = true
             previousWindow = null; selectedPage = page to selectedIndex
             requestedSeed = page.seed; requestedOffset = page.offset; requestLast = false

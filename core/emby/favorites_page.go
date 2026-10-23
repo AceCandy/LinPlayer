@@ -45,6 +45,6 @@ func (c *Client) FavoritesPage(ctx context.Context, s *Session, start, limit int
 	got := len(p.Items)
 	next := max(0, start) + got
 	out := &FavoritePage{Page: *p, NextIndex: next, HasMore: got > 0 && (p.Total <= 0 || int64(next) < p.Total)}
-	out.Items = filterBlocked(out.Items)
+	out.Items = withoutLiuYing(filterBlocked(out.Items))
 	return out, nil
 }

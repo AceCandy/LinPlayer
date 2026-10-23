@@ -366,7 +366,11 @@ func (c *Client) Favorites(ctx context.Context, s *Session) ([]Item, error) {
 	base := fmt.Sprintf("%s/Users/%s/Items?Filters=IsFavorite&Recursive=true"+
 		"&Fields=PrimaryImageAspectRatio,CommunityRating,DateCreated,DateLastMediaAdded,SortName",
 		s.Server, url.PathEscape(s.UserID))
-	return c.fetchAllPaged(ctx, s, base, 2000)
+	items, err := c.fetchAllPaged(ctx, s, base, 2000)
+	if err != nil {
+		return nil, err
+	}
+	return withoutLiuYing(items), nil
 }
 
 // FavoriteSorts 收藏页的排序档位,**第一条是默认档**

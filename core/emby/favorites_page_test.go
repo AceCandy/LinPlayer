@@ -56,6 +56,60 @@ func Test收藏类型由服务端返回(t *testing.T) {
 	})
 }
 
+func Test收藏排除流影且保留原始分页(t *testing.T) {
+	rows := []map[string]any{
+		{"Id": "ly-work-1", "UserData": map[string]any{"IsFavorite": true}},
+		{"Id": "typed-work", "LibraryType": "liuying"},
+		{"Id": "movie", "Type": "Movie", "UserData": map[string]any{"IsFavorite": true}},
+	}
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet || r.URL.Query().Get("Filters") != "IsFavorite" {
+			t.Errorf("收藏读取不应改写状态: %s %s", r.Method, r.URL.Path)
+		}
+		start, _ := strconv.Atoi(r.URL.Query().Get("StartIndex"))
+		limit, _ := strconv.Atoi(r.URL.Query().Get("Limit"))
+		end := min(start+limit, len(rows))
+		_ = json.NewEncoder(w).Encode(map[string]any{"Items": rows[start:end], "TotalRecordCount": len(rows)})
+	}))
+	defer up.Close()
+	c, s := NewClient("test"), &Session{Server: up.URL, UserID: "u"}
+	t.Run("混合页", func(t *testing.T) {
+		p, err := c.FavoritesPage(t.Context(), s, 0, 60, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Items) != 1 || p.Items[0].ID != "movie" || p.Items[0].IsFavorite == nil || !*p.Items[0].IsFavorite ||
+			p.NextIndex != 3 || p.HasMore || p.Total != 3 {
+			t.Fatalf("普通收藏混入流影或状态/游标变化: %+v", p)
+		}
+	})
+	t.Run("纯流影页后仍可续页", func(t *testing.T) {
+		p, err := c.FavoritesPage(t.Context(), s, 0, 2, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(p.Items) != 0 || p.NextIndex != 2 || !p.HasMore {
+			t.Fatalf("过滤空页丢失续页: %+v", p)
+		}
+		next, err := c.FavoritesPage(t.Context(), s, p.NextIndex, 2, "", "", "")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(next.Items) != 1 || next.Items[0].ID != "movie" || next.NextIndex != 3 || next.HasMore {
+			t.Fatalf("后续普通收藏丢失: %+v", next)
+		}
+	})
+	t.Run("全量", func(t *testing.T) {
+		items, err := c.Favorites(t.Context(), s)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(items) != 1 || items[0].ID != "movie" || items[0].IsFavorite == nil || !*items[0].IsFavorite {
+			t.Fatalf("全量收藏混入流影或状态丢失: %+v", items)
+		}
+	})
+}
+
 func Test收藏单页短页不提前结束且屏蔽不改变游标(t *testing.T) {
 	old := blocklist.List()
 	defer blocklist.Replace(old)

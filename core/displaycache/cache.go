@@ -80,6 +80,10 @@ func key(command string, args map[string]any) string {
 		a["blocked_revision"] = info.ModTime().UnixNano()
 	}
 	b, _ := json.Marshal(a)
+	if command == "emby.listFavorites" {
+		// 普通收藏已隔离流影，不再回显旧版混合快照。
+		command += "|without-liuying"
+	}
 	return identityPrefix(args) + hash(command + "|" + string(b))[32:]
 }
 

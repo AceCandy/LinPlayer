@@ -36,6 +36,28 @@ func TestPersonPageSnapshotRetainsCursorAndSeparatesCategory(t *testing.T) {
 	}
 }
 
+func TestFavoritesIgnoresLegacyMixedSnapshot(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	bus.Init()
+	args := map[string]any{"server": "source", "user_id": "one", "start_index": 0, "limit": 60}
+	b, _ := json.Marshal(args)
+	legacyKey := identityPrefix(args) + hash("emby.listFavorites|" + string(b))[32:]
+	put(legacyKey, []byte(`{"items":[{"id":"ly-work-1"}],"next_index":1,"has_more":false}`), epoch())
+	if Snapshot("emby.listFavorites", args) != nil {
+		t.Fatal("普通收藏仍读取混有流影的旧快照")
+	}
+	fresh := map[string]any{"items": []any{map[string]any{"id": "movie"}}, "next_index": 2, "has_more": false}
+	_, err := Run(t.Context(), 31, "emby.listFavorites", args, func() (any, error) {
+		if event := bus.NextEvent(0); len(event) != 0 {
+			t.Fatalf("旧收藏快照不应作为partial发出: %s", event)
+		}
+		return fresh, nil
+	})
+	if err != nil || Snapshot("emby.listFavorites", args) == nil {
+		t.Fatalf("新收藏快照未保存: %v", err)
+	}
+}
+
 func TestSnapshotPartialAndRealtimeResult(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	bus.Init()

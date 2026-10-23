@@ -1,6 +1,7 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.net.Uri
 import android.content.Intent
 import android.media.AudioManager
 import android.view.KeyEvent
@@ -39,6 +40,7 @@ import java.net.Socket
 import java.util.Collections
 import kotlin.concurrent.thread
 import xyz.linplayer.app.ui.theme.LpTheme
+import xyz.linplayer.app.ui.theme.PluginTheme
 
 /** 原生入口只消费入库候选；能力缺失与空库不能退回网页。 */
 @RunWith(RobolectricTestRunner::class)
@@ -50,6 +52,8 @@ class PhoneLiuyingTest {
     private lateinit var app: AppState
     private var showing by mutableStateOf(true)
     private lateinit var session: LiuyingPlaybackSession
+    private val imageRequests = Collections.synchronizedList(mutableListOf<String>())
+    private val originalColumns = ReflectionHelpers.getField<Map<String, Int>>(PluginTheme, "columns")
     private val mediaServer = ServerSocket(0)
     private val mediaConnections = Collections.synchronizedList(mutableListOf<Socket>())
     init {
@@ -63,9 +67,10 @@ class PhoneLiuyingTest {
         PageCache.clear(); scope.cancel(); if (::app.isInitialized) app.bg.cancel()
         mediaServer.close()
         synchronized(mediaConnections) { mediaConnections.forEach { it.close() } }
+        ReflectionHelpers.setField(PluginTheme, "columns", originalColumns)
     }
 
-    private fun open(enabled: Boolean = true, populated: Boolean = false, more: Boolean = false, fontScale: Float = 1f,
+    private fun open(enabled: Boolean = true, populated: Boolean = false, more: Boolean = false, fontScale: Float = 1f, dark: Boolean = true,
         wrap: (FakeCore) -> CorePort = { it }, configure: FakeCore.() -> Unit = {}): FakeCore {
         PageCache.clear()
         val core = FakeCore().loggedIn().player().apply {
@@ -95,8 +100,9 @@ class PhoneLiuyingTest {
         core.configure()
         app = AppState(wrap(core), scope)
         runBlocking { app.enablePrivacyFiltering(); app.boot(); app.enterPrivateSpace() }
+        FakeImages.install(RuntimeEnvironment.getApplication()) { imageRequests += it }
         rule.mainClock.autoAdvance = false
-        rule.setContent { LpTheme(privateSpace = true) { CompositionLocalProvider(LocalApp provides app,
+        rule.setContent { LpTheme(darkOverride = dark, privateSpace = true) { CompositionLocalProvider(LocalApp provides app,
             LocalDensity provides Density(LocalDensity.current.density, fontScale)) {
             if (showing) {
                 session = rememberLiuyingSession()
@@ -142,6 +148,10 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.filter").performClick(); advance(rule, 300)
     }
 
+    private fun closePopup() {
+        rule.onNode(isPopup()).performTouchInput { click(Offset(width / 2f, 8f)) }; advance(rule, 300)
+    }
+
     private fun moveVideo(next: Boolean, wait: Long = 600) {
         openFilters()
         rule.onNodeWithTag(if (next) "liuying.next" else "liuying.previous").performScrollTo().performClick()
@@ -155,7 +165,7 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.favoriteSheet").assertIsDisplayed()
         assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
         assertEquals("normal", core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("feed"))
-        rule.onNodeWithText("完成").performClick(); advance(rule, 300)
+        closePopup()
         rule.onNodeWithTag("liuying.bankai").performTouchInput { longClick() }; advance(rule, 400)
         rule.onNodeWithTag("liuying.favoriteSheet").assertDoesNotExist()
         assertEquals("adult", core.calls.last { it.first == "emby.extLiuYingItems" }.second.str("feed"))
@@ -281,7 +291,7 @@ class PhoneLiuyingTest {
         } finally { release.complete(Unit) }
     }
 
-    @Test fun favoriteListIgnoresFiltersAndAdoptsSelectedPageWithoutRandomReload() {
+    @Test fun favoriteListSelectsExactVideoLoopsAndSwipesIntoNormalRandomFeed() {
         val core = open(populated = true, more = true)
         openFilters()
         rule.onNodeWithTag("liuying.label.tg-3398168133").performScrollTo().performClick(); advance(rule, 300)
@@ -289,28 +299,135 @@ class PhoneLiuyingTest {
         core.on("emby.extLiuYingItems") { a ->
             val offset = a.long("offset")!!.toInt()
             buildJsonObject {
-                put("items", arr(*(1..2).map { buildJsonObject {
-                    put("item_id", "ly-work-${offset + it + 10}"); put("title", "收藏${offset + it}"); put("favorite", true)
-                } }.toTypedArray())); put("has_more", offset == 0)
+                val duplicate = if (!a.bool("favorite") && offset == 0) listOf(buildJsonObject {
+                    put("item_id", "ly-work-14"); put("title", "当前收藏"); put("favorite", true)
+                }) else emptyList()
+                put("items", arr(*(duplicate + (1..2).map { buildJsonObject {
+                    val favorite = a.bool("favorite")
+                    put("item_id", if (favorite) "ly-work-${offset + it + 10}" else "random-${offset + it}")
+                    put("title", if (favorite) "收藏${offset + it}" else "随机${offset + it}")
+                    put("favorite", favorite)
+                } }).toTypedArray())); put("has_more", offset == 0)
             }
         }
         rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 400)
         val query = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertEquals("", query.str("channel")); assertEquals("", query.str("exposure")); assertTrue(query.bool("favorite"))
         rule.onNodeWithTag("liuying.favoriteMore").performScrollTo().performClick(); advance(rule, 300)
-        val count = core.calls.count { it.first == "emby.extLiuYingItems" }
+        val favoriteCount = core.calls.count { it.first == "emby.extLiuYingItems" && it.second.bool("favorite") }
         rule.onNode(isPopup()).captureRoboImage("build/liuying-mobile/favorite-list-synthetic.png")
         rule.onNodeWithTag("liuying.favoriteItem.ly-work-14").performScrollTo().performClick(); advance(rule, 600)
         rule.onNodeWithTag("liuying.favoriteSheet").assertDoesNotExist()
         assertEquals("ly-work-14", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertEquals(count + 2, core.calls.count { it.first == "emby.extLiuYingItems" })
-        moveVideo(false)
-        assertEquals("ly-work-13", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        moveVideo(false)
-        val previousQuery = core.calls.last { it.first == "emby.extLiuYingItems" }.second
-        assertEquals(query.str("seed"), previousQuery.str("seed"))
-        assertEquals(0, previousQuery.long("offset")!!.toInt()); assertTrue(previousQuery.bool("favorite"))
-        assertEquals("", previousQuery.str("channel"))
+        rule.onNodeWithText("循环播放").assertExists()
+        val normalQuery = core.calls.last { it.first == "emby.extLiuYingItems" }.second
+        assertFalse(normalQuery.bool("favorite"))
+        assertEquals("", normalQuery.str("channel")); assertEquals("", normalQuery.str("exposure"))
+        assertEquals("normal", normalQuery.str("feed")); assertEquals("dance", normalQuery.str("tab"))
+        assertEquals(0L, normalQuery.long("offset"))
+        assertNotEquals(query.str("seed"), normalQuery.str("seed"))
+        val played = core.calls.count { it.first == "player.liuyingPlay" }
+        rule.runOnIdle { sample(3660.0, eof = true) }; advance(rule, 800)
+        assertEquals("收藏点选后片尾只能循环当前", played, core.calls.count { it.first == "player.liuyingPlay" })
+        rule.onNodeWithTag("liuying.gesture").performTouchInput { swipeUp() }; advance(rule, 800)
+        assertEquals("random-1", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
+        assertTrue(core.calls.any { it.first == "emby.extLiuYingItems" &&
+            !it.second.bool("favorite") && it.second.long("offset") == 3L })
+        assertEquals(favoriteCount, core.calls.count { it.first == "emby.extLiuYingItems" && it.second.bool("favorite") })
+        rule.onNodeWithText("循环播放").assertExists()
+        assertFalse(core.calls.any { it.first == "player.liuyingPlay" && it.second.str("item_id") == "ly-work-13" })
+    }
+
+    @Test fun favoriteHandoffSkipsDuplicateOnlyPageAndKeepsRawOffset() = verifyDuplicateOnlyHandoff(true)
+    @Test fun favoriteHandoffWithNoOtherVideoStopsFetching() = verifyDuplicateOnlyHandoff(false)
+
+    private fun verifyDuplicateOnlyHandoff(more: Boolean) {
+        val core = open(populated = true)
+        core.on("emby.extLiuYingItems") { a ->
+            val offset = a.long("offset")!!.toInt()
+            buildJsonObject {
+                put("items", arr(buildJsonObject {
+                    put("item_id", if (offset == 0) "ly-work-2" else "random-other")
+                    put("title", if (offset == 0) "当前收藏" else "其它视频")
+                    put("favorite", offset == 0)
+                }))
+                put("has_more", !a.bool("favorite") && offset == 0 && more)
+            }
+        }
+        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 300)
+        val before = core.calls.size
+        rule.onNodeWithTag("liuying.favoriteItem.ly-work-2").performScrollTo().performClick(); advance(rule, 600)
+        assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
+        val queries = core.calls.drop(before).filter { it.first == "emby.extLiuYingItems" }
+        assertEquals(if (more) listOf(0L, 1L) else listOf(0L), queries.map { it.second.long("offset") })
+        assertEquals(1, queries.map { it.second.str("seed") }.distinct().size)
+        val plays = core.calls.count { it.first == "player.liuyingPlay" }
+        rule.onNodeWithTag("liuying.gesture").performTouchInput { swipeUp() }; advance(rule, 800)
+        if (more) {
+            assertEquals("random-other", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
+        } else {
+            assertEquals(plays, core.calls.count { it.first == "player.liuyingPlay" })
+            assertEquals(1, core.calls.drop(before).count { it.first == "emby.extLiuYingItems" })
+            rule.onNodeWithText("暂无可播放的入库资源").assertExists()
+        }
+        rule.onNodeWithText("循环播放").assertExists()
+    }
+
+    @Test fun favoriteGridUsesNormalColumnsCoversAndOnlyTitles() = verifyFavoriteGrid(true, 3)
+    @Test fun lightFavoriteGridUsesThemeColumnsAndKeepsDarkSheetReadable() = verifyFavoriteGrid(false, 4)
+
+    @Test fun missingFavoriteCoverStillAllowsExactPlayback() {
+        val core = open(populated = true)
+        val context = RuntimeEnvironment.getApplication()
+        coil3.SingletonImageLoader.setUnsafe(coil3.ImageLoader.Builder(context)
+            .coroutineContext(Dispatchers.Unconfined).components {
+                add(object : coil3.fetch.Fetcher.Factory<coil3.Uri> {
+                    override fun create(data: coil3.Uri, options: coil3.request.Options, imageLoader: coil3.ImageLoader) =
+                        coil3.fetch.Fetcher { error("fixture missing cover") }
+                })
+            }.build())
+        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 500)
+        rule.onAllNodesWithText("暂无封面").assertCountEquals(2)
+        rule.onNodeWithTag("liuying.favoriteItem.ly-work-2").performScrollTo().performClick(); advance(rule, 600)
+        assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
+        rule.onNodeWithText("循环播放").assertExists()
+    }
+
+    private fun verifyFavoriteGrid(dark: Boolean, columns: Int) {
+        ReflectionHelpers.setField(PluginTheme, "columns", mapOf("compact" to columns))
+        val core = open(populated = true, dark = dark)
+        core.on("emby.extLiuYingItems") { buildJsonObject {
+            put("items", arr(*(1..8).map { index -> buildJsonObject {
+                put("item_id", "favorite-$index"); put("title", "收藏标题$index")
+                put("author", "不显示作者"); put("favorite", true)
+            } }.toTypedArray()))
+            put("has_more", false)
+        } }
+        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 500)
+        rule.onNodeWithText("收藏的流影").assertDoesNotExist()
+        rule.onNodeWithText("完成").assertDoesNotExist()
+        rule.onNodeWithTag("liuying.returnAll").assertDoesNotExist()
+        rule.onNodeWithText("全部频道与衣着 · 点选后只在收藏范围内播放").assertDoesNotExist()
+        rule.onNodeWithText("@不显示作者").assertDoesNotExist()
+        val bounds = (1..columns + 1).map {
+            rule.onNodeWithTag("liuying.favoriteItem.favorite-$it").getUnclippedBoundsInRoot()
+        }
+        bounds.take(columns).forEach { assertEquals(bounds[0].top, it.top) }
+        assertTrue(bounds.last().top > bounds[0].top)
+        (1..columns + 1).forEach { index ->
+            assertTrue("封面经过既有图片代理加载", imageRequests.any { request ->
+                val uri = Uri.parse(request)
+                Uri.parse(uri.getQueryParameter("src")).path == "/Items/favorite-$index/Images/Primary" &&
+                    uri.getQueryParameter("h") == "330"
+            })
+        }
+        rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(7); advance(rule, 400)
+        rule.onNodeWithTag("liuying.favoriteItem.favorite-8").assertIsDisplayed()
+        rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(0); advance(rule, 300)
+        rule.onNode(isPopup()).captureRoboImage("build/liuying-mobile/favorite-grid-${if (dark) "dark" else "light"}-synthetic.png")
+        closePopup()
+        rule.onNodeWithTag("liuying.favoriteSheet").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "player.liuyingPlay" })
     }
 
     @Test fun favoriteListFailureRetriesSamePageAndTabSwitchStaysInCurrentFeed() {
@@ -391,10 +508,10 @@ class PhoneLiuyingTest {
 
     @Test
     @Config(qualifiers = "w320dp-h640dp-port-mdpi")
-    fun liveFavoritesCanReturnToAllVideos() = verifyReturnToAll(false)
+    fun liveFavoriteSelectionLoopsAndSwipeReturnsToRandomVideos() = verifyFavoriteRandomHandoff(false)
     @Test
     @Config(qualifiers = "w873dp-h393dp-land-mdpi")
-    fun adultFavoritesCanReturnToAllVideos() = verifyReturnToAll(true)
+    fun adultFavoriteSelectionLoopsAndSwipeReturnsToRandomVideos() = verifyFavoriteRandomHandoff(true)
 
     private fun selectUnfilteredFeed(adult: Boolean) {
         if (adult) rule.onNodeWithTag("liuying.bankai").performTouchInput { longClick() }
@@ -403,15 +520,14 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.filter").assertDoesNotExist()
     }
 
-    private fun verifyReturnToAll(adult: Boolean) {
+    private fun verifyFavoriteRandomHandoff(adult: Boolean) {
         val core = open(populated = true, fontScale = 1.3f)
         selectUnfilteredFeed(adult)
         rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 300)
-        rule.onNodeWithTag("liuying.favoriteItem.ly-work-2").performClick(); advance(rule, 600)
+        rule.onNodeWithTag("liuying.favoriteItem.ly-work-2").performScrollTo().performClick(); advance(rule, 600)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))
-        assertTrue(core.calls.last { it.first == "emby.extLiuYingItems" }.second.bool("favorite"))
-        rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 300)
-        rule.onNodeWithTag("liuying.returnAll").assertIsDisplayed().performClick(); advance(rule, 600)
+        rule.onNodeWithText("循环播放").assertExists()
+        rule.onNodeWithTag("liuying.gesture").performTouchInput { swipeUp() }; advance(rule, 800)
         rule.onNodeWithTag("liuying.favoriteSheet").assertDoesNotExist()
         val query = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertFalse(query.bool("favorite"))

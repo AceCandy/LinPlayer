@@ -33,7 +33,7 @@ func TestLiuYingExtensionLibraryOnlyContract(t *testing.T) {
 			if invalid.Load() {
 				id = "catalog-only"
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"item_id": id, "feed": "normal", "src": "must-not-escape", "fallback_src": "must-not-escape"}}, "page_size": 12, "offset": 12, "has_more": false})
+			_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{"item_id": id, "feed": "normal", "favorite": true, "src": "must-not-escape", "fallback_src": "must-not-escape"}}, "page_size": 12, "offset": 12, "has_more": false})
 		case "/emby-ext/v1/liuying/labels":
 			_, _ = w.Write([]byte(`{"items":[{"name":"tg-3398168133","count":2},{"name":"side_breast_exposure","count":1}]}`))
 		default:
@@ -66,6 +66,15 @@ func TestLiuYingExtensionLibraryOnlyContract(t *testing.T) {
 		raw, err := json.Marshal(out)
 		if err != nil || strings.Contains(string(raw), "must-not-escape") || strings.Contains(string(raw), "src") {
 			t.Fatalf("source leaked: %s %v", raw, err)
+		}
+		var page struct {
+			Items []struct {
+				ID       string `json:"item_id"`
+				Favorite bool   `json:"favorite"`
+			} `json:"items"`
+		}
+		if err := json.Unmarshal(raw, &page); err != nil || len(page.Items) != 1 || page.Items[0].ID != "ly-work-1" || !page.Items[0].Favorite {
+			t.Fatalf("流影专用收藏或状态丢失: %s %v", raw, err)
 		}
 	}
 	labels, err := h["emby.extLiuYingLabels"](ctx, session, nil)

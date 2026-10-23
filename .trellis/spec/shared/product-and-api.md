@@ -65,3 +65,13 @@ MSG 标准 Emby 返回对所有播放器一致，不按客户端名称或 UA 隐
 5. 案例：当前服流影正常读取；空入库列表显示空态；榜单、未知扩展、跨服和私密刷新均拒绝。
 6. 回归：`TestPrivateLiuYingExtensionScope` 覆盖精确策略，`TestLiuYingExtensionLibraryOnlyContract` 覆盖私密刷新不出网；桌面 `seekcheck --liuying-only` 经过真实HTTP/FFI验证缓存只读、联合筛选和取消。手机/TV测试不能替代这条核心入口链路。
 7. 禁止仅直接调用 handler 或使用页面替身测试判定隐私接线完成；正确做法是补带 `request_scope` 的策略测试和真实命令通道集成检查，防止业务实现存在却被统一策略提前拦截。
+
+### 普通收藏与流影收藏隔离
+
+1. **范围**：普通收藏与流影收藏独立展示，不能因首页已隐藏流影库就假定跨库收藏也隔离。
+2. **入口**：`emby.listFavorites` 的分页和全量结果均复用 `withoutLiuYing`；流影仍用 `emby.extLiuYingItems(favorite=true)`，不改收藏写入。
+3. **契约**：排除 `LibraryType=liuying` 或 `ly-work-` ID；`next_index/has_more/total` 保留服务端原始分页语义，total不是过滤后的精确数量。普通收藏缓存键使用 `|without-liuying` 后缀隔离旧混合快照。
+4. **校验与错误**：请求错误照常返回；过滤空页但 `has_more=true` 时仍允许续页，不伪装成全部为空，不删除或迁移收藏数据。
+5. **案例**：混合页只显示普通收藏；纯流影页可继续读取后续普通收藏；流影专用查询仍保留流影项与收藏状态。
+6. **测试**：`Test收藏排除流影且保留原始分页` 覆盖两类身份、状态与分页/全量；`TestFavoritesIgnoresLegacyMixedSnapshot` 验证旧快照不读取、不发partial且新快照可保存；`TestLiuYingExtensionLibraryOnlyContract` 验证专用收藏返回。
+7. **反例与正例**：只在界面删卡片、用过滤后数量推进游标或继续回显旧缓存均不完整；正确做法是核心统一过滤、保留原始游标，并隔离旧展示缓存。

@@ -102,10 +102,8 @@ internal fun PhoneLiuyingFeed(onExit: () -> Unit, session: LiuyingPlaybackSessio
             PhoneLiuyingChrome(feed, tab, false, false, null, false, autoAdvance, null, leave, ::bankai,
                 {}, {}, {}, {}, {})
         }
-        if (favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }, { selectedTab ->
-            tab = selectedTab; channel = ""; exposure = ""; favorites = false; favoritesOpen = false; reset()
-        }) { selectedTab, page, index ->
-            tab = selectedTab; channel = ""; exposure = ""; favorites = true
+        if (favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }) { selectedTab, page, index ->
+            tab = selectedTab; channel = ""; exposure = ""; favorites = false; autoAdvance = false
             adopted = page to index; generation++; favoritesOpen = false
         }
     }
@@ -122,21 +120,25 @@ private fun PhoneLiuyingPager(
 ) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
-    val initialSeed = remember { adopted?.first?.seed ?: UUID.randomUUID().toString() }
-    var pages by remember { mutableStateOf(adopted?.let { listOf(it.first) } ?: emptyList()) }
+    val initialSeed = remember { UUID.randomUUID().toString() }
+    // 只接入点中的收藏，后续以新seed从普通随机范围取片，不延续收藏页的offset。
+    var pages by remember { mutableStateOf(adopted?.let {
+        listOf(LiuYingPageWindow(initialSeed, 0, listOf(it.first.rows[it.second]), false))
+    } ?: emptyList()) }
     var loading by remember { mutableStateOf(pages.isEmpty()) }
     var failure by remember { mutableStateOf<String?>(null) }
     var retry by remember { mutableIntStateOf(0) }
     var favoriteBusy by remember { mutableStateOf(false) }
     var request by remember { mutableStateOf<Triple<String, Int, Boolean>?>(if (pages.isEmpty()) Triple(initialSeed, 0, false) else null) }
     var failedRequest by remember { mutableStateOf<Triple<String, Int, Boolean>?>(null) }
-    var endSeed by remember { mutableStateOf(UUID.randomUUID().toString()) }
+    val handoffSeed = remember { UUID.randomUUID().toString() }
+    var endSeed by remember { mutableStateOf(handoffSeed) }
     var removedFavorites by remember { mutableStateOf(setOf<String>()) }
     var retainedFavorite by remember { mutableStateOf<String?>(null) }
     val rows = feedRows(pages).filter {
         it.row.str("item_id") !in removedFavorites || it.key == retainedFavorite
     }
-    val pager = rememberPagerState(initialPage = adopted?.second ?: 0, pageCount = {
+    val pager = rememberPagerState(pageCount = {
         maxOf(1, rows.size + if (rows.isNotEmpty() && pages.lastOrNull()?.rows?.isNotEmpty() == true) 1 else 0)
     })
     val current = rows.getOrNull(pager.settledPage)
@@ -151,7 +153,7 @@ private fun PhoneLiuyingPager(
             val last = pages.lastOrNull() ?: return
             if (last.rows.isEmpty()) return
             pendingMove = 1
-            request = Triple(if (last.more) last.seed else endSeed, if (last.more) last.offset + last.rows.size else 0, false)
+            request = Triple(if (last.more) last.seed else endSeed, if (last.more) last.nextOffset else 0, false)
         } else if (delta < 0 && !loading && pages.firstOrNull()?.offset?.let { it > 0 } == true) {
             val first = pages.first()
             pendingMove = -1
@@ -187,14 +189,14 @@ private fun PhoneLiuyingPager(
         if (current == null && rows.isNotEmpty()) {
             val last = pages.last()
             if (last.rows.isNotEmpty()) request =
-                Triple(if (last.more) last.seed else endSeed, if (last.more) last.offset + last.rows.size else 0, false)
+                Triple(if (last.more) last.seed else endSeed, if (last.more) last.nextOffset else 0, false)
             return@LaunchedEffect
         }
         if (currentRow == null) return@LaunchedEffect
         // 当前页起播即可取后一批；已存在后一页时不继续向前拉取。
         if (session.startedKey == current.key && current.page == pages.lastOrNull()) {
             val last = pages.last()
-            request = Triple(if (last.more) last.seed else endSeed, if (last.more) last.offset + last.rows.size else 0, false)
+            request = Triple(if (last.more) last.seed else endSeed, if (last.more) last.nextOffset else 0, false)
         } else if (index < 3 && pages.firstOrNull()?.offset?.let { it > 0 } == true && current.page == pages.first()) {
             val first = pages.first()
             request = Triple(first.seed, (first.offset - 12).coerceAtLeast(0), true)
@@ -205,11 +207,20 @@ private fun PhoneLiuyingPager(
         loading = true; failure = null
         val (seed, offset, previous) = target
         try {
-            val result = app.call("emby.extLiuYingItems", args("feed" to feed, "tab" to tab,
-                "channel" to channel, "exposure" to exposure, "favorite" to favorites, "seed" to seed, "offset" to offset)).obj()
-            coroutineContext.ensureActive()
-            val items = result?.get("items").arr().mapNotNull { it.obj() }.take(12)
-            val page = LiuYingPageWindow(seed, offset, items, items.isNotEmpty() && result.bool("has_more"))
+            val excluded = adopted?.takeIf { seed == handoffSeed }?.let { it.first.rows[it.second].str("item_id") }
+            var nextOffset = offset
+            var page: LiuYingPageWindow
+            do {
+                val result = app.call("emby.extLiuYingItems", args("feed" to feed, "tab" to tab,
+                    "channel" to channel, "exposure" to exposure, "favorite" to favorites, "seed" to seed, "offset" to nextOffset)).obj()
+                coroutineContext.ensureActive()
+                val items = result?.get("items").arr().mapNotNull { it.obj() }.take(12)
+                nextOffset += items.size
+                // 收藏交接的首轮随机排除原视频；游标仍按原始条数推进，过滤空页继续取。
+                page = LiuYingPageWindow(seed, offset, items.filterNot {
+                    excluded != null && it.str("item_id") == excluded
+                }, items.isNotEmpty() && result.bool("has_more"), nextOffset)
+            } while (page.rows.isEmpty() && page.more)
             // 响应期间仍可连续滑动；只在落定后按此刻的稳定身份接页、修正索引。
             snapshotFlow { pager.isScrollInProgress }.first { !it }
             val anchor = latestCurrent?.key

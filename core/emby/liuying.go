@@ -90,7 +90,7 @@ func registerLiuYingCommands(list func(string, func(context.Context, *Session, m
 	})
 }
 
-// 首页仅隐藏已知流影身份，不改变库浏览、收藏或服务端返回。
+// 首页与普通收藏隐藏已知流影身份，不改变库浏览、收藏状态或服务端数据。
 func withoutLiuYing(items []Item) []Item {
 	out := make([]Item, 0, len(items))
 	for _, item := range items {
