@@ -791,3 +791,25 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 尚未真机安装、实服联调或测量双槽首帧与连续滑动性能，AC9未验；本包未配置崩溃上报。
+
+
+## Session 98: 流影双向准备与回滑复用交付
+<!-- trellis-session: v=2 fp=769b16d7e65f77a6 -->
+
+**Date**: 2026-10-23
+**Task**: 流影双向准备与回滑复用交付
+**Branch**: `main`
+
+### Summary
+
+取消流影周期进度，提前取批并保留双向准备和有效代理；209条Android回归、核心/绑定门禁及相关race通过，真机性能未验；按用户要求提交归档，不出包。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `02fbc84d` | fix(android): 改善流影双向预加载与回滑复用 |
+
+### Status
+
+[OK] **Completed**
