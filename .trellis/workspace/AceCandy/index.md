@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 100
+- **Total Sessions**: 101
 - **Last Active**: 2026-10-23
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~872 | Active |
+| `journal-3.md` | ~902 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 101 | 2026-10-23 | 收藏与历史已看分离及手机包交付 | `a4f841c8` | `main` |
 | 100 | 2026-10-23 | 流影收藏隔离与手机收藏选片交付 | `8711b73d` | `main` |
 | 99 | 2026-10-23 | 手机 Media3 恢复排查与测试包 | `4fcd523b` | `main` |
 | 98 | 2026-10-23 | 流影双向准备与回滑复用交付 | `02fbc84d` | `main` |
