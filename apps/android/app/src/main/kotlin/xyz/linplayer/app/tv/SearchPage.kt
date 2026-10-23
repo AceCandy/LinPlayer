@@ -309,7 +309,7 @@ private fun SearchResults(
                 items(rest, key = { it.item.id }) { h ->
                     TvListRow(Modifier.memo("search.r.${h.item.id}"), onClick = { onOpen(h) },
                         onLongClick = { overlay.openCardMenu(app, nav, scope, h.item) }) {
-                        Box(Modifier.size(38.dp, 57.dp).clip(TvR.sm)) { TvImage(app.imageUrl(h.item.id, "Primary", 120)) }
+                        Box(Modifier.size(38.dp, 57.dp).clip(TvR.sm)) { TvImage(app.imageUrl(h.item.id, "Primary", 120).takeUnless { h.item.hasPrimary == false }) }
                         Spacer(Modifier.width(TvSp.x12))
                         Column(Modifier.weight(1f)) {
                             RowText(h.item.name, t.body)

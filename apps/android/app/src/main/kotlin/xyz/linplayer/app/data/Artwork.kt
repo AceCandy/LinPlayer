@@ -6,6 +6,7 @@ import android.net.Uri
 fun artworkFallbacks(primaryUrl: String?, item: Item): List<String> {
     if (primaryUrl.isNullOrBlank() || item.type !in listOf("Episode", "Season")) return emptyList()
     val proxy = Uri.parse(primaryUrl)
+    if (!proxy.isHierarchical) return emptyList()
     val source = proxy.getQueryParameter("src") ?: return emptyList()
     val upstream = Uri.parse(source)
     val suffix = "/Items/${item.id}/Images/Primary"
@@ -13,7 +14,7 @@ fun artworkFallbacks(primaryUrl: String?, item: Item): List<String> {
     if (!path.endsWith(suffix)) return emptyList()
     val candidates = buildList {
         if (item.isEpisode) {
-            add(item.id to "Backdrop/0")
+            if (item.hasBackdrop) add(item.id to "Backdrop/0")
             item.seasonId?.takeIf { it.isNotBlank() && it != item.id }?.let { add(it to "Primary") }
             item.seriesId?.takeIf { it.isNotBlank() && it != item.id }?.let { add(it to "Backdrop/0") }
         }

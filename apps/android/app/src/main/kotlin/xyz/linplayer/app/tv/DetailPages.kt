@@ -57,6 +57,7 @@ import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
+import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.long
@@ -110,9 +111,9 @@ internal fun seasonsOf(e: JsonElement?): List<Season> = e.arr().mapNotNull {
 
 /** 背景:Backdrop 那张,没有才退回封面;**均匀** scrim,不渐变、不模糊(`Modifier.blur` 要 API 31)。 */
 @Composable
-fun BoxScope.DetailBackdrop(id: String, hasBackdrop: Boolean) {
+fun BoxScope.DetailBackdrop(id: String, hasBackdrop: Boolean, hasPrimary: Boolean? = null) {
     val app = LocalApp.current
-    TvImage(app.imageUrl(id, if (hasBackdrop) "Backdrop" else "Primary", 1080))
+    TvImage(app.imageUrl(id, if (hasBackdrop) "Backdrop" else "Primary", 1080).takeUnless { !hasBackdrop && hasPrimary == false })
     Box(Modifier.fillMaxSize().background(TvC.scrim))
 }
 
@@ -146,7 +147,7 @@ fun OverviewBlock(text: String, lines: Int, overlay: Overlay, key: String) {
     }) { TvText(text, tvType.body, TvC.fg2, maxLines = lines) }
 }
 
-internal data class Person(val id: String, val name: String)
+internal data class Person(val id: String, val name: String, val hasPrimary: Boolean? = null)
 
 /** 演职人员:**整块一个族 F 焦点** —— 没有人物页,头像能聚焦 = 按下去没反应。空就不画。 */
 @Composable
@@ -160,7 +161,7 @@ internal fun PeopleBlock(people: List<Person>, key: String) {
         Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x20)) {
             people.take(9).forEach { p ->
                 Column(Modifier.width(72.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-                    Box(Modifier.size(56.dp).clip(TvR.pill)) { TvImage(app.imageUrl(p.id, "Primary", 120)) }
+                    Box(Modifier.size(56.dp).clip(TvR.pill)) { TvImage(app.imageUrl(p.id, "Primary", 120).takeUnless { p.hasPrimary == false }) }
                     Spacer(Modifier.height(TvSp.x4))
                     TvText(p.name, tvType.meta, TvC.fg2)
                 }
@@ -314,7 +315,7 @@ fun DetailPage(r: TvRoute.Detail) {
     val type = d.str("type_") ?: r.type
 
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
-        DetailBackdrop(r.itemId, (d ?: preview)?.bool("has_backdrop") ?: true)
+        DetailBackdrop(r.itemId, (d ?: preview)?.bool("has_backdrop") == true, (d ?: preview).boolOrNull("has_primary"))
         when (val b = detail) {
             is Block.Fail -> Column { preview?.let { DetailHead(it, "上次浏览的资料", overlay = overlay, lines = 3) }; FullState(LpIcons.info, "没加载出来", detail = b.message, buttons = listOf("重试", "返回"),
                 tone = TvC.bad, onButton = { if (it == 0) reload++ else nav.pop() }) }
@@ -615,7 +616,7 @@ private fun SeriesBody(id: String, d: JsonObject, overlay: Overlay, scope: Corou
 
 internal fun peopleOf(d: JsonObject?): List<Person> = d?.get("people").arr().mapNotNull {
     val p = it.obj() ?: return@mapNotNull null
-    Person(p.str("id") ?: return@mapNotNull null, p.str("name") ?: "")
+    Person(p.str("id") ?: return@mapNotNull null, p.str("name") ?: "", p.boolOrNull("has_primary"))
 }
 
 /**
@@ -656,7 +657,7 @@ internal fun EpisodeCards(
                 val no = "E${ep.episodeNo ?: "?"}"
                 run {
                     CardEpisode(
-                        cover = { TvImage(app.imageUrl(ep.id, "Primary", 220)) },
+                        cover = { TvImage(app.imageUrl(ep.id, "Primary", 220).takeUnless { ep.hasPrimary == false }) },
                         no = no, title = "$no · ${ep.name}",
                         sub = listOfNotNull(
                             when (ep.id) { currentId -> "当前集"; targetId -> "待播放"; else -> null },

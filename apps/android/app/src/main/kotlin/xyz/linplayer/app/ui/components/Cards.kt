@@ -226,7 +226,7 @@ fun MediaCard(
                     .clip(RoundedCornerShape(R.md))
                     .pressable(
                         onClick = {
-                            if (motion != null && scene != null) motion.open(scene.entry, item, posterToken, imageUrl, onOpen)
+                            if (motion != null && scene != null) motion.open(scene.entry, item, posterToken, imageUrl.takeUnless { item.hasPrimary == false }, onOpen)
                             else onOpen()
                         },
                         onLongClick = when {
@@ -240,7 +240,7 @@ fun MediaCard(
                         },
                     )
             ) {
-                NetImage(imageUrl, item.name, Modifier.fillMaxSize().sharedPoster(item.id, posterToken),
+                NetImage(imageUrl.takeUnless { item.hasPrimary == false }, item.name, Modifier.fillMaxSize().sharedPoster(item.id, posterToken),
                     reveal = !sharedSource,
                     onLoadResult = if (entrance) { { imageResult = it } } else null,
                     fallbackUrls = xyz.linplayer.app.data.artworkFallbacks(imageUrl, item),

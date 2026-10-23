@@ -18,8 +18,8 @@ internal fun HeroArtwork(
     modifier: Modifier = Modifier, loadOriginal: Boolean = true,
 ) {
     var visible by remember { mutableStateOf(false) }
-    var ready by remember(originalUrl) { mutableStateOf(false) }
-    var failed by remember(originalUrl) { mutableStateOf(false) }
+    var ready by remember(originalUrl, fallbackUrl) { mutableStateOf(false) }
+    var failed by remember(originalUrl, fallbackUrl) { mutableStateOf(false) }
     val lifecycle by LocalLifecycleOwner.current.lifecycle.currentStateFlow.collectAsState()
     val active = loadOriginal && visible && lifecycle.isAtLeast(Lifecycle.State.RESUMED)
     Box(modifier.onGloballyPositioned {
@@ -28,7 +28,7 @@ internal fun HeroArtwork(
     }) {
         if (!ready && previewUrl != null && previewUrl != originalUrl)
             AsyncImage(previewUrl, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
-        if (active || ready) AsyncImage(if (failed) fallbackUrl else originalUrl, null,
+        if (active || ready) AsyncImage(if (failed || originalUrl == null) fallbackUrl else originalUrl, null,
             Modifier.fillMaxSize(), contentScale = ContentScale.Crop,
             onSuccess = { ready = true }, onError = { failed = true })
     }

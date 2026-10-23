@@ -105,7 +105,7 @@ fun LibraryPickerPage() {
                     itemsIndexed(v.value, key = { _, it -> it.id }) { i, lib ->
                         val isBlocked = lib.id in blocked
                         CardLibrary(
-                            cover = { TvImage(app.imageUrl(lib.id, "Primary", 220), scale = ContentScale.Crop) },
+                            cover = { TvImage(app.imageUrl(lib.id, "Primary", 220).takeIf { lib.hasPrimary }, scale = ContentScale.Crop) },
                             name = lib.name, blocked = isBlocked, modifier = Modifier.memo("lib.${lib.id}", initial = i == 0),
                             onLongClick = {
                                 overlay.open {

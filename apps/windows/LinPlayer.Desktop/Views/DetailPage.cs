@@ -703,7 +703,7 @@ public sealed class DetailPage : PageBase
         };
         var pic = Bool(d, "has_backdrop") ? "Backdrop" : Bool(d, "has_primary") ? "Primary" : "";
         if (Str(d, "type_") is "Episode" or "Season")
-            _ = FillBrush(brush, art, Images.ArtworkUrls(_server, id, Str(d, "type_"), Str(d, "season_id"), Str(d, "series_id")), 720);
+            _ = FillBrush(brush, art, Images.ArtworkUrls(_server, id, Str(d, "type_"), Str(d, "season_id"), Str(d, "series_id"), Bool(d, "has_primary"), Bool(d, "has_backdrop")), 720);
         else if (pic != "") _ = FillBrush(brush, art, [Images.EmbyImageUrl(_server, id, pic)], 720);
         band.Children.Add(art);
         band.Children.Add(new Border { Background = HeroScrim() });

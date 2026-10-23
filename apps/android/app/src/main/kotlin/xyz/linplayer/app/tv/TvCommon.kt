@@ -84,7 +84,7 @@ fun ItemWide(
     val app = LocalApp.current
     val nav = LocalNav.current
     CardWide(
-        cover = { TvImage(app.imageUrl(item.id, "Primary", 220)) },
+        cover = { TvImage(app.imageUrl(item.id, "Primary", 220).takeUnless { item.hasPrimary == false }) },
         title = cardTitleOf(item), sub = wideSubOf(item),
         progress = if (showProgress && item.progress > 0f) item.progress else null,
         w = w, h = h, modifier = Modifier.memo(key, initial),
@@ -101,7 +101,7 @@ fun ItemPoster(
     val app = LocalApp.current
     val nav = LocalNav.current
     CardPoster(
-        cover = { TvImage(app.imageUrl(item.id, "Primary", 330)) },
+        cover = { TvImage(app.imageUrl(item.id, "Primary", 330).takeUnless { item.hasPrimary == false }) },
         title = item.name, sub = sub, watched = item.played, unplayed = item.unplayed.toInt(), rank = rank,
         w = w, h = h, modifier = Modifier.memo(key, initial),
         onLongClick = { onMenu(item) }, onClick = { onOpen?.invoke(item) ?: openItem(nav, item) },

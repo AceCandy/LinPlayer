@@ -17,6 +17,10 @@ static class ImageChecks
 {
     public static void Run()
     {
+        var key = typeof(Hero).GetMethod("ArtworkKey", BindingFlags.NonPublic | BindingFlags.Static)!;
+        var oldItem = JsonSerializer.SerializeToElement(new { id = "same", has_primary = false });
+        var newItem = JsonSerializer.SerializeToElement(new { id = "same", has_primary = true });
+        Check(!Equals(key.Invoke(null, [oldItem]), key.Invoke(null, [newItem])), "图片标记更新被同ID缓存吞掉");
         using var server = new ImageServer();
         var core = (CoreClient)RuntimeHelpers.GetUninitializedObject(typeof(CoreClient));
         typeof(CoreClient).GetProperty(nameof(CoreClient.LocalBaseUrl))!.SetValue(core, server.Address);
@@ -72,7 +76,7 @@ static class ImageChecks
             window.Show();
             Dispatcher.UIThread.RunJobs();
             hero.Show("http://media.test", new[] { "hero-a", "hero-b", "hero-c" }
-                .Select(id => JsonSerializer.SerializeToElement(new { id, name = id, type = "Movie" })).ToList());
+                .Select(id => JsonSerializer.SerializeToElement(new { id, name = id, type_ = "Movie", has_primary = true, has_backdrop = true })).ToList());
             Border Front() => (Border)typeof(Hero).GetField("_front", BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(hero)!;
             Bitmap? Visible() => Front().GetVisualDescendants().OfType<Image>().Select(i => i.Source).OfType<Bitmap>().FirstOrDefault();
             Wait(() => Visible()?.PixelSize.Height == 800);
@@ -82,6 +86,20 @@ static class ImageChecks
             Wait(() => Visible() is { PixelSize.Height: not 800 });
             Check(ReferenceEquals(layer, Front()), "缓存升级原图错误地翻转图层");
             Check(Front().Opacity == 1, "原图更新隐藏了当前图层");
+            server.Requests.Clear();
+            hero.Show("http://media.test", [JsonSerializer.SerializeToElement(new {
+                id = "poster-only", name = "只有封面", type_ = "Movie", has_primary = true,
+            })]);
+            Wait(() => server.Requests.Any(r => r.Path == "/img" && r.Source.Contains("/poster-only/Images/Primary")));
+            Check(server.Requests.All(r => !r.Source.Contains("/Backdrop") && !r.Source.Contains("/Logo")),
+                "无背景图/Logo的轮播仍发起探测");
+            server.Requests.Clear();
+            hero.Show("http://media.test", [JsonSerializer.SerializeToElement(new {
+                id = "no-art", name = "没有图片", type_ = "Movie", has_primary = false,
+            })]);
+            Dispatcher.UIThread.RunJobs();
+            Check(server.Requests.IsEmpty, "明确无图的轮播仍发起请求");
+            Check(Front().Opacity == 0, "无图作品仍显示上一部作品的背景");
         }
         finally { server.Release.TrySetResult(); window.Close(); Dispatcher.UIThread.RunJobs(); }
         Console.WriteLine("轮播图片:缓存探测不回源、旧缓存预览、原图无缩放参数、按显示尺寸解码、鉴权与真实Hero预览升级通过");
@@ -98,13 +116,19 @@ static class ImageChecks
             "整剧不应继承其它条目的海报");
         Check(Images.ArtworkUrls("http://media.test", "season", "Season", "", "series").Count() == 2,
             "季海报未回退整剧");
+        Check(!Images.ArtworkUrls("http://media.test", "empty-movie", "Movie",
+            hasPrimary: false, hasBackdrop: false).Any(), "明确无图电影仍生成请求");
+        var known = CardItem.From(JsonSerializer.SerializeToElement(new {
+            id = "known", name = "有图分集", type_ = "Episode", has_primary = true, has_backdrop = true,
+        }));
+        Check(CardItem.From(CardItem.ToJson(known)).HasBackdrop, "背景图标记往返丢失");
         server.Release.TrySetResult();
         server.Missing = source => !source.Contains("/season/Images/Primary");
         var item = CardItem.From(JsonSerializer.SerializeToElement(new {
             id = "episode", name = "单集", type_ = "Episode", has_primary = false,
             season_id = "season", series_id = "series",
         }));
-        Check(CardItem.From(CardItem.ToJson(item)).SeasonId == "season" && !item.HasPrimary,
+        Check(CardItem.From(CardItem.ToJson(item)).SeasonId == "season" && !item.HasPrimary && !item.HasBackdrop,
             "图片归属或季ID往返错误");
         var card = new Card(core, "http://media.test", item, true);
         var window = new Window { Width = 400, Height = 300, Content = card };
@@ -112,7 +136,7 @@ static class ImageChecks
         {
             window.Show();
             Wait(() => card.GetVisualDescendants().OfType<Image>().Any(i => i.Source is Bitmap));
-            Check(server.Requests.Select(r => r.Source).SequenceEqual(urls.Take(3)), "缺图后未按顺序停在季海报");
+            Check(server.Requests.Select(r => r.Source).SequenceEqual(urls.Skip(2).Take(1)), "明确缺图仍探测本集或未停在季海报");
             var cached = Images.LoadFirstAsync(core, [urls[2]], 288);
             Check(cached.IsCompletedSuccessfully && cached.Result is not null, "已解码缓存命中不能延后到异步更新");
         }
@@ -137,7 +161,7 @@ static class ImageChecks
         server.Missing = _ => true;
         var missing = Images.LoadFirstAsync(core, Images.ArtworkUrls("http://media.test", "empty", "Episode", "empty-season", "empty-series"), 330);
         Wait(() => missing.IsCompleted);
-        Check(missing.Result is null && server.Requests.Count == 5, "全部缺图没有结束回退");
+        Check(missing.Result is null && server.Requests.Count == 5, "全部缺图没有结束回退或重试了404");
         server.Requests.Clear();
         server.Missing = null;
         server.Release = new(TaskCreationOptions.RunContinuationsAsynchronously);

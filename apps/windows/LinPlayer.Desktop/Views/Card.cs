@@ -23,7 +23,7 @@ public sealed record CardItem(
     // 跳详情页要的是 id。列表命令一直在发这个字段,只是从来没人接。
     string SeriesId = "",
     // 动态范围短名(DV / HDR10 / HLG…),SDR 为空。播放页选集栏那行小字用
-    string VideoRange = "", string SeasonId = "")
+    string VideoRange = "", string SeasonId = "", bool HasBackdrop = false)
 {
     public static CardItem From(JsonElement e) => new(
         Str(e, "id"), Str(e, "name"), Str(e, "type_"), Str(e, "series_name"),
@@ -31,7 +31,7 @@ public sealed record CardItem(
         Dbl(e, "runtime_secs"), Dbl(e, "resume_secs"),
         (int)Num(e, "season_no"), (int)Num(e, "episode_no"),
         Num(e, "video_height"), Num(e, "bitrate"), Num(e, "size_bytes"),
-        Str(e, "series_id"), Str(e, "video_range"), Str(e, "season_id"));
+        Str(e, "series_id"), Str(e, "video_range"), Str(e, "season_id"), Bool(e, "has_backdrop"));
 
     /// <summary>
     /// 列表里显示的标题。
@@ -131,7 +131,7 @@ public sealed record CardItem(
         using var doc = JsonDocument.Parse(JsonSerializer.Serialize(new
         {
             id = c.Id, name = c.Name, type_ = c.Type, series_name = c.SeriesName,
-            has_primary = c.HasPrimary, played = c.Played,
+            has_primary = c.HasPrimary, has_backdrop = c.HasBackdrop, played = c.Played,
             unplayed_item_count = c.UnplayedCount,
             runtime_secs = c.RuntimeSecs, resume_secs = c.ResumeSecs,
             season_no = c.SeasonNo, episode_no = c.EpisodeNo,
@@ -313,7 +313,7 @@ public sealed class Card : Button
     internal static void StartArt(CoreClient core, string server, CardItem item, Image target,
         int maxH, Control skel, Control placeholder)
     {
-        var t = Images.LoadFirstAsync(core, Images.ArtworkUrls(server, item.Id, item.Type, item.SeasonId, item.SeriesId), maxH);
+        var t = Images.LoadFirstAsync(core, Images.ArtworkUrls(server, item.Id, item.Type, item.SeasonId, item.SeriesId, item.HasPrimary, item.HasBackdrop), maxH);
         // 缓存命中时 LoadAsync 返回的是一个**已完成**的 Task(它自己就是同步查表的)
         if (t.IsCompletedSuccessfully && t.Result is { } cached)
         {

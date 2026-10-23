@@ -403,8 +403,8 @@ fun HomePage(nav: NavController) {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
                         backgroundExtension = heroExtension, onPlay = play,
                         foregroundExtension = hiddenHeroSpace,
-                        originalImage = { app.imageUrl(it.id, "Backdrop", original = true) },
-                        primaryImage = { app.imageUrl(it.id, "Primary", original = true) },
+                        originalImage = { if (it.hasBackdrop) app.imageUrl(it.id, "Backdrop", original = true) else null },
+                        primaryImage = { item -> app.imageUrl(item.id, "Primary", original = true).takeUnless { item.hasPrimary == false } },
                         logoImage = { if (it.hasLogo) app.imageUrl(it.id, "Logo", 120)?.replaceFirst("/img?", "/img-cache?") else null })
                 }
                 if (!UiPrefs.hideHomeLibraries.value) item("views") {
@@ -572,7 +572,7 @@ internal fun CachedHomeBanner(
             var logoFailed by remember(image.item.id) { mutableStateOf(false) }
             Box(Modifier.fillMaxSize().testTag("home.hero.background")) {
                 xyz.linplayer.app.ui.components.HeroArtwork(
-                    originalImage(image.item) ?: image.url, image.url, primaryImage(image.item),
+                    originalImage(image.item), image.url, primaryImage(image.item),
                     Modifier.fillMaxSize(), loadOriginal = image.item.id == images[currentIndex].item.id,
                 )
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(

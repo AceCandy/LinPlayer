@@ -143,7 +143,7 @@ struct Backdrop: View {
         .task(id: "\(item.id):\(String(describing: item.has_backdrop)):\(primaryEnabled ?? item.has_primary):\(loader.revision)") {
             image = nil
             var loaded: UIImage?
-            if item.has_backdrop != false { loaded = await loader.load(id: item.id, kind: "Backdrop/0", height: 720) }
+            if item.has_backdrop == true { loaded = await loader.load(id: item.id, kind: "Backdrop/0", height: 720) }
             guard !Task.isCancelled else { return }
             if loaded == nil && (primaryEnabled ?? item.has_primary) { loaded = await loader.load(id: item.id, height: 720) }
             guard !Task.isCancelled else { return }

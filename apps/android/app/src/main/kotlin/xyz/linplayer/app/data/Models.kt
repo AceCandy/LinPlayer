@@ -80,6 +80,8 @@ data class Item(
     /** 服务端明确返回的可见库归属；缺失时不推测媒体库。 */
     val libraryIds: List<String> = emptyList(),
     val seasonId: String? = null,
+    /** 手工构造的条目可能没有标记；核心返回的 false 必须保留。 */
+    val hasPrimary: Boolean? = null,
 ) {
     val isSeries: Boolean get() = type == "Series"
     val isEpisode: Boolean get() = type == "Episode"
@@ -121,6 +123,7 @@ data class Item(
                 year = o.long("year"),
                 rating = o.dbl("rating"),
                 unplayedCountKnown = o.bool("unplayed_count_known"),
+                hasPrimary = o.boolOrNull("has_primary"),
                 hasBackdrop = o.bool("has_backdrop"),
                 hasLogo = o.bool("has_logo"),
                 doubanRating = o.dbl("DoubanRating")?.takeIf { it.isFinite() && it in 0.0..10.0 },

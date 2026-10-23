@@ -251,7 +251,7 @@ internal data class Version(
 }
 
 /** 一位演职人员。 */
-internal data class Person(val id: String, val name: String, val role: String? = null)
+internal data class Person(val id: String, val name: String, val role: String? = null, val hasPrimary: Boolean? = null)
 
 /**
  * 唯一的「会播哪个版本」算法。
@@ -296,6 +296,7 @@ private fun detailPresentations(): LinkedHashMap<String, DetailPresentation> =
 private fun sourceMetadata(item: Item): JsonObject = buildJsonObject {
     put("id", item.id); put("name", item.name); put("type_", item.type)
     put("has_backdrop", item.hasBackdrop)
+    item.hasPrimary?.let { put("has_primary", it) }
     item.year?.let { put("year", it) }
     item.rating?.let { put("rating", it) }
     if (item.runtimeSecs > 0) put("runtime_secs", item.runtimeSecs)
@@ -533,7 +534,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val people = remember(d) { d?.get("people").arr().mapNotNull {
         val p = it.obj() ?: return@mapNotNull null
         Person(p.str("id") ?: return@mapNotNull null, p.str("name") ?: "",
-            p.str("role")?.takeIf { it.isNotBlank() })
+            p.str("role")?.takeIf { it.isNotBlank() }, p.boolOrNull("has_primary"))
     } }
     val title = d.str("name") ?: ""
     // 季响应可晚于分集刷新返回；同一刷新代次中，完整分集状态不被滞后的聚合字段覆盖。
@@ -653,7 +654,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val contentSize = lpTween<IntSize>(T.T5)
 
     // 底色从**海报**取,不从背景图取:海报是这部片的主视觉,背景图常常是一片夜景
-    val tone = rememberTone(app.imageUrl(route.itemId, "Primary", 330), c.acc.copy(alpha = .9f))
+    val tone = rememberTone(app.imageUrl(route.itemId, "Primary", 330).takeUnless { d.boolOrNull("has_primary") == false }, c.acc.copy(alpha = .9f))
 
     /* 起播。`engine` 为空 = 用设置里的默认内核。
        ★ 长按播放键换内核【用户定 2026-09-08】:短按一个、长按另一个,哪个在前由设置决定。
@@ -1070,7 +1071,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                             .clip(RoundedCornerShape(R.md))
                                             .then(if (season.id == curSeason?.id)
                                                 Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(R.md)) else Modifier)) {
-                                            NetImage(app.imageUrl(season.id, "Primary", 330),
+                                            NetImage(app.imageUrl(season.id, "Primary", 330).takeUnless { season.hasPrimary == false },
                                                 null, Modifier.fillMaxSize(), R.md,
                                                 fallbackUrls = artworkFallbacks(app.imageUrl(season.id, "Primary", 330), season.copy(seriesId = seriesId)),
                                                 placeholder = { Text("暂无季封面", color = c.fg3) })
@@ -1230,9 +1231,10 @@ private fun SeriesHead(
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
     var backdropFailed by remember(id) { mutableStateOf(false) }
-    val useBackdrop = d != null && d.boolOrNull("has_backdrop") != false && !backdropFailed
+    val useBackdrop = d.bool("has_backdrop") && !backdropFailed
     val imageKind = if (useBackdrop) "Backdrop" else "Primary"
-    val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) posterPreview(id)
+    val cachedPreview = posterPreview(id)?.replaceFirst("/img?", "/img-cache?")
+    val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) cachedPreview
         else app.imageUrl(id, imageKind, 720)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
         Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else maxWidth * 1.08f).testTag("detail.hero")) {
@@ -1247,7 +1249,7 @@ private fun SeriesHead(
                     .dissolve(0.64f, 0.99f)
             ) {
                 NetImage(imageUrl, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
-                    backgroundBlur = true, previewUrl = posterPreview(id),
+                    backgroundBlur = true, previewUrl = cachedPreview,
                     fallbackUrls = if (!useBackdrop && d.str("type_") == "Season")
                         artworkFallbacks(app.imageUrl(id, "Primary", 720), Item(id, "", "Season", seriesId = d.str("series_id"))) else emptyList(),
                     onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
@@ -1320,10 +1322,10 @@ private fun EpisodeHead(
                     }
                     .dissolve(0.64f, 0.99f)
             ) {
-                NetImage(app.imageUrl(id, "Primary", 480),
+                NetImage(app.imageUrl(id, "Primary", 480).takeUnless { d.boolOrNull("has_primary") == false },
                     null, Modifier.fillMaxSize(), 0.dp, backgroundBlur = true, previewUrl = posterPreview(id),
                     fallbackUrls = artworkFallbacks(app.imageUrl(id, "Primary", 480),
-                        Item(id, d.str("name") ?: "", "Episode", seriesId = d.str("series_id"), seasonId = d.str("season_id"))))
+                        Item(id, d.str("name") ?: "", "Episode", seriesId = d.str("series_id"), seasonId = d.str("season_id"), hasBackdrop = d.bool("has_backdrop"))))
                 Box(
                     Modifier.fillMaxSize().background(
                         Brush.verticalGradient(
@@ -1439,7 +1441,7 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
         itemsIndexed(people) { _, p ->
             Column(Modifier.width(avatar + 8.dp).testTag("detail.person.${p.id}")
                 .pressable({ onOpen(p) }, enabled = p.id.isNotBlank()), horizontalAlignment = Alignment.CenterHorizontally) {
-                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160), p.name, Modifier.size(avatar), R.pill)
+                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160).takeUnless { p.hasPrimary == false }, p.name, Modifier.size(avatar), R.pill)
                 Spacer(Modifier.height(5.dp))
                 Text(p.name, color = c.fg, style = LpText.caption.copy(
                     fontSize = if (tv) 16.sp else 14.sp, lineHeight = if (tv) 22.sp else 20.sp,
@@ -1721,7 +1723,7 @@ private fun EpCard(
                         else Modifier
                     )
             ) {
-                NetImage(app.imageUrl(ep.id, "Primary", 330), null, Modifier.fillMaxSize(), 12.dp,
+                NetImage(app.imageUrl(ep.id, "Primary", 330).takeUnless { ep.hasPrimary == false }, null, Modifier.fillMaxSize(), 12.dp,
                     fallbackUrls = artworkFallbacks(app.imageUrl(ep.id, "Primary", 330), ep),
                     placeholder = { Text("暂无图片", color = c.fg3) })
                 if (ep.progress > 0f) Box(

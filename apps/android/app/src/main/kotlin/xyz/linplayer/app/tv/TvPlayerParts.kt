@@ -329,7 +329,7 @@ internal fun BoxScope.NextCard(next: Item, countdown: Int?, onPlay: () -> Unit) 
         ) {
             Row(Modifier.padding(TvSp.x12), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(128.dp, 72.dp).clip(TvR.md), contentAlignment = Alignment.Center) {
-                    TvImage(app.imageUrl(next.id, "Primary", 220))
+                    TvImage(app.imageUrl(next.id, "Primary", 220).takeUnless { next.hasPrimary == false })
                     if (countdown != null) {
                         val acc = TvC.acc
                         Box(
@@ -627,7 +627,7 @@ private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
         Box {
             if (current) Box(Modifier.align(Alignment.CenterStart).width(3.dp).height(t.rowH * 0.45f).clip(TvR.pill).background(TvC.acc))
             Row(Modifier.padding(horizontal = TvSp.x12, vertical = TvSp.x6), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(64.dp, 36.dp).clip(TvR.sm)) { TvImage(app.imageUrl(ep.id, "Primary", 120)) }
+                Box(Modifier.size(64.dp, 36.dp).clip(TvR.sm)) { TvImage(app.imageUrl(ep.id, "Primary", 120).takeUnless { ep.hasPrimary == false }) }
                 Spacer(Modifier.width(TvSp.x8))
                 Column {
                     Text("E${ep.episodeNo ?: "?"} · ${ep.name}", fontSize = t.body, maxLines = 2)

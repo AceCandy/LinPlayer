@@ -477,15 +477,15 @@ public sealed class Hero : Border
         _idx = -1;
 
         // 按需启动当前张和下一张，避免首屏一次占满全部轮播图的回源名额。
-        _bg = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), ArtworkHeight, original: true))).ToArray();
-        _wash = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), 64, original: true))).ToArray();
-        _logo = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Images.LoadAsync(_core,
-            Images.EmbyImageUrl(server, Id(it), "Logo"), 184))).ToArray();
+        _bg = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Bool(it, "has_backdrop") ? Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), ArtworkHeight, original: true) : Task.FromResult<Bitmap?>(null))).ToArray();
+        _wash = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Bool(it, "has_backdrop") ? Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Backdrop", original: true), 64, original: true) : Task.FromResult<Bitmap?>(null))).ToArray();
+        _logo = _items.Select(it => new Lazy<Task<Bitmap?>>(() => Bool(it, "has_logo") ? Images.LoadAsync(_core,
+            Images.EmbyImageUrl(server, Id(it), "Logo"), 184) : Task.FromResult<Bitmap?>(null))).ToArray();
 
         _preview = _items.Select(it => new Lazy<Task<Bitmap?>>(() =>
-            Images.LoadCachedHeroAsync(_core, server, Id(it), ArtworkHeight))).ToArray();
+            Images.LoadCachedHeroAsync(_core, server, Id(it), ArtworkHeight, Bool(it, "has_primary"), Bool(it, "has_backdrop")))).ToArray();
 
         BuildDots();
         _prev.IsVisible = _next.IsVisible = _items.Count > 1;
@@ -642,9 +642,16 @@ public sealed class Hero : Border
             Console.WriteLine($"[Hero] 第 {i + 1} 张没有剧照,回退海报");
             /* listRandom 只挑有剧照的条目(ImageTypes=Backdrop),但取图仍然可能失败。
                退回海报 —— 现在是 Uniform 不裁,2:3 的海报只会窄一点,不会被裁烂。 */
-            bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary", original: true), ArtworkHeight, original: true);
+            if (Bool(_items[i], "has_primary"))
+                bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary", original: true), ArtworkHeight, original: true);
             if (bmp is null) Console.WriteLine($"[Hero] 第 {i + 1} 张连海报也取不到(server={_server})");
-            if (_idx != i || generation != _generation || revision != _artRevision || !_alive || bmp is null) return;
+            if (_idx != i || generation != _generation || revision != _artRevision || !_alive) return;
+            if (bmp is null)
+            {
+                if (cached is null) { _layerA.Opacity = 0; _layerB.Opacity = 0; }
+                _skel.IsVisible = false;
+                return;
+            }
         }
         // 氛围底取不到就拿大图顶上(它只是被拉糊当底色,清晰与否看不出来)
         var washBmp = await washImage;
@@ -926,6 +933,9 @@ public sealed class Hero : Border
         }
     }
 
+    internal static (string Id, bool Primary, bool Backdrop, bool Logo) ArtworkKey(JsonElement e) =>
+        (Id(e), Bool(e, "has_primary"), Bool(e, "has_backdrop"), Bool(e, "has_logo"));
+    private static bool Bool(JsonElement e, string key) => e.TryGetProperty(key, out var value) && value.ValueKind == JsonValueKind.True;
     private static string Id(JsonElement e) => Str(e, "id");
     private static string ItemName(JsonElement e) => Str(e, "name");
 

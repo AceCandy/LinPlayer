@@ -36,9 +36,14 @@ internal suspend fun AppState.cachedHomeImages(
                 currentCoroutineContext().ensureActive()
                 if (session.value?.let { it.server to it.userId } != (identity.server to identity.userId))
                     throw kotlinx.coroutines.CancellationException("轮播会话已切换")
+                val kind = when {
+                    item.hasBackdrop -> "Backdrop"
+                    item.hasPrimary != false -> "Primary"
+                    else -> return@withPermit null
+                }
                 cachedHeroImage(item) ?: CachedHomeImage(item,
-                    imageUrl(item.id, "Backdrop", original = true, server = identity.server)
-                        ?.replaceFirst("/img?", "/img-cache?") ?: return@withPermit null, true)
+                    imageUrl(item.id, kind, original = true, server = identity.server)
+                        ?.replaceFirst("/img?", "/img-cache?") ?: return@withPermit null, kind == "Backdrop")
             } } }.awaitAll().filterNotNull() } } catch (_: ConnectException) { break }
             found.addAll(hits)
             currentCoroutineContext().ensureActive()
@@ -53,6 +58,7 @@ internal suspend fun AppState.cachedHeroImage(item: Item): CachedHomeImage? = wi
     val identity = session.value ?: return@withContext null
     val token = core.localToken
     for (kind in listOf("Backdrop", "Primary")) {
+        if (kind == "Backdrop" && !item.hasBackdrop || kind == "Primary" && item.hasPrimary == false) continue
         val addresses = listOfNotNull(imageUrl(item.id, kind, server = identity.server, original = true)) +
             listOf(1080, 720, 480, 330, 220, 120).mapNotNull { imageUrl(item.id, kind, it, identity.server) }
         for (source in addresses) {

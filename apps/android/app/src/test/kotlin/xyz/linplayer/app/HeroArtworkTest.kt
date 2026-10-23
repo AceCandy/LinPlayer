@@ -68,6 +68,23 @@ class HeroArtworkTest {
         assertFalse("原图成功后应替换预览", green())
     }
 
+    @Test fun noBackdropLoadsPrimaryDirectlyAndResetsWhenPosterChanges() {
+        var poster by mutableStateOf("fake:primary-a")
+        loader { if (it.endsWith("-a")) error("首张封面不可用") else android.graphics.Color.BLUE }
+        rule.setContent { HeroArtwork(null, null, poster, Modifier.fillMaxSize()) }
+        rule.waitUntil(5000) { "fake:primary-a" in requested }
+        rule.runOnIdle { poster = "fake:primary-b" }
+        rule.waitUntil(5000) { blue() }
+        assertEquals(listOf("fake:primary-a", "fake:primary-b"), requested.toList())
+    }
+
+    @Test fun noArtworkDoesNotFetch() {
+        loader { error("无图不应请求") }
+        rule.setContent { HeroArtwork(null, null, null, Modifier.fillMaxSize()) }
+        rule.waitForIdle()
+        assertTrue(requested.isEmpty())
+    }
+
     @Test fun failedOriginalAndPrimaryKeepCachedPreview() {
         loader { if (it != "fake:cache") error("图片不可用") else android.graphics.Color.GREEN }
         rule.setContent { HeroArtwork("fake:original", "fake:cache", "fake:primary", Modifier.fillMaxSize()) }

@@ -349,8 +349,8 @@ private fun HeroCarousel(items: List<Item>, onDetail: (Item) -> Unit) {
                 catch (_: java.io.IOException) { /* 缓存通道暂不可用，仍可尝试原图。 */ }
                 checked = true
             }
-            HeroArtwork(app.imageUrl(item.id, "Backdrop", original = true), preview?.url,
-                app.imageUrl(item.id, "Primary", original = true), Modifier.fillMaxSize(),
+            HeroArtwork(if (item.hasBackdrop) app.imageUrl(item.id, "Backdrop", original = true) else null, preview?.url,
+                app.imageUrl(item.id, "Primary", original = true).takeUnless { item.hasPrimary == false }, Modifier.fillMaxSize(),
                 loadOriginal = checked && item.id == cur.id)
         }
         Box(Modifier.fillMaxSize().background(Brush.horizontalGradient(

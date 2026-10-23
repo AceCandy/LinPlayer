@@ -260,6 +260,12 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
             .replacingOccurrences(of: "\"has_backdrop\":true", with: "\"has_backdrop\":false")
         let withoutOwn = try JSONDecoder().decode(MediaItem.self, from: Data(noOwnArtwork.utf8))
         precondition(withoutOwn.artworkSources.first == ArtworkSource(id: "season-fixture", kind: "Primary"), "本集无图阻断父级回退")
+        let omittedBackdrop = try json(episodeArtwork
+            .replacingOccurrences(of: ",\"has_backdrop\":true", with: "")
+            .replacingOccurrences(of: "\"has_primary\":true", with: "\"has_primary\":false")).decode(MediaItem.self)
+        precondition(omittedBackdrop.has_backdrop == nil)
+        precondition(omittedBackdrop.artworkSources == withoutOwn.artworkSources,
+            "核心省略false背景标记时仍探测了本集背景图")
         precondition(page.items[0].artworkSources.isEmpty, "电影无图却请求父级")
         do { _ = try JSONValue.null.decode(MediaPage.self); preconditionFailure("损坏 DTO 被接受") }
         catch { precondition((error as? CoreFailure)?.code == "E_PROTOCOL") }

@@ -45,12 +45,12 @@ public static class Images
 
     /// <summary>展示时沿集、季、整剧回退，不修改条目的海报归属。</summary>
     public static IEnumerable<string> ArtworkUrls(string server, string id, string type,
-        string seasonId = "", string seriesId = "")
+        string seasonId = "", string seriesId = "", bool? hasPrimary = null, bool? hasBackdrop = null)
     {
-        yield return EmbyImageUrl(server, id, "Primary");
+        if (hasPrimary != false) yield return EmbyImageUrl(server, id, "Primary");
         if (type == "Episode")
         {
-            yield return EmbyImageUrl(server, id, "Backdrop");
+            if (hasBackdrop != false) yield return EmbyImageUrl(server, id, "Backdrop");
             if (seasonId != "" && seasonId != id)
                 yield return EmbyImageUrl(server, seasonId, "Primary");
             if (seriesId != "" && seriesId != id)
@@ -101,10 +101,12 @@ public static class Images
     }
 
     /// <summary>轮播预览只查本地原图及已有尺寸缓存，缺图不触发下载。</summary>
-    public static async Task<Bitmap?> LoadCachedHeroAsync(CoreClient core, string server, string itemId, int height)
+    public static async Task<Bitmap?> LoadCachedHeroAsync(CoreClient core, string server, string itemId, int height,
+        bool? hasPrimary = null, bool? hasBackdrop = null)
     {
         foreach (var kind in new[] { "Backdrop", "Primary" })
         {
+            if (kind == "Backdrop" && hasBackdrop == false || kind == "Primary" && hasPrimary == false) continue;
             var original = await LoadAsync(core, EmbyImageUrl(server, itemId, kind, original: true),
                 height, original: true, cacheOnly: true).ConfigureAwait(false);
             if (original is not null) return original;

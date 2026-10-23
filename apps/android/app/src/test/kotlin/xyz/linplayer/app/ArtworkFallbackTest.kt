@@ -29,6 +29,8 @@ import org.robolectric.annotation.Config
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.artworkFallbacks
 import xyz.linplayer.app.ui.components.NetImage
+import xyz.linplayer.app.ui.components.MediaCard
+import kotlinx.serialization.json.Json
 import xyz.linplayer.app.ui.theme.LpTheme
 import java.util.concurrent.CopyOnWriteArrayList
 
@@ -36,7 +38,7 @@ import java.util.concurrent.CopyOnWriteArrayList
 @Config(sdk = [36], application = Application::class)
 class ArtworkFallbackTest {
     @get:Rule val rule = createComposeRule()
-    private val episode = Item("ep", "单集", "Episode", seriesId = "series", seasonId = "season")
+    private val episode = Item("ep", "单集", "Episode", seriesId = "series", seasonId = "season", hasPrimary = true, hasBackdrop = true)
     private fun primary(id: String) = "http://local.test/img?src=${Uri.encode("https://media.test/emby/Items/$id/Images/Primary?quality=90")}&h=330"
     private fun path(url: String) = Uri.parse(Uri.parse(url).getQueryParameter("src")).path!!
 
@@ -54,6 +56,31 @@ class ArtworkFallbackTest {
         assertTrue(artworkFallbacks(primary("series"), Item("series", "剧", "Series", seriesId = "other")).isEmpty())
         assertEquals(1, artworkFallbacks(primary("ep"), episode.copy(seasonId = null, seriesId = null)).size)
         assertTrue(artworkFallbacks("https://plugin.test/poster.jpg", episode).isEmpty())
+        assertTrue(artworkFallbacks("fake:poster", episode).isEmpty())
+    }
+
+    @Test fun missingOwnArtworkSkipsToUnknownParent() {
+        val calls = images("/emby/Items/season/Images/Primary")
+        val item = episode.copy(hasPrimary = false, hasBackdrop = false)
+        rule.setContent { LpTheme {
+            MediaCard(item, primary("ep"), {}, Modifier.size(160.dp))
+        } }
+        rule.waitUntil(5000) { calls.isNotEmpty() }
+        rule.waitForIdle()
+        assertEquals(listOf("/emby/Items/season/Images/Primary"), calls.toList())
+    }
+
+    @Test fun missingMovieShowsPlaceholderWithoutFetching() {
+        val calls = images(null)
+        val item = Item.from(Json.parseToJsonElement(
+            """{"id":"movie","name":"无图电影","type_":"Movie","has_primary":false}"""))!!
+        assertEquals(false, item.hasPrimary)
+        assertFalse(item.hasBackdrop)
+        rule.setContent { LpTheme { MediaCard(item, primary("movie"), {}, Modifier.size(160.dp)) } }
+        rule.waitForIdle()
+        rule.onNodeWithText("暂无封面").assertIsDisplayed()
+        assertTrue(calls.isEmpty())
+        assertNull(Item("synthetic", "未知图片", "Movie").hasPrimary)
     }
 
     @OptIn(coil3.annotation.DelicateCoilApi::class)

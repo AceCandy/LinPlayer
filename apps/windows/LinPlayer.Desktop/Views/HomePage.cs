@@ -363,7 +363,7 @@ public sealed class HomePage : PageBase
         if (all.Count == 0) { _hero.Hide(); return; }
         /* 内容没变就<b>不要再 Show 一次</b>。Show 会重建圆点、复位轮播、重发预取,
            用户看到的是刚出来的大图当场闪一下换成同一张 —— 那看着像 bug。 */
-        if (cached is not null && cached.Select(Id).SequenceEqual(all.Select(Id)))
+        if (cached is not null && cached.Select(Hero.ArtworkKey).SequenceEqual(all.Select(Hero.ArtworkKey)))
         {
             return;
         }

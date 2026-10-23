@@ -52,6 +52,7 @@ import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
+import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
@@ -120,7 +121,8 @@ fun EpisodePage(r: TvRoute.Episode) {
     val d = detail.valueOrNull
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
         Box(Modifier.fillMaxSize().graphicsLayer { alpha = fade.value }) {
-            DetailBackdrop(d.str("series_id") ?: epId, d?.bool("has_backdrop") ?: (d.str("series_id") != null))
+            DetailBackdrop(d.str("series_id") ?: epId, d?.bool("has_backdrop") ?: (d.str("series_id") != null),
+                if (d.str("series_id") == null) d.boolOrNull("has_primary") else null)
         }
         if (d == null && preview != null) Column(Modifier.padding(horizontal = TvDim.safeH, vertical = TvDim.safeV)) {
             TvText(preview.str("name").orEmpty(), t.display, TvC.fg, maxLines = 2)

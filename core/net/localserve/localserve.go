@@ -106,6 +106,8 @@ const fetchTimeout = 20 * time.Second
 // maxOneImage 单张上限。防「图片地址被填成一部电影的直链」。
 const maxOneImage = 32 * 1024 * 1024
 
+var errImageNotFound = errors.New("上游 HTTP 404")
+
 // Start 起服务。端口交给系统挑(0)。
 func Start() (*Server, error) {
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
@@ -335,7 +337,11 @@ func (s *Server) handleImage(w http.ResponseWriter, r *http.Request, cacheOnly b
 	b, err := s.sharedImage(r.Context(), upstream, headers)
 	if err != nil {
 		if r.Context().Err() == nil {
-			http.Error(w, err.Error(), http.StatusBadGateway)
+			status := http.StatusBadGateway
+			if errors.Is(err, errImageNotFound) {
+				status = http.StatusNotFound
+			}
+			http.Error(w, err.Error(), status)
 		}
 		return
 	}
@@ -441,6 +447,9 @@ func (s *Server) fetch(ctx context.Context, u string, headers http.Header) ([]by
 		return nil, fmt.Errorf("取图失败: %w", err)
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode == http.StatusNotFound {
+		return nil, errImageNotFound
+	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		return nil, fmt.Errorf("上游 HTTP %d", resp.StatusCode)
 	}

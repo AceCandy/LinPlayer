@@ -65,7 +65,7 @@ extension MediaItem {
     var artworkSources: [ArtworkSource] {
         var result: [ArtworkSource] = has_primary ? [ArtworkSource(id: id, kind: "Primary")] : []
         if type_ == "Episode" {
-            if has_backdrop != false { result.append(ArtworkSource(id: id, kind: "Backdrop/0")) }
+            if has_backdrop == true { result.append(ArtworkSource(id: id, kind: "Backdrop/0")) }
             if let season_id, !season_id.isEmpty { result.append(ArtworkSource(id: season_id, kind: "Primary")) }
             if let series_id, !series_id.isEmpty {
                 result.append(ArtworkSource(id: series_id, kind: "Backdrop/0"))

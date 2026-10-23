@@ -61,7 +61,7 @@ class CachedHomeImagesTest {
 
     @Test fun cachedBackgroundsArePreferredAndItemsAreNotDuplicated() = runBlocking {
         val app = app(candidates = listOf("a", "b")) { it.contains("/Items/a/Images/") || it.contains("/Items/b/Images/Primary") }
-        val images = app.cachedHomeImages(listOf(Item("a", "背景", "Movie"), Item("b", "海报", "Series"),
+        val images = app.cachedHomeImages(listOf(Item("a", "背景", "Movie", hasBackdrop = true), Item("b", "海报", "Series"),
             Item("a", "重复", "Movie"), Item("person", "人物", "Person")))
         assertEquals(2, images.size)
         assertEquals("a", images[0].item.id)
@@ -71,6 +71,20 @@ class CachedHomeImagesTest {
         assertTrue("已有原图缓存优先，不能强制1080",
             images.all { Uri.parse(it.url).getQueryParameter("h") == null })
         assertFalse(requests.any { it.contains("person") })
+    }
+
+    @Test fun knownMissingArtworkDoesNotProbeAndPosterOnlySkipsBackdrop() = runBlocking {
+        val app = app { false }
+        val images = app.cachedHomeImages(listOf(
+            Item("empty", "无图", "Movie", hasPrimary = false),
+            Item("poster", "只有封面", "Movie", hasPrimary = true),
+        ))
+        assertEquals(listOf("poster"), images.map { it.item.id })
+        assertFalse(images.single().backdrop)
+        assertTrue(requests.isNotEmpty())
+        assertTrue(requests.all {
+            Uri.parse(Uri.parse(it).getQueryParameter("src")).path == "/Items/poster/Images/Primary"
+        })
     }
 
     @Test fun switchingAwayFromEmbySkipsStaleHeroCandidateQuery() = runBlocking {
