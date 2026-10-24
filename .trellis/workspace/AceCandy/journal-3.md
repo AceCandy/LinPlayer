@@ -938,3 +938,41 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 未进行真机安装/真实媒体服务器联调；tvOS本轮未编译。手机包未配置崩溃上报，不代表真机验收通过。
+
+
+## Session 103: 手机基准阶段归档与外部Mac验证
+<!-- trellis-session: v=2 fp=5c4eb5c4fa213223 -->
+
+**Date**: 2026-10-24
+**Task**: 手机基准阶段归档与外部Mac验证
+**Branch**: `main`
+
+### Summary
+
+提交当前跨端手机基准能力与UI对齐源码，完成阶段归档和外部Mac源码同步；完整tvOS核心/Swift/契约门禁通过。总任务继续承接新视觉与真机验收，目录只读盘点未删除。
+
+### Main Changes
+
+- 当前88文件源码已提交，checkpoint已归档；总任务保持进行中，未推送。
+- 过滤同步至用户指定的文稿工作区；安装用户级Go，显式使用既有Xcode，不改系统选择。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e40ad7fd` | feat: 对齐各端手机基准界面与播放能力 |
+| `6332ca5c` | docs: 记录手机基准阶段与Mac验证结果 |
+
+### Testing
+
+- [OK] 607个相关构建输入SHA-256一致；固定输入、完整tvOS c-archive/13 ABI、Swift warnings-as-errors、333绑定与CoreClient/DTO/request回归通过。
+- [OK] 本轮91文件隐私扫描与diff格式通过；Android/桌面既有证据沿用，不记为本轮新运行。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- tvOS新模拟器截图/逐页人工检查及统一夹具配对；真实遥控、媒体与最低系统仍未验。
+- 本地约31.8GiB只读盘点完成；确认后优先清理可重建缓存与编译中间文件，保留工具链、交付包和参考证据。
