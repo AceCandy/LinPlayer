@@ -445,7 +445,7 @@ fun StepperRow(
                     // 浮点步长(0.25)直接加会攒出 1.7500000000000002,固定小数位收掉
                     onChange(kotlin.math.round((value - step).coerceIn(min, max) * 10000) / 10000)
                 })
-            Text(fmt(value), color = c.fg, style = LpText.action.copy(fontFamily = androidx.compose.ui.text.font.FontFamily.Monospace, fontFeatureSettings = "tnum"), modifier = Modifier.widthIn(min = 56.dp),
+            Text(fmt(value), color = c.fg, style = LpText.action.copy(fontFeatureSettings = "tnum"), modifier = Modifier.widthIn(min = 56.dp),
                 textAlign = androidx.compose.ui.text.style.TextAlign.Center)
             LpIconButton(LpIcons.plus, "增加", size = 18,
                 tint = if (value >= max) c.fg3 else c.fg, onClick = {

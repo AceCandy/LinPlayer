@@ -1561,10 +1561,12 @@ internal fun Osd(
                     else if (LocalConfiguration.current.screenHeightDp <= 360) 0.dp else Sp.x12)) {
                 PlayerControl(if (portrait) LpIcons.plus else LpIcons.minus, if (portrait) "加速" else "减速",
                     faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
+                // 命中区固定48dp以免压到相邻控件；读数单行，放不下时缩小字号，不能拆出单独一行「×」。
                 Box(menuAnchor("speed").size(48.dp).pressable({ onPanel("speed") })
                     .semantics { contentDescription = "倍速" }, contentAlignment = Alignment.Center) {
                     Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
-                        style = LpText.number.copy(fontSize = 15.sp, lineHeight = 20.sp))
+                        style = LpText.number.copy(lineHeight = 20.sp), maxLines = 1, softWrap = false,
+                        autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 15.sp))
                 }
                 PlayerControl(if (portrait) LpIcons.minus else LpIcons.plus, if (portrait) "减速" else "加速",
                     faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) -1 else +1)) })

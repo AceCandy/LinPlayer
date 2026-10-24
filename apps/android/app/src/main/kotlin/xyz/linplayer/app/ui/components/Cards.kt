@@ -507,9 +507,7 @@ internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
         .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
         .padding(top = Sp.x26, bottom = Sp.x10),
         verticalAlignment = Alignment.CenterVertically) {
-        Box(Modifier.size(3.dp, 16.dp).clip(RoundedCornerShape(R.pill)).background(Lp.colors.mediaIcon))
-        Spacer(Modifier.width(Sp.x8))
-        Text(title, color = Lp.colors.fg, style = LpText.title,
+        Text(title, color = Lp.colors.fg, style = LpText.rail,
             modifier = Modifier.weight(1f))
         if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp), tint = Lp.colors.fg2)
     }

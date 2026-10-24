@@ -143,25 +143,18 @@ fun Layer(
 
 // ---------------------------------------------------------------- 版式零件
 
-/** 章节标题:左边一条 3dp 琥珀竖条。**首页轨道标题用同一个** —— 一页的手法整站要跟上。 */
+/** 章节标题：只靠字重和留白分层，不加装饰竖条；首页轨道标题同一手法。 */
 @Composable
 fun SectionTitle(
     text: String,
     m: Modifier = Modifier,
     trailing: @Composable (() -> Unit)? = null,
-    accent: Color = Lp.colors.acc,
 ) {
     val c = Lp.colors
     Row(
         m.fillMaxWidth().padding(start = Sp.x16, end = Sp.x8, top = Sp.x16, bottom = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Box(
-            Modifier.size(3.dp, 15.dp).clip(RoundedCornerShape(R.pill)).background(
-                Brush.verticalGradient(listOf(accent, accent.copy(alpha = .3f)))
-            )
-        )
-        Spacer(Modifier.width(Sp.x8))
         Text(text, Modifier.weight(1f), color = c.fg, style = LpText.section,
             maxLines = if (trailing != null) 2 else Int.MAX_VALUE, overflow = TextOverflow.Ellipsis)
         if (trailing != null) {

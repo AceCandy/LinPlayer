@@ -424,7 +424,7 @@ class PhoneDetailOptionsTest {
         rule.onRoot().captureRoboImage("build/detail-options/media-tracks-dark.png")
         rule.onNodeWithText("类型: Audio").performScrollTo().assertIsDisplayed()
         rule.onNodeWithText("比特率: 125 kbps").assertIsDisplayed()
-        rule.onNodeWithText("强制: false").assertIsDisplayed()
+        rule.onNodeWithText("强制: 否").assertIsDisplayed()
     }
 
     @Test fun compactOptionsHideAbsentSubtitlesAndSingleLineAndShowExactTimeOnce() {
@@ -645,8 +645,8 @@ class PhoneDetailOptionsTest {
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         rule.onNodeWithText("继续观看", substring = true).performSemanticsAction(
             androidx.compose.ui.semantics.SemanticsActions.GetTextLayoutResult) { it(layouts) }
-        rule.onNodeWithText("2小时46分0秒", substring = true).assertIsDisplayed()
-        rule.onNodeWithText("剩余：2小时16分12秒", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("2小时46分", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("剩余 2小时16分").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/detail-options/movie-light-large.png")
         val layout = layouts.single()
         assertFalse("大字号续播按钮不能截断",

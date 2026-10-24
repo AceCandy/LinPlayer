@@ -55,7 +55,7 @@ Android 页面统一通过 `AppState.call(command, args, onPartial)`，自动合
 2. 签名：版本新增 `path / date_created: string?`；轨道新增 `bit_depth: int?`、`color_space / pixel_format: string?`、`is_forced: bool?`，命令参数与绑定不变。
 3. 契约：新增字段使用指针与 `omitempty`，缺失/null/空字符串省略，`is_forced=false` 必须保留。客户端未知值隐藏，不能以零值补造探测结果。源 Path 仅供展示，不作播放 URL。
 4. 边界：旧服务端无新字段仍正常显示；远程地址（包括无 scheme 的 authority）剥离账号、主机、查询和片段，仅显示路径，本地路径保持；添加时间按设备时区格式化，无效时间隐藏，不能混用首播日期。
-5. 用例：完整视频显示位深/色域/像素格式，显式强制 false 显示 false；普通旧响应不新增字段；远程 URL 的凭据不能出现在媒体摘要。
+5. 用例：完整视频显示位深/色域/像素格式，显式强制 false 显示「否」；普通旧响应不新增字段；远程 URL 的凭据不能出现在媒体摘要。
 6. 回归：`Test媒体信息文件与轨道扩展字段透传` 验证 HTTP→核心 JSON、false 与旧形状；`PhoneDetailOptionsTest` 验证参数呈现、路径脱敏、正文展开、横滑、大字号与深浅主题。
 7. 正反例：错误是将源 Path 当作可请求地址，或在 UI 读取核心尚未透传的字段；正确是先核查最终 PlaybackInfo，透传可选值后按选中版本呈现。服务端基准 MediaStationGo d291efd 的 `baseMediaSource / mapProbeStream`。
 

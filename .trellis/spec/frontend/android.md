@@ -49,7 +49,7 @@
 
 依据：[入口](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/MainActivity.kt)、[手机主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/ui/theme/Theme.kt)、[TV 主题](../../../apps/android/app/src/main/kotlin/xyz/linplayer/app/tv/kit/TvTheme.kt)、[主题回归](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/PhoneThemeTest.kt)、[安卓历史](../../../docs/lessons/android.md)。
 
-- 首页栏目保留左侧竖杠；有更多入口时点标题导航，不另画「更多」。首页媒体库首行只展示Fit封面，has_primary=false不请求图片并居中显示库名；有图时加载/失败也显示库名，成功后隐藏；不能恢复封面下重复库名。首页设置无圈，搜索位于悬浮栏聚合左侧，作为普通页面压入原Tab栈。
+- 首页与详情栏目标题不画左侧竖杠；有更多入口时点标题导航，不另画「更多」。首页媒体库首行只展示Fit封面，has_primary=false不请求图片并居中显示库名；有图时加载/失败也显示库名，成功后隐藏；不能恢复封面下重复库名。首页设置无圈，搜索位于悬浮栏聚合左侧，作为普通页面压入原Tab栈。
 
 - 手机登录后浏览页统一显示悬浮导航，播放/流影/登录/添加服务器除外；纵向用户滚动累计24dp切换显隐并滑移淡入淡出，横滑不触发，换页恢复。底部留白固定，当前Tab在二级页点击返回根页。搜索不重复压栈，悬浮搜索始终进入全局搜索根页，二级页不另放导航搜索按钮。库页排序入口在库名同一行最右侧：无底色递减横线图标、当前排序和方向箭头；点击打开排序/升降序及条件面板，默认无筛选行，已选条件才显示清除条。方向按库保留并进入filterKey与请求；切换排序取消旧分页任务。
 - 收藏总览无排序；电影/剧分类页共用媒体库的 `posterColumns()`、网格刻度与 `MediaSortControl`，不能另用自适应列数。分类排序仅重排已加载条目，通过 `grid.requestScrollToItem(0)` 在下一次测量回到首项，避免按旧海报 key 恢复锚点；不触发收藏查询、不重置原始分页游标，新页按当前规则合并排序。`Item.from` 保留核心已有 `sort_name` / `date_updated`，缺值在升降序均沉底。已有匹配项后点击加载更多，避免重排触发网络；回归见 `FavoriteLocalSortTest` / `PhoneBrowseUiTest`。
@@ -147,7 +147,7 @@
 - 手机原生无定量等待统一使用外观所选动画，入口为LpLoading：页面、列表/搜索、下拉刷新、按钮、面板/弹窗、启动和播放器打开/缓冲共用样式。外观提供Material、Style1–5、Style7七款预览单选，ID为0/1/2/3/4/5/7，默认Material，loading_style本机持久化、即时生效，非法旧值回落0。Material/Style4跟随主题色，其余保留原色；动画本地解析并缓存，至少STARTED且等待仍存在才播放，后台/离组合停止，恢复前台仍等待才继续，系统零倍率保留有效静态图形。按钮保留尺寸并禁用重复点击，BlockBox默认120dp反馈区；无定量等待仅画动画，正在打开/缓冲/加载等说明只作为contentDescription，LoadingLabel沿用原文字作读屏标签；已有内容、业务说明、实际计数、失败及重试保留。真实百分比、图片占位、网页内部、TV和插件主动绘制保持各自语义；启动静态轮廓只叠一份所选动画。
 - Material LoadingIndicator的原生窗口可见性回调也会启动动画；AndroidView必须随宿主STARTED控制可见性，attach回调完成后按最新播放条件同步drawable，detach/释放停止。回归分别覆盖Material与Lottie的真实帧推进、CREATED首次挂载、后台停止/前台恢复、系统零倍率和离组合；不能由测试手动启动drawable冒充生产接线，Material测试见MaterialLoadingLifecycleTest。
 
-- 手机文字由 `LpText` / 完整M3 Typography定义字号、行高、字重、字族和零中文字符间距，规格见 UI_MOBILE.md §1.2。显式TextStyle必须取当前主题字族，不依赖LocalTextStyle隐式合并。顶栏heightIn允许双行200%增高；详情背景与正文布局分开，分集头图比例只作最小占位。数字tnum须在三字族实际测宽，不能只断言属性；宋体实测00:00与11:11差4px，动态数字统一采用系统Monospace。封面10/13sp时长与排名装饰数字保留专用规格。
+- 手机文字由 `LpText` / 完整M3 Typography定义字号、行高、字重、字族和零中文字符间距，规格见 UI_MOBILE.md §1.2。显式TextStyle必须取当前主题字族，不依赖LocalTextStyle隐式合并。顶栏heightIn允许双行200%增高；详情背景与正文布局分开，分集头图比例只作最小占位。数字tnum须实际测宽，不能只断言属性；内置字体已移除，动态数字用系统字体+tnum。封面10/13sp时长与排名装饰数字保留专用规格。
 
 - 整剧入口布局分支只认Series：真实评分/年份与成功季请求的季数，宽播放键和独立实际待播集说明；简介置于选集前，扩大分集卡但不影响单集/Season卡片。季海报选当前季不重复请求，明确无Primary不取图，等待/真实轨道保留同高；复用现有换季和分页取消契约，不新增逐集详情请求。共用头图64%开始渐隐，标题底用主题bg衔接取色背景；保留预览、模糊、渐显及图片失败回退。
 

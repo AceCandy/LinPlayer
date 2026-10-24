@@ -906,7 +906,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     "${if (continuing) "继续" else "播放"} S${shownNextEp.seasonNo ?: 1}E${shownNextEp.episodeNo ?: 1}"
                                 continuing -> "继续观看"
                                 else -> "播放"
-                            } + if (continuing && !isSeriesEntry) "（剩余：${fmtDur(runtime - resume)}）" else ""
+                            }
+                            // 剩余时长单独成行，只到分钟：秒数在按钮上是噪音，换行后主文案也不会被拆开。
+                            val remaining = if (continuing && !isSeriesEntry) "剩余 ${fmtRemaining(runtime - resume)}" else null
                             Box(
                                 (if (continuing || isSeriesEntry) Modifier.weight(1f) else Modifier.width(132.dp)).height(IntrinsicSize.Min)
                                     .privateNeonBorder(R.md).clip(RoundedCornerShape(R.md))
@@ -924,15 +926,21 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     Box(Modifier.fillMaxHeight().fillMaxWidth((resume / runtime).toFloat().coerceIn(0f, 1f))
                                         .background(c.mediaAccent.copy(alpha = .35f)))
                                 }
-                                Row(Modifier.fillMaxWidth().heightIn(min = if (isSeriesEntry) 52.dp else 48.dp).padding(horizontal = Sp.x12, vertical = Sp.x10),
+                                Row(Modifier.fillMaxWidth().heightIn(min = if (isSeriesEntry) 52.dp else 48.dp)
+                                    .padding(horizontal = Sp.x12, vertical = if (remaining != null) Sp.x6 else Sp.x10),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally)) {
                                     Icon(LpIcons.play, null, Modifier.size(18.dp),
                                         tint = if (continuing) c.fg else c.mediaOnAccent)
-                                    Text(label, if (continuing) Modifier.weight(1f) else Modifier, style = LpText.action,
-                                        textAlign = androidx.compose.ui.text.style.TextAlign.Center,
-                                        fontWeight = FontWeight.SemiBold,
-                                        color = if (continuing) c.fg else c.mediaOnAccent)
+                                    Column(if (continuing) Modifier.weight(1f) else Modifier,
+                                        horizontalAlignment = Alignment.CenterHorizontally) {
+                                        Text(label, style = LpText.action,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            fontWeight = FontWeight.SemiBold,
+                                            color = if (continuing) c.fg else c.mediaOnAccent)
+                                        if (remaining != null) Text(remaining, style = LpText.caption,
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = c.fg2)
+                                    }
                                 }
                             }
                             var menuOpen by remember { mutableStateOf(false) }
@@ -995,7 +1003,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                                     Text(if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
-                                        color = c.fg, style = LpText.title)
+                                        color = c.fg, style = LpText.rail)
                                     if (isSeriesEntry) {
                                         curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f),
                                             color = c.mediaIcon, style = LpText.compact,
@@ -1050,7 +1058,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
                 if (isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {
                     Column(Modifier.fillMaxWidth().testTag("detail.seasons")) {
-                        SectionTitle("季", accent = c.mediaIcon)
+                        SectionTitle("季")
                         val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 }
                         if (seasons.isNotEmpty()) LazyRow(
                             Modifier.fillMaxWidth().height(seasonHeight),
@@ -1096,7 +1104,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     if (boxLoading) item("boxbusy") { xyz.linplayer.app.ui.components.LoadingLabel("正在取合集内容…", Modifier.padding(Sp.x16)) }
                     else if (boxMovies.isEmpty() && boxSeries.isEmpty() && boxOthers.isEmpty()) {
                         // 说清是「空的」而不是「没拉到」。空着的话和还在加载长得一样。
-                        item("boxempty") { SectionTitle("这个合集里没有内容", accent = Lp.colors.mediaIcon) }
+                        item("boxempty") { SectionTitle("这个合集里没有内容") }
                     }
                     listOf("影片" to boxMovies, "剧集" to boxSeries, "其它" to boxOthers)
                         .forEach { (label, list2) ->
@@ -1133,7 +1141,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     }, label = "detailMedia") { current ->
                         Column {
                             if (current != null) {
-                                SectionTitle("媒体信息", accent = Lp.colors.mediaIcon)
+                                SectionTitle("媒体信息")
                                 MediaCards(current)
                             }
                         }
@@ -1431,7 +1439,7 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
     val tv = LocalTvMode.current
     val avatar = if (tv) 88.dp else 80.dp
     val state = rememberLazyListState()
-    SectionTitle("演职人员", accent = Lp.colors.mediaIcon)
+    SectionTitle("演职人员")
     LazyRow(
         Modifier.fillMaxWidth().testTag("detail.people.row"),
         state = state,
@@ -1611,9 +1619,9 @@ private fun MediaCards(v: Version) {
                         stream.colorSpace?.let { "色域" to it },
                         stream.pixelFormat?.let { "像素格式" to it },
                         stream.layout?.let { "声道" to it } ?: stream.channels?.let { "声道数" to it.toString() },
-                        "默认" to stream.isDefault.toString(),
-                        stream.isForced?.let { "强制" to it.toString() },
-                        "外部" to stream.isExternal.toString(),
+                        "默认" to yesNo(stream.isDefault),
+                        stream.isForced?.let { "强制" to yesNo(it) },
+                        "外部" to yesNo(stream.isExternal),
                     )
                     rows.forEach { (label, value) ->
                         Text("$label: $value", color = c.fg2, style = LpText.caption)
@@ -1950,16 +1958,31 @@ internal fun fmtRate(bps: Long?): String? {
     else "%.2f Mbps".format(Locale.ROOT, v / 1_000_000.0).replace(".00 Mbps", " Mbps")
 }
 
+private fun yesNo(v: Boolean) = if (v) "是" else "否"
+
 internal fun fmtTime(secs: Double): String {
     val s = secs.toLong()
     return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s % 3600 / 60, s % 60)
     else "%d:%02d".format(s / 60, s % 60)
 }
 
+/** 续播剩余时长：精确到分钟，不足一分钟时明确说明。 */
+internal fun fmtRemaining(secs: Double): String {
+    val m = (secs.toLong().coerceAtLeast(0) + 30) / 60
+    return when {
+        m >= 60 -> "${m / 60}小时${m % 60}分"
+        m >= 1 -> "${m}分钟"
+        else -> "不到1分钟"
+    }
+}
+
+/** 作品时长：十分钟以上只到分钟，短片才保留秒数。 */
 internal fun fmtDur(secs: Double): String {
     val s = secs.toLong().coerceAtLeast(0)
+    val m = (s + 30) / 60
     return when {
-        s >= 3600 -> "${s / 3600}小时${s % 3600 / 60}分${s % 60}秒"
+        m >= 60 -> "${m / 60}小时${m % 60}分"
+        s >= 600 -> "${m}分钟"
         s >= 60 -> "${s / 60}分${s % 60}秒"
         else -> "${s}秒"
     }

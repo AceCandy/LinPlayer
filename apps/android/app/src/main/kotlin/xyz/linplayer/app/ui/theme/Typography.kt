@@ -2,7 +2,6 @@ package xyz.linplayer.app.ui.theme
 
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.runtime.Composable
-import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.sp
 
@@ -12,6 +11,8 @@ object LpText {
     val heading @Composable get() = MaterialTheme.typography.displayMedium
     val headline @Composable get() = MaterialTheme.typography.headlineMedium
     val title @Composable get() = MaterialTheme.typography.titleLarge
+    /** 媒体一级栏目：比顶栏高一档，与正文拉开层级。 */
+    val rail @Composable get() = headline.copy(fontWeight = FontWeight.SemiBold)
     val section @Composable get() = MaterialTheme.typography.titleMedium
     val list @Composable get() = MaterialTheme.typography.titleSmall
     val body @Composable get() = MaterialTheme.typography.bodyLarge
@@ -22,5 +23,5 @@ object LpText {
     val filter @Composable get() = MaterialTheme.typography.labelMedium
     val card @Composable get() = body.copy(lineHeight = 20.sp, fontWeight = FontWeight.Medium)
     val compact @Composable get() = secondary.copy(lineHeight = 18.sp, fontWeight = FontWeight.Medium)
-    val number @Composable get() = caption.copy(fontFamily = FontFamily.Monospace, fontFeatureSettings = "tnum", fontWeight = FontWeight.Medium)
+    val number @Composable get() = caption.copy(fontFeatureSettings = "tnum", fontWeight = FontWeight.Medium)
 }

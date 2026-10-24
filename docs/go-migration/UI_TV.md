@@ -101,6 +101,8 @@ Android TV 的 1080p 设备约定是 xhdpi(1dp = 2px),720p 设备是 tvdpi —�
 | `meta` | 12sp / Normal | 7.5sp | 年份、时长、副标题、说明 |
 | `numeral` | 20sp / Bold | 15sp | 版本卡上的分辨率(三米外唯一一眼可辨的字段) |
 
+> 正式 TV 浏览页经 `PhoneRoot(tv=true)` 复用手机页面，字阶以 UI_MOBILE.md §1.2 为准（详情与首页头图片名28sp、媒体栏目20sp半粗、栏目标题不画竖条）；本表只约束 TV 播放器与仍在用的 TV 专属组件。
+
 **跟着字阶走的控件高度**(字变大了控件不跟,字就会顶出去):
 
 | token | B 档 | A 档 |

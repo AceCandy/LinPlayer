@@ -282,7 +282,7 @@ fun HomePage(nav: NavController) {
     val resumeStripHeight = xyz.linplayer.app.ui.components.rowHeight(true)
     val textMeasurer = rememberTextMeasurer()
     val initialResumeHeaderHeight = with(density) {
-        Sp.x26 + maxOf(16.dp, textMeasurer.measure("继续观看", LpText.title).size.height.toDp()) + Sp.x10
+        Sp.x26 + maxOf(16.dp, textMeasurer.measure("继续观看", LpText.rail).size.height.toDp()) + Sp.x10
     }
     var resumeHeaderHeight by remember(motionAccount, density, initialResumeHeaderHeight) {
         mutableStateOf(initialResumeHeaderHeight)
