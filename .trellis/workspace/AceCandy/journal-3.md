@@ -1010,3 +1010,38 @@ TV正式入口复用PhoneRoot浏览，顶部导航与遥控焦点适配；保留
 ### Next Steps
 
 - 按总任务resume推进真实遥控、实服媒体与最低系统验收；未出包、安装或推送，不宣称全端完成。
+
+
+## Session 105: 平板海报刻度与封面请求尺寸适配
+<!-- trellis-session: v=2 fp=48a3ae50ca658cc4 -->
+
+**Date**: 2026-10-24
+**Task**: 平板海报刻度与封面请求尺寸适配
+**Branch**: `main`
+
+### Summary
+
+Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用单元宽并按宽度推算列数；封面请求高度按显示尺寸×密度取档。
+
+### Main Changes
+
+- Cards.kt新增posterLayout/posterImageHeight，各海报网格与LpRow轨道接入
+- 同步UI_MOBILE §3.3与Android规范，新增PosterLayoutTest
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb1f7f7e` | fix: 平板海报刻度与封面请求尺寸按实际显示适配 |
+
+### Testing
+
+- [OK] 未编译、未运行单元测试、未真机目视（按项目约定）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 运行建议的单元测试并在Pad/手机上目视确认150/170dp上限与图片清晰度
