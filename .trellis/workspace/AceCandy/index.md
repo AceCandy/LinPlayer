@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 108
+- **Total Sessions**: 109
 - **Last Active**: 2026-10-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1143 | Active |
+| `journal-3.md` | ~1179 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 109 | 2026-10-25 | 手机榜单关联修复提交与归档 | `8ed012f4a107278a361ae4b546489b3a2ec3b3cd` | `main` |
 | 108 | 2026-10-25 | 手机端字号层级与细节精修 | `48bbd906`, `c4f4ef90` | `main` |
 | 107 | 2026-10-25 | 手机榜单状态与隐私入口修复 | `629822c9` | `main` |
 | 106 | 2026-10-24 | 修复 Android 全量回归并归档 | `b45fd6c2` | `main` |
