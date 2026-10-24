@@ -50,6 +50,9 @@ class TvPrivacyTest {
             ret("plugin.homeSections", arr())
             ret("plugin.pageTakeovers", arr())
             ret("emby.search", arr())
+            ret("emby.extRankings", arr(buildJsonObject {
+                put("id", "huangguoai_hot"); put("label", "黄果 AI 热播榜"); put("source", "huangguoai")
+            }))
         }
         app = AppState(core, scope)
         rule.setContent {
@@ -132,16 +135,18 @@ class TvPrivacyTest {
         assertTrue(TvRoute.Player("x", "x").privateAllowed())
     }
 
-    @Test fun privateDiscoverOnlyOpensLiuyingAndServerClickExits() {
+    @Test fun privateDiscoverOpensLiuyingAndRankingAndServerClickExits() {
         mount(); enter()
         val before = core.calls.size
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 300)
         rule.onNodeWithText("流影").assertIsDisplayed()
-        press(rule, Key.DirectionDown)
-        rule.onNodeWithText("流影").assertIsFocused()
-        assertFalse(core.calls.drop(before).any { it.first in setOf("emby.extRankings", "emby.aggregateOverview") })
+        rule.onNodeWithText("排行榜").assertIsDisplayed()
+        rule.onNodeWithText("排行榜").performClick()
+        advance(rule, 500)
+        assertTrue(core.calls.drop(before).any { it.first == "emby.extRankings" &&
+            it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true) })
         rule.runOnUiThread { back.onBackPressed() }
         advance(rule, 400)
         assertTrue(app.privateSpace.value)

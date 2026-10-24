@@ -47,9 +47,13 @@ import xyz.linplayer.app.ui.components.LpPullIndicator
 import xyz.linplayer.app.ui.components.LoadingLabel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import kotlinx.coroutines.launch
 import xyz.linplayer.app.data.extensionBlock
 import xyz.linplayer.app.data.openExtension
+import xyz.linplayer.app.data.keepState
+import xyz.linplayer.app.data.PageCache
+import xyz.linplayer.app.data.Session
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -133,7 +137,7 @@ private data class Rank(
                     id = o.str("id") ?: return@mapNotNull null,
                     rank = (o.long("rank") ?: 0).toInt(),
                     title = o.str("title") ?: return@mapNotNull null,
-                    image = o.str("image_url"),
+                    image = o.str("image_url") ?: o.str("poster_url"),
                     rating = o.dbl("rating"),
                     subtitle = o.str("subtitle"),
                     favorited = o.bool("is_favorited"),
@@ -145,12 +149,21 @@ private data class Rank(
 
 private data class RankingCategory(val id: String, val label: String, val source: String, val enabled: Boolean)
 
+private class RankingRows {
+    val rows = mutableStateOf(emptyList<Rank>())
+    val block = mutableStateOf<Block<List<Rank>>>(Block.Loading)
+    val page = mutableStateOf(1)
+    val ended = mutableStateOf(false)
+    val moreError = mutableStateOf<String?>(null)
+}
+
 private fun rankingSourceLabel(source: String) = when (source) {
     "tmdb" -> "TMDb"
     "douban" -> "豆瓣"
     "bangumi" -> "Bangumi"
     "hongguo" -> "红果"
     "huangguoai" -> "黄果 AI"
+    "javranking" -> "JavRanking"
     else -> source.ifBlank { "其它" }
 }
 
@@ -168,76 +181,98 @@ private fun rankingSourceLabel(source: String) = when (source) {
 @Composable
 fun RankingPage(nav: NavController) {
     val app = LocalApp.current
+    val identity by app.session.collectAsState()
+    val primary by app.aggregatePrimary.collectAsState()
+    val privateSpace by app.privateSpace.collectAsState()
+    val rankingServer = if (privateSpace) identity?.server else primary
     val list = rememberLazyListState()
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
 
-    var cats by remember { mutableStateOf<Block<List<RankingCategory>>>(Block.Loading) }
-    var cur by remember { mutableStateOf<String?>(null) }
-    var source by remember { mutableStateOf<String?>(null) }
-    var block by remember { mutableStateOf<Block<List<Rank>>>(Block.Loading) }
-    var reload by remember { mutableStateOf(0) }
-    var rankReload by remember { mutableStateOf(0) }
+    fun cacheKey(session: Session?) = "rankings.${session?.server}.${session?.userId}.$rankingServer.$privateSpace"
+    val ck = cacheKey(identity)
+    var cats by keepState<Block<List<RankingCategory>>>("$ck.cats") { Block.Loading }
+    var cur by rememberSaveable(rankingServer, privateSpace) { mutableStateOf<String?>(null) }
+    var source by rememberSaveable(rankingServer, privateSpace) { mutableStateOf<String?>(null) }
+    var reload by rememberSaveable { mutableStateOf(0) }
+    var rankReload by rememberSaveable { mutableStateOf(0) }
+    var completedCatalog by rememberSaveable(rankingServer, privateSpace) { mutableStateOf<Int?>(null) }
+    var completedPage by rememberSaveable(rankingServer, privateSpace, cur) { mutableStateOf<Int?>(null) }
 
-    val identity by app.session.collectAsState()
-    val primary by app.aggregatePrimary.collectAsState()
     val scope = rememberCoroutineScope()
-    var rows by remember(identity, primary, cur) { mutableStateOf(emptyList<Rank>()) }
-    var refreshing by remember(identity, primary, cur) { mutableStateOf(false) }
-    var loadingMore by remember(identity, primary, cur) { mutableStateOf(false) }
-    var moreError by remember(identity, primary, cur) { mutableStateOf<String?>(null) }
-    var moreRetry by remember(identity, primary, cur) { mutableStateOf(0) }
-    LaunchedEffect(identity, primary, reload) {
+    val kept by keepState("$ck.$cur") { RankingRows() }
+    var rows by kept.rows
+    var block by kept.block
+    var page by kept.page
+    var ended by kept.ended
+    var moreError by kept.moreError
+    var refreshing by remember(identity, rankingServer, cur) { mutableStateOf(false) }
+    var loadingMore by remember(identity, rankingServer, cur) { mutableStateOf(false) }
+    var moreRetry by remember(identity, rankingServer, cur) { mutableStateOf(0) }
+    LaunchedEffect(identity, rankingServer, privateSpace, reload) {
+        if (completedCatalog == reload && cats is Block.Ok) return@LaunchedEffect
+        completedCatalog = null
         cats = Block.Loading
-        cur = null
         fun categories(e: kotlinx.serialization.json.JsonElement) = e.arr().mapNotNull {
             val o = it.obj() ?: return@mapNotNull null
             RankingCategory(o.str("id") ?: return@mapNotNull null, o.str("label") ?: "榜单",
                 o.str("source") ?: o.str("group") ?: "其它", o["enabled"] == null || o.bool("enabled"))
         }
-        cats = app.extensionBlock("emby.extRankings", args("include_disabled" to true), serverId = primary, onCached = {
-            cats = Block.Ok(categories(it))
-            val first = cats.valueOrNull?.firstOrNull { it.enabled } ?: cats.valueOrNull?.firstOrNull()
-            source = first?.source; cur = first?.id
+        cats = app.extensionBlock("emby.extRankings", args("include_disabled" to true), serverId = rankingServer, onCached = {
+            val cached = categories(it)
+            cats = Block.Ok(cached)
+            val selected = cached.firstOrNull { it.id == cur }
+                ?: cached.firstOrNull { it.enabled } ?: cached.firstOrNull()
+            source = selected?.source
+            if (cur == null || cached.none { it.id == cur }) cur = selected?.id
         }).map(::categories)
-        val first = cats.valueOrNull?.firstOrNull { it.id == cur }
+        val selected = cats.valueOrNull?.firstOrNull { it.id == cur }
             ?: cats.valueOrNull?.firstOrNull { it.enabled } ?: cats.valueOrNull?.firstOrNull()
-        source = first?.source; cur = first?.id
+        source = selected?.source
+        if (cur == null || cats.valueOrNull?.none { it.id == cur } == true) cur = selected?.id
+        if (cats is Block.Ok) completedCatalog = reload
     }
     val selected = cats.valueOrNull?.firstOrNull { it.id == cur }
-    LaunchedEffect(identity, primary, selected, rankReload) {
+    LaunchedEffect(identity, rankingServer, privateSpace, selected, rankReload) {
         val category = selected ?: return@LaunchedEffect
         if (!category.enabled) {
             rows = emptyList()
             block = Block.Fail("E_INVALID", "主服尚未开启或配置此榜单来源")
             return@LaunchedEffect
         }
-        var page = 1
-        var ended = false
-        moreError = null
-        refreshing = true
-        try {
-            if (rows.isEmpty()) block = Block.Loading
-            val first = app.extensionBlock("emby.extRankingItems",
-                args("category_id" to category.id, "page" to 1), serverId = primary,
-                onCached = { if (rows.isEmpty()) rows = Rank.list(it) }).map { Rank.list(it) }
-            block = first
-            when (first) {
-                is Block.Ok -> { rows = first.value.distinctBy { it.id }; ended = rows.isEmpty() }
-                is Block.Fail -> {
-                    if (first.code in setOf("E_AUTH", "E_PERMISSION", "E_INVALID", "E_NOTFOUND")) rows = emptyList()
-                    return@LaunchedEffect
+        // 返回只恢复已完成的页；新进入、失败、取消及主动刷新仍请求首屏。
+        if (completedPage != rankReload || block !is Block.Ok) {
+            completedPage = null
+            moreError = null
+            refreshing = true
+            try {
+                if (rows.isEmpty()) block = Block.Loading
+                val first = app.extensionBlock("emby.extRankingItems",
+                    args("category_id" to category.id, "page" to 1), serverId = rankingServer,
+                    onCached = { if (rows.isEmpty()) rows = Rank.list(it) }).map { Rank.list(it) }
+                block = first
+                when (first) {
+                    is Block.Ok -> {
+                        rows = first.value.distinctBy { it.id }
+                        page = 1
+                        ended = rows.isEmpty()
+                        completedPage = rankReload
+                    }
+                    is Block.Fail -> {
+                        if (first.code in setOf("E_AUTH", "E_PERMISSION", "E_INVALID", "E_NOTFOUND")) rows = emptyList()
+                        return@LaunchedEffect
+                    }
+                    else -> return@LaunchedEffect
                 }
-                else -> return@LaunchedEffect
-            }
-        } finally { refreshing = false }
+            } finally { refreshing = false }
+        }
         snapshotFlow { Triple(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1, rows.size, moreRetry) }
             .collect { (last, _, _) ->
-                if (ended || moreError != null || last < list.layoutInfo.totalItemsCount - 3) return@collect
+                if (ended || moreError != null || last < 0 || last < list.layoutInfo.totalItemsCount - 3) return@collect
                 loadingMore = true
                 try {
                     val next = app.extensionBlock("emby.extRankingItems",
-                        args("category_id" to category.id, "page" to page + 1), serverId = primary,
+                        args("category_id" to category.id, "page" to page + 1), serverId = rankingServer,
                         onCached = {}).map { Rank.list(it) }
                     currentCoroutineContext().ensureActive()
                     when (next) {
@@ -254,7 +289,13 @@ fun RankingPage(nav: NavController) {
             }
     }
     val open: (Rank) -> Unit = { row -> scope.launch {
-        app.openExtension(row.entry) { id, type -> nav.navigate(Route.Detail(id, type)) }
+        app.openExtension(row.entry) { id, type ->
+            // 精确匹配后的切服会清页面缓存，仅交接此次已验证来源的榜单快照。
+            val targetKey = cacheKey(app.session.value)
+            PageCache.put("$targetKey.cats", cats)
+            PageCache.put("$targetKey.$cur", kept)
+            nav.navigate(Route.Detail(id, type))
+        }
     } }
 
     LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->

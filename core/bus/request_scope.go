@@ -51,8 +51,9 @@ func scopeArguments(command string, args map[string]any) (map[string]any, map[st
 		return nil, nil, NewErr(EInvalid, "请求空间不完整")
 	}
 	if private {
-		// 流影仅访问本服入库资源；能力读取不探测网络，刷新仍由命令层拒绝。
-		localExtension := command == "emby.extCapabilities" || command == "emby.extLiuYingItems" || command == "emby.extLiuYingLabels"
+		// 扩展仅访问本服；能力读取不探测网络，刷新仍由命令层拒绝。
+		localExtension := command == "emby.extCapabilities" || command == "emby.extLiuYingItems" || command == "emby.extLiuYingLabels" ||
+			command == "emby.extRankings" || command == "emby.extRankingItems" || command == "emby.extResolve"
 		if strings.HasPrefix(command, "source.") || strings.HasPrefix(command, "plugin.") || strings.HasPrefix(command, "download.") || strings.HasPrefix(command, "emby.watchHistory") || (strings.HasPrefix(command, "emby.ext") && !localExtension) {
 			return nil, nil, NewErr(EUnsupported, "隐私空间仅支持当前服务器，不使用外部来源或本地记录")
 		}

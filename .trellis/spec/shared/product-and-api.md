@@ -58,11 +58,11 @@ MSG 标准 Emby 返回对所有播放器一致，不按客户端名称或 UA 隐
 
 ### 隐私命令策略与流影回归
 
-1. 范围：隐私空间调用本服流影及能力缓存，必须同时经过 `bus.scopeArguments` 和 Emby 命令处理器。
-2. 签名：只精确放行 `emby.extCapabilities`、`emby.extLiuYingItems`、`emby.extLiuYingLabels`；不放开整个 `emby.ext` 前缀。
+1. 范围：隐私空间调用本服流影、榜单及能力缓存，必须同时经过 `bus.scopeArguments` 和 Emby 命令处理器。
+2. 签名：只精确放行 `emby.extCapabilities`、`emby.extLiuYingItems`、`emby.extLiuYingLabels`、`emby.extRankings`、`emby.extRankingItems`、`emby.extResolve`；不放开整个 `emby.ext` 前缀。
 3. 契约：`request_scope.private=true` 固定当前服务器、用户和令牌并设置 `is_adult=true`；能力读取不出网。
 4. 错误：其他扩展或跨服身份仍 `E_UNSUPPORTED`；私密能力 `refresh=true` 在命令层返回 `E_INVALID`，不发HTTP。
-5. 案例：当前服流影正常读取；空入库列表显示空态；榜单、未知扩展、跨服和私密刷新均拒绝。
+5. 案例：当前服流影和黄果 AI、JavRanking 榜单正常读取；榜单只使用当前服并按空间过滤来源；未知扩展、跨服和私密刷新仍拒绝。
 6. 回归：`TestPrivateLiuYingExtensionScope` 覆盖精确策略，`TestLiuYingExtensionLibraryOnlyContract` 覆盖私密刷新不出网；桌面 `seekcheck --liuying-only` 经过真实HTTP/FFI验证缓存只读、联合筛选和取消。手机/TV测试不能替代这条核心入口链路。
 7. 禁止仅直接调用 handler 或使用页面替身测试判定隐私接线完成；正确做法是补带 `request_scope` 的策略测试和真实命令通道集成检查，防止业务实现存在却被统一策略提前拦截。
 

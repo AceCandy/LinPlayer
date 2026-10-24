@@ -8,7 +8,7 @@ import (
 
 func TestRequestScopePolicy(t *testing.T) {
 	scope := map[string]any{"id": "epoch", "private": true, "filter": true, "server": "fixture", "user_id": "u", "token": "fixture"}
-	for _, command := range []string{"source.aggregateSearch", "plugin.list", "download.list", "emby.extRankings", "emby.watchHistory", "emby.aggregateSearch", "player.playLocal", "prefs.pushSearch"} {
+	for _, command := range []string{"source.aggregateSearch", "plugin.list", "download.list", "emby.watchHistory", "emby.aggregateSearch", "player.playLocal", "prefs.pushSearch"} {
 		called := false
 		_, err := scopedHandler(command, func(context.Context, int64, map[string]any) (any, error) { called = true; return nil, nil })(context.Background(), 1, map[string]any{"request_scope": scope})
 		if err == nil || called {
@@ -101,9 +101,15 @@ func TestPrivateLiuYingExtensionScope(t *testing.T) {
 			t.Fatal("流影跨服请求未拒绝", command)
 		}
 	}
-	for _, command := range []string{"emby.extRankings", "emby.extCalendar", "emby.extResolve", "emby.extLiuYingUnknown"} {
+	for _, command := range []string{"emby.extCalendar", "emby.extLiuYingUnknown"} {
 		if _, _, err := scopeArguments(command, map[string]any{"request_scope": scope}); err == nil {
 			t.Fatal("意外放行其他扩展", command)
+		}
+	}
+	for _, command := range []string{"emby.extRankings", "emby.extRankingItems", "emby.extResolve"} {
+		clean, _, err := scopeArguments(command, map[string]any{"request_scope": scope})
+		if err != nil || clean["is_adult"] != true || clean["server"] != "fixture" {
+			t.Fatalf("隐私榜单命令未限定本服放行 %s: %v %v", command, clean, err)
 		}
 	}
 }

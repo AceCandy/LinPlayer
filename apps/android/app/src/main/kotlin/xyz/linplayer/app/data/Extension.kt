@@ -40,7 +40,7 @@ suspend fun AppState.openExtension(entry: JsonObject, open: (String, String) -> 
                 val id = it.str("item_id") ?: return@let
                 val type = it.str("item_type") ?: return@let
                 val server = entry.str("server_id")
-                if (server != null && !activateMediaServer(server)) return@let
+                if (server != null && server != identity?.server && !activateMediaServer(server)) return@let
                 open(id, type)
             }
         }

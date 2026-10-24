@@ -159,7 +159,7 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 		if e.TMDBID > 0 {
 			id = strconv.FormatInt(e.TMDBID, 10)
 		}
-	case "hongguo", "huangguoai":
+	case "hongguo", "huangguoai", "javranking":
 		id = e.ExternalID
 	case "douban":
 		id = e.DoubanID
@@ -287,8 +287,11 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 	// 点击时实时匹配；多匹配不能任取第一条，必须让用户知道歧义。
 	list("emby.extResolve", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		source, id, kind := str(a, "source"), str(a, "external_id"), str(a, "media_type")
-		if id == "" || (source != "tmdb" && source != "douban" && source != "bangumi" && source != "hongguo" && source != "huangguoai") || (kind != "movie" && kind != "tv" && kind != "series" && kind != "anime") {
+		if id == "" || (source != "tmdb" && source != "douban" && source != "bangumi" && source != "hongguo" && source != "huangguoai" && source != "javranking") || (kind != "movie" && kind != "tv" && kind != "series" && kind != "anime") {
 			return nil, bus.NewErr(bus.EInvalid, "作品缺少有效的来源标识，无法精确匹配")
+		}
+		if !extensionSourceMatches(ctx, source) {
+			return nil, bus.NewErr(bus.EUnsupported, "当前空间不支持此来源的媒体匹配")
 		}
 		caps, err := defaultClient.extensionCapability(ctx, s, "matching")
 		if err != nil {
@@ -333,8 +336,9 @@ func registerExtensionCommands(list func(string, func(context.Context, *Session,
 	})
 }
 
-// 黄果 AI 是 MSG 明确固定的成人资料来源；其它外部资料不按标题猜分类。
+// 黄果 AI 与 JavRanking 是 MSG 明确固定的成人资料来源；其它外部资料不按标题猜分类。
 func extensionSourceMatches(ctx context.Context, source string) bool {
 	adult := AdultFilter(ctx)
-	return adult == nil || *adult == (source == "huangguoai")
+	isAdultSource := source == "huangguoai" || source == "javranking"
+	return adult == nil || *adult == isAdultSource
 }

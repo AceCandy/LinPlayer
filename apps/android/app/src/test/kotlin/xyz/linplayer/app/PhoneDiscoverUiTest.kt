@@ -55,17 +55,25 @@ class PhoneDiscoverUiTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private val dark = mutableStateOf(false)
     private val imageRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private lateinit var navigation: androidx.navigation.NavHostController
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun open(core: FakeCore, route: Any = Route.Ranking) {
+    private fun open(core: FakeCore, route: Any = Route.Ranking, privateSpace: Boolean = false) {
         xyz.linplayer.app.tv.FakeImages.install(androidx.test.core.app.ApplicationProvider.getApplicationContext()) { imageRequests.add(it) }
         val app = AppState(core, scope)
-        runBlocking { app.boot() }
+        runBlocking {
+            app.boot()
+            if (privateSpace) {
+                app.enablePrivacyFiltering()
+                app.enterPrivateSpace()
+            }
+        }
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     val nav = rememberNavController()
+                    navigation = nav
                     NavHost(nav, startDestination = route) {
                         composable<Route.Ranking> { RankingPage(nav) }
                         composable<Route.Calendar> { CalendarPage(nav) }
@@ -129,6 +137,7 @@ class PhoneDiscoverUiTest {
 
     @Test fun appendFailureKeepsRowsAndRetriesSamePage() {
         val core = rankings()
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "resolved"); put("item_type", "Movie") })
         var fail = true
         core.on("emby.extRankingItems") { a ->
             val page = a.long("page") ?: 1L
@@ -144,12 +153,74 @@ class PhoneDiscoverUiTest {
         rule.waitForIdle()
         scroll.performScrollToNode(hasText("重试"))
         rule.onNodeWithText("作品 20").assertExists()
+        rule.onNodeWithText("作品 20").performClick()
+        rule.onNodeWithText("详情目标：resolved").assertIsDisplayed()
+        val before = core.calls.count { it.first == "emby.extRankingItems" }
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.onNodeWithText("重试").assertIsDisplayed()
+        assertEquals(before, core.calls.count { it.first == "emby.extRankingItems" })
         fail = false
         rule.onNodeWithText("重试").performClick()
         rule.waitForIdle()
         scroll.performScrollToNode(hasText("作品 40"))
         rule.onNodeWithText("作品 40").assertIsDisplayed()
         assertEquals(2, core.calls.count { it.first == "emby.extRankingItems" && it.second.long("page") == 2L })
+    }
+
+    @Test fun cancelledFirstPageIsRetriedOnReturn() {
+        val core = rankings()
+        core.on("emby.extRankingItems") { throw kotlinx.coroutines.CancellationException("fixture cancellation") }
+        open(core)
+        assertEquals(1, core.calls.count { it.first == "emby.extRankingItems" })
+        rule.runOnIdle { navigation.navigate(Route.Detail("temporary", "Movie")) }
+        rule.onNodeWithText("详情目标：temporary").assertIsDisplayed()
+        core.ret("emby.extRankingItems", arr())
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.onNodeWithText("暂无榜单数据").assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "emby.extRankingItems" })
+    }
+
+    @Test fun rankingReturnKeepsCategoryPagesAndScrollButNewVisitReloads() {
+        val core = rankings()
+        core.ret("emby.extRankings", arr(*listOf(
+            Triple("tmdb", "电影榜", "tmdb"), Triple("hongguo", "红果热榜", "hongguo")
+        ).map { (id, label, source) -> buildJsonObject {
+            put("id", id); put("label", label); put("source", source)
+        } }.toTypedArray()))
+        core.on("emby.extRankingItems") { a ->
+            val page = a.long("page") ?: 1L
+            val category = a.str("category_id")
+            if (page > 3) arr() else arr(*(1..20).map { offset -> buildJsonObject {
+                val n = (page - 1) * 20 + offset
+                put("id", "$category-$n"); put("rank", n); put("title", "$category 作品 $n")
+            } }.toTypedArray())
+        }
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "resolved"); put("item_type", "Series") })
+        open(core)
+        rule.onNodeWithText("红果").performClick()
+        val scroll = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        scroll.performScrollToNode(hasText("hongguo 作品 20"))
+        scroll.performScrollToNode(hasText("hongguo 作品 25"))
+        rule.onNodeWithText("hongguo 作品 25").performClick()
+        rule.onNodeWithText("详情目标：resolved").assertIsDisplayed()
+        val before = core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" }
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.onNodeWithText("红果热榜").assertIsDisplayed()
+        rule.onNodeWithText("hongguo 作品 25").assertIsDisplayed()
+        assertEquals(before, core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" })
+        scroll.performScrollToNode(hasText("hongguo 作品 40"))
+        scroll.performScrollToNode(hasText("hongguo 作品 45"))
+        rule.onNodeWithText("hongguo 作品 45").assertIsDisplayed()
+        val pages = core.calls.filter {
+            it.first == "emby.extRankingItems" && it.second.str("category_id") == "hongguo"
+        }.map { it.second.long("page") }
+        org.junit.Assert.assertTrue(pages.size >= 3)
+        assertEquals((1L..pages.size.toLong()).toList(), pages)
+        rule.runOnIdle {
+            navigation.navigate(Route.Ranking) { popUpTo<Route.Ranking> { inclusive = true } }
+        }
+        rule.waitForIdle()
+        assertEquals(2, core.calls.count { it.first == "emby.extRankings" })
     }
 
     @Test fun repeatedRefreshFailureKeepsRowsAndRetry() {
@@ -276,6 +347,34 @@ class PhoneDiscoverUiTest {
         rule.onNodeWithText("详情目标：primary-item").assertIsDisplayed()
         assertEquals("primary", core.calls.last { it.first == "emby.extResolve" }.second.str("server_id"))
         assertEquals("primary", core.calls.last { it.first == "account.setActiveServer" }.second.str("server_id"))
+        val before = core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" }
+        rule.runOnIdle { navigation.popBackStack() }
+        rule.onNodeWithText("主服作品").assertIsDisplayed()
+        assertEquals(before, core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" })
+    }
+
+    @Test fun privateRankingMatchesCurrentServerWithoutSwitchingToPrimary() {
+        val core = rankings()
+        core.ret("account.listAccounts", arr(JsonObject(account("primary", "主服", "", false).obj()!! +
+            ("aggregate_primary" to JsonPrimitive(true)))))
+        core.ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
+        core.ret("emby.extRankings", arr(buildJsonObject {
+            put("id", "javranking_weekly"); put("source", "javranking"); put("label", "周榜")
+        }))
+        core.ret("emby.extRankingItems", arr(buildJsonObject {
+            put("id", "javranking:movie:TEST-001"); put("source", "javranking")
+            put("external_id", "TEST-001"); put("media_type", "movie"); put("title", "私密榜单作品"); put("rank", 1)
+        }))
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "nfo-work"); put("item_type", "Movie") })
+        open(core, privateSpace = true)
+        rule.onNodeWithText("JavRanking").assertIsDisplayed()
+        rule.onNodeWithText("私密榜单作品").performClick()
+        rule.onNodeWithText("详情目标：nfo-work").assertIsDisplayed()
+        assertEquals(0, core.calls.count { it.first == "account.setActiveServer" })
+        core.calls.filter { it.first.startsWith("emby.ext") }.forEach { (_, a) ->
+            assertEquals(JsonPrimitive(true), a?.get("request_scope").obj()?.get("private"))
+            assertEquals(a?.get("request_scope").obj().str("server"), a.str("server_id"))
+        }
     }
 
     @Test fun failedSessionRefreshDoesNotOpenCrossServerDetail() = runBlocking {

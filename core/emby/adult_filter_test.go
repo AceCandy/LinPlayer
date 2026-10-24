@@ -132,7 +132,7 @@ func TestExtensionAdultSourceDoesNotLeakIntoNormalCatalog(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if extensionSourceMatches(ctx, "huangguoai") != value || extensionSourceMatches(ctx, "hongguo") == value {
+		if extensionSourceMatches(ctx, "huangguoai") != value || extensionSourceMatches(ctx, "javranking") != value || extensionSourceMatches(ctx, "hongguo") == value {
 			t.Fatal("已明确分类的资料来源跨空间展示")
 		}
 	}

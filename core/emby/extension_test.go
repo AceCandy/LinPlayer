@@ -10,6 +10,7 @@ import (
 	"testing"
 
 	"linplayer/core/bus"
+	"linplayer/core/config"
 )
 
 func extensionHandlers() map[string]func(context.Context, *Session, map[string]any) (any, error) {
@@ -20,7 +21,7 @@ func extensionHandlers() map[string]func(context.Context, *Session, map[string]a
 	return handlers
 }
 
-const testCapabilities = `{"version":"1","rankings":true,"calendar":{"enabled":true},"library_matching":{"sources":["tmdb","douban","bangumi","hongguo","huangguoai"]}}`
+const testCapabilities = `{"version":"1","rankings":true,"calendar":{"enabled":true},"library_matching":{"sources":["tmdb","douban","bangumi","hongguo","huangguoai","javranking"]}}`
 
 func TestExtensionContractAndExactMatch(t *testing.T) {
 	freshConfig(t)
@@ -164,7 +165,7 @@ func TestExtensionErrorsAndRedirect(t *testing.T) {
 
 func TestExtensionIndependentCatalogIdentity(t *testing.T) {
 	freshConfig(t)
-	for _, source := range []string{"hongguo", "huangguoai"} {
+	for _, source := range []string{"hongguo", "huangguoai", "javranking"} {
 		t.Run(source, func(t *testing.T) {
 			const id = "99999999999999999999999999999999"
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -202,5 +203,80 @@ func TestExtensionIndependentCatalogIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 		})
+	}
+}
+
+func TestPrivateExtensionResolveRejectsNonAdultSource(t *testing.T) {
+	h := extensionHandlers()
+	ctx, err := AdultFilterContext(t.Context(), map[string]any{"is_adult": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = h["emby.extResolve"](ctx, &Session{}, map[string]any{
+		"source": "tmdb", "external_id": "123", "media_type": "movie",
+	})
+	assertExtensionCode(t, err, bus.EUnsupported)
+}
+
+func TestPrivateRankingCommandScopeHTTP(t *testing.T) {
+	freshConfig(t)
+	requests := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		requests++
+		if r.Header.Get("X-Emby-Token") != "fixture" {
+			t.Error("current session authentication lost")
+		}
+		w.Header().Set("Content-Type", "application/json")
+		switch r.URL.Path {
+		case "/emby-ext/v1/capabilities":
+			_, _ = w.Write([]byte(testCapabilities))
+		case "/emby-ext/v1/rankings":
+			_, _ = w.Write([]byte(`{"items":[{"id":"tmdb_hot","name":"电影","source":"tmdb","enabled":true},{"id":"javranking_weekly","name":"周榜","source":"javranking","enabled":true}]}`))
+		case "/emby-ext/v1/rankings/javranking_weekly/items":
+			_, _ = w.Write([]byte(`{"page_size":50,"items":[{"source":"javranking","external_id":"TEST-001","media_type":"movie","title":"作品"}]}`))
+		case "/emby-ext/v1/library/matches":
+			var body struct{ Items []map[string]any }
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil || len(body.Items) != 1 ||
+				body.Items[0]["external_id"] != "TEST-001" || body.Items[0]["source"] != "javranking" {
+				t.Errorf("bad match identity: %+v %v", body, err)
+				w.WriteHeader(400)
+				return
+			}
+			_, _ = w.Write([]byte(`{"items":[{"key":"item","matches":[{"item_id":"nfo-work","item_type":"Movie"}]}]}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	config.Current().Upsert(config.Account{Server: "https://primary.invalid", UserID: "viewer", Token: "fixture", Lines: []config.ServerLine{{URL: srv.URL}}})
+	if _, err := defaultClient.refreshExtensionCapabilities(t.Context(), &Session{Server: srv.URL, UserID: "viewer", Token: "fixture"}); err != nil {
+		t.Fatal(err)
+	}
+	scope := map[string]any{"id": "private-rank", "private": true, "filter": true, "server": srv.URL, "user_id": "viewer", "token": "fixture"}
+	cats, err := bus.Invoke(t.Context(), "emby.extRankings", map[string]any{"request_scope": scope, "server_id": srv.URL})
+	if err != nil || len(cats.([]map[string]any)) != 1 || cats.([]map[string]any)[0]["source"] != "javranking" {
+		t.Fatalf("private catalog: %v %v", cats, err)
+	}
+	rows, err := bus.Invoke(t.Context(), "emby.extRankingItems", map[string]any{"request_scope": scope, "server_id": srv.URL, "category_id": "javranking_weekly", "page": float64(2)})
+	if err != nil || rows.([]map[string]any)[0]["rank"] != 51 {
+		t.Fatalf("private items: %v %v", rows, err)
+	}
+	out, err := bus.Invoke(t.Context(), "emby.extResolve", map[string]any{"request_scope": scope, "server_id": srv.URL, "source": "javranking", "external_id": "TEST-001", "media_type": "movie"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(out)
+	if !strings.Contains(string(raw), `"item_id":"nfo-work"`) {
+		t.Fatalf("private resolve: %s", raw)
+	}
+	before := requests
+	for _, command := range []string{"emby.extRankings", "emby.extRankingItems", "emby.extResolve"} {
+		if _, err := bus.Invoke(t.Context(), command, map[string]any{"request_scope": scope, "server_id": "other"}); err == nil {
+			t.Fatalf("cross-server private command accepted: %s", command)
+		}
+	}
+	if requests != before {
+		t.Fatal("rejected commands reached HTTP")
 	}
 }
