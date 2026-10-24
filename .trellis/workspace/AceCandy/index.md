@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 105
+- **Total Sessions**: 106
 - **Last Active**: 2026-10-24
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1047 | Active |
+| `journal-3.md` | ~1082 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 106 | 2026-10-24 | 修复 Android 全量回归并归档 | `b45fd6c2` | `main` |
 | 105 | 2026-10-24 | 平板海报刻度与封面请求尺寸适配 | `bb1f7f7e` | `main` |
 | 104 | 2026-10-24 | tvOS同源视觉修复与阶段归档 | `a274c3c8` | `main` |
 | 103 | 2026-10-24 | 手机基准阶段归档与外部Mac验证 | `e40ad7fd`, `6332ca5c` | `main` |
