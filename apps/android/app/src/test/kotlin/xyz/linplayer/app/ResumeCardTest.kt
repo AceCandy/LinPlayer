@@ -45,9 +45,9 @@ class ResumeCardTest {
             LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(LocalDensity provides Density(1f, scale)) {
                     Column(Modifier.background(Lp.colors.bg)) {
-                        LpRow("继续观看", listOf(episode), { null }, { opened = it.id }, thumb = true,
+                        LpRow("继续观看", listOf(episode), { _, _ -> null }, { opened = it.id }, thumb = true,
                             resume = true, menu = { listOf(CardAction("取消观看记录", false) { removed = true }) })
-                        LpRow("普通卡片", listOf(episode.copy(id = "normal", name = "普通单集", resumeSecs = 0.0)), { null }, {}, thumb = true)
+                        LpRow("普通卡片", listOf(episode.copy(id = "normal", name = "普通单集", resumeSecs = 0.0)), { _, _ -> null }, {}, thumb = true)
                     }
                 }
             }
@@ -66,7 +66,7 @@ class ResumeCardTest {
     @Test fun unwatchedResumeMovieShowsFullDuration() {
         rule.setContent {
             LpTheme(darkOverride = false) {
-                LpRow("继续观看", listOf(Item("movie", "未观看影片", "Movie", runtimeSecs = 5401.0)), { null }, {}, resume = true)
+                LpRow("继续观看", listOf(Item("movie", "未观看影片", "Movie", runtimeSecs = 5401.0)), { _, _ -> null }, {}, resume = true)
             }
         }
         rule.onNodeWithText("1:30:01", useUnmergedTree = true).assertIsDisplayed()
@@ -76,8 +76,8 @@ class ResumeCardTest {
         rule.setContent {
             LpTheme(darkOverride = false) {
                 Column {
-                    LpRow("影片", listOf(Item("movie", "未观看影片", "Movie", runtimeSecs = 5401.0)), { null }, {})
-                    LpRow("单集", listOf(episode), { null }, {}, thumb = true)
+                    LpRow("影片", listOf(Item("movie", "未观看影片", "Movie", runtimeSecs = 5401.0)), { _, _ -> null }, {})
+                    LpRow("单集", listOf(episode), { _, _ -> null }, {}, thumb = true)
                 }
             }
         }
@@ -92,13 +92,13 @@ class ResumeCardTest {
                 Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
                     Column {
                         LpRow("媒体库", listOf(Item("lib", "国产剧", "CollectionFolder"),
-                            Item("lib2", "日韩剧", "CollectionFolder")), { "fake:${it.id}" }, {}, thumb = true)
+                            Item("lib2", "日韩剧", "CollectionFolder")), { it, _ -> "fake:${it.id}" }, {}, thumb = true)
                         LpRow("继续观看", listOf(episode, Item("movie", "远方的来信", "Movie", runtimeSecs = 3047.0)),
-                            { "fake:${it.id}" }, {}, thumb = true, resume = true)
+                            { it, _ -> "fake:${it.id}" }, {}, thumb = true, resume = true)
                         LpRow("国产剧", listOf(Item("series", "余红旧事", "Series", unplayed = 24, unplayedCountKnown = true, doubanRating = 8.0, year = 2026),
                             Item("series2", "我不是大师", "Series", unplayed = 19, unplayedCountKnown = true, year = 2026),
                             Item("series3", "如期", "Series", played = true, unplayedCountKnown = true, doubanRating = 9.1, year = 2026)),
-                            { "fake:${it.id}" }, {}, onMore = {})
+                            { it, _ -> "fake:${it.id}" }, {}, onMore = {})
                     }
                     Box(Modifier.align(Alignment.BottomCenter)) { LpTabBar(0, onSearch = {}) {} }
                 }
@@ -117,7 +117,7 @@ class ResumeCardTest {
             LpTheme(darkOverride = true) {
                 CompositionLocalProvider(LocalDensity provides Density(1f, 1.3f)) {
                     Column(Modifier.background(Lp.colors.bg)) {
-                        LpRow("长篇剧集", listOf(Item("long", "长篇剧集", "Series", unplayed = 403, unplayedCountKnown = true, doubanRating = 8.0)), { null }, {})
+                        LpRow("长篇剧集", listOf(Item("long", "长篇剧集", "Series", unplayed = 403, unplayedCountKnown = true, doubanRating = 8.0)), { _, _ -> null }, {})
                     }
                 }
             }
@@ -140,7 +140,7 @@ class ResumeCardTest {
                 LpRow("继续观看", listOf(
                     episode.copy(id = "unknown", runtimeSecs = 0.0),
                     episode.copy(id = "done", resumeSecs = 3600.0),
-                ), { null }, {}, thumb = true, resume = true)
+                ), { _, _ -> null }, {}, thumb = true, resume = true)
             }
         }
         rule.onAllNodesWithText("剩余", substring = true).assertCountEquals(0)

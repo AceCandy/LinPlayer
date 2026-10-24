@@ -104,7 +104,7 @@ class HomeCinemaTest {
             LpTheme(darkOverride = true) {
                 LpRow("继续观看", listOf(Item("ep", "单集说明", "Episode", seriesName = "真实剧名",
                     seasonNo = 1, episodeNo = 7, runtimeSecs = 1800.0, resumeSecs = 600.0)),
-                    { null }, { opened = true }, thumb = true, resume = true,
+                    { _, _ -> null }, { opened = true }, thumb = true, resume = true,
                     menu = { listOf(CardAction("取消观看记录") { removed = true }) })
             }
         }

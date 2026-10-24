@@ -87,6 +87,9 @@ import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
+import xyz.linplayer.app.ui.components.adaptiveColumns
+import xyz.linplayer.app.ui.components.gridCellWidth
+import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.LoadingState
@@ -228,6 +231,8 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                             else it.libraryIds.none { id -> id in knownIds } && favoriteFallbackType(it) == type
                         }, sort, ascending)
                     }
+                    val columns = posterColumns()
+                    val imageHeight = posterImageHeight(width = gridCellWidth(columns))
                     val firstId = visible.firstOrNull()?.id
                     var previousFirst by remember { mutableStateOf(firstId) }
                     SideEffect {
@@ -242,13 +247,13 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         else "收藏中已看完的内容可在右上角「历史已看」查看；收藏状态仍保留。",
                         LpIcons.heart,
                     ) } else if (isCategory) LazyVerticalGrid(
-                        GridCells.Fixed(posterColumns()), Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, grid,
+                        GridCells.Fixed(columns), Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, grid,
                         contentPadding = PaddingValues(Sp.x16, Sp.x8, Sp.x16, pad.calculateBottomPadding()),
                         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                         verticalArrangement = Arrangement.spacedBy(Sp.x16),
                     ) {
                         items(visible, key = { it.id }, contentType = { "poster" }) {
-                            MediaCard(it, app.imageUrl(it.id, "Primary", 330),
+                            MediaCard(it, app.imageUrl(it.id, "Primary", imageHeight),
                                 { nav.navigate(Route.Detail(it.id, it.type)) },
                                 Modifier.fillMaxWidth().animateItem(fade, placement, fade), menu = rememberCardActions(app, scope, it))
                         }
@@ -266,7 +271,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                     ) {
                         favoriteGroups(items, views).forEach { group ->
                             item(key = group.libraryId?.let { "library.$it" } ?: "type.${group.type}") {
-                                LpRow(group.title, group.items, { app.imageUrl(it.id, "Primary", 330) },
+                                LpRow(group.title, group.items, { it, h -> app.imageUrl(it.id, "Primary", h) },
                                     { nav.navigate(Route.Detail(it.id, it.type)) },
                                     thumb = group.type == "Episode", menu = { rememberCardActions(app, scope, it) },
                                     onMore = {
@@ -557,6 +562,7 @@ fun FacetPage(nav: NavController, entry: androidx.navigation.NavBackStackEntry) 
     LpScaffold(route.label, subtitle = kindName, onBack = { nav.popBackStack() },
         scrolled = rememberScrolled(grid)) { pad ->
         BlockBox(first, { scope.launch { fetch(0) } }, skeleton = { LoadingState(Modifier.fillMaxSize().padding(bottom = pad.calculateBottomPadding())) }) {
+            val imageHeight = posterImageHeight(width = gridCellWidth(adaptiveColumns(112.dp)))
             if (items.isEmpty()) EmptyState(
                 "没有找到「${route.label}」下的内容",
                 "这台服务器上可能没有刮到这一项,或者它只挂在被屏蔽的库里。",
@@ -568,7 +574,7 @@ fun FacetPage(nav: NavController, entry: androidx.navigation.NavBackStackEntry) 
                 verticalArrangement = Arrangement.spacedBy(Sp.x16),
             ) {
                 items(items, key = { it.id }) {
-                    MediaCard(it, app.imageUrl(it.id, "Primary", 330),
+                    MediaCard(it, app.imageUrl(it.id, "Primary", imageHeight),
                         { nav.navigate(Route.Detail(it.id, it.type)) },
                         Modifier.fillMaxWidth(), menu = rememberCardActions(app, scope, it))
                 }

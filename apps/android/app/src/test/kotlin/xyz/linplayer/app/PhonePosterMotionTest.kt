@@ -102,7 +102,7 @@ class PhonePosterMotionTest {
         rule.setContent {
             LpTheme {
                 Box(Modifier.size(320.dp, 300.dp)) {
-                    LpRow("", entries.value, { "poster:${it.id}" }, {})
+                    LpRow("", entries.value, { it, _ -> "poster:${it.id}" }, {})
                 }
             }
         }
@@ -599,7 +599,7 @@ class PhonePosterMotionTest {
                     item("row") {
                         SideEffect { compositions++ }
                         LpRow("固定标题", (0..5).map { Item("row$it", "海报$it", "Movie") },
-                            { "poster:${it.id}" }, { opened++ }, menu = { listOf(CardAction("行菜单") {}) },
+                            { it, _ -> "poster:${it.id}" }, { opened++ }, menu = { listOf(CardAction("行菜单") {}) },
                             homeAccount = "server" to "user", m = Modifier.testTag("strip"))
                     }
                     item("tail") { Spacer(Modifier.height(700.dp)) }
@@ -666,7 +666,7 @@ class PhonePosterMotionTest {
                     item("lead") { Spacer(Modifier.height(264.dp)) }
                     item("row") {
                         LpRow("冷图同排", listOf(Item("hot", "已加载", "Movie"), Item("pending", "等待图", "Movie")),
-                            { "poster:${it.id}" }, {}, homeAccount = "server" to "user")
+                            { it, _ -> "poster:${it.id}" }, {}, homeAccount = "server" to "user")
                     }
                     item("tail") { Spacer(Modifier.height(700.dp)) }
                 }
@@ -704,7 +704,7 @@ class PhonePosterMotionTest {
                     LazyColumn(Modifier.size(320.dp, 360.dp), state = list) {
                         item("lead") { Spacer(Modifier.height(300.dp)) }
                         item("row") {
-                            LpRow("快滚轨道", listOf(Item("one", "一张海报", "Movie")), { "poster:one" }, {},
+                            LpRow("快滚轨道", listOf(Item("one", "一张海报", "Movie")), { _, _ -> "poster:one" }, {},
                                 homeAccount = "server" to "user")
                         }
                         item("tail") { Spacer(Modifier.height(700.dp)) }
@@ -750,7 +750,7 @@ class PhonePosterMotionTest {
                             item("lead") { Spacer(Modifier.height(300.dp)) }
                             item("row") {
                                 if (!loaded.value) LpRowSkeleton("同一轨道", thumb = false, m = Modifier.testTag("strip"))
-                                else LpRow("同一轨道", listOf(Item("one", "实际海报", "Movie")), { "poster:one" }, {},
+                                else LpRow("同一轨道", listOf(Item("one", "实际海报", "Movie")), { _, _ -> "poster:one" }, {},
                                     homeAccount = account.value, m = Modifier.testTag("strip"))
                             }
                             item("tail") { Spacer(Modifier.height(700.dp)) }
@@ -797,7 +797,7 @@ class PhonePosterMotionTest {
                     LazyColumn(Modifier.size(320.dp, 360.dp), state = list) {
                         item("lead") { Spacer(Modifier.height(284.dp)) }
                         item("row") {
-                            LpRow("短暂离开", listOf(Item("one", "待归位海报", "Movie")), { "poster:one" }, {},
+                            LpRow("短暂离开", listOf(Item("one", "待归位海报", "Movie")), { _, _ -> "poster:one" }, {},
                                 homeAccount = "server" to "user")
                         }
                         item("tail") { Spacer(Modifier.height(700.dp)) }
@@ -829,7 +829,7 @@ class PhonePosterMotionTest {
                     list = rememberLazyListState()
                     LazyColumn(Modifier.size(320.dp, 360.dp).nestedScroll(scroll).testTag("fling"), state = list) {
                         items(12, key = { "row-$it" }) { n ->
-                            LpRow("栏目$n", listOf(Item("item$n", "海报$n", "Movie")), { "poster:${it.id}" }, {},
+                            LpRow("栏目$n", listOf(Item("item$n", "海报$n", "Movie")), { it, _ -> "poster:${it.id}" }, {},
                                 homeAccount = "server" to "user")
                         }
                     }
@@ -865,7 +865,7 @@ class PhonePosterMotionTest {
             LpTheme {
                 Box(Modifier.size(320.dp, 300.dp)) {
                     LpRow("横向轨道", (0..12).map { Item("h$it", "横滑$it", "Movie") },
-                        { "poster:${it.id}" }, {}, homeAccount = "server" to "user")
+                        { it, _ -> "poster:${it.id}" }, {}, homeAccount = "server" to "user")
                 }
             }
         }
@@ -922,7 +922,7 @@ class PhonePosterMotionTest {
                 CompositionLocalProvider(LocalMotionScale provides motion.value) {
                     Box(Modifier.size(320.dp, 300.dp)) {
                         LpRow("横向轨道", (0..12).map { Item("h$it", "横滑$it", "Movie") },
-                            { "poster:${it.id}" }, {}, homeAccount = "server" to "user")
+                            { it, _ -> "poster:${it.id}" }, {}, homeAccount = "server" to "user")
                     }
                 }
             }

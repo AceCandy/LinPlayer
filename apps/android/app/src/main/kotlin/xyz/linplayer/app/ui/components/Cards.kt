@@ -208,7 +208,7 @@ fun MediaCard(
 ) {
     val c = Lp.colors
     var menuOpen by remember { mutableStateOf(false) }
-    val width = if (thumb) ThumbW else PosterW
+    val width = cardWidth(thumb)
     var imageResult by remember(item.id, imageUrl) { mutableStateOf<Boolean?>(null) }
     val posterToken = rememberSaveable(item.id, imageUrl) { UUID.randomUUID().toString() }
     val motion = LocalPosterMotion.current
@@ -371,10 +371,68 @@ private fun captionHeight(): Dp = with(LocalDensity.current) {
 fun rowHeight(thumb: Boolean): Dp =
     rowImageHeight(thumb) + captionHeight()
 
-internal fun rowImageHeight(thumb: Boolean): Dp = if (thumb) ThumbW * 9 / 16 else PosterW * 3 / 2
+@Composable
+internal fun rowImageHeight(thumb: Boolean): Dp = if (thumb) cardWidth(true) * 9 / 16 else cardWidth(false) * 3 / 2
 
 private val PosterW = 104.dp
 private val ThumbW = 194.dp
+
+/**
+ * 海报刻度(UI_MOBILE §3.3):宽屏下首页轨道与海报网格共用同一单元宽,两处视觉一致。
+ *
+ * 手机竖屏(<600dp)返回 null,沿用 104dp 与官方 3 列;横屏手机高度不足,上限仍取 104dp
+ * 只多排列;平板上限 150 / 170dp。列数取放得下上限的最少列,余宽平分,单元略小于上限。
+ */
+internal fun posterLayout(widthDp: Float, heightDp: Float): Pair<Int, Dp>? {
+    if (widthDp < 600f) return null
+    val max = when {
+        heightDp < 480f -> PosterW
+        widthDp < 840f -> 150.dp
+        else -> 170.dp
+    }
+    val avail = widthDp.dp - Sp.x16 * 2
+    val columns = kotlin.math.ceil((avail + Sp.x10) / (max + Sp.x10)).toInt().coerceAtLeast(1)
+    return columns to (avail - Sp.x10 * (columns - 1)) / columns
+}
+
+/** 按当前窗口(分屏时是分到的那块)算海报刻度;TV 另有刻度,不参与。 */
+@Composable
+internal fun posterLayout(): Pair<Int, Dp>? {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) return null
+    val size = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    return with(LocalDensity.current) { posterLayout(size.width.toDp().value, size.height.toDp().value) }
+}
+
+@Composable
+private fun windowWidth(): Dp = with(LocalDensity.current) {
+    androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
+}
+
+/** 海报网格单元宽:窗口宽减两侧 16dp 与列间距后平分,和各网格的 contentPadding / 间距一致。 */
+@Composable
+internal fun gridCellWidth(columns: Int): Dp = (windowWidth() - Sp.x16 * 2 - Sp.x10 * (columns - 1)) / columns
+
+/** 自适应网格(`GridCells.Adaptive(min)`)实际排出的列数。 */
+@Composable
+internal fun adaptiveColumns(min: Dp): Int =
+    ((windowWidth() - Sp.x16 * 2 + Sp.x10) / (min + Sp.x10)).toInt().coerceAtLeast(1)
+
+/**
+ * 卡片封面的请求高度(px) = 实际显示高度 × 屏幕密度,`AppState.imageUrl` 再按固定档向上取整共用缓存。
+ * 写死 330 / 220 在高密度手机和放大后的平板上都会糊;TV 另有刻度,保持原值。
+ */
+@Composable
+fun posterImageHeight(thumb: Boolean = false, width: Dp = cardWidth(thumb)): Int {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) return if (thumb) 220 else 330
+    return with(LocalDensity.current) { (if (thumb) width * 9 / 16 else width * 3 / 2).roundToPx() }
+}
+
+/** 轨道卡宽。横版卡按手机刻度的比例(194 / 104)随海报放大。 */
+@Composable
+private fun cardWidth(thumb: Boolean): Dp {
+    val poster = posterLayout()?.second ?: return if (thumb) ThumbW else PosterW
+    return if (thumb) poster * (ThumbW / PosterW) else poster
+}
 
 /**
  * 横滑轨道。
@@ -386,7 +444,8 @@ private val ThumbW = 194.dp
 fun LpRow(
     title: String,
     items: List<Item>,
-    imageUrl: (Item) -> String?,
+    /** 第二个参数是封面请求高度(px),见 [posterImageHeight]。 */
+    imageUrl: (Item, Int) -> String?,
     onOpen: (Item) -> Unit,
     m: Modifier = Modifier,
     thumb: Boolean = false,
@@ -397,6 +456,7 @@ fun LpRow(
     homeAccount: Pair<String, String>? = null,
 ) {
     val row = rememberLazyListState()
+    val imageHeight = posterImageHeight(thumb)
     val firstId = items.firstOrNull()?.id
     var previousFirst by remember { mutableStateOf(firstId) }
     SideEffect {
@@ -415,7 +475,7 @@ fun LpRow(
         ) {
             // key + contentType:不给的话滚动时 item 复用会让 Coil 重复发请求
             itemsIndexed(items, key = { _, it -> it.id }, contentType = { _, _ -> if (thumb) "thumb" else "poster" }) { index, item ->
-                MediaCard(item, imageUrl(item), { onOpen(item) },
+                MediaCard(item, imageUrl(item, imageHeight), { onOpen(item) },
                     m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
                     thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)
             }
@@ -432,7 +492,7 @@ fun LpRowSkeleton(title: String? = null, thumb: Boolean = false, m: Modifier = M
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
             items(4) {
-                Box(Modifier.width(if (thumb) ThumbW else PosterW)
+                Box(Modifier.width(cardWidth(thumb))
                     .aspectRatio(if (thumb) 16f / 9f else 2f / 3f)
                     .clip(RoundedCornerShape(R.md)).background(Lp.colors.s1))
             }

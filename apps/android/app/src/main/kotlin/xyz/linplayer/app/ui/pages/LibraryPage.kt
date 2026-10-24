@@ -71,6 +71,8 @@ import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
+import xyz.linplayer.app.ui.components.gridCellWidth
+import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.LpRefreshIcon
 import xyz.linplayer.app.ui.theme.LpIcons
@@ -284,6 +286,8 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                         LpRefreshIcon()
                     }
                 }) {
+                val columns = posterColumns()
+                val imageHeight = posterImageHeight(width = gridCellWidth(columns))
                 if (items.isEmpty()) {
                     // 空态区分三种:这里是「被筛掉了」
                     EmptyState(
@@ -293,7 +297,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                         onAction = if (hasFilter) ({ genre = null; minRating = RATINGS[0] }) else null,
                     )
                 } else LazyVerticalGrid(
-                    GridCells.Fixed(posterColumns()), Modifier.fillMaxSize(), grid,
+                    GridCells.Fixed(columns), Modifier.fillMaxSize(), grid,
                     contentPadding = PaddingValues(
                         start = Sp.x16, end = Sp.x16, top = Sp.x8, bottom = pad.calculateBottomPadding()),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
@@ -301,7 +305,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 ) {
                     items(items, key = { it.id }, contentType = { "poster" }) { it2 ->
                         MediaCard(
-                            it2, app.imageUrl(it2.id, "Primary", 330),
+                            it2, app.imageUrl(it2.id, "Primary", imageHeight),
                             { nav.navigate(Route.Detail(it2.id, it2.type)) },
                             Modifier.fillMaxWidth(),
                             menu = rememberCardActions(app, scope, it2),
@@ -378,10 +382,11 @@ private fun SectionLabel(t: String) =
     Text(t, color = Lp.colors.fg3, style = LpText.filter,
         modifier = Modifier.padding(start = Sp.x12, top = Sp.x12, bottom = Sp.x4))
 
-/** 海报列数。插件主题的 `layout.posterColumns` 覆盖官方的 3(SPEC 11.4)。 */
+/** 海报列数。插件主题的 `layout.posterColumns` 覆盖官方值:手机竖屏 3 列,宽屏按海报刻度推算(SPEC 11.4)。 */
 @Composable
 internal fun posterColumns(): Int = xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
-    androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp, 3)
+    androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp,
+    xyz.linplayer.app.ui.components.posterLayout()?.first ?: 3)
 
 /** 媒体库与收藏分类共用的右侧排序入口。 */
 @Composable

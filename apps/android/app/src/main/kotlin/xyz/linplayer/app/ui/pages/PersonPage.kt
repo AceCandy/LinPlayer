@@ -179,9 +179,11 @@ private fun PersonWorksGrid(nav: NavController, personId: String, cacheKey: Stri
         }
     }
 
+    val columns = PluginTheme.posterColumns(LocalConfiguration.current.screenWidthDp,
+        if (LocalTvMode.current) 6 else posterLayout()?.first ?: 3)
+    val imageHeight = posterImageHeight(width = gridCellWidth(columns))
     LazyVerticalGrid(
-        GridCells.Fixed(PluginTheme.posterColumns(LocalConfiguration.current.screenWidthDp,
-            if (LocalTvMode.current) 6 else 3)),
+        GridCells.Fixed(columns),
         Modifier.fillMaxSize().testTag("person.works"), grid,
         contentPadding = PaddingValues(start = Sp.x16, end = Sp.x16,
             top = Sp.x8, bottom = pad.calculateBottomPadding()),
@@ -195,7 +197,7 @@ private fun PersonWorksGrid(nav: NavController, personId: String, cacheKey: Stri
             item("error", span = { GridItemSpan(maxLineSpan) }) { ErrorState(failure.message, { retry++ }) }
         }
         items(shown.items, key = { it.id }) { item ->
-            MediaCard(item, app.imageUrl(item.id, "Primary", 330),
+            MediaCard(item, app.imageUrl(item.id, "Primary", imageHeight),
                 { nav.navigate(Route.Detail(item.id, item.type)) }, Modifier.fillMaxWidth(),
                 menu = rememberCardActions(app, scope, item))
         }

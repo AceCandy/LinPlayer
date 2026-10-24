@@ -180,7 +180,7 @@ fun AggregatePage(nav: NavController) {
                                     modifier = Modifier.padding(horizontal = Sp.x16))
                             }
                             if (g.resume.isNotEmpty()) LpRow("", g.resume,
-                                { app.imageUrl(it.id, "Primary", 220, g.lineUrl) },
+                                { it, h -> app.imageUrl(it.id, "Primary", h, g.lineUrl) },
                                 { item -> scope.launch {
                                     if (g.active || app.activateMediaServer(g.serverId))
                                         nav.navigate(Route.Detail(item.id, item.type))

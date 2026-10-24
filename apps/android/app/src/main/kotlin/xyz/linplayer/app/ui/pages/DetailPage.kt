@@ -1105,7 +1105,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 // 用全站那条横滑轨道,不另搭一套(高度是常量,见 LpRow 的注释)
                                 LpRow(
                                     "$label · ${list2.size}", list2,
-                                    { app.imageUrl(it.id, "Primary", 330) },
+                                    { it, h -> app.imageUrl(it.id, "Primary", h) },
                                     { it2 -> nav.navigate(
                                         Route.Detail(it2.id, it2.type.ifEmpty { "Movie" })) },
                                 )
@@ -1146,7 +1146,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                      上一版是一条竖着的长列表,把整页撑得看不到下面的相似推荐。 */
                 item("similar") { Anchored(PluginAnchors.DETAIL_SIMILAR, Modifier.padding(horizontal = Sp.x16)) {
                     if (similar.isEmpty()) return@Anchored
-                    LpRow("相似推荐", similar, { app.imageUrl(it.id, "Primary", 330) },
+                    LpRow("相似推荐", similar, { it, h -> app.imageUrl(it.id, "Primary", h) },
                         { nav.navigate(Route.Detail(it.id, it.type)) },
                         menu = { rememberCardActions(app, scope, it) })
                 } }

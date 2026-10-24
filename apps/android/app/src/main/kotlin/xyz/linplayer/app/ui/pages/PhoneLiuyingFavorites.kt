@@ -17,6 +17,8 @@ import kotlinx.coroutines.ensureActive
 import xyz.linplayer.app.data.*
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.MediaCard
+import xyz.linplayer.app.ui.components.gridCellWidth
+import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.theme.LocalLpColors
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpText
@@ -66,7 +68,9 @@ internal fun PhoneLiuyingFavorites(
             }
             // 流影面板固定深色；复用海报卡时不继承外层浅色文字。
             CompositionLocalProvider(LocalLpColors provides Lp.colors.copy(fg = Color.White, fg3 = Color.White.copy(alpha = .7f))) {
-                LazyVerticalGrid(if (tv) GridCells.Adaptive(160.dp) else GridCells.Fixed(posterColumns()),
+                val columns = posterColumns()
+                val imageHeight = posterImageHeight(width = gridCellWidth(columns))
+                LazyVerticalGrid(if (tv) GridCells.Adaptive(160.dp) else GridCells.Fixed(columns),
                     Modifier.fillMaxWidth().weight(1f, fill = false).testTag("liuying.favoriteList"),
                     contentPadding = PaddingValues(vertical = Sp.x12),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
@@ -74,7 +78,7 @@ internal fun PhoneLiuyingFavorites(
                     for (page in pages) items(page.rows.size, key = { "${page.offset}:$it" }) { index ->
                         val row = page.rows[index]
                         val id = row.str("item_id").orEmpty()
-                        MediaCard(Item(id, row.str("title").orEmpty(), ""), app.imageUrl(id),
+                        MediaCard(Item(id, row.str("title").orEmpty(), ""), app.imageUrl(id, height = imageHeight),
                             { onSelect(tab, page, index) }, Modifier.fillMaxWidth().testTag("liuying.favoriteItem.$id"),
                             entrance = false)
                     }

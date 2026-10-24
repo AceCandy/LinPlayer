@@ -65,6 +65,8 @@ import xyz.linplayer.app.ui.components.MediaRowHeader
 import xyz.linplayer.app.ui.components.LpField
 import xyz.linplayer.app.ui.components.LpImmersive
 import xyz.linplayer.app.ui.components.MediaCard
+import xyz.linplayer.app.ui.components.gridCellWidth
+import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.BlockBox
@@ -282,7 +284,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 }
                                 // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
-                                    LpRow(name, Item.list(g["emby_items"]), { app.imageUrl(it.id, "Primary", 330) },
+                                    LpRow(name, Item.list(g["emby_items"]), { it, h -> app.imageUrl(it.id, "Primary", h) },
                                         { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { rememberCardActions(app, scope, it, sid) })
                                 }
                             }
@@ -314,6 +316,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             // 分集**单独一栏横版**;剧和影走网格
                             val eps = items.filter { it.isEpisode }
                             val rest = items.filterNot { it.isEpisode }
+                            val imageHeight = posterImageHeight(width = gridCellWidth(3))
                             LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = pad) {
                                 if (items.size >= 50) item("limit") {
                                     Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
@@ -325,7 +328,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                         .padding(bottom = if (index == (rest.size - 1) / 3) 0.dp else Sp.x16),
                                         horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                         row.forEach { picked ->
-                                            MediaCard(picked, app.imageUrl(picked.id, "Primary", 330), {
+                                            MediaCard(picked, app.imageUrl(picked.id, "Primary", imageHeight), {
                                                 // 历史只在**用户真的点开了某个结果**时才记 ——
                                                 // 跟着防抖记会把「阿」「阿凡」「阿凡达」全记进去
                                                 val t = q.trim()
@@ -338,7 +341,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                     }
                                 }
                                 if (eps.isNotEmpty()) item("eps") {
-                                    LpRow("分集", eps, { app.imageUrl(it.id, "Primary", 220) },
+                                    LpRow("分集", eps, { it, h -> app.imageUrl(it.id, "Primary", h) },
                                         { nav.navigate(Route.Detail(it.id, "Episode")) }, thumb = true,
                                         menu = { rememberCardActions(app, scope, it) })
                                 }

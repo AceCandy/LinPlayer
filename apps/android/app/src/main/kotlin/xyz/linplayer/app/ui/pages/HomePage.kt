@@ -447,7 +447,7 @@ fun HomePage(nav: NavController) {
                         if (items == null) HomeRowLoading(view.name, thumb = false)
                         else if (items.isNotEmpty()) LpRow(
                             view.name, items,
-                            { app.imageUrl(it.id, "Primary", 330) }, open, thumb = false, menu = menu,
+                            { it, h -> app.imageUrl(it.id, "Primary", h) }, open, thumb = false, menu = menu,
                             onMore = { nav.navigate(Route.Library(view.id, view.name)) }, homeAccount = motionAccount,
                         )
                     }
@@ -706,7 +706,7 @@ private fun RowBlock(
         // 空轨整条不画:一条只有标题的空轨比没有它更让人困惑
         is Block.Ok -> if (block.value.isNotEmpty()) LpRow(
             title, block.value,
-            { app.imageUrl(it.id, "Primary", if (thumb) 220 else 330) },
+            { it, h -> app.imageUrl(it.id, "Primary", h) },
             open, m = if (resume) Modifier.testTag("home.resume") else Modifier,
             thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount,
         )
