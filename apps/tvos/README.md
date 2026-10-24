@@ -59,3 +59,9 @@ ASS/PGS 等复杂字幕明确提示不支持；HDR/DV、对象音频、最低系
 新增固定 Lottie 4.5.1，复用 Android 的六份加载 JSON；准备脚本同时校验资源摘要、保留许可证并去除未被目标引用的上游开发工具依赖。正式 Xcode 走本地 SwiftPM；类型检查/临时渲染通过 `build-tvos-loading-check.py` 为对应 SDK 编译模块，不下载额外工具链。
 
 当前绑定为328条，新增首页剧集实时选集命令，Android 与 tvOS 共用。绑定门禁、Android HomeHeroTest、Emby 包回归、固定离线输入通过；核心全量门禁仍有 `TestCalendarImageSurvivesAccountAllowlistRefresh` 因缺能力缓存失败。最新 Swift 全源码/契约回归与模拟器渲染未执行；SSH认证需恢复，不能将历史327条版本的通过记录用于本批。没有生成正式包或更新电视。
+
+## 最新检查状态（2026-10-24）
+
+源码阶段提交为`e40ad7fd`，当前333条绑定。外部Mac使用Xcode27.1 / tvOS27.0 SDK / Go1.27.2，已通过固定输入校验、完整Go c-archive与真实头文件13个ABI声明检查、正式Swift全源码warnings-as-errors类型检查和Swift CoreClient/DTO/request回归；607个相关构建输入与本地逐文件SHA-256一致。SSH和Swift编译阻塞已解除，前节是历史记录。
+
+依赖编译保留Lottie的Bundle/Sendable重复声明及可用性检查告警，产品源码类型检查无警告通过。本轮未重跑模拟器渲染、真实账号/遥控/媒体或最低系统兼容验证，没有生成正式包、更新电视或推送；总体验收仍由进行中的跨端总任务承接。

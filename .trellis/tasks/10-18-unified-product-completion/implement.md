@@ -216,3 +216,13 @@ SSH恢复后从类型检查开始，禁止复用旧截图/旧安装版给本批�
 - 桌面正式 `--visual-alignment` 重新生成16张图，已逐张人工复核深浅主题的首页、媒体库（含窄窗）、电影/剧集详情（含窄窗）、设置和播放器；未发现新的高置信布局、对比度或溢出问题。保留现有编译告警，不借此宣称真实窗口/DPI/播放已验收。
 - 桌面 `productcheck --images-only`、`seekcheck --phone-parity-only`、`seekcheck --theme-only` 追加通过；覆盖图片缓存/回退、冷缓存候选、手机基准布局、真实点击、深浅主题与私密主题恢复。未新增产品代码。
 - tvOS 本地可执行的 `check-tvos-speed-controls.py` 与 `gen-bindings.py --check` 通过；`check-tvos-ui.sh` 的固定输入、加载脚本缓存/损坏恢复/SDK模拟检查也通过，但在缺少真实 `build/tvos/core/lpcore.h` 处停止，当前环境无 Apple SDK/`xcrun`，未进入 Swift 编译与运行测试。
+
+## 阶段提交与外部Mac验证（2026-10-24）
+
+- 用户要求先提交归档再同步，当前源码提交为 `e40ad7fd`（88文件），没有推送。阶段证据归入手机基准能力与界面对齐checkpoint，总任务保持in_progress。
+- 已确认用户指定的文稿工作区，过滤同步源码及固定tvOS依赖；首次副本约796MiB，其中固定依赖约727MiB，不含Git、运行配置、签名密钥、开发缓存和参考包。首次名称过滤误排除`core/secrets`等源码，逐项确认不含实际凭据后补齐；607个相关构建输入最终与本地逐文件SHA-256一致。
+- 外部Mac使用显式DEVELOPER_DIR选择既有Xcode27.1及tvOS27.0 SDK，不改系统Xcode选择；Go1.27.2安装在用户目录，不改系统目录。官方模块代理TLS超时后，仅本次构建使用可访问镜像，未修改项目依赖版本、go.sum或用户全局配置。
+- `fetch-tvos.py --verify`、`build-core-tvos.sh`完整c-archive及13个ABI声明检查通过；`check-tvos-ui.sh`正式Swift全源码warnings-as-errors类型检查、333条绑定对账及CoreClient/DTO/request实质回归通过。此前Swift编译阻塞解除，不再以本机缺Apple工具链为后续阻碍。
+- 依赖编译出现Lottie的Bundle/Sendable重复声明及可用性检查告警，产品源码类型检查无警告通过；未升级依赖。首次组合命令缺少失败即停且误用zsh只读变量，后续核心和UI门禁已分开重跑并分别确认退出0，不把失败组合命令当通过证据。
+- 本轮没有改产品源码、生成正式包、安装真机、运行新模拟器渲染或重复Android/桌面/Go全量测试。未启动调试服务或模拟器；临时下载归档及测试日志已清理，构建缓存保留在忽略目录。
+- 本地只读盘点总计约31.8GiB，主要为.toolchain约23.1GiB、apps约2.9GiB、build约2.4GiB。SDK/NDK和固定依赖不是无用文件；Go编译缓存、Android intermediates/tmp及桌面/检查工具bin/obj可在确认后清理。交付包、参考截图和docs/cankao不混入自动删除范围。
