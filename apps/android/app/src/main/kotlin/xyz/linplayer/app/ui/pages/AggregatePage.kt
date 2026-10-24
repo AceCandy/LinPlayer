@@ -83,10 +83,12 @@ fun AggregatePage(nav: NavController) {
     // 私密聚合页只承载本服流影和榜单，不读取普通聚合快照或发起跨服请求。
     if (privateSpace) {
         LpScaffold("聚合视界") { pad ->
-            Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = Sp.x16, vertical = Sp.x12)) {
-                Shortcut("流影", LpIcons.play, Modifier.fillMaxWidth()) { nav.navigate(Route.Liuying) }
-                Spacer(Modifier.height(Sp.x8))
-                Shortcut("排行榜", LpIcons.trophy, Modifier.fillMaxWidth()) { nav.navigate(Route.Ranking) }
+            Row(
+                Modifier.fillMaxWidth().padding(pad).padding(horizontal = Sp.x16, vertical = Sp.x12),
+                horizontalArrangement = Arrangement.spacedBy(Sp.x8),
+            ) {
+                Shortcut("流影", LpIcons.play, Modifier.weight(1f)) { nav.navigate(Route.Liuying) }
+                Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
             }
         }
         return

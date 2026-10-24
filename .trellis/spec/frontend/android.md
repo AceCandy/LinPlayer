@@ -245,3 +245,26 @@
 - SharedTvBrowseTest覆盖实际TvRoot本机首页、来源切换、目录返回及过滤；TvTrackTimingTest覆盖换版本后手选字幕恢复。旧测试只覆盖Emby首页和无预选切集，无法证明上述路径成立。
 
 - 手机榜单用 PageCache 保留当前分类列表、页码、末页和追加错误，仅同返回栈已完成请求可跳过首屏；新进入、失败、取消或主动刷新仍加载。精确匹配触发主服切换时只交接该榜单快照，普通换账号/空间仍清缓存。PhoneDiscoverUiTest 覆盖往返滚动、续页、主服切换和新导航重载。
+
+## 手机榜单关联与积分契约
+
+### 1. 范围 / 触发
+隐私聚合快捷入口与手机榜单展示、点击；不改变图片权限、TV 布局或未入库播放能力。
+
+### 2. 签名
+`emby.extRankingItems(category_id,page,server_id?)` 返回榜单数组；`emby.extResolve(source,external_id,media_type,server_id?)` 返回唯一 `item_id/item_type`。命令名及 ABI 不变。
+
+### 3. 契约
+隐私流影/排行榜入口同一 Row、等宽，仍在普通快照读取前返回。前三名在整卡绑定唯一 `pressable`，海报内部不再嵌套点击。JavRanking 番号取完整字符串 `external_id`，核心以 `*int64` 保留可选 `score`；缺失/null 省略，0 保留。手机前三名及普通行显示番号与“战力 N”，不渲染 JavRanking 的 rating；其它来源评分不变。点击只传来源身份，不传标题或积分；隐私固定当前服，普通空间沿用聚合主服。
+
+### 4. 校验 / 错误
+无匹配 `E_NOTFOUND`、多匹配 `E_INVALID`、请求失败均通过原反馈入口显示真实原因，不导航、不清榜单或改用标题搜索。匹配与权限必须实时查询，不能信任展示快照。
+
+### 5. 正常 / 基础 / 错误案例
+红果匹配 `hg-group-*` 进入合集，黄果匹配 `hga-work-*` / `hga-group-*`，JavRanking 匹配 `nfo-*`；返回不重取已完成榜单。积分 0 显示“战力 0”，旧快照没有 score 时仅显示番号；歧义不得任取第一项。
+
+### 6. 必要测试
+`PhoneAggregateCacheTest.privateShortcutsShareOneRowAndKeepOriginalRoutesWithoutAggregateRequests` 断言窄屏同行、等宽、两路由和零聚合请求。`PhoneDiscoverUiTest` 真实触摸前三名标题/海报，断言单次解析、精确身份、当前服/主服、返回与失败反馈；深浅色窄屏及1.3字号覆盖0、大整数、缺失/null。核心 `TestExtensionRankingScorePresence` 验证 HTTP→JSON 字段存在性，`TestExtensionIndependentCatalogIdentity` 验证来源身份。模拟渲染不代替真实 MSG 和设备验收。
+
+### 7. 错误与正确做法
+错误：仅海报可点、把缺积分补0或按评分格式化、用中文标题找近似作品。正确：整卡单入口、可空整数透传、按来源ID及类型实时唯一匹配。

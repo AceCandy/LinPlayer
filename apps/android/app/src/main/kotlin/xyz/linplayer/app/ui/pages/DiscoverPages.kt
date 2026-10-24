@@ -126,6 +126,8 @@ private data class Rank(
     val image: String?,
     val rating: Double?,
     val subtitle: String?,
+    val code: String?,
+    val score: Long?,
     val favorited: Boolean,
     val entry: kotlinx.serialization.json.JsonObject,
 ) {
@@ -133,13 +135,16 @@ private data class Rank(
         fun list(e: kotlinx.serialization.json.JsonElement?): List<Rank> =
             e.arr().mapNotNull {
                 val o = it.obj() ?: return@mapNotNull null
+                val jav = o.str("source") == "javranking"
                 Rank(
                     id = o.str("id") ?: return@mapNotNull null,
                     rank = (o.long("rank") ?: 0).toInt(),
                     title = o.str("title") ?: return@mapNotNull null,
                     image = o.str("image_url") ?: o.str("poster_url"),
-                    rating = o.dbl("rating"),
+                    rating = if (jav) null else o.dbl("rating"),
                     subtitle = o.str("subtitle"),
+                    code = if (jav) o.str("external_id") else null,
+                    score = if (jav) o.long("score") else null,
                     favorited = o.bool("is_favorited"),
                     entry = o,
                 )
@@ -396,13 +401,13 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
     )
 
     // 第一名整体上浮半层 —— 三张卡不在同一条线上,**错落本身就是动势**
-    Column(m.offset(y = if (first) (-14).dp else 0.dp)) {
+    Column(m.offset(y = if (first) (-14).dp else 0.dp).pressable({ open(r) })) {
         Box {
             // 金色辉光只给第一名,6 秒一次呼吸。**整页唯一的循环动效**,慢到不会烦
             if (first) Box(
                 Modifier.matchParentSize().graphicsLayer { alpha = breathe }.glow(GOLD, .45f)
             )
-            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f).pressable({ open(r) })) {
+            Box(Modifier.fillMaxWidth().aspectRatio(2f / 3f)) {
                 NetImage(LocalApp.current.proxiedImage(r.image), r.title, Modifier.fillMaxSize(), 12.dp)
             }
             /* 名次数字压在海报左下角、往左探出一截。
@@ -420,6 +425,8 @@ private fun Pod(r: Rank, m: Modifier, open: (Rank) -> Unit) {
             r.title, color = c.fg, style = LpText.compact,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
         )
+        r.code?.let { Text(it, color = c.fg2, style = LpText.caption) }
+        r.score?.let { Text("战力 $it", color = c.mediaIcon, style = LpText.caption) }
         r.rating?.takeIf { it > 0 }?.let {
             Text("%.1f".format(it), color = c.mediaIcon, style = LpText.number, fontWeight = FontWeight.SemiBold)
         }
@@ -465,6 +472,8 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
         Column(Modifier.weight(1f)) {
             Body(r.title, maxLines = 2)
             r.subtitle?.let { Dim3(it, Modifier.padding(top = 2.dp)) }
+            r.code?.let { Text(it, color = c.fg2, style = LpText.caption) }
+            r.score?.let { Text("战力 $it", color = c.mediaIcon, style = LpText.caption) }
         }
         r.rating?.takeIf { it > 0 }?.let {
             Text("%.1f".format(it), color = c.mediaIcon, style = LpText.action.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)

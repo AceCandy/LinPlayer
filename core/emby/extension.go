@@ -146,6 +146,7 @@ type extensionEntry struct {
 	PosterURL     string   `json:"poster_url"`
 	Year          int      `json:"year"`
 	Rating        *float64 `json:"rating"`
+	Score         *int64   `json:"score"`
 	TMDBID        int64    `json:"tmdb_id"`
 	DoubanID      string   `json:"douban_id"`
 	BangumiID     int64    `json:"bangumi_id"`
@@ -190,8 +191,12 @@ func (e extensionEntry) view(s *Session, rank int) map[string]any {
 	if e.Year > 0 {
 		subtitle = strconv.Itoa(e.Year)
 	}
-	return map[string]any{"id": e.Source + ":" + e.MediaType + ":" + id, "source": e.Source, "external_id": id, "media_type": e.MediaType,
+	out := map[string]any{"id": e.Source + ":" + e.MediaType + ":" + id, "source": e.Source, "external_id": id, "media_type": e.MediaType,
 		"title": e.Title, "subtitle": subtitle, "image_url": picture, "rating": e.Rating, "rank": rank, "weekday": e.Weekday, "broadcast_time": e.BroadcastTime, "timezone": e.Timezone, "time_source": e.TimeSource}
+	if e.Score != nil {
+		out["score"] = *e.Score
+	}
+	return out
 }
 
 func registerExtensionCommands(list func(string, func(context.Context, *Session, map[string]any) (any, error))) {

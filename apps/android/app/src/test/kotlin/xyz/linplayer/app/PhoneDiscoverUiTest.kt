@@ -14,9 +14,11 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.toRoute
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
@@ -58,7 +60,7 @@ class PhoneDiscoverUiTest {
     private lateinit var navigation: androidx.navigation.NavHostController
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun open(core: FakeCore, route: Any = Route.Ranking, privateSpace: Boolean = false) {
+    private fun open(core: FakeCore, route: Any = Route.Ranking, privateSpace: Boolean = false): AppState {
         xyz.linplayer.app.tv.FakeImages.install(androidx.test.core.app.ApplicationProvider.getApplicationContext()) { imageRequests.add(it) }
         val app = AppState(core, scope)
         runBlocking {
@@ -84,6 +86,7 @@ class PhoneDiscoverUiTest {
             }
         }
         rule.waitForIdle()
+        return app
     }
 
     private fun rankings() = FakeCore().loggedIn().apply {
@@ -252,8 +255,121 @@ class PhoneDiscoverUiTest {
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-light.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/discover-ui/ranking-dark.png")
+        rule.onAllNodesWithText("8.6").onFirst().assertIsDisplayed()
         rule.onNodeWithText("远方的故事 · 第 4 部").performClick()
         rule.onNodeWithText("详情目标：movie-4").assertIsDisplayed()
+    }
+
+    @Test fun hongGuoPodiumTitlesAndPostersOpenAlbumsOnceAndKeepRankingState() {
+        val core = rankings()
+        core.ret("emby.extRankings", arr(buildJsonObject {
+            put("id", "hongguo_hot-drama"); put("label", "红果热榜"); put("source", "hongguo")
+        }))
+        core.on("emby.extRankingItems") { a ->
+            if (a.long("page") != 1L) arr() else arr(*(1..4).map { n -> buildJsonObject {
+                put("id", "hongguo:series:$n"); put("source", "hongguo"); put("external_id", "$n")
+                put("media_type", "series"); put("rank", n); put("title", "红果作品 $n"); put("image_url", "fake:poster-$n")
+            } }.toTypedArray())
+        }
+        core.on("emby.extResolve") { a -> buildJsonObject {
+            put("item_id", "hg-group-" + a.str("external_id")); put("item_type", "Series")
+        } }
+        open(core)
+        val loaded = core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" }
+        for (n in 1..3) for (poster in listOf(false, true)) {
+            val before = core.calls.count { it.first == "emby.extResolve" }
+            val target = if (poster) rule.onNodeWithContentDescription("红果作品 $n", useUnmergedTree = true)
+                else rule.onNodeWithText("红果作品 $n", useUnmergedTree = true)
+            target.performTouchInput { click() }
+            rule.onNodeWithText("详情目标：hg-group-$n").assertIsDisplayed()
+            assertEquals(before + 1, core.calls.count { it.first == "emby.extResolve" })
+            val request = core.calls.last { it.first == "emby.extResolve" }.second
+            assertEquals("hongguo", request.str("source"))
+            assertEquals("$n", request.str("external_id"))
+            assertEquals("series", request.str("media_type"))
+            assertEquals(null, request?.get("title"))
+            rule.runOnIdle { navigation.popBackStack() }
+            rule.onNodeWithText("红果热榜").assertIsDisplayed()
+            assertEquals(loaded, core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" })
+        }
+        rule.onNodeWithText("红果作品 4").performClick()
+        rule.onNodeWithText("详情目标：hg-group-4").assertIsDisplayed()
+    }
+
+    @Test fun rankingResolveFailuresNotifyWithoutNavigatingOrReloading() {
+        val core = rankings()
+        val app = open(core)
+        val messages = java.util.concurrent.CopyOnWriteArrayList<String>()
+        rule.runOnIdle {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                app.toasts.collect { messages.add(it.text) }
+            }
+        }
+        val loaded = core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" }
+        val errors = listOf(
+            CoreException("E_NOTFOUND", "没有找到已入库作品", false),
+            CoreException("E_INVALID", "找到多个入库作品，无法唯一匹配", false),
+            CoreException("E_NETWORK", "匹配请求失败", true),
+        )
+        errors.forEachIndexed { index, error ->
+            core.on("emby.extResolve") { throw error }
+            rule.onNodeWithText("远方的故事", useUnmergedTree = true).performTouchInput { click() }
+            rule.waitForIdle()
+            assertEquals(index + 1, core.calls.count { it.first == "emby.extResolve" })
+            rule.waitUntil(5000) { messages.size == index + 1 }
+            assertEquals(error.advice, messages.last())
+            rule.onNodeWithText("远方的故事").assertIsDisplayed()
+            rule.onNodeWithText("详情目标：", substring = true).assertDoesNotExist()
+        }
+        assertEquals(3, core.calls.count { it.first == "emby.extResolve" })
+        assertEquals(0, core.calls.count { it.first == "account.setActiveServer" })
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "retried"); put("item_type", "Movie") })
+        rule.onNodeWithText("远方的故事").performClick()
+        rule.onNodeWithText("详情目标：retried").assertIsDisplayed()
+        assertEquals(loaded, core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" })
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h873dp-mdpi")
+    fun javRankingShowsCodesAndContributionScoresInBothThemes() {
+        val core = rankings()
+        core.ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
+        core.ret("emby.extRankings", arr(buildJsonObject {
+            put("id", "javranking_weekly"); put("label", "周榜"); put("source", "javranking")
+        }))
+        core.on("emby.extRankingItems") { a ->
+            if (a.long("page") != 1L) arr() else arr(*(1..5).map { n -> buildJsonObject {
+                val code = "TEST-%03d".format(n)
+                put("id", "javranking:movie:$code"); put("source", "javranking"); put("external_id", code)
+                put("media_type", "movie"); put("rank", n); put("title", "榜单长标题与关联作品 $n")
+                put("image_url", "fake:poster-$n"); put("rating", 8.6)
+                when (n) {
+                    1 -> put("score", 0)
+                    2 -> put("score", 12345678901L)
+                    4 -> put("score", 876)
+                    5 -> put("score", kotlinx.serialization.json.JsonNull)
+                }
+            } }.toTypedArray())
+        }
+        core.ret("emby.extResolve", buildJsonObject { put("item_id", "nfo-work"); put("item_type", "Movie") })
+        open(core, privateSpace = true)
+        rule.onNodeWithText("TEST-001").assertIsDisplayed()
+        rule.onNodeWithText("战力 0").assertIsDisplayed()
+        rule.onNodeWithText("战力 12345678901").assertIsDisplayed()
+        rule.onNodeWithText("TEST-003").assertIsDisplayed()
+        rule.onNodeWithText("TEST-004").assertIsDisplayed()
+        rule.onNodeWithText("战力 876").assertIsDisplayed()
+        rule.onNodeWithText("战力 null").assertDoesNotExist()
+        rule.onAllNodesWithText("战力 0").assertCountEquals(1)
+        rule.onNodeWithText("8.6").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/discover-ui/javranking-light-narrow.png")
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/discover-ui/javranking-dark-narrow.png")
+        rule.onNodeWithText("战力 0", useUnmergedTree = true).performTouchInput { click() }
+        rule.onNodeWithText("详情目标：nfo-work").assertIsDisplayed()
+        val resolve = core.calls.last { it.first == "emby.extResolve" }.second
+        assertEquals("TEST-001", resolve.str("external_id"))
+        assertEquals(null, resolve?.get("score"))
     }
     @Test
     @Config(qualifiers = "w320dp-h873dp-mdpi")
@@ -358,18 +474,37 @@ class PhoneDiscoverUiTest {
         core.ret("account.listAccounts", arr(JsonObject(account("primary", "主服", "", false).obj()!! +
             ("aggregate_primary" to JsonPrimitive(true)))))
         core.ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
-        core.ret("emby.extRankings", arr(buildJsonObject {
-            put("id", "javranking_weekly"); put("source", "javranking"); put("label", "周榜")
-        }))
-        core.ret("emby.extRankingItems", arr(buildJsonObject {
-            put("id", "javranking:movie:TEST-001"); put("source", "javranking")
-            put("external_id", "TEST-001"); put("media_type", "movie"); put("title", "私密榜单作品"); put("rank", 1)
-        }))
-        core.ret("emby.extResolve", buildJsonObject { put("item_id", "nfo-work"); put("item_type", "Movie") })
+        core.ret("emby.extRankings", arr(*listOf("huangguoai", "javranking").map { source -> buildJsonObject {
+            put("id", source); put("source", source); put("label", "$source 榜单")
+        } }.toTypedArray()))
+        core.on("emby.extRankingItems") { a ->
+            val source = a.str("category_id")
+            if (a.long("page") != 1L) arr() else arr(*(1..3).map { n -> buildJsonObject {
+                val id = if (source == "huangguoai") "${41 + n}" else "TEST-%03d".format(n)
+                put("id", "$source:movie:$id"); put("source", source); put("external_id", id)
+                put("media_type", "movie"); put("title", "$source 作品 $n"); put("rank", n)
+            } }.toTypedArray())
+        }
+        core.on("emby.extResolve") { a -> buildJsonObject {
+            put("item_id", if (a.str("source") == "huangguoai") "hga-work-fixture" else "nfo-work")
+            put("item_type", "Movie")
+        } }
         open(core, privateSpace = true)
-        rule.onNodeWithText("JavRanking").assertIsDisplayed()
-        rule.onNodeWithText("私密榜单作品").performClick()
-        rule.onNodeWithText("详情目标：nfo-work").assertIsDisplayed()
+        for ((source, label, target) in listOf(
+            Triple("huangguoai", "黄果 AI", "hga-work-fixture"), Triple("javranking", "JavRanking", "nfo-work"),
+        )) {
+            rule.onNodeWithText(label).performClick()
+            rule.onNodeWithText("$source 作品 1", useUnmergedTree = true).performTouchInput { click() }
+            rule.onNodeWithText("详情目标：$target").assertIsDisplayed()
+            val resolve = core.calls.last { it.first == "emby.extResolve" }.second
+            assertEquals(source, resolve.str("source"))
+            assertEquals(if (source == "huangguoai") "42" else "TEST-001", resolve.str("external_id"))
+            assertEquals("movie", resolve.str("media_type"))
+            val before = core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" }
+            rule.runOnIdle { navigation.popBackStack() }
+            rule.onNodeWithText("$source 榜单").assertIsDisplayed()
+            assertEquals(before, core.calls.count { it.first == "emby.extRankings" || it.first == "emby.extRankingItems" })
+        }
         assertEquals(0, core.calls.count { it.first == "account.setActiveServer" })
         core.calls.filter { it.first.startsWith("emby.ext") }.forEach { (_, a) ->
             assertEquals(JsonPrimitive(true), a?.get("request_scope").obj()?.get("private"))

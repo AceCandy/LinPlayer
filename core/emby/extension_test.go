@@ -165,21 +165,31 @@ func TestExtensionErrorsAndRedirect(t *testing.T) {
 
 func TestExtensionIndependentCatalogIdentity(t *testing.T) {
 	freshConfig(t)
-	for _, source := range []string{"hongguo", "huangguoai", "javranking"} {
-		t.Run(source, func(t *testing.T) {
-			const id = "99999999999999999999999999999999"
+	for _, tc := range []struct {
+		source, id, kind, itemID, itemType string
+	}{
+		{"hongguo", "99999999999999999999999999999999", "series", "hg-group-100", "Series"},
+		{"huangguoai", "42", "movie", "hga-work-fixture", "Movie"},
+		{"huangguoai", "43", "series", "hga-group-43", "Series"},
+		{"javranking", "TEST-001", "movie", "nfo-fixture", "Movie"},
+	} {
+		t.Run(tc.source+"/"+tc.kind, func(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				switch r.URL.Path {
 				case "/emby-ext/v1/capabilities":
 					_, _ = w.Write([]byte(testCapabilities))
 				case "/emby-ext/v1/rankings/catalog/items":
-					_ = json.NewEncoder(w).Encode(map[string]any{"page_size": 20, "items": []any{map[string]any{"source": source, "external_id": id, "media_type": "series", "title": "作品"}}})
+					_ = json.NewEncoder(w).Encode(map[string]any{"page_size": 20, "items": []any{map[string]any{"source": tc.source, "external_id": tc.id, "media_type": tc.kind, "title": "作品"}}})
 				case "/emby-ext/v1/library/matches":
 					var body struct{ Items []map[string]any }
-					if json.NewDecoder(r.Body).Decode(&body) != nil || len(body.Items) != 1 || body.Items[0]["source"] != source || body.Items[0]["external_id"] != id {
+					if r.Method != http.MethodPost || json.NewDecoder(r.Body).Decode(&body) != nil || len(body.Items) != 1 ||
+						body.Items[0]["source"] != tc.source || body.Items[0]["external_id"] != tc.id ||
+						body.Items[0]["media_type"] != tc.kind || body.Items[0]["title"] != nil {
 						t.Error("identity changed")
 					}
-					_, _ = w.Write([]byte(`{"items":[{"key":"item","matches":[{"item_id":"catalog-work","item_type":"Series"}]}]}`))
+					_ = json.NewEncoder(w).Encode(map[string]any{"items": []any{map[string]any{
+						"key": "item", "matches": []any{map[string]any{"item_id": tc.itemID, "item_type": tc.itemType}},
+					}}})
 				default:
 					t.Error(r.URL.Path)
 					w.WriteHeader(404)
@@ -196,13 +206,58 @@ func TestExtensionIndependentCatalogIdentity(t *testing.T) {
 				t.Fatal(err)
 			}
 			row := rows.([]map[string]any)[0]
-			if row["external_id"] != id {
+			if row["external_id"] != tc.id || row["media_type"] != tc.kind {
 				t.Fatal(row)
 			}
-			if _, err := h["emby.extResolve"](t.Context(), session, row); err != nil {
+			out, err := h["emby.extResolve"](t.Context(), session, row)
+			if err != nil {
 				t.Fatal(err)
 			}
+			raw, _ := json.Marshal(out)
+			var match map[string]string
+			if err := json.Unmarshal(raw, &match); err != nil || match["item_id"] != tc.itemID || match["item_type"] != tc.itemType {
+				t.Fatalf("resolve=%s err=%v", raw, err)
+			}
 		})
+	}
+}
+
+func TestExtensionRankingScorePresence(t *testing.T) {
+	freshConfig(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/emby-ext/v1/capabilities":
+			_, _ = w.Write([]byte(testCapabilities))
+		case "/emby-ext/v1/rankings/catalog/items":
+			_, _ = w.Write([]byte(`{"page_size":50,"items":[
+				{"source":"javranking","external_id":"TEST-001","media_type":"movie","title":"缺失"},
+				{"source":"javranking","external_id":"TEST-002","media_type":"movie","title":"未知","score":null},
+				{"source":"javranking","external_id":"TEST-003","media_type":"movie","title":"零","score":0},
+				{"source":"javranking","external_id":"TEST-004","media_type":"movie","title":"积分","score":12345678901}
+			]}`))
+		default:
+			t.Errorf("unexpected path: %s", r.URL.Path)
+			w.WriteHeader(404)
+		}
+	}))
+	defer srv.Close()
+	s := &Session{Server: srv.URL}
+	if _, err := defaultClient.refreshExtensionCapabilities(t.Context(), s); err != nil {
+		t.Fatal(err)
+	}
+	out, err := extensionHandlers()["emby.extRankingItems"](t.Context(), s, map[string]any{"category_id": "catalog"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw, _ := json.Marshal(out)
+	var rows []map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &rows); err != nil || len(rows) != 4 {
+		t.Fatalf("items=%s err=%v", raw, err)
+	}
+	for i, want := range []string{"", "", "0", "12345678901"} {
+		if string(rows[i]["score"]) != want || string(rows[i]["rating"]) != "null" {
+			t.Errorf("row %d: score=%s rating=%s", i, rows[i]["score"], rows[i]["rating"])
+		}
 	}
 }
 

@@ -3,8 +3,11 @@ package xyz.linplayer.app
 import android.app.Application
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.unit.Density
 import androidx.navigation.NavHostController
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -43,6 +46,7 @@ class PhoneAggregateCacheTest {
     private var pending: CompletableDeferred<JsonElement>? = null
     private val core = FakeCore().loggedIn()
     private val imageRequests = java.util.concurrent.CopyOnWriteArrayList<String>()
+    private val dark = mutableStateOf(false)
 
     @After fun clean() { pending?.cancel(); PageCache.clear(); scope.cancel(); app.bg.cancel() }
 
@@ -60,7 +64,7 @@ class PhoneAggregateCacheTest {
         put("resume", arr(item(if (other) "other" else "fresh", name)))
     })
 
-    private fun open(seed: () -> Unit = {}) {
+    private fun open(privateSpace: Boolean = false, seed: () -> Unit = {}) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext()) { imageRequests.add(it) }
         app = AppState(object : CorePort by core {
@@ -73,20 +77,54 @@ class PhoneAggregateCacheTest {
                 return core.callJson(command, args, onPartial)
             }
         }, scope)
-        runBlocking { app.boot() }
+        runBlocking {
+            app.boot()
+            if (privateSpace) {
+                app.enablePrivacyFiltering()
+                app.enterPrivateSpace()
+            }
+        }
         seed()
         rule.setContent {
-            LpTheme {
-                CompositionLocalProvider(LocalApp provides app) {
+            LpTheme(darkOverride = dark.value) {
+                CompositionLocalProvider(LocalApp provides app,
+                    LocalDensity provides Density(LocalDensity.current.density, if (privateSpace) 1.3f else LocalDensity.current.fontScale)) {
                     nav = rememberNavController()
                     NavHost(nav, startDestination = Route.Aggregate) {
                         composable<Route.Aggregate> { AggregatePage(nav) }
                         composable<Route.Settings> { Text("其它页面") }
+                        composable<Route.Liuying> { Text("流影目标") }
+                        composable<Route.Ranking> { Text("榜单目标") }
                     }
                 }
             }
         }
         rule.waitForIdle()
+    }
+
+    @Test
+    @Config(qualifiers = "w320dp-h873dp-mdpi")
+    fun privateShortcutsShareOneRowAndKeepOriginalRoutesWithoutAggregateRequests() {
+        core.ret("emby.views", arr(buildJsonObject { put("id", "adult"); put("is_adult", true) }))
+        open(privateSpace = true) { seedHome("普通空间快照") }
+        val liuying = rule.onNodeWithText("流影")
+        val ranking = rule.onNodeWithText("排行榜")
+        val left = liuying.fetchSemanticsNode().boundsInRoot
+        val right = ranking.fetchSemanticsNode().boundsInRoot
+        assertEquals(left.top, right.top, 0.5f)
+        assertEquals(left.bottom, right.bottom, 0.5f)
+        assertEquals(left.width, right.width, 0.5f)
+        assertTrue(left.right < right.left)
+        rule.onNodeWithText("普通空间快照").assertDoesNotExist()
+        rule.onRoot().captureRoboImage("build/aggregate-ui/private-shortcuts-light-narrow.png")
+        rule.runOnIdle { dark.value = true }
+        rule.onRoot().captureRoboImage("build/aggregate-ui/private-shortcuts-dark-narrow.png")
+        liuying.performClick()
+        rule.onNodeWithText("流影目标").assertIsDisplayed()
+        rule.runOnIdle { nav.popBackStack() }
+        ranking.performClick()
+        rule.onNodeWithText("榜单目标").assertIsDisplayed()
+        assertEquals(0, core.calls.count { it.first == "emby.aggregateOverview" })
     }
 
     @Test fun sharedCoreSnapshotIsVisibleBeforeRealtimeResponse() {
