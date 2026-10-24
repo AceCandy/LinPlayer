@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/product-and-api.md", "reason": "MSG 实现基准、隐私空间来源与能力缓存边界"}
+{"file": ".trellis/spec/shared/development.md", "reason": "保留其他任务修改、最小修复与安全纪律"}
+{"file": ".trellis/spec/frontend/index.md", "reason": "手机规范加载入口；实施前按索引直接读取 Android 正文，避免上下文注入截断"}
+{"file": ".trellis/tasks/archive/2026-10/10-25-mobile-ranking-links/research/matching.md", "reason": "两仓已核实缺陷及未确认根因，避免重复探索"}

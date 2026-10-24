@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "原生页面真实渲染、点击与返回验收边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "共享核心契约和针对性回归门禁"}
+{"file": ".trellis/spec/shared/development.md", "reason": "独立复核、失败注入与未验证项报告"}
+{"file": ".trellis/tasks/archive/2026-10/10-25-mobile-ranking-links/research/matching.md", "reason": "匹配权限与生产联调边界核验"}
