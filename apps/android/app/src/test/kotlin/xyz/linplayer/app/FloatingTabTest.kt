@@ -63,6 +63,9 @@ class FloatingTabTest {
             put("id", "adult"); put("name", "媒体库"); put("is_adult", true); put("has_primary", false)
         }) else arr())
         core.ret("emby.listResume", arr(item("m1", "沙丘 2", runtime = 9960.0, resume = 1788.0)))
+        core.ret("emby.extCapabilities", buildJsonObject { put("liuying", buildJsonObject { put("enabled", true) }) })
+        core.ret("emby.extLiuYingLabels", arr())
+        core.ret("emby.extLiuYingItems", buildJsonObject { put("items", arr()); put("has_more", false) })
         val app = AppState(core, scope)
         rule.setContent { LpTheme(darkOverride = true, privateSpace = app.privateSpace.collectAsState().value) { PhoneRoot(app) } }
         rule.waitForIdle()
@@ -76,9 +79,10 @@ class FloatingTabTest {
         shellWithMovie(privateSpace = true)
         rule.onNodeWithContentDescription("聚合视界").performClick()
         rule.onNodeWithText("流影").performClick()
-        rule.onNodeWithTag("liuying.bankai").assertIsDisplayed().assertIsOff()
+        rule.onNodeWithTag("liuying.bankai").assertIsDisplayed().assertIsEnabled().assertIsNotSelected()
         rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
-        rule.onNodeWithTag("liuying.bankai").performClick().assertIsOn()
+        rule.onNodeWithTag("liuying.bankai").performTouchInput { longClick() }
+        rule.onNodeWithTag("liuying.bankai").assertIsSelected()
         rule.onNodeWithTag("phone.tabs").assertDoesNotExist()
         rule.onNodeWithContentDescription("返回").performClick()
         rule.onNodeWithTag("phone.tabs").assertIsDisplayed()
@@ -89,7 +93,8 @@ class FloatingTabTest {
 
     @Test fun realShellDetailSlidesAndReturnsToOriginalPosterPosition() {
         shellWithMovie()
-        val source = rule.onNodeWithText("沙丘 2", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        val sourceTitle = hasText("沙丘 2") and hasAnyAncestor(hasTestTag("home.resume"))
+        val source = rule.onNode(sourceTitle, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val card = rule.onNodeWithContentDescription("沙丘 2").fetchSemanticsNode().boundsInRoot
         val x = (card.left + 8f).toInt()
         val y = (card.top + card.height / 4).toInt()
@@ -101,18 +106,18 @@ class FloatingTabTest {
         rule.mainClock.advanceTimeBy(80)
         val middle = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left
         assertTrue("详情应从屏幕右侧滑入：$first → $middle", first > middle && middle > 0f)
-        rule.onNode(hasText("沙丘 2") and !hasAnyAncestor(hasTestTag("detail.hero")), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNode(sourceTitle, useUnmergedTree = true).assertIsDisplayed()
         assertEquals("滑入时来源图片不能淡出", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
         rule.mainClock.advanceTimeBy(500)
         assertEquals(0f, rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left, .1f)
         rule.onNodeWithContentDescription("返回").performClick()
         rule.mainClock.advanceTimeBy(96)
         assertTrue("返回时详情应向右滑出", rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left > 0f)
-        rule.onNode(hasText("沙丘 2") and !hasAnyAncestor(hasTestTag("detail.hero")), useUnmergedTree = true).assertIsDisplayed()
+        rule.onNode(sourceTitle, useUnmergedTree = true).assertIsDisplayed()
         assertEquals("滑出时来源图片应在下层直接可见", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
         rule.mainClock.advanceTimeBy(500)
         rule.onNodeWithTag("detail.hero").assertDoesNotExist()
-        assertEquals(source, rule.onNodeWithText("沙丘 2", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
+        assertEquals(source, rule.onNode(sourceTitle, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
     }
 
     @Test fun realShellSeriesEpisodeReturnKeepsTheEpisodeSourcePosition() {
@@ -165,7 +170,7 @@ class FloatingTabTest {
             // 导航出栈仍需完成组合帧；零倍率不得留下位移动画。
             rule.mainClock.advanceTimeBy(96)
             rule.onNodeWithTag("detail.hero").assertDoesNotExist()
-            rule.onNodeWithText("沙丘 2", useUnmergedTree = true).assertIsDisplayed()
+            rule.onNode(hasText("沙丘 2") and hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).assertIsDisplayed()
         } finally {
             android.provider.Settings.Global.putFloat(resolver, android.provider.Settings.Global.ANIMATOR_DURATION_SCALE, previous)
         }

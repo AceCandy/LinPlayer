@@ -3,6 +3,7 @@ package xyz.linplayer.app.tv
 import android.app.Activity
 import android.app.Application
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
@@ -33,6 +34,7 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.data.AppState
+import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.str
@@ -211,8 +213,10 @@ class TvRefreshRatePlaybackTest {
         var player: ExoPlayer? = null
         rule.setContent {
             activity = LocalContext.current as Activity
-            player = rememberExoPlayer(true, null)
-            if (shown) MatchTvRefreshRate(app, controller, player, 0)
+            CompositionLocalProvider(LocalApp provides app) {
+                player = rememberExoPlayer(true, null)
+                if (shown) MatchTvRefreshRate(app, controller, player, 0)
+            }
         }
         rule.runOnIdle {
             assertEquals(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF, player!!.videoChangeFrameRateStrategy)

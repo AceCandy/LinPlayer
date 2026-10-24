@@ -39,6 +39,7 @@ import java.net.ServerSocket
 import java.net.Socket
 import java.util.Collections
 import kotlin.concurrent.thread
+import kotlin.math.roundToInt
 import xyz.linplayer.app.ui.theme.LpTheme
 import xyz.linplayer.app.ui.theme.PluginTheme
 
@@ -414,11 +415,14 @@ class PhoneLiuyingTest {
         }
         bounds.take(columns).forEach { assertEquals(bounds[0].top, it.top) }
         assertTrue(bounds.last().top > bounds[0].top)
+        val imageHeight = (bounds[0].right - bounds[0].left).value * 1.5f *
+            RuntimeEnvironment.getApplication().resources.displayMetrics.density
+        val expectedHeight = listOf(120, 220, 330, 480, 720).firstOrNull { it >= imageHeight.roundToInt() } ?: 1080
         (1..columns + 1).forEach { index ->
             assertTrue("封面经过既有图片代理加载", imageRequests.any { request ->
                 val uri = Uri.parse(request)
                 Uri.parse(uri.getQueryParameter("src")).path == "/Items/favorite-$index/Images/Primary" &&
-                    uri.getQueryParameter("h") == "330"
+                    uri.getQueryParameter("h") == expectedHeight.toString()
             })
         }
         rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(7); advance(rule, 400)

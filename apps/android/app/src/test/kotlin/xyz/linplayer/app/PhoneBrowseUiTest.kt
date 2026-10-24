@@ -149,11 +149,13 @@ class PhoneBrowseUiTest {
         core.ret("emby.aggregateOverview", overview())
         open(core)
         core.on("emby.aggregateOverview") { throw CoreException("E_NETWORK", "聚合刷新失败", true) }
-        rule.onNodeWithContentDescription("刷新").performClick()
+        rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.VerticalScrollAxisRange))
+            .performTouchInput { swipeDown() }
         rule.waitForIdle()
         rule.onNodeWithText(serverName).assertIsDisplayed()
         rule.onNodeWithText("还没有添加服务器").assertDoesNotExist()
         rule.onNodeWithText("重试").assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "emby.aggregateOverview" })
     }
     @Test fun aggregateShowsResumeAndCurrentServerInBothThemes() {
         val core = FakeCore().loggedIn()
@@ -787,7 +789,9 @@ class PhoneBrowseUiTest {
         rule.waitForIdle()
         rule.onNode(hasSetTextAction()).assertTextContains("第一词")
         rule.onNodeWithText("独立结果").assertIsDisplayed()
-        assertEquals(2, core.calls.count { it.first == "emby.search" })
+        val requests = core.calls.filter { it.first == "emby.search" }.map { it.second }
+        assertEquals(listOf("第一词", "第二词", "第一词"), requests.map { it.str("query") })
+        assertEquals(listOf("library-one", "library-two", "library-one"), requests.map { it.str("parent_id") })
     }
 
     @Test fun aggregatePluginPosterHasDetailsWithoutFavorites() {
@@ -851,7 +855,7 @@ class PhoneBrowseUiTest {
         assertEquals(3, searches)
     }
 
-    @Test fun searchReturnsWithTypedQueryResultsAndScrollWithoutRequest() {
+    @Test fun searchReturnsWithTypedQueryResultsAndScrollAndRefreshesOnce() {
         val core = FakeCore().loggedIn()
         core.ret("emby.search", page(*(1..60).map { item("return-$it", "返回结果 $it") }.toTypedArray()))
         open(core, Route.Search())
@@ -866,9 +870,11 @@ class PhoneBrowseUiTest {
         rule.waitForIdle()
         rule.onNode(hasSetTextAction()).assertTextContains("返回词")
         rule.onNodeWithText("返回结果 60").assertIsDisplayed()
-        assertEquals(1, core.calls.count { it.first == "emby.search" })
+        val returnedRequests = core.calls.filter { it.first == "emby.search" }
+        assertEquals(2, returnedRequests.size)
+        assertTrue(returnedRequests.all { it.second.str("query") == "返回词" })
         rule.onNode(hasSetTextAction()).performImeAction()
-        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 2 }
+        rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" } == 3 }
     }
 
     @Test fun unfavoriteRemovesMovieFromFavoritesImmediately() {

@@ -37,7 +37,7 @@ class Media3DiagnosticsTest {
         val enabled = mutableStateOf(true)
         val prefs = mutableStateOf<TrackPrefs?>(null)
         var player: ExoPlayer? = null
-        rule.setContent {
+        rule.setPlayerContent {
             player = rememberExoPlayer(enabled.value, prefs.value)
             val current = player
             LaunchedEffect(current) { current?.setMediaItem(MediaItem.fromUri("asset:///diagnostic-one.mp4")) }
@@ -71,7 +71,7 @@ class Media3DiagnosticsTest {
 
     @Test fun 同实例换片重开阶段计时且停止之后拒绝迟到首帧() {
         var player: ExoPlayer? = null
-        rule.setContent { player = rememberExoPlayer(true, null) }
+        rule.setPlayerContent { player = rememberExoPlayer(true, null) }
         rule.runOnIdle {
             val p = player!!
             var now = 100L
@@ -97,7 +97,7 @@ class Media3DiagnosticsTest {
 
     @Test fun 真实缓冲采样在后台清窗口且停止后不再报告() {
         var player: ExoPlayer? = null
-        rule.setContent { player = rememberExoPlayer(true, null) }
+        rule.setPlayerContent { player = rememberExoPlayer(true, null) }
         rule.runOnIdle {
             val p = player!!
             var now = 0L

@@ -304,13 +304,14 @@ class PhonePosterMotionTest {
         images()
         val shown = mutableStateOf(true)
         val motionScale = mutableStateOf(1f)
+        var loaded = false
         rule.mainClock.autoAdvance = false
         rule.setContent {
             LpTheme {
                 CompositionLocalProvider(LocalMotionScale provides motionScale.value) {
                     Box(Modifier.size(100.dp).background(Color.Black).testTag("backdrop")) {
                         if (shown.value) NetImage("poster:backdrop", null, Modifier.fillMaxSize(),
-                            corner = 0.dp, backgroundBlur = true) {
+                            corner = 0.dp, backgroundBlur = true, onLoadResult = { loaded = it }) {
                             Box(Modifier.fillMaxSize().background(Color.Red))
                         }
                     }
@@ -318,6 +319,8 @@ class PhonePosterMotionTest {
             }
         }
         fun center() = rule.onNodeWithTag("backdrop").captureToImage().toPixelMap()[50, 50]
+        // 后台图片变换不受虚拟时钟推进，先等真实加载完成再量淡入。
+        rule.waitUntil(5_000) { rule.mainClock.advanceTimeByFrame(); loaded }
         rule.mainClock.advanceTimeBy(1000)
         assertEquals(Color.Green, center())
         rule.runOnIdle { shown.value = false; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }

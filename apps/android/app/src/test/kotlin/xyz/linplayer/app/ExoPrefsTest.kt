@@ -23,7 +23,7 @@ class ExoPrefsTest {
     @Test fun 字幕关闭偏好必须禁用Exo文本轨() {
         val prefs = mutableStateOf<TrackPrefs?>(null)
         var player: ExoPlayer? = null
-        rule.setContent { player = rememberExoPlayer(true, prefs.value) }
+        rule.setPlayerContent { player = rememberExoPlayer(true, prefs.value) }
         rule.runOnIdle { prefs.value = TrackPrefs(subEnabled = false) }
         rule.runOnIdle { assertTrue(C.TRACK_TYPE_TEXT in player!!.trackSelectionParameters.disabledTrackTypes) }
         rule.runOnIdle { prefs.value = TrackPrefs(subEnabled = true) }

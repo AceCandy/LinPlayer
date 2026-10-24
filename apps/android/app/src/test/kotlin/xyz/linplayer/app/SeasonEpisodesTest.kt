@@ -15,6 +15,7 @@ import org.junit.Test
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.long
+import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.FakeCore
 
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -48,14 +49,15 @@ class SeasonEpisodesTest {
         Dispatchers.setMain(Dispatchers.Unconfined)
         val scope = CoroutineScope(Dispatchers.Unconfined)
         val core = FakeCore().apply {
-            ret("emby.seasonEpisodes", buildJsonObject { put("total", 1); put("items", buildJsonArray {
+            ret("emby.playbackSeason", buildJsonArray {
                 add(buildJsonObject { put("id", "one"); put("name", "第一集"); put("episode_no", 1) })
-            }) })
+            })
         }
         val app = AppState(core, scope)
         try {
             val detail = buildJsonObject { put("type_", "Episode"); put("season_id", "season"); put("season_no", 1) }
             assertEquals(listOf("one"), xyz.linplayer.app.ui.player.playbackSeason(app, detail, "one").map { it.id })
+            assertEquals("one", core.calls.single { it.first == "emby.playbackSeason" }.second.str("item_id"))
         } finally { app.bg.cancel(); scope.cancel(); Dispatchers.resetMain() }
     }
 

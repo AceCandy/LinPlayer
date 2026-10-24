@@ -37,6 +37,13 @@
 Robolectric 用空 Application 避免在 JVM 加载进程级 native 库；参照既有截图测试配置，不新增截图框架。
 相关测试先在故障下红，再修复通过；完成后按 [统一交付规则](../shared/build-release.md) 出包，报告设备 / 联调缺口。
 
+### Compose 播放器测试同步
+
+- 直接组合 `rememberExoPlayer` 也必须提供 `LocalApp`；无会话行为的测试复用 `setPlayerContent`，已有 `AppState` 的页面测试提供自己的实例，并在结束时取消 `app.bg`。不得给生产 `LocalApp` 增加默认替身来消除测试失败。
+- 包含后台挂起恢复和 Media3 主线程访问的集成测试使用 `androidx.compose.ui.test.junit4.v2.createComposeRule`，参照 `PhoneMedia3RecoveryTest`；旧版 Unconfined 调度可能把挂起后的播放器访问带到工作线程。保留同实例、自然切集与释放断言，不为此全仓迁移测试规则。
+- 图片模糊等后台工作不受 `mainClock` 控制；冻结时钟测淡入前，使用 `waitUntil` 等待 `onLoadResult` 并逐帧推进组合，再测混色与终态。仅推进固定虚拟时长不能证明后台图片已完成。
+- 图片代理高度按实测卡片几何、密度和 2:3 海报比例核验，并独立对照 `AppState` 的向上分档契约（120/220/330/480/720，超过时为1080）；保留来源路径断言，不能固定所有手机为 `h=330` 或只验证“发过图片请求”。
+
 参考：[手机测试](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/PhoneThemeTest.kt)、[TV 页面截图](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/tv/TvPageShots.kt)、[TV 草稿](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/TvDraftShots.kt)、[TV 焦点](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/tv/TvFocusTest.kt)。
 
 - 动效功能与性能证据分开：共享元素中间几何、图片淡入混色只证明路径正确；滚动卡顿反馈要核实空闲共享节点、屏外composition与图片解码，再用同设备同数据的帧耗时判断效果。禁止反复调幅度后仅以渲染回归声称流畅；真机未连接时明确性能归因仍未确认。

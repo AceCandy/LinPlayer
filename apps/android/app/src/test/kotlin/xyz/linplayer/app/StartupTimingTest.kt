@@ -73,7 +73,7 @@ class StartupTimingTest {
         val logs = mutableListOf<String>()
         val timing = StartupTiming(0, StartupOrigin.PAGE, true, { 100 }, logs::add)
         var player: ExoPlayer? = null
-        rule.setContent {
+        rule.setPlayerContent {
             player = rememberExoPlayer(enabled.value, null)
             if (visible.value) ObserveStartupTiming(player, timing)
         }

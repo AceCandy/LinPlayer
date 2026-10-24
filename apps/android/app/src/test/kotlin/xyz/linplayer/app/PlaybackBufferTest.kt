@@ -50,7 +50,7 @@ class PlaybackBufferTest {
 
     @Test fun 实际播放器采用自定义目标且新自动实例不残留() {
         var player: ExoPlayer? = null
-        rule.setContent { player = rememberExoPlayer(true, TrackPrefs(), 128 * BUFFER_MIB) }
+        rule.setPlayerContent { player = rememberExoPlayer(true, TrackPrefs(), 128 * BUFFER_MIB) }
         rule.runOnIdle { assertEquals(128 * BUFFER_MIB, actualBufferTarget(player!!).toLong()) }
         assertEquals(DefaultLoadControl.DEFAULT_TARGET_BUFFER_BYTES, bufferTarget(playbackLoadControl(0)))
     }

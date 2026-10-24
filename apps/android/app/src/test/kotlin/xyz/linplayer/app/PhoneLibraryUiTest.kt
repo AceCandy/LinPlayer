@@ -458,7 +458,11 @@ class PhoneLibraryUiTest {
         rule.onNode(hasSetTextAction() and hasAnyAncestor(hasTestTag("search.field"))).performTextInput("作品")
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         val request = core.calls.last { it.first == "emby.search" }.second
-        assertEquals("true", request?.get("is_adult").toString())
+        val requestScope = request?.get("request_scope").obj()
+        assertEquals("true", requestScope?.get("private").toString())
+        assertEquals("true", requestScope?.get("filter").toString())
+        assertEquals(app.session.value!!.server, requestScope.str("server"))
+        assertEquals(app.session.value!!.userId, requestScope.str("user_id"))
         assertTrue(core.calls.drop(privateCallsStart).none {
             it.first in listOf("emby.aggregateOverview", "source.aggregateSearch", "emby.watchHistoryList")
         })

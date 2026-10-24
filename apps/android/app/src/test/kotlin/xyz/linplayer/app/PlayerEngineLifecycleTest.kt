@@ -30,7 +30,7 @@ class PlayerEngineLifecycleTest {
         val controller = PlayerController("auto") { command, _ -> calls += command; JsonObject(emptyMap()) }
         controller.resolved(buildJsonObject { put("resume_secs", 125.0) })
         var player: ExoPlayer? = null
-        rule.setContent {
+        rule.setPlayerContent {
             player = rememberExoPlayer(controller.engine == "exo", null)
             SideEffect { controller.bind(player) }
         }
@@ -67,7 +67,7 @@ class PlayerEngineLifecycleTest {
             stopped = true
             JsonObject(emptyMap())
         }
-        rule.setContent {
+        rule.setPlayerContent {
             player = rememberExoPlayer(true, null)
             SideEffect { controller.bind(player) }
         }

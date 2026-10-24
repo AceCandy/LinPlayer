@@ -3,7 +3,7 @@ package xyz.linplayer.app
 import android.app.Application
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.media3.common.MediaItem
 import androidx.media3.common.Player
 import androidx.media3.exoplayer.ExoPlayer
@@ -221,6 +221,11 @@ class PhoneMedia3RecoveryTest {
         }
         assertTrue("$stage; play=${core.calls.count { it.first == "player.play" }}, " +
             "queue=${core.calls.count { it.first == "player.queuePrepared" }}, " +
-            "advance=${core.calls.count { it.first == "player.advanceQueued" }}; $trace", rule.runOnIdle(condition))
+            "advance=${core.calls.count { it.first == "player.advanceQueued" }}; " +
+            rule.runOnIdle { currentPlayer()?.let { p ->
+                "${p.currentMediaItem?.localConfiguration?.uri} state=${p.playbackState} " +
+                    "position=${p.currentPosition} duration=${p.duration} buffered=${p.bufferedPosition} " +
+                    "items=${p.mediaItemCount} stalled=${stalled.count}"
+            } } + "; $trace", rule.runOnIdle(condition))
     }
 }
