@@ -24,6 +24,7 @@ public partial class App : Application
         /* 界面字体在**建窗口之前**装好。之后装的话已经建出来的控件不会补上,
            表现是「设了要重启两次才生效」。 */
         LinPlayer.Desktop.Core.UiFont.ApplyAtStartup(Program.Core);
+        Appearance.Load();
 
         // 插件主题同理,而且要**排在官方样式之后**才盖得住(SPEC 11.3)。
         // 失败了它自己回退官方并报回核心层,这里不用兜

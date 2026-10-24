@@ -23,7 +23,8 @@ public sealed record CardItem(
     // 跳详情页要的是 id。列表命令一直在发这个字段,只是从来没人接。
     string SeriesId = "",
     // 动态范围短名(DV / HDR10 / HLG…),SDR 为空。播放页选集栏那行小字用
-    string VideoRange = "", string SeasonId = "", bool HasBackdrop = false)
+    string VideoRange = "", string SeasonId = "", bool HasBackdrop = false,
+    int Year = 0, double Rating = 0)
 {
     public static CardItem From(JsonElement e) => new(
         Str(e, "id"), Str(e, "name"), Str(e, "type_"), Str(e, "series_name"),
@@ -31,7 +32,8 @@ public sealed record CardItem(
         Dbl(e, "runtime_secs"), Dbl(e, "resume_secs"),
         (int)Num(e, "season_no"), (int)Num(e, "episode_no"),
         Num(e, "video_height"), Num(e, "bitrate"), Num(e, "size_bytes"),
-        Str(e, "series_id"), Str(e, "video_range"), Str(e, "season_id"), Bool(e, "has_backdrop"));
+        Str(e, "series_id"), Str(e, "video_range"), Str(e, "season_id"), Bool(e, "has_backdrop"),
+        (int)Num(e, "year"), Dbl(e, "rating"));
 
     /// <summary>
     /// 列表里显示的标题。
@@ -137,6 +139,7 @@ public sealed record CardItem(
             season_no = c.SeasonNo, episode_no = c.EpisodeNo,
             video_height = c.VideoHeight, bitrate = c.Bitrate, size_bytes = c.SizeBytes,
             series_id = c.SeriesId, video_range = c.VideoRange, season_id = c.SeasonId,
+            year = c.Year, rating = c.Rating,
         }));
         return doc.RootElement.Clone();
     }
@@ -185,7 +188,7 @@ public sealed class Card : Button
     /// </summary>
     private static (double Size, double Line) TitleType(double cardWidth)
     {
-        var fs = Math.Clamp(12.5 * (0.5 + cardWidth / 158.0 / 2), 10.5, 12.5);
+        var fs = Math.Clamp(14 * (0.5 + cardWidth / 158.0 / 2), 12, 14);
         return (fs, Math.Round(fs * 1.36));
     }
 
@@ -210,7 +213,7 @@ public sealed class Card : Button
     /// </param>
     public Card(CoreClient core, string server, CardItem item, bool wide, Action<CardItem>? onOpen = null,
         double? width = null, string? subtitle = null, string? title = null, int titleLines = 2,
-        bool resumeRow = false)
+        bool resumeRow = false, bool actions = true)
     {
         Made++;
         var w = width ?? (wide ? 256.0 : 158.0);
@@ -247,7 +250,7 @@ public sealed class Card : Button
             ClipToBounds = true,
             Classes = { "art" },
             Background = ArtBackdrop,
-            Child = new Panel { Children = { skel, ph, img, Badges(item, w) } },
+            Child = new Panel { Children = { skel, ph, img, Badges(item, w, resumeRow) } },
         };
 
         var (titleSize, lineHeight) = TitleType(w);
@@ -260,6 +263,7 @@ public sealed class Card : Button
             TextWrapping = TextWrapping.Wrap, TextTrimming = TextTrimming.CharacterEllipsis,
         });
         // 副标题(时长 / 项目数)。 没值就整行不画 —— 留一行空的等于每张卡都高半行。
+        subtitle ??= !resumeRow && (item.Type is "Movie" or "Series") && item.Year > 0 ? item.Year.ToString() : null;
         if (!string.IsNullOrEmpty(subtitle))
         {
             caption.Children.Add(new TextBlock
@@ -299,7 +303,7 @@ public sealed class Card : Button
         if (item.HasPrimary || item.Type is "Episode" or "Season") StartArt(core, server, item, img, (int)(h * 2), skel, ph);
 
         // 右键动作:标记已看 / 收藏 / 屏蔽。**一处实现,所有卡片共用**(见 CardActions)
-        CardActions.Attach(this, core, item, resumeRow: resumeRow);
+        if (actions) CardActions.Attach(this, core, item, resumeRow: resumeRow);
     }
 
     /// <summary>
@@ -353,9 +357,28 @@ public sealed class Card : Button
     /// 两个都画会自相矛盾。</para>
     /// <para>集号放**左上角**,和右上角的看完标记分开 —— 挤在同一角会互相盖。</para>
     /// </summary>
-    private static Control Badges(CardItem item, double w)
+    private static Control Badges(CardItem item, double w, bool resumeRow)
     {
         var panel = new Panel();
+        if (double.IsFinite(item.Rating) && item.Rating > 0 && item.Rating <= 10)
+            panel.Children.Add(new Border {
+                MinHeight = 22, CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(6, 2), Margin = new Thickness(0, 0, 6, 6),
+                HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom,
+                Background = BadgeScrim,
+                Child = new TextBlock { Text = $"★ {item.Rating:0.0}", FontSize = 12, Foreground = Brushes.White },
+            });
+        if (resumeRow && (item.Type is "Movie" or "Episode") && item.RuntimeSecs > 0) {
+            var remaining = !item.Played && item.ResumeSecs > 0 && item.ResumeSecs < item.RuntimeSecs;
+            var seconds = (long)Math.Max(1, remaining ? item.RuntimeSecs - item.ResumeSecs : item.RuntimeSecs);
+            var duration = seconds >= 3600 ? $"{seconds / 3600}:{seconds / 60 % 60:00}:{seconds % 60:00}" : $"{seconds / 60}:{seconds % 60:00}";
+            panel.Children.Add(new Border {
+                CornerRadius = new CornerRadius(6), Padding = new Thickness(6, 2), Margin = new Thickness(6, 0, 0, 6),
+                HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Bottom,
+                Background = BadgeScrim,
+                Child = new TextBlock { Text = remaining ? $"剩余 {duration}" : duration, FontSize = 10, Foreground = Brushes.White },
+            });
+        }
 
         if (item.EpisodeNo > 0)
         {

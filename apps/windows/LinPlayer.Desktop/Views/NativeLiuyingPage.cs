@@ -28,6 +28,8 @@ public sealed class NativeLiuyingPage : PageBase
     private readonly Button _dance = new() { Content = "舞蹈", Classes = { "primary" } };
     private readonly Button _live = new() { Content = "直播", Classes = { "ghost" } };
     private readonly Button _favorites = new() { Content = "全部作品", Classes = { "ghost" } };
+    private readonly Button _favoritesList = new() { Content = "收藏列表", Classes = { "ghost" } };
+    private Flyout? _favoritesFlyout;
     private readonly Button _favorite = new() { Content = "收藏", Classes = { "ghost" } };
     private readonly Button _previous = new() { Content = "上一条", Classes = { "ghost" } };
     private readonly Button _next = new() { Content = "下一条", Classes = { "primary" } };
@@ -36,6 +38,7 @@ public sealed class NativeLiuyingPage : PageBase
     private readonly Button _retry = new() { Content = "重试", Classes = { "ghost" }, IsVisible = false };
     private readonly Button _pause = new() { Content = "暂停", Classes = { "ghost" }, IsEnabled = false };
     private readonly Button _mute = new() { Content = "静音", Classes = { "ghost" }, IsEnabled = false };
+    private readonly Button _speed = new() { Content = "1×", Classes = { "ghost" }, IsEnabled = false };
     private readonly Slider _progress = new() { Minimum = 0, Maximum = 1, IsEnabled = false };
     private readonly TextBlock _time = Dim("");
     private readonly StackPanel _bottom = new() { Spacing = 6, IsVisible = false };
@@ -60,7 +63,7 @@ public sealed class NativeLiuyingPage : PageBase
         _chrome.Children.Add(Plate(new ScrollViewer { Content = controls,
             HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Auto }));
         _actions.Children.Add(_mode); _actions.Children.Add(_previous); _actions.Children.Add(_next);
-        _actions.Children.Add(_favorite); _actions.Children.Add(_favorites); _actions.Children.Add(_tags);
+        _actions.Children.Add(_favorite); _actions.Children.Add(_favorites); _actions.Children.Add(_favoritesList); _actions.Children.Add(_tags);
         var sidebar = new Grid { RowDefinitions = new("Auto,*"), Width = SidebarWidth, HorizontalAlignment = HorizontalAlignment.Right };
         sidebar.Children.Add(_fold);
         var scroll = new ScrollViewer { Content = _actions, HorizontalScrollBarVisibility = Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled };
@@ -74,7 +77,7 @@ public sealed class NativeLiuyingPage : PageBase
         Grid.SetRow(middle, 1); _chrome.Children.Add(middle);
         _bottom.Children.Add(_title); _bottom.Children.Add(_progress);
         _bottom.Children.Add(new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10,
-            Children = { _pause, _mute, _time } });
+            Children = { _pause, _mute, _speed, _time } });
         var bottom = Plate(_bottom); Grid.SetRow(bottom, 2); _chrome.Children.Add(bottom);
         _layout.Children.Add(_video); _layout.Children.Add(_chrome); Content = _layout;
         _feed.Click += async (_, _) => {
@@ -85,6 +88,7 @@ public sealed class NativeLiuyingPage : PageBase
         _dance.Click += async (_, _) => await SetTabAsync("dance");
         _live.Click += async (_, _) => await SetTabAsync("live");
         _favorites.Click += async (_, _) => { _onlyFavorite = !_onlyFavorite; await ResetAsync(); };
+        _favoritesList.Click += (_, _) => ShowFavorites();
         _favorite.Click += async (_, _) => await FavoriteAsync();
         _previous.Click += async (_, _) => await MoveAsync(-1);
         _next.Click += async (_, _) => await MoveAsync(1);
@@ -93,6 +97,7 @@ public sealed class NativeLiuyingPage : PageBase
         _retry.Click += async (_, _) => await LoadAsync();
         _pause.Click += async (_, _) => { if (Player is { } player) await player.FeedPause(); };
         _mute.Click += async (_, _) => { if (Player is { } player) await player.FeedMute(); };
+        _speed.Click += async (_, _) => { if (Player is { } player) await player.FeedCycleSpeed(); };
         _progress.AddHandler(PointerPressedEvent, (_, _) => _seeking = true, RoutingStrategies.Tunnel);
         _progress.AddHandler(PointerReleasedEvent, async (_, _) => {
             if (_seeking && Player is { } player) await player.FeedSeek(_progress.Value);
@@ -102,7 +107,7 @@ public sealed class NativeLiuyingPage : PageBase
             if (e.Key is Key.Left or Key.Right or Key.Home or Key.End && Player is { } player) await player.FeedSeek(_progress.Value);
         };
         AttachedToVisualTree += async (_, _) => { if (!_started) { _started = true; await InitializeAsync(); } };
-        DetachedFromVisualTree += (_, _) => { _lifetime.Cancel(); _request?.Cancel(); RemovePlayer(); };
+        DetachedFromVisualTree += (_, _) => { _lifetime.Cancel(); _request?.Cancel(); _favoritesFlyout?.Hide(); RemovePlayer(); };
         UpdateControls();
     }
 
@@ -135,7 +140,7 @@ public sealed class NativeLiuyingPage : PageBase
         _dance.Classes.Set("primary", _tabKey == "dance"); _live.Classes.Set("primary", _tabKey == "live");
         _favorites.Content = _onlyFavorite ? "只看收藏" : "全部作品";
         _mode.Content = _autoAdvance ? "自动下一条" : "循环当前";
-        _feed.IsEnabled = _dance.IsEnabled = _live.IsEnabled = _favorites.IsEnabled = _enabled;
+        _feed.IsEnabled = _dance.IsEnabled = _live.IsEnabled = _favorites.IsEnabled = _favoritesList.IsEnabled = _enabled;
         _next.IsEnabled = _enabled && !_loading && !_retry.IsVisible && _rows.Count > _index;
         _previous.IsEnabled = _enabled && !_loading && !_retry.IsVisible &&
             (_previousWindow != null || _rows.Count > _index && (_index > 0 || _offset > 0));
@@ -178,12 +183,13 @@ public sealed class NativeLiuyingPage : PageBase
         Player?.ReleaseFeedControls();
         _video.Content = null;
         if (!_lifetime.IsCancellationRequested && !_layout.Children.Contains(_chrome)) _layout.Children.Add(_chrome);
-        _bottom.IsVisible = false; _pause.IsEnabled = _mute.IsEnabled = _progress.IsEnabled = false;
+        _bottom.IsVisible = false; _pause.IsEnabled = _mute.IsEnabled = _speed.IsEnabled = _progress.IsEnabled = false;
         _seeking = false;
     }
 
     private async Task ResetAsync()
     {
+        _favoritesFlyout?.Hide();
         _playbackVersion++; _previousWindow = null;
         _offset = _requestedOffset = 0; _seed = _requestedSeed = Guid.NewGuid().ToString("N");
         _requestLast = false; _rows = []; _index = 0;
@@ -233,7 +239,9 @@ public sealed class NativeLiuyingPage : PageBase
         },
             (position, duration, paused, muted) => {
                 if (!Current || version != _playbackVersion) return;
-                _pause.IsEnabled = _mute.IsEnabled = true; _pause.Content = paused ? "播放" : "暂停"; _mute.Content = muted ? "开声音" : "静音";
+                _pause.IsEnabled = _mute.IsEnabled = _speed.IsEnabled = true;
+                _speed.Content = $"{player.FeedSpeed:0.##}×";
+                _pause.Content = paused ? "播放" : "暂停"; _mute.Content = muted ? "开声音" : "静音";
                 _progress.IsEnabled = duration > 0; _progress.Maximum = Math.Max(1, duration);
                 if (!_seeking) _progress.Value = Math.Clamp(position, 0, _progress.Maximum);
                 _time.Text = $"{TimeSpan.FromSeconds(position):mm\\:ss} / {TimeSpan.FromSeconds(Math.Max(0, duration)):mm\\:ss}";
@@ -279,5 +287,86 @@ public sealed class NativeLiuyingPage : PageBase
         } catch (OperationCanceledException) { }
         catch (Exception e) { if (Current) _status.Text = e.Message; }
         finally { _favoriteBusy = false; UpdateControls(); }
+    }
+
+    private void ShowFavorites()
+    {
+        if (!Current || !_enabled || _session is not { } s) return;
+        _favoritesFlyout?.Hide();
+        var cancellation = CancellationTokenSource.CreateLinkedTokenSource(_lifetime.Token);
+        CancellationTokenSource? request = null;
+        var token = cancellation.Token;
+        var feed = _feedKey; var tab = _tabKey;
+        var seed = Guid.NewGuid().ToString("N");
+        var offset = 0; var revision = 0; var loading = false;
+        var entries = new Dictionary<string, JsonElement>();
+        var status = Dim("");
+        var more = new Button { Content = "加载更多", Classes = { "ghost" } };
+        var close = new Button { Content = "关闭", Classes = { "ghost" } };
+        var tabs = new ComboBox { ItemsSource = new[] { "舞蹈", "直播" }, SelectedIndex = tab == "live" ? 1 : 0,
+            IsVisible = feed == "normal" };
+        var flyout = new Flyout();
+        var grid = new MediaGrid(_core, s.server, false, item => {
+            if (!Current || token.IsCancellationRequested || !entries.TryGetValue(item.Id, out var entry)) return;
+            flyout.Hide(); _request?.Cancel();
+            _tabKey = tab; _channel = ""; _exposure = ""; _onlyFavorite = false; _autoAdvance = false;
+            _previousWindow = null; _rows = [entry]; _index = _offset = _requestedOffset = 0;
+            _seed = _requestedSeed = Guid.NewGuid().ToString("N"); _more = _loading = _requestLast = false;
+            _retry.IsVisible = false; DrawTags(); ShowCurrent();
+        }, cardActions: false);
+        var body = new StackPanel { Width = Math.Max(280, Math.Min(760, Bounds.Width - 36)), Spacing = 10,
+            Children = { H2(feed == "normal" ? "收藏的流影" : "卍解收藏"),
+                new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10, Children = { tabs, close } },
+                new ScrollViewer { MaxHeight = 420, Content = grid }, status, more } };
+        flyout.Content = body;
+        flyout.Closed += (_, _) => {
+            request?.Cancel();
+            cancellation.Cancel();
+            if (ReferenceEquals(_favoritesFlyout, flyout)) _favoritesFlyout = null;
+            cancellation.Dispose();
+        };
+        close.Click += (_, _) => flyout.Hide();
+        more.Click += async (_, _) => await Load();
+        tabs.SelectionChanged += async (_, _) => {
+            request?.Cancel();
+            revision++; loading = false; offset = 0; tab = tabs.SelectedIndex == 1 ? "live" : "dance";
+            seed = Guid.NewGuid().ToString("N"); entries.Clear(); grid.Clear(); await Load();
+        };
+        _favoritesFlyout = flyout; flyout.ShowAt(_favoritesList);
+        _ = Load();
+
+        async Task Load()
+        {
+            if (loading || token.IsCancellationRequested) return;
+            var generation = revision;
+            using var pageRequest = CancellationTokenSource.CreateLinkedTokenSource(token);
+            request = pageRequest;
+            loading = true; more.IsEnabled = false; status.Text = "正在加载收藏…";
+            try {
+                var result = await _core.EmbyExtLiuYingItems(new { s.server, s.token, s.user_id, s.device_id,
+                    feed, tab, channel = "", exposure = "", favorite = true, seed, offset }, pageRequest.Token);
+                if (!Current || token.IsCancellationRequested || generation != revision) return;
+                var rows = result.GetProperty("items").EnumerateArray().ToList();
+                var cards = new List<CardItem>();
+                foreach (var row in rows) {
+                    var id = Mi.Str(row, "item_id");
+                    if (id != "" && entries.TryAdd(id, row))
+                        cards.Add(new CardItem(id, Mi.Str(row, "title"), "", "", true, false, 0, 0, 0, 0, 0));
+                }
+                grid.Append(cards);
+                offset += rows.Count;
+                more.IsVisible = rows.Count > 0 && Mi.Bool(result, "has_more");
+                more.Content = "加载更多";
+                status.Text = entries.Count == 0 ? "暂无收藏视频" : "";
+            } catch (OperationCanceledException) { }
+            catch (Exception e) {
+                if (Current && !token.IsCancellationRequested && generation == revision) {
+                    status.Text = LibraryPage.Advice(e); more.Content = "重试"; more.IsVisible = true;
+                }
+            } finally {
+                if (ReferenceEquals(request, pageRequest)) request = null;
+                if (!token.IsCancellationRequested && generation == revision) { loading = false; more.IsEnabled = true; }
+            }
+        }
     }
 }

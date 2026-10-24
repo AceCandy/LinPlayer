@@ -30,6 +30,7 @@ public sealed class MediaGrid : ContentControl
     /// <summary>标题区固定几行。库卡传 1(库名只有一行),条目卡默认 2。</summary>
     private readonly int _titleLines;
     private readonly Action<CardItem>? _onOpen;
+    private readonly bool _cardActions;
 
     private readonly List<CardItem> _items = [];
     private readonly ItemsControl _list;
@@ -60,10 +61,11 @@ public sealed class MediaGrid : ContentControl
 
     public MediaGrid(CoreClient core, string server, bool wide,
         Action<CardItem>? onOpen = null, bool episodeStyle = false, double? width = null,
-        int titleLines = 2)
+        int titleLines = 2, bool cardActions = true)
     {
         _core = core; _server = server; _wide = wide;
         _onOpen = onOpen; _episodeStyle = episodeStyle; _width = width; _titleLines = titleLines;
+        _cardActions = cardActions;
 
         _list = new ItemsControl
         {
@@ -196,7 +198,7 @@ public sealed class MediaGrid : ContentControl
                 subtitle: _episodeStyle ? it.RuntimeLabel : null,
                 title: _episodeStyle ? it.Name : null,
                 // 分集标题都是「第 N 集」,一行足够;留两行的话时长会掉到空出来的那行下面。
-                titleLines: _episodeStyle ? 1 : _titleLines));
+                titleLines: _episodeStyle ? 1 : _titleLines, actions: _cardActions));
         return panel;
     }
 }

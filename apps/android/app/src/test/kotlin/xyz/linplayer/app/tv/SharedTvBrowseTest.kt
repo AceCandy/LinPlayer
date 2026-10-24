@@ -172,6 +172,17 @@ class SharedTvBrowseTest {
         card.assertIsFocused()
     }
 
+    @Test fun directionalHomeCardOpensDetailAndRestoresTheSameCard() {
+        mount()
+        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionLeft)
+        val card = rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("detail.hero").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        card.assertIsFocused()
+    }
+
     @Test fun castOpensPersonWorksAndReturnsToSameActor() {
         mount { core ->
             core.ret("emby.personDetail", buildJsonObject { put("id", "p0"); put("name", "提莫西·查拉梅") })

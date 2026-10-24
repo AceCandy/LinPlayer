@@ -38,6 +38,7 @@ public sealed class RankingPage : PageBase
     private string _group = "";
     private string _curCat = "";
     private Sess? _session = Nav.Session;
+    private string _sourceServer = "";
     private CancellationTokenSource _life = new();
     private int _revision;
     private int _catalogRevision;
@@ -87,8 +88,13 @@ public sealed class RankingPage : PageBase
         try
         {
             if (!SelfCheckFake && _session is null) { _msg.Text = "请先连接服务器"; return; }
+            var source = SelfCheckFake ? "" : await ExtensionNavigation.PrimaryServer(_core, _life.Token);
+            if (!Current || revision != _catalogRevision) return;
+            _sourceServer = source;
+            var s = _session;
             var arr = SelfCheckFake ? FakeCategories() : await _core.CallDisplayAsync(
-                "emby.extRankings", _session, Show, _life.Token);
+                "emby.extRankings", new { s!.server, s.token, s.user_id, s.device_id,
+                    server_id = source }, Show, _life.Token);
             Show(arr);
         }
         catch (OperationCanceledException) { }
@@ -186,7 +192,7 @@ public sealed class RankingPage : PageBase
             var s = _session;
             if (!SelfCheckFake && s is null) return;
             var arr = SelfCheckFake ? FakeItems(catId) : await _core.CallDisplayAsync("emby.extRankingItems",
-                new { s!.server, s.token, s.user_id, s.device_id, category_id = catId, page },
+                new { s!.server, s.token, s.user_id, s.device_id, server_id = _sourceServer, category_id = catId, page },
                 value => { if (_shownPage is null) Render(value); }, token, retainOnFailure: false);
             Render(arr);
         }
@@ -213,7 +219,7 @@ public sealed class RankingPage : PageBase
         button.Click += async (_, _) => {
             if (_session is null) return;
             button.IsEnabled = false;
-            try { await ExtensionNavigation.Open(_core, _session, entry, _life.Token); }
+            try { await ExtensionNavigation.Open(_core, _session, entry, _life.Token, _sourceServer, this); }
             catch (OperationCanceledException) { }
             catch (Exception e) { if (Current) { _msg.Text = LibraryPage.Advice(e); _msg.IsVisible = true; } }
             finally { button.IsEnabled = true; }

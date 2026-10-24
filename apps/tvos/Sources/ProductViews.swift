@@ -303,6 +303,8 @@ struct FavoritesView: View {
     let api: MediaAPI
     var groupID: String? = nil
     var title = "收藏"
+    var watched = false
+    @State private var watchedType = "Movie"
     @State private var libraries: [MediaItem] = []
     private var groups: [FavoriteGroup] { FavoriteGroup.make(items: items, libraries: libraries) }
     private var visible: [MediaItem] {
@@ -323,13 +325,20 @@ struct FavoritesView: View {
     @State private var loadedRange = ""
     @State private var loadedRevision = -1
     @FocusState private var focus: String?
-    private var range: String { "\(sort):\(descending)" }
+    private var range: String { "\(watched):\(watchedType):\(sort):\(descending)" }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text(title).font(.system(size: 38, weight: .semibold))
-                if groupID != nil {
+                if groupID == nil && !watched {
                     HStack(spacing: 20) {
+                        NavigationLink("历史已看") { FavoritesView(api: api, title: "历史已看", watched: true) }
+                        if !model.privateSpace { NavigationLink("观看历史") { WatchHistoryView(api: api) } }
+                    }
+                }
+                if groupID != nil || watched {
+                    HStack(spacing: 20) {
+                        if watched { TVChoice(title: "类型", selection: $watchedType, options: [("Movie", "电影"), ("Series", "剧集")]) }
                         TVChoice(title: "排序", selection: $sort, options: [("name", "名称"), ("rating", "评分"), ("year", "年份"), ("updated", "更新时间")])
                         Button(descending ? "降序" : "升序") { descending.toggle() }.buttonStyle(TVActionStyle(compact: true))
                     }
@@ -354,12 +363,12 @@ struct FavoritesView: View {
                 if let error { RetryMessage(text: error) { reload += 1 } }
                 if loading { TVLoading() }
                 else if more { Button("加载更多") { reload += 1 } }
-                else if visible.isEmpty { Text("暂无收藏").foregroundStyle(.secondary) }
+                else if visible.isEmpty { Text(watched ? "暂无已看内容" : "暂无收藏").foregroundStyle(.secondary) }
             }.padding(.horizontal, 64).padding(.vertical, 28)
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .ignoresSafeArea(.container, edges: .horizontal)
         .task(id: items.contains { !($0.library_ids ?? []).isEmpty }) {
-            guard items.contains(where: { !($0.library_ids ?? []).isEmpty }) else { return }
+            guard !watched, items.contains(where: { !($0.library_ids ?? []).isEmpty }) else { return }
             do { libraries = try await api.request("emby.views").decode([MediaItem].self) }
             catch is CancellationError {} catch { /* 库名只增强分组，失败仍按类型展示全部收藏。 */ }
         }
@@ -385,8 +394,10 @@ struct FavoritesView: View {
             var hasMore = true
             repeat {
                 let prefix = result
-                let value = try await api.request("emby.listFavorites", ["start_index": .number(Double(next)), "limit": .number(40),
-                    "sort_by": .string(requestedSort), "sort_order": .string(requestedDescending ? "desc" : "asc")], snapshot: { value in
+                var args: [String: JSONValue] = ["start_index": .number(Double(next)), "limit": .number(40),
+                    "sort_by": .string(requestedSort), "sort_order": .string(requestedDescending ? "desc" : "asc")]
+                if watched { args["type"] = .string(watchedType) }
+                let value = try await api.request(watched ? "emby.listWatched" : "emby.listFavorites", args, snapshot: { value in
                         guard generation == request, items.isEmpty, let page = try? value.decode(MediaPage.self) else { return }
                         var seen = Set(prefix.map(\.id))
                         items = prefix + page.items.filter { seen.insert($0.id).inserted }
@@ -396,7 +407,7 @@ struct FavoritesView: View {
                 let previous = next
                 next = Int(value["next_index"].number ?? Double(next + page.items.count))
                 hasMore = value["has_more"].bool ?? (!page.items.isEmpty && next < page.total)
-                hasMore = hasMore && next > previous
+                if hasMore && next <= previous { throw CoreFailure(code: "E_PROTOCOL") }
             } while refresh && hasMore && next < target
             try Task.checkCancellation()
             guard generation == request else { return }
@@ -404,6 +415,54 @@ struct FavoritesView: View {
             loadedRange = requestedRange; loadedRevision = revision
         } catch is CancellationError {} catch {
             if generation == request { if invalidatesDisplay(error) { items = []; cursor = 0; more = true; loadedRange = ""; loadedRevision = -1 }; self.error = error.localizedDescription }
+        }
+    }
+}
+
+struct WatchHistoryView: View {
+    @EnvironmentObject private var model: AppModel
+    let api: MediaAPI
+    @State private var records: [WatchHistoryRecord] = []
+    @State private var loading = true
+    @State private var error: String?
+    @State private var reload = 0
+    var body: some View {
+        ScrollView {
+            LazyVStack(alignment: .leading, spacing: 24) {
+                TVSectionHeading("观看历史 · 当前服务器")
+                Text("本机观看记录，与服务器的历史已看列表分别保存。").foregroundStyle(.secondary)
+                ForEach(records) { record in
+                    if let item = record.item {
+                        NavigationLink(value: item) {
+                            HStack {
+                                VStack(alignment: .leading, spacing: 8) {
+                                    Text(item.title).font(.system(size: 26))
+                                    Text(Date(timeIntervalSince1970: record.last_played_at / 1000), style: .date).foregroundStyle(.secondary)
+                                }
+                                Spacer()
+                                Text(record.played ? "已看完" : item.resumeTimeText ?? "未完成").foregroundStyle(.secondary)
+                            }.frame(maxWidth: .infinity, alignment: .leading)
+                        }.buttonStyle(TVRowStyle()).focusEffectDisabled()
+                    } else {
+                        Text(record.title + " · 暂无对应条目").foregroundStyle(.secondary)
+                    }
+                }
+                if let error { RetryMessage(text: error) { reload += 1 } }
+                if loading { TVLoading() }
+                else if records.isEmpty && error == nil { Text("暂无观看记录").foregroundStyle(.secondary) }
+            }.padding(.horizontal, 64).padding(.vertical, 28)
+        }
+        .task(id: "\(model.userStateRevision):\(reload)") {
+            guard !model.privateSpace else { records = []; loading = false; return }
+            loading = true
+            do {
+                let result = try await api.request("emby.watchHistoryList", ["current_only": .bool(true)]).decode([WatchHistoryRecord].self)
+                try Task.checkCancellation()
+                records = result.sorted { $0.last_played_at > $1.last_played_at }; error = nil; loading = false
+            } catch is CancellationError {} catch {
+                if invalidatesDisplay(error) { records = [] }
+                self.error = error.localizedDescription; loading = false
+            }
         }
     }
 }

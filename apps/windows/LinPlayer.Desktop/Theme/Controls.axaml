@@ -15,6 +15,16 @@
   <Style Selector="TextBlock">
     <Setter Property="Foreground" Value="{DynamicResource Ink}" />
   </Style>
+  <Style Selector="CheckBox:checked:not(:disabled) /template/ Border#NormalRectangle, CheckBox:indeterminate:not(:disabled) /template/ Border#NormalRectangle">
+    <Setter Property="Background" Value="{DynamicResource Accent}" />
+    <Setter Property="BorderBrush" Value="{DynamicResource Accent}" />
+  </Style>
+  <Style Selector="CheckBox:checked:not(:disabled) /template/ Path#CheckGlyph, CheckBox:indeterminate:not(:disabled) /template/ Path#CheckGlyph">
+    <Setter Property="Fill" Value="{DynamicResource AccentInk}" />
+  </Style>
+  <Style Selector="CheckBox:pressed:not(:disabled) /template/ Border#NormalRectangle">
+    <Setter Property="Opacity" Value="0.8" />
+  </Style>
 
   <!-- 标题栏上的窗口按钮:46×36,悬停变底色,关闭键悬停变红 -->
   <Style Selector="Button.caption">

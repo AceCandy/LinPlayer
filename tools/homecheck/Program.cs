@@ -6,27 +6,21 @@ Task<List<JsonElement>> Success(string id) => Task.FromResult(Items(id));
 Task<List<JsonElement>> Fail() => throw new InvalidOperationException("请求失败");
 void Check(bool ok, string why) { if (!ok) throw new Exception(why); }
 
-var result = await ResumeFeed.Load(() => Success("new-resume"), Fail, Items("old-resume"), Items("old-next"));
-Check(result.Items.Count == 2 && result.Items[1].GetProperty("id").GetString() == "old-next", "单路失败丢失另一侧缓存");
-Check(result.Resume is not null && result.NextUp is null && result.Error is not null, "部分失败被当成完整成功");
-
-result = await ResumeFeed.Load(Fail, Fail, Items("old-resume"), Items("old-next"));
-Check(result.Items.Count == 2 && result.Error is not null && result.Resume is null && result.NextUp is null, "双路失败清空缓存或伪装正常空结果");
-
-result = await ResumeFeed.Load(Fail, Fail, null, null);
+var result = await ResumeFeed.Load(() => Success("new-resume"), Items("old-resume"));
+Check(result.Items.Count == 1 && result.Items[0].GetProperty("id").GetString() == "new-resume" && result.Error is null, "实时续播未替换缓存");
+result = await ResumeFeed.Load(Fail, Items("old-resume"));
+Check(result.Items.Count == 1 && result.Error is not null, "失败丢失缓存或伪装成功");
+result = await ResumeFeed.Load(Fail, null);
 Check(result.Items.Count == 0 && result.Error is not null, "无缓存失败被当成没有内容");
-
-result = await ResumeFeed.Load(() => Task.FromResult(new List<JsonElement>()), () => Task.FromResult(new List<JsonElement>()), Items("old-resume"), Items("old-next"));
-Check(result.Items.Count == 0 && result.Error is null && result.Resume is not null && result.NextUp is not null, "真实成功空结果不能清空缓存");
-
-result = await ResumeFeed.Load(() => Success("same"), () => Success("same"), null, null);
-Check(result.Items.Count == 1, "两路结果重复");
-var streamedResume = new List<JsonElement>();
-var streamedNext = new List<JsonElement>();
-async Task<List<JsonElement>> SnapshotThenFail(List<JsonElement> target, string id) {
-    await Task.Yield(); target.AddRange(Items(id)); throw new InvalidOperationException("刷新失败");
+result = await ResumeFeed.Load(() => Task.FromResult(new List<JsonElement>()), Items("old-resume"));
+Check(result.Items.Count == 0 && result.Error is null, "成功空结果不能清空缓存");
+var duplicate = JsonSerializer.SerializeToElement(new { id = "ep", series_id = "series" });
+result = await ResumeFeed.Load(() => Task.FromResult(new List<JsonElement> { duplicate, duplicate }), null);
+Check(result.Items.Count == 1, "同剧续播重复");
+var streamed = new List<JsonElement>();
+async Task<List<JsonElement>> SnapshotThenFail() {
+    await Task.Yield(); streamed.AddRange(Items("cached-resume")); throw new InvalidOperationException("刷新失败");
 }
-result = await ResumeFeed.Load(() => SnapshotThenFail(streamedResume, "cached-resume"),
-    () => SnapshotThenFail(streamedNext, "cached-next"), streamedResume, streamedNext);
-Check(result.Items.Count == 2 && result.Error is not null, "核心异步快照在双路失败时丢失");
-Console.WriteLine("首页两路加载:成功、部分失败、双路失败、缓存回退及去重通过");
+result = await ResumeFeed.Load(SnapshotThenFail, streamed);
+Check(result.Items.Count == 1 && result.Error is not null, "核心异步快照在失败时丢失");
+Console.WriteLine("首页续播：成功、失败、缓存回退、真实空结果及同剧去重通过");

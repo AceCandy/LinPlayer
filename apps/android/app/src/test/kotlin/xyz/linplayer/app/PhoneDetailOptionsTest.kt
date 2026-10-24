@@ -1,6 +1,9 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.view.KeyEvent
+import android.view.MotionEvent
+import android.view.WindowManager
 import androidx.compose.material3.Text
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -34,6 +37,10 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.RuntimeEnvironment
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowDialog
+import org.robolectric.shadows.ShadowWindowManagerImpl
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.PageCache
@@ -155,6 +162,70 @@ class PhoneDetailOptionsTest {
         return rule.onNode(hasContentDescription(label) and hasClickAction()).performScrollTo()
     }
     private fun dialogShot(name: String) = rule.onNode(isDialog()).captureRoboImage("build/detail-options/$name.png")
+
+    @Test fun optionDialogsBackAndOutsideKeepScrollAndPreferences() {
+        val core = core()
+        open(core)
+        for (label in listOf("版本", "音轨", "字幕")) {
+            val entry = option(label)
+            val before = entry.fetchSemanticsNode().boundsInRoot
+            val writes = core.calls.count { it.first == "prefs.setPrefs" }
+            repeat(2) { dismissal ->
+                entry.performClick()
+                rule.onNode(isDialog()).assertIsDisplayed()
+                if (dismissal == 0) rule.runOnIdle {
+                    val view = requireNotNull(ShadowDialog.getLatestDialog().window).decorView
+                    view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
+                    view.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+                } else rule.runOnIdle {
+                    val view = requireNotNull(ShadowDialog.getLatestDialog().window).decorView
+                    // 遮罩在 Dialog 窗口内，点击左上角真实派发触摸，不走语义节点内部坐标。
+                    val down = MotionEvent.obtain(0, 0, MotionEvent.ACTION_DOWN, 1f, 1f, 0)
+                    val up = MotionEvent.obtain(0, 1, MotionEvent.ACTION_UP, 1f, 1f, 0)
+                    try {
+                        view.dispatchTouchEvent(down)
+                        view.dispatchTouchEvent(up)
+                    } finally {
+                        down.recycle()
+                        up.recycle()
+                    }
+                }
+                rule.onNode(isDialog()).assertDoesNotExist()
+                assertEquals(before, entry.assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+                assertEquals(writes, core.calls.count { it.first == "prefs.setPrefs" })
+                assertFalse(core.calls.any { it.first == "player.play" })
+                rule.onNodeWithText("播放目标：", substring = true).assertDoesNotExist()
+            }
+        }
+        option("版本").assertTextContains(versionName, substring = true)
+    }
+
+    @Test fun restartMenuBackAndOutsideKeepScrollAndPlayback() {
+        val core = core()
+        open(core)
+        val entry = rule.onNodeWithContentDescription("播放更多操作").performScrollTo()
+        val before = entry.fetchSemanticsNode().boundsInRoot
+        repeat(2) { dismissal ->
+            entry.performClick()
+            rule.onNode(isPopup()).assertIsDisplayed()
+            rule.runOnIdle {
+                val manager = Shadow.extract<ShadowWindowManagerImpl>(
+                    RuntimeEnvironment.getApplication().getSystemService(WindowManager::class.java))
+                val popup = manager.views.last()
+                if (dismissal == 0) {
+                    popup.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
+                    popup.dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
+                } else {
+                    val outside = MotionEvent.obtain(0, 0, MotionEvent.ACTION_OUTSIDE, -1f, -1f, 0)
+                    try { popup.dispatchTouchEvent(outside) } finally { outside.recycle() }
+                }
+            }
+            rule.onNode(isPopup()).assertDoesNotExist()
+            assertEquals(before, entry.assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
+            assertFalse(core.calls.any { it.first == "prefs.setPrefs" || it.first == "player.play" })
+            rule.onNodeWithText("播放目标：", substring = true).assertDoesNotExist()
+        }
+    }
 
     private fun fullTrackCore() = core().episode().apply {
         ret("emby.seriesSeasons", arr(item("sh", "第1季", "Season")))

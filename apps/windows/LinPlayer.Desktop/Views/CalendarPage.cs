@@ -31,6 +31,7 @@ public sealed class CalendarPage : PageBase
     private readonly DockPanel _bar;
     private List<JsonElement> _items = [];
     private Sess? _session = Nav.Session;
+    private string _sourceServer = "";
     private CancellationTokenSource _life = new();
     private int _revision;
     private bool Current => !_life.IsCancellationRequested && Nav.Session == _session;
@@ -88,7 +89,13 @@ public sealed class CalendarPage : PageBase
         }
         try
         {
-            var arr = await _core.CallDisplayAsync("emby.extCalendar", _session, Show, _life.Token);
+            var source = await ExtensionNavigation.PrimaryServer(_core, _life.Token);
+            if (!Current || revision != _revision) return;
+            _sourceServer = source;
+            var s = _session;
+            var arr = await _core.CallDisplayAsync("emby.extCalendar", new {
+                s.server, s.token, s.user_id, s.device_id, server_id = source,
+            }, Show, _life.Token);
             Show(arr);
         }
         catch (OperationCanceledException) { }
@@ -216,7 +223,7 @@ public sealed class CalendarPage : PageBase
         button.Click += async (_, _) => {
             if (_session is null) return;
             button.IsEnabled = false;
-            try { await ExtensionNavigation.Open(_core, _session, e, _life.Token); }
+            try { await ExtensionNavigation.Open(_core, _session, e, _life.Token, _sourceServer, this); }
             catch (OperationCanceledException) { }
             catch (Exception error) { if (Current) _status.Text = LibraryPage.Advice(error); }
             finally { button.IsEnabled = true; }

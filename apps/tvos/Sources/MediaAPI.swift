@@ -185,10 +185,48 @@ struct MediaSeason: Decodable, Identifiable {
     var unplayed_count_known: Bool? = nil
     var played: Bool? = nil
     var has_primary: Bool? = nil
+    func calibrated(_ page: MediaPage) -> MediaSeason? {
+        guard page.total > 0, page.items.count == page.total,
+              Set(page.items.map(\.id)).count == page.total,
+              page.items.allSatisfy({ !$0.id.isEmpty && $0.played != nil && $0.season_id == id }) else { return nil }
+        var result = self
+        result.child_count = page.total
+        result.unplayed = page.items.filter { $0.played != true }.count
+        result.unplayed_count_known = true
+        result.played = result.unplayed == 0
+        return result
+    }
+    func artwork(series: String) -> MediaItem {
+        MediaItem(id: id, name: name, type_: "Season", is_folder: true, has_primary: has_primary == true,
+            runtime_secs: 0, resume_secs: 0, series_name: nil, episode_no: nil, year: nil,
+            season_no: index_no, series_id: series, season_id: nil, has_backdrop: nil, played: played, is_favorite: nil)
+    }
     var statusText: String? {
         if unplayed_count_known == true, let unplayed, unplayed > 0 { return "\(unplayed) 集未看" }
         if played == true || (unplayed_count_known == true && unplayed == 0 && (child_count ?? 0) > 0) { return "已看完" }
         return child_count.map { "共 \($0) 集" }
+    }
+}
+
+// 本机历史仅用服务端条目 ID 导航，不把旧断点当作实时播放授权。
+struct WatchHistoryRecord: Decodable, Identifiable {
+    let record_id: String
+    let title: String
+    let series_title: String?
+    let media_kind: String
+    let last_emby_item_id: String?
+    let last_played_at: Double
+    let last_position_ticks: Double
+    let run_time_ticks: Double?
+    let played: Bool
+    var id: String { record_id }
+    var item: MediaItem? {
+        guard let id = last_emby_item_id, !id.isEmpty else { return nil }
+        return MediaItem(id: id, name: title, type_: media_kind == "episode" ? "Episode" : "Movie",
+            is_folder: false, has_primary: true, runtime_secs: (run_time_ticks ?? 0) / 10_000_000,
+            resume_secs: last_position_ticks / 10_000_000, series_name: series_title,
+            episode_no: nil, year: nil, season_no: nil, series_id: nil, season_id: nil,
+            has_backdrop: nil, played: played, is_favorite: nil)
     }
 }
 

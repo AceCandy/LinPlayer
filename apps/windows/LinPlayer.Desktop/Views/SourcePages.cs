@@ -29,6 +29,9 @@ internal static class Mi
     public static double Num(JsonElement e, string k) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : 0;
 
+    public static bool Bool(JsonElement e, string k) =>
+        e.ValueKind == JsonValueKind.Object && e.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
+
     public static List<JsonElement> ArrOf(JsonElement e) =>
         e.ValueKind == JsonValueKind.Array ? e.EnumerateArray().ToList() : [];
     public static List<JsonElement> Arr(JsonElement e, string k) =>

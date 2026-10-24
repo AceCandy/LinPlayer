@@ -119,9 +119,11 @@ static class ImageChecks
         Check(!Images.ArtworkUrls("http://media.test", "empty-movie", "Movie",
             hasPrimary: false, hasBackdrop: false).Any(), "明确无图电影仍生成请求");
         var known = CardItem.From(JsonSerializer.SerializeToElement(new {
-            id = "known", name = "有图分集", type_ = "Episode", has_primary = true, has_backdrop = true,
+            id = "known", name = "有图分集", type_ = "Episode", has_primary = true, has_backdrop = true, year = 2025, rating = 8.6,
         }));
         Check(CardItem.From(CardItem.ToJson(known)).HasBackdrop, "背景图标记往返丢失");
+        var roundtrip = CardItem.From(CardItem.ToJson(known));
+        Check(roundtrip.Year == 2025 && roundtrip.Rating == 8.6, "卡片年份评分往返丢失");
         server.Release.TrySetResult();
         server.Missing = source => !source.Contains("/season/Images/Primary");
         var item = CardItem.From(JsonSerializer.SerializeToElement(new {

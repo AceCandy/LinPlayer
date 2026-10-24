@@ -41,6 +41,10 @@ public sealed class HomePage : PageBase
     private readonly List<Func<Task>> _refreshTracks = [];
     private bool _officialStarted;
     private bool _pluginsLoaded;
+    private object? _heroSession;
+    private int _heroRevision;
+    private List<JsonElement> _heroItems = [];
+    private bool _heroPlaying;
 
     /// <summary>Hero 用几张。 这一批<b>只给 Hero</b> —— 「随便看看」那条 2026-09-03 撤了。</summary>
     private const int HeroCount = 5;
@@ -79,7 +83,7 @@ public sealed class HomePage : PageBase
         /* 首页<b>不能整页塞进水槽里</b> —— Hero 是全宽出血的,
            封进去就成了「一张居中的插图」,两侧留白、顶上一道描边。
            所以这一页的结构和详情页一样:头图在水槽外面,正文另外排。 */
-        _hero = new Hero(core!, onOpen);
+        _hero = new Hero(core!, onOpen, PlayHero);
         _column = new StackPanel
         {
             Spacing = 0,
@@ -220,12 +224,24 @@ public sealed class HomePage : PageBase
                 user_id = Str(session, "user_id"),
                 device_id = "linplayer-desktop",
             };
+        _heroSession = s;
 
         /* 各块并发发出去,各自渲染 —— 谁先回来谁先出现,不互相等。
             但**位置是先占好的**:每条轨道在发请求之前就把自己那一块(骨架)挂上去,
             所以屏幕上的顺序是固定的,不是「谁先回来谁排前面」。 */
+        /* 「各库最新」这一段要**先占住位置**再去拉。
+           它依赖媒体库列表(得先知道有哪些库),比别的块晚一步;
+           不先占位的话它只能被追加到最后,而且是等库表回来那一刻**当场跳一下**。 */
+        var libSection = new StackPanel { Spacing = 26 };
+        var libBusy = new StackPanel { Spacing = 10, Children = { H2("最新加入"), Skeleton.Strip(false) } };
+        libSection.Children.Add(libBusy);
+
+        var views = Track("媒体库",
+            null, true, libraryRow: true, displayCommand: "emby.views", displayArgs: new { s.server, s.token, s.user_id, s.device_id, home = true },
+            onItems: libs => LatestPerLibrary(core, s, libSection, libBusy, libs));
+
         var resume = Track("继续观看", null, true,
-            resumeRow: true, resumeLoad: show => ResumeAndNextUp(core, s, show));
+            resumeRow: true, resumeLoad: show => LoadResume(core, s, show));
 
         /* 合集。<b><c>emby.listCollections</c> 早就注册着,UI 一次没调过</b> ——
            这是本仓第五次撞上「后端领先前端」。
@@ -255,16 +271,6 @@ public sealed class HomePage : PageBase
                     : [],
             lazy: true, hideWhenEmpty: true);
 
-        /* 「各库最新」这一段要**先占住位置**再去拉。
-           它依赖媒体库列表(得先知道有哪些库),比别的块晚一步;
-           不先占位的话它只能被追加到最后,而且是等库表回来那一刻**当场跳一下**。 */
-        var libSection = new StackPanel { Spacing = 26 };
-        var libBusy = new StackPanel { Spacing = 10, Children = { H2("最新加入"), Skeleton.Strip(false) } };
-        libSection.Children.Add(libBusy);
-
-        var views = Track("媒体库",
-            null, true, displayCommand: "emby.views", displayArgs: new { s.server, s.token, s.user_id, s.device_id, home = true },
-            onItems: libs => LatestPerLibrary(core, s, libSection, libBusy, libs));
         AddRow(libSection);
         /* 确认是 Emby 了就先把 Hero 的位置占住(骨架)。
            它在页面最顶上,晚出现一次就把**整页**往下顶一次。 */
@@ -339,35 +345,47 @@ public sealed class HomePage : PageBase
         catch { return true; }   // 读不到设置就按「开」走:首页少一块比多一块更像坏了
     }
 
-    /// <summary>
-    /// Hero 那几张。
-    ///
-    /// <para>「随便看看」那条轨道 2026-09-03 撤了(用户:「不知道存在的意义在哪」),
-    /// 现在只剩 Hero 一个消费者,limit 从 13 降到 5。拉失败要把 Hero 收掉,
-    /// 否则骨架一直闪 —— 那看着像「永远在加载」,而它其实已经失败了。
-    /// 缓存命中时先用旧的那几张点亮:大图空着的两秒等于整页都还没加载。</para>
-    /// </summary>
+    /// <summary>只读取已有展示池并由核心筛选，不为轮播额外扫描服务器。</summary>
     private async Task HeroItems(CoreClient core, object s)
     {
-        List<JsonElement>? cached = null;
-
+        var revision = ++_heroRevision;
         var ct = _ct;
-        List<JsonElement> all;
-        try { all = await Arr(core.CallDisplayAsync("emby.listRandom", With(s, new { limit = HeroCount, home = true }), value => {
-            if (value.ValueKind != JsonValueKind.Array) return;
-            cached = value.EnumerateArray().ToList();
-            if (cached.Count > 0) _hero.Show(_server, cached);
-        }, ct)); ct.ThrowIfCancellationRequested(); }
-        catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(() => HeroItems(core, s)); return; }
-        catch (Exception e) { if (cached is null || InvalidatesDisplay(e)) _hero.Hide(); return; }
-        if (all.Count == 0) { _hero.Hide(); return; }
-        /* 内容没变就<b>不要再 Show 一次</b>。Show 会重建圆点、复位轮播、重发预取,
-           用户看到的是刚出来的大图当场闪一下换成同一张 —— 那看着像 bug。 */
-        if (cached is not null && cached.Select(Hero.ArtworkKey).SequenceEqual(all.Select(Hero.ArtworkKey)))
-        {
-            return;
+        try {
+            var pool = await Arr(core.CallAsync("emby.cachedItems", s, ct));
+            var ids = await core.CallAsync("emby.heroCandidates", With(s, new { items = pool }), ct);
+            ct.ThrowIfCancellationRequested();
+            if (!SpaceCurrent || revision != _heroRevision) return;
+            var allowed = ids.EnumerateArray().Select(x => x.GetString()).ToHashSet();
+            var candidates = pool.Where(x => allowed.Contains(Id(x)) && (Mi.Bool(x, "has_backdrop") || Mi.Bool(x, "has_primary")))
+                .DistinctBy(Id).ToDictionary(Id);
+            var retained = _heroItems.Where(x => candidates.ContainsKey(Id(x))).Select(x => candidates[Id(x)]).ToList();
+            var kept = retained.Select(Id).ToHashSet();
+            // 缓存只提供预览；缺缓存的候选仍交给 Hero 按需取图。
+            var all = retained.Concat(candidates.Values.Where(x => !kept.Contains(Id(x)))).Take(HeroCount).ToList();
+            if (all.Count > 0 && _heroItems.Select(x => x.GetRawText()).SequenceEqual(all.Select(x => x.GetRawText()))) return;
+            _heroItems = all;
+            if (all.Count == 0) _hero.Hide(); else _hero.Show(_server, all);
         }
-        _hero.Show(_server, all);
+        catch (OperationCanceledException) when (ct.IsCancellationRequested) { RetryWhenVisible(() => HeroItems(core, s)); return; }
+        catch (Exception e) { if (revision == _heroRevision && (_heroItems.Count == 0 || InvalidatesDisplay(e))) _hero.Hide(); }
+    }
+
+    private async void PlayHero(CardItem item)
+    {
+        var session = Nav.Session;
+        if (session is null || _core is null || _heroPlaying) return;
+        _heroPlaying = true;
+        var ct = _ct;
+        try {
+            var target = item.Type == "Series" ? CardItem.From(await _core.CallAsync("emby.seriesPlaybackTarget",
+                new { session.server, session.token, session.user_id, session.device_id, series_id = item.Id }, ct)) : item;
+            ct.ThrowIfCancellationRequested();
+            if (!SpaceCurrent || Nav.Session != session) return;
+            if (target.Id == "") throw new InvalidOperationException("没有可播放的分集");
+            Nav.Push(new PlayerPage(_core, target.Id, target.DisplayTitle, 0));
+        } catch (OperationCanceledException) { }
+        catch (Exception e) { if (!ct.IsCancellationRequested) Toast.Show(LibraryPage.Advice(e)); }
+        finally { _heroPlaying = false; }
     }
 
     /// <summary>自检:把 Hero 翻到第 n 张(1 起)。</summary>
@@ -411,22 +429,12 @@ public sealed class HomePage : PageBase
         });
     }
 
-    /// <summary>
-    /// 「继续观看」= <b>看了一半的</b> + <b>接着看下一集</b>,合并成一条轨道。
-    ///
-    /// <para>按剧去重,<b>看了一半的优先</b>。同一部剧不该出现两张卡 ——
-    /// 「第 3 集看了一半」和「下一集是第 4 集」是同一件事的两种说法。</para>
-    ///
-    /// <para>去重键优先用 <c>series_id</c>(分集),没有就用条目自己的 id(电影)。</para>
-    ///
-    /// <para>两条各自吞错:NextUp 在某些 fork 上没有,不能因此把「看了一半」也弄没。</para>
-    /// </summary>
-    private async Task<ResumeFeed.Result> ResumeAndNextUp(CoreClient core, object s, Action<List<JsonElement>> show)
+    /// <summary>只读取实际续播；缓存仅作展示，失败保留重试入口。</summary>
+    private async Task<ResumeFeed.Result> LoadResume(CoreClient core, object s, Action<List<JsonElement>> show)
     {
         var ct = _ct;
         var oldResume = new List<JsonElement>();
-        var oldNext = new List<JsonElement>();
-        void Preview() => show(oldResume.Concat(oldNext).DistinctBy(it => Str(it, "series_id") is { Length: > 0 } series ? "s:" + series : "i:" + Id(it)).ToList());
+        void Preview() => show(oldResume.DistinctBy(it => Str(it, "series_id") is { Length: > 0 } series ? "s:" + series : "i:" + Id(it)).ToList());
         async Task<List<JsonElement>> Read(string command, List<JsonElement> cached) {
             try {
                 return await Arr(core.CallDisplayAsync(command, With(s, new { limit = 12 }), value => {
@@ -434,8 +442,7 @@ public sealed class HomePage : PageBase
                 }, ct, retainOnFailure: false));
             } catch (CoreException e) when (InvalidatesDisplay(e)) { cached.Clear(); throw; }
         }
-        var result = await ResumeFeed.Load(() => Read("emby.listResume", oldResume),
-            () => Read("emby.listNextUp", oldNext), oldResume, oldNext);
+        var result = await ResumeFeed.Load(() => Read("emby.listResume", oldResume), oldResume);
         ct.ThrowIfCancellationRequested();
         return result;
     }
@@ -481,15 +488,15 @@ public sealed class HomePage : PageBase
     /// <param name="lazy">true = 先只占位,滚到跟前了再真去拉。</param>
     private async Task Track(string title, Func<Task<List<JsonElement>>>? load, bool wide,
         Action<List<JsonElement>>? onItems = null, StackPanel? host = null, string? libraryId = null,
-        bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false, Func<Action<List<JsonElement>>, Task<ResumeFeed.Result>>? resumeLoad = null, string? displayCommand = null, object? displayArgs = null, Func<Action<List<JsonElement>>, Task<List<JsonElement>>>? displayLoader = null)
+        bool lazy = false, bool hideWhenEmpty = false, bool resumeRow = false, bool libraryRow = false, Func<Action<List<JsonElement>>, Task<ResumeFeed.Result>>? resumeLoad = null, string? displayCommand = null, object? displayArgs = null, Func<Action<List<JsonElement>>, Task<List<JsonElement>>>? displayLoader = null)
     {
         /* 占位用**骨架**,不是「加载中…」。
            三个字只有 20px 高,内容一回来这一行从 20px 撑到 280px,
            下面几条轨道全被顶下去 —— 用户正看着的东西会跳走。
            骨架和真卡同尺寸,换上去是「填色」而不是「撑开」。 */
         var box = new StackPanel { Spacing = 10 };
-        Control body = Skeleton.Strip(wide);
-        box.Children.Add(RowHead(title, libraryId));
+        Control body = libraryRow ? new Border { Classes = { "skel" }, Height = 44, CornerRadius = new CornerRadius(6) } : Skeleton.Strip(wide);
+        if (!libraryRow) box.Children.Add(RowHead(title, libraryId));
         box.Children.Add(body);
         if (host is null) AddRow(box);
         else Post(() => host.Children.Add(box));
@@ -520,7 +527,7 @@ public sealed class HomePage : PageBase
         Control Failure(Exception error, List<JsonElement>? kept)
         {
             var panel = new StackPanel { Spacing = 10 };
-            if (kept is { Count: > 0 }) panel.Children.Add(Strip(kept, wide, resumeRow));
+            if (kept is { Count: > 0 }) panel.Children.Add(Strip(kept, wide, resumeRow, libraryRow));
             var why = error is CoreException ce ? ce.Advice : error.Message;
             panel.Children.Add(Dim($"{title}暂未刷新:{why}"));
             var retry = new Button { Classes = { "ghost" }, Content = "重试" };
@@ -539,7 +546,8 @@ public sealed class HomePage : PageBase
                 void Preview(List<JsonElement> old) {
                     if (revision != runRevision || ct.IsCancellationRequested) return;
                     hit = old;
-                    Swap(old.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(old, wide, resumeRow), revision);
+                    if (_heroSession != null) _ = HeroItems(_core!, _heroSession);
+                    Swap(old.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(old, wide, resumeRow, libraryRow), revision);
                 }
                 var result = resumeLoad is null ? null : await resumeLoad(Preview);
                 var items = result?.Items ?? (displayLoader is not null ? await displayLoader(Preview) : displayCommand is null ? await load!() :
@@ -554,12 +562,13 @@ public sealed class HomePage : PageBase
                 }
                 Core.Perf.Log($"轨道「{title}」<- 服务器 {items.Count} 条,{Core.Perf.Ms - t0:0} ms");
                 hit = items;
+                if (_heroSession != null) _ = HeroItems(_core!, _heroSession);
                 onItems?.Invoke(items);
                 // 空态要说清「为什么空」,不是干放一句「暂无数据」(§6.4)
                 // hideWhenEmpty 的轨道例外:它整条消失,连标题都不留 ——
                 // 首页上一条用户没要求过的空轨道,写什么都是噪音。
                 if (items.Count == 0 && hideWhenEmpty) Vanish(revision);
-                else Swap(items.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(items, wide, resumeRow), revision);
+                else Swap(items.Count == 0 ? Dim($"这台服务器上没有「{title}」的内容。") : Strip(items, wide, resumeRow, libraryRow), revision);
             }
             /* 已经用缓存画出内容之后再失败(离线 / 服务器挂了),<b>不要把内容换成一行红字</b> ——
                屏幕上那批旧数据仍然是用户能用的东西,擦掉它换成「加载失败」是纯粹的损失。 */
@@ -608,8 +617,17 @@ public sealed class HomePage : PageBase
     /// 全屏视口变高,一次判成「该拉了」的轨道更多,要造的卡和封面请求成倍涨,
     /// 而多出来的一张都不在屏幕上。间距仍传 12:这一轮没人要求改首页的间距。</para>
     /// </summary>
-    private Control Strip(List<JsonElement> items, bool wide, bool resumeRow)
+    private Control Strip(List<JsonElement> items, bool wide, bool resumeRow, bool libraryRow)
     {
+        if (libraryRow) return Carousel.Rail(items, it => {
+            var name = Str(it, "name");
+            var button = new Button {
+                Content = new TextBlock { Text = name, TextTrimming = TextTrimming.CharacterEllipsis },
+                Height = 44, MaxWidth = 220, Padding = new Thickness(18, 10),
+            };
+            button.Click += (_, _) => Nav.Push(new LibraryGridPage(_core!, _server, Id(it), name));
+            return button;
+        }, 44, out _, gap: 12);
         var shown = items.Take(20).ToList();
         using var _m = Core.Perf.Measure($"排 {shown.Count} 张卡(虚拟化,只造看得见的)");
         /* 轨道里的卡宽必须**跟着窗口缩**。写死 256 的话,400px 宽的窗口上
@@ -638,7 +656,7 @@ public sealed class HomePage : PageBase
     /// </summary>
     private Control RowHead(string title, string? libraryId)
     {
-        var head = H2(title);
+        var head = SectionTitle(title);
         if (libraryId is null || _core is null) return head;
 
         var arrow = new TextBlock

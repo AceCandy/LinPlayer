@@ -94,10 +94,9 @@ object PluginTheme {
 
         val tk = j["tokens"].obj() ?: error("tokens 段缺失或不是对象")
         if (platform == "android_tv") applyTv(tokens(tk["dark"]))
-        else {
-            applyPhone(tokens(tk["dark"]), dark = true)
-            applyPhone(tokens(tk["light"]), dark = false)
-        }
+        // TV 浏览复用手机组件；只更新 TvC 会让共享页面留在官方配色。
+        applyPhone(tokens(tk["dark"]), dark = true)
+        applyPhone(tokens(tk["light"]), dark = false)
         numbers = tokens(tk[if (forcedDark == false) "light" else "dark"])
             .mapNotNull { (k, v) -> v.toDoubleOrNull()?.let { k to it } }.toMap()
         applyRadius()

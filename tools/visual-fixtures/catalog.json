@@ -1,0 +1,433 @@
+{
+  "version": 1,
+  "server_name": "视觉样本库",
+  "filters": {
+    "genres": ["剧情", "冒险"],
+    "years": [2025],
+    "tags": [],
+    "studios": [],
+    "official_ratings": [],
+    "empty": ["officialratings", "studios", "tags"]
+  },
+  "items": [
+    {
+      "id": "visual-1",
+      "name": "远岸来信",
+      "type_": "Movie",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 7200,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [
+        {
+          "id": "person-1",
+          "name": "林舟",
+          "role": "旅人",
+          "type_": "Actor",
+          "has_primary": false
+        },
+        {
+          "id": "person-2",
+          "name": "陈夏",
+          "role": "站长",
+          "type_": "Actor",
+          "has_primary": false
+        }
+      ],
+      "premiere_date": "2025-03-08T00:00:00Z"
+    },
+    {
+      "id": "visual-2",
+      "name": "星河回声",
+      "type_": "Movie",
+      "year": 2024,
+      "rating": 8.4,
+      "runtime_secs": 7200,
+      "resume_secs": 1800,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": []
+    },
+    {
+      "id": "visual-3",
+      "name": "穿过漫长雨季之后我们终于抵达海岸",
+      "type_": "Movie",
+      "year": 2023,
+      "rating": 8.2,
+      "runtime_secs": 7200,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": []
+    },
+    {
+      "id": "visual-4",
+      "name": "无封面测试影片",
+      "type_": "Movie",
+      "year": 2022,
+      "rating": 8.0,
+      "runtime_secs": 7200,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": false,
+      "has_backdrop": false,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": []
+    },
+    {
+      "id": "visual-5",
+      "name": "昨日的群山",
+      "type_": "Movie",
+      "year": 2021,
+      "rating": 7.8,
+      "runtime_secs": 7200,
+      "resume_secs": 0,
+      "played": true,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": []
+    },
+    {
+      "id": "visual-6",
+      "name": "最后一班列车",
+      "type_": "Movie",
+      "year": 2020,
+      "rating": 7.6,
+      "runtime_secs": 7200,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": []
+    }
+  ],
+  "hero": [
+    "visual-1"
+  ],
+  "resume": [
+    "visual-2"
+  ],
+  "latest": [
+    "visual-1",
+    "visual-2",
+    "visual-3",
+    "visual-4",
+    "visual-5",
+    "visual-6"
+  ],
+  "libraries": [
+    {
+      "id": "visual-library",
+      "name": "电影",
+      "type_": "CollectionFolder",
+      "has_primary": true
+    }
+  ],
+  "details": [
+    {
+      "id": "visual-series",
+      "name": "山海之间",
+      "type_": "Series",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 0,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [
+        {
+          "id": "person-1",
+          "name": "林舟",
+          "role": "旅人",
+          "type_": "Actor",
+          "has_primary": false
+        },
+        {
+          "id": "person-2",
+          "name": "陈夏",
+          "role": "站长",
+          "type_": "Actor",
+          "has_primary": false
+        }
+      ],
+      "premiere_date": "2025-03-08T00:00:00Z",
+      "child_count": 1,
+      "art_id": "visual-3"
+    },
+    {
+      "id": "visual-season",
+      "name": "归途",
+      "type_": "Season",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 0,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [],
+      "premiere_date": "2025-03-08T00:00:00Z",
+      "child_count": 3,
+      "art_id": "visual-3",
+      "index_no": 1,
+      "unplayed": 2,
+      "unplayed_count_known": true,
+      "series_id": "visual-series"
+    },
+    {
+      "id": "visual-episode-1",
+      "name": "第1集：远行",
+      "type_": "Episode",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 2700,
+      "resume_secs": 0,
+      "played": true,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [
+        {
+          "id": "person-1",
+          "name": "林舟",
+          "role": "旅人",
+          "type_": "Actor",
+          "has_primary": false
+        },
+        {
+          "id": "person-2",
+          "name": "陈夏",
+          "role": "站长",
+          "type_": "Actor",
+          "has_primary": false
+        }
+      ],
+      "premiere_date": "2025-03-08T00:00:00Z",
+      "child_count": 0,
+      "art_id": "visual-1",
+      "season_id": "visual-season",
+      "series_id": "visual-series",
+      "series_name": "山海之间",
+      "season_no": 1,
+      "episode_no": 1
+    },
+    {
+      "id": "visual-episode-2",
+      "name": "第2集：远行",
+      "type_": "Episode",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 2700,
+      "resume_secs": 600,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [
+        {
+          "id": "person-1",
+          "name": "林舟",
+          "role": "旅人",
+          "type_": "Actor",
+          "has_primary": false
+        },
+        {
+          "id": "person-2",
+          "name": "陈夏",
+          "role": "站长",
+          "type_": "Actor",
+          "has_primary": false
+        }
+      ],
+      "premiere_date": "2025-03-08T00:00:00Z",
+      "child_count": 0,
+      "art_id": "visual-2",
+      "season_id": "visual-season",
+      "series_id": "visual-series",
+      "series_name": "山海之间",
+      "season_no": 1,
+      "episode_no": 2
+    },
+    {
+      "id": "visual-episode-3",
+      "name": "第3集：远行",
+      "type_": "Episode",
+      "year": 2025,
+      "rating": 8.6,
+      "runtime_secs": 2700,
+      "resume_secs": 0,
+      "played": false,
+      "has_primary": true,
+      "has_backdrop": true,
+      "has_logo": false,
+      "is_favorite": false,
+      "genres": [
+        "剧情",
+        "冒险"
+      ],
+      "overview": "一封迟到的来信，让远行的人重新踏上归途。这是用于跨端视觉对照的合成资料，不对应真实影片。",
+      "people": [
+        {
+          "id": "person-1",
+          "name": "林舟",
+          "role": "旅人",
+          "type_": "Actor",
+          "has_primary": false
+        },
+        {
+          "id": "person-2",
+          "name": "陈夏",
+          "role": "站长",
+          "type_": "Actor",
+          "has_primary": false
+        }
+      ],
+      "premiere_date": "2025-03-08T00:00:00Z",
+      "child_count": 0,
+      "art_id": "visual-3",
+      "season_id": "visual-season",
+      "series_id": "visual-series",
+      "series_name": "山海之间",
+      "season_no": 1,
+      "episode_no": 3
+    }
+  ],
+  "seasons": [
+    "visual-season"
+  ],
+  "episodes": [
+    "visual-episode-1",
+    "visual-episode-2",
+    "visual-episode-3"
+  ],
+  "media": [
+    {
+      "id": "visual-version-1",
+      "name": "1080p 标准版",
+      "preferred": true,
+      "container": "mkv",
+      "size_bytes": 4294967296,
+      "bitrate": 8000000,
+      "streams": [
+        {
+          "type_": "Video",
+          "index": 0,
+          "codec": "h264",
+          "width": 1920,
+          "height": 1080,
+          "frame_rate": 24
+        },
+        {
+          "type_": "Audio",
+          "index": 1,
+          "codec": "aac",
+          "language": "jpn",
+          "title": "日语原声",
+          "channels": 2
+        },
+        {
+          "type_": "Subtitle",
+          "index": 2,
+          "codec": "subrip",
+          "language": "chi",
+          "title": "简体中文"
+        }
+      ]
+    },
+    {
+      "id": "visual-version-2",
+      "name": "720p 轻量版",
+      "preferred": false,
+      "container": "mp4",
+      "streams": [
+        {
+          "type_": "Video",
+          "index": 0,
+          "codec": "h264",
+          "width": 1280,
+          "height": 720
+        },
+        {
+          "type_": "Audio",
+          "index": 1,
+          "codec": "aac",
+          "language": "chi",
+          "channels": 2
+        }
+      ]
+    }
+  ]
+}

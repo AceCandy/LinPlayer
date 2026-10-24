@@ -1,5 +1,7 @@
 package xyz.linplayer.app.tv.kit
 
+import androidx.compose.runtime.staticCompositionLocalOf
+
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.MarqueeAnimationMode
 import androidx.compose.foundation.background
@@ -129,8 +131,17 @@ fun Modifier.menuKey(onLongClick: (() -> Unit)?): Modifier =
 
 // ---------------------------------------------------------------- 族 B / C:实体控件
 
+/** 视频叠层独立于浏览主题，不能改写进程级 TvC 导致返回浏览页串色。 */
+val LocalTvVideoControls = staticCompositionLocalOf { false }
+
 @Composable
-private fun solidColors(primary: Boolean, selected: Boolean, fake: Boolean) = ClickableSurfaceDefaults.colors(
+private fun solidColors(primary: Boolean, selected: Boolean, fake: Boolean) = if (LocalTvVideoControls.current) ClickableSurfaceDefaults.colors(
+    containerColor = if (fake) Color.White else Color.Black.copy(alpha = .55f),
+    contentColor = if (fake) Color.Black else Color.White,
+    focusedContainerColor = Color.White, focusedContentColor = Color.Black,
+    pressedContainerColor = Color.White.copy(alpha = .8f), pressedContentColor = Color.Black,
+    disabledContainerColor = Color.Black.copy(alpha = .35f), disabledContentColor = Color.White.copy(alpha = .4f),
+) else ClickableSurfaceDefaults.colors(
     containerColor = when {
         fake -> TvC.focus
         primary -> TvC.acc
@@ -163,8 +174,8 @@ fun TvButton(
         onLongClick = onLongClick,
         enabled = enabled,
         modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f).menuKey(onLongClick)
-            .privateNeonBorder(6.dp, enabled = neon),
-        shape = ClickableSurfaceDefaults.shape(TvR.sm),
+            .privateNeonBorder(if (LocalTvVideoControls.current) t.controlH / 2 else 6.dp, enabled = neon),
+        shape = ClickableSurfaceDefaults.shape(if (LocalTvVideoControls.current) TvR.pill else TvR.sm),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f, pressedScale = 0.98f),
         colors = solidColors(primary, false, fake),
     ) {
@@ -187,7 +198,7 @@ fun TvIconButton(
     Surface(
         onClick = onClick,
         modifier = modifier.size(size).initialFocus(focused).fakeScale(fake, 1.08f),
-        shape = ClickableSurfaceDefaults.shape(TvR.sm),
+        shape = ClickableSurfaceDefaults.shape(if (LocalTvVideoControls.current) TvR.pill else TvR.sm),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.08f, pressedScale = 0.96f),
         colors = solidColors(primary, false, fake),
     ) {
@@ -520,6 +531,8 @@ fun ProgressBar(
     preview: Float? = null, previewLabel: String = "",
     previewThumb: (@Composable BoxScope.() -> Unit)? = null,
 ) {
+    val onVideo = LocalTvVideoControls.current
+    val ink = if (onVideo) Color.White else TvC.fg
     val barH = if (focused) 7.dp else 4.dp
     val knob = if (focused) 20.dp else 13.dp
     val tall = preview != null && previewThumb != null
@@ -538,12 +551,12 @@ fun ProgressBar(
             }
             chapters.forEach { c ->
                 Box(Modifier.align(Alignment.CenterStart).offset(x = width * c).width(2.dp).height(barH + 4.dp)
-                    .background(TvC.fg.copy(alpha = .55f)))
+                    .background(ink.copy(alpha = .55f)))
             }
             Box(
                 Modifier.align(Alignment.CenterStart).offset(x = width * played - knob / 2).size(knob)
                     .then(if (focused) Modifier.border(3.dp, TvC.bg, TvR.pill) else Modifier)
-                    .clip(TvR.pill).background(TvC.fg),
+                    .clip(TvR.pill).background(ink),
             )
             if (preview != null) Box(
                 Modifier.align(Alignment.CenterStart).offset(x = width * preview - 1.dp).width(2.dp).height(18.dp).background(TvC.focus),

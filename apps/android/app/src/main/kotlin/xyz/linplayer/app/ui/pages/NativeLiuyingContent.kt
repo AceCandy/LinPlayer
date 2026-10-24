@@ -93,8 +93,8 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
     val ticket = playbackRevision
     val latestSession by rememberUpdatedState(session)
     val latestPrivateSpace by rememberUpdatedState(privateSpace)
-    LaunchedEffect(tv, ticket, loading) {
-        if (tv && current != null && !loading && expanded) {
+    LaunchedEffect(tv, ticket, loading, favoritesOpen) {
+        if (tv && current != null && !loading && expanded && !favoritesOpen) {
             withFrameNanos { }
             runCatching { nextFocus.requestFocus() }
         }
@@ -263,6 +263,8 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
                                 m = Modifier.fillMaxWidth().testTag("liuying.favorite")) }
                             item { LpButton(if (favorites) "只看收藏" else "全部作品", { favorites = !favorites; reset() },
                                 kind = BtnKind.Ghost, enabled = capabilityReady, m = Modifier.fillMaxWidth()) }
+                            item { LpButton("收藏列表", { favoritesOpen = true }, kind = BtnKind.Ghost,
+                                enabled = capabilityReady, m = Modifier.fillMaxWidth().testTag("liuying.favorites")) }
                             if (feed == "normal" && tab == "dance" && capabilityReady) {
                                 item { LpButton("全部标签", { channel = ""; exposure = ""; reset() }, kind = BtnKind.Ghost) }
                                 for ((kind, title) in listOf("channel" to "频道", "exposure" to "衣着")) {
@@ -296,6 +298,11 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
                         Row(horizontalArrangement = Arrangement.spacedBy(Sp.x8), verticalAlignment = Alignment.CenterVertically) {
                             LpButton(if (playback.paused) "播放" else "暂停", playback.togglePause, kind = BtnKind.Ghost, enabled = playback.ready)
                             LpButton(if (playback.muted) "开声音" else "静音", playback.toggleMute, kind = BtnKind.Ghost, enabled = playback.ready)
+                            LpButton("${playback.speed}x", {
+                                val speeds = listOf(.5, .75, 1.0, 1.25, 1.5, 2.0, 3.0, 4.0)
+                                playback.setSpeed(speeds.firstOrNull { it > playback.speed } ?: speeds.first())
+                            }, kind = BtnKind.Ghost, enabled = playback.ready && !playback.speedBusy,
+                                m = Modifier.testTag("liuying.speed"))
                             Text("${playback.position.toInt()} / ${playback.duration.toInt()} 秒", color = c.fg2, style = LpText.caption)
                         }
                     }
@@ -342,10 +349,12 @@ internal fun NativeLiuyingContent(onExit: () -> Unit, tv: Boolean) {
             { move(-1) }, { move(1) }, ::selectLabel,
             { favorites = !favorites; reset() }, { channel = ""; exposure = ""; favorites = false; reset() },
             { filtersOpen = false })
-        if (!tv && favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }) { selectedTab, page, selectedIndex ->
-            tab = selectedTab; channel = ""; exposure = ""; favorites = true
-            previousWindow = null; selectedPage = page to selectedIndex
-            requestedSeed = page.seed; requestedOffset = page.offset; requestLast = false
+        if (favoritesOpen) PhoneLiuyingFavorites(feed, tab, { favoritesOpen = false }) { selectedTab, page, selectedIndex ->
+            tab = selectedTab; channel = ""; exposure = ""; favorites = false; autoAdvance = false
+            // 收藏点播只接管选中一条；下一条回到新的随机轮次。
+            val selected = LiuYingPageWindow(java.util.UUID.randomUUID().toString(), 0, listOf(page.rows[selectedIndex]), false)
+            previousWindow = null; selectedPage = selected to 0
+            requestedSeed = selected.seed; requestedOffset = 0; requestLast = false
             rows = emptyList(); failure = null; loading = true; playbackRevision++; revision++
             favoritesOpen = false
         }

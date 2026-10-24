@@ -9,6 +9,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import xyz.linplayer.app.ui.theme.LpColors
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.TextUnit
@@ -23,40 +25,44 @@ import androidx.compose.ui.unit.sp
 /** §2.1。TV 上**没有半透明 surface**:压在封面和视频上的东西要么全透明,要么不透明块。 */
 object TvC {
     internal var privateMode by mutableStateOf(false)
+    internal var sharedColors by mutableStateOf<LpColors?>(null)
     var bg = Color(0xFF100E14)
-        get() = if (privateMode) Color(0xFF21152D) else field
+        get() = sharedColors?.bg ?: if (privateMode) Color(0xFF21152D) else field
     var rail = Color(0xFF0A090D)
-        get() = if (privateMode) Color(0xFF190F23) else field
+        get() = sharedColors?.bg ?: if (privateMode) Color(0xFF190F23) else field
     var surface1 = Color(0xFF18161D)
-        get() = if (privateMode) Color(0xFF2C1E3B) else field
+        get() = sharedColors?.let { it.s1.compositeOver(it.bg) } ?: if (privateMode) Color(0xFF2C1E3B) else field
     var surface2 = Color(0xFF211E28)
-        get() = if (privateMode) Color(0xFF382749) else field
+        get() = sharedColors?.let { it.s2.compositeOver(it.bg) } ?: if (privateMode) Color(0xFF382749) else field
     var surface3 = Color(0xFF2C2834)
-        get() = if (privateMode) Color(0xFF443156) else field
+        get() = sharedColors?.let { it.s3.compositeOver(it.bg) } ?: if (privateMode) Color(0xFF443156) else field
     var line = Color(0xFF2E2A36)
-        get() = if (privateMode) Color(0xFF604873) else field
+        get() = sharedColors?.line2 ?: if (privateMode) Color(0xFF604873) else field
     var fg = Color(0xFFF3EFF8)
-        get() = if (privateMode) Color(0xFFFAF3FF) else field
+        get() = sharedColors?.fg ?: if (privateMode) Color(0xFFFAF3FF) else field
     var fg2 = Color(0xFF9B93AE)
-        get() = if (privateMode) Color(0xFFD8C5E8) else field
+        get() = sharedColors?.fg2 ?: if (privateMode) Color(0xFFD8C5E8) else field
     var fg3 = Color(0xFF6E6880)
-        get() = if (privateMode) Color(0xFFC1AFCF) else field
+        get() = sharedColors?.fg3 ?: if (privateMode) Color(0xFFC1AFCF) else field
     var focus = fg
-        get() = if (privateMode) Color(0xFFFAF3FF) else field
+        get() = sharedColors?.fg ?: if (privateMode) Color(0xFFFAF3FF) else field
     var onFocus = Color(0xFF16131B)
-        get() = if (privateMode) Color(0xFF2D163E) else field
+        get() = sharedColors?.bg ?: if (privateMode) Color(0xFF2D163E) else field
     var acc = Color(0xFFF5A524)
-        get() = if (privateMode) Color(0xFFDEB7FF) else field
+        get() = sharedColors?.acc ?: if (privateMode) Color(0xFFDEB7FF) else field
     var accDim = Color(0x2EF5A524)
-        get() = if (privateMode) Color(0x2EDEB7FF) else field
+        get() = sharedColors?.accDim ?: if (privateMode) Color(0x2EDEB7FF) else field
     var onAcc = Color(0xFF20160A)
-        get() = if (privateMode) Color(0xFF2D163E) else field
+        get() = sharedColors?.accFg ?: if (privateMode) Color(0xFF2D163E) else field
     var ok = Color(0xFF5CD6A0)
+        get() = sharedColors?.ok ?: field
     // 与 acc 分开:「可能匹配」黄标和「当前」琥珀字会出现在同一张版本卡上
     var warn = Color(0xFFF5C04A)
+        get() = sharedColors?.takeUnless { it.isDark }?.warn ?: field
     var bad = Color(0xFFFF6B5E)
+        get() = sharedColors?.bad ?: field
     var scrim = Color(0x9E100E14)
-        get() = if (privateMode) Color(0xB321152D) else field
+        get() = sharedColors?.scrim ?: if (privateMode) Color(0xB321152D) else field
 }
 
 /** §1.2 字阶两档。控件高度跟着字阶走,封面尺寸不跟。 */

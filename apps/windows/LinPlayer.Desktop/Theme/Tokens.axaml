@@ -1,51 +1,44 @@
 <ResourceDictionary xmlns="https://github.com/avaloniaui"
                     xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
-  <!--
-    设计 token —— **值逐个照抄 `git show rust-final:ui/shared/tokens.css`**(UI_PC §1.1)。
-    那份是被用户调过多轮的成品,别在这里「顺手调好看一点」。
-
-    设计语言:影院沉浸式 —— 分层表面 + 极细发丝线 + 三级墨色 + 单一强调蓝。
-    两套主题:沉浸深色(默认)+ 米黄护眼暖纸 —— 浅色**不是纯白**,
-    墨色带暖偏**不是纯黑**。
-  -->
+  <!-- 普通主题与手机共享语义色；桌面弹层表面使用叠加在背景后的实色，避免透出背后内容。 -->
 
   <ResourceDictionary.ThemeDictionaries>
     <ResourceDictionary x:Key="Dark">
-      <Color x:Key="BgColor">#0c0f14</Color>
-      <Color x:Key="PanelColor">#141922</Color>
-      <Color x:Key="PanelAltColor">#1b212c</Color>
-      <Color x:Key="LineColor">#252c38</Color>
-      <Color x:Key="LineStrongColor">#323b4a</Color>
-      <Color x:Key="InkColor">#e8ebf1</Color>
-      <Color x:Key="Ink2Color">#9aa4b4</Color>
-      <Color x:Key="Ink3Color">#6b7688</Color>
-      <Color x:Key="AccentColor">#5b8def</Color>
-      <Color x:Key="AccentInkColor">#08101f</Color>
-      <Color x:Key="AccentSoftColor">#295b8def</Color>
-      <Color x:Key="OkColor">#4caf7d</Color>
-      <Color x:Key="WarnColor">#e0a95b</Color>
-      <Color x:Key="DangerColor">#e06c6c</Color>
+      <Color x:Key="BgColor">#0D0C12</Color>
+      <Color x:Key="PanelColor">#1A191F</Color>
+      <Color x:Key="PanelAltColor">#26252A</Color>
+      <Color x:Key="LineColor">#12FFFFFF</Color>
+      <Color x:Key="LineStrongColor">#24FFFFFF</Color>
+      <Color x:Key="InkColor">#F5F5F7</Color>
+      <Color x:Key="Ink2Color">#9996A8</Color>
+      <Color x:Key="Ink3Color">#6E6880</Color>
+      <Color x:Key="AccentColor">#F4AD39</Color>
+      <Color x:Key="AccentInkColor">#20160A</Color>
+      <Color x:Key="AccentSoftColor">#2EF4AD39</Color>
+      <Color x:Key="OkColor">#5CD6A0</Color>
+      <Color x:Key="WarnColor">#F5A524</Color>
+      <Color x:Key="DangerColor">#FF6B5E</Color>
       <Color x:Key="DangerBgColor">#4a1d28</Color>
       <Color x:Key="DangerInkColor">#ffd9de</Color>
-      <Color x:Key="Medal1Color">#e0a95b</Color>
+      <Color x:Key="Medal1Color">#F5A524</Color>
       <Color x:Key="Medal2Color">#c9cfda</Color>
       <Color x:Key="Medal3Color">#c6803f</Color>
     </ResourceDictionary>
     <ResourceDictionary x:Key="Light">
-      <Color x:Key="BgColor">#f1ece2</Color>
-      <Color x:Key="PanelColor">#fbf8f1</Color>
-      <Color x:Key="PanelAltColor">#f5f0e6</Color>
-      <Color x:Key="LineColor">#e4dccc</Color>
-      <Color x:Key="LineStrongColor">#d6ccb6</Color>
-      <Color x:Key="InkColor">#2a2622</Color>
-      <Color x:Key="Ink2Color">#6e6559</Color>
-      <Color x:Key="Ink3Color">#9c9284</Color>
-      <Color x:Key="AccentColor">#3f73d6</Color>
-      <Color x:Key="AccentInkColor">#ffffff</Color>
-      <Color x:Key="AccentSoftColor">#213f73d6</Color>
-      <Color x:Key="OkColor">#2f8f5f</Color>
-      <Color x:Key="WarnColor">#c98a2e</Color>
-      <Color x:Key="DangerColor">#c95555</Color>
+      <Color x:Key="BgColor">#FAF7FC</Color>
+      <Color x:Key="PanelColor">#EFECF1</Color>
+      <Color x:Key="PanelAltColor">#E7E5E9</Color>
+      <Color x:Key="LineColor">#0F000000</Color>
+      <Color x:Key="LineStrongColor">#1F000000</Color>
+      <Color x:Key="InkColor">#1A1622</Color>
+      <Color x:Key="Ink2Color">#514A60</Color>
+      <Color x:Key="Ink3Color">#615A70</Color>
+      <Color x:Key="AccentColor">#8A5A00</Color>
+      <Color x:Key="AccentInkColor">#FFFBF2</Color>
+      <Color x:Key="AccentSoftColor">#1F8A5A00</Color>
+      <Color x:Key="OkColor">#1F7A55</Color>
+      <Color x:Key="WarnColor">#8A5A00</Color>
+      <Color x:Key="DangerColor">#C7554E</Color>
       <Color x:Key="DangerBgColor">#f7dfe0</Color>
       <Color x:Key="DangerInkColor">#6e2430</Color>
       <Color x:Key="Medal1Color">#b8862e</Color>

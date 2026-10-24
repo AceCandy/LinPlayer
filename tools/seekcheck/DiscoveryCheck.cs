@@ -34,7 +34,10 @@ internal static class DiscoveryCheck
                     requests.Enqueue(c.Request.RawUrl!);
                     tokens.Enqueue(c.Request.Headers["X-Emby-Token"] ?? "");
                     object response;
-                    if (path.EndsWith("capabilities")) {
+                    if (path.EndsWith("AuthenticateByName")) {
+                        response = new { AccessToken = path.StartsWith("/primary/") ? "primary-fixture" : "fixture",
+                            User = new { Id = "fixture", Name = "fixture" } };
+                    } else if (path.EndsWith("capabilities")) {
                         c.Response.StatusCode = fail ? 403 : 200;
                         response = new { version = "1", rankings = true, calendar = new { enabled = true }, library_matching = new { sources = new[] { "tmdb", "bangumi" } } };
                     } else if (path.EndsWith("rankings")) response = new { items = new[] { new { id = "hot", name = "热门", source = "tmdb", enabled = true } } };
@@ -42,7 +45,10 @@ internal static class DiscoveryCheck
                         c.Response.StatusCode = 500; response = new { error = "临时失败" };
                     }
                     else if (path.EndsWith("/hot/items")) response = new { page_size = 20, items = c.Request.QueryString["page"] == "2" ? Array.Empty<object>() : new[] { Entry("榜单作品", "tmdb", 101) } };
-                    else if (path.EndsWith("calendar")) response = new { items = new[] { Entry("周历作品", "bangumi", 42) } };
+                    else if (path.EndsWith("calendar")) {
+                        c.Response.StatusCode = fail ? 403 : 200;
+                        response = new { items = new[] { Entry("周历作品", "bangumi", 42) } };
+                    }
                     else if (path.EndsWith("library/matches")) {
                         matches.Enqueue(await new StreamReader(c.Request.InputStream).ReadToEndAsync());
                         response = new { items = new[] { new { key = "item", matches = new[] { new { item_id = "library-item", item_type = "Series" } } } } };
@@ -59,10 +65,12 @@ internal static class DiscoveryCheck
         var window = new Window { Width = 1100, Height = 800 };
         try {
             Nav.Session = new Sess(address.TrimEnd('/'), "fixture", "fixture", "fixture");
+            RefreshCapabilities();
             Nav.Host = p => window.Content = p;
             var ranking = new RankingPage(core);
             Nav.Root(ranking); window.Show();
-            Wait(() => Text(ranking, "榜单作品"), "榜单未从扩展接口显示");
+            try { Wait(() => Text(ranking, "榜单作品"), "榜单未从扩展接口显示"); }
+            catch { throw new Exception("榜单未从扩展接口显示: " + string.Join(" / ", ranking.GetVisualDescendants().OfType<TextBlock>().Select(t => t.Text))); }
             pageFailure = true;
             Click(ranking, "下一页");
             Wait(() => ranking.GetVisualDescendants().OfType<Button>().Any(b => b.Content as string == "重试第 2 页" && b.IsEnabled), "榜单失败未提供目标页重试");
@@ -88,19 +96,41 @@ internal static class DiscoveryCheck
             Wait(() => Nav.Current is DetailPage && matches.Count == 2, "日历点击未精确匹配");
             window.Content = null;
             Nav.Session = new Sess(address.TrimEnd('/'), "other-fixture", "other-user", "fixture");
+            RefreshCapabilities();
             window.Content = calendar;
             Wait(() => tokens.Contains("other-fixture") && Text(calendar, "周历作品"), "重新挂载未采用当前账号");
             fail = true;
             var denied = new CalendarPage(core); Nav.Root(denied);
-            Wait(() => denied.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text?.Contains("当前账号无权使用榜单与日历") == true), "权限错误未明确展示");
+            Wait(() => denied.GetVisualDescendants().OfType<TextBlock>().Any(t => t.Text?.Contains("当前账号无权使用这项扩展") == true), "权限错误未明确展示");
             Check(!Text(denied, "周历作品"), "权限错误保留旧快照");
             Check(!requests.Any(p => p.Contains("SearchTerm")), "发现页仍按标题搜索");
+            fail = false;
+            var primary = address + "primary";
+            Await(core.CallAsync("emby.login", new { server = primary, username = "fixture", password = "fixture", device_id = "fixture" }));
+            Await(core.CallAsync("emby.login", new { server = address, username = "fixture", password = "fixture", device_id = "fixture" }));
+            Await(core.CallAsync("account.setAggregatePrimaryServer", new { server_id = primary }));
+            Nav.Session = Sess.From(Await(core.CallAsync("emby.currentSession", null)));
+            RefreshCapabilities(primary);
+            var primaryRanking = new RankingPage(core); Nav.Root(primaryRanking);
+            Wait(() => Text(primaryRanking, "榜单作品"), "主服榜单未显示");
+            Check(requests.Any(p => p.StartsWith("/primary/") && p.Contains("rankings")) && tokens.Contains("primary-fixture"),
+                "发现页没有使用聚合主服及其凭据");
+            primaryRanking.GetVisualDescendants().OfType<Button>().First(b => b.Content is PodiumCard)
+                .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Wait(() => Nav.Current is DetailPage && Nav.Session?.server == primary, "主服匹配后未切换会话并进入详情");
             Console.WriteLine("发现页：真实HTTP/FFI、榜单分页、周历、实时精确匹配和权限撤销通过");
         } finally {
             window.Content = null; window.Close(); Nav.Host = previousHost;
             Nav.Root(new StackPanel()); Nav.Session = previous;
             server.Stop(); worker.GetAwaiter().GetResult(); Dispatcher.UIThread.RunJobs();
         }
+        void RefreshCapabilities(string source = "") {
+            var s = Nav.Session!;
+            Await(core.CallAsync("emby.extCapabilities", new { s.server, s.token, s.user_id, s.device_id, server_id = source, refresh = true }));
+        }
+    }
+    private static JsonElement Await(Task<JsonElement> task) {
+        Wait(() => task.IsCompleted, "核心命令未完成"); return task.GetAwaiter().GetResult();
     }
     private static object Entry(string title, string source, int id) => new {
         source, title, media_type = "tv", tmdb_id = source == "tmdb" ? id : 0, bangumi_id = source == "bangumi" ? id : 0,

@@ -82,12 +82,14 @@ Console.WriteLine("跳转状态：累加/合并、边界、回执/缓冲/代数�
 // 真页面和控件入口，命令回执可挂起；不把Headless验证当作实际mpv视频呈现。
 if (args.Contains("--liuying-native")) { Environment.ExitCode = NativeWebCheck.Run(); return; }
 AppBuilder.Configure<CheckApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
+if (args.Contains("--theme-only")) { ThemeCheck.Run(); return; }
 if (args.Contains("--scroll-anchor-only")) { ScrollAnchorCheck.Run(); return; }
 if (args.Contains("--server-menu-only")) { ServerMenuCheck.Run(); return; }
 var root = Path.Combine(Path.GetTempPath(), "linplayer-seek-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 try {
     using var core = new CoreClient(Path.GetFullPath(args[0]), root, "test");
+    if (args.Contains("--phone-parity-only")) { PhoneParityCheck.Run(core); return; }
     if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
     if (args.Contains("--user-state-only")) { UserStateCheck.Run(core); return; }
     if (args.Contains("--discovery-only")) { DiscoveryCheck.Run(core); return; }

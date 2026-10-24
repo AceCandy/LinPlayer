@@ -49,6 +49,7 @@ import SwiftUI
     private var subtitlePreferenceWork: Task<Void, Never>?
     private var trackWork: Task<Void, Never>?
     private var closeWork: Task<Void, Never>?
+    @Published private var speedWork: Task<Void, Never>?
     private var suspended = false
     private var resolved = false
     private var loadingEngine = false
@@ -248,9 +249,23 @@ import SwiftUI
         }
     }
 
-    func setSpeed(_ value: Float) {
-        guard !closing, !loading, let engine, value > 0, value <= engine.maxSupportedRate else { return }
-        speed = value; engine.setRate(value)
+    var canSetSpeed: Bool { !closing && !loading && !changingTrack && speedWork == nil && engine != nil }
+
+    func setSpeed(_ value: Float) -> Bool {
+        guard canSetSpeed, let engine,
+              value.isFinite, value >= 0.25, value <= min(4, engine.maxSupportedRate) else { return false }
+        speedWork = Task {
+            defer { speedWork = nil }
+            do {
+                _ = try await api.request("player.setPlaybackPrefs", ["default_speed": .number(Double(value))])
+                guard !closing else { return }
+                speed = value; engine.setRate(value)
+                if message == "倍率保存失败，请重试。" { message = nil }
+            } catch is CancellationError {} catch {
+                if !closing { message = "倍率保存失败，请重试。" }
+            }
+        }
+        return true
     }
 
     func setPictureMode(_ mode: String) {
@@ -410,6 +425,7 @@ import SwiftUI
         reportWork?.cancel()
         closeWork = Task {
             await startWork?.value
+            await speedWork?.value
             let pos = max(lastPosition, engine?.currentTime ?? 0)
             engine?.stop(); subtitleText = ""
             await reportWork?.value

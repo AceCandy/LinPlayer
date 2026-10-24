@@ -83,3 +83,34 @@ AppState在手机与TV启用请求分类（普通false、隐私true），未启�
 - `emby.heroCandidates(items)`纯计算候选ID，统一排除已看/续播及所属剧、优先整剧并按作品去重。首页合并当前已加载栏目及 `emby.cachedItems`，不扫描全库；图片缓存探测、顺序保留、轮播计时及焦点暂停归宿主。
 - `player.selectTrackPreferences(tracks, prefs?)`复用mpv的选轨偏好决策，返回sub/audio；空串保持现状，sub=no关闭，其余为输入轨ID。Media3/Aether负责标准化可用轨表并实际切轨；异步结果须验证当前目标、轨表和手选优先，不能覆盖后来的手选。
 - tvOS通用播放偏好通过player.getPlaybackPrefs/setPlaybackPrefs保存，音轨/字幕/版本正则通过player.setTrackRegexes统一校验。片头片尾使用player.chapterInfo，失败可独立重试；自动跳过仅前台播放时执行，手动跳过沿用seek屏障。真实焦点、滚动和媒体选轨仍需设备验收。
+
+## 手机基准能力对齐（2026-10-24）
+
+### 1. 范围
+Android TV、共用 Windows/Linux 桌面外壳及 tvOS 补齐已有手机能力；不引入 tvOS 流影、插件或新的字幕格式。平台控制方式保留，能力一致不意味着复制手机尺寸。
+
+### 2. 入口
+TV 换核统一调用 `PlayerController.switchEngine`；`speed(value, isCurrent)` 返回是否确实提交内核操作。普通显式倍率写 `player.setPlaybackPrefs(default_speed)`，原生流影写 `liuying_speed` 且起播携带 `speed_scope=liuying`；临时长按倍率不保存。倍率是全局普通/流影两套偏好，不是每账号偏好。
+
+### 3. 数据契约
+桌面详情字幕预选携带 `InitialSubtitle(SourceId, Index, External, Title, Language, Codec)`：内封匹配 `ff_index`，外挂使用真实轨表的身份与格式唯一匹配。发现目录、列表与精确匹配贯通聚合主服 `server_id`，匹配后核对活动账号及会话再进详情。媒体容量写 `prefs.setPrefetchSettings({settings:{media_cache_bytes}})`，0关闭，非零64MiB至4GiB，不能误写通用prefs接口。
+
+### 4. 校验与错误
+TV 换核保留真实版本、精确位置、暂停、倍率及轨道状态，不能当成新目标重播。被代次/离页屏障跳过的倍率操作不能被当作已应用；保存失败反馈并尽力恢复。字幕版本不符不应用，轨表晚到可重试，歧义不猜选，手选优先，停止等待在途控制。tvOS季统计仅接受同代次完整实时分集、总数吻合、ID唯一且已看状态已知的结果；部分、失败、异季和旧结果不得校准。
+
+TV倍率写入归宿主作用域；同页换片/切核等待写入收尾，离页先停本地输出再把写入收尾纳入进程停止屏障。新播放器读取偏好也须等待该屏障，不能只在起播前等待、却提前缓存旧倍率。`TvLiuyingTest.nextVideoWaitsForPendingFeedSpeedSave` 挂起保存，断言下一条既不起播也不读取旧偏好，释放后使用新倍率。
+
+### 5. 正常与边界场景
+原生流影收藏分页使用独立seed/offset，清频道与衣着筛选；选择交接准确单条并切循环当前，下一条回新随机轮次，不把收藏页当队列。桌面首页只展示实际Resume；Hero从展示候选池选择，缓存只提供预览，未命中不能丢弃候选，取图仍由既有轮播按需执行，剧集播放实时解析目标。tvOS历史已看使用服务端 `emby.listWatched`，观看历史使用当前服 `emby.watchHistoryList(current_only=true)`；隐私空间不显示或请求本机历史。季封面复用Season→Series图像回退，季/单集不提供收藏菜单。
+
+tvOS倍率可操作性由 `canSetSpeed` 统一提供，保存任务变化必须通知界面；入口与选项在保存、加载、切轨或关闭时禁用。`setSpeed` 返回是否接受请求，仅接受后关闭面板，不能把拒绝操作显示成已完成。
+
+倍率保存重试成功后仅清除自身失败提示，不覆盖其他播放错误；错误解除时重新启动控制栏收起计时，不能依赖保存前可能已结束的五秒计时。失败恢复检查须同时覆盖状态清理与界面后续行为。
+
+### 6. 回归入口
+`TvPhoneParityTest`、`TvLiuyingTest`、`TvTrackTimingTest`、`PlayerControllerTest`；桌面 `tools/homecheck`、`tools/seekcheck --phone-parity-only/--discovery-only/--liuying-only`；Swift `CoreClientCheck.apiContracts` 的完整/部分/重复/未知分集、季图与历史DTO断言。Compose固定测试时钟时用定向 `performScrollToIndex`，不能用等待动画结束的滚动造成假超时；真实遥控仍另验。本轮Swift检查因本机缺Apple工具链未执行，不把新增断言记为通过。
+
+桌面冷图片缓存回归必须通过真实HomePage筛选链路，不能只直接调用Hero.Show；`PhoneParityCheck.ColdHome`覆盖无图缓存仍展示候选、缓存探测不回源与可见轮播按需请求。`check-tvos-speed-controls.py`只检查正式倍率按钮接线并接入UI门禁，不替代Swift编译或挂起保存的运行时测试。
+
+### 7. 禁止替代
+不能用本机历史冒充服务端已看、用Emby流序号选择外挂字幕、把收藏整页作为随机播放队列，或在成功命令返回时重复发送核心已提供的用户状态刷新。正确做法是复用各自契约、绑定实际版本/来源/代次、只按核心事件刷新并保留失败反馈。

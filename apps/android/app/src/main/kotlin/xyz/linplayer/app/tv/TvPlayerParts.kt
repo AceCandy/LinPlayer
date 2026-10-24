@@ -1,5 +1,8 @@
 package xyz.linplayer.app.tv
 
+import androidx.compose.runtime.CompositionLocalProvider
+import xyz.linplayer.app.tv.kit.LocalTvVideoControls
+
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.animation.core.infiniteRepeatable
@@ -109,6 +112,7 @@ internal class PlayerCtl(
     val pickTrack: suspend (String, String) -> Unit,
     val pickExoTrack: ((ExoPlayer, String, String) -> Unit)? = null,
     val observeTracks: (List<JsonObject>) -> Unit = {},
+    val switchEngine: () -> Unit,
     val switchTo: (TvRoute.Player) -> Unit,
 )
 
@@ -117,8 +121,8 @@ private val BarW = 864.dp
 
 @Composable
 private fun TimeChip(text: String) {
-    Box(Modifier.clip(TvR.sm).background(TvC.surface2).padding(horizontal = TvSp.x6, vertical = TvSp.x2)) {
-        TvText(text, tvType.meta, TvC.fg, mono = true)
+    Box(Modifier.clip(TvR.sm).background(Color.Black.copy(alpha = .55f)).padding(horizontal = TvSp.x6, vertical = TvSp.x2)) {
+        TvText(text, tvType.meta, Color.White, mono = true)
     }
 }
 
@@ -137,7 +141,7 @@ internal fun Curtain(ui: PlayerUi) {
             }
             speedText(ui.netSpeed)?.let {
                 Spacer(Modifier.height(TvSp.x8))
-                TvText(it, tvType.meta, TvC.fg2, mono = true)
+                TvText(it, tvType.meta, Color.White.copy(alpha = .8f), mono = true)
             }
         }
     }
@@ -147,7 +151,7 @@ internal fun Curtain(ui: PlayerUi) {
 @Composable
 internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, onSwitchEngine: (() -> Unit)?, onLines: (() -> Unit)?) {
     val labels = listOfNotNull("重试", onSwitchEngine?.let { "换内核重播" }, onLines?.let { "线路管理" })
-    Box(Modifier.fillMaxSize().background(Color.Black)) {
+    Box(Modifier.fillMaxSize().background(TvC.bg)) {
         FullState(LpIcons.info, "无法播放这个文件", sub = if (retried) "已自动重试 1 次仍然失败" else null, detail = reason,
             buttons = labels, tone = TvC.bad, onButton = { i ->
             when (labels[i]) { "重试" -> onRetry(); "换内核重播" -> onSwitchEngine?.invoke(); else -> onLines?.invoke() }
@@ -160,16 +164,16 @@ private fun BoxScope.TitleBlock(ui: PlayerUi) {
     val t = tvType
     // 标题栏本身全透明,只有这一块自带不透明底(§2.2)
     Column(Modifier.align(Alignment.TopStart).padding(start = TvDim.safeH, top = TvDim.safeV).widthIn(max = 560.dp)
-        .clip(TvR.md).background(TvC.surface2).padding(horizontal = TvSp.x12, vertical = TvSp.x8)) {
+        .clip(TvR.md).background(Color.Black.copy(alpha = .55f)).padding(horizontal = TvSp.x12, vertical = TvSp.x8)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            TvText(ui.title, t.body, TvC.fg, Modifier.weight(1f, fill = false), weight = TvW.semi)
-            speedText(ui.netSpeed)?.let { Spacer(Modifier.width(TvSp.x8)); TvText(it, t.meta, TvC.fg2, mono = true) }
+            TvText(ui.title, t.body, Color.White, Modifier.weight(1f, fill = false), weight = TvW.semi)
+            speedText(ui.netSpeed)?.let { Spacer(Modifier.width(TvSp.x8)); TvText(it, t.meta, Color.White.copy(alpha = .8f), mono = true) }
         }
         // 第二行带上正在用的字幕:OSD 收着时这是唯一看得出字幕挂没挂上的地方
         val sub = ui.tracks.firstOrNull { it.str("kind") == "sub" && it.bool("selected") }
             ?.let { it.str("title")?.takeIf { s -> s.isNotBlank() } ?: xyz.linplayer.app.ui.pages.langCn(it.str("lang")) }
         listOfNotNull(ui.spec.takeIf { it.isNotBlank() }, sub).joinToString(" · ").takeIf { it.isNotEmpty() }
-            ?.let { TvText(it, t.meta, TvC.fg2) }
+            ?.let { TvText(it, t.meta, Color.White.copy(alpha = .8f)) }
     }
 }
 
@@ -183,52 +187,54 @@ internal fun BoxScope.Osd(
     seekPosition: Double = ui.position,
 ) {
     val mem = LocalFocusMemory.current
-    TitleBlock(ui)
-    ui.skipWhat?.let { what ->
-        Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
-            TvButton(if (what == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, modifier = Modifier.memo("osd.skip"), onClick = onSkip)
-        }
-    }
-    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = TvDim.safeH, end = TvDim.safeH, bottom = TvDim.safeV)) {
-        key(target, engine) {
-            SeekBar(ui, onSeek, seekPosition, upTo = { if (ui.skipWhat != null) mem.requesters["osd.skip"] else null })
-        }
-        Spacer(Modifier.height(TvSp.x4))
-        Row {
-            // 左边写当前位置:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
-            TimeChip(fmtTime(ui.position))
-            Spacer(Modifier.weight(1f))
-            TimeChip("-" + fmtTime((ui.duration - ui.position).coerceAtLeast(0.0)))
-        }
-        Spacer(Modifier.height(TvSp.x12))
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            val step = UiPrefs.tvSeekStep.value
-            Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8), verticalAlignment = Alignment.CenterVertically) {
-                // 上一集 / 下一集 / 选集**只有分集才画**(电影画了选集 = 永远空表)
-                if (ui.hasEpisodes) TvIconButton(LpIcons.skipPrev, 36.dp, modifier = Modifier.memo("osd.prev"), onClick = onPrev)
-                TvIconButton(LpIcons.rewind, 36.dp, modifier = Modifier.memo("osd.rew"), onClick = { onSeekBy(-step.toDouble()) })
-                TvIconButton(if (ui.paused) LpIcons.play else LpIcons.pause, 44.dp, primary = true,
-                    modifier = Modifier.memo("osd.play"), onClick = onPause)
-                TvIconButton(LpIcons.forward, 36.dp, modifier = Modifier.memo("osd.fwd"), onClick = { onSeekBy(step.toDouble()) })
-                if (ui.hasEpisodes) TvIconButton(LpIcons.skipNext, 36.dp, modifier = Modifier.memo("osd.next"), onClick = onNext)
+    CompositionLocalProvider(LocalTvVideoControls provides true) {
+        TitleBlock(ui)
+        ui.skipWhat?.let { what ->
+            Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
+                TvButton(if (what == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, modifier = Modifier.memo("osd.skip"), onClick = onSkip)
             }
-            // 右组和播控拉开距离,防误触
-            Spacer(Modifier.weight(1f))
-            Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                TvButton("字幕", LpIcons.sub, modifier = Modifier.memo("osd.sub"), onClick = { onPanel("sub") })
-                TvButton("音轨", LpIcons.audio, modifier = Modifier.memo("osd.audio"), onClick = { onPanel("audio") })
-                if (!target.localEntry && !target.download)
-                    TvButton("弹幕", LpIcons.danmaku, modifier = Modifier.memo("osd.dm"), onClick = { onPanel("danmaku") })
-                if (ui.hasEpisodes) TvButton("选集", LpIcons.list, modifier = Modifier.memo("osd.eps"), onClick = { onPanel("episodes") })
-                TvButton("更多", LpIcons.more, modifier = Modifier.memo("osd.more"), onClick = { onPanel("more") })
-                // 插件标签排在官方那几个后面:这一栏的先后顺序是官方优先,插件是增量
-                pluginPanels.forEach { p ->
-                    TvButton(
-                        p.title.ifBlank { p.target },
-                        xyz.linplayer.app.ui.plugin.iconByName(p.icon) ?: LpIcons.more,
-                        modifier = Modifier.memo("osd.plugin.${p.pluginId}/${p.target}"),
-                        onClick = { onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p)) },
-                    )
+        }
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = TvDim.safeH, end = TvDim.safeH, bottom = TvDim.safeV)) {
+            key(target, engine) {
+                SeekBar(ui, onSeek, seekPosition, upTo = { if (ui.skipWhat != null) mem.requesters["osd.skip"] else null })
+            }
+            Spacer(Modifier.height(TvSp.x4))
+            Row {
+                // 左边写当前位置:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
+                TimeChip(fmtTime(ui.position))
+                Spacer(Modifier.weight(1f))
+                TimeChip("-" + fmtTime((ui.duration - ui.position).coerceAtLeast(0.0)))
+            }
+            Spacer(Modifier.height(TvSp.x12))
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                val step = UiPrefs.tvSeekStep.value
+                Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8), verticalAlignment = Alignment.CenterVertically) {
+                    // 上一集 / 下一集 / 选集**只有分集才画**(电影画了选集 = 永远空表)
+                    if (ui.hasEpisodes) TvIconButton(LpIcons.skipPrev, 36.dp, modifier = Modifier.memo("osd.prev"), onClick = onPrev)
+                    TvIconButton(LpIcons.rewind, 36.dp, modifier = Modifier.memo("osd.rew"), onClick = { onSeekBy(-step.toDouble()) })
+                    TvIconButton(if (ui.paused) LpIcons.play else LpIcons.pause, 44.dp, primary = true,
+                        modifier = Modifier.memo("osd.play"), onClick = onPause)
+                    TvIconButton(LpIcons.forward, 36.dp, modifier = Modifier.memo("osd.fwd"), onClick = { onSeekBy(step.toDouble()) })
+                    if (ui.hasEpisodes) TvIconButton(LpIcons.skipNext, 36.dp, modifier = Modifier.memo("osd.next"), onClick = onNext)
+                }
+                // 右组和播控拉开距离,防误触
+                Spacer(Modifier.weight(1f))
+                Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+                    TvButton("字幕", LpIcons.sub, modifier = Modifier.memo("osd.sub"), onClick = { onPanel("sub") })
+                    TvButton("音轨", LpIcons.audio, modifier = Modifier.memo("osd.audio"), onClick = { onPanel("audio") })
+                    if (!target.localEntry && !target.download)
+                        TvButton("弹幕", LpIcons.danmaku, modifier = Modifier.memo("osd.dm"), onClick = { onPanel("danmaku") })
+                    if (ui.hasEpisodes) TvButton("选集", LpIcons.list, modifier = Modifier.memo("osd.eps"), onClick = { onPanel("episodes") })
+                    TvButton("更多", LpIcons.more, modifier = Modifier.memo("osd.more"), onClick = { onPanel("more") })
+                    // 插件标签排在官方那几个后面:这一栏的先后顺序是官方优先,插件是增量
+                    pluginPanels.forEach { p ->
+                        TvButton(
+                            p.title.ifBlank { p.target },
+                            xyz.linplayer.app.ui.plugin.iconByName(p.icon) ?: LpIcons.more,
+                            modifier = Modifier.memo("osd.plugin.${p.pluginId}/${p.target}"),
+                            onClick = { onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p)) },
+                        )
+                    }
                 }
             }
         }
@@ -288,8 +294,10 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double
 
 @Composable
 internal fun BoxScope.SkipButton(ui: PlayerUi, onSkip: () -> Unit) {
-    Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
-        TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, onClick = onSkip)
+    CompositionLocalProvider(LocalTvVideoControls provides true) {
+        Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
+            TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, onClick = onSkip)
+        }
     }
 }
 
@@ -722,9 +730,8 @@ private fun BoxScope.MorePanel(
                 })
             }
             PanelGroup("工具")
-            if (!local) PanelItem("换内核重播", value = if (engine == "exo") "ExoPlayer → mpv" else "mpv → ExoPlayer", onClick = {
-                ctl.switchTo(target.copy(engine = if (engine == "exo") "mpv" else "exo", resumeAt = ui.position, fromStart = false))
-            })
+            if (!local) PanelItem("换内核重播", value = if (engine == "exo") "ExoPlayer → mpv" else "mpv → ExoPlayer",
+                onClick = ctl.switchEngine)
             PanelItem("播放信息", chevron = true, onClick = { level = "info" })
         }
     }

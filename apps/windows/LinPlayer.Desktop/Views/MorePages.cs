@@ -794,6 +794,7 @@ public sealed class SettingsPage : PageBase
 
                     // ── 网络:怎么把字节弄过来。下线的分组一并不画,开关表在 Features.cs ──
                     if (prefetch is { } pf) Add(gNet, SettingsSections.Prefetch(core, pf));
+                    Add(gNet, SettingsSections.MediaCache(core, p));
                     if (Features.On("set.preload") && preload is { } pl) Add(gNet, SettingsSections.Preload(core, pl));
                     if (Features.On("set.cfspeed")) Add(gNet, SettingsSections.CfSpeed(core));
 

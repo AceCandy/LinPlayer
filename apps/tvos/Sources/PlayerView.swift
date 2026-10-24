@@ -88,7 +88,7 @@ struct PlayerView: View {
         }
         .onMoveCommand { _ in touch() }
         .onChange(of: focus) { _, _ in touch() }
-        .onChange(of: controller.message) { _, next in if next != nil { showControls() } }
+        .onChange(of: controller.message) { _, next in if next != nil { showControls() } else { touch() } }
         .task { await controller.start(); focus = "pause" }
         .task(id: "\(controller.ended):\(controller.queueLoading):\(controller.nextEpisode?.id ?? ""):\(autoNext):\(model.sceneActive):\(panel ?? "")") {
             countdown = nil
@@ -228,7 +228,7 @@ struct PlayerView: View {
             Spacer(minLength: 20)
             if controller.audioSelectable { Button("音轨") { openPanel("audio") }.disabled(controller.changingTrack).focused($focus, equals: "audio") }
             Button("字幕") { openPanel("subtitles") }.focused($focus, equals: "subtitles")
-            Button("倍速") { openPanel("speed") }.focused($focus, equals: "speed")
+            Button("倍速") { openPanel("speed") }.disabled(!controller.canSetSpeed).focused($focus, equals: "speed")
             Button("画面") { openPanel("picture") }.focused($focus, equals: "picture")
             Button("版本") { openPanel("versions") }.focused($focus, equals: "versions")
             if controller.engine?.mediaChapters.isEmpty == false { Button("章节") { openPanel("chapters") }.focused($focus, equals: "chapters") }
@@ -246,7 +246,9 @@ struct PlayerView: View {
                 Text(panelTitle).font(.title)
                 if panel == "speed", let engine = controller.engine {
                     ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 1.75, 2].filter { $0 <= engine.maxSupportedRate }, id: \.self) { rate in
-                        Button((controller.speed == rate ? "✓ " : "") + "\(rate)×") { controller.setSpeed(rate); closePanel() }.focused($panelFocus, equals: "speed:\(rate)")
+                        Button((controller.speed == rate ? "✓ " : "") + "\(rate)×") {
+                            if controller.setSpeed(rate) { closePanel() }
+                        }.disabled(!controller.canSetSpeed).focused($panelFocus, equals: "speed:\(rate)")
                     }
                 } else if panel == "picture" {
                     Button((controller.pictureMode == "fit" ? "✓ " : "") + "适应画面") { controller.setPictureMode("fit"); closePanel() }.focused($panelFocus, equals: "picture:fit")

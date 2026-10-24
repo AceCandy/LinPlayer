@@ -259,10 +259,11 @@ internal fun PhoneLiuyingFilters(
 @Composable
 internal fun PhoneLiuyingSheet(title: String, tag: String, onClose: () -> Unit,
     showHeader: Boolean = true, content: @Composable ColumnScope.() -> Unit) {
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     Popup(alignment = Alignment.BottomCenter, onDismissRequest = onClose, properties = PopupProperties(focusable = true)) {
         BoxWithConstraints(Modifier.fillMaxSize().background(Color.Black.copy(alpha = .4f))) {
             Box(Modifier.fillMaxSize().testTag("liuying.scrim").pointerInput(Unit) { detectTapGestures { onClose() } })
-            Column(Modifier.align(Alignment.BottomCenter).widthIn(max = 560.dp).fillMaxWidth()
+            Column(Modifier.align(if (tv) Alignment.Center else Alignment.BottomCenter).widthIn(max = if (tv) 960.dp else 560.dp).fillMaxWidth()
                 .heightIn(max = maxHeight * .85f).clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
                 .background(FeedSurface).testTag(tag).semantics { paneTitle = title }
                 .pointerInput(Unit) { detectTapGestures { } }.navigationBarsPadding().padding(horizontal = 20.dp)) {

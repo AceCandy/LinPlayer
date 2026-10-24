@@ -82,6 +82,13 @@ public abstract class PageBase : UserControl
 
     protected static TextBlock H1(string t) => new() { Text = t, Classes = { "h1" } };
     protected static TextBlock H2(string t) => new() { Text = t, Classes = { "h2" } };
+    protected static Control SectionTitle(string text) => new StackPanel {
+        Orientation = Orientation.Horizontal, Spacing = 10,
+        Children = {
+            new Border { Width = 3, Height = 18, Background = Tok.Of("Accent"), CornerRadius = new CornerRadius(6) },
+            H2(text),
+        },
+    };
     protected static TextBlock Dim(string t) => new() { Text = t, Classes = { "dim" }, TextWrapping = TextWrapping.Wrap };
 }
 

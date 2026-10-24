@@ -10,6 +10,7 @@ using Avalonia.Media.Imaging;
 using Avalonia.Media.Transformation;
 using Avalonia.Styling;
 using Avalonia.Threading;
+using Avalonia.VisualTree;
 using LinPlayer.Desktop.Core;
 
 namespace LinPlayer.Desktop.Views;
@@ -41,6 +42,7 @@ public sealed class Hero : Border
 
     private readonly CoreClient _core;
     private readonly Action<CardItem>? _onOpen;
+    private readonly Action<CardItem>? _onPlay;
     /// <summary>图片地址的上游根。会话回来才知道,所以由 <see cref="Show"/> 带进来。</summary>
     private string _server = "";
 
@@ -109,9 +111,9 @@ public sealed class Hero : Border
     private bool _pinned;
     private CancellationTokenSource? _tick;
 
-    public Hero(CoreClient core, Action<CardItem>? onOpen)
+    public Hero(CoreClient core, Action<CardItem>? onOpen, Action<CardItem>? onPlay = null)
     {
-        _core = core; _onOpen = onOpen;
+        _core = core; _onOpen = onOpen; _onPlay = onPlay;
 
         BuildStrips(_featherA);
         BuildStrips(_featherB);
@@ -220,12 +222,11 @@ public sealed class Hero : Border
 
         PointerEntered += (_, _) => { _hover = true; Hover(true); _tick?.Cancel(); };
         PointerExited += (_, _) => { _hover = false; Hover(false); };
-        /* 整块可点 → 进详情。不摆「播放 / 详情」两个按钮是想清楚的取舍:
-           剧集的「播放」要先知道接着看第几集(又一次往返),
-           而进了详情页那个按钮本来就在,而且带着集号。 */
+        // 留白进入详情，按钮自行处理播放/翻页，不能同时触发详情导航。
         PointerReleased += (_, e) =>
         {
             if (e.InitialPressMouseButton != MouseButton.Left) return;
+            if (e.Source is Visual source && (source is Button || source.GetVisualAncestors().OfType<Button>().Any())) return;
             if (_idx >= 0 && _idx < _items.Count) _onOpen?.Invoke(CardItem.From(_items[_idx]));
         };
 
@@ -341,9 +342,8 @@ public sealed class Hero : Border
 
         /* 0.30 而不是 0.27:完整剧照是按<b>高度</b>去 fit 的(槽比 16:9 宽得多),
            高一点右边那张图就大一圈,而这一块的主角就是那张图。 */
-        /* ☠ 下限 280 在窄窗口上是**错的**:窗口拉到 360 宽时这块图占掉 78% 的高度,
-           整个首页只剩头图。下限跟着一起缩(到 150),比例才还是「一条横幅」。 */
-        var h = Math.Clamp(Bounds.Width * 0.30, Responsive.S(Bounds.Width, 280, 150), 460);
+        // 窄窗仍须容纳两行标题、元信息和独立播放行，不与底部轮播指示重叠。
+        var h = Math.Clamp(Bounds.Width * 0.30, Responsive.S(Bounds.Width, 280, 210), 460);
         if (Math.Abs(h - Height) > 0.5) Height = h;
         SyncFeather();
     }
@@ -640,8 +640,7 @@ public sealed class Hero : Border
         if (bmp is null)
         {
             Console.WriteLine($"[Hero] 第 {i + 1} 张没有剧照,回退海报");
-            /* listRandom 只挑有剧照的条目(ImageTypes=Backdrop),但取图仍然可能失败。
-               退回海报 —— 现在是 Uniform 不裁,2:3 的海报只会窄一点,不会被裁烂。 */
+            // 缓存候选可能只有海报；回退仍保持完整比例。
             if (Bool(_items[i], "has_primary"))
                 bmp = await Images.LoadAsync(_core, Images.EmbyImageUrl(_server, Id(_items[i]), "Primary", original: true), ArtworkHeight, original: true);
             if (bmp is null) Console.WriteLine($"[Hero] 第 {i + 1} 张连海报也取不到(server={_server})");
@@ -719,21 +718,27 @@ public sealed class Hero : Border
         title.Content = TitleText(ItemName(it));
         _ = SwapLogo(title, logo, Id(it));
 
-        var tags = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+        var metadata = new List<string>();
         var year = (int)Num(it, "year");
-        if (year > 0) tags.Children.Add(Pill(year.ToString(), false));
-        var rating = Num(it, "rating");
-        if (rating > 0) tags.Children.Add(Pill($"★ {rating:0.0}", true));
-        /* <b>不显示「电影 / 剧集」</b>(用户 2026-09-02 点名)。
-           它对每一条都成立、而且看海报就知道 —— 一个恒真的标签占的是
-           一个真标签的位置。腾出来的位置给类型标签(多显示一个)。 */
-        foreach (var g in Genres(it).Take(4)) tags.Children.Add(Pill(g, false));
+        if (year > 0) metadata.Add(year.ToString());
+        metadata.AddRange(Genres(it).Take(1));
+        var tags = new TextBlock {
+            Text = string.Join(" · ", metadata), FontSize = 14,
+            Foreground = new SolidColorBrush(Color.Parse("#CCFFFFFF")), Effect = Shadow(),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+        };
 
         _body.Children.Add(titleSlot);
-        if (tags.Children.Count > 0) _body.Children.Add(tags);
+        if (metadata.Count > 0) _body.Children.Add(tags);
+        if (_onPlay != null && Str(it, "type_") is "Movie" or "Series" or "Episode") {
+            var play = new Button { Classes = { "primary" }, Content = "播放",
+                HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 6, 0, 0) };
+            play.Click += (_, _) => _onPlay(CardItem.From(it));
+            _body.Children.Add(play);
+        }
 
         Enter(titleSlot, 0);
-        if (tags.Children.Count > 0) Enter(tags, 90);
+        if (metadata.Count > 0) Enter(tags, 90);
     }
 
     /// <summary>
@@ -835,26 +840,6 @@ public sealed class Hero : Border
     {
         BlurRadius = 16, OffsetX = 0, OffsetY = 2,
         Color = Colors.Black, Opacity = 0.85,
-    };
-
-    /// <summary>
-    /// 标签胶囊。
-    /// <para>压在照片上的胶囊要自带半透明底 + 一圈浅描边 —— 光靠文字颜色的话,
-    /// 底下是亮画面时整行就没了。评分单独用暖色:它是这一行里唯一「有高低」的值。</para>
-    /// </summary>
-    private static Control Pill(string text, bool warm) => new Border
-    {
-        Padding = new Thickness(10, 6),
-        // 6 不是胶囊:和详情页那排小片同一个形状(用户 2026-09-18「统一矩形吧」)
-        CornerRadius = new CornerRadius(6),
-        Background = new SolidColorBrush(Color.Parse("#59000000")),
-        BorderBrush = new SolidColorBrush(Color.Parse("#40ffffff")),
-        BorderThickness = new Thickness(1),
-        Child = new TextBlock
-        {
-            Text = text, FontSize = 12,
-            Foreground = new SolidColorBrush(Color.Parse(warm ? "#e0a95b" : "#e8ebf1")),
-        },
     };
 
     /// <summary>

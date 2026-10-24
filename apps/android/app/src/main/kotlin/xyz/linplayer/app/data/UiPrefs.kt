@@ -47,7 +47,7 @@ object UiPrefs {
     /** `system` / `dark` / `light`。 */
     val theme = mutableStateOf("system")
 
-    /** 色系与深浅模式独立，只影响本机手机呈现。 */
+    /** 色系与深浅模式独立，只影响本机手机与 TV 呈现。 */
     val colorScheme = mutableStateOf("amber")
     val colorOptions = listOf("橙金" to "amber", "蓝色" to "blue", "绿色" to "green", "紫色" to "purple", "Monet" to "monet")
     /** 手机原生等待动画；仅影响本机呈现，ID 与参考端七项保持一致。 */

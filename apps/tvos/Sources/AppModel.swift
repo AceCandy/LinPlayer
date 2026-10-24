@@ -16,6 +16,7 @@ import SwiftUI
     @Published var busy = false
     @Published var identity = UUID()
     @Published var userStateRevision = 0
+    @Published private(set) var writingItems = Set<String>()
     @Published var privateSpace = false
     @Published var pendingItem: MediaItem?
     @Published var playback: PlaybackController?
@@ -33,6 +34,23 @@ import SwiftUI
     @Published var returnedOrigin = ""
     @Published var returnedItem: MediaItem?
     @Published var returnRevision = 0
+
+    // 写入归宿主所有，懒列表回收单张卡片不能取消已确认的操作。
+    func setItemState(_ id: String, favorite: Bool? = nil, played: Bool? = nil) {
+        guard let api, !id.isEmpty, !writingItems.contains(id) else { return }
+        let epoch = api.epoch
+        writingItems.insert(id)
+        Task {
+            defer { writingItems.remove(id) }
+            do {
+                if let favorite { _ = try await api.request("emby.setFavorite", ["item_id": .string(id), "fav": .bool(favorite)]) }
+                else if let played { _ = try await api.request("emby.setPlayed", ["item_id": .string(id), "played": .bool(played)]) }
+                // 成功刷新由核心 data.userState 通知，不再重复推进代次。
+            } catch is CancellationError {} catch {
+                if api.epoch == epoch { notice = error.localizedDescription }
+            }
+        }
+    }
 
     func start() async {
         guard !started else { return }; started = true

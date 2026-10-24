@@ -584,6 +584,14 @@ internal fun CachedHomeBanner(
                     .35f to Color.Black.copy(alpha = .16f), .5f to Color.Black.copy(alpha = .42f),
                     .65f to Color.Black.copy(alpha = .66f), .8f to Color.Black.copy(alpha = .84f),
                     .92f to Color.Black.copy(alpha = .96f), 1f to c.bg)))
+                // 浅色栏目用深色文字，延伸背景须在栏目标题前融入页面底色。
+                if (!c.isDark && backgroundExtension > 0.dp) {
+                    val density = LocalDensity.current
+                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                        listOf(Color.Transparent, c.bg),
+                        startY = with(density) { heroHeight.toPx() },
+                        endY = with(density) { (heroHeight + backgroundExtension / 2).toPx() })))
+                }
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
                         .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),

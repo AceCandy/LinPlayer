@@ -191,7 +191,7 @@ internal fun privatePalette(base: LpColors): LpColors = if (base.isDark) base.co
     scrim = Color(0xB3EFE5F7), chip = Color(0xE6E6D8F0),
 )
 
-/** 深浅模式与手机色系独立；TV调用仍使用默认配色。 */
+/** 深浅模式与色系独立；手机与 TV 共享浏览使用同一组主题语义。 */
 @Composable
 fun LpTheme(
     darkOverride: Boolean? = null,

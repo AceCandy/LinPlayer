@@ -1764,7 +1764,7 @@ public partial class MainWindow : Window
     /// <see cref="Nav.Session"/> 那会儿还是上一台的会话 —— 新首页确实建出来了,
     /// 只是拿旧服务器的凭据去拉的内容。改成 <c>Task</c> 不是风格问题。</para>
     /// </summary>
-    private async Task OnServerSwitched()
+    internal async Task OnServerSwitched()
     {
         try
         {

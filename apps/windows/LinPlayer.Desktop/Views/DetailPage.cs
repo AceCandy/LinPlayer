@@ -84,15 +84,15 @@ public sealed class DetailPage : PageBase
     private string _versionId = "";
 
     /// <summary>
-    /// 播放前选好的音轨 / 字幕,值是 <b>Emby 的流下标</b>(<c>MediaStream.Index</c>)。
+    /// 音轨预选使用容器流序号；字幕另存版本绑定的身份。
     ///
-    /// <para>-1 = 不指定(交给核心层的选轨正则);字幕另有 -2 = 明确不要字幕。</para>
+    /// <para>音轨 -1 = 不指定，交给核心层的选轨正则。</para>
     /// <para>存下标而不是存 mpv 的 track id:详情页这会儿 mpv 还没起,
     /// 拿不到 track-list。下标是**容器里的流序号**,两边说的是同一个东西
     /// (映射在 <see cref="PlayerPage"/> 里按 <c>ff_index</c> 做)。</para>
     /// </summary>
     private int _audioIndex = -1;
-    private int _subIndex = -1;
+    private InitialSubtitle? _initialSubtitle;
 
     /// <summary>这一页有没有发过预热。发两遍不会错,但会白起一次请求。</summary>
     private string? _preloadedItemId;
@@ -538,7 +538,7 @@ public sealed class DetailPage : PageBase
             Anchored("detail.cast", new StackPanel
             {
                 Spacing = 14,
-                Children = { H2($"演职人员 · {people.Count} 人"), peopleHost },
+                Children = { SectionTitle($"演职人员 · {people.Count} 人"), peopleHost },
             });
         }
 
@@ -599,7 +599,7 @@ public sealed class DetailPage : PageBase
             _rescaleSimilar();
             _similarHost.Content = new StackPanel
             {
-                Spacing = 14, Children = { H2($"相似推荐 · {items.Count}"), host },
+                Spacing = 14, Children = { SectionTitle($"相似推荐 · {items.Count}"), host },
             };
         });
     }
@@ -715,11 +715,15 @@ public sealed class DetailPage : PageBase
             Text = name, FontSize = 34, FontWeight = FontWeight.Bold,
             TextWrapping = TextWrapping.Wrap, MaxLines = 2,
             TextTrimming = TextTrimming.CharacterEllipsis,
-            Foreground = Brushes.White, Effect = HeroShadow(),
+            Foreground = Tok.Of("Ink"),
         };
         var titleSlot = new ContentControl { Content = titleRef };
         var head = new StackPanel { Spacing = 10, VerticalAlignment = VerticalAlignment.Bottom };
         if (Crumb(d, series) is { } crumb) head.Children.Add(crumb);
+        else {
+            var kind = type switch { "Movie" => "电影", "Series" => "电视剧", "Season" => "季", "Episode" => "分集", "BoxSet" => "合集", _ => "" };
+            if (kind.Length > 0) head.Children.Add(new TextBlock { Text = kind, FontSize = 12, Foreground = Tok.Of("Ink3") });
+        }
         // 评分挂在元信息片那一行上:★ 分数就在里面,单独摆一块「评分」会和它重一份
         foreach (var (anchor, official) in new (string, Control)[] { ("detail.title", titleSlot), ("detail.ratings", Chips(d, type)) })
             if (_anchors.Wrap(anchor, official, d) is { } c) head.Children.Add(c);
@@ -727,10 +731,13 @@ public sealed class DetailPage : PageBase
 
         // ---- 左上返回 / 右上动作组(草稿第 12、13 条)----
         _back.Margin = new Thickness(0);
+        _back.Foreground = pic == "" ? Tok.Of("Ink") : Brushes.White;
         var top = new DockPanel { LastChildFill = false, VerticalAlignment = VerticalAlignment.Top };
         DockPanel.SetDock(_back, Dock.Left);
         top.Children.Add(Loose(_back));
         var acts = HeroActions(d, id, type, name);
+        if (pic != "" && acts is StackPanel actions)
+            foreach (var button in actions.Children.OfType<Button>()) button.Foreground = Brushes.White;
         DockPanel.SetDock(acts, Dock.Right);
         top.Children.Add(acts);
 
@@ -754,7 +761,7 @@ public sealed class DetailPage : PageBase
             if (w <= 1) return;
             /* 一张图都没有的条目**不撑高度**,让带子缩到内容那么高 ——
                撑着的话头顶是四百像素的纯色,而那正是「没刮图」的库的常态。 */
-            band.Height = pic == "" ? double.NaN : Math.Clamp(w * 8 / 24, 232, 420);
+            band.MinHeight = pic == "" ? 0 : Math.Clamp(w * 8 / 24, 280, 420);
             titleRef.FontSize = Responsive.Font(w, 34, 21);
             if (titleSlot.Content is Image logo) logo.MaxWidth = Responsive.S(w, 420, 180);
         };
@@ -792,8 +799,8 @@ public sealed class DetailPage : PageBase
             EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
             GradientStops =
             {
-                new GradientStop(Color.FromArgb(0, bg.R, bg.G, bg.B), 0.62),
-                new GradientStop(Color.FromArgb(130, bg.R, bg.G, bg.B), 0.86),
+                new GradientStop(Color.FromArgb(0, bg.R, bg.G, bg.B), 0.3),
+                new GradientStop(Color.FromArgb(245, bg.R, bg.G, bg.B), 0.68),
                 new GradientStop(bg, 1),
             },
         };
@@ -846,16 +853,7 @@ public sealed class DetailPage : PageBase
         return crumb;
     }
 
-    /// <summary>
-    /// 元信息做成<b>一排小片</b>,不是一串用「·」连起来的长句。
-    ///
-    /// <para>连成一句的问题不是不好看:它<b>不换行</b>,类型一多就被挤出可视区;
-    /// 而且年份、评分、分级、类型是四种不同的东西,同一个分隔符串起来
-    /// 等于告诉眼睛「它们是一类」。</para>
-    ///
-    /// <para>类型 / 标签 / 工作室这三种<b>能点</b>【用户定 2026-09-12】。
-    /// 年份、评分、分级不给点:它们要么不是「按它列一串」的维度,要么点出来是全库。</para>
-    /// </summary>
+    /// <summary>评分、日期、时长为次级信息；可点击筛选标签独立成行，窄窗允许换行。</summary>
     private Control Chips(JsonElement d, string type)
     {
         var chips = new WrapPanel();
@@ -868,11 +866,20 @@ public sealed class DetailPage : PageBase
             chips.Children.Add(Views.Chips.Clickable(label,
                 () => Nav.Push(new LibraryGridPage(_core, _server, "", label, (kind, value)))));
         }
-        if (Num(d, "rating") > 0) Chip($"★ {Num(d, "rating"):0.0}");
-        if (Num(d, "year") > 0) Chip(((int)Num(d, "year")).ToString());
+        var metadata = new List<string>();
+        if (Num(d, "rating") > 0 && type != "Episode") metadata.Add($"★ {Num(d, "rating"):0.0}");
+        var premiere = Str(d, "premiere_date");
+        if (premiere.Length >= 10 && DateOnly.TryParseExact(premiere[..10], "yyyy-MM-dd",
+            System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out var date))
+            metadata.Add(date.ToString("yyyy/MM/dd", System.Globalization.CultureInfo.InvariantCulture));
+        else if (Num(d, "year") > 0) metadata.Add(((int)Num(d, "year")).ToString());
+        var runtime = (long)Num(d, "runtime_secs");
+        if (runtime > 0) metadata.Add(runtime >= 3600
+            ? $"{runtime / 3600}小时{runtime / 60 % 60}分{runtime % 60}秒"
+            : $"{runtime / 60}分{runtime % 60}秒");
         Chip(StatusText(Str(d, "status")));
         Chip(Str(d, "official_rating"));
-        if (Num(d, "runtime_secs") > 0) Chip($"{(int)(Num(d, "runtime_secs") / 60)} 分钟");
+
         /* 剧的季数用 child_count(Series 上它就是季数)。集数<b>不在这儿写</b> ——
            分集还没拉回来,写不出来。它在下面「剧集 · N 季 · 共 M 集」那一行。 */
         if (type == "Series" && Num(d, "child_count") > 0) Chip($"{(int)Num(d, "child_count")} 季");
@@ -881,7 +888,13 @@ public sealed class DetailPage : PageBase
         /* 工作室点过去要带 <b>id 不是名字</b> —— 实测(Emby 4.9.5)`Studios=<名字>`
            被完全无视,返回全库 1673 条;`StudioIds=` 才精确命中。 */
         foreach (var st in Named(d, "studios").Take(4)) Jump("studio", st.Name, st.Id);
-        return chips;
+        var content = new StackPanel { Spacing = 14 };
+        if (metadata.Count > 0) content.Children.Add(new TextBlock {
+            Text = string.Join(" · ", metadata), Foreground = Tok.Of("Ink2"), FontSize = 14,
+            TextWrapping = TextWrapping.Wrap,
+        });
+        if (chips.Children.Count > 0) content.Children.Add(chips);
+        return content;
     }
 
     /// <summary>剧照右上那一组:收藏 / 下载(整季)/ 更多⋯(草稿 03 页第 13 条)。</summary>
@@ -937,7 +950,7 @@ public sealed class DetailPage : PageBase
         {
             Text = text, TextWrapping = TextWrapping.Wrap, LineHeight = 23,
             MaxWidth = 860, HorizontalAlignment = HorizontalAlignment.Left,
-            Foreground = Tok.Of("Ink"),
+            Foreground = Tok.Of("Ink2"),
             MaxLines = 3, TextTrimming = TextTrimming.CharacterEllipsis,
         };
         var box = new StackPanel { Spacing = 6, Children = { tb } };
@@ -1047,7 +1060,7 @@ public sealed class DetailPage : PageBase
                 // 留着上一版的表 = 用户选中一条这个文件里根本不存在的轨道。
                 tracksHost.Children.Clear();
                 _audioIndex = -1;
-                _subIndex = -1;
+                _initialSubtitle = null;
                 BuildTrackPickers(tracksHost, Arr2(p.V, "streams"));
             }
             _useVersion = Use;
@@ -1206,16 +1219,17 @@ public sealed class DetailPage : PageBase
         if (subs.Count > 0)
         {
             var box = new ComboBox { MinWidth = Responsive.S(Bounds.Width, 190, 130) };
-            // 第 0 项「自动」= -1(交给核心层),第 1 项「不加载」= -2,再往后才是真流
+            // 自动不传预选；关闭字幕也绑定当前版本。
             var labels = new List<string> { "自动(按设置里的偏好)", "不加载字幕" };
             labels.AddRange(subs.Select(StreamLabel));
             box.ItemsSource = labels;
             box.SelectedIndex = 0;
-            box.SelectionChanged += (_, _) => _subIndex = box.SelectedIndex switch
-            {
-                <= 0 => -1,
-                1 => -2,
-                _ => (int)Num(subs[box.SelectedIndex - 2], "index"),
+            box.SelectionChanged += (_, _) => {
+                _initialSubtitle = box.SelectedIndex <= 0 ? null : box.SelectedIndex == 1
+                    ? new InitialSubtitle(_versionId, null)
+                    : new InitialSubtitle(_versionId, (int)Num(subs[box.SelectedIndex - 2], "index"),
+                        Bool(subs[box.SelectedIndex - 2], "is_external"), Str(subs[box.SelectedIndex - 2], "title"),
+                        Str(subs[box.SelectedIndex - 2], "language"), Str(subs[box.SelectedIndex - 2], "codec"));
             };
             host.Children.Add(PickerCell("字幕", box));
         }
@@ -1356,7 +1370,7 @@ public sealed class DetailPage : PageBase
     private Control MediaBlocks(List<JsonElement> vers)
     {
         var host = new StackPanel { Spacing = 10 };
-        host.Children.Add(H2("媒体信息"));
+        host.Children.Add(SectionTitle("媒体信息"));
         foreach (var v in vers)
         {
             if (vers.Count > 1) host.Children.Add(Dim(VersionChipLabel(new VerPick(_server, "", "", true, "", v))));
@@ -1941,8 +1955,8 @@ public sealed class DetailPage : PageBase
                或者更糟:乙服上恰好有这个 id,放出来是另一部片。 */
             play.Click += (_, _) =>
                 Nav.Push(new PlayerPage(_core, _versionItem != "" ? _versionItem : id, name, resume,
-                    mediaSourceId: _versionId, audioIndex: _audioIndex, subIndex: _subIndex,
-                    serverId: _versionServer));
+                    mediaSourceId: _versionId, audioIndex: _audioIndex,
+                    serverId: _versionServer, initialSubtitle: _initialSubtitle));
             _play = play;
             row.Children.Add(play);
         }
@@ -1968,7 +1982,7 @@ public sealed class DetailPage : PageBase
                 if (eps.Count == 0) { play.Content = "没有可播的分集"; return; }
                 var next = NextEpisode(eps);
                 Nav.Push(new PlayerPage(_core, next.Id, next.DisplayTitle, next.ResumeSecs,
-                    audioIndex: _audioIndex, subIndex: _subIndex));
+                    audioIndex: _audioIndex));
             };
             row.Children.Add(play);
             // 分集到了就把集号补上去 —— 在此之前按钮已经可点了

@@ -45,6 +45,7 @@ struct VideoSurface: View {
     let versions: [MediaVersion] = []
     let actualVersion = "v1", pictureMode = "fit"
     let speed: Float = 1
+    let canSetSpeed = true
     let bufferedPosition: Double = 4800
     let position: Double = 3600
     let textTracks = [VisualPlayerEngine.Track(id: 2, name: "简体中文")]
@@ -64,7 +65,7 @@ struct VideoSurface: View {
     func toggle() {}
     func loadQueue() {}
     func loadVersions() {}
-    func setSpeed(_ rate: Float) {}
+    func setSpeed(_ rate: Float) -> Bool { true }
     func setPictureMode(_ value: String) {}
     func selectAudio(_ id: Int) {}
     func selectSubtitle(_ id: Int?) {}

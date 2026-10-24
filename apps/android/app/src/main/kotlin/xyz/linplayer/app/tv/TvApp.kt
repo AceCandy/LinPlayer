@@ -48,6 +48,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.tv.material3.MaterialTheme
 import androidx.tv.material3.darkColorScheme
+import androidx.tv.material3.lightColorScheme
+import androidx.compose.ui.graphics.compositeOver
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -97,7 +99,7 @@ fun TvRoot(app: AppState) {
     TvFrame(app, tvConfig) { xyz.linplayer.app.PhoneRoot(app, tv = true) }
 }
 
-/** 主题 + 字阶 + 深色底 + Toast。拆出来是给 JVM 出图 / 焦点测试直接挂真页面用的。 */
+/** 主题 + 字阶 + Toast。拆出来是给 JVM 出图 / 焦点测试直接挂真页面用的。 */
 @Composable
 fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.current, content: @Composable () -> Unit) {
     val privateSpace = app.privateSpace.collectAsStateWithLifecycle().value
@@ -111,19 +113,35 @@ fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.cu
         xyz.linplayer.app.ui.plugin.LocalPluginTv provides true,
     ) {
         if (!privateSpace) xyz.linplayer.app.ui.plugin.LoadTakeovers()
-        LpTheme(darkOverride = true, privateSpace = privateSpace) {
-        MaterialTheme(colorScheme = darkColorScheme(background = TvC.bg, surface = TvC.surface2, onSurface = TvC.fg)) {
-            Box(Modifier.fillMaxSize().background(
-                xyz.linplayer.app.ui.plugin.pageBg(TvC.bg))) {
-                // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
-                if (!privateSpace) xyz.linplayer.app.ui.plugin.WallpaperLayer()
-                content()
-                // 对话框排在 content 后面:它的 BackHandler 组合得更晚,返回键先给它(§3.4)
-                if (!privateSpace) TvPluginDialog()
-                TvToastHost()
-                xyz.linplayer.app.ui.theme.ThemeFailedToast()
+        LpTheme(
+            darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
+                "dark" -> true
+                "light" -> false
+                else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
+            },
+            color = xyz.linplayer.app.data.UiPrefs.colorScheme.value,
+            privateSpace = privateSpace,
+        ) {
+            val colors = xyz.linplayer.app.ui.theme.Lp.colors
+            // 配色是进程级设备偏好；播放窗口退出不能清掉仍存活的浏览窗口配色。
+            SideEffect {
+                TvC.sharedColors = if (xyz.linplayer.app.ui.theme.PluginTheme.activeName.isEmpty()) colors else null
             }
-        }
+            MaterialTheme(colorScheme = (if (colors.isDark) darkColorScheme() else lightColorScheme()).copy(
+                background = colors.bg, surface = colors.s2.compositeOver(colors.bg), onSurface = colors.fg,
+                primary = colors.acc, onPrimary = colors.accFg,
+            )) {
+                Box(Modifier.fillMaxSize().background(
+                    xyz.linplayer.app.ui.plugin.pageBg(colors.bg))) {
+                    // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
+                    if (!privateSpace) xyz.linplayer.app.ui.plugin.WallpaperLayer()
+                    content()
+                    // 对话框排在 content 后面:它的 BackHandler 组合得更晚,返回键先给它(§3.4)
+                    if (!privateSpace) TvPluginDialog()
+                    TvToastHost()
+                    xyz.linplayer.app.ui.theme.ThemeFailedToast()
+                }
+            }
         }
     }
 }

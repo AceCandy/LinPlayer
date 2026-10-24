@@ -2,6 +2,7 @@
 # 依赖模块编译 + 正式页面类型检查；不链接、生成或签名 .app。
 set -euo pipefail
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
+python3 "$ROOT/scripts/check-tvos-speed-controls.py"
 CACHE="$ROOT/.toolchain/tvos"
 python3 "$ROOT/scripts/fetch-tvos.py" --verify
 python3 "$ROOT/scripts/test-tvos-loading-check.py"

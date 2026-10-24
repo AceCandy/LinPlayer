@@ -11,6 +11,26 @@ import xyz.linplayer.app.ui.theme.PluginTheme
  * `#RRGGBBAA` 按 `#AARRGGBB` 解会得到一个几乎全透明的底色,而那在编译期看不出来。
  */
 class PluginThemeTest {
+    @Test fun tvThemeAlsoReachesSharedBrowsePalette() {
+        val dark = DarkColors
+        val light = xyz.linplayer.app.ui.theme.LightColors
+        val tvBg = xyz.linplayer.app.tv.kit.TvC.bg
+        try {
+            PluginTheme.apply(PluginTheme.json("""
+                {"modes":["dark","light"],"tokens":{
+                  "dark":{"color.bg":"#112233FF"},
+                  "light":{"color.bg":"#EECCAAFF"}}}
+            """.trimIndent()), "android_tv")
+            assertEquals(Color(0xFF112233), DarkColors.bg)
+            assertEquals(Color(0xFFEECCAA), xyz.linplayer.app.ui.theme.LightColors.bg)
+            assertEquals(Color(0xFF112233), xyz.linplayer.app.tv.kit.TvC.bg)
+        } finally {
+            DarkColors = dark
+            xyz.linplayer.app.ui.theme.LightColors = light
+            xyz.linplayer.app.tv.kit.TvC.bg = tvBg
+        }
+    }
+
     @Test fun 色号是RRGGBBAA不是AARRGGBB() {
         assertEquals(Color(0xFF0B0D12), PluginTheme.rgba("#0B0D12FF"))
         assertEquals(Color(0x807C9CFF), PluginTheme.rgba("#7C9CFF80"))

@@ -179,12 +179,17 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
     var trackPrefs by remember { mutableStateOf<xyz.linplayer.app.ui.player.TrackPrefs?>(null) }
     var bufferTargetBytes by remember { mutableStateOf(0L) }
     var subOffPref by remember { mutableStateOf(false) }
+    var preferredSpeed by remember { mutableDoubleStateOf(1.0) }
+    var speedBusy by remember { mutableStateOf(false) }
+    var speedWrite by remember { mutableStateOf<Job?>(null) }
     LaunchedEffect(controller, controller.manualSubtitleOff) {
         controller.manualSubtitleOff?.let { subOffPref = it }
     }
     LaunchedEffect(Unit) {
+        PlayerController.awaitPendingStop()
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
         bufferTargetBytes = p.long("buffer_target_bytes") ?: 0L
+        preferredSpeed = (p.dbl(if (feedOverlay == null) "default_speed" else "liuying_speed") ?: 1.0).coerceIn(.25, 4.0)
         trackPrefs = xyz.linplayer.app.ui.player.TrackPrefs(
             subLang = p.str("sub_lang"), audioLang = p.str("audio_lang"),
             subRegex = p.str("sub_regex") ?: "", audioRegex = p.str("audio_regex") ?: "",
@@ -206,6 +211,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
         Libass.reset()
         val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
         latestController.stopIn(app.bg, pos, app::report) {
+            speedWrite?.join()
             runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
         }
     }
@@ -219,6 +225,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
     }
 
     suspend fun switchTo(next: TvRoute.Player) {
+        speedWrite?.join()
+        if (leaving) return
         runCatching { controller.stop(ui.position) }
         overlay.close()
         target = if (next.itemId != target.itemId || next.versionId != target.versionId)
@@ -236,10 +244,45 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
         scope.launch { runCatching { controller.pause(want) } }
     }
     fun doSpeed(v: Double) {
-        scope.launch { runCatching { controller.speed(v) } }
+        scope.launch { runCatching { controller.speed(v) }.onFailure(app::report) }
     }
 
-    val ctl = PlayerCtl(::doSeek, ::doPause, ::doSpeed, trackPicked = controller::trackPicked, pickTrack = controller::pickTrack, pickExoTrack = controller::pickExoTrack, observeTracks = controller::observeTracks) { scope.launch { switchTo(it) } }
+    fun saveSpeed(v: Double) {
+        if (speedBusy || !controller.ready || controller.switching || leaving || !v.isFinite() || v !in .25..4.0) return
+        speedBusy = true
+        val before = preferredSpeed
+        // 保存不随离页取消；内核操作仍受当前会话和停止屏障保护。
+        speedWrite = app.bg.launch(start = CoroutineStart.UNDISPATCHED) {
+            val active = { latestController === controller && controller.ready && !leaving }
+            try {
+                if (!controller.speed(v, active)) return@launch
+                app.call("player.setPlaybackPrefs", args((if (feedOverlay == null) "default_speed" else "liuying_speed") to v))
+                preferredSpeed = v
+                if (active()) ui.speed = v
+            } catch (error: Exception) {
+                if (active()) {
+                    runCatching { controller.speed(before, active) }
+                    ui.speed = before
+                }
+                app.report(error)
+            } finally { speedBusy = false }
+        }
+    }
+    val ctl = PlayerCtl(::doSeek, ::doPause, ::saveSpeed, trackPicked = controller::trackPicked,
+        pickTrack = controller::pickTrack, pickExoTrack = controller::pickExoTrack, observeTracks = controller::observeTracks,
+        switchEngine = {
+            scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                try {
+                    speedWrite?.join()
+                    controller.switchEngine(exo, subOffPref, isCurrent = { !leaving && latestController === controller },
+                        beforeStop = { overlay.close() })
+                } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+                catch (error: Exception) {
+                    app.report(error)
+                    if (!controller.ready) ui.failed = "切换播放内核失败，请返回后重试"
+                }
+            }
+        }) { scope.launch { switchTo(it) } }
 
     // ---------------------------------------------------------------- 起播
     val playbackPrefs = trackPrefs
@@ -270,6 +313,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
                     val a = buildMap<String, Any> {
                         put("item_id", target.itemId)
                         put("engine", engine)
+                        if (feedOverlay != null) put("speed_scope", "liuying")
                         target.versionId?.let { put("media_source_id", it) }
                         if (target.fromStart) put("from_start", true)
                         target.resumeAt?.let { put("resume_secs", it) }
@@ -278,7 +322,9 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
                     controller.resolved(res)
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
+                    ui.speed = preferredSpeed
                     if (exo != null && url != null) {
+                        exo.setPlaybackSpeed(preferredSpeed.toFloat())
                         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
                             .setTrackTypeDisabled(androidx.media3.common.C.TRACK_TYPE_TEXT, subOffPref).build()
                         exo.load(url, res.dbl("resume_secs") ?: 0.0, res?.get("external_subs"))
@@ -708,6 +754,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onLines
                 val volume = if (feedMuted) 0f else 1f
                 onFeedVolume(volume)
                 scope.launch { runCatching { controller.volume(volume) }.onFailure(app::report) } },
+            ui.speed, ::saveSpeed, speedBusy,
         ))
     }
     LaunchedEffect(Unit) { if (feedOverlay == null) runCatching { root.requestFocus() } }

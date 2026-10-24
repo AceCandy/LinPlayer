@@ -90,13 +90,13 @@ class MainActivity : ComponentActivity() {
 
         setContent {
             val privateSpace by app.privateSpace.collectAsStateWithLifecycle()
-            LpTheme(color = if (tvShape()) "amber" else xyz.linplayer.app.data.UiPrefs.colorScheme.value,
-                privateSpace = !tvShape() && privateSpace,
+            LpTheme(color = xyz.linplayer.app.data.UiPrefs.colorScheme.value,
+                privateSpace = privateSpace,
                 darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
                 // 只给一种明暗的主题,系统切到另一种也保持它(D70)
                 "dark" -> true; "light" -> false; else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
             }) {
-                val darkBars = tvShape() || xyz.linplayer.app.ui.theme.Lp.colors.isDark
+                val darkBars = xyz.linplayer.app.ui.theme.Lp.colors.isDark
                 SideEffect {
                     val style = SystemBarStyle.auto(
                         android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT,

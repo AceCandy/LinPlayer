@@ -5,6 +5,8 @@
 当前为 C# / Avalonia，共用源码位于 apps/windows。页面继承 PageBase，使用既有 Nav、反馈、图片与加载入口。
 色彩用 Theme/Tokens.axaml 与 `Tok.Of(key)`；不在 Application 初始化前缓存静态画刷。
 
+普通主题语义色对齐当前手机；`Appearance` 将本机明暗模式原子保存至 userdata/appearance.txt，保存失败不改变当前外观。启动在插件主题之前应用模式；`ThemeVariant.Default` 跟随系统。Tokens 的共享画刷通过 DynamicResource 更新 Color，`tools/seekcheck --theme-only` 必须覆盖已创建控件明暗往返，而非只测试重新调用 Tok.Of。
+
 桌面风格刻度由 `scripts/check-style.sh` 检查：
 
 | 项目 | 规则 |

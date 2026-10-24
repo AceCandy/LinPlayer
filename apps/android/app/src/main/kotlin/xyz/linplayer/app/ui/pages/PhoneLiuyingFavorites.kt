@@ -29,6 +29,7 @@ internal fun PhoneLiuyingFavorites(
     onSelect: (String, LiuYingPageWindow, Int) -> Unit,
 ) {
     val app = LocalApp.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val session by app.session.collectAsState()
     val privateSpace by app.privateSpace.collectAsState()
     var tab by remember(feed) { mutableStateOf(if (feed == "normal") initialTab else "") }
@@ -53,7 +54,8 @@ internal fun PhoneLiuyingFavorites(
                 failure = error.message ?: "读取收藏失败"
             } finally { if (coroutineContext[kotlinx.coroutines.Job]?.isActive == true) loading = false }
         }
-        PhoneLiuyingSheet(if (feed == "normal") "收藏的流影" else "卍解收藏", "liuying.favoriteSheet", onClose, showHeader = false) {
+        PhoneLiuyingSheet(if (feed == "normal") "收藏的流影" else "卍解收藏", "liuying.favoriteSheet", onClose,
+            showHeader = tv) {
             if (feed == "normal") Row(Modifier.fillMaxWidth()) {
                 for ((value, title) in listOf("dance" to "舞蹈", "live" to "直播")) {
                     Text(title, Modifier.weight(1f).heightIn(min = 48.dp).wrapContentHeight()
@@ -64,7 +66,7 @@ internal fun PhoneLiuyingFavorites(
             }
             // 流影面板固定深色；复用海报卡时不继承外层浅色文字。
             CompositionLocalProvider(LocalLpColors provides Lp.colors.copy(fg = Color.White, fg3 = Color.White.copy(alpha = .7f))) {
-                LazyVerticalGrid(GridCells.Fixed(posterColumns()),
+                LazyVerticalGrid(if (tv) GridCells.Adaptive(160.dp) else GridCells.Fixed(posterColumns()),
                     Modifier.fillMaxWidth().weight(1f, fill = false).testTag("liuying.favoriteList"),
                     contentPadding = PaddingValues(vertical = Sp.x12),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),

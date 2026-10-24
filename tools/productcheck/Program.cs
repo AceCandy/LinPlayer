@@ -14,7 +14,10 @@ using LinPlayer.Desktop.Views;
 
 // 真核心层 + Avalonia 渲染:验证分页接线、TCP 请求取消及导航返回恢复。
 AppBuilder.Configure<CheckApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
+if (args is ["--compare-visual", var baseline, var current]) { VisualCompare.Run(baseline, current); return; }
+if (args is ["--compare-visual-selfcheck"]) { VisualCompare.SelfCheck(); return; }
 if (args.Contains("--images-only")) { ImageChecks.Run(); return; }
+if (args.Contains("--visual-alignment")) { VisualAlignment.Run(args[0]); return; }
 var root = Path.Combine(Path.GetTempPath(), "linplayer-product-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 using var upstream = new Upstream();
@@ -28,12 +31,14 @@ try {
         Wait(() => Count(favorites) == 1, "收藏第一页未显示");
         More(favorites);
         Wait(() => Count(favorites) == 2, "收藏追加失败");
+        if (!upstream.Offsets.SequenceEqual(new[] { 0, 1 })) throw new Exception("收藏首次追加游标错误");
         window.Content = null; Jobs();
         window.Content = favorites; Jobs();
-        More(favorites);
-        Wait(() => Count(favorites) == 3, "返回收藏页后不能继续分页");
-        if (!upstream.Offsets.SequenceEqual(new[] { 0, 1, 2 })) throw new Exception("收藏游标未按服务端原始页推进");
-        Console.WriteLine("收藏:首屏单页、追加、短页游标、返回后继续加载通过");
+        // 返回会实时重校准已加载范围；夹具不足一页，刷新须一直走到服务端末页。
+        Wait(() => Count(favorites) == 3, "返回收藏页后未完成实时刷新");
+        if (!upstream.Offsets.SequenceEqual(new[] { 0, 1, 0, 1, 2 }))
+            throw new Exception($"收藏游标未按服务端原始页推进: {string.Join(",", upstream.Offsets)}");
+        Console.WriteLine("收藏:首屏单页、追加、短页游标、返回实时刷新通过");
 
         var home = new HomePage(core);
         window.Content = home; Jobs();
@@ -91,14 +96,16 @@ sealed class Upstream : IDisposable {
     private readonly Task _accept;
     private int _held, _cancelled;
     private readonly bool _restricted;
+    private readonly VisualCatalog? _visual;
     private int _invalid;
     public int Invalid => Volatile.Read(ref _invalid);
     public int Held => Volatile.Read(ref _held);
     public int Cancelled => Volatile.Read(ref _cancelled);
     public ConcurrentQueue<int> Offsets { get; } = new();
     public string BaseUrl { get; }
-    public Upstream(bool restricted = false) {
+    public Upstream(bool restricted = false, VisualCatalog? visual = null) {
         _restricted = restricted;
+        _visual = visual;
         _listener.Start();
         BaseUrl = "http://" + _listener.LocalEndpoint;
         _accept = Accept();
@@ -122,6 +129,13 @@ sealed class Upstream : IDisposable {
                 var uri = new Uri(BaseUrl + request.Split(' ')[1]);
                 var query = uri.Query.TrimStart('?').Split('&').Select(v => v.Split('=', 2))
                     .ToDictionary(v => Uri.UnescapeDataString(v[0]), v => v.Length > 1 ? Uri.UnescapeDataString(v[1]) : "");
+                if (_visual is not null) {
+                    var (bytes, contentType, status) = _visual.Response(uri, query);
+                    var header = Encoding.ASCII.GetBytes($"HTTP/1.1 {status} Fixture\r\nContent-Type: {contentType}\r\nContent-Length: {bytes.Length}\r\nConnection: close\r\n\r\n");
+                    await stream.WriteAsync(header, _stop.Token);
+                    await stream.WriteAsync(bytes, _stop.Token);
+                    return;
+                }
                 if (_restricted) {
                     object data;
                     if (uri.AbsolutePath == "/System/Info/Public") data = new { Id = "mediastation-go-001" };

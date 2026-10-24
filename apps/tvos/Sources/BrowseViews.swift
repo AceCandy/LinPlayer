@@ -274,6 +274,20 @@ struct MediaCard: View {
         }.frame(width: width, alignment: .topLeading)
             .scaleEffect(focused ? 1.025 : 1)
             .animation(.easeOut(duration: 0.16), value: focused)
+            .contextMenu {
+                if imageServer == nil || imageServer == model.api?.session?.server {
+                    if ["Movie", "Series", "Season", "Episode"].contains(item.type_) {
+                        Button(item.played == true ? "标记为未看" : "标记为已看") {
+                            model.setItemState(item.id, played: item.played != true)
+                        }.disabled(model.writingItems.contains(item.id))
+                    }
+                    if ["Movie", "Series", "BoxSet"].contains(item.type_) {
+                        Button(item.is_favorite == true ? "取消收藏" : "收藏") {
+                            model.setItemState(item.id, favorite: item.is_favorite != true)
+                        }.disabled(model.writingItems.contains(item.id))
+                    }
+                }
+            }
     }
     @ViewBuilder private func ratingBadge(douban: Bool) -> some View {
         if let score = item.ratingText(douban: douban) {
@@ -762,6 +776,8 @@ struct DetailView: View {
     @State private var versions: [MediaVersion] = []
     @State private var version = ""
     @State private var seasons: [MediaSeason]?
+    @State private var confirmedSeasons: [String: MediaPage] = [:]
+    @State private var calibrationRevision = -1
     @State private var season = ""
     @FocusState private var focusedSeason: String?
     @FocusState private var focusedStream: Int?
@@ -908,16 +924,22 @@ struct DetailView: View {
                 }
                 if series {
                     if let seasons {
-                        EpisodeBrowser(api: api, parent: season.isEmpty ? current.id : season, origin: item.id, seasonName: seasons.first { $0.id == season }?.name ?? "")
+                        EpisodeBrowser(api: api, parent: season.isEmpty ? current.id : season, origin: item.id, seasonName: seasons.first { $0.id == season }?.name ?? "",
+                            onComplete: { parent, page, revision in
+                                guard parent == season, revision == model.userStateRevision else { return }
+                                if calibrationRevision != revision { confirmedSeasons = [:]; calibrationRevision = revision }
+                                confirmedSeasons[parent] = page
+                            })
                             .id(season)
                         if !seasons.isEmpty {
                             TVSectionHeading("季").padding(.horizontal, 64)
                             ScrollView(.horizontal) {
                                 HStack(alignment: .top, spacing: 24) {
-                                    ForEach(seasons) { entry in
+                                    ForEach(seasons) { raw in
+                                        let entry = calibrated(raw)
                                         Button { season = entry.id } label: {
                                             VStack(alignment: .leading, spacing: 10) {
-                                                Poster(id: entry.id, enabled: entry.has_primary == true, loader: model.images, width: 190, height: 285, placeholder: "暂无季封面")
+                                                MediaArtwork(item: entry.artwork(series: item.id), loader: model.images, width: 190, height: 285)
                                                     .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(focusedSeason == entry.id ? TVPalette.foreground(model.privateSpace).opacity(0.65) : TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(season == entry.id ? 1 : 0), lineWidth: 2) }
                                                     .scaleEffect(focusedSeason == entry.id ? 1.04 : 1)
                                                 Text(entry.name).font(.system(size: 24, weight: .medium)).lineLimit(2)
@@ -925,6 +947,11 @@ struct DetailView: View {
                                                 if let status = entry.statusText { Text(status).font(.system(size: 20)).foregroundStyle(.secondary) }
                                             }.frame(width: 190)
                                         }.buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focusedSeason, equals: entry.id)
+                                            .contextMenu {
+                                                Button(entry.played == true ? "整季标记为未看" : "整季标记为已看") {
+                                                    model.setItemState(entry.id, played: entry.played != true)
+                                                }.disabled(model.writingItems.contains(entry.id))
+                                            }
                                     }
                                 }.padding(.horizontal, 64).padding(.vertical, 20)
                             }
@@ -996,6 +1023,11 @@ struct DetailView: View {
         return (season.map { "S\($0)" } ?? "") + "E\(episode)："
     }
 
+    private func calibrated(_ season: MediaSeason) -> MediaSeason {
+        guard calibrationRevision == model.userStateRevision, let page = confirmedSeasons[season.id] else { return season }
+        return season.calibrated(page) ?? season
+    }
+
     @ViewBuilder private func facetLink(_ label: String, query: BrowseQuery, available: Bool = true) -> some View {
         if detail != nil && detail?.capabilities?["filters"] != false && available {
             NavigationLink {
@@ -1033,6 +1065,7 @@ struct EpisodeBrowser: View {
     let parent: String
     let origin: String
     var seasonName = ""
+    var onComplete: ((String, MediaPage, Int) -> Void)? = nil
     @FocusState private var focusedEpisode: String?
     @State private var positioned = false
     @State private var episodes: [MediaItem] = []
@@ -1100,6 +1133,7 @@ struct EpisodeBrowser: View {
                 while total == nil || cursor < total! {
                     let page = try await api.episodes(parent: parent, start: cursor)
                     try Task.checkCancellation()
+                    guard generation == request, revision == model.userStateRevision else { return }
                     if page.items.isEmpty && cursor < page.total { throw CoreFailure(code: "E_PROTOCOL") }
                     staged = try MediaAPI.appendEpisodes(staged, page: page.items)
                     cursor += page.items.count; total = page.total
@@ -1107,8 +1141,11 @@ struct EpisodeBrowser: View {
                     if page.items.isEmpty { break }
                 }
                 try Task.checkCancellation()
+                guard generation == request, revision == model.userStateRevision else { return }
+                guard staged.count == total else { throw CoreFailure(code: "E_PROTOCOL") }
                 episodes = staged; complete = true
-            } catch is CancellationError {} catch { self.error = error.localizedDescription }
+                onComplete?(parent, MediaPage(items: staged, total: total ?? 0), revision)
+            } catch is CancellationError {} catch { if generation == request { self.error = error.localizedDescription } }
         }
     }
 }

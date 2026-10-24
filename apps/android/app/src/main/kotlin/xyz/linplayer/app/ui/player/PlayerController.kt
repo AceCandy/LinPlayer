@@ -288,12 +288,13 @@ internal class PlayerController(
         seekSubmitted = false
     }
     suspend fun pause(paused: Boolean) { if (!switching) controls.pause(paused) }
-    suspend fun speed(speed: Double, isCurrent: () -> Boolean = { true }) {
+    suspend fun speed(speed: Double, isCurrent: () -> Boolean = { true }): Boolean {
         val generation = transportGeneration
-        transportMutex.withLock {
+        return transportMutex.withLock {
             if (!switching && generation == transportGeneration && isCurrent()) {
                 withContext(NonCancellable) { controls.speed(speed) }
-            }
+                true
+            } else false
         }
     }
     suspend fun volume(volume: Float) { if (!switching) controls.volume(volume) }

@@ -237,6 +237,12 @@ public sealed class PlayerPage : UserControl
     /// <summary>详情页选好的音轨 / 字幕(Emby 流下标)。见构造函数的参数注释。</summary>
     private readonly int _wantAudioIndex = -1;
     private readonly int _wantSubIndex = -1;
+    private readonly InitialSubtitle? _initialSubtitle;
+    private string _actualSourceId = "";
+    private readonly SemaphoreSlim _trackGate = new(1, 1);
+    private bool _manualAudio, _manualSubtitle, _initialAudioApplied, _initialSubtitleApplied, _syncingTracks, _loadingTracks;
+    private DateTime _trackRefreshAt;
+    private bool _speedBusy;
 
     private double _duration, _buffered;
     private bool _polling, _started;
@@ -331,7 +337,7 @@ public sealed class PlayerPage : UserControl
     public PlayerPage(CoreClient core, string itemId, string title, double resumeSecs,
         bool isSource = false, string mediaSourceId = "",
         int audioIndex = -1, int subIndex = -1, bool isLocal = false,
-        string serverId = "", SourcePlay? src = null, Func<Task>? onCompleted = null)
+        string serverId = "", SourcePlay? src = null, Func<Task>? onCompleted = null, InitialSubtitle? initialSubtitle = null)
     {
         _onCompleted = onCompleted;
         _src = src;
@@ -339,6 +345,7 @@ public sealed class PlayerPage : UserControl
         _isLocal = isLocal;
         _wantAudioIndex = audioIndex;
         _wantSubIndex = subIndex;
+        _initialSubtitle = initialSubtitle;
         _mediaSourceId = mediaSourceId;
         _core = core;
         _seek = new PlaybackSeek(to => _core.PlayerSeek(new { pos = to }));
@@ -1080,11 +1087,29 @@ public sealed class PlayerPage : UserControl
 
     private async Task SetSpeed(double v)
     {
-        _speedValue = v;
-        // 1 倍速写成「1×」不是「1.00×」—— 一排数字里多两位小数会显得没对齐
-        _speed.Content = Math.Abs(v - 1.0) < 0.01 ? "1×" : $"{v:0.##}×";
-        _speed.Classes.Set("on", Math.Abs(v - 1.0) > 0.01);
-        await Send("player.setSpeed", new { speed = v });
+        if (_speedBusy || !_started || _seek.Stopped) return;
+        _speedBusy = true;
+        await _trackGate.WaitAsync();
+        var previous = _speedValue;
+        var changed = false;
+        try {
+            if (_seek.Stopped) return;
+            await _core.CallAsync("player.setSpeed", new { speed = v });
+            changed = true;
+            await _core.CallAsync("player.setPlaybackPrefs", _feedMode
+                ? new Dictionary<string, double> { ["liuying_speed"] = v }
+                : new Dictionary<string, double> { ["default_speed"] = v });
+            _speedValue = v;
+            _speed.Content = Math.Abs(v - 1.0) < 0.01 ? "1×" : $"{v:0.##}×";
+            _speed.Classes.Set("on", Math.Abs(v - 1.0) > 0.01);
+        } catch (Exception e) {
+            if (changed) {
+                try { await _core.CallAsync("player.setSpeed", new { speed = previous }); }
+                catch { _speedValue = v; _speed.Content = $"{v:0.##}×"; }
+            }
+            _msg.Text = LibraryPage.Advice(e);
+        }
+        finally { _trackGate.Release(); _speedBusy = false; }
     }
 
     /// <summary>
@@ -1844,12 +1869,14 @@ public sealed class PlayerPage : UserControl
             else
             {
                 var s = Nav.Session!;
-                await _core.PlayerPlay(new
+                var result = await _core.PlayerPlay(new
                 {
                     s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
                     item_id = itemId, resume_secs = resumeSecs, from_start = fromStart,
                     media_source_id = _mediaSourceId,
+                    speed_scope = _feedMode ? "liuying" : "",
                 });
+                _actualSourceId = Str(result, "media_source_id");
             }
             _started = !_seek.Stopped;
         }
@@ -3580,6 +3607,8 @@ public sealed class PlayerPage : UserControl
         (visual == _feedControls || visual.GetVisualAncestors().Contains(_feedControls));
 
     internal Task FeedSeek(double position) => SeekTo(position);
+    internal double FeedSpeed => _speedValue;
+    internal Task FeedCycleSpeed() => CycleSpeed(1);
     internal Task FeedPause() => _started && !_seek.Stopped ? TogglePause() : Task.CompletedTask;
     internal Task FeedMute()
     {
@@ -4323,9 +4352,16 @@ public sealed class PlayerPage : UserControl
 
     private async Task PickTrack(string kind, ComboBox box)
     {
-        if (box.SelectedItem is not TrackOption t) return;
-        try { await _core.PlayerSetTrack(new { kind, id = t.Id }); }
-        catch (Exception e) { _msg.Text = LibraryPage.Advice(e); }
+        if (_syncingTracks || _seek.Stopped || box.SelectedItem is not TrackOption t) return;
+        var wasManual = kind == "audio" ? _manualAudio : _manualSubtitle;
+        if (kind == "audio") _manualAudio = true; else _manualSubtitle = true;
+        await _trackGate.WaitAsync();
+        try { if (!_seek.Stopped) await _core.PlayerSetTrack(new { kind, id = t.Id }); }
+        catch (Exception e) {
+            if (kind == "audio") _manualAudio = wasManual; else _manualSubtitle = wasManual;
+            _msg.Text = LibraryPage.Advice(e);
+        }
+        finally { _trackGate.Release(); }
     }
 
     private async Task Send(string cmd, object args)
@@ -4431,6 +4467,10 @@ public sealed class PlayerPage : UserControl
                这正是本仓说的那类假绿:代码写了、编译过了、就是从没跑到过。 */
             _ = LoadQualityLevels();
         }
+        else if (dur > 0 && !_loadingTracks && DateTime.UtcNow >= _trackRefreshAt &&
+            ((!_manualSubtitle && !_initialSubtitleApplied && (_initialSubtitle != null || _wantSubIndex != -1)) ||
+             (!_manualAudio && !_initialAudioApplied && _wantAudioIndex >= 0)))
+            _ = LoadTracks();
 
         /* 倍速可能被别处改(mpv.conf / 快捷键 / 上一次的粘连),
            以状态里的为准 —— 按钮上写着 1× 而实际在放 1.5× 是「界面在撒谎」。 */
@@ -4498,6 +4538,15 @@ public sealed class PlayerPage : UserControl
 
     private async Task LoadTracks()
     {
+        if (_loadingTracks || _seek.Stopped) return;
+        _loadingTracks = true;
+        _trackRefreshAt = DateTime.UtcNow.AddSeconds(1);
+        try { await LoadTrackOptions(); }
+        finally { _loadingTracks = false; }
+    }
+
+    private async Task LoadTrackOptions()
+    {
         JsonElement tr;
         try { tr = await _core.PlayerTracks(new { }); }
         catch { return; }   // 轨道拉不到就不画那两个下拉,放片本身不受影响
@@ -4518,25 +4567,45 @@ public sealed class PlayerPage : UserControl
         /* 详情页选好的那两条<b>先落实</b>,再去读「现在选中的是哪条」——
            顺序反了的话下拉框会先停在 mpv 默认那条,一瞬后才跳到用户选的那条,
            而用户看到的是「我选的没生效,过一会儿才对」。 */
-        var wantAudio = MatchByFFIndex(tr, "audio", _wantAudioIndex);
-        var wantSub = _wantSubIndex == -2 ? "no" : MatchByFFIndex(tr, "sub", _wantSubIndex);
-        if (wantAudio != "") await Apply("audio", wantAudio);
-        if (wantSub != "") await Apply("sub", wantSub);
+        var wantAudio = "";
+        var wantSub = "";
+        await _trackGate.WaitAsync();
+        try {
+            if (_seek.Stopped) return;
+            if (_initialSubtitle is { } initial && initial.SourceId != _actualSourceId) _initialSubtitleApplied = true;
+            if (!_manualAudio && !_initialAudioApplied) wantAudio = MatchByFFIndex(tr, "audio", _wantAudioIndex);
+            if (!_manualSubtitle && !_initialSubtitleApplied)
+                wantSub = _initialSubtitle is { } choice ? choice.Match(_actualSourceId, tr) ?? ""
+                    : _wantSubIndex == -2 ? "no" : MatchByFFIndex(tr, "sub", _wantSubIndex);
+            if (wantAudio != "") { await _core.PlayerSetTrack(new { kind = "audio", id = wantAudio }); _initialAudioApplied = true; }
+            if (wantSub != "" && !_manualSubtitle && !_seek.Stopped) {
+                await _core.PlayerSetTrack(new { kind = "sub", id = wantSub }); _initialSubtitleApplied = true;
+            }
+        } catch (Exception e) { _msg.Text = LibraryPage.Advice(e); }
+        finally { _trackGate.Release(); }
 
         var curAudio = wantAudio != "" ? wantAudio : Selected(tr, "audio");
         var curSub = wantSub != "" ? wantSub : Selected(tr, "sub");
         Dispatcher.UIThread.Post(() =>
         {
+            if (_seek.Stopped) return;
+            _syncingTracks = true;
+            try {
+            if (!_manualAudio) {
             _audio.ItemsSource = audio;
-            _subs.ItemsSource = subs;
             // 选中**当前在放的**那条,不是第一条 —— 显示和实际不一致比没有更糟
             _audio.SelectedItem = audio.FirstOrDefault(a => a.Id == curAudio) ?? audio.FirstOrDefault();
+            }
+            if (!_manualSubtitle) {
+            _subs.ItemsSource = subs;
             _subs.SelectedItem = subs.FirstOrDefault(x => x.Id == curSub) ?? subs[0];
+            }
             /* 一条音轨都没有时(纯画面的片子真的存在)下拉框是**空白**的,
                看着像没加载出来。禁用 + 写明「无音轨」才说得清是「没有」而不是「没拉到」。
                字幕不用这一手 —— 它永远至少有一项「关闭字幕」。 */
             _audio.IsEnabled = audio.Count > 0;
             _audio.PlaceholderText = "无音轨";
+            } finally { _syncingTracks = false; }
         });
     }
 
@@ -4559,13 +4628,6 @@ public sealed class PlayerPage : UserControl
                 return Str(t, "id");
         }
         return "";
-    }
-
-    /// <summary>切一条轨。 失败不弹红字 —— 起播那一刻切轨失败,片子照样能看。</summary>
-    private async Task Apply(string kind, string id)
-    {
-        try { await _core.PlayerSetTrack(new { kind, id }); }
-        catch { /* 选轨失败就用默认那条,别拦住看片 */ }
     }
 
     private static string Selected(JsonElement tracks, string kind) =>
@@ -4658,7 +4720,9 @@ public sealed class PlayerPage : UserControl
             await _seek.Stop(async () => {
                 await previous;
                 await _starting;
-                await _core.PlayerStopPlayback(arg);
+                await _trackGate.WaitAsync();
+                try { await _core.PlayerStopPlayback(arg); }
+                finally { _trackGate.Release(); }
             });
         }
         catch { /* 退出路径不因收尾失败卡住；核心记录故障，下一页仍可起播。 */ }

@@ -35,6 +35,18 @@ import xyz.linplayer.app.ui.player.matchingTrack
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
 class PlayerControllerTest {
+    @Test fun skippedSpeedDoesNotAcknowledgeApplication() = runBlocking {
+        val calls = mutableListOf<String>()
+        val controller = PlayerController("mpv") { command, _ ->
+            calls += command
+            kotlinx.serialization.json.JsonNull
+        }
+        assertFalse(controller.speed(1.5) { false })
+        assertTrue(calls.isEmpty())
+        assertTrue(controller.speed(1.5))
+        assertEquals(listOf("player.setSpeed"), calls)
+    }
+
     private val decoderError = PlaybackException("解码初始化失败", null, PlaybackException.ERROR_CODE_DECODER_INIT_FAILED)
     private val state = PlaybackSnapshot(42.5, true, 1.25, 0.4f, subOff = true)
 

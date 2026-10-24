@@ -73,6 +73,31 @@ public static class SettingsSections
         });
     }
 
+    /// <summary>媒体落盘缓存与多线程内存预取分别配置；零容量关闭媒体缓存。</summary>
+    public static Control MediaCache(CoreClient core, JsonElement prefs)
+    {
+        var hint = Hint();
+        var capacity = new NumericUpDown {
+            Minimum = 0, Maximum = 4096, Increment = 64, Width = 140,
+            Value = (decimal)(Num(prefs, "media_cache_bytes") / (1024L * 1024)),
+        };
+        var save = new Button { Classes = { "primary" }, Content = "保存" };
+        save.Click += async (_, _) => {
+            save.IsEnabled = false;
+            try {
+                await core.CallAsync("prefs.setPrefetchSettings", new {
+                    settings = new { media_cache_bytes = (long)((capacity.Value ?? 0) * 1024 * 1024) },
+                });
+                hint.Text = "已保存。";
+            } catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
+            finally { save.IsEnabled = true; }
+        };
+        return Group("媒体缓存", new StackPanel { Spacing = 10, Children = {
+            Note("所有媒体共用 64–4096 MiB；0 关闭并清理已有媒体缓存，不影响多线程预取设置。"),
+            Field("容量 / MiB", capacity), Row(save, hint),
+        } });
+    }
+
     // ---------------------------------------------------------------- 首页栏目
 
     /// <summary>
@@ -1274,11 +1299,31 @@ public static class SettingsSections
     public static Control ThemeAndWallpaper(CoreClient core)
     {
         var hint = Hint();
+        var modes = new[] { "system", "dark", "light" };
+        var mode = new ComboBox {
+            ItemsSource = new[] { "跟随系统", "深色", "浅色" },
+            SelectedIndex = Array.IndexOf(modes, Appearance.Mode), MinWidth = 260, MinHeight = 34,
+        };
+        var updating = false;
+        mode.SelectionChanged += async (_, _) =>
+        {
+            if (updating || mode.SelectedIndex < 0) return;
+            updating = true;
+            mode.IsEnabled = false;
+            try { await Appearance.Set(modes[mode.SelectedIndex]); hint.Text = "外观已保存并生效。"; }
+            catch (Exception e) {
+                mode.SelectedIndex = Array.IndexOf(modes, Appearance.Mode);
+                hint.Text = LibraryPage.Advice(e);
+            }
+            finally { mode.IsEnabled = true; updating = false; }
+        };
         var themes = new ComboBox { MinWidth = 260, MinHeight = 34 };
         var papers = new ComboBox { MinWidth = 260, MinHeight = 34 };
         var body = new StackPanel { Spacing = 10 };
 
         if (FailCard() is { } f) body.Children.Add(f);
+        body.Children.Add(Field("明暗模式", mode));
+        body.Children.Add(Note("仅影响本机，即时生效；插件主题提供的样式仍优先。"));
         body.Children.Add(Note("主题换的是整套 token 与组件样式,重启后生效;壁纸切换即时生效。"));
         body.Children.Add(Field("主题", themes));
         body.Children.Add(Field("壁纸", papers));
