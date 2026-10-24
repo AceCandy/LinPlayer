@@ -1102,3 +1102,42 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 108: 手机端字号层级与细节精修
+<!-- trellis-session: v=2 fp=4b3ec9230c0a5cb0 -->
+
+**Date**: 2026-10-25
+**Task**: 手机端字号层级与细节精修
+**Branch**: `main`
+
+### Summary
+
+重排手机字阶，去掉栏目竖条，精简续播剩余时长、时长秒数、布尔值、倍速读数与弹幕图标
+
+### Main Changes
+
+- 头图/详情片名28sp，媒体栏目新增20sp半粗档，栏目标题去掉竖条
+- 动态数字改系统字体+tnum；倍速固定48dp命中区并自适应字号
+- 续播剩余时长单独一行到分钟；作品时长十分钟以上不带秒；媒体信息布尔值显示是/否；弹幕图标改为气泡
+- 同步 UI_MOBILE、UI_TV、android、type-safety 规范
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `48bbd906` | feat(android): 重排手机字号层级并精简详情与播放器细节 |
+| `c4f4ef90` | chore(task): archive 10-25-mobile-typography-polish |
+
+### Testing
+
+- [OK] Android 全量单元测试972项：969通过、3跳过、3失败（隐私排行榜断言，属其它会话进行中改动）
+- [OK] 详情、首页、播放器OSD、媒体信息截图目视确认
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机核验厂商系统字体下时间码宽度与TV观感
