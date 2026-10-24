@@ -9,7 +9,7 @@ enum NativeCore {
 struct VisualPlayerEngine {
     struct Track: Identifiable { let id: Int; let name: String; var codec = "aac"; var language: String? = "jpn"; var isExternal = false }
     struct Chapter: Identifiable { let id: Int; let name: String; let startSeconds: Double }
-    let duration: Double = 9960
+    let duration: Double = 2729
     let isBuffering = false
     let maxSupportedRate: Float = 2
     let mediaChapters = [Chapter(id: 0, name: "序章", startSeconds: 0)]
@@ -20,10 +20,8 @@ struct VisualPlayerEngine {
 struct VideoSurface: View {
     let engine: VisualPlayerEngine
     var body: some View {
-        ZStack {
-            LinearGradient(colors: [.indigo.opacity(0.5), .black], startPoint: .topTrailing, endPoint: .bottomLeading)
-            Text("合成播放背景 · 不验证解码").font(.system(size: 36)).foregroundStyle(.white.opacity(0.35))
-        }
+        Image(uiImage: UIImage(data: try! Data(contentsOf: VisualCatalog.directory.appendingPathComponent("visual-1-Backdrop.png")))!)
+            .resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity).background(.black)
     }
 }
 @MainActor final class PlaybackController: ObservableObject {
@@ -33,7 +31,7 @@ struct VideoSurface: View {
     let fromStart: Bool
     var syncWarning: String?
     let engine: VisualPlayerEngine? = VisualPlayerEngine()
-    let subtitleText = "这是一条用于检查位置和遮挡的示例字幕。"
+    let subtitleText: String
     let subtitleNote: String? = nil
     let message: String? = nil
     let loading = false, changingTrack = false, closing = false, ended = false, queueLoading = false, paused = false, audioSelectable = true, canSeek = true
@@ -46,17 +44,19 @@ struct VideoSurface: View {
     let actualVersion = "v1", pictureMode = "fit"
     let speed: Float = 1
     let canSetSpeed = true
-    let bufferedPosition: Double = 4800
-    let position: Double = 3600
+    let bufferedPosition: Double = 2050
+    let position: Double = 1517
     let textTracks = [VisualPlayerEngine.Track(id: 2, name: "简体中文")]
     let unsupportedSubtitleCount = 0
-    let skipInfo: PlaybackSkip? = PlaybackSkip(intro: .init(start: 3590, end: 3690), outro: nil, skip_auto: false, skip_source: "合成区间")
+    let skipInfo: PlaybackSkip?
     let skipError: String? = nil
     var activeSkip: PlaybackSkip.Range? { skipInfo?.active(at: position, duration: engine?.duration ?? 0) }
     func retrySkip() {}
     func skip(_ range: PlaybackSkip.Range) {}
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, showSkip: Bool = false) {
         self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
+        subtitleText = showSkip ? "这是一条用于检查位置和遮挡的示例字幕。" : ""
+        skipInfo = showSkip ? PlaybackSkip(intro: .init(start: 1500, end: 1600), outro: nil, skip_auto: false, skip_source: "合成区间") : nil
     }
     func suspend() {}
     func close() async {}
@@ -71,36 +71,86 @@ struct VideoSurface: View {
     func selectSubtitle(_ id: Int?) {}
 }
 
+enum VisualCatalog {
+    static let directory = Bundle.main.resourceURL!.appendingPathComponent("VisualFixtures")
+    static let data = try! JSONDecoder().decode(JSONValue.self, from: Data(contentsOf: directory.appendingPathComponent("catalog.json")))
+    static let rows = Dictionary(uniqueKeysWithValues: (data["items"].array + data["details"].array + data["libraries"].array).map { value in
+        (value["id"].string!, item(value))
+    })
+    // 共享资料省略的传输字段在测试适配层补齐，不放宽正式 DTO 的校验。
+    static func item(_ value: JSONValue) -> JSONValue {
+        guard case .object(var fields) = value else { fatalError("视觉资料不是对象") }
+        fields["is_folder"] = .bool(["CollectionFolder", "Season", "Series"].contains(value["type_"].string ?? ""))
+        fields["runtime_secs"] = fields["runtime_secs"] ?? .number(0)
+        fields["resume_secs"] = fields["resume_secs"] ?? .number(0)
+        return .object(fields)
+    }
+    static func selected(_ key: String) -> [JSONValue] {
+        data[key].array.map { rows[$0.string!]! }
+    }
+    static var media: JSONValue {
+        .array(data["media"].array.map { version in
+            guard case .object(var fields) = version else { fatalError("视觉版本不是对象") }
+            fields["streams"] = .array(version["streams"].array.map { stream in
+                guard case .object(var fields) = stream else { fatalError("视觉轨道不是对象") }
+                fields["is_external"] = fields["is_external"] ?? .bool(false)
+                return .object(fields)
+            })
+            return .object(fields)
+        })
+    }
+    static func verify() {
+        precondition(data["version"].number == 1)
+        _ = try! JSONValue.array(Array(rows.values)).decode([MediaItem].self)
+        _ = try! JSONValue.array(data["items"].array + data["details"].array).decode([MediaDetail].self)
+        _ = try! JSONValue.array(selected("seasons")).decode([MediaSeason].self)
+        _ = try! media.decode([MediaVersion].self)
+        for key in ["hero", "resume", "latest", "episodes"] { precondition(!selected(key).isEmpty) }
+        for row in rows.values {
+            let art = row["art_id"].string ?? row["id"].string!
+            for (flag, kind) in [("has_primary", "Primary"), ("has_backdrop", "Backdrop")] where row[flag].bool == true {
+                let url = directory.appendingPathComponent("\(art)-\(kind).png")
+                // 媒体库与其它端一样复用第一张样本图。
+                if row["type_"].string != "CollectionFolder" { precondition(UIImage(data: try! Data(contentsOf: url)) != nil) }
+            }
+        }
+    }
+}
+
 @MainActor final class VisualCommands: LinPlayerCommands {
     static func item(_ id: String, _ name: String, type: String = "Movie", resume: Double = 0) -> JSONValue {
         .object(["id": .string(id), "name": .string(name), "type_": .string(type), "is_folder": .bool(false),
             "has_primary": .bool(true), "has_backdrop": .bool(true), "has_logo": .bool(id == "film1"), "genres": .array([.string("科幻")]), "runtime_secs": .number(9960), "resume_secs": .number(resume),
             "played": .bool(false), "is_favorite": .bool(false), "year": .number(2024), "rating": .number(8.6), "DoubanRating": .number(8.3)])
     }
-    let movies = [item("film1", "沙丘 2"), item("film2", "漫长的旅程"), item("film3", "星河回声"), item("film4", "远方的夏天"), item("film5", "海岸线"), item("film6", "最后一班列车")]
-    static let account: JSONValue = .object(["server": .string("fixture"), "name": .string("演示媒体库"), "user_name": .string("演示账号"), "user_id": .string("fixture"), "active": .bool(true), "line_url": .string("https://fixture.invalid"), "aggregate": .bool(true), "aggregate_primary": .bool(true), "lines": .array([.object(["name": .string("默认线路"), "url": .string("https://fixture.invalid")])])])
+    let movies = VisualCatalog.selected("latest")
+    static let account: JSONValue = .object(["server": .string("fixture"), "name": VisualCatalog.data["server_name"], "user_name": .string("演示账号"), "user_id": .string("fixture"), "active": .bool(true), "line_url": .string("https://fixture.invalid"), "aggregate": .bool(true), "aggregate_primary": .bool(true), "lines": .array([.object(["name": .string("默认线路"), "url": .string("https://fixture.invalid")])])])
     func call(_ command: String, _ args: [String: JSONValue]) async throws -> JSONValue {
         switch command {
-        case "emby.views": return .array([Self.item("library", "电影", type: "CollectionFolder")])
-        case "emby.listLatest", "emby.cachedItems", "emby.similarItems", "emby.search", "emby.personItems": return .array(movies)
-        case "emby.listResume": return .array([Self.item("resume", "继续探索", resume: 3600)])
+        case "emby.views": return .array(VisualCatalog.data["libraries"].array.map(VisualCatalog.item))
+        case "emby.listLatest", "emby.search", "emby.personItems": return .array(movies)
+        case "emby.cachedItems": return .array(VisualCatalog.selected("hero"))
+        case "emby.similarItems": return .array(Array(movies.dropFirst()))
+        case "emby.listResume": return .array(VisualCatalog.selected("resume"))
         case "emby.listCollections": return .array([])
-        case "emby.seriesPlaybackTarget": return Self.item("episode1", "第 1 集 · 旅程的起点", type: "Episode")
-        case "emby.seriesSeasons": return .array((1...3).map { .object(["id": .string("season\($0)"), "name": .string("第 \($0) 季"), "child_count": .number(8), "has_primary": .bool(true)]) })
-        case "emby.seasonEpisodes": return .object(["items": .array((1...8).map { Self.item("episode\($0)", "第 \($0) 集 · 旅程的起点", type: "Episode") }), "total": .number(8)])
+        case "emby.seriesPlaybackTarget": return VisualCatalog.selected("episodes")[1]
+        case "emby.seriesSeasons": return .array(VisualCatalog.selected("seasons"))
+        case "emby.seasonEpisodes":
+            let episodes = VisualCatalog.selected("episodes")
+            return .object(["items": .array(args["start_index"]?.number == 0 ? episodes : []), "total": .number(Double(episodes.count))])
         case "emby.listItemsPage", "emby.listFavorites":
             let values = movies.map { value -> JSONValue in
                 guard case .object(var fields) = value else { return value }
-                fields["library_ids"] = .array([.string("library")]); return .object(fields)
+                fields["library_ids"] = .array([.string("visual-library")]); return .object(fields)
             }
-            return .object(["items": .array(values), "total": .number(Double(values.count)), "has_more": .bool(false)])
+            return .object(["items": .array(values), "total": .number(Double(values.count)), "next_index": .number(Double(values.count)), "has_more": .bool(false)])
         case "emby.personItemsPage":
             let start = Int(args["start_index"]?.number ?? 0)
             let type = args["type"]?.string ?? "Movie"
             let values = (start..<min(start + 30, 65)).map { Self.item("\(type)-\($0)", "作品 \($0 + 1)", type: type) }
             return .object(["items": .array(values), "total": .number(65), "next_index": .number(Double(start + values.count)), "has_more": .bool(start + values.count < 65)])
         case "account.probeLine": return .object(["ms": .number(12)])
-        case "emby.getFilters": return .object(["genres": .array([.string("科幻"), .string("冒险")]), "tags": .array([.string("史诗")]), "years": .array([.number(2024)])])
+        case "emby.getFilters": return VisualCatalog.data["filters"]
         case "account.listAccounts": return .array([Self.account])
         case "emby.aggregateOverview": return .array([.object(["server_id": .string("fixture"), "server_name": .string("演示媒体库"), "line_url": .string("https://fixture.invalid"), "counts_known": .bool(true), "counts": .object(["movie": .number(128), "series": .number(32), "episode": .number(400), "boxset": .number(6)]), "resume": .array(movies)])])
         case "emby.blockedList": return .array([.object(["id": .string("blocked"), "name": .string("演示屏蔽条目")])])
@@ -112,33 +162,15 @@ struct VideoSurface: View {
             guard page <= 2 else { return .array([]) }
             let start = (page - 1) * 5 + 1
             return .array((start..<(start + 5)).map { .object(["id": .string("rank\($0)"), "source": .string("fixture"), "external_id": .string("rank\($0)"), "media_type": .string("Movie"), "title": .string("第 \($0) 部演示影片"), "subtitle": .string("2024 · 科幻 / 冒险"), "rank": .number(Double($0)), "rating": .number(8.6), "image_url": .string("https://fixture.invalid/poster"), "weekday": .number(Double(($0 - 1) % 7 + 1)), "broadcast_time": .string("20:30"), "timezone": .string("Asia/Tokyo")]) })
-        case "emby.heroCandidates": return .array([.string("film1"), .string("film2")])
+        case "emby.heroCandidates": return VisualCatalog.data["hero"]
         case "prefs.getHomeSettings": return .object(["collections_enabled": .bool(false)])
         case "prefs.getPrefs", "player.getPlaybackPrefs": return .object(["sub_enabled": .bool(true), "default_speed": .number(1), "search_history": .array([.string("沙丘"), .string("星河"), .string("夏天")])])
         case "prefs.getPrefetchSettings": return .object(["servers": .array([.string("fixture")]), "threads": .number(3), "cache_bytes": .number(268435456), "media_cache_bytes": .number(1073741824)])
         case "prefs.getPrimaryProgressServer": return .object(["server": .string("fixture"), "valid": .bool(true), "pending": .number(2), "conflicts": .number(0)])
         case "account.getCrossServerResume": return .bool(true)
         case "system.cacheSize": return .object(["bytes": .number(134217728)])
-        case "emby.itemDetail":
-            guard case .object(var fields) = movies[0] else { fatalError() }
-            if args["item_id"]?.string == "series" {
-                fields["id"] = .string("series"); fields["name"] = .string("漫长的旅程 · 关于星空与远方的一段故事")
-                fields["type_"] = .string("Series")
-            }
-            fields["overview"] = .string("在遥远的沙漠星球，年轻的旅人踏上一段关于责任与选择的旅程。面对未知的未来，他必须找到自己的道路。")
-            fields["genres"] = .array([.string("科幻"), .string("冒险")]); fields["tags"] = .array([.string("史诗")])
-            fields["premiere_date"] = .string("2024-03-01")
-            fields["people"] = .array((1...8).map { .object(["id": .string("person\($0)"), "name": .string("演示演员\($0)"), "role": .string("角色\($0)"), "type_": .string("Actor"), "has_primary": .bool(true)]) })
-            return .object(fields)
-        case "emby.itemMedia":
-            let versions: [JSONValue] = [.object(["id": .string("v1"), "name": .string("2160p 导演剪辑版"), "preferred": .bool(true), "path": .string("/media/电影/星河回声/星河回声.mkv"),
-            "container": .string("MKV"), "size_bytes": .number(66_120_000_000), "streams": .array([
-                .object(["is_external": .bool(false), "index": .number(0), "type_": .string("Video"), "codec": .string("hevc"), "width": .number(3840), "height": .number(2160)]),
-                .object(["is_external": .bool(false), "index": .number(1), "type_": .string("Audio"), "codec": .string("truehd"), "title": .string("日语原声 7.1"), "language": .string("jpn")]),
-                .object(["is_external": .bool(false), "index": .number(2), "type_": .string("Subtitle"), "codec": .string("srt"), "title": .string("简体中文"), "language": .string("chi")])])])]
-            guard case .object(var alternate) = versions[0] else { fatalError() }
-            alternate["id"] = .string("v2"); alternate["name"] = .string("1080p 剧场版"); alternate["preferred"] = .bool(false)
-            return .array(versions + [.object(alternate)])
+        case "emby.itemDetail": return VisualCatalog.rows[args["item_id"]!.string!]!
+        case "emby.itemMedia": return VisualCatalog.media
         case "player.setPlaybackPrefs", "prefs.setPrefetchSettings": return .object([:])
         case "account.testConnection": return .object(["name": .string("演示媒体库"), "version": .string("1.0")])
         default: fatalError("视觉夹具缺少命令：" + command)
@@ -147,8 +179,6 @@ struct VideoSurface: View {
 }
 
 final class VisualImages: URLProtocol {
-    static var data = Data()
-    static var logoData = Data()
     private static let lock = NSLock()
     private static var requests: [String: Int] = [:]
     static func count(_ host: String) -> Int { lock.lock(); defer { lock.unlock() }; return requests[host] ?? 0 }
@@ -158,9 +188,17 @@ final class VisualImages: URLProtocol {
         let source = URLComponents(url: request.url!, resolvingAgainstBaseURL: false)?.queryItems?.first { $0.name == "src" }?.value ?? ""
         let host = URL(string: source)?.host ?? ""
         Self.lock.lock(); Self.requests[host, default: 0] += 1; Self.lock.unlock()
-        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!, cacheStoragePolicy: .notAllowed)
-        let isLogo = URL(string: source)?.path.hasSuffix("/Images/Logo") == true
-        client?.urlProtocol(self, didLoad: isLogo ? Self.logoData : Self.data); client?.urlProtocolDidFinishLoading(self)
+        let path = URL(string: source)?.path ?? ""
+        let id = path.components(separatedBy: "/").drop(while: { $0 != "Items" }).dropFirst().first ?? ""
+        let row = VisualCatalog.rows[id]
+        let art = row?["type_"].string == "CollectionFolder" ? "visual-1" : row?["art_id"].string ?? row?["id"].string ?? "visual-1"
+        let missing = art == "visual-4" || path.hasSuffix("/Images/Logo")
+        client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: missing ? 404 : 200, httpVersion: nil, headerFields: ["Content-Type": "image/png"])!, cacheStoragePolicy: .notAllowed)
+        if !missing {
+            let kind = path.contains("/Images/Backdrop") ? "Backdrop" : "Primary"
+            client?.urlProtocol(self, didLoad: try! Data(contentsOf: VisualCatalog.directory.appendingPathComponent("\(art)-\(kind).png")))
+        }
+        client?.urlProtocolDidFinishLoading(self)
     }
     override func stopLoading() {}
 }
@@ -191,33 +229,21 @@ final class VisualImages: URLProtocol {
     func scene(_ scene: UIScene, willConnectTo session: UISceneSession, options: UIScene.ConnectionOptions) {
         guard let scene = scene as? UIWindowScene else { return }
         output = FileManager.default.urls(for: .documentDirectory, in: .userDomainMask)[0]
-        let asset = ImageRenderer(content: ZStack { LinearGradient(colors: [Color(red: 0.32, green: 0.27, blue: 0.12), Color(red: 0.08, green: 0.16, blue: 0.23)], startPoint: .topLeading, endPoint: .bottomTrailing).frame(width: 1920, height: 1080)
-            Circle().fill(Color.orange.opacity(0.5)).frame(width: 300, height: 300).offset(x: 450, y: -180)
-            Path { path in
-                path.move(to: CGPoint(x: 0, y: 900)); path.addLine(to: CGPoint(x: 900, y: 260))
-                path.addLine(to: CGPoint(x: 1450, y: 850)); path.addLine(to: CGPoint(x: 1920, y: 440))
-                path.addLine(to: CGPoint(x: 1920, y: 1080)); path.addLine(to: CGPoint(x: 0, y: 1080)); path.closeSubpath()
-            }.fill(Color(red: 0.23, green: 0.3, blue: 0.37))
-            Text("演示封面").font(.system(size: 80, weight: .semibold)).foregroundStyle(.white.opacity(0.6)).offset(y: 220)
-        }.frame(width: 1920, height: 1080))
-        VisualImages.data = asset.uiImage!.pngData()!
-        let logo = ImageRenderer(content: Text("星河回声").font(.system(size: 96, weight: .bold, design: .serif))
-            .foregroundStyle(.white).frame(width: 620, height: 180))
-        VisualImages.logoData = logo.uiImage!.pngData()!
+        VisualCatalog.verify()
         let core = VisualCommands(), api = MediaAPI(core: VisualCommands())
         api.use(MediaSession(server: "https://fixture.invalid", token: "fixture", user_id: "fixture", user_name: "演示账号"))
         model.api = api; model.ready = true; model.account = try! VisualCommands.account.decode(MediaAccount.self)
         model.images.use(server: "https://fixture.invalid")
         model.images.setChannel(base: "https://fixture.invalid", token: "fixture")
         let movie = try! core.movies[0].decode(MediaItem.self)
-        let library = try! VisualCommands.item("library", "电影", type: "CollectionFolder").decode(MediaItem.self)
-        var favorite = movie; favorite.library_ids = ["library"]
-        precondition(FavoriteGroup.make(items: [favorite], libraries: [library]).map(\.id) == ["library:library"])
+        let library = try! VisualCatalog.rows["visual-library"]!.decode(MediaItem.self)
+        var favorite = movie; favorite.library_ids = [library.id]
+        precondition(FavoriteGroup.make(items: [favorite], libraries: [library]).map(\.id) == ["library:" + library.id])
         precondition(FavoriteGroup.make(items: [favorite], libraries: []).map(\.id) == ["type:Movie"])
         let unknown = MediaItem.route(id: "unknown", name: "兼容条目", type: "BoxSet")
         let grouped = FavoriteGroup.make(items: [favorite, unknown], libraries: [library])
         precondition(Set(grouped.flatMap(\.items).map(\.id)) == [favorite.id, unknown.id], "分组不能丢失未知类型或无库归属的收藏")
-        let series = try! VisualCommands.item("series", "漫长的旅程 · 关于星空与远方的一段故事", type: "Series").decode(MediaItem.self)
+        let series = try! VisualCatalog.rows["visual-series"]!.decode(MediaItem.self)
         for style in TVLoading.styles where style != 0 {
             precondition(LottieAnimation.named("lp_loading_\(style)", subdirectory: "Loading") != nil, "加载动画资源无法解析")
         }
@@ -228,10 +254,9 @@ final class VisualImages: URLProtocol {
                     TVLoading(style == 0 ? "系统默认" : "样式 \(style)", style: style)
                 }
             }.padding(64))),
-            ("player", AnyView(PlayerView(controller: PlaybackController(api: api, item: "film1", title: "沙丘 2", version: nil, fromStart: false)))),
-            ("library", AnyView(NavigationStack { LibraryView(api: api, item: library) })),
+            ("player-skip", AnyView(RootView())),
             ("favorites", AnyView(ProductRoot(api: api, initialTab: "favorites"))),
-            ("favorite-category", AnyView(NavigationStack { FavoritesView(api: api, groupID: "library:library", title: "电影") })),
+            ("favorite-category", AnyView(NavigationStack { FavoritesView(api: api, groupID: "library:" + library.id, title: "电影") })),
             ("search", AnyView(ProductRoot(api: api, initialTab: "search"))),
             ("servers", AnyView(ProductRoot(api: api, initialTab: "servers"))),
             ("account", AnyView(NavigationStack { AccountEditor(api: api, account: model.account!) })),
@@ -240,18 +265,23 @@ final class VisualImages: URLProtocol {
             ("calendar", AnyView(NavigationStack { DiscoveryView(api: api, calendar: true) })),
             ("person", AnyView(NavigationStack { PersonView(api: api, item: .route(id: "person", name: "演示演员", type: "Person")) })),
             ("collection", AnyView(NavigationStack { CollectionView(api: api, item: .route(id: "collection", name: "演示合集", type: "BoxSet")) })),
-            ("series", AnyView(NavigationStack { DetailView(api: api, item: series) })),
             ("appearance", AnyView(NavigationStack { SettingsDetailView(api: api, pane: .appearance, title: "外观") })),
             ("player-settings", AnyView(NavigationStack { SettingsDetailView(api: api, pane: .player, title: "播放器") })),
             ("prefetch-settings", AnyView(NavigationStack { SettingsDetailView(api: api, pane: .prefetch, title: "多线程加载") })),
             ("progress-settings", AnyView(NavigationStack { SettingsDetailView(api: api, pane: .progress, title: "主进度服") })),
             ("storage-settings", AnyView(NavigationStack { SettingsDetailView(api: api, pane: .storage, title: "存储与数据目录") })),
-            ("blocked", AnyView(NavigationStack { BlockedView(api: api) })),
-            ("home", AnyView(ProductRoot(api: api))),
-            ("detail", AnyView(NavigationStack { DetailView(api: api, item: movie) })),
-            ("settings", AnyView(ProductRoot(api: api, initialTab: "settings"))),
-            ("settings-light", AnyView(ProductRoot(api: api, initialTab: "settings")))
+            ("blocked", AnyView(NavigationStack { BlockedView(api: api) }))
         ]
+        for mode in ["dark", "light"] {
+            pages += [
+                ("\(mode)-home", AnyView(ProductRoot(api: api))),
+                ("\(mode)-library", AnyView(NavigationStack { LibraryView(api: api, item: library) })),
+                ("\(mode)-detail", AnyView(NavigationStack { DetailView(api: api, item: movie) })),
+                ("\(mode)-series", AnyView(NavigationStack { DetailView(api: api, item: series) })),
+                ("\(mode)-settings", AnyView(ProductRoot(api: api, initialTab: "settings"))),
+                ("\(mode)-player", AnyView(RootView()))
+            ]
+        }
         window = UIWindow(windowScene: scene)
         Task { @MainActor in
             let images = model.images
@@ -274,16 +304,26 @@ final class VisualImages: URLProtocol {
             return
         }
         let (name, page) = pages.removeFirst()
-        let light = name.hasSuffix("-light")
+        let light = name.hasPrefix("light-")
+        window!.rootViewController = nil
+        model.playback = nil
         let host = UIHostingController(rootView: page.environmentObject(model)
             .preferredColorScheme(light ? .light : .dark)
             .foregroundStyle(TVPalette.foreground(false)).tint(TVPalette.accent(false))
             .background(TVPalette.background(false)))
         window!.overrideUserInterfaceStyle = light ? .light : .dark
         window!.rootViewController = host; window!.makeKeyAndVisible()
+        if name.hasSuffix("-player") || name == "player-skip" {
+            DispatchQueue.main.async {
+                let movie = try! VisualCatalog.selected("hero")[0].decode(MediaItem.self)
+                self.model.playback = PlaybackController(api: self.model.api!, item: movie.id, title: movie.name,
+                    version: nil, fromStart: false, showSkip: name == "player-skip")
+            }
+        }
         DispatchQueue.main.asyncAfter(deadline: .now() + 3) {
             self.capture(name)
-            if ["series", "detail", "player-settings"].contains(name), let scroll = self.verticalScroll(in: host.view) {
+            if name.hasSuffix("-series") || name.hasSuffix("-detail") || name == "player-settings",
+               let scroll = self.verticalScroll(in: host.view) {
                 scroll.setContentOffset(CGPoint(x: 0, y: min(850, max(0, scroll.contentSize.height - scroll.bounds.height))), animated: false)
                 DispatchQueue.main.asyncAfter(deadline: .now() + 1) {
                     self.capture(name + "-lower"); self.showNext()
@@ -295,12 +335,56 @@ final class VisualImages: URLProtocol {
         if let scroll = view as? UIScrollView, scroll.contentSize.height > scroll.bounds.height + 100 { return scroll }
         return view.subviews.lazy.compactMap { self.verticalScroll(in: $0) }.first
     }
+    private func animations(in view: UIView) -> [LottieAnimationView] {
+        (view as? LottieAnimationView).map { [$0] } ?? view.subviews.flatMap { animations(in: $0) }
+    }
+    private func luminances(_ image: CGImage, in rect: CGRect) -> [Double] {
+        let width = Int(rect.width), height = Int(rect.height)
+        var rgba = [UInt8](repeating: 0, count: width * height * 4)
+        rgba.withUnsafeMutableBytes { bytes in
+            let context = CGContext(data: bytes.baseAddress, width: width, height: height, bitsPerComponent: 8, bytesPerRow: width * 4,
+                space: CGColorSpace(name: CGColorSpace.sRGB)!, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+            context.draw(image.cropping(to: rect)!, in: CGRect(x: 0, y: 0, width: width, height: height))
+        }
+        return stride(from: 0, to: rgba.count, by: 4).map { offset in
+            zip(rgba[offset..<offset + 3], [0.2126, 0.7152, 0.0722]).reduce(0) { result, channel in
+                let value = Double(channel.0) / 255
+                return result + (value <= 0.04045 ? value / 12.92 : pow((value + 0.055) / 1.055, 2.4)) * channel.1
+            }
+        }
+    }
     private func capture(_ name: String) {
         window!.layoutIfNeeded()
+        if name == "loading-styles" {
+            let views = animations(in: window!)
+            precondition(views.count == TVLoading.styles.count - 1)
+            precondition(views.allSatisfy { $0.bounds.size == CGSize(width: 48, height: 48) },
+                "加载动画必须使用48点槽位，实际为：\(views.map { $0.bounds.size })")
+        }
+        if name.hasSuffix("-player") || name == "player-skip" {
+            let presented = window!.rootViewController?.presentedViewController
+            precondition(presented != nil && presented!.traitCollection.userInterfaceStyle == .dark, "正式播放呈现必须保持深色控件")
+        }
         let format = UIGraphicsImageRendererFormat(); format.scale = 1
-        let data = UIGraphicsImageRenderer(size: window!.bounds.size, format: format).pngData { _ in
+        let image = UIGraphicsImageRenderer(size: window!.bounds.size, format: format).image { _ in
             precondition(window!.drawHierarchy(in: window!.bounds, afterScreenUpdates: true), "页面绘制失败")
         }
-        try! data.write(to: output.appendingPathComponent(name + ".png"))
+        if name == "light-home" || name == "dark-home" {
+            // 固定夹具：分别取标题、元信息和未选中导航的实绘字色，再与同高度无字背景比较。
+            precondition(image.size == CGSize(width: 1920, height: 1080))
+            let source = image.cgImage!
+            let title = luminances(source, in: CGRect(x: 64, y: 445, width: 200, height: 45)).max()!
+            let metadata = luminances(source, in: CGRect(x: 64, y: 521, width: 120, height: 17)).max()!
+            let navigation = luminances(source, in: CGRect(x: 568, y: 73, width: 48, height: 23))
+            let navigationText = name == "light-home" ? navigation.min()! : navigation.max()!
+            for point in [CGPoint(x: 320, y: 470), CGPoint(x: 800, y: 470),
+                          CGPoint(x: 320, y: 530), CGPoint(x: 800, y: 530), CGPoint(x: 950, y: 85)] {
+                let background = luminances(source, in: CGRect(origin: point, size: CGSize(width: 1, height: 1)))[0]
+                let values = [point.y < 140 ? navigationText : point.y < 500 ? title : metadata, background]
+                let contrast = (values.max()! + 0.05) / (values.min()! + 0.05)
+                precondition(contrast >= (point.y < 140 ? 3 : 4.5), "\(name)叠图文字对比度不足：\(contrast)，位置：\(point)")
+            }
+        }
+        try! image.pngData()!.write(to: output.appendingPathComponent(name + ".png"))
     }
 }

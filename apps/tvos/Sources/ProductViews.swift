@@ -110,7 +110,11 @@ struct ProductRoot: View {
                 }
                 .padding(.horizontal, 64).frame(height: 112).padding(.top, 28)
                 .background {
-                    LinearGradient(colors: [TVPalette.background(model.privateSpace).opacity(0.92), TVPalette.background(model.privateSpace).opacity(0)], startPoint: .top, endPoint: .bottom)
+                    LinearGradient(stops: [
+                        .init(color: TVPalette.background(model.privateSpace).opacity(0.92), location: 0),
+                        .init(color: TVPalette.background(model.privateSpace).opacity(0.92), location: 0.8),
+                        .init(color: TVPalette.background(model.privateSpace).opacity(0), location: 1)
+                    ], startPoint: .top, endPoint: .bottom)
                 }.focusSection()
             }.ignoresSafeArea(.container)
             .navigationDestination(for: MediaItem.self) { item in

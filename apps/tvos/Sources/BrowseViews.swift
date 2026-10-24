@@ -129,6 +129,9 @@ private struct TVLoadingAnimation: UIViewRepresentable {
         view.contentMode = .scaleAspectFit
         return view
     }
+    func sizeThatFits(_ proposal: ProposedViewSize, uiView: LottieAnimationView, context: Context) -> CGSize? {
+        proposal.replacingUnspecifiedDimensions()
+    }
     func updateUIView(_ view: LottieAnimationView, context: Context) {
         if themed {
             let color = UIColor(tint).resolvedColor(with: UITraitCollection(userInterfaceStyle: scheme == .dark ? .dark : .light))
@@ -136,7 +139,6 @@ private struct TVLoadingAnimation: UIViewRepresentable {
             color.getRed(&r, green: &g, blue: &b, alpha: &a)
             let provider = ColorValueProvider(LottieColor(r: Double(r), g: Double(g), b: Double(b), a: Double(a)))
             view.setValueProvider(provider, keypath: AnimationKeypath(keypath: "**.Color"))
-            view.setValueProvider(provider, keypath: AnimationKeypath(keypath: "**.Stroke Color"))
         }
         if reduceMotion { view.pause(); view.currentProgress = 0.5 }
         else if playing { if !view.isAnimationPlaying { view.play() } }
@@ -361,7 +363,7 @@ private struct HomeBanner: View {
     private var timerIdentity: String { "\(item.id):\(active):\(focused ?? ""):\(model.sceneActive):\(reduceMotion):\(items.count):\(pendingPlay?.id ?? ""):\(model.playback != nil)" }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            NavigationLink(value: item) { Backdrop(item: item, loader: model.images, height: height) }
+            NavigationLink(value: item) { Backdrop(item: item, loader: model.images, height: height, whiteForeground: true) }
                 .buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focused, equals: "background").accessibilityLabel(item.name + "，查看详情")
             VStack(alignment: .leading, spacing: 18) {
                 if let logo {
