@@ -82,6 +82,7 @@ import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim2
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
+import xyz.linplayer.app.ui.components.bleed
 import xyz.linplayer.app.ui.components.H1
 import xyz.linplayer.app.ui.components.H2
 import xyz.linplayer.app.ui.components.LpButton
@@ -262,7 +263,8 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
                     val cats = h.getOrNull()!!["categories"].arr().mapNotNull { it.obj() }
                     val rec = h.getOrNull()!!["recommended"].arr().mapNotNull { it.obj() }
                     if (cats.isNotEmpty()) header {
-                        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
+                        // 横滑行铺到屏幕边再内缩，首尾芯片的隐私空间霓虹光晕不被网格内边距裁掉
+                        Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
                             cats.forEach { c -> ToneChip(c.str("name") ?: "", on = false) { nav.navigate(Route.SourceCategory(serverId, c.toString())) } }
                         }
                     }
@@ -315,7 +317,7 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
             cat?.get("filters").arr().mapNotNull { it.obj() }.forEach { d ->
                 val key = d.str("key") ?: return@forEach
                 header {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+                    Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6),
                         verticalAlignment = Alignment.CenterVertically) {
                         Dim3(d.str("name") ?: "", Modifier.width(48.dp))
                         d["options"].arr().mapNotNull { it.obj() }.forEach { o ->
