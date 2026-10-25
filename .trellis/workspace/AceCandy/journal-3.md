@@ -1515,3 +1515,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 继续人物页、搜索筛选、登录页精修
+
+
+## Session 120: 手机筛选选中与聚合/人物/库/登录页精修
+<!-- trellis-session: v=2 fp=60724b6366dd22da -->
+
+**Date**: 2026-10-25
+**Task**: 手机筛选选中与聚合/人物/库/登录页精修
+**Branch**: `main`
+
+### Summary
+
+筛选芯片改淡强调选中；聚合视界当前标签与快捷入口、人物页留白、库排序胶囊、登录页精简
+
+### Main Changes
+
+- MediaFilters/AggregatePage/PersonPage/LibraryPage/GatePage、PhoneGateUiTest、UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ea244025` | feat(android): 筛选选中改淡强调，聚合/人物/库排序/登录页精简 |
+
+### Testing
+
+- [OK] 全量单测 982 通过；相关页面浅/深截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 继续手机 UI 精修：排行页单项来源行、隐私空间配色复核等
