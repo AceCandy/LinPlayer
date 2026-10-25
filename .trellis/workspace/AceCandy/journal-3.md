@@ -1549,3 +1549,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 继续手机 UI 精修：排行页单项来源行、隐私空间配色复核等
+
+
+## Session 121: 排行页签、观看历史缩略图与隐私筛选复核
+<!-- trellis-session: v=2 fp=730ed881a501fea1 -->
+
+**Date**: 2026-10-25
+**Task**: 排行页签、观看历史缩略图与隐私筛选复核
+**Branch**: `main`
+
+### Summary
+
+排行体系文字页签；观看历史缩略图；详情季数纯文字；隐私空间筛选选中保留实底
+
+### Main Changes
+
+- DiscoverPages/DetailPage/ListPages/MediaFilters、UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e79e32fa` | feat(android): 排行体系改页签，观看历史加缩略图，季数去描边，隐私筛选保留实底 |
+
+### Testing
+
+- [OK] 全量单测 982 通过；相关截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 日历未提供文案待用户决定；继续手机 UI 精修
