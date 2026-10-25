@@ -1481,3 +1481,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 修复 TvPrivacyTest 与 PhoneMedia3RecoveryTest 偶发失败
+
+
+## Session 119: 手机设置分段与菜单精修
+<!-- trellis-session: v=2 fp=0c13c4c1cf7a80e6 -->
+
+**Date**: 2026-10-25
+**Task**: 手机设置分段与菜单精修
+**Branch**: `main`
+
+### Summary
+
+设置分段浮起选中块、设置首页图标去重、实底菜单白底描边、主进度页对勾与按钮同排
+
+### Main Changes
+
+- Base.kt SegRow/LpCell.checked/LpMenu；SettingsPage/ServersPage/PrimaryProgressPanel
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dbfbe03a` | feat(android): 设置分段改浮起选中块，菜单与主进度页去重色块 |
+
+### Testing
+
+- [OK] 全量单测 979 通过；截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 继续人物页、搜索筛选、登录页精修
