@@ -1279,3 +1279,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 真机复核
+
+
+## Session 113: 手机发现页与续播按钮精修
+<!-- trellis-session: v=2 fp=245b9396683e76ef -->
+
+**Date**: 2026-10-25
+**Task**: 手机发现页与续播按钮精修
+**Branch**: `main`
+
+### Summary
+
+排行榜芯片收紧、去隔行底，日历去占位，续播按钮实心强调
+
+### Main Changes
+
+- DiscoverPages/DetailPage/PhoneDiscoverUiTest 与 UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `dd327990` | feat(android): 精修发现页与详情续播按钮 |
+
+### Testing
+
+- [OK] 全量 972 例，既有隐私空间 3 例与 1 例偶发计时失败（单跑两次通过）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 浅色强调色评估
