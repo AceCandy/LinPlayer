@@ -1313,3 +1313,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 浅色强调色评估
+
+
+## Session 114: 浅色首页头图延伸
+<!-- trellis-session: v=2 fp=1c43333ba261753a -->
+
+**Date**: 2026-10-25
+**Task**: 浅色首页头图延伸
+**Branch**: `main`
+
+### Summary
+
+浅色首页头图延伸到续播卡片中点，叠图标题白字、入口半透明深底
+
+### Main Changes
+
+- Cards/HomePage/VisualAlignmentTest 与 UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `8f1325e0` | feat(android): 浅色首页头图同样延伸到续播卡片中点 |
+
+### Testing
+
+- [OK] 全量 972 例：既有 3 例；对比度用例改后通过；2 例偶发单跑通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机复核亮色头图可读性
