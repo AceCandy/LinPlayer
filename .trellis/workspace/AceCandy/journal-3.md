@@ -1895,3 +1895,37 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 真机走查手机与平板，按反馈逐条修
+
+
+## Session 131: 手机端列表性能检查
+<!-- trellis-session: v=2 fp=d23fc7733c3ea243 -->
+
+**Date**: 2026-10-25
+**Task**: 手机端列表性能检查
+**Branch**: `main`
+
+### Summary
+
+编译器报告+静态扫描，修卡片菜单重建、详情顶层读滚动、搜索列表无key与重算、插件横轨重复key崩溃
+
+### Main Changes
+
+- HomePage/DetailPage/SearchPage 热路径 remember 与 derivedStateOf；新增 PhoneListStabilityTest
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e131575c` | perf(android): 卡片菜单跨重组复用，详情滚动状态改派生，搜索与首页列表免重算；修插件首页横轨重复key崩溃 |
+
+### Testing
+
+- [OK] 全量testDebugUnitTest 1022例 3跳过 0失败；新增2例在旧代码上失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机感受流畅度；可选加 Macrobenchmark 帧耗时基准
