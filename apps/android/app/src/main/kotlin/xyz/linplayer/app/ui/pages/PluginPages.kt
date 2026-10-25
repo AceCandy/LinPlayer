@@ -76,7 +76,8 @@ import xyz.linplayer.app.ui.components.manageWidth
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
-import xyz.linplayer.app.ui.components.OptRow
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.ToneChip
 import xyz.linplayer.app.ui.components.rememberScrolled
@@ -514,11 +515,13 @@ internal fun SettingRow(app: AppState, id: String, s: JsonObject, cur: JsonEleme
             val opts = s["options"].arr().mapNotNull { it.obj() }
             // 整组共用一个选中值：各项各存一份时，改选后旧项不会取消
             var picked by remember { mutableStateOf((cur as? JsonPrimitive)?.content) }
-            Column(Modifier.padding(horizontal = Sp.x16)) {
-                Body(title)
-                opts.forEach { o ->
+            // 与设置页单选同一套：小号标题 + 面板内勾选行
+            Column {
+                Dim2(title, Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x12))
+                opts.forEachIndexed { i, o ->
                     val v = o.str("value") ?: ""
-                    OptRow(o.str("label") ?: v, { save(v); picked = v }, selected = picked == v)
+                    if (i > 0) Hairline()
+                    LpCell(o.str("label") ?: v, Modifier.semantics { selected = picked == v }, checked = picked == v, arrow = false) { save(v); picked = v }
                 }
             }
         }
