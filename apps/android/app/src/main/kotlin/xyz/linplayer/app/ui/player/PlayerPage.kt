@@ -1555,12 +1555,14 @@ internal fun Osd(
             Column(Modifier.align(Alignment.CenterEnd)
                 .offset(y = if (!portrait && LocalConfiguration.current.screenHeightDp <= 360) (-4).dp
                     else if (!portrait && LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
-                .safeDrawingPadding().padding(end = if (portrait) Sp.x6 else Sp.x16),
+                .safeDrawingPadding().padding(end = if (portrait) Sp.x6 else Sp.x16)
+                // 加、读数、减共用一条胶囊底，读成一个步进器而不是三颗散落的控件。
+                .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f)),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (portrait) Sp.x6
                     else if (LocalConfiguration.current.screenHeightDp <= 360) 0.dp else Sp.x12)) {
                 PlayerControl(if (portrait) LpIcons.plus else LpIcons.minus, if (portrait) "加速" else "减速",
-                    faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
+                    faceSize = controlFace, face = false, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
                 // 命中区固定48dp以免压到相邻控件；读数单行，放不下时缩小字号，不能拆出单独一行「×」。
                 Box(menuAnchor("speed").size(48.dp).pressable({ onPanel("speed") })
                     .semantics { contentDescription = "倍速" }, contentAlignment = Alignment.Center) {
@@ -1569,7 +1571,7 @@ internal fun Osd(
                         autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 15.sp))
                 }
                 PlayerControl(if (portrait) LpIcons.minus else LpIcons.plus, if (portrait) "减速" else "加速",
-                    faceSize = controlFace, onClick = { onSpeed(step(speed, if (portrait) -1 else +1)) })
+                    faceSize = controlFace, face = false, onClick = { onSpeed(step(speed, if (portrait) -1 else +1)) })
             }
             if (!portrait) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
                 .safeDrawingPadding()
@@ -1635,12 +1637,16 @@ internal fun Osd(
 private fun PlayerControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
     size: androidx.compose.ui.unit.Dp = 48.dp, enabled: Boolean = true,
-    faceSize: androidx.compose.ui.unit.Dp = size, modifier: Modifier = Modifier, onClick: () -> Unit,
+    faceSize: androidx.compose.ui.unit.Dp = size, modifier: Modifier = Modifier,
+    /** 放进共用胶囊底时关掉自身圆底，避免叠出深色圆斑。 */
+    face: Boolean = true,
+    onClick: () -> Unit,
 ) {
     Box(modifier.size(size).clip(RoundedCornerShape(R.pill))
         .pressable(onClick, enabled = enabled),
         contentAlignment = Alignment.Center) {
-        Box(Modifier.size(faceSize).clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f)),
+        Box(Modifier.size(faceSize).clip(RoundedCornerShape(R.pill))
+            .background(if (face) Color.Black.copy(alpha = .38f) else Color.Transparent),
             contentAlignment = Alignment.Center) {
             Icon(icon, label, Modifier.size(if (faceSize >= 70.dp) 34.dp else if (faceSize <= 28.dp) 18.dp else 23.dp),
                 tint = Color.White.copy(alpha = if (enabled) 1f else .4f))

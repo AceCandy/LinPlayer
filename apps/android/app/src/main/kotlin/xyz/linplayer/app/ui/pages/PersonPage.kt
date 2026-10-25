@@ -93,7 +93,7 @@ fun PersonPage(nav: NavController, entry: NavBackStackEntry) {
                         if (overview.isNotBlank()) Text(overview,
                             Modifier.padding(horizontal = Sp.x16).testTag("person.overview")
                                 .pressable({ expanded = !expanded }),
-                            color = c.fg2, style = LpText.caption, maxLines = if (expanded) Int.MAX_VALUE else 3,
+                            color = c.fg2, style = LpText.secondary, maxLines = if (expanded) Int.MAX_VALUE else 3,
                             overflow = TextOverflow.Ellipsis)
                     }
                 }

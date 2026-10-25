@@ -205,8 +205,8 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
 
     LpScaffold(title, onBack = if (isCategory) ({ nav.popBackStack() }) else null, actions = {
         if (!isCategory) {
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.rewind, "观看历史") { nav.navigate(Route.History) }
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.check, "历史已看") { nav.navigate(Route.Watched) }
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "观看历史") { nav.navigate(Route.History) }
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.checkCircle, "历史已看") { nav.navigate(Route.Watched) }
         } else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
         val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
@@ -654,7 +654,7 @@ fun HistoryPage(nav: NavController) {
                     is Block.Fail -> if (!result.isSilent) item("error") { ErrorState(result.message, { reload++ }) }
                     is Block.Ok -> {
                         if (result.value.isEmpty()) item("empty") {
-                            EmptyState("还没有观看记录", "观看记录保存在本机，可切换范围查看其他服务器的记录。", LpIcons.rewind)
+                            EmptyState("还没有观看记录", "观看记录保存在本机，可切换范围查看其他服务器的记录。", LpIcons.history)
                         }
                         items(result.value.take(200), key = { it.str("record_id") ?: "" }) { rec ->
                             val series = rec.str("series_title").orEmpty()

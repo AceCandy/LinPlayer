@@ -63,6 +63,7 @@ object LpIcons {
     val sortLines = stroke("sortLines", "M3 6h18M3 12h12M3 18h6")
     val arrowDown = stroke("arrowDown", "M12 3v18m-7-7 7 7 7-7")
     val sort = stroke("sort", "M7 4v16M7 20l-3.2-3.2M7 20l3.2-3.2M17 20V4M17 4l-3.2 3.2M17 4l3.2 3.2")
+    val history = stroke("history", "M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8M3 3v5h5M12 7v5l4 2")
     val rewind = fill("rewind", "M11 6 4 12l7 6zM20 6l-7 6 7 6z")
     val forward = fill("forward", "m13 6 7 6-7 6zM4 6l7 6-7 6z")
     val sub = stroke("sub", "M2.5 7.6a2.6 2.6 0 0 1 2.6-2.6h13.8a2.6 2.6 0 0 1 2.6 2.6v8.8a2.6 2.6 0 0 1-2.6 2.6H5.1a2.6 2.6 0 0 1-2.6-2.6zM6.5 14.5h4M13.5 14.5h4M6.5 10.5h11")

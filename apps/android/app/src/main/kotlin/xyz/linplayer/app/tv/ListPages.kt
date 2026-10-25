@@ -185,7 +185,7 @@ fun FavoritesPage() {
                             overlay.open { FavSortPanel(by, asc, { overlay.close() }, { by = it }, { asc = it }) }
                         })
                         // 「观看历史」和「全部收藏」是一对(SPEC 8.7 D326):入口放这儿,不占导航轨的格子
-                        if (!app.privateSpace.value) EntryChip("观看历史", LpIcons.rewind, modifier = Modifier.memo("fav.history"),
+                        if (!app.privateSpace.value) EntryChip("观看历史", LpIcons.history, modifier = Modifier.memo("fav.history"),
                             onClick = { nav.push(TvRoute.History) })
                     }
                     Spacer(Modifier.height(TvSp.x6))
@@ -493,7 +493,7 @@ fun HistoryPageTv() {
             return@Column
         }
         if (list.isEmpty() && srcRows.isEmpty()) {
-            FullState(LpIcons.rewind, "还没有观看记录", sub = "看过的片会记在本机,换服务器或重装之后还在", buttons = emptyList())
+            FullState(LpIcons.history, "还没有观看记录", sub = "看过的片会记在本机,换服务器或重装之后还在", buttons = emptyList())
             return@Column
         }
         LazyColumn(Modifier.bleed(12.dp), verticalArrangement = Arrangement.spacedBy(TvSp.x6),
