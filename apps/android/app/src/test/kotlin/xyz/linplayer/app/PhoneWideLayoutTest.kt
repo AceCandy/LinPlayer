@@ -8,6 +8,7 @@ import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.getBoundsInRoot
 import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.onRoot
 import androidx.navigation.compose.NavHost
@@ -41,7 +42,9 @@ import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.item
 import xyz.linplayer.app.tv.library
 import xyz.linplayer.app.tv.loggedIn
+import xyz.linplayer.app.tv.episode
 import xyz.linplayer.app.tv.movie
+import xyz.linplayer.app.tv.series
 import xyz.linplayer.app.tv.page
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.DetailPage
@@ -117,7 +120,15 @@ class PhoneWideLayoutTest {
     @Test @Config(qualifiers = LANDSCAPE) fun libraryLandscape() = shoot("library-landscape", Route.Library("lib-0", "电影"), FakeCore().loggedIn().library())
     @Test @Config(qualifiers = TABLET) fun libraryTablet() = shoot("library-tablet", Route.Library("lib-0", "电影"), FakeCore().loggedIn().library())
     @Test @Config(qualifiers = LANDSCAPE) fun detailLandscape() = shoot("detail-landscape", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
-    @Test @Config(qualifiers = TABLET) fun detailTablet() = shoot("detail-tablet", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
+    /** 平板详情左右分栏：播放键在左栏第一屏内，右栏承载其余内容。 */
+    @Test @Config(qualifiers = TABLET) fun detailTablet() {
+        shoot("detail-tablet", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
+        val side = rule.onNodeWithTag("detail.wide.side").getBoundsInRoot()
+        val play = rule.onNodeWithTag("detail.play", useUnmergedTree = true).getBoundsInRoot()
+        org.junit.Assert.assertTrue("播放键应在左栏第一屏：$play / $side", play.right <= side.right && play.bottom <= side.bottom)
+    }
+    @Test @Config(qualifiers = TABLET) fun seriesTablet() = shoot("series-tablet", Route.Detail("s1", "Series"), FakeCore().loggedIn().series())
+    @Test @Config(qualifiers = TABLET) fun episodeTablet() = shoot("episode-tablet", Route.Detail("sh8", "Episode"), FakeCore().loggedIn().episode())
     @Test @Config(qualifiers = LANDSCAPE) fun settingsLandscape() = shoot("settings-landscape", Route.Settings)
     @Test @Config(qualifiers = TABLET) fun settingsTablet() = shoot("settings-tablet", Route.Settings)
     @Test @Config(qualifiers = TABLET) fun serversTablet() = shoot("servers-tablet", Route.Servers, manage())
