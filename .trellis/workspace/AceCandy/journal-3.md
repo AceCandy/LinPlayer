@@ -1722,3 +1722,38 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 待定
+
+
+## Session 126: 流影、记录页与宽屏适配复核
+<!-- trellis-session: v=2 fp=1ed900530e523531 -->
+
+**Date**: 2026-10-25
+**Task**: 流影、记录页与宽屏适配复核
+**Branch**: `main`
+
+### Summary
+
+流影收藏分类样式统一；记录页复核无改动；宽屏详情头图封顶、设置居中限宽、媒体库重复key崩溃修复
+
+### Main Changes
+
+- PhoneLiuyingFavorites/PhoneLiuyingChrome/LibraryPage/DetailPage/SettingsPage/PhoneWideLayoutTest/android.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e35bd775` | feat(android): 流影收藏弹层分类改为与顶栏一致的下划线样式 |
+| `aa74be0d` | fix(android): 媒体库整页刷新去重避免宽屏崩溃，详情头图按屏高封顶，设置列表宽屏居中 |
+
+### Testing
+
+- [OK] 全量 1004 通过，宽屏截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 平板详情双栏版式待定；真机走查
