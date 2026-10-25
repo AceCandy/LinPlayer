@@ -22,6 +22,7 @@ import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.cachedHomeImages
 import xyz.linplayer.app.data.homeHeroCandidates
+import xyz.linplayer.app.data.warmDetailBackdrop
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.loggedIn
 
@@ -166,5 +167,31 @@ class CachedHomeImagesTest {
         val app = app(disconnect = { it.contains("/Items/film-1/") }) { true }
         val images = app.cachedHomeImages((1..35).map { Item("film-$it", "作品$it", "Movie") })
         assertEquals((1..35).map { "film-$it" }, images.map { it.item.id })
+    }
+
+    @Test fun detailBackdropWarmupOnlyHeadsDetailAddressOnce() = runBlocking {
+        val local = HttpServer.create(InetSocketAddress("127.0.0.1", 0), 0)
+        server = local
+        val methods = CopyOnWriteArrayList<String>()
+        local.createContext("/") { exchange ->
+            requests.add(exchange.requestURI.toString())
+            methods.add(exchange.requestMethod)
+            assertEquals("fixture", exchange.requestHeaders.getFirst("X-LP-Token"))
+            exchange.sendResponseHeaders(200, -1)
+            exchange.close()
+        }
+        local.start()
+        val fake = FakeCore().loggedIn()
+        val app = AppState(object : CorePort by fake {
+            override val localBaseUrl = "http://127.0.0.1:${local.address.port}"
+            override val localToken = "fixture"
+        }, scope).also { it.boot() }
+        app.warmDetailBackdrop(Item("warm-film", "电影", "Movie", hasBackdrop = true))
+        app.warmDetailBackdrop(Item("warm-film", "电影", "Movie", hasBackdrop = true))
+        app.warmDetailBackdrop(Item("warm-poster", "只有封面", "Series"))
+        app.warmDetailBackdrop(Item("warm-ep", "分集", "Episode", hasBackdrop = true))
+        assertEquals("同一地址只预热一次，缺背景图和分集不预热", listOf(app.imageUrl("warm-film", "Backdrop", 720)!!
+            .removePrefix("http://127.0.0.1:${local.address.port}")), requests)
+        assertEquals(listOf("HEAD"), methods)
     }
 }

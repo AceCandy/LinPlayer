@@ -125,6 +125,7 @@ import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.MediaRowHeader
 import xyz.linplayer.app.ui.components.LpRowSkeleton
 import xyz.linplayer.app.ui.components.homePosterEntrance
+import xyz.linplayer.app.data.warmDetailBackdrop
 import androidx.compose.ui.platform.testTag
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.pressable
@@ -785,6 +786,7 @@ private fun RowBlock(
             { it, h -> app.imageUrl(it.id, "Primary", h) },
             open, m = if (resume) Modifier.testTag("home.resume") else Modifier,
             thumb = thumb, menu = menu, resume = resume, homeAccount = homeAccount,
+            warmDetail = { app.warmDetailBackdrop(it) },
         )
         // 各块各自 catch:一个区块失败不整页报错
         is Block.Fail -> Unit

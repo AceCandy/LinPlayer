@@ -344,6 +344,57 @@ class PhonePosterMotionTest {
         assertEquals("disabled animations must also disable cached background fade", Color.Green, center())
     }
 
+    @OptIn(coil3.annotation.DelicateCoilApi::class)
+    @Test fun detailPreviewReusesDecodedSourcePosterAndMissOnlyReadsLocalCache() {
+        val requests = java.util.Collections.synchronizedList(mutableListOf<String>())
+        val backdrop = CompletableDeferred<Unit>()
+        val loader = ImageLoader.Builder(ctx).coroutineContext(Dispatchers.Unconfined)
+            .components {
+                add(object : Fetcher.Factory<Uri> {
+                    override fun create(data: Uri, options: Options, imageLoader: ImageLoader) = Fetcher {
+                        requests += data.toString()
+                        if ("Backdrop" in data.toString()) backdrop.await()
+                        val image = Bitmap.createBitmap(40, 60, Bitmap.Config.ARGB_8888)
+                        image.eraseColor(android.graphics.Color.GREEN)
+                        ImageFetchResult(image.asImage(), false, DataSource.NETWORK)
+                    }
+                })
+            }.build()
+        SingletonImageLoader.setUnsafe(loader)
+        val poster = "http://127.0.0.1:1/img?src=Primary&h=330"
+        val detail = mutableStateOf(false)
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            LpTheme {
+                Column {
+                    NetImage(poster, null, Modifier.size(40.dp, 60.dp))
+                    Box(Modifier.size(100.dp).background(Color.Black).testTag("head")) {
+                        if (detail.value) NetImage("http://127.0.0.1:1/img?src=Backdrop&h=720", null, Modifier.fillMaxSize(),
+                            corner = 0.dp, backgroundBlur = true, previewUrl = poster)
+                    }
+                }
+            }
+        }
+        rule.waitUntil(5_000) { rule.mainClock.advanceTimeByFrame(); poster in requests }
+        rule.mainClock.advanceTimeBy(500)
+        rule.runOnIdle { detail.value = true; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        rule.mainClock.advanceTimeByFrame()
+        rule.mainClock.advanceTimeByFrame()
+        // 放大第一帧就要有来源海报托底，不能先露出底色再跳出海报
+        assertEquals(Color.Green, rule.onNodeWithTag("head").captureToImage().toPixelMap()[50, 50])
+        assertEquals("decoded source poster must come from memory", 1, requests.count { "src=Primary" in it })
+        backdrop.complete(Unit)
+
+        requests.clear()
+        loader.memoryCache?.clear()
+        rule.runOnIdle { detail.value = false; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        rule.mainClock.advanceTimeByFrame()
+        rule.runOnIdle { detail.value = true; androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications() }
+        rule.waitUntil(5_000) { rule.mainClock.advanceTimeByFrame(); requests.any { "src=Primary" in it } }
+        assertEquals("preview miss must only read local cache",
+            listOf("http://127.0.0.1:1/img-cache?src=Primary&h=330"), requests.filter { "src=Primary" in it })
+    }
+
     @Test fun wholeCardEntersTogetherAndDoesNotReplayAfterLazyDisposal() {
         var list: LazyListState? = null
         rule.mainClock.autoAdvance = false
@@ -694,6 +745,23 @@ class PhonePosterMotionTest {
         assertEquals("loaded image must not start a second card motion", pending, bounds("等待图"))
         rule.mainClock.advanceTimeBy(500)
         assertEquals(pending, bounds("等待图"))
+    }
+
+    @Test fun homeRowWarmsDetailOnlyForCardsThatStayOnScreen() {
+        images()
+        val warmed = mutableListOf<String>()
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            LpTheme {
+                LpRow("预热", (0..19).map { Item("warm$it", "预热$it", "Movie") }, { it, _ -> "poster:${it.id}" }, {},
+                    m = Modifier.width(320.dp), homeAccount = "server" to "user", warmDetail = { warmed += it.id })
+            }
+        }
+        rule.mainClock.advanceTimeBy(200)
+        assertTrue("停留不足时不预热: $warmed", warmed.isEmpty())
+        rule.mainClock.advanceTimeBy(200)
+        assertTrue("屏上卡片停留后预热: $warmed", "warm0" in warmed && "warm1" in warmed)
+        assertFalse("远处未组合的卡片不预热: $warmed", "warm19" in warmed)
     }
 
     @Test fun homeCardsStartDuringFastScrollAndZeroMotionFinishesThem() {

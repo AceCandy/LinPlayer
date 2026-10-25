@@ -154,6 +154,10 @@ internal fun Modifier.sharedPoster(itemId: String, sourceToken: String? = null):
     val token = sourceToken ?: link?.token ?: return this
     val source = if (sourceToken != null) scene.entry.id else link!!.sourceEntry
     val spec = lpTween<Rect>(T.T7, LpEasing.emphasizedDecelerate)
+    // 返回时首页整页重新组合，首帧常偏长；起步平缓的曲线让掉的那帧不变成一大步跳跃
+    val back = lpTween<Rect>(T.T7, LpEasing.standard)
+    // 两端都按当前所在页面判断方向，不依赖框架取哪一端的boundsTransform
+    val opening = { (motion.nav.currentBackStackEntry?.id == scene.entry.id) == (sourceToken == null) }
     // 详情头图先快速盖上来；来源海报稍后再淡出，详情预览图解码的头几帧仍由海报托底
     val enter = fadeIn(lpTween(T.T5, LinearEasing))
     val scale = LocalMotionScale.current
@@ -162,7 +166,7 @@ internal fun Modifier.sharedPoster(itemId: String, sourceToken: String? = null):
         this@sharedPoster.sharedBounds(
             rememberSharedContentState("$source/$token"), scene.visibility,
             enter = enter, exit = exit,
-            boundsTransform = { _, _ -> spec },
+            boundsTransform = { _, _ -> if (opening()) spec else back },
             resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
         )
     }

@@ -99,3 +99,34 @@ internal suspend fun AppState.homeHeroCandidates(items: List<Item>): List<Item> 
         .mapNotNull { (it as? JsonPrimitive)?.contentOrNull }.toSet()
     return items.distinctBy { it.id }.filter { it.id in ids }
 }
+
+/** 预热最多占用本机图片服务的两路回源，其余留给正在显示的海报。 */
+private val detailBackdropWarmups = Semaphore(2)
+private val warmedDetailBackdrops = java.util.Collections.synchronizedSet(HashSet<String>())
+
+/**
+ * 让本机图片服务提前缓存详情头图，首次放大进入时背景图从本机读出，不再在转场后才换图。
+ * 只发 HEAD：图片字节只落核心缓存，不回传、不解码、不占前端内存。
+ */
+internal suspend fun AppState.warmDetailBackdrop(item: Item) {
+    // 与详情 SeriesHead 的头图地址保持一致；分集详情用的是分集图，不预热
+    if (item.isEpisode || !item.hasBackdrop) return
+    val address = imageUrl(item.id, "Backdrop", 720) ?: return
+    if (!warmedDetailBackdrops.add(address)) return
+    val answered = try {
+        detailBackdropWarmups.withPermit { withContext(Dispatchers.IO) {
+            val connection = try { URL(address).openConnection() as HttpURLConnection } catch (_: IOException) { return@withContext false }
+            try {
+                connection.requestMethod = "HEAD"
+                connection.instanceFollowRedirects = false
+                connection.connectTimeout = 1000
+                connection.readTimeout = 15000
+                connection.setRequestProperty("X-LP-Token", core.localToken)
+                // 已缓存或确认无图就不再重复预热；回源失败、连不上留待下次可见再试
+                connection.responseCode.let { it == HttpURLConnection.HTTP_OK || it == HttpURLConnection.HTTP_NOT_FOUND }
+            } catch (_: IOException) { false }
+              finally { connection.disconnect() }
+        } }
+    } catch (e: kotlinx.coroutines.CancellationException) { warmedDetailBackdrops.remove(address); throw e }
+    if (!answered) warmedDetailBackdrops.remove(address)
+}

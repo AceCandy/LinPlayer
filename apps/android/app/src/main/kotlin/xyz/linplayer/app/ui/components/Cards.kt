@@ -161,7 +161,12 @@ private fun NetImageCandidate(
         val fading by remember(fade, immediate) { derivedStateOf { !immediate && fade.value < 1f } }
         val preview = previewUrl?.takeIf { it != url || backgroundBlur }?.let { previewData ->
             // 来源热图先显示；对它再次模糊会错过现成的内存缓存。
-            androidx.compose.runtime.key(previewData) { rememberAsyncImagePainter(previewData) }
+            // 按来源原地址命中已解码图，未命中只读本地图片缓存，不为占位回源。
+            val previewModel = remember(ctx, previewData) {
+                ImageRequest.Builder(ctx).data(previewData.replaceFirst("/img?", "/img-cache?"))
+                    .memoryCacheKey(previewData).build()
+            }
+            androidx.compose.runtime.key(previewData) { rememberAsyncImagePainter(previewModel) }
         }
         if (fading) Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
             when {
@@ -459,6 +464,8 @@ fun LpRow(
     resume: Boolean = false,
     /** 首页以账号隔离已入场卡片，非首页沿用图片就绪入场。 */
     homeAccount: Pair<String, String>? = null,
+    /** 卡片停留在屏上时预热其详情所需资源。 */
+    warmDetail: (suspend (Item) -> Unit)? = null,
 ) {
     val row = rememberLazyListState()
     val imageHeight = posterImageHeight(thumb)
@@ -480,6 +487,11 @@ fun LpRow(
         ) {
             // key + contentType:不给的话滚动时 item 复用会让 Coil 重复发请求
             itemsIndexed(items, key = { _, it -> it.id }, contentType = { _, _ -> if (thumb) "thumb" else "poster" }) { index, item ->
+                if (warmDetail != null) LaunchedEffect(item.id) {
+                    // 停留片刻才预热；快速划过的卡片在等待中随离屏取消
+                    kotlinx.coroutines.delay(300)
+                    warmDetail(item)
+                }
                 MediaCard(item, imageUrl(item, imageHeight), { onOpen(item) },
                     m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
                     thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)

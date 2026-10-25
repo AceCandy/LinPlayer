@@ -1287,7 +1287,7 @@ private fun SeriesHead(
                     .dissolve(0.64f, 0.99f)
             ) {
                 NetImage(imageUrl, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
-                    backgroundBlur = true, previewUrl = cachedPreview,
+                    backgroundBlur = true, previewUrl = posterPreview(id),
                     fallbackUrls = if (!useBackdrop && d.str("type_") == "Season")
                         artworkFallbacks(app.imageUrl(id, "Primary", 720), Item(id, "", "Season", seriesId = d.str("series_id"))) else emptyList(),
                     onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })

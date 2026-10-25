@@ -49,6 +49,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.NavHost
+import androidx.navigation.compose.DefaultNavTransitions
 import xyz.linplayer.app.ui.components.PosterMotionHost
 import xyz.linplayer.app.ui.components.PosterScrollMotion
 import xyz.linplayer.app.ui.components.LocalPosterScroll
@@ -324,6 +325,15 @@ private fun MainShell(tv: Boolean) {
                         else slideOutHorizontally(detailExit) { it }
                     }
                     else slideOutHorizontally(pageSlide) { it / 10 } + fadeOut(popFade)
+                },
+                // 侧滑返回默认把整页缩到0.7；放大进入的详情改走与返回键相同的淡出，只留海报缩回卡片
+                predictivePopEnterTransition = { edge ->
+                    if (posterMotion?.zooms(initialState.id) == true) EnterTransition.None
+                    else DefaultNavTransitions.predictivePopEnterTransition(this, edge)
+                },
+                predictivePopExitTransition = { edge ->
+                    if (posterMotion?.zooms(initialState.id) == true) { if (detailMotion) fadeOut(detailFade) else ExitTransition.None }
+                    else DefaultNavTransitions.predictivePopExitTransition(this, edge)
                 },
             ) {
                 // 当前是插件数据源:首页换成数据源首页(D167),Emby 那一套它一样都没有
