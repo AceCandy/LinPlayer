@@ -1245,3 +1245,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 无
+
+
+## Session 112: 手机倍速条与历史图标精修
+<!-- trellis-session: v=2 fp=407e6d7c2f1ca6f0 -->
+
+**Date**: 2026-10-25
+**Task**: 手机倍速条与历史图标精修
+**Branch**: `main`
+
+### Summary
+
+倍速条胶囊化，观看历史专用图标，人物简介字号放大
+
+### Main Changes
+
+- PlayerPage/Icons/ListPages/tv ListPages/PersonPage 与 UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ceea80ab` | feat(android): 精修倍速条、历史图标与人物简介 |
+
+### Testing
+
+- [OK] 全量 972 例，仅既有隐私空间 3 例失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机复核
