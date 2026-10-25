@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 116
+- **Total Sessions**: 117
 - **Last Active**: 2026-10-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1417 | Active |
+| `journal-3.md` | ~1451 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 117 | 2026-10-25 | 插件详情页分组卡片 | `0aea8af1` | `main` |
 | 116 | 2026-10-25 | 下载页与插件页精修 | `037175d3` | `main` |
 | 115 | 2026-10-25 | 浅色强调色调整 | `75abb046` | `main` |
 | 114 | 2026-10-25 | 浅色首页头图延伸 | `8f1325e0` | `main` |
