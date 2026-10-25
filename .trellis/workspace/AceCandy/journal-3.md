@@ -1449,3 +1449,35 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 设置页插件小节统一；私密空间3例失败排查
+
+
+## Session 118: 设置插件分节与私密测试修正
+<!-- trellis-session: v=2 fp=587b8fbf4d3d9726 -->
+
+**Date**: 2026-10-25
+**Task**: 设置插件分节与私密测试修正
+**Branch**: `main`
+
+### Summary
+
+插件分节卡片化；私密空间榜单断言跟随产品变更
+
+### Main Changes
+
+- PluginSettingsSections.kt PhoneThemeTest PhoneLibraryUiTest
+
+### Git Commits
+
+(No commits - planning session)
+
+### Testing
+
+- [OK] 全量979，仅2个偶发失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 修复 TvPrivacyTest 与 PhoneMedia3RecoveryTest 偶发失败
