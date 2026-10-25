@@ -1685,3 +1685,40 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 待定
+
+
+## Session 125: 首页、设置、插件与隐私大字号复核
+<!-- trellis-session: v=2 fp=f111693f904f6982 -->
+
+**Date**: 2026-10-25
+**Task**: 首页、设置、插件与隐私大字号复核
+**Branch**: `main`
+
+### Summary
+
+首页Hero浅色过渡与缺图底色；设置失败态与主进度崩溃修复；插件单选bug与分组统一；隐私空间芯片光晕裁切
+
+### Main Changes
+
+- HomePage/Cards/DetailPage/SettingsPage/PrimaryProgressPanel/PluginPages/Base/DataSourcePages + 测试
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `ee3a2d31` | feat(android): 首页浅色Hero末端过渡柔化，缺图占位补底色 |
+| `c29528af` | fix(android): 设置二级页失败态明确化，主进度并发读取失败不再崩溃，备份选项改开关 |
+| `0cf2d2c9` | fix(android): 插件单选设置改选后旧项不再保持选中，插件页分组标题与勾选行对齐设置页 |
+| `617aa7b3` | fix(android): 数据源横滑芯片行铺满屏宽避免霓虹光晕被裁，补隐私空间大字号截图基线 |
+
+### Testing
+
+- [OK] 全量 996 通过，截图复核，两个 bug 有回归测试
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待定
