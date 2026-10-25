@@ -1381,3 +1381,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 下载页与插件页 UI 精修
+
+
+## Session 116: 下载页与插件页精修
+<!-- trellis-session: v=2 fp=ec611e5a38dcf824 -->
+
+**Date**: 2026-10-25
+**Task**: 下载页与插件页精修
+**Branch**: `main`
+
+### Summary
+
+下载卡片精简，插件页分组卡片化并修正仓库误删交互
+
+### Main Changes
+
+- ListPages.kt PluginPages.kt PhonePluginUiTest
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `037175d3` | feat(android): 下载页与插件页改为分组卡片版式 |
+
+### Testing
+
+- [OK] 全量单测，仅既有私密空间3例失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 插件详情页精修
