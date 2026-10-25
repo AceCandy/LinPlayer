@@ -56,14 +56,14 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
                     item("offset") { PlayerMenuRow("时间偏移", { onPage("offset") },
                         badge = "%.1f秒".format(DanmakuStyle.offset.doubleValue), icon = LpIcons.sync) }
                     item("style") { PlayerMenuRow("弹幕样式", { onPage("style") }, icon = LpIcons.settings) }
-                    item("match") { PlayerMenuRow("搜索与匹配", { onPage("match") }, icon = LpIcons.search) }
+                    item("match") { PlayerMenuRow("搜索与匹配", { onPage("match") }, icon = LpIcons.search, divider = false) }
                 }
                 "offset" -> {
                     item("step") { StepRow("偏移", "%.1f 秒".format(DanmakuStyle.offset.doubleValue)) { up ->
                         scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + if (up) .5 else -.5) }
                     } }
                     item("note") { PlayerMenuNote("负数提前，正数延后；每次调整0.5秒。") }
-                    item("reset") { PlayerMenuRow("重置弹幕时间", { scope.launch { DanmakuStyle.setOffset(app, 0.0) } }) }
+                    item("reset") { PlayerMenuRow("重置弹幕时间", { scope.launch { DanmakuStyle.setOffset(app, 0.0) } }, divider = false) }
                 }
                 "match" -> {
                     item("source") { PlayerMenuNote(DanmakuStyle.source.value.ifBlank { "尚未匹配" }) }
@@ -73,7 +73,7 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
                     }) }
                     item("forget") { PlayerMenuRow("清除匹配记忆", {
                         scope.launch { resolveDanmakuFor(app, itemId, forget = true, loud = true) }
-                    }) }
+                    }, divider = false) }
                 }
                 "style" -> {
                     item("roll") { PlayerStyleSlider("滚动行数", DanmakuStyle.rollLines.intValue.toFloat(), 0f..20f, 19,

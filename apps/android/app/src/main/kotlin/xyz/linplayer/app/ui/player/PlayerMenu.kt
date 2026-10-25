@@ -41,7 +41,7 @@ import xyz.linplayer.app.ui.theme.LpText
 import xyz.linplayer.app.ui.theme.lpTween
 
 internal val PlayerMenuAccent = Color(0xFF9CCAFF)
-private val PlayerMenuBackground = Color(0xFF1D2124)
+private val PlayerMenuBackground = Color(0xEB1D2124)
 
 /** 入口附近向下展开，底部入口向上展开；窄窗口和RTL均限制在窗口内。 */
 internal class PlayerMenuPositionProvider(private val anchor: Rect?, private val gap: Int, private val sidePanel: Boolean = false) : PopupPositionProvider {
@@ -77,7 +77,7 @@ internal class PlayerMenuPositionProvider(private val anchor: Rect?, private val
 /** 无遮罩的播放器菜单；退出完成前保留表面，业务读取由调用方立即取消。 */
 @Composable
 internal fun PlayerMenu(open: Boolean, anchor: Rect?, width: Dp, tall: Boolean = false,
-    cornerRadius: Dp = 4.dp, background: Color = PlayerMenuBackground, sidePanel: Boolean = false,
+    cornerRadius: Dp = 12.dp, background: Color = PlayerMenuBackground, sidePanel: Boolean = false,
     onBack: (() -> Unit)? = null, onClose: () -> Unit, content: @Composable ColumnScope.() -> Unit) {
     val visible = remember { MutableTransitionState(false) }
     visible.targetState = open
@@ -107,13 +107,13 @@ internal fun PlayerMenu(open: Boolean, anchor: Rect?, width: Dp, tall: Boolean =
     }
 }
 
-/** 左勾选与浅蓝文字表示当前项，保留轨道语言副标题。 */
+/** 左勾选与浅蓝文字表示当前项，保留轨道语言副标题；末行传 divider=false，避免面板底部多一道线。 */
 @Composable
 internal fun PlayerMenuRow(label: String, onClick: () -> Unit, selected: Boolean = false,
-    sub: String? = null, badge: String? = null, icon: ImageVector? = null, enabled: Boolean = true) {
+    sub: String? = null, badge: String? = null, icon: ImageVector? = null, enabled: Boolean = true, divider: Boolean = true) {
     Column {
         Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).semantics { this.selected = selected }
-            .pressable(onClick, enabled = enabled).padding(horizontal = 8.dp, vertical = 6.dp), verticalAlignment = Alignment.CenterVertically) {
+            .pressable(onClick, enabled = enabled).padding(start = 12.dp, end = 16.dp, top = 6.dp, bottom = 6.dp), verticalAlignment = Alignment.CenterVertically) {
             Box(Modifier.width(24.dp), contentAlignment = Alignment.Center) {
                 if (selected || icon != null) Icon(if (selected) LpIcons.check else icon!!, null,
                     Modifier.size(16.dp).testTag(if (selected) "player.menu.check" else "player.menu.icon"),
@@ -125,12 +125,12 @@ internal fun PlayerMenuRow(label: String, onClick: () -> Unit, selected: Boolean
             }
             if (badge != null) Text(badge, color = Color.White.copy(alpha = .5f), style = LpText.caption)
         }
-        Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = .08f)))
+        if (divider) Box(Modifier.fillMaxWidth().height(1.dp).background(Color.White.copy(alpha = .08f)))
     }
 }
 
 @Composable
 internal fun PlayerMenuNote(text: String, m: Modifier = Modifier, maxLines: Int = 4) {
-    Text(text, m.padding(horizontal = 12.dp, vertical = 8.dp), color = Color.White.copy(alpha = .6f),
+    Text(text, m.padding(horizontal = 16.dp, vertical = 8.dp), color = Color.White.copy(alpha = .6f),
         style = LpText.caption, maxLines = maxLines)
 }

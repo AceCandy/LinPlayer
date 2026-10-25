@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -28,6 +29,7 @@ import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -46,6 +48,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
@@ -141,8 +144,12 @@ internal fun SourceError(serverId: String, e: Throwable, retry: () -> Unit, swit
     val err = remember(e) { srcErr(e) }
     var left by remember(e) { mutableIntStateOf(if (err.kind == "rateLimited") maxOf(err.retryAfter, 5) else 0) }
     LaunchedEffect(e) { while (left > 0) { delay(1000); left-- } }
-    Column(Modifier.fillMaxWidth().padding(Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x10)) {
-        Dim2(err.advice)
+    // 与通用 ErrorState 同一版式：居中图标 + 说明 + 操作
+    Column(Modifier.fillMaxWidth().padding(Sp.x20), horizontalAlignment = Alignment.CenterHorizontally) {
+        Icon(LpIcons.info, null, Modifier.size(24.dp), tint = Lp.colors.bad)
+        Spacer(Modifier.height(Sp.x8))
+        Text(err.advice, color = Lp.colors.fg2, style = LpText.secondary, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(Sp.x12))
         Row(horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
             when (err.kind) {
                 "rateLimited" -> LpButton(if (left > 0) "$left 秒后重试" else "重试", retry, enabled = left == 0, kind = BtnKind.Secondary)
@@ -230,7 +237,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
                 when {
                     f == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("搜索中…") }
                     f.isFailure -> header { SourceError(serverId, f.exceptionOrNull()!!, { searchGen++ }) }
-                    f.getOrNull()!!.isEmpty() -> header { Dim2("没有找到「$q」") }
+                    f.getOrNull()!!.isEmpty() -> header { EmptyState("没有找到「$q」", icon = LpIcons.search) }
                     else -> items(f.getOrNull()!!) { SourceCard(it, { open(it) }) }
                 }
                 return@LazyVerticalGrid
@@ -250,7 +257,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
             when {
                 h == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
                 h.isFailure -> header { SourceError(serverId, h.exceptionOrNull()!!, { reload++ }) }
-                h.getOrNull() == null -> if (cont.isEmpty()) header { Dim2("这个源没有首页,在上面的搜索框里找想看的。") }
+                h.getOrNull() == null -> if (cont.isEmpty()) header { EmptyState("这个源没有首页", "在上面的搜索框里找想看的。", LpIcons.search) }
                 else -> {
                     val cats = h.getOrNull()!!["categories"].arr().mapNotNull { it.obj() }
                     val rec = h.getOrNull()!!["recommended"].arr().mapNotNull { it.obj() }
@@ -261,7 +268,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
                     }
                     if (rec.isNotEmpty()) { header { H2("推荐") }; items(rec) { SourceCard(it, { open(it) }) } }
                     else if (cats.isNotEmpty()) header { Dim3("点上面的分类看内容") }
-                    if (cats.isEmpty() && rec.isEmpty() && cont.isEmpty()) header { Dim2("这个源的首页是空的,在上面的搜索框里找想看的。") }
+                    if (cats.isEmpty() && rec.isEmpty() && cont.isEmpty()) header { EmptyState("这个源的首页是空的", "在上面的搜索框里找想看的。", LpIcons.search) }
                 }
             }
         }
@@ -329,7 +336,7 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
             items(items) { SourceCard(it, { nav.navigate(Route.SourceDetail(it.str("source") ?: r.serverId, it.str("id") ?: "")) }, shape = cat.str("shape") ?: "portrait") }
             err?.let { e -> header { SourceError(r.serverId, e, { gen++ }) } }
             if (busy) header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
-            else if (done && items.isEmpty() && err == null) header { Dim2("这个分类下没有内容") }
+            else if (done && items.isEmpty() && err == null) header { EmptyState("这个分类下没有内容") }
         }
     }
 }

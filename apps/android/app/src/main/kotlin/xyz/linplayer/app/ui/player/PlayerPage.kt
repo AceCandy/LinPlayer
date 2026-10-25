@@ -38,6 +38,7 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Slider
@@ -83,6 +84,7 @@ import androidx.compose.ui.semantics.progressBarRangeInfo
 import androidx.compose.ui.unit.LayoutDirection
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.foundation.layout.offset
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -1178,13 +1180,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                    对我们这边也一样 —— 「有声音没画面」这类报告拿不到 vo / 解码器
                    的实际取值就只能靠猜,一来一回好几轮。 */
                 Text(failReason ?: "原因还没拿到。设置 → 存储与数据目录 → 导出日志。",
-                    color = Color.White.copy(alpha = .82f), style = LpText.caption, maxLines = 6, overflow = TextOverflow.Ellipsis)
-                Spacer(Modifier.height(Sp.x16))
-                if (finished) xyz.linplayer.app.ui.components.LpButton("重试", {
-                    openFailed = false; failReason = null; episodeResult = null; episodeRetry++
-                })
-                xyz.linplayer.app.ui.components.LpButton("返回", leave,
-                    kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
+                    color = Color.White.copy(alpha = .82f), style = LpText.caption, maxLines = 6, overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center)
+                Spacer(Modifier.height(Sp.x20))
+                // 返回在左、重试在右，并排等宽
+                Row(horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                    xyz.linplayer.app.ui.components.LpButton("返回", leave, Modifier.widthIn(min = 112.dp),
+                        kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
+                    if (finished) xyz.linplayer.app.ui.components.LpButton("重试", {
+                        openFailed = false; failReason = null; episodeResult = null; episodeRetry++
+                    }, Modifier.widthIn(min = 112.dp))
+                }
             } else if (!openFailed) xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White,
                 label = if (buffering) "正在缓冲…" else "正在打开…")
         }

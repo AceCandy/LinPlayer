@@ -39,7 +39,7 @@ import xyz.linplayer.app.ui.pages.SourceDetailPage
 import xyz.linplayer.app.ui.pages.SourceHomePage
 import xyz.linplayer.app.ui.theme.LpTheme
 
-/** 数据源首页 / 分类 / 详情的截图基线与选中态。 */
+/** 数据源首页 / 分类 / 详情的截图基线、选中态与空 / 错误态。 */
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w393dp-h873dp-mdpi", sdk = [36], application = Application::class)
@@ -129,6 +129,20 @@ class PhoneSourceUiTest {
         rule.waitForIdle()
         assertEquals("[\"jp\"]", core.calls.last { it.first == "source.category" }.second?.get("filters")?.jsonObject?.get("area").toString())
         rule.onRoot().captureRoboImage("build/source-ui/category-dark.png")
+    }
+
+    @Test fun emptyHomeLight() {
+        val core = fake().apply { ret("source.home", buildJsonObject { }) }
+        open(core, Route.Home, dark = false)
+        rule.onNodeWithText("这个源的首页是空的").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/source-ui/home-empty.png")
+    }
+
+    @Test fun categoryErrorDark() {
+        val core = fake().apply { on("source.category") { error("站点没有响应") } }
+        open(core, Route.SourceCategory("src-a", category.toString()), dark = true)
+        rule.onNodeWithText("重试").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/source-ui/category-error-dark.png")
     }
 
     @Test fun detailLinesLight() {

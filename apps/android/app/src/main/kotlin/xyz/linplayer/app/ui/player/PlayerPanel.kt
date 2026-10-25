@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
@@ -182,7 +183,7 @@ fun PlayerPanel(
                     app.seasonEpisodes(parent, episodes) { items, _ ->
                         episodes = items
                         options = items.filter { season != null || it.seasonNo == number }.map {
-                            Triple(it.id, "${(it.runtimeSecs / 60).toInt()} 分钟",
+                            Triple(it.id, (it.runtimeSecs / 60).toInt().takeIf { m -> m > 0 }?.let { m -> "$m 分钟" },
                                 "S${it.seasonNo ?: number ?: 1}E${it.episodeNo ?: 1} ${it.name}")
                         }
                     }
@@ -313,8 +314,6 @@ fun PlayerPanel(
         else -> 236.dp
     }
     PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku" || menuKind == "info",
-        cornerRadius = if (menuKind == "danmaku") 12.dp else 4.dp,
-        background = if (menuKind == "danmaku") Color(0xEB1D2124) else Color(0xFF1D2124),
         sidePanel = menuKind == "danmaku" && danmakuPage == "style",
         onBack = if (menuKind == "danmaku" && danmakuPage != "quick") ({ danmakuPage = "quick" }) else null,
         onClose = onClose) {
@@ -349,7 +348,7 @@ fun PlayerPanel(
                 if (menuKind == "subtitle") item("substyle") {
                     PlayerMenuRow("字幕样式…", { onOpen("substyle") }, selected = false)
                 }
-                items(options, key = { it.first }) { (id, badge, label) ->
+                itemsIndexed(options, key = { _, it -> it.first }) { i, (id, badge, label) ->
                     PlayerMenuRow(label, {
                         if (menuKind == "more" && id == "engine") { onClose(); onSwitchEngine?.invoke() }
                         else if (menuKind == "more" || id == "substyle") onOpen(id)
@@ -373,7 +372,8 @@ fun PlayerPanel(
                         icon = if (menuKind == "more") when (id) {
                             "episodes" -> LpIcons.list; "ratio" -> LpIcons.aspect; "source" -> LpIcons.version
                             "quality" -> LpIcons.sparkle; "engine" -> LpIcons.play; "info" -> LpIcons.list; else -> LpIcons.sub
-                        } else null)
+                        } else null,
+                        divider = loading || i < options.lastIndex)
                 }
                 if (loading) item("loading") { Box(Modifier.fillMaxWidth().height(48.dp), contentAlignment = Alignment.Center) { xyz.linplayer.app.ui.components.LpLoading(tint = PlayerMenuAccent) } }
             }
