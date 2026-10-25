@@ -1211,3 +1211,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 无
+
+
+## Session 111: 手机设置与管理页文案精简
+<!-- trellis-session: v=2 fp=2d31f9fbb4a91545 -->
+
+**Date**: 2026-10-25
+**Task**: 手机设置与管理页文案精简
+**Branch**: `main`
+
+### Summary
+
+删减设置与管理页说明文字，服务器卡状态点与文字同行
+
+### Main Changes
+
+- SettingsPage/ServersPage/ListPages/SourcePages 与 UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `cf4aa00c` | feat(android): 精简设置与管理页说明文字 |
+
+### Testing
+
+- [OK] 全量 972 例，仅既有隐私空间 3 例失败（HEAD 同样失败）
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无
