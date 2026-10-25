@@ -422,46 +422,74 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold(info.str("name") ?: id, subtitle = info.str("version"), onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         BlockBox(block, { reload++ }) { d ->
             val vals = d["values"].obj()
-            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
-                (info.dbl("loadMs") ?: 0.0).takeIf { it > 0 }?.let { item { Dim3("启动耗时 ${it.toInt()} ms" + if (it > 500) "(偏慢)" else "", Modifier.padding(Sp.x16)) } }
-                val settings = d["settings"].arr().mapNotNull { it.obj() }
-                if (settings.isNotEmpty()) item { H2("设置", Modifier.padding(Sp.x16)) }
-                items(settings, key = { it.str("key") ?: "" }) { s -> SettingRow(app, id, s, vals?.get(s.str("key") ?: "") ?: s["default"]) }
-                // 插件自己画的页面(SPEC 7.2 D84):每一个给一个入口,点了挂一个 page surface
-                val pages = d["manifest"].obj()?.get("contributes").obj()?.get("pages").arr().mapNotNull { it.obj() }
-                if (!pages.isNullOrEmpty()) {
-                    item { H2("页面", Modifier.padding(Sp.x16)) }
-                    items(pages, key = { "pg:" + (it.str("id") ?: "") }) { p ->
-                        val pid = p.str("id") ?: ""
-                        val title = p.str("title")?.takeIf { t -> t.isNotEmpty() } ?: pid
-                        LpCell(title, onClick = { nav.navigate(Route.PluginPage(id, pid, title)) })
+            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + Sp.x16)) {
+                // manifest 的 group 项是小节标题:按它切段,每段一张分组卡片
+                val sections = mutableListOf<Pair<String, MutableList<JsonObject>>>()
+                d["settings"].arr().mapNotNull { it.obj() }.forEach { s ->
+                    if (s.str("type") == "group") sections += (s.str("title")?.takeIf { it.isNotEmpty() } ?: s.str("key") ?: "") to mutableListOf()
+                    else (sections.lastOrNull() ?: ("设置" to mutableListOf<JsonObject>()).also { sections += it }).second += s
+                }
+                sections.filter { it.second.isNotEmpty() }.forEachIndexed { si, (title, rows) ->
+                    item("set:$si") {
+                        SectionTitle(title)
+                        Panel(Modifier.padding(horizontal = Sp.x16)) {
+                            rows.forEachIndexed { i, s ->
+                                if (i > 0) Hairline()
+                                SettingRow(app, id, s, vals?.get(s.str("key") ?: "") ?: s["default"])
+                            }
+                        }
                     }
                 }
-                item {
+                // 插件自己画的页面(SPEC 7.2 D84):每一个给一个入口,点了挂一个 page surface
+                val pages = d["manifest"].obj()?.get("contributes").obj()?.get("pages").arr().mapNotNull { it.obj() }
+                if (!pages.isNullOrEmpty()) item("pages") {
+                    SectionTitle("页面")
+                    Panel(Modifier.padding(horizontal = Sp.x16)) {
+                        pages.forEachIndexed { i, p ->
+                            val pid = p.str("id") ?: ""
+                            val title = p.str("title")?.takeIf { t -> t.isNotEmpty() } ?: pid
+                            if (i > 0) Hairline()
+                            LpCell(title, onClick = { nav.navigate(Route.PluginPage(id, pid, title)) })
+                        }
+                    }
+                }
+                item("manage") {
                     d.strList("contributes").takeIf { it.isNotEmpty() }?.let {
-                        H2("它做了什么", Modifier.padding(Sp.x16)); Dim2(it.joinToString("、"), Modifier.padding(horizontal = Sp.x16))
+                        SectionTitle("它做了什么"); Dim2(it.joinToString("、"), Modifier.padding(horizontal = Sp.x16))
                     }
                     val u = d["usage"].obj()
-                    H2("占用", Modifier.padding(Sp.x16))
-                    Dim2("数据 ${size((u.dbl("kv") ?: 0.0) + (u.dbl("data") ?: 0.0))} · 缓存 ${size(u.dbl("cache") ?: 0.0)}", Modifier.padding(horizontal = Sp.x16))
-                    LpCell("清缓存", onClick = { act("plugin.clearData", "cache_only" to true, done = "已清缓存") })
-                    LpCell("清数据", sub = "插件保存的设置、登录状态都会清掉", onClick = { act("plugin.clearData", "cache_only" to false, done = "已清数据") })
-                    H2("版本与管理", Modifier.padding(Sp.x16))
-                    info.str("prev")?.takeIf { it.isNotEmpty() }?.let { p -> LpCell("回退到 $p", onClick = { act("plugin.rollback", done = "重启应用后生效") }) }
-                    info.str("update")?.takeIf { it.isNotEmpty() }?.let { v -> LpCell("跳过 $v", onClick = { act("plugin.skipVersion", "version" to v) }) }
-                    val locked = info.bool("locked")
-                    LpCell(if (locked) "解锁自动更新" else "锁定当前版本", onClick = { act("plugin.setLocked", "locked" to !locked) })
-                    LpCell("复制错误详情", sub = "只在本机内存里,不会自动上传", onClick = {
-                        scope.launch {
-                            runCatching { app.call("plugin.errorDetail", args("id" to id)) }.onSuccess {
-                                val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
-                                cm.setPrimaryClip(android.content.ClipData.newPlainText("LinPlayer 插件错误详情", it.toString()))
-                                app.toast("已复制")
-                            }.onFailure { app.report(it) }
+                    SectionTitle("占用")
+                    Panel(Modifier.padding(horizontal = Sp.x16)) {
+                        (info.dbl("loadMs") ?: 0.0).takeIf { it > 0 }?.let {
+                            LpCell("启动耗时", value = "${it.toInt()} ms" + if (it > 500) "(偏慢)" else "", arrow = false)
+                            Hairline()
                         }
-                    })
-                    if (info.bool("uninstall")) LpCell("撤销卸载", onClick = { act("plugin.cancelUninstall") })
-                    else LpCell("卸载", sub = "重启后卸载,插件数据保留", onClick = { act("plugin.uninstall", "delete_data" to false, done = "重启应用后卸载") })
+                        LpCell("清缓存", value = size(u.dbl("cache") ?: 0.0), onClick = { act("plugin.clearData", "cache_only" to true, done = "已清缓存") })
+                        Hairline()
+                        LpCell("清数据", sub = "设置与登录状态一并清除", value = size((u.dbl("kv") ?: 0.0) + (u.dbl("data") ?: 0.0)),
+                            onClick = { act("plugin.clearData", "cache_only" to false, done = "已清数据") })
+                    }
+                    SectionTitle("版本与管理")
+                    Panel(Modifier.padding(horizontal = Sp.x16)) {
+                        info.str("prev")?.takeIf { it.isNotEmpty() }?.let { p -> LpCell("回退到 $p", onClick = { act("plugin.rollback", done = "重启应用后生效") }); Hairline() }
+                        info.str("update")?.takeIf { it.isNotEmpty() }?.let { v -> LpCell("跳过 $v", onClick = { act("plugin.skipVersion", "version" to v) }); Hairline() }
+                        val locked = info.bool("locked")
+                        LpCell(if (locked) "解锁自动更新" else "锁定当前版本", onClick = { act("plugin.setLocked", "locked" to !locked) })
+                        Hairline()
+                        LpCell("复制错误详情", sub = "只在本机内存里,不会自动上传", onClick = {
+                            scope.launch {
+                                runCatching { app.call("plugin.errorDetail", args("id" to id)) }.onSuccess {
+                                    val cm = ctx.getSystemService(Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
+                                    cm.setPrimaryClip(android.content.ClipData.newPlainText("LinPlayer 插件错误详情", it.toString()))
+                                    app.toast("已复制")
+                                }.onFailure { app.report(it) }
+                            }
+                        })
+                    }
+                    Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x16)) {
+                        if (info.bool("uninstall")) LpCell("撤销卸载", onClick = { act("plugin.cancelUninstall") })
+                        else LpCell("卸载", sub = "重启后卸载,插件数据保留", onClick = { act("plugin.uninstall", "delete_data" to false, done = "重启应用后卸载") })
+                    }
                 }
             }
         }

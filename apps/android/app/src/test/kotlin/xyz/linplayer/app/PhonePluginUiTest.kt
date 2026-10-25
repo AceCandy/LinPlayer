@@ -35,6 +35,7 @@ import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
+import xyz.linplayer.app.ui.pages.PluginDetailPage
 import xyz.linplayer.app.ui.pages.PluginsPage
 import xyz.linplayer.app.ui.theme.LpTheme
 
@@ -73,9 +74,23 @@ class PhonePluginUiTest {
             ))
             put("github_prefix", ""); put("auto_update", true)
         })
+        ret("plugin.detail", buildJsonObject {
+            put("info", buildJsonObject { put("name", "豆瓣评分"); put("version", "1.2.0"); put("loadMs", 120); put("prev", "1.1.0"); put("update", "1.3.0") })
+            put("settings", arr(
+                buildJsonObject { put("key", "show"); put("type", "toggle"); put("title", "在详情页显示评分"); put("default", true) },
+                buildJsonObject { put("key", "src"); put("type", "select"); put("title", "评分来源")
+                    put("options", arr(buildJsonObject { put("value", "db"); put("label", "豆瓣") }, buildJsonObject { put("value", "imdb"); put("label", "IMDb") })) },
+                buildJsonObject { put("key", "token"); put("type", "text"); put("title", "接口令牌"); put("description", "可留空") },
+            ))
+            put("values", buildJsonObject { put("src", "db") })
+            put("manifest", buildJsonObject { put("contributes", buildJsonObject {
+                put("pages", arr(buildJsonObject { put("id", "rank"); put("title", "豆瓣榜单") })) }) })
+            put("contributes", buildJsonArray { add(JsonPrimitive("详情页评分")); add(JsonPrimitive("榜单页面")) })
+            put("usage", buildJsonObject { put("kv", 2048); put("data", 10240); put("cache", 524288) })
+        })
     }
 
-    private fun open(tab: Int, core: FakeCore = core()) {
+    private fun open(tab: Int, core: FakeCore = core(), start: Any = Route.Plugins(tab)) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.setContent {
@@ -83,8 +98,9 @@ class PhonePluginUiTest {
                 CompositionLocalProvider(LocalApp provides app,
                     LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     val nav = rememberNavController()
-                    NavHost(nav, startDestination = Route.Plugins(tab)) {
+                    NavHost(nav, startDestination = start) {
                         composable<Route.Plugins> { PluginsPage(nav, it) }
+                        composable<Route.PluginDetail> { PluginDetailPage(nav, it) }
                     }
                 }
             }
@@ -102,6 +118,14 @@ class PhonePluginUiTest {
     @Test fun marketTab() { open(1); rule.onNodeWithText("字幕下载").assertIsDisplayed(); shoot("market") }
     @Test fun takeoverTab() { open(2); rule.onNodeWithText("首页").assertIsDisplayed(); shoot("takeover") }
     @Test fun repoTab() { open(3); rule.onNodeWithText("社区仓库").assertIsDisplayed(); shoot("repo") }
+    @Test fun detailPage() {
+        open(0, start = Route.PluginDetail("a"))
+        rule.onNodeWithText("在详情页显示评分").assertIsDisplayed()
+        shoot("detail")
+        rule.onRoot().performTouchInput { swipeUp(startY = bottom * .9f, endY = top, durationMillis = 300) }
+        rule.waitForIdle()
+        rule.onRoot().captureRoboImage("build/plugin-ui/detail-bottom-dark.png")
+    }
     @Test fun onlyThirdPartyRepoHasDeleteAndRowTapDoesNotDelete() {
         val core = core().apply { ret("plugin.removeRepo", kotlinx.serialization.json.JsonNull) }
         open(3, core)
