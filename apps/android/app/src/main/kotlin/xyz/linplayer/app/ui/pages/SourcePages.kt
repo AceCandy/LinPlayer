@@ -43,6 +43,7 @@ import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim3
+import xyz.linplayer.app.ui.components.manageListWidth
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.Hairline
@@ -206,7 +207,7 @@ fun BrowsePage(nav: NavController) {
                 "这个文件夹是空的", "里面没有影片,也没有子文件夹。", LpIcons.folder,
             )
 
-            else -> LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+            else -> LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
                 items(entries, key = { it.id }) { e ->
                     Row(Modifier.fillMaxWidth().pressable({
                         if (e.isDir) stack = stack + (e.id to e.name)
@@ -220,10 +221,7 @@ fun BrowsePage(nav: NavController) {
                             Text(e.name, style = LpText.list, color = Lp.colors.fg, maxLines = 2)
                             // 修改时间**核心层不发**(source.Entry 里没有这个字段),
                             // 原来那一格是恒空的 —— 摆着不生效的东西比没有更糟
-                            e.size?.let {
-                                Dim3("%.1f MB".format(it / 1024.0 / 1024.0),
-                                    Modifier.padding(top = Sp.x2))
-                            }
+                            fmtSize(e.size)?.let { Dim3(it, Modifier.padding(top = Sp.x2)) }
                         }
                     }
                     Hairline(Modifier.padding(start = Sp.x48))

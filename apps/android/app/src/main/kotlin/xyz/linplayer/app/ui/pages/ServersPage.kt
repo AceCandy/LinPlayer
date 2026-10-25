@@ -481,7 +481,7 @@ fun LinesPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     LpScaffold(route.name, subtitle = "服务器线路", onBack = { nav.popBackStack() }, scrolled = true) { pad ->
-        Column(Modifier.fillMaxSize().padding(pad)) {
+        Column(Modifier.padding(pad).manageListWidth()) {
             Row(Modifier.padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                 LpButton("同步线路", {
                     scope.launch {
