@@ -218,7 +218,7 @@ fun SettingsPage(nav: NavController) {
 }
 
 @Composable
-private fun GroupLabel(t: String) =
+internal fun GroupLabel(t: String) =
     Text(t, Modifier.padding(start = Sp.x20, top = Sp.x20, bottom = Sp.x8),
         color = Lp.colors.fg2, style = LpText.filter)
 

@@ -15,7 +15,9 @@ import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
-import xyz.linplayer.app.ui.components.H2
+import xyz.linplayer.app.ui.components.Hairline
+import xyz.linplayer.app.ui.components.Panel
+import xyz.linplayer.app.ui.pages.GroupLabel
 import xyz.linplayer.app.ui.pages.SettingRow
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.theme.Sp
@@ -93,11 +95,17 @@ internal fun SectionBlock(s: PluginSettingsSection, modifier: Modifier = Modifie
 fun PhonePluginSections(page: String) {
     val app = LocalApp.current
     val data = rememberSettingsSections(page)
+    // 与官方设置分组同款:组标签 + 分组卡片,插件分节不该看起来像另一套页面
     data.sections.forEach { s ->
         Column {
-            H2(s.heading(), Modifier.padding(Sp.x16))
+            GroupLabel(s.heading())
             if (s.block.isNotEmpty()) SectionBlock(s, Modifier.padding(horizontal = Sp.x16))
-            s.settings.forEach { item -> SettingRow(app, s.pluginId, item, data.valueOf(s, item)) }
+            if (s.settings.isNotEmpty()) Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = if (s.block.isNotEmpty()) Sp.x8 else Sp.x0)) {
+                s.settings.forEachIndexed { i, item ->
+                    if (i > 0) Hairline()
+                    SettingRow(app, s.pluginId, item, data.valueOf(s, item))
+                }
+            }
         }
     }
 }

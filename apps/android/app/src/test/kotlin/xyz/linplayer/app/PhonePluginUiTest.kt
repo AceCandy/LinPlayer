@@ -7,6 +7,8 @@ import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.compose.ui.unit.Density
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
@@ -125,6 +127,33 @@ class PhonePluginUiTest {
         rule.onRoot().performTouchInput { swipeUp(startY = bottom * .9f, endY = top, durationMillis = 300) }
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("build/plugin-ui/detail-bottom-dark.png")
+    }
+    @Test fun settingsSectionsUseGroupedPanel() {
+        val core = core().apply {
+            ret("plugin.settingsSections", arr(buildJsonObject {
+                put("plugin_id", "a"); put("name", "豆瓣评分"); put("anchor", "settings"); put("title", "评分显示")
+                put("settings", arr(
+                    buildJsonObject { put("key", "show"); put("type", "toggle"); put("title", "在详情页显示评分"); put("default", true) },
+                    buildJsonObject { put("key", "token"); put("type", "button"); put("title", "刷新评分缓存"); put("action", "refresh") },
+                ))
+            }))
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        rule.setContent {
+            LpTheme(darkOverride = dark.value) {
+                CompositionLocalProvider(LocalApp provides app,
+                    LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
+                    androidx.compose.foundation.layout.Column(androidx.compose.ui.Modifier.fillMaxSize()
+                        .background(xyz.linplayer.app.ui.theme.Lp.colors.bg)) {
+                        xyz.linplayer.app.ui.plugin.PhonePluginSections("settings")
+                    }
+                }
+            }
+        }
+        rule.waitUntil(5000) { rule.onAllNodesWithText("在详情页显示评分").fetchSemanticsNodes().isNotEmpty() }
+        rule.onNodeWithText("评分显示 · 来自 豆瓣评分").assertIsDisplayed()
+        shoot("settings-sections")
     }
     @Test fun onlyThirdPartyRepoHasDeleteAndRowTapDoesNotDelete() {
         val core = core().apply { ret("plugin.removeRepo", kotlinx.serialization.json.JsonNull) }
