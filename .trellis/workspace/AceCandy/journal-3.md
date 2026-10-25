@@ -1827,3 +1827,37 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 简介阅读宽度；竖屏平板与深色截图；真机走查
+
+
+## Session 129: 详情简介限宽与竖屏平板头图
+<!-- trellis-session: v=2 fp=5bf53f9f499ac9e1 -->
+
+**Date**: 2026-10-25
+**Task**: 详情简介限宽与竖屏平板头图
+**Branch**: `main`
+
+### Summary
+
+简介720dp限宽；竖屏平板头图收矮；补平板深色与竖屏截图
+
+### Main Changes
+
+- DetailPage Overview/detailHeroMin；PhoneWideLayoutTest 新增两例
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `667d5bb3` | feat(android): 详情简介行长封顶，竖屏平板头图收矮，补平板深色与竖屏截图 |
+
+### Testing
+
+- [OK] 全量1013测试0失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机走查；小平板/折叠屏截图；平板首页专项
