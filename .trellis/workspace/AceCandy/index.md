@@ -7,9 +7,9 @@
 ## Current Status
 
 <!-- @@@auto:current-status -->
-- **Active File**: `journal-3.md`
-- **Total Sessions**: 132
-- **Last Active**: 2026-10-25
+- **Active File**: `journal-4.md`
+- **Total Sessions**: 133
+- **Last Active**: 2026-10-26
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,8 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1965 | Active |
+| `journal-4.md` | ~44 | Active |
+| `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 133 | 2026-10-26 | 首页轮播推移与详情海报放大转场 | `9a800a34`, `bcf3ee0c` | `main` |
 | 132 | 2026-10-25 | 次级页面截图补齐与冷启动检查 | `e28b2236` | `main` |
 | 131 | 2026-10-25 | 手机端列表性能检查 | `e131575c` | `main` |
 | 130 | 2026-10-25 | 平板首页与小屏宽适配 | `a684aabd` | `main` |
