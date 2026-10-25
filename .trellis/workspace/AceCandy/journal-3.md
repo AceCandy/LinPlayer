@@ -1347,3 +1347,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 真机复核亮色头图可读性
+
+
+## Session 115: 浅色强调色调整
+<!-- trellis-session: v=2 fp=06278855da47e918 -->
+
+**Date**: 2026-10-25
+**Task**: 浅色强调色调整
+**Branch**: `main`
+
+### Summary
+
+浅色强调色由橄榄棕改为铜琥珀
+
+### Main Changes
+
+- Theme.kt LightColors acc/accDim #9C5200
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `75abb046` | feat(android): 浅色强调色改为铜琥珀 |
+
+### Testing
+
+- [OK] 全量单测+截图录制，仅既有私密空间3例失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 下载页与插件页 UI 精修
