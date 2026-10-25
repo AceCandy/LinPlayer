@@ -167,8 +167,9 @@ fun HomePage(nav: NavController) {
     val motionAccount = currentSession?.let { it.server to it.userId }
     var banners by keepState<List<CachedHomeImage>>("home.banners:$motionAccount") { emptyList() }
     val heroRevision by app.userStateRevision.collectAsState()
-    val bannerItems = (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty())
-        .distinctBy { it.id }
+    val bannerItems = remember(resume, latest, collections) {
+        (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty()).distinctBy { it.id }
+    }
     LaunchedEffect(motionAccount, bannerItems, reload, heroRevision) {
         // 只探测核心只读缓存路由，随机新增候选不触发远程图片下载。
         if (currentSession == null) return@LaunchedEffect
@@ -316,7 +317,8 @@ fun HomePage(nav: NavController) {
     // 继续观看多一项「取消观看记录」(用户 2026-09-18:「我不想看 我也不想标记为已观看」)。
     // 打 HideFromResume,进度和已看状态都不动;成功后只从这一条里摘掉,别的块不受影响。
     val resumeMenu: @Composable (Item) -> List<CardAction> = { item ->
-        rememberCardActions(app, scope, item) + if (!canHideResume) emptyList() else listOf(CardAction("取消观看记录") {
+        val base = rememberCardActions(app, scope, item)
+        remember(base, canHideResume) { base + if (!canHideResume) emptyList() else listOf(CardAction("取消观看记录") {
             scope.launch {
                 runCatching { app.call("emby.hideResume", args("item_id" to item.id, "hide" to true)) }
                     .onSuccess {
@@ -325,7 +327,7 @@ fun HomePage(nav: NavController) {
                     }
                     .onFailure { app.report(it) }
             }
-        })
+        }) }
     }
 
     val switchServer: (Account) -> Unit = { a ->
@@ -768,7 +770,8 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
         ) {
-            itemsIndexed(got, key = { _, it -> it.str("id") ?: "" }) { index, x ->
+            // 插件数据不可信：空ID或重复ID都会让懒列表因重复key崩溃，拼上序号兜底
+            itemsIndexed(got, key = { index, it -> "$index:" + (it.str("id") ?: "") }) { index, x ->
                 SourceCard(x, {
                     // 条目带来源(D282),按它回到对应数据源的详情页
                     nav.navigate(Route.SourceDetail(x.str("source") ?: "", x.str("id") ?: ""))
@@ -867,10 +870,14 @@ internal fun rememberCardActions(
     var played by rememberSaveable(item, serverId, app.session.value, app.privateSpace.value) { mutableStateOf(item.played) }
     var favorite by rememberSaveable(item, serverId, app.session.value, app.privateSpace.value) { mutableStateOf(item.favorite) }
     var busy by remember(item.id, serverId) { mutableStateOf(false) }
-    return cardActions(app, scope, item.copy(played = played, favorite = favorite), serverId, favoriteAction,
-        allowDownload = !xyz.linplayer.app.tv.LocalTvMode.current,
-        onChanged = { played = it.played; favorite = it.favorite },
-        begin = { if (busy) false else { busy = true; true } }, finish = { busy = false })
+    val allowDownload = !xyz.linplayer.app.tv.LocalTvMode.current
+    // 同一份列表跨重组复用：菜单是卡片参数，每次新建会让可见卡片全部跟着重组。
+    return remember(item, played, favorite, serverId, favoriteAction, allowDownload, scope) {
+        cardActions(app, scope, item.copy(played = played, favorite = favorite), serverId, favoriteAction,
+            allowDownload = allowDownload,
+            onChanged = { played = it.played; favorite = it.favorite },
+            begin = { if (busy) false else { busy = true; true } }, finish = { busy = false })
+    }
 }
 
 internal fun cardActions(

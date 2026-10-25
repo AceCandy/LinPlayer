@@ -264,7 +264,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         if (aggRun == 0) item("hint") {
                             EmptyState("在所有来源里搜", "输入关键词后按键盘搜索键，每个来源各占一行。", LpIcons.search)
                         }
-                        items(aggRows.size) { i ->
+                        // 来源结果分批到达并原位替换：按来源ID保持行身份，三种行形态分开复用
+                        items(aggRows.size, key = { aggRows[it].str("server_id") ?: "#$it" },
+                            contentType = { aggRows[it].let { g -> if (g.str("error") != null) "error" else g.str("kind") ?: "emby" } }) { i ->
                             val g = aggRows[i]
                             val name = g.str("server_name") ?: g.str("server_id") ?: ""
                             val sid = g.str("server_id") ?: ""
@@ -284,7 +286,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 }
                                 // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
-                                    LpRow(name, Item.list(g["emby_items"]), { it, h -> app.imageUrl(it.id, "Primary", h) },
+                                    LpRow(name, remember(g) { Item.list(g["emby_items"]) }, { it, h -> app.imageUrl(it.id, "Primary", h) },
                                         { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { rememberCardActions(app, scope, it, sid) })
                                 }
                             }
@@ -314,17 +316,17 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             "检查一下有没有打错字,或者换个关键词 —— 有些片源用的是英文原名。",
                         ) } else {
                             // 分集**单独一栏横版**;剧和影走网格
-                            val eps = items.filter { it.isEpisode }
-                            val rest = items.filterNot { it.isEpisode }
+                            val (eps, rest) = remember(items) { items.partition { it.isEpisode } }
                             // 列数与媒体库一致：手机 3 列，横屏 / 平板按屏宽加列
                             val columns = posterColumns()
+                            val rows = remember(rest, columns) { rest.chunked(columns) }
                             val imageHeight = posterImageHeight(width = gridCellWidth(columns))
                             LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = pad) {
                                 if (items.size >= 50) item("limit") {
                                     Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
                                 }
                                 // 每行独立虚拟化，不能把全部结果塞进一个普通Column。
-                                itemsIndexed(rest.chunked(columns), key = { index, row -> "poster-row:$index:${row.first().id}" },
+                                itemsIndexed(rows, key = { index, row -> "poster-row:$index:${row.first().id}" },
                                     contentType = { _, _ -> "poster-row" }) { index, row ->
                                     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
                                         .padding(bottom = if (index == (rest.size - 1) / columns) 0.dp else Sp.x16),

@@ -58,6 +58,7 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
@@ -669,7 +670,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val wide = !LocalTvMode.current && with(androidx.compose.ui.platform.LocalConfiguration.current) {
         screenWidthDp >= 840 && screenHeightDp >= 600
     }
-    val barTint = if (wide) c.fg else if (list.firstVisibleItemIndex == 0) Color.White else c.fg
+    // 只在跨过首项/开始滚动时变化；直接读滚动位置会让整页随每个条目边界重组。
+    val atTop by remember(list) { derivedStateOf { list.firstVisibleItemIndex == 0 } }
+    val scrolled by remember(list) { derivedStateOf { list.canScrollBackward } }
+    val barTint = if (wide) c.fg else if (atTop) Color.White else c.fg
 
     // 评分就在这条数据带里(★ 评分是第一格),锚点挂它
     val ratingsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = Sp.x16)) {
@@ -837,7 +841,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     } }
 
-    LpImmersive(barBackground = if (wide && list.canScrollBackward) c.bg.copy(alpha = .9f) else Color.Transparent, bar = {
+    LpImmersive(barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent, bar = {
         IconButton(onClick = { nav.popBackStack() }) {
             Icon(LpIcons.back, "返回", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
@@ -862,7 +866,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     contentAlignment = Alignment.Center,
                 ) {
                     Icon(LpIcons.check, "标未看", Modifier.size(18.dp),
-                        tint = if (list.firstVisibleItemIndex == 0) Color.Black else c.bg)
+                        tint = if (atTop) Color.Black else c.bg)
                 } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
             }
         }
@@ -1052,8 +1056,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             }
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
-                            EpisodeStrip(app, shownEpisodes.map { ep -> ep.copy(
-                                seasonId = ep.seasonId ?: curSeason?.id, seriesId = ep.seriesId ?: seriesId) }, actionScope = scope, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
+                            EpisodeStrip(app, remember(shownEpisodes, curSeason?.id, seriesId) { shownEpisodes.map { ep -> ep.copy(
+                                seasonId = ep.seasonId ?: curSeason?.id, seriesId = ep.seriesId ?: seriesId) } }, actionScope = scope, currentId = playedItem ?: route.itemId, targetId = shownNextEp?.id.takeIf { isSeries },
                                 expanded = isSeriesEntry,
                                 onOpen = { ep -> nav.navigate(Route.Detail(ep.id, "Episode")) })
                         } else Box(Modifier.fillMaxWidth().height(episodeStripHeight(isSeriesEntry)), contentAlignment = Alignment.Center) {
@@ -1085,7 +1089,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         ) {
                             itemsIndexed(shownSeasons, key = { _, season -> season.id }) { _, season ->
                                 var menuOpen by remember(season.id) { mutableStateOf(false) }
-                                val actions = cardActions(app, scope, season.copy(type = "Season"), favoriteAction = false)
+                                val actions = remember(season, scope) { cardActions(app, scope, season.copy(type = "Season"), favoriteAction = false) }
                                 Box {
                                     Column(Modifier.width(104.dp).pressable({
                                         if (curSeason?.id != season.id) {
@@ -1837,7 +1841,7 @@ private fun EpCard(
     val c = Lp.colors
     var menuOpen by remember(ep.id) { mutableStateOf(false) }
     // 操作跟随详情页，卡片回收不能撤销提交；状态以页面刷新后的分集为准。
-    val actions = cardActions(app, actionScope, ep, favoriteAction = false)
+    val actions = remember(ep, actionScope) { cardActions(app, actionScope, ep, favoriteAction = false) }
     Box {
         Column(
             Modifier.width(if (playbackStyle) PlayerEpCardW else if (expanded) SeriesEpCardW else EpCardW)
