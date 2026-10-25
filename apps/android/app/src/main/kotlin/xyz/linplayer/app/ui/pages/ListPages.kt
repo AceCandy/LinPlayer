@@ -436,9 +436,6 @@ fun DownloadsPage(nav: NavController) {
                         }
                     }
                 }, fmt = { it.toInt().toString() })
-                Text("清除已完成仅清记录；单项删除会删除文件",
-                    Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12),
-                    color = Lp.colors.fg2, style = LpText.caption)
             }
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                 failure?.takeUnless { it.isSilent }?.let { error ->
@@ -468,22 +465,24 @@ fun DownloadsPage(nav: NavController) {
                                 }
                                 LpIconButton(LpIcons.close, "删除任务与文件", tint = c.bad) { action("download.remove", t.id) }
                             }
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(when (t.state) {
-                                    "queued" -> "等待下载"; "downloading" -> "正在下载"; "paused" -> "已暂停"
-                                    "completed" -> "已完成"; "failed" -> "下载失败"; "canceled" -> "已取消"; else -> "状态未知"
-                                }, color = if (t.state == "failed") c.bad else c.mediaIcon, style = LpText.caption)
-                                if (t.total > 0) Text("${(t.progress * 100).toInt()}%", color = c.fg2, style = LpText.caption)
-                            }
-                            Spacer(Modifier.height(Sp.x6))
                             if (t.total > 0) LinearProgressIndicator(progress = { t.progress },
-                                modifier = Modifier.fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
-                                color = c.mediaAccent, trackColor = c.s3)
-                            Spacer(Modifier.height(Sp.x6))
-                            Text(listOfNotNull(
-                                "${downloadSize(t.received)} / ${if (t.total > 0) downloadSize(t.total) else "大小未知"}",
-                                speeds[t.id]?.let { "${downloadSize(it.toLong())}/s" },
-                            ).joinToString(" · "), color = c.fg2, style = LpText.caption)
+                                modifier = Modifier.padding(top = Sp.x8).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
+                                color = if (t.state == "downloading") c.mediaAccent else c.fg3, trackColor = c.s3,
+                                gapSize = 0.dp, drawStopIndicator = {})
+                            Row(Modifier.fillMaxWidth().padding(top = Sp.x8), verticalAlignment = Alignment.CenterVertically) {
+                                Text(listOfNotNull(
+                                    when (t.state) {
+                                        "queued" -> "等待下载"; "downloading" -> "正在下载"; "paused" -> "已暂停"
+                                        "completed" -> "已完成"; "failed" -> "下载失败"; "canceled" -> "已取消"; else -> "状态未知"
+                                    },
+                                    "${downloadSize(t.received)} / ${if (t.total > 0) downloadSize(t.total) else "大小未知"}",
+                                    speeds[t.id]?.let { "${downloadSize(it.toLong())}/s" },
+                                ).joinToString(" · "), Modifier.weight(1f),
+                                    color = if (t.state == "failed") c.bad else c.fg2, style = LpText.caption,
+                                    maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                if (t.total > 0) Text("${(t.progress * 100).toInt()}%", Modifier.padding(start = Sp.x8),
+                                    color = c.fg2, style = LpText.caption)
+                            }
                             t.error?.takeIf { t.state == "failed" && it.isNotBlank() }?.let {
                                 Text(it, Modifier.padding(top = Sp.x8), color = c.bad, style = LpText.caption)
                             }
@@ -692,7 +691,8 @@ fun HistoryPage(nav: NavController) {
                                     if (run > 0) LinearProgressIndicator(
                                         progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
                                         modifier = Modifier.padding(top = Sp.x8).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
-                                        color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3)
+                                        color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3,
+                                        gapSize = 0.dp, drawStopIndicator = {})
                                 }
                             }
                         }

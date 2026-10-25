@@ -28,6 +28,13 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.ui.unit.dp
+import xyz.linplayer.app.ui.theme.R
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavBackStackEntry
@@ -64,11 +71,15 @@ import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpCell
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpField
+import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.OptRow
+import xyz.linplayer.app.ui.components.Panel
+import xyz.linplayer.app.ui.components.SectionTitle
 import xyz.linplayer.app.ui.components.ToneChip
 import xyz.linplayer.app.ui.components.rememberScrolled
+import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Sp
 
@@ -146,30 +157,43 @@ private fun InstalledTab(nav: NavController, list: androidx.compose.foundation.l
             }
             if (r.bool("pending_restart")) item { Dim2("有改动,重启应用后生效。", Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8)) }
             item {
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    LpButton("从文件安装", { pick.launch(arrayOf("*/*")) })
+                // 管理动作与标签页视觉区分:用设置式分组行,不用同款 chip
+                Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4, bottom = Sp.x12)) {
+                    LpCell("从文件安装", icon = LpIcons.file, mediaStyle = true, arrow = false) { pick.launch(arrayOf("*/*")) }
                     val ups = plugins.filter { !it.str("update").isNullOrEmpty() }.mapNotNull { it.str("id") }
-                    if (ups.isNotEmpty()) LpButton("全部更新(${ups.size})", {
-                        scope.launch {
-                            runCatching { app.call("plugin.updateAll", j("ids" to ups)) }
-                                .onSuccess { app.toast("更新完了,重启应用后生效", ToastKind.Ok); again() }.onFailure { app.report(it) }
+                    if (ups.isNotEmpty()) {
+                        Hairline()
+                        LpCell("全部更新", icon = LpIcons.download, value = "${ups.size}", mediaStyle = true, arrow = false) {
+                            scope.launch {
+                                runCatching { app.call("plugin.updateAll", j("ids" to ups)) }
+                                    .onSuccess { app.toast("更新完了,重启应用后生效", ToastKind.Ok); again() }.onFailure { app.report(it) }
+                            }
                         }
-                    }, kind = BtnKind.Secondary)
-                    if (r.bool("disabled_all")) LpButton("恢复之前的启用状态", { scope.launch { runCatching { app.call("plugin.restoreAll") }; again() } }, kind = BtnKind.Secondary)
-                    else if (plugins.any { it.bool("want") }) LpButton("一键全部禁用", { scope.launch { runCatching { app.call("plugin.disableAll") }; again() } }, kind = BtnKind.Secondary)
+                    }
+                    if (r.bool("disabled_all")) {
+                        Hairline()
+                        LpCell("恢复之前的启用状态", icon = LpIcons.refresh, mediaStyle = true, arrow = false) { scope.launch { runCatching { app.call("plugin.restoreAll") }; again() } }
+                    } else if (plugins.any { it.bool("want") }) {
+                        Hairline()
+                        LpCell("一键全部禁用", icon = LpIcons.lock, mediaStyle = true, arrow = false) { scope.launch { runCatching { app.call("plugin.disableAll") }; again() } }
+                    }
                 }
             }
             if (plugins.isEmpty()) item { EmptyState("还没有安装插件", "去「市场」找一个,或者从文件安装。", LpIcons.plugin) }
-            items(plugins, key = { it.str("id") ?: "" }) { p ->
-                val id = p.str("id") ?: ""
-                LpCell(
-                    p.str("name") ?: id,
-                    sub = listOfNotNull(p.str("version"), p.str("author"), statusText(p)).joinToString(" · "),
-                    switch = p.bool("want"),
-                    onSwitch = { on -> scope.launch { runCatching { app.call("plugin.setEnabled", args("id" to id, "enabled" to on)) }.onFailure { app.report(it) }; again() } },
-                    onClick = { nav.navigate(Route.PluginDetail(id)) },
-                )
-                Hairline()
+            else item {
+                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                    plugins.forEachIndexed { i, p ->
+                        val id = p.str("id") ?: ""
+                        if (i > 0) Hairline()
+                        LpCell(
+                            p.str("name") ?: id,
+                            sub = listOfNotNull(p.str("version"), p.str("author"), statusText(p)).joinToString(" · "),
+                            switch = p.bool("want"),
+                            onSwitch = { on -> scope.launch { runCatching { app.call("plugin.setEnabled", args("id" to id, "enabled" to on)) }.onFailure { app.report(it) }; again() } },
+                            onClick = { nav.navigate(Route.PluginDetail(id)) },
+                        )
+                    }
+                }
             }
         }
     }
@@ -231,7 +255,7 @@ private fun MarketTab(list: androidx.compose.foundation.lazy.LazyListState, pad:
         }.sortedByDescending { it.dbl("downloads") ?: 0.0 }
         LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
             item {
-                Column(Modifier.padding(horizontal = Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                Column(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4, bottom = Sp.x12), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     LpField(q, { q = it }, "搜索名称、描述、作者")
                     Row(horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
                         ToneChip("只看官方", on = official) { official = !official }
@@ -242,7 +266,8 @@ private fun MarketTab(list: androidx.compose.foundation.lazy.LazyListState, pad:
                 }
             }
             if (shown.isEmpty()) item { EmptyState(if (q.isBlank()) "市场里还没有插件" else "没找到「$q」", "", LpIcons.search) }
-            items(shown, key = { it.str("id") ?: "" }) { e ->
+            // 市场条目数量不定,保持懒加载:每行自己画分组卡片的那一段
+            itemsIndexed(shown, key = { _, e -> e.str("id") ?: "" }) { i, e ->
                 val bestV = bestVersion(e)
                 val tag = when {
                     e.bool("needsUpgrade") -> "需要升级 LinPlayer"
@@ -250,10 +275,16 @@ private fun MarketTab(list: androidx.compose.foundation.lazy.LazyListState, pad:
                     e.str("installed")?.isNotEmpty() == true -> "可更新"
                     else -> null
                 }
-                LpCell(e.str("name") ?: "", sub = listOfNotNull(bestV, e.str("author"), e.str("repoName"),
-                    if (e.bool("officialMark")) "官方" else null, if (e.bool("paid")) "含付费功能" else null, tag).joinToString(" · "),
-                    onClick = { detail = e })
-                Hairline()
+                val top = if (i == 0) R.md else 0.dp
+                val bottom = if (i == shown.lastIndex) R.md else 0.dp
+                Column(Modifier.padding(horizontal = Sp.x16)
+                    .clip(RoundedCornerShape(top, top, bottom, bottom))
+                    .background(Lp.colors.s1.compositeOver(Lp.colors.bg))) {
+                    if (i > 0) Hairline()
+                    LpCell(e.str("name") ?: "", sub = listOfNotNull(bestV, e.str("author"), e.str("repoName"),
+                        if (e.bool("officialMark")) "官方" else null, if (e.bool("paid")) "含付费功能" else null, tag).joinToString(" · "),
+                        onClick = { detail = e })
+                }
             }
         }
     }
@@ -300,8 +331,8 @@ private fun TakeoverTab(list: androidx.compose.foundation.lazy.LazyListState, pa
             if (slots.isEmpty()) item { EmptyState("没有插件声明接管位", "全部是官方的。", LpIcons.plugin) }
             items(slots, key = { it.str("slot") ?: "" }) { s ->
                 val slot = s.str("slot") ?: ""
-                Column(Modifier.padding(Sp.x16)) {
-                    H2(slotName(slot))
+                SectionTitle(slotName(slot))
+                Panel(Modifier.padding(horizontal = Sp.x16)) {
                     val cur = s.str("current") ?: ""
                     OptRow("官方", { scope.launch { runCatching { app.call("plugin.setTakeover", args("slot" to slot, "plugin_id" to "")) }; app.toast("重启应用后生效"); reload++ } }, selected = cur.isEmpty())
                     s["candidates"].arr().mapNotNull { it.obj() }.forEach { c ->
@@ -329,22 +360,33 @@ private fun RepoTab(list: androidx.compose.foundation.lazy.LazyListState, pad: P
     BlockBox(block, again) { r ->
         var prefix by remember(r) { mutableStateOf(r.str("github_prefix") ?: "") }
         LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
-            items(r["repos"].arr().mapNotNull { it.obj() }, key = { it.str("url") ?: "" }) { repo ->
-                val u = repo.str("url") ?: ""
-                LpCell(repo.str("name")?.takeIf { it.isNotEmpty() } ?: u, sub = u, arrow = false,
-                    onClick = if (repo.bool("official")) null else ({ scope.launch { runCatching { app.call("plugin.removeRepo", args("url" to u)) }; app.toast("已删除"); again() } }))
-                Hairline()
-            }
             item {
-                Column(Modifier.padding(Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    Dim3("点第三方仓库那一行即删除;官方市场不能删。", maxLines = 2)
+                Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4)) {
+                    r["repos"].arr().mapNotNull { it.obj() }.forEachIndexed { i, repo ->
+                        val u = repo.str("url") ?: ""
+                        if (i > 0) Hairline()
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            LpCell(repo.str("name")?.takeIf { it.isNotEmpty() } ?: u, Modifier.weight(1f), sub = u, arrow = false)
+                            // 官方市场不能删；第三方仓库删除只去掉来源，已装插件不受影响
+                            if (!repo.bool("official")) LpIconButton(LpIcons.close, "删除仓库", Modifier.padding(end = Sp.x4), size = 20, tint = Lp.colors.fg2) {
+                                scope.launch { runCatching { app.call("plugin.removeRepo", args("url" to u)) }; app.toast("已删除"); again() }
+                            }
+                        }
+                    }
+                }
+                SectionTitle("添加仓库")
+                Column(Modifier.padding(horizontal = Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     LpField(url, { url = it }, "仓库地址(index.json 所在目录或文件)")
                     LpButton("添加", { if (url.isNotBlank()) askAdd = true })
-                    Spacer(Modifier.height(Sp.x16))
-                    LpField(prefix, { prefix = it }, "GitHub 加速前缀(可留空)", label = "下载")
+                }
+                SectionTitle("下载")
+                Column(Modifier.padding(horizontal = Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    LpField(prefix, { prefix = it }, "GitHub 加速前缀(可留空)")
                     LpButton("保存前缀", { scope.launch { runCatching { app.call("plugin.setGithubPrefix", args("prefix" to prefix.trim())) }; app.toast("已保存") } }, kind = BtnKind.Secondary)
                 }
-                LpCell("自动更新插件", switch = r.bool("auto_update"), onSwitch = { on -> scope.launch { runCatching { app.call("plugin.setAutoUpdate", args("on" to on)) }; again() } })
+                Panel(Modifier.padding(Sp.x16)) {
+                    LpCell("自动更新插件", switch = r.bool("auto_update"), onSwitch = { on -> scope.launch { runCatching { app.call("plugin.setAutoUpdate", args("on" to on)) }; again() } })
+                }
             }
         }
     }

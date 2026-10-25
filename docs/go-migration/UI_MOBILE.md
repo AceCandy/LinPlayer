@@ -883,7 +883,7 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 
 | | |
 |---|---|
-| 版式 | 固定并发控制与清记录说明 + 任务卡：标题 / 状态 / 百分比 / 已下载与总大小 / 采样速度 / 失败原因；暂停、继续、失败重试按真实状态提供，已完成不显示暂停按钮 |
+| 版式 | 固定并发控制 + 任务卡：标题与操作 → 平直进度条（仅下载中用强调色）→ 单行「状态 · 已下载/总大小 · 速度」与右侧百分比 → 失败原因；不放清记录说明文字；暂停、继续、失败重试按真实状态提供，已完成不显示暂停按钮 |
 | 数据来源 | `download.list` `download.enqueue` `download.pause` `download.resume` `download.remove` `download.clearCompleted` `download.setThreads` |
 | 加载态 | 页面 STARTED 时每两秒读取任务表，退后台 / 离页取消；核心当前不发送 `download.progress` |
 | 错误态 | 任务失败展示 error；读取失败独立重试，保留已有任务，不冒充空队列 |
