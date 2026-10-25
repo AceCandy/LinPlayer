@@ -128,6 +128,16 @@ class PhonePluginUiTest {
         rule.waitForIdle()
         rule.onRoot().captureRoboImage("build/plugin-ui/detail-bottom-dark.png")
     }
+    @Test fun selectSettingKeepsSingleChoice() {
+        val core = core().apply { ret("plugin.setSetting", kotlinx.serialization.json.JsonNull) }
+        open(0, core, start = Route.PluginDetail("a"))
+        rule.onNode(hasText("豆瓣") and hasClickAction()).assertIsSelected()
+        rule.onNode(hasText("IMDb") and hasClickAction()).performClick()
+        rule.waitForIdle()
+        rule.onNode(hasText("IMDb") and hasClickAction()).assertIsSelected()
+        rule.onNode(hasText("豆瓣") and hasClickAction()).assertIsNotSelected()
+    }
+
     @Test fun settingsSectionsUseGroupedPanel() {
         val core = core().apply {
             ret("plugin.settingsSections", arr(buildJsonObject {

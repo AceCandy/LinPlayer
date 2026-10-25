@@ -524,6 +524,7 @@ fun OptRow(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .clip(RoundedCornerShape(R.sm))
             .background(if (selected) c.accDim else Color.Transparent)
+            .semantics { this.selected = selected }
             .pressable(onClick)
             .padding(horizontal = Sp.x12, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,

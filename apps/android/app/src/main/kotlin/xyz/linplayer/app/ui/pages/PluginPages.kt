@@ -76,7 +76,6 @@ import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.Panel
-import xyz.linplayer.app.ui.components.SectionTitle
 import xyz.linplayer.app.ui.components.ToneChip
 import xyz.linplayer.app.ui.components.rememberScrolled
 import xyz.linplayer.app.ui.theme.Lp
@@ -331,13 +330,15 @@ private fun TakeoverTab(list: androidx.compose.foundation.lazy.LazyListState, pa
             if (slots.isEmpty()) item { EmptyState("没有插件声明接管位", "全部是官方的。", LpIcons.plugin) }
             items(slots, key = { it.str("slot") ?: "" }) { s ->
                 val slot = s.str("slot") ?: ""
-                SectionTitle(slotName(slot))
+                // 与设置页同一套：小号分组标题 + 面板内勾选行
+                GroupLabel(slotName(slot))
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
                     val cur = s.str("current") ?: ""
-                    OptRow("官方", { scope.launch { runCatching { app.call("plugin.setTakeover", args("slot" to slot, "plugin_id" to "")) }; app.toast("重启应用后生效"); reload++ } }, selected = cur.isEmpty())
+                    LpCell("官方", checked = cur.isEmpty(), arrow = false, onClick = { scope.launch { runCatching { app.call("plugin.setTakeover", args("slot" to slot, "plugin_id" to "")) }; app.toast("重启应用后生效"); reload++ } })
                     s["candidates"].arr().mapNotNull { it.obj() }.forEach { c ->
                         val pid = c.str("plugin_id") ?: ""
-                        OptRow(c.str("name") ?: pid, { scope.launch { runCatching { app.call("plugin.setTakeover", args("slot" to slot, "plugin_id" to pid)) }; app.toast("重启应用后生效"); reload++ } }, selected = cur == pid)
+                        Hairline()
+                        LpCell(c.str("name") ?: pid, checked = cur == pid, arrow = false, onClick = { scope.launch { runCatching { app.call("plugin.setTakeover", args("slot" to slot, "plugin_id" to pid)) }; app.toast("重启应用后生效"); reload++ } })
                     }
                 }
             }
@@ -374,12 +375,12 @@ private fun RepoTab(list: androidx.compose.foundation.lazy.LazyListState, pad: P
                         }
                     }
                 }
-                SectionTitle("添加仓库")
+                GroupLabel("添加仓库")
                 Column(Modifier.padding(horizontal = Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     LpField(url, { url = it }, "仓库地址(index.json 所在目录或文件)")
                     LpButton("添加", { if (url.isNotBlank()) askAdd = true })
                 }
-                SectionTitle("下载")
+                GroupLabel("下载")
                 Column(Modifier.padding(horizontal = Sp.x16), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     LpField(prefix, { prefix = it }, "GitHub 加速前缀(可留空)")
                     LpButton("保存前缀", { scope.launch { runCatching { app.call("plugin.setGithubPrefix", args("prefix" to prefix.trim())) }; app.toast("已保存") } }, kind = BtnKind.Secondary)
@@ -431,7 +432,7 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 sections.filter { it.second.isNotEmpty() }.forEachIndexed { si, (title, rows) ->
                     item("set:$si") {
-                        SectionTitle(title)
+                        GroupLabel(title)
                         Panel(Modifier.padding(horizontal = Sp.x16)) {
                             rows.forEachIndexed { i, s ->
                                 if (i > 0) Hairline()
@@ -443,7 +444,7 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
                 // 插件自己画的页面(SPEC 7.2 D84):每一个给一个入口,点了挂一个 page surface
                 val pages = d["manifest"].obj()?.get("contributes").obj()?.get("pages").arr().mapNotNull { it.obj() }
                 if (!pages.isNullOrEmpty()) item("pages") {
-                    SectionTitle("页面")
+                    GroupLabel("页面")
                     Panel(Modifier.padding(horizontal = Sp.x16)) {
                         pages.forEachIndexed { i, p ->
                             val pid = p.str("id") ?: ""
@@ -455,10 +456,10 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 item("manage") {
                     d.strList("contributes").takeIf { it.isNotEmpty() }?.let {
-                        SectionTitle("它做了什么"); Dim2(it.joinToString("、"), Modifier.padding(horizontal = Sp.x16))
+                        GroupLabel("它做了什么"); Dim2(it.joinToString("、"), Modifier.padding(horizontal = Sp.x16))
                     }
                     val u = d["usage"].obj()
-                    SectionTitle("占用")
+                    GroupLabel("占用")
                     Panel(Modifier.padding(horizontal = Sp.x16)) {
                         (info.dbl("loadMs") ?: 0.0).takeIf { it > 0 }?.let {
                             LpCell("启动耗时", value = "${it.toInt()} ms" + if (it > 500) "(偏慢)" else "", arrow = false)
@@ -469,7 +470,7 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
                         LpCell("清数据", sub = "设置与登录状态一并清除", value = size((u.dbl("kv") ?: 0.0) + (u.dbl("data") ?: 0.0)),
                             onClick = { act("plugin.clearData", "cache_only" to false, done = "已清数据") })
                     }
-                    SectionTitle("版本与管理")
+                    GroupLabel("版本与管理")
                     Panel(Modifier.padding(horizontal = Sp.x16)) {
                         info.str("prev")?.takeIf { it.isNotEmpty() }?.let { p -> LpCell("回退到 $p", onClick = { act("plugin.rollback", done = "重启应用后生效") }); Hairline() }
                         info.str("update")?.takeIf { it.isNotEmpty() }?.let { v -> LpCell("跳过 $v", onClick = { act("plugin.skipVersion", "version" to v) }); Hairline() }
@@ -509,12 +510,13 @@ internal fun SettingRow(app: AppState, id: String, s: JsonObject, cur: JsonEleme
         "toggle" -> LpCell(title, sub = s.str("description"), switch = (cur as? JsonPrimitive)?.booleanOrNull == true, onSwitch = { save(it) })
         "select" -> {
             val opts = s["options"].arr().mapNotNull { it.obj() }
+            // 整组共用一个选中值：各项各存一份时，改选后旧项不会取消
+            var picked by remember { mutableStateOf((cur as? JsonPrimitive)?.content) }
             Column(Modifier.padding(horizontal = Sp.x16)) {
                 Body(title)
                 opts.forEach { o ->
                     val v = o.str("value") ?: ""
-                    var picked by remember { mutableStateOf((cur as? JsonPrimitive)?.content == v) }
-                    OptRow(o.str("label") ?: v, { save(v); picked = true }, selected = picked)
+                    OptRow(o.str("label") ?: v, { save(v); picked = v }, selected = picked == v)
                 }
             }
         }
