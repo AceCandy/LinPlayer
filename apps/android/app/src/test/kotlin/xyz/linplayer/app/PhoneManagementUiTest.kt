@@ -159,6 +159,36 @@ class PhoneManagementUiTest {
         rule.onRoot().captureRoboImage("build/management-ui/appearance-light-large.png")
     }
 
+    /** 其余二级页在核心无数据时的版式基线（逐页截图供人工复核）。 */
+    @Test fun settingsSubPagesRenderWithoutData() {
+        val group = mutableStateOf("storage")
+        val app = AppState(FakeCore().loggedIn(), scope)
+        runBlocking { app.boot() }
+        rule.setContent {
+            LpTheme(darkOverride = false) {
+                CompositionLocalProvider(LocalApp provides app) {
+                    val g = group.value
+                    androidx.compose.runtime.key(g) {
+                        val nav = rememberNavController()
+                        NavHost(nav, startDestination = Route.SettingsSub(g)) {
+                            composable<Route.SettingsSub> { SettingsSubPage(nav, it) }
+                        }
+                    }
+                }
+            }
+        }
+        for (g in listOf("storage", "danmaku", "shot", "mpvconf", "prefetch", "primaryprogress", "blocked", "backup", "sync", "update", "about")) {
+            rule.runOnIdle { group.value = g }
+            rule.waitForIdle()
+            // 主进度并发读取失败必须落到页内错误态，不能让子任务异常冲出组合作用域
+            if (g == "primaryprogress") rule.onNodeWithText("主进度设置读取失败，请重试").assertIsDisplayed()
+            // 读取失败要明说，不能无限转圈或冒充“已是最新”
+            if (g == "storage") assertEquals(2, rule.onAllNodesWithText("读取失败").fetchSemanticsNodes().size)
+            if (g == "about") rule.onNodeWithText("检查失败").assertIsDisplayed()
+            rule.onRoot().captureRoboImage("build/management-ui/sub-$g.png")
+        }
+    }
+
     @Test fun playerSwitchKeepsCommandAndRollsBackOnFailure() {
         val core = FakeCore().loggedIn()
         core.ret("player.getPlaybackPrefs", buildJsonObject { put("skip_intro", false) })

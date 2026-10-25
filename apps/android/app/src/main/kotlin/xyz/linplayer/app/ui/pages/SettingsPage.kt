@@ -515,11 +515,11 @@ private fun BackupPanel() {
     }
 
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("包含服务器地址与账号密码", mediaStyle = true, value = if (withAccounts) "是" else "否",
-            onClick = { withAccounts = !withAccounts })
+        LpCell("包含服务器地址与账号密码", mediaStyle = true,
+            switch = withAccounts, onSwitch = { withAccounts = it })
         Hairline()
-        LpCell("包含软件设置", mediaStyle = true, value = if (withSettings) "是" else "否",
-            onClick = { withSettings = !withSettings })
+        LpCell("包含软件设置", mediaStyle = true,
+            switch = withSettings, onSwitch = { withSettings = it })
         Hairline()
         LpCell("导出到文件", mediaStyle = true, onClick = {
             save.launch("LinPlayer-备份-" + System.currentTimeMillis() + ".lpbak")
@@ -976,12 +976,16 @@ private fun StoragePanel() {
     val scope = rememberCoroutineScope()
     var paths by remember { mutableStateOf<String?>(null) }
     var size by remember { mutableStateOf<String?>(null) }
+    // 读完（含失败）后不再显示“读取中”，避免失败时无限转圈
+    var pathsDone by remember { mutableStateOf(false) }
+    var sizeDone by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) {
         // 同一面板里的多个请求**必须并发**:串行 await 会把后端本身的卡放大 N 倍
-        launch { paths = runCatching { app.call("system.dataPaths") }.getOrNull().obj().str("root") }
+        launch { paths = runCatching { app.call("system.dataPaths") }.getOrNull().obj().str("root"); pathsDone = true }
         launch {
             size = runCatching { app.call("system.cacheSize") }.getOrNull().obj()
                 .long("bytes")?.let { "%.1f MB".format(it / 1024.0 / 1024.0) }
+            sizeDone = true
         }
     }
     /* 导出日志。**必须让用户自己挑位置** —— 上一版写进应用私有目录然后弹一句
@@ -1003,13 +1007,13 @@ private fun StoragePanel() {
         }
     }
 
+    GroupLabel("媒体缓存")
     MediaCachePanel()
-    Spacer(Modifier.height(Sp.x12))
-    Panel(Modifier.padding(Sp.x16)) {
+    GroupLabel("目录与日志")
+    Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x16)) {
         // 安卓的数据根是应用私有目录:**展示但不可点开** ——
         // 没有文件管理器能进去,给一个打不开的按钮比不给更糟
-        LpCell("数据目录", mediaStyle = true, sub = paths, arrow = false)
-        if (paths == null) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
+        LpCell("数据目录", mediaStyle = true, sub = paths ?: if (pathsDone) "读取失败" else "读取中…", arrow = false)
         Hairline()
         // 这个目录**是**能进去的(Android/data/<包名>/files/logs),所以照实写出来
         LpCell("日志目录", mediaStyle = true, sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
@@ -1023,7 +1027,7 @@ private fun StoragePanel() {
             scope.launch { xyz.linplayer.app.data.Report.feedback(ctx, app) }
         })
         Hairline()
-        LpCell("缓存占用", mediaStyle = true, value = size ?: "…", arrow = false)
+        LpCell("缓存占用", mediaStyle = true, value = size ?: if (sizeDone) "读取失败" else "…", arrow = false)
         Hairline()
         LpCell("清理缓存", mediaStyle = true, onClick = {
             scope.launch {
@@ -1072,7 +1076,7 @@ private fun MediaCachePanel() {
             saving = false
         }
     }
-    Panel(Modifier.padding(Sp.x16)) {
+    Panel(Modifier.padding(horizontal = Sp.x16)) {
         val bytes = capacity
         if (bytes == null) {
             LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else null,
@@ -1111,12 +1115,16 @@ private fun AboutPanel() {
     val caps by app.caps.collectAsStateWithLifecycle()
     var newest by remember { mutableStateOf<JsonObject?>(null) }
     var checked by remember { mutableStateOf(false) }
+    var checkFailed by remember { mutableStateOf(false) }
     // 点一下直接开下载是不对的:手机上多半是流量,而且用户没看见这一版改了什么
     var offer by remember { mutableStateOf<JsonObject?>(null) }
 
     suspend fun check(): JsonObject? {
-        val r = runCatching { app.call("system.checkUpdate") }.getOrNull().obj()
+        val res = runCatching { app.call("system.checkUpdate") }
+        val r = res.getOrNull().obj()
         checked = true
+        // 查询失败不能显示成“已是最新”
+        checkFailed = res.isFailure
         newest = if (r.bool("has_update")) r?.get("update").obj() else null
         return newest
     }
@@ -1127,7 +1135,7 @@ private fun AboutPanel() {
         Hairline()
         LpCell(
             "检查更新", mediaStyle = true,
-            value = newest.str("version")?.let { "有新版 $it" } ?: if (checked) "已是最新" else "…",
+            value = newest.str("version")?.let { "有新版 $it" } ?: if (checkFailed) "检查失败" else if (checked) "已是最新" else "…",
             onClick = {
                 scope.launch {
                     val u = check()
@@ -1301,7 +1309,8 @@ private fun UpdatePanel() {
         auto = o.bool("auto_check")
         proxy = o.str("proxy") ?: ""
         proxies = o.strList("proxies")
-        version = o.str("current_version") ?: ""
+        // 设置读不到时用宿主已知版本，避免一直显示“…”
+        version = o.str("current_version") ?: app.caps.value.version
     }
 
     /** 改完即生效。**失败必须回滚** —— 不回滚的话界面显示的是一个没落盘的值。 */
@@ -1495,10 +1504,13 @@ private fun SyncAccountsPanel() {
                     }
                 })
             } else {
-                Column(Modifier.padding(Sp.x16)) {
+                LpCell("Bangumi", mediaStyle = true, value = "未连接", arrow = false)
+                Column(Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x16)) {
                     // 授权链接常驻显示,不用 toast:几十上百字符,3 秒没了抄不完
-                    if (bgmUrl.isNotBlank()) Dim3("打开 $bgmUrl 授权,把拿到的 Access Token 粘到下面。")
-                    Spacer(Modifier.height(Sp.x10))
+                    if (bgmUrl.isNotBlank()) {
+                        Dim3("打开 $bgmUrl 授权,把拿到的 Access Token 粘到下面。")
+                        Spacer(Modifier.height(Sp.x10))
+                    }
                     LpField(bgmToken, { bgmToken = it }, "Access Token")
                     Spacer(Modifier.height(Sp.x10))
                     LpButton("连接 Bangumi", {

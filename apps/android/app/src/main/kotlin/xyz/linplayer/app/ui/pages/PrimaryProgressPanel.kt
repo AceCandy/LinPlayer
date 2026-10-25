@@ -15,6 +15,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.LocalApp
@@ -43,10 +44,13 @@ fun PrimaryProgressPanel() {
     LaunchedEffect(reload) {
         busy = true
         try {
-            val state = async { app.call("prefs.getPrimaryProgressServer").obj() }
-            val list = async { app.call("account.listAccounts").arr().mapNotNull { it.obj() } }
-            settings = state.await()
-            accounts = list.await().filter { !it.str("user_id").isNullOrBlank() && it.str("source_kind").orEmpty() in listOf("", "emby") }
+            // 并发读取放进 coroutineScope：子任务失败从这里抛出被下方捕获，而不是直接取消组合作用域导致崩溃
+            coroutineScope {
+                val state = async { app.call("prefs.getPrimaryProgressServer").obj() }
+                val list = async { app.call("account.listAccounts").arr().mapNotNull { it.obj() } }
+                settings = state.await()
+                accounts = list.await().filter { !it.str("user_id").isNullOrBlank() && it.str("source_kind").orEmpty() in listOf("", "emby") }
+            }
             error = null
         } catch (e: CancellationException) {
             throw e
