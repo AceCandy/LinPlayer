@@ -151,7 +151,7 @@ class PhoneThemeTest {
             rule.onNodeWithContentDescription("聚合视界").performClick()
             rule.onNodeWithText("流影").assertExists()
             rule.onNodeWithText("下载").assertDoesNotExist()
-            rule.onNodeWithText("排行榜").assertDoesNotExist()
+            rule.onNodeWithText("排行榜").assertExists()
             assertEquals(aggregateCalls, core.calls.count { it.first == "emby.aggregateOverview" })
             assertBackground(privatePalette(base).bg)
             rule.onRoot().captureRoboImage("build/phone-theme/private-aggregate-$dark.png")

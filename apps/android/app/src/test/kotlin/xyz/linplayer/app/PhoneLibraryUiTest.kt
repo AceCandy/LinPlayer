@@ -450,7 +450,7 @@ class PhoneLibraryUiTest {
         rule.onNodeWithContentDescription("聚合视界").performClick()
         rule.onNodeWithText("流影").assertIsDisplayed()
         rule.onNodeWithText("下载").assertDoesNotExist()
-        rule.onNodeWithText("排行榜").assertDoesNotExist()
+        rule.onNodeWithText("排行榜").assertIsDisplayed()
         rule.onNodeWithText("日历").assertDoesNotExist()
         rule.onNodeWithContentDescription("观看历史").assertDoesNotExist()
         rule.onNodeWithContentDescription("搜索").performClick()
