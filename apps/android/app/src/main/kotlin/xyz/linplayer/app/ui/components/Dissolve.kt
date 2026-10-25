@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.theme.LocalPrivateSpace
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
@@ -181,13 +182,15 @@ fun ToneChip(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    // 选中与 MediaFilterChip 同一规则：淡强调底 + 强调字；隐私空间有霓虹描边，选中仍用实底
+    val solid = LocalPrivateSpace.current
     Text(
         label,
         m.privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
-            .background(if (on) c.acc else c.s2)
+            .background(if (!on) c.s2 else if (solid) c.acc else c.accDim)
             .pressable(onClick, onLongClick)
             .padding(horizontal = Sp.x16, vertical = Sp.x8),
-        color = if (on) c.accFg else c.fg2, style = LpText.filter, maxLines = 1,
+        color = if (!on) c.fg2 else if (solid) c.accFg else c.acc, style = LpText.filter, maxLines = 1,
         fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
     )
 }

@@ -384,8 +384,8 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 | `LpRow` | 横滑轨道:可点击标题 + `LazyRow`。骨架态是 4 张空卡 |
 | `LpGrid` | `LazyVerticalGrid`,列数按 §3.3 断点 |
 | `LpButton` | 主(`acc` 底)/ 次(`s2` 底 + `line` 边)/ 危险(`bad`)/ 幽灵(纯文字)/ 图标(48dp) |
-| `LpChip` | 胶囊筛选芯片。`FilterChip` 直接用 M3 的 |
-| `LpField` | 输入框:高 48;底 `s1`;边 `line`;聚焦边 `acc`;右侧可挂清除 |
+| `LpChip` | 胶囊筛选芯片。`FilterChip` 直接用 M3 的。`MediaFilterChip` / `ToneChip` 选中统一为 accDim 底 + acc 粗字，隐私空间选中仍用实底 |
+| `LpField` | 输入框:高 48;底 `s1`(在 `LpDialog` 内改用 `bg` 做嵌入槽，与 s2 面板拉开);边 `line`;聚焦边 `acc`;右侧可挂清除 |
 | `LpCell` | 设置类单元格:图标 + 标题 + 副标题 + 值 / 开关 / 箭头。副标题只写不常见行为、限制或后果，一句短语；标题能说明白的不加 |
 | `SegRow` | 分段控件(2~4 个互斥选项,**就地生效不开弹窗**)。M3 的 `SingleChoiceSegmentedButtonRow` |
 | `StepperRow` | 步进器(有明确步长的数值:倍速 0.25 / 线程数 1)。**到头把按钮禁掉** |

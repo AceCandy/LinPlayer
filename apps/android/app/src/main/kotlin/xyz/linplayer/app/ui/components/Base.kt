@@ -269,6 +269,9 @@ fun LpButton(
 
 // ---------------------------------------------------------------- 输入框
 
+/** 当前是否处于 [LpDialog] 面板内。面板本身已是 s2 层，输入框需换底色才分得清。 */
+internal val LocalInDialog = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LpField(
@@ -287,6 +290,8 @@ fun LpField(
     onSearch: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
+    // 弹窗面板是 s2 层，再叠半透明 s1 几乎看不出；改用页面底色做成嵌入槽
+    val container = if (LocalInDialog.current) c.bg else c.s1
     Column(m) {
         if (label != null) Dim3(label, Modifier.padding(bottom = Sp.x6))
         OutlinedTextField(
@@ -306,8 +311,8 @@ fun LpField(
                 androidx.compose.ui.text.input.PasswordVisualTransformation() else
                 androidx.compose.ui.text.input.VisualTransformation.None,
             colors = TextFieldDefaults.colors(
-                focusedContainerColor = c.s1, unfocusedContainerColor = c.s1,
-                errorContainerColor = c.s1,
+                focusedContainerColor = container, unfocusedContainerColor = container,
+                errorContainerColor = container,
                 focusedTextColor = c.fg, unfocusedTextColor = c.fg,
                 focusedIndicatorColor = c.acc, unfocusedIndicatorColor = c.line,
                 cursorColor = c.acc,
@@ -688,7 +693,7 @@ fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable 
                     H2(title)
                     Spacer(Modifier.height(Sp.x12))
                 }
-                CompositionLocalProvider(LocalPosterScene provides null) { content() }
+                CompositionLocalProvider(LocalPosterScene provides null, LocalInDialog provides true) { content() }
             }
         }
     }

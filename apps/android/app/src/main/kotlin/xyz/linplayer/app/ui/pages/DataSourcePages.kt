@@ -373,7 +373,9 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
         else play(detail, line, ep, r.autoPos)
     }
     if (switching && detail != null) SwitchSourceDialog(nav, r.serverId, detail, line, 0, 0.0) { switching = false }
-    LpScaffold(detail?.str("title") ?: "", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
+    // 页内已有大标题；顶栏只在大标题滚出后补上片名，避免同屏两遍
+    val titleGone by remember { derivedStateOf { list.firstVisibleItemIndex > 0 } }
+    LpScaffold(if (titleGone) detail?.str("title") ?: "" else "", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         val res = d
         when {
             res == null -> xyz.linplayer.app.ui.components.LoadingLabel("加载中…", Modifier.padding(Sp.x16))
