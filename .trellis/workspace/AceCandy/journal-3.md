@@ -1617,3 +1617,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - ToneChip 选中统一、弹窗输入框对比、数据源页补截图
+
+
+## Session 123: 芯片选中态、弹窗输入框与数据源页
+<!-- trellis-session: v=2 fp=73063c228e1081f4 -->
+
+**Date**: 2026-10-25
+**Task**: 芯片选中态、弹窗输入框与数据源页
+**Branch**: `main`
+
+### Summary
+
+ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基线与详情顶栏去重
+
+### Main Changes
+
+- Dissolve.kt/Base.kt/DataSourcePages.kt/PhoneSourceUiTest/UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `73453cf9` | feat(android): 芯片选中态统一，弹窗输入框嵌入底色，数据源页截图基线 |
+
+### Testing
+
+- [OK] 全量 985 通过，截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 播放器菜单面板；空/错误/加载状态
