@@ -729,7 +729,8 @@ private fun AddSourceDialog(initial: JsonObject?, onClose: () -> Unit, onSave: s
                 LpField(secret, { secret = it }, "App Secret", password = true)
             }
         }
-        if (error.isNotBlank()) Dim3(error, maxLines = 3)
+        // 测试失败要醒目：灰色小字夹在按钮上方容易被当成说明文字
+        if (error.isNotBlank()) Text(error, color = Lp.colors.bad, style = LpText.caption, maxLines = 3)
         Row(horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
             LpButton("取消", onClose, Modifier.weight(1f), BtnKind.Secondary)
             LpButton("测试并保存", {

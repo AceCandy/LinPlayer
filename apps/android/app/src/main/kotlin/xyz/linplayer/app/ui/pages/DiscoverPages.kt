@@ -645,7 +645,8 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
         EmptyState("这一天没有放送", "放送表按上游时区分组,这一栏是空的。", LpIcons.calendar)
         return
     }
-    val slots = rows.groupBy { it.hhmm ?: "未提供" }.toSortedMap()
+    // 没有放送时间的条目归入无标签的末段，不显示时间，也不推算
+    val slots = rows.groupBy { it.hhmm.orEmpty() }.toSortedMap(compareBy<String> { it.isEmpty() }.thenBy { it })
     val now = java.time.Instant.now()
     // 「下一个时段」= 今天里第一个还没到的时刻。不是今天就没有这颗脉冲点
     val nextSlot = if (!isToday) null else slots.entries
@@ -653,7 +654,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
 
     LazyColumn(Modifier.fillMaxSize(), contentPadding = pad) {
         slots.forEach { (hhmm, list) ->
-            item(hhmm) { Slot(hhmm, list, hhmm == nextSlot, now) }
+            item(hhmm.ifEmpty { "untimed" }) { Slot(hhmm, list, hhmm == nextSlot, now) }
         }
         item("source") {
             Dim3("周历 Bangumi · 时间 bangumi-data（CC\u00A0BY\u00A04.0）· 日本时区",

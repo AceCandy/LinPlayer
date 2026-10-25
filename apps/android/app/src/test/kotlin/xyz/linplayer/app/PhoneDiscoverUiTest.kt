@@ -387,7 +387,8 @@ class PhoneDiscoverUiTest {
         rule.onNodeWithText("远方的故事与漫长旅途").assertIsDisplayed()
         rule.waitUntil(5000) { imageRequests.isNotEmpty() }
         org.junit.Assert.assertTrue(imageRequests.all { it.startsWith("fake:/img?src=") })
-        rule.onNodeWithText("未提供").assertIsDisplayed()
+        // 缺放送时间时不显示时间标签
+        rule.onNodeWithText("未提供").assertDoesNotExist()
         assertEquals(before + 1, core.calls.count { it.first == "emby.extCalendar" })
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-light-narrow.png")
         rule.runOnIdle { dark.value = true }

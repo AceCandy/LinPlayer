@@ -416,15 +416,20 @@ class PhoneDetailOptionsTest {
         vertical.performScrollToNode(hasText("添加于", substring = true))
         rule.onNodeWithText("添加于", substring = true).assertIsDisplayed()
         rule.onNodeWithTag("detail.media.tracks").performScrollTo()
-        rule.onNodeWithText("位深: 8").assertIsDisplayed()
-        rule.onNodeWithText("色域: bt709").assertIsDisplayed()
-        rule.onNodeWithText("像素格式: yuv420p").assertIsDisplayed()
+        // 规格标签只取服务器字段：SDR 不标动态范围
+        rule.onNodeWithText("1080p").assertIsDisplayed()
+        rule.onNode(hasText("位深") and hasText("8")).assertIsDisplayed()
+        rule.onNode(hasText("色域") and hasText("bt709")).assertIsDisplayed()
+        rule.onNode(hasText("像素格式") and hasText("yuv420p")).assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/detail-options/media-tracks-light.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/detail-options/media-tracks-dark.png")
-        rule.onNodeWithText("类型: Audio").performScrollTo().assertIsDisplayed()
-        rule.onNodeWithText("比特率: 125 kbps").assertIsDisplayed()
-        rule.onNodeWithText("强制: 否").assertIsDisplayed()
+        // 规格标签与音频卡头同名，后者是卡片
+        rule.onAllNodesWithText("AAC stereo").onLast().performScrollTo().assertIsDisplayed()
+        rule.onNode(hasText("比特率") and hasText("125 kbps")).assertIsDisplayed()
+        // 「默认 / 强制」只在成立时出现，不写「否」
+        rule.onNodeWithText("强制").assertDoesNotExist()
+        rule.onNodeWithText("编号", substring = true).assertDoesNotExist()
     }
 
     @Test fun compactOptionsHideAbsentSubtitlesAndSingleLineAndShowExactTimeOnce() {
@@ -449,7 +454,8 @@ class PhoneDetailOptionsTest {
             on("emby.setPlayed") { watched = true; JsonNull }
         }
         open(core)
-        rule.onNodeWithText("1080p HEVC").assertIsDisplayed()
+        // 首个是播放选项行；媒体信息卡头同名，位于其下
+        rule.onAllNodesWithText("1080p HEVC").onFirst().assertIsDisplayed()
         rule.onNodeWithText("AAC stereo（默认）").assertIsDisplayed()
         rule.onNodeWithContentDescription("字幕").assertDoesNotExist()
         rule.onNodeWithContentDescription("线路").assertDoesNotExist()
@@ -612,7 +618,7 @@ class PhoneDetailOptionsTest {
         fun assertComplete(inDialog: Boolean = false) {
             val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
             val node = if (inDialog) rule.onNode(hasText(title) and hasAnyAncestor(isDialog()))
-                else rule.onNodeWithText(title)
+                else rule.onNodeWithText(title, useUnmergedTree = true)
             node.performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
             org.junit.Assert.assertTrue("完整版本名应多行展示", layouts.single().lineCount > 2)
             assertFalse("版本名不应省略", layouts.single().hasVisualOverflow)

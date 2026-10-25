@@ -69,14 +69,6 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.layout.onSizeChanged
-import androidx.compose.ui.geometry.CornerRadius
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.ClipOp
-import androidx.compose.ui.graphics.drawscope.clipRect
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -139,6 +131,7 @@ import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.Kicker
 import xyz.linplayer.app.ui.components.Layer
+import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpImmersive
@@ -1502,7 +1495,7 @@ private data class PickRow(
     val subtitle: String? = null, val metadata: String? = null,
 )
 
-/** 版本用整行浮动标题描边框，视频标签与音轨/字幕选择独立展示。 */
+/** 版本整行展示，视频标签与音轨/字幕选择独立展示；统一填充底，不用描边框。 */
 @Composable
 private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
     val c = Lp.colors
@@ -1510,74 +1503,67 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
         rows.forEach { r ->
             if (r.label == "版本") {
-                var labelSize by remember { mutableStateOf(IntSize.Zero) }
-                val labelOffset = with(LocalDensity.current) { LpText.caption.lineHeight.toDp() / 2 }
-                Box(Modifier.fillMaxWidth().padding(top = Sp.x8)
+                Row(Modifier.fillMaxWidth().heightIn(min = 56.dp)
+                    .clip(RoundedCornerShape(R.md)).background(c.s1)
                     .semantics { contentDescription = r.label }
-                    .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)) {
-                    Row(Modifier.fillMaxWidth().heightIn(min = 64.dp)
-                        .drawBehind {
-                            val stroke = 1.dp.toPx()
-                            // 给浮动标题留出描边缺口，不用色块遮盖详情的取色背景。
-                            clipRect(left = Sp.x12.toPx(), top = 0f,
-                                right = Sp.x12.toPx() + labelSize.width, bottom = labelSize.height / 2f,
-                                clipOp = ClipOp.Difference) {
-                                drawRoundRect(c.line2, topLeft = Offset(stroke / 2, stroke / 2),
-                                    size = Size(size.width - stroke, size.height - stroke),
-                                    cornerRadius = CornerRadius(4.dp.toPx()), style = Stroke(stroke))
-                            }
-                        }
-                        .padding(horizontal = Sp.x12, vertical = Sp.x16),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
-                        Text(r.value, Modifier.weight(1f), color = c.fg, style = LpText.list)
-                        if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp), tint = c.fg2)
+                    .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
+                    .padding(horizontal = Sp.x12, vertical = Sp.x8),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                    Column(Modifier.weight(1f)) {
+                        Text(listOfNotNull("版本", r.metadata?.takeIf(String::isNotBlank)).joinToString(" · "),
+                            color = c.fg3, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                        Text(r.value, color = c.fg, style = LpText.list)
                     }
-                    Text(listOfNotNull("版本", r.metadata?.takeIf(String::isNotBlank)).joinToString(" · "),
-                        Modifier.padding(end = Sp.x12).offset(x = Sp.x12, y = -labelOffset)
-                            .padding(horizontal = Sp.x4).onSizeChanged { labelSize = it },
-                        color = c.fg3, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                    if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp),
+                        tint = if (enabled) c.fg2 else c.fg3)
                 }
             } else {
                 Row(
-                    // 三类选项同一套描边外形；可选的只多一层淡底和箭头，不再各自换底色。
+                    // 三类选项同一套填充外形；可选的只多一个箭头。
                     Modifier.widthIn(min = 112.dp).heightIn(min = if (r.onClick != null) Dim.tap else 40.dp)
                         .clip(RoundedCornerShape(R.sm))
-                        .background(if (r.onClick != null && enabled) c.s1 else Color.Transparent)
-                        .border(1.dp, c.line2, RoundedCornerShape(R.sm))
+                        .background(c.s1)
                         .semantics { contentDescription = r.label }
                         .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
                         .padding(horizontal = Sp.x12, vertical = Sp.x6),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                 ) {
-                    Icon(r.icon, null, Modifier.size(18.dp), tint = c.fg)
+                    Icon(r.icon, null, Modifier.size(18.dp), tint = c.fg2)
                     Column(Modifier.weight(1f, fill = false)) {
                         Text(r.value, color = c.fg, style = LpText.body)
                         r.subtitle?.let { Text(it, color = c.fg2, style = LpText.secondary) }
                     }
                     if (r.onClick != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp),
-                        tint = if (enabled) c.mediaIcon else c.fg3)
+                        tint = if (enabled) c.fg2 else c.fg3)
                 }
             }
         }
     }
 }
 
-/** 文件信息在上，视频/音频/字幕每条轨道独立一张横滑卡。 */
+/**
+ * 文件信息在上，其下一排规格标签，再是每条轨道一张横滑卡。
+ * 卡头直接写该轨规格摘要；「默认 / 强制 / 外部」只在成立时以标签出现，参数按「标签列 + 值列」排。
+ */
 @Composable
 private fun MediaCards(v: Version) {
     val c = Lp.colors
     Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
-        verticalArrangement = Arrangement.spacedBy(Sp.x6)) {
+        verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
         displayMediaPath(v.path)?.let {
             Text(it, color = c.fg, style = LpText.body)
         }
-        val summary = listOfNotNull(
-            v.container?.uppercase(), fmtSize(v.sizeBytes),
-            addedTime(v.dateCreated)?.let { "添加于: $it" },
-        ).joinToString("  ")
-        if (summary.isNotBlank()) Text(summary, color = c.fg2, style = LpText.secondary)
+        val (accent, plain) = specBadges(v)
+        if (accent.isNotEmpty() || plain.isNotEmpty()) androidx.compose.foundation.layout.FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+            verticalArrangement = Arrangement.spacedBy(Sp.x6),
+        ) {
+            accent.forEach { LpTag(it) }
+            plain.forEach { SpecBadge(it) }
+        }
+        addedTime(v.dateCreated)?.let { Text("添加于 $it", color = c.fg3, style = LpText.caption) }
     }
     if (v.streams.isEmpty()) return
     Row(
@@ -1587,17 +1573,29 @@ private fun MediaCards(v: Version) {
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         v.streams.forEach { stream ->
-            Layer(Modifier.width(190.dp).fillMaxHeight(), corner = R.lg) {
-                Column(Modifier.padding(Sp.x12)) {
-                    Icon(when (stream.type) {
-                        "Audio" -> LpIcons.audio
-                        "Subtitle" -> LpIcons.sub
-                        else -> LpIcons.version
-                    }, null, Modifier.padding(bottom = Sp.x8).size(24.dp), tint = c.fg2)
-                    val rows = listOfNotNull(
-                        "类型" to stream.type,
-                        "编号" to stream.index.toString(),
-                        stream.display?.let { "显示标题" to it },
+            Layer(Modifier.width(200.dp).fillMaxHeight(), corner = R.lg) {
+                Column(Modifier.padding(Sp.x12), verticalArrangement = Arrangement.spacedBy(Sp.x4)) {
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
+                        Icon(when (stream.type) {
+                            "Audio" -> LpIcons.audio
+                            "Subtitle" -> LpIcons.sub
+                            else -> LpIcons.version
+                        }, stream.type, Modifier.size(18.dp), tint = c.fg2)
+                        Text(when (stream.type) {
+                            "Audio" -> audioSummary(stream).removeSuffix("（默认）")
+                            "Subtitle" -> subtitleSummary(stream)
+                            else -> videoSummary(stream)
+                        }.ifBlank { stream.type }, Modifier.weight(1f), color = c.fg, style = LpText.body,
+                            fontWeight = FontWeight.SemiBold, maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    }
+                    // 视频轨通常只有一条，「默认」对它没有信息量
+                    val flags = listOfNotNull("默认".takeIf { stream.isDefault && stream.type != "Video" }, "强制".takeIf { stream.isForced == true },
+                        "外部".takeIf { stream.isExternal })
+                    if (flags.isNotEmpty()) Row(Modifier.padding(bottom = Sp.x2), horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
+                        flags.forEach { SpecBadge(it) }
+                    }
+                    Spacer(Modifier.height(Sp.x2))
+                    listOfNotNull(
                         stream.title?.takeIf { it != stream.display }?.let { "标题" to it },
                         stream.lang?.let { "语言" to it },
                         stream.codec.takeIf { it.isNotBlank() }?.let { "编码器" to it },
@@ -1610,17 +1608,41 @@ private fun MediaCards(v: Version) {
                         stream.colorSpace?.let { "色域" to it },
                         stream.pixelFormat?.let { "像素格式" to it },
                         stream.layout?.let { "声道" to it } ?: stream.channels?.let { "声道数" to it.toString() },
-                        "默认" to yesNo(stream.isDefault),
-                        stream.isForced?.let { "强制" to yesNo(it) },
-                        "外部" to yesNo(stream.isExternal),
-                    )
-                    rows.forEach { (label, value) ->
-                        Text("$label: $value", color = c.fg2, style = LpText.caption)
+                    ).forEach { (label, value) ->
+                        Row(Modifier.semantics(mergeDescendants = true) {}) {
+                            Text(label, Modifier.width(72.dp).padding(end = Sp.x8), color = c.fg3, style = LpText.caption)
+                            Text(value, color = c.fg2, style = LpText.caption)
+                        }
                     }
                 }
             }
         }
     }
+}
+
+/** 规格中性标签：与 LpTag 同形，但不占强调色。 */
+@Composable
+private fun SpecBadge(text: String) {
+    Text(text, Modifier.clip(RoundedCornerShape(R.sm)).background(Lp.colors.s2)
+        .padding(horizontal = Sp.x8, vertical = Sp.x2),
+        color = Lp.colors.fg2, style = LpText.badge, maxLines = 1)
+}
+
+/** 版本规格标签：分辨率与动态范围为强调组，编码、默认音轨、容器与大小为中性组。只取服务器给出的字段。 */
+private fun specBadges(v: Version): Pair<List<String>, List<String>> {
+    val video = v.streams.firstOrNull { it.type == "Video" }
+    val audio = v.streams.firstOrNull { it.type == "Audio" && it.isDefault } ?: v.streams.firstOrNull { it.type == "Audio" }
+    val accent = listOfNotNull(
+        video?.height?.takeIf { it > 0 }?.let { if (it >= 2160) "4K" else "${it}p" },
+        video?.let { dynamicRange(it) },
+    )
+    val plain = listOfNotNull(
+        video?.let { trackText(it.codec)?.uppercase() },
+        audio?.let { a -> listOfNotNull(trackText(a.codec)?.uppercase(),
+            trackText(a.layout) ?: a.channels?.takeIf { it > 0 }?.let { "${it}声道" }).joinToString(" ").ifBlank { null } },
+        v.container?.uppercase(), fmtSize(v.sizeBytes),
+    )
+    return accent to plain
 }
 
 /** 远程源只展示路径部分，不能把播放地址中的查询令牌或用户信息画到媒体信息里。 */
@@ -1855,10 +1877,10 @@ private fun selectedTrack(streams: List<Stream>?, prefer: String?, pattern: Stri
     return selected
 }
 
-/** 视频规格保留动态范围，不从版本文件名猜测HDR或杜比视界。 */
-private fun videoSummary(stream: Stream): String {
+/** 视频动态范围只看服务器给出的字段，不从版本文件名猜测HDR或杜比视界；SDR 不标。 */
+private fun dynamicRange(stream: Stream): String? {
     val range = trackText(stream.range)
-    val dynamic = when {
+    return when {
         range?.contains("dovi", true) == true || range?.contains("dolby", true) == true || range.equals("DV", true) ||
             stream.profile?.contains("dolby vision", true) == true || stream.codec.lowercase() in setOf("dvhe", "dvh1", "dav1") -> "Dolby Vision"
         range?.contains("hdr10plus", true) == true || range?.contains("hdr10+", true) == true -> "HDR10+"
@@ -1867,8 +1889,12 @@ private fun videoSummary(stream: Stream): String {
         range.equals("SDR", true) || range.equals("Unknown", true) -> null
         else -> range
     }
+}
+
+/** 视频规格保留动态范围。 */
+private fun videoSummary(stream: Stream): String {
     return listOfNotNull(stream.height?.takeIf { it > 0 }?.let { if (it >= 2160) "4K" else "${it}p" },
-        dynamic, trackText(stream.codec)?.uppercase()).joinToString(" ")
+        dynamicRange(stream), trackText(stream.codec)?.uppercase()).joinToString(" ")
         .ifBlank { trackText(stream.display) ?: trackText(stream.title).orEmpty() }
 }
 
@@ -1948,8 +1974,6 @@ internal fun fmtRate(bps: Long?): String? {
     return if (v < 1_000_000) "%.0f kbps".format(Locale.ROOT, v / 1000.0)
     else "%.2f Mbps".format(Locale.ROOT, v / 1_000_000.0).replace(".00 Mbps", " Mbps")
 }
-
-private fun yesNo(v: Boolean) = if (v) "是" else "否"
 
 internal fun fmtTime(secs: Double): String {
     val s = secs.toLong()
