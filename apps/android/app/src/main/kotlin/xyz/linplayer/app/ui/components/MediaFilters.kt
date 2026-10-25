@@ -10,6 +10,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.LocalMinimumInteractiveComponentSize
 import androidx.compose.material3.minimumInteractiveComponentSize
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.unit.Dp
@@ -26,11 +27,13 @@ fun MediaFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
             FilterChip(
                 selected = selected, onClick = onClick,
                 modifier = Modifier.privateNeonBorder(R.md),
-                label = { Text(label, style = LpText.filter, maxLines = 1) },
+                label = { Text(label, style = LpText.filter, maxLines = 1,
+                    fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal) },
                 shape = RoundedCornerShape(R.md), border = null,
+                // 选中用淡强调底 + 强调字，与 LpTag / SegRow 同一语言；整块强调色只留给主按钮
                 colors = FilterChipDefaults.filterChipColors(
                     containerColor = c.s2, labelColor = c.fg2,
-                    selectedContainerColor = c.mediaAccent, selectedLabelColor = c.mediaOnAccent,
+                    selectedContainerColor = c.accDim, selectedLabelColor = c.acc,
                 ),
             )
         }

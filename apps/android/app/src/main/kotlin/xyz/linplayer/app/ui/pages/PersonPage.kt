@@ -69,7 +69,7 @@ fun PersonPage(nav: NavController, entry: NavBackStackEntry) {
         key(key, category) {
             PersonWorksGrid(nav, route.personId, "$key.$category", category, revision, pad) { total ->
                 val d = (detailPreview ?: (detail as? Block.Ok)?.value).obj()
-                Row(Modifier.fillMaxWidth().padding(Sp.x16), verticalAlignment = Alignment.CenterVertically,
+                Row(Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x8, bottom = Sp.x12), verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
                     NetImage(if (d.bool("has_primary")) app.imageUrl(route.personId, "Primary", 192) else null, route.name,
                         Modifier.size(if (tv) 96.dp else 80.dp), R.pill)
@@ -97,7 +97,8 @@ fun PersonPage(nav: NavController, entry: NavBackStackEntry) {
                             overflow = TextOverflow.Ellipsis)
                     }
                 }
-                Row(Modifier.padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                // 网格行距已经隔开下方作品，这里不再留底边距
+                Row(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x12), horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     for ((type, label) in listOf("Movie" to "电影", "Series" to "剧集")) {
                         MediaFilterChip(if (category == type && total != null) "$label $total" else label,
                             category == type, { category = type })

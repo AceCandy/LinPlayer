@@ -1,6 +1,10 @@
 package xyz.linplayer.app.ui.pages
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.horizontalScroll
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.ui.draw.clip
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -11,6 +15,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
@@ -42,7 +47,9 @@ import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpField
 import xyz.linplayer.app.ui.components.LpScaffold
-import xyz.linplayer.app.ui.components.Panel
+import xyz.linplayer.app.ui.theme.Lp
+import xyz.linplayer.app.ui.theme.LpIcons
+import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
 /**
@@ -157,7 +164,15 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
 
     val body = @Composable {
         Column(Modifier.fillMaxWidth().imePadding()) {
-            H1("连接到你的媒体服务器")
+            // 添加页顶栏已写明用途，大标题只留给首登
+            if (!embedded) {
+                Box(Modifier.size(56.dp).clip(RoundedCornerShape(R.lg)).background(Lp.colors.accDim),
+                    contentAlignment = Alignment.Center) {
+                    Icon(LpIcons.play, null, Modifier.size(26.dp), tint = Lp.colors.acc)
+                }
+                Spacer(Modifier.height(Sp.x20))
+                H1("连接到你的媒体服务器")
+            }
             if (pluginForms.isNotEmpty()) {
                 Spacer(Modifier.height(Sp.x10))
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
@@ -184,15 +199,15 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
                 LpButton("添加", { keyboard?.hide(); flow = pluginValues.toMap() }, Modifier.fillMaxWidth())
                 return@Column
             }
-            Dim2("填服务器地址和账号即可。先点「测试连接」可以确认地址对不对。")
-            Spacer(Modifier.height(Sp.x20))
+            if (!embedded) Spacer(Modifier.height(Sp.x16))
 
-            LpField(server, { server = it }, "你的服务器地址", Modifier.focusRequester(focus),
+            // 标签已说明字段，占位只在地址框给格式示例，不再把标签重复一遍
+            LpField(server, { server = it }, "例如 192.168.1.10:8096", Modifier.focusRequester(focus),
                 label = "服务器地址")
             Spacer(Modifier.height(Sp.x12))
-            LpField(user, { user = it }, "用户名", label = "用户名")
+            LpField(user, { user = it }, "", label = "用户名")
             Spacer(Modifier.height(Sp.x12))
-            LpField(pass, { pass = it }, "密码", password = true, label = "密码")
+            LpField(pass, { pass = it }, "", password = true, label = "密码")
             /* ☠ 提示放在按钮**上面**。放下面的话键盘一弹就把它盖住了 ——
                实测「地址填错 → 登录失败」那一屏,用户看到的是「点了没反应」,
                而错误明明已经写出来了,只是在屏幕外。 */
@@ -274,11 +289,10 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
         }
     } else {
         LpScaffold { pad ->
+            // 首登直接铺在底色上：输入框不再是灰框套灰卡，整屏只有这一件事
             Box(Modifier.fillMaxSize().verticalScroll(rememberScrollState()).padding(pad),
                 contentAlignment = Alignment.Center) {
-                Panel(Modifier.padding(Sp.x16)) {
-                    Column(Modifier.padding(Sp.x20)) { body() }
-                }
+                Column(Modifier.padding(horizontal = Sp.x20, vertical = Sp.x16)) { body() }
             }
         }
     }

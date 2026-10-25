@@ -15,6 +15,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
@@ -61,6 +62,7 @@ import xyz.linplayer.app.ui.components.LpLoading
 import xyz.linplayer.app.ui.components.LpPullIndicator
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.LpRow
+import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.rememberScrolled
@@ -190,7 +192,7 @@ fun AggregatePage(nav: NavController) {
                                         nav.navigate(Route.Detail(item.id, item.type))
                                 } }, thumb = true, resume = true,
                                 menu = if (g.active) { item -> rememberCardActions(app, scope, item) } else null)
-                            Spacer(Modifier.height(Sp.x12))
+                            Spacer(Modifier.height(Sp.x8))
                         }
                     }
                 }
@@ -239,13 +241,16 @@ private fun cachedOverview(): List<Overview> {
 @Composable
 private fun Shortcut(label: String, icon: ImageVector, m: Modifier, onClick: () -> Unit) {
     val c = Lp.colors
+    // 图标落在淡强调色圆底上：入口一眼可辨，又不像整块色那样压过下面的服务器卡
     Column(
         m.privateNeonBorder(R.md).clip(RoundedCornerShape(R.md)).background(c.s1).pressable(onClick).padding(vertical = Sp.x12),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
-        Icon(icon, null, Modifier.size(20.dp), tint = c.mediaIcon)
+        Box(Modifier.size(36.dp).clip(CircleShape).background(c.accDim), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(18.dp), tint = c.acc)
+        }
         Spacer(Modifier.height(Sp.x6))
-        Text(label, color = c.fg2, style = LpText.badge)
+        Text(label, color = c.fg, style = LpText.badge)
     }
 }
 
@@ -295,7 +300,7 @@ private data class Overview(
 private fun ServerHead(g: Overview) {
     val c = Lp.colors
     Column(
-        Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x20, bottom = Sp.x6),
+        Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x16, bottom = Sp.x6),
         verticalArrangement = Arrangement.spacedBy(Sp.x6),
     ) {
         Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
@@ -303,9 +308,7 @@ private fun ServerHead(g: Overview) {
             Text(g.serverName, color = c.fg, style = LpText.title,
                 maxLines = 1, overflow = TextOverflow.Ellipsis, modifier = Modifier.weight(1f))
             if (g.primary) Text("主服", color = c.mediaIcon, style = LpText.badge)
-            if (g.active) Text("当前", color = c.mediaOnAccent, style = LpText.badge,
-                modifier = Modifier.clip(RoundedCornerShape(R.sm)).background(c.mediaAccent)
-                    .padding(horizontal = Sp.x6, vertical = Sp.x4))
+            if (g.active) LpTag("当前")
         }
         val counts = listOfNotNull(
             g.movie?.let { "电影 $it" },

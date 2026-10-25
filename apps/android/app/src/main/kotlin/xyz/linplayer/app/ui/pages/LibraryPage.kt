@@ -17,7 +17,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.material3.Icon
+import androidx.compose.foundation.background
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
+import xyz.linplayer.app.ui.theme.R
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -392,18 +396,24 @@ internal fun posterColumns(): Int = xyz.linplayer.app.ui.theme.PluginTheme.poste
 @Composable
 internal fun MediaSortControl(label: String, ascending: Boolean, onClick: () -> Unit, m: Modifier = Modifier) {
     Row(
-        m.heightIn(min = Dim.tap).widthIn(max = 168.dp)
+        // 外层保留触控高度，可见部分是一枚小胶囊：给长库名让出宽度，也和筛选标签同一形态
+        m.heightIn(min = Dim.tap).widthIn(max = 148.dp)
             .semantics { contentDescription = "排序：$label，${if (ascending) "升序" else "降序"}" }
-            .pressable(onClick).padding(start = Sp.x8, end = Sp.x12),
+            .pressable(onClick).padding(start = Sp.x4, end = Sp.x12),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(Sp.x6),
     ) {
-        Icon(LpIcons.sortLines, null, Modifier.size(18.dp).privateNeonIcon(), tint = Lp.colors.mediaIcon)
-        Text(label, Modifier.weight(1f, fill = false), color = Lp.colors.mediaIcon,
-            style = LpText.filter, maxLines = 1,
-            overflow = TextOverflow.Ellipsis)
-        Icon(LpIcons.arrowDown, null,
-            Modifier.size(18.dp).privateNeonIcon().rotate(if (ascending) 180f else 0f),
-            tint = Lp.colors.mediaIcon)
+        Row(
+            Modifier.clip(RoundedCornerShape(R.pill)).background(Lp.colors.s2)
+                .padding(start = Sp.x12, end = Sp.x8, top = Sp.x6, bottom = Sp.x6),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(Sp.x4),
+        ) {
+            Text(label, Modifier.weight(1f, fill = false), color = Lp.colors.fg,
+                style = LpText.badge, maxLines = 1,
+                overflow = TextOverflow.Ellipsis)
+            Icon(LpIcons.arrowDown, null,
+                Modifier.size(14.dp).privateNeonIcon().rotate(if (ascending) 180f else 0f),
+                tint = Lp.colors.fg2)
+        }
     }
 }
