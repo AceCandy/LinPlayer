@@ -316,8 +316,9 @@ fun RankingPage(nav: NavController) {
                 return@Column
             }
             if (cs != null) {
+                // 体系与榜单两行贴近成一组；芯片自带触控余量，行内不再额外垫高。
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = Sp.x16, vertical = Sp.x8),
+                    .padding(start = Sp.x16, end = Sp.x16, top = Sp.x4),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     cs.map { it.source }.distinct().forEach { group ->
                         MediaFilterChip(rankingSourceLabel(group), group == source) {
@@ -328,7 +329,7 @@ fun RankingPage(nav: NavController) {
                     }
                 }
                 Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(horizontal = Sp.x16, vertical = Sp.x8),
+                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x8),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     cs.filter { it.source == source }.forEach { category ->
                         MediaFilterChip(category.label + if (category.enabled) "" else " · 未开启",
@@ -452,14 +453,6 @@ private fun RankRow(r: Rank, index: Int, open: (Rank) -> Unit) {
     Row(
         Modifier.fillMaxWidth()
             .graphicsLayer { alpha = a; translationY = (1f - a) * 24f }
-            .then(
-                if (index % 2 == 0) Modifier.background(
-                    Brush.horizontalGradient(
-                        0f to c.s1,
-                        0.82f to Color.Transparent,
-                    )
-                ) else Modifier
-            )
             .pressable({ open(r) }).padding(horizontal = Sp.x16, vertical = Sp.x6),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -538,7 +531,7 @@ private fun CalendarBody(nav: NavController) {
         Box(Modifier.fillMaxSize().padding(pad)) {
             BlockBox(all, { reload++ }) { rows ->
                 Column(Modifier.fillMaxSize()) {
-                    Text("本周 ${rows.size} 部 · 日本时区周历",
+                    Text("本周 ${rows.size} 部",
                         Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
                         color = Lp.colors.fg2, style = LpText.caption)
                     WeekBar(day, today, rows.groupingBy { it.weekday }.eachCount()) { day = it }
@@ -607,7 +600,8 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
                 )
                 val n = counts[d] ?: 0
                 Text(
-                    if (n > 0) n.toString() else "—",
+                    // 空日留白但保留行高，七格等高。
+                    if (n > 0) n.toString() else "",
                     color = (if (on) c.mediaOnAccent else c.fg3).copy(alpha = if (n > 0) .85f else .5f),
                     style = LpText.badge,
                 )
@@ -638,7 +632,7 @@ private fun Timeline(rows: List<Air>, isToday: Boolean, pad: PaddingValues) {
             item(hhmm) { Slot(hhmm, list, hhmm == nextSlot, now) }
         }
         item("source") {
-            Dim3("周历：Bangumi · 日本时区。时间：bangumi-data（CC BY 4.0）；缺失时标为未提供。",
+            Dim3("周历 Bangumi · 时间 bangumi-data（CC\u00A0BY\u00A04.0）· 日本时区",
                 Modifier.padding(Sp.x16), maxLines = 3)
         }
         item("tail") { Spacer(Modifier.height(Sp.x26)) }

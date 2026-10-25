@@ -412,7 +412,7 @@ class PhoneDiscoverUiTest {
         core.ret("emby.extCalendar", arr())
         open(core, Route.Calendar)
         rule.onNodeWithText("追剧日历 · 赞助解锁").assertDoesNotExist()
-        rule.onNodeWithText("本周 0 部 · 日本时区周历").assertIsDisplayed()
+        rule.onNodeWithText("本周 0 部").assertIsDisplayed()
         assertEquals(1, core.calls.count { it.first == "emby.extCalendar" })
         assertEquals(0, core.calls.count { it.first == "prefs.getPrefs" || it.first.startsWith("system.afdian") })
     }

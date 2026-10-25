@@ -912,7 +912,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             Box(
                                 (if (continuing || isSeriesEntry) Modifier.weight(1f) else Modifier.width(132.dp)).height(IntrinsicSize.Min)
                                     .privateNeonBorder(R.md).clip(RoundedCornerShape(R.md))
-                                    .background(if (continuing) c.s2 else c.mediaAccent)
+                                    // 续播也用实心强调底：主按钮始终是这一屏最强的元素，进度靠叠色段表达。
+                                    .background(c.mediaAccent)
                                     .testTag("detail.play")
                                     .semantics {
                                         if (continuing) progressBarRangeInfo = ProgressBarRangeInfo(
@@ -924,22 +925,23 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             ) {
                                 if (continuing) Box(Modifier.matchParentSize()) {
                                     Box(Modifier.fillMaxHeight().fillMaxWidth((resume / runtime).toFloat().coerceIn(0f, 1f))
-                                        .background(c.mediaAccent.copy(alpha = .35f)))
+                                        .background(c.mediaOnAccent.copy(alpha = .16f)))
                                 }
                                 Row(Modifier.fillMaxWidth().heightIn(min = if (isSeriesEntry) 52.dp else 48.dp)
                                     .padding(horizontal = Sp.x12, vertical = if (remaining != null) Sp.x6 else Sp.x10),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally)) {
                                     Icon(LpIcons.play, null, Modifier.size(18.dp),
-                                        tint = if (continuing) c.fg else c.mediaOnAccent)
+                                        tint = c.mediaOnAccent)
                                     Column(if (continuing) Modifier.weight(1f) else Modifier,
                                         horizontalAlignment = Alignment.CenterHorizontally) {
                                         Text(label, style = LpText.action,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
                                             fontWeight = FontWeight.SemiBold,
-                                            color = if (continuing) c.fg else c.mediaOnAccent)
+                                            color = c.mediaOnAccent)
                                         if (remaining != null) Text(remaining, style = LpText.caption,
-                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center, color = c.fg2)
+                                            textAlign = androidx.compose.ui.text.style.TextAlign.Center,
+                                            color = c.mediaOnAccent.copy(alpha = .78f))
                                     }
                                 }
                             }
