@@ -244,7 +244,7 @@ fun MediaCard(
                     reveal = !sharedSource,
                     onLoadResult = if (entrance) { { imageResult = it } } else null,
                     fallbackUrls = xyz.linplayer.app.data.artworkFallbacks(imageUrl, item),
-                    placeholder = { Text(if (item.type == "Season") "暂无季封面" else "暂无封面", color = c.fg3) })
+                    placeholder = { Box(Modifier.fillMaxSize().background(c.s3), contentAlignment = Alignment.Center) { Text(if (item.type == "Season") "暂无季封面" else "暂无封面", color = c.fg3) } })
 
                 EpisodeStatusBadge(item, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
                 Column(Modifier.align(Alignment.BottomEnd).padding(Sp.x6),

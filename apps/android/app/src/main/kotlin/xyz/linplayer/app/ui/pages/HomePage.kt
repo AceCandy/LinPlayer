@@ -585,11 +585,12 @@ internal fun CachedHomeBanner(
                     0f to Color.Black.copy(alpha = .74f), toolbarStop to Color.Black.copy(alpha = .66f),
                     (toolbarStop + .12f) to Color.Transparent)))
                 // A方案：整张背景向下连续压暗，标题不再单独铺遮罩。
+                // 浅色主题末端从深色过渡到浅底，去掉 .92 的近黑停靠点，把黑白交界拉成两倍宽的柔和过渡
                 Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to Color.Transparent, .2f to Color.Transparent,
+                    *listOfNotNull(0f to Color.Transparent, .2f to Color.Transparent,
                     .35f to Color.Black.copy(alpha = .16f), .5f to Color.Black.copy(alpha = .42f),
                     .65f to Color.Black.copy(alpha = .66f), .8f to Color.Black.copy(alpha = .84f),
-                    .92f to Color.Black.copy(alpha = .96f), 1f to c.bg)))
+                    if (c.isDark) .92f to Color.Black.copy(alpha = .96f) else null, 1f to c.bg).toTypedArray())))
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
                         .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),

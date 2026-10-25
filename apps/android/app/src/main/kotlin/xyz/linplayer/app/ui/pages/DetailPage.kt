@@ -1073,7 +1073,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                             NetImage(app.imageUrl(season.id, "Primary", 330).takeUnless { season.hasPrimary == false },
                                                 null, Modifier.fillMaxSize(), R.md,
                                                 fallbackUrls = artworkFallbacks(app.imageUrl(season.id, "Primary", 330), season.copy(seriesId = seriesId)),
-                                                placeholder = { Text("暂无季封面", color = c.fg3) })
+                                                placeholder = { Box(Modifier.fillMaxSize().background(c.s3), contentAlignment = Alignment.Center) { Text("暂无季封面", color = c.fg3) } })
                                             EpisodeStatusBadge(season, Modifier.align(Alignment.TopEnd).padding(Sp.x6))
                                         }
                                         Spacer(Modifier.height(Sp.x6))
@@ -1746,7 +1746,7 @@ private fun EpCard(
             ) {
                 NetImage(app.imageUrl(ep.id, "Primary", 330).takeUnless { ep.hasPrimary == false }, null, Modifier.fillMaxSize(), 12.dp,
                     fallbackUrls = artworkFallbacks(app.imageUrl(ep.id, "Primary", 330), ep),
-                    placeholder = { Text("暂无图片", color = c.fg3) })
+                    placeholder = { Box(Modifier.fillMaxSize().background(c.s3), contentAlignment = Alignment.Center) { Text("暂无图片", color = c.fg3) } })
                 if (ep.progress > 0f) Box(
                     Modifier.align(Alignment.BottomStart).fillMaxWidth().height(2.dp)
                         .background(c.line2)
