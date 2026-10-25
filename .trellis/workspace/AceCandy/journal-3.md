@@ -1792,3 +1792,38 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 平板详情页左右分栏（需定方向）；真机走查
+
+
+## Session 128: 平板详情分栏与插件单选统一
+<!-- trellis-session: v=2 fp=8431c7fdc16ace96 -->
+
+**Date**: 2026-10-25
+**Task**: 平板详情分栏与插件单选统一
+**Branch**: `main`
+
+### Summary
+
+平板播放器菜单核对无问题；插件设置单选改勾选行；平板详情左右分栏
+
+### Main Changes
+
+- PluginPages SettingRow；DetailPage 共用块+WideHead/WideBackdrop；新增 PhonePlayerTabletTest
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `b0ec0bd9` | feat(android): 插件设置单选改为面板内勾选行，新增平板播放器菜单截图基线 |
+| `562e6765` | feat(android): 平板详情页改为左栏海报与播放、右栏内容的分栏布局 |
+
+### Testing
+
+- [OK] 全量1011测试0失败；平板截图逐张复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 简介阅读宽度；竖屏平板与深色截图；真机走查
