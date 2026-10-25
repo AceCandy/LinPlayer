@@ -62,6 +62,7 @@ import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LongShotTarget
+import xyz.linplayer.app.ui.components.LpTag
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.Dim3
@@ -349,9 +350,7 @@ private fun ServerCard(
                         color = c.mediaIcon, style = LpText.badge)
                     if (active) {
                         Spacer(Modifier.padding(horizontal = Sp.x4))
-                        Text("当前", Modifier.clip(RoundedCornerShape(R.sm))
-                            .background(c.mediaAccent).padding(horizontal = Sp.x8, vertical = Sp.x4),
-                            color = c.mediaOnAccent, style = LpText.badge)
+                        LpTag("当前")
                     }
                 }
                 // 副行仍保留备注；连通状态独立放在右侧，不替代用户的备注。

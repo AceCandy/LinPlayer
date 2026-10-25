@@ -136,7 +136,7 @@ fun SettingsPage(nav: NavController) {
                     Hairline()
                     LpCell("播放器", mediaStyle = true, icon = LpIcons.play) { nav.navigate(Route.SettingsSub("player")) }
                     Hairline()
-                    LpCell("mpv 配置", mediaStyle = true, icon = LpIcons.file) { nav.navigate(Route.SettingsSub("mpvconf")) }
+                    LpCell("mpv 配置", mediaStyle = true, icon = LpIcons.pencil) { nav.navigate(Route.SettingsSub("mpvconf")) }
                     Hairline()
                     // 弹幕源和屏蔽词跟内核无关,Exo 下也照样能加(播放页那个入口才分内核)
                     LpCell("弹幕", mediaStyle = true, icon = LpIcons.danmaku) { nav.navigate(Route.SettingsSub("danmaku")) }
@@ -149,7 +149,7 @@ fun SettingsPage(nav: NavController) {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
                     LpCell("多线程加载", mediaStyle = true, icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
                     Hairline()
-                    LpCell("主进度服", mediaStyle = true, icon = LpIcons.version) { nav.navigate(Route.SettingsSub("primaryprogress")) }
+                    LpCell("主进度服", mediaStyle = true, icon = LpIcons.server) { nav.navigate(Route.SettingsSub("primaryprogress")) }
                 }
             }
             if (pluginEntries.isNotEmpty()) {
@@ -180,7 +180,7 @@ fun SettingsPage(nav: NavController) {
                     }
                     Hairline()
                     // 和 PC 端读写同一份文件格式(docs/backup-format.md)
-                    LpCell("备份与还原", mediaStyle = true, icon = LpIcons.folder) {
+                    LpCell("备份与还原", mediaStyle = true, icon = LpIcons.history) {
                         nav.navigate(Route.SettingsSub("backup"))
                     }
                     Hairline()
@@ -193,19 +193,19 @@ fun SettingsPage(nav: NavController) {
             item("p-extensions") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
                     // 账号连接留在宿主(token 不给插件);记进度那部分在同步插件里
-                    LpCell("Trakt / Bangumi 账号", mediaStyle = true, icon = LpIcons.version) {
+                    LpCell("Trakt / Bangumi 账号", mediaStyle = true, icon = LpIcons.sync) {
                         nav.navigate(Route.SettingsSub("sync"))
                     }
                     Hairline()
                     LpCell("插件", mediaStyle = true, icon = LpIcons.plugin) { nav.navigate(Route.Plugins()) }
                     Hairline()
-                    LpCell("扩展组件", mediaStyle = true, icon = LpIcons.plugin) { nav.navigate(Route.Extensions) }
+                    LpCell("扩展组件", mediaStyle = true, icon = LpIcons.grid) { nav.navigate(Route.Extensions) }
                 }
             }
             item("g-app") { GroupLabel("应用") }
             item("p-app") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
-                    LpCell("更新", mediaStyle = true, icon = LpIcons.version) { nav.navigate(Route.SettingsSub("update")) }
+                    LpCell("更新", mediaStyle = true, icon = LpIcons.refresh) { nav.navigate(Route.SettingsSub("update")) }
                     Hairline()
                     LpCell("关于", mediaStyle = true, icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
                 }
@@ -244,7 +244,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
         "update" -> "更新"; else -> "关于"
     }
 
-    LpScaffold(title, subtitle = "设置", onBack = { nav.popBackStack() },
+    LpScaffold(title, onBack = { nav.popBackStack() },
         scrolled = rememberScrolled(list)) { pad ->
         LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
             item("body") {

@@ -1,6 +1,8 @@
 package xyz.linplayer.app.ui.pages
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -21,6 +23,7 @@ import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim2
 import xyz.linplayer.app.ui.components.Hairline
 import xyz.linplayer.app.ui.components.LpButton
@@ -72,29 +75,34 @@ fun PrimaryProgressPanel() {
         else if (busy) xyz.linplayer.app.ui.components.LpLoading()
         if (settings != null) {
             Panel {
-                LpCell("未指定", value = if (settings.str("server").isNullOrEmpty()) "已选择" else null, arrow = false, onClick = if (busy) null else ({ select("") }))
+                LpCell("未指定", checked = settings.str("server").isNullOrEmpty(), arrow = false, onClick = if (busy) null else ({ select("") }))
                 accounts.forEach { account ->
                     Hairline()
                     val server = account.str("server").orEmpty()
                     val selected = settings.bool("valid") && settings.str("server") == server
-                    LpCell(account.str("name") ?: "Emby 账号", sub = account.str("user_name"), value = if (selected) "已选择" else null,
+                    LpCell(account.str("name") ?: "Emby 账号", sub = account.str("user_name"), checked = selected,
                         arrow = false, onClick = if (busy) null else ({ select(server) }))
                 }
             }
             if (!settings.str("server").isNullOrEmpty() && !settings.bool("valid")) Dim2("主服账号已失效，请重新选择", Modifier.padding(top = Sp.x12))
             Dim2("待同步 ${settings.long("pending") ?: 0} 项 · 冲突 ${settings.long("conflicts") ?: 0} 项", Modifier.padding(vertical = Sp.x12))
             settings.str("error")?.takeIf { it.isNotBlank() }?.let { Dim2(it) }
-            LpButton("重试待同步", enabled = !busy && settings.bool("valid") && (settings.long("pending") ?: 0) > 0, onClick = {
-                busy = true
-                scope.launch {
-                    try { settings = app.call("prefs.retryPrimaryProgressSync").obj()
-                    } catch (e: CancellationException) { throw e
-                    } catch (e: Exception) { app.report(e)
-                    } finally { busy = false }
-                }
-            })
         }
         error?.let { Dim2(it, Modifier.padding(vertical = Sp.x12)) }
-        LpButton("刷新状态", enabled = !busy, onClick = { reload++ }, m = Modifier.padding(top = Sp.x12))
+        // 主操作与刷新同排，刷新降为次要按钮，避免两块强调色上下叠放
+        Row(Modifier.padding(top = Sp.x4), horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+            if (settings != null) {
+                LpButton("重试待同步", enabled = !busy && settings.bool("valid") && (settings.long("pending") ?: 0) > 0, onClick = {
+                    busy = true
+                    scope.launch {
+                        try { settings = app.call("prefs.retryPrimaryProgressSync").obj()
+                        } catch (e: CancellationException) { throw e
+                        } catch (e: Exception) { app.report(e)
+                        } finally { busy = false }
+                    }
+                })
+            }
+            LpButton("刷新状态", kind = BtnKind.Secondary, enabled = !busy, onClick = { reload++ })
+        }
     }
 }

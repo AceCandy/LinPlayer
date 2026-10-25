@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
@@ -344,6 +346,8 @@ fun LpCell(
     arrow: Boolean = switch == null,
     onSwitch: ((Boolean) -> Unit)? = null,
     mediaStyle: Boolean = false,
+    /** 单选列表的当前项：行尾画强调色对勾，代替「已选择」文字。 */
+    checked: Boolean = false,
     onClick: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
@@ -374,6 +378,7 @@ fun LpCell(
                 modifier = Modifier.padding(start = Sp.x8)
                     .then(if (mediaStyle) Modifier.semantics { contentDescription = label } else Modifier),
             )
+            checked -> Icon(LpIcons.check, "已选择", Modifier.padding(start = Sp.x8).size(20.dp), tint = c.acc)
             arrow -> Icon(LpIcons.chevR, null, Modifier.padding(start = Sp.x6).size(18.dp), tint = c.fg3)
         }
     }
@@ -405,12 +410,14 @@ fun SegRow(
                 Box(
                     Modifier.weight(1f).heightIn(min = Dim.tap)
                         .clip(RoundedCornerShape(R.sm))
-                        .background(if (on) c.acc else Color.Transparent)
+                        // 选中块是浮起的一层而非整块强调色：一页多个分段并排时不抢主按钮
+                        .background(if (on) (if (c.isDark) c.s3 else Color.White) else Color.Transparent)
                         .semantics { selected = on }
                         .pressable({ if (!on) onPick(o) })
                         .padding(vertical = Sp.x8),
                     contentAlignment = Alignment.Center,
-                ) { Text(o, color = if (on) c.accFg else c.fg2, style = LpText.filter,
+                ) { Text(o, color = if (on) c.acc else c.fg2,
+                    style = if (on) LpText.filter.copy(fontWeight = FontWeight.SemiBold) else LpText.filter,
                     textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
             }
         }
@@ -733,8 +740,10 @@ fun LpMenu(
                     // 撑到 184dp 宽、每行 48dp 高就成了一块盖住半张卡的板
                     .widthIn(min = 148.dp, max = 260.dp)
                     .heightIn(max = 420.dp)
+                    // 实底菜单浅色用白底加一圈细线：弹窗窗口按内容裁切，画不出投影，靠描边从底下内容里分出来
                     .then(if (solid) Modifier.clip(RoundedCornerShape(R.md))
-                        .background(Lp.colors.mediaPanel.copy(alpha = 1f))
+                        .background(if (Lp.colors.isDark) Lp.colors.mediaPanel.copy(alpha = 1f) else Color.White)
+                        .border(Dim.hairline, Lp.colors.line2, RoundedCornerShape(R.md))
                         else Modifier.glass(R.md, solid = 1.7f))
                     .verticalScroll(androidx.compose.foundation.rememberScrollState())
                     .padding(vertical = Sp.x6),

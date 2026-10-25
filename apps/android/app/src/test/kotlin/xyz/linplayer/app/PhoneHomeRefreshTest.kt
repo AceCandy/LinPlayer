@@ -537,8 +537,8 @@ class PhoneHomeRefreshTest {
         rule.onNodeWithText("服务器 A").performClick()
         rule.onNodeWithText("管理服务器…").assertIsDisplayed()
         val pixels = rule.onNode(isPopup()).captureToImage().toPixelMap()
-        val expected = (if (dark) xyz.linplayer.app.ui.theme.DarkColors else xyz.linplayer.app.ui.theme.LightColors)
-            .mediaPanel.copy(alpha = 1f)
+        val expected = if (dark) xyz.linplayer.app.ui.theme.DarkColors.mediaPanel.copy(alpha = 1f)
+            else androidx.compose.ui.graphics.Color.White
         val actual = pixels[pixels.width / 2, 3]
         assertTrue("菜单应为实色面板", kotlin.math.abs(actual.red - expected.red) < .01f &&
             kotlin.math.abs(actual.green - expected.green) < .01f && kotlin.math.abs(actual.blue - expected.blue) < .01f)
