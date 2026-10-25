@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 123
+- **Total Sessions**: 124
 - **Last Active**: 2026-10-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1653 | Active |
+| `journal-3.md` | ~1687 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 124 | 2026-10-25 | 播放菜单与数据源空错态 | `e914e3da` | `main` |
 | 123 | 2026-10-25 | 芯片选中态、弹窗输入框与数据源页 | `73453cf9` | `main` |
 | 122 | 2026-10-25 | 详情媒体信息规格化与日历无时间 | `0ac7485b` | `main` |
 | 121 | 2026-10-25 | 排行页签、观看历史缩略图与隐私筛选复核 | `e79e32fa` | `main` |

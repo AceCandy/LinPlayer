@@ -1651,3 +1651,37 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 播放器菜单面板；空/错误/加载状态
+
+
+## Session 124: 播放菜单与数据源空错态
+<!-- trellis-session: v=2 fp=f52d80403410821d -->
+
+**Date**: 2026-10-25
+**Task**: 播放菜单与数据源空错态
+**Branch**: `main`
+
+### Summary
+
+播放器菜单外观统一、失败页按钮并排；数据源空态/错误态接入统一组件
+
+### Main Changes
+
+- PlayerMenu/PlayerPanel/DanmakuPanel/PlayerPage/DataSourcePages/PhoneSourceUiTest/android.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e914e3da` | feat(android): 播放菜单外观统一与失败页并排按钮，数据源空态/错误态接入统一组件 |
+
+### Testing
+
+- [OK] 全量 987 通过，截图复核
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 待定
