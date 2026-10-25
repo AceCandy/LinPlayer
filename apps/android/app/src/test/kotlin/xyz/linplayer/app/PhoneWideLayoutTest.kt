@@ -60,6 +60,10 @@ import xyz.linplayer.app.ui.theme.LpTheme
 private const val LANDSCAPE = "w873dp-h393dp-mdpi"
 private const val TABLET = "w1280dp-h800dp-mdpi"
 private const val TABLET_PORTRAIT = "w800dp-h1280dp-mdpi"
+/** 折叠屏内屏展开（竖向近方形）。 */
+private const val FOLD = "w673dp-h841dp-mdpi"
+/** 7~8 寸小平板横屏，恰在详情分栏阈值上。 */
+private const val SMALL_TABLET = "w960dp-h600dp-mdpi"
 
 /** 横屏手机与平板宽屏下主要页面的截图基线，用于复核网格列数、留白与居中。 */
 @RunWith(RobolectricTestRunner::class)
@@ -124,6 +128,9 @@ class PhoneWideLayoutTest {
     /** 平板详情左右分栏：播放键在左栏第一屏内，右栏承载其余内容。 */
     @Test @Config(qualifiers = TABLET) fun detailTablet() {
         shoot("detail-tablet", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
+        assertPlayInSide()
+    }
+    private fun assertPlayInSide() {
         val side = rule.onNodeWithTag("detail.wide.side").getBoundsInRoot()
         val play = rule.onNodeWithTag("detail.play", useUnmergedTree = true).getBoundsInRoot()
         org.junit.Assert.assertTrue("播放键应在左栏第一屏：$play / $side", play.right <= side.right && play.bottom <= side.bottom)
@@ -136,6 +143,19 @@ class PhoneWideLayoutTest {
     @Test @Config(qualifiers = TABLET) fun settingsTablet() = shoot("settings-tablet", Route.Settings)
     @Test @Config(qualifiers = TABLET) fun serversTablet() = shoot("servers-tablet", Route.Servers, manage())
     @Test @Config(qualifiers = TABLET) fun pluginsTablet() = shoot("plugins-tablet", Route.Plugins(0), manage())
+    @Test @Config(qualifiers = FOLD) fun homeFold() = shoot("home-fold", Route.Home)
+    @Test @Config(qualifiers = FOLD) fun libraryFold() = shoot("library-fold", Route.Library("lib-0", "电影"), FakeCore().loggedIn().library())
+    @Test @Config(qualifiers = FOLD) fun detailFold() = shoot("detail-fold", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
+    @Test @Config(qualifiers = FOLD) fun searchFold() = shoot("search-fold", Route.Search(q = "结果"), searchCore(), ready = "结果 0")
+    @Test @Config(qualifiers = SMALL_TABLET) fun homeSmallTablet() = shoot("home-small-tablet", Route.Home)
+    @Test @Config(qualifiers = SMALL_TABLET) fun librarySmallTablet() = shoot("library-small-tablet", Route.Library("lib-0", "电影"), FakeCore().loggedIn().library())
+    /** 600dp 高的小平板：海报让位，播放键仍在左栏第一屏。 */
+    @Test @Config(qualifiers = SMALL_TABLET) fun detailSmallTablet() {
+        shoot("detail-small-tablet", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
+        assertPlayInSide()
+    }
+    @Test @Config(qualifiers = SMALL_TABLET) fun seriesSmallTablet() = shoot("series-small-tablet", Route.Detail("s1", "Series"), FakeCore().loggedIn().series())
+    @Test @Config(qualifiers = SMALL_TABLET) fun settingsSmallTablet() = shoot("settings-small-tablet", Route.Settings)
     @Test @Config(qualifiers = LANDSCAPE) fun searchLandscape() = shoot("search-landscape", Route.Search(q = "结果"), searchCore(), ready = "结果 0")
 
     /** 平板上搜索结果按屏宽加列，不能固定 3 列把海报放大到 400dp 宽。 */

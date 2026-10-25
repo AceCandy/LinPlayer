@@ -1343,7 +1343,7 @@ private fun WideBackdrop(app: xyz.linplayer.app.data.AppState, id: String, d: Js
     }
 }
 
-/** 平板左栏头部：海报 + 标题。宽屏不画通栏头图，海报超过屏高一半时按高度收窄。 */
+/** 平板左栏头部：海报 + 标题。宽屏不画通栏头图，海报超过屏高一半时按高度收窄；矮屏再给标题与播放键留出 360dp。 */
 @Composable
 private fun WideHead(
     app: xyz.linplayer.app.data.AppState,
@@ -1355,7 +1355,8 @@ private fun WideHead(
 ) {
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
-    val maxPoster = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .54f
+    val screenH = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp
+    val maxPoster = (screenH * .54f).coerceAtMost(screenH - 360.dp)
     Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16).testTag("detail.wide.head")) {
         NetImage(app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }, null,
             Modifier.heightIn(max = maxPoster).aspectRatio(if (episode) 16f / 9f else 2f / 3f), R.md,

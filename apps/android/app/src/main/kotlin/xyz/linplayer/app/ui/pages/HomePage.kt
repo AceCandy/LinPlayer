@@ -34,6 +34,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -417,7 +419,7 @@ fun HomePage(nav: NavController) {
                             is Block.Loading -> LazyRow(
                                 Modifier.padding(top = Sp.x4), contentPadding = PaddingValues(horizontal = Sp.x16),
                                 horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-                            ) { items(3) { Box(Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
+                            ) { items(3) { Box(Modifier.size(libraryCardSize()).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
                             is Block.Ok -> if (v.value.isEmpty()) EmptyState(
                                 "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
                             ) else ViewsRow(v.value, nav, onImage = heroUnderRows)
@@ -540,7 +542,9 @@ internal fun CachedHomeBanner(
     val bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val available = (LocalConfiguration.current.screenHeightDp.dp - status - bottom).coerceAtLeast(0.dp)
     val contentMin = with(LocalDensity.current) { status + 56.dp + 64.sp.toDp() + 16.sp.toDp() + 84.dp }
-    val heroHeight = (available * .42f).coerceIn(260.dp, 310.dp)
+    // 平板屏宽足够，Hero 加高到半屏左右，避免剧照被裁成细长横条。
+    val wide = !tv && LocalConfiguration.current.screenWidthDp >= 600
+    val heroHeight = (available * if (wide) .5f else .42f).coerceIn(260.dp, if (wide) 460.dp else 310.dp)
         .coerceAtMost(available * .65f).coerceAtLeast(contentMin) + foregroundExtension
     val toolbarStop = ((status + 56.dp) / (heroHeight + backgroundExtension)).coerceIn(0f, .7f)
     val fade = lpTween<Float>(400, LinearEasing)
@@ -593,12 +597,15 @@ internal fun CachedHomeBanner(
                     if (c.isDark) .92f to Color.Black.copy(alpha = .96f) else null, 1f to c.bg).toTypedArray())))
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
+                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
+                        .then(if (wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 560.dp) else Modifier),
                         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                         val logo = logoImage(image.item).takeUnless { logoFailed }
-                        if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
+                        if (logo != null) NetImage(logo, image.item.cardTitle,
+                            if (wide) Modifier.width(260.dp).height(80.dp) else Modifier.width(180.dp).height(56.dp),
                             0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
-                        else Text(image.item.cardTitle, color = Color.White, style = LpText.banner.copy(shadow = textShadow),
+                        else Text(image.item.cardTitle, color = Color.White,
+                            style = LpText.banner.let { if (wide) it.copy(fontSize = 36.sp, lineHeight = 44.sp) else it }.copy(shadow = textShadow),
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
                         if (info.isNotBlank()) Text(info, color = Color.White.copy(alpha = .92f), style = LpText.caption.copy(shadow = textShadow),
@@ -782,6 +789,11 @@ private fun HomeRowLoading(title: String, thumb: Boolean) {
     }
 }
 
+/** 媒体库卡尺寸：平板放大，免得一排小卡缩在大屏左上角。 */
+@Composable
+private fun libraryCardSize() = if (!xyz.linplayer.app.tv.LocalTvMode.current && LocalConfiguration.current.screenWidthDp >= 600)
+    androidx.compose.ui.unit.DpSize(220.dp, 124.dp) else androidx.compose.ui.unit.DpSize(158.dp, 90.dp)
+
 @Composable
 private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = false) {
     val c = Lp.colors
@@ -794,7 +806,7 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
         items(views, key = { it.id }) { v ->
             Box(
                 // 叠在头图上用半透明深底，浅色主题下不至于在暗背景上挖出浅灰方块。
-                Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md))
+                Modifier.size(libraryCardSize()).clip(RoundedCornerShape(R.md))
                     .background(if (onImage) Color.Black.copy(alpha = .28f) else c.s1)
                     .pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
                 contentAlignment = Alignment.Center,
