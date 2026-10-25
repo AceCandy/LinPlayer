@@ -1583,3 +1583,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 日历未提供文案待用户决定；继续手机 UI 精修
+
+
+## Session 122: 详情媒体信息规格化与日历无时间
+<!-- trellis-session: v=2 fp=3fec06df8879d7aa -->
+
+**Date**: 2026-10-25
+**Task**: 详情媒体信息规格化与日历无时间
+**Branch**: `main`
+
+### Summary
+
+详情规格标签与轨道卡精简；播放选项去描边；弹幕源错误色；日历无时间不标注
+
+### Main Changes
+
+- DetailPage/SettingsPage/DiscoverPages、测试、UI_MOBILE.md
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0ac7485b` | feat(android): 详情规格标签与轨道卡精简，选项去描边，日历无时间不标注 |
+
+### Testing
+
+- [OK] 定向测试通过；全量偶发 PhoneHomeRefreshTest 1 例，单跑通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- ToneChip 选中统一、弹窗输入框对比、数据源页补截图
