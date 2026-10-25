@@ -760,12 +760,14 @@ fun LpMenuItem(
     selected: Boolean = false,
     danger: Boolean = false,
     icon: ImageVector? = null,
+    /** 服务器这类「选哪一个」的主条目：字大一档、行距更松，与下面的操作项分出层级。 */
+    large: Boolean = false,
 ) {
     val c = Lp.colors
     Row(
-        Modifier.fillMaxWidth().heightIn(min = 40.dp)
+        Modifier.fillMaxWidth().heightIn(min = if (large) Dim.tap + 8.dp else 40.dp)
             .pressable(onClick)
-            .padding(horizontal = Sp.x12, vertical = Sp.x2),
+            .padding(horizontal = Sp.x12, vertical = if (large) Sp.x6 else Sp.x2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
@@ -775,9 +777,10 @@ fun LpMenuItem(
         Column(Modifier.weight(1f)) {
             Text(
                 label, color = when { danger -> c.bad; selected -> c.acc; else -> c.fg },
-                style = LpText.action, maxLines = 1, overflow = TextOverflow.Ellipsis,
+                style = if (large) LpText.section else LpText.action,
+                maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            if (sub != null) Dim3(sub, Modifier.padding(top = 1.dp))
+            if (sub != null) Dim3(sub, Modifier.padding(top = if (large) Sp.x2 else 1.dp))
         }
         if (selected) Icon(LpIcons.check, null,
             Modifier.padding(start = Sp.x8).size(17.dp), tint = c.acc)

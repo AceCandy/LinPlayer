@@ -138,7 +138,7 @@ private fun lpTypography(): Typography {
         letterSpacing = 0.sp,
     )
     return Typography(
-        displayLarge = style(28, 36, FontWeight.Bold),
+        displayLarge = style(32, 40, FontWeight.Bold),
         displayMedium = style(22, 30, FontWeight.Bold),
         displaySmall = style(20, 28, FontWeight.Medium),
         headlineLarge = style(28, 36, FontWeight.Bold),

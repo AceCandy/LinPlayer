@@ -599,7 +599,7 @@ internal fun CachedHomeBanner(
                         val logo = logoImage(image.item).takeUnless { logoFailed }
                         if (logo != null) NetImage(logo, image.item.cardTitle, Modifier.width(180.dp).height(56.dp),
                             0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
-                        else Text(image.item.cardTitle, color = Color.White, style = LpText.hero.copy(shadow = textShadow),
+                        else Text(image.item.cardTitle, color = Color.White, style = LpText.banner.copy(shadow = textShadow),
                             maxLines = 2, overflow = TextOverflow.Ellipsis)
                         val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
                         if (info.isNotBlank()) Text(info, color = Color.White.copy(alpha = .92f), style = LpText.caption.copy(shadow = textShadow),
@@ -681,7 +681,7 @@ internal fun ServerMenu(
             LpMenuItem(
                 a.name, { onPick(a) },
                 sub = a.remark?.takeIf { it.isNotBlank() } ?: a.userName,
-                selected = a.isActive,
+                selected = a.isActive, large = true,
             )
         }
         if (accounts.isNotEmpty()) Hairline(Modifier.padding(vertical = Sp.x6))

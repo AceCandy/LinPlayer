@@ -1542,18 +1542,11 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
                 }
             } else {
                 Row(
-                    Modifier.widthIn(min = 112.dp).heightIn(min = when {
-                        r.label == "视频" -> 32.dp
-                        r.onClick != null -> 48.dp
-                        else -> 40.dp
-                    })
+                    // 三类选项同一套描边外形；可选的只多一层淡底和箭头，不再各自换底色。
+                    Modifier.widthIn(min = 112.dp).heightIn(min = if (r.onClick != null) Dim.tap else 40.dp)
                         .clip(RoundedCornerShape(R.sm))
-                        .background(when {
-                            r.onClick != null && enabled -> c.mediaAccent.copy(alpha = .16f)
-                            r.label == "音轨" -> c.mediaPanel
-                            else -> Color.Transparent
-                        })
-                        .then(if (r.label == "视频") Modifier.border(1.dp, c.line2, RoundedCornerShape(R.sm)) else Modifier)
+                        .background(if (r.onClick != null && enabled) c.s1 else Color.Transparent)
+                        .border(1.dp, c.line2, RoundedCornerShape(R.sm))
                         .semantics { contentDescription = r.label }
                         .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
                         .padding(horizontal = Sp.x12, vertical = Sp.x6),

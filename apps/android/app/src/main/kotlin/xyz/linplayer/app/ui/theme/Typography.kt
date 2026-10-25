@@ -8,6 +8,8 @@ import androidx.compose.ui.unit.sp
 /** 手机文字的语义入口；从当前主题取字族，变体由共用组件选择。 */
 object LpText {
     val hero @Composable get() = MaterialTheme.typography.displayLarge
+    /** 首页头图片名：比详情片名低一档，长片名在轮播卡里不至于压满画面。 */
+    val banner @Composable get() = MaterialTheme.typography.headlineLarge
     val heading @Composable get() = MaterialTheme.typography.displayMedium
     val headline @Composable get() = MaterialTheme.typography.headlineMedium
     val title @Composable get() = MaterialTheme.typography.titleLarge
