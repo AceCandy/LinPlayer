@@ -14,6 +14,7 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -621,10 +622,10 @@ fun HistoryPage(nav: NavController) {
     var onlyCurrent by remember { mutableStateOf(true) }
     var recs by remember { mutableStateOf<Block<List<JsonObject>>>(Block.Loading) }
     var reload by remember { mutableStateOf(0) }
-    var names by remember { mutableStateOf<Map<String, String>>(emptyMap()) }
+    var accounts by remember { mutableStateOf<Map<String, Account>>(emptyMap()) }
     LaunchedEffect(Unit) {
-        names = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
-            .associate { it.server to it.name }
+        accounts = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
+            .associateBy { it.server }
     }
     LaunchedEffect(onlyCurrent, reload) {
         recs = Block.Loading
@@ -669,30 +670,38 @@ fun HistoryPage(nav: NavController) {
                             val whenMs = rec.long("last_played_at") ?: 0L
                             val whenText = if (whenMs > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
                                 .format(java.util.Date(whenMs)) else "时间未知"
+                            // 跨服记录按该账号线路取图；分集用剧照，电影先横图再退回海报
+                            val line = accounts[sid]?.lineUrl ?: sid.ifEmpty { null } ?: app.session.value?.server
+                            val episode = series.isNotEmpty()
                             Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)) {
-                                Column(Modifier.fillMaxWidth().pressable({
+                                Row(Modifier.fillMaxWidth().pressable({
                                     if (itemId.isNullOrEmpty()) app.toast("这条记录没有对应的条目,换服务器后要先在设置里「扫描恢复」")
                                     else scope.launch {
                                         if (sid.isNotEmpty()) runCatching { app.call("account.setActiveServer", args("server_id" to sid)) }
                                             .onSuccess { app.refreshSession() }.onFailure { app.report(it); return@launch }
                                         nav.navigate(Route.Detail(itemId, if (series.isEmpty()) "Movie" else "Episode"))
                                     }
-                                }).padding(Sp.x16)) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        Text(if (series.isEmpty()) title else "$series · $title", Modifier.weight(1f),
+                                }).padding(Sp.x12), verticalAlignment = Alignment.CenterVertically) {
+                                    NetImage(app.imageUrl(itemId, if (episode) "Primary" else "Backdrop", 200, line), null,
+                                        Modifier.width(112.dp).aspectRatio(16f / 9f), R.sm,
+                                        fallbackUrls = if (episode) emptyList() else listOfNotNull(app.imageUrl(itemId, "Primary", 200, line)))
+                                    Spacer(Modifier.width(Sp.x12))
+                                    Column(Modifier.weight(1f)) {
+                                        Text(if (series.isEmpty()) title else "$series · $title",
                                             color = Lp.colors.fg, style = LpText.list, fontWeight = FontWeight.Medium,
                                             maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Icon(LpIcons.chevR, "查看详情", Modifier.padding(start = Sp.x8).size(18.dp), tint = Lp.colors.mediaIcon)
+                                        Row(Modifier.padding(top = Sp.x4)) {
+                                            Text(accounts[sid]?.name ?: "服务器名称不可用", Modifier.weight(1f, fill = false),
+                                                color = Lp.colors.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
+                                            Text(" · $whenText", color = Lp.colors.fg3, style = LpText.caption, maxLines = 1)
+                                        }
+                                        Text(progress, Modifier.padding(top = Sp.x6), color = Lp.colors.fg2, style = LpText.caption)
+                                        if (run > 0) LinearProgressIndicator(
+                                            progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
+                                            modifier = Modifier.padding(top = Sp.x6).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
+                                            color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3,
+                                            gapSize = 0.dp, drawStopIndicator = {})
                                     }
-                                    Text(names[sid] ?: "服务器名称不可用", Modifier.padding(top = Sp.x8),
-                                        color = Lp.colors.mediaIcon, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                    Text(whenText, Modifier.padding(top = Sp.x4), color = Lp.colors.fg2, style = LpText.caption)
-                                    Text(progress, Modifier.padding(top = Sp.x8), color = Lp.colors.fg2, style = LpText.caption)
-                                    if (run > 0) LinearProgressIndicator(
-                                        progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
-                                        modifier = Modifier.padding(top = Sp.x8).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
-                                        color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3,
-                                        gapSize = 0.dp, drawStopIndicator = {})
                                 }
                             }
                         }

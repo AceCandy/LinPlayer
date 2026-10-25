@@ -777,12 +777,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 current.second?.let {
                                     Text(it, color = c.fg2, style = LpText.body)
                                 }
-                                current.third?.let { count -> Text(
-                                    "共 $count 季",
-                                    Modifier.border(1.dp, c.mediaIcon, RoundedCornerShape(4.dp))
-                                        .padding(horizontal = Sp.x6, vertical = 2.dp),
-                                    color = c.mediaIcon, style = LpText.body,
-                                ) }
+                                // 与评分、年份同为纯文字，和电影详情的数据行保持一致
+                                current.third?.let { count -> Text("共 $count 季", color = c.fg2, style = LpText.body) }
                             }
                         }
                         return@Anchored

@@ -27,6 +27,10 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.semantics
+import xyz.linplayer.app.ui.theme.Dim
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -160,6 +164,25 @@ private class RankingRows {
     val page = mutableStateOf(1)
     val ended = mutableStateOf(false)
     val moreError = mutableStateOf<String?>(null)
+}
+
+/** 榜单体系页签：选中加粗并带强调色短线，未选中弱化文字。 */
+@Composable
+private fun RankingSourceTab(label: String, on: Boolean, onClick: () -> Unit) {
+    val c = Lp.colors
+    Column(
+        Modifier.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.sm))
+            .semantics { selected = on }.pressable({ if (!on) onClick() })
+            .padding(horizontal = Sp.x8, vertical = Sp.x6),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center,
+    ) {
+        Text(label, color = if (on) c.fg else c.fg3, style = LpText.list,
+            fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1)
+        Spacer(Modifier.height(Sp.x4))
+        Box(Modifier.width(16.dp).height(3.dp).clip(RoundedCornerShape(R.pill))
+            .background(if (on) c.acc else Color.Transparent))
+    }
 }
 
 private fun rankingSourceLabel(source: String) = when (source) {
@@ -316,12 +339,13 @@ fun RankingPage(nav: NavController) {
                 return@Column
             }
             if (cs != null) {
-                // 体系与榜单两行贴近成一组；芯片自带触控余量，行内不再额外垫高。
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(start = Sp.x16, end = Sp.x16, top = Sp.x4),
-                    horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    cs.map { it.source }.distinct().forEach { group ->
-                        MediaFilterChip(rankingSourceLabel(group), group == source) {
+                // 体系是上一级，用文字页签与下方榜单芯片拉开层级；只有一个体系时整行不画。
+                val groups = cs.map { it.source }.distinct()
+                if (groups.size > 1) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                    .padding(horizontal = Sp.x8),
+                    verticalAlignment = Alignment.CenterVertically) {
+                    groups.forEach { group ->
+                        RankingSourceTab(rankingSourceLabel(group), group == source) {
                             source = group
                             cur = cs.firstOrNull { it.source == group && it.enabled }?.id
                                 ?: cs.first { it.source == group }.id
