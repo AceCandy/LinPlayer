@@ -1177,3 +1177,37 @@ Pad首页海报偏小、库网格3列过大：宽屏首页轨道与网格共用�
 ### Next Steps
 
 - 遗留的bus全局stall参数竞态和全仓隐私扫描存量误报不在本轮修复范围；两仓后续需分别发布后验证实际媒体绑定与权限。
+
+
+## Session 110: 手机详情与切服菜单精修
+<!-- trellis-session: v=2 fp=46c22a0267ecc4a5 -->
+
+**Date**: 2026-10-25
+**Task**: 手机详情与切服菜单精修
+**Branch**: `main`
+
+### Summary
+
+详情片名升至32sp，轨道选项统一描边，切服菜单放大服务器条目
+
+### Main Changes
+
+- Theme/Typography/HomePage/DetailPage/Base 及 UI 文档
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `aeda25dc` | feat(android): 精修详情片名、轨道选项与切服菜单 |
+
+### Testing
+
+- [OK] HomeHero/PhoneDetailOptions/PhoneHomeRefresh/PhoneManagementUi 等通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 无
