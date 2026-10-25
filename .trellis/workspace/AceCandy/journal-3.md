@@ -1929,3 +1929,37 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 真机感受流畅度；可选加 Macrobenchmark 帧耗时基准
+
+
+## Session 132: 次级页面截图补齐与冷启动检查
+<!-- trellis-session: v=2 fp=84d868369ae7cace -->
+
+**Date**: 2026-10-25
+**Task**: 次级页面截图补齐与冷启动检查
+**Branch**: `main`
+
+### Summary
+
+冷启动主题加载核实无需改；补4个次级页面截图，修线路与文件浏览宽屏限宽和文件大小格式
+
+### Main Changes
+
+- ServersPage LinesPage 限宽；SourcePages BrowsePage 限宽与fmtSize；新增PhoneMinorPagesTest
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `e28b2236` | fix(android): 线路页与本机文件夹浏览宽屏限宽，文件大小按GB显示，补次级页面截图基线 |
+
+### Testing
+
+- [OK] 全量1032例3跳过；1例TV偶发失败，单独3次通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机走查
