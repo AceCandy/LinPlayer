@@ -1,6 +1,9 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import android.media.AudioFormat
+import android.media.AudioTrack
+import android.os.SystemClock
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.test.junit4.v2.createComposeRule
@@ -29,6 +32,11 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
+import org.robolectric.annotation.Implementation
+import org.robolectric.annotation.Implements
+import org.robolectric.annotation.RealObject
+import org.robolectric.shadow.api.Shadow
+import org.robolectric.shadows.ShadowAudioTrack
 import org.robolectric.util.ReflectionHelpers
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
@@ -55,7 +63,7 @@ import java.util.concurrent.TimeUnit
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
 @Config(qualifiers = "w960dp-h440dp-land-mdpi", sdk = [36], application = Application::class,
-    shadows = [ShadowAssNative::class], instrumentedPackages = ["xyz.linplayer.app.core"])
+    shadows = [ShadowAssNative::class, ShadowBoundedAudioTrack::class], instrumentedPackages = ["xyz.linplayer.app.core"])
 class PhoneMedia3RecoveryTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
@@ -90,8 +98,13 @@ class PhoneMedia3RecoveryTest {
                         exchange.responseBody.write(wav, from, split - from)
                         exchange.responseBody.flush()
                         stalled.countDown()
-                        check(recover.await(30, TimeUnit.SECONDS))
-                        exchange.responseBody.write(wav, split, wav.size - split)
+                        // 每秒补一个字节保活：卡顿期间不触发读超时重连，否则续传请求会绕过卡顿。
+                        var sent = split
+                        while (!recover.await(1, TimeUnit.SECONDS)) {
+                            exchange.responseBody.write(wav, sent++, 1)
+                            exchange.responseBody.flush()
+                        }
+                        exchange.responseBody.write(wav, sent, wav.size - sent)
                     } else {
                         exchange.responseBody.write(wav, from, wav.size - from)
                     }
@@ -213,11 +226,16 @@ class PhoneMedia3RecoveryTest {
     private fun currentPlayer(): ExoPlayer? = ReflectionHelpers.getStaticField(PlaybackService::class.java, "externalPlayer")
 
     private fun await(stage: String, condition: () -> Boolean) {
-        val end = System.nanoTime() + 30_000_000_000L
-        while (!rule.runOnIdle(condition) && System.nanoTime() < end) {
+        // 时限按假时钟计，负载高时墙钟变慢不算失败；墙钟上限只防卡死。
+        val end = SystemClock.uptimeMillis() + 90_000
+        val hang = System.nanoTime() + 180_000_000_000L
+        // 只取一次判定结果，避免循环退出与断言之间状态翻转。
+        var met = rule.runOnIdle(condition)
+        while (!met && SystemClock.uptimeMillis() < end && System.nanoTime() < hang) {
             advance(rule, 100)
             Thread.sleep(10)
             rule.runOnIdle { currentPlayer()?.playerError?.let { throw AssertionError(stage, it) } }
+            met = rule.runOnIdle(condition)
         }
         assertTrue("$stage; play=${core.calls.count { it.first == "player.play" }}, " +
             "queue=${core.calls.count { it.first == "player.queuePrepared" }}, " +
@@ -226,6 +244,41 @@ class PhoneMedia3RecoveryTest {
                 "${p.currentMediaItem?.localConfiguration?.uri} state=${p.playbackState} " +
                     "position=${p.currentPosition} duration=${p.duration} buffered=${p.bufferedPosition} " +
                     "items=${p.mediaItemCount} stalled=${stalled.count}"
-            } } + "; $trace", rule.runOnIdle(condition))
+            } } + "; $trace", met)
     }
+}
+
+/**
+ * 播放头按假时钟推进：开播后才计播放量，断流时停在已写入处；写入最多超前一份轨道缓冲，与真机非阻塞写一致。
+ * 框架替身把写入即计为已播且不限写入，负载高时预写或突发写入整集，播放位置直接跳到片尾。
+ */
+@Implements(AudioTrack::class)
+class ShadowBoundedAudioTrack : ShadowAudioTrack() {
+    @RealObject private lateinit var track: AudioTrack
+    private var written = 0L
+    private var played = 0L
+    private var since = -1L
+
+    private val frame get() = track.channelCount * if (track.audioFormat == AudioFormat.ENCODING_PCM_FLOAT) 4 else 2
+
+    private fun sync() {
+        val now = SystemClock.uptimeMillis()
+        if (since >= 0) played = minOf(written, played + (now - since) * track.sampleRate / 1000 * frame)
+        since = if (track.playState == AudioTrack.PLAYSTATE_PLAYING) now else -1
+    }
+
+    private fun bounded(size: Int): Int {
+        sync()
+        val room = played + track.bufferSizeInFrames * frame - written
+        return size.coerceIn(0, room.coerceIn(0, Int.MAX_VALUE.toLong()).toInt()).also { written += it }
+    }
+
+    @Implementation override fun native_write_byte(data: ByteArray, offset: Int, size: Int, format: Int, blocking: Boolean) =
+        super.native_write_byte(data, offset, bounded(size), format, blocking)
+    @Implementation override fun native_write_native_bytes(data: java.nio.ByteBuffer, position: Int, size: Int, format: Int, blocking: Boolean) =
+        super.native_write_native_bytes(data, position, bounded(size), format, blocking)
+    @Implementation override fun getPlaybackHeadPosition(): Int { sync(); return (played / frame).toInt() }
+    @Implementation override fun play() { sync(); super.play(); sync() }
+    @Implementation protected fun pause() { sync(); Shadow.directlyOn<Any?, AudioTrack>(track, AudioTrack::class.java, "pause"); sync() }
+    @Implementation override fun flush() { super.flush(); written = 0; played = 0 }
 }
