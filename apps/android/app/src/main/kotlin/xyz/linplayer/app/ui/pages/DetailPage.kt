@@ -24,6 +24,7 @@ import androidx.compose.foundation.layout.asPaddingValues
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.IntrinsicSize
@@ -1391,10 +1392,11 @@ private fun WideHead(
     }
 }
 
-/** 头图最小高度：竖屏按宽度取高占位；横屏/平板再以屏高 62% 封顶，避免第一屏只剩背景图。 */
+/** 头图最小高度：竖屏手机按宽度取高占位；竖屏平板(宽≥600dp)放缓到宽×0.75；横屏再以屏高 62% 封顶，避免第一屏只剩背景图。 */
 @Composable
 private fun detailHeroMin(width: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
-    minOf(width * 1.08f, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .62f)
+    minOf(width * (if (width >= 600.dp) .75f else 1.08f),
+        androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .62f)
 
 /**
  * 集头部(草稿 04)。
@@ -1518,7 +1520,9 @@ private fun Overview(text: String) {
     var expand by remember(text) { mutableStateOf(false) }
     Text(
         text,
-        Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x20)
+        // 平板右栏很宽，正文行长封顶到 720dp 以保证可读；手机宽度不足时不起作用
+        Modifier.fillMaxWidth().wrapContentWidth(Alignment.Start).widthIn(max = 720.dp)
+            .padding(horizontal = Sp.x16, vertical = Sp.x20)
             .semantics { contentDescription = if (expand) "收起简介" else "展开简介" }
             .pressable({ expand = !expand }),
         color = Lp.colors.fg2, style = LpText.body.copy(lineHeight = 22.sp),

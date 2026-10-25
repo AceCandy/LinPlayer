@@ -59,6 +59,7 @@ import xyz.linplayer.app.ui.theme.LpTheme
 
 private const val LANDSCAPE = "w873dp-h393dp-mdpi"
 private const val TABLET = "w1280dp-h800dp-mdpi"
+private const val TABLET_PORTRAIT = "w800dp-h1280dp-mdpi"
 
 /** 横屏手机与平板宽屏下主要页面的截图基线，用于复核网格列数、留白与居中。 */
 @RunWith(RobolectricTestRunner::class)
@@ -69,12 +70,12 @@ class PhoneWideLayoutTest {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @After fun clean() { scope.cancel(); PageCache.clear() }
 
-    private fun shoot(name: String, route: Any, core: FakeCore = FakeCore().loggedIn(), ready: String? = null) {
+    private fun shoot(name: String, route: Any, core: FakeCore = FakeCore().loggedIn(), ready: String? = null, dark: Boolean = false) {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val app = AppState(core, scope)
         runBlocking { app.boot() }
         rule.setContent {
-            LpTheme(darkOverride = false) {
+            LpTheme(darkOverride = dark) {
                 CompositionLocalProvider(LocalApp provides app) {
                     Box(Modifier.fillMaxSize().background(Lp.colors.bg)) {
                         val nav = rememberNavController()
@@ -127,6 +128,8 @@ class PhoneWideLayoutTest {
         val play = rule.onNodeWithTag("detail.play", useUnmergedTree = true).getBoundsInRoot()
         org.junit.Assert.assertTrue("播放键应在左栏第一屏：$play / $side", play.right <= side.right && play.bottom <= side.bottom)
     }
+    @Test @Config(qualifiers = TABLET) fun detailTabletDark() = shoot("detail-tablet-dark", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie(), dark = true)
+    @Test @Config(qualifiers = TABLET_PORTRAIT) fun detailTabletPortrait() = shoot("detail-tablet-portrait", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())
     @Test @Config(qualifiers = TABLET) fun seriesTablet() = shoot("series-tablet", Route.Detail("s1", "Series"), FakeCore().loggedIn().series())
     @Test @Config(qualifiers = TABLET) fun episodeTablet() = shoot("episode-tablet", Route.Detail("sh8", "Episode"), FakeCore().loggedIn().episode())
     @Test @Config(qualifiers = LANDSCAPE) fun settingsLandscape() = shoot("settings-landscape", Route.Settings)
