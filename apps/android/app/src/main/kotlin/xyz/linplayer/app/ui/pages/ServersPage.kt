@@ -76,6 +76,7 @@ import xyz.linplayer.app.ui.components.LpMenu
 import xyz.linplayer.app.ui.components.LpMenuItem
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.Panel
+import xyz.linplayer.app.ui.components.manageListWidth
 import xyz.linplayer.app.ui.components.rememberScrolled
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -168,7 +169,7 @@ fun ServersPage(nav: NavController) {
                 "添加服务器", onAction = { nav.navigate(Route.AddServer) })
             return@LpScaffold
         }
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             items(accounts.filter { it.plugin == null }, key = { it.id }) { a ->
                 Box {
                     var at by remember(a.id) { mutableStateOf(IntOffset.Zero) }

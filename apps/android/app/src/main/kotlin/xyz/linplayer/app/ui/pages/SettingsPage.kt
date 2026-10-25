@@ -10,8 +10,7 @@ import android.provider.Settings
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.layout.wrapContentWidth
+import xyz.linplayer.app.ui.components.manageListWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
@@ -130,7 +129,7 @@ fun SettingsPage(nav: NavController) {
 
 
     LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
-        LazyColumn(Modifier.fillMaxSize().wrapContentWidth().widthIn(max = SettingsMaxWidth), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             item("g1") { GroupLabel("播放与外观") }
             item("p1") {
                 Panel(Modifier.padding(horizontal = Sp.x16)) {
@@ -219,9 +218,6 @@ fun SettingsPage(nav: NavController) {
     }
 }
 
-/** 设置列表最宽值：平板/横屏居中收窄，手机宽度不足时不起作用。 */
-private val SettingsMaxWidth = 720.dp
-
 @Composable
 internal fun GroupLabel(t: String) =
     Text(t, Modifier.padding(start = Sp.x20, top = Sp.x20, bottom = Sp.x8),
@@ -251,7 +247,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
 
     LpScaffold(title, onBack = { nav.popBackStack() },
         scrolled = rememberScrolled(list)) { pad ->
-        LazyColumn(Modifier.fillMaxSize().wrapContentWidth().widthIn(max = SettingsMaxWidth), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             item("body") {
                 when (route.group) {
                     "appearance" -> AppearancePanel()

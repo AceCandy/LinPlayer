@@ -316,16 +316,18 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             // 分集**单独一栏横版**;剧和影走网格
                             val eps = items.filter { it.isEpisode }
                             val rest = items.filterNot { it.isEpisode }
-                            val imageHeight = posterImageHeight(width = gridCellWidth(3))
+                            // 列数与媒体库一致：手机 3 列，横屏 / 平板按屏宽加列
+                            val columns = posterColumns()
+                            val imageHeight = posterImageHeight(width = gridCellWidth(columns))
                             LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = pad) {
                                 if (items.size >= 50) item("limit") {
                                     Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
                                 }
                                 // 每行独立虚拟化，不能把全部结果塞进一个普通Column。
-                                itemsIndexed(rest.chunked(3), key = { index, row -> "poster-row:$index:${row.first().id}" },
+                                itemsIndexed(rest.chunked(columns), key = { index, row -> "poster-row:$index:${row.first().id}" },
                                     contentType = { _, _ -> "poster-row" }) { index, row ->
                                     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
-                                        .padding(bottom = if (index == (rest.size - 1) / 3) 0.dp else Sp.x16),
+                                        .padding(bottom = if (index == (rest.size - 1) / columns) 0.dp else Sp.x16),
                                         horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                         row.forEach { picked ->
                                             MediaCard(picked, app.imageUrl(picked.id, "Primary", imageHeight), {
@@ -337,7 +339,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                                 else nav.navigate(Route.Detail(picked.id, picked.type))
                                             }, Modifier.weight(1f), menu = if (picked.type == "Person") null else rememberCardActions(app, scope, picked))
                                         }
-                                        repeat(3 - row.size) { Spacer(Modifier.weight(1f)) }
+                                        repeat(columns - row.size) { Spacer(Modifier.weight(1f)) }
                                     }
                                 }
                                 if (eps.isNotEmpty()) item("eps") {

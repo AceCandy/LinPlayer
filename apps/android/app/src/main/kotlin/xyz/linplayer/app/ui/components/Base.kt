@@ -35,6 +35,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -506,6 +507,11 @@ private fun RowHead(label: String, sub: String?, icon: ImageVector?) {
         }
     }
 }
+
+/** 管理类页面(设置 / 服务器 / 插件)的内容宽度：平板与横屏最宽 720dp 居中，手机宽度不足时不起作用。 */
+internal fun Modifier.manageWidth() = fillMaxWidth().wrapContentWidth().widthIn(max = 720.dp).fillMaxWidth()
+
+internal fun Modifier.manageListWidth() = fillMaxSize().manageWidth()
 
 /** 选项行(弹窗 / 播放器面板共用)。 */
 @Composable

@@ -71,6 +71,8 @@ import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpCell
 import xyz.linplayer.app.ui.components.LpDialog
 import xyz.linplayer.app.ui.components.LpField
+import xyz.linplayer.app.ui.components.manageListWidth
+import xyz.linplayer.app.ui.components.manageWidth
 import xyz.linplayer.app.ui.components.LpIconButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
@@ -106,7 +108,7 @@ fun PluginsPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold("插件", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x8),
+                Modifier.manageWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x8),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x6),
             ) {
                 listOf("已安装", "市场", "接管位", "仓库").forEachIndexed { i, s -> ToneChip(s, on = i == tab) { tab = i } }
@@ -149,7 +151,7 @@ private fun InstalledTab(nav: NavController, list: androidx.compose.foundation.l
     }
     BlockBox(block, again) { r ->
         val plugins = r["plugins"].arr().mapNotNull { it.obj() }
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             if (r.bool("safe_mode")) item {
                 Dim2("安全模式:上次启动连续崩溃,插件已全部关闭。" + (r.str("safe_suspect")?.takeIf { it.isNotEmpty() }?.let { "最可疑的是 $it。" } ?: ""),
                     Modifier.padding(Sp.x16))
@@ -252,7 +254,7 @@ private fun MarketTab(list: androidx.compose.foundation.lazy.LazyListState, pad:
             (q.isBlank() || listOf("name", "description", "author").any { e.str(it)?.contains(q, true) == true }) &&
                 (!official || e.bool("officialMark"))
         }.sortedByDescending { it.dbl("downloads") ?: 0.0 }
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             item {
                 Column(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4, bottom = Sp.x12), verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     LpField(q, { q = it }, "搜索名称、描述、作者")
@@ -326,7 +328,7 @@ private fun TakeoverTab(list: androidx.compose.foundation.lazy.LazyListState, pa
     LaunchedEffect(reload) { block = app.block("plugin.takeovers") }
     BlockBox(block, { reload++ }) { r ->
         val slots = r.arr().mapNotNull { it.obj() }
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             if (slots.isEmpty()) item { EmptyState("没有插件声明接管位", "全部是官方的。", LpIcons.plugin) }
             items(slots, key = { it.str("slot") ?: "" }) { s ->
                 val slot = s.str("slot") ?: ""
@@ -360,7 +362,7 @@ private fun RepoTab(list: androidx.compose.foundation.lazy.LazyListState, pad: P
     LaunchedEffect(reload) { block = app.block("plugin.repos").map { it.obj() ?: JsonObject(emptyMap()) } }
     BlockBox(block, again) { r ->
         var prefix by remember(r) { mutableStateOf(r.str("github_prefix") ?: "") }
-        LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             item {
                 Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4)) {
                     r["repos"].arr().mapNotNull { it.obj() }.forEachIndexed { i, repo ->
@@ -423,7 +425,7 @@ fun PluginDetailPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold(info.str("name") ?: id, subtitle = info.str("version"), onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         BlockBox(block, { reload++ }) { d ->
             val vals = d["values"].obj()
-            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + Sp.x16)) {
+            LazyColumn(Modifier.manageListWidth(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding() + Sp.x16)) {
                 // manifest 的 group 项是小节标题:按它切段,每段一张分组卡片
                 val sections = mutableListOf<Pair<String, MutableList<JsonObject>>>()
                 d["settings"].arr().mapNotNull { it.obj() }.forEach { s ->
@@ -558,7 +560,7 @@ fun ExtensionsPage(nav: NavController) {
             .groupBy({ it.first }, { it.second })
     }
     LpScaffold("扩展组件", onBack = { nav.popBackStack() }) { pad ->
-        LazyColumn(Modifier.fillMaxSize(), contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
+        LazyColumn(Modifier.manageListWidth(), contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
             item { Dim2("插件用到时才会提示下载,安装插件时不强制下。", Modifier.padding(Sp.x16)) }
             val rows = listOf(
                 Triple("jar-runtime", "TVBox jar 运行时", "安卓用系统自带的类加载器,不需要下载"),
