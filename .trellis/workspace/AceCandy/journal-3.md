@@ -1861,3 +1861,37 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 真机走查；小平板/折叠屏截图；平板首页专项
+
+
+## Session 130: 平板首页与小屏宽适配
+<!-- trellis-session: v=2 fp=24fc336f45ece255 -->
+
+**Date**: 2026-10-25
+**Task**: 平板首页与小屏宽适配
+**Branch**: `main`
+
+### Summary
+
+平板首页Hero加高、标题与媒体库卡放大；折叠屏与小平板截图检查，修小平板详情播放键出屏
+
+### Main Changes
+
+- HomePage宽屏Hero/标题/Logo/媒体库卡尺寸；DetailPage WideHead海报高度矮屏让位；PhoneWideLayoutTest新增折叠屏与小平板9例
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a684aabd` | feat(android): 平板首页加高Hero放大标题与媒体库卡，小平板详情海报让位播放键，补折叠屏与小平板截图 |
+
+### Testing
+
+- [OK] 全量testDebugUnitTest 1022例 3跳过 0失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机走查手机与平板，按反馈逐条修

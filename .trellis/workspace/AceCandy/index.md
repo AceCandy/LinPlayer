@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-3.md`
-- **Total Sessions**: 129
+- **Total Sessions**: 130
 - **Last Active**: 2026-10-25
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-3.md` | ~1863 | Active |
+| `journal-3.md` | ~1897 | Active |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
 <!-- @@@/auto:active-documents -->
@@ -31,6 +31,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 130 | 2026-10-25 | 平板首页与小屏宽适配 | `a684aabd` | `main` |
 | 129 | 2026-10-25 | 详情简介限宽与竖屏平板头图 | `667d5bb3` | `main` |
 | 128 | 2026-10-25 | 平板详情分栏与插件单选统一 | `b0ec0bd9`, `562e6765` | `main` |
 | 127 | 2026-10-25 | 管理页宽屏限宽与搜索自适应列 | `0b01537e`, `c504a05d` | `main` |
