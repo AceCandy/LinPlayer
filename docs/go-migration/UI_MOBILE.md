@@ -386,7 +386,7 @@ keyboardHidden|density|uiMode`,不让系统重建 Activity。**
 | `LpButton` | 主(`acc` 底)/ 次(`s2` 底 + `line` 边)/ 危险(`bad`)/ 幽灵(纯文字)/ 图标(48dp) |
 | `LpChip` | 胶囊筛选芯片。`FilterChip` 直接用 M3 的 |
 | `LpField` | 输入框:高 48;底 `s1`;边 `line`;聚焦边 `acc`;右侧可挂清除 |
-| `LpCell` | 设置类单元格:图标 + 标题 + 副标题 + 值 / 开关 / 箭头 |
+| `LpCell` | 设置类单元格:图标 + 标题 + 副标题 + 值 / 开关 / 箭头。副标题只写不常见行为、限制或后果，一句短语；标题能说明白的不加 |
 | `SegRow` | 分段控件(2~4 个互斥选项,**就地生效不开弹窗**)。M3 的 `SingleChoiceSegmentedButtonRow` |
 | `StepperRow` | 步进器(有明确步长的数值:倍速 0.25 / 线程数 1)。**到头把按钮禁掉** |
 | `SliderRow` | 滑块(连续值:模糊强度 / 透明度)。跟手期间走 §2.3 第 3 条 |

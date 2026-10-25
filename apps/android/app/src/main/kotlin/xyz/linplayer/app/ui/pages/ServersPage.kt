@@ -231,7 +231,7 @@ fun ServersPage(nav: NavController) {
                 }
             }
             item("hint") {
-                Dim3("点一下切换服务器，长按可设为主服。排行榜与日历始终使用主服的能力。",
+                Dim3("长按可设为主服；排行榜与日历始终走主服。",
                     Modifier.padding(horizontal = Sp.x26, vertical = Sp.x12))
             }
             item("tail") { Spacer(Modifier.height(Sp.x26)) }
@@ -242,7 +242,7 @@ fun ServersPage(nav: NavController) {
     hostFor?.let { a ->
         var host by remember(a.id) { mutableStateOf(a.plugin.str("host_override").orEmpty()) }
         LpDialog({ hostFor = null }, "修改地址") {
-            Dim3("站点换了域名时填新地址,插件请求会改用它。留空 = 用配置里的地址。", maxLines = 3)
+            Dim3("站点换域名时填写；留空用原地址", maxLines = 2)
             Spacer(Modifier.height(Sp.x10))
             LpField(host, { host = it }, "新地址")
             Spacer(Modifier.height(Sp.x16))
@@ -357,13 +357,14 @@ private fun ServerCard(
                 // 副行仍保留备注；连通状态独立放在右侧，不替代用户的备注。
                 a.remark?.takeIf { it.isNotBlank() }?.let { Dim3(it, Modifier.padding(top = Sp.x2)) }
             }
-            Column(Modifier.padding(start = Sp.x12), horizontalAlignment = Alignment.CenterHorizontally) {
+            // 状态点与文字同一基线排开，不再上下错位。
+            Row(Modifier.padding(start = Sp.x12), verticalAlignment = Alignment.CenterVertically) {
                 Box(Modifier.size(8.dp).clip(RoundedCornerShape(R.pill)).background(
                     when (state) { "ok" -> c.ok; "down" -> c.bad; else -> c.line2 }
                 ))
                 if (a.plugin == null) Text(
                     when (state) { "ok" -> "可连接"; "down" -> "连接失败"; else -> "未检测" },
-                    Modifier.padding(top = Sp.x4), color = c.fg3, style = LpText.caption,
+                    Modifier.padding(start = Sp.x6), color = c.fg3, style = LpText.caption,
                 )
             }
         }

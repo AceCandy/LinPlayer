@@ -260,8 +260,6 @@ private fun AddFolderDialog(
     LaunchedEffect(Unit) { activity?.askStoragePermission() }
 
     LpDialog(onDismiss, "添加本机文件夹") {
-        Dim3("填一个装着影片的文件夹路径。添加之后它会像一台服务器那样出现在列表里。")
-        Spacer(Modifier.height(Sp.x12))
         LpField(path, { path = it }, "/storage/emulated/0/Movies", label = "文件夹路径")
         val common = remember { commonFolders() }
         if (common.isNotEmpty()) {

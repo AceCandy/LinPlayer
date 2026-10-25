@@ -647,11 +647,6 @@ fun HistoryPage(nav: NavController) {
             LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
                 if (!app.privateSpace.value) item("src") { SourceHistoryRow(nav) }
                 item("h") { MediaRowHeader("服务器观看记录") }
-                item("classification-note") {
-                    Text("只显示已确认分类的记录，旧记录仍保留在本机。",
-                        Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
-                        color = Lp.colors.fg2, style = LpText.caption)
-                }
                 when (val result = recs) {
                     is Block.Loading -> item("loading") {
                         LoadingState(Modifier.fillParentMaxHeight(.65f).fillMaxWidth())

@@ -328,17 +328,17 @@ private fun AppearancePanel() {
             xyz.linplayer.app.data.UiPrefs.setTheme(ctx, when (v) {
                 "深色" -> "dark"; "浅色" -> "light"; else -> "system"
             })
-        }, sub = "深浅两套都调过。跟随系统时晚上自动变暗;这一项只影响这台设备")
+        })
         Hairline()
         LpCell("色系", value = xyz.linplayer.app.data.UiPrefs.colorLabel(),
-            sub = if (android.os.Build.VERSION.SDK_INT >= 31) "Monet 跟随系统壁纸配色" else "Monet 需要 Android 12，当前设备回退橙金",
+            sub = if (android.os.Build.VERSION.SDK_INT >= 31) null else "Monet 需 Android 12",
             onClick = { pickColor = true })
         Hairline()
         LpCell("加载动画", value = xyz.linplayer.app.data.UiPrefs.loadingLabel(),
-            sub = "全 App 原生等待统一使用，切换立即生效", onClick = { pickLoading = true })
+            onClick = { pickLoading = true })
         Hairline()
         LpCell("隐藏媒体库海报展示", mediaStyle = true,
-            sub = "隐藏首页顶部媒体库入口和继续观看标题",
+            sub = "首页媒体库入口与续看标题",
             switch = xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value,
             onSwitch = { xyz.linplayer.app.data.UiPrefs.setHideHomeLibraries(ctx, it) })
         Hairline()
@@ -401,17 +401,15 @@ private fun PlayerPrefsPanel() {
            ★ 设置变化只对下一次播放生效；自动回退由当前播放控制器管理。 */
         SegRow("播放内核", xyz.linplayer.app.data.UiPrefs.engineOptions.map { it.first }, short, { v ->
             xyz.linplayer.app.data.UiPrefs.setEngine(ctx, xyz.linplayer.app.data.UiPrefs.engineOptions.first { it.first == v }.second)
-        }, sub = "长按播放键用另一个内核(现在是 " + long + ")。" +
-            "自动用于 Emby：先用 Media3，解码或格式不支持时尝试 MPV 一次。退出当前播放再进入生效")
+        }, sub = "长按播放键用 $long")
         Hairline()
         if (prefs != null) {
             val bytes = prefs.long("buffer_target_bytes") ?: 0L
             SegRow("播放缓冲", listOf("自动", "自定义"), if (bytes == 0L) "自动" else "自定义",
-                { buffer(if (it == "自动") 0L else 128 * BUFFER_MIB) },
-                sub = "媒体数据缓冲目标，不是总内存上限；下次播放生效")
+                { buffer(if (it == "自动") 0L else 128 * BUFFER_MIB) })
             if (bytes > 0) StepperRow("缓冲目标容量", (bytes / BUFFER_MIB).toDouble(),
                 BUFFER_MIN_MIB.toDouble(), BUFFER_MAX_MIB.toDouble(), 64.0,
-                { buffer(it.toLong() * BUFFER_MIB) }, sub = "单位 MiB；64～512，达到目标前也可开始播放",
+                { buffer(it.toLong() * BUFFER_MIB) }, sub = "单位 MiB",
                 fmt = { it.toInt().toString() })
             Hairline()
         }
@@ -421,9 +419,9 @@ private fun PlayerPrefsPanel() {
         SegRow("硬件解码", listOf("自动", "关闭"),
             if (prefs.str("hwdec") == "no") "关闭" else "自动",
             { v -> pick("hwdec", if (v == "关闭") "no" else "auto-safe") },
-            sub = "关掉更费电,但少数机型的花屏、绿屏只能靠它")
+            sub = "花屏、绿屏时关闭")
         Hairline()
-        LpCell("杜比视界自动软解", mediaStyle = true, sub = "DoVi 片源走硬解常见偏色,自动切软解画面才是对的",
+        LpCell("杜比视界自动软解", mediaStyle = true, sub = "避免硬解偏色",
             switch = prefs.bool("dolby_auto_sw"), onSwitch = { v -> flip("dolby_auto_sw", v) })
         Hairline()
         LpCell("跳过片头", mediaStyle = true, switch = prefs.bool("skip_intro"),
@@ -432,7 +430,7 @@ private fun PlayerPrefsPanel() {
         LpCell("跳过片尾", mediaStyle = true, switch = prefs.bool("skip_outro"),
             onSwitch = { v -> flip("skip_outro", v) })
         Hairline()
-        LpCell("到了就自己跳", mediaStyle = true, sub = "关着的话只弹一个「跳过」按钮,由你点",
+        LpCell("到了就自己跳", mediaStyle = true,
             switch = prefs.bool("skip_auto"), onSwitch = { v -> flip("skip_auto", v) })
     }
 }
@@ -523,11 +521,11 @@ private fun BackupPanel() {
         LpCell("包含软件设置", mediaStyle = true, value = if (withSettings) "是" else "否",
             onClick = { withSettings = !withSettings })
         Hairline()
-        LpCell("导出到文件", mediaStyle = true, sub = "选个位置存下来,PC 端能直接读", onClick = {
+        LpCell("导出到文件", mediaStyle = true, onClick = {
             save.launch("LinPlayer-备份-" + System.currentTimeMillis() + ".lpbak")
         })
         Hairline()
-        LpCell("从文件还原", mediaStyle = true, sub = "合并:这台机器上原有的服务器保留", onClick = {
+        LpCell("从文件还原", mediaStyle = true, sub = "保留本机已有服务器", onClick = {
             open.launch(arrayOf("*/*"))
         })
         Hairline()
@@ -814,17 +812,16 @@ private fun MpvConfPanel() {
             arrow = false,
         )
         Hairline()
-        LpCell("导入 mpv.conf", mediaStyle = true, sub = "选一个文本文件;换成新的会整份覆盖",
+        LpCell("导入 mpv.conf", mediaStyle = true, sub = "覆盖现有配置",
             onClick = { pick.launch(arrayOf("*/*")) })
         if (active) {
             Hairline()
-            LpCell("清除", mediaStyle = true, sub = "删掉配置,回到出厂状态", arrow = false, onClick = {
+            LpCell("清除", mediaStyle = true, arrow = false, onClick = {
                 scope.launch { push("") }
             })
         }
         Hairline()
-        LpCell("只对 mpv 内核有效", mediaStyle = true, sub = "ExoPlayer 走安卓自带解码,不读这份配置;" +
-            "改动要退出当前播放再进才生效", arrow = false)
+        LpCell("只对 mpv 内核有效", mediaStyle = true, sub = "重新起播后生效", arrow = false)
     }
     if (active && text.isNotBlank()) Panel(Modifier.padding(horizontal = Sp.x16)) {
         Text(text.lineSequence().take(20).joinToString("\n"),
@@ -846,7 +843,7 @@ private fun ShotPanel() {
     val ctx = androidx.compose.ui.platform.LocalContext.current
     val p = xyz.linplayer.app.data.UiPrefs
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("截屏保存到", mediaStyle = true, sub = "相册的 Pictures/LinPlayer;安卓 9 及以下落到应用目录",
+        LpCell("截屏保存到", mediaStyle = true, sub = "相册 Pictures/LinPlayer",
             arrow = false)
         Hairline()
         LpCell("叠加系统时间", mediaStyle = true, switch = p.shotTime.value,
@@ -854,13 +851,13 @@ private fun ShotPanel() {
         if (p.shotTime.value) SegRow("时间的位置", CORNER_LABELS, cornerLabel(p.shotTimePos.value),
             { v -> p.setShotPos(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_TIME_POS, cornerCode(v)) })
         Hairline()
-        LpCell("叠加条目艺术字", mediaStyle = true, sub = "这部片的片名艺术字(Emby 的 Logo 图),没有就不叠",
+        LpCell("叠加条目艺术字", mediaStyle = true, sub = "片名 Logo 图",
             switch = p.shotLogo.value,
             onSwitch = { v -> p.setShotFlag(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_LOGO, v) })
         if (p.shotLogo.value) SegRow("艺术字的位置", CORNER_LABELS, cornerLabel(p.shotLogoPos.value),
             { v -> p.setShotPos(ctx, xyz.linplayer.app.data.UiPrefs.K_SHOT_LOGO_POS, cornerCode(v)) })
         Hairline()
-        LpCell("截长屏按钮", mediaStyle = true, sub = "可滚动的页面右下角出现一颗按钮,按一下把整页拼成长图",
+        LpCell("截长屏按钮", mediaStyle = true, sub = "滚动页右下角，一键拼整页",
             switch = p.longShot.value, onSwitch = { v -> p.setLongShot(ctx, v) })
     }
 }
@@ -920,7 +917,7 @@ private fun PrefetchPanel() {
     val cur = session?.server
     val on = cur != null && cur in servers
     Panel(Modifier.padding(Sp.x16)) {
-        LpCell("对这台服务器开启", mediaStyle = true, sub = "开着不一定更快 —— 收益看服务端给不给多连接",
+        LpCell("对这台服务器开启", mediaStyle = true, sub = "收益取决于服务端",
             switch = on, onSwitch = { v ->
                 val srv = cur ?: return@LpCell
                 val before = servers
@@ -938,7 +935,7 @@ private fun PrefetchPanel() {
                 runCatching { push(servers, v.toInt()) }
                     .onFailure { threads = before; app.report(it) }
             }
-        }, sub = "只支持 2~4;超出核心层会拒绝并回滚", fmt = { it.toInt().toString() })
+        }, fmt = { it.toInt().toString() })
     }
 }
 
@@ -1016,12 +1013,12 @@ private fun StoragePanel() {
         // 这个目录**是**能进去的(Android/data/<包名>/files/logs),所以照实写出来
         LpCell("日志目录", mediaStyle = true, sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
         Hairline()
-        LpCell("导出日志", mediaStyle = true, sub = "选个位置存下来,连 logcat 一起", onClick = {
+        LpCell("导出日志", mediaStyle = true, onClick = {
             save.launch("linplayer-" + System.currentTimeMillis() + ".log")
         })
         Hairline()
         // 不让用户描述:他说不清出了什么问题,日志说得清(用户 2026-09-18)
-        LpCell("发送日志给开发者", mediaStyle = true, sub = "遇到 bug 点一下就行。服务器地址、账号和令牌会先抹掉", onClick = {
+        LpCell("发送日志给开发者", mediaStyle = true, sub = "地址、账号与令牌会先抹掉", onClick = {
             scope.launch { xyz.linplayer.app.data.Report.feedback(ctx, app) }
         })
         Hairline()
@@ -1082,14 +1079,13 @@ private fun MediaCachePanel() {
             if (!loadFailed) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         } else {
             LpCell("保留媒体缓存", mediaStyle = true,
-                sub = "退出与重启后可复用，两种内核共享；关闭会清理已有媒体缓存",
+                sub = "关闭会清理已有缓存",
                 switch = bytes > 0L, onSwitch = { update(if (it) lastCapacity else 0L) })
             if (saving) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
             if (bytes > 0L) {
                 Hairline()
                 StepperRow("磁盘容量上限", bytes / 1048576.0, 64.0, 4096.0, 64.0,
                     { update(it.toLong() shl 20) },
-                    sub = "所有媒体共用；单片最多128MiB，7天未使用过期，空间不足淘汰最久未用内容",
                     fmt = { "${it.toInt()} MiB" })
             }
         }
@@ -1131,7 +1127,6 @@ private fun AboutPanel() {
         LpCell(
             "检查更新", mediaStyle = true,
             value = newest.str("version")?.let { "有新版 $it" } ?: if (checked) "已是最新" else "…",
-            sub = newest?.let { "点一下就下载并安装" },
             onClick = {
                 scope.launch {
                     val u = check()
@@ -1325,14 +1320,13 @@ private fun UpdatePanel() {
 
     Panel(Modifier.padding(Sp.x16)) {
         SegRow("更新渠道", CHANNEL_LABELS, channelLabel(channel),
-            { v -> push(channelCode(v), auto, proxy) },
-            sub = "预览版一天可能出好几个构建")
+            { v -> push(channelCode(v), auto, proxy) })
         Hairline()
-        LpCell("启动时自动检查更新", mediaStyle = true, sub = "默认关着 —— 这是个会自己联网的行为",
+        LpCell("启动时自动检查更新", mediaStyle = true,
             switch = auto, onSwitch = { v -> push(channel, v, proxy) })
         Hairline()
         LpCell("GitHub 代理", mediaStyle = true, value = proxyLabel(proxy),
-            sub = "GitHub 连不上时填一个,查版本和下载都走它",
+            sub = "GitHub 连不上时使用",
             onClick = { editing = true })
         Hairline()
         LpCell("当前版本", mediaStyle = true, value = version.ifEmpty { "…" }, arrow = false)
@@ -1453,8 +1447,7 @@ private fun SyncAccountsPanel() {
     }
 
     Column(Modifier.padding(Sp.x16)) {
-        Dim3("连上之后,装了「Trakt / Bangumi 同步」插件就会自动记录观看进度。" +
-            "只连账号不装插件也行 —— 追剧日历用的是同一个账号。")
+        Dim3("装「Trakt / Bangumi 同步」插件后自动记录进度", maxLines = 2)
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val tr = trakt
@@ -1470,7 +1463,7 @@ private fun SyncAccountsPanel() {
                     }
                 })
             } else {
-                LpCell("连接 Trakt", mediaStyle = true, sub = "出一个码,在浏览器里输", onClick = {
+                LpCell("连接 Trakt", mediaStyle = true, onClick = {
                     scope.launch {
                         runCatching { app.call("sync.traktDeviceCode") }
                             .onSuccess { device = it.obj() }.onFailure { app.report(it) }
