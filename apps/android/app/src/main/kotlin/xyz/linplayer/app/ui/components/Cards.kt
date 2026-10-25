@@ -500,16 +500,23 @@ fun LpRowSkeleton(title: String? = null, thumb: Boolean = false, m: Modifier = M
     }
 }
 
+/** 栏目标题叠在首页头图延伸背景上时置真：改用白字与阴影，与叠图顶栏同一规则。 */
+internal val LocalRowHeaderOnImage = androidx.compose.runtime.staticCompositionLocalOf { false }
+
 /** 栏目竖杠与标题构成入口；无更多回调时只展示标题。 */
 @Composable
 internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
+    val onImage = LocalRowHeaderOnImage.current
     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
         .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
         .padding(top = Sp.x26, bottom = Sp.x10),
         verticalAlignment = Alignment.CenterVertically) {
-        Text(title, color = Lp.colors.fg, style = LpText.rail,
+        Text(title, color = if (onImage) Color.White else Lp.colors.fg,
+            style = if (onImage) LpText.rail.copy(shadow = androidx.compose.ui.graphics.Shadow(
+                Color.Black.copy(alpha = .5f), blurRadius = 8f)) else LpText.rail,
             modifier = Modifier.weight(1f))
-        if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp), tint = Lp.colors.fg2)
+        if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(20.dp),
+            tint = if (onImage) Color.White.copy(alpha = .8f) else Lp.colors.fg2)
     }
 }
 

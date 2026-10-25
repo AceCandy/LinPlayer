@@ -212,7 +212,8 @@ class VisualAlignmentTest {
             val title = rule.onNodeWithText("继续观看").fetchSemanticsNode().boundsInRoot
             val background = rule.onRoot().captureToImage().toPixelMap()[
                 title.left.toInt() - 2, title.center.y.toInt()].luminance()
-            val foreground = xyz.linplayer.app.ui.theme.LightColors.fg.luminance()
+            // 头图延伸到续播图片中点，压在背景上的栏目标题按叠图规则用白字。
+            val foreground = androidx.compose.ui.graphics.Color.White.luminance()
             val contrast = (maxOf(background, foreground) + .05f) / (minOf(background, foreground) + .05f)
             assertTrue("浅色首页栏目标题与实际背景的对比度不足: $contrast", contrast >= 4.5f)
         }

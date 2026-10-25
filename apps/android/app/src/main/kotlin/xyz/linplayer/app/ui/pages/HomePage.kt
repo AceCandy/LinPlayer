@@ -295,6 +295,8 @@ fun HomePage(nav: NavController) {
             xyz.linplayer.app.ui.components.rowImageHeight(true) / 2
     else 0.dp
 
+    /** 头图背景是否延伸到媒体库与续播标题下方。 */
+    val heroUnderRows = banners.isNotEmpty() && heroExtension > 0.dp
     val open: (Item) -> Unit = { nav.navigate(Route.Detail(it.id, it.type)) }
     var pendingPlayback by remember(motionAccount) { mutableStateOf<Item?>(null) }
     LaunchedEffect(motionAccount, pendingPlayback) {
@@ -418,7 +420,7 @@ fun HomePage(nav: NavController) {
                             ) { items(3) { Box(Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(Lp.colors.s1)) } }
                             is Block.Ok -> if (v.value.isEmpty()) EmptyState(
                                 "这个账号下没有媒体库", "在服务器上建一个库,或者换一台服务器试试。",
-                            ) else ViewsRow(v.value, nav)
+                            ) else ViewsRow(v.value, nav, onImage = heroUnderRows)
                             is Block.Fail -> Unit
                         }
                     }
@@ -429,8 +431,12 @@ fun HomePage(nav: NavController) {
                         if (!UiPrefs.hideHomeLibraries.value)
                             resumeHeaderHeight = (with(density) { it.height.toDp() } - resumeStripHeight).coerceAtLeast(0.dp)
                     }) {
-                        RowBlock(if (UiPrefs.hideHomeLibraries.value) "" else "继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
-                            homeAccount = motionAccount, resume = true)
+                        // 深浅主题一致：头图延伸到续播图片中点，压在背景上的标题按叠图规则用白字。
+                        androidx.compose.runtime.CompositionLocalProvider(
+                            xyz.linplayer.app.ui.components.LocalRowHeaderOnImage provides heroUnderRows) {
+                            RowBlock(if (UiPrefs.hideHomeLibraries.value) "" else "继续观看", resume, thumb = true, app = app, open = open, menu = resumeMenu,
+                                homeAccount = motionAccount, resume = true)
+                        }
                     }
                 }
 
@@ -584,14 +590,6 @@ internal fun CachedHomeBanner(
                     .35f to Color.Black.copy(alpha = .16f), .5f to Color.Black.copy(alpha = .42f),
                     .65f to Color.Black.copy(alpha = .66f), .8f to Color.Black.copy(alpha = .84f),
                     .92f to Color.Black.copy(alpha = .96f), 1f to c.bg)))
-                // 浅色栏目用深色文字，延伸背景须在栏目标题前融入页面底色。
-                if (!c.isDark && backgroundExtension > 0.dp) {
-                    val density = LocalDensity.current
-                    Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                        listOf(Color.Transparent, c.bg),
-                        startY = with(density) { heroHeight.toPx() },
-                        endY = with(density) { (heroHeight + backgroundExtension / 2).toPx() })))
-                }
                 Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
                     Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
                         .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26),
@@ -784,7 +782,7 @@ private fun HomeRowLoading(title: String, thumb: Boolean) {
 }
 
 @Composable
-private fun ViewsRow(views: List<View>, nav: NavController) {
+private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = false) {
     val c = Lp.colors
     val app = LocalApp.current
     LazyRow(
@@ -794,14 +792,16 @@ private fun ViewsRow(views: List<View>, nav: NavController) {
     ) {
         items(views, key = { it.id }) { v ->
             Box(
-                Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md)).background(c.s1)
+                // 叠在头图上用半透明深底，浅色主题下不至于在暗背景上挖出浅灰方块。
+                Modifier.size(158.dp, 90.dp).clip(RoundedCornerShape(R.md))
+                    .background(if (onImage) Color.Black.copy(alpha = .28f) else c.s1)
                     .pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
                 contentAlignment = Alignment.Center,
             ) {
                 NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", 260) else null, v.name,
                     Modifier.fillMaxSize(), R.md, ContentScale.Fit,
                     placeholder = {
-                        Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = c.fg,
+                        Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = if (onImage) Color.White else c.fg,
                             style = LpText.card, maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
