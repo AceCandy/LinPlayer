@@ -1757,3 +1757,38 @@ ToneChip 选中态统一，弹窗输入框嵌入底色，数据源页截图基�
 ### Next Steps
 
 - 平板详情双栏版式待定；真机走查
+
+
+## Session 127: 管理页宽屏限宽与搜索自适应列
+<!-- trellis-session: v=2 fp=1f269c02c1164866 -->
+
+**Date**: 2026-10-25
+**Task**: 管理页宽屏限宽与搜索自适应列
+**Branch**: `main`
+
+### Summary
+
+服务器/插件页宽屏720dp居中并与标签行对齐，搜索结果网格按屏宽加列
+
+### Main Changes
+
+- Base.kt 共用 manageWidth/manageListWidth；Servers/Plugins/Settings 套用；SearchPage 用 posterColumns
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0b01537e` | feat(android): 服务器与插件页宽屏居中限宽，搜索结果按屏宽加列 |
+| `c504a05d` | chore(task): archive 10-25-manage-wide-search |
+
+### Testing
+
+- [OK] PhoneWideLayoutTest 新增4例；全量1008测试0失败
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 平板详情页左右分栏（需定方向）；真机走查
