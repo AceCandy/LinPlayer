@@ -220,7 +220,8 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                     }
                     if (items.isNotEmpty() && items.firstOrNull()?.id != fresh.firstOrNull()?.id &&
                         grid.firstVisibleItemIndex == 0 && !grid.isScrollInProgress) grid.requestScrollToItem(0)
-                    items = fresh.toList(); total = count; ended = done; first = Block.Ok(Unit)
+                    // 与首屏/续页一致按 ID 去重：分页期间条目增减会让相邻页重叠，重复 key 会让网格直接崩溃
+                    items = fresh.distinctBy { it.id }; total = count; ended = done; first = Block.Ok(Unit)
                     completedRequest = requestKey
                 }
                 if (filters !is Block.Ok) launch {

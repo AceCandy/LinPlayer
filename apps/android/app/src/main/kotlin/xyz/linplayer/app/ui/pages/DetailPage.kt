@@ -1236,7 +1236,7 @@ private fun SeriesHead(
     val imageUrl = if (!useBackdrop && d.boolOrNull("has_primary") == false) cachedPreview
         else app.imageUrl(id, imageKind, 720)
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else maxWidth * 1.08f).testTag("detail.hero")) {
+        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else detailHeroMin(maxWidth)).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
                     // 视差:图跟着滚一半 —— 海报和文字按正常速度走,两层错开才有纵深
@@ -1294,6 +1294,11 @@ private fun SeriesHead(
     }
 }
 
+/** 头图最小高度：竖屏按宽度取高占位；横屏/平板再以屏高 62% 封顶，避免第一屏只剩背景图。 */
+@Composable
+private fun detailHeroMin(width: androidx.compose.ui.unit.Dp): androidx.compose.ui.unit.Dp =
+    minOf(width * 1.08f, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .62f)
+
 /**
  * 集头部(草稿 04)。
  *
@@ -1311,7 +1316,7 @@ private fun EpisodeHead(
     val c = Lp.colors
     val preview = detailPreview(id).takeIf { d == null }
     BoxWithConstraints(Modifier.fillMaxWidth()) {
-        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else maxWidth * 1.08f).testTag("detail.hero")) {
+        Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else detailHeroMin(maxWidth)).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
                     .graphicsLayer {
