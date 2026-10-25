@@ -31,7 +31,7 @@
 | 聚合搜索**按源分行** | ✅ | ✅ | ✅ 一源一行 + partial 流式(`tv/SearchPage.kt` `AggregateRows`) |
 | 换源三层 | ✅ | ✅ | ✅(分层渲染未逐行复核) |
 | 「允许聚合」开关 | ✅ | ✅ | ✅ 服务器面板 + 插件源菜单键(`tv/ServersPages.kt` `AggregateItem`) |
-| 全局观看历史 | ✅ | ✅ `ui/pages/ListPages.kt` `HistoryPage`,收藏页右上角入口 | ✅ `tv/ListPages.kt` `HistoryPageTv`,入口在收藏页 |
+| 全局观看历史 | ✅ | 已移除(2026-10-26 用户决定);`history` 路由落到服务端「历史已看」 | ✅ `tv/ListPages.kt` `HistoryPageTv`,入口在收藏页 |
 | 数据源收藏 | 已移除 | 已移除 | 已移除；保留数据源观看历史与播放 |
 | 插件页四标签 | ✅ | ✅ | ✅ 已安装 / 市场 / 接管位 / 仓库(`tv/SourcePagesTv.kt`) |
 | 扩展组件页 | ✅ | ✅ | ✅ `tv/SourcePagesTv.kt` `ExtensionsPageTv`,设置页入口 |

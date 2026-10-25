@@ -25,8 +25,6 @@ object Route {
     @Serializable data object Watched
     /** 收藏库内网格；无 libraryId 时按兼容媒体类型显示。 */
     @Serializable data class FavoriteCategory(val type: String? = null, val libraryId: String? = null, val title: String? = null)
-    /** 全局观看历史(SPEC 8.7)。本地库,跨服续播靠它 —— 和「全部收藏」是一对。 */
-    @Serializable data object History
 
     /**
      * 「按某个类型 / 标签 / 工作室 列条目」的落地页

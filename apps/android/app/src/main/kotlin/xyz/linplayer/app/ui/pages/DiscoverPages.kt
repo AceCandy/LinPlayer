@@ -87,6 +87,7 @@ import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.BlockBox
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.EmptyState
@@ -368,7 +369,7 @@ fun RankingPage(nav: NavController) {
                 modifier = Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                     if (rows.isEmpty()) item("state") {
-                        BlockBox(block, { rankReload++ }) {
+                        BlockBox(block, { rankReload++ }, skeleton = { LoadingState(Modifier.fillParentMaxSize()) }) {
                             EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
                         }
                     } else {
@@ -558,7 +559,7 @@ private fun CalendarBody(nav: NavController) {
                     Text("本周 ${rows.size} 部",
                         Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8),
                         color = Lp.colors.fg2, style = LpText.caption)
-                    WeekBar(day, today, rows.groupingBy { it.weekday }.eachCount()) { day = it }
+                    WeekBar(day, today) { day = it }
 
                     val dIn = lpTween<androidx.compose.ui.unit.IntOffset>(
                         T.T5, LpEasing.emphasizedDecelerate)
@@ -587,10 +588,10 @@ private fun CalendarBody(nav: NavController) {
 /**
  * 周条:**七颗胶囊**,今天有文字标记，选中使用蓝紫底色。
  * ★ 上一稿是七个圆角方块 —— 方块并排 = 表格感。
- * ★ 那天 0 部画一个点,**不写「0」** —— 写 0 会被读成「今天停播」。
+ * ★ 胶囊只写星期与日期，不写当天部数：多一行数字整条周条过高。
  */
 @Composable
-private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -> Unit) {
+private fun WeekBar(cur: Int, today: Int, onPick: (Int) -> Unit) {
     val c = Lp.colors
     val monday = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).minusDays((today - 1).toLong())
     Row(
@@ -621,13 +622,6 @@ private fun WeekBar(cur: Int, today: Int, counts: Map<Int, Int>, onPick: (Int) -
                     color = if (on) c.mediaOnAccent else c.fg, style = LpText.list,
                     fontWeight = FontWeight.SemiBold,
                     modifier = Modifier.graphicsLayer { val s = 1f + z * .06f; scaleX = s; scaleY = s },
-                )
-                val n = counts[d] ?: 0
-                Text(
-                    // 空日留白但保留行高，七格等高。
-                    if (n > 0) n.toString() else "",
-                    color = (if (on) c.mediaOnAccent else c.fg3).copy(alpha = if (n > 0) .85f else .5f),
-                    style = LpText.badge,
                 )
             }
         }

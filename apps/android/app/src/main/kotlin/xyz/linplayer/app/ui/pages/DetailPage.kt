@@ -6,6 +6,8 @@ import xyz.linplayer.app.ui.theme.LpText
 
 import xyz.linplayer.app.data.artworkFallbacks
 import xyz.linplayer.app.ui.components.posterPreview
+import xyz.linplayer.app.ui.components.sharedPoster
+import xyz.linplayer.app.ui.components.aboveSharedPoster
 import xyz.linplayer.app.ui.components.detailPreview
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.SizeTransform
@@ -841,7 +843,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     } }
 
-    LpImmersive(barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent, bar = {
+    LpImmersive(barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent,
+        barModifier = Modifier.aboveSharedPoster(), bar = {
         IconButton(onClick = { nav.popBackStack() }) {
             Icon(LpIcons.back, "返回", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
@@ -946,8 +949,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     item("tags") { tagsBlock() }
                 }
 
+                // 正文未到时只留空位，加载图由下方覆盖层画在剩余空白的正中
                 if (!showBody) item("initial-loading") {
-                    LoadingState(Modifier.fillMaxWidth().height(160.dp))
+                    Spacer(Modifier.fillMaxWidth().height(160.dp))
                 } else {
                 /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
                    剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
@@ -961,7 +965,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 .using(SizeTransform { _, _ -> contentSize })
                         }, label = "detailOptions") { state ->
                         when (state) {
-                            Block.Loading -> LoadingState()
+                            Block.Loading -> Spacer(Modifier.fillMaxWidth().height(120.dp))
                             is Block.Fail -> if (!state.isSilent)
                                 xyz.linplayer.app.ui.components.ErrorState("播放选项读取失败：${state.message}", { mediaRetry++ })
                             is Block.Ok -> {
@@ -1048,12 +1052,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 }
                             }
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
-                            // 加载提示保留占位，尾页完成时不能把正在浏览的分集向上挤动。
-                            Box(Modifier.height(20.dp)) {
-                                if (seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading))
-                                    xyz.linplayer.app.ui.components.LpLoading(size = 20.dp,
-                                        label = if (seasonLoad is Block.Loading) "正在读取选集…" else "正在加载分集…")
-                            }
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
                             EpisodeStrip(app, remember(shownEpisodes, curSeason?.id, seriesId) { shownEpisodes.map { ep -> ep.copy(
@@ -1066,8 +1064,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     (seasonLoad as Block.Fail).message, { seasonRetry++ })
                                 episodeParent != null && episodeLoad is Block.Fail -> xyz.linplayer.app.ui.components.ErrorState(
                                     (episodeLoad as Block.Fail).message, { episodeRetry++ })
-                                seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading) ->
-                                    LoadingState(Modifier.fillMaxSize())
+                                seasonLoad is Block.Loading || (episodeParent != null && episodeLoad is Block.Loading) -> Unit
                                 else -> Dim3(if (curSeason == null) "暂无可用选集" else "本季暂无分集")
                             }
                         }
@@ -1114,7 +1111,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     xyz.linplayer.app.ui.components.CardMenu(menuOpen, { menuOpen = false }, actions)
                                 }
                             }
-                        } else if (seasonLoad is Block.Loading) LoadingState(Modifier.fillMaxWidth().height(seasonHeight))
+                        } else if (seasonLoad is Block.Loading) Spacer(Modifier.fillMaxWidth().height(seasonHeight))
                     }
                 } }
 
@@ -1184,6 +1181,14 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 item("tail") { Anchored(PluginAnchors.DETAIL_FOOTER, Modifier.padding(horizontal = Sp.x16)) { Spacer(Modifier.height(Sp.x26)) } }
                 }
             }
+            }
+            if (!showBody) {
+                // 唯一的加载图：居中于头图之下尚空着的区域，不压住片名
+                val filled by remember(list) { derivedStateOf {
+                    list.layoutInfo.visibleItemsInfo.filter { it.key != "initial-loading" }.maxOfOrNull { it.offset + it.size } ?: 0
+                } }
+                LoadingState(Modifier.fillMaxSize()
+                    .padding(start = if (wide) WideSideWidth else 0.dp, top = with(LocalDensity.current) { filled.toDp() }))
             }
         }
         }
@@ -1271,6 +1276,8 @@ private fun SeriesHead(
         Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else detailHeroMin(maxWidth)).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
+                    // 从点中的海报放大而来；共享层带着溶解和压暗一起长到头图尺寸
+                    .sharedPoster(id)
                     // 视差:图跟着滚一半 —— 海报和文字按正常速度走,两层错开才有纵深
                     .graphicsLayer {
                         val off = if (list.firstVisibleItemIndex == 0)
@@ -1297,7 +1304,7 @@ private fun SeriesHead(
                 )
             }
             Row(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(
+                Modifier.align(Alignment.BottomStart).aboveSharedPoster().fillMaxWidth().padding(
                     start = Sp.x16, end = Sp.x16,
                     top = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding(),
                 ),
@@ -1363,7 +1370,7 @@ private fun WideHead(
     val maxPoster = (screenH * .54f).coerceAtMost(screenH - 360.dp)
     Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16).testTag("detail.wide.head")) {
         NetImage(app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }, null,
-            Modifier.heightIn(max = maxPoster).aspectRatio(if (episode) 16f / 9f else 2f / 3f), R.md,
+            Modifier.heightIn(max = maxPoster).aspectRatio(if (episode) 16f / 9f else 2f / 3f).sharedPoster(id), R.md,
             previewUrl = posterPreview(id),
             fallbackUrls = artworkFallbacks(app.imageUrl(id, "Primary", 720), Item(id, d.str("name") ?: "", d.str("type_") ?: "",
                 seriesId = d.str("series_id"), seasonId = d.str("season_id"), hasBackdrop = d.bool("has_backdrop"))),
@@ -1423,6 +1430,7 @@ private fun EpisodeHead(
         Box(Modifier.fillMaxWidth().heightIn(min = if (LocalTvMode.current) 220.dp else detailHeroMin(maxWidth)).testTag("detail.hero")) {
             Box(
                 Modifier.matchParentSize()
+                    .sharedPoster(id)
                     .graphicsLayer {
                         val off = if (list.firstVisibleItemIndex == 0)
                             list.firstVisibleItemScrollOffset.toFloat() else size.height
@@ -1446,7 +1454,7 @@ private fun EpisodeHead(
                 )
             }
             Column(
-                Modifier.align(Alignment.BottomStart).fillMaxWidth()
+                Modifier.align(Alignment.BottomStart).aboveSharedPoster().fillMaxWidth()
                     .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x12,
                         top = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding()),
             ) {

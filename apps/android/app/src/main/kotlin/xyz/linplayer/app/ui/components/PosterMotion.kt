@@ -5,6 +5,12 @@ import androidx.compose.animation.AnimatedContentScope
 import androidx.compose.animation.AnimatedVisibilityScope
 import androidx.compose.animation.SharedTransitionLayout
 import androidx.compose.animation.SharedTransitionScope
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.EnterExitState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.LaunchedEffect
@@ -128,7 +134,13 @@ internal inline fun <reified T : Any> NavGraphBuilder.posterComposable(
     }
 }
 
-/** 只有选中的源卡片与目标详情进入共享布局，空闲列表不承担共享测量。 */
+/** 本次进入详情是否由带图卡片放大而来；是则详情页淡入，不再整页侧滑。 */
+internal fun PosterMotion.zooms(entryId: String) = !links[entryId]?.imageUrl.isNullOrBlank()
+
+/**
+ * 只有选中的源卡片与目标详情进入共享布局，空闲列表不承担共享测量。
+ * 两端按动画中的尺寸重新测量：海报边放大边重新裁切，并与详情头图交叉淡入。
+ */
 @Composable
 internal fun Modifier.sharedPoster(itemId: String, sourceToken: String? = null): Modifier {
     val motion = LocalPosterMotion.current ?: return this
@@ -142,12 +154,43 @@ internal fun Modifier.sharedPoster(itemId: String, sourceToken: String? = null):
     val token = sourceToken ?: link?.token ?: return this
     val source = if (sourceToken != null) scene.entry.id else link!!.sourceEntry
     val spec = lpTween<Rect>(T.T7, LpEasing.emphasizedDecelerate)
+    // 详情头图先快速盖上来；来源海报稍后再淡出，详情预览图解码的头几帧仍由海报托底
+    val enter = fadeIn(lpTween(T.T5, LinearEasing))
+    val scale = LocalMotionScale.current
+    val exit = fadeOut(tween((T.T4 * scale).toInt(), delayMillis = (T.T2 * scale).toInt(), easing = LinearEasing))
     return with(motion.shared) {
-        this@sharedPoster.sharedElement(
+        this@sharedPoster.sharedBounds(
             rememberSharedContentState("$source/$token"), scene.visibility,
+            enter = enter, exit = exit,
             boundsTransform = { _, _ -> spec },
+            resizeMode = SharedTransitionScope.ResizeMode.RemeasureToBounds,
         )
     }
+}
+
+/**
+ * 详情标题、顶栏等压在头图上的内容：放大转场期间画到共享层之上并自行淡入，
+ * 否则会先被放大中的海报盖住、转场结束才突然跳到图上。
+ */
+@Composable
+internal fun Modifier.aboveSharedPoster(): Modifier {
+    val motion = LocalPosterMotion.current ?: return this
+    val scene = LocalPosterScene.current ?: return this
+    if (!motion.zooms(scene.entry.id)) return this
+    val scale = LocalMotionScale.current
+    val alpha by scene.visibility.transition.animateFloat(
+        // 进入时等海报先长一段再淡入；返回时立即淡出，让缩回的海报露出来
+        { if (targetState == EnterExitState.Visible) tween((T.T5 * scale).toInt(), delayMillis = (T.T2 * scale).toInt(), easing = LinearEasing)
+          else tween((T.T3 * scale).toInt(), easing = LinearEasing) }, "aboveSharedPoster",
+    ) { if (it == EnterExitState.Visible) 1f else 0f }
+    val source = motion.links[scene.entry.id]?.sourceEntry
+    // 只在放大进入、缩回来源这两段转场里上浮；从这页再进别的页面时留在原层
+    return with(motion.shared) {
+        renderInSharedTransitionScopeOverlay(
+            renderInOverlay = { isTransitionActive && motion.nav.currentBackStackEntry?.id.let { it == scene.entry.id || it == source } },
+            zIndexInOverlay = 1f,
+        )
+    }.graphicsLayer { this.alpha = alpha }
 }
 
 /** 用来源已解码图托住目标尺寸图片加载，详情异步请求不阻塞海报转场。 */

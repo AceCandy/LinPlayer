@@ -832,9 +832,9 @@ fun LpRefreshIcon() {
     LpLoading(label = "刷新中")
 }
 
-/** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字。 */
+/** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字；默认居中于所在区域。 */
 @Composable
-fun LoadingState(m: Modifier = Modifier.fillMaxWidth().height(120.dp)) {
+fun LoadingState(m: Modifier = Modifier.fillMaxSize()) {
     Box(m, contentAlignment = Alignment.Center) { LpRefreshIcon() }
 }
 

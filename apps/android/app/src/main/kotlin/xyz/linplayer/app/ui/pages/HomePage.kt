@@ -8,7 +8,12 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.slideInHorizontally
+import androidx.compose.animation.slideOutHorizontally
+import androidx.compose.animation.core.tween
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.animation.core.withInfiniteAnimationFrameNanos
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -55,6 +60,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.snapshotFlow
@@ -108,6 +114,7 @@ import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.CardAction
+import xyz.linplayer.app.ui.components.sharedPoster
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.Hairline
@@ -122,9 +129,15 @@ import androidx.compose.ui.platform.testTag
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.theme.lpTween
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.ui.graphics.graphicsLayer
 import xyz.linplayer.app.ui.theme.T
+import xyz.linplayer.app.ui.theme.LpEasing
+import androidx.compose.ui.unit.IntOffset
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.ui.theme.R
@@ -295,24 +308,12 @@ fun HomePage(nav: NavController) {
     else 0.dp
     val heroExtension = if (resume.valueOrNull.orEmpty().isNotEmpty())
         (if (UiPrefs.hideHomeLibraries.value) 0.dp else librariesHeight + resumeHeaderHeight) +
-            xyz.linplayer.app.ui.components.rowImageHeight(true) / 2
+            xyz.linplayer.app.ui.components.rowImageHeight(true) * 3 / 4
     else 0.dp
 
     /** 头图背景是否延伸到媒体库与续播标题下方。 */
     val heroUnderRows = banners.isNotEmpty() && heroExtension > 0.dp
     val open: (Item) -> Unit = { nav.navigate(Route.Detail(it.id, it.type)) }
-    var pendingPlayback by remember(motionAccount) { mutableStateOf<Item?>(null) }
-    LaunchedEffect(motionAccount, pendingPlayback) {
-        val item = pendingPlayback ?: return@LaunchedEffect
-        try {
-            val target = homePlaybackTarget(app, item)
-            currentCoroutineContext().ensureActive()
-            xyz.linplayer.app.ui.player.PlaybackClickTimes.navigate(nav, Route.Player(target.id, target.cardTitle))
-        } catch (e: kotlinx.coroutines.CancellationException) { throw e }
-          catch (e: Exception) { app.report(e) }
-        finally { pendingPlayback = null }
-    }
-    val play: (Item) -> Unit = { item -> if (pendingPlayback == null) pendingPlayback = item }
     val menu: @Composable (Item) -> List<CardAction> = { rememberCardActions(app, scope, it) }
     // 继续观看多一项「取消观看记录」(用户 2026-09-18:「我不想看 我也不想标记为已观看」)。
     // 打 HideFromResume,进度和已看状态都不动;成功后只从这一条里摘掉,别的块不受影响。
@@ -404,10 +405,21 @@ fun HomePage(nav: NavController) {
                 top = if (banners.isEmpty() && !tv) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
             ),
         ) {
-            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
+            // 首屏什么都没有时只画一个居中加载图，内容到了整体淡入，不让各栏各自转圈
+            val firstLoad = banners.isEmpty() && v is Block.Loading
+            val contentAlpha by animateFloatAsState(if (firstLoad) 0f else 1f, lpTween(T.T4), label = "homeContent")
+            LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list, contentPadding = pad) {
                 if (banners.isNotEmpty()) item("banners") {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
-                        backgroundExtension = heroExtension, onPlay = play,
+                        backgroundExtension = heroExtension,
+                        fadeLength = xyz.linplayer.app.ui.components.rowImageHeight(true) / 2,
+                        // 分集在头图上显示剧名，简介也取所属剧的
+                        loadOverview = { item, emit ->
+                            val live = app.displayBlock("emby.itemDetail", args("item_id" to (item.seriesId ?: item.id))) { cached ->
+                                cached.obj().str("overview")?.let(emit)
+                            }
+                            live.valueOrNull.obj().str("overview")?.let(emit)
+                        },
                         foregroundExtension = hiddenHeroSpace,
                         originalImage = { if (it.hasBackdrop) app.imageUrl(it.id, "Backdrop", original = true) else null },
                         primaryImage = { item -> app.imageUrl(item.id, "Primary", original = true).takeUnless { item.hasPrimary == false } },
@@ -472,30 +484,30 @@ fun HomePage(nav: NavController) {
                 }
                 item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
+            if (firstLoad) xyz.linplayer.app.ui.components.LoadingState()
         }
     }
 
 }
 
-/** 首页播放沿用既有Player入口，剧集由核心实时选集，不使用缓存进度起播。 */
-internal suspend fun homePlaybackTarget(app: xyz.linplayer.app.data.AppState, item: Item): Item {
-    if (!item.isSeries) return item
-    return Item.from(app.call("emby.seriesPlaybackTarget", args("series_id" to item.id)))
-        ?: error("没有可播放的分集")
-}
+/** 头图评分用暖金色，和白字信息行区分开。 */
+private val HeroScore = Color(0xFFFFC94D)
 
-/** 全宽电影Hero；触摸/纵向滚动/离屏/后台暂停，手动操作后重新计满轮播间隔。 */
+/** 全宽电影Hero；触摸/纵向滚动/离屏/后台暂停，手动操作后重新计满轮播间隔。点按整张进详情，不另设播放键。 */
 @Composable
 internal fun CachedHomeBanner(
     images: List<CachedHomeImage>,
     visible: Boolean,
     open: (Item) -> Unit,
-    onPlay: (Item) -> Unit = open,
     originalImage: (Item) -> String? = { null },
     primaryImage: (Item) -> String? = { null },
     logoImage: (Item) -> String? = { null },
     backgroundExtension: Dp = 0.dp,
     foregroundExtension: Dp = 0.dp,
+    /** 背景延伸到下方栏目时，末端融入底色的渐变长度。 */
+    fadeLength: Dp = 0.dp,
+    /** 读取简介：可先回调缓存再回调实时值；列表数据不带简介。 */
+    loadOverview: suspend (Item, (String) -> Unit) -> Unit = { _, _ -> },
 ) {
     if (images.isEmpty()) return
     val c = Lp.colors
@@ -505,12 +517,36 @@ internal fun CachedHomeBanner(
     var order by rememberSaveable { mutableStateOf(ids) }
     var currentId by rememberSaveable { mutableStateOf(ids.first()) }
     val currentIndex = ids.indexOf(currentId).takeIf { it >= 0 } ?: 0
+    val image = images[currentIndex]
+    val overviews = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
+    val requested = remember { mutableSetOf<String>() }
+    val latestLoad by androidx.compose.runtime.rememberUpdatedState(loadOverview)
+    // 读取挂在组件作用域：换图不取消已发出的请求，每部只取一次
+    val overviewScope = rememberCoroutineScope()
+    val context = androidx.compose.ui.platform.LocalContext.current
+    val posterMotion = xyz.linplayer.app.ui.components.LocalPosterMotion.current
+    val posterScene = xyz.linplayer.app.ui.components.LocalPosterScene.current
+    // 当前与下一张一起取，轮到下一张时简介已在，文字不再二次跳动
+    LaunchedEffect(currentId, order) {
+        val position = order.indexOf(currentId)
+        val next = order.getOrNull((position + 1) % order.size.coerceAtLeast(1))
+        listOfNotNull(currentId, next).distinct().mapNotNull { id -> images.firstOrNull { it.item.id == id }?.item }
+            .filter { requested.add(it.id) }
+            .forEach { item -> overviewScope.launch { runCatching { latestLoad(item) { overviews[item.id] = it } } } }
+        // 推移时新图整幅可见，提前解码下一张，避免推入一块空底
+        images.firstOrNull { it.item.id == next && next != currentId }?.let {
+            coil3.SingletonImageLoader.get(context).enqueue(coil3.request.ImageRequest.Builder(context).data(it.url).build())
+        }
+    }
     SideEffect {
         val updated = order.filter { it in ids } + ids.filterNot { it in order }
         if (updated != order) order = updated
         if (currentId !in ids) currentId = ids.first()
     }
+    // 推移方向：自动和左滑为 1（新图从右侧进），右滑为 -1
+    var slide by remember { mutableIntStateOf(1) }
     fun advance(direction: Int) {
+        slide = direction
         val position = order.indexOf(currentId).coerceAtLeast(0)
         if (direction > 0 && position == order.lastIndex && order.size > 1) {
             val next = order.shuffled().toMutableList()
@@ -548,8 +584,6 @@ internal fun CachedHomeBanner(
     val wide = !tv && LocalConfiguration.current.screenWidthDp >= 600
     val heroHeight = (available * if (wide) .5f else .42f).coerceIn(260.dp, if (wide) 460.dp else 310.dp)
         .coerceAtMost(available * .65f).coerceAtLeast(contentMin) + foregroundExtension
-    val toolbarStop = ((status + 56.dp) / (heroHeight + backgroundExtension)).coerceIn(0f, .7f)
-    val fade = lpTween<Float>(400, LinearEasing)
     Box(Modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
         .then(if (tv) Modifier.onFocusChanged { focused = it.hasFocus }.focusGroup() else Modifier)
         .pointerInput(Unit) {
@@ -574,52 +608,86 @@ internal fun CachedHomeBanner(
             ) { change, amount -> change.consume(); travel += amount }
         }) {
         // 隐藏媒体库时将腾出的高度并入Hero，后续续播卡片保持原位。
-        AnimatedContent(images[currentIndex], modifier = Modifier.fillMaxWidth().layout { measurable, constraints ->
+        val extended = Modifier.fillMaxWidth().layout { measurable, constraints ->
             val height = heroHeight.roundToPx()
             val expanded = height + backgroundExtension.roundToPx()
             val placeable = measurable.measure(constraints.copy(minHeight = expanded, maxHeight = expanded))
             layout(constraints.maxWidth, height) { placeable.placeRelative(0, 0) }
-        }, contentKey = { it.url },
-            transitionSpec = { fadeIn(fade) togetherWith fadeOut(fade) }, label = "homeHero") { image ->
-            var logoFailed by remember(image.item.id) { mutableStateOf(false) }
-            Box(Modifier.fillMaxSize().testTag("home.hero.background")) {
+        }
+        Box(extended.testTag("home.hero.background")) {
+            // 同时推移：旧图向滑动方向整幅移出，新图紧贴着从另一侧推入，中间不透底色
+            AnimatedContent(image, Modifier.fillMaxSize(), contentKey = { it.url },
+                transitionSpec = {
+                    val spec = tween<IntOffset>((T.T10 * motion).toInt(), easing = LpEasing.standard)
+                    slideInHorizontally(spec) { it * slide } togetherWith slideOutHorizontally(spec) { -it * slide }
+                }, label = "homeHero") { shown ->
                 xyz.linplayer.app.ui.components.HeroArtwork(
-                    originalImage(image.item), image.url, primaryImage(image.item),
-                    Modifier.fillMaxSize(), loadOriginal = image.item.id == images[currentIndex].item.id,
+                    originalImage(shown.item), shown.url, primaryImage(shown.item),
+                    Modifier.fillMaxSize().sharedPoster(shown.item.id, "hero-${shown.item.id}"), loadOriginal = shown.item.id == image.item.id,
                 )
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    0f to Color.Black.copy(alpha = .74f), toolbarStop to Color.Black.copy(alpha = .66f),
-                    (toolbarStop + .12f) to Color.Transparent)))
-                // A方案：整张背景向下连续压暗，标题不再单独铺遮罩。
-                // 浅色主题末端从深色过渡到浅底，去掉 .92 的近黑停靠点，把黑白交界拉成两倍宽的柔和过渡
-                Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
-                    *listOfNotNull(0f to Color.Transparent, .2f to Color.Transparent,
-                    .35f to Color.Black.copy(alpha = .16f), .5f to Color.Black.copy(alpha = .42f),
-                    .65f to Color.Black.copy(alpha = .66f), .8f to Color.Black.copy(alpha = .84f),
-                    if (c.isDark) .92f to Color.Black.copy(alpha = .96f) else null, 1f to c.bg).toTypedArray())))
-                Box(Modifier.fillMaxWidth().height(heroHeight).pressable({ open(image.item) })) {
-                    Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-                        .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
-                        .then(if (wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 560.dp) else Modifier),
-                        verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                        val logo = logoImage(image.item).takeUnless { logoFailed }
-                        if (logo != null) NetImage(logo, image.item.cardTitle,
-                            if (wide) Modifier.width(260.dp).height(80.dp) else Modifier.width(180.dp).height(56.dp),
-                            0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
-                        else Text(image.item.cardTitle, color = Color.White,
-                            style = LpText.banner.let { if (wide) it.copy(fontSize = 36.sp, lineHeight = 44.sp) else it }.copy(shadow = textShadow),
-                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        val info = listOfNotNull(image.item.year?.toString(), image.item.genres.firstOrNull()).joinToString(" · ")
+            }
+            // 顶部不压暗；只给文字区一段渐暗，并在续播图 1/4~3/4 之间融入页面底色
+            val full = heroHeight + backgroundExtension
+            fun at(y: Dp) = (y / full).coerceIn(0f, 1f)
+            val band = if (backgroundExtension > 0.dp && fadeLength > 0.dp) fadeLength.coerceAtMost(backgroundExtension) else 24.dp
+            Box(Modifier.fillMaxSize().background(Brush.verticalGradient(
+                0f to Color.Transparent,
+                at(heroHeight - 180.dp) to Color.Transparent,
+                at(heroHeight - 110.dp) to Color.Black.copy(alpha = .4f),
+                at(heroHeight - 40.dp) to Color.Black.copy(alpha = .66f),
+                at(full - band) to Color.Black.copy(alpha = if (c.isDark) .74f else .68f),
+                1f to c.bg)))
+        }
+        Box(Modifier.fillMaxWidth().height(heroHeight).pressable({
+            // 登记来源后详情头图从这张剧照放大接上
+            if (posterMotion != null && posterScene != null)
+                posterMotion.open(posterScene.entry, image.item, "hero-${image.item.id}", image.url) { open(image.item) }
+            else open(image.item)
+        })) {
+            AnimatedContent(image.item, Modifier.align(Alignment.BottomStart).fillMaxWidth(), contentKey = { it.id },
+                contentAlignment = Alignment.BottomStart,
+                // 文字随图同向推移但只走 1/3 幅宽，比背景慢一拍形成层次
+                transitionSpec = {
+                    (fadeIn(tween((T.T6 * motion).toInt(), delayMillis = (T.T3 * motion).toInt())) +
+                        slideInHorizontally(tween((T.T10 * motion).toInt(), easing = LpEasing.standard)) { it * slide / 3 }) togetherWith
+                        (fadeOut(tween((T.T4 * motion).toInt())) +
+                            slideOutHorizontally(tween((T.T10 * motion).toInt(), easing = LpEasing.standard)) { -it * slide / 3 }) using
+                        SizeTransform(clip = false)
+                }, label = "homeHeroText") { item ->
+                var logoFailed by remember(item.id) { mutableStateOf(false) }
+                Column(Modifier.fillMaxWidth().testTag("home.hero.text")
+                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
+                    .then(if (wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 560.dp) else Modifier.padding(end = Sp.x34))
+                    .animateContentSize(lpTween(T.T4)),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                    val logo = logoImage(item).takeUnless { logoFailed }
+                    if (logo != null) NetImage(logo, item.cardTitle,
+                        if (wide) Modifier.width(260.dp).height(80.dp) else Modifier.width(180.dp).height(56.dp),
+                        0.dp, ContentScale.Fit, onLoadResult = { if (!it) logoFailed = true })
+                    else Text(item.cardTitle, color = Color.White,
+                        style = LpText.banner.let { if (wide) it.copy(fontSize = 36.sp, lineHeight = 44.sp) else it }.copy(shadow = textShadow),
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
+                        item.rating?.takeIf { it.isFinite() && it > 0 && it <= 10 }?.let { score ->
+                            Text("★ " + "%.1f".format(java.util.Locale.ROOT, score), color = HeroScore,
+                                style = LpText.caption.copy(fontWeight = FontWeight.SemiBold, shadow = textShadow), maxLines = 1)
+                        }
+                        item.doubanRating?.takeIf { it.isFinite() && it > 0 && it <= 10 }?.let { score ->
+                            val text = "%.1f".format(java.util.Locale.ROOT, score)
+                            Row(Modifier.semantics(mergeDescendants = true) { contentDescription = "豆瓣评分 $text" },
+                                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
+                                androidx.compose.foundation.Image(LpIcons.douban, null, Modifier.size(14.dp))
+                                Text(text, color = Color.White,
+                                    style = LpText.caption.copy(fontWeight = FontWeight.SemiBold, shadow = textShadow), maxLines = 1)
+                            }
+                        }
+                        val info = listOfNotNull(item.year?.toString(), *item.genres.take(2).toTypedArray()).joinToString(" · ")
                         if (info.isNotBlank()) Text(info, color = Color.White.copy(alpha = .92f), style = LpText.caption.copy(shadow = textShadow),
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Row(Modifier.heightIn(min = 48.dp).privateNeonBorder(R.md).clip(RoundedCornerShape(R.md)).background(c.acc)
-                            .pressable({ onPlay(image.item) }).padding(horizontal = Sp.x20, vertical = Sp.x10),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                            Icon(LpIcons.play, null, Modifier.size(20.dp), tint = c.accFg)
-                            Text(if (image.item.resumeSecs > 0 && !image.item.played) "继续播放" else "播放",
-                                color = c.accFg, style = LpText.action)
-                        }
+                    }
+                    overviews[item.id]?.takeIf { it.isNotBlank() }?.let {
+                        Text(it, color = Color.White.copy(alpha = .82f), style = LpText.caption.copy(shadow = textShadow),
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                     }
                 }
             }
@@ -783,14 +851,9 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
     }
 }
 
-/** 保持横轨高度与可见范围，静态占位不闪烁，等待反馈使用所选动画。 */
+/** 保持横轨高度与可见范围的静态占位；加载图只在首页整页等待时居中出现一次。 */
 @Composable
-private fun HomeRowLoading(title: String, thumb: Boolean) {
-    Box(contentAlignment = Alignment.Center) {
-        LpRowSkeleton(title, thumb)
-        xyz.linplayer.app.ui.components.LpLoading(label = "$title · 加载中…")
-    }
-}
+private fun HomeRowLoading(title: String, thumb: Boolean) = LpRowSkeleton(title, thumb)
 
 /** 媒体库卡尺寸：平板放大，免得一排小卡缩在大屏左上角。 */
 @Composable
@@ -815,7 +878,7 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
                 contentAlignment = Alignment.Center,
             ) {
                 NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", 260) else null, v.name,
-                    Modifier.fillMaxSize(), R.md, ContentScale.Fit,
+                    Modifier.fillMaxSize(), R.md, ContentScale.Fit, placeholderWhileLoading = true,
                     placeholder = {
                         Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = if (onImage) Color.White else c.fg,
                             style = LpText.card, maxLines = 2,

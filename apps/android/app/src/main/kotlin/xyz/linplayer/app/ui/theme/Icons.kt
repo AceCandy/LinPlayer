@@ -108,4 +108,19 @@ object LpIcons {
     val skipNext = icon("skipNext", "M17.5 5.5v13" to false, "M5.5 5.5 14.5 12l-9 6.5z" to true)
     val chapter = stroke("chapter", "M4 6h9M4 12h16M4 18h9M16.5 4v4M16.5 16v4")
     val qr = stroke("qr", "M4 4h6v6H4zM14 4h6v6h-6zM4 14h6v6H4zM14 14h2.5v2.5H14zM17.5 17.5H20V20h-2.5zM14 20h1M20 14v1")
+
+    /**
+     * 豆瓣标志：绿底圆角方块 + 白色「豆」字形（字形取自 Simple Icons 的 douban.svg）。
+     * 自带颜色，必须用 Image 画；交给 Icon 会被 tint 成单色。
+     */
+    val douban: ImageVector = ImageVector.Builder(
+        name = "douban", defaultWidth = 24.dp, defaultHeight = 24.dp, viewportWidth = 24f, viewportHeight = 24f,
+    ).apply {
+        addPath(PathParser().parsePathString("M5 0h14a5 5 0 0 1 5 5v14a5 5 0 0 1-5 5H5a5 5 0 0 1-5-5V5a5 5 0 0 1 5-5z").toNodes(),
+            fill = SolidColor(Color(0xFF007722)))
+        addGroup(scaleX = .66f, scaleY = .66f, translationX = 4.08f, translationY = 4.08f)
+        addPath(PathParser().parsePathString("M.51 3.06h22.98V.755H.51V3.06Zm20.976 2.537v9.608h-2.137l-1.669 5.76H24v2.28H0v-2.28h6.32l-1.67-5.76H2.515V5.597h18.972Zm-5.066 9.608H7.58l1.67 5.76h5.501l1.67-5.76ZM18.367 7.9H5.634v5.025h12.733V7.9Z").toNodes(),
+            fill = SolidColor(Color.White))
+        clearGroup()
+    }.build()
 }

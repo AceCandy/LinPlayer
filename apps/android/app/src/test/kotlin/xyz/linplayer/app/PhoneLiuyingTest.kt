@@ -388,6 +388,8 @@ class PhoneLiuyingTest {
                 })
             }.build())
         rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 500)
+        // 面板在 Popup 窗口里，截一次图让它真正绘制，图片请求才会开始并走到失败
+        rule.onNodeWithTag("liuying.favoriteList").captureToImage(); advance(rule, 500)
         rule.onAllNodesWithText("暂无封面").assertCountEquals(2)
         rule.onNodeWithTag("liuying.favoriteItem.ly-work-2").performScrollTo().performClick(); advance(rule, 600)
         assertEquals("ly-work-2", core.calls.last { it.first == "player.liuyingPlay" }.second.str("item_id"))

@@ -53,6 +53,7 @@ import xyz.linplayer.app.ui.components.PosterMotionHost
 import xyz.linplayer.app.ui.components.PosterScrollMotion
 import xyz.linplayer.app.ui.components.LocalPosterScroll
 import xyz.linplayer.app.ui.components.posterComposable
+import xyz.linplayer.app.ui.components.zooms
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import kotlinx.coroutines.delay
@@ -275,6 +276,7 @@ private fun MainShell(tv: Boolean) {
     val detailMotion = xyz.linplayer.app.ui.theme.LocalMotionScale.current > 0f
     val detailSlide = lpTween<androidx.compose.ui.unit.IntOffset>(T.T6, LpEasing.standardDecelerate)
     val detailExit = lpTween<androidx.compose.ui.unit.IntOffset>(T.T6, LpEasing.standardAccelerate)
+    val detailFade = lpTween<Float>(T.T6, LinearEasing)
 
     /* ☠ 底栏从「Column 里占一格」改成「Box 上叠一层」。
        占一格的话内容区被切短,底栏上面永远是一条硬边;叠一层之后轨道从它下面穿过去,
@@ -294,14 +296,17 @@ private fun MainShell(tv: Boolean) {
             .then(if (tv) Modifier.focusRequester(tvContent).focusRestorer().focusGroup() else Modifier)
             .nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
+            val posterMotion = xyz.linplayer.app.ui.components.LocalPosterMotion.current
             NavHost(
                 navController = nav,
                 startDestination = Route.Home,
-                // 详情整页滑入/滑出，来源页保持可见，图片独立渐显。
+                // 详情整页滑入/滑出，来源页保持可见，图片独立渐显；点带图海报进入时海报放大成头图，页面原地淡入。
                 enterTransition = {
                     val peers = initialState.destination.isTab() && targetState.destination.isTab()
                     if (targetState.destination.hasRoute<Route.Detail>()) {
-                        if (detailMotion) slideInHorizontally(detailSlide) { it } else EnterTransition.None
+                        if (!detailMotion) EnterTransition.None
+                        else if (posterMotion?.zooms(targetState.id) == true) fadeIn(detailFade)
+                        else slideInHorizontally(detailSlide) { it }
                     }
                     else if (peers) scaleIn(pageScale, initialScale = .98f) + fadeIn(pageFade)
                     else slideInHorizontally(pageSlide) { it / 10 } + fadeIn(pageFade)
@@ -314,7 +319,9 @@ private fun MainShell(tv: Boolean) {
                 },
                 popExitTransition = {
                     if (initialState.destination.hasRoute<Route.Detail>()) {
-                        if (detailMotion) slideOutHorizontally(detailExit) { it } else ExitTransition.None
+                        if (!detailMotion) ExitTransition.None
+                        else if (posterMotion?.zooms(initialState.id) == true) fadeOut(detailFade)
+                        else slideOutHorizontally(detailExit) { it }
                     }
                     else slideOutHorizontally(pageSlide) { it / 10 } + fadeOut(popFade)
                 },
@@ -346,7 +353,6 @@ private fun MainShell(tv: Boolean) {
                     val route = it.toRoute<Route.FavoriteCategory>()
                     FavoritesPage(nav, route.type, route.libraryId, route.title)
                 }
-                posterComposable<Route.History> { xyz.linplayer.app.ui.plugin.Takeover("history") { xyz.linplayer.app.ui.pages.HistoryPage(nav) } }
                 posterComposable<Route.Facet> { FacetPage(nav, it) }
                 posterComposable<Route.Lines> { LinesPage(nav, it) }
                 posterComposable<Route.Browse> { xyz.linplayer.app.ui.plugin.Takeover("browse") { BrowsePage(nav) } }
@@ -360,7 +366,8 @@ private fun MainShell(tv: Boolean) {
                 posterComposable<Route.Extensions> { xyz.linplayer.app.ui.pages.ExtensionsPage(nav) }
                 posterComposable<Route.SourceCategory> { xyz.linplayer.app.ui.pages.SourceCategoryPage(nav, it) }
                 posterComposable<Route.SourceDetail> { xyz.linplayer.app.ui.pages.SourceDetailPage(nav, it) }
-                posterComposable<Route.Watched> { FavoritesPage(nav, watched = true) }
+                // 手机不再有本机观看历史页，官方 history 位落到服务端历史已看
+                posterComposable<Route.Watched> { xyz.linplayer.app.ui.plugin.Takeover("history") { FavoritesPage(nav, watched = true) } }
                 posterComposable<Route.Ranking> { xyz.linplayer.app.ui.plugin.Takeover("ranking") { RankingPage(nav) } }
                 posterComposable<Route.Calendar> { xyz.linplayer.app.ui.plugin.Takeover("calendar") { CalendarPage(nav) } }
                 posterComposable<Route.Settings> { xyz.linplayer.app.ui.plugin.Takeover("settings") { SettingsPage(nav) } }
@@ -460,7 +467,7 @@ internal fun officialRoute(route: String, p: (String) -> String?): Any? = when (
     "library" -> Route.Library(p("id") ?: p("viewId") ?: "", p("title") ?: "媒体库")
     "detail" -> Route.Detail(p("id") ?: p("itemId") ?: "", p("type") ?: "Series")
     "search" -> Route.Search(p("viewId"), p("q"))
-    "history" -> Route.History
+    "history" -> Route.Watched
     "favorites" -> Route.Favorites
     "downloads" -> Route.Downloads
     "ranking" -> Route.Ranking

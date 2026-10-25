@@ -36,6 +36,7 @@ import androidx.compose.ui.test.junit4.createComposeRule
 import com.github.takahirom.roborazzi.captureRoboImage
 import org.junit.Assert.assertTrue
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNotEquals
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -91,33 +92,32 @@ class FloatingTabTest {
         rule.onRoot().captureRoboImage("build/floating-ui/liuying-return.png")
     }
 
-    @Test fun realShellDetailSlidesAndReturnsToOriginalPosterPosition() {
+    /** 点带图海报：海报离开原位放大成详情头图，详情原地淡入不侧滑；返回缩回原卡片位置。 */
+    @Test fun realShellPosterZoomsIntoDetailAndReturnsToOriginalPosterPosition() {
         shellWithMovie()
         val sourceTitle = hasText("沙丘 2") and hasAnyAncestor(hasTestTag("home.resume"))
         val source = rule.onNode(sourceTitle, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val card = rule.onNodeWithContentDescription("沙丘 2").fetchSemanticsNode().boundsInRoot
-        val x = (card.left + 8f).toInt()
-        val y = (card.top + card.height / 4).toInt()
+        val x = card.center.x.toInt()
+        val y = card.center.y.toInt()
         val sourcePixel = rule.onRoot().captureToImage().toPixelMap()[x, y]
         rule.mainClock.autoAdvance = false
         rule.onNodeWithContentDescription("沙丘 2").performClick()
-        rule.mainClock.advanceTimeBy(32)
-        val first = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left
-        rule.mainClock.advanceTimeBy(80)
-        val middle = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left
-        assertTrue("详情应从屏幕右侧滑入：$first → $middle", first > middle && middle > 0f)
+        rule.mainClock.advanceTimeBy(160)
+        assertEquals("放大进入时详情不应侧滑", 0f, rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left, .1f)
         rule.onNode(sourceTitle, useUnmergedTree = true).assertIsDisplayed()
-        assertEquals("滑入时来源图片不能淡出", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
+        assertNotEquals("海报应离开原位向头图放大", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
+        rule.onRoot().captureRoboImage("build/floating-ui/poster-zoom-middle.png")
         rule.mainClock.advanceTimeBy(500)
         assertEquals(0f, rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left, .1f)
         rule.onNodeWithContentDescription("返回").performClick()
         rule.mainClock.advanceTimeBy(96)
-        assertTrue("返回时详情应向右滑出", rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left > 0f)
+        assertEquals("返回时详情原地淡出", 0f, rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot.left, .1f)
         rule.onNode(sourceTitle, useUnmergedTree = true).assertIsDisplayed()
-        assertEquals("滑出时来源图片应在下层直接可见", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
         rule.mainClock.advanceTimeBy(500)
         rule.onNodeWithTag("detail.hero").assertDoesNotExist()
         assertEquals(source, rule.onNode(sourceTitle, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
+        assertEquals("海报应缩回原卡片", sourcePixel, rule.onRoot().captureToImage().toPixelMap()[x, y])
     }
 
     @Test fun realShellSeriesEpisodeReturnKeepsTheEpisodeSourcePosition() {
@@ -294,6 +294,8 @@ class FloatingTabTest {
         val search = rule.onNodeWithContentDescription("搜索").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         val aggregate = rule.onNodeWithContentDescription("聚合视界").fetchSemanticsNode().boundsInRoot
         assertTrue("搜索应位于聚合视界左侧", search.right <= aggregate.left)
+        // 底栏按图标收拢，相邻图标中心距不超过 64dp，不随屏宽拉开
+        assertTrue("相邻图标间距过大：${aggregate.center.x - search.center.x}", aggregate.center.x - search.center.x <= 64f)
         for (name in listOf("聚合视界", "收藏", "首页")) {
             rule.onNodeWithContentDescription(name).performClick().assertIsSelected()
         }

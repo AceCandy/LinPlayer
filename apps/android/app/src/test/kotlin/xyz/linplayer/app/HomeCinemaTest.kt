@@ -68,7 +68,7 @@ class HomeCinemaTest {
         }
         rule.onNodeWithContentDescription("24 集未观看").assertExists()
         rule.onNodeWithText("24", useUnmergedTree = true).assertIsDisplayed()
-        rule.onNodeWithText("豆", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithText("豆", useUnmergedTree = true).assertDoesNotExist() // 豆瓣用彩色标志，不再是文字
         val count = rule.onNodeWithText("24", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val rating = rule.onNodeWithText("8.6", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertTrue(rating.top > count.bottom)
@@ -84,7 +84,7 @@ class HomeCinemaTest {
         rule.runOnIdle { score = 8.0 }
         rule.onNodeWithText("8.0", useUnmergedTree = true).assertIsDisplayed()
         rule.runOnIdle { score = null }
-        rule.onNodeWithText("豆", useUnmergedTree = true).assertDoesNotExist()
+        rule.onNodeWithContentDescription("豆瓣评分", substring = true, useUnmergedTree = true).assertDoesNotExist()
         rule.onNodeWithText("9.9", useUnmergedTree = true).assertIsDisplayed()
         rule.runOnIdle { ordinaryScore = 7.1 }
         rule.onNodeWithText("7.1", useUnmergedTree = true).assertIsDisplayed()
@@ -93,7 +93,7 @@ class HomeCinemaTest {
             rule.onNodeWithText("★", useUnmergedTree = true).assertDoesNotExist()
         }
         rule.runOnIdle { score = 8.6 }
-        rule.onNodeWithText("豆", useUnmergedTree = true).assertIsDisplayed()
+        rule.onNodeWithContentDescription("豆瓣评分 8.6", useUnmergedTree = true).assertIsDisplayed()
         rule.onNodeWithText("★", useUnmergedTree = true).assertDoesNotExist()
     }
 

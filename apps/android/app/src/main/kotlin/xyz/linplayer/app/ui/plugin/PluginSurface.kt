@@ -265,7 +265,7 @@ fun PluginSurface(
             kind == "overlay" -> if (state != "error") RenderNode(tree.root, surfaceId ?: "", app)
             state == "error" -> PluginError(error)
             state == "loading" && tree.root.children.isEmpty() ->
-                if (tv) PluginSkeleton() else xyz.linplayer.app.ui.components.LoadingState()
+                if (tv) PluginSkeleton() else xyz.linplayer.app.ui.components.LoadingState(Modifier.fillMaxWidth().height(120.dp))
             else -> RenderNode(tree.root, surfaceId ?: "", app)
         }
         }

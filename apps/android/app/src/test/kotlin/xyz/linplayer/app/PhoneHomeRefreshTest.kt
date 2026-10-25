@@ -276,7 +276,7 @@ class PhoneHomeRefreshTest {
         assertEquals("默认开启隐藏时也应保持同一续播位置", hiddenTop, shown.top, 1f)
     }
 
-    @Test fun heroBackgroundEndsAtResumeImageMiddleWithEitherLibrarySetting() {
+    @Test fun heroBackgroundEndsAtResumeImageThreeQuartersWithEitherLibrarySetting() {
         val core = FakeCore().loggedIn().apply {
             ret("emby.listResume", arr(item("resume", "续播作品")))
         }
@@ -286,21 +286,19 @@ class PhoneHomeRefreshTest {
                 hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true)
                 .fetchSemanticsNode().boundsInRoot
             val background = rule.onNodeWithTag("home.hero.background").fetchSemanticsNode().boundsInRoot
-            assertEquals("背景下沿必须跟随续播图片中点", image.center.y, background.bottom, 1f)
+            assertEquals("背景下沿必须跟随续播图片 3/4 处", image.top + image.height * .75f, background.bottom, 1f)
         }
         check()
         val resumeBefore = rule.onNode(hasContentDescription("续播作品") and
             hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
-        val playBefore = rule.onNode(hasText("播放") and hasAnyAncestor(hasTestTag("home.banners")))
-            .fetchSemanticsNode().boundsInRoot
+        val playBefore = rule.onNodeWithTag("home.hero.text", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = true }
         check()
         val resumeAfter = rule.onNode(hasContentDescription("续播作品") and
             hasAnyAncestor(hasTestTag("home.resume")), useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertEquals("隐藏封面不能上移续播", resumeBefore.top, resumeAfter.top, 1f)
-        val playAfter = rule.onNode(hasText("播放") and hasAnyAncestor(hasTestTag("home.banners")))
-            .fetchSemanticsNode().boundsInRoot
-        assertTrue("播放入口应移入隐藏封面腾出的空间", playAfter.top > playBefore.top + 60f)
+        val playAfter = rule.onNodeWithTag("home.hero.text", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertTrue("头图文字应移入隐藏封面腾出的空间", playAfter.top > playBefore.top + 60f)
         rule.runOnIdle { xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value = false }
         check()
         rule.onRoot().captureRoboImage("build/home-cinema/linked-background.png")

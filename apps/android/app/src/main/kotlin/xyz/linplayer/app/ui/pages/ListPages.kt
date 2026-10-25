@@ -7,20 +7,16 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import xyz.linplayer.app.ui.components.LpPullIndicator
 import androidx.compose.foundation.background
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -56,9 +52,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
-import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.ui.components.ErrorState
-import xyz.linplayer.app.ui.components.MediaRowHeader
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.Block
@@ -86,12 +80,10 @@ import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpTag
-import xyz.linplayer.app.ui.components.MediaFilterChip
 import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.adaptiveColumns
 import xyz.linplayer.app.ui.components.gridCellWidth
 import xyz.linplayer.app.ui.components.posterImageHeight
-import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.StepperRow
@@ -206,8 +198,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
 
     LpScaffold(title, onBack = if (isCategory) ({ nav.popBackStack() }) else null, actions = {
         if (!isCategory) {
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "观看历史") { nav.navigate(Route.History) }
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.checkCircle, "历史已看") { nav.navigate(Route.Watched) }
+            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "历史已看") { nav.navigate(Route.Watched) }
         } else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
         val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
@@ -597,117 +588,4 @@ internal fun facetParam(kind: String): String = when (kind) {
     "tag" -> "tags"
     "studio" -> "studio_ids"
     else -> "genres"
-}
-
-// ---------------------------------------------------------------- 全局观看历史(SPEC 8.7 D430 D431)
-
-/** ticks 是 100 纳秒单位 —— 除以 1e7 才是秒。写成 1e6 时长会大十倍且不报错。 */
-private fun clockOf(secs: Double): String {
-    val s = secs.toInt()
-    return if (s >= 3600) "%d:%02d:%02d".format(s / 3600, s / 60 % 60, s % 60) else "%d:%02d".format(s / 60, s % 60)
-}
-
-/**
- * 全局观看历史。这份记录是**本地库**不是服务器的播放记录 —— 跨服续播就靠它,
- * 所以「当前服务器」和「全部」是两种看法,都要有。
- *
- * ★ 数据源那部分走 [SourceHistoryRow]:它已经按换源链路合并过(D431),
- *   来源被删的仍然显示但点不开(D333)—— 藏起来用户会以为记录丢了。
- */
-@Composable
-fun HistoryPage(nav: NavController) {
-    val app = LocalApp.current
-    val scope = rememberCoroutineScope()
-    val list = rememberLazyListState()
-    var onlyCurrent by remember { mutableStateOf(true) }
-    var recs by remember { mutableStateOf<Block<List<JsonObject>>>(Block.Loading) }
-    var reload by remember { mutableStateOf(0) }
-    var accounts by remember { mutableStateOf<Map<String, Account>>(emptyMap()) }
-    LaunchedEffect(Unit) {
-        accounts = Account.list(runCatching { app.call("account.listAccounts") }.getOrNull())
-            .associateBy { it.server }
-    }
-    LaunchedEffect(onlyCurrent, reload) {
-        recs = Block.Loading
-        recs = when (val result = app.block("emby.watchHistoryList", args("current_only" to onlyCurrent))) {
-            is Block.Ok -> Block.Ok(result.value.arr().mapNotNull { it.obj() }
-                .sortedByDescending { it.long("last_played_at") ?: 0L })
-            is Block.Fail -> result
-            is Block.Loading -> Block.Loading
-        }
-    }
-
-    LpScaffold("观看历史", onBack = { nav.popBackStack() }) { pad ->
-        Column(Modifier.fillMaxSize()) {
-            Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16),
-                horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                MediaFilterChip("当前服务器", onlyCurrent) { onlyCurrent = true }
-                MediaFilterChip("全部服务器", !onlyCurrent) { onlyCurrent = false }
-            }
-            LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
-                if (!app.privateSpace.value) item("src") { SourceHistoryRow(nav) }
-                item("h") { MediaRowHeader("服务器观看记录") }
-                when (val result = recs) {
-                    is Block.Loading -> item("loading") {
-                        LoadingState(Modifier.fillParentMaxHeight(.65f).fillMaxWidth())
-                    }
-                    is Block.Fail -> if (!result.isSilent) item("error") { ErrorState(result.message, { reload++ }) }
-                    is Block.Ok -> {
-                        if (result.value.isEmpty()) item("empty") {
-                            EmptyState("还没有观看记录", "观看记录保存在本机，可切换范围查看其他服务器的记录。", LpIcons.history)
-                        }
-                        items(result.value.take(200), key = { it.str("record_id") ?: "" }) { rec ->
-                            val series = rec.str("series_title").orEmpty()
-                            val title = rec.str("title").orEmpty()
-                            val pos = (rec.long("last_position_ticks") ?: 0L) / 1e7
-                            val run = (rec.long("run_time_ticks") ?: 0L) / 1e7
-                            val played = rec.bool("played")
-                            val progress = if (played) "已看完" else "已观看 ${clockOf(pos)}" + if (run > 0) " / ${clockOf(run)}" else ""
-                            val itemId = rec.str("last_emby_item_id")
-                            // scope_key 是 server:user_id，URL 可能带端口，必须按最后一个冒号切。
-                            val sid = rec.str("scope_key").orEmpty().substringBeforeLast(':', "")
-                            // last_played_at 是毫秒；ticks 则是 100 纳秒，不能共用换算。
-                            val whenMs = rec.long("last_played_at") ?: 0L
-                            val whenText = if (whenMs > 0) java.text.SimpleDateFormat("yyyy-MM-dd HH:mm", java.util.Locale.getDefault())
-                                .format(java.util.Date(whenMs)) else "时间未知"
-                            // 跨服记录按该账号线路取图；分集用剧照，电影先横图再退回海报
-                            val line = accounts[sid]?.lineUrl ?: sid.ifEmpty { null } ?: app.session.value?.server
-                            val episode = series.isNotEmpty()
-                            Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x6)) {
-                                Row(Modifier.fillMaxWidth().pressable({
-                                    if (itemId.isNullOrEmpty()) app.toast("这条记录没有对应的条目,换服务器后要先在设置里「扫描恢复」")
-                                    else scope.launch {
-                                        if (sid.isNotEmpty()) runCatching { app.call("account.setActiveServer", args("server_id" to sid)) }
-                                            .onSuccess { app.refreshSession() }.onFailure { app.report(it); return@launch }
-                                        nav.navigate(Route.Detail(itemId, if (series.isEmpty()) "Movie" else "Episode"))
-                                    }
-                                }).padding(Sp.x12), verticalAlignment = Alignment.CenterVertically) {
-                                    NetImage(app.imageUrl(itemId, if (episode) "Primary" else "Backdrop", 200, line), null,
-                                        Modifier.width(112.dp).aspectRatio(16f / 9f), R.sm,
-                                        fallbackUrls = if (episode) emptyList() else listOfNotNull(app.imageUrl(itemId, "Primary", 200, line)))
-                                    Spacer(Modifier.width(Sp.x12))
-                                    Column(Modifier.weight(1f)) {
-                                        Text(if (series.isEmpty()) title else "$series · $title",
-                                            color = Lp.colors.fg, style = LpText.list, fontWeight = FontWeight.Medium,
-                                            maxLines = 2, overflow = TextOverflow.Ellipsis)
-                                        Row(Modifier.padding(top = Sp.x4)) {
-                                            Text(accounts[sid]?.name ?: "服务器名称不可用", Modifier.weight(1f, fill = false),
-                                                color = Lp.colors.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
-                                            Text(" · $whenText", color = Lp.colors.fg3, style = LpText.caption, maxLines = 1)
-                                        }
-                                        Text(progress, Modifier.padding(top = Sp.x6), color = Lp.colors.fg2, style = LpText.caption)
-                                        if (run > 0) LinearProgressIndicator(
-                                            progress = { if (played) 1f else (pos / run).toFloat().coerceIn(0f, 1f) },
-                                            modifier = Modifier.padding(top = Sp.x6).fillMaxWidth().height(3.dp).clip(RoundedCornerShape(R.pill)),
-                                            color = Lp.colors.mediaAccent, trackColor = Lp.colors.s3,
-                                            gapSize = 0.dp, drawStopIndicator = {})
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-    }
 }

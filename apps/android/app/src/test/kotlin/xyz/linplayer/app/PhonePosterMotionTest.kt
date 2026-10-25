@@ -1,6 +1,8 @@
 package xyz.linplayer.app
 
 import android.app.Application
+import xyz.linplayer.app.data.CachedHomeImage
+import xyz.linplayer.app.ui.pages.CachedHomeBanner
 import android.graphics.Bitmap
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -153,7 +155,7 @@ class PhonePosterMotionTest {
         rule.setContent {
             LpTheme {
                 Box(Modifier.size(100.dp).background(Color.Black).testTag("image")) {
-                    NetImage("poster:crossfade", null, Modifier.fillMaxSize(), corner = 0.dp) {
+                    NetImage("poster:crossfade", null, Modifier.fillMaxSize(), corner = 0.dp, placeholderWhileLoading = true) {
                         Box(Modifier.fillMaxSize().background(Color.Red))
                     }
                 }
@@ -178,7 +180,7 @@ class PhonePosterMotionTest {
         rule.setContent {
             LpTheme {
                 Box(Modifier.size(100.dp).background(Color.Black).testTag("image")) {
-                    NetImage(currentUrl.value, currentUrl.value, Modifier.fillMaxSize(), corner = 0.dp) {
+                    NetImage(currentUrl.value, currentUrl.value, Modifier.fillMaxSize(), corner = 0.dp, placeholderWhileLoading = true) {
                         Box(Modifier.fillMaxSize().background(Color.Red))
                     }
                 }
@@ -213,7 +215,7 @@ class PhonePosterMotionTest {
             LpTheme {
                 Row {
                     listOf("fast", "slow").forEach { name ->
-                        NetImage("poster:$name", name, Modifier.size(100.dp).testTag(name), corner = 0.dp) {
+                        NetImage("poster:$name", name, Modifier.size(100.dp).testTag(name), corner = 0.dp, placeholderWhileLoading = true) {
                             Box(Modifier.fillMaxSize().background(Color.Red))
                         }
                     }
@@ -1021,6 +1023,44 @@ class PhonePosterMotionTest {
         assertTrue("return must animate toward source: $returning", returning.top > 60f && returning.top < 400f)
         rule.mainClock.advanceTimeBy(500)
         rule.onNodeWithTag("source2").assertExists()
+    }
+
+    /** 轮播剧照也登记为来源：点击后剧照连续缩放到详情头图位置。 */
+    @Test fun heroArtworkZoomsIntoDetailTarget() {
+        images()
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            LpTheme {
+                val controller = rememberNavController()
+                Box(Modifier.fillMaxSize().background(Color.Black)) {
+                    PosterMotionHost(controller) {
+                        NavHost(controller, Route.Home,
+                            enterTransition = { fadeIn(tween(350)) }, exitTransition = { fadeOut(tween(200)) }) {
+                            posterComposable<Route.Home> {
+                                Box(Modifier.padding(top = 300.dp)) {
+                                    CachedHomeBanner(listOf(CachedHomeImage(Item("hero", "轮播作品", "Movie"), "poster:hero", true)),
+                                        false, { controller.navigate(Route.Detail("hero", "Movie")) })
+                                }
+                            }
+                            posterComposable<Route.Detail> {
+                                Box(Modifier.padding(start = 100.dp, top = 60.dp)) {
+                                    Box(Modifier.size(120.dp, 180.dp).sharedPoster("hero").background(Color.Green))
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        rule.mainClock.advanceTimeBy(1000)
+        val start = greenBounds()
+        rule.onNodeWithText("轮播作品").performClick()
+        rule.mainClock.advanceTimeBy(100)
+        val middle = greenBounds()
+        assertTrue("剧照应从轮播位置缩向详情：$start → $middle", middle.width < start.width && middle.width > 120f)
+        assertTrue("应处在中间纵向位置：$middle", middle.top > 60f && middle.top < start.top)
+        rule.mainClock.advanceTimeBy(500)
+        assertEquals(Rect(100f, 60f, 220f, 240f), greenBounds())
     }
 
     @Test fun actualMovieShowsSourceTitleBeforeItsMetadataArrives() =

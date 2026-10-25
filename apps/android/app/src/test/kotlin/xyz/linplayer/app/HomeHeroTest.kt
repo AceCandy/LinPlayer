@@ -32,7 +32,6 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.*
 import xyz.linplayer.app.tv.*
 import xyz.linplayer.app.ui.pages.CachedHomeBanner
-import xyz.linplayer.app.ui.pages.homePlaybackTarget
 import xyz.linplayer.app.ui.theme.LpTheme
 import com.github.takahirom.roborazzi.captureRoboImage
 
@@ -68,16 +67,17 @@ class HomeHeroTest {
             }
         } }
         val hero = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
-        val play = rule.onNodeWithText("播放").fetchSemanticsNode().boundsInRoot
+        val text = rule.onNodeWithTag("home.hero.text", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         val lines = rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot
         rule.runOnIdle { extension = 100.dp }
         assertEquals(hero, rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot)
-        assertEquals(play, rule.onNodeWithText("播放").fetchSemanticsNode().boundsInRoot)
+        assertEquals(text, rule.onNodeWithTag("home.hero.text", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot)
         assertEquals(lines, rule.onNodeWithTag("home.hero.indicators").fetchSemanticsNode().boundsInRoot)
         val pixels = rule.onRoot().captureToImage().toPixelMap()
         val fullHeight = hero.height + 100
+        assertTrue("顶部不铺暗色", pixels[2, 4].luminance() > .95f)
         assertTrue("上方画面仍应保留亮度", pixels[2, (fullHeight * .35f).toInt()].luminance() > .4f)
-        assertTrue("中下部应连续压暗而非恢复亮图", pixels[2, (fullHeight * .7f).toInt()].luminance() < .35f)
+        assertTrue("文字区应压暗", pixels[2, hero.bottom.toInt() - 30].luminance() < .4f)
         var previous = pixels[2, (fullHeight * .35f).toInt()].luminance()
         for (y in (fullHeight * .35f).toInt() until fullHeight.toInt() step 2) {
             val current = pixels[2, y].luminance()
@@ -91,22 +91,50 @@ class HomeHeroTest {
         rule.runOnIdle { assertTrue(resumeClicked) }
     }
 
-    @Test fun singleItemHidesIndicatorAndPlayDoesNotOpenDetail() {
+    @Test fun singleItemShowsScoreAndOverviewWithoutPlayButton() {
         var opened = ""
-        var played = ""
         FakeImages.install(ApplicationProvider.getApplicationContext())
+        val rated = image("one").let { it.copy(item = it.item.copy(rating = 8.64, doubanRating = 7.92)) }
         rule.setContent { LpTheme(darkOverride = true) {
             Box(Modifier.fillMaxSize()) {
-                CachedHomeBanner(listOf(image("one")), true, { opened = it.id }, onPlay = { played = it.id })
+                CachedHomeBanner(listOf(rated), true, { opened = it.id },
+                    loadOverview = { item, emit -> emit("${item.name}的剧情简介") })
             }
         } }
         rule.onNodeWithTag("home.hero.indicators").assertDoesNotExist()
         rule.onNodeWithText("2026 · 动作").assertIsDisplayed()
-        rule.onNodeWithText("播放").performClick()
-        rule.runOnIdle { assertEquals("one", played); assertEquals("", opened) }
+        rule.onNodeWithText("★ 8.6").assertIsDisplayed()
+        rule.onNodeWithContentDescription("豆瓣评分 7.9").assertIsDisplayed()
+        rule.onNodeWithText("作品one的剧情简介").assertIsDisplayed()
+        rule.onNodeWithText("播放").assertDoesNotExist()
         rule.onNodeWithText("作品one").performClick()
         rule.runOnIdle { assertEquals("one", opened) }
         rule.onRoot().captureRoboImage("build/home-cinema/small-hero.png")
+    }
+
+    /** 同时推移：左滑新作从右侧推入、旧作向左移出；右滑方向相反。 */
+    @Test fun swipeDirectionDecidesWhichSideTheNextWorkEntersFrom() {
+        FakeImages.install(ApplicationProvider.getApplicationContext())
+        val images = listOf(image("a"), image("b"), image("c"))
+        rule.mainClock.autoAdvance = false
+        rule.setContent { LpTheme(darkOverride = true) { CachedHomeBanner(images, true, {}) } }
+        rule.mainClock.advanceTimeBy(500)
+        fun left(name: String) = rule.onNodeWithText(name, useUnmergedTree = true).fetchSemanticsNode().boundsInRoot.left
+        val rest = left("作品a")
+        rule.onNodeWithTag("home.banners").performTouchInput { swipeLeft() }
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(160)
+        assertTrue("新作应从右侧推入", left("作品b") > rest)
+        assertTrue("旧作应向左移出", left("作品a") < rest)
+        rule.mainClock.advanceTimeBy(1000)
+        assertEquals(rest, left("作品b"), .5f)
+        rule.onNodeWithTag("home.banners").performTouchInput { swipeRight() }
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(160)
+        assertTrue("右滑时上一部应从左侧推入", left("作品a") < rest)
+        assertTrue("当前作应向右移出", left("作品b") > rest)
     }
 
     @Test fun horizontalSwipeChangesItemAndRestartsAutoTimer() {
@@ -284,7 +312,7 @@ class HomeHeroTest {
 
     @Test
     @Config(qualifiers = "w430dp-h932dp-mdpi")
-    fun longTitleLargeFontKeepsPlayInsideHero() {
+    fun longTitleLargeFontKeepsTextInsideHero() {
         rule.setContent { LpTheme(darkOverride = true) {
             CompositionLocalProvider(LocalDensity provides Density(1f, 2f)) {
                 CachedHomeBanner(listOf(image("one").copy(item = image("one").item.copy(
@@ -292,8 +320,8 @@ class HomeHeroTest {
             }
         } }
         val hero = rule.onNodeWithTag("home.banners").fetchSemanticsNode().boundsInRoot
-        val play = rule.onNodeWithText("播放").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
-        assertTrue(play.bottom <= hero.bottom && play.right <= hero.right)
+        val text = rule.onNodeWithTag("home.hero.text", useUnmergedTree = true).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue(text.top >= hero.top && text.bottom <= hero.bottom && text.right <= hero.right)
     }
 
     @OptIn(coil3.annotation.DelicateCoilApi::class)
@@ -317,20 +345,6 @@ class HomeHeroTest {
         } }
         rule.waitUntil { "fake:primary" in requested }
         rule.onNodeWithText("作品one").assertIsDisplayed()
-        rule.onNodeWithText("播放").assertIsDisplayed()
         assertEquals(1, requested.count { it == "fake:missing" })
-    }
-
-    @Test fun seriesPlaybackUsesCoreTargetWithResumeState() = runBlocking {
-        val core = FakeCore().loggedIn()
-        core.ret("emby.seriesPlaybackTarget", item("partial", "未完整看完", "Episode", runtime = 1800.0, resume = 600.0))
-        val app = AppState(core, scope)
-        app.boot()
-        val target = homePlaybackTarget(app, Item("series", "剧集", "Series", played = true))
-        assertEquals("partial", target.id)
-        assertEquals(600.0, target.resumeSecs, 0.0)
-        val calls = core.calls.filter { it.first in setOf("emby.seriesPlaybackTarget", "emby.seriesSeasons", "emby.seasonEpisodes") }
-        assertEquals(listOf("emby.seriesPlaybackTarget"), calls.map { it.first })
-        assertEquals("series", calls.single().second?.str("series_id"))
     }
 }

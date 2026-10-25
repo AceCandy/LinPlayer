@@ -110,13 +110,14 @@ fun LpImmersive(
     barHeight: Dp = Dim.topBar,
     barHorizontalPadding: Dp = Sp.x12,
     barBackground: Color = Color.Transparent,
+    barModifier: Modifier = Modifier,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
     Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
         content(contentInsets())
         // 遮罩向下淡出，让滚动内容透出，避免顶栏底部出现纯色硬边。
-        Column(Modifier.fillMaxWidth().background(Brush.verticalGradient(
+        Column(barModifier.fillMaxWidth().background(Brush.verticalGradient(
             0f to barBackground,
             .65f to barBackground.copy(alpha = barBackground.alpha * .9f),
             1f to Color.Transparent,
@@ -214,7 +215,8 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, showAggregate: Boolean = true, 
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Row(
-            Modifier.fillMaxWidth(.78f).height(Dim.tabBar)
+            // 宽度随图标数收拢：按屏宽拉伸时图标彼此离得太远，平板上尤甚
+            Modifier.height(Dim.tabBar)
                 .privateNeonBorder(R.pill)
                 .shadow(2.dp, RoundedCornerShape(R.pill))
                 .clip(RoundedCornerShape(R.pill)).background(c.mediaPanel)
@@ -223,16 +225,16 @@ fun LpTabBar(current: Int, onSearch: () -> Unit, showAggregate: Boolean = true, 
                 .selectableGroup().testTag("phone.tabs"),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            Tab("首页", LpIcons.home, current == 0,
-                Modifier.weight(1f)) { onPick(0) }
-            Tab("搜索", LpIcons.search, current == 3, Modifier.weight(1f), onClick = onSearch)
-            if (showAggregate) Tab("聚合视界", LpIcons.layers, current == 1, Modifier.weight(1f)) { onPick(1) }
+            Tab("首页", LpIcons.home, current == 0, TabItem) { onPick(0) }
+            Tab("搜索", LpIcons.search, current == 3, TabItem, onClick = onSearch)
+            if (showAggregate) Tab("聚合视界", LpIcons.layers, current == 1, TabItem) { onPick(1) }
             // 服务器管理仍在聚合页；第三个入口是日常使用的收藏。
-            Tab("收藏", LpIcons.star, current == 2,
-                Modifier.weight(1f)) { onPick(2) }
+            Tab("收藏", LpIcons.star, current == 2, TabItem) { onPick(2) }
         }
     }
 }
+
+private val TabItem = Modifier.width(58.dp)
 
 /** 图标保留可读名称及选中语义，圆底与轻微缩放提示当前页。 */
 @Composable

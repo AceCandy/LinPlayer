@@ -93,6 +93,8 @@ fun NetImage(
     reveal: Boolean = true,
     onLoadResult: ((Boolean) -> Unit)? = null,
     fallbackUrls: List<String> = emptyList(),
+    /** 占位本身是有效信息（如库名）时，加载途中也显示它。 */
+    placeholderWhileLoading: Boolean = false,
     placeholder: @Composable (() -> Unit)? = null,
 ) {
     val candidates = (listOfNotNull(url?.takeIf { it.isNotBlank() }) + fallbackUrls).distinct()
@@ -102,7 +104,7 @@ fun NetImage(
         onLoadResult = { success ->
             if (!success && candidateIndex < candidates.lastIndex) candidateIndex++
             else onLoadResult?.invoke(success)
-        }, placeholder = placeholder)
+        }, placeholder = placeholder, placeholderWhileLoading = placeholderWhileLoading)
 }
 
 @Composable
@@ -110,6 +112,7 @@ private fun NetImageCandidate(
     url: String?, desc: String?, m: Modifier, corner: androidx.compose.ui.unit.Dp,
     scale: ContentScale, backgroundBlur: Boolean, previewUrl: String?, reveal: Boolean,
     onLoadResult: ((Boolean) -> Unit)?, placeholder: @Composable (() -> Unit)?,
+    placeholderWhileLoading: Boolean,
 ) {
     val report by androidx.compose.runtime.rememberUpdatedState(onLoadResult)
     LaunchedEffect(url) { if (url.isNullOrEmpty()) report?.invoke(false) }
@@ -164,7 +167,8 @@ private fun NetImageCandidate(
             when {
                 preview?.state?.collectAsState()?.value is AsyncImagePainter.State.Success ->
                     androidx.compose.foundation.Image(preview, null, Modifier.fillMaxSize(), contentScale = scale)
-                placeholder != null -> placeholder()
+                // 「暂无封面」只在确实取不到时出现；加载途中是中性底色，滑动时不闪文字
+                (failed || placeholderWhileLoading) && placeholder != null -> placeholder()
                 backgroundBlur -> Box(Modifier.fillMaxSize().background(Lp.colors.bg))
                 else -> Box(Modifier.fillMaxSize().background(Lp.colors.s3))
             }
@@ -318,7 +322,8 @@ internal fun MediaRatingBadge(rating: Double?, douban: Boolean = false, m: Modif
         .background(Color.Black.copy(alpha = .72f)).padding(horizontal = Sp.x6, vertical = Sp.x2)
         .semantics(mergeDescendants = true) { contentDescription = "${if (douban) "豆瓣" else "普通"}评分 $score" },
         verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
-        Text(if (douban) "豆" else "★", color = if (douban) Lp.colors.ok else Color.White.copy(alpha = .8f), style = LpText.badge)
+        if (douban) androidx.compose.foundation.Image(LpIcons.douban, null, Modifier.size(12.dp))
+        else Text("★", color = Color.White.copy(alpha = .8f), style = LpText.badge)
         Text(score, color = Color.White, style = LpText.caption)
     }
 }

@@ -406,6 +406,8 @@ class PhoneDiscoverUiTest {
         open(core, Route.Calendar)
         rule.onNodeWithText("01:30").assertIsDisplayed()
         rule.onNodeWithText("定时放送").assertIsDisplayed()
+        // 周条只写星期与日期，不再写当天部数
+        rule.onNodeWithText("1", useUnmergedTree = true).assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/discover-ui/calendar-time.png")
     }
     @Test fun calendarWithoutSponsorOrderFetchesImmediately() {

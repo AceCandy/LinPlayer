@@ -40,7 +40,6 @@ import xyz.linplayer.app.tv.arr
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.DownloadsPage
-import xyz.linplayer.app.ui.pages.HistoryPage
 import xyz.linplayer.app.ui.theme.LpTheme
 
 @RunWith(RobolectricTestRunner::class)
@@ -62,12 +61,6 @@ class PhoneRecordsUiTest {
         ret("download.setThreads", buildJsonObject { put("threads", 2) })
         ret("download.list", arr(task("进行中", "downloading"), task("已暂停", "paused"), task("失败任务", "failed")))
     }
-    private fun record() = buildJsonObject {
-        put("record_id", "record-a"); put("title", "重逢"); put("series_title", "远方的故事")
-        put("scope_key", "http://emby-b.invalid:8096:user-b"); put("last_emby_item_id", "episode-12")
-        put("last_position_ticks", 18000000000L); put("run_time_ticks", 36000000000L)
-        put("last_played_at", 1791072000000L); put("played", false)
-    }
     private fun open(core: FakeCore, route: Any = Route.Downloads) {
         val app = AppState(core, scope)
         runBlocking { app.boot() }
@@ -79,7 +72,6 @@ class PhoneRecordsUiTest {
                     navigation = nav
                     NavHost(nav, startDestination = route) {
                         composable<Route.Downloads> { DownloadsPage(nav) }
-                        composable<Route.History> { HistoryPage(nav) }
                         composable<Route.Detail> { Text("详情目标：" + it.toRoute<Route.Detail>().itemId) }
                     }
                 }
@@ -149,42 +141,11 @@ class PhoneRecordsUiTest {
         rule.onNodeWithText("远方的故事 · 进行中").assertIsDisplayed()
         rule.onNodeWithText("重试").assertIsDisplayed()
         rule.onAllNodesWithText("/s", substring = true).assertCountEquals(0)
-        core.ret("source.history", arr())
-        core.ret("emby.watchHistoryList", arr())
-        rule.runOnIdle { navigation.navigate(Route.History) { popUpTo<Route.Downloads> { inclusive = true } } }
+        rule.runOnIdle { navigation.navigate(Route.Detail("away", "Movie")) { popUpTo<Route.Downloads> { inclusive = true } } }
         rule.waitForIdle()
         val afterLeaving = core.calls.count { it.first == "download.list" }
         rule.mainClock.advanceTimeBy(4200)
         rule.waitForIdle()
         assertEquals("离页必须停止下载轮询", afterLeaving, core.calls.count { it.first == "download.list" })
-    }
-    @Test fun historyKeepsScopeSourceAndCrossServerNavigation() {
-        val core = FakeCore().loggedIn()
-        core.ret("source.history", arr())
-        core.ret("emby.watchHistoryList", arr(record()))
-        core.ret("account.setActiveServer", JsonNull)
-        core.ret("account.listAccounts", arr(account("http://emby-b.invalid:8096", "服务器 B", "", false)))
-        open(core, Route.History)
-        rule.onNodeWithText("全部服务器").performClick()
-        rule.waitForIdle()
-        assertEquals("false", core.calls.last { it.first == "emby.watchHistoryList" }.second?.get("current_only").toString())
-        rule.onNodeWithText("服务器 B").assertIsDisplayed()
-        rule.onNodeWithText("已观看 30:00 / 1:00:00").assertIsDisplayed()
-        rule.onRoot().captureRoboImage("build/records-ui/history-light-large.png")
-        rule.runOnIdle { dark.value = true }
-        rule.onRoot().captureRoboImage("build/records-ui/history-dark-large.png")
-        rule.onNodeWithText("远方的故事 · 重逢").performClick()
-        rule.onNodeWithText("详情目标：episode-12").assertIsDisplayed()
-        assertEquals("http://emby-b.invalid:8096", core.calls.last { it.first == "account.setActiveServer" }.second.str("server_id"))
-    }
-    @Test fun historyReadFailureDoesNotPretendToBeEmpty() {
-        val core = FakeCore().loggedIn()
-        core.ret("source.history", arr())
-        core.on("emby.watchHistoryList") { throw CoreException("E_NETWORK", "读取历史失败", true) }
-        open(core, Route.History)
-        rule.onNodeWithText("还没有观看记录").assertDoesNotExist()
-        core.ret("emby.watchHistoryList", arr(record()))
-        rule.onNodeWithText("重试").performClick()
-        rule.onNodeWithText("远方的故事 · 重逢").assertIsDisplayed()
     }
 }

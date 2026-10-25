@@ -1080,14 +1080,14 @@ private fun MediaCachePanel() {
     Panel(Modifier.padding(horizontal = Sp.x16)) {
         val bytes = capacity
         if (bytes == null) {
+            // 等待状态写进行内，不在格子下方另插加载图
             LpCell("媒体缓存", mediaStyle = true, sub = if (loadFailed) "读取失败，点此重试" else null,
+                value = if (loadFailed) null else "读取中…",
                 arrow = loadFailed, onClick = { if (loadFailed) reload++ })
-            if (!loadFailed) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
         } else {
             LpCell("保留媒体缓存", mediaStyle = true,
-                sub = "关闭会清理已有缓存",
+                sub = if (saving) "正在保存…" else "关闭会清理已有缓存",
                 switch = bytes > 0L, onSwitch = { update(if (it) lastCapacity else 0L) })
-            if (saving) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(horizontal = Sp.x16))
             if (bytes > 0L) {
                 Hairline()
                 StepperRow("磁盘容量上限", bytes / 1048576.0, 64.0, 4096.0, 64.0,
@@ -1462,7 +1462,6 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val tr = trakt
-            if (!loaded) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(Sp.x16))
             if (!loaded) LpCell("Trakt", mediaStyle = true, value = "查询中…", arrow = false)
             else if (tr != null && tr.isNotEmpty()) {
                 LpCell("Trakt", mediaStyle = true, value = tr.str("username") ?: "已连接", arrow = false)
@@ -1493,7 +1492,6 @@ private fun SyncAccountsPanel() {
         Spacer(Modifier.height(Sp.x12))
         Panel {
             val bg = bangumi
-            if (!loaded) xyz.linplayer.app.ui.components.LpLoading(Modifier.padding(Sp.x16))
             if (!loaded) LpCell("Bangumi", mediaStyle = true, value = "查询中…", arrow = false)
             else if (bg != null && bg.isNotEmpty()) {
                 LpCell("Bangumi", mediaStyle = true, value = bg.str("username") ?: "已连接", arrow = false)

@@ -369,7 +369,8 @@ class PhoneDetailCacheTest {
         rule.onNodeWithText("默认版本").assertDoesNotExist()
         rule.onNodeWithContentDescription("版本").assertDoesNotExist()
         rule.onNodeWithContentDescription("音轨").assertDoesNotExist()
-        rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
+        // 正文已出时播放选项只留空位，不在局部另画加载图
+        rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
         rule.onNode(hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
             .performScrollToNode(hasTestTag("detail.overview"))
         rule.onNodeWithTag("detail.overview").assertIsDisplayed()
@@ -429,8 +430,8 @@ class PhoneDetailCacheTest {
         rule.onNodeWithTag("detail.episodes").performScrollTo()
         rule.onNode(hasText("S2E1：信号") and !hasAnyAncestor(hasTestTag("detail.series.target")), useUnmergedTree = true).assertExists()
         rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
-        rule.onNodeWithText("正在加载分集…", substring = true).assertDoesNotExist()
-        rule.onNodeWithContentDescription("正在加载分集…").assertIsDisplayed()
+        // 已有分集时后台刷新不再画局部加载图
+        rule.onNodeWithContentDescription("正在加载分集…").assertDoesNotExist()
         rule.onNodeWithTag("detail.play").assertIsNotEnabled()
         rule.runOnIdle { gate.complete(Unit) }
         rule.waitForIdle()
@@ -579,7 +580,6 @@ class PhoneDetailCacheTest {
         rule.onNodeWithText("首页").assertIsDisplayed()
         rule.runOnIdle { PageCache.clear(); refreshing = true; nav.navigate(Route.Detail("m1", "Movie")) }
         rule.onNodeWithContentDescription("版本").assertDoesNotExist()
-        rule.onNodeWithContentDescription("刷新中").assertIsDisplayed()
         rule.runOnIdle { gate.complete(Unit) }
         rule.onNodeWithContentDescription("版本").assertIsDisplayed()
     }

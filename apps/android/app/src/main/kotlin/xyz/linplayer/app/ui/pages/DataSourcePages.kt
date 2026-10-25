@@ -520,30 +520,6 @@ internal fun EmbySwitchSource(nav: NavController, itemId: String, onClose: () ->
     seed?.let { (server, item, idx) -> SwitchSourceDialog(nav, server, item, "", idx, 0.0, onClose) }
 }
 
-/** 全局观看历史里数据源那部分,给 Emby 历史 / 首页用的横排。 */
-@Composable
-internal fun SourceHistoryRow(nav: NavController) {
-    val app = LocalApp.current
-    var rows by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
-    LaunchedEffect(Unit) { rows = runCatching { app.call("source.history") }.getOrNull().arr().mapNotNull { it.obj() } }
-    if (rows.isEmpty()) return
-    Column(Modifier.padding(vertical = Sp.x8)) {
-        H2("数据源观看记录", Modifier.padding(horizontal = Sp.x16))
-        Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-            rows.take(30).forEach { c ->
-                val r = c["ref"].obj() ?: return@forEach
-                val dur = c.dbl("duration_secs") ?: 0.0
-                val pos = c.dbl("position_secs") ?: 0.0
-                val removed = c.bool("removed")
-                SourceCard(r["item"].obj() ?: return@forEach, {
-                    if (removed) app.toast("这个来源已经移除了")
-                    else nav.navigate(Route.SourceDetail(c.str("server_id") ?: "", r["item"].obj().str("id") ?: "", r.str("lineId"), r.str("episodeId"), pos))
-                }, Modifier.width(108.dp), badge = if (removed) "来源已移除" else r.str("episodeName"), progress = if (dur > 0) pos / dur else -1.0)
-            }
-        }
-    }
-}
-
 // ---------------------------------------------------------------- 添加插件源(D131 D45 D346 D523)
 
 /** 插件服务器类型的提交:插件给源草稿(或先给多仓让用户勾)→ 用户勾源 → 落账号表。返回是否加了。 */
