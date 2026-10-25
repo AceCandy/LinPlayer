@@ -35,7 +35,7 @@ import xyz.linplayer.app.ui.player.FeedPlayback
 import xyz.linplayer.app.ui.theme.*
 
 private val FeedAccent = Color(0xFFFF405E)
-private val FeedSecondary = Color.White.copy(alpha = .7f)
+internal val FeedSecondary = Color.White.copy(alpha = .7f)
 private val FeedSurface = Color(0xFF17181B)
 private val FeedTextShadow = Shadow(Color.Black.copy(alpha = .7f), Offset(0f, 2f), 6f)
 

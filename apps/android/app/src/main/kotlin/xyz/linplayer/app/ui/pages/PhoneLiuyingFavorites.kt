@@ -1,14 +1,18 @@
 package xyz.linplayer.app.ui.pages
 
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.GridItemSpan
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.semantics.selected
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.unit.dp
@@ -58,12 +62,19 @@ internal fun PhoneLiuyingFavorites(
         }
         PhoneLiuyingSheet(if (feed == "normal") "收藏的流影" else "卍解收藏", "liuying.favoriteSheet", onClose,
             showHeader = tv) {
-            if (feed == "normal") Row(Modifier.fillMaxWidth()) {
+            // 与顶栏分类同一样式：靠左排列，选中项白字加粗并带下划线
+            if (feed == "normal") Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
                 for ((value, title) in listOf("dance" to "舞蹈", "live" to "直播")) {
-                    Text(title, Modifier.weight(1f).heightIn(min = 48.dp).wrapContentHeight()
+                    Column(Modifier.widthIn(min = 48.dp).heightIn(min = 48.dp)
                         .testTag("liuying.favoriteTab.$value").semantics { selected = tab == value }
-                        .pressable({ tab = value }), color = if (tab == value) Color.White else Color.Gray,
-                        style = LpText.list)
+                        .pressable({ tab = value }).padding(vertical = 10.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(title, color = if (tab == value) Color.White else FeedSecondary,
+                            style = LpText.list.copy(fontWeight = if (tab == value) FontWeight.SemiBold else FontWeight.Normal))
+                        Spacer(Modifier.height(6.dp))
+                        Box(Modifier.size(20.dp, 3.dp).background(
+                            if (tab == value) Color.White else Color.Transparent, RoundedCornerShape(2.dp)))
+                    }
                 }
             }
             // 流影面板固定深色；复用海报卡时不继承外层浅色文字。
