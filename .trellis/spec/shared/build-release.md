@@ -11,6 +11,37 @@
 - Android 需要 JDK、SDK / NDK；项目目录已有工具时显式设置 `JAVA_HOME`、`PATH`、`ANDROID_HOME`、`GRADLE_USER_HOME`，不把本机绝对路径写进仓库。
 - 版本来自根 `VERSION`；脚本支持的 `LP_VERSION` 覆盖遵循发行流程，不另造版本权威。
 
+## Android 手机快速出包（Linux）
+
+适用于本地工具链及签名材料已就绪、用户只要求打手机包的场景。从仓库根目录执行；其它机器先核实实际工具目录，不照搬不存在的路径。
+
+```bash
+(
+  set -e
+  export JAVA_HOME="$PWD/.toolchain/jdk-21.0.2"
+  export ANDROID_HOME="$PWD/.toolchain/android-sdk"
+  export ANDROID_NDK_HOME="$ANDROID_HOME/ndk/28.2.13676358"
+  export GRADLE_USER_HOME="$PWD/.toolchain/gradle"
+  export PATH="$JAVA_HOME/bin:$PATH"
+
+  test -x "$JAVA_HOME/bin/java"
+  test -x "$JAVA_HOME/bin/jlink"
+  test -x "$ANDROID_NDK_HOME/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android24-clang"
+  test -f apps/android/keystore.properties
+  java -version
+  (cd apps/android && ./gradlew --version)
+
+  time bash scripts/pack-android.sh arm64-v8a
+)
+```
+
+- **先确认环境再编译**：预检失败先补齐工具或签名材料；核对 Java 与 Gradle 输出使用项目 JDK 21，不让系统默认 JDK 抢先。签名与编译期凭据仍按本页验收要求，不打印配置内容。
+- **复用缓存**：固定 `GRADLE_USER_HOME` 为已有的 `.toolchain/gradle`，保留 Go / Gradle 增量缓存；普通出包不运行 `clean`、不清缓存、不强制刷新依赖或重跑全部任务。Wrapper 版本以仓库配置为准，缓存缺失仍可能下载，不为提速换 Gradle 版本。
+- **只调用一次完整入口**：`pack-android.sh` 已包含 libmpv 准备、Go 核心构建和 `assembleRelease`，不要先逐项构建再调用它。只出手机 arm64，不顺带出 TV / 模拟器包，不绕过原生库、形态、签名结构和体积门禁。
+- **失败按阶段定位**：若只看到“核心层编不出来”，在相同环境运行 `bash scripts/build-core-android.sh arm64-v8a` 查看真实错误；若是 `JdkImageTransform` / `jlink` 错误，先核对 JDK，不先删 SDK 或缓存。只交付 `build/android/app-arm64-v8a-release.apk`，不把同目录旧 TV 包当成本轮产物。
+
+2026-10-25 实测：系统默认 JDK 22 在 `jlink` 阶段失败，Gradle 报耗时约 3 分 15 秒；切换项目 JDK 21 后约 3 分钟出包成功。失败轮还下载了 Gradle 9.7.1，未使用项目 Gradle 缓存。后续固定上述环境以避免相同失败和重复下载；这不是耗时承诺，也未采集 Kotlin / R8 等任务级耗时，不能据此认定内部瓶颈。
+
 ## 最终交付路径
 
 | 平台 | 默认入口 | 最终目录 / 文件 |
