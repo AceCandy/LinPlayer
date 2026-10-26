@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 135
-- **Last Active**: 2026-10-26
+- **Total Sessions**: 136
+- **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~102 | Active |
+| `journal-4.md` | ~133 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 136 | 2026-10-27 | TV 对齐回归修复与提交归档 | `fee32450` | `main` |
 | 135 | 2026-10-26 | 统一加载动画与收藏单次取150条 | `d4bb6a96` | `main` |
 | 134 | 2026-10-26 | 详情放大转场去换图与侧滑返回缩回 | `6cce9029` | `main` |
 | 133 | 2026-10-26 | 首页轮播推移与详情海报放大转场 | `9a800a34`, `bcf3ee0c` | `main` |

@@ -100,3 +100,34 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 136: TV 对齐回归修复与提交归档
+<!-- trellis-session: v=2 fp=16be48ff9d6a2783 -->
+
+**Date**: 2026-10-27
+**Task**: TV 对齐回归修复与提交归档
+**Branch**: `main`
+
+### Summary
+
+提交当前 TV 向手机端对齐改动与旧页面清理；修复回调类型、测试夹具导入、时间文字断言及服务上报测试生命周期。13 类 165 项回归通过，189 处 Android 参数检查与敏感信息门禁通过；已归档对应任务，未推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `fee32450` | feat(android): 对齐 TV 设置与播放器并清理旧浏览页 |
+
+### Testing
+
+- [OK] 165 项定向回归通过，无失败、错误或跳过
+- [OK] Android 调用参数、暂存内容敏感信息及 diff 格式检查通过
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机安装、遥控焦点、解码播放和 HDMI 刷新率仍待验收；本轮未重打 APK
