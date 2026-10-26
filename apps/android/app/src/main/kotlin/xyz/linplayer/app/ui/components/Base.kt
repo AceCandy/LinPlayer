@@ -62,6 +62,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Color
@@ -832,10 +833,22 @@ fun LpRefreshIcon() {
     LpLoading(label = "刷新中")
 }
 
-/** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字；默认居中于所在区域。 */
+/** 接口等待只显示轻量反馈，不伪造尚未返回的海报和文字；默认居中于所在区域。整页等待统一用大尺寸动画。 */
 @Composable
 fun LoadingState(m: Modifier = Modifier.fillMaxSize()) {
-    Box(m, contentAlignment = Alignment.Center) { LpRefreshIcon() }
+    // 默认原生样式与 Lottie 样式的视觉占比不同，尺寸分开取。
+    Box(m, contentAlignment = Alignment.Center) {
+        LpLoading(size = if (xyz.linplayer.app.data.UiPrefs.loadingStyle.value == 0) 90.dp else 130.dp, label = "刷新中")
+    }
+}
+
+/**
+ * Grid/列表项内的整块等待：懒加载项的主轴高度不受限，不能用 fillMaxSize，
+ * 按屏幕高度取比例，随设备自适应；上方已有头部时取小于 1 的比例避免多滚一屏。
+ */
+@Composable
+fun LoadingPane(heightFraction: Float) {
+    LoadingState(Modifier.fillMaxWidth().height(LocalConfiguration.current.screenHeightDp.dp * heightFraction))
 }
 
 /** 三态渲染的收口:一个区块自己管自己的 Loading / Ok / Fail。 */

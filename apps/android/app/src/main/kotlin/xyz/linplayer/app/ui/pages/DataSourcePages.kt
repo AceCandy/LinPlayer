@@ -169,6 +169,11 @@ internal fun SourceError(serverId: String, e: Throwable, retry: () -> Unit, swit
 private fun LazyGridScope.header(content: @Composable () -> Unit) =
     item(span = { GridItemSpan(maxLineSpan) }) { content() }
 
+/** 首批等待：搜索框等头部已在上方，取屏高 60% 让大 loading 大致居中于剩余区域。 */
+private fun LazyGridScope.loadingItem() = item(span = { GridItemSpan(maxLineSpan) }) {
+    xyz.linplayer.app.ui.components.LoadingPane(.6f)
+}
+
 // ---------------------------------------------------------------- 首页
 
 /** 数据源首页(D167 D344):继续观看 → 推荐 → 分类;没有 home 就只剩搜索框。源内搜索停顿 500ms 自动搜。 */
@@ -236,7 +241,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
             val f = found
             if (q.isNotBlank()) {
                 when {
-                    f == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("搜索中…") }
+                    f == null -> loadingItem()
                     f.isFailure -> header { SourceError(serverId, f.exceptionOrNull()!!, { searchGen++ }) }
                     f.getOrNull()!!.isEmpty() -> header { EmptyState("没有找到「$q」", icon = LpIcons.search) }
                     else -> items(f.getOrNull()!!) { SourceCard(it, { open(it) }) }
@@ -256,7 +261,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
             }
             val h = home
             when {
-                h == null -> header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
+                h == null -> loadingItem()
                 h.isFailure -> header { SourceError(serverId, h.exceptionOrNull()!!, { reload++ }) }
                 h.getOrNull() == null -> if (cont.isEmpty()) header { EmptyState("这个源没有首页", "在上面的搜索框里找想看的。", LpIcons.search) }
                 else -> {
@@ -296,16 +301,23 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
     suspend fun more(g: Int) {
         if (busy || done) return
         busy = true
-        runCatching {
-            app.call("source.category", j("server_id" to r.serverId, "category_id" to cat.str("id"),
-                "filters" to filters.filterValues { it.isNotEmpty() }, "cursor" to next)).obj()
-        }.onSuccess { page ->
-            if (g != gen) return@onSuccess
-            items.addAll(page?.get("items").arr().mapNotNull { it.obj() })
-            next = page.str("next")?.takeIf { it.isNotEmpty() }
-            done = next == null
-        }.onFailure { if (g == gen) err = it }
-        busy = false
+        try {
+            // 服务端可能先过滤出空页但仍给游标：没有内容可滚动就继续往后取，设上限防止一直空页。
+            var tries = 0
+            do {
+                var failed = false
+                runCatching {
+                    app.call("source.category", j("server_id" to r.serverId, "category_id" to cat.str("id"),
+                        "filters" to filters.filterValues { it.isNotEmpty() }, "cursor" to next)).obj()
+                }.onSuccess { page ->
+                    if (g != gen) return@onSuccess
+                    items.addAll(page?.get("items").arr().mapNotNull { it.obj() })
+                    next = page.str("next")?.takeIf { it.isNotEmpty() }
+                    done = next == null
+                }.onFailure { failed = true; if (g == gen) err = it }
+                tries++
+            } while (!failed && g == gen && !done && items.isEmpty() && tries < 20)
+        } finally { busy = false }
     }
     LaunchedEffect(gen) { items.clear(); next = null; done = false; err = null; more(gen) }
     val atEnd by remember { derivedStateOf { (grid.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: 0) >= grid.layoutInfo.totalItemsCount - 6 } }
@@ -337,7 +349,8 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
             }
             items(items) { SourceCard(it, { nav.navigate(Route.SourceDetail(it.str("source") ?: r.serverId, it.str("id") ?: "")) }, shape = cat.str("shape") ?: "portrait") }
             err?.let { e -> header { SourceError(r.serverId, e, { gen++ }) } }
-            if (busy) header { xyz.linplayer.app.ui.components.LoadingLabel("加载中…") }
+            // 首批未到时放整块等待动画；续页静默进行。
+            if (busy) { if (items.isEmpty()) loadingItem() }
             else if (done && items.isEmpty() && err == null) header { EmptyState("这个分类下没有内容") }
         }
     }
@@ -387,7 +400,7 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold(if (titleGone) detail?.str("title") ?: "" else "", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         val res = d
         when {
-            res == null -> xyz.linplayer.app.ui.components.LoadingLabel("加载中…", Modifier.padding(Sp.x16))
+            res == null -> xyz.linplayer.app.ui.components.LoadingState(Modifier.fillMaxSize().padding(pad))
             res.isFailure -> SourceError(r.serverId, res.exceptionOrNull()!!, { reload++ }) { switching = true }
             else -> LazyColumn(Modifier.fillMaxSize(), list, contentPadding = PaddingValues(bottom = pad.calculateBottomPadding())) {
                 val x = res.getOrNull()!!

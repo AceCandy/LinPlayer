@@ -111,7 +111,7 @@ class TvLiuyingTest {
         advance(rule, 1000)
         rule.onNodeWithTag("liuying.favorites").performSemanticsAction(SemanticsActions.OnClick) { it() }; advance(rule, 400)
         rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(1); advance(rule, 300)
-        rule.onNodeWithTag("liuying.favoriteMore").performSemanticsAction(SemanticsActions.OnClick) { it() }; advance(rule, 400)
+        advance(rule, 400)
         rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(1); advance(rule, 300)
         rule.onNodeWithTag("liuying.favoriteSheet").captureRoboImage("build/liuying/tv-favorites.png")
         rule.onNode(hasAnyAncestor(hasTestTag("liuying.favoriteItem.ly-work-f1")) and hasClickAction(), useUnmergedTree = true)

@@ -4,7 +4,6 @@ import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
@@ -70,6 +69,7 @@ import xyz.linplayer.app.ui.components.BlockBox
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim2
 import xyz.linplayer.app.ui.components.EmptyState
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.LpButton
 import xyz.linplayer.app.ui.components.LpScaffold
 import xyz.linplayer.app.ui.components.LpDialog
@@ -78,7 +78,6 @@ import xyz.linplayer.app.ui.components.MediaCard
 import xyz.linplayer.app.ui.components.gridCellWidth
 import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.components.OptRow
-import xyz.linplayer.app.ui.components.LpRefreshIcon
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.components.privateNeonIcon
@@ -275,7 +274,6 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 Modifier.testTag("library.sort"))
         },
     ) { pad ->
-        Box(Modifier.fillMaxSize()) {
         Column(Modifier.fillMaxSize()) {
             refreshError?.let { message ->
                 xyz.linplayer.app.ui.components.ErrorState(message, { reload++ })
@@ -286,11 +284,7 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                 onClearRating = { minRating = RATINGS[0] },
             )
             BlockBox(first, onRetry = { reload++ },
-                skeleton = {
-                    Box(Modifier.fillMaxSize().testTag("library.loading"), contentAlignment = Alignment.Center) {
-                        LpRefreshIcon()
-                    }
-                }) {
+                skeleton = { LoadingState(Modifier.fillMaxSize().testTag("library.loading")) }) {
                 val columns = posterColumns()
                 val imageHeight = posterImageHeight(width = gridCellWidth(columns))
                 if (items.isEmpty()) {
@@ -318,13 +312,6 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
                     }
                 }
             }
-        }
-        if ((refreshing && first is Block.Ok) || loadingMore) {
-            Box(Modifier.align(Alignment.Center).size(48.dp)
-                .testTag("library.refreshing"), contentAlignment = Alignment.Center) {
-                LpRefreshIcon()
-            }
-        }
         }
     }
 

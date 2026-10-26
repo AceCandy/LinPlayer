@@ -63,7 +63,6 @@ import xyz.linplayer.app.data.ToastKind
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.block
-import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
@@ -128,57 +127,34 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     var showSort by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
-    var loadingFirstPage by remember(key) { mutableStateOf(true) }
-    var nextIndex by xyz.linplayer.app.data.keepState("$key.next") { 0 }
-    var hasMore by xyz.linplayer.app.data.keepState("$key.more") { false }
-    var loadingMore by remember { mutableStateOf(false) }
-    var moreFailed by remember { mutableStateOf(false) }
     var generation by remember { mutableStateOf(0) }
 
-    suspend fun fetch(offset: Int) {
+    // 收藏一次取前 FAV_LIMIT 条，不再分页；更多的内容暂不展示。
+    suspend fun fetch() {
         val gen = generation
-        val prefix = if (offset == 0) emptyList() else block.valueOrNull.orEmpty()
-        val requestArgs = args("sort" to "更新时间", "start_index" to offset, "limit" to 60).toMutableMap()
+        val requestArgs = args("sort" to "更新时间", "start_index" to 0, "limit" to FAV_LIMIT).toMutableMap()
         if (watched) requestArgs["type"] = JsonPrimitive(watchedType)
         when (val r = app.displayBlock(if (watched) "emby.listWatched" else "emby.listFavorites", JsonObject(requestArgs)) { value ->
-            if (gen == generation && (offset > 0 || block !is Block.Ok)) {
-                block = Block.Ok((prefix + Page.from(value).items).distinctBy { it.id })
-            }
+            if (gen == generation && block !is Block.Ok) block = Block.Ok(Page.from(value).items.distinctBy { it.id })
         }) {
-            is Block.Ok -> if (gen == generation) {
-                val page = Page.from(r.value)
-                val previous = prefix
-                block = Block.Ok((previous + page.items).distinctBy { it.id })
-                nextIndex = r.value.obj().long("next_index")?.toInt() ?: offset + page.items.size
-                hasMore = r.value.obj().bool("has_more")
-                moreFailed = false
-            }
+            is Block.Ok -> if (gen == generation) block = Block.Ok(Page.from(r.value).items.distinctBy { it.id })
             is Block.Fail -> if (gen == generation) {
-                if (offset == 0) {
-                    if (block !is Block.Ok) block = r else app.report(Exception(r.message))
-                } else { moreFailed = true; app.report(Exception(r.message)) }
+                if (block !is Block.Ok) block = r else app.report(Exception(r.message))
             }
             else -> Unit
         }
     }
-    fun loadMore() {
-        if (!hasMore || loadingMore || loadingFirstPage || refreshing) return
-        loadingMore = true
-        val gen = generation
-        scope.launch { try { fetch(nextIndex) } finally { if (gen == generation) loadingMore = false } }
-    }
 
     LaunchedEffect(key, reload) {
         // 返回时保留快照，同时刷新收藏。
-        generation++; loadingMore = false; moreFailed = false
+        generation++
         val gen = generation
-        loadingFirstPage = true
         try {
             if (block !is Block.Ok) block = Block.Loading
-            if (session == null) { block = Block.Ok(emptyList()); hasMore = false; return@LaunchedEffect }
-            fetch(0)
+            if (session == null) { block = Block.Ok(emptyList()); return@LaunchedEffect }
+            fetch()
         } finally {
-            if (gen == generation) { loadingFirstPage = false; refreshing = false }
+            if (gen == generation) refreshing = false
         }
     }
     LaunchedEffect(Unit) { app.invalidate.collect { if (it == "library" || it == "all") reload++ } }
@@ -232,7 +208,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                             grid.firstVisibleItemIndex == 0 && !grid.isScrollInProgress) grid.requestScrollToItem(0)
                         previousFirst = firstId
                     }
-                    if (visible.isEmpty() && !hasMore) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { EmptyState(
+                    if (visible.isEmpty()) Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { EmptyState(
                         if (session == null) "请先选择 Emby 服务器" else if (watched) "暂无已看完的${if (watchedType == "Movie") "电影" else "电视剧"}"
                         else when (type) { "Movie" -> "没有未看完的电影收藏"; "Series" -> "没有未看完的电视剧收藏"; else -> "没有未看完的收藏" },
                         if (watched) "这里只显示当前服务器已看完的作品，电视剧有新集后会重新归为未看完。"
@@ -249,13 +225,6 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                                 { nav.navigate(Route.Detail(it.id, it.type)) },
                                 Modifier.fillMaxWidth().animateItem(fade, placement, fade), menu = rememberCardActions(app, scope, it))
                         }
-                        if (hasMore) item(span = { androidx.compose.foundation.lazy.grid.GridItemSpan(maxLineSpan) }) {
-                            // 没有当前分组的收藏时继续寻找首批；已有结果后手动分页，排序重排不触发网络请求。
-                            if (!watched && !moreFailed && visible.isEmpty()) LaunchedEffect(nextIndex, loadingFirstPage, refreshing) { loadMore() }
-                            LpButton(if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth(), BtnKind.Secondary,
-                                enabled = !loadingFirstPage && !refreshing, loading = loadingMore)
-                        }
                     } else LazyColumn(
                         Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
                         contentPadding = PaddingValues(top = Sp.x8, bottom = pad.calculateBottomPadding()),
@@ -270,11 +239,6 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                                         nav.navigate(Route.FavoriteCategory(group.type, group.libraryId, group.title))
                                     })
                             }
-                        }
-                        if (hasMore) item(key = "more") {
-                            LpButton(if (moreFailed) "重试加载" else "加载更多",
-                                { loadMore() }, Modifier.fillMaxWidth().padding(horizontal = Sp.x16), BtnKind.Secondary,
-                                enabled = !loadingFirstPage && !refreshing, loading = loadingMore)
                         }
                     }
                 }
@@ -317,6 +281,8 @@ internal fun favoriteGroups(items: List<Item>, libraries: List<View>): List<Favo
 }
 
 /** 收藏分类的本地排序档位，不参与服务端查询。 */
+/** 收藏单次请求条数（核心层单页上限 200）。 */
+private const val FAV_LIMIT = 150
 private val FAV_SORTS = listOf("更新时间", "名称", "评分", "年份")
 
 /** 只重排当前已加载的收藏；相同值保持原序，缺失值在升降序时都沉底。 */

@@ -311,21 +311,21 @@ class TvFocusTest {
         assertEquals(listOf("Movie", "Series"), core.calls.filter { it.first == "emby.listWatched" }.map { it.second.str("type") })
     }
 
-    @Test fun filteredEmptyFavoritePageCanContinueWithoutUnboundedPrefetch() {
+    @Test fun filteredEmptyFavoritePagesContinueAutomaticallyUntilContent() {
         mount(TvRoute.Favorites) {
             on("emby.listFavorites") { args ->
                 val offset = args.long("start_index") ?: 0
                 buildJsonObject {
-                    put("items", arr()); put("total", 100000)
-                    put("next_index", offset + 60); put("has_more", true)
+                    put("items", if (offset == 120L) arr(item("late", "后页收藏")) else arr())
+                    put("next_index", offset + 60); put("has_more", offset < 120)
                 }
             }
         }
-        assertEquals(1, core.calls.count { it.first == "emby.listFavorites" })
-        rule.onNode(hasText("加载更多")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionCenter)
         advance(rule, 800)
-        assertEquals(listOf(0L, 60L), core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") })
+        // 过滤后的空页不再要求手动「加载更多」，自动往后找到内容或服务端声明结束为止。
+        assertEquals(listOf(0L, 60L, 120L), core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") })
+        rule.onNode(hasText("后页收藏")).assertExists()
+        rule.onNode(hasText("加载更多")).assertDoesNotExist()
     }
 
     @Test fun 不支持条件筛选时保留排序并说明原因() {

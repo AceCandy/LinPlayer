@@ -219,9 +219,9 @@ fun FavoritesPage() {
                         }
                         item("end") {
                             if (hasMore || refreshFailed) {
-                                if (!moreFailed && b.value.isNotEmpty()) LaunchedEffect(nextIndex) { loadMore() }
-                                PanelItem(if (loadingMore) "加载中…" else if (moreFailed) "重试加载" else "加载更多",
-                                    onClick = { loadMore() }, enabled = !loadingMore)
+                                // 末尾进入视口即续页，与手机一致不放「加载更多」；只有失败才给重试入口。
+                                if (!moreFailed) LaunchedEffect(nextIndex) { loadMore() }
+                                else PanelItem("重试加载", onClick = { loadMore() }, enabled = !loadingMore)
                             } else TvText("已经到底了 · 共 ${b.value.size} 项", t.meta, TvC.fg3, Modifier.padding(vertical = TvSp.x12))
                         }
                     }

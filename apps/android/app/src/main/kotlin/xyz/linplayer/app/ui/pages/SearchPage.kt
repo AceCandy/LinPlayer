@@ -264,6 +264,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         if (aggRun == 0) item("hint") {
                             EmptyState("在所有来源里搜", "输入关键词后按键盘搜索键，每个来源各占一行。", LpIcons.search)
                         }
+                        if (aggBusy && aggRows.isEmpty()) item("loading") {
+                            xyz.linplayer.app.ui.components.LoadingState(Modifier.fillParentMaxSize())
+                        }
                         // 来源结果分批到达并原位替换：按来源ID保持行身份，三种行形态分开复用
                         items(aggRows.size, key = { aggRows[it].str("server_id") ?: "#$it" },
                             contentType = { aggRows[it].let { g -> if (g.str("error") != null) "error" else g.str("kind") ?: "emby" } }) { i ->
@@ -300,10 +303,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         LpIcons.search,
                     ) }
 
-                    r is Block.Loading -> androidx.compose.foundation.layout.Box(Modifier.fillMaxSize(),
-                        contentAlignment = androidx.compose.ui.Alignment.Center) {
-                        xyz.linplayer.app.ui.components.LpLoading()
-                    }
+                    r is Block.Loading -> xyz.linplayer.app.ui.components.LoadingState()
 
                     r is Block.Fail -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) {
                         ErrorState(r.message, { if (!refreshing) { refreshing = true; refresh++ } })

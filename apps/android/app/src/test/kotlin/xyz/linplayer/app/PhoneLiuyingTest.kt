@@ -314,7 +314,8 @@ class PhoneLiuyingTest {
         rule.onNodeWithTag("liuying.bankai").performClick(); advance(rule, 400)
         val query = core.calls.last { it.first == "emby.extLiuYingItems" }.second
         assertEquals("", query.str("channel")); assertEquals("", query.str("exposure")); assertTrue(query.bool("favorite"))
-        rule.onNodeWithTag("liuying.favoriteMore").performScrollTo().performClick(); advance(rule, 300)
+        // 收藏列表末尾进入视口即自动续页。
+        rule.onNodeWithTag("liuying.favoriteList").performScrollToIndex(2); advance(rule, 300)
         val favoriteCount = core.calls.count { it.first == "emby.extLiuYingItems" && it.second.bool("favorite") }
         rule.onNode(isPopup()).captureRoboImage("build/liuying-mobile/favorite-list-synthetic.png")
         rule.onNodeWithTag("liuying.favoriteItem.ly-work-14").performScrollTo().performClick(); advance(rule, 600)

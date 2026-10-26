@@ -58,7 +58,7 @@ import xyz.linplayer.app.ui.components.LongShotTarget
 import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.EmptyState
-import xyz.linplayer.app.ui.components.LpLoading
+import xyz.linplayer.app.ui.components.LoadingState
 import xyz.linplayer.app.ui.components.LpPullIndicator
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.LpRow
@@ -111,6 +111,8 @@ fun AggregatePage(nav: NavController) {
     }
     var done by remember(identity) { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
+    // 只有手动下拉才显示刷新指示；进页和失效触发的后台刷新静默替换缓存。
+    var pulling by remember { mutableStateOf(false) }
     var failure by remember { mutableStateOf<Block.Fail?>(null) }
     var refreshResume by remember(identity) { mutableStateOf(false) }
 
@@ -154,6 +156,7 @@ fun AggregatePage(nav: NavController) {
                 }
         } finally {
             done = true
+            pulling = false
         }
     }
 
@@ -167,9 +170,12 @@ fun AggregatePage(nav: NavController) {
     LpScaffold("聚合视界", scrolled = rememberScrolled(list)) { pad ->
         val pull = rememberPullToRefreshState()
         PullToRefreshBox(
-            isRefreshing = !done && groups.isNotEmpty(), state = pull,
-            indicator = { LpPullIndicator(pull, !done && groups.isNotEmpty()) },
-            onRefresh = { if (done) { refreshResume = false; reload++ } },
+            isRefreshing = pulling, state = pull,
+            indicator = { LpPullIndicator(pull, pulling) },
+            onRefresh = { if (!pulling) {
+                pulling = true
+                if (done) { refreshResume = false; reload++ }
+            } },
             modifier = Modifier.fillMaxSize().padding(pad),
         ) {
             LazyColumn(Modifier.fillMaxSize(), list) {
@@ -203,9 +209,7 @@ fun AggregatePage(nav: NavController) {
                 }
                 item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
-            if (groups.isEmpty() && !done) Box(Modifier.matchParentSize(), contentAlignment = Alignment.Center) {
-                LpLoading(size = if (xyz.linplayer.app.data.UiPrefs.loadingStyle.value == 0) 90.dp else 130.dp)
-            }
+            if (groups.isEmpty() && !done) LoadingState(Modifier.matchParentSize())
         }
     }
 }

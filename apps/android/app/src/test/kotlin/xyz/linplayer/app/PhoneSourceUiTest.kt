@@ -145,6 +145,20 @@ class PhoneSourceUiTest {
         rule.onRoot().captureRoboImage("build/source-ui/category-error-dark.png")
     }
 
+    @Test fun categoryContinuesPastEmptyFirstPageWithCursor() {
+        val core = fake().apply {
+            on("source.category") { args ->
+                if (args?.get("cursor")?.jsonPrimitive?.contentOrNull.isNullOrEmpty())
+                    buildJsonObject { put("items", JsonArray(emptyList())); put("next", "p2") }
+                else buildJsonObject { put("items", JsonArray((1..3).map { card(it) })); put("next", "") }
+            }
+        }
+        open(core, Route.SourceCategory("src-a", category.toString()), dark = false)
+        rule.waitForIdle()
+        assertEquals(2, core.calls.count { it.first == "source.category" })
+        rule.onNodeWithText("这个分类下没有内容").assertDoesNotExist()
+    }
+
     @Test fun detailLinesLight() {
         open(fake(), Route.SourceDetail("src-a", "v1"), dark = false)
         rule.onNodeWithText("线路二 · 10").performClick()

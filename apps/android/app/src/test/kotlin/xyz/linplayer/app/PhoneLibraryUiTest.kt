@@ -119,7 +119,6 @@ class PhoneLibraryUiTest {
         assertEquals(requests, fake.calls.count { it.first in listOf("emby.listItemsPage", "emby.getFilters") })
         rule.onNodeWithText("60+ 部").assertIsDisplayed()
         assertEquals(top, rule.onNodeWithText("影片 31").fetchSemanticsNode().boundsInRoot.top, .1f)
-        rule.onNodeWithTag("library.refreshing").assertDoesNotExist()
         rule.onNode(hasScrollToIndexAction()).performScrollToIndex(59)
         rule.waitForIdle()
         val query = fake.calls.last { it.first == "emby.listItemsPage" }.second?.get("query").obj()
@@ -235,11 +234,11 @@ class PhoneLibraryUiTest {
             open(port)
             rule.waitUntil(5000) { rule.onAllNodesWithText("影片 1").fetchSemanticsNodes().isNotEmpty() }
             rule.onNodeWithText("影片 1").assertIsDisplayed()
-            rule.onNodeWithTag("library.refreshing").assertIsDisplayed()
+            // 已有快照时后台刷新静默进行，不叠加等待动画。
+            rule.onNodeWithContentDescription("刷新中").assertDoesNotExist()
             rule.runOnIdle { gate.complete(Unit) }
             rule.onNodeWithText("刷新失败", substring = true).assertExists()
             rule.onNodeWithText("影片 1").assertIsDisplayed()
-            rule.onNodeWithTag("library.refreshing").assertDoesNotExist()
         } finally { gate.complete(Unit); directory.deleteRecursively() }
     }
 

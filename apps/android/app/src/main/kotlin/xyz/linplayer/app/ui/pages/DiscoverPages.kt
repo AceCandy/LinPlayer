@@ -48,7 +48,6 @@ import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import xyz.linplayer.app.ui.components.LpPullIndicator
-import xyz.linplayer.app.ui.components.LoadingLabel
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -236,7 +235,8 @@ fun RankingPage(nav: NavController) {
     var ended by kept.ended
     var moreError by kept.moreError
     var refreshing by remember(identity, rankingServer, cur) { mutableStateOf(false) }
-    var loadingMore by remember(identity, rankingServer, cur) { mutableStateOf(false) }
+    // 只有手动下拉才显示刷新指示；进页、切榜与翻页静默进行。
+    var pulling by remember(identity, rankingServer, cur) { mutableStateOf(false) }
     var moreRetry by remember(identity, rankingServer, cur) { mutableStateOf(0) }
     LaunchedEffect(identity, rankingServer, privateSpace, reload) {
         if (completedCatalog == reload && cats is Block.Ok) return@LaunchedEffect
@@ -263,8 +263,9 @@ fun RankingPage(nav: NavController) {
     }
     val selected = cats.valueOrNull?.firstOrNull { it.id == cur }
     LaunchedEffect(identity, rankingServer, privateSpace, selected, rankReload) {
-        val category = selected ?: return@LaunchedEffect
+        val category = selected ?: run { pulling = false; return@LaunchedEffect }
         if (!category.enabled) {
+            pulling = false
             rows = emptyList()
             block = Block.Fail("E_INVALID", "主服尚未开启或配置此榜单来源")
             return@LaunchedEffect
@@ -293,28 +294,25 @@ fun RankingPage(nav: NavController) {
                     }
                     else -> return@LaunchedEffect
                 }
-            } finally { refreshing = false }
+            } finally { refreshing = false; pulling = false }
         }
         snapshotFlow { Triple(list.layoutInfo.visibleItemsInfo.lastOrNull()?.index ?: -1, rows.size, moreRetry) }
             .collect { (last, _, _) ->
                 if (ended || moreError != null || last < 0 || last < list.layoutInfo.totalItemsCount - 3) return@collect
-                loadingMore = true
-                try {
-                    val next = app.extensionBlock("emby.extRankingItems",
-                        args("category_id" to category.id, "page" to page + 1), serverId = rankingServer,
-                        onCached = {}).map { Rank.list(it) }
-                    currentCoroutineContext().ensureActive()
-                    when (next) {
-                        is Block.Ok -> {
-                            val combined = (rows + next.value).distinctBy { it.id }
-                            ended = next.value.isEmpty() || combined.size == rows.size || page + 1 >= 500
-                            rows = combined
-                            page++
-                        }
-                        is Block.Fail -> moreError = next.message
-                        else -> Unit
+                val next = app.extensionBlock("emby.extRankingItems",
+                    args("category_id" to category.id, "page" to page + 1), serverId = rankingServer,
+                    onCached = {}).map { Rank.list(it) }
+                currentCoroutineContext().ensureActive()
+                when (next) {
+                    is Block.Ok -> {
+                        val combined = (rows + next.value).distinctBy { it.id }
+                        ended = next.value.isEmpty() || combined.size == rows.size || page + 1 >= 500
+                        rows = combined
+                        page++
                     }
-                } finally { loadingMore = false }
+                    is Block.Fail -> moreError = next.message
+                    else -> Unit
+                }
             }
     }
     val open: (Rank) -> Unit = { row -> scope.launch {
@@ -363,9 +361,9 @@ fun RankingPage(nav: NavController) {
                 }
             }
             val pull = rememberPullToRefreshState()
-            PullToRefreshBox(isRefreshing = refreshing && rows.isNotEmpty(), state = pull,
-                indicator = { LpPullIndicator(pull, refreshing && rows.isNotEmpty()) },
-                onRefresh = { if (!refreshing) rankReload++ },
+            PullToRefreshBox(isRefreshing = pulling, state = pull,
+                indicator = { LpPullIndicator(pull, pulling) },
+                onRefresh = { if (!refreshing) { pulling = true; rankReload++ } },
                 modifier = Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                     if (rows.isEmpty()) item("state") {
@@ -381,7 +379,6 @@ fun RankingPage(nav: NavController) {
                             ErrorState(error.message, { rankReload++ })
                         } }
                     }
-                    if (loadingMore) item("loading-more") { LoadingLabel("正在加载…") }
                     moreError?.let { error -> item("more-error") {
                         ErrorState(error, { moreError = null; moreRetry++ })
                     } }

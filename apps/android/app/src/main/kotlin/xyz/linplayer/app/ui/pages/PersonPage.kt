@@ -87,7 +87,7 @@ fun PersonPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 when (val state = detail) {
                     is Block.Fail -> ErrorState(state.message, { detailRetry++ })
-                    is Block.Loading -> LpRefreshIcon()
+                    is Block.Loading -> Unit
                     is Block.Ok -> {
                         val overview = state.value.obj().str("overview").orEmpty()
                         if (overview.isNotBlank()) Text(overview,
@@ -202,8 +202,9 @@ private fun PersonWorksGrid(nav: NavController, personId: String, cacheKey: Stri
                 { nav.navigate(Route.Detail(item.id, item.type)) }, Modifier.fillMaxWidth(),
                 menu = rememberCardActions(app, scope, item))
         }
-        if (busy) item("loading", span = { GridItemSpan(maxLineSpan) }) {
-            Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { LpRefreshIcon() }
+        // 首批作品未到时占住下方区域放整块等待动画；续页静默进行。
+        if (busy && shown.items.isEmpty()) item("loading", span = { GridItemSpan(maxLineSpan) }) {
+            LoadingPane(.6f)
         }
         if (confirmed.loaded && !confirmed.more && shown.items.isEmpty() && error == null)
             item("empty", span = { GridItemSpan(maxLineSpan) }) {

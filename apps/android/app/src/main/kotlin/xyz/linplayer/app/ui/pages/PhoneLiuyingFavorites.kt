@@ -96,18 +96,18 @@ internal fun PhoneLiuyingFavorites(
                     item(span = { GridItemSpan(maxLineSpan) }) {
                         Column {
                             when {
-                                loading -> Text("正在加载收藏…", color = Color.White, style = LpText.body)
+                                // 首屏没有内容时用整块等待动画；续页静默进行。
+                                loading -> if (pages.isEmpty()) xyz.linplayer.app.ui.components.LoadingPane(.4f)
                                 failure != null -> {
                                     Text(failure!!, color = Color.White, style = LpText.body)
                                     Text("重试", Modifier.heightIn(min = 48.dp).wrapContentHeight()
                                         .testTag("liuying.favoriteRetry").pressable({ retry++ }), color = Color.White)
                                 }
                                 pages.all { it.rows.isEmpty() } -> Text("暂无收藏视频", color = Color.White, style = LpText.body)
-                                pages.lastOrNull()?.more == true -> Text("加载更多",
-                                    Modifier.fillMaxWidth().heightIn(min = 48.dp).wrapContentHeight()
-                                        .testTag("liuying.favoriteMore").pressable({
-                                            offset = pages.last().let { it.offset + it.rows.size }
-                                        }), color = Color.White, style = LpText.body)
+                                // 末尾进入视口即续页，不需要手动点击。
+                                pages.lastOrNull()?.more == true -> LaunchedEffect(pages.size) {
+                                    offset = pages.last().let { it.offset + it.rows.size }
+                                }
                             }
                         }
                     }
