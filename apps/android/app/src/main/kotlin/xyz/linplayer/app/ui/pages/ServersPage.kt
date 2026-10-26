@@ -639,7 +639,7 @@ private fun IconDialog(a: Account, onClose: () -> Unit, onChanged: () -> Unit) {
 
     LpDialog(onClose, "编辑图标") {
         Row(horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-            LpButton("本地图片", { pick.launch(arrayOf("*/*")) }, Modifier.weight(1f), BtnKind.Secondary)
+            LpButton("本地图片", { pick.launchOrToast(arrayOf("*/*"), app) }, Modifier.weight(1f), BtnKind.Secondary)
             LpButton("恢复默认", {
                 scope.launch {
                     runCatching {

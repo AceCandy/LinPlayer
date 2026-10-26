@@ -5,6 +5,9 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.padding
 import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
@@ -26,6 +29,7 @@ import xyz.linplayer.app.data.Account
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.kit.TopNavigation
+import xyz.linplayer.app.tv.kit.TvDim
 import xyz.linplayer.app.tv.kit.menuKey
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.LocalPosterScene
@@ -35,6 +39,19 @@ import java.util.UUID
 
 /** 只表达宿主交互形态，页面请求和业务状态仍共用。 */
 val LocalTvMode = staticCompositionLocalOf { false }
+
+/** 首页头图在顶且没滚动时为 true:顶栏透明叠在头图上（同手机）。由首页写，宿主读。 */
+internal val LocalTvBarOverlay = staticCompositionLocalOf<MutableState<Boolean>?> { null }
+
+/** 电视浏览页左右边距；首页头图向两侧铺满时按它反推。 */
+internal val TvPageSide = 32.dp
+
+/** 电视浏览页避开 72dp 顶栏并留左右边距。挂在每一页上而不是外层容器，切页动画里两页各带各的边距。 */
+@Composable
+internal fun TvPageInset(content: @Composable () -> Unit) {
+    if (!LocalTvMode.current) { content(); return }
+    Box(Modifier.fillMaxSize().padding(top = TvDim.navigationH, start = TvPageSide, end = TvPageSide)) { content() }
+}
 
 /** 共用点击控件在电视上显示焦点，并恢复返回前的卡片。 */
 @Composable
@@ -66,7 +83,7 @@ internal fun Modifier.tvFocus(source: MutableInteractionSource, onLongClick: (()
 
 /** 顶栏只调用手机导航，不另维护TV页面栈。 */
 @Composable
-internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content: FocusRequester) {
+internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content: FocusRequester, overlay: Boolean = false) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val privateSpace by app.privateSpace.collectAsState()
@@ -87,7 +104,7 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
     }
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
-    TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界",
+    TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界", overlay = overlay,
         modifier = Modifier.focusRequester(focus),
         onServer = { if (privateSpace) app.leavePrivateSpace() else nav.navigate(Route.Servers) { launchSingleTop = true } },
         onPrivateSpace = { if (!privateSpace) scope.launch {

@@ -30,7 +30,7 @@ internal fun TvPlaybackHost(
             }
         })
         CompositionLocalProvider(LocalNav provides nav, LocalFocusMemory provides nav.top.memory) {
-            TvPlayerPage(target, onExit, onLines = { onNavigate("server.lines", args("id" to it)) })
+            TvPlayerPage(target, onExit)
         }
     }
 }

@@ -6,10 +6,8 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
-import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -55,15 +53,12 @@ import coil3.compose.AsyncImage
 import com.google.zxing.BarcodeFormat
 import com.google.zxing.EncodeHintType
 import com.google.zxing.qrcode.QRCodeWriter
-import xyz.linplayer.app.tv.kit.DangerButton
 import xyz.linplayer.app.tv.kit.PanelSlot
 import xyz.linplayer.app.tv.kit.SidePanel
-import xyz.linplayer.app.tv.kit.TvButton
 import xyz.linplayer.app.tv.kit.TvC
 import xyz.linplayer.app.tv.kit.TvR
 import xyz.linplayer.app.tv.kit.TvSp
 import xyz.linplayer.app.tv.kit.TvText
-import xyz.linplayer.app.tv.kit.TvW
 import xyz.linplayer.app.tv.kit.tvType
 
 /** 封面。没到 / 失败都是同一个 `surface1` 色块,**不写「加载失败」**(§5.2)。 */
@@ -184,26 +179,6 @@ fun BoxScope.TvSidePanel(
                 .focusProperties { onExit = { cancelFocusChange() } }.focusGroup(),
             content = content,
         )
-    }
-}
-
-/** 确认对话框(§5.4)。只给不可逆操作;「取消」在左且默认聚焦。 */
-@Composable
-fun BoxScope.TvConfirm(title: String, text: String, confirm: String, onCancel: () -> Unit, onConfirm: () -> Unit) {
-    BackHandler(onBack = onCancel)
-    val t = tvType
-    Column(
-        Modifier.align(Alignment.Center).width(360.dp).clip(TvR.lg).background(TvC.surface2).padding(TvSp.x20)
-            .focusProperties { onExit = { cancelFocusChange() } }.focusGroup(),
-    ) {
-        TvText(title, t.title, TvC.fg, weight = TvW.semi, maxLines = 2)
-        Spacer(Modifier.height(TvSp.x6))
-        TvText(text, t.body, TvC.fg2, maxLines = 4)
-        Spacer(Modifier.height(TvSp.x16))
-        Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
-            TvButton("取消", focused = true, onClick = onCancel)
-            DangerButton(confirm, onClick = onConfirm)
-        }
     }
 }
 

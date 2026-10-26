@@ -2,6 +2,7 @@ package xyz.linplayer.app.tv
 
 import android.app.Activity
 import android.app.Application
+import android.os.Looper
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
@@ -28,6 +29,8 @@ import org.junit.Before
 import org.junit.Rule
 import org.junit.Test
 import org.junit.runner.RunWith
+import org.robolectric.Robolectric
+import org.robolectric.Shadows
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
@@ -39,6 +42,7 @@ import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.ui.player.PlayerController
+import xyz.linplayer.app.ui.player.PlaybackService
 import xyz.linplayer.app.ui.player.rememberExoPlayer
 import androidx.media3.common.C
 import androidx.media3.common.Format
@@ -97,7 +101,7 @@ class TvRefreshRatePlaybackTest {
         rule.mainClock.autoAdvance = false
         rule.setContent {
             activity = LocalContext.current as Activity
-            TvFrame(app) { TvShell(nav) }
+            TvFrame(app) { PlayerHost(nav) }
         }
         rule.runOnIdle { installTvModes(activity.windowManager.defaultDisplay) }
         advance(rule, 1800)
@@ -106,14 +110,30 @@ class TvRefreshRatePlaybackTest {
 
     @Test fun 遥控连续快进累加且真实上报不使用待跳转目标() {
         core.ret("player.seek", JsonNull)
+        core.ret("emby.reportProgress", JsonNull)
         mount()
-        rule.runOnIdle { core.tick(40.0); core.tick(40.25) }
-        advance(rule, 400)
-        val step = xyz.linplayer.app.data.UiPrefs.tvSeekStep.value.toDouble()
-        press(rule, Key.MediaFastForward, Key.MediaFastForward, Key.MediaFastForward)
-        assertEquals(40.25 + step * 3, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, .001)
-        advance(rule, 10_000)
-        assertEquals(40.25, core.calls.last { it.first == "emby.reportProgress" }.second.dbl("pos")!!, .001)
+        val context = ApplicationProvider.getApplicationContext<Application>()
+        assertEquals(PlaybackService::class.java.name, Shadows.shadowOf(context).nextStartedService?.component?.className)
+        // Robolectric 只记录启动请求；真实上报需要显式创建服务，并提供内核查询样本。
+        core.ret("player.status", buildJsonObject {
+            put("position", 40.25); put("duration", 3660.0); put("paused", false)
+        })
+        val service = Robolectric.buildService(PlaybackService::class.java).create()
+        try {
+            rule.runOnIdle { core.tick(40.0); core.tick(40.25) }
+            advance(rule, 400)
+            val step = xyz.linplayer.app.data.UiPrefs.tvSeekStep.value.toDouble()
+            press(rule, Key.MediaFastForward, Key.MediaFastForward, Key.MediaFastForward)
+            assertEquals(40.25 + step * 3, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, .001)
+            // 服务的 Handler 时钟独立于 Compose 动画时钟。
+            rule.runOnIdle { Shadows.shadowOf(Looper.getMainLooper()).idleFor(java.time.Duration.ofSeconds(10)) }
+            val report = core.calls.last { it.first == "emby.reportProgress" }.second
+            assertEquals(40.25, report.dbl("pos")!!, .001)
+            assertEquals("sh6", report.str("item_id"))
+        } finally {
+            service.destroy()
+            PlaybackService.stop(context)
+        }
     }
 
     @Test fun 同帧率切集保留模式不同帧率重判退出恢复() {

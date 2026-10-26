@@ -8,8 +8,6 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.linplayer.app.plugin.PluginNav
-import xyz.linplayer.app.tv.TvRoute
-import xyz.linplayer.app.tv.tvOfficialRoute
 import xyz.linplayer.app.ui.Route
 
 /**
@@ -36,14 +34,6 @@ class PluginNavTest {
     @Test fun 参数进得去路由对象() {
         val p = mapOf("id" to "x7", "type" to "Movie", "title" to "片名")
         assertEquals(Route.Detail("x7", "Movie"), officialRoute("detail") { p[it] })
-        assertEquals(TvRoute.Library("x7", "片名"), tvOfficialRoute("library") { p[it] })
-    }
-
-    @Test fun TV没有排行榜和追剧日历() {
-        assertNull(tvOfficialRoute("downloads", none))
-        assertNull(tvOfficialRoute("ranking", none))
-        assertNull(tvOfficialRoute("calendar", none))
-        assertNotNull(tvOfficialRoute("settings.subtitle", none))
     }
 
     @Test fun 角标认入口名给不认识的报错() {

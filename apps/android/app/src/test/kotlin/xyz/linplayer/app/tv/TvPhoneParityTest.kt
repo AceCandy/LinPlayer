@@ -43,7 +43,7 @@ class TvPhoneParityTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = engine)) }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 1500)
     }
 
@@ -55,7 +55,9 @@ class TvPhoneParityTest {
 
     private fun switchEngine() {
         click("更多")
-        click("换内核重播")
+        rule.onNodeWithText("切换到", substring = true).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter)
+        advance(rule, 400)
         advance(rule, 1000)
     }
 
@@ -84,7 +86,7 @@ class TvPhoneParityTest {
         show(core, "exo")
         switchEngine()
         assertEquals(1.5, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
-        click("更多"); click("倍速"); click("2.0x")
+        click("更多"); click("倍速"); click("2.0×")
         assertEquals(2.0, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
         assertNull(core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("liuying_speed"))
     }

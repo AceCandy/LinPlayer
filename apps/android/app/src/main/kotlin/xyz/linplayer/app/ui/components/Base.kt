@@ -13,6 +13,7 @@ import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -358,10 +359,13 @@ fun LpCell(
     onClick: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
+    // 电视上开关行整行是一个焦点:开关本身太小又没有焦点框,遥控器选不中
+    val tvToggle = xyz.linplayer.app.tv.LocalTvMode.current && onClick == null && switch != null && onSwitch != null
+    val rowClick: (() -> Unit)? = onClick ?: if (tvToggle) ({ onSwitch?.invoke(switch != true) }) else null
     Row(
         m.fillMaxWidth()
             .heightIn(min = Dim.tap + Sp.x8)
-            .then(if (onClick != null) Modifier.pressable(onClick) else Modifier)
+            .then(if (rowClick != null) Modifier.pressable(rowClick) else Modifier)
             .padding(horizontal = Sp.x16, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -378,7 +382,7 @@ fun LpCell(
             .then(if (mediaStyle) Modifier.widthIn(max = 120.dp) else Modifier))
         when {
             switch != null -> Switch(
-                checked = switch, onCheckedChange = onSwitch,
+                checked = switch, onCheckedChange = if (tvToggle) null else onSwitch,
                 colors = SwitchDefaults.colors(
                     checkedTrackColor = c.acc,
                     checkedThumbColor = c.accFg),
@@ -675,14 +679,21 @@ internal fun dialogWidth(screenWidthDp: Int): Int =
 @Composable
 fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable () -> Unit) {
     val c = Lp.colors
+    /* 电视:遮罩和面板那两个吞点击的 clickable 不许拿焦点 —— 否则遥控器第一下落在全屏遮罩上,
+       上下键再也进不到里面的选项。打开时把焦点交给面板里第一项(同 LpMenu)。 */
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val noFocus = if (tv) Modifier.focusProperties { canFocus = false } else Modifier
+    val focus = remember { androidx.compose.ui.focus.FocusRequester() }
     BasicAlertDialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(
             usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
+        LaunchedEffect(Unit) { if (tv) { androidx.compose.runtime.withFrameNanos { }; runCatching { focus.requestFocus() } } }
         Box(
             Modifier.fillMaxSize()
                 .background(c.bg.copy(alpha = if (c.isDark) 0.82f else 0.72f))
+                .then(noFocus)
                 .clickable(interactionSource = remember { MutableInteractionSource() },
                     indication = null, onClick = onDismiss)
                 .padding(Sp.x20),
@@ -692,8 +703,10 @@ fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable 
                 Modifier.width(dialogWidth(
                     androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp).dp)
                     // ★ 吞掉点击:不吞的话点面板里的空白也会走到上面那层的 onDismiss
+                    .then(noFocus)
                     .clickable(interactionSource = remember { MutableInteractionSource() },
                         indication = null, onClick = {})
+                    .then(if (tv) Modifier.focusRequester(focus).focusGroup() else Modifier)
                     .glass(R.lg, solid = 1.25f)
                     .padding(Sp.x20),
             ) {

@@ -4,8 +4,7 @@ import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LpPullRefresh
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -177,11 +176,9 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
             xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "历史已看") { nav.navigate(Route.Watched) }
         } else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
     }) { pad ->
-        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-        PullToRefreshBox(refreshing, {
+        LpPullRefresh(refreshing, {
             if (!refreshing) { refreshing = true; reload++ }
-        }, Modifier.fillMaxSize(), state = pullState,
-            indicator = { LpPullIndicator(pullState, refreshing) }) {
+        }, Modifier.fillMaxSize()) {
             Column(Modifier.fillMaxSize().then(
                 if (block is Block.Fail) Modifier.verticalScroll(rememberScrollState()) else Modifier,
             )) {

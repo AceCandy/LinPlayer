@@ -51,8 +51,9 @@ object PluginPlayer {
     fun tvKind(panel: String): String = when (panel) {
         "subtitles" -> "sub"
         "audio", "danmaku", "episodes", "more" -> panel
-        // 这三项在 TV 上没有独立侧栏,直接开会开出一个空面板
-        "speed", "enhance", "lines" -> no("TV 端「$panel」在「更多」面板里,请用 openPanel('more')")
+        // 这两项在 TV 上没有独立侧栏,直接开会开出一个空面板
+        "speed", "enhance" -> no("TV 端「$panel」在「更多」面板里,请用 openPanel('more')")
+        "lines" -> no("安卓 TV 播放器没有线路面板")
         else -> no("安卓 TV 端没有「$panel」这个面板")
     }
 

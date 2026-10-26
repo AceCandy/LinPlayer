@@ -50,8 +50,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LpPullRefresh
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -389,29 +388,47 @@ fun HomePage(nav: NavController) {
         // 地基块失败才整页报错:只有 emby.views 是地基
         val v = views
         if (v is Block.Fail && !v.isSilent) {
-            ErrorState(v.message, { reload++ }, Modifier.fillMaxSize())
+            xyz.linplayer.app.tv.TvPageInset { ErrorState(v.message, { reload++ }, Modifier.fillMaxSize()) }
             return@LpImmersive
         }
+        // 电视:有头图时整页铺到顶栏下面,头图向两侧铺满,下面各栏仍留页边距;没头图照常避开顶栏
+        val tvSide = if (tv) xyz.linplayer.app.tv.TvPageSide else 0.dp
+        xyz.linplayer.app.tv.LocalTvBarOverlay.current?.let { overlay ->
+            val over = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)
+            SideEffect { overlay.value = over }
+            // 同一首页条目换成数据源首页时这里不再写,离开时先复位成实底
+            androidx.compose.runtime.DisposableEffect(overlay) { onDispose { overlay.value = false } }
+        }
 
-        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-        PullToRefreshBox(
-            isRefreshing = refreshing,
-            state = pullState,
-            indicator = { LpPullIndicator(pullState, refreshing) },
+        LpPullRefresh(
+            refreshing = refreshing,
             onRefresh = { if (!refreshing) {
                 refreshing = true; reload++
                 if (!privateSpace) scope.launch { app.block("emby.extCapabilities", args("refresh" to true)) }
             } },
             modifier = Modifier.fillMaxSize().padding(
-                top = if (banners.isEmpty() && !tv) WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp else 0.dp,
+                top = when {
+                    banners.isNotEmpty() -> 0.dp
+                    tv -> xyz.linplayer.app.tv.kit.TvDim.navigationH
+                    else -> WindowInsets.statusBars.asPaddingValues().calculateTopPadding() + 56.dp
+                },
             ),
         ) {
             // 首屏什么都没有时只画一个居中加载图，内容到了整体淡入，不让各栏各自转圈
             val firstLoad = banners.isEmpty() && v is Block.Loading
             val contentAlpha by animateFloatAsState(if (firstLoad) 0f else 1f, lpTween(T.T4), label = "homeContent")
-            LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list, contentPadding = pad) {
+            LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
+                contentPadding = if (tv) PaddingValues(start = tvSide, end = tvSide,
+                    top = pad.calculateTopPadding(), bottom = pad.calculateBottomPadding()) else pad) {
                 if (banners.isNotEmpty()) item("banners") {
                     CachedHomeBanner(banners, bannerVisible && !list.isScrollInProgress, open,
+                        modifier = if (tv) Modifier.layout { m, c ->
+                            // 撑出列表左右留白,画到屏幕边缘
+                            val side = tvSide.roundToPx()
+                            val p = m.measure(c.copy(minWidth = c.maxWidth + side * 2, maxWidth = c.maxWidth + side * 2))
+                            layout(c.maxWidth, p.height) { p.place(-side, 0) }
+                        } else Modifier,
+                        contentInset = tvSide,
                         backgroundExtension = heroExtension,
                         fadeLength = xyz.linplayer.app.ui.components.rowImageHeight(true) / 2,
                         // 分集在头图上显示剧名，简介也取所属剧的
@@ -509,6 +526,9 @@ internal fun CachedHomeBanner(
     fadeLength: Dp = 0.dp,
     /** 读取简介：可先回调缓存再回调实时值；列表数据不带简介。 */
     loadOverview: suspend (Item, (String) -> Unit) -> Unit = { _, _ -> },
+    modifier: Modifier = Modifier,
+    /** 文字与指示器额外向内收的距离:头图铺到屏幕边缘时与下面各栏左缘对齐。 */
+    contentInset: Dp = 0.dp,
 ) {
     if (images.isEmpty()) return
     val c = Lp.colors
@@ -580,12 +600,14 @@ internal fun CachedHomeBanner(
     val status = WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
     val bottom = androidx.compose.foundation.layout.WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
     val available = (LocalConfiguration.current.screenHeightDp.dp - status - bottom).coerceAtLeast(0.dp)
-    val contentMin = with(LocalDensity.current) { status + 56.dp + 64.sp.toDp() + 16.sp.toDp() + 84.dp }
-    // 平板屏宽足够，Hero 加高到半屏左右，避免剧照被裁成细长横条。
-    val wide = !tv && LocalConfiguration.current.screenWidthDp >= 600
-    val heroHeight = (available * if (wide) .5f else .42f).coerceIn(260.dp, if (wide) 460.dp else 310.dp)
+    val contentMin = with(LocalDensity.current) {
+        (if (tv) xyz.linplayer.app.tv.kit.TvDim.navigationH else status + 56.dp) + 64.sp.toDp() + 16.sp.toDp() + 84.dp
+    }
+    // 平板屏宽足够，Hero 加高到半屏左右，避免剧照被裁成细长横条；电视从屏幕顶端铺起（顶栏叠在上面），再高一些
+    val wide = LocalConfiguration.current.screenWidthDp >= 600
+    val heroHeight = (available * when { tv -> .6f; wide -> .5f; else -> .42f }).coerceIn(260.dp, if (wide) 460.dp else 310.dp)
         .coerceAtMost(available * .65f).coerceAtLeast(contentMin) + foregroundExtension
-    Box(Modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
+    Box(modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
         .then(if (tv) Modifier.onFocusChanged { focused = it.hasFocus }.focusGroup() else Modifier)
         .pointerInput(Unit) {
             awaitEachGesture {
@@ -657,7 +679,7 @@ internal fun CachedHomeBanner(
                 }, label = "homeHeroText") { item ->
                 var logoFailed by remember(item.id) { mutableStateOf(false) }
                 Column(Modifier.fillMaxWidth().testTag("home.hero.text")
-                    .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x26)
+                    .padding(start = Sp.x16 + contentInset, end = Sp.x16 + contentInset, bottom = Sp.x26)
                     .then(if (wide) Modifier.wrapContentWidth(Alignment.Start).widthIn(max = 560.dp) else Modifier.padding(end = Sp.x34))
                     .animateContentSize(lpTween(T.T4)),
                     verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
@@ -694,7 +716,7 @@ internal fun CachedHomeBanner(
             }
         }
         if (images.size > 1) Row(Modifier.align(Alignment.BottomEnd).testTag("home.hero.indicators")
-            .padding(end = Sp.x16, bottom = Sp.x10),
+            .padding(end = Sp.x16 + contentInset, bottom = Sp.x10),
             horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
             repeat(minOf(images.size, 6)) { page ->
                 val active = page == order.indexOf(currentId).coerceAtLeast(0) % minOf(images.size, 6)

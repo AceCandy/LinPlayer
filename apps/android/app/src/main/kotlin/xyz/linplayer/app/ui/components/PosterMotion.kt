@@ -124,13 +124,17 @@ internal fun PosterMotionHost(nav: NavController, account: Pair<String, String>?
 
 /** 沿用原导航回调，只给destination子树提供共享元素所需的可见范围。 */
 internal inline fun <reified T : Any> NavGraphBuilder.posterComposable(
+    /** 电视上给这一页留出顶栏和左右边距;播放、加服务器这类全屏页和自己处理的首页传 false。 */
+    tvInset: Boolean = true,
     noinline content: @Composable AnimatedContentScope.(NavBackStackEntry) -> Unit,
 ) {
     composable<T> { entry ->
         val visibility = this
         val scene = remember(entry, visibility) { PosterScene(entry, visibility) }
         val batch = remember(entry) { PosterEntranceBatch() }
-        CompositionLocalProvider(LocalPosterScene provides scene, LocalPosterBatch provides batch) { content(visibility, entry) }
+        CompositionLocalProvider(LocalPosterScene provides scene, LocalPosterBatch provides batch) {
+            if (tvInset) xyz.linplayer.app.tv.TvPageInset { content(visibility, entry) } else content(visibility, entry)
+        }
     }
 }
 

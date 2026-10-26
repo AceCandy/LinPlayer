@@ -659,7 +659,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 
     // 起播。★ 换片时**先立「未就绪」再发命令**,不能排在两个 await 之后
     val playbackPrefs = trackPrefs
-    LaunchedEffect(controller, playbackPrefs, engine) {
+    /** 失败页「重试」的计数:同一控制器重新起播一次。 */
+    var attempt by remember(controller) { mutableStateOf(0) }
+    LaunchedEffect(controller, playbackPrefs, engine, attempt) {
         // 按本次重组的快照放行，不能让旧的 null-key 协程读取新偏好后先起播一次。
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
@@ -744,7 +746,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             startupTiming.failed()
             app.report(it)
             if (route.src != null) srcSwitch = true
-            if (controller.fallback != null || feedOverlay != null) { failReason = it.message; openFailed = true }
+            // 普通起播失败也进失败页:只弹提示的话黑幕撤掉后就是一块没有原因、也没法重试的黑屏
+            failReason = it.message; openFailed = true
         }
     }
     /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
@@ -755,7 +758,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
        ★ 只能在主线程读 ExoPlayer(它是单线程模型),`LaunchedEffect` 正好跑在
          composition 的调度器上,也就是主线程 —— 挪到别的 dispatcher 会当场抛
          「Player is accessed on the wrong thread」。 */
-    LaunchedEffect(exo, controller) {
+    LaunchedEffect(exo, controller, attempt) {
         val e = exo ?: return@LaunchedEffect
         while (true) {
             if (!controller.ready) { delay(250); continue }
@@ -1112,6 +1115,53 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             .filter { it.dbl("start_secs")?.let { at -> at.isFinite() && at >= 0 } == true }
     }
 
+    /* 跳过片头 / 片尾(设置 → 播放器)。区间与「到了就自己跳」都由核心层按开关给,开关关着恒为空。
+       每片各跳一次:倒回去看片头不再被踢走。片尾只在后面还有正片或有下一集时才跳。 */
+    var intro by remember(route.itemId) { mutableStateOf<ClosedFloatingPointRange<Double>?>(null) }
+    var outro by remember(route.itemId) { mutableStateOf<ClosedFloatingPointRange<Double>?>(null) }
+    var skipAuto by remember(route.itemId) { mutableStateOf(false) }
+    var skipWhat by remember(route.itemId) { mutableStateOf<String?>(null) }
+    var skippedIntro by remember(route.itemId) { mutableStateOf(false) }
+    var skippedOutro by remember(route.itemId) { mutableStateOf(false) }
+    LaunchedEffect(route.itemId, duration > 0) {
+        if (route.src != null || feedOverlay != null || duration <= 0) return@LaunchedEffect
+        val c = runCatching { app.call("player.chapterInfo", args("item_id" to route.itemId, "runtime_secs" to duration)).obj() }.getOrNull()
+        coroutineContext.ensureActive()
+        fun range(k: String) = c?.get(k).obj()?.let { o ->
+            val s = o.dbl("start"); val e = o.dbl("end"); if (s != null && e != null && e > s) s..e else null
+        }
+        intro = range("intro"); outro = range("outro"); skipAuto = c.bool("skip_auto")
+    }
+    fun skipOutro(o: ClosedFloatingPointRange<Double>) {
+        if (o.endInclusive < duration - 2) doSeek(o.endInclusive) else nextEpisode?.let { switchEpisode(it) }
+    }
+    fun skipNow() {
+        when (skipWhat) {
+            "intro" -> intro?.let { doSeek(it.endInclusive) }
+            "outro" -> outro?.let { skipOutro(it) }
+        }
+        skipWhat = null
+    }
+    LaunchedEffect(position.toLong(), intro, outro) {
+        if (!controller.ready || switching || leaving) return@LaunchedEffect
+        val p = position
+        val i = intro
+        val o = outro
+        when {
+            i != null && !skippedIntro && p >= i.start && p < i.endInclusive - 1 -> {
+                skippedIntro = true
+                if (skipAuto) { doSeek(i.endInclusive); app.toast("已跳过片头") } else skipWhat = "intro"
+            }
+            o != null && !skippedOutro && p >= o.start && p < o.endInclusive - 1 &&
+                (o.endInclusive < duration - 2 || nextEpisode != null) -> {
+                skippedOutro = true
+                if (skipAuto) { skipOutro(o); app.toast("已跳过片尾") } else skipWhat = "outro"
+            }
+        }
+    }
+    // 按钮停留 8 秒;不挂在上面那个按秒重启的效应里,否则倒计时每秒被取消
+    LaunchedEffect(skipWhat) { if (skipWhat != null) { delay(8000); skipWhat = null } }
+
     // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
     val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
     val pluginPanels = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("panel")
@@ -1137,6 +1187,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         val nextUpWidth = ((if (portrait) maxWidth - 96.dp else maxWidth / 2 - 200.dp) - endInset).coerceIn(48.dp, 150.dp)
         // 矮横屏的倍率按钮延伸到底栏上方，保留其48dp命中区及4dp间隙。
         val nextUpEnd = if (controlsVisible && !portrait && maxHeight < 360.dp) Sp.x16 + 48.dp + Sp.x4 else Sp.x12
+        // 跳过按钮与「接下来」同位,片尾两者撞上时让给「接下来」
+        val skipVisible = skipWhat != null && nextUp == null && controller.ready && !switching && !leaving &&
+            !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
         Box(Modifier.fillMaxSize()) {
         val videoModifier = Modifier.fillMaxSize().graphicsLayer { translationY = feedOffset }.testTag("player.video")
         val videoLayerModifier = Modifier.fillMaxSize().clipToBounds()
@@ -1187,9 +1240,16 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 Row(horizontalArrangement = Arrangement.spacedBy(Sp.x12)) {
                     xyz.linplayer.app.ui.components.LpButton("返回", leave, Modifier.widthIn(min = 112.dp),
                         kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
-                    if (finished) xyz.linplayer.app.ui.components.LpButton("重试", {
-                        openFailed = false; failReason = null; episodeResult = null; episodeRetry++
+                    xyz.linplayer.app.ui.components.LpButton("重试", {
+                        openFailed = false; failReason = null
+                        if (finished) { episodeResult = null; episodeRetry++ } else { srcSwitch = false; attempt++ }
                     }, Modifier.widthIn(min = 112.dp))
+                }
+                // 数据源失败会先弹换源;关掉之后从这里再打开
+                if (route.src != null && !finished) {
+                    Spacer(Modifier.height(Sp.x8))
+                    xyz.linplayer.app.ui.components.LpButton("换源", { srcSwitch = true }, Modifier.widthIn(min = 112.dp),
+                        kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
                 }
             } else if (!openFailed) xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White,
                 label = if (buffering) "正在缓冲…" else "正在打开…")
@@ -1311,7 +1371,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 netSpeed = netSpeed.takeUnless { !buffering && it == "0 B/s" }.orEmpty(),
                 onBottomBarHeight = { bottomBarHeight = it },
                 onEpisodeRowHeight = { episodeRowHeight = it },
-                nextUpInset = if (nextUp != null) nextUpWidth + nextUpEnd - Sp.x12 + Sp.x8 else 0.dp,
+                nextUpInset = if (nextUp != null || skipVisible) nextUpWidth + nextUpEnd - Sp.x12 + Sp.x8 else 0.dp,
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
                 pluginPanels = pluginPanels,
@@ -1374,6 +1434,12 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 switchEpisode(nextUp)
             }
         }
+
+        if (skipVisible) SkipChip(if (skipWhat == "intro") "跳过片头" else "跳过片尾", nextUpWidth,
+            Modifier.align(Alignment.BottomEnd).safeDrawingPadding()
+                .padding(end = nextUpEnd, bottom = if (controlsVisible) with(density) {
+                    if (portrait) bottomBarHeight.toDp() else (bottomBarHeight - episodeRowHeight).toDp() - Sp.x6
+                }.coerceAtLeast(0.dp) else Sp.x8)) { skipNow() }
 
         // 锁屏后只有解锁按钮 —— 它就长在锁屏钮刚才那个位置上
         if (locked) Box(Modifier.align(if (portrait && !inPip) Alignment.BottomStart else Alignment.CenterStart).safeDrawingPadding()
@@ -1457,6 +1523,21 @@ internal fun nextUpWindow(duration: Double): Double = (duration * .1).coerceIn(1
 internal fun nextUpVisible(position: Double, duration: Double): Boolean =
     position.isFinite() && position >= 0 && duration.isFinite() && duration > 0 &&
         duration - position <= nextUpWindow(duration)
+
+/** 跳过片头 / 片尾的胶囊,外观与「接下来」一致。 */
+@Composable
+private fun SkipChip(label: String, width: androidx.compose.ui.unit.Dp, m: Modifier, onClick: () -> Unit) {
+    Box(m.width(width).heightIn(min = 48.dp).testTag("player.skip")
+        .semantics { contentDescription = label }.pressable(onClick).padding(vertical = 6.dp)) {
+        Row(Modifier.fillMaxWidth().heightIn(min = 36.dp).clip(RoundedCornerShape(50))
+            .background(Color.Black.copy(alpha = .72f)).padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+            Text(label, Modifier.weight(1f), color = Color.White, style = LpText.secondary,
+                maxLines = 1, overflow = TextOverflow.Ellipsis)
+            if (width >= 150.dp) Icon(LpIcons.chevR, null, Modifier.size(12.dp), tint = Color.White)
+        }
+    }
+}
 
 @Composable
 internal fun NextUp(item: xyz.linplayer.app.data.Item, remaining: Double, duration: Double, width: androidx.compose.ui.unit.Dp, m: Modifier, enabled: Boolean = true, onClick: () -> Unit) {

@@ -42,12 +42,10 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.snapshotFlow
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LpPullRefresh
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -360,10 +358,7 @@ fun RankingPage(nav: NavController) {
                     }
                 }
             }
-            val pull = rememberPullToRefreshState()
-            PullToRefreshBox(isRefreshing = pulling, state = pull,
-                indicator = { LpPullIndicator(pull, pulling) },
-                onRefresh = { if (!refreshing) { pulling = true; rankReload++ } },
+            LpPullRefresh(pulling, onRefresh = { if (!refreshing) { pulling = true; rankReload++ } },
                 modifier = Modifier.weight(1f).fillMaxWidth()) {
                 LazyColumn(Modifier.fillMaxSize(), list, contentPadding = pad) {
                     if (rows.isEmpty()) item("state") {

@@ -31,22 +31,6 @@ fun ProvideRowKeyline(lead: Dp, content: @Composable () -> Unit) {
     CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
 }
 
-/**
- * 首页这种「一行一段」的纵向页:焦点项钉在距顶 [above] 处,上下一样(草稿 02)。
- * ★ 第一段要贴真顶:让整段去请求露出(不只是段里的按钮),滚动量被 0 夹住。见 HomePage 的 Hero。
- */
-@OptIn(ExperimentalFoundationApi::class)
-@Composable
-fun ProvideColumnKeyline(above: Dp, content: @Composable () -> Unit) {
-    val a = with(LocalDensity.current) { above.toPx() }
-    val spec = remember(a) {
-        object : BringIntoViewSpec {
-            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float) = offset - a
-        }
-    }
-    CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
-}
-
 /** 纵向页:往上多露出一段(行标题),往下只保证焦点项完整露出。 */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable

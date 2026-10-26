@@ -18,8 +18,6 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -59,7 +57,7 @@ import xyz.linplayer.app.ui.components.Dim3
 import xyz.linplayer.app.ui.components.ErrorState
 import xyz.linplayer.app.ui.components.EmptyState
 import xyz.linplayer.app.ui.components.LoadingState
-import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LpPullRefresh
 import xyz.linplayer.app.ui.components.Panel
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.LpTag
@@ -168,10 +166,8 @@ fun AggregatePage(nav: NavController) {
     }
 
     LpScaffold("聚合视界", scrolled = rememberScrolled(list)) { pad ->
-        val pull = rememberPullToRefreshState()
-        PullToRefreshBox(
-            isRefreshing = pulling, state = pull,
-            indicator = { LpPullIndicator(pull, pulling) },
+        LpPullRefresh(
+            refreshing = pulling,
             onRefresh = { if (!pulling) {
                 pulling = true
                 if (done) { refreshResume = false; reload++ }

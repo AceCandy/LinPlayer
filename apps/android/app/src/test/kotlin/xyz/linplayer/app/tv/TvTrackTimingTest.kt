@@ -55,12 +55,12 @@ class TvTrackTimingTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = "mpv")) }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 2_500)
         try {
             rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 600)
-            rule.onNodeWithText("简体中文(内封)").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+            rule.onNodeWithText("简体中文").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 200)
             rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 200)
@@ -90,11 +90,11 @@ class TvTrackTimingTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = "mpv")) }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 2_500)
         rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 400)
-        rule.onNodeWithText("英文字幕(内封)").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        rule.onNodeWithText("英文字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
         assertEquals(listOf("2"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
         press(rule, Key.MediaNext)
@@ -124,12 +124,12 @@ class TvTrackTimingTest {
                 subtitle = "{\"sourceId\":\"ea\",\"index\":2}"))
         }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 3_000)
         assertEquals(listOf("1"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
         rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 400)
-        rule.onNodeWithText("英文字幕(内封)").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        rule.onNodeWithText("英文字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
         rule.onNodeWithText("更多").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
@@ -158,7 +158,7 @@ class TvTrackTimingTest {
             push(TvRoute.Player("sh6", "测试剧集", engine = "mpv", audioIndex = 1, subIndex = 3))
         }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 13_000)
         assertEquals(1, core.calls.count { it.first == "player.play" })
         assertEquals("起播挂起时不读取旧轨表", 0, core.calls.count { it.first == "player.tracks" })
@@ -187,7 +187,7 @@ class TvTrackTimingTest {
         runBlocking { app.boot() }
         val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = "exo")) }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { TvShell(nav) } }
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 2_500)
         assertEquals(0, core.calls.count { it.first == "player.play" })
         rule.runOnIdle { release.complete(Unit) }

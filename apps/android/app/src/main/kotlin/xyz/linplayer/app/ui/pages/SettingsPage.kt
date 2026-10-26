@@ -119,6 +119,7 @@ fun SettingsPage(nav: NavController) {
        设置 → 插件 → 详情页 → 「页面」,四层深,用户报的是「甚至不知道哪里打开」
        (2026-09-21)。手机上没有侧栏,放在设置根列表里 —— 两层就能到。 */
     val app = LocalApp.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     var pluginEntries by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     LaunchedEffect(Unit) {
         pluginEntries = runCatching { app.call("plugin.sidebar") }.getOrNull().arr().mapNotNull { it.obj() }
@@ -141,8 +142,19 @@ fun SettingsPage(nav: NavController) {
                     Hairline()
                     // 弹幕源和屏蔽词跟内核无关,Exo 下也照样能加(播放页那个入口才分内核)
                     LpCell("弹幕", mediaStyle = true, icon = LpIcons.danmaku) { nav.navigate(Route.SettingsSub("danmaku")) }
-                    Hairline()
-                    LpCell("截屏", mediaStyle = true, icon = LpIcons.camera) { nav.navigate(Route.SettingsSub("shot")) }
+                    // TV 播放器不截图,截屏水印设置在电视上没有消费点
+                    if (!tv) {
+                        Hairline()
+                        LpCell("截屏", mediaStyle = true, icon = LpIcons.camera) { nav.navigate(Route.SettingsSub("shot")) }
+                    }
+                }
+            }
+            if (tv) {
+                item("g-companion") { GroupLabel("手机遥控") }
+                item("p-companion") {
+                    Panel(Modifier.padding(horizontal = Sp.x16)) {
+                        LpCell("手机扫码遥控", mediaStyle = true, icon = LpIcons.sync) { nav.navigate(Route.SettingsSub("companion")) }
+                    }
                 }
             }
             item("g2") { GroupLabel("网络") }
@@ -242,6 +254,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
         "primaryprogress" -> "主进度服"
         "blocked" -> "已屏蔽的内容"; "storage" -> "存储与数据目录"
         "sync" -> "Trakt / Bangumi 账号"
+        "companion" -> "手机扫码遥控"
         "update" -> "更新"; else -> "关于"
     }
 
@@ -261,6 +274,7 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
                     "blocked" -> BlockedPanel()
                     "storage" -> StoragePanel()
                     "sync" -> SyncAccountsPanel()
+                    "companion" -> CompanionPanel()
                     "update" -> UpdatePanel()
                     else -> AboutPanel()
                 }
@@ -433,6 +447,53 @@ private fun PlayerPrefsPanel() {
         Hairline()
         LpCell("到了就自己跳", mediaStyle = true,
             switch = prefs.bool("skip_auto"), onSwitch = { v -> flip("skip_auto", v) })
+        // 遥控器手感只存本机(UiPrefs.tv*),由 TV 播放器读取
+        if (xyz.linplayer.app.tv.LocalTvMode.current) {
+            val ui = xyz.linplayer.app.data.UiPrefs
+            Hairline()
+            SegRow("快进步长", listOf(5, 10, 15, 30).map { "$it 秒" }, "${ui.tvSeekStep.value} 秒",
+                { v -> ui.setTv(ctx, "tv_seek_step", v.removeSuffix(" 秒").toInt()) })
+            Hairline()
+            SegRow("长按倍速", listOf(2.0, 3.0, 4.0).map { "${it}x" }, "${ui.tvHoldSpeed.value}x",
+                { v -> ui.setTv(ctx, "tv_hold_speed", v.removeSuffix("x").toDouble()) })
+        }
+    }
+}
+
+/** TV 专属:手机扫码遥控开关与配对码。电视在局域网开一个小网页,手机浏览器打开即遥控器。 */
+@Composable
+private fun CompanionPanel() {
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    var enabled by remember { mutableStateOf<Boolean?>(null) }
+    var saving by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        enabled = runCatching { app.call("companion.status") }.getOrNull().obj()?.bool("enabled")
+    }
+    Panel(Modifier.padding(Sp.x16)) {
+        LpCell("手机扫码遥控", mediaStyle = true, sub = "电视在局域网里开一个小网页,手机浏览器打开就是遥控器",
+            switch = enabled == true, onSwitch = { v ->
+                if (!saving && enabled != null) {
+                    val before = enabled
+                    enabled = v; saving = true
+                    scope.launch {
+                        runCatching { app.call("companion.setEnabled", args("enabled" to v)) }
+                            .onFailure { enabled = before; app.report(it) }
+                        saving = false
+                    }
+                }
+            })
+        if (enabled == true) {
+            Hairline()
+            Box(Modifier.padding(vertical = Sp.x12)) { xyz.linplayer.app.tv.CompanionBlock(140.dp, horizontal = true) }
+        }
+    }
+}
+
+/** 打开系统文件选择器。部分电视盒子没装 DocumentsUI,直接 launch 会抛 ActivityNotFoundException 闪退。 */
+internal fun <I> androidx.activity.result.ActivityResultLauncher<I>.launchOrToast(input: I, app: AppState) {
+    try { launch(input) } catch (_: android.content.ActivityNotFoundException) {
+        app.toast("这台设备没有系统文件选择器,无法打开", ToastKind.Error)
     }
 }
 
@@ -523,11 +584,11 @@ private fun BackupPanel() {
             switch = withSettings, onSwitch = { withSettings = it })
         Hairline()
         LpCell("导出到文件", mediaStyle = true, onClick = {
-            save.launch("LinPlayer-备份-" + System.currentTimeMillis() + ".lpbak")
+            save.launchOrToast("LinPlayer-备份-" + System.currentTimeMillis() + ".lpbak", app)
         })
         Hairline()
         LpCell("从文件还原", mediaStyle = true, sub = "保留本机已有服务器", onClick = {
-            open.launch(arrayOf("*/*"))
+            open.launchOrToast(arrayOf("*/*"), app)
         })
         Hairline()
         // ☠ 这句必须显眼:备份文件里带着 token 和密码,加密只是混淆级(密钥随文件走)
@@ -629,7 +690,7 @@ internal fun DanmakuSettingsPanel() {
                 onClick = { editWords = true })
             Hairline()
             LpCell("屏蔽用户", mediaStyle = true, value = "$userCount 个", sub = "从弹弹Play 屏蔽表导入",
-                onClick = { importXml.launch(arrayOf("*/*")) })
+                onClick = { importXml.launchOrToast(arrayOf("*/*"), app) })
         }
         Spacer(Modifier.height(Sp.x20))
     }
@@ -815,7 +876,7 @@ private fun MpvConfPanel() {
         )
         Hairline()
         LpCell("导入 mpv.conf", mediaStyle = true, sub = "覆盖现有配置",
-            onClick = { pick.launch(arrayOf("*/*")) })
+            onClick = { pick.launchOrToast(arrayOf("*/*"), app) })
         if (active) {
             Hairline()
             LpCell("清除", mediaStyle = true, arrow = false, onClick = {
@@ -1020,7 +1081,7 @@ private fun StoragePanel() {
         LpCell("日志目录", mediaStyle = true, sub = Logs.dirPath.ifEmpty { "未初始化" }, arrow = false)
         Hairline()
         LpCell("导出日志", mediaStyle = true, onClick = {
-            save.launch("linplayer-" + System.currentTimeMillis() + ".log")
+            save.launchOrToast("linplayer-" + System.currentTimeMillis() + ".log", app)
         })
         Hairline()
         // 不让用户描述:他说不清出了什么问题,日志说得清(用户 2026-09-18)

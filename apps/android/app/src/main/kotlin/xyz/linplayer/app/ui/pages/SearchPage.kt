@@ -17,8 +17,7 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
-import androidx.compose.material3.pulltorefresh.PullToRefreshBox
-import xyz.linplayer.app.ui.components.LpPullIndicator
+import xyz.linplayer.app.ui.components.LpPullRefresh
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -200,14 +199,12 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     }
 
     LpImmersive(barHeight = 0.dp) { pad ->
-        val pullState = androidx.compose.material3.pulltorefresh.rememberPullToRefreshState()
-        PullToRefreshBox(refreshing, {
+        LpPullRefresh(refreshing, {
             if (q.isNotBlank() && !refreshing) {
                 refreshing = true
                 if (aggregate && route.viewId == null) searchAggregate() else refresh++
             }
-        }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12), state = pullState,
-            indicator = { LpPullIndicator(pullState, refreshing) }) {
+        }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12)) {
             Column(Modifier.fillMaxSize().imePadding()) {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                     Modifier.padding(horizontal = Sp.x16).testTag("search.field"),

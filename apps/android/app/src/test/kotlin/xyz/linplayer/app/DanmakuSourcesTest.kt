@@ -1,10 +1,7 @@
 package xyz.linplayer.app
 
 import android.app.Application
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.ui.Modifier
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -56,35 +53,6 @@ class DanmakuSourcesTest {
         rule.onNodeWithText("测试源", substring = false).assertIsDisplayed()
         assertFalse(core.calls.any { it.first == "danmaku.setDanmakuConfig" })
         rule.onRoot().captureRoboImage("build/danmaku/source-test-failure.png")
-    }
-
-    @Test
-    @Config(qualifiers = "w1920dp-h1080dp-land-mdpi")
-    fun tvOfficialSourceCanMoveAndToggleWithRemote() {
-        var sources = buildJsonArray {
-            add(buildJsonObject { put("id", "official"); put("name", "官方源"); put("official", true) })
-            add(buildJsonObject { put("id", "custom"); put("name", "自建源") })
-        }
-        val core = FakeCore().loggedIn().apply {
-            on("danmaku.getDanmakuConfig") { sources }
-            on("danmaku.setDanmakuConfig") { a -> sources = a!!["sources"] as JsonArray; JsonNull }
-        }
-        val app = AppState(core, scope); runBlocking { app.boot() }
-        rule.setContent { TvFrame(app) { Box(Modifier.fillMaxSize()) { DanmakuSourcesPanel {} } } }
-        rule.waitForIdle()
-        rule.onNodeWithText("官方源").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus) { it() }
-        rule.onRoot().performKeyInput { keyDown(androidx.compose.ui.input.key.Key.Enter); keyUp(androidx.compose.ui.input.key.Key.Enter) }
-        rule.waitForIdle()
-        rule.onNodeWithText("删除").assertDoesNotExist()
-        rule.onNodeWithText("下移").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus) { it() }
-        rule.onRoot().performKeyInput { keyDown(androidx.compose.ui.input.key.Key.Enter); keyUp(androidx.compose.ui.input.key.Key.Enter) }
-        rule.waitForIdle()
-        assertEquals("official", sources.last().obj().str("id"))
-        rule.onNodeWithText("启用").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus) { it() }
-        rule.onRoot().performKeyInput { keyDown(androidx.compose.ui.input.key.Key.Enter); keyUp(androidx.compose.ui.input.key.Key.Enter) }
-        rule.waitForIdle()
-        assertTrue(sources.last().obj().bool("disabled"))
-        rule.onRoot().captureRoboImage("build/danmaku/tv-source-actions.png")
     }
 
     @Test fun lateAutomaticResultCannotOverwriteManualChoice() = runBlocking {

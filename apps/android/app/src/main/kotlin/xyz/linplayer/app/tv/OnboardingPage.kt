@@ -1,6 +1,5 @@
 package xyz.linplayer.app.tv
 
-import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -51,7 +50,6 @@ import xyz.linplayer.app.tv.kit.TvText
 import xyz.linplayer.app.tv.kit.TvW
 import xyz.linplayer.app.tv.kit.contentArea
 import xyz.linplayer.app.tv.kit.tvType
-import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.withScheme
 import xyz.linplayer.app.ui.theme.LpIcons
 
@@ -69,14 +67,12 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
     val scope = rememberCoroutineScope()
     val t = tvType
     var kind by remember { mutableIntStateOf(0) }
-    var name by remember { mutableStateOf("") }
-    var server by remember { mutableStateOf("https://") }
+    var server by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
+    var testing by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
-    var picking by remember { mutableStateOf(false) }
-    val nav = if (embedded && onDone == null) LocalNav.current else null
     // 插件提供的服务器类型(D131 D423):装了数据源插件才出现在类型片里
     var pluginForms by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     val pluginValues = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
@@ -102,7 +98,7 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
                 app.call("source.addSources", xyz.linplayer.app.ui.pages.j("plugin_id" to pid, "type_id" to tid, "sources" to chosen))
                 app.toast("已添加 ${chosen.size} 个源,不要的在服务器页删", ToastKind.Ok)
                 app.refreshSession()
-                if (onDone != null) onDone() else nav?.pop()
+                onDone?.invoke()
             } catch (e: CoreException) {
                 hint = e.advice
             } catch (e: Throwable) {
@@ -111,30 +107,18 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
         }
     }
 
-    if (picking) {
-        // 首次启动页不在返回栈里,挑文件夹就地换内容;返回键回表单
-        BackHandler { picking = false }
-        LocalPickerPage(onDone = { picking = false; onDone?.invoke() })
-        return
-    }
-
     fun connect() {
-        if (busy) return
+        if (busy || testing) return
         busy = true; hint = null
         scope.launch {
             try {
-                val r = app.call("emby.login", JsonObject(mapOf(
+                app.call("emby.login", JsonObject(mapOf(
                     "server" to JsonPrimitive(withScheme(server)), "username" to JsonPrimitive(user),
                     "password" to JsonPrimitive(pass), "device_id" to JsonPrimitive(app.deviceId()),
-                ))).obj()
-                // ★ emby.login 不收名字,登录成功后补一刀;**补名失败不许把「已经加成功」变成报错**
-                val id = r.str("server")
-                if (name.isNotBlank() && id != null) runCatching {
-                    app.call("account.updateAccount", args("server_id" to id, "name" to name.trim()))
-                }
+                )))
                 app.toast("已添加服务器", ToastKind.Ok)
                 app.refreshSession()
-                if (onDone != null) onDone() else nav?.pop()
+                onDone?.invoke()
             } catch (e: CoreException) {
                 hint = e.advice
             } catch (e: Throwable) {
@@ -149,24 +133,24 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
                 Icon(LpIcons.play, null, Modifier.size(20.dp), tint = TvC.onAcc)
             }
             Spacer(Modifier.height(TvSp.x12))
-            TvText(if (embedded) "添加服务器" else "欢迎使用 LinPlayer", t.display, TvC.fg, weight = TvW.bold)
+            TvText(if (embedded) "添加服务器" else "连接到你的媒体服务器", t.display, TvC.fg, weight = TvW.bold)
             TvText("推荐用手机扫右边的码,不用在电视上打字", t.body, TvC.fg2)
             Spacer(Modifier.height(TvSp.x16))
-            ScopeChips(listOf("Emby", "本机文件夹") + pluginForms.map { it.str("label") ?: "" }, kind,
+            ScopeChips(listOf("Emby") + pluginForms.map { it.str("label") ?: "" }, kind,
                 itemModifier = { i -> Modifier.memo("gate.kind.$i") }, onSelect = { kind = it; pluginValues.clear() })
             Spacer(Modifier.height(TvSp.x16))
             if (kind == 0) {
-                // 名称排第一行【继承 PC A-46】:不填的话显示名回落成地址,到处都是真实地址
-                Field("名称") { TvTextField(name, { name = it }, "可选,默认用服务器自己的名字", 384.dp, Modifier.memo("gate.name")) }
-                Field("服务器地址") { TvTextField(server, { server = it }, "https://", 384.dp, Modifier.memo("gate.server")) }
+                Field("服务器地址") { TvTextField(server, { server = it }, "例如 https://example.com", 384.dp, Modifier.memo("gate.server")) }
                 Field("用户名") { TvTextField(user, { user = it }, "", 384.dp, Modifier.memo("gate.user")) }
                 Field("密码") { TvTextField(pass, { pass = it }, "", 384.dp, Modifier.memo("gate.pass"), password = true) }
                 Spacer(Modifier.height(TvSp.x12))
                 Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
-                    TvButton(if (busy) "连接中…" else "连接", LpIcons.check, primary = true,
+                    TvButton(if (busy) "登录中…" else "登录", LpIcons.check, primary = true,
                         modifier = Modifier.memo("gate.connect", initial = true), onClick = { connect() })
-                    // 「测试连接」只探测,不添加、不切会话【继承 PC A-47】
-                    TvButton("测试连接", LpIcons.sync, modifier = Modifier.memo("gate.test"), onClick = {
+                    // 「测试连接」只探测,不添加、不切会话【继承 PC A-47】;填了账号就真登一次,和手机端同一口径
+                    TvButton(if (testing) "测试中…" else "测试连接", LpIcons.sync, modifier = Modifier.memo("gate.test"), onClick = {
+                        if (busy || testing) return@TvButton
+                        testing = true; hint = null
                         scope.launch {
                             runCatching {
                                 app.call("account.testConnection", JsonObject(mapOf(
@@ -174,13 +158,16 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
                                     "password" to JsonPrimitive(pass), "device_id" to JsonPrimitive(app.deviceId()),
                                 ))).obj()
                             }.onSuccess { d ->
-                                app.toast("连上了:${d.str("name").orEmpty()} · 版本 ${d.str("version").orEmpty()}", ToastKind.Ok)
-                            }.onFailure { e -> hint = (e as? CoreException)?.advice ?: e.message }
+                                val who = d.str("user_name").orEmpty()
+                                val tail = if (who.isNotEmpty()) "已用「$who」登录成功" else "没填账号,只验了地址通不通"
+                                app.toast("连上了:${d.str("name").orEmpty()} · 版本 ${d.str("version").orEmpty()} · $tail", ToastKind.Ok)
+                            }.onFailure { e -> hint = (e as? CoreException)?.advice ?: e.message ?: "连不上" }
+                            testing = false
                         }
                     })
                 }
-            } else if (kind >= 2) {
-                val f = pluginForms[kind - 2]
+            } else {
+                val f = pluginForms[kind - 1]
                 TvText("由插件「${f.str("plugin_name") ?: ""}」提供。长文本用手机扫右边的码填更快", t.body, TvC.fg2, maxLines = 2)
                 Spacer(Modifier.height(TvSp.x8))
                 f["fields"].arr().mapNotNull { it.obj() }.forEach { fd ->
@@ -193,12 +180,6 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
                 Spacer(Modifier.height(TvSp.x12))
                 TvButton(if (busy) "添加中…" else "添加", LpIcons.check, primary = true, modifier = Modifier.memo("gate.padd"),
                     onClick = { addPluginSources(f) })
-            } else {
-                TvText("选一个装着影片的文件夹,它会像一台服务器那样出现在服务器页", t.body, TvC.fg2, maxLines = 2)
-                Spacer(Modifier.height(TvSp.x12))
-                TvButton("选择文件夹", LpIcons.folder, primary = true, modifier = Modifier.memo("gate.folder"), onClick = {
-                    if (nav != null) nav.push(TvRoute.LocalPicker) else picking = true
-                })
             }
             hint?.let { Spacer(Modifier.height(TvSp.x8)); TvText(it, t.meta, TvC.bad, maxLines = 3) }
         }
@@ -241,7 +222,7 @@ fun CompanionBlock(qr: Dp, horizontal: Boolean = false) {
     val s = st
     when {
         s == null -> Skel(Modifier.size(qr), TvR.lg)
-        !s.bool("enabled") -> TvText("手机遥控被关掉了 · 设置 → 通用里打开", t.body, TvC.fg2, maxLines = 2)
+        !s.bool("enabled") -> TvText("手机遥控被关掉了 · 设置 → 手机遥控里打开", t.body, TvC.fg2, maxLines = 2)
         !s.str("error").isNullOrBlank() -> Column {
             TvText("手机遥控没起来", t.title, TvC.fg, weight = TvW.semi)
             TvText(s.str("error") ?: "", t.meta, TvC.fg3, maxLines = 4)

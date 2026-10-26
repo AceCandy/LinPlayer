@@ -39,8 +39,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
@@ -63,10 +63,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
-import kotlinx.serialization.json.JsonPrimitive
-import kotlinx.serialization.json.doubleOrNull
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
@@ -75,7 +72,6 @@ import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.boolOrNull
-import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.kit.FullState
@@ -129,33 +125,43 @@ private fun TimeChip(text: String) {
 /** 速度为 0 时什么都不画:本地文件和缓存喂饱时本来就是 0,画「0 KB/s」像卡住了。 */
 private fun speedText(s: String) = s.takeIf { it.isNotBlank() && !it.startsWith("0 ") }
 
-/** 起播黑幕:32dp 转圈 + 下方缓冲速度(§8.5)。 */
+/** 起播黑幕:32dp 转圈 + 状态文字 + 缓冲速度(§8.5),文字与手机一致。 */
 @Composable
 internal fun Curtain(ui: PlayerUi) {
+    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
+        Spinner(ui, if (ui.buffering) "正在缓冲…" else "正在打开…")
+    }
+}
+
+/** 起播后卡住缓冲:画面上叠同一个转圈,不盖黑底。 */
+@Composable
+internal fun BoxScope.BufferingHint(ui: PlayerUi) {
+    Box(Modifier.align(Alignment.Center)) { Spinner(ui, "正在缓冲…") }
+}
+
+@Composable
+private fun Spinner(ui: PlayerUi, label: String) {
     val tr = rememberInfiniteTransition(label = "spin")
     val a by tr.animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "spinA")
-    Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Column(horizontalAlignment = Alignment.CenterHorizontally) {
-            Canvas(Modifier.size(32.dp)) {
-                drawArc(TvC.acc, a, 270f, false, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
-            }
-            speedText(ui.netSpeed)?.let {
-                Spacer(Modifier.height(TvSp.x8))
-                TvText(it, tvType.meta, Color.White.copy(alpha = .8f), mono = true)
-            }
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Canvas(Modifier.size(32.dp)) {
+            drawArc(TvC.acc, a, 270f, false, style = Stroke(3.dp.toPx(), cap = StrokeCap.Round))
+        }
+        Spacer(Modifier.height(TvSp.x8))
+        TvText(label, tvType.meta, Color.White)
+        speedText(ui.netSpeed)?.let {
+            Spacer(Modifier.height(TvSp.x4))
+            TvText(it, tvType.meta, Color.White.copy(alpha = .8f), mono = true)
         }
     }
 }
 
-/** 起播失败 / 放不出来(§8.6)。第一行给人看,第二行是核心层原话;换线路不在这里做,跳去线路管理。 */
+/** 起播失败 / 放不出来(§8.6)。第一行给人看,第二行是核心层原话;按钮同手机失败页只有「重试」。 */
 @Composable
-internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, onSwitchEngine: (() -> Unit)?, onLines: (() -> Unit)?) {
-    val labels = listOfNotNull("重试", onSwitchEngine?.let { "换内核重播" }, onLines?.let { "线路管理" })
+internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, finished: Boolean = false) {
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
-        FullState(LpIcons.info, "无法播放这个文件", sub = if (retried) "已自动重试 1 次仍然失败" else null, detail = reason,
-            buttons = labels, tone = TvC.bad, onButton = { i ->
-            when (labels[i]) { "重试" -> onRetry(); "换内核重播" -> onSwitchEngine?.invoke(); else -> onLines?.invoke() }
-        })
+        FullState(LpIcons.info, if (finished) "无法继续播放下一集" else "这一片没能播起来", sub = if (retried) "已自动重试 1 次仍然失败" else null, detail = reason,
+            buttons = listOf("重试"), tone = TvC.bad, onButton = { onRetry() })
     }
 }
 
@@ -165,10 +171,19 @@ private fun BoxScope.TitleBlock(ui: PlayerUi) {
     // 标题栏本身全透明,只有这一块自带不透明底(§2.2)
     Column(Modifier.align(Alignment.TopStart).padding(start = TvDim.safeH, top = TvDim.safeV).widthIn(max = 560.dp)
         .clip(TvR.md).background(Color.Black.copy(alpha = .55f)).padding(horizontal = TvSp.x12, vertical = TvSp.x8)) {
+        // 全屏播放看不到系统时钟,和手机一样在标题旁补一个
+        var clock by remember { mutableStateOf("") }
+        LaunchedEffect(Unit) {
+            val f = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
+            while (true) { clock = f.format(java.util.Date()); delay(10_000) }
+        }
         Row(verticalAlignment = Alignment.CenterVertically) {
             TvText(ui.title, t.body, Color.White, Modifier.weight(1f, fill = false), weight = TvW.semi)
             speedText(ui.netSpeed)?.let { Spacer(Modifier.width(TvSp.x8)); TvText(it, t.meta, Color.White.copy(alpha = .8f), mono = true) }
+            Spacer(Modifier.width(TvSp.x8))
+            TvText(clock, t.meta, Color.White.copy(alpha = .8f), mono = true)
         }
+        if (ui.episodeLabel.isNotBlank()) TvText(ui.episodeLabel, t.meta, Color.White)
         // 第二行带上正在用的字幕:OSD 收着时这是唯一看得出字幕挂没挂上的地方
         val sub = ui.tracks.firstOrNull { it.str("kind") == "sub" && it.bool("selected") }
             ?.let { it.str("title")?.takeIf { s -> s.isNotBlank() } ?: xyz.linplayer.app.ui.pages.langCn(it.str("lang")) }
@@ -200,10 +215,8 @@ internal fun BoxScope.Osd(
             }
             Spacer(Modifier.height(TvSp.x4))
             Row {
-                // 左边写当前位置:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
-                TimeChip(fmtTime(ui.position))
-                Spacer(Modifier.weight(1f))
-                TimeChip("-" + fmtTime((ui.duration - ui.position).coerceAtLeast(0.0)))
+                // 写当前位置不写预览目标:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
+                TimeChip(fmtTime(ui.position) + " / " + if (ui.duration > 0) fmtTime(ui.duration) else "--:--")
             }
             Spacer(Modifier.height(TvSp.x12))
             Row(verticalAlignment = Alignment.CenterVertically) {
@@ -220,10 +233,10 @@ internal fun BoxScope.Osd(
                 // 右组和播控拉开距离,防误触
                 Spacer(Modifier.weight(1f))
                 Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                    TvButton("字幕", LpIcons.sub, modifier = Modifier.memo("osd.sub"), onClick = { onPanel("sub") })
-                    TvButton("音轨", LpIcons.audio, modifier = Modifier.memo("osd.audio"), onClick = { onPanel("audio") })
                     if (!target.localEntry && !target.download)
                         TvButton("弹幕", LpIcons.danmaku, modifier = Modifier.memo("osd.dm"), onClick = { onPanel("danmaku") })
+                    TvButton("音轨", LpIcons.audio, modifier = Modifier.memo("osd.audio"), onClick = { onPanel("audio") })
+                    TvButton("字幕", LpIcons.sub, modifier = Modifier.memo("osd.sub"), onClick = { onPanel("sub") })
                     if (ui.hasEpisodes) TvButton("选集", LpIcons.list, modifier = Modifier.memo("osd.eps"), onClick = { onPanel("episodes") })
                     TvButton("更多", LpIcons.more, modifier = Modifier.memo("osd.more"), onClick = { onPanel("more") })
                     // 插件标签排在官方那几个后面:这一栏的先后顺序是官方优先,插件是增量
@@ -301,64 +314,11 @@ internal fun BoxScope.SkipButton(ui: PlayerUi, onSkip: () -> Unit) {
     }
 }
 
-/** 有声音没画面:故障牌**不随 OSD 收起** —— 它是故障说明,不是控件。 */
+/** 片尾「接下来」胶囊,外观同手机;和跳过按钮同一角(左上是标题块,底部是控件)。 */
 @Composable
-internal fun BoxScope.NoVideoCard(ui: PlayerUi, reason: String) {
-    val t = tvType
-    Column(
-        Modifier.align(Alignment.Center).widthIn(max = 520.dp).clip(TvR.lg).background(TvC.surface2)
-            .border(2.dp, TvC.bad, TvR.lg).padding(horizontal = TvSp.x24, vertical = TvSp.x20),
-        horizontalAlignment = Alignment.CenterHorizontally,
-    ) {
-        TvText("只有声音,没有画面", t.title, TvC.fg, weight = TvW.semi)
-        Spacer(Modifier.height(TvSp.x8))
-        TvText(reason, t.body, TvC.fg2, maxLines = 3)
-        Spacer(Modifier.height(TvSp.x6))
-        TvText("按返回键退出播放。把这段话报给开发者。", t.meta, TvC.fg3)
-    }
-    if (!ui.osd) TitleBlock(ui)
-}
-
-/** 下一集卡(§8.5)。焦点落在卡上;OK = 立即播放,返回 = 取消并退出;[countdown] 为空 = 不自动播。 */
-@Composable
-internal fun BoxScope.NextCard(next: Item, countdown: Int?, onPlay: () -> Unit) {
-    val app = LocalApp.current
-    val t = tvType
-    Box(Modifier.align(Alignment.BottomEnd).padding(end = TvDim.safeH, bottom = TvDim.safeV)) {
-        Surface(
-            onClick = onPlay,
-            modifier = Modifier.memo("next.card"),
-            shape = ClickableSurfaceDefaults.shape(TvR.lg),
-            scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f),
-            colors = ClickableSurfaceDefaults.colors(
-                containerColor = TvC.surface2, contentColor = TvC.fg,
-                focusedContainerColor = TvC.focus, focusedContentColor = TvC.onFocus,
-            ),
-        ) {
-            Row(Modifier.padding(TvSp.x12), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(128.dp, 72.dp).clip(TvR.md), contentAlignment = Alignment.Center) {
-                    TvImage(app.imageUrl(next.id, "Primary", 220).takeUnless { next.hasPrimary == false })
-                    if (countdown != null) {
-                        val acc = TvC.acc
-                        Box(
-                            Modifier.size(34.dp).drawBehind {
-                                drawCircle(Color(0x99000000))
-                                drawArc(acc, -90f, 360f * countdown / 5f, false, style = Stroke(3.dp.toPx()))
-                            },
-                            contentAlignment = Alignment.Center,
-                        ) { Text("$countdown", color = Color.White, fontSize = t.body, fontWeight = TvW.bold) }
-                    }
-                }
-                Spacer(Modifier.width(TvSp.x12))
-                Column(Modifier.width(188.dp)) {
-                    Text("下一集", fontSize = t.meta)
-                    Text("E${next.episodeNo ?: "?"} · ${next.name}", fontSize = t.body, fontWeight = TvW.semi, maxLines = 2)
-                    Spacer(Modifier.height(TvSp.x2))
-                    Text("确认立即播放 · 返回取消", fontSize = t.meta)
-                }
-            }
-        }
-    }
+internal fun BoxScope.NextUpChip(ui: PlayerUi, next: Item, onPlay: () -> Unit) {
+    xyz.linplayer.app.ui.player.NextUp(next, ui.duration - ui.position, ui.duration, 150.dp,
+        Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV).alpha(if (ui.osd) 1f else .5f), onClick = onPlay)
 }
 
 /** 瞬时提示:中央播放暂停图标、「3.0x ▸▸」。 */
@@ -386,7 +346,7 @@ internal fun BoxScope.Moments(ui: PlayerUi) {
 // ---------------------------------------------------------------- 面板(§8.4)
 
 internal fun openPanel(
-    which: String, app: AppState, nav: TvNav, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi,
+    which: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi,
     target: TvRoute.Player, engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
     /** 这一格是插件标签时的那一行(SPEC 9.5 的 panel),官方面板是 null。 */
     plugin: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
@@ -406,19 +366,9 @@ internal fun openPanel(
             "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
-            "episodes" -> EpisodesPanel(app, overlay, ui, target, ctl)
-            else -> MorePanel(app, nav, scope, overlay, ui, target, engine, exo, ctl)
+            "episodes" -> EpisodesPanel(overlay, ui, target, ctl)
+            else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl)
         }
-    }
-}
-
-/** mpv 属性回读。**面板初值一律回读播放器真值**,不用 UI 猜的默认【继承 PC A-3】。 */
-private suspend fun mpvDouble(app: AppState, name: String): Double? {
-    val r: JsonElement? = runCatching { app.call("player.mpvGet", args("name" to name)) }.getOrNull()
-    return when (r) {
-        is JsonPrimitive -> r.content.toDoubleOrNull()
-        is JsonObject -> (r["value"] as? JsonPrimitive)?.doubleOrNull ?: (r["value"] as? JsonPrimitive)?.content?.toDoubleOrNull()
-        else -> null
     }
 }
 
@@ -430,9 +380,8 @@ private suspend fun refreshTracks(app: AppState, ui: PlayerUi) {
 private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, exo: ExoPlayer?, onPicked: (String) -> Unit, pickTrack: suspend (String, String) -> Unit, pickExoTrack: ((ExoPlayer, String, String) -> Unit)?, observeTracks: (List<JsonObject>) -> Unit) {
     val isSub = kind == "sub"
     var level by remember { mutableIntStateOf(0) }
-    var delaySecs by remember { mutableStateOf<Double?>(null) }
     LaunchedEffect(Unit) {
-        if (exo == null) { refreshTracks(app, ui); observeTracks(ui.tracks); delaySecs = mpvDouble(app, if (isSub) "sub-delay" else "audio-delay") ?: 0.0 }
+        if (exo == null) { refreshTracks(app, ui); observeTracks(ui.tracks) }
         if (isSub && !SubStyle.loaded.value) SubStyle.load(app)
     }
     val t = tvType
@@ -442,6 +391,10 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
                 onStep = { d -> scope.launch { SubStyle.set(app, "scale", SubStyle.stepScale(SubStyle.scale.doubleValue, d > 0)) } })
             PanelItem("位置", value = SubStyle.position.intValue.toString(), step = true,
                 onStep = { d -> scope.launch { SubStyle.set(app, "position", SubStyle.stepPos(SubStyle.position.intValue, d > 0)) } })
+            PanelItem("描边", value = "%.1f".format(SubStyle.border.doubleValue), step = true, enabled = SubStyle.loaded.value,
+                onStep = { d -> scope.launch { SubStyle.set(app, "border_size", SubStyle.stepBorder(SubStyle.border.doubleValue, d > 0)) } })
+            PanelItem("粗体", switch = SubStyle.bold.value, enabled = SubStyle.loaded.value,
+                onClick = { scope.launch { SubStyle.set(app, "bold", !SubStyle.bold.value) } })
             PanelItem("100 = 画面下沿。ASS 特效字幕自带样式,描边和粗体不生效;图形字幕改不了字号。", enabled = false)
         }
         return
@@ -451,9 +404,9 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
         if (exo != null) {
             val options = exoTracks(exo, if (isSub) "subtitle" else "audio")
             val cur = exoCurrent(exo, if (isSub) "subtitle" else "audio")
-            if (options.isEmpty() || (isSub && options.size == 1)) PanelItem(if (isSub) "该版本没有内封字幕" else "没有可选的音轨", enabled = false)
-            options.forEach { (id, _, label) ->
-                PanelItem(label, selected = id == cur, focused = id == cur, onClick = {
+            if (options.isEmpty() || (isSub && options.size == 1)) PanelItem("这里没有可选项", enabled = false)
+            options.forEach { (id, detail, label) ->
+                PanelItem(label, sub = detail, selected = id == cur, focused = id == cur, onClick = {
                     onPicked(kind)
                     runCatching { if (pickExoTrack != null) pickExoTrack(exo, kind, id) else exoPick(exo, if (isSub) "subtitle" else "audio", id) }.onFailure { app.report(it) }
                     overlay.close()
@@ -462,22 +415,20 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
         } else {
             val list = ui.tracks.filter { it.str("kind") == kind }
             val selected = list.firstOrNull { it.bool("selected") }?.str("id")
-            if (list.isEmpty()) PanelItem(if (isSub) "该版本没有内封字幕" else "没有可选的音轨", enabled = false)
+            if (list.isEmpty()) PanelItem("这里没有可选项", enabled = false)
+            if (isSub && list.isNotEmpty()) PanelItem("关闭字幕", selected = selected == null, focused = selected == null, onClick = {
+                onPicked(kind)
+                scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { runCatching { pickTrack("sub", "") }; refreshTracks(app, ui) }
+                overlay.close()
+            })
             list.forEach { o ->
                 val id = o.str("id") ?: return@forEach
-                val name = o.str("title")?.takeIf { it.isNotBlank() } ?: xyz.linplayer.app.ui.pages.langCn(o.str("lang")) ?: "轨道 $id"
-                val ext = o.bool("external")
-                // 图形字幕要明说:它改不了字号,不说的话用户在样式里调半天以为坏了
-                val codec = if (!isSub || ext) null else (ui.versions.firstOrNull { it.id == ui.mediaSourceId } ?: ui.versions.firstOrNull())
-                    ?.of("Subtitle")?.firstOrNull { it.index == o.long("ff_index") }?.codec?.lowercase()
-                val image = when {
-                    codec == null -> null
-                    "pgs" in codec -> "PGS 图形字幕"
-                    "dvd" in codec || "dvb" in codec || codec == "vobsub" -> "图形字幕"
-                    else -> null
-                }
-                PanelItem(if (ext) name else "$name(内封)", sub = if (ext) "外挂" else image,
-                    selected = id == selected, focused = id == selected, onClick = {
+                // 名称与说明行同手机字幕面板:图形字幕在说明里写明,样式改不了字号时用户看得出原因
+                val language = xyz.linplayer.app.ui.player.trackLanguage(o.str("lang"), if (isSub) "subtitle" else "audio")
+                val name = o.str("title")?.takeIf { it.isNotBlank() && it != o.str("lang") && (isSub || it != "未标注") } ?: language ?: "轨道"
+                val detail = if (isSub) listOfNotNull(language?.takeUnless { it == name }, xyz.linplayer.app.ui.player.subtitleFormat(o.str("codec")),
+                    if (o.bool("external")) "外挂" else "内嵌").joinToString(" · ") else language
+                PanelItem(name, sub = detail, selected = id == selected, focused = id == selected, onClick = {
                     onPicked(kind)
                     scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) {
                         runCatching { pickTrack(kind, id) }.onFailure { app.report(it) }
@@ -486,22 +437,10 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
                     overlay.close()
                 })
             }
-            if (isSub && list.isNotEmpty()) PanelItem("关闭字幕", selected = selected == null, focused = selected == null, onClick = {
-                onPicked(kind)
-                scope.launch(start = kotlinx.coroutines.CoroutineStart.UNDISPATCHED) { runCatching { pickTrack("sub", "") }; refreshTracks(app, ui) }
-                overlay.close()
-            })
         }
         if (isSub) {
             PanelGroup("样式")
             PanelItem("字号", value = "%.1fx".format(SubStyle.scale.doubleValue), chevron = true, onClick = { level = 1 })
-        }
-        if (exo == null) delaySecs?.let { dv ->
-            PanelItem("延迟", value = "%.1fs".format(dv), step = true, onStep = { d ->
-                val v = Math.round((dv + d * 0.1) * 10) / 10.0
-                delaySecs = v
-                scope.launch { runCatching { app.call(if (isSub) "player.setSubDelay" else "player.setAudioDelay", args("secs" to v)) } }
-            })
         }
     }
 }
@@ -566,10 +505,10 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
             PanelItem("显示弹幕", switch = DanmakuStyle.enabled.value, focused = true, onClick = {
                 scope.launch { toggleDanmaku(app, target.itemId, !DanmakuStyle.enabled.value) }
             })
-            PanelItem("重新匹配", onClick = { scope.launch { loadDanmakuFor(app, target.itemId, loud = true, ignoreMemory = true) } })
+            PanelItem("重新匹配这一集", onClick = { scope.launch { loadDanmakuFor(app, target.itemId, loud = true, ignoreMemory = true) } })
             PanelItem(DanmakuStyle.source.value.ifBlank { "尚未匹配" }, enabled = false)
             PanelItem("清除匹配记忆", onClick = { scope.launch { resolveDanmakuFor(app, target.itemId, forget = true, loud = true) } })
-            PanelItem("时间偏移", value = "%.1f 秒".format(DanmakuStyle.offset.doubleValue), step = true,
+            PanelItem("时间偏移", value = "%.1f秒".format(DanmakuStyle.offset.doubleValue), step = true,
                 onStep = { d -> scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + d * 0.5) } })
             PanelItem("重置弹幕时间", onClick = { scope.launch { DanmakuStyle.setOffset(app, 0.0) } })
             PanelItem("搜索弹幕", chevron = true, onClick = { level = 1 })
@@ -577,46 +516,46 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
             // 没匹配上:样式项**禁用并写原因**,不给可点但无效的项;匹配不上不弹错
             val matched = DanmakuStyle.layout.value != null
             if (!matched) PanelItem("这一集没有匹配到弹幕", enabled = false)
-            PanelItem("显示区域", value = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = matched, onClick = {
+            PanelItem("滚动范围", value = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = matched, onClick = {
                 scope.launch { DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) }
             })
-            PanelItem("字号", value = "%.1fx".format(DanmakuStyle.scale.doubleValue), step = true, enabled = matched, onStep = { d ->
+            PanelItem("字号", value = "%.0f%%".format(DanmakuStyle.scale.doubleValue * 100), step = true, enabled = matched, onStep = { d ->
                 scope.launch { DanmakuStyle.set(app, "scale", DanmakuStyle.step(DanmakuStyle.scale.doubleValue, d > 0, 0.1, 0.1, 3.0)) }
             })
             PanelItem("不透明度", value = "%.0f%%".format(DanmakuStyle.opacity.doubleValue * 100), step = true, enabled = matched, onStep = { d ->
                 scope.launch { DanmakuStyle.set(app, "opacity", DanmakuStyle.step(DanmakuStyle.opacity.doubleValue, d > 0, 0.1, 0.1, 1.0)) }
             })
-            PanelItem("速度", value = "%.1fx".format(DanmakuStyle.speed.doubleValue), step = true, enabled = matched, onStep = { d ->
+            PanelItem("滚动速度", value = "%.1f×".format(DanmakuStyle.speed.doubleValue), step = true, enabled = matched, onStep = { d ->
                 scope.launch { DanmakuStyle.set(app, "speed", DanmakuStyle.step(DanmakuStyle.speed.doubleValue, d > 0, 0.1, 0.1, 3.0)) }
             })
+            // 行数 0 是合法值 = 这一类不显示;范围与手机端滑块一致
+            PanelItem("滚动行数", value = "${DanmakuStyle.rollLines.intValue}行", step = true, enabled = matched, onStep = { d ->
+                scope.launch { DanmakuStyle.set(app, "roll_lines", (DanmakuStyle.rollLines.intValue + d).coerceIn(0, 20)) }
+            })
+            PanelItem("顶部行数", value = "${DanmakuStyle.topLines.intValue}行", step = true, enabled = matched, onStep = { d ->
+                scope.launch { DanmakuStyle.set(app, "top_lines", (DanmakuStyle.topLines.intValue + d).coerceIn(0, 20)) }
+            })
+            PanelItem("底部行数", value = "${DanmakuStyle.bottomLines.intValue}行", step = true, enabled = matched, onStep = { d ->
+                scope.launch { DanmakuStyle.set(app, "bottom_lines", (DanmakuStyle.bottomLines.intValue + d).coerceIn(0, 20)) }
+            })
+            PanelItem("粗体", switch = DanmakuStyle.bold.value, enabled = matched,
+                onClick = { scope.launch { DanmakuStyle.set(app, "bold", !DanmakuStyle.bold.value) } })
+            PanelItem("合并重复", switch = DanmakuStyle.merge.value, enabled = matched,
+                onClick = { scope.launch { DanmakuStyle.set(app, "merge", !DanmakuStyle.merge.value) } })
+            PanelItem("防止重叠", switch = DanmakuStyle.preventOverlap.value, enabled = matched,
+                onClick = { scope.launch { DanmakuStyle.set(app, "prevent_overlap", !DanmakuStyle.preventOverlap.value) } })
         }
     }
 }
 
 /**
- * 选集面板。行**带封面**【继承手机 A-26】:播放中换集,用户是靠画面认集的,「第 7 集」三个字唤不起记忆。
- * 季在同一面板内切换,只换下半段。
+ * 选集面板:列当前季,与手机一致。行**带封面**【继承手机 A-26】:播放中换集,用户是靠画面认集的,「第 7 集」三个字唤不起记忆。
  */
 @Composable
-private fun BoxScope.EpisodesPanel(app: AppState, overlay: Overlay, ui: PlayerUi, target: TvRoute.Player, ctl: PlayerCtl) {
-    var seasons by remember { mutableStateOf<List<Season>>(emptyList()) }
-    var season by remember { mutableStateOf(ui.seasonId) }
-    var eps by remember { mutableStateOf(ui.episodes) }
-    LaunchedEffect(Unit) {
-        ui.seriesId?.let { s -> seasons = seasonsOf(runCatching { app.call("emby.seriesSeasons", args("series_id" to s)) }.getOrNull()) }
-    }
-    LaunchedEffect(season) {
-        if (season == ui.seasonId) { eps = ui.episodes; return@LaunchedEffect }
-        season?.let { s -> runCatching { app.seasonEpisodes(s) }.onSuccess { eps = it }.onFailure { app.report(it) } }
-    }
+private fun BoxScope.EpisodesPanel(overlay: Overlay, ui: PlayerUi, target: TvRoute.Player, ctl: PlayerCtl) {
     TvSidePanel("选集", { overlay.close() }) {
-        if (seasons.size > 1) {
-            PanelGroup("季")
-            seasons.forEach { s -> PanelItem(s.name, selected = s.id == season, check = false, onClick = { season = s.id }) }
-            PanelGroup("集")
-        }
-        if (eps.isEmpty()) PanelItem("这一季没有别的集", enabled = false)
-        eps.forEach { ep -> ThumbRow(ep, current = ep.id == target.itemId) { overlay.close(); ctl.switchTo(TvRoute.Player(ep.id, cardTitleOf(ep))) } }
+        if (ui.episodes.isEmpty()) PanelItem("这一季没有别的集", enabled = false)
+        ui.episodes.forEach { ep -> ThumbRow(ep, current = ep.id == target.itemId) { overlay.close(); ctl.switchTo(TvRoute.Player(ep.id, cardTitleOf(ep))) } }
     }
 }
 
@@ -638,7 +577,7 @@ private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
                 Box(Modifier.size(64.dp, 36.dp).clip(TvR.sm)) { TvImage(app.imageUrl(ep.id, "Primary", 120).takeUnless { ep.hasPrimary == false }) }
                 Spacer(Modifier.width(TvSp.x8))
                 Column {
-                    Text("E${ep.episodeNo ?: "?"} · ${ep.name}", fontSize = t.body, maxLines = 2)
+                    Text("S${ep.seasonNo ?: 1}E${ep.episodeNo ?: 1} ${ep.name}", fontSize = t.body, maxLines = 2)
                     if (ep.runtimeSecs > 0) Text("${(ep.runtimeSecs / 60).toInt()} 分钟", fontSize = t.meta)
                 }
             }
@@ -648,7 +587,7 @@ private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
 
 @Composable
 private fun BoxScope.MorePanel(
-    app: AppState, nav: TvNav, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, target: TvRoute.Player,
+    app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, target: TvRoute.Player,
     engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
 ) {
     var level by remember { mutableStateOf("") }
@@ -656,7 +595,6 @@ private fun BoxScope.MorePanel(
     var skipOutro by remember { mutableStateOf<Boolean?>(null) }
     // 带 › 的项把当前值写在右边:不写的话,得点进二级才知道现在是哪一档
     var shaderName by remember { mutableStateOf<String?>(null) }
-    var lineName by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         launch {
             val p = runCatching { app.call("player.getPlaybackPrefs") }.getOrNull().obj()
@@ -665,12 +603,6 @@ private fun BoxScope.MorePanel(
         if (exo == null) launch {
             shaderName = runCatching { app.call("player.shaderLevels") }.getOrNull().arr().mapNotNull { it.obj() }
                 .firstOrNull { it.bool("selected") }.str("name")
-        }
-        if (!target.localEntry && !target.download) launch {
-            val a = runCatching { app.call("account.listAccounts") }.getOrNull().arr().mapNotNull { it.obj() }.firstOrNull { it.bool("active") }
-            val lines = a?.get("lines").arr()
-            val idx = a.long("active_line")?.toInt() ?: 0
-            lineName = lines.getOrNull(idx).obj()?.str("name")?.takeIf { it.isNotBlank() } ?: if (lines.isEmpty()) "主线路" else "线路 ${idx + 1}"
         }
     }
     val back = { level = "" }
@@ -695,10 +627,9 @@ private fun BoxScope.MorePanel(
                 })
             }
         }
-        "line" -> LinePanel(app, scope, overlay, back) { ctl.switchTo(target.copy(resumeAt = ui.position, fromStart = false)) }
         "speed" -> TvSidePanel("倍速", { overlay.close() }, back = back) {
-            listOf(0.5, 0.75, 1.0, 1.25, 1.5, 2.0, 3.0).forEach { v ->
-                PanelItem("${v}x", selected = v == ui.speed, focused = v == ui.speed, onClick = { ui.speed = v; ctl.speed(v); overlay.close() })
+            (1..16).map { it * .25 }.forEach { v ->
+                PanelItem("${v}×", selected = v == ui.speed, focused = v == ui.speed, onClick = { ui.speed = v; ctl.speed(v); overlay.close() })
             }
         }
         "chapter" -> TvSidePanel("章节", { overlay.close() }, back = back) {
@@ -706,16 +637,15 @@ private fun BoxScope.MorePanel(
                 PanelItem(name.ifBlank { "章节 ${i + 1}" }, value = fmtTime(at), onClick = { ctl.seek(at); overlay.close() })
             }
         }
-        "info" -> PlaybackInfo(app, overlay, back, engine, ui)
+        "info" -> PlaybackInfo(app, overlay, back, exo)
         else -> TvSidePanel("更多", { overlay.close() }) {
             PanelGroup("画面")
             PanelItem("画面比例", value = ui.fit.label, chevron = true, focused = true, onClick = { level = "ratio" })
             // 画面增强是 mpv 的着色器:Exo 那条路上挂上去是空转,而 setShaderLevel 照样返回成功
             if (exo == null) PanelItem("画面增强", value = shaderName, chevron = true, onClick = { level = "shader" })
             if (ui.versions.size > 1) PanelItem("版本", value = ui.versions.firstOrNull { it.id == ui.mediaSourceId }?.let(::resLabel), chevron = true, onClick = { level = "version" })
-            if (!local) PanelItem("线路", value = lineName, chevron = true, onClick = { level = "line" })
             PanelGroup("播放")
-            PanelItem("倍速", value = "${ui.speed}x", chevron = true, onClick = { level = "speed" })
+            PanelItem("倍速", value = "${ui.speed}×", chevron = true, onClick = { level = "speed" })
             if (ui.chapters.isNotEmpty()) PanelItem("章节", chevron = true, onClick = { level = "chapter" })
             skipIntro?.let { on ->
                 PanelItem("跳过片头", switch = on, onClick = {
@@ -730,9 +660,8 @@ private fun BoxScope.MorePanel(
                 })
             }
             PanelGroup("工具")
-            if (!local) PanelItem("换内核重播", value = if (engine == "exo") "ExoPlayer → mpv" else "mpv → ExoPlayer",
-                onClick = ctl.switchEngine)
-            PanelItem("播放信息", chevron = true, onClick = { level = "info" })
+            if (!local) PanelItem(if (engine == "exo") "切换到 MPV 内核" else "切换到 Media3 内核", onClick = ctl.switchEngine)
+            PanelItem("媒体信息", chevron = true, onClick = { level = "info" })
         }
     }
 }
@@ -741,7 +670,12 @@ private fun BoxScope.MorePanel(
 @Composable
 private fun BoxScope.ShaderLevels(app: AppState, scope: CoroutineScope, overlay: Overlay, back: () -> Unit) {
     var levels by remember { mutableStateOf<List<JsonObject>?>(null) }
-    LaunchedEffect(Unit) { levels = runCatching { app.call("player.shaderLevels") }.getOrNull().arr().mapNotNull { it.obj() } }
+    var interp by remember { mutableStateOf<JsonObject?>(null) }
+    val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
+    LaunchedEffect(Unit) {
+        levels = runCatching { app.call("player.shaderLevels") }.getOrNull().arr().mapNotNull { it.obj() }
+        interp = runCatching { app.call("player.interpLevels", args("display_hz" to displayHz.toDouble())) }.getOrNull().obj()
+    }
     TvSidePanel("画面增强", { overlay.close() }, back = back) {
         val list = levels
         if (list == null) PanelItem("正在取档位…", enabled = false)
@@ -755,50 +689,36 @@ private fun BoxScope.ShaderLevels(app: AppState, scope: CoroutineScope, overlay:
                 }
             })
         }
-    }
-}
-
-@Composable
-private fun BoxScope.LinePanel(app: AppState, scope: CoroutineScope, overlay: Overlay, back: () -> Unit, replay: () -> Unit) {
-    var acc by remember { mutableStateOf<JsonObject?>(null) }
-    LaunchedEffect(Unit) {
-        acc = runCatching { app.call("account.listAccounts") }.getOrNull().arr().mapNotNull { it.obj() }.firstOrNull { it.bool("active") }
-    }
-    TvSidePanel("线路", { overlay.close() }, back = back) {
-        val a = acc
-        val lines = a?.get("lines").arr().mapNotNull { it.obj() }
-        val cur = a.long("active_line")?.toInt() ?: 0
-        if (a != null && lines.isEmpty()) PanelItem("这台服务器只有一条线路", enabled = false)
-        lines.forEachIndexed { i, l ->
-            PanelItem(l.str("name")?.takeIf { it.isNotBlank() } ?: "线路 ${i + 1}", selected = i == cur, focused = i == cur, onClick = {
-                if (i == cur) { overlay.close(); return@PanelItem }
-                scope.launch {
-                    runCatching { app.call("account.setActiveLine", args("server_id" to (a.str("server") ?: ""), "index" to i)) }
-                        // 切完刷新会话:图片和播放流的地址是拿会话地址现拼的,不刷 = 切了跟没切一样
-                        .onSuccess { app.refreshSession(); replay() }
-                        .onFailure { app.report(it) }
-                }
-            })
+        /* 补帧与手机同一套:只列 will_run 不为 false 的档,用不了时留一行原因(OpenCL 因机型而异)。
+           挂上只说明滤镜收下了;跑不动由 player.interpReverted 事件回来说(TvPlayerPage 订阅)。 */
+        interp?.let { st ->
+            PanelGroup("补帧")
+            if (!st.bool("supported")) PanelItem(st.str("reason") ?: "这台设备用不了补帧", enabled = false)
+            else st["levels"].arr().mapNotNull { it.obj() }.filter { it.str("id") == "off" || it.boolOrNull("will_run") != false }.forEach { o ->
+                val id = o.str("id") ?: return@forEach
+                val fps = o.str("fps")
+                PanelItem((o.str("name") ?: "档位") + if (fps.isNullOrEmpty()) "" else " · $fps", sub = o.str("group"),
+                    selected = o.bool("selected"), onClick = {
+                    scope.launch {
+                        val r = runCatching { app.call("player.setInterpLevel", args("level" to id, "display_hz" to displayHz.toDouble())) }
+                            .onFailure { app.report(it) }.getOrNull().obj()
+                        if (r.bool("reverted")) app.toast(r.str("note") ?: "补帧开不了", ToastKind.Error)
+                        else if (r != null && id != "off") app.toast("补帧已开启,光流起来要一两秒")
+                        overlay.close()
+                    }
+                })
+            }
         }
     }
 }
 
 @Composable
-private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> Unit, engine: String, ui: PlayerUi) {
+private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> Unit, exo: ExoPlayer?) {
     var opts by remember { mutableStateOf<JsonObject?>(null) }
-    LaunchedEffect(Unit) { if (engine != "exo") opts = runCatching { app.call("player.opts") }.getOrNull().obj() }
-    TvSidePanel("播放信息", { overlay.close() }, back = back) {
-        val o = opts
-        val rows = listOfNotNull(
-            "内核" to if (engine == "exo") "ExoPlayer" else "mpv",
-            o.str("current-vo")?.takeIf { it.isNotBlank() }?.let { "视频输出" to it },
-            o.str("hwdec-current")?.takeIf { it.isNotBlank() }?.let { "解码" to it },
-            o.str("video-codec")?.takeIf { it.isNotBlank() }?.let { "视频编码" to it },
-            o?.let { x -> x.str("dwidth")?.let { w -> x.str("dheight")?.let { h -> "画面" to "$w×$h" } } },
-            o.str("container-fps")?.takeIf { it.isNotBlank() }?.let { "帧率" to it },
-            o.str("audio-codec-name")?.takeIf { it.isNotBlank() }?.let { "音频编码" to it },
-            "倍速" to "${ui.speed}x",
-        )
+    LaunchedEffect(Unit) { if (exo == null) opts = runCatching { app.call("player.opts") }.getOrNull().obj() }
+    TvSidePanel("媒体信息", { overlay.close() }, back = back) {
+        // 与手机同一份字段表,两个内核都列得出参数
+        val rows = xyz.linplayer.app.ui.player.playbackMediaInfo(exo, opts)
         // 只读行不可聚焦;放一个可聚焦的首项,面板才圈得住焦点
         PanelItem("返回", chevron = false, focused = true, onClick = back)
         rows.forEach { (k, v) -> PanelItem(k, value = v, enabled = false) }

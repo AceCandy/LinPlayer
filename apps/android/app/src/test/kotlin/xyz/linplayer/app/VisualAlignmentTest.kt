@@ -87,10 +87,10 @@ class VisualAlignmentTest {
         var retries = 0
         rule.setContent {
             TvFrame(state) {
-                PlayerFailure("合成播放错误", false, { retries++ }, null, null)
+                PlayerFailure("合成播放错误", false, { retries++ })
             }
         }
-        rule.onNodeWithText("无法播放这个文件").assertIsDisplayed()
+        rule.onNodeWithText("这一片没能播起来").assertIsDisplayed()
         rule.onNodeWithText("重试").assertIsFocused().performKeyInput {
             pressKey(androidx.compose.ui.input.key.Key.DirectionCenter)
         }
@@ -134,7 +134,7 @@ class VisualAlignmentTest {
             }
         }
         repeat(20) { rule.mainClock.advanceTimeBy(80); rule.waitForIdle() }
-        rule.onNodeWithText("25:17").assertIsDisplayed()
+        rule.onNodeWithText(if (tv) "25:17 / 45:29" else "25:17").assertIsDisplayed()
         val output = File(root, "build/visual-alignment/${if (tv) "tv" else "phone-landscape"}").apply { mkdirs() }
         rule.onRoot().captureRoboImage(File(output, "${if (light) "light" else "dark"}-player.png").path)
     }

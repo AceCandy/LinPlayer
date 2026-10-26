@@ -191,7 +191,7 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
                         password = f.str("type") == "password", lines = if (f.bool("multiline")) 5 else 1)
                     if (f.bool("multiline")) {
                         Spacer(Modifier.height(Sp.x6))
-                        LpButton("从文件读入", { fileTarget = key; pickFile.launch(arrayOf("*/*")) }, kind = BtnKind.Ghost)
+                        LpButton("从文件读入", { fileTarget = key; pickFile.launchOrToast(arrayOf("*/*"), app) }, kind = BtnKind.Ghost)
                     }
                     Spacer(Modifier.height(Sp.x12))
                 }
@@ -202,7 +202,7 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
             if (!embedded) Spacer(Modifier.height(Sp.x16))
 
             // 标签已说明字段，占位只在地址框给格式示例，不再把标签重复一遍
-            LpField(server, { server = it }, "例如 192.168.1.10:8096", Modifier.focusRequester(focus),
+            LpField(server, { server = it }, "例如 https://example.com", Modifier.focusRequester(focus),
                 label = "服务器地址")
             Spacer(Modifier.height(Sp.x12))
             LpField(user, { user = it }, "", label = "用户名")

@@ -129,10 +129,6 @@ class TvPrivacyTest {
         val calls = core.calls.drop(before)
         assertTrue(calls.any { it.first == "emby.search" && it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true) })
         assertFalse(calls.any { it.first in setOf("prefs.pushSearch", "plugin.searchActions", "source.aggregateSearch") })
-        assertFalse(TvRoute.History.privateAllowed())
-        assertFalse(TvRoute.Downloads.privateAllowed())
-        assertFalse(TvRoute.Player("x", "x", download = true).privateAllowed())
-        assertTrue(TvRoute.Player("x", "x").privateAllowed())
     }
 
     @Test fun privateDiscoverOpensLiuyingAndRankingAndServerClickExits() {

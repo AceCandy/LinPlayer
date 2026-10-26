@@ -7,8 +7,10 @@ import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshState
+import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.getValue
@@ -103,6 +105,18 @@ fun LpLoading(m: Modifier = Modifier, size: Dp = 32.dp, tint: Color = Lp.colors.
 @Composable
 fun LoadingLabel(text: String, m: Modifier = Modifier, tint: Color = Lp.colors.mediaAccent) {
     Box(m) { LpLoading(size = 24.dp, tint = tint, label = text) }
+}
+
+/**
+ * 下拉刷新容器。电视上不挂:遥控器焦点滚到顶时多出的滚动量会把指示器拉出来卡住，
+ * 之后往下的滚动又先被它收回指示器吃掉，列表就滚不动了。
+ */
+@Composable
+@OptIn(ExperimentalMaterial3Api::class)
+fun LpPullRefresh(refreshing: Boolean, onRefresh: () -> Unit, modifier: Modifier = Modifier, content: @Composable BoxScope.() -> Unit) {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) { Box(modifier, content = content); return }
+    val state = rememberPullToRefreshState()
+    PullToRefreshBox(refreshing, onRefresh, modifier, state = state, indicator = { LpPullIndicator(state, refreshing) }, content = content)
 }
 
 /** 下拉阶段保留刷新手势反馈，请求进行时使用所选等待动画。 */

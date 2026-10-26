@@ -5,17 +5,7 @@ import android.app.Application
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.input.key.Key
-import androidx.compose.ui.test.assertIsDisplayed
-import androidx.compose.ui.test.performSemanticsAction
-import androidx.compose.ui.semantics.SemanticsActions
-import xyz.linplayer.app.data.str
-import xyz.linplayer.app.data.obj
 import androidx.compose.ui.test.assertIsFocused
-import androidx.compose.ui.test.assertIsNotFocused
-import androidx.compose.ui.test.assertIsSelected
-import androidx.compose.ui.test.assertIsNotSelected
-import androidx.compose.ui.test.assertWidthIsEqualTo
-import androidx.compose.ui.unit.dp
 import androidx.compose.ui.test.hasTestTag
 import androidx.compose.ui.test.hasText
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -36,9 +26,6 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.PageCache
-import xyz.linplayer.app.data.long
-import kotlinx.serialization.json.buildJsonObject
-import kotlinx.serialization.json.put
 
 /**
  * 焦点路径断言(UI_TV.md §11.3)。☠ 焦点问题在静态截图上**完全看不出来** —— 出图之外必须有按键驱动的断言。
@@ -59,437 +46,21 @@ class TvFocusTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
     }
 
-    private fun mount(route: TvRoute = TvRoute.Home, intercept: ((FakeCore) -> xyz.linplayer.app.core.CorePort)? = null, setup: FakeCore.() -> Unit = {}) {
+    private fun mount(route: TvRoute.Player, intercept: ((FakeCore) -> xyz.linplayer.app.core.CorePort)? = null, setup: FakeCore.() -> Unit = {}) {
         core = FakeCore().loggedIn().apply(setup)
         app = AppState(intercept?.invoke(core) ?: core, CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate))
         runBlocking { app.boot() }
-        nav = TvNav().apply { if (route == TvRoute.Home) Unit else push(route) }
+        nav = TvNav().apply { push(route) }
         rule.mainClock.autoAdvance = false
         rule.setContent {
             back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
-            TvFrame(app) { TvShell(nav) }
+            TvFrame(app) { PlayerHost(nav) }
         }
         advance(rule, 800)
     }
 
     private fun focused(tag: String) = rule.onNode(hasTestTag(tag)).assertIsFocused()
     private fun pressBack() { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
-
-    @Test fun userStateWriteRefreshesVisibleHome() {
-        var marked = false
-        mount {
-            ret("emby.setPlayed", kotlinx.serialization.json.JsonNull)
-            on("emby.listResume") { if (marked) arr() else resumeItems }
-        }
-        val before = core.calls.count { it.first == "emby.listResume" }
-        rule.runOnUiThread { marked = true; runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "r1"); put("played", true) }) } }
-        rule.waitUntil { app.userStateRevision.value > 0 }
-        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
-        advance(rule, 800)
-        assertTrue("TV首页没有消费用户状态失效", core.calls.count { it.first == "emby.listResume" } > before)
-        rule.onNode(hasTestTag("home.resume.r1")).assertDoesNotExist()
-    }
-
-    @Test fun seriesReturnAfterEpisodeMarkRefreshesSeasonAndPlayTarget() {
-        var marked = false
-        mount(TvRoute.Detail("s1", "Series")) {
-            series()
-            ret("emby.listResume", arr())
-            on("emby.setPlayed") { marked = true; kotlinx.serialization.json.JsonNull }
-            ret("emby.seriesSeasons", arr(buildJsonObject {
-                put("id", "se1"); put("index_no", 1); put("child_count", 2); put("unplayed", 2)
-            }))
-            on("emby.seasonEpisodes") { page(
-                item("e1", "第一集", "Episode", season = 1, episode = 1, played = marked, seriesId = "s1"),
-                item("e2", "第二集", "Episode", season = 1, episode = 2, seriesId = "s1")) }
-        }
-        rule.onNode(hasText("播放 S1E1")).assertExists()
-        rule.runOnUiThread { nav.push(TvRoute.Settings) }
-        advance(rule, 300)
-        rule.runOnUiThread { runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "e1"); put("played", true) }) } }
-        rule.waitUntil { app.userStateRevision.value > 0 }
-        val before = core.calls.count { it.first == "emby.seasonEpisodes" }
-        pressBack()
-        advance(rule, 800)
-        assertTrue("返回时沿用了已确认分集旧页", core.calls.count { it.first == "emby.seasonEpisodes" } > before)
-        rule.onNode(hasText("播放 S1E2")).assertExists()
-        assertEquals(0L, core.calls.last { it.first == "emby.seasonEpisodes" }.second.long("start_index"))
-    }
-
-    @Test fun librarySwitchingUserOnSameServerDiscardsPreviousList() {
-        mount(TvRoute.Library("library", "测试媒体库")) {
-            library()
-            on("emby.listItemsPage") { a -> buildJsonObject {
-                put("items", arr(item("owner", if (a.str("user_id") == "u") "原账号影片" else "新账号影片")))
-                put("total", 1)
-            } }
-        }
-        rule.onNode(hasText("原账号影片")).assertExists()
-        rule.runOnUiThread {
-            core.ret("emby.currentSession", buildJsonObject {
-                put("server", "http://emby-a.invalid"); put("token", "other"); put("user_id", "other")
-            })
-            runBlocking { app.refreshSession() }
-        }
-        advance(rule, 800)
-        rule.onNode(hasText("原账号影片")).assertDoesNotExist()
-        rule.onNode(hasText("新账号影片")).assertExists()
-    }
-
-    @Test fun libraryRefreshCommitsAllPagesTogetherAndRetriesFromStart() {
-        var changed = false
-        var fail = false
-        mount(TvRoute.Library("library", "测试媒体库")) {
-            library()
-            ret("emby.setPlayed", kotlinx.serialization.json.JsonNull)
-            on("emby.listItemsPage") { a ->
-                val offset = a?.get("query").obj().long("start_index") ?: 0
-                if (changed && offset == 1L && fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "临时断网", true)
-                buildJsonObject {
-                    put("items", arr(item("row$offset", "${if (changed) "刷新" else "原有"}影片$offset")))
-                    put("total", 2)
-                }
-            }
-        }
-        rule.onNode(hasText("原有影片1")).assertExists()
-        rule.runOnUiThread {
-            changed = true; fail = true
-            runBlocking { app.call("emby.setPlayed", buildJsonObject { put("item_id", "row0"); put("played", true) }) }
-        }
-        rule.waitUntil { app.userStateRevision.value > 0 }
-        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
-        advance(rule, 800)
-        rule.onNode(hasText("原有影片0")).assertExists()
-        rule.onNode(hasText("原有影片1")).assertExists()
-        rule.onNode(hasText("刷新影片0")).assertDoesNotExist()
-        rule.runOnUiThread { fail = false }
-        rule.onNode(hasText("没加载出来 · 按确认重试")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        advance(rule, 800)
-        rule.onNode(hasText("刷新影片0")).assertExists()
-        rule.onNode(hasText("刷新影片1")).assertExists()
-        assertEquals(listOf(0L, 1L), core.calls.filter { it.first == "emby.listItemsPage" }
-            .takeLast(2).map { it.second?.get("query").obj().long("start_index") })
-    }
-
-    @Test fun rankingFailureKeepsDisplayedPageAndRetriesFailedTarget() {
-        var fail = true
-        mount(TvRoute.Discover) {
-            discover()
-            on("emby.extRankingItems") { a ->
-                if (a.long("page") == 2L && fail) throw xyz.linplayer.app.core.CoreException("E_NETWORK", "临时断网", true)
-                arr(buildJsonObject { put("id", "p${a.long("page")}"); put("title", "作品页${a.long("page")}") })
-            }
-        }
-        rule.onNode(hasText("下一页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        rule.onNode(hasText("作品页1")).assertIsDisplayed()
-        rule.onNode(hasText("第 1 页 · 刷新")).assertExists()
-        rule.runOnUiThread { fail = false }
-        rule.onNode(hasText("重试第 2 页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        rule.onNode(hasText("作品页2")).assertIsDisplayed()
-        rule.onNode(hasText("第 2 页 · 刷新")).assertExists()
-    }
-
-    @Test fun calendarFallbackUsesJapanDayRegardlessOfDeviceZone() {
-        val previous = java.util.TimeZone.getDefault()
-        try {
-            java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("America/Los_Angeles"))
-            assertEquals(2, weekdayOf(buildJsonObject { put("air_date", "2026-10-19T15:30:00Z") }))
-            assertEquals(1, weekdayOf(buildJsonObject { put("weekday", 1); put("air_date", "2026-10-19T15:30:00Z") }))
-        } finally { java.util.TimeZone.setDefault(previous) }
-    }
-
-    @Test fun rankingCatalogRefreshFailureKeepsVisibleRanking() {
-        mount(TvRoute.Discover) { discover() }
-        rule.onNode(hasTestTag("rank.c0.0")).assertExists()
-        rule.runOnUiThread {
-            core.on("emby.extRankings") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "分类临时断网", true) }
-        }
-        rule.onNode(hasText("刷新")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        advance(rule, 500)
-        rule.onNode(hasTestTag("rank.c0.0")).assertExists()
-        rule.onNode(hasText("榜单分类暂未刷新:", substring = true) and hasText("分类临时断网", substring = true)).assertExists()
-    }
-
-    @Test fun extensionPagingAndExactNavigation() {
-        mount(TvRoute.Discover) {
-            discover()
-            on("emby.extRankingItems") { a ->
-                if (a.long("page") == 2L) arr() else arr(buildJsonObject {
-                    put("id", "external-1"); put("title", "精确作品"); put("rank", 1)
-                    put("source", "tmdb"); put("external_id", "101"); put("media_type", "movie")
-                })
-            }
-            ret("emby.extResolve", buildJsonObject { put("item_id", "library-101"); put("item_type", "Movie") })
-        }
-        rule.onNode(hasText("下一页")).assertIsDisplayed().performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        assertEquals(2L, core.calls.last { it.first == "emby.extRankingItems" }.second.long("page"))
-        rule.onNode(hasText("这里暂时没有内容")).assertIsDisplayed()
-        rule.onNode(hasText("上一页")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        rule.onNode(hasTestTag("rank.c0.0")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        assertEquals(TvRoute.Detail("library-101", "Movie"), nav.top.route)
-        assertEquals("101", core.calls.last { it.first == "emby.extResolve" }.second.str("external_id"))
-        assertFalse(core.calls.any { it.first == "emby.search" || it.first == "emby.rankingFetch" })
-    }
-
-    @Test fun extensionCalendarUsesPublicSource() {
-        mount(TvRoute.Discover) {
-            discover()
-            ret("emby.extResolve", buildJsonObject { put("item_id", "calendar-1"); put("item_type", "Series") })
-        }
-        rule.onNode(hasText("放送表")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        advance(rule, 800)
-        assertTrue("未请求扩展周历", core.calls.any { it.first == "emby.extCalendar" })
-        val day = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value
-        rule.onNode(hasTestTag("cal.$day.0")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        assertEquals(TvRoute.Detail("calendar-1", "Series"), nav.top.route)
-        assertEquals("bangumi", core.calls.last { it.first == "emby.extResolve" }.second.str("source"))
-        assertFalse(core.calls.any { it.first.startsWith("sync.") })
-    }
-
-    @Test fun 首页只加载滚到的媒体库栏目() {
-        mount {
-            ret("emby.views", arr(*(0 until 30).map { i -> buildJsonObject {
-                put("id", "lazy-$i"); put("name", "媒体库$i"); put("collection_type", "movies")
-            } }.toTypedArray()))
-        }
-        fun loaded(id: String) = core.calls.any {
-            it.first == "emby.listLatest" && it.second?.get("parent_id")?.toString() == "\"$id\""
-        }
-        assertFalse("屏幕外最后一个库不应首屏回源", loaded("lazy-29"))
-        repeat(5) { press(rule, Key.DirectionDown); advance(rule, 300) }
-        assertTrue("滚到媒体库后没有请求", loaded("lazy-0"))
-        assertFalse("滚动只应拉附近栏目", loaded("lazy-29"))
-        assertFalse("列表末尾的合集不应提前请求", core.calls.any { it.first == "emby.listCollections" })
-    }
-
-    @Test fun 收藏分页追加并使用服务端游标() {
-        mount(TvRoute.Favorites) {
-            on("emby.listFavorites") { args ->
-                val offset = args.long("start_index") ?: -1
-                assertEquals(60L, args.long("limit"))
-                buildJsonObject {
-                    put("items", arr(item(if (offset == 0L) "first" else "next", if (offset == 0L) "首批收藏" else "后续收藏")))
-                    put("total", 2001)
-                    put("next_index", if (offset == 0L) 2000 else 2001)
-                    put("has_more", offset == 0L)
-                }
-            }
-        }
-        advance(rule, 800)
-        val offsets = core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") }
-        assertEquals(listOf(0L, 2000L), offsets)
-        rule.onNode(hasText("首批收藏")).assertExists()
-        rule.onNode(hasText("后续收藏")).assertExists()
-    }
-
-    @Test fun watchedRemainsReachableFromEmptyFavoritesAndSwitchesType() {
-        mount(TvRoute.Favorites) {
-            ret("emby.listFavorites", page())
-            on("emby.listWatched") { args ->
-                val kind = args.str("type")!!
-                page(item("watched-$kind", "已看$kind", kind))
-            }
-        }
-        rule.onNode(hasText("历史已看")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionCenter)
-        advance(rule, 800)
-        rule.onNode(hasText("已看Movie")).assertExists()
-        rule.onNode(hasText("电视剧")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionCenter)
-        advance(rule, 800)
-        rule.onNode(hasText("已看Series")).assertExists()
-        rule.onNode(hasText("已看Movie")).assertDoesNotExist()
-        assertEquals(listOf("Movie", "Series"), core.calls.filter { it.first == "emby.listWatched" }.map { it.second.str("type") })
-    }
-
-    @Test fun filteredEmptyFavoritePagesContinueAutomaticallyUntilContent() {
-        mount(TvRoute.Favorites) {
-            on("emby.listFavorites") { args ->
-                val offset = args.long("start_index") ?: 0
-                buildJsonObject {
-                    put("items", if (offset == 120L) arr(item("late", "后页收藏")) else arr())
-                    put("next_index", offset + 60); put("has_more", offset < 120)
-                }
-            }
-        }
-        advance(rule, 800)
-        // 过滤后的空页不再要求手动「加载更多」，自动往后找到内容或服务端声明结束为止。
-        assertEquals(listOf(0L, 60L, 120L), core.calls.filter { it.first == "emby.listFavorites" }.map { it.second.long("start_index") })
-        rule.onNode(hasText("后页收藏")).assertExists()
-        rule.onNode(hasText("加载更多")).assertDoesNotExist()
-    }
-
-    @Test fun 不支持条件筛选时保留排序并说明原因() {
-        mount(TvRoute.Library("library", "测试媒体库")) {
-            library()
-            on("emby.getFilters") { buildJsonObject {
-                put("genres", arr())
-                put("years", arr())
-                put("capabilities", buildJsonObject { put("filters", false) })
-            } }
-        }
-        focused("lib.filter")
-        press(rule, Key.DirectionCenter)
-        rule.onNode(hasText("服务端不支持条件筛选,可使用排序和分页")).assertExists()
-        rule.onNode(hasText("全部年份")).assertDoesNotExist()
-        rule.onNode(hasText("未看")).assertDoesNotExist()
-        rule.onNode(hasText("更新时间")).assertExists()
-    }
-
-    @Test fun 首页初始焦点在Hero详情() {
-        mount()
-        focused("home.hero")
-    }
-
-    @Test fun downloadsRouteReturnsHomeWithoutLoadingTasks() {
-        mount(TvRoute.Downloads)
-        assertEquals(TvRoute.Home, nav.top.route)
-        focused("home.hero")
-        assertFalse(core.calls.any { it.first.startsWith("download.") })
-    }
-
-    @Test fun topNavigationReachesEveryEntryAndDownRestoresContent() {
-        mount()
-        press(rule, Key.DirectionDown, Key.DirectionLeft)
-        rule.onNode(hasTestTag("rail.5")).assertDoesNotExist()
-        rule.onNode(hasTestTag("rail.2")).assertDoesNotExist()
-        rule.onNode(hasTestTag("rail.6")).assertDoesNotExist()
-        press(rule, Key.DirectionLeft)
-        focused("nav.server")
-        press(rule, Key.DirectionRight)
-        val order = listOf(1, 3, 4, 0, 7)
-        order.forEachIndexed { index, target ->
-            if (index > 0) press(rule, Key.DirectionRight)
-            focused("rail.$target")
-            assertEquals(TvRoute.Home, nav.top.route)
-        }
-        press(rule, Key.DirectionDown)
-        focused("home.resume.r1")
-        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionUp)
-        focused("rail.1")
-    }
-
-    @Test fun railConfirmCurrentPageRestoresContentWithoutReset() {
-        mount()
-        press(rule, Key.DirectionDown)
-        focused("home.resume.r1")
-        val entry = nav.top
-        press(rule, Key.DirectionLeft)
-        focused("rail.1")
-        press(rule, Key.DirectionCenter)
-        focused("home.resume.r1")
-        assertTrue(entry === nav.top)
-        rule.onNode(hasTestTag("rail.${nav.top.route.rail}")).assertIsNotFocused()
-    }
-
-    @Test fun railFocusDoesNotNavigateUntilConfirmedAndBackRestoresHome() {
-        mount { favorites() }
-        press(rule, Key.DirectionDown, Key.DirectionLeft, Key.DirectionRight)
-        focused("rail.3")
-        rule.onNode(hasTestTag("rail.1")).assertIsSelected()
-        rule.onNode(hasTestTag("rail.3")).assertIsNotSelected()
-        listOf(0, 1, 3, 4, 7).forEach { rule.onNode(hasTestTag("rail.$it")).assertIsDisplayed() }
-        assertEquals(TvRoute.Home, nav.top.route)
-        press(rule, Key.DirectionCenter)
-        assertEquals(TvRoute.Favorites, nav.top.route)
-        pressBack()
-        assertEquals(TvRoute.Home, nav.top.route)
-        focused("home.resume.r1")
-    }
-
-    @Test fun libraryDrilldownCanReturnToHomeThroughNavigation() {
-        mount(TvRoute.Library("library", "测试媒体库")) { library() }
-        press(rule, Key.DirectionUp)
-        focused("rail.1")
-        press(rule, Key.DirectionCenter)
-        assertEquals(TvRoute.Home, nav.top.route)
-        focused("home.hero")
-    }
-
-    @Test fun serverNameOpensManagementFromTopNavigation() {
-        mount { servers() }
-        press(rule, Key.DirectionUp, Key.DirectionLeft)
-        focused("nav.server")
-        press(rule, Key.DirectionCenter)
-        assertEquals(TvRoute.Servers, nav.top.route)
-        rule.onNode(hasTestTag("home.server")).assertDoesNotExist()
-    }
-
-    @Test fun settingsRetainsLibraryManagementEntry() {
-        mount(TvRoute.Settings) { settings(); library() }
-        rule.onNode(hasTestTag("set.libraries")).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        advance(rule, 300)
-        press(rule, Key.DirectionCenter)
-        advance(rule, 500)
-        assertEquals(TvRoute.Library(), nav.top.route)
-        assertTrue(core.calls.any { it.first == "emby.views" && it.second?.get("include_blocked") == kotlinx.serialization.json.JsonPrimitive(true) })
-    }
-
-    @Test fun 行首左键进顶栏下键恢复原卡片且布局不动() {
-        mount()
-        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp)
-        press(rule, Key.DirectionDown, Key.DirectionRight)
-        focused("home.resume.r2")
-        // 从行首才进得了轨:先回到第一张
-        press(rule, Key.DirectionLeft)
-        val before = rule.onNode(hasTestTag("home.resume.r1")).fetchSemanticsNode().positionInRoot
-        press(rule, Key.DirectionLeft)
-        // 进入顶栏落在当前页;导航移动不改变内容几何。
-        rule.onNode(hasTestTag("nav.server")).assertIsDisplayed()
-        rule.onNode(hasText("LinPlayer")).assertDoesNotExist()
-        rule.onNode(hasText("首页")).assertExists()
-        focused("rail.1")
-        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp).assertIsSelected()
-        assertEquals(before, rule.onNode(hasTestTag("home.resume.r1")).fetchSemanticsNode().positionInRoot)
-        press(rule, Key.DirectionDown)
-        focused("home.resume.r1")
-        rule.onNode(hasTestTag("rail.1")).assertWidthIsEqualTo(76.dp)
-        rule.onNode(hasTestTag("rail.${nav.top.route.rail}")).assertIsNotFocused()
-    }
-
-    @Test fun 从下面回到首页Hero整块露出() {
-        mount()
-        // 往下走到半露的那一行才会真的滚;全在屏幕里的项请求露出是空操作,测不出东西
-        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionUp, Key.DirectionUp, Key.DirectionUp)
-        advance(rule, 600)
-        focused("home.hero")
-        // getBoundsInRoot 会裁到屏幕里,滚出去的部分量不出来;要看没裁过的位置
-        val top = rule.onNode(hasTestTag("home.heroBox")).fetchSemanticsNode().positionInRoot.y
-        assertTrue("Hero 上沿被滚出屏幕:$top px", top >= 0f)
-    }
-
-    @Test fun 面板关闭焦点回到打开它的卡片且返回键不连退两层() {
-        mount()
-        press(rule, Key.DirectionDown, Key.Menu)
-        rule.onNode(hasText("查看详情")).assertExists()
-        rule.onNode(hasText("屏蔽这部内容")).assertDoesNotExist()
-        rule.onNode(hasText("解除屏蔽")).assertDoesNotExist()
-        assertTrue(core.calls.none { it.first == "emby.blockedList" })
-        pressBack()
-        rule.onNode(hasText("查看详情")).assertDoesNotExist()
-        focused("home.resume.r1")
-        assertEquals("面板开着按返回只该关面板,页面不许一起退", 1, nav.stack.size)
-    }
-
-    @Test fun 从下一级返回焦点回到点进去的那张卡() {
-        mount()
-        press(rule, Key.DirectionDown, Key.DirectionRight)
-        focused("home.resume.r2")
-        press(rule, Key.Enter)
-        assertTrue("OK 应该进集详情", nav.top.route is TvRoute.Episode)
-        pressBack()
-        assertEquals(1, nav.stack.size)
-        focused("home.resume.r2")
-    }
 
     @Test fun 播放页OSD收起后方向键只唤醒不移动焦点() {
         mount(TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王国")) { player() }
@@ -523,32 +94,27 @@ class TvFocusTest {
         rule.onNode(hasText("重试")).assertIsFocused()
         press(rule, Key.Enter)
         advance(rule, 1200)
-        assertEquals(2, core.calls.count { it.first == "emby.playbackSeason" })
-        focused("next.card")
-        assertEquals(1, core.calls.count { it.first == "player.play" })
+        assertTrue(core.calls.count { it.first == "emby.playbackSeason" } >= 2)
+        assertEquals("sh7", lastPlayed())
     }
 
-    @Test fun 自动倒计时可以连续播放三集() {
-        val prefs = xyz.linplayer.app.data.UiPrefs.tvAutoNext.value
-        try {
-            xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = true
-            mount(TvRoute.Player("sh6", "第六集")) {
-                player(); ret("player.stopPlayback", kotlinx.serialization.json.JsonNull)
-            }
-            for (next in listOf("sh7", "sh8")) {
-                core.tick(3658.0); advance(rule, 300)
-                core.tick(3658.25); advance(rule, 300)
-                core.tick(3660.0, eof = true); advance(rule, 600)
-                focused("next.card")
-                advance(rule, 5600)
-                assertEquals(next, (core.calls.last { it.first == "player.play" }.second?.get("item_id") as kotlinx.serialization.json.JsonPrimitive).content)
-                assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
-            }
-            assertEquals(3, core.calls.count { it.first == "player.play" })
-        } finally { xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = prefs }
+    private fun lastPlayed() = (core.calls.last { it.first == "player.play" }.second?.get("item_id") as kotlinx.serialization.json.JsonPrimitive).content
+
+    @Test fun 播完直接连续播放三集() {
+        mount(TvRoute.Player("sh6", "第六集")) {
+            player(); ret("player.stopPlayback", kotlinx.serialization.json.JsonNull)
+        }
+        for (next in listOf("sh7", "sh8")) {
+            core.tick(3658.0); advance(rule, 300)
+            core.tick(3658.25); advance(rule, 300)
+            core.tick(3660.0, eof = true); advance(rule, 1200)
+            assertEquals(next, lastPlayed())
+            assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } < core.calls.indexOfLast { it.first == "player.play" })
+        }
+        assertEquals(3, core.calls.count { it.first == "player.play" })
     }
 
-    @Test fun 完播等待慢分集请求返回后才出下一集卡() {
+    @Test fun 完播等待慢分集请求返回后才切下一集() {
         val release = kotlinx.coroutines.CompletableDeferred<Unit>()
         try {
             mount(TvRoute.Player("sh6", "第六集"), intercept = { fake ->
@@ -565,30 +131,23 @@ class TvFocusTest {
             core.tick(3658.25); advance(rule, 300)
             core.tick(3660.0, eof = true); advance(rule, 600)
             assertTrue(nav.top.route is TvRoute.Player)
-            rule.onNode(hasTestTag("next.card")).assertDoesNotExist()
-            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
-            focused("next.card")
             assertEquals(1, core.calls.count { it.first == "player.play" })
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 1200)
+            assertEquals("sh7", lastPlayed())
         } finally { release.complete(Unit) }
     }
 
-    @Test fun 关闭自动播放时卡片等待确认而不自动切集() {
-        val prefs = xyz.linplayer.app.data.UiPrefs.tvAutoNext.value
-        try {
-            xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = false
-            mount(TvRoute.Player("sh6", "第六集")) { player() }
-            core.tick(3658.0); advance(rule, 300)
-            core.tick(3658.25); advance(rule, 300)
-            core.tick(3660.0, eof = true); advance(rule, 600)
-            focused("next.card")
-            advance(rule, 6000)
-            assertEquals(1, core.calls.count { it.first == "player.play" })
-            press(rule, Key.Enter)
-            advance(rule, 600)
-            assertEquals("sh7", core.calls.last { it.first == "player.play" }.second?.get("item_id")?.let {
-                (it as kotlinx.serialization.json.JsonPrimitive).content
-            })
-        } finally { xyz.linplayer.app.data.UiPrefs.tvAutoNext.value = prefs }
+    @Test fun 片尾胶囊在控件收起时按确认播下一集() {
+        mount(TvRoute.Player("sh6", "第六集")) { player() }
+        core.tick(3645.0); advance(rule, 300)
+        core.tick(3645.25); advance(rule, 300)
+        advance(rule, 5600)
+        focused("player.root")
+        rule.onNode(hasTestTag("player.nextUp")).assertExists()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        press(rule, Key.Enter)
+        advance(rule, 600)
+        assertEquals("sh7", lastPlayed())
     }
 
     @Test fun 核心返回当前季末时退出而不跨季() {
@@ -601,27 +160,6 @@ class TvFocusTest {
         core.tick(3660.0, eof = true); advance(rule, 600)
         assertFalse(nav.top.route is TvRoute.Player)
         assertEquals(1, core.calls.count { it.first == "player.play" })
-    }
-
-    @Test fun 播完出下一集卡焦点落在卡上() {
-        mount(TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王国")) { player() }
-        listOf(2170.0, 2171.0, 2172.0).forEach { core.tick(it); advance(rule, 100) }
-        core.tick(3660.0, eof = true)
-        advance(rule, 1200)
-        focused("next.card")
-    }
-
-    @Test fun 没按过版本确认起播不传版本() {
-        mount(TvRoute.Detail("m1", "Movie")) { movie() }
-        advance(rule, 600)
-        assertTrue("版本卡要先出来,否则这条断言是空转", rule.onAllNodes(hasText("2160p HDR10", substring = true)).fetchSemanticsNodes().isNotEmpty())
-        focused("detail.play")
-        press(rule, Key.Enter)
-        assertTrue(nav.top.route is TvRoute.Player)
-        advance(rule, 500)
-        val a = core.calls.last { it.first == "player.play" }.second
-        assertEquals("m1", (a?.get("item_id") as? kotlinx.serialization.json.JsonPrimitive)?.content)
-        assertFalse("没按过确认却传了 media_source_id:核心层的版本正则会被整个跳过", a!!.containsKey("media_source_id"))
     }
 
     @Test fun 自动内核发送实际Media3且设置变化不重启当前片() {

@@ -35,6 +35,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
@@ -71,12 +72,16 @@ val railItems = listOf(
 fun TopNavigation(
     current: Int, privateSpace: Boolean = false, focused: Int = -1,
     serverName: String = "服务器", aggregateLabel: String = "发现", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
+    /** 叠在头图上:不铺底色,只留一段压暗保证文字可读。 */
+    overlay: Boolean = false,
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
 ) {
     val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
     val reqs = remember { List(railItems.size) { FocusRequester() } }
     Row(
-        modifier.fillMaxWidth().height(TvDim.navigationH).background(TvC.bg)
+        modifier.fillMaxWidth().height(TvDim.navigationH)
+            .then(if (overlay) Modifier.background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f), Color.Transparent)))
+                else Modifier.background(TvC.bg))
             .padding(horizontal = TvDim.safeH)
             .focusProperties { if (focused < 0) onEnter = { reqs[current.takeIf { it in order } ?: 1].requestFocus() } }
             .onPreviewKeyEvent {
@@ -345,12 +350,6 @@ fun FullState(
             buttons.forEachIndexed { i, b -> TvButton(b, focused = focusFirst && i == 0, onClick = { onButton(i) }) }
         }
     }
-}
-
-/** 行内错误(§5.5):一句 `meta fg3`,不打断其它块。 */
-@Composable
-fun InlineError(message: String, modifier: Modifier = Modifier) {
-    TvText("没加载出来:$message", tvType.meta, TvC.fg3, modifier, maxLines = 2)
 }
 
 @Composable

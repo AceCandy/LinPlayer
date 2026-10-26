@@ -161,7 +161,7 @@ private fun InstalledTab(nav: NavController, list: androidx.compose.foundation.l
             item {
                 // 管理动作与标签页视觉区分:用设置式分组行,不用同款 chip
                 Panel(Modifier.padding(start = Sp.x16, end = Sp.x16, top = Sp.x4, bottom = Sp.x12)) {
-                    LpCell("从文件安装", icon = LpIcons.file, mediaStyle = true, arrow = false) { pick.launch(arrayOf("*/*")) }
+                    LpCell("从文件安装", icon = LpIcons.file, mediaStyle = true, arrow = false) { pick.launchOrToast(arrayOf("*/*"), app) }
                     val ups = plugins.filter { !it.str("update").isNullOrEmpty() }.mapNotNull { it.str("id") }
                     if (ups.isNotEmpty()) {
                         Hairline()

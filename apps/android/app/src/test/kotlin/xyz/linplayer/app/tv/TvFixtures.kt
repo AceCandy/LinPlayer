@@ -1,6 +1,5 @@
 package xyz.linplayer.app.tv
 
-import kotlinx.serialization.json.JsonNull
 import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonArray
 import kotlinx.serialization.json.buildJsonObject
@@ -126,7 +125,7 @@ fun FakeCore.episode(): FakeCore {
     return this
 }
 
-fun FakeCore.player(failPlay: Boolean = false, noVideo: Boolean = false): FakeCore {
+fun FakeCore.player(failPlay: Boolean = false): FakeCore {
     ret("emby.itemDetail", buildJsonObject {
         put("id", "sh6"); put("name", "妾之王国"); put("type_", "Episode"); put("series_name", "幕府将军"); put("series_id", "s2")
         put("season_id", "sh"); put("season_no", 1); put("episode_no", 6)
@@ -159,22 +158,8 @@ fun FakeCore.player(failPlay: Boolean = false, noVideo: Boolean = false): FakeCo
     ret("player.getSubStyle", buildJsonObject { put("scale", 1.0); put("position", 100) })
     ret("player.getPlaybackPrefs", buildJsonObject { put("skip_intro", true); put("skip_outro", false) })
     ret("player.opts", buildJsonObject {
-        put("current-vo", if (noVideo) "" else "gpu"); put("hwdec-current", "mediacodec"); put("dwidth", if (noVideo) "0" else "3840"); put("dheight", "2160")
+        put("current-vo", "gpu"); put("hwdec-current", "mediacodec"); put("dwidth", "3840"); put("dheight", "2160")
     })
-    return this
-}
-
-fun FakeCore.servers(): FakeCore {
-    on("account.icon") { a -> buildJsonObject { put("data_uri", FakeImages.dataUri("icon:" + (a?.get("server_id") as? JsonPrimitive)?.content)) } }
-    ret("account.probeAccounts", arr(
-        buildJsonObject { put("server", "http://emby-a.invalid"); put("ok", true); put("ms", 80) },
-        buildJsonObject { put("server", "http://emby-b.invalid"); put("ok", true); put("ms", 120) },
-        buildJsonObject { put("server", "http://emby-d.invalid"); put("ok", false); put("error", "超时") },
-    ))
-    on("account.probeLine") { a ->
-        val i = (a?.get("index") as? JsonPrimitive)?.content?.toIntOrNull() ?: 0
-        buildJsonObject { put("index", i); put("url", ""); if (i == 0) put("ms", 86) else if (i == 2) put("ms", 240) else put("ms", JsonNull) }
-    }
     return this
 }
 
@@ -184,59 +169,5 @@ fun FakeCore.settings(): FakeCore {
     })
     ret("player.shaderLevels", arr(buildJsonObject { put("id", "off"); put("name", "关"); put("selected", true) }))
     ret("account.getCrossServerResume", JsonPrimitive(false))
-    return this
-}
-
-fun FakeCore.discover(): FakeCore {
-    ret("emby.extRankings", arr(*listOf("番剧 · 本季", "番剧 · 总榜", "电影 · 热门", "电影 · 高分", "剧集 · 热门", "剧集 · 高分")
-        .mapIndexed { i, n -> buildJsonObject { put("id", "c$i"); put("label", n); put("source", "tmdb") } }.toTypedArray()))
-    val rank = listOf("葬送的芙莉莲" to 9.2, "药屋少女的呢喃" to 8.9, "迷宫饭" to 8.8, "我心里危险的东西" to 8.7, "败犬女主太多了" to 8.5,
-        "小市民系列" to 8.1, "胆大党" to 8.6, "青之箱" to null, "Re:从零开始的异世界生活" to 8.4, "天久鹰央的推理病历表" to 7.9)
-    ret("emby.extRankingItems", arr(*rank.mapIndexed { i, (n, r) ->
-        buildJsonObject { put("source", "tmdb"); put("external_id", "${i+1}"); put("media_type", "tv"); put("id", "k$i"); put("title", n); put("image_url", "fake:rank$i"); put("rank", i + 1); r?.let { put("rating", it) } ?: put("subtitle", "暂无评分") }
-    }.toTypedArray()))
-    val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).dayOfWeek.value
-    ret("emby.extCalendar", arr(*listOf("胆大党" to "EP08", "青之箱" to "EP07", "药屋少女的呢喃" to "EP19", "天久鹰央的推理病历表" to "EP06",
-        "Re:从零开始的异世界生活" to "EP11", "败犬女主太多了" to "EP03", "我心里危险的东西" to "EP04").mapIndexed { i, (n, _) ->
-        buildJsonObject {
-            put("external_id", "${i+1}"); put("media_type", "anime"); put("title", n); put("weekday", today); put("source", "bangumi"); put("image_url", "fake:cal$i")
-
-        }
-    }.toTypedArray()))
-    return this
-}
-
-fun FakeCore.favorites(): FakeCore {
-    ret("emby.listFavorites", arr(
-        item("f1", "谎言的代价", "Episode", series = "寂静的星河", season = 2, episode = 4),
-        item("f2", "大地之心", "Episode", series = "幕府将军", season = 1, episode = 8),
-        item("f3", "黑暗森林", "Episode", series = "三体", season = 1, episode = 23),
-        item("f4", "第一集", "Episode", series = "繁花", season = 1, episode = 1),
-        *(0 until showItems.size).map { showItems[it] }.toTypedArray(),
-    ))
-    return this
-}
-
-fun FakeCore.downloads(): FakeCore {
-    ret("download.list", arr(
-        buildJsonObject { put("id", "d1"); put("item_id", "se2e5"); put("title", "回声"); put("series_name", "寂静的星河"); put("season_number", 2); put("episode_number", 5)
-            put("status", "downloading"); put("total_bytes", 6_227_702_579L); put("received_bytes", 2_576_980_377L); put("progress", 0.41) },
-        buildJsonObject { put("id", "d2"); put("item_id", "sh9"); put("title", "红天"); put("series_name", "幕府将军"); put("season_number", 1); put("episode_number", 9)
-            put("status", "failed"); put("error", "服务器拒绝了请求(403)"); put("total_bytes", 0); put("received_bytes", 0); put("progress", 0.0) },
-        buildJsonObject { put("id", "d3"); put("item_id", "m1"); put("title", "沙丘 2"); put("status", "completed"); put("total_bytes", 16_320_875_724L); put("received_bytes", 16_320_875_724L); put("progress", 1.0) },
-        buildJsonObject { put("id", "d4"); put("item_id", "n2"); put("title", "第一集"); put("series_name", "繁花"); put("season_number", 1); put("episode_number", 1)
-            put("status", "completed"); put("total_bytes", 2_254_857_830L); put("received_bytes", 2_254_857_830L); put("progress", 1.0) },
-    ))
-    return this
-}
-
-fun FakeCore.local(): FakeCore {
-    ret("source.listDir", arr(
-        buildJsonObject { put("id", "dir-dune"); put("name", "沙丘 2 (2024)"); put("is_dir", true) },
-        buildJsonObject { put("id", "f-poor"); put("name", "Poor.Things.2023.2160p.UHD.BluRay.REMUX.HDR.HEVC.Atmos-EXAMPLE.mkv"); put("is_video", true); put("size", 76_450_000_000L) },
-        buildJsonObject { put("id", "f-fall"); put("name", "坠落的审判.2023.1080p.mkv"); put("is_video", true); put("size", 9_019_431_321L) },
-        buildJsonObject { put("id", "f-nfo"); put("name", "movie.nfo"); put("is_video", false); put("size", 2048) },
-        buildJsonObject { put("id", "f-pig"); put("name", "周处除三害.2024.1080p.mp4"); put("is_video", true); put("size", 4_187_593_113L) },
-    ))
     return this
 }

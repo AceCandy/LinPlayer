@@ -30,8 +30,8 @@
 | 桌面自检 | scripts/selfcheck-win.sh，当前平台是否可执行先确认 |
 | Android 本地回归 | 在 apps/android 运行 ./gradlew :app:testDebugUnitTest --tests '<相关类>' |
 | 手机主题渲染 | PhoneThemeTest，真实设置页按钮与背景像素断言 |
-| TV 页面 / 草稿截图 | TvPageShots / TvDraftShots，配置 Roborazzi 记录模式 |
-| TV 焦点 | TvFocusTest 等按键与焦点断言 |
+| TV 播放页 / 草稿截图 | TvPageShots / TvDraftShots，配置 Roborazzi 记录模式 |
+| TV 播放器焦点 | TvFocusTest 等按键与焦点断言 |
 | Android 真机 | src/androidTest 下相关测试与实际安装播放，设备可用性需核查 |
 
 Robolectric 用空 Application 避免在 JVM 加载进程级 native 库；参照既有截图测试配置，不新增截图框架。
@@ -39,6 +39,7 @@ Robolectric 用空 Application 避免在 JVM 加载进程级 native 库；参照
 
 ### Compose 播放器测试同步
 
+- 播放上报迁到 `PlaybackService` 后，Robolectric 集成测试须先断言页面已请求启动服务，再用 `Robolectric.buildService(...).create()` 驱动生命周期；只发 `player.status` 事件不能替代服务查询的位置样本。服务 Handler 用主 Looper 的 `idleFor` 推进，Compose `mainClock` 只推进页面时钟；结束时销毁服务并清理绑定。`TvRefreshRatePlaybackTest` 同时断言快进目标累加、上报仍取实际位置及当前 `item_id`，不能删掉上报断言或改报目标位置来消除失败。
 - 直接组合 `rememberExoPlayer` 也必须提供 `LocalApp`；无会话行为的测试复用 `setPlayerContent`，已有 `AppState` 的页面测试提供自己的实例，并在结束时取消 `app.bg`。不得给生产 `LocalApp` 增加默认替身来消除测试失败。
 - 包含后台挂起恢复和 Media3 主线程访问的集成测试使用 `androidx.compose.ui.test.junit4.v2.createComposeRule`，参照 `PhoneMedia3RecoveryTest`；旧版 Unconfined 调度可能把挂起后的播放器访问带到工作线程。保留同实例、自然切集与释放断言，不为此全仓迁移测试规则。
 - 图片模糊等后台工作不受 `mainClock` 控制；冻结时钟测淡入前，使用 `waitUntil` 等待 `onLoadResult` 并逐帧推进组合，再测混色与终态。仅推进固定虚拟时长不能证明后台图片已完成。

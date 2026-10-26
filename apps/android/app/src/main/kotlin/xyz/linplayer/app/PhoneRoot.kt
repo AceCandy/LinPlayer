@@ -205,6 +205,7 @@ private fun MainShell(tv: Boolean) {
     var activeTab by rememberSaveable { mutableStateOf(0) }
     LaunchedEffect(tab) { if (tab >= 0) activeTab = tab }
     var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
+    val tvBarOverlay = remember(entry?.id) { mutableStateOf(false) }
     val density = LocalDensity.current.density
     val posterScroll = remember(entry?.id, density) { PosterScrollMotion(density) }
     LaunchedEffect(posterScroll, posterScroll.fast) {
@@ -286,14 +287,13 @@ private fun MainShell(tv: Boolean) {
     androidx.compose.runtime.CompositionLocalProvider(
         xyz.linplayer.app.ui.components.LocalTabClearance provides
             if (browsePage && !tv) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp,
-        LocalPosterScroll provides posterScroll
+        LocalPosterScroll provides posterScroll,
+        xyz.linplayer.app.tv.LocalTvBarOverlay provides if (tv) tvBarOverlay else null,
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
         enabled = entry?.destination?.hasRoute<Route.Player>() != true)) {
         Box(Modifier.fillMaxSize()
-            .padding(top = if (tv && browsePage) xyz.linplayer.app.tv.kit.TvDim.navigationH else 0.dp,
-                start = if (tv && browsePage) 32.dp else 0.dp, end = if (tv && browsePage) 32.dp else 0.dp)
             .then(if (tv) Modifier.focusRequester(tvContent).focusRestorer().focusGroup() else Modifier)
             .nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
@@ -337,20 +337,21 @@ private fun MainShell(tv: Boolean) {
                 },
             ) {
                 // 当前是插件数据源:首页换成数据源首页(D167),Emby 那一套它一样都没有
-                posterComposable<Route.Home> { xyz.linplayer.app.ui.plugin.Takeover("home") {
+                // 首页自己处理电视边距:有头图时铺到顶栏下面
+                posterComposable<Route.Home>(tvInset = false) { xyz.linplayer.app.ui.plugin.Takeover("home") {
                     val src by app.activeSource.collectAsStateWithLifecycle()
                     val local by app.localSource.collectAsStateWithLifecycle()
-                    if (tv && local != null && !app.privateSpace.value) {
+                    if (tv && local != null && !app.privateSpace.value) xyz.linplayer.app.tv.TvPageInset {
                         Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                             xyz.linplayer.app.ui.components.EmptyState(
                                 "本机文件夹没有首页推荐", "打开文件夹浏览本地影片。", LpIcons.folder,
                                 "打开文件夹", onAction = { nav.navigate(Route.Browse) },
                             )
                         }
-                    } else src?.let { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } ?: HomePage(nav)
+                    } else src?.let { xyz.linplayer.app.tv.TvPageInset { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } } ?: HomePage(nav)
                 } }
                 posterComposable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
-                posterComposable<Route.Liuying> { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }
+                posterComposable<Route.Liuying>(tvInset = false) { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }
                 posterComposable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
                 posterComposable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
                 posterComposable<Route.Detail> { xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) } }
@@ -388,11 +389,11 @@ private fun MainShell(tv: Boolean) {
                    界面和核心层各说各话,退出重进(boot 一次)才对得上
                    (用户 2026-09-12:「显示目前服务器是新添加的结果还是原来的服务器,
                    退出重进才正常」)。 */
-                posterComposable<Route.AddServer> {
+                posterComposable<Route.AddServer>(tvInset = false) {
                     if (tv) xyz.linplayer.app.tv.OnboardingPage(embedded = true, onDone = { nav.popBackStack() })
                     else GatePage(onDone = { app.refreshSession(); nav.popBackStack() }, embedded = true)
                 }
-                posterComposable<Route.Player> { PlayerLaunchPage(nav, it, app.privateSpace.value, tv = tv) }
+                posterComposable<Route.Player>(tvInset = false) { PlayerLaunchPage(nav, it, app.privateSpace.value, tv = tv) }
             }
             }
         }
@@ -416,7 +417,7 @@ private fun MainShell(tv: Boolean) {
                 nav.switchTab(target)
             }
         }
-        if (tv && browsePage) xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent)
+        if (tv && browsePage) xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value)
         if (!tv) LongShotButton(Modifier.align(Alignment.BottomEnd))
     }
     }

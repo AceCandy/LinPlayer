@@ -8,7 +8,7 @@
 | `apps/windows/LinPlayer.Desktop/Core/` | CoreClient、事件泵与核心接入 |
 | `apps/android/app/src/main/kotlin/xyz/linplayer/app/` | LinPlayerApp、MainActivity、PhoneRoot |
 | 安卓 `ui/pages/`、`ui/components/`、`ui/theme/` | 手机页面、共用组件、主题 token |
-| 安卓 `tv/`、`tv/kit/` | TV 页面、导航、焦点与独立组件刻度 |
+| 安卓 `tv/`、`tv/kit/` | TV 宿主、登录、播放器、焦点与独立组件刻度 |
 | 安卓 `data/`、`core/` | AppState / UiPrefs 与 CorePort 接入 |
 | 安卓 `src/test/`、`src/androidTest/` | 本地 JVM 渲染回归、设备端测试 |
 
