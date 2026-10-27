@@ -212,3 +212,33 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 140: TV 视频反馈修复审查与归档
+<!-- trellis-session: v=2 fp=fd18388aa28543a0 -->
+
+**Date**: 2026-10-28
+**Task**: TV 视频反馈修复审查与归档
+**Branch**: `main`
+
+### Summary
+
+完成 TV 返回回顶、焦点尺寸、导航滚动与详情背景改动的独立审查，未发现可确认阻断缺陷；五个相关任务已归档，不推送。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `2717fd7e` | fix(android): 优化 TV 浏览布局焦点与返回体验 |
+
+### Testing
+
+- [OK] 最近完整 Android 回归 1028 项、0 失败、0 错误、2 跳过；提交前全量入口成功并复用未变更的测试结果，189 处参数及隐私门禁通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 实体遥控连按、慢设备首焦点、过扫描与滚动帧率仍待真机验收；未打包安装。
