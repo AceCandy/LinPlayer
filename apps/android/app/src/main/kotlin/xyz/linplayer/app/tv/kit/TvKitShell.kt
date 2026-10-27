@@ -78,14 +78,9 @@ fun TopNavigation(
     overlay: Boolean = false,
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
     onFocusSelect: (Int) -> Unit = {},
-    onRefresh: (() -> Unit)? = null,
     currentFocusRequester: FocusRequester? = null,
 ) {
-    val order = if (privateSpace) {
-        if (onRefresh != null) listOf(6, 1, 8, 3, 4, 0) else listOf(6, 1, 3, 4, 0)
-    }
-    else if (onRefresh != null) listOf(6, 1, 8, 3, 4, 0, 7)
-    else listOf(6, 1, 3, 4, 0, 7)
+    val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
     val reqs = remember { List(railItems.size + 1) { FocusRequester() } }
     Row(
         modifier.fillMaxWidth().height(TvDim.navigationH)
@@ -133,10 +128,6 @@ fun TopNavigation(
                     }
                 }
                 Spacer(Modifier.width(TvSp.x16))
-                } else if (i == 8) {
-                NavigationItem("刷新", LpIcons.refresh, on = false, iconOnly = true, focused = focused == i,
-                    overlay = overlay,
-                    modifier = focusModifier.testTag("nav.refresh"), onClick = { onRefresh?.invoke() })
                 } else {
                 val (label, icon) = railItems[i]
                 NavigationItem(if (i == 4) aggregateLabel else label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,

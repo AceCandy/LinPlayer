@@ -78,6 +78,36 @@ class PhonePosterMotionTest {
     @get:Rule val rule = createComposeRule()
     private val ctx = ApplicationProvider.getApplicationContext<Application>()
 
+    @Test fun televisionDecodedImageDoesNotFadeAgainAfterScrollingOffscreen() {
+        images()
+        lateinit var scroll: ScrollState
+        rule.mainClock.autoAdvance = false
+        rule.setContent {
+            LpTheme {
+                CompositionLocalProvider(xyz.linplayer.app.tv.LocalTvMode provides true) {
+                    scroll = rememberScrollState()
+                    Column(Modifier.size(100.dp).clipToBounds().verticalScroll(scroll)) {
+                        NetImage("poster:tv-repeat", null, Modifier.size(100.dp).testTag("tv-image"), corner = 0.dp)
+                        Spacer(Modifier.height(400.dp))
+                    }
+                }
+            }
+        }
+        rule.mainClock.advanceTimeBy(1000)
+        fun pixel() = rule.onNodeWithTag("tv-image").captureToImage().toPixelMap()[50, 50]
+        assertEquals(Color.Green, pixel())
+        repeat(3) {
+            rule.runOnIdle { scroll.dispatchRawDelta(200f) }
+            rule.mainClock.advanceTimeBy(32)
+            rule.onRoot().captureToImage()
+            rule.mainClock.advanceTimeBy(500)
+            rule.runOnIdle { scroll.dispatchRawDelta(-200f) }
+            rule.mainClock.advanceTimeBy(32)
+            rule.onRoot().captureToImage()
+            assertEquals("缓存图片返回视口不重新淡入", Color.Green, pixel())
+        }
+    }
+
     @OptIn(coil3.annotation.DelicateCoilApi::class)
     private fun images(gate: CompletableDeferred<Unit> = CompletableDeferred(Unit), heldUrl: String? = null, failedUrl: String? = null): () -> Boolean {
         var fetched = false

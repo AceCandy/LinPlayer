@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "最小修改、安全与可复现回归"}
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "TV 真实焦点、回顶和图片渲染验收"}
+{"file": "docs/go-migration/UI_TV.md", "reason": "当前浏览边界；本任务最新反馈优先于旧焦点与置顶约定"}
+{"file": ".trellis/tasks/10-28-androidtv-video-alignment/design.md", "reason": "本阶段范围和兼容边界"}

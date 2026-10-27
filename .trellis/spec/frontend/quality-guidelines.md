@@ -56,3 +56,13 @@ Robolectric 用空 Application 避免在 JVM 加载进程级 native 库；参照
 参考：[手机测试](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/PhoneThemeTest.kt)、[TV 页面截图](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/tv/TvPageShots.kt)、[TV 草稿](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/TvDraftShots.kt)、[TV 焦点](../../../apps/android/app/src/test/kotlin/xyz/linplayer/app/tv/TvFocusTest.kt)。
 
 - 动效功能与性能证据分开：共享元素中间几何、图片淡入混色只证明路径正确；滚动卡顿反馈要核实空闲共享节点、屏外composition与图片解码，再用同设备同数据的帧耗时判断效果。禁止反复调幅度后仅以渲染回归声称流畅；真机未连接时明确性能归因仍未确认。
+
+## TV 实拍问题回归门禁
+
+- 根页返回不能调用可能清空栈的 pop 来探测；覆盖根页一次返回仍保留首页、进入详情再返回不继承退出计时。
+- 切栏目回首页完整回顶与详情返回恢复来源是两条契约，分别按真实按键测试；标题向下测试先横移到首卡离屏，再回标题按 Down，必须聚焦真正第一项。
+- 焦点放大测试同时断言语义边界不变与边界外像素变化；使用真实 MediaCard、图片和片名，不能只用纯色 Box 证明没有片名白条。正常动效下验证上下离轨和焦点余量。
+- 缓存命中不代表没有淡入；冻结时钟，在解码完成后反复离屏/回滚，检查第一帧即显示目标像素。性能仍需同设备同数据的帧耗时。
+- 异步首焦点不得在 requestFocus 失败时消耗 pending；节点晚挂载测试须保留真实延迟请求。用户已有焦点、已下滚或弹层打开时不得抢焦点。
+- 取色等后台任务的集成渲染使用 v2 createComposeRule，避免旧 Unconfined 把重组带到后台线程；不靠删断言、全局关动效或改生产线程逻辑规避测试调度问题。
+- 深浅主题、窄屏和大字号截图标明测试素材；浅色遮罩必须保持白字对比度，短溶解过渡的实际观感及实体遥控重复事件仍需真机验收。

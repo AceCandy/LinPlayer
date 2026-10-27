@@ -88,6 +88,7 @@ import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.lpTween
 import xyz.linplayer.app.ui.theme.lpSpring
 import xyz.linplayer.app.tv.tvFocus
+import xyz.linplayer.app.tv.tvFocusScale
 
 /*
  * 共用组件词汇(UI_MOBILE.md §4.2)。**页面只能用它拼,不许各页自造一套**
@@ -122,7 +123,7 @@ internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier 
 @Composable
 fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true, tvHighlight: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    return this.pressFeedback(src).tvFocus(src, enabled = enabled, highlight = tvHighlight)
+    return Modifier.tvFocusScale(src, enabled).then(this).pressFeedback(src).tvFocus(src, enabled = enabled, highlight = tvHighlight)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -141,7 +142,7 @@ fun Modifier.pressable(
 ): Modifier {
     val src = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled, tvHighlight)
+    return Modifier.tvFocusScale(src, enabled).then(this).pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled, tvHighlight)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {

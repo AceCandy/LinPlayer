@@ -1,0 +1,31 @@
+{
+  "id": "androidtv-video-alignment",
+  "name": "androidtv-video-alignment",
+  "title": "Android TV 视频对照体验修正",
+  "description": "依据用户提供的视频，按返回回顶、滚动动效、焦点尺寸、详情背景四阶段修正 TV 浏览体验",
+  "status": "planning",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P1",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-28",
+  "completedAt": null,
+  "branch": null,
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [
+    "10-28-androidtv-navigation-return",
+    "10-28-androidtv-scroll-motion",
+    "10-28-androidtv-home-density",
+    "10-28-androidtv-detail-atmosphere"
+  ],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "",
+  "meta": {}
+}

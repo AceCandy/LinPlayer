@@ -221,54 +221,57 @@ internal fun detailPreview(itemId: String): Item? {
 @Composable
 internal fun Modifier.homePosterEntrance(
     itemId: String, index: Int, account: Pair<String, String>, row: LazyListState,
-): Modifier = key(account, itemId) {
-    var seen by rememberSaveable { mutableStateOf(false) }
-    var visible by remember { mutableStateOf(false) }
-    val progress = remember { Animatable(if (seen) 1f else 0f) }
-    val scale = LocalMotionScale.current
-    val tv = xyz.linplayer.app.tv.LocalTvMode.current
-    val easing = remember { CubicBezierEasing(0f, 0f, .2f, 1f) }
-    val spec = lpTween<Float>(T.T9, easing)
-    val travel = with(LocalDensity.current) { 22.dp.toPx() }
-    LaunchedEffect(scale, spec) {
-        if (seen) progress.snapTo(1f) else {
-            if (scale <= 0f) progress.snapTo(1f) else progress.snapTo(0f)
-            snapshotFlow { visible }.first { it }
-            seen = true
-            if (scale <= 0f) progress.snapTo(1f) else {
-                val initial = !row.isScrollInProgress && row.firstVisibleItemIndex == 0 && row.firstVisibleItemScrollOffset < 30 && index < 12
-                delay((if (initial) minOf(index, 4) * 80L * scale else 0f).toLong())
-                progress.animateTo(1f, spec)
+): Modifier {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) return this
+    return key(account, itemId) {
+        var seen by rememberSaveable { mutableStateOf(false) }
+        var visible by remember { mutableStateOf(false) }
+        val progress = remember { Animatable(if (seen) 1f else 0f) }
+        val scale = LocalMotionScale.current
+        val easing = remember { CubicBezierEasing(0f, 0f, .2f, 1f) }
+        val spec = lpTween<Float>(T.T9, easing)
+        val travel = with(LocalDensity.current) { 22.dp.toPx() }
+        LaunchedEffect(scale, spec) {
+            if (seen) progress.snapTo(1f) else {
+                if (scale <= 0f) progress.snapTo(1f) else progress.snapTo(0f)
+                snapshotFlow { visible }.first { it }
+                seen = true
+                if (scale <= 0f) progress.snapTo(1f) else {
+                    val initial = !row.isScrollInProgress && row.firstVisibleItemIndex == 0 && row.firstVisibleItemScrollOffset < 30 && index < 12
+                    delay((if (initial) minOf(index, 4) * 80L * scale else 0f).toLong())
+                    progress.animateTo(1f, spec)
+                }
             }
         }
-    }
-    onGloballyPositioned {
-        val bounds = it.boundsInWindow()
-        val area = it.size.width.toFloat() * it.size.height
-        visible = area > 0 && bounds.width * bounds.height >= area * .15f
-    }.graphicsLayer {
-        val remaining = if (scale <= 0f) 0f else 1f - progress.value
-        val layout = row.layoutInfo
-        val card = layout.visibleItemsInfo.firstOrNull { it.index == index }
-        val edge = if (tv || scale <= 0f || card == null || card.size == 0) 0f else {
-            val left = layout.viewportStartOffset + layout.beforeContentPadding
-            val right = layout.viewportEndOffset - layout.afterContentPadding
-            val clipped = maxOf(left - card.offset, card.offset + card.size - right, 0)
-            (clipped.toFloat() / card.size).coerceIn(0f, 1f)
+        onGloballyPositioned {
+            val bounds = it.boundsInWindow()
+            val area = it.size.width.toFloat() * it.size.height
+            visible = area > 0 && bounds.width * bounds.height >= area * .15f
+        }.graphicsLayer {
+            val remaining = if (scale <= 0f) 0f else 1f - progress.value
+            val layout = row.layoutInfo
+            val card = layout.visibleItemsInfo.firstOrNull { it.index == index }
+            val edge = if (scale <= 0f || card == null || card.size == 0) 0f else {
+                val left = layout.viewportStartOffset + layout.beforeContentPadding
+                val right = layout.viewportEndOffset - layout.afterContentPadding
+                val clipped = maxOf(left - card.offset, card.offset + card.size - right, 0)
+                (clipped.toFloat() / card.size).coerceIn(0f, 1f)
+            }
+            val bend = edge * edge * (3f - 2f * edge)
+            transformOrigin = TransformOrigin.Center
+            translationX = size.width * remaining
+            translationY = travel * bend * .65f
+            scaleX = 1f - maxOf(.5f * remaining, .12f * bend)
+            scaleY = scaleX
+            alpha = (1f - .6f * remaining).coerceIn(0f, 1f)
         }
-        val bend = edge * edge * (3f - 2f * edge)
-        transformOrigin = TransformOrigin.Center
-        translationX = size.width * remaining
-        translationY = travel * bend * .65f
-        scaleX = 1f - maxOf(.5f * remaining, .12f * bend)
-        scaleY = scaleX
-        alpha = (1f - .6f * remaining).coerceIn(0f, 1f)
     }
 }
 
 /** 图片就绪且15%可见后整卡弹簧入场；占位始终可见，返回不重播。 */
 @Composable
 internal fun Modifier.posterEntrance(itemId: String, url: String?, ready: Boolean = true, animate: Boolean = true): Modifier {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) return this
     var seen by rememberSaveable(itemId, url) { mutableStateOf(false) }
     var visible by remember(itemId, url) { mutableStateOf(false) }
     val progress = remember(itemId, url) { Animatable(if (seen) 1f else 0f) }

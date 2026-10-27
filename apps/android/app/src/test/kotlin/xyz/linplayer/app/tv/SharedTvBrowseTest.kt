@@ -8,7 +8,7 @@ import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -119,7 +119,7 @@ class SharedTvBrowseTest {
         assertNull(app.localSource.value)
         rule.onNodeWithText("打开文件夹").assertDoesNotExist()
         rule.onNodeWithContentDescription("谎言的代价").assertExists()
-        rule.onNodeWithTag("nav.refresh").assertIsDisplayed()
+        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
     }
 
     @Test fun televisionFileBrowserOnlyShowsFoldersAndVideos() {
@@ -153,6 +153,60 @@ class SharedTvBrowseTest {
         rule.onRoot().captureRoboImage("build/shared-tv/home.png")
     }
 
+    @Test fun rootBackKeepsHomeAndDetailReturnDoesNotArmExit() {
+        mount()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        assertFalse(activity.isFinishing)
+        rule.onNodeWithContentDescription("谎言的代价").assertExists()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("谎言的代价").assertExists()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        assertFalse(activity.isFinishing)
+        rule.onNodeWithContentDescription("谎言的代价").assertExists()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        assertTrue(activity.isFinishing)
+    }
+
+    @Test fun seriesRemoteUpRestoresWholeHero() {
+        mount(configure = ::seriesDetails)
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        val initial = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().positionInRoot.y
+        repeat(3) { press(rule, Key.DirectionDown) }
+        rule.onNodeWithTag("detail.play").assertIsNotFocused()
+        repeat(12) {
+            if (rule.onAllNodes(hasTestTag("detail.play") and isFocused()).fetchSemanticsNodes().isEmpty())
+                press(rule, Key.DirectionUp)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        assertEquals(initial, rule.onNodeWithTag("detail.hero").fetchSemanticsNode().positionInRoot.y, 1f)
+    }
+
+    @Test fun switchingFromFavoritesRestoresHomeHeroWithoutManualScroll() {
+        mount { it.ret("emby.cachedItems", arr(item("hero", "首页轮播", year = 2026))) }
+        rule.waitUntil(5000) { rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().isNotEmpty() }
+        val initial = rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y
+        repeat(4) { press(rule, Key.DirectionDown) }
+        rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithTag("rail.3").assertIsFocused()
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        assertEquals(initial, rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y, 1f)
+    }
+
     @Test fun focusedNavigationTabKeepsShortLineWithoutPillInDarkTheme() = checkNavigationTab("dark")
     @Test fun focusedNavigationTabKeepsShortLineWithoutPillInLightTheme() = checkNavigationTab("light")
 
@@ -178,7 +232,25 @@ class SharedTvBrowseTest {
         rule.onNodeWithContentDescription("黑暗森林").assertIsFocused()
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("黑暗森林").assertIsNotFocused()
-        rule.onNode(hasText("电影") and isFocused()).assertExists()
+        rule.onNode(isFocused()).assertIsDisplayed()
+    }
+
+    @Test fun compactLibraryHeaderMovesDownToFirstPoster() {
+        mount()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasText("电影") and hasClickAction())
+        rule.onNode(hasText("电影") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        val header = rule.onNode(hasText("电影") and isFocused()).fetchSemanticsNode().boundsInRoot
+        assertTrue("栏目焦点只覆盖左侧标题", header.width < 240f)
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("沙丘 2").assertIsFocused()
+        repeat(7) { press(rule, Key.DirectionRight) }
+        rule.onNode(hasText("电影") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("沙丘 2").assertIsFocused()
     }
 
     @Test fun hiddenLibrariesMakeResumeTheFirstContentRow() {
@@ -241,12 +313,12 @@ class SharedTvBrowseTest {
                     }
                 }
             }
-            rule.onNodeWithText("列数：5").assertExists()
+            rule.onNodeWithText("列数：7").assertExists()
             rule.runOnIdle {
-                theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject { put("medium", 7) }) }, "android_tv")
+                theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject { put("medium", 9) }) }, "android_tv")
                 revision.intValue++
             }
-            rule.onNodeWithText("列数：7").assertExists()
+            rule.onNodeWithText("列数：9").assertExists()
         } finally {
             theme.applyLayout(buildJsonObject { put("posterColumns", savedColumns) }, "android_tv")
         }
@@ -266,22 +338,21 @@ class SharedTvBrowseTest {
         try {
             val before = core.calls.count { it.first == "emby.views" }
             val caps = core.calls.count { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) }
-            press(rule, Key.DirectionRight)
-            rule.onNodeWithTag("nav.refresh").assertIsDisplayed().assertIsFocused()
+            rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
+            rule.onNodeWithTag("rail.1").assertIsFocused()
             hold = true
             press(rule, Key.DirectionCenter)
             rule.waitForIdle()
             assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
             repeat(2) { press(rule, Key.DirectionCenter); rule.waitForIdle() }
-            rule.onNodeWithTag("nav.refresh").assertIsFocused()
+            rule.onNodeWithTag("rail.1").assertIsFocused()
             assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
             assertEquals(caps + 1, core.calls.count { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) })
             rule.runOnIdle { hold = false; release.complete(Unit) }
             rule.waitForIdle()
             rule.onRoot().captureRoboImage("build/shared-tv/home-refresh.png")
-            press(rule, Key.DirectionLeft)
             rule.onNodeWithTag("rail.1").assertIsFocused()
-            press(rule, Key.DirectionRight, Key.DirectionCenter)
+            press(rule, Key.DirectionCenter)
             rule.waitForIdle()
             assertEquals(before + 2, core.calls.count { it.first == "emby.views" })
         } finally { release.complete(Unit) }
@@ -300,8 +371,7 @@ class SharedTvBrowseTest {
         fun refresh() {
             val before = core.calls.count { it.first == "emby.views" }
             rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-            repeat(1) { press(rule, Key.DirectionRight) }
-            rule.onNodeWithTag("nav.refresh").assertIsFocused()
+            rule.onNodeWithTag("rail.1").assertIsFocused()
             press(rule, Key.DirectionCenter)
             rule.waitForIdle()
             assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
@@ -691,7 +761,7 @@ class SharedTvBrowseTest {
     @Test fun directionsMoveToSharedAggregateWithoutConfirmAndHideDownloads() {
         mount()
         rule.onNodeWithTag("rail.1").assertIsFocused()
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        press(rule, Key.DirectionRight, Key.DirectionRight)
         rule.onNodeWithTag("rail.4").assertIsFocused().assertIsSelected()
         rule.onNodeWithText("排行榜").assertIsDisplayed()
         rule.onNodeWithText("日历").assertIsDisplayed()
@@ -703,7 +773,7 @@ class SharedTvBrowseTest {
 
     @Test fun actionEntryStillWaitsForConfirm() {
         mount()
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
         rule.onNodeWithTag("rail.0").assertIsFocused()
         rule.onNodeWithTag("rail.4").assertIsSelected()
         rule.onNodeWithTag("search.field").assertDoesNotExist()

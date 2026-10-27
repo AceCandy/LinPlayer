@@ -6,7 +6,7 @@ import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -82,18 +82,17 @@ class TvPrivacyTest {
         mount(); enter()
         val before = core.calls.size
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        repeat(1) { press(rule, Key.DirectionRight) }
-        rule.onNodeWithTag("nav.refresh").assertIsDisplayed().assertIsFocused()
+        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
         press(rule, Key.DirectionCenter)
         advance(rule, 500)
-        rule.onNodeWithTag("nav.refresh").assertIsFocused()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
         val calls = core.calls.drop(before)
         assertEquals(1, calls.count { it.first == "emby.views" })
         assertTrue(calls.filter { it.first in setOf("emby.views", "emby.listResume") }.all {
             it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true)
         })
         assertFalse(calls.any { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) })
-        press(rule, Key.DirectionLeft)
         rule.onNodeWithTag("rail.1").assertIsFocused()
     }
 
@@ -140,7 +139,7 @@ class TvPrivacyTest {
         // 插件不能把私密导航拉到另一个页面。
         rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 500)
         rule.onNode(hasSetTextAction()).performTextInput("查询")
         advance(rule, 900)
@@ -154,7 +153,7 @@ class TvPrivacyTest {
         mount(); enter()
         val before = core.calls.size
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 300)
         rule.onNodeWithText("流影").assertIsDisplayed()
         rule.onNodeWithText("排行榜").assertIsDisplayed()

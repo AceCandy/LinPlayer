@@ -66,6 +66,47 @@ class TvFocusStyleTest {
     @Test fun sharedButtonUsesInvertedFillInDarkTheme() = checkButton(true)
     @Test fun sharedButtonUsesInvertedFillInLightTheme() = checkButton(false)
 
+    @Test fun focusedSurfaceGrowsVisuallyWithoutMovingItsFocusBounds() {
+        rule.setContent { LpTheme {
+            Remote {
+                Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
+                    Box(Modifier.size(120.dp, 80.dp).background(Color.Red)
+                        .testTag("scaled").pressable({}, tvHighlight = false))
+                }
+            }
+        } }
+        val before = rule.onNodeWithTag("scaled").fetchSemanticsNode().boundsInRoot
+        rule.onNodeWithTag("scaled").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.waitForIdle()
+        assertEquals(before, rule.onNodeWithTag("scaled").fetchSemanticsNode().boundsInRoot)
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        assertEquals(Color.Red, pixels[before.left.toInt() - 2, before.center.y.toInt()])
+    }
+
+    @Test fun actualPosterGrowsOutsideItsFrameWithoutWhiteCaptionStrip() {
+        FakeImages.install(androidx.test.core.app.ApplicationProvider.getApplicationContext())
+        rule.setContent { LpTheme {
+            Remote {
+                Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
+                    xyz.linplayer.app.ui.components.MediaCard(
+                        xyz.linplayer.app.data.Item("focus-poster", "焦点海报", "Movie"),
+                        "poster:focus", {})
+                }
+            }
+        } }
+        val card = rule.onNodeWithContentDescription("焦点海报")
+        val before = card.fetchSemanticsNode().boundsInRoot
+        card.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.waitForIdle()
+        assertEquals(before, card.fetchSemanticsNode().boundsInRoot)
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        assertTrue("海报轮廓应整体放大，不能只缩放裁剪框内的图像",
+            pixels[before.left.toInt() - 2, before.center.y.toInt()] != Color.Black)
+        val caption = rule.onNodeWithText("焦点海报", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
+        assertEquals("片名不再铺白底条", Color.Black, pixels[caption.right.toInt() - 4, caption.center.y.toInt()])
+        rule.onRoot().captureRoboImage("build/shared-tv/poster-focus.png")
+    }
+
     private fun checkButton(dark: Boolean) {
         rule.setContent { LpTheme(darkOverride = dark) {
             Remote {

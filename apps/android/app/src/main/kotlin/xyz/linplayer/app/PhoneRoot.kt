@@ -23,6 +23,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.foundation.layout.WindowInsets
@@ -208,6 +209,7 @@ private fun MainShell(tv: Boolean) {
     var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
     val tvBarOverlay = remember(entry?.id) { mutableStateOf(false) }
     val tvHomeRefresh = remember(entry?.id) { mutableStateOf<(() -> Unit)?>(null) }
+    val tvHomeScroll = remember(entry?.id) { mutableStateOf(0) }
     val density = LocalDensity.current.density
     val posterScroll = remember(entry?.id, density) { PosterScrollMotion(density) }
     LaunchedEffect(posterScroll, posterScroll.fast) {
@@ -293,6 +295,7 @@ private fun MainShell(tv: Boolean) {
         xyz.linplayer.app.tv.LocalTvBarOverlay provides if (tv) tvBarOverlay else null,
         xyz.linplayer.app.tv.LocalTvHomeRefresh provides if (tv) tvHomeRefresh else null,
         xyz.linplayer.app.tv.LocalTvTopNavigation provides if (tv) tvNavigation else null,
+        xyz.linplayer.app.tv.LocalTvHomeScroll provides if (tv) tvHomeScroll else null,
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
@@ -424,7 +427,8 @@ private fun MainShell(tv: Boolean) {
             }
         }
         if (tv && browsePage && entry?.destination?.hasRoute<Route.Detail>() != true) {
-            xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value)
+            xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value,
+                modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(0, -tvHomeScroll.value) })
         }
         if (!tv) LongShotButton(Modifier.align(Alignment.BottomEnd))
     }

@@ -39,11 +39,21 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.withFrameNanos
+import kotlinx.coroutines.launch
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -118,7 +128,8 @@ private fun NetImageCandidate(
     val report by androidx.compose.runtime.rememberUpdatedState(onLoadResult)
     LaunchedEffect(url) { if (url.isNullOrEmpty()) report?.invoke(false) }
     var visible by remember { mutableStateOf(false) }
-    val viewport = if (backgroundBlur) Modifier else Modifier.onGloballyPositioned {
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val viewport = if (backgroundBlur || tv) Modifier else Modifier.onGloballyPositioned {
         val bounds = it.boundsInWindow()
         val area = it.size.width.toFloat() * it.size.height
         val shown = bounds.width * bounds.height
@@ -150,7 +161,7 @@ private fun NetImageCandidate(
             if (ready || failed) report?.invoke(ready)
         }
         val fade = remember(url, backgroundBlur) { Animatable(0f) }
-        val immediate = ready && (!reveal || LocalMotionScale.current <= 0f)
+        val immediate = ready && (tv || !reveal || LocalMotionScale.current <= 0f)
         val fadeSpec = lpTween<Float>(T.T8, LinearEasing)
         LaunchedEffect(url, ready, immediate, visible, fadeSpec) {
             when {
@@ -255,7 +266,6 @@ fun MediaCard(
                     )
             ) {
                 NetImage(imageUrl.takeUnless { item.hasPrimary == false }, item.name, Modifier.fillMaxSize()
-                    .graphicsLayer { scaleX = if (focused) 1.035f else 1f; scaleY = scaleX }
                     .sharedPoster(item.id, posterToken),
                     reveal = !sharedSource,
                     onLoadResult = if (entrance) { { imageResult = it } } else null,
@@ -344,10 +354,10 @@ internal fun MediaRatingBadge(rating: Double?, douban: Boolean = false, m: Modif
 @Composable
 internal fun PosterCaption(title: String, subtitle: String?, focused: Boolean = false) {
     Spacer(Modifier.height(Sp.x6))
-    Text(title, color = if (focused) Lp.colors.bg else Lp.colors.fg, style = LpText.card,
+    Text(title, color = Lp.colors.fg, style = LpText.card,
+        fontWeight = if (focused) androidx.compose.ui.text.font.FontWeight.Bold else androidx.compose.ui.text.font.FontWeight.Medium,
         maxLines = 1, overflow = TextOverflow.Ellipsis,
         textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth()
-            .background(if (focused) Lp.colors.fg else Color.Transparent, RoundedCornerShape(R.sm))
             .padding(horizontal = if (xyz.linplayer.app.tv.LocalTvMode.current) Sp.x4 else 0.dp))
     subtitle?.let {
         Text(it, color = Lp.colors.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
@@ -388,7 +398,7 @@ private fun captionHeight(): Dp = with(LocalDensity.current) {
 /** 一条轨道该多高 = 封面 + 文字区。**两处轨道(真卡 / 骨架)共用它**,否则骨架和真卡不等高。 */
 @Composable
 fun rowHeight(thumb: Boolean): Dp =
-    rowImageHeight(thumb) + captionHeight()
+    rowImageHeight(thumb) + captionHeight() + if (xyz.linplayer.app.tv.LocalTvMode.current) 12.dp else 0.dp
 
 @Composable
 internal fun rowImageHeight(thumb: Boolean): Dp = if (thumb) cardWidth(true) * 9 / 16 else cardWidth(false) * 3 / 2
@@ -405,6 +415,7 @@ private val ThumbW = 194.dp
 internal fun posterLayout(widthDp: Float, heightDp: Float, tv: Boolean = false): Pair<Int, Dp>? {
     if (widthDp < 600f && !tv) return null
     val max = when {
+        tv -> if (heightDp < 480f) 112.dp else 138.dp
         heightDp < 480f -> PosterW
         widthDp < 840f -> 150.dp
         else -> 170.dp
@@ -482,6 +493,9 @@ fun LpRow(
     warmDetail: (suspend (Item) -> Unit)? = null,
 ) {
     val row = rememberLazyListState()
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val firstCard = remember { FocusRequester() }
+    val scope = rememberCoroutineScope()
     val imageHeight = posterImageHeight(thumb)
     val firstId = items.firstOrNull()?.id
     var previousFirst by remember { mutableStateOf(firstId) }
@@ -492,11 +506,18 @@ fun LpRow(
         previousFirst = firstId
     }
     Column(m.fillMaxWidth()) {
-        if (title.isNotBlank()) MediaRowHeader(title, onMore)
+        if (title.isNotBlank()) MediaRowHeader(title, onMore,
+            onDown = if (tv && onMore != null && items.isNotEmpty()) ({
+                scope.launch {
+                    row.scrollToItem(0)
+                    withFrameNanos { }
+                    firstCard.requestFocus()
+                }
+            }) else null)
         LazyRow(
             Modifier.fillMaxWidth().height(rowHeight(thumb)),
             state = row,
-            contentPadding = PaddingValues(horizontal = Sp.x16),
+            contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (xyz.linplayer.app.tv.LocalTvMode.current) 6.dp else 0.dp),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
         ) {
             // key + contentType:不给的话滚动时 item 复用会让 Coil 重复发请求
@@ -507,7 +528,8 @@ fun LpRow(
                     warmDetail(item)
                 }
                 MediaCard(item, imageUrl(item, imageHeight), { onOpen(item) },
-                    m = if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier,
+                    m = (if (tv && index == 0) Modifier.focusRequester(firstCard) else Modifier)
+                        .then(if (homeAccount != null) Modifier.homePosterEntrance(item.id, index, homeAccount, row) else Modifier),
                     thumb = thumb, menu = menu?.invoke(item), resume = resume, entrance = homeAccount == null)
             }
         }
@@ -536,8 +558,25 @@ internal val LocalRowHeaderOnImage = androidx.compose.runtime.staticCompositionL
 
 /** 栏目竖杠与标题构成入口；无更多回调时只展示标题。 */
 @Composable
-internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null) {
+internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, onDown: (() -> Unit)? = null) {
     val onImage = LocalRowHeaderOnImage.current
+    if (xyz.linplayer.app.tv.LocalTvMode.current) {
+        Box(Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x16, bottom = Sp.x4)) {
+            Row(Modifier.onPreviewKeyEvent {
+                if (onDown != null && it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown) {
+                    onDown(); true
+                } else false
+            }.then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
+                .padding(horizontal = Sp.x4, vertical = Sp.x6),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
+                Text(title, color = if (onImage) Color.White else Lp.colors.fg, style = LpText.title)
+                if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp),
+                    tint = if (onImage) Color.White else Lp.colors.fg2)
+            }
+        }
+        return
+    }
     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
         .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
         .padding(top = Sp.x26, bottom = Sp.x10),

@@ -86,6 +86,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.selected
@@ -663,8 +664,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val contentSize = lpTween<IntSize>(T.T5)
 
     // 底色从**海报**取,不从背景图取:海报是这部片的主视觉,背景图常常是一片夜景
-    val tone = if (LocalTvMode.current) c.acc else
-        rememberTone(app.imageUrl(route.itemId, "Primary", 330).takeUnless { d.boolOrNull("has_primary") == false }, c.acc.copy(alpha = .9f))
+    val tone = rememberTone(app.imageUrl(route.itemId, "Primary", 330).takeUnless { d.boolOrNull("has_primary") == false }, c.acc.copy(alpha = .9f))
 
     /* 起播。`engine` 为空 = 用设置里的默认内核。
        ★ 长按播放键换内核【用户定 2026-09-08】:短按一个、长按另一个,哪个在前由设置决定。
@@ -684,6 +684,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     // 平板(宽且够高)改左右分栏：左栏固定海报与播放，右栏滚动其余内容；横屏手机仍走单栏
     val tv = LocalTvMode.current
     val playFocus = remember { FocusRequester() }
+    val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var pageHasFocus by remember { mutableStateOf(false) }
     var playMounted by remember { mutableStateOf(false) }
     var initialPlayPending by rememberSaveable { mutableStateOf(true) }
@@ -700,9 +701,18 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     LaunchedEffect(tv, playMounted, playAvailable) {
         if (!tv) return@LaunchedEffect
         if (initialPlayPending && playMounted && playAvailable) {
-            initialPlayPending = false
-            withFrameNanos { }
-            if (!pageHasFocus && atTop && sheet == null && !switching) playFocus.requestFocus()
+            // 数据先就绪、可聚焦节点后挂载；失败不能提前消耗首次聚焦机会。
+            repeat(10) {
+                withFrameNanos { }
+                if (pageHasFocus || !atTop || sheet != null || switching) {
+                    initialPlayPending = false
+                    return@LaunchedEffect
+                }
+                if (playFocus.requestFocus()) {
+                    initialPlayPending = false
+                    return@LaunchedEffect
+                }
+            }
         }
     }
 
@@ -803,7 +813,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     }
 
-    val actionsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_ACTIONS, Modifier.padding(horizontal = Sp.x16)) {
+    val actionsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_ACTIONS, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
         // 合集不是一部片,没有播放按钮 —— 但锚点位照留,插件还能往这儿挂
         if (isBoxSet) return@Anchored
         val target = if (isSeries) nextEp?.id ?: route.itemId else route.itemId
@@ -1013,8 +1023,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         androidx.compose.runtime.CompositionLocalProvider(
             LocalAnchors provides if (live == null || app.privateSpace.value) xyz.linplayer.app.ui.plugin.AnchorScope() else anchors
         ) {
-        Box(Modifier.fillMaxSize().then(
-            if (tv) Modifier.background(c.bg) else Modifier.background(toneScene(tone, c.bg)))) {
+        Box(Modifier.fillMaxSize().background(toneScene(tone,
+            if (tv) tone.copy(alpha = .08f).compositeOver(c.bg) else c.bg))) {
             if (wide) WideBackdrop(app, route.itemId, d, isEpisode)
             val topInset = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             Row(Modifier.fillMaxSize()) {
@@ -1031,13 +1041,28 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 actionsBlock()
             }
             val anchorBlocks = LocalAnchors.current.blocks
-            LazyColumn(Modifier.weight(1f).fillMaxHeight(), list,
+            LazyColumn(Modifier.weight(1f).fillMaxHeight().onPreviewKeyEvent {
+                if (tv && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp) {
+                    if (!focusManager.moveFocus(FocusDirection.Up) && list.canScrollBackward && playAvailable) {
+                        scope.launch {
+                            list.animateScrollToItem(0)
+                            withFrameNanos { }
+                            if (playMounted) playFocus.requestFocus()
+                        }
+                    }
+                    true
+                } else false
+            }, list,
                 contentPadding = if (wide) PaddingValues(top = topInset, bottom = pad.calculateBottomPadding())
                 else if (tv) PaddingValues(
                     start = TvPageSide, end = TvPageSide,
                     top = pad.calculateTopPadding(), bottom = pad.calculateBottomPadding(),
                 ) else pad) {
                 if (tv) item("hero") {
+                    Box(Modifier.onFocusChanged {
+                        // 从下方回到头部时恢复整块首屏，而不只把获焦按钮滚进视口。
+                        if (it.hasFocus && list.canScrollBackward) scope.launch { list.animateScrollToItem(0) }
+                    }.focusGroup()) {
                     TvDetailHero(app, route.itemId, d, isEpisode,
                         onSeries = { live.str("series_id")?.let { nav.navigate(Route.Detail(it, "Series")) } }) {
                         Anchored(PluginAnchors.DETAIL_TITLE) {}
@@ -1045,11 +1070,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         val overviewReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_OVERVIEW]
                             .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
                         if (!overviewReplaced) d.str("overview")?.takeIf(String::isNotBlank)?.let {
-                            Text(it, Modifier.fillMaxWidth(.66f).padding(top = Sp.x16),
-                                color = Color.White.copy(alpha = .85f), style = LpText.body.copy(lineHeight = 22.sp),
-                                maxLines = 3, overflow = TextOverflow.Ellipsis)
+                            Text(it, Modifier.fillMaxWidth(.56f).padding(top = Sp.x12),
+                                color = Color.White.copy(alpha = .85f), style = LpText.body,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                         if (showBody) actionsBlock()
+                    }
                     }
                 } else if (!wide) item("hero") {
                     Box {
@@ -1223,10 +1249,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 if (isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {
                     Column(Modifier.fillMaxWidth().testTag("detail.seasons")) {
                         SectionTitle("季")
-                        val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 }
+                        val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 + if (tv) 12.dp else 0.dp }
                         if (seasons.isNotEmpty()) LazyRow(
                             Modifier.fillMaxWidth().height(seasonHeight),
-                            contentPadding = PaddingValues(horizontal = Sp.x16),
+                            contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (tv) 6.dp else 0.dp),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x12),
                         ) {
                             itemsIndexed(shownSeasons, key = { _, season -> season.id }) { _, season ->
@@ -1415,8 +1441,8 @@ private fun TvDetailHero(
         else app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }
     val headerReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_HEADER]
         .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
-    Box(Modifier.bleed(TvPageSide).fillMaxWidth().heightIn(min = screenHeight * .86f).testTag("detail.hero")) {
-        if (!headerReplaced) Box(Modifier.matchParentSize()) {
+    Box(Modifier.bleed(TvPageSide).fillMaxWidth().heightIn(min = screenHeight * .78f).testTag("detail.hero")) {
+        if (!headerReplaced) Box(Modifier.matchParentSize().dissolve(if (c.isDark) .6f else .94f)) {
             NetImage(url, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
                 backgroundBlur = !useBackdrop, previewUrl = posterPreview(id),
                 fallbackUrls = if (!useBackdrop) artworkFallbacks(app.imageUrl(id, "Primary", 720),
@@ -1425,15 +1451,12 @@ private fun TvDetailHero(
                     else emptyList(),
                 onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
             Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
-                0f to Color.Black.copy(alpha = .86f),
-                .65f to Color.Black.copy(alpha = .68f),
+                0f to Color.Black.copy(alpha = .82f),
+                .65f to Color.Black.copy(alpha = .52f),
                 1f to Color.Black.copy(alpha = .08f))))
         } else Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .9f)))
-        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
-            0f to Color.Black.copy(alpha = .22f),
-            (if (c.isDark) .7f else .94f) to Color.Transparent, 1f to c.bg)))
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-            .padding(start = TvDim.safeH, end = TvDim.safeH, top = Dim.topBar + TvDim.safeV + Sp.x34, bottom = Sp.x34)) {
+            .padding(start = TvPageSide + Sp.x16, end = TvPageSide + Sp.x16, top = TvDim.safeV + Sp.x26, bottom = Sp.x26)) {
             Anchored(PluginAnchors.DETAIL_HEADER) {
                 if (episode) d.str("series_name")?.let { series ->
                     Text(series, Modifier.fillMaxWidth(.66f)
@@ -1445,8 +1468,8 @@ private fun TvDetailHero(
                     d.long("season_no")?.let { "S$it" }, d.long("episode_no")?.let { "E$it" }).joinToString("") else ""
                 Text(listOf(number, d.str("name") ?: detailPreview(id)?.name.orEmpty())
                     .filter(String::isNotBlank).joinToString("："),
-                    Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12).testTag("detail.title"),
-                    color = Color.White, style = LpText.hero)
+                    Modifier.fillMaxWidth(.56f).padding(bottom = Sp.x10).testTag("detail.title"),
+                    color = Color.White, style = LpText.hero.copy(fontSize = 28.sp, lineHeight = 34.sp))
                 d.str("tagline")?.takeIf(String::isNotBlank)?.let {
                     Text(it, Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12),
                         color = Color.White.copy(alpha = .85f), style = LpText.section)
@@ -1476,19 +1499,19 @@ private fun TvDetailAction(
     Box {
         Row(modifier.onFocusChanged { focused = it.isFocused }
             .semantics { contentDescription = label; this.selected = selected }
-            .heightIn(min = Dim.tap).widthIn(min = if (iconOnly) Dim.tap else 132.dp)
+            .heightIn(min = 40.dp).widthIn(min = if (iconOnly) 40.dp else 112.dp)
             .graphicsLayer { alpha = if (enabled) 1f else .45f }
             .privateNeonBorder(R.sm).clip(RoundedCornerShape(R.sm))
             .background(when {
                 focused -> Color.White
                 primary -> c.mediaAccent
-                else -> Color.Black.copy(alpha = .58f)
+                else -> Color.Black.copy(alpha = .36f)
             })
             .pressable(onClick, onLongClick, enabled, tvHighlight = false)
-            .padding(horizontal = if (iconOnly) Sp.x12 else Sp.x20, vertical = Sp.x12),
+            .padding(horizontal = if (iconOnly) Sp.x10 else Sp.x16, vertical = Sp.x8),
             horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically) {
-            Icon(icon, null, Modifier.size(22.dp), tint = if (selected && !focused) c.mediaAccent else ink)
+            Icon(icon, null, Modifier.size(20.dp), tint = if (selected && !focused) c.mediaAccent else ink)
             if (!iconOnly) Text(label, color = ink, style = LpText.action)
         }
         if (iconOnly && focused) Text(label,
@@ -1815,8 +1838,8 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
                 .pressable({ onOpen(p) }, enabled = p.id.isNotBlank(), tvHighlight = false), horizontalAlignment = Alignment.CenterHorizontally) {
                 NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160).takeUnless { p.hasPrimary == false }, p.name, Modifier.size(avatar), R.pill)
                 Spacer(Modifier.height(5.dp))
-                Text(p.name, Modifier.background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm)),
-                    color = if (focused) c.bg else c.fg, style = LpText.caption.copy(
+                Text(p.name,
+                    color = if (focused || !tv) c.fg else c.fg2, style = LpText.caption.copy(
                     fontSize = if (tv) 16.sp else 14.sp, lineHeight = if (tv) 22.sp else 20.sp,
                     fontWeight = FontWeight.Bold), maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -2099,7 +2122,8 @@ internal fun EpisodeStrip(
     LazyRow(
         Modifier.fillMaxWidth().height(episodeStripHeight(expanded || playbackStyle, playbackStyle)),
         state = state,
-        contentPadding = PaddingValues(horizontal = if (playbackStyle) Sp.x20 else Sp.x16),
+        contentPadding = PaddingValues(horizontal = if (playbackStyle) Sp.x20 else Sp.x16,
+            vertical = if (LocalTvMode.current) 6.dp else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(if (playbackStyle) Sp.x12 else Sp.x10),
     ) {
         itemsIndexed(episodes, key = { _, e -> e.id }, contentType = { _, _ -> "ep" }) { i, ep ->
@@ -2111,10 +2135,16 @@ internal fun EpisodeStrip(
 /** 等待和真实分集轨道共用几何，数据到达不挤动下面的简介与演员。 */
 @Composable
 private fun episodeStripHeight(expanded: Boolean = false, playbackStyle: Boolean = false) = with(LocalDensity.current) {
-    if (expanded) return@with (if (playbackStyle) PlayerEpCardW else SeriesEpCardW) * 9 / 16 + Sp.x6 + LpText.body.lineHeight.toDp() * 2 +
-        LpText.caption.lineHeight.toDp() + Sp.x8
-    EpCardW * 9 / 16 + Sp.x6 + LpText.caption.lineHeight.toDp() + LpText.compact.lineHeight.toDp() * 2 + Sp.x8
+    val image = episodeCardWidth(expanded, playbackStyle) * 9 / 16 + if (LocalTvMode.current) 12.dp else 0.dp
+    if (expanded) return@with image + Sp.x6 + LpText.body.lineHeight.toDp() * 2 + LpText.caption.lineHeight.toDp() + Sp.x8
+    image + Sp.x6 + LpText.caption.lineHeight.toDp() + LpText.compact.lineHeight.toDp() * 2 + Sp.x8
 }
+
+@Composable
+private fun episodeCardWidth(expanded: Boolean, playbackStyle: Boolean) =
+    if (LocalTvMode.current && !playbackStyle)
+        (xyz.linplayer.app.ui.components.posterLayout()?.second ?: 104.dp) * 1.6f
+    else if (playbackStyle) PlayerEpCardW else if (expanded) SeriesEpCardW else EpCardW
 
 private val EpCardW = 168.dp
 private val SeriesEpCardW = 224.dp
@@ -2138,14 +2168,14 @@ private fun EpCard(
     val actions = remember(ep, actionScope) { cardActions(app, actionScope, ep, favoriteAction = false) }
     Box {
         Column(
-            Modifier.width(if (playbackStyle) PlayerEpCardW else if (expanded) SeriesEpCardW else EpCardW)
-                .testTag("detail.ep.${ep.id}").pressable(onOpen, onLongClick = { menuOpen = true })
+            Modifier.width(episodeCardWidth(expanded, playbackStyle))
+                .testTag("detail.ep.${ep.id}").pressable(onOpen, onLongClick = { menuOpen = true }, tvHighlight = false)
         ) {
             Box(
                 Modifier.fillMaxWidth().aspectRatio(16f / 9f)
                     .clip(RoundedCornerShape(12.dp))
                     .then(
-                        if (current || target) Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(12.dp))
+                        if (!LocalTvMode.current && (current || target)) Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(12.dp))
                         else Modifier
                     )
             ) {

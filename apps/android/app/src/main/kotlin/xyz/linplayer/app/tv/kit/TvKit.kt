@@ -57,6 +57,7 @@ import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.components.privateNeonBorder
+import xyz.linplayer.app.tv.tvFocusScale
 
 /*
  * TV 组件(UI_TV.md §5)。页面只能用这些件拼;草稿(ui/drafts/tv)用的也是这一份。
@@ -295,7 +296,7 @@ fun DangerButton(label: String, modifier: Modifier = Modifier, onClick: () -> Un
 
 // ---------------------------------------------------------------- 族 A:卡片
 
-/** 图片只在封面内部轻微放大，不改变遥控寻焦几何；选中用独立对勾。 */
+/** 封面整体轻微放大，不改变遥控寻焦几何；选中用独立对勾。 */
 @Composable
 fun CoverSurface(
     w: Dp, h: Dp, focused: Boolean = false, selected: Boolean = false, fake: Boolean = false,
@@ -304,12 +305,11 @@ fun CoverSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
-    val isFocused by source.collectIsFocusedAsState()
-    val highlight = isFocused || fake
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.size(w, h).initialFocus(focused).menuKey(onLongClick),
+        modifier = Modifier.tvFocusScale(source, true, tv = true).then(modifier)
+            .size(w, h).initialFocus(focused).menuKey(onLongClick).fakeScale(fake, 1.04f),
         shape = ClickableSurfaceDefaults.shape(TvR.md),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
         border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None),
@@ -320,11 +320,7 @@ fun CoverSurface(
         interactionSource = source,
     ) {
         Box(Modifier.fillMaxSize()) {
-            Box(Modifier.fillMaxSize().graphicsLayer {
-                scaleX = if (highlight) 1.035f else 1f; scaleY = scaleX
-            }, content = content)
-            if (highlight) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp)
-                .size(28.dp, 3.dp).background(Color.White, TvR.pill))
+            Box(Modifier.fillMaxSize(), content = content)
             if (selected) Box(Modifier.align(Alignment.TopEnd).padding(TvSp.x6).size(20.dp)
                 .background(TvC.acc, TvR.pill), contentAlignment = Alignment.Center) {
                 Icon(LpIcons.check, "已选择", Modifier.size(14.dp), tint = TvC.onAcc)

@@ -225,7 +225,6 @@ class VisualAlignmentTest {
             val favorites = rule.onNodeWithTag("rail.3")
             home.assertIsSelected().assertIsFocused().performKeyInput {
                 pressKey(androidx.compose.ui.input.key.Key.DirectionRight)
-                pressKey(androidx.compose.ui.input.key.Key.DirectionRight)
             }
             settle()
             favorites.assertIsFocused().assertIsSelected()

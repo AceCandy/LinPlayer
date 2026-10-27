@@ -71,6 +71,10 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.compositeOver
+import xyz.linplayer.app.ui.components.dissolve
+import xyz.linplayer.app.ui.components.toneScene
+import xyz.linplayer.app.ui.theme.rememberTone
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
@@ -170,9 +174,29 @@ fun HomePage(nav: NavController) {
     val privateSpace by app.privateSpace.collectAsState()
     androidx.activity.compose.BackHandler(enabled = privateSpace) { app.leavePrivateSpace() }
     val list = rememberLazyListState()
+    val navigationScroll = xyz.linplayer.app.tv.LocalTvHomeScroll.current
+    val navigationHeight = with(LocalDensity.current) { xyz.linplayer.app.tv.kit.TvDim.navigationH.roundToPx() }
+    LaunchedEffect(list, navigationScroll, navigationHeight) {
+        if (navigationScroll != null) snapshotFlow {
+            if (list.firstVisibleItemIndex > 0) navigationHeight
+            else list.firstVisibleItemScrollOffset.coerceAtMost(navigationHeight)
+        }.collect { navigationScroll.value = it }
+    }
+    var contentHasFocus by remember { mutableStateOf(false) }
+    var bannerPositioned by rememberSaveable { mutableStateOf(false) }
+    val homeEntry = xyz.linplayer.app.ui.components.LocalPosterScene.current?.entry
+    val homeTop = homeEntry?.savedStateHandle?.getStateFlow("tv.home.top", false)?.collectAsState()
+    LaunchedEffect(homeTop?.value) {
+        if (tv && homeTop?.value == true) {
+            list.scrollToItem(0)
+            homeEntry.savedStateHandle["tv.home.top"] = false
+        }
+    }
     val returnToNavigation: () -> Unit = {
         scope.launch {
-            if (tvNavigation?.requestFocus() == true) list.animateScrollToItem(0)
+            list.animateScrollToItem(0)
+            androidx.compose.runtime.withFrameNanos { }
+            tvNavigation?.requestFocus()
         }
     }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
@@ -204,6 +228,7 @@ fun HomePage(nav: NavController) {
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
     val motionAccount = currentSession?.let { it.server to it.userId }
+    var homeTone by remember(motionAccount) { mutableStateOf<Color?>(null) }
     var banners by keepState<List<CachedHomeImage>>("home.banners:$motionAccount") { emptyList() }
     val heroRevision by app.userStateRevision.collectAsState()
     val bannerItems = remember(resume, latest, collections) {
@@ -429,7 +454,10 @@ fun HomePage(nav: NavController) {
         LpPullRefresh(
             refreshing = refreshing,
             onRefresh = onRefresh,
-            modifier = Modifier.fillMaxSize().padding(
+            modifier = Modifier.fillMaxSize().then(
+                if (tv && banners.isNotEmpty() && homeTone != null) Modifier.background(toneScene(homeTone!!,
+                    homeTone!!.copy(alpha = .08f).compositeOver(Lp.colors.bg), depth = 1f)) else Modifier
+            ).padding(
                 top = when {
                     banners.isNotEmpty() -> 0.dp
                     tv -> xyz.linplayer.app.tv.kit.TvDim.navigationH
@@ -440,7 +468,14 @@ fun HomePage(nav: NavController) {
             // 首屏什么都没有时只画一个居中加载图，内容到了整体淡入，不让各栏各自转圈
             val firstLoad = banners.isEmpty() && v is Block.Loading
             val contentAlpha by animateFloatAsState(if (firstLoad) 0f else 1f, lpTween(T.T4), label = "homeContent")
+            LaunchedEffect(banners.isNotEmpty()) {
+                if (tv && banners.isNotEmpty() && !bannerPositioned) {
+                    bannerPositioned = true
+                    if (!contentHasFocus) list.scrollToItem(0)
+                }
+            }
             LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }
+                .onFocusChanged { contentHasFocus = it.hasFocus }
                 .onPreviewKeyEvent {
                     if (tv && tvNavigation != null && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp) {
                         // 首排可能与悬浮顶栏重叠，几何搜索失败时显式上返，不能用滚动偏移判断首排。
@@ -468,6 +503,7 @@ fun HomePage(nav: NavController) {
                             layout(c.maxWidth, p.height) { p.place(-side, 0) }
                         } else Modifier,
                         contentInset = tvSide,
+                        onTone = if (tv) ({ homeTone = it }) else null,
                         backgroundExtension = heroExtension,
                         fadeLength = xyz.linplayer.app.ui.components.rowImageHeight(true) / 2,
                         // 分集在头图上显示剧名，简介也取所属剧的
@@ -568,6 +604,7 @@ internal fun CachedHomeBanner(
     modifier: Modifier = Modifier,
     /** 文字与指示器额外向内收的距离:头图铺到屏幕边缘时与下面各栏左缘对齐。 */
     contentInset: Dp = 0.dp,
+    onTone: ((Color) -> Unit)? = null,
 ) {
     if (images.isEmpty()) return
     val c = Lp.colors
@@ -617,6 +654,10 @@ internal fun CachedHomeBanner(
     }
     var progress by remember { mutableFloatStateOf(0f) }
     val tv = LocalTvMode.current
+    if (tv && onTone != null) {
+        val tone = rememberTone(image.url, c.acc)
+        SideEffect { onTone(tone) }
+    }
     var touching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var manualRevision by remember { mutableStateOf(0) }
@@ -673,7 +714,7 @@ internal fun CachedHomeBanner(
             val placeable = measurable.measure(constraints.copy(minHeight = expanded, maxHeight = expanded))
             layout(constraints.maxWidth, height) { placeable.placeRelative(0, 0) }
         }
-        Box(extended.testTag("home.hero.background")) {
+        Box(extended.testTag("home.hero.background").then(if (tv) Modifier.dissolve(if (c.isDark) .6f else .94f) else Modifier)) {
             // 同时推移：旧图向滑动方向整幅移出，新图紧贴着从另一侧推入，中间不透底色
             AnimatedContent(image, Modifier.fillMaxSize(), contentKey = { it.url },
                 transitionSpec = {
@@ -940,7 +981,7 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
     val imageHeight = with(LocalDensity.current) { cardSize.height.roundToPx() }
     LazyRow(
         Modifier.fillMaxWidth().padding(top = Sp.x4).testTag("home.libraries"),
-        contentPadding = PaddingValues(horizontal = Sp.x16),
+        contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (LocalTvMode.current) 6.dp else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         items(views, key = { it.id }) { v ->
@@ -955,7 +996,7 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
                 contentAlignment = Alignment.Center,
             ) {
                 NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", imageHeight) else null, v.name,
-                    Modifier.fillMaxSize().graphicsLayer { scaleX = if (focused) 1.035f else 1f; scaleY = scaleX },
+                    Modifier.fillMaxSize(),
                     R.md, ContentScale.Fit, placeholderWhileLoading = true,
                     placeholder = {
                         Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = if (onImage) Color.White else c.fg,
