@@ -21,6 +21,10 @@ import xyz.linplayer.app.ui.theme.R
 /** 媒体浏览页共用的条件与排序选中态。 */
 @Composable
 fun MediaFilterChip(label: String, selected: Boolean, onClick: () -> Unit) {
+    if (xyz.linplayer.app.tv.LocalTvMode.current) {
+        ToneChip(label, selected, Modifier.minimumInteractiveComponentSize(), onClick = onClick)
+        return
+    }
     val c = Lp.colors
     val solid = LocalPrivateSpace.current
     // 外层保留48dp触摸布局，内层只按可见表面绘制荧光。

@@ -66,13 +66,22 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerEventPass
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.layout.layout
 import androidx.compose.ui.unit.Dp
@@ -154,11 +163,18 @@ import xyz.linplayer.app.ui.theme.Sp
 @Composable
 fun HomePage(nav: NavController) {
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val tvNavigation = xyz.linplayer.app.tv.LocalTvTopNavigation.current
+    val focusManager = LocalFocusManager.current
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val privateSpace by app.privateSpace.collectAsState()
     androidx.activity.compose.BackHandler(enabled = privateSpace) { app.leavePrivateSpace() }
     val list = rememberLazyListState()
+    val returnToNavigation: () -> Unit = {
+        scope.launch {
+            if (tvNavigation?.requestFocus() == true) list.animateScrollToItem(0)
+        }
+    }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
 
@@ -404,9 +420,9 @@ fun HomePage(nav: NavController) {
         // 电视:有头图时整页铺到顶栏下面,头图向两侧铺满,下面各栏仍留页边距;没头图照常避开顶栏
         val tvSide = if (tv) xyz.linplayer.app.tv.TvPageSide else 0.dp
         xyz.linplayer.app.tv.LocalTvBarOverlay.current?.let { overlay ->
-            val over = banners.isNotEmpty() && !xyz.linplayer.app.ui.components.rememberScrolled(list)
+            val over = banners.isNotEmpty()
             SideEffect { overlay.value = over }
-            // 同一首页条目换成数据源首页时这里不再写,离开时先复位成实底
+            // 切到数据源首页时不再写叠图状态，离开时复位。
             androidx.compose.runtime.DisposableEffect(overlay) { onDispose { overlay.value = false } }
         }
 
@@ -424,7 +440,23 @@ fun HomePage(nav: NavController) {
             // 首屏什么都没有时只画一个居中加载图，内容到了整体淡入，不让各栏各自转圈
             val firstLoad = banners.isEmpty() && v is Block.Loading
             val contentAlpha by animateFloatAsState(if (firstLoad) 0f else 1f, lpTween(T.T4), label = "homeContent")
-            LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }, list,
+            LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }
+                .onPreviewKeyEvent {
+                    if (tv && tvNavigation != null && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp) {
+                        // 首排可能与悬浮顶栏重叠，几何搜索失败时显式上返，不能用滚动偏移判断首排。
+                        if (!focusManager.moveFocus(FocusDirection.Up)) returnToNavigation()
+                        true
+                    } else false
+                }
+                .then(if (tv && tvNavigation != null) Modifier.focusProperties {
+                    onExit = {
+                        if (requestedFocusDirection == FocusDirection.Up) {
+                            // 轮播不取焦点；上返导航时另行恢复整块首屏，而非只露出第一张卡。
+                            cancelFocusChange()
+                            returnToNavigation()
+                        }
+                    }
+                } else Modifier), list,
                 contentPadding = if (tv) PaddingValues(start = tvSide, end = tvSide,
                     top = pad.calculateTopPadding(), bottom = pad.calculateBottomPadding()) else pad) {
                 if (banners.isNotEmpty()) item("banners") {
@@ -912,21 +944,28 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         items(views, key = { it.id }) { v ->
+            var hasFocus by remember { mutableStateOf(false) }
+            val focused = LocalTvMode.current && hasFocus
             Box(
                 // 叠在头图上用半透明深底，浅色主题下不至于在暗背景上挖出浅灰方块。
                 Modifier.size(cardSize).clip(RoundedCornerShape(R.md))
+                    .onFocusChanged { hasFocus = it.isFocused }
                     .background(if (onImage) Color.Black.copy(alpha = .28f) else c.s1)
-                    .pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
+                    .pressable({ nav.navigate(Route.Library(v.id, v.name)) }, tvHighlight = false),
                 contentAlignment = Alignment.Center,
             ) {
                 NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", imageHeight) else null, v.name,
-                    Modifier.fillMaxSize(), R.md, ContentScale.Fit, placeholderWhileLoading = true,
+                    Modifier.fillMaxSize().graphicsLayer { scaleX = if (focused) 1.035f else 1f; scaleY = scaleX },
+                    R.md, ContentScale.Fit, placeholderWhileLoading = true,
                     placeholder = {
                         Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = if (onImage) Color.White else c.fg,
                             style = LpText.card, maxLines = 2,
                             overflow = TextOverflow.Ellipsis,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     })
+                if (focused) Text(v.name, Modifier.align(Alignment.BottomCenter).fillMaxWidth()
+                    .background(Color.Black.copy(alpha = .8f)).padding(horizontal = Sp.x6, vertical = Sp.x2),
+                    color = Color.White, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

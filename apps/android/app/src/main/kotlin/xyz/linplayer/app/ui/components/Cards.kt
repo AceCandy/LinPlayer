@@ -43,6 +43,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -216,6 +217,8 @@ fun MediaCard(
     entrance: Boolean = true,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     var menuOpen by remember { mutableStateOf(false) }
     val width = cardWidth(thumb)
     var imageResult by remember(item.id, imageUrl) { mutableStateOf<Boolean?>(null) }
@@ -232,6 +235,7 @@ fun MediaCard(
         Box {
             Box(
                 Modifier.fillMaxWidth().aspectRatio(if (thumb) 16f / 9f else 2f / 3f)
+                    .onFocusChanged { hasFocus = it.isFocused }
                     .clip(RoundedCornerShape(R.md))
                     .pressable(
                         onClick = {
@@ -247,9 +251,12 @@ fun MediaCard(
                             }
                             else -> null
                         },
+                        tvHighlight = !showCaption,
                     )
             ) {
-                NetImage(imageUrl.takeUnless { item.hasPrimary == false }, item.name, Modifier.fillMaxSize().sharedPoster(item.id, posterToken),
+                NetImage(imageUrl.takeUnless { item.hasPrimary == false }, item.name, Modifier.fillMaxSize()
+                    .graphicsLayer { scaleX = if (focused) 1.035f else 1f; scaleY = scaleX }
+                    .sharedPoster(item.id, posterToken),
                     reveal = !sharedSource,
                     onLoadResult = if (entrance) { { imageResult = it } } else null,
                     fallbackUrls = xyz.linplayer.app.data.artworkFallbacks(imageUrl, item),
@@ -290,7 +297,7 @@ fun MediaCard(
         if (showCaption) PosterCaption(item.cardTitle,
             if (item.isEpisode && item.seasonNo != null && item.episodeNo != null)
                 "S${item.seasonNo}E${item.episodeNo}"
-            else item.year?.toString().takeUnless { resume })
+            else item.year?.toString().takeUnless { resume }, focused = focused)
     }
 }
 
@@ -335,11 +342,13 @@ internal fun MediaRatingBadge(rating: Double?, douban: Boolean = false, m: Modif
 
 /** 标准海报与数据源卡片共用片名/年份刻度。 */
 @Composable
-internal fun PosterCaption(title: String, subtitle: String?) {
+internal fun PosterCaption(title: String, subtitle: String?, focused: Boolean = false) {
     Spacer(Modifier.height(Sp.x6))
-    Text(title, color = Lp.colors.fg, style = LpText.card,
+    Text(title, color = if (focused) Lp.colors.bg else Lp.colors.fg, style = LpText.card,
         maxLines = 1, overflow = TextOverflow.Ellipsis,
-        textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth())
+        textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth()
+            .background(if (focused) Lp.colors.fg else Color.Transparent, RoundedCornerShape(R.sm))
+            .padding(horizontal = if (xyz.linplayer.app.tv.LocalTvMode.current) Sp.x4 else 0.dp))
     subtitle?.let {
         Text(it, color = Lp.colors.fg2, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis,
             textAlign = TextAlign.Start, modifier = Modifier.fillMaxWidth().padding(top = 2.dp))

@@ -1484,7 +1484,7 @@ private fun TvDetailAction(
                 primary -> c.mediaAccent
                 else -> Color.Black.copy(alpha = .58f)
             })
-            .pressable(onClick, onLongClick, enabled)
+            .pressable(onClick, onLongClick, enabled, tvHighlight = false)
             .padding(horizontal = if (iconOnly) Sp.x12 else Sp.x20, vertical = Sp.x12),
             horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally),
             verticalAlignment = Alignment.CenterVertically) {
@@ -1808,11 +1808,15 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
         horizontalArrangement = Arrangement.spacedBy(Sp.x12),
     ) {
         itemsIndexed(people) { _, p ->
+            var hasFocus by remember { mutableStateOf(false) }
+            val focused = tv && hasFocus
             Column(Modifier.width(avatar + 8.dp).testTag("detail.person.${p.id}")
-                .pressable({ onOpen(p) }, enabled = p.id.isNotBlank()), horizontalAlignment = Alignment.CenterHorizontally) {
+                .onFocusChanged { hasFocus = it.isFocused }
+                .pressable({ onOpen(p) }, enabled = p.id.isNotBlank(), tvHighlight = false), horizontalAlignment = Alignment.CenterHorizontally) {
                 NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160).takeUnless { p.hasPrimary == false }, p.name, Modifier.size(avatar), R.pill)
                 Spacer(Modifier.height(5.dp))
-                Text(p.name, color = c.fg, style = LpText.caption.copy(
+                Text(p.name, Modifier.background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm)),
+                    color = if (focused) c.bg else c.fg, style = LpText.caption.copy(
                     fontSize = if (tv) 16.sp else 14.sp, lineHeight = if (tv) 22.sp else 20.sp,
                     fontWeight = FontWeight.Bold), maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -1875,23 +1879,25 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
             FlowRow(horizontalArrangement = Arrangement.spacedBy(Sp.x12),
                 verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
                 rows.forEach { r ->
+                    var focused by remember { mutableStateOf(false) }
                     Row(Modifier.widthIn(max = maxOptionWidth).heightIn(min = Dim.tap)
-                        .clip(RoundedCornerShape(R.sm)).background(c.s1)
+                        .onFocusChanged { focused = it.isFocused && enabled }
+                        .clip(RoundedCornerShape(R.sm)).background(if (focused) c.fg else c.s1)
                         .semantics { contentDescription = r.label }
-                        .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
+                        .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled, tvHighlight = false) } ?: Modifier)
                         .padding(horizontal = Sp.x12, vertical = Sp.x10),
                         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Icon(r.icon, null, Modifier.size(20.dp), tint = c.fg2)
+                        Icon(r.icon, null, Modifier.size(20.dp), tint = if (focused) c.bg else c.fg2)
                         Column(Modifier.weight(1f, fill = false)) {
-                            Text(r.value, color = c.fg, style = LpText.body)
+                            Text(r.value, color = if (focused) c.bg else c.fg, style = LpText.body)
                             listOfNotNull(r.metadata?.takeIf(String::isNotBlank), r.subtitle)
                                 .takeIf { it.isNotEmpty() }?.let {
-                                    Text(it.joinToString(" · "), color = c.fg2, style = LpText.caption)
+                                    Text(it.joinToString(" · "), color = if (focused) c.bg else c.fg2, style = LpText.caption)
                                 }
                         }
                         if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp),
-                            tint = if (enabled) c.fg2 else c.fg3)
+                            tint = if (focused) c.bg else if (enabled) c.fg2 else c.fg3)
                     }
                 }
             }

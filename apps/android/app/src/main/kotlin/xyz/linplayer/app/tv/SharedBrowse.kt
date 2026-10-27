@@ -18,8 +18,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -41,8 +39,10 @@ import java.util.UUID
 /** 只表达宿主交互形态，页面请求和业务状态仍共用。 */
 val LocalTvMode = staticCompositionLocalOf { false }
 
-/** 首页头图在顶且没滚动时为 true:顶栏透明叠在头图上（同手机）。由首页写，宿主读。 */
+/** 首页有头图时顶栏使用叠图文字和渐隐遮罩，滚动后也不切成实色硬边。 */
 internal val LocalTvBarOverlay = staticCompositionLocalOf<MutableState<Boolean>?> { null }
+
+internal val LocalTvTopNavigation = staticCompositionLocalOf<FocusRequester?> { null }
 
 /** 当前首页登记刷新动作，离页撤销；顶栏不复制页面的请求与私密分支。 */
 internal val LocalTvHomeRefresh = staticCompositionLocalOf<MutableState<(() -> Unit)?>?> { null }
@@ -61,10 +61,12 @@ internal fun TvPageInset(content: @Composable () -> Unit) {
 @Composable
 internal fun Modifier.tvFocus(
     source: MutableInteractionSource, onLongClick: (() -> Unit)? = null, enabled: Boolean = true,
+    highlight: Boolean = true,
 ): Modifier {
     if (!LocalTvMode.current) return this
     val focused by source.collectIsFocusedAsState()
-    val color = if (LocalTvBarOverlay.current?.value == true) Color.White else Lp.colors.fg
+    val color = Lp.colors.fg
+    val accent = Lp.colors.acc
     val entry = LocalPosterScene.current?.entry
     val id = rememberSaveable { UUID.randomUUID().toString() }
     val requester = remember { FocusRequester() }
@@ -79,11 +81,12 @@ internal fun Modifier.tvFocus(
         if (it.isFocused) entry?.savedStateHandle?.set("tv.focus", id)
     }.then(if (onLongClick != null) Modifier.menuKey(onLongClick) else Modifier)
         .drawWithContent {
+            if (focused && highlight) drawRoundRect(color.copy(alpha = .12f), cornerRadius = CornerRadius(8.dp.toPx()))
             drawContent()
-            if (focused) {
-                val inset = 1.dp.toPx()
-                drawRoundRect(color, Offset(inset, inset), Size(size.width - inset * 2, size.height - inset * 2),
-                    CornerRadius(8.dp.toPx()), style = Stroke(2.dp.toPx()))
+            if (focused && highlight) {
+                val width = minOf(28.dp.toPx(), size.width / 2)
+                drawRoundRect(accent, Offset((size.width - width) / 2, size.height - 4.dp.toPx()),
+                    Size(width, 3.dp.toPx()), CornerRadius(2.dp.toPx()))
             }
         }
 }
@@ -109,11 +112,11 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
         activeTab == 2 -> 3
         else -> 1
     }
-    val focus = remember { FocusRequester() }
+    val focus = LocalTvTopNavigation.current ?: remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
     TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界", overlay = overlay,
         onRefresh = LocalTvHomeRefresh.current?.value?.takeIf { entry?.destination?.hasRoute<Route.Home>() == true },
-        modifier = Modifier.focusRequester(focus),
+        currentFocusRequester = focus,
         onServer = { if (privateSpace) app.leavePrivateSpace() else nav.navigate(Route.Servers) { launchSingleTop = true } },
         onPrivateSpace = { if (!privateSpace) scope.launch {
             runCatching { app.enterPrivateSpace() }.onFailure { app.report(it) }
@@ -130,9 +133,9 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
         },
         onFocusSelect = { index ->
             when (index) {
-                1 -> nav.switchTab(Route.Home)
-                3 -> nav.switchTab(Route.Favorites)
-                4 -> nav.switchTab(Route.Aggregate)
+                1 -> if (entry?.destination?.hasRoute<Route.Home>() != true) nav.switchTab(Route.Home)
+                3 -> if (entry?.destination?.hasRoute<Route.Favorites>() != true) nav.switchTab(Route.Favorites)
+                4 -> if (entry?.destination?.hasRoute<Route.Aggregate>() != true) nav.switchTab(Route.Aggregate)
             }
         })
 }

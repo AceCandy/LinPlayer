@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -119,9 +120,9 @@ internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier 
 
 /** 共用按压反馈，不增加点击等待；只在绘制阶段读取缩放。 */
 @Composable
-fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true): Modifier {
+fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true, tvHighlight: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    return this.pressFeedback(src).tvFocus(src, enabled = enabled)
+    return this.pressFeedback(src).tvFocus(src, enabled = enabled, highlight = tvHighlight)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -136,10 +137,11 @@ fun Modifier.pressable(
     onClick: () -> Unit,
     onLongClick: (() -> Unit)?,
     enabled: Boolean = true,
+    tvHighlight: Boolean = true,
 ): Modifier {
     val src = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled)
+    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled, tvHighlight)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {
@@ -191,14 +193,18 @@ fun LpIconButton(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Box(
         m.sizeIn(minWidth = Dim.tap, minHeight = Dim.tap)
+            .onFocusChanged { hasFocus = it.isFocused }
             .clip(RoundedCornerShape(R.pill))
-            .pressable(onClick),
+            .background(if (focused) c.fg else Color.Transparent)
+            .pressable(onClick, tvHighlight = false),
         contentAlignment = Alignment.Center,
     ) {
         if (glow) Halo(c.acc, Modifier.matchParentSize())
-        Icon(icon, desc, Modifier.size(size.dp).privateNeonIcon(), tint = tint ?: c.fg)
+        Icon(icon, desc, Modifier.size(size.dp).privateNeonIcon(), tint = if (focused) c.bg else tint ?: c.fg)
     }
 }
 
@@ -234,6 +240,8 @@ fun LpButton(
     onLongClick: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus && enabled && !loading
     val bg = when (kind) {
         BtnKind.Primary -> c.acc
         BtnKind.Secondary -> c.s2
@@ -241,18 +249,19 @@ fun LpButton(
         BtnKind.Ghost -> Color.Transparent
     }
     // Ghost 是「看起来不像按钮」的那一档,给它上玻璃就不是 Ghost 了
-    val skin = if (kind == BtnKind.Ghost) Modifier.privateNeonBorder() else Modifier.buttonSkin(bg)
-    val fg = when (kind) {
+    val skin = if (focused) Modifier.buttonSkin(c.fg)
+        else if (kind == BtnKind.Ghost) Modifier.privateNeonBorder() else Modifier.buttonSkin(bg)
+    val fg = if (focused) c.bg else when (kind) {
         BtnKind.Primary, BtnKind.Danger -> c.accFg
         else -> c.fg
     }
     val on = enabled && !loading
     Box(
-        m.heightIn(min = Dim.tap)
+        m.heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
             .graphicsLayer { alpha = if (on) 1f else 0.45f }
             .then(skin)
             .then(if (loading) Modifier.semantics { contentDescription = text; stateDescription = "加载中" } else Modifier)
-            .pressable(onClick, onLongClick, on)
+            .pressable(onClick, onLongClick, on, tvHighlight = false)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
         contentAlignment = Alignment.Center,
     ) {
@@ -359,27 +368,34 @@ fun LpCell(
     onClick: (() -> Unit)? = null,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
+    val ink = if (focused) c.bg else c.fg
+    val secondary = if (focused) c.bg else c.fg2
     // 电视上开关行整行是一个焦点:开关本身太小又没有焦点框,遥控器选不中
     val tvToggle = xyz.linplayer.app.tv.LocalTvMode.current && onClick == null && switch != null && onSwitch != null
     val rowClick: (() -> Unit)? = onClick ?: if (tvToggle) ({ onSwitch?.invoke(switch != true) }) else null
     Row(
-        m.fillMaxWidth()
+        m.fillMaxWidth().onFocusChanged { hasFocus = it.isFocused }
             .heightIn(min = Dim.tap + Sp.x8)
-            .then(if (rowClick != null) Modifier.pressable(rowClick) else Modifier)
+            .background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm))
+            .then(if (rowClick != null) Modifier.pressable(rowClick, tvHighlight = false) else Modifier)
             .padding(horizontal = Sp.x16, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(24.dp), tint = c.fg2)
+            Icon(icon, null, Modifier.size(24.dp), tint = secondary)
             Spacer(Modifier.width(Sp.x12))
         }
         Column(Modifier.weight(1f)) {
-            Text(label, color = c.fg, style = LpText.list, maxLines = 2,
+            Text(label, color = ink, style = LpText.list, maxLines = 2,
                 overflow = TextOverflow.Ellipsis)
-            if (sub != null) Dim2(sub, Modifier.padding(top = Sp.x2), maxLines = 2)
+            if (sub != null) Text(sub, Modifier.padding(top = Sp.x2), color = secondary,
+                style = LpText.secondary, maxLines = 2, overflow = TextOverflow.Ellipsis)
         }
-        if (value != null) Dim2(value, Modifier.padding(start = Sp.x8)
-            .then(if (mediaStyle) Modifier.widthIn(max = 120.dp) else Modifier))
+        if (value != null) Text(value, Modifier.padding(start = Sp.x8)
+            .then(if (mediaStyle) Modifier.widthIn(max = 120.dp) else Modifier),
+            color = secondary, style = LpText.secondary, overflow = TextOverflow.Ellipsis)
         when {
             switch != null -> Switch(
                 checked = switch, onCheckedChange = if (tvToggle) null else onSwitch,
@@ -389,8 +405,8 @@ fun LpCell(
                 modifier = Modifier.padding(start = Sp.x8)
                     .then(if (mediaStyle) Modifier.semantics { contentDescription = label } else Modifier),
             )
-            checked -> Icon(LpIcons.check, "已选择", Modifier.padding(start = Sp.x8).size(20.dp), tint = c.acc)
-            arrow -> Icon(LpIcons.chevR, null, Modifier.padding(start = Sp.x6).size(18.dp), tint = c.fg3)
+            checked -> Icon(LpIcons.check, "已选择", Modifier.padding(start = Sp.x8).size(20.dp), tint = if (focused) ink else c.acc)
+            arrow -> Icon(LpIcons.chevR, null, Modifier.padding(start = Sp.x6).size(18.dp), tint = if (focused) ink else c.fg3)
         }
     }
 }
@@ -418,18 +434,25 @@ fun SegRow(
         ) {
             options.forEach { o ->
                 val on = o == current
+                var hasFocus by remember { mutableStateOf(false) }
+                val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
                 Box(
                     Modifier.weight(1f).heightIn(min = Dim.tap)
+                        .onFocusChanged { hasFocus = it.isFocused }
                         .clip(RoundedCornerShape(R.sm))
                         // 选中块是浮起的一层而非整块强调色：一页多个分段并排时不抢主按钮
-                        .background(if (on) (if (c.isDark) c.s3 else Color.White) else Color.Transparent)
+                        .background(if (focused) c.fg else if (on) (if (c.isDark) c.s3 else Color.White) else Color.Transparent)
                         .semantics { selected = on }
-                        .pressable({ if (!on) onPick(o) })
+                        .pressable({ if (!on) onPick(o) }, tvHighlight = false)
                         .padding(vertical = Sp.x8),
                     contentAlignment = Alignment.Center,
-                ) { Text(o, color = if (on) c.acc else c.fg2,
+                ) {
+                    Text(o, color = if (focused) c.bg else if (on) c.acc else c.fg2,
                     style = if (on) LpText.filter.copy(fontWeight = FontWeight.SemiBold) else LpText.filter,
-                    textAlign = androidx.compose.ui.text.style.TextAlign.Center) }
+                    textAlign = androidx.compose.ui.text.style.TextAlign.Center)
+                    if (on && xyz.linplayer.app.tv.LocalTvMode.current) Box(Modifier.align(Alignment.BottomCenter)
+                        .size(16.dp, 2.dp).background(c.acc))
+                }
             }
         }
     }
@@ -531,24 +554,28 @@ fun OptRow(
     labelMaxLines: Int = 2,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
+            .onFocusChanged { hasFocus = it.isFocused }
             .clip(RoundedCornerShape(R.sm))
-            .background(if (selected) c.accDim else Color.Transparent)
+            .background(if (focused) c.fg else if (selected) c.accDim else Color.Transparent)
             .semantics { this.selected = selected }
-            .pressable(onClick)
+            .pressable(onClick, tvHighlight = false)
             .padding(horizontal = Sp.x12, vertical = Sp.x10),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Column(Modifier.weight(1f)) {
-            Text(label, color = if (selected) c.acc else c.fg, style = LpText.action, maxLines = labelMaxLines,
+            Text(label, color = if (focused) c.bg else if (selected) c.acc else c.fg, style = LpText.action, maxLines = labelMaxLines,
                 overflow = TextOverflow.Ellipsis)
-            if (sub != null) Dim3(sub, Modifier.padding(top = Sp.x2), maxLines = if (media) 2 else 1)
+            if (sub != null) Text(sub, Modifier.padding(top = Sp.x2), color = if (focused) c.bg else c.fg3,
+                style = LpText.caption, maxLines = if (media) 2 else 1, overflow = TextOverflow.Ellipsis)
             if (media && badge != null) Text(badge, Modifier.padding(top = Sp.x4),
-                color = c.mediaIcon, style = LpText.badge)
+                color = if (focused) c.bg else c.mediaIcon, style = LpText.badge)
         }
         if (!media && badge != null) LpTag(badge)
-        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = c.acc)
+        if (selected) Icon(LpIcons.check, null, Modifier.padding(start = Sp.x8).size(18.dp), tint = if (focused) c.bg else c.acc)
     }
 }
 
@@ -799,26 +826,31 @@ fun LpMenuItem(
     large: Boolean = false,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Row(
         Modifier.fillMaxWidth().heightIn(min = if (large) Dim.tap + 8.dp else 40.dp)
-            .pressable(onClick)
+            .onFocusChanged { hasFocus = it.isFocused }
+            .background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm))
+            .pressable(onClick, tvHighlight = false)
             .padding(horizontal = Sp.x12, vertical = if (large) Sp.x6 else Sp.x2),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(18.dp), tint = if (danger) c.bad else c.fg2)
+            Icon(icon, null, Modifier.size(18.dp), tint = if (focused) c.bg else if (danger) c.bad else c.fg2)
             Spacer(Modifier.width(Sp.x8))
         }
         Column(Modifier.weight(1f)) {
             Text(
-                label, color = when { danger -> c.bad; selected -> c.acc; else -> c.fg },
+                label, color = when { focused -> c.bg; danger -> c.bad; selected -> c.acc; else -> c.fg },
                 style = if (large) LpText.section else LpText.action,
                 maxLines = 1, overflow = TextOverflow.Ellipsis,
             )
-            if (sub != null) Dim3(sub, Modifier.padding(top = if (large) Sp.x2 else 1.dp))
+            if (sub != null) Text(sub, Modifier.padding(top = if (large) Sp.x2 else 1.dp),
+                color = if (focused) c.bg else c.fg3, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
         }
         if (selected) Icon(LpIcons.check, null,
-            Modifier.padding(start = Sp.x8).size(17.dp), tint = c.acc)
+            Modifier.padding(start = Sp.x8).size(17.dp), tint = if (focused) c.bg else c.acc)
     }
 }
 

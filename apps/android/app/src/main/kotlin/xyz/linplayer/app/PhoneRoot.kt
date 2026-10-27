@@ -167,6 +167,7 @@ private fun MainShell(tv: Boolean) {
     val nav = rememberNavController()
     val entry by nav.currentBackStackEntryAsState()
     val tvContent = remember { androidx.compose.ui.focus.FocusRequester() }
+    val tvNavigation = remember { androidx.compose.ui.focus.FocusRequester() }
     if (tv) xyz.linplayer.app.tv.SharedTvNavigation(nav)
     // 「启动时自动检查更新」。放在登录之后:没进门就先弹更新是打扰
     var newVersion by androidx.compose.runtime.remember {
@@ -291,6 +292,7 @@ private fun MainShell(tv: Boolean) {
         LocalPosterScroll provides posterScroll,
         xyz.linplayer.app.tv.LocalTvBarOverlay provides if (tv) tvBarOverlay else null,
         xyz.linplayer.app.tv.LocalTvHomeRefresh provides if (tv) tvHomeRefresh else null,
+        xyz.linplayer.app.tv.LocalTvTopNavigation provides if (tv) tvNavigation else null,
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,

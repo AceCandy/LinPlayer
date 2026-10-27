@@ -2,7 +2,6 @@ package xyz.linplayer.app.tv.kit
 
 import androidx.compose.runtime.staticCompositionLocalOf
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.MarqueeAnimationMode
 import androidx.compose.foundation.background
 import androidx.compose.foundation.basicMarquee
@@ -173,7 +172,8 @@ fun TvButton(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f).menuKey(onLongClick)
+        modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f)
+            .menuKey(onLongClick?.takeIf { enabled })
             .privateNeonBorder(if (LocalTvVideoControls.current) t.controlH / 2 else 6.dp, enabled = neon),
         shape = ClickableSurfaceDefaults.shape(if (LocalTvVideoControls.current) TvR.pill else TvR.sm),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f, pressedScale = 0.98f),
@@ -295,10 +295,7 @@ fun DangerButton(label: String, modifier: Modifier = Modifier, onClick: () -> Un
 
 // ---------------------------------------------------------------- 族 A:卡片
 
-// inset 为正 = 框画在封面**外面**(实测负值会画进封面里,压住图)
-private val focusFrame = Border(BorderStroke(2.dp, TvC.focus), inset = 3.dp, shape = TvR.md)
-
-/** 族 A:只有封面放大并描白框;标题在封面下 6dp,放大 1.06 刚好不压字(§4.1)。 */
+/** 图片只在封面内部轻微放大，不改变遥控寻焦几何；选中用独立对勾。 */
 @Composable
 fun CoverSurface(
     w: Dp, h: Dp, focused: Boolean = false, selected: Boolean = false, fake: Boolean = false,
@@ -306,31 +303,32 @@ fun CoverSurface(
     onLongClick: (() -> Unit)? = null, onClick: () -> Unit = {},
     content: @Composable BoxScope.() -> Unit,
 ) {
-    val selectedFrame = Border(BorderStroke(1.5.dp, TvC.acc), shape = TvR.md)
+    val source = interactionSource ?: remember { MutableInteractionSource() }
+    val isFocused by source.collectIsFocusedAsState()
+    val highlight = isFocused || fake
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = modifier.size(w, h).initialFocus(focused).fakeScale(fake, 1.06f).menuKey(onLongClick),
+        modifier = modifier.size(w, h).initialFocus(focused).menuKey(onLongClick),
         shape = ClickableSurfaceDefaults.shape(TvR.md),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f, pressedScale = 0.98f),
-        border = ClickableSurfaceDefaults.border(
-            border = when {
-                fake -> focusFrame
-                selected -> selectedFrame
-                else -> Border.None
-            },
-            focusedBorder = focusFrame,
-        ),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
+        border = ClickableSurfaceDefaults.border(border = Border.None, focusedBorder = Border.None),
         colors = ClickableSurfaceDefaults.colors(
             containerColor = if (selected) TvC.accDim else TvC.surface1,
             focusedContainerColor = if (selected) TvC.accDim else TvC.surface1,
         ),
-        interactionSource = interactionSource,
+        interactionSource = source,
     ) {
         Box(Modifier.fillMaxSize()) {
-            content()
-            // 选中且聚焦:白框在外、琥珀框在内,两个都看得见
-            if (selected && fake) Box(Modifier.fillMaxSize().border(1.5.dp, TvC.acc, TvR.md))
+            Box(Modifier.fillMaxSize().graphicsLayer {
+                scaleX = if (highlight) 1.035f else 1f; scaleY = scaleX
+            }, content = content)
+            if (highlight) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 4.dp)
+                .size(28.dp, 3.dp).background(Color.White, TvR.pill))
+            if (selected) Box(Modifier.align(Alignment.TopEnd).padding(TvSp.x6).size(20.dp)
+                .background(TvC.acc, TvR.pill), contentAlignment = Alignment.Center) {
+                Icon(LpIcons.check, "已选择", Modifier.size(14.dp), tint = TvC.onAcc)
+            }
         }
     }
 }
@@ -351,8 +349,9 @@ private fun CardTitle(text: String, focused: Boolean, color: Color) {
     val t = tvType
     if (!focused) TvText(text, t.body, color, weight = TvW.medium)
     else Text(
-        text, Modifier.basicMarquee(Int.MAX_VALUE, MarqueeAnimationMode.Immediately, repeatDelayMillis = 1500, velocity = 30.dp),
-        color = color, fontSize = t.body, fontWeight = TvW.medium, maxLines = 1, overflow = TextOverflow.Clip,
+        text, Modifier.background(TvC.focus, TvR.sm)
+            .basicMarquee(Int.MAX_VALUE, MarqueeAnimationMode.Immediately, repeatDelayMillis = 1500, velocity = 30.dp),
+        color = TvC.onFocus, fontSize = t.body, fontWeight = TvW.medium, maxLines = 1, overflow = TextOverflow.Clip,
     )
 }
 
@@ -373,7 +372,7 @@ fun CardWide(
             if (isNew) Badge("新", TvC.bad, Color.White, Modifier.align(Alignment.TopEnd).padding(TvSp.x6))
         }
         Spacer(Modifier.height(TvSp.x6))
-        CardTitle(title, isFocused, TvC.fg)
+        CardTitle(title, isFocused || fake, TvC.fg)
         TvText(sub, t.meta, TvC.fg2)
     }
 }
@@ -406,7 +405,7 @@ fun CardPoster(
             }
         }
         Spacer(Modifier.height(TvSp.x6))
-        CardTitle(title, isFocused, TvC.fg)
+        CardTitle(title, isFocused || fake, TvC.fg)
         TvText(sub, t.meta, TvC.fg2)
     }
 }
@@ -433,7 +432,7 @@ fun CardEpisode(
             if (progress != null && !done) Badge("继续", TvC.acc, TvC.onAcc, Modifier.align(Alignment.TopEnd).padding(TvSp.x6))
         }
         Spacer(Modifier.height(TvSp.x6))
-        CardTitle(title, isFocused, if (current) TvC.acc else if (done) TvC.fg2 else TvC.fg)
+        CardTitle(title, isFocused || fake, if (current) TvC.acc else if (done) TvC.fg2 else TvC.fg)
         TvText(sub, t.meta, TvC.fg2)
     }
 }

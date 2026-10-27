@@ -4,6 +4,8 @@ import android.app.Application
 import androidx.activity.OnBackPressedDispatcher
 import androidx.activity.compose.LocalOnBackPressedDispatcherOwner
 import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.graphics.luminance
+import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -42,10 +44,12 @@ class SharedTvBrowseTest {
     private lateinit var back: OnBackPressedDispatcher
     private lateinit var activity: android.app.Activity
     private val oldHideLibraries = UiPrefs.hideHomeLibraries.value
+    private val oldTheme = UiPrefs.theme.value
 
     @After fun clean() {
         scope.cancel(); if (::app.isInitialized) app.bg.cancel(); PageCache.clear()
         UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), oldHideLibraries)
+        UiPrefs.setTheme(ApplicationProvider.getApplicationContext(), oldTheme)
     }
 
     private fun mount(intercept: ((FakeCore) -> CorePort)? = null, fontScale: Float? = null, configure: (FakeCore) -> Unit = {}) {
@@ -149,6 +153,23 @@ class SharedTvBrowseTest {
         rule.onRoot().captureRoboImage("build/shared-tv/home.png")
     }
 
+    @Test fun focusedNavigationTabKeepsShortLineWithoutPillInDarkTheme() = checkNavigationTab("dark")
+    @Test fun focusedNavigationTabKeepsShortLineWithoutPillInLightTheme() = checkNavigationTab("light")
+
+    private fun checkNavigationTab(theme: String) {
+        UiPrefs.setTheme(ApplicationProvider.getApplicationContext(), theme)
+        mount()
+        press(rule, Key.DirectionRight, Key.DirectionLeft)
+        rule.onNodeWithTag("rail.1").assertIsFocused().assertIsSelected()
+        val bounds = rule.onNodeWithTag("rail.1").fetchSemanticsNode().boundsInRoot
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        val y = bounds.center.y.toInt()
+        assertEquals("栏目聚焦仍保持透明底，不恢复胶囊或描边",
+            pixels[bounds.right.toInt() + 4, y].luminance(),
+            pixels[bounds.left.toInt() + 10, y].luminance(), .04f)
+        rule.onRoot().captureRoboImage("build/shared-tv/focus-navigation-$theme.png")
+    }
+
     @Test fun homeDownFromMiddleResumeLeavesResumeRow() {
         mount()
         press(rule, Key.DirectionDown, Key.DirectionDown)
@@ -165,6 +186,41 @@ class SharedTvBrowseTest {
         mount()
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
+    }
+
+    @Test fun homeUpToNavigationRestoresWholeHero() = checkHomeReturnToTop(false, false)
+    @Test fun hiddenLibrariesUpToNavigationRestoresWholeHero() = checkHomeReturnToTop(true, false)
+    @Test fun emptyResumeUpToNavigationRestoresWholeHero() = checkHomeReturnToTop(false, true)
+    @Test fun hiddenLibrariesAndEmptyResumeUpToNavigationRestoresWholeHero() = checkHomeReturnToTop(true, true)
+
+    private fun checkHomeReturnToTop(hideLibraries: Boolean, emptyResume: Boolean) {
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), hideLibraries)
+        mount {
+            it.ret("emby.cachedItems", arr(item("hero", "首页轮播", year = 2026)))
+            if (emptyResume) it.ret("emby.listResume", arr())
+        }
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToIndex(0)
+        rule.waitUntil(5000) { rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().isNotEmpty() }
+        val initial = rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y
+        repeat(4) { press(rule, Key.DirectionDown) }
+        rule.onNodeWithTag("rail.1").assertIsNotFocused()
+        val scrolledHero = rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().firstOrNull()
+        assertTrue("应先遥控下滚，不能只验证停在首页顶端", scrolledHero == null || scrolledHero.positionInRoot.y < initial)
+        repeat(12) {
+            if (rule.onAllNodes(hasTestTag("rail.1") and isFocused()).fetchSemanticsNodes().isEmpty())
+                press(rule, Key.DirectionUp)
+        }
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        rule.waitForIdle()
+        assertEquals("回到导航时轮播应回到原始起点", initial,
+            rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y, 1f)
+        rule.onRoot().captureRoboImage("build/shared-tv/home-return-$hideLibraries-$emptyResume.png")
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("rail.1").assertIsNotFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("rail.1").assertIsFocused()
     }
 
     @Test fun televisionColumnsReadWindowAndKeepPluginOverride() {

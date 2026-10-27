@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -34,6 +35,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LocalPrivateSpace
@@ -184,15 +192,21 @@ fun ToneChip(
     val c = Lp.colors
     // 选中与 MediaFilterChip 同一规则：淡强调底 + 强调字；隐私空间有霓虹描边，选中仍用实底
     val solid = LocalPrivateSpace.current
-    Text(
-        label,
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
+    Box(
         m.privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
-            .background(if (!on) c.s2 else if (solid) c.acc else c.accDim)
-            .pressable(onClick, onLongClick)
+            .onFocusChanged { hasFocus = it.isFocused }
+            .semantics { selected = on }
+            .background(if (focused) c.fg else if (!on) c.s2 else if (solid) c.acc else c.accDim)
+            .pressable(onClick, onLongClick, tvHighlight = false)
             .padding(horizontal = Sp.x16, vertical = Sp.x8),
-        color = if (!on) c.fg2 else if (solid) c.accFg else c.acc, style = LpText.filter, maxLines = 1,
-        fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal,
-    )
+    ) {
+        Text(label, color = if (focused) c.bg else if (!on) c.fg2 else if (solid) c.accFg else c.acc,
+            style = LpText.filter, maxLines = 1, fontWeight = if (on) FontWeight.SemiBold else FontWeight.Normal)
+        if (on && xyz.linplayer.app.tv.LocalTvMode.current) Box(Modifier.align(Alignment.BottomCenter)
+            .offset(y = Sp.x4).size(16.dp, 2.dp).background(c.acc))
+    }
 }
 
 /**
@@ -207,21 +221,24 @@ fun PrimaryAction(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
+    val ink = if (focused) c.bg else c.mediaOnAccent
     Row(
-        m.fillMaxWidth().heightIn(min = Dim.tap)
+        m.fillMaxWidth().heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
             .privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
-            .background(c.mediaAccent)
-            .pressable(onClick, onLongClick)
+            .background(if (focused) c.fg else c.mediaAccent)
+            .pressable(onClick, onLongClick, tvHighlight = false)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
         if (icon != null) {
-            Icon(icon, null, Modifier.size(17.dp), tint = c.mediaOnAccent)
+            Icon(icon, null, Modifier.size(17.dp), tint = ink)
             Spacer(Modifier.width(Sp.x8))
         }
         Text(
-            text, Modifier.weight(1f, fill = false), color = c.mediaOnAccent, style = LpText.list, fontWeight = FontWeight.SemiBold,
+            text, Modifier.weight(1f, fill = false), color = ink, style = LpText.list, fontWeight = FontWeight.SemiBold,
             maxLines = 2, overflow = TextOverflow.Ellipsis,
             textAlign = androidx.compose.ui.text.style.TextAlign.Center,
         )
@@ -241,18 +258,22 @@ fun IconAction(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Column(
-        m.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.md)).pressable(onClick)
+        m.heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
+            .clip(RoundedCornerShape(R.md)).background(if (focused) c.fg else Color.Transparent)
+            .pressable(onClick, tvHighlight = false)
             .padding(horizontal = Sp.x12, vertical = Sp.x6),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         Box(
             Modifier.size(38.dp).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
-                .background(if (on) c.mediaAccent.copy(alpha = .18f) else c.s1),
+                .background(if (focused) Color.Transparent else if (on) c.mediaAccent.copy(alpha = .18f) else c.s1),
             contentAlignment = Alignment.Center,
-        ) { Icon(icon, null, Modifier.size(19.dp), tint = if (on) c.mediaIcon else c.fg2) }
+        ) { Icon(icon, null, Modifier.size(19.dp), tint = if (focused) c.bg else if (on) c.mediaIcon else c.fg2) }
         Spacer(Modifier.height(Sp.x6))
-        Text(label, color = if (on) c.mediaIcon else c.fg3, style = LpText.badge, maxLines = 1)
+        Text(label, color = if (focused) c.bg else if (on) c.mediaIcon else c.fg3, style = LpText.badge, maxLines = 1)
     }
 }
 
@@ -270,12 +291,14 @@ fun GlassIcon(
     onClick: () -> Unit,
 ) {
     val c = Lp.colors
+    var hasFocus by remember { mutableStateOf(false) }
+    val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Box(
-        m.size(48.dp)
-            .buttonSkin(c.chip, R.pill)
-            .pressable(onClick),
+        m.size(48.dp).onFocusChanged { hasFocus = it.isFocused }
+            .buttonSkin(if (focused) c.fg else c.chip, R.pill)
+            .pressable(onClick, tvHighlight = false),
         contentAlignment = Alignment.Center,
-    ) { Icon(icon, desc, Modifier.size(24.dp), tint = c.fg2) }
+    ) { Icon(icon, desc, Modifier.size(24.dp), tint = if (focused) c.bg else c.fg2) }
 }
 
 /**

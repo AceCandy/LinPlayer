@@ -1,6 +1,5 @@
 package xyz.linplayer.app.tv.kit
 
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -41,7 +40,6 @@ import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -76,11 +74,12 @@ val railItems = listOf(
 fun TopNavigation(
     current: Int, privateSpace: Boolean = false, focused: Int = -1,
     serverName: String = "服务器", aggregateLabel: String = "发现", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
-    /** 叠在头图上:不铺底色,只留一段压暗保证文字可读。 */
+    /** 叠在头图上时保持浅色文字，遮罩始终向下渐隐。 */
     overlay: Boolean = false,
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
     onFocusSelect: (Int) -> Unit = {},
     onRefresh: (() -> Unit)? = null,
+    currentFocusRequester: FocusRequester? = null,
 ) {
     val order = if (privateSpace) {
         if (onRefresh != null) listOf(6, 1, 8, 3, 4, 0) else listOf(6, 1, 3, 4, 0)
@@ -90,8 +89,10 @@ fun TopNavigation(
     val reqs = remember { List(railItems.size + 1) { FocusRequester() } }
     Row(
         modifier.fillMaxWidth().height(TvDim.navigationH)
-            .then(if (overlay) Modifier.background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f), Color.Transparent)))
-                else Modifier.background(TvC.bg))
+            .background(Brush.verticalGradient(
+                0f to if (overlay) Color.Black.copy(alpha = .74f) else TvC.bg.copy(alpha = .94f),
+                .65f to if (overlay) Color.Black.copy(alpha = .66f) else TvC.bg.copy(alpha = .85f),
+                1f to Color.Transparent))
             .padding(horizontal = TvDim.safeH)
             .focusProperties { if (focused < 0) onEnter = { reqs[current.takeIf { it in order } ?: 1].requestFocus() } }
             .onPreviewKeyEvent {
@@ -103,7 +104,9 @@ fun TopNavigation(
         order.forEachIndexed { position, i ->
             key(i) {
                 if (i == 0) Spacer(Modifier.weight(1f))
-                val focusModifier = Modifier.focusRequester(reqs[i]).focusProperties {
+                val focusModifier = Modifier.focusRequester(reqs[i])
+                    .then(if (i == (current.takeIf { it in order } ?: 1) && currentFocusRequester != null)
+                        Modifier.focusRequester(currentFocusRequester) else Modifier).focusProperties {
                     left = if (position > 0) reqs[order[position - 1]] else FocusRequester.Cancel
                     right = if (position < order.lastIndex) reqs[order[position + 1]] else FocusRequester.Cancel
                     up = FocusRequester.Cancel
@@ -115,24 +118,24 @@ fun TopNavigation(
                         .menuKey(onPrivateSpace).initialFocus(focused == 6),
                     shape = ClickableSurfaceDefaults.shape(TvR.pill),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
-                    colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = TvC.fg2,
-                        focusedContainerColor = if (overlay) Color.Black.copy(alpha = .35f).compositeOver(TvC.bg)
-                            else TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg),
-                        focusedContentColor = if (overlay) Color.White else TvC.fg),
-                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(1.dp,
-                        (if (overlay) Color.White else TvC.fg).copy(alpha = .55f)), shape = TvR.pill)),
+                    colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent,
+                        contentColor = if (overlay) Color.White else TvC.fg2,
+                        focusedContainerColor = if (overlay) Color.White else TvC.focus,
+                        focusedContentColor = if (overlay) Color.Black else TvC.onFocus),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = Border.None),
                 ) {
                     Row(Modifier.fillMaxSize().padding(horizontal = TvSp.x12), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                        Text(serverName, modifier = Modifier.weight(1f), color = if (overlay) Color.White else TvC.fg2,
+                        Text(serverName, modifier = Modifier.weight(1f),
                             fontSize = tvType.body, fontWeight = TvW.medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Icon(LpIcons.chevD, null, Modifier.size(14.dp), tint = if (overlay) Color.White else TvC.fg)
+                        Icon(LpIcons.chevD, null, Modifier.size(14.dp))
                     }
                 }
                 Spacer(Modifier.width(TvSp.x16))
                 } else if (i == 8) {
                 NavigationItem("刷新", LpIcons.refresh, on = false, iconOnly = true, focused = focused == i,
+                    overlay = overlay,
                     modifier = focusModifier.testTag("nav.refresh"), onClick = { onRefresh?.invoke() })
                 } else {
                 val (label, icon) = railItems[i]
@@ -152,7 +155,7 @@ fun TopNavigation(
 private val railTargets = listOf(
     "search", "home", "library", "favorites", "aggregate", "downloads", "servers", "settings")
 
-/** 当前栏目短横与焦点底色分别表达位置和操作目标。 */
+/** 栏目保留短横与聚焦字重，动作入口用反色填充，不叠加外框。 */
 @Composable
 fun NavigationItem(
     label: String, icon: ImageVector, on: Boolean, iconOnly: Boolean = false,
@@ -162,8 +165,8 @@ fun NavigationItem(
 ) {
     var hasFocus by remember { mutableStateOf(false) }
     val latestOnFocus by rememberUpdatedState(onFocus)
-    val focusFill = (if (overlay) Color.Black.copy(alpha = .35f) else TvC.fg.copy(alpha = .12f)).compositeOver(TvC.bg)
-    val focusBorder = Border(BorderStroke(1.dp, (if (overlay) Color.White else TvC.fg).copy(alpha = .55f)), shape = TvR.pill)
+    val focusFill = if (overlay) Color.White else TvC.focus
+    val focusInk = if (overlay) Color.Black else TvC.onFocus
     LaunchedEffect(hasFocus) {
         if (hasFocus) {
             withFrameNanos { }
@@ -180,20 +183,21 @@ fun NavigationItem(
                 .semantics { selected = on; if (iconOnly) contentDescription = label },
             shape = ClickableSurfaceDefaults.shape(TvR.pill),
             border = ClickableSurfaceDefaults.border(
-                border = if (fake) focusBorder else Border.None,
-                focusedBorder = if (tab) Border.None else focusBorder,
+                border = Border.None,
+                focusedBorder = Border.None,
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = .97f),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = if (fake) focusFill else Color.Transparent,
-                contentColor = if (overlay) Color.White else if (on || fake) TvC.fg else TvC.fg2,
+                containerColor = if (fake && !tab) focusFill else Color.Transparent,
+                contentColor = if (fake && !tab) focusInk else if (overlay) Color.White else if (on) TvC.fg else TvC.fg2,
                 focusedContainerColor = if (tab) Color.Transparent else focusFill,
-                focusedContentColor = if (overlay) Color.White else TvC.fg,
+                focusedContentColor = if (tab) { if (overlay) Color.White else TvC.fg } else focusInk,
             ),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
                 if (iconOnly) Icon(icon, null, Modifier.size(20.dp))
-                else Text(label, fontSize = tvType.body, fontWeight = if (on) TvW.semi else TvW.medium)
+                else Text(label, fontSize = tvType.body,
+                    fontWeight = if (hasFocus || fake) TvW.bold else if (on) TvW.semi else TvW.medium)
                 if (on) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp)
                     .size(14.dp, 2.dp).clip(TvR.pill).background(TvC.acc))
                 if (badge != null) Box(Modifier.align(Alignment.TopEnd)) { Badge(badge, TvC.bad, Color.White) }
