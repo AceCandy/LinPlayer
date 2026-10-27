@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 137
+- **Total Sessions**: 138
 - **Last Active**: 2026-10-27
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~155 | Active |
+| `journal-4.md` | ~192 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 138 | 2026-10-27 | Android TV 详情页布局与遥控交互 | `c7b2079f` | `main` |
 | 137 | 2026-10-27 | 完成 Android TV 对齐修复并归档 | `096e825a` | `main` |
 | 136 | 2026-10-27 | TV 对齐回归修复与提交归档 | `fee32450` | `main` |
 | 135 | 2026-10-26 | 统一加载动画与收藏单次取150条 | `d4bb6a96` | `main` |
