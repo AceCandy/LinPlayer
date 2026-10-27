@@ -48,7 +48,7 @@ class SharedTvBrowseTest {
         UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), oldHideLibraries)
     }
 
-    private fun mount(intercept: ((FakeCore) -> CorePort)? = null, configure: (FakeCore) -> Unit = {}) {
+    private fun mount(intercept: ((FakeCore) -> CorePort)? = null, fontScale: Float? = null, configure: (FakeCore) -> Unit = {}) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         core = FakeCore().loggedIn().movie().also(configure)
@@ -56,7 +56,11 @@ class SharedTvBrowseTest {
         rule.setContent {
             back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
             activity = androidx.compose.ui.platform.LocalContext.current as android.app.Activity
-            TvRoot(app)
+            val density = androidx.compose.ui.platform.LocalDensity.current
+            androidx.compose.runtime.CompositionLocalProvider(
+                androidx.compose.ui.platform.LocalDensity provides
+                    (fontScale?.let { androidx.compose.ui.unit.Density(density.density, it) } ?: density),
+            ) { TvRoot(app) }
         }
         rule.waitForIdle()
     }
@@ -285,20 +289,136 @@ class SharedTvBrowseTest {
         }
         rule.waitForIdle()
         val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled()
-        rule.onNodeWithTag("rail.1").assertIsFocused()
-        press(rule, Key.DirectionDown)
-        rule.onNodeWithContentDescription("返回").assertIsFocused()
-        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("rail.1").assertDoesNotExist()
+        rule.onNodeWithContentDescription("返回").assertDoesNotExist()
         play.assertIsFocused()
         rule.onNodeWithTag("detail.options").performScrollTo().assertIsDisplayed()
         play.performScrollTo().assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.waitForIdle()
-        val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
+        val launch = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult
+        val intent = launch.intent
         val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
         assertEquals("m1", route.itemId)
         assertNull(route.src)
         assertTrue(intent.getBooleanExtra("player.tv", false))
+        rule.runOnIdle {
+            (activity as androidx.activity.ComponentActivity).activityResultRegistry.dispatchResult(
+                launch.requestCode, android.app.Activity.RESULT_OK,
+                android.content.Intent().putExtra(xyz.linplayer.app.PlayerActivity.PLAYED_ITEM, "m1"))
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled().assertIsFocused()
+    }
+
+    @Test fun playbackReturnRestoresFocusAfterDelayedDetailRefresh() = playbackReturnAfterRefresh(false)
+
+    @Test fun delayedPlaybackRefreshDoesNotStealFocusMovedToAnotherAction() = playbackReturnAfterRefresh(true)
+
+    private fun playbackReturnAfterRefresh(moveToAnotherAction: Boolean) {
+        var returning = false
+        val release = CompletableDeferred<Unit>()
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = fake.callJson(command, args, onPartial)
+                if (returning && command == "emby.itemDetail") release.await()
+                return result
+            }
+        } })
+        try {
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            }
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            press(rule, Key.DirectionCenter)
+            val launch = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult
+            rule.runOnIdle {
+                returning = true
+                (activity as androidx.activity.ComponentActivity).activityResultRegistry.dispatchResult(
+                    launch.requestCode, android.app.Activity.RESULT_OK,
+                    android.content.Intent().putExtra(xyz.linplayer.app.PlayerActivity.PLAYED_ITEM, "m1"))
+            }
+            rule.waitForIdle()
+            rule.onNodeWithTag("detail.play").assertIsNotEnabled()
+            if (moveToAnotherAction) {
+                for (step in 0 until 8) {
+                    if (rule.onAllNodes(hasContentDescription("换源") and isFocused()).fetchSemanticsNodes().isNotEmpty()) break
+                    press(rule, Key.DirectionRight)
+                }
+                rule.onNodeWithContentDescription("换源").assertIsFocused()
+            }
+            rule.runOnIdle { release.complete(Unit) }
+            rule.waitForIdle()
+            rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled()
+            if (moveToAnotherAction) rule.onNodeWithContentDescription("换源").assertIsFocused()
+            else rule.onNodeWithTag("detail.play").assertIsFocused()
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun detailActionsAndDownwardScrollKeepRemoteFocus() {
+        mount { fake ->
+            fake.ret("prefs.preloadItem", arr(
+                buildJsonObject { put("id", "va"); put("name", "1080p"); put("preferred", true) },
+                buildJsonObject { put("id", "vb"); put("name", "4K") },
+            ))
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithTag("detail.play.options").assertIsFocused()
+        rule.onRoot().captureRoboImage("build/shared-tv/detail-options-focus.png")
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithContentDescription("收藏").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        assertTrue(core.calls.any { it.first == "emby.setFavorite" && it.second?.get("fav") == JsonPrimitive(true) })
+        press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionDown)
+        rule.onNodeWithContentDescription("版本").assertIsFocused()
+        val actor = hasTestTag("detail.person.p0") and isFocused()
+        for (step in 0 until 16) {
+            if (rule.onAllNodes(actor).fetchSemanticsNodes().isNotEmpty()) break
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+        }
+        assertTrue(rule.onNode(isFocused()).printToString(),
+            rule.onAllNodes(actor).fetchSemanticsNodes().isNotEmpty())
+        rule.onNode(actor).assertIsDisplayed()
+        for (step in 0 until 16) {
+            if (rule.onAllNodes(hasTestTag("detail.play") and isFocused()).fetchSemanticsNodes().isNotEmpty()) break
+            press(rule, Key.DirectionUp)
+        }
+        rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsDisplayed()
+    }
+
+    @Test @Config(qualifiers = "w800dp-h450dp-land-mdpi")
+    fun detailLongTitleAndLargeTextWrapWithoutClipping() {
+        val title = "穿越山海与星空的漫长旅程：写给远方的一封信"
+        mount(fontScale = 1.3f) { fake ->
+            fake.ret("emby.itemDetail", buildJsonObject {
+                item("m1", title).forEach { (key, value) -> put(key, value) }
+                put("overview", "一段跨越山海的旅程，也是一封写给远方的信。".repeat(6))
+            })
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
+        rule.onNodeWithTag("detail.title").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
+        assertFalse(layouts.single().hasVisualOverflow)
+        rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused()
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithTag("detail.play.options").assertIsDisplayed().assertIsFocused()
+        rule.onRoot().captureRoboImage("build/shared-tv/detail-large-text.png")
     }
 
     private fun seriesDetails(fake: FakeCore) {
@@ -355,18 +475,15 @@ class SharedTvBrowseTest {
                     xyz.linplayer.app.ui.pages.args("id" to id, "type" to type), false)
             }
             rule.waitForIdle()
-            press(rule, Key.DirectionDown, Key.DirectionDown)
-            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
             rule.onNodeWithTag("detail.play").assertDoesNotExist()
             rule.runOnIdle { detailReady.complete(Unit) }
             rule.waitForIdle()
             assertEquals(parent, core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
-            press(rule, Key.DirectionDown)
-            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
             rule.onNode(hasTestTag("detail.play") and isEnabled()).assertDoesNotExist()
             rule.runOnIdle { episodesReady.complete(Unit) }
             rule.waitForIdle()
-            press(rule, Key.DirectionDown)
             rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled().assertIsFocused()
             rule.onRoot().captureRoboImage("build/shared-tv/${type.lowercase()}-play-focus.png")
             press(rule, Key.DirectionCenter)
@@ -402,7 +519,6 @@ class SharedTvBrowseTest {
                     xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
             }
             rule.waitForIdle()
-            press(rule, Key.DirectionDown, Key.DirectionDown)
             rule.onNodeWithTag("detail.play").assertIsFocused()
             press(rule, Key.DirectionDown)
             rule.onNodeWithContentDescription("选择季").assertIsFocused()
@@ -431,7 +547,7 @@ class SharedTvBrowseTest {
         } finally { instrumentation.setInTouchMode(wasTouch) }
     }
 
-    @Test fun detailToolbarDownSkipsUnavailableTargetsAndBindsWhenReady() {
+    @Test fun detailLoadingAndCollectionReturnWithoutOnScreenBack() {
         val release = CompletableDeferred<Unit>()
         mount(intercept = { fake -> object : CorePort by fake {
             override suspend fun callJson(command: String, args: JsonObject?,
@@ -447,22 +563,24 @@ class SharedTvBrowseTest {
                     xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
             }
             rule.waitForIdle()
-            press(rule, Key.DirectionDown, Key.DirectionDown)
-            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
             rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.runOnUiThread { back.onBackPressed() }
+            rule.waitForIdle()
+            rule.onNodeWithTag("rail.1").assertIsDisplayed()
             rule.runOnIdle { release.complete(Unit) }
             rule.waitForIdle()
-            press(rule, Key.DirectionDown)
-            rule.onNodeWithTag("detail.play").assertIsFocused()
+            rule.onNodeWithTag("rail.1").assertIsDisplayed()
             rule.runOnIdle {
                 xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
                     xyz.linplayer.app.ui.pages.args("id" to "box", "type" to "BoxSet"), false)
             }
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertDoesNotExist()
-            rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-            press(rule, Key.DirectionDown, Key.DirectionDown)
-            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+            rule.runOnUiThread { back.onBackPressed() }
+            rule.waitForIdle()
+            rule.onNodeWithTag("rail.1").assertIsDisplayed()
         } finally { release.complete(Unit) }
     }
 
@@ -481,12 +599,38 @@ class SharedTvBrowseTest {
         rule.waitForIdle()
         rule.onNodeWithTag("detail.play").assertDoesNotExist()
         if (mode == "replace") rule.onNodeWithText("这一块出错了", substring = true).assertIsDisplayed()
-        press(rule, Key.DirectionDown, Key.DirectionDown)
-        rule.onNodeWithContentDescription("返回").assertIsFocused()
+        rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsDisplayed()
     }
 
-    @Test fun pluginHiddenPrimaryDoesNotLeaveInvalidToolbarFocusTarget() = pluginPrimaryTakeover("hide")
-    @Test fun pluginReplacedPrimaryDoesNotLeaveInvalidToolbarFocusTarget() = pluginPrimaryTakeover("replace")
+    @Test fun pluginHiddenPrimaryStillAllowsRemoteBack() = pluginPrimaryTakeover("hide")
+    @Test fun pluginReplacedPrimaryStillAllowsRemoteBack() = pluginPrimaryTakeover("replace")
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun remoteBackClosesDetailMenuBeforeReturningToSourceCard() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val wasTouch = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
+        instrumentation.setInTouchMode(false)
+        try {
+            mount()
+            val card = rule.onNodeWithContentDescription("谎言的代价")
+            card.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.DirectionCenter)
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            press(rule, Key.DirectionRight, Key.DirectionCenter)
+            rule.onNode(hasText("从头开始播放") and hasAnyAncestor(isPopup())).assertIsFocused()
+            rule.runOnUiThread { back.onBackPressed() }
+            rule.waitForIdle()
+            rule.onNode(isPopup()).assertDoesNotExist()
+            rule.onNodeWithTag("detail.play.options").assertIsFocused()
+            rule.runOnUiThread { back.onBackPressed() }
+            rule.waitForIdle()
+            card.assertIsDisplayed().assertIsFocused()
+        } finally { instrumentation.setInTouchMode(wasTouch) }
+    }
 
     @Test fun directionsMoveToSharedAggregateWithoutConfirmAndHideDownloads() {
         mount()
@@ -526,7 +670,10 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.hero").assertIsDisplayed()
         val hero = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot
         val screen = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        assertTrue("TV详情头图应在首屏内留出播放区域", hero.height < screen.height * .65f)
+        assertTrue("TV详情大图应承载首屏信息与主操作，而不是一条横幅", hero.height >= screen.height * .75f)
+        val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        assertTrue("主操作必须完整位于首屏", play.bottom <= screen.bottom)
+        assertTrue("主操作不能横跨大半屏", play.width < screen.width * .5f)
         rule.onNodeWithContentDescription("下载").assertDoesNotExist()
         rule.onRoot().captureRoboImage("build/shared-tv/detail.png")
         rule.runOnUiThread { back.onBackPressed() }

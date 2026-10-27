@@ -1,6 +1,8 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.LocalTvMode
+import xyz.linplayer.app.tv.TvPageSide
+import xyz.linplayer.app.tv.kit.TvDim
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -18,6 +20,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
@@ -29,6 +32,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.IntrinsicSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.Row
@@ -54,6 +58,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
@@ -64,6 +69,7 @@ import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -72,8 +78,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -153,6 +161,7 @@ import xyz.linplayer.app.ui.plugin.PluginAnchors
 import xyz.linplayer.app.ui.plugin.detailProps
 import xyz.linplayer.app.ui.plugin.rememberAnchorScope
 import xyz.linplayer.app.ui.components.dissolve
+import xyz.linplayer.app.ui.components.bleed
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.components.toneScene
 import xyz.linplayer.app.ui.theme.Dim
@@ -654,7 +663,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val contentSize = lpTween<IntSize>(T.T5)
 
     // 底色从**海报**取,不从背景图取:海报是这部片的主视觉,背景图常常是一片夜景
-    val tone = rememberTone(app.imageUrl(route.itemId, "Primary", 330).takeUnless { d.boolOrNull("has_primary") == false }, c.acc.copy(alpha = .9f))
+    val tone = if (LocalTvMode.current) c.acc else
+        rememberTone(app.imageUrl(route.itemId, "Primary", 330).takeUnless { d.boolOrNull("has_primary") == false }, c.acc.copy(alpha = .9f))
 
     /* 起播。`engine` 为空 = 用设置里的默认内核。
        ★ 长按播放键换内核【用户定 2026-09-08】:短按一个、长按另一个,哪个在前由设置决定。
@@ -674,7 +684,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     // 平板(宽且够高)改左右分栏：左栏固定海报与播放，右栏滚动其余内容；横屏手机仍走单栏
     val tv = LocalTvMode.current
     val playFocus = remember { FocusRequester() }
-    val playVisible by remember(list) { derivedStateOf { list.layoutInfo.visibleItemsInfo.any { it.key == "actions" } } }
+    var pageHasFocus by remember { mutableStateOf(false) }
+    var playMounted by remember { mutableStateOf(false) }
+    var initialPlayPending by rememberSaveable { mutableStateOf(true) }
+    val playAvailable = live != null && !isBoxSet && (!isSeries || nextEp != null)
     val wide = !tv && with(androidx.compose.ui.platform.LocalConfiguration.current) {
         screenWidthDp >= 840 && screenHeightDp >= 600
     }
@@ -683,8 +696,50 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val scrolled by remember(list) { derivedStateOf { list.canScrollBackward } }
     val barTint = if (wide) c.fg else if (atTop) Color.White else c.fg
 
+    // 首次就绪才聚焦播放；用户已有焦点、离屏重挂和返回详情都不重新抢焦点。
+    LaunchedEffect(tv, playMounted, playAvailable) {
+        if (!tv) return@LaunchedEffect
+        if (initialPlayPending && playMounted && playAvailable) {
+            initialPlayPending = false
+            withFrameNanos { }
+            if (!pageHasFocus && atTop && sheet == null && !switching) playFocus.requestFocus()
+        }
+    }
+
+    val togglePlayed: () -> Unit = {
+        playedBusy = true
+        scope.launch {
+            try {
+                app.call("emby.setPlayed", args("item_id" to route.itemId, "played" to !played))
+            } catch (e: CancellationException) { throw e }
+              catch (e: Exception) { app.report(e) }
+            finally { playedBusy = false }
+        }
+    }
+    val toggleFavorite: () -> Unit = {
+        scope.launch {
+            val want = !favorite
+            favorite = want
+            runCatching {
+                app.call("emby.setFavorite", args("item_id" to route.itemId, "fav" to want))
+            }.onFailure { favorite = !want; app.report(it) }
+        }
+    }
+
     // 评分就在这条数据带里(★ 评分是第一格),锚点挂它
     val ratingsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = Sp.x16)) {
+        if (tv) {
+            val values = listOfNotNull(
+                d.dbl("rating")?.takeIf { it > 0 && !isEpisode }?.let { "★ %.1f".format(it) },
+                d.long("year")?.toString() ?: detailDate(d)?.take(4),
+                if (isSeriesEntry) seasons.size.takeIf { it > 0 }?.let { "共 $it 季" }
+                    else d.dbl("runtime_secs")?.takeIf { it > 0 }?.let { fmtDur(it) },
+                d.strList("genres").take(2).joinToString(" / ").takeIf(String::isNotBlank),
+            )
+            if (values.isNotEmpty()) Text(values.joinToString("  ·  "), Modifier.testTag("detail.ratings"),
+                color = Color.White.copy(alpha = .85f), style = LpText.body)
+            return@Anchored
+        }
         if (isSeriesEntry) {
             val summary = Triple(d.dbl("rating")?.takeIf { it > 0 },
                 d.long("year")?.toString() ?: detailDate(d)?.take(4),
@@ -755,6 +810,60 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         val resume = if (isSeries) shownNextEp?.resumeSecs ?: 0.0 else live.dbl("resume_secs") ?: 0.0
         val runtime = if (isSeries) shownNextEp?.runtimeSecs ?: 0.0 else d.dbl("runtime_secs") ?: 0.0
         val continuing = resume > 0 && runtime > resume && (!isSeries || shownNextEp?.played != true)
+        if (tv) {
+            DisposableEffect(Unit) {
+                playMounted = true
+                onDispose { playMounted = false }
+            }
+            Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
+                FlowRow(Modifier.fillMaxWidth().testTag("detail.actions.layout"),
+                    horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                    verticalArrangement = Arrangement.spacedBy(Sp.x26)) {
+                    TvDetailAction(if (continuing) "继续观看" else "播放", LpIcons.play,
+                        modifier = Modifier.testTag("detail.play").focusRequester(playFocus),
+                        primary = true, enabled = playAvailable,
+                        onClick = { toPlayer(target, null, false) },
+                        onLongClick = { toPlayer(target, xyz.linplayer.app.data.UiPrefs.otherEngine(), false) })
+                    var menuOpen by remember { mutableStateOf(false) }
+                    val offset = with(LocalDensity.current) { 52.dp.roundToPx() }
+                    Box {
+                        TvDetailAction("播放选项", LpIcons.chevD, enabled = playAvailable,
+                            modifier = Modifier.testTag("detail.play.options"),
+                            onClick = { menuOpen = !menuOpen })
+                        LpMenu(menuOpen, { menuOpen = false }, alignment = Alignment.TopStart,
+                            offset = IntOffset(0, offset), solid = true) {
+                            LpMenuItem("从头开始播放", {
+                                menuOpen = false
+                                toPlayer(target, null, true)
+                            })
+                        }
+                    }
+                    if (!isEpisode) TvDetailAction("收藏", if (favorite) LpIcons.heartOn else LpIcons.heart,
+                        iconOnly = true, selected = favorite, enabled = live != null, onClick = toggleFavorite)
+                    TvDetailAction(if (played) "标未看" else "标已看",
+                        if (played) LpIcons.check else LpIcons.checkCircle,
+                        iconOnly = true, selected = played, enabled = live != null && !playedBusy, onClick = togglePlayed)
+                    if (!app.privateSpace.value) TvDetailAction("换源", LpIcons.switchSource,
+                        iconOnly = true, onClick = { switching = true })
+                }
+                val targetLabel = shownNextEp?.takeIf { isSeries }?.let { ep ->
+                    val number = listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" }).joinToString("")
+                    listOf(number, ep.name).filter(String::isNotBlank).joinToString("：")
+                }
+                val status = listOfNotNull(targetLabel, if (continuing) "剩余 ${fmtRemaining(runtime - resume)}" else null)
+                if (status.isNotEmpty()) {
+                    Text(status.joinToString("  ·  "), Modifier.padding(top = Sp.x26).testTag("detail.series.target"),
+                        color = Color.White.copy(alpha = .8f), style = LpText.body,
+                        maxLines = 2, overflow = TextOverflow.Ellipsis)
+                }
+                if (continuing) Box(Modifier.fillMaxWidth(.3f).padding(top = Sp.x8).height(2.dp)
+                    .background(Color.White.copy(alpha = .24f))
+                    .semantics { progressBarRangeInfo = ProgressBarRangeInfo((resume / runtime).toFloat(), 0f..1f) }) {
+                    Box(Modifier.fillMaxHeight().fillMaxWidth((resume / runtime).toFloat()).background(c.mediaAccent))
+                }
+            }
+            return@Anchored
+        }
         Column(Modifier.padding(top = Sp.x16)) {
             Row(
                 Modifier.fillMaxWidth().padding(horizontal = Sp.x16).testTag("detail.actions.layout")
@@ -781,7 +890,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         // 续播也用实心强调底：主按钮始终是这一屏最强的元素，进度靠叠色段表达。
                         .background(c.mediaAccent)
                         .testTag("detail.play")
-                        .then(if (tv) Modifier.focusRequester(playFocus) else Modifier)
                         .semantics {
                             if (continuing) progressBarRangeInfo = ProgressBarRangeInfo(
                                 (resume / runtime).toFloat().coerceIn(0f, 1f), 0f..1f)
@@ -850,12 +958,16 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     } }
 
-    LpImmersive(barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent,
-        barModifier = Modifier.aboveSharedPoster().then(
-            if (tv && playVisible && live != null && !isBoxSet && (!isSeries || nextEp != null))
-                Modifier.focusProperties { down = playFocus } else Modifier),
-        bar = {
-        IconButton(onClick = { nav.popBackStack() }) {
+    LpImmersive(
+        m = if (tv) Modifier.onFocusChanged { pageHasFocus = it.hasFocus }.focusGroup() else Modifier,
+        barHeight = if (tv) 0.dp else Dim.topBar,
+        barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent,
+        barModifier = Modifier.aboveSharedPoster(),
+        bar = toolbar@{
+        if (tv) return@toolbar
+        IconButton(
+            onClick = { nav.popBackStack() },
+        ) {
             Icon(LpIcons.back, "返回", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
         Spacer(Modifier.weight(1f))
@@ -864,16 +976,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             if (!app.privateSpace.value) IconButton(onClick = { switching = true }) {
                 Icon(LpIcons.switchSource, "换源", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
             }
-            IconButton(enabled = live != null && !playedBusy, onClick = {
-                playedBusy = true
-                scope.launch {
-                    try {
-                        app.call("emby.setPlayed", args("item_id" to route.itemId, "played" to !played))
-                    } catch (e: CancellationException) { throw e }
-                      catch (e: Exception) { app.report(e) }
-                    finally { playedBusy = false }
-                }
-            }) {
+            IconButton(enabled = live != null && !playedBusy, onClick = togglePlayed) {
                 if (played) Box(
                     Modifier.size(24.dp).privateNeonIcon().clip(RoundedCornerShape(R.pill)).background(barTint),
                     contentAlignment = Alignment.Center,
@@ -883,19 +986,11 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 } else Icon(LpIcons.checkCircle, "标已看", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
             }
         }
-        if (!isBoxSet && !isEpisode) IconButton(enabled = live != null, onClick = {
-            scope.launch {
-                val want = !favorite
-                favorite = want
-                runCatching {
-                    app.call("emby.setFavorite", args("item_id" to route.itemId, "fav" to want))
-                }.onFailure { favorite = !want; app.report(it) }
-            }
-        }) {
+        if (!isBoxSet && !isEpisode) IconButton(enabled = live != null, onClick = toggleFavorite) {
             Icon(if (favorite) LpIcons.heartOn else LpIcons.heart, "收藏", Modifier.size(24.dp).privateNeonIcon(),
                 tint = if (favorite) c.mediaIcon else barTint)
         }
-        if (!isBoxSet && !app.privateSpace.value && !xyz.linplayer.app.tv.LocalTvMode.current) IconButton(onClick = {
+        if (!isBoxSet && !app.privateSpace.value) IconButton(onClick = {
             scope.launch {
                 runCatching { app.call("download.enqueue", args("item_id" to route.itemId)) }
                     .onSuccess { app.toast("已加入下载队列", xyz.linplayer.app.data.ToastKind.Ok) }
@@ -918,7 +1013,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         androidx.compose.runtime.CompositionLocalProvider(
             LocalAnchors provides if (live == null || app.privateSpace.value) xyz.linplayer.app.ui.plugin.AnchorScope() else anchors
         ) {
-        Box(Modifier.fillMaxSize().background(toneScene(tone, c.bg))) {
+        Box(Modifier.fillMaxSize().then(
+            if (tv) Modifier.background(c.bg) else Modifier.background(toneScene(tone, c.bg)))) {
             if (wide) WideBackdrop(app, route.itemId, d, isEpisode)
             val topInset = Dim.topBar + WindowInsets.statusBars.asPaddingValues().calculateTopPadding()
             Row(Modifier.fillMaxSize()) {
@@ -934,16 +1030,37 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 tagsBlock()
                 actionsBlock()
             }
+            val anchorBlocks = LocalAnchors.current.blocks
             LazyColumn(Modifier.weight(1f).fillMaxHeight(), list,
-                contentPadding = if (wide) PaddingValues(top = topInset, bottom = pad.calculateBottomPadding()) else pad) {
-                if (!wide) item("hero") {
-                    Anchored(PluginAnchors.DETAIL_HEADER) {
-                        if (isEpisode) EpisodeHead(app, route.itemId, d, list) {
-                            live.str("series_id")?.let { sid ->
-                                nav.navigate(Route.Detail(sid, "Series"))
-                            }
+                contentPadding = if (wide) PaddingValues(top = topInset, bottom = pad.calculateBottomPadding())
+                else if (tv) PaddingValues(
+                    start = TvPageSide, end = TvPageSide,
+                    top = pad.calculateTopPadding(), bottom = pad.calculateBottomPadding(),
+                ) else pad) {
+                if (tv) item("hero") {
+                    TvDetailHero(app, route.itemId, d, isEpisode,
+                        onSeries = { live.str("series_id")?.let { nav.navigate(Route.Detail(it, "Series")) } }) {
+                        Anchored(PluginAnchors.DETAIL_TITLE) {}
+                        ratingsBlock()
+                        val overviewReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_OVERVIEW]
+                            .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
+                        if (!overviewReplaced) d.str("overview")?.takeIf(String::isNotBlank)?.let {
+                            Text(it, Modifier.fillMaxWidth(.66f).padding(top = Sp.x16),
+                                color = Color.White.copy(alpha = .85f), style = LpText.body.copy(lineHeight = 22.sp),
+                                maxLines = 3, overflow = TextOverflow.Ellipsis)
                         }
-                        else SeriesHead(app, route.itemId, d, list, isSeriesEntry)
+                        if (showBody) actionsBlock()
+                    }
+                } else if (!wide) item("hero") {
+                    Box {
+                        Anchored(PluginAnchors.DETAIL_HEADER) {
+                            if (isEpisode) EpisodeHead(app, route.itemId, d, list) {
+                                live.str("series_id")?.let { sid ->
+                                    nav.navigate(Route.Detail(sid, "Series"))
+                                }
+                            }
+                            else SeriesHead(app, route.itemId, d, list, isSeriesEntry)
+                        }
                     }
                 }
 
@@ -953,7 +1070,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
                 // 标题画在头图**里面**,没有独立的一块可以换掉,所以这里是纯插入位:
                 // 「标题下方」(SPEC 20.3)—— hide 没有东西可藏,replace 等同于 after
-                if (!wide) {
+                if (!wide && !tv) {
                     item("anchor-title") { Anchored(PluginAnchors.DETAIL_TITLE, Modifier.padding(horizontal = Sp.x16)) {} }
                     item("data") { ratingsBlock() }
                     item("tags") { tagsBlock() }
@@ -963,13 +1080,27 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 if (!showBody) item("initial-loading") {
                     Spacer(Modifier.fillMaxWidth().height(160.dp))
                 } else {
-                if (tv) item("actions") { actionsBlock() }
                 /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
                    剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
                 if (!isSeries && !isBoxSet) item("pick") {
                     AnimatedContent(media.valueOrNull?.let { Block.Ok(it) }
                             ?: presentation?.media?.let { Block.Ok(it) } ?: media,
-                        modifier = Modifier.fillMaxWidth().testTag("detail.options"),
+                        modifier = Modifier.fillMaxWidth().testTag("detail.options").then(
+                            if (tv) Modifier.focusProperties {
+                                onExit = {
+                                    if (requestedFocusDirection == FocusDirection.Up && playAvailable &&
+                                        anchorBlocks[PluginAnchors.DETAIL_ACTIONS].orEmpty()
+                                            .none { it.mode == "hide" || it.mode == "replace" }) {
+                                        // 向上离开参数组时先回首屏，避免焦点落在屏外的主操作上。
+                                        cancelFocusChange()
+                                        scope.launch {
+                                            list.animateScrollToItem(0)
+                                            withFrameNanos { }
+                                            if (playMounted) playFocus.requestFocus()
+                                        }
+                                    }
+                                }
+                            }.focusGroup() else Modifier),
                         contentKey = { it::class },
                         transitionSpec = {
                             (fadeIn(contentFade) togetherWith fadeOut(contentFade))
@@ -1018,16 +1149,19 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
                 if (!wide && !tv) item("actions") { actionsBlock() }
 
-                if (isEpisode || isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                if (!tv && (isEpisode || isSeriesEntry)) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
                 } }
 
                 // 剧集入口的季海报位于分集之后；其它详情继续保留季插件插入位。
-                if (!isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
+                // 空锚点不占 TV 懒列表项，避免连续零高度项阻断离屏焦点搜索；插件插入仍保留。
+                if (!isSeriesEntry && (!tv || !anchorBlocks[PluginAnchors.DETAIL_SEASONS].isNullOrEmpty()))
+                    item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
                 // 换季仍复用同一请求链和滚动状态。
-                item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = Sp.x16)) {
+                if (!tv || isSeries || isEpisode || !anchorBlocks[PluginAnchors.DETAIL_EPISODES].isNullOrEmpty())
+                    item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = Sp.x16)) {
                     if (!isSeries && !isEpisode) return@Anchored
                     var seasonsOpen by remember { mutableStateOf(false) }
                     val menuOffset = with(LocalDensity.current) { 48.dp.roundToPx() }
@@ -1151,12 +1285,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         }
                 }
 
-                if (!isEpisode && !isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                if (tv || (!isEpisode && !isSeriesEntry)) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
                 } }
 
+                if (tv) item("tags") { tagsBlock() }
                 item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(people, Modifier.testTag("detail.people"), immediate = live == null && cached != null) { current ->
                         if (current.isNotEmpty()) People(app, current) { nav.navigate(Route.Person(it.id, it.name)) }
@@ -1259,6 +1394,110 @@ private suspend fun savePrefs(app: xyz.linplayer.app.data.AppState, audio: Strin
 }
 
 /* ───────────────────────────── 头部 ───────────────────────────── */
+
+/** TV 的图片与标题仍归 header 锚点；接管头部不应连带隐藏播放和评分。 */
+@Composable
+private fun TvDetailHero(
+    app: xyz.linplayer.app.data.AppState,
+    id: String,
+    d: JsonObject?,
+    episode: Boolean,
+    onSeries: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val c = Lp.colors
+    val screenHeight = with(LocalDensity.current) {
+        androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.height.toDp()
+    }
+    var backdropFailed by remember(id) { mutableStateOf(false) }
+    val useBackdrop = d.bool("has_backdrop") && !backdropFailed
+    val url = if (useBackdrop) app.imageUrl(id, "Backdrop", 720)
+        else app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }
+    val headerReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_HEADER]
+        .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
+    Box(Modifier.bleed(TvPageSide).fillMaxWidth().heightIn(min = screenHeight * .86f).testTag("detail.hero")) {
+        if (!headerReplaced) Box(Modifier.matchParentSize()) {
+            NetImage(url, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
+                backgroundBlur = !useBackdrop, previewUrl = posterPreview(id),
+                fallbackUrls = if (!useBackdrop) artworkFallbacks(app.imageUrl(id, "Primary", 720),
+                    Item(id, d.str("name").orEmpty(), d.str("type_").orEmpty(),
+                        seriesId = d.str("series_id"), seasonId = d.str("season_id"), hasBackdrop = d.bool("has_backdrop")))
+                    else emptyList(),
+                onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
+            Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
+                0f to Color.Black.copy(alpha = .86f),
+                .65f to Color.Black.copy(alpha = .68f),
+                1f to Color.Black.copy(alpha = .08f))))
+        } else Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .9f)))
+        Box(Modifier.matchParentSize().background(Brush.verticalGradient(
+            0f to Color.Black.copy(alpha = .22f),
+            (if (c.isDark) .7f else .94f) to Color.Transparent, 1f to c.bg)))
+        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
+            .padding(start = TvDim.safeH, end = TvDim.safeH, top = Dim.topBar + TvDim.safeV + Sp.x34, bottom = Sp.x34)) {
+            Anchored(PluginAnchors.DETAIL_HEADER) {
+                if (episode) d.str("series_name")?.let { series ->
+                    Text(series, Modifier.fillMaxWidth(.66f)
+                        .then(if (!d.str("series_id").isNullOrBlank()) Modifier.pressable(onSeries) else Modifier)
+                        .padding(bottom = Sp.x8),
+                        color = Color.White.copy(alpha = .85f), style = LpText.section)
+                }
+                val number = if (episode) listOfNotNull(
+                    d.long("season_no")?.let { "S$it" }, d.long("episode_no")?.let { "E$it" }).joinToString("") else ""
+                Text(listOf(number, d.str("name") ?: detailPreview(id)?.name.orEmpty())
+                    .filter(String::isNotBlank).joinToString("："),
+                    Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12).testTag("detail.title"),
+                    color = Color.White, style = LpText.hero)
+                d.str("tagline")?.takeIf(String::isNotBlank)?.let {
+                    Text(it, Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12),
+                        color = Color.White.copy(alpha = .85f), style = LpText.section)
+                }
+            }
+            content()
+        }
+    }
+}
+
+/** 图上动作使用稳定的反色焦点；图标说明悬在按钮下方，不因获焦改变布局。 */
+@Composable
+private fun TvDetailAction(
+    label: String,
+    icon: ImageVector,
+    modifier: Modifier = Modifier,
+    primary: Boolean = false,
+    iconOnly: Boolean = false,
+    selected: Boolean = false,
+    enabled: Boolean = true,
+    onLongClick: (() -> Unit)? = null,
+    onClick: () -> Unit,
+) {
+    val c = Lp.colors
+    var focused by remember { mutableStateOf(false) }
+    val ink = if (focused) Color.Black else if (primary) c.mediaOnAccent else Color.White
+    Box {
+        Row(modifier.onFocusChanged { focused = it.isFocused }
+            .semantics { contentDescription = label; this.selected = selected }
+            .heightIn(min = Dim.tap).widthIn(min = if (iconOnly) Dim.tap else 132.dp)
+            .graphicsLayer { alpha = if (enabled) 1f else .45f }
+            .privateNeonBorder(R.sm).clip(RoundedCornerShape(R.sm))
+            .background(when {
+                focused -> Color.White
+                primary -> c.mediaAccent
+                else -> Color.Black.copy(alpha = .58f)
+            })
+            .pressable(onClick, onLongClick, enabled)
+            .padding(horizontal = if (iconOnly) Sp.x12 else Sp.x20, vertical = Sp.x12),
+            horizontalArrangement = Arrangement.spacedBy(Sp.x8, Alignment.CenterHorizontally),
+            verticalAlignment = Alignment.CenterVertically) {
+            Icon(icon, null, Modifier.size(22.dp), tint = if (selected && !focused) c.mediaAccent else ink)
+            if (!iconOnly) Text(label, color = ink, style = LpText.action)
+        }
+        if (iconOnly && focused) Text(label,
+            Modifier.align(Alignment.BottomCenter).offset(y = Sp.x26).wrapContentWidth(unbounded = true)
+                .background(Color.Black.copy(alpha = .85f), RoundedCornerShape(R.sm))
+                .padding(horizontal = Sp.x6, vertical = Sp.x2),
+            color = Color.White, style = LpText.caption, maxLines = 1)
+    }
+}
 
 /**
  * 剧 / 影头部(草稿 03)。
@@ -1525,16 +1764,17 @@ private fun <Value> DetailReveal(value: Value, modifier: Modifier = Modifier, im
 @Composable
 private fun Tag(text: String, onClick: (() -> Unit)? = null) {
     val c = Lp.colors
+    val tv = LocalTvMode.current
     // 能点的和不能点的**长得不一样**:一排里有的能点有的不能点,
     // 外观一致的话用户只能靠试
     Text(
         text,
         Modifier.clip(RoundedCornerShape(R.pill))
             .background(if (onClick != null) c.mediaAccent.copy(alpha = .18f) else c.s1)
-            .let { if (onClick != null) it.clickable(onClick = onClick) else it }
+            .let { if (onClick == null) it else if (tv) it.pressable(onClick) else it.clickable(onClick = onClick) }
             .padding(horizontal = Sp.x10, vertical = 3.dp),
         color = if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
-        style = LpText.badge, maxLines = 1,
+        style = if (tv) LpText.body else LpText.badge, maxLines = 1,
     )
 }
 
@@ -1629,6 +1869,35 @@ private data class PickRow(
 @Composable
 private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
     val c = Lp.colors
+    if (LocalTvMode.current) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x20)) {
+            val maxOptionWidth = (maxWidth - Sp.x12) / 2
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Sp.x12),
+                verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
+                rows.forEach { r ->
+                    Row(Modifier.widthIn(max = maxOptionWidth).heightIn(min = Dim.tap)
+                        .clip(RoundedCornerShape(R.sm)).background(c.s1)
+                        .semantics { contentDescription = r.label }
+                        .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled) } ?: Modifier)
+                        .padding(horizontal = Sp.x12, vertical = Sp.x10),
+                        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                        verticalAlignment = Alignment.CenterVertically) {
+                        Icon(r.icon, null, Modifier.size(20.dp), tint = c.fg2)
+                        Column(Modifier.weight(1f, fill = false)) {
+                            Text(r.value, color = c.fg, style = LpText.body)
+                            listOfNotNull(r.metadata?.takeIf(String::isNotBlank), r.subtitle)
+                                .takeIf { it.isNotEmpty() }?.let {
+                                    Text(it.joinToString(" · "), color = c.fg2, style = LpText.caption)
+                                }
+                        }
+                        if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp),
+                            tint = if (enabled) c.fg2 else c.fg3)
+                    }
+                }
+            }
+        }
+        return
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x8),
         verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
         rows.forEach { r ->

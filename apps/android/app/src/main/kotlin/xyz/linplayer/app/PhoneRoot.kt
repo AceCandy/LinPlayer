@@ -356,7 +356,9 @@ private fun MainShell(tv: Boolean) {
                 posterComposable<Route.Liuying>(tvInset = false) { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }
                 posterComposable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
                 posterComposable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
-                posterComposable<Route.Detail> { xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) } }
+                posterComposable<Route.Detail>(tvInset = false) {
+                    xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) }
+                }
                 posterComposable<Route.Person> { xyz.linplayer.app.ui.pages.PersonPage(nav, it) }
                 posterComposable<Route.Search> { xyz.linplayer.app.ui.plugin.Takeover("search") { SearchPage(nav, it) } }
                 posterComposable<Route.Favorites> { xyz.linplayer.app.ui.plugin.Takeover("favorites") {
@@ -419,7 +421,9 @@ private fun MainShell(tv: Boolean) {
                 nav.switchTab(target)
             }
         }
-        if (tv && browsePage) xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value)
+        if (tv && browsePage && entry?.destination?.hasRoute<Route.Detail>() != true) {
+            xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value)
+        }
         if (!tv) LongShotButton(Modifier.align(Alignment.BottomEnd))
     }
     }

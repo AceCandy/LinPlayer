@@ -121,7 +121,7 @@ internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier 
 @Composable
 fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    return this.pressFeedback(src).tvFocus(src)
+    return this.pressFeedback(src).tvFocus(src, enabled = enabled)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -139,7 +139,7 @@ fun Modifier.pressable(
 ): Modifier {
     val src = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled })
+    return this.pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {

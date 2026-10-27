@@ -273,12 +273,31 @@ class VisualAlignmentTest {
         rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-1", "type" to "Movie"), false) }
         shot("detail", "远岸来信")
         if (platform == "tv") {
+            rule.onNodeWithTag("rail.1").assertDoesNotExist()
             val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().getUnclippedBoundsInRoot()
             val screen = rule.onRoot().getUnclippedBoundsInRoot()
             assertTrue("TV电影详情主播放操作必须完整位于首屏", play.top >= screen.top && play.bottom <= screen.bottom)
-        }
+            val hero = rule.onNodeWithTag("detail.hero").getUnclippedBoundsInRoot()
+            assertEquals("TV详情是全屏页，头图应从屏幕顶端铺满", screen.top, hero.top)
+            assertEquals("TV详情背景不能留下左侧空边", screen.left, hero.left)
+            assertEquals("TV详情背景不能留下右侧空边", screen.right, hero.right)
+            assertTrue("TV头图应覆盖首屏主体", hero.bottom - hero.top >= (screen.bottom - screen.top) * .75f)
+            assertTrue("TV播放按钮应按内容收拢而非铺满屏幕", play.right - play.left < (screen.right - screen.left) * .5f)
+            assertEquals("标题与播放按钮应对齐同一安全边距",
+                rule.onNodeWithTag("detail.title").getUnclippedBoundsInRoot().left, play.left)
+            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
+            rule.onRoot().performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionRight) }
+            settle()
+            rule.onNodeWithTag("detail.play.options").assertIsFocused()
+            shot("detail-options-focus", "远岸来信")
+        } else rule.onNodeWithContentDescription("返回").assertIsDisplayed()
         rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-series", "type" to "Series"), false) }
         shot("series", "山海之间")
+        if (platform == "tv") {
+            val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused().getUnclippedBoundsInRoot()
+            val screen = rule.onRoot().getUnclippedBoundsInRoot()
+            assertTrue("剧集续播按钮同样保持紧凑宽度", play.right - play.left < (screen.right - screen.left) * .5f)
+        }
         rule.runOnIdle { PluginNav.host!!.push("settings", args(), false) }
         shot("settings", "播放与外观")
     }

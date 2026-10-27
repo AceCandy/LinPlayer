@@ -59,15 +59,18 @@ internal fun TvPageInset(content: @Composable () -> Unit) {
 
 /** 共用点击控件在电视上显示焦点，并恢复返回前的卡片。 */
 @Composable
-internal fun Modifier.tvFocus(source: MutableInteractionSource, onLongClick: (() -> Unit)? = null): Modifier {
+internal fun Modifier.tvFocus(
+    source: MutableInteractionSource, onLongClick: (() -> Unit)? = null, enabled: Boolean = true,
+): Modifier {
     if (!LocalTvMode.current) return this
     val focused by source.collectIsFocusedAsState()
     val color = if (LocalTvBarOverlay.current?.value == true) Color.White else Lp.colors.fg
     val entry = LocalPosterScene.current?.entry
     val id = rememberSaveable { UUID.randomUUID().toString() }
     val requester = remember { FocusRequester() }
-    LaunchedEffect(entry, id) {
-        if (entry?.savedStateHandle?.get<String>("tv.focus") == id) {
+    LaunchedEffect(entry, id, enabled) {
+        // 返回时数据可能仍在刷新；只在可操作后恢复仍被记住的控件。
+        if (enabled && entry?.savedStateHandle?.get<String>("tv.focus") == id) {
             withFrameNanos { }
             requester.requestFocus()
         }
