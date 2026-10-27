@@ -131,3 +131,25 @@
 ### Next Steps
 
 - 真机安装、遥控焦点、解码播放和 HDMI 刷新率仍待验收；本轮未重打 APK
+
+
+## Session 137: 完成 Android TV 对齐修复并归档
+<!-- trellis-session: v=2 fp=7e30ed93d94d4bf1 -->
+
+**Date**: 2026-10-27
+**Task**: 完成 Android TV 对齐修复并归档
+**Branch**: `main`
+
+### Summary
+
+完成 Android TV 首页、顶栏、共享浏览与播放相关对齐修复；实现 TV 轮播被动播放、栏目获焦切换、黄色短线、浅色叠图高对比、继续观看焦点修复及窗口自适应；通过定向 TV/手机回归、视觉、隐私、参数与 diff 检查；未出包，未做真实 Android TV/实体遥控器/实服验收。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `096e825a` | feat(android): 完成 Android TV 对齐修复 |
+
+### Status
+
+[OK] **Completed**
