@@ -18,6 +18,7 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
@@ -43,6 +44,9 @@ val LocalTvMode = staticCompositionLocalOf { false }
 /** 首页头图在顶且没滚动时为 true:顶栏透明叠在头图上（同手机）。由首页写，宿主读。 */
 internal val LocalTvBarOverlay = staticCompositionLocalOf<MutableState<Boolean>?> { null }
 
+/** 当前首页登记刷新动作，离页撤销；顶栏不复制页面的请求与私密分支。 */
+internal val LocalTvHomeRefresh = staticCompositionLocalOf<MutableState<(() -> Unit)?>?> { null }
+
 /** 电视浏览页左右边距；首页头图向两侧铺满时按它反推。 */
 internal val TvPageSide = 32.dp
 
@@ -58,7 +62,7 @@ internal fun TvPageInset(content: @Composable () -> Unit) {
 internal fun Modifier.tvFocus(source: MutableInteractionSource, onLongClick: (() -> Unit)? = null): Modifier {
     if (!LocalTvMode.current) return this
     val focused by source.collectIsFocusedAsState()
-    val color = Lp.colors.fg
+    val color = if (LocalTvBarOverlay.current?.value == true) Color.White else Lp.colors.fg
     val entry = LocalPosterScene.current?.entry
     val id = rememberSaveable { UUID.randomUUID().toString() }
     val requester = remember { FocusRequester() }
@@ -105,6 +109,7 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
     val focus = remember { FocusRequester() }
     LaunchedEffect(Unit) { withFrameNanos { }; focus.requestFocus() }
     TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界", overlay = overlay,
+        onRefresh = LocalTvHomeRefresh.current?.value?.takeIf { entry?.destination?.hasRoute<Route.Home>() == true },
         modifier = Modifier.focusRequester(focus),
         onServer = { if (privateSpace) app.leavePrivateSpace() else nav.navigate(Route.Servers) { launchSingleTop = true } },
         onPrivateSpace = { if (!privateSpace) scope.launch {
@@ -118,6 +123,13 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
                 3 -> nav.switchTab(Route.Favorites)
                 4 -> nav.switchTab(Route.Aggregate)
                 7 -> nav.navigate(Route.Settings) { launchSingleTop = true }
+            }
+        },
+        onFocusSelect = { index ->
+            when (index) {
+                1 -> nav.switchTab(Route.Home)
+                3 -> nav.switchTab(Route.Favorites)
+                4 -> nav.switchTab(Route.Aggregate)
             }
         })
 }

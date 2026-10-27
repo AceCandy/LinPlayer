@@ -96,6 +96,7 @@ import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -116,6 +117,8 @@ import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
+import xyz.linplayer.app.ui.pages.SourceSwitchTarget
+import xyz.linplayer.app.ui.pages.destination
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -246,6 +249,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     embeddedRoute: Route.Player? = null, onCompleted: (() -> Unit)? = null,
     feedOverlay: (@Composable (FeedPlayback) -> Unit)? = null, feedOffset: Float = 0f,
     feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {},
+    onSourceSwitch: ((SourceSwitchTarget) -> Unit)? = null,
 ) {
     var route by remember(entry) { mutableStateOf(embeddedRoute ?: requireNotNull(entry).toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
@@ -297,6 +301,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     var panelAnchorKey by remember { mutableStateOf("more") }
     var dmSearch by remember { mutableStateOf(false) }
     var srcSwitch by remember { mutableStateOf(false) }
+    var sourceExit by remember { mutableStateOf<SourceSwitchTarget?>(null) }
     /** 弹幕密度。空表 = 不画(关了热力图、或者这一集没弹幕)。 */
     var heat by remember { mutableStateOf<List<Float>>(emptyList()) }
     /* 语料换了要重取一次。**跟着弹幕开关和热力图开关走**,不做轮询 ——
@@ -339,7 +344,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
        所以设置页那一行明说「退出当前播放再进才生效」。 */
     // 数据源播放只走 mpv:取流、解析、请求头都在核心层,ExoPlayer 那条路拿不到这些
     var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
-    val controller = remember(route.itemId, route.versionId) {
+    val controller = remember(route.itemId, route.versionId, route.src) {
         PlayerController(adoptedPlayback.str("engine") ?: if (route.src != null) "mpv" else initialMode) { command, arguments ->
             app.call(command, arguments)
         }
@@ -439,15 +444,15 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
     }
 
-    suspend fun switchTarget(id: String, versionId: String?, title: String) {
+    suspend fun switchTarget(id: String, versionId: String?, title: String, source: Route.Player? = null) {
         if (switching || controller.switching || leaving || latestController !== controller) return
-        if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
+        if (source == null && id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
         switching = true
         try {
             val switchedAt = android.os.SystemClock.elapsedRealtime()
             buffered = 0.0
             startupTiming.close()
-            val resumeAt = if (id == route.itemId) position else null
+            val resumeAt = if (source == null && id == route.itemId) position else null
             PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
             if (route.src == null && id != route.itemId && versionId == null) prepareEpisode(id)
             else cancelPreparation()
@@ -465,7 +470,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             preparedFor = null
             preparedResult = null
             startupOrigin = switchedAt to StartupOrigin.TARGET
-            route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
+            route = source ?: route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
                 versionId = versionId, fromStart = false, ar = 0f, subtitle = null)
         } finally { switching = false }
     }
@@ -745,14 +750,22 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             if (it is kotlinx.coroutines.CancellationException) throw it
             startupTiming.failed()
             app.report(it)
-            if (route.src != null) srcSwitch = true
+            if (route.src != null && !app.privateSpace.value) srcSwitch = true
             // 普通起播失败也进失败页:只弹提示的话黑幕撤掉后就是一块没有原因、也没法重试的黑屏
             failReason = it.message; openFailed = true
         }
     }
     /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
        进度带过去:从别的源接着看同一集。 */
-    if (srcSwitch) route.src?.let { raw -> xyz.linplayer.app.ui.pages.SourcePlayFailed(nav, raw, position) { srcSwitch = false } }
+    if (srcSwitch) route.src?.let { raw ->
+        xyz.linplayer.app.ui.pages.SourcePlayFailed(raw, position, onSwitch = { target ->
+            if (!leaving && !app.privateSpace.value) {
+                if (target is SourceSwitchTarget.Line)
+                    switchTarget(target.route.itemId, target.route.versionId, target.route.title, source = target.route)
+                else { sourceExit = target; leaving = true }
+            }
+        }, onClose = { srcSwitch = false })
+    }
 
     /* ExoPlayer 那条路的状态:**轮询 4 Hz**,和 mpv 的 `player.status` 同频。
        ★ 只能在主线程读 ExoPlayer(它是单线程模型),`LaunchedEffect` 正好跑在
@@ -912,6 +925,22 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         if (!leaving) return@LaunchedEffect
         queueHandoff?.join()
         stopOnExit()
+        sourceExit?.let { target ->
+            PlayerController.awaitPendingStop()
+            if (!app.privateSpace.value) {
+                if (onSourceSwitch != null) onSourceSwitch(target)
+                else try {
+                    val next = target.destination(app)
+                    nav.popBackStack()
+                    nav.navigate(next)
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) {
+                    app.report(e)
+                    sourceExit = null; leaving = false; stopRegistered = false
+                }
+            }
+            return@LaunchedEffect
+        }
         if (onExit != null) onExit(route.itemId.takeIf { route.src == null }) else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             delay(TurnSettleMs)
@@ -1246,7 +1275,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                     }, Modifier.widthIn(min = 112.dp))
                 }
                 // 数据源失败会先弹换源;关掉之后从这里再打开
-                if (route.src != null && !finished) {
+                if (route.src != null && !finished && !app.privateSpace.value) {
                     Spacer(Modifier.height(Sp.x8))
                     xyz.linplayer.app.ui.components.LpButton("换源", { srcSwitch = true }, Modifier.widthIn(min = 112.dp),
                         kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)

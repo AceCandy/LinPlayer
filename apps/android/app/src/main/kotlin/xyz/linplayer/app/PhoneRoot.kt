@@ -206,6 +206,7 @@ private fun MainShell(tv: Boolean) {
     LaunchedEffect(tab) { if (tab >= 0) activeTab = tab }
     var tabsVisible by remember(entry?.id) { mutableStateOf(true) }
     val tvBarOverlay = remember(entry?.id) { mutableStateOf(false) }
+    val tvHomeRefresh = remember(entry?.id) { mutableStateOf<(() -> Unit)?>(null) }
     val density = LocalDensity.current.density
     val posterScroll = remember(entry?.id, density) { PosterScrollMotion(density) }
     LaunchedEffect(posterScroll, posterScroll.fast) {
@@ -289,6 +290,7 @@ private fun MainShell(tv: Boolean) {
             if (browsePage && !tv) xyz.linplayer.app.ui.theme.Dim.tabClearance else 0.dp,
         LocalPosterScroll provides posterScroll,
         xyz.linplayer.app.tv.LocalTvBarOverlay provides if (tv) tvBarOverlay else null,
+        xyz.linplayer.app.tv.LocalTvHomeRefresh provides if (tv) tvHomeRefresh else null,
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,

@@ -9,7 +9,7 @@
 - 手机普通首页的左上角始终是服务器选择入口，Emby 与插件数据源首页复用 `ServerChip` / `ServerMenu`；源内容加载、为空或失败不能阻塞账号菜单。选择其它账号走 `account.setActiveServer(server_id)` 后刷新会话，不压入新首页；切源清空旧搜索。分类/详情保留返回，Emby 隐私长按与退出语义、TV 顶栏不变。`PhoneHomeRefreshTest.sourceServerPicker*` 覆盖上述状态、源间/Emby切换、当前项不重复切服和二级页返回，避免首页替换后遗漏宿主导航。
 - 切到插件源后旧 Emby 首页可能尚未离开组合；`homeHeroCandidates` 在无 Emby 会话时返回空列表，不发送需要 `server/user_id` 的候选查询。`CachedHomeImagesTest.switchingAwayFromEmbySkipsStaleHeroCandidateQuery` 覆盖会话清空后的命令与图片请求隔离；实际切服仍需设备验证，不能只断言菜单存在。
 - 手机与TV浏览主导航共用 PhoneRoot/MainShell、Navigation Compose / Route。TvRoot 只提供TV宿主配置；TvNav 仅保留于TV播放器内部（换集 / 换版本栈），不再承载浏览入口；旧 TV 浏览页已删除。样式适配不得另写浏览请求与业务状态。
-- TV 带导航页面统一72dp顶部栏、48dp安全边距,内容向下避让(边距由 `posterComposable` 挂在每一页上，不挂外层容器，切页动画里两页各带各的);首页有头图时例外：整页铺到顶栏下面，头图左右铺满到屏幕边缘、下方各栏仍留页边距，未滚动时顶栏透明叠在头图上(同手机)。TV 不挂下拉刷新(`LpPullRefresh`):焦点滚到顶的溢出量会拉出指示器卡住，并吞掉之后的下滚。TV 上 `LpCell` 开关行整行是一个焦点、确认切换；`LpDialog` 遮罩与面板不取焦点，打开时焦点交给面板第一项;最左当前服名替代品牌，主栏目首页/收藏/发现,辅助搜索/设置,原route.rail索引保持，索引2/5/6不展示独立导航项。服名普通点击服务器管理、长按/菜单键进私密、私密点击退出，移除首页重复服名；首页库标题进入完整库，设置管理媒体库保留解除隐藏入口。TV不提供下载，卡片/详情移除下载操作，插件downloads路由拒绝；旧下载路由回首页，不加载任务。左右选择、确认切页、下键恢复内容记忆;当前基础栏目确认不重建entry,下钻确认回入口。私密空间额外隐藏设置与角标，服名保留。首页、详情、媒体库、搜索、聚合与设置复用手机页面；聚合标签为“聚合视界”。TV详情头图最小高220dp，首页轮播持有遥控焦点时暂停。SharedTvBrowseTest/TvPrivacyTest覆盖实际入口与焦点；TvPageShots 只出播放页截图，真机手感与帧率另验。
+- TV 带导航页面统一72dp顶部栏、48dp安全边距,内容向下避让(边距由 `posterComposable` 挂在每一页上，不挂外层容器，切页动画里两页各带各的);首页有头图时例外：整页铺到顶栏下面，头图左右铺满到屏幕边缘、下方各栏仍留页边距，未滚动时顶栏透明叠在头图上(同手机)。TV 不挂下拉刷新(`LpPullRefresh`):焦点滚到顶的溢出量会拉出指示器卡住，并吞掉之后的下滚。TV 上 `LpCell` 开关行整行是一个焦点、确认切换；`LpDialog` 遮罩与面板不取焦点，打开时焦点交给面板第一项;最左当前服名替代品牌，主栏目首页/收藏/发现,辅助搜索/设置,原route.rail索引保持，索引2/5/6不展示独立导航项。首页/收藏/发现获焦立即切页，服务器/搜索/设置/刷新仍确认。服名普通点击服务器管理、长按/菜单键进私密、私密点击退出，移除首页重复服名；首页库标题进入完整库，设置管理媒体库保留解除隐藏入口。TV不提供下载，卡片/详情移除下载操作，插件downloads路由拒绝；旧下载路由回首页，不加载任务。左右选择；栏目获焦切页，动作入口确认；下键恢复内容记忆;当前基础栏目不重建entry,下钻确认回入口。私密空间额外隐藏设置与角标，服名保留。首页、详情、媒体库、搜索、聚合与设置复用手机页面；聚合标签为“聚合视界”。TV详情头图最小高220dp，首页轮播只自动展示、不进入焦点链，并在离屏/后台暂停。SharedTvBrowseTest/TvPrivacyTest覆盖实际入口与焦点；TvPageShots 只出播放页截图，真机手感与帧率另验。
 - 默认橙金保留影院底色；本机外观设置可选蓝/绿/紫/Monet，深浅独立。Monet只在API31起使用Material3动态中性色与强调色，旧版本明确回退橙金；mediaAccent/mediaOnAccent为acc/accFg别名，避免选中态出现第二套蓝色。浅色正文、次级与弱提示文字在 bg 和 s1/s2/s3 合成底上至少 4.5:1，由 PhoneThemeTest.lightTextContrast 断言；实际组件与叠图仍需渲染核查。
 - 深色 → 浅色 → 深色要检查背景、说明、箭头、数值和选中项；设备强制深色的表现不能只用 JVM 截图下结论。
 - PhoneRoot 始终铺当前主题 bg，壁纸在其上绘制；不能因配置了壁纸而让根背景透明。标准 Material 表面色先将 s1/s2/s3 合成到 bg；共用面板与按钮使用合成后的实色主题表面，不加玻璃高光；普通与隐私空间首页服名均无底无框，叠图时白字阴影。
@@ -239,12 +239,41 @@
 - TV的Route.Player经PlayerLaunchPage启动横屏PlayerActivity，由TvPlaybackHost挂既有TvPlayerPage；传递版本、从头播放、数据源参数及字幕身份，不启用手机PiP。文件浏览显式传localEntry，走source.play，不按Emby条目播放或回传Emby刷新ID。
 - 正常退出先登记stopIn，再回传实际末集；伴侣与播放失败线路导航回共用浏览栈，不进入旧TV浏览页。添加服务器保留TV扫码和本地目录选择器。PlayerActivityTest覆盖字幕、切集、末集回传及本地来源。
 
+## 插件失败换源交接
+
+### 1. 范围 / 触发
+手机和TV插件起播失败共用候选弹窗；不扩展`officialRoute`或插件公开导航权限，不改核心命令和持久化格式。
+
+### 2. 签名
+`SourcePlayFailed(raw, pos, onSwitch: suspend (SourceSwitchTarget) -> Unit, onClose)`分离候选选择与导航。内部密封目标为`Line(Route.Player)`、`Source(Route.SourceDetail, fromServer, fromItem)`、`Emby(serverId, Route.Detail)`。
+
+### 3. 契约
+- 同源线路复用当前播放器换目标，先停后播、不新增Activity；手机控制器身份包含`route.src`。起播失败时优先有效正进度，否则保留`src.resume_secs`；跨插件沿原线路单集`index`选择目标集。
+- 跨源先等待停止，再由`PlayerActivity.SOURCE_SWITCH`回传序列化目标。`PlayerLaunchPage`校验当前entry与空间代次后执行`source.linkSwitch`或切服/刷新会话，移除失败交接页再导航；不能直接在仅注册Player的播放导航图内打开详情。
+- `SourceDetailPage.autoDone`用`rememberSaveable`保存单次自动起播标记，返回源详情不得重播。同源停止若遇取消须继续抛出`CancellationException`，即使底层迟到返回也在更新目标前`ensureActive()`。
+
+### 4. 校验 / 错误
+候选层级及必要ID缺失显示错误；候选查询用`displayBlock`消费partial，取消不向已关闭弹窗写入，错误可重试且不伪装为空。私密空间不组合候选、不接受源播放和换源结果；非法JSON、Line结果、非成功结果及失效entry/空间不能触发跨源副作用。关联/切服失败回原浏览页并反馈，不打开错误目标。
+
+### 5. 正常 / 基础 / 错误案例
+第4集入口携带125秒而当前进度为0时，换线路仍带125秒；跨插件自动找第4集，返回停留源详情；候选取消、慢停止、切服失败均不启动迟到目标。
+
+### 6. 必要测试
+`PlayerActivityTest`验证手机/TV停止先后、续播、专用结果、取消与候选重试，TV按真实方向/确认/返回键关闭重开和选择；`PlayerLaunchPageTest`验证集序、返回不重播、慢停止、错误结果及空间隔离。真实插件取流和实体遥控另验。
+
+### 7. 错误与正确做法
+错误：仅复用已有弹窗、在播放Activity内直接跳详情，或用`runCatching`吞取消后继续换线。正确：共用候选UI，线路留在原播放器，跨源经专用内部结果交还浏览栈，并覆盖迟到响应和返回路径。
+
 ## TV共用浏览审查回归
 
 - 账号来源类型读取核心account.listAccounts的source_kind；AppState.boot从同一账号快照发布localSource，activeSource仍只表示插件源。TV本机源首页提供打开文件夹入口，不能落入Emby首页请求；切回Emby时清本机状态。手机首页路径不变。
 - TV文件浏览仅列is_dir或is_video，不能把任意非目录文件都送入播放器。遥控返回在子目录先退一层，根层再退浏览路由；屏幕返回与遥控返回的层级语义一致。
 - TV换条目或版本清除旧详情字幕预选，让同剧手选字幕按新轨身份恢复；同条目同版本重播不因本次修复丢掉有效预选。测试必须实际走详情预选→手选→版本菜单→新轨恢复，不能只断言参数被清空。
 - SharedTvBrowseTest覆盖实际TvRoot本机首页、来源切换、目录返回及过滤；TvTrackTimingTest覆盖换版本后手选字幕恢复。旧测试只覆盖Emby首页和无预选切集，无法证明上述路径成立。
+- TV切集与换版本沿用本次入口的initialMode（显式engine或进入时偏好），auto仍由PlayerController解析；不能在每个新target重读全局偏好，也不扩大为永久保留手动切核/自动回退后的实际内核。非Emby保持MPV，停止屏障不变。
+- TV网格默认列数按LocalWindowInfo容器dp扣除TvPageSide双侧边距后调用posterLayout(widthDp, heightDp)，960x540默认五列；插件明确列数覆盖保留。电影详情TV单列主操作在版本/音轨/字幕参数之前，首屏完整可见；工具栏向下显式链接可见且已就绪的主操作，合集、加载中和未挂载目标不设此边。手机排列不变。VisualAlignmentTest检查片名、年份和播放按钮实际边界，SharedTvBrowseTest验证实际窗口列数/插件覆盖与初始焦点沿方向键起播。
+- TV分集标题只随itemId清理，不因同条目attempt/engine重置；规格由当前versions与player.play回传media_source_id实时匹配，未知身份不显示首版本兜底。换集清列表、每次起播清身份，异步写回前检查取消。TvPhoneParityTest覆盖偏好晚到、切核/重试、换集及版本/起播两种返回顺序。
+- TV首页通过LocalTvHomeRefresh登记原onRefresh，壳按导航entry持有，DisposableEffect离页仅撤销自己的回调，rememberUpdatedState读取当前刷新闭包。SharedTopNavigation仅在Home显示，TopNavigation追加独立动作8并接入左右焦点，不改既有导航索引。刷新中保留按钮与焦点、按原refreshing防重；普通刷新能力、私密跳过能力刷新，本机/插件首页不登记。SharedTvBrowseTest/TvPrivacyTest/PhoneHomeRefreshTest覆盖真实按键、挂起防重、离页返回及账号/空间切换。
 
 - 手机榜单用 PageCache 保留当前分类列表、页码、末页和追加错误，仅同返回栈已完成请求可跳过首屏；新进入、失败、取消或主动刷新仍加载。精确匹配触发主服切换时只交接该榜单快照，普通换账号/空间仍清缓存。PhoneDiscoverUiTest 覆盖往返滚动、续页、主服切换和新导航重载。
 

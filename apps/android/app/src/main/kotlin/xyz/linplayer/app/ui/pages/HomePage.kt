@@ -19,8 +19,6 @@ import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
 import androidx.compose.foundation.background
-import androidx.compose.foundation.focusGroup
-import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.asPaddingValues
@@ -175,6 +173,18 @@ fun HomePage(nav: NavController) {
     var accounts by keepState<List<Account>>("home.accounts") { emptyList() }
     var reload by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    val onRefresh: () -> Unit = { if (!refreshing) {
+        refreshing = true; reload++
+        if (!privateSpace) scope.launch { app.block("emby.extCapabilities", args("refresh" to true)) }
+    } }
+    xyz.linplayer.app.tv.LocalTvHomeRefresh.current?.let { holder ->
+        val refresh by androidx.compose.runtime.rememberUpdatedState(onRefresh)
+        androidx.compose.runtime.DisposableEffect(holder) {
+            val action = { refresh() }
+            holder.value = action
+            onDispose { if (holder.value === action) holder.value = null }
+        }
+    }
     val owner = LocalLifecycleOwner.current
     val currentSession by app.session.collectAsState()
     val motionAccount = currentSession?.let { it.server to it.userId }
@@ -402,10 +412,7 @@ fun HomePage(nav: NavController) {
 
         LpPullRefresh(
             refreshing = refreshing,
-            onRefresh = { if (!refreshing) {
-                refreshing = true; reload++
-                if (!privateSpace) scope.launch { app.block("emby.extCapabilities", args("refresh" to true)) }
-            } },
+            onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().padding(
                 top = when {
                     banners.isNotEmpty() -> 0.dp
@@ -511,7 +518,7 @@ fun HomePage(nav: NavController) {
 /** 头图评分用暖金色，和白字信息行区分开。 */
 private val HeroScore = Color(0xFFFFC94D)
 
-/** 全宽电影Hero；触摸/纵向滚动/离屏/后台暂停，手动操作后重新计满轮播间隔。点按整张进详情，不另设播放键。 */
+/** 全宽电影Hero；手机可触摸切换和点按，TV只自动轮播并暂停于离屏/后台。 */
 @Composable
 internal fun CachedHomeBanner(
     images: List<CachedHomeImage>,
@@ -578,14 +585,13 @@ internal fun CachedHomeBanner(
     }
     var progress by remember { mutableFloatStateOf(0f) }
     val tv = LocalTvMode.current
-    var focused by remember { mutableStateOf(false) }
     var touching by remember { mutableStateOf(false) }
     var dragging by remember { mutableStateOf(false) }
     var manualRevision by remember { mutableStateOf(0) }
     val motion = xyz.linplayer.app.ui.theme.LocalMotionScale.current
-    LaunchedEffect(owner, visible, images.size > 1, currentId, touching, dragging, focused, manualRevision, motion) {
+    LaunchedEffect(owner, visible, images.size > 1, currentId, touching, dragging, manualRevision, motion) {
         progress = 0f
-        if (!visible || touching || dragging || focused || images.size < 2 || motion <= 0f) return@LaunchedEffect
+        if (!visible || touching || dragging || images.size < 2 || motion <= 0f) return@LaunchedEffect
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.RESUMED) {
             while (true) {
                 val started = withInfiniteAnimationFrameNanos { it }
@@ -607,9 +613,7 @@ internal fun CachedHomeBanner(
     val wide = LocalConfiguration.current.screenWidthDp >= 600
     val heroHeight = (available * when { tv -> .6f; wide -> .5f; else -> .42f }).coerceIn(260.dp, if (wide) 460.dp else 310.dp)
         .coerceAtMost(available * .65f).coerceAtLeast(contentMin) + foregroundExtension
-    Box(modifier.fillMaxWidth().height(heroHeight).testTag("home.banners")
-        .then(if (tv) Modifier.onFocusChanged { focused = it.hasFocus }.focusGroup() else Modifier)
-        .pointerInput(Unit) {
+    val interaction = if (tv) Modifier else Modifier.pointerInput(Unit) {
             awaitEachGesture {
                 awaitFirstDown(requireUnconsumed = false)
                 touching = true
@@ -617,8 +621,7 @@ internal fun CachedHomeBanner(
                     while (awaitPointerEvent(PointerEventPass.Initial).changes.any { it.pressed }) { }
                 } finally { touching = false; manualRevision++ }
             }
-        }
-        .pointerInput(Unit) {
+        }.pointerInput(Unit) {
             var travel = 0f
             detectHorizontalDragGestures(
                 onDragStart = { dragging = true; travel = 0f },
@@ -629,7 +632,8 @@ internal fun CachedHomeBanner(
                     dragging = false; manualRevision++
                 },
             ) { change, amount -> change.consume(); travel += amount }
-        }) {
+        }
+    Box(modifier.fillMaxWidth().height(heroHeight).testTag("home.banners").then(interaction)) {
         // 隐藏媒体库时将腾出的高度并入Hero，后续续播卡片保持原位。
         val extended = Modifier.fillMaxWidth().layout { measurable, constraints ->
             val height = heroHeight.roundToPx()
@@ -661,12 +665,12 @@ internal fun CachedHomeBanner(
                 at(full - band) to Color.Black.copy(alpha = if (c.isDark) .74f else .68f),
                 1f to c.bg)))
         }
-        Box(Modifier.fillMaxWidth().height(heroHeight).pressable({
+        Box(Modifier.fillMaxWidth().height(heroHeight).then(if (tv) Modifier else Modifier.pressable({
             // 登记来源后详情头图从这张剧照放大接上
             if (posterMotion != null && posterScene != null)
                 posterMotion.open(posterScene.entry, image.item, "hero-${image.item.id}", image.url) { open(image.item) }
             else open(image.item)
-        })) {
+        }))) {
             AnimatedContent(image.item, Modifier.align(Alignment.BottomStart).fillMaxWidth(), contentKey = { it.id },
                 contentAlignment = Alignment.BottomStart,
                 // 文字随图同向推移但只走 1/3 幅宽，比背景慢一拍形成层次
@@ -879,15 +883,29 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
 @Composable
 private fun HomeRowLoading(title: String, thumb: Boolean) = LpRowSkeleton(title, thumb)
 
-/** 媒体库卡尺寸：平板放大，免得一排小卡缩在大屏左上角。 */
+/** 媒体库卡按TV内容区宽度分配，手机/平板沿用既有刻度。 */
 @Composable
-private fun libraryCardSize() = if (!xyz.linplayer.app.tv.LocalTvMode.current && LocalConfiguration.current.screenWidthDp >= 600)
-    androidx.compose.ui.unit.DpSize(220.dp, 124.dp) else androidx.compose.ui.unit.DpSize(158.dp, 90.dp)
+private fun libraryCardSize(): androidx.compose.ui.unit.DpSize {
+    if (!xyz.linplayer.app.tv.LocalTvMode.current) {
+        return if (LocalConfiguration.current.screenWidthDp >= 600)
+            androidx.compose.ui.unit.DpSize(220.dp, 124.dp)
+        else androidx.compose.ui.unit.DpSize(158.dp, 90.dp)
+    }
+    val size = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
+    val available = with(LocalDensity.current) {
+        size.width.toDp() - xyz.linplayer.app.tv.TvPageSide * 2 - Sp.x16 * 2
+    }.coerceAtLeast(1.dp)
+    val columns = kotlin.math.ceil((available + Sp.x10) / (260.dp + Sp.x10)).toInt().coerceAtLeast(1)
+    val width = (available - Sp.x10 * (columns - 1)) / columns
+    return androidx.compose.ui.unit.DpSize(width, width * 9 / 16)
+}
 
 @Composable
 private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = false) {
     val c = Lp.colors
     val app = LocalApp.current
+    val cardSize = libraryCardSize()
+    val imageHeight = with(LocalDensity.current) { cardSize.height.roundToPx() }
     LazyRow(
         Modifier.fillMaxWidth().padding(top = Sp.x4).testTag("home.libraries"),
         contentPadding = PaddingValues(horizontal = Sp.x16),
@@ -896,12 +914,12 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
         items(views, key = { it.id }) { v ->
             Box(
                 // 叠在头图上用半透明深底，浅色主题下不至于在暗背景上挖出浅灰方块。
-                Modifier.size(libraryCardSize()).clip(RoundedCornerShape(R.md))
+                Modifier.size(cardSize).clip(RoundedCornerShape(R.md))
                     .background(if (onImage) Color.Black.copy(alpha = .28f) else c.s1)
                     .pressable({ nav.navigate(Route.Library(v.id, v.name)) }),
                 contentAlignment = Alignment.Center,
             ) {
-                NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", 260) else null, v.name,
+                NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", imageHeight) else null, v.name,
                     Modifier.fillMaxSize(), R.md, ContentScale.Fit, placeholderWhileLoading = true,
                     placeholder = {
                         Text(v.name, Modifier.fillMaxWidth().padding(Sp.x12), color = if (onImage) Color.White else c.fg,

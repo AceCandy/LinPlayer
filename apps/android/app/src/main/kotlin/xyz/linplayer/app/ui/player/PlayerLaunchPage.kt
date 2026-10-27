@@ -1,5 +1,6 @@
 package xyz.linplayer.app.ui.player
 
+import android.app.Activity
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
@@ -9,6 +10,8 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -20,17 +23,48 @@ import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.launch
+import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.officialRoute
 import xyz.linplayer.app.PlayerActivity
 import xyz.linplayer.app.ui.Route
+import xyz.linplayer.app.ui.pages.SourceSwitchTarget
+import xyz.linplayer.app.ui.pages.destination
 
 /** 所有手机播放路由共用此交接点；返回后弹出交接页，恢复原有浏览栈。 */
 @Composable
 internal fun PlayerLaunchPage(nav: NavController, entry: NavBackStackEntry, privateSpace: Boolean = false, tv: Boolean = false) {
     val context = LocalContext.current
+    val app = LocalApp.current
+    val scope = rememberCoroutineScope()
+    val epoch = remember(entry) { app.spaceRevision.value }
     var launched by rememberSaveable { mutableStateOf(false) }
     val launcher = rememberLauncherForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        val sourceSwitch = result.data?.getStringExtra(PlayerActivity.SOURCE_SWITCH)
+        if (sourceSwitch != null) {
+            fun current() = nav.currentBackStackEntry?.id == entry.id &&
+                app.spaceRevision.value == epoch && !privateSpace && !app.privateSpace.value
+            if (result.resultCode != Activity.RESULT_OK || !current()) {
+                if (nav.currentBackStackEntry?.id == entry.id) nav.popBackStack()
+                return@rememberLauncherForActivityResult
+            }
+            scope.launch {
+                val next = try {
+                    val target = Json.decodeFromString<SourceSwitchTarget>(sourceSwitch)
+                    check(target !is SourceSwitchTarget.Line) { "同源线路应在播放器内切换" }
+                    target.destination(app)
+                } catch (e: CancellationException) { throw e }
+                  catch (e: Exception) { if (current()) app.report(e); null }
+                if (current()) {
+                    // 换源替换失败的交接页，返回不得再次启动原失败线路。
+                    nav.popBackStack()
+                    next?.let { nav.navigate(it) }
+                }
+            }
+            return@rememberLauncherForActivityResult
+        }
         result.data?.getStringExtra(PlayerActivity.PLAYED_ITEM)?.let { itemId ->
             nav.previousBackStackEntry?.savedStateHandle?.let { state ->
                 state[PlayerActivity.PLAYED_ITEM] = itemId

@@ -14,13 +14,23 @@ import androidx.compose.ui.test.performClick
 import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.pressKey
+import androidx.compose.ui.test.hasText
+import androidx.compose.ui.test.hasAnyAncestor
+import androidx.compose.ui.test.isDialog
+import androidx.compose.ui.test.assertIsFocused
 import androidx.compose.ui.input.key.Key
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.NonCancellable
+import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonNull
+import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonElement
+import kotlinx.serialization.json.JsonObject
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -36,11 +46,15 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.dbl
+import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.tv.player
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.player.PlaybackService
+import xyz.linplayer.app.core.CorePort
+import xyz.linplayer.app.ui.pages.SourceSwitchTarget
 
 @RunWith(RobolectricTestRunner::class)
 @GraphicsMode(GraphicsMode.Mode.NATIVE)
@@ -94,6 +108,23 @@ class PlayerActivityTest {
         assertFalse(core.calls.any { it.first == "player.play" })
     }
 
+    @Test fun privatePlaybackRejectsPluginSourceBeforeAnySourceRequest() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("emby.views", Json.parseToJsonElement("""[{"id":"classified","is_adult":false}]"""))
+        }
+        val app = AppState(core, scope)
+        app.enablePrivacyFiltering()
+        runBlocking { app.boot(); app.enterPrivateSpace() }
+        assertTrue(app.privateSpace.value)
+        TestPlayerActivity.state = app
+        val context = RuntimeEnvironment.getApplication()
+        host = Robolectric.buildActivity(TestPlayerActivity::class.java,
+            PlayerActivity.intent(context, Route.Player("source-item", "源影片", src = switchSource), privateSpace = true)
+                .setClass(context, TestPlayerActivity::class.java)).create()
+        assertTrue(host!!.get().isFinishing)
+        assertFalse(core.calls.any { it.first == "source.playItem" || it.first == "source.switchCandidates" })
+    }
+
     @Test fun pluginSourceWithoutEmbySessionKeepsPlayerOpenAfterStartupAndEarlyEof() {
         val core = openPluginPlayer()
         rule.onNodeWithTag("player.video").assertIsDisplayed()
@@ -114,11 +145,208 @@ class PlayerActivityTest {
 
     @Test fun pluginSourceResolveFailureDoesNotFinishPlayerActivity() {
         openPluginPlayer(fail = true)
-        rule.onNodeWithText("换源").assertIsDisplayed()
+        rule.onNode(hasText("换源") and hasAnyAncestor(isDialog())).assertIsDisplayed()
         assertFalse(host!!.get().isFinishing)
     }
 
-    private fun openPluginPlayer(fail: Boolean = false): FakeCore {
+    private val switchSource = """{"server_id":"plugin:test/tvbox/a","item":{"id":"source-item","title":"测试源影片","lines":[{"id":"line","episodes":[{"id":"ep4","index":4}]},{"id":"line2","episodes":[{"id":"alt4","index":4}]}]},"line_id":"line","episode_id":"ep4","resume_secs":125}"""
+
+    private fun switchCandidate(layer: Int) = kotlinx.serialization.json.Json.parseToJsonElement(when (layer) {
+        1 -> """{"layer":1,"line_id":"line2","line_name":"备用线路","episode_id":"alt4"}"""
+        2 -> """{"layer":2,"server_id":"plugin:test/tvbox/b","server_name":"备用源","item":{"id":"alternate","title":"备用影片"}}"""
+        else -> """{"layer":3,"server_id":"http://emby-b.invalid","server_name":"备用服务器","emby_item":{"id":"emby-series","name":"备用剧集","type_":"Series"}}"""
+    })
+
+    private fun lineSwitchKeepsResume(tv: Boolean) {
+        val core = openPluginPlayer(tv = tv, source = switchSource) { fake ->
+            fake.on("source.playItem") { args ->
+                if (args.str("line_id") == "line") throw xyz.linplayer.app.core.CoreException("E_UPSTREAM", "测试取流失败", false)
+                JsonNull
+            }
+            fake.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(1)))
+        }
+        rule.waitForIdle()
+        val attempts = core.calls.count { it.first == "source.playItem" }
+        rule.onNodeWithText("备用线路").performClick()
+        rule.waitForIdle()
+        val plays = core.calls.withIndex().filter { it.value.first == "source.playItem" }
+        assertEquals(attempts + 1, plays.size)
+        assertEquals("line2", plays.last().value.second.str("line_id"))
+        assertEquals("alt4", plays.last().value.second.str("episode_id"))
+        assertEquals(125.0, plays.last().value.second.dbl("resume_secs")!!, 0.0)
+        assertTrue(core.calls.indexOfLast { it.first == "player.stopPlayback" } in
+            (plays[plays.lastIndex - 1].index + 1) until plays.last().index)
+        assertFalse(host!!.get().isFinishing)
+        assertNull(shadowOf(host!!.get()).nextStartedActivityForResult)
+    }
+
+    @Test fun pluginLineSwitchKeepsResumeAndStopsBeforeStartingWithoutAnotherActivity() = lineSwitchKeepsResume(tv = false)
+    @Test fun televisionLineSwitchKeepsResumeAndStopsBeforeStartingWithoutAnotherActivity() = lineSwitchKeepsResume(tv = true)
+
+    private fun failedSourceReturnsToBrowser(layer: Int, tv: Boolean = false) {
+        val core = openPluginPlayer(fail = true, tv = tv, source = switchSource) { fake ->
+            fake.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(layer)))
+            fake.ret("account.setActiveServer", JsonNull)
+            fake.ret("source.linkSwitch", JsonNull)
+        }
+        rule.onNodeWithText(if (layer == 2) "备用影片" else "备用剧集", substring = true).performClick()
+        rule.waitForIdle()
+        assertTrue(host!!.get().isFinishing)
+        val returned = shadowOf(host!!.get()).resultIntent.getStringExtra(PlayerActivity.SOURCE_SWITCH)
+        assertNotNull(returned)
+        val target = Json.decodeFromString<SourceSwitchTarget>(returned!!)
+        if (layer == 2) {
+            assertEquals(SourceSwitchTarget.Source(Route.SourceDetail("plugin:test/tvbox/b", "alternate",
+                autoPos = 125.0, autoIndex = 4), "plugin:test/tvbox/a", "source-item"), target)
+        } else assertEquals(SourceSwitchTarget.Emby("http://emby-b.invalid", Route.Detail("emby-series", "Series")), target)
+        assertNull(shadowOf(host!!.get()).resultIntent.getStringExtra(PlayerActivity.NAV_ROUTE))
+        assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+        assertFalse(core.calls.any { it.first in setOf("source.linkSwitch", "account.setActiveServer") })
+    }
+
+    @Test fun pluginCrossSourceReturnsToBrowserInsteadOfUnregisteredDestination() = failedSourceReturnsToBrowser(2)
+    @Test fun pluginEmbySwitchReturnsToBrowserBeforeChangingAccount() = failedSourceReturnsToBrowser(3)
+    @Test fun televisionPluginFailureOffersTheSameCrossSourceChoice() = failedSourceReturnsToBrowser(2, tv = true)
+    @Test fun televisionEmbySwitchReturnsToBrowserBeforeChangingAccount() = failedSourceReturnsToBrowser(3, tv = true)
+
+    private fun sourceExitWaitsForStop(tv: Boolean) {
+        val stopped = CompletableDeferred<Unit>()
+        val core = openPluginPlayer(fail = true, tv = tv, source = switchSource, intercept = { fake ->
+            object : CorePort by fake {
+                override suspend fun callJson(command: String, args: JsonObject?,
+                    onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                    val result = fake.callJson(command, args, onPartial)
+                    if (command == "player.stopPlayback") stopped.await()
+                    return result
+                }
+            }
+        }) { it.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(2))) }
+        try {
+            rule.onNodeWithText("备用影片", substring = true).performClick()
+            rule.waitForIdle()
+            assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+            assertFalse(host!!.get().isFinishing)
+            rule.runOnIdle { stopped.complete(Unit) }
+            rule.waitForIdle()
+            assertTrue(host!!.get().isFinishing)
+            assertNotNull(shadowOf(host!!.get()).resultIntent.getStringExtra(PlayerActivity.SOURCE_SWITCH))
+            assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+        } finally { stopped.complete(Unit) }
+    }
+
+    @Test fun phoneCrossSourceWaitsForPendingStop() = sourceExitWaitsForStop(tv = false)
+    @Test fun televisionCrossSourceWaitsForPendingStop() = sourceExitWaitsForStop(tv = true)
+
+    private fun dismissSourceDialog() {
+        rule.runOnIdle {
+            val view = requireNotNull(org.robolectric.shadows.ShadowDialog.getLatestDialog().window).decorView
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        rule.waitForIdle()
+        rule.onNode(isDialog()).assertDoesNotExist()
+    }
+
+    @Test fun televisionRemoteCanCloseReopenAndChooseFailedSource() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val wasTouch = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
+        instrumentation.setInTouchMode(false)
+        try {
+            openPluginPlayer(fail = true, tv = true, source = switchSource) {
+                it.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(1), switchCandidate(2)))
+            }
+            rule.onNode(hasText("备用线路") and hasAnyAncestor(isDialog())).assertIsFocused()
+            rule.onNode(isDialog()).captureRoboImage("build/player-activity/tv-source-switch.png")
+            dismissSourceDialog()
+            assertFalse(host!!.get().isFinishing)
+            rule.onRoot().captureRoboImage("build/player-activity/tv-source-failure.png")
+            rule.onNodeWithText("重试").assertIsFocused().performKeyInput { pressKey(Key.DirectionRight) }
+            rule.onNodeWithText("换源").assertIsFocused().performKeyInput { pressKey(Key.DirectionCenter) }
+            rule.waitForIdle()
+            rule.onNode(hasText("备用线路") and hasAnyAncestor(isDialog())).assertIsFocused()
+                .performKeyInput { pressKey(Key.DirectionDown) }
+            rule.waitForIdle()
+            rule.onNode(hasText("备用影片", substring = true) and hasAnyAncestor(isDialog())).assertIsFocused()
+                .performKeyInput { pressKey(Key.DirectionCenter) }
+            rule.waitForIdle()
+            assertTrue(host!!.get().isFinishing)
+        } finally { instrumentation.setInTouchMode(wasTouch) }
+    }
+
+    @Test fun sourceCandidateFailureIsVisibleAndCanRetry() {
+        val core = openPluginPlayer(fail = true, source = switchSource) {
+            it.on("source.switchCandidates") { throw xyz.linplayer.app.core.CoreException("E_NETWORK", "候选查询测试失败", true) }
+        }
+        rule.onNodeWithText("候选查询测试失败", substring = true).assertIsDisplayed()
+        rule.onNodeWithText("别的源里都没找到这部片。可以给更多源打开「允许聚合」。").assertDoesNotExist()
+        core.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(2)))
+        rule.onNode(hasText("重试") and hasAnyAncestor(isDialog())).performClick()
+        rule.onNodeWithText("备用影片", substring = true).assertIsDisplayed()
+        assertEquals(2, core.calls.count { it.first == "source.switchCandidates" })
+    }
+
+    @Test fun dismissedCandidateQueryCannotOverwriteReopenedDialog() {
+        val release = CompletableDeferred<Unit>()
+        var first = true
+        openPluginPlayer(fail = true, source = switchSource, intercept = { fake ->
+            object : CorePort by fake {
+                override suspend fun callJson(command: String, args: JsonObject?,
+                    onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                    val result = fake.callJson(command, args, onPartial)
+                    if (command == "source.switchCandidates" && first) {
+                        first = false
+                        withContext(NonCancellable) { release.await() }
+                        val old = Json.parseToJsonElement("""[{"layer":2,"server_id":"plugin:test/tvbox/b","item":{"id":"old","title":"过期候选"}}]""")
+                        onPartial?.invoke(old)
+                        return old
+                    }
+                    return result
+                }
+            }
+        }) { it.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(2))) }
+        try {
+            rule.onNodeWithText("找其它源…").assertIsDisplayed()
+            dismissSourceDialog()
+            rule.onNodeWithText("换源").performClick()
+            rule.onNodeWithText("备用影片", substring = true).assertIsDisplayed()
+            rule.runOnIdle { release.complete(Unit) }
+            rule.waitForIdle()
+            rule.onNodeWithText("备用影片", substring = true).assertIsDisplayed()
+            rule.onNodeWithText("过期候选").assertDoesNotExist()
+        } finally { release.complete(Unit) }
+    }
+
+    private fun cancelledLineSwitchKeepsOldTarget(tv: Boolean) {
+        val stopped = CompletableDeferred<Unit>()
+        val core = openPluginPlayer(fail = true, tv = tv, source = switchSource, intercept = { fake ->
+            object : CorePort by fake {
+                override suspend fun callJson(command: String, args: JsonObject?,
+                    onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                    val result = fake.callJson(command, args, onPartial)
+                    if (command == "player.stopPlayback") withContext(NonCancellable) { stopped.await() }
+                    return result
+                }
+            }
+        }) { it.ret("source.switchCandidates", xyz.linplayer.app.tv.arr(switchCandidate(1))) }
+        try {
+            rule.onNodeWithText("备用线路").performClick()
+            rule.waitForIdle()
+            assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
+            dismissSourceDialog()
+            val plays = core.calls.count { it.first == "source.playItem" }
+            rule.runOnIdle { stopped.complete(Unit) }
+            rule.waitForIdle()
+            assertEquals(plays, core.calls.count { it.first == "source.playItem" })
+            assertFalse(host!!.get().isFinishing)
+        } finally { stopped.complete(Unit) }
+    }
+
+    @Test fun dismissedPhoneLineSwitchCannotStartAfterLateStop() = cancelledLineSwitchKeepsOldTarget(tv = false)
+    @Test fun dismissedTelevisionLineSwitchCannotStartAfterLateStop() = cancelledLineSwitchKeepsOldTarget(tv = true)
+
+    private fun openPluginPlayer(fail: Boolean = false, tv: Boolean = false, source: String? = null,
+        intercept: ((FakeCore) -> CorePort)? = null,
+        configure: (FakeCore) -> Unit = {}): FakeCore {
         val core = FakeCore().loggedIn().player().apply {
             ret("emby.currentSession", JsonNull)
             ret("account.listAccounts", xyz.linplayer.app.tv.arr(kotlinx.serialization.json.buildJsonObject {
@@ -135,17 +363,19 @@ class PlayerActivityTest {
                 JsonNull
             }
             ret("source.switchCandidates", xyz.linplayer.app.tv.arr())
-        }
-        val app = AppState(core, scope)
+            ret("player.stopPlayback", JsonNull)
+        }.also(configure)
+        val app = AppState(intercept?.invoke(core) ?: core, scope)
         runBlocking { app.boot() }
         assertNull(app.session.value)
         assertNotNull(app.activeSource.value)
         TestPlayerActivity.state = app
         val context = RuntimeEnvironment.getApplication()
-        val route = Route.Player("source-item", "测试源影片", src =
+        shadowOf(context).grantPermissions(android.Manifest.permission.POST_NOTIFICATIONS)
+        val route = Route.Player("source-item", "测试源影片", src = source ?:
             """{"server_id":"plugin:test/tvbox/a","item":{"id":"source-item","title":"测试源影片","lines":[]},"line_id":"line","episode_id":"https://video.invalid/play.m3u8?name=%E6%B5%8B%E8%AF%95&part=1","resume_secs":0}""")
         host = Robolectric.buildActivity(TestPlayerActivity::class.java,
-            PlayerActivity.intent(context, route).setClass(context, TestPlayerActivity::class.java)).setup()
+            PlayerActivity.intent(context, route, tv = tv).setClass(context, TestPlayerActivity::class.java)).setup()
         rule.waitUntil(5_000) { core.calls.any { it.first == "source.playItem" } }
         return core
     }

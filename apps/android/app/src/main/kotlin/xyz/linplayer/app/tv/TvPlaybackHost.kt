@@ -14,6 +14,7 @@ import xyz.linplayer.app.ui.pages.args
 internal fun TvPlaybackHost(
     app: AppState, route: Route.Player,
     onExit: (String?) -> Unit, onNavigate: (String, JsonObject) -> Unit,
+    onSourceSwitch: (xyz.linplayer.app.ui.pages.SourceSwitchTarget) -> Unit,
 ) {
     val target = remember(route) {
         TvRoute.Player(route.itemId, route.title, versionId = route.versionId, engine = route.engine,
@@ -30,7 +31,7 @@ internal fun TvPlaybackHost(
             }
         })
         CompositionLocalProvider(LocalNav provides nav, LocalFocusMemory provides nav.top.memory) {
-            TvPlayerPage(target, onExit)
+            TvPlayerPage(target, onExit, onSourceSwitch = onSourceSwitch)
         }
     }
 }

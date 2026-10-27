@@ -12,7 +12,6 @@ import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
-import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -28,7 +27,6 @@ import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.*
 import xyz.linplayer.app.ui.theme.Lp
 import xyz.linplayer.app.ui.theme.LpText
-import xyz.linplayer.app.ui.theme.PluginTheme
 import xyz.linplayer.app.ui.theme.R
 import xyz.linplayer.app.ui.theme.Sp
 
@@ -180,8 +178,7 @@ private fun PersonWorksGrid(nav: NavController, personId: String, cacheKey: Stri
         }
     }
 
-    val columns = PluginTheme.posterColumns(LocalConfiguration.current.screenWidthDp,
-        if (LocalTvMode.current) 6 else posterLayout()?.first ?: 3)
+    val columns = posterColumns()
     val imageHeight = posterImageHeight(width = gridCellWidth(columns))
     LazyVerticalGrid(
         GridCells.Fixed(columns),

@@ -22,10 +22,14 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
@@ -67,7 +71,7 @@ val railItems = listOf(
     "服务器" to LpIcons.server, "设置" to LpIcons.settings,
 )
 
-/** 顶部主导航。索引沿用路由契约,只改变排列;焦点移动不切页。 */
+/** 顶部主导航。索引沿用路由契约;栏目获焦即切页,动作入口仍需确认。 */
 @Composable
 fun TopNavigation(
     current: Int, privateSpace: Boolean = false, focused: Int = -1,
@@ -75,9 +79,15 @@ fun TopNavigation(
     /** 叠在头图上:不铺底色,只留一段压暗保证文字可读。 */
     overlay: Boolean = false,
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
+    onFocusSelect: (Int) -> Unit = {},
+    onRefresh: (() -> Unit)? = null,
 ) {
-    val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
-    val reqs = remember { List(railItems.size) { FocusRequester() } }
+    val order = if (privateSpace) {
+        if (onRefresh != null) listOf(6, 1, 8, 3, 4, 0) else listOf(6, 1, 3, 4, 0)
+    }
+    else if (onRefresh != null) listOf(6, 1, 8, 3, 4, 0, 7)
+    else listOf(6, 1, 3, 4, 0, 7)
+    val reqs = remember { List(railItems.size + 1) { FocusRequester() } }
     Row(
         modifier.fillMaxWidth().height(TvDim.navigationH)
             .then(if (overlay) Modifier.background(Brush.verticalGradient(listOf(Color.Black.copy(alpha = .55f), Color.Transparent)))
@@ -91,13 +101,14 @@ fun TopNavigation(
         horizontalArrangement = Arrangement.spacedBy(TvSp.x8),
     ) {
         order.forEachIndexed { position, i ->
-            if (i == 0) Spacer(Modifier.weight(1f))
-            val focusModifier = Modifier.focusRequester(reqs[i]).focusProperties {
-                left = if (position > 0) reqs[order[position - 1]] else FocusRequester.Cancel
-                right = if (position < order.lastIndex) reqs[order[position + 1]] else FocusRequester.Cancel
-                up = FocusRequester.Cancel
-            }
-            if (i == 6) {
+            key(i) {
+                if (i == 0) Spacer(Modifier.weight(1f))
+                val focusModifier = Modifier.focusRequester(reqs[i]).focusProperties {
+                    left = if (position > 0) reqs[order[position - 1]] else FocusRequester.Cancel
+                    right = if (position < order.lastIndex) reqs[order[position + 1]] else FocusRequester.Cancel
+                    up = FocusRequester.Cancel
+                }
+                if (i == 6) {
                 Surface(
                     onClick = onServer, onLongClick = onPrivateSpace,
                     modifier = focusModifier.width(180.dp).height(40.dp).testTag("nav.server")
@@ -105,23 +116,33 @@ fun TopNavigation(
                     shape = ClickableSurfaceDefaults.shape(TvR.pill),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                     colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = TvC.fg2,
-                        focusedContainerColor = TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg), focusedContentColor = TvC.fg),
-                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(1.dp, TvC.fg.copy(alpha = .55f)), shape = TvR.pill)),
+                        focusedContainerColor = if (overlay) Color.Black.copy(alpha = .35f).compositeOver(TvC.bg)
+                            else TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg),
+                        focusedContentColor = if (overlay) Color.White else TvC.fg),
+                    border = ClickableSurfaceDefaults.border(focusedBorder = Border(BorderStroke(1.dp,
+                        (if (overlay) Color.White else TvC.fg).copy(alpha = .55f)), shape = TvR.pill)),
                 ) {
                     Row(Modifier.fillMaxSize().padding(horizontal = TvSp.x12), verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                        Text(serverName, modifier = Modifier.weight(1f), fontSize = tvType.body, fontWeight = TvW.medium,
+                        Text(serverName, modifier = Modifier.weight(1f), color = if (overlay) Color.White else TvC.fg2,
+                            fontSize = tvType.body, fontWeight = TvW.medium,
                             maxLines = 1, overflow = TextOverflow.Ellipsis)
-                        Icon(LpIcons.chevD, null, Modifier.size(14.dp))
+                        Icon(LpIcons.chevD, null, Modifier.size(14.dp), tint = if (overlay) Color.White else TvC.fg)
                     }
                 }
                 Spacer(Modifier.width(TvSp.x16))
-            } else {
+                } else if (i == 8) {
+                NavigationItem("刷新", LpIcons.refresh, on = false, iconOnly = true, focused = focused == i,
+                    modifier = focusModifier.testTag("nav.refresh"), onClick = { onRefresh?.invoke() })
+                } else {
                 val (label, icon) = railItems[i]
                 NavigationItem(if (i == 4) aggregateLabel else label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,
                     focused = focused == i,
                     badge = if (privateSpace) null else xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
+                    overlay = overlay, tab = i in setOf(1, 3, 4),
+                    onFocus = if (i in setOf(1, 3, 4) && i != current) ({ onFocusSelect(i) }) else null,
                     modifier = focusModifier.testTag("rail.$i"), onClick = { onSelect(i) })
+                }
             }
         }
     }
@@ -136,24 +157,38 @@ private val railTargets = listOf(
 fun NavigationItem(
     label: String, icon: ImageVector, on: Boolean, iconOnly: Boolean = false,
     focused: Boolean = false, fake: Boolean = false, badge: String? = null,
+    overlay: Boolean = false, tab: Boolean = false, onFocus: (() -> Unit)? = null,
     modifier: Modifier = Modifier, onClick: () -> Unit = {},
 ) {
     var hasFocus by remember { mutableStateOf(false) }
-    val focusFill = TvC.fg.copy(alpha = .12f).compositeOver(TvC.bg)
-    val focusBorder = Border(BorderStroke(1.dp, TvC.fg.copy(alpha = .55f)), shape = TvR.pill)
+    val latestOnFocus by rememberUpdatedState(onFocus)
+    val focusFill = (if (overlay) Color.Black.copy(alpha = .35f) else TvC.fg.copy(alpha = .12f)).compositeOver(TvC.bg)
+    val focusBorder = Border(BorderStroke(1.dp, (if (overlay) Color.White else TvC.fg).copy(alpha = .55f)), shape = TvR.pill)
+    LaunchedEffect(hasFocus) {
+        if (hasFocus) {
+            withFrameNanos { }
+            latestOnFocus?.invoke()
+        }
+    }
     Box {
         Surface(
             onClick = onClick,
             modifier = modifier.size(if (iconOnly) 40.dp else 76.dp, 40.dp).initialFocus(focused)
-                .onFocusChanged { hasFocus = it.isFocused }
+                .onFocusChanged {
+                    hasFocus = it.isFocused
+                }
                 .semantics { selected = on; if (iconOnly) contentDescription = label },
             shape = ClickableSurfaceDefaults.shape(TvR.pill),
-            border = ClickableSurfaceDefaults.border(border = if (fake) focusBorder else Border.None, focusedBorder = focusBorder),
+            border = ClickableSurfaceDefaults.border(
+                border = if (fake) focusBorder else Border.None,
+                focusedBorder = if (tab) Border.None else focusBorder,
+            ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = .97f),
             colors = ClickableSurfaceDefaults.colors(
                 containerColor = if (fake) focusFill else Color.Transparent,
-                contentColor = if (on || fake) TvC.fg else TvC.fg2,
-                focusedContainerColor = focusFill, focusedContentColor = TvC.fg,
+                contentColor = if (overlay) Color.White else if (on || fake) TvC.fg else TvC.fg2,
+                focusedContainerColor = if (tab) Color.Transparent else focusFill,
+                focusedContentColor = if (overlay) Color.White else TvC.fg,
             ),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
@@ -164,7 +199,7 @@ fun NavigationItem(
                 if (badge != null) Box(Modifier.align(Alignment.TopEnd)) { Badge(badge, TvC.bad, Color.White) }
             }
         }
-        if (iconOnly && (hasFocus || fake)) TvText(label, tvType.meta, TvC.fg2,
+        if (iconOnly && (hasFocus || fake)) TvText(label, tvType.meta, if (overlay) Color.White else TvC.fg2,
             Modifier.align(Alignment.BottomCenter).graphicsLayer { translationY = 16.dp.toPx() }, maxLines = 1)
     }
 }

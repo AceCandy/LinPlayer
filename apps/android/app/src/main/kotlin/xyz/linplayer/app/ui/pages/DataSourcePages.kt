@@ -32,6 +32,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.derivedStateOf
 import androidx.compose.runtime.getValue
@@ -41,11 +42,14 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.text.style.TextAlign
@@ -54,7 +58,12 @@ import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
 import androidx.navigation.toRoute
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.SerialName
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
@@ -70,6 +79,7 @@ import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.block
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
+import xyz.linplayer.app.data.displayBlock
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
@@ -370,7 +380,7 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
     var d by remember { mutableStateOf<Result<JsonObject>?>(null) }
     var line by remember { mutableStateOf("") }
     var switching by remember { mutableStateOf(false) }
-    var autoDone by remember { mutableStateOf(false) }
+    var autoDone by rememberSaveable { mutableStateOf(false) }
     LaunchedEffect(reload) {
         d = runCatching { app.call("source.detail", args("server_id" to r.serverId, "item_id" to r.itemId)).obj()!! }
         val detail = d?.getOrNull() ?: return@LaunchedEffect
@@ -447,6 +457,40 @@ internal fun episodesOf(d: JsonObject, lineId: String): List<JsonObject> =
 
 // ---------------------------------------------------------------- 换源(D232~D236,D464,D525)
 
+/** 宿主内部换源目标；跨 Activity 交接不借用插件公开导航权限。 */
+@Serializable
+sealed interface SourceSwitchTarget {
+    @Serializable @SerialName("line")
+    data class Line(val route: Route.Player) : SourceSwitchTarget
+    @Serializable @SerialName("source")
+    data class Source(val route: Route.SourceDetail, val fromServer: String, val fromItem: String) : SourceSwitchTarget
+    @Serializable @SerialName("emby")
+    data class Emby(val serverId: String, val route: Route.Detail) : SourceSwitchTarget
+}
+
+/** 旧播放收尾后才允许写换源关联或切服，目的页仍交给浏览栈。 */
+internal suspend fun SourceSwitchTarget.destination(app: AppState): Any {
+    val epoch = app.spaceRevision.value
+    xyz.linplayer.app.ui.player.PlayerController.awaitPendingStop()
+    check(!app.privateSpace.value && app.spaceRevision.value == epoch) { "浏览空间已切换" }
+    val next = when (this) {
+        is SourceSwitchTarget.Line -> route
+        is SourceSwitchTarget.Source -> {
+            app.call("source.linkSwitch", args("from_server" to fromServer, "from_item" to fromItem,
+                "to_server" to route.serverId, "to_item" to route.itemId))
+            route
+        }
+        is SourceSwitchTarget.Emby -> {
+            app.call("account.setActiveServer", args("server_id" to serverId))
+            app.refreshSession()
+            route
+        }
+    }
+    currentCoroutineContext().ensureActive()
+    check(!app.privateSpace.value && app.spaceRevision.value == epoch) { "浏览空间已切换" }
+    return next
+}
+
 /**
  * 换源三层:本源其它线路 → 其它数据源 → Emby 服务器。候选边找边出(partial);
  * 选了数据源的会记换源链路,全局历史里同一部片按它合并(D431)。
@@ -454,44 +498,78 @@ internal fun episodesOf(d: JsonObject, lineId: String): List<JsonObject> =
 @Composable
 fun SwitchSourceDialog(nav: NavController, serverId: String, item: JsonObject, lineId: String, episodeIndex: Int, pos: Double, onClose: () -> Unit) {
     val app = LocalApp.current
+    SourceSwitchPicker(serverId, item, lineId, episodeIndex, pos,
+        onSwitch = { nav.navigate(it.destination(app)) }, onClose = onClose)
+}
+
+@Composable
+private fun SourceSwitchPicker(serverId: String, item: JsonObject, lineId: String, episodeIndex: Int, pos: Double,
+    onSwitch: suspend (SourceSwitchTarget) -> Unit, onClose: () -> Unit) {
+    val app = LocalApp.current
+    val privateSpace by app.privateSpace.collectAsState()
+    if (privateSpace) return
+    val scope = rememberCoroutineScope()
     val cands = remember { mutableStateListOf<JsonObject>() }
     var done by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
-        val all = runCatching {
-            app.call("source.switchCandidates", j("server_id" to serverId, "item" to item, "line_id" to lineId,
-                "episode_index" to episodeIndex, "title" to item.str("title"), "year" to (item.dbl("year") ?: 0.0))) { part ->
-                part.arr().mapNotNull { it.obj() }.let { app.bg.launch { cands.addAll(it) } }
-            }
-        }.getOrNull().arr().mapNotNull { it.obj() }
-        cands.clear(); cands.addAll(all); done = true
+    var failure by remember { mutableStateOf<String?>(null) }
+    var retry by remember { mutableIntStateOf(0) }
+    var picking by remember { mutableStateOf(false) }
+    LaunchedEffect(serverId, item, lineId, episodeIndex, retry) {
+        cands.clear(); done = false; failure = null
+        val result = app.displayBlock("source.switchCandidates",
+            j("server_id" to serverId, "item" to item, "line_id" to lineId,
+                "episode_index" to episodeIndex, "title" to item.str("title"), "year" to (item.dbl("year") ?: 0.0)),
+            retainOnFailure = false) { part -> cands.addAll(part.arr().mapNotNull { it.obj() }) }
+        when (result) {
+            is Block.Ok -> { cands.clear(); cands.addAll(result.value.arr().mapNotNull { it.obj() }) }
+            is Block.Fail -> failure = result.message
+            else -> Unit
+        }
+        done = true
     }
     fun pick(c: JsonObject) {
-        onClose()
-        val target = c.str("server_id") ?: ""
-        when ((c.long("layer") ?: 0L).toInt()) {
-            1 -> {
-                val src = j("server_id" to serverId, "item" to item, "line_id" to c.str("line_id"), "episode_id" to c.str("episode_id"), "resume_secs" to pos)
-                nav.navigate(Route.Player(item.str("id") ?: "", item.str("title") ?: "", src = src.toString()))
-            }
-            3 -> {
-                val e = c["emby_item"].obj()
-                app.bg.launch {
-                    runCatching { app.call("account.setActiveServer", args("server_id" to target)) }.onSuccess {
-                        app.refreshSession(); nav.navigate(Route.Detail(e.str("id") ?: "", e.str("type_") ?: "Series"))
-                    }.onFailure { app.report(it) }
+        if (picking || app.privateSpace.value) return
+        picking = true
+        scope.launch {
+            try {
+                fun JsonObject.required(key: String) = str(key)?.takeIf { it.isNotBlank() }
+                    ?: error("换源候选缺少 $key")
+                val target = when (c.long("layer")?.toInt()) {
+                    1 -> {
+                        val src = j("server_id" to serverId, "item" to item,
+                            "line_id" to c.required("line_id"), "episode_id" to c.required("episode_id"), "resume_secs" to pos)
+                        SourceSwitchTarget.Line(Route.Player(item.required("id"), item.str("title") ?: "", src = src.toString()))
+                    }
+                    2 -> SourceSwitchTarget.Source(
+                        Route.SourceDetail(c.required("server_id"), c["item"].obj()?.required("id") ?: error("换源候选缺少条目"),
+                            autoPos = pos, autoIndex = episodeIndex), serverId, item.required("id"))
+                    3 -> {
+                        val e = c["emby_item"].obj() ?: error("换源候选缺少条目")
+                        SourceSwitchTarget.Emby(c.required("server_id"), Route.Detail(e.required("id"), e.str("type_") ?: "Series"))
+                    }
+                    else -> error("不支持的换源候选")
                 }
-            }
-            else -> {
-                val it = c["item"].obj()
-                app.bg.launch { runCatching { app.call("source.linkSwitch", args("from_server" to serverId, "from_item" to (item.str("id") ?: ""), "to_server" to target, "to_item" to (it.str("id") ?: ""))) } }
-                nav.navigate(Route.SourceDetail(target, it.str("id") ?: "", autoPos = pos, autoIndex = episodeIndex))
-            }
+                onSwitch(target)
+                onClose()
+            } catch (e: CancellationException) { throw e }
+              catch (e: Exception) { failure = e.message ?: "换源失败" }
+            finally { picking = false }
+        }
+    }
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val focus = remember { FocusRequester() }
+    LaunchedEffect(tv, cands.isNotEmpty(), failure) {
+        if (tv && (cands.isNotEmpty() || failure != null)) {
+            androidx.compose.runtime.withFrameNanos { }
+            focus.requestFocus()
         }
     }
     LpDialog(onClose, "换源") {
-        Column(verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
+        Column(Modifier.focusRequester(focus), verticalArrangement = Arrangement.spacedBy(Sp.x2)) {
             if (!done) Dim3("找其它源…")
-            else if (cands.isEmpty()) Dim2("别的源里都没找到这部片。可以给更多源打开「允许聚合」。")
+            else if (cands.isEmpty() && failure == null) Dim2("别的源里都没找到这部片。可以给更多源打开「允许聚合」。")
+            if (picking) Dim3("正在切换…")
+            failure?.let { xyz.linplayer.app.ui.components.ErrorState(it, { retry++ }) }
             LazyColumn(Modifier.height(360.dp)) {
                 items(cands) { c ->
                     val layer = (c.long("layer") ?: 0L).toInt()
@@ -510,12 +588,14 @@ fun SwitchSourceDialog(nav: NavController, serverId: String, item: JsonObject, l
 
 /** 数据源起播失败:从路由带来的 `{server_id, item, line_id, episode_id}` 算出集序号,弹换源(D263)。 */
 @Composable
-internal fun SourcePlayFailed(nav: NavController, raw: String, pos: Double, onClose: () -> Unit) {
+internal fun SourcePlayFailed(raw: String, pos: Double, onSwitch: suspend (SourceSwitchTarget) -> Unit, onClose: () -> Unit) {
     val src = remember(raw) { Json.parseToJsonElement(raw).obj() } ?: return
     val item = src["item"].obj() ?: return
     val lineId = src.str("line_id") ?: ""
     val ep = episodesOf(item, lineId).firstOrNull { it.str("id") == src.str("episode_id") }
-    SwitchSourceDialog(nav, src.str("server_id") ?: "", item, lineId, (ep.long("index") ?: 0L).toInt(), pos, onClose)
+    val resume = pos.takeIf { it.isFinite() && it > 0 }
+        ?: src.dbl("resume_secs")?.takeIf { it.isFinite() && it > 0 } ?: 0.0
+    SourceSwitchPicker(src.str("server_id") ?: "", item, lineId, (ep.long("index") ?: 0L).toInt(), resume, onSwitch, onClose)
 }
 
 /** Emby 条目换到数据源(D525):按剧名 + 集序号找,Emby 服务器本身不在候选里。 */

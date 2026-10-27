@@ -393,8 +393,8 @@ private val ThumbW = 194.dp
  * 手机竖屏(<600dp)返回 null,沿用 104dp 与官方 3 列;横屏手机高度不足,上限仍取 104dp
  * 只多排列;平板上限 150 / 170dp。列数取放得下上限的最少列,余宽平分,单元略小于上限。
  */
-internal fun posterLayout(widthDp: Float, heightDp: Float): Pair<Int, Dp>? {
-    if (widthDp < 600f) return null
+internal fun posterLayout(widthDp: Float, heightDp: Float, tv: Boolean = false): Pair<Int, Dp>? {
+    if (widthDp < 600f && !tv) return null
     val max = when {
         heightDp < 480f -> PosterW
         widthDp < 840f -> 150.dp
@@ -405,12 +405,15 @@ internal fun posterLayout(widthDp: Float, heightDp: Float): Pair<Int, Dp>? {
     return columns to (avail - Sp.x10 * (columns - 1)) / columns
 }
 
-/** 按当前窗口(分屏时是分到的那块)算海报刻度;TV 另有刻度,不参与。 */
+/** 按当前窗口(分屏时是分到的那块)算海报刻度;TV 先扣页面边距。 */
 @Composable
 internal fun posterLayout(): Pair<Int, Dp>? {
-    if (xyz.linplayer.app.tv.LocalTvMode.current) return null
     val size = androidx.compose.ui.platform.LocalWindowInfo.current.containerSize
-    return with(LocalDensity.current) { posterLayout(size.width.toDp().value, size.height.toDp().value) }
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    return with(LocalDensity.current) {
+        val side = if (tv) xyz.linplayer.app.tv.TvPageSide * 2 else 0.dp
+        posterLayout((size.width.toDp() - side).value, size.height.toDp().value, tv = tv)
+    }
 }
 
 @Composable
@@ -418,9 +421,12 @@ private fun windowWidth(): Dp = with(LocalDensity.current) {
     androidx.compose.ui.platform.LocalWindowInfo.current.containerSize.width.toDp()
 }
 
-/** 海报网格单元宽:窗口宽减两侧 16dp 与列间距后平分,和各网格的 contentPadding / 间距一致。 */
+/** 海报网格单元宽:先扣TV页面边距,再扣网格内边距与列间距。 */
 @Composable
-internal fun gridCellWidth(columns: Int): Dp = (windowWidth() - Sp.x16 * 2 - Sp.x10 * (columns - 1)) / columns
+internal fun gridCellWidth(columns: Int): Dp {
+    val side = if (xyz.linplayer.app.tv.LocalTvMode.current) xyz.linplayer.app.tv.TvPageSide * 2 else 0.dp
+    return (windowWidth() - side - Sp.x16 * 2 - Sp.x10 * (columns - 1)) / columns
+}
 
 /** 自适应网格(`GridCells.Adaptive(min)`)实际排出的列数。 */
 @Composable
@@ -429,11 +435,10 @@ internal fun adaptiveColumns(min: Dp): Int =
 
 /**
  * 卡片封面的请求高度(px) = 实际显示高度 × 屏幕密度,`AppState.imageUrl` 再按固定档向上取整共用缓存。
- * 写死 330 / 220 在高密度手机和放大后的平板上都会糊;TV 另有刻度,保持原值。
+ * 不再按平台写死请求高度，TV也按实际卡宽计算，避免窗口放大后仍取低分辨率图。
  */
 @Composable
 fun posterImageHeight(thumb: Boolean = false, width: Dp = cardWidth(thumb)): Int {
-    if (xyz.linplayer.app.tv.LocalTvMode.current) return if (thumb) 220 else 330
     return with(LocalDensity.current) { (if (thumb) width * 9 / 16 else width * 3 / 2).roundToPx() }
 }
 

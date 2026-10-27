@@ -54,6 +54,7 @@ class VisualAlignmentTest {
     private val oldTheme = UiPrefs.theme.value
     private val oldColor = UiPrefs.colorScheme.value
     private val oldHideLibraries = UiPrefs.hideHomeLibraries.value
+    private val oldTouchMode = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
     private val root = generateSequence(File(requireNotNull(System.getProperty("user.dir")))) { it.parentFile }
         .first { File(it, "tools/visual-fixtures/catalog.json").exists() }
     private val fixture = File(root, "tools/visual-fixtures")
@@ -68,6 +69,7 @@ class VisualAlignmentTest {
         UiPrefs.setHideHomeLibraries(context, oldHideLibraries)
         SingletonImageLoader.setUnsafe(oldImageLoader)
         xyz.linplayer.app.tv.kit.TvC.sharedColors = null
+        androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().setInTouchMode(oldTouchMode)
     }
 
     @Test fun phoneDark() = capture("phone", false)
@@ -141,6 +143,7 @@ class VisualAlignmentTest {
 
     private fun capture(platform: String, light: Boolean) {
         PageCache.clear()
+        if (platform == "tv") androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().setInTouchMode(false)
         UiPrefs.setTheme(context, if (light) "light" else "dark")
         UiPrefs.setColorScheme(context, "amber")
         UiPrefs.setHideHomeLibraries(context, false)
@@ -217,6 +220,32 @@ class VisualAlignmentTest {
             val contrast = (maxOf(background, foreground) + .05f) / (minOf(background, foreground) + .05f)
             assertTrue("浅色首页栏目标题与实际背景的对比度不足: $contrast", contrast >= 4.5f)
         }
+        if (platform == "tv") {
+            val home = rule.onNodeWithTag("rail.1")
+            val favorites = rule.onNodeWithTag("rail.3")
+            home.assertIsSelected().assertIsFocused().performKeyInput {
+                pressKey(androidx.compose.ui.input.key.Key.DirectionRight)
+                pressKey(androidx.compose.ui.input.key.Key.DirectionRight)
+            }
+            settle()
+            favorites.assertIsFocused().assertIsSelected()
+            home.assertIsNotSelected().assertIsNotFocused()
+            settle()
+            rule.onRoot().captureRoboImage(File(output, "$mode-home-nav-focus.png").path)
+            favorites.performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionLeft) }
+            settle()
+            home.assertIsFocused().assertIsSelected()
+            home.performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionDown) }
+            settle()
+            rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("home.banners"))).assertDoesNotExist()
+            shot("home-content-focus", "远岸来信")
+            rule.onNode(isFocused()).performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionUp) }
+            shot("home-content-up", "远岸来信")
+            rule.onNode(isFocused()).performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionDown) }
+            shot("home-library-focus", "远岸来信")
+            rule.onNode(isFocused()).performKeyInput { pressKey(androidx.compose.ui.input.key.Key.DirectionDown) }
+            shot("home-resume-focus", "继续观看")
+        }
         val vertical = hasScrollToIndexAction() and SemanticsMatcher.keyIsDefined(
             androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange)
         rule.onNode(vertical).performScrollToKey("tail")
@@ -234,8 +263,20 @@ class VisualAlignmentTest {
         shot("home-bottom", "远岸来信")
         rule.runOnIdle { PluginNav.host!!.push("library", args("id" to "visual-library", "title" to "电影"), false) }
         shot("library", "远岸来信")
+        if (platform == "tv") {
+            rule.onNodeWithText("远岸来信").assertIsDisplayed()
+            rule.onNodeWithText("2025").assertIsDisplayed()
+            val year = rule.onNodeWithText("2025").fetchSemanticsNode().boundsInRoot
+            assertTrue("TV首排海报的年份不能被屏幕底部裁切",
+                year.bottom < rule.onRoot().fetchSemanticsNode().boundsInRoot.bottom)
+        }
         rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-1", "type" to "Movie"), false) }
         shot("detail", "远岸来信")
+        if (platform == "tv") {
+            val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().getUnclippedBoundsInRoot()
+            val screen = rule.onRoot().getUnclippedBoundsInRoot()
+            assertTrue("TV电影详情主播放操作必须完整位于首屏", play.top >= screen.top && play.bottom <= screen.bottom)
+        }
         rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-series", "type" to "Series"), false) }
         shot("series", "山海之间")
         rule.runOnIdle { PluginNav.host!!.push("settings", args(), false) }

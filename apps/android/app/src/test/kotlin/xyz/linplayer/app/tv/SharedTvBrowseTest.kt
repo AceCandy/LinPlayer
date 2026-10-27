@@ -14,7 +14,9 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.serialization.json.*
+import xyz.linplayer.app.core.CorePort
 import xyz.linplayer.app.data.str
 import org.junit.After
 import org.junit.Assert.*
@@ -26,6 +28,7 @@ import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.PageCache
+import xyz.linplayer.app.data.UiPrefs
 
 /** 从实际TV根进入，共用页面与遥控路径必须同时成立。 */
 @RunWith(RobolectricTestRunner::class)
@@ -37,16 +40,22 @@ class SharedTvBrowseTest {
     private lateinit var core: FakeCore
     private lateinit var app: AppState
     private lateinit var back: OnBackPressedDispatcher
+    private lateinit var activity: android.app.Activity
+    private val oldHideLibraries = UiPrefs.hideHomeLibraries.value
 
-    @After fun clean() { scope.cancel(); PageCache.clear() }
+    @After fun clean() {
+        scope.cancel(); if (::app.isInitialized) app.bg.cancel(); PageCache.clear()
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), oldHideLibraries)
+    }
 
-    private fun mount(configure: (FakeCore) -> Unit = {}) {
+    private fun mount(intercept: ((FakeCore) -> CorePort)? = null, configure: (FakeCore) -> Unit = {}) {
         PageCache.clear()
         FakeImages.install(ApplicationProvider.getApplicationContext())
         core = FakeCore().loggedIn().movie().also(configure)
-        app = AppState(core, scope)
+        app = AppState(intercept?.invoke(core) ?: core, scope)
         rule.setContent {
             back = LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
+            activity = androidx.compose.ui.platform.LocalContext.current as android.app.Activity
             TvRoot(app)
         }
         rule.waitForIdle()
@@ -78,8 +87,9 @@ class SharedTvBrowseTest {
     }
 
     @Test fun localHomeOffersFileBrowserWithoutEmbyRequests() {
-        mount(::localFiles)
+        mount(configure = ::localFiles)
         rule.onNodeWithText("打开文件夹").assertIsDisplayed()
+        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
         press(rule, Key.DirectionDown)
         rule.onNodeWithText("打开文件夹").assertIsFocused()
         rule.onRoot().captureRoboImage("build/shared-tv/local-home.png")
@@ -101,10 +111,11 @@ class SharedTvBrowseTest {
         assertNull(app.localSource.value)
         rule.onNodeWithText("打开文件夹").assertDoesNotExist()
         rule.onNodeWithContentDescription("谎言的代价").assertExists()
+        rule.onNodeWithTag("nav.refresh").assertIsDisplayed()
     }
 
     @Test fun televisionFileBrowserOnlyShowsFoldersAndVideos() {
-        mount(::localFiles)
+        mount(configure = ::localFiles)
         openFilesFromSettings()
         rule.onNodeWithText("剧集目录").assertIsDisplayed()
         rule.onNodeWithText("电影.mkv").assertIsDisplayed()
@@ -112,7 +123,7 @@ class SharedTvBrowseTest {
     }
 
     @Test fun televisionBackLeavesFolderBeforeLeavingFileBrowser() {
-        mount(::localFiles)
+        mount(configure = ::localFiles)
         openFilesFromSettings()
         rule.onNodeWithText("剧集目录").performClick()
         rule.onNodeWithText("子目录影片.mkv").assertIsDisplayed()
@@ -134,19 +145,370 @@ class SharedTvBrowseTest {
         rule.onRoot().captureRoboImage("build/shared-tv/home.png")
     }
 
-    @Test fun directionsOnlyMoveFocusAndConfirmOpensSharedAggregateWithoutDownloads() {
+    @Test fun homeDownFromMiddleResumeLeavesResumeRow() {
+        mount()
+        press(rule, Key.DirectionDown, Key.DirectionDown)
+        rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
+        repeat(4) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithContentDescription("黑暗森林").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("黑暗森林").assertIsNotFocused()
+        rule.onNode(hasText("电影") and isFocused()).assertExists()
+    }
+
+    @Test fun hiddenLibrariesMakeResumeTheFirstContentRow() {
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), true)
+        mount()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
+    }
+
+    @Test fun televisionColumnsReadWindowAndKeepPluginOverride() {
+        val theme = xyz.linplayer.app.ui.theme.PluginTheme
+        val savedColumns = buildJsonObject {
+            for ((name, width) in listOf("compact" to 411, "medium" to 960, "expanded" to 1280)) {
+                val columns = theme.posterColumns(width, 0)
+                if (columns > 0) put(name, columns)
+            }
+        }
+        val revision = androidx.compose.runtime.mutableIntStateOf(0)
+        try {
+            theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject {}) }, "android_tv")
+            rule.setContent {
+                androidx.compose.runtime.key(revision.intValue) {
+                    androidx.compose.runtime.CompositionLocalProvider(LocalTvMode provides true) {
+                        androidx.compose.material3.Text("列数：${xyz.linplayer.app.ui.pages.posterColumns()}")
+                    }
+                }
+            }
+            rule.onNodeWithText("列数：5").assertExists()
+            rule.runOnIdle {
+                theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject { put("medium", 7) }) }, "android_tv")
+                revision.intValue++
+            }
+            rule.onNodeWithText("列数：7").assertExists()
+        } finally {
+            theme.applyLayout(buildJsonObject { put("posterColumns", savedColumns) }, "android_tv")
+        }
+    }
+
+    @Test fun homeRemoteRefreshIsReachableAndCoalescesWhileLoading() {
+        val release = CompletableDeferred<Unit>()
+        var hold = false
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = fake.callJson(command, args, onPartial)
+                if (command == "emby.views" && hold) release.await()
+                return result
+            }
+        } })
+        try {
+            val before = core.calls.count { it.first == "emby.views" }
+            val caps = core.calls.count { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) }
+            press(rule, Key.DirectionRight)
+            rule.onNodeWithTag("nav.refresh").assertIsDisplayed().assertIsFocused()
+            hold = true
+            press(rule, Key.DirectionCenter)
+            rule.waitForIdle()
+            assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
+            repeat(2) { press(rule, Key.DirectionCenter); rule.waitForIdle() }
+            rule.onNodeWithTag("nav.refresh").assertIsFocused()
+            assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
+            assertEquals(caps + 1, core.calls.count { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) })
+            rule.runOnIdle { hold = false; release.complete(Unit) }
+            rule.waitForIdle()
+            rule.onRoot().captureRoboImage("build/shared-tv/home-refresh.png")
+            press(rule, Key.DirectionLeft)
+            rule.onNodeWithTag("rail.1").assertIsFocused()
+            press(rule, Key.DirectionRight, Key.DirectionCenter)
+            rule.waitForIdle()
+            assertEquals(before + 2, core.calls.count { it.first == "emby.views" })
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun homeRefreshIsRemovedOnDetailAndReboundOnReturnAndAccountChange() {
+        mount()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        fun refresh() {
+            val before = core.calls.count { it.first == "emby.views" }
+            rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            repeat(1) { press(rule, Key.DirectionRight) }
+            rule.onNodeWithTag("nav.refresh").assertIsFocused()
+            press(rule, Key.DirectionCenter)
+            rule.waitForIdle()
+            assertEquals(before + 1, core.calls.count { it.first == "emby.views" })
+        }
+        refresh()
+        rule.runOnIdle {
+            core.ret("emby.currentSession", buildJsonObject {
+                put("server", "https://emby-b.invalid"); put("user_id", "b"); put("token", "test")
+            })
+            kotlinx.coroutines.runBlocking { app.refreshSession() }
+        }
+        rule.waitForIdle()
+        refresh()
+        val last = core.calls.last { it.first == "emby.views" }.second!!
+        assertEquals("https://emby-b.invalid", last.str("server"))
+        assertEquals("b", last.str("user_id"))
+        assertEquals(JsonPrimitive(false), last["request_scope"]?.jsonObject?.get("private"))
+    }
+
+    @Test fun pluginSourceHomeHasNoEmbyRefreshAction() {
+        mount { fake ->
+            fake.ret("emby.currentSession", JsonNull)
+            fake.ret("account.listAccounts", arr(buildJsonObject {
+                put("id", "plugin:test/source"); put("server", "plugin:test/source")
+                put("name", "测试数据源"); put("active", true)
+                put("plugin", buildJsonObject { put("id", "test/source") })
+            }))
+            fake.ret("source.caps", buildJsonObject { put("home", true) })
+            fake.ret("source.home", buildJsonObject { put("categories", arr()); put("recommended", arr()) })
+        }
+        assertNotNull(app.activeSource.value)
+        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
+        assertFalse(core.calls.any { it.first == "emby.views" })
+    }
+
+    @Test fun moviePlayIsVisibleBeforeOptionsAndRemoteOpensTheOriginalTarget() {
+        mount()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.waitForIdle()
+        val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("返回").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        play.assertIsFocused()
+        rule.onNodeWithTag("detail.options").performScrollTo().assertIsDisplayed()
+        play.performScrollTo().assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.waitForIdle()
+        val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
+        val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
+        assertEquals("m1", route.itemId)
+        assertNull(route.src)
+        assertTrue(intent.getBooleanExtra("player.tv", false))
+    }
+
+    private fun seriesDetails(fake: FakeCore) {
+        fake.series()
+        fake.on("emby.itemDetail") { args ->
+            val id = args.str("item_id")!!
+            when (id) {
+                "s1" -> item(id, "遥控剧集", "Series")
+                "se2" -> item(id, "第2季", "Season", seriesId = "s1")
+                "se2e2" -> buildJsonObject {
+                    item(id, "分集详情", "Episode", seriesId = "s1", season = 2, episode = 2)
+                        .forEach { (key, value) -> put(key, value) }
+                    put("season_id", "se2")
+                }
+                else -> error("非预期详情目标：$id")
+            }
+        }
+        fake.ret("emby.seriesSeasons", arr(*(1..2).map { season ->
+            buildJsonObject {
+                put("id", "se$season"); put("index_no", season); put("child_count", 2)
+                put("unplayed", 1); put("unplayed_count_known", true)
+            }
+        }.toTypedArray()))
+        fake.on("emby.seasonEpisodes") { args ->
+            val parent = args.str("parent_id")!!
+            check(parent == "se1" || parent == "se2")
+            val season = if (parent == "se1") 1 else 2
+            buildJsonObject {
+                put("total", 2)
+                put("items", arr(*(1..2).map { episode ->
+                    item("${parent}e$episode", "第${season}季第${episode}集", "Episode",
+                        seriesId = "s1", season = season, episode = episode, played = episode == 1,
+                        runtime = 1800.0, resume = if (episode == 2) 120.0 else 0.0)
+                }.toTypedArray()))
+            }
+        }
+    }
+
+    private fun containerPlayWaitsForEpisodes(type: String, id: String, parent: String) {
+        val detailReady = CompletableDeferred<Unit>()
+        val episodesReady = CompletableDeferred<Unit>()
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = fake.callJson(command, args, onPartial)
+                if (command == "emby.itemDetail") detailReady.await()
+                if (command == "emby.seasonEpisodes") episodesReady.await()
+                return result
+            }
+        } }, configure = ::seriesDetails)
+        try {
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to id, "type" to type), false)
+            }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown, Key.DirectionDown)
+            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.runOnIdle { detailReady.complete(Unit) }
+            rule.waitForIdle()
+            assertEquals(parent, core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNode(hasTestTag("detail.play") and isEnabled()).assertDoesNotExist()
+            rule.runOnIdle { episodesReady.complete(Unit) }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled().assertIsFocused()
+            rule.onRoot().captureRoboImage("build/shared-tv/${type.lowercase()}-play-focus.png")
+            press(rule, Key.DirectionCenter)
+            rule.waitForIdle()
+            val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
+            val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
+            assertEquals("${parent}e2", route.itemId)
+            assertEquals("va", route.versionId)
+            assertNull(route.src)
+            assertTrue(intent.getBooleanExtra("player.tv", false))
+        } finally {
+            detailReady.complete(Unit)
+            episodesReady.complete(Unit)
+        }
+    }
+
+    @Test fun seriesPlayWaitsForEpisodesAndRemoteOpensNextEpisode() =
+        containerPlayWaitsForEpisodes("Series", "s1", "se1")
+
+    @Test fun seasonPlayWaitsForEpisodesAndRemoteKeepsRequestedSeason() =
+        containerPlayWaitsForEpisodes("Season", "se2", "se2")
+
+    @OptIn(ExperimentalTestApi::class)
+    @Test fun remoteChangesSeasonOpensEpisodeAndRestoresItsFocus() {
+        val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
+        val wasTouch = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
+        // Popup 使用自己的输入模式；遥控测试须从系统层退出触摸模式。
+        instrumentation.setInTouchMode(false)
+        try {
+            mount(configure = ::seriesDetails)
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown, Key.DirectionDown)
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithContentDescription("选择季").assertIsFocused()
+            press(rule, Key.DirectionCenter)
+            rule.onNode(hasText("第1季") and hasAnyAncestor(isPopup())).assertIsFocused()
+                .performKeyInput { pressKey(Key.DirectionDown) }
+            rule.waitForIdle()
+            rule.onNode(hasText("第2季") and hasAnyAncestor(isPopup())).assertIsFocused()
+                .performKeyInput { pressKey(Key.DirectionCenter) }
+            rule.waitForIdle()
+            rule.onNode(isPopup()).assertDoesNotExist()
+            assertEquals("se2", core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
+            rule.onNodeWithContentDescription("选择季").assertIsFocused()
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithTag("detail.ep.se2e2").assertIsFocused()
+            press(rule, Key.DirectionLeft)
+            rule.onNodeWithTag("detail.ep.se2e1").assertIsFocused()
+            press(rule, Key.DirectionRight)
+            val episode = rule.onNodeWithTag("detail.ep.se2e2").assertIsFocused()
+            press(rule, Key.DirectionCenter)
+            rule.waitForIdle()
+            assertEquals("se2e2", core.calls.last { it.first == "emby.itemDetail" }.second.str("item_id"))
+            rule.runOnUiThread { back.onBackPressed() }
+            rule.waitForIdle()
+            episode.assertIsFocused()
+        } finally { instrumentation.setInTouchMode(wasTouch) }
+    }
+
+    @Test fun detailToolbarDownSkipsUnavailableTargetsAndBindsWhenReady() {
+        val release = CompletableDeferred<Unit>()
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = fake.callJson(command, args, onPartial)
+                if (command == "emby.itemDetail" && args.str("item_id") == "m1") release.await()
+                return result
+            }
+        } })
+        try {
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown, Key.DirectionDown)
+            rule.onNodeWithContentDescription("返回").assertIsFocused()
+            rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.runOnIdle { release.complete(Unit) }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown)
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "box", "type" to "BoxSet"), false)
+            }
+            rule.waitForIdle()
+            rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.DirectionDown, Key.DirectionDown)
+            rule.onNodeWithContentDescription("返回").assertIsFocused()
+        } finally { release.complete(Unit) }
+    }
+
+    private fun pluginPrimaryTakeover(mode: String) {
+        mount { fake ->
+            fake.ret("plugin.anchors", arr(buildJsonObject {
+                put("plugin_id", "test/actions"); put("name", "接管主操作")
+                put("anchor", "detail.actions"); put("mode", mode); put("block", "actions")
+            }))
+            fake.on("plugin.ui.mount") { throw IllegalStateException("合成插件错误") }
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").assertDoesNotExist()
+        if (mode == "replace") rule.onNodeWithText("这一块出错了", substring = true).assertIsDisplayed()
+        press(rule, Key.DirectionDown, Key.DirectionDown)
+        rule.onNodeWithContentDescription("返回").assertIsFocused()
+    }
+
+    @Test fun pluginHiddenPrimaryDoesNotLeaveInvalidToolbarFocusTarget() = pluginPrimaryTakeover("hide")
+    @Test fun pluginReplacedPrimaryDoesNotLeaveInvalidToolbarFocusTarget() = pluginPrimaryTakeover("replace")
+
+    @Test fun directionsMoveToSharedAggregateWithoutConfirmAndHideDownloads() {
         mount()
         rule.onNodeWithTag("rail.1").assertIsFocused()
-        press(rule, Key.DirectionRight, Key.DirectionRight)
-        rule.onNodeWithTag("rail.4").assertIsFocused().assertIsNotSelected()
-        press(rule, Key.DirectionCenter)
-        rule.onNodeWithTag("rail.4").assertIsSelected()
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithTag("rail.4").assertIsFocused().assertIsSelected()
         rule.onNodeWithText("排行榜").assertIsDisplayed()
         rule.onNodeWithText("日历").assertIsDisplayed()
         rule.onNodeWithText("下载").assertDoesNotExist()
         press(rule, Key.DirectionDown)
         rule.onNodeWithTag("rail.4").assertIsNotFocused()
         rule.onRoot().captureRoboImage("build/shared-tv/aggregate.png")
+    }
+
+    @Test fun actionEntryStillWaitsForConfirm() {
+        mount()
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithTag("rail.0").assertIsFocused()
+        rule.onNodeWithTag("rail.4").assertIsSelected()
+        rule.onNodeWithTag("search.field").assertDoesNotExist()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("search.field").assertIsDisplayed()
     }
 
     @Test fun cardMenuAndDetailReturnKeepRemoteFocusAndHideDownload() {
@@ -174,7 +536,7 @@ class SharedTvBrowseTest {
 
     @Test fun directionalHomeCardOpensDetailAndRestoresTheSameCard() {
         mount()
-        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.DirectionLeft)
+        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionLeft)
         val card = rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.onNodeWithTag("detail.hero").assertIsDisplayed()

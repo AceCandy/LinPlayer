@@ -226,6 +226,7 @@ internal fun Modifier.homePosterEntrance(
     var visible by remember { mutableStateOf(false) }
     val progress = remember { Animatable(if (seen) 1f else 0f) }
     val scale = LocalMotionScale.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val easing = remember { CubicBezierEasing(0f, 0f, .2f, 1f) }
     val spec = lpTween<Float>(T.T9, easing)
     val travel = with(LocalDensity.current) { 22.dp.toPx() }
@@ -249,7 +250,7 @@ internal fun Modifier.homePosterEntrance(
         val remaining = if (scale <= 0f) 0f else 1f - progress.value
         val layout = row.layoutInfo
         val card = layout.visibleItemsInfo.firstOrNull { it.index == index }
-        val edge = if (scale <= 0f || card == null || card.size == 0) 0f else {
+        val edge = if (tv || scale <= 0f || card == null || card.size == 0) 0f else {
             val left = layout.viewportStartOffset + layout.beforeContentPadding
             val right = layout.viewportEndOffset - layout.afterContentPadding
             val clipped = maxOf(left - card.offset, card.offset + card.size - right, 0)

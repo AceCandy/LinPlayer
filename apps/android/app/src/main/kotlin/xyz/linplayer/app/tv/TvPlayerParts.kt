@@ -156,12 +156,14 @@ private fun Spinner(ui: PlayerUi, label: String) {
     }
 }
 
-/** 起播失败 / 放不出来(§8.6)。第一行给人看,第二行是核心层原话;按钮同手机失败页只有「重试」。 */
+/** 起播失败 / 放不出来(§8.6)。第一行给人看，第二行是核心层原话；数据源还可重新选择换源。 */
 @Composable
-internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, finished: Boolean = false) {
+internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, finished: Boolean = false,
+    onSwitchSource: (() -> Unit)? = null) {
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
         FullState(LpIcons.info, if (finished) "无法继续播放下一集" else "这一片没能播起来", sub = if (retried) "已自动重试 1 次仍然失败" else null, detail = reason,
-            buttons = listOf("重试"), tone = TvC.bad, onButton = { onRetry() })
+            buttons = if (onSwitchSource == null) listOf("重试") else listOf("重试", "换源"),
+            tone = TvC.bad, onButton = { if (it == 0) onRetry() else onSwitchSource?.invoke() })
     }
 }
 

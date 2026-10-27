@@ -71,6 +71,9 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
@@ -669,7 +672,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         rememberTextMeasurer().measure("共 1 季", style = LpText.body).size.height.toDp()
     }
     // 平板(宽且够高)改左右分栏：左栏固定海报与播放，右栏滚动其余内容；横屏手机仍走单栏
-    val wide = !LocalTvMode.current && with(androidx.compose.ui.platform.LocalConfiguration.current) {
+    val tv = LocalTvMode.current
+    val playFocus = remember { FocusRequester() }
+    val playVisible by remember(list) { derivedStateOf { list.layoutInfo.visibleItemsInfo.any { it.key == "actions" } } }
+    val wide = !tv && with(androidx.compose.ui.platform.LocalConfiguration.current) {
         screenWidthDp >= 840 && screenHeightDp >= 600
     }
     // 只在跨过首项/开始滚动时变化；直接读滚动位置会让整页随每个条目边界重组。
@@ -775,6 +781,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         // 续播也用实心强调底：主按钮始终是这一屏最强的元素，进度靠叠色段表达。
                         .background(c.mediaAccent)
                         .testTag("detail.play")
+                        .then(if (tv) Modifier.focusRequester(playFocus) else Modifier)
                         .semantics {
                             if (continuing) progressBarRangeInfo = ProgressBarRangeInfo(
                                 (resume / runtime).toFloat().coerceIn(0f, 1f), 0f..1f)
@@ -844,7 +851,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     } }
 
     LpImmersive(barBackground = if (wide && scrolled) c.bg.copy(alpha = .9f) else Color.Transparent,
-        barModifier = Modifier.aboveSharedPoster(), bar = {
+        barModifier = Modifier.aboveSharedPoster().then(
+            if (tv && playVisible && live != null && !isBoxSet && (!isSeries || nextEp != null))
+                Modifier.focusProperties { down = playFocus } else Modifier),
+        bar = {
         IconButton(onClick = { nav.popBackStack() }) {
             Icon(LpIcons.back, "返回", Modifier.size(24.dp).privateNeonIcon(), tint = barTint)
         }
@@ -953,6 +963,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 if (!showBody) item("initial-loading") {
                     Spacer(Modifier.fillMaxWidth().height(160.dp))
                 } else {
+                if (tv) item("actions") { actionsBlock() }
                 /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
                    剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
                 if (!isSeries && !isBoxSet) item("pick") {
@@ -1005,7 +1016,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     xyz.linplayer.app.ui.components.ErrorState("播放选项刷新失败：${failure.message}", { mediaRetry++ })
                 }
 
-                if (!wide) item("actions") { actionsBlock() }
+                if (!wide && !tv) item("actions") { actionsBlock() }
 
                 if (isEpisode || isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->

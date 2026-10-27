@@ -3,12 +3,14 @@ package xyz.linplayer.app.tv
 import android.app.Activity
 import android.graphics.BitmapFactory
 import android.view.WindowManager
+import kotlin.coroutines.coroutineContext
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
@@ -106,7 +108,11 @@ internal class PlayerUi {
     var title by mutableStateOf("")
     /** 分集才有:`S1E3：集名`,与手机播放页同一格式。 */
     var episodeLabel by mutableStateOf("")
-    var spec by mutableStateOf("")
+    val spec: String get() {
+        val v = versions.firstOrNull { it.id == mediaSourceId } ?: return ""
+        return listOfNotNull(resLabel(v).takeIf { it != "—" },
+            v.of("Audio").firstOrNull()?.let { a -> listOfNotNull(codecName(a.codec), a.layout).joinToString(" ") }).joinToString(" · ")
+    }
     var chapters by mutableStateOf<List<Pair<Double, String>>>(emptyList())
     var intro by mutableStateOf<ClosedFloatingPointRange<Double>?>(null)
     var outro by mutableStateOf<ClosedFloatingPointRange<Double>?>(null)
@@ -143,7 +149,8 @@ internal fun isOk(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == K
 @Composable
 fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompleted: (() -> Unit)? = null,
     feedOverlay: (@Composable (xyz.linplayer.app.ui.player.FeedPlayback) -> Unit)? = null,
-    feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {}) {
+    feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {},
+    onSourceSwitch: ((xyz.linplayer.app.ui.pages.SourceSwitchTarget) -> Unit)? = null) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
@@ -164,13 +171,21 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         onDispose { xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, false) }
     }
     var target by remember { mutableStateOf(r) }
+    var sourceSwitch by remember(target) { mutableStateOf(false) }
+    var sourceExit by remember { mutableStateOf<xyz.linplayer.app.ui.pages.SourceSwitchTarget?>(null) }
+    val initialMode = remember { r.engine ?: UiPrefs.engine.value }
+    LaunchedEffect(target.itemId) {
+        ui.title = target.title
+        ui.episodeLabel = ""
+        ui.versions = emptyList()
+    }
     val initialSubtitle = remember(target.subtitle) {
         target.subtitle?.let { kotlinx.serialization.json.Json.decodeFromString<xyz.linplayer.app.ui.player.InitialSubtitle>(it) }
     }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetried by remember(target) { mutableStateOf(false) }
     val controller = remember(target) {
-        PlayerController(if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: UiPrefs.engine.value) { command, arguments ->
+        PlayerController(if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode) { command, arguments ->
             app.call(command, arguments)
         }
     }
@@ -262,6 +277,13 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             else nav.pop()
         }
     }
+    LaunchedEffect(sourceExit) {
+        val next = sourceExit ?: return@LaunchedEffect
+        leaving = true
+        stopPlayback()
+        PlayerController.awaitPendingStop()
+        if (!app.privateSpace.value) onSourceSwitch?.invoke(next)
+    }
 
     suspend fun switchTo(next: TvRoute.Player) {
         speedWrite?.join()
@@ -276,7 +298,12 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             selectedPrepared = adopt; preparedFor = null; preparedRequest = null; preparedResult = null
         } else cancelPreparation()
         PlaybackService.stop(ctx)
-        runCatching { controller.stop(ui.position) }
+        runCatching { controller.stop(ui.position) }.onFailure {
+            if (it is kotlinx.coroutines.CancellationException) throw it
+            app.report(it)
+        }
+        coroutineContext.ensureActive()
+        if (leaving) return
         overlay.close()
         target = if (next.itemId != target.itemId || next.versionId != target.versionId)
             next.copy(subtitle = null) else next
@@ -340,6 +367,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     val playbackPrefs = trackPrefs
     LaunchedEffect(target, attempt, engine, playbackPrefs) {
         xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
+        ui.mediaSourceId = null
         if (playbackPrefs == null) return@LaunchedEffect
         controller.begin()
         subOffPref = controller.fallback?.subOff ?: initialSubtitle?.let { it.index == null } ?: (trackPrefs?.subEnabled == false)
@@ -350,7 +378,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         ui.failed = null; ui.skipWhat = null; ui.osd = true
         PlayerController.awaitPendingStop()
         coroutineContext.ensureActive()
-        ui.title = target.title; ui.episodeLabel = ""
         // ☠ 换片连 libass 的事件缓存一起清,和手机端同一顺序
         ExoPreload.of(exo)?.deactivate()
         Libass.reset()
@@ -376,6 +403,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                         target.resumeAt?.let { put("resume_secs", it) }
                     }
                     val res = app.call("player.play", controller.playbackArgs(a)).obj()
+                    coroutineContext.ensureActive()
                     controller.resolved(res)
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
@@ -405,6 +433,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (!autoRetried && (e as? CoreException)?.retryable == true) { autoRetried = true; attempt++; return@LaunchedEffect }
             // 第二行写核心层原话(§8.6),给人看的那句在第一行
             ui.failed = e.message ?: "起播失败"
+            if (target.src != null && !app.privateSpace.value) sourceSwitch = true
         }
         runCatching { app.call("companion.setNowPlaying", args("title" to target.title)) }
         if (!target.localEntry && !target.download && target.src == null) launch { startDanmakuFor(app, target.itemId) }
@@ -436,10 +465,9 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             ui.episodes = result.getOrDefault(emptyList())
             episodeResult = result
         }
-        ui.versions = Version.list(runCatching { app.call("emby.itemMedia", args("item_id" to target.itemId)) }.getOrNull())
-        val v = ui.versions.firstOrNull { it.id == ui.mediaSourceId } ?: ui.versions.firstOrNull()
-        ui.spec = listOfNotNull(v?.let(::resLabel)?.takeIf { it != "—" },
-            v?.of("Audio")?.firstOrNull()?.let { a -> listOfNotNull(codecName(a.codec), a.layout).joinToString(" ") }).joinToString(" · ")
+        val versions = Version.list(runCatching { app.call("emby.itemMedia", args("item_id" to target.itemId)) }.getOrNull())
+        coroutineContext.ensureActive()
+        ui.versions = versions
     }
     LaunchedEffect(controller, finished, episodeResult, leaving) {
         if (!finished || leaving) return@LaunchedEffect
@@ -790,7 +818,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         val failed = ui.failed
         if (failed != null) PlayerFailure(failed, retried = autoRetried, finished = finished, onRetry = {
             if (finished) { ui.failed = null; episodeResult = null; episodeRetry++ } else attempt++
-        })
+        }, onSwitchSource = if (target.src != null && !app.privateSpace.value && !finished)
+            ({ sourceSwitch = true }) else null)
         else if (!ui.everMoved) Curtain(ui)
         else if (ui.buffering) BufferingHint(ui)
         if (failed == null && feedOverlay == null) {
@@ -826,6 +855,20 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         ))
     }
     LaunchedEffect(Unit) { if (feedOverlay == null) runCatching { root.requestFocus() } }
+    if (sourceSwitch) target.src?.let { raw ->
+        CompositionLocalProvider(LocalTvMode provides true) {
+            xyz.linplayer.app.ui.pages.SourcePlayFailed(raw, ui.position, onSwitch = { next ->
+                if (!leaving && !app.privateSpace.value) {
+                    if (next is xyz.linplayer.app.ui.pages.SourceSwitchTarget.Line)
+                        switchTo(TvRoute.Player(next.route.itemId, next.route.title, src = next.route.src))
+                    else {
+                        check(onSourceSwitch != null) { "当前播放入口无法跨源跳转" }
+                        sourceExit = next
+                    }
+                }
+            }, onClose = { sourceSwitch = false })
+        }
+    }
 }
 
 private fun skipNow(ui: PlayerUi, seek: (Double) -> Unit, playNext: () -> Unit) {

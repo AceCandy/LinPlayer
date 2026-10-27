@@ -39,6 +39,7 @@ import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.ui.Route
+import xyz.linplayer.app.ui.pages.SourceSwitchTarget
 import xyz.linplayer.app.ui.player.PlayerPage
 import xyz.linplayer.app.ui.theme.LpTheme
 import xyz.linplayer.app.ui.theme.PluginTheme
@@ -68,7 +69,14 @@ open class PlayerActivity : ComponentActivity() {
         val tv = intent.getBooleanExtra(EXTRA_TV, false)
         var navigationResult = false
         // 隐私播放只在已解锁的进程内恢复；进程回收不能靠旧Intent重新进入。
-        if (privatePlayback != app.privateSpace.value || (privatePlayback && route.localEntry)) { finish(); return }
+        if (privatePlayback != app.privateSpace.value || (privatePlayback && (route.localEntry || route.src != null))) { finish(); return }
+        val sourceSwitch: (SourceSwitchTarget) -> Unit = { target ->
+            if (!privatePlayback && !app.privateSpace.value && target !is SourceSwitchTarget.Line) {
+                navigationResult = true
+                setResult(RESULT_OK, Intent().putExtra(SOURCE_SWITCH, Json.encodeToString(target)))
+                finish()
+            }
+        }
         UiPrefs.load(this)
         if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, if (tv) "android_tv" else "android")
         enableEdgeToEdge()
@@ -115,7 +123,7 @@ open class PlayerActivity : ComponentActivity() {
                                     setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, name)
                                         .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, true))
                                     finish()
-                                })
+                                }, onSourceSwitch = sourceSwitch)
                         } else if (ready) {
                             val nav = rememberNavController()
                             NavHost(nav, startDestination = route) {
@@ -124,9 +132,9 @@ open class PlayerActivity : ComponentActivity() {
                                         clickedAt = if (savedInstanceState == null && intent.hasExtra(EXTRA_CLICK))
                                             intent.getLongExtra(EXTRA_CLICK, 0) else null,
                                         onExit = { itemId ->
-                                            setResult(RESULT_OK, Intent().putExtra(PLAYED_ITEM, itemId))
+                                            if (!navigationResult) setResult(RESULT_OK, Intent().putExtra(PLAYED_ITEM, itemId))
                                             finish()
-                                        })
+                                        }, onSourceSwitch = sourceSwitch)
                                 }
                             }
                         }
@@ -178,6 +186,7 @@ open class PlayerActivity : ComponentActivity() {
         internal const val NAV_ROUTE = "player.navRoute"
         internal const val NAV_PARAMS = "player.navParams"
         internal const val NAV_REPLACE = "player.navReplace"
+        internal const val SOURCE_SWITCH = "player.sourceSwitch"
         private const val EXTRA_ROUTE = "player.route"
         private const val EXTRA_CLICK = "player.clickedAt"
         private const val EXTRA_PRIVATE = "player.privateSpace"

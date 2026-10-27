@@ -78,6 +78,25 @@ class TvPrivacyTest {
         rule.waitForIdle()
     }
 
+    @Test fun privateHomeRemoteRefreshKeepsScopeAndSkipsCapabilityRefresh() {
+        mount(); enter()
+        val before = core.calls.size
+        rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        repeat(1) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithTag("nav.refresh").assertIsDisplayed().assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        advance(rule, 500)
+        rule.onNodeWithTag("nav.refresh").assertIsFocused()
+        val calls = core.calls.drop(before)
+        assertEquals(1, calls.count { it.first == "emby.views" })
+        assertTrue(calls.filter { it.first in setOf("emby.views", "emby.listResume") }.all {
+            it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true)
+        })
+        assertFalse(calls.any { it.first == "emby.extCapabilities" && it.second?.get("refresh") == JsonPrimitive(true) })
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+    }
+
     @Test fun rootEnablesClassificationAndSpaceChangeDiscardsNavigationAndCaches() {
         mount()
         val normalColor = TvC.bg
@@ -121,7 +140,7 @@ class TvPrivacyTest {
         // 插件不能把私密导航拉到另一个页面。
         rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 500)
         rule.onNode(hasSetTextAction()).performTextInput("查询")
         advance(rule, 900)
@@ -135,7 +154,7 @@ class TvPrivacyTest {
         mount(); enter()
         val before = core.calls.size
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 300)
         rule.onNodeWithText("流影").assertIsDisplayed()
         rule.onNodeWithText("排行榜").assertIsDisplayed()
