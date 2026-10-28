@@ -280,7 +280,8 @@ class VisualAlignmentTest {
             assertEquals("TV详情是全屏页，头图应从屏幕顶端铺满", screen.top, hero.top)
             assertEquals("TV详情背景不能留下左侧空边", screen.left, hero.left)
             assertEquals("TV详情背景不能留下右侧空边", screen.right, hero.right)
-            assertTrue("TV头图应覆盖首屏主体", hero.bottom - hero.top >= (screen.bottom - screen.top) * .75f)
+            assertTrue("TV头图应覆盖首屏主体", hero.bottom - hero.top >= (screen.bottom - screen.top) * .65f)
+            rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero"))).assertIsDisplayed()
             assertTrue("TV播放按钮应按内容收拢而非铺满屏幕", play.right - play.left < (screen.right - screen.left) * .5f)
             assertEquals("标题与播放按钮应对齐同一安全边距",
                 rule.onNodeWithTag("detail.title").getUnclippedBoundsInRoot().left, play.left)
@@ -296,6 +297,12 @@ class VisualAlignmentTest {
             val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused().getUnclippedBoundsInRoot()
             val screen = rule.onRoot().getUnclippedBoundsInRoot()
             assertTrue("剧集续播按钮同样保持紧凑宽度", play.right - play.left < (screen.right - screen.left) * .5f)
+            rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero"))).assertIsDisplayed()
+            val firstEpisode = data.getValue("episodes").jsonArray.first().jsonPrimitive.content
+            val image = rule.onNodeWithTag("detail.ep.image.$firstEpisode", useUnmergedTree = true).getUnclippedBoundsInRoot()
+            assertTrue("TV剧集首屏应展示整张分集缩略图", image.bottom <= screen.bottom)
+            assertTrue("TV剧集首屏还应看清分集标题",
+                rule.onNodeWithTag("detail.ep.$firstEpisode").getUnclippedBoundsInRoot().bottom <= screen.bottom)
         }
         rule.runOnIdle { PluginNav.host!!.push("settings", args(), false) }
         shot("settings", "播放与外观")

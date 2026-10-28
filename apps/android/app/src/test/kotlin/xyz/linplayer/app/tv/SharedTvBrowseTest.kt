@@ -7,6 +7,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.semantics.SemanticsActions
+import androidx.compose.ui.semantics.getOrNull
 import androidx.compose.ui.test.*
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.test.core.app.ApplicationProvider
@@ -504,7 +505,9 @@ class SharedTvBrowseTest {
         assertTrue(core.calls.any { it.first == "emby.setFavorite" && it.second?.get("fav") == JsonPrimitive(true) })
         press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionDown)
         rule.onNodeWithContentDescription("版本").assertIsFocused()
-        val actor = hasTestTag("detail.person.p0") and isFocused()
+        val actor = SemanticsMatcher("演职员卡片") {
+            it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)?.startsWith("detail.person.") == true
+        } and isFocused()
         for (step in 0 until 16) {
             if (rule.onAllNodes(actor).fetchSemanticsNodes().isNotEmpty()) break
             press(rule, Key.DirectionDown)
@@ -519,6 +522,8 @@ class SharedTvBrowseTest {
         }
         rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused()
         press(rule, Key.DirectionUp)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.tags"))).assertIsDisplayed()
+        press(rule, Key.DirectionDown)
         rule.onNodeWithTag("detail.play").assertIsFocused()
         rule.runOnUiThread { back.onBackPressed() }
         rule.waitForIdle()
@@ -581,6 +586,146 @@ class SharedTvBrowseTest {
                 }.toTypedArray()))
             }
         }
+    }
+
+    private fun cinemaMedia(target: String) = arr(*(0..1).map { version ->
+        buildJsonObject {
+            put("id", "$target-v$version")
+            put("name", "$target ${if (version == 0) "标准版" else "高码率"}")
+            put("preferred", version == 0)
+            put("streams", arr(
+                buildJsonObject {
+                    put("index", 0); put("type_", "Video"); put("codec", "h264")
+                    put("width", 1920); put("height", 1080)
+                },
+                buildJsonObject { put("index", 1); put("type_", "Audio"); put("codec", "aac"); put("language", "jpn") },
+                buildJsonObject { put("index", 2); put("type_", "Audio"); put("codec", "aac"); put("language", "eng") },
+                buildJsonObject { put("index", 3); put("type_", "Subtitle"); put("codec", "srt"); put("language", "chi"); put("title", "简体中文") },
+                buildJsonObject { put("index", 4); put("type_", "Subtitle"); put("codec", "srt"); put("language", "eng"); put("title", "英文字幕") },
+            ))
+        }
+    }.toTypedArray())
+
+    private fun cinemaSeries(fake: FakeCore) {
+        seriesDetails(fake)
+        val detail = fake.handlers.getValue("emby.itemDetail")
+        fake.on("emby.itemDetail") { request ->
+            JsonObject(detail(request).jsonObject + buildJsonObject {
+                put("overview", "一封迟到的来信，让远行的人重新踏上归途。穿越山海，也重新认识彼此。")
+                put("genres", arr(JsonPrimitive("剧情"), JsonPrimitive("冒险")))
+            })
+        }
+        fake.on("emby.itemMedia") { cinemaMedia(it.str("item_id")!!) }
+        fake.ret("account.listAccounts", arr(account("test-account", "测试媒体库", "", true)))
+        fake.ret("prefs.setPrefs", JsonNull)
+    }
+
+    @Test fun cinemaSeriesShowsTargetOptionsAndEpisodeArtworkInFirstViewport() {
+        mount(configure = ::cinemaSeries)
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero"))).assertIsDisplayed()
+        rule.onNodeWithText("se1e2 标准版").assertIsDisplayed()
+        val screen = rule.onRoot().getUnclippedBoundsInRoot()
+        val artwork = rule.onNodeWithTag("detail.ep.image.se1e1", useUnmergedTree = true).getUnclippedBoundsInRoot()
+        assertTrue("首屏应看清整张分集缩略图", artwork.bottom <= screen.bottom)
+        assertTrue((artwork.bottom - artwork.top).value > (screen.bottom - screen.top).value * .15f)
+        assertTrue(core.calls.filter { it.first == "prefs.preloadItem" }.all { it.second.str("item_id") == "se1e2" })
+        rule.onRoot().captureRoboImage("build/shared-tv/cinema-series.png")
+    }
+
+    @Test fun cinemaSeriesRemoteOptionsReachPlayerWithTargetIdentity() {
+        mount(configure = ::cinemaSeries)
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+        }
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("版本").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("se1e2 高码率").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("版本").assertIsFocused()
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithContentDescription("音轨").assertIsFocused()
+        rule.onNodeWithContentDescription("视频").assertHasNoClickAction()
+        rule.onNode(hasContentDescription("视频") and isFocused()).assertDoesNotExist()
+        press(rule, Key.DirectionRight, Key.DirectionCenter)
+        rule.onNodeWithText("英文字幕").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("字幕").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("选择季").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithContentDescription("版本").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
+        val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
+        assertEquals("se1e2", route.itemId)
+        assertEquals("se1e2-v1", route.versionId)
+        val subtitle = Json.decodeFromString<xyz.linplayer.app.ui.player.InitialSubtitle>(route.subtitle!!)
+        assertEquals("se1e2-v1", subtitle.sourceId)
+        assertEquals(4L, subtitle.index)
+    }
+
+    @Test fun cinemaSeriesTargetChangeDropsOldParametersWhileMediaLoads() {
+        val release = CompletableDeferred<Unit>()
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                val result = fake.callJson(command, args, onPartial)
+                if (command == "prefs.preloadItem" && args.str("item_id") == "se2e2") release.await()
+                return result
+            }
+        } }, configure = ::cinemaSeries)
+        try {
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            }
+            rule.onNodeWithContentDescription("版本").performClick()
+            rule.onNodeWithText("se1e2 高码率").performClick()
+            rule.onNodeWithContentDescription("字幕").performClick()
+            rule.onNodeWithText("英文字幕").performClick()
+            rule.onNodeWithContentDescription("选择季").performClick()
+            rule.onNode(hasText("第2季") and hasAnyAncestor(isPopup())).performClick()
+            rule.waitForIdle()
+            rule.onNodeWithText("se1e2 高码率").assertDoesNotExist()
+            rule.onNodeWithContentDescription("版本").assertDoesNotExist()
+            assertEquals("se2e2", core.calls.last { it.first == "prefs.preloadItem" }.second.str("item_id"))
+            rule.runOnIdle { release.complete(Unit) }
+            rule.waitForIdle()
+            rule.onNodeWithText("se2e2 标准版").assertIsDisplayed()
+            rule.onNodeWithTag("detail.play").performClick()
+            rule.waitForIdle()
+            val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
+            val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
+            assertEquals("se2e2", route.itemId)
+            assertEquals("se2e2-v0", route.versionId)
+            assertNull(route.subtitle)
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun cinemaEpisodeWithEmptySeasonDoesNotTrapFocusInParameters() {
+        mount { fake ->
+            cinemaSeries(fake)
+            fake.ret("emby.seriesSeasons", arr())
+            fake.ret("emby.seasonEpisodes", buildJsonObject { put("items", arr()); put("total", 0) })
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "se2e2", "type" to "Episode"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("版本").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.overview"))).assertIsDisplayed()
     }
 
     private fun containerPlayWaitsForEpisodes(type: String, id: String, parent: String) {
@@ -646,7 +791,10 @@ class SharedTvBrowseTest {
             }
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertIsFocused()
-            press(rule, Key.DirectionDown)
+            repeat(4) {
+                if (rule.onAllNodes(hasContentDescription("选择季") and isFocused()).fetchSemanticsNodes().isEmpty())
+                    press(rule, Key.DirectionDown)
+            }
             rule.onNodeWithContentDescription("选择季").assertIsFocused()
             press(rule, Key.DirectionCenter)
             rule.onNode(hasText("第1季") and hasAnyAncestor(isPopup())).assertIsFocused()
@@ -659,8 +807,6 @@ class SharedTvBrowseTest {
             assertEquals("se2", core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
             rule.onNodeWithContentDescription("选择季").assertIsFocused()
             press(rule, Key.DirectionDown)
-            rule.onNodeWithTag("detail.ep.se2e2").assertIsFocused()
-            press(rule, Key.DirectionLeft)
             rule.onNodeWithTag("detail.ep.se2e1").assertIsFocused()
             press(rule, Key.DirectionRight)
             val episode = rule.onNodeWithTag("detail.ep.se2e2").assertIsFocused()
@@ -796,7 +942,7 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.hero").assertIsDisplayed()
         val hero = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().boundsInRoot
         val screen = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        assertTrue("TV详情大图应承载首屏信息与主操作，而不是一条横幅", hero.height >= screen.height * .75f)
+        assertTrue("TV详情大图应承载首屏信息与主操作，而不是一条横幅", hero.height >= screen.height * .65f)
         val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
         assertTrue("主操作必须完整位于首屏", play.bottom <= screen.bottom)
         assertTrue("主操作不能横跨大半屏", play.width < screen.width * .5f)

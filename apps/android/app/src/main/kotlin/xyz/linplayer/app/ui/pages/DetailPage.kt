@@ -343,6 +343,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     var switching by remember { mutableStateOf(false) }
     val app = LocalApp.current
     val c = Lp.colors
+    val tv = LocalTvMode.current
     val scope = rememberCoroutineScope()
     val list = rememberLazyListState()
     val epoch = remember(cacheKey) { app.spaceRevision.value }
@@ -569,6 +570,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         mediaItemId = null
         media = Block.Loading
         pickedVersion = null
+        if (tv) sheet = null
         val target = playbackItemId ?: return@LaunchedEffect
         val preload = app.block("prefs.preloadItem", args("item_id" to target, "return_media" to true))
         // 独立替换过旧核心时仍返回预热状态，沿用旧版媒体读取契约。
@@ -656,7 +658,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     val liveVersion = currentMedia?.let { fresh ->
         fresh.firstOrNull { it.id == pickedVersion } ?: defaultVersion(fresh)
     }
-    var pickedSubtitle by remember(ver?.id) { mutableStateOf<InitialSubtitle?>(null) }
+    var pickedSubtitle by remember(playbackItemId, ver?.id) { mutableStateOf<InitialSubtitle?>(null) }
     val subtitle = if (!subsEnabled) null else pickedSubtitle?.let { pick ->
         ver?.of("Subtitle")?.firstOrNull { it.index == pick.index }
     } ?: selectedTrack(ver?.of("Subtitle"), subLang, subRegex)
@@ -682,8 +684,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         rememberTextMeasurer().measure("共 1 季", style = LpText.body).size.height.toDp()
     }
     // 平板(宽且够高)改左右分栏：左栏固定海报与播放，右栏滚动其余内容；横屏手机仍走单栏
-    val tv = LocalTvMode.current
     val playFocus = remember { FocusRequester() }
+    val episodeEntryFocus = remember { FocusRequester() }
+    var episodesMounted by remember { mutableStateOf(false) }
+    val episodeEntryAvailable = shownEpisodes.isNotEmpty() ||
+        (curSeason != null && seasons.size > 1 && seasonLoad is Block.Ok) ||
+        seasonLoad is Block.Fail || (episodeParent != null && episodeLoad is Block.Fail)
     val focusManager = androidx.compose.ui.platform.LocalFocusManager.current
     var pageHasFocus by remember { mutableStateOf(false) }
     var playMounted by remember { mutableStateOf(false) }
@@ -737,14 +743,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     }
 
     // 评分就在这条数据带里(★ 评分是第一格),锚点挂它
-    val ratingsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = Sp.x16)) {
+    val ratingsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
         if (tv) {
             val values = listOfNotNull(
                 d.dbl("rating")?.takeIf { it > 0 && !isEpisode }?.let { "★ %.1f".format(it) },
                 d.long("year")?.toString() ?: detailDate(d)?.take(4),
                 if (isSeriesEntry) seasons.size.takeIf { it > 0 }?.let { "共 $it 季" }
                     else d.dbl("runtime_secs")?.takeIf { it > 0 }?.let { fmtDur(it) },
-                d.strList("genres").take(2).joinToString(" / ").takeIf(String::isNotBlank),
             )
             if (values.isNotEmpty()) Text(values.joinToString("  ·  "), Modifier.testTag("detail.ratings"),
                 color = Color.White.copy(alpha = .85f), style = LpText.body)
@@ -799,16 +804,88 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         val plain = listOfNotNull(d.str("official_rating"), d.str("status"))
         DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags"), immediate = live == null && cached != null) { current ->
             if (current != null && (current.first.isNotEmpty() || current.second.isNotEmpty())) Row(
-                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
-                    .padding(start = Sp.x16, end = Sp.x16, top = Sp.x12),
+                Modifier.fillMaxWidth(if (tv) .56f else 1f).horizontalScroll(rememberScrollState())
+                    .padding(start = if (tv) 0.dp else Sp.x16, end = if (tv) 0.dp else Sp.x16,
+                        top = if (tv) Sp.x8 else Sp.x12),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x6),
             ) {
                 current.first.forEach { (kind, value, label) ->
                     if (live == null || current != (jumps to plain) ||
-                        live.get("capabilities").obj()?.get("filters")?.toString() == "false") Tag(label)
-                    else Tag(label) { nav.navigate(Route.Facet(kind, value, label)) }
+                        live.get("capabilities").obj()?.get("filters")?.toString() == "false") Tag(label, onImage = tv)
+                    else Tag(label, onImage = tv) { nav.navigate(Route.Facet(kind, value, label)) }
                 }
-                current.second.forEach { Tag(it) }
+                current.second.forEach { Tag(it, onImage = tv) }
+            }
+        }
+    }
+
+    val optionsBlock: @Composable () -> Unit = {
+        val options = if (tv && isSeries) {
+            if (mediaItemId == playbackItemId && playbackItemId != null) media else Block.Loading
+        } else media.valueOrNull?.let { Block.Ok(it) } ?: presentation?.media?.let { Block.Ok(it) } ?: media
+        val optionAnchors = LocalAnchors.current.blocks
+        AnimatedContent(options,
+            modifier = Modifier.fillMaxWidth().testTag("detail.options").then(
+                if (tv) Modifier.focusProperties {
+                    onExit = {
+                        if (requestedFocusDirection == FocusDirection.Down && episodesMounted && episodeEntryAvailable) {
+                            // 参数横排较宽，向下明确进入左侧选季，避免几何搜索越过它。
+                            cancelFocusChange()
+                            scope.launch {
+                                withFrameNanos { }
+                                if (episodesMounted && episodeEntryAvailable) episodeEntryFocus.requestFocus()
+                            }
+                        } else if (requestedFocusDirection == FocusDirection.Up && playAvailable &&
+                            optionAnchors[PluginAnchors.DETAIL_ACTIONS].orEmpty()
+                                .none { it.mode == "hide" || it.mode == "replace" }) {
+                            // 向上离开参数组时先回首屏，避免焦点落在屏外的主操作上。
+                            cancelFocusChange()
+                            scope.launch {
+                                list.animateScrollToItem(0)
+                                withFrameNanos { }
+                                if (playMounted) playFocus.requestFocus()
+                            }
+                        }
+                    }
+                }.focusGroup() else Modifier),
+            contentKey = { it::class },
+            transitionSpec = {
+                (fadeIn(contentFade) togetherWith fadeOut(contentFade))
+                    .using(SizeTransform { _, _ -> contentSize })
+            }, label = "detailOptions") { state ->
+            when (state) {
+                Block.Loading -> Spacer(Modifier.fillMaxWidth().height(if (tv) 56.dp else 120.dp))
+                is Block.Fail -> if (!state.isSilent)
+                    xyz.linplayer.app.ui.components.ErrorState("播放选项读取失败：${state.message}", { mediaRetry++ })
+                is Block.Ok -> {
+                    val video = ver?.of("Video")?.firstOrNull()
+                    val audio = selectedTrack(ver?.of("Audio"), audioLang)
+                    PickList(buildList {
+                        if (ver != null) add(PickRow("版本", ver.displayName, LpIcons.version,
+                            onClick = if (versions.size > 1) ({ sheet = "version" }) else null,
+                            metadata = listOfNotNull(ver.container?.uppercase(), fmtSize(ver.sizeBytes)).joinToString(" · ")))
+                        video?.let {
+                            val value = videoSummary(it)
+                            if (value.isNotBlank()) add(PickRow("视频", value, LpIcons.video))
+                        }
+                        audio?.let {
+                            val summary = audioSummary(it)
+                            add(PickRow("音轨", summary, LpIcons.musicNote,
+                                onClick = if ((ver?.of("Audio")?.size ?: 0) > 1) ({ sheet = "audio" }) else null,
+                                subtitle = trackSubtitle(it, summary)))
+                        }
+                        if (!ver?.of("Subtitle").isNullOrEmpty()) {
+                            val summary = if (!subsEnabled) "关闭" else subtitle?.let(::subtitleSummary) ?: "无"
+                            add(PickRow("字幕", summary, LpIcons.sub, onClick = { sheet = "sub" },
+                                subtitle = subtitle?.let { trackSubtitle(it, summary) }))
+                        }
+                        serverId?.takeIf { lineCount > 1 }?.let { sid ->
+                            add(PickRow("线路", lineLabel ?: "线路", LpIcons.line,
+                                // 线路页认的是账号 ID，换过线路后的会话地址不能代替它。
+                                onClick = { nav.navigate(Route.Lines(sid, title)) }))
+                        }
+                    }, enabled = live != null && (!tv || mediaItemId == playbackItemId) && media is Block.Ok && prefsReady && linesReady)
+                }
             }
         }
     }
@@ -825,7 +902,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 playMounted = true
                 onDispose { playMounted = false }
             }
-            Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
+            Column(Modifier.fillMaxWidth().padding(top = Sp.x16)) {
                 FlowRow(Modifier.fillMaxWidth().testTag("detail.actions.layout"),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x10),
                     verticalArrangement = Arrangement.spacedBy(Sp.x26)) {
@@ -862,7 +939,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 }
                 val status = listOfNotNull(targetLabel, if (continuing) "剩余 ${fmtRemaining(runtime - resume)}" else null)
                 if (status.isNotEmpty()) {
-                    Text(status.joinToString("  ·  "), Modifier.padding(top = Sp.x26).testTag("detail.series.target"),
+                    Text(status.joinToString("  ·  "), Modifier.padding(top = Sp.x12).testTag("detail.series.target"),
                         color = Color.White.copy(alpha = .8f), style = LpText.body,
                         maxLines = 2, overflow = TextOverflow.Ellipsis)
                 }
@@ -1063,10 +1140,11 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         // 从下方回到头部时恢复整块首屏，而不只把获焦按钮滚进视口。
                         if (it.hasFocus && list.canScrollBackward) scope.launch { list.animateScrollToItem(0) }
                     }.focusGroup()) {
-                    TvDetailHero(app, route.itemId, d, isEpisode,
+                    TvDetailHero(app, route.itemId, d, isEpisode, isSeries,
                         onSeries = { live.str("series_id")?.let { nav.navigate(Route.Detail(it, "Series")) } }) {
                         Anchored(PluginAnchors.DETAIL_TITLE) {}
                         ratingsBlock()
+                        tagsBlock()
                         val overviewReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_OVERVIEW]
                             .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
                         if (!overviewReplaced) d.str("overview")?.takeIf(String::isNotBlank)?.let {
@@ -1074,7 +1152,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 color = Color.White.copy(alpha = .85f), style = LpText.body,
                                 maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
-                        if (showBody) actionsBlock()
+                        if (showBody) {
+                            actionsBlock()
+                            if (!isBoxSet) optionsBlock()
+                        }
                     }
                     }
                 } else if (!wide) item("hero") {
@@ -1106,69 +1187,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 if (!showBody) item("initial-loading") {
                     Spacer(Modifier.fillMaxWidth().height(160.dp))
                 } else {
-                /* 播放选项:**版本 / 线路 / 音轨 / 字幕**【用户点名要的四项】。
-                   剧集页不画 —— 那是整部剧,选版本没有意义;进到某一集里才有。 */
-                if (!isSeries && !isBoxSet) item("pick") {
-                    AnimatedContent(media.valueOrNull?.let { Block.Ok(it) }
-                            ?: presentation?.media?.let { Block.Ok(it) } ?: media,
-                        modifier = Modifier.fillMaxWidth().testTag("detail.options").then(
-                            if (tv) Modifier.focusProperties {
-                                onExit = {
-                                    if (requestedFocusDirection == FocusDirection.Up && playAvailable &&
-                                        anchorBlocks[PluginAnchors.DETAIL_ACTIONS].orEmpty()
-                                            .none { it.mode == "hide" || it.mode == "replace" }) {
-                                        // 向上离开参数组时先回首屏，避免焦点落在屏外的主操作上。
-                                        cancelFocusChange()
-                                        scope.launch {
-                                            list.animateScrollToItem(0)
-                                            withFrameNanos { }
-                                            if (playMounted) playFocus.requestFocus()
-                                        }
-                                    }
-                                }
-                            }.focusGroup() else Modifier),
-                        contentKey = { it::class },
-                        transitionSpec = {
-                            (fadeIn(contentFade) togetherWith fadeOut(contentFade))
-                                .using(SizeTransform { _, _ -> contentSize })
-                        }, label = "detailOptions") { state ->
-                        when (state) {
-                            Block.Loading -> Spacer(Modifier.fillMaxWidth().height(120.dp))
-                            is Block.Fail -> if (!state.isSilent)
-                                xyz.linplayer.app.ui.components.ErrorState("播放选项读取失败：${state.message}", { mediaRetry++ })
-                            is Block.Ok -> {
-                                val video = ver?.of("Video")?.firstOrNull()
-                                val audio = selectedTrack(ver?.of("Audio"), audioLang)
-                                PickList(buildList {
-                                    if (ver != null) add(PickRow("版本", ver.displayName, LpIcons.version,
-                                        onClick = if (versions.size > 1) ({ sheet = "version" }) else null,
-                                        metadata = listOfNotNull(ver.container?.uppercase(), fmtSize(ver.sizeBytes)).joinToString(" · ")))
-                                    video?.let {
-                                        val value = videoSummary(it)
-                                        if (value.isNotBlank()) add(PickRow("视频", value, LpIcons.video))
-                                    }
-                                    audio?.let {
-                                        val summary = audioSummary(it)
-                                        add(PickRow("音轨", summary, LpIcons.musicNote,
-                                            onClick = if ((ver?.of("Audio")?.size ?: 0) > 1) ({ sheet = "audio" }) else null,
-                                            subtitle = trackSubtitle(it, summary)))
-                                    }
-                                    if (!ver?.of("Subtitle").isNullOrEmpty()) {
-                                        val summary = if (!subsEnabled) "关闭" else subtitle?.let(::subtitleSummary) ?: "无"
-                                        add(PickRow("字幕", summary, LpIcons.sub, onClick = { sheet = "sub" },
-                                            subtitle = subtitle?.let { trackSubtitle(it, summary) }))
-                                    }
-                                    serverId?.takeIf { lineCount > 1 }?.let { sid ->
-                                        add(PickRow("线路", lineLabel ?: "线路", LpIcons.line,
-                                            // 线路页认的是账号 ID，换过线路后的会话地址不能代替它。
-                                            onClick = { nav.navigate(Route.Lines(sid, title)) }))
-                                    }
-                                }, enabled = live != null && media is Block.Ok && prefsReady && linesReady)
-                            }
-                        }
-                    }
-                }
-                if (media is Block.Fail && presentation?.media != null && !media.isSilent) item("media-refresh-error") {
+                // 手机保留原位置；TV 参数与操作一起位于沉浸头部。
+                if (!tv && !isSeries && !isBoxSet) item("pick") { optionsBlock() }
+
+                if ((!tv || !isSeries) && media is Block.Fail && presentation?.media != null && !media.isSilent) item("media-refresh-error") {
                     val failure = media as Block.Fail
                     xyz.linplayer.app.ui.components.ErrorState("播放选项刷新失败：${failure.message}", { mediaRetry++ })
                 }
@@ -1187,26 +1209,32 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
                 // 换季仍复用同一请求链和滚动状态。
                 if (!tv || isSeries || isEpisode || !anchorBlocks[PluginAnchors.DETAIL_EPISODES].isNullOrEmpty())
-                    item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = Sp.x16)) {
+                    item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
                     if (!isSeries && !isEpisode) return@Anchored
                     var seasonsOpen by remember { mutableStateOf(false) }
                     val menuOffset = with(LocalDensity.current) { 48.dp.roundToPx() }
-                    Column(Modifier.fillMaxWidth().testTag("detail.episodes")) {
-                        Column(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12)) {
+                    if (tv) DisposableEffect(Unit) {
+                        episodesMounted = true
+                        onDispose { episodesMounted = false }
+                    }
+                    Column(Modifier.fillMaxWidth().testTag("detail.episodes")
+                        .then(if (tv) Modifier.focusRequester(episodeEntryFocus).focusGroup() else Modifier)) {
+                        val seasonPicker: @Composable () -> Unit = {
                             Box {
-                                Row(Modifier.then(if (isSeriesEntry) Modifier.fillMaxWidth() else Modifier).heightIn(min = 48.dp)
+                                Row(Modifier.then(if (isSeriesEntry && !tv) Modifier.fillMaxWidth() else Modifier)
+                                    .heightIn(min = if (tv) 32.dp else 48.dp)
                                     .then(if (curSeason != null && seasons.size > 1) Modifier.pressable({ seasonsOpen = !seasonsOpen },
                                         enabled = seasonLoad is Block.Ok) else Modifier),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                                    Text(if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
+                                    Text(if (tv) "分集" else if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
                                         color = c.fg, style = LpText.rail)
-                                    if (isSeriesEntry) {
-                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f),
+                                    if (isSeriesEntry || tv) {
+                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f, fill = !tv),
                                             color = c.mediaIcon, style = LpText.compact,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.End,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                                            ?: Spacer(Modifier.weight(1f))
+                                            ?: Spacer(if (tv) Modifier else Modifier.weight(1f))
                                     }
                                     if (curSeason != null && seasons.size > 1) Icon(LpIcons.chevD, "选择季", Modifier.size(20.dp), tint = c.fg2)
                                 }
@@ -1222,6 +1250,14 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                     }
                                 }
                             }
+                        }
+                        if (tv) Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x4),
+                            horizontalArrangement = Arrangement.spacedBy(Sp.x12),
+                            verticalAlignment = Alignment.CenterVertically) {
+                            Box(Modifier.weight(1f)) { seasonPicker() }
+                            Dim3(episodeSummary)
+                        } else Column(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x12)) {
+                            seasonPicker()
                             Dim3(episodeSummary, Modifier.height(with(LocalDensity.current) { 16.sp.toDp() }))
                         }
                         if (shownEpisodes.isNotEmpty()) key(curSeason?.id, returnRevision) {
@@ -1312,12 +1348,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 }
 
                 if (tv || (!isEpisode && !isSeriesEntry)) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                    if (tv && !d.str("overview").isNullOrBlank()) SectionTitle("剧情简介")
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
                 } }
 
-                if (tv) item("tags") { tagsBlock() }
                 item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(people, Modifier.testTag("detail.people"), immediate = live == null && cached != null) { current ->
                         if (current.isNotEmpty()) People(app, current) { nav.navigate(Route.Person(it.id, it.name)) }
@@ -1428,6 +1464,7 @@ private fun TvDetailHero(
     id: String,
     d: JsonObject?,
     episode: Boolean,
+    series: Boolean,
     onSeries: () -> Unit,
     content: @Composable () -> Unit,
 ) {
@@ -1441,8 +1478,9 @@ private fun TvDetailHero(
         else app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }
     val headerReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_HEADER]
         .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
-    Box(Modifier.bleed(TvPageSide).fillMaxWidth().heightIn(min = screenHeight * .78f).testTag("detail.hero")) {
-        if (!headerReplaced) Box(Modifier.matchParentSize().dissolve(if (c.isDark) .6f else .94f)) {
+    Box(Modifier.bleed(TvPageSide).fillMaxWidth()
+        .heightIn(min = screenHeight * if (series) .64f else .68f).testTag("detail.hero")) {
+        if (!headerReplaced) Box(Modifier.matchParentSize().dissolve(if (c.isDark) .72f else .86f)) {
             NetImage(url, null, Modifier.fillMaxSize().testTag("detail.hero.image"), 0.dp,
                 backgroundBlur = !useBackdrop, previewUrl = posterPreview(id),
                 fallbackUrls = if (!useBackdrop) artworkFallbacks(app.imageUrl(id, "Primary", 720),
@@ -1451,12 +1489,14 @@ private fun TvDetailHero(
                     else emptyList(),
                 onLoadResult = { loaded -> if (!loaded && useBackdrop) backdropFailed = true })
             Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
-                0f to Color.Black.copy(alpha = .82f),
-                .65f to Color.Black.copy(alpha = .52f),
-                1f to Color.Black.copy(alpha = .08f))))
+                0f to Color.Black.copy(alpha = .9f),
+                .5f to Color.Black.copy(alpha = .68f),
+                .8f to Color.Black.copy(alpha = .12f),
+                1f to Color.Transparent)))
         } else Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .9f)))
         Column(Modifier.align(Alignment.BottomStart).fillMaxWidth()
-            .padding(start = TvPageSide + Sp.x16, end = TvPageSide + Sp.x16, top = TvDim.safeV + Sp.x26, bottom = Sp.x26)) {
+            .padding(start = TvPageSide + Sp.x16, end = TvPageSide + Sp.x16,
+                top = TvDim.safeV + Sp.x8, bottom = if (series) Sp.x8 else Sp.x12)) {
             Anchored(PluginAnchors.DETAIL_HEADER) {
                 if (episode) d.str("series_name")?.let { series ->
                     Text(series, Modifier.fillMaxWidth(.66f)
@@ -1505,7 +1545,7 @@ private fun TvDetailAction(
             .background(when {
                 focused -> Color.White
                 primary -> c.mediaAccent
-                else -> Color.Black.copy(alpha = .36f)
+                else -> c.s1.compositeOver(if (c.isDark) c.bg else Color.Black).copy(alpha = .9f)
             })
             .pressable(onClick, onLongClick, enabled, tvHighlight = false)
             .padding(horizontal = if (iconOnly) Sp.x10 else Sp.x16, vertical = Sp.x8),
@@ -1785,18 +1825,25 @@ private fun <Value> DetailReveal(value: Value, modifier: Modifier = Modifier, im
 }
 
 @Composable
-private fun Tag(text: String, onClick: (() -> Unit)? = null) {
+private fun Tag(text: String, onImage: Boolean = false, onClick: (() -> Unit)? = null) {
     val c = Lp.colors
     val tv = LocalTvMode.current
+    var focused by remember { mutableStateOf(false) }
     // 能点的和不能点的**长得不一样**:一排里有的能点有的不能点,
     // 外观一致的话用户只能靠试
     Text(
         text,
-        Modifier.clip(RoundedCornerShape(R.pill))
-            .background(if (onClick != null) c.mediaAccent.copy(alpha = .18f) else c.s1)
-            .let { if (onClick == null) it else if (tv) it.pressable(onClick) else it.clickable(onClick = onClick) }
+        Modifier.onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(R.pill))
+            .background(when {
+                onImage && focused -> Color.White
+                onClick != null -> c.mediaAccent.copy(alpha = .18f)
+                onImage -> Color.Black.copy(alpha = .5f)
+                else -> c.s1
+            })
+            .let { if (onClick == null) it else if (tv) it.pressable(onClick, tvHighlight = !onImage) else it.clickable(onClick = onClick) }
             .padding(horizontal = Sp.x10, vertical = 3.dp),
-        color = if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
+        color = if (onImage) { if (focused) Color.Black else Color.White.copy(alpha = .86f) }
+            else if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
         style = if (tv) LpText.body else LpText.badge, maxLines = 1,
     )
 }
@@ -1897,30 +1944,32 @@ private data class PickRow(
 private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
     val c = Lp.colors
     if (LocalTvMode.current) {
-        BoxWithConstraints(Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x20)) {
-            val maxOptionWidth = (maxWidth - Sp.x12) / 2
-            FlowRow(horizontalArrangement = Arrangement.spacedBy(Sp.x12),
-                verticalArrangement = Arrangement.spacedBy(Sp.x12)) {
+        BoxWithConstraints(Modifier.fillMaxWidth().padding(top = Sp.x12, bottom = Sp.x6)) {
+            val columns = if (maxWidth >= 720.dp) 4 else 2
+            val maxOptionWidth = (maxWidth - Sp.x10 * (columns - 1)) / columns
+            FlowRow(horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                verticalArrangement = Arrangement.spacedBy(Sp.x8)) {
                 rows.forEach { r ->
                     var focused by remember { mutableStateOf(false) }
-                    Row(Modifier.widthIn(max = maxOptionWidth).heightIn(min = Dim.tap)
+                    val ink = if (focused) Color.Black else Color.White
+                    Row(Modifier.widthIn(min = minOf(120.dp, maxOptionWidth), max = maxOptionWidth).heightIn(min = Dim.tap)
                         .onFocusChanged { focused = it.isFocused && enabled }
-                        .clip(RoundedCornerShape(R.sm)).background(if (focused) c.fg else c.s1)
+                        .clip(RoundedCornerShape(R.sm)).background(if (focused) Color.White
+                            else c.s1.compositeOver(if (c.isDark) c.bg else Color.Black).copy(alpha = .9f))
                         .semantics { contentDescription = r.label }
                         .then(r.onClick?.let { Modifier.pressable(it, enabled = enabled, tvHighlight = false) } ?: Modifier)
-                        .padding(horizontal = Sp.x12, vertical = Sp.x10),
-                        horizontalArrangement = Arrangement.spacedBy(Sp.x10),
+                        .padding(horizontal = Sp.x10, vertical = Sp.x6),
+                        horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                         verticalAlignment = Alignment.CenterVertically) {
-                        Icon(r.icon, null, Modifier.size(20.dp), tint = if (focused) c.bg else c.fg2)
+                        Icon(r.icon, null, Modifier.size(18.dp), tint = ink.copy(alpha = .75f))
                         Column(Modifier.weight(1f, fill = false)) {
-                            Text(r.value, color = if (focused) c.bg else c.fg, style = LpText.body)
-                            listOfNotNull(r.metadata?.takeIf(String::isNotBlank), r.subtitle)
-                                .takeIf { it.isNotEmpty() }?.let {
-                                    Text(it.joinToString(" · "), color = if (focused) c.bg else c.fg2, style = LpText.caption)
-                                }
+                            Text(listOfNotNull(r.label, r.metadata?.takeIf(String::isNotBlank), r.subtitle)
+                                .joinToString(" · "), color = ink.copy(alpha = .75f), style = LpText.caption,
+                                maxLines = 1, overflow = TextOverflow.Ellipsis)
+                            Text(r.value, color = ink, style = LpText.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
                         }
                         if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp),
-                            tint = if (focused) c.bg else if (enabled) c.fg2 else c.fg3)
+                            tint = ink.copy(alpha = if (enabled) .85f else .45f))
                     }
                 }
             }
@@ -2136,6 +2185,7 @@ internal fun EpisodeStrip(
 @Composable
 private fun episodeStripHeight(expanded: Boolean = false, playbackStyle: Boolean = false) = with(LocalDensity.current) {
     val image = episodeCardWidth(expanded, playbackStyle) * 9 / 16 + if (LocalTvMode.current) 12.dp else 0.dp
+    if (LocalTvMode.current && expanded && !playbackStyle) return@with image + Sp.x6 + LpText.body.lineHeight.toDp() + Sp.x8
     if (expanded) return@with image + Sp.x6 + LpText.body.lineHeight.toDp() * 2 + LpText.caption.lineHeight.toDp() + Sp.x8
     image + Sp.x6 + LpText.caption.lineHeight.toDp() + LpText.compact.lineHeight.toDp() * 2 + Sp.x8
 }
@@ -2143,7 +2193,7 @@ private fun episodeStripHeight(expanded: Boolean = false, playbackStyle: Boolean
 @Composable
 private fun episodeCardWidth(expanded: Boolean, playbackStyle: Boolean) =
     if (LocalTvMode.current && !playbackStyle)
-        (xyz.linplayer.app.ui.components.posterLayout()?.second ?: 104.dp) * 1.6f
+        (xyz.linplayer.app.ui.components.posterLayout()?.second ?: 104.dp) * 1.4f
     else if (playbackStyle) PlayerEpCardW else if (expanded) SeriesEpCardW else EpCardW
 
 private val EpCardW = 168.dp
@@ -2163,6 +2213,7 @@ private fun EpCard(
     onOpen: () -> Unit,
 ) {
     val c = Lp.colors
+    val compact = LocalTvMode.current && !playbackStyle
     var menuOpen by remember(ep.id) { mutableStateOf(false) }
     // 操作跟随详情页，卡片回收不能撤销提交；状态以页面刷新后的分集为准。
     val actions = remember(ep, actionScope) { cardActions(app, actionScope, ep, favoriteAction = false) }
@@ -2172,7 +2223,7 @@ private fun EpCard(
                 .testTag("detail.ep.${ep.id}").pressable(onOpen, onLongClick = { menuOpen = true }, tvHighlight = false)
         ) {
             Box(
-                Modifier.fillMaxWidth().aspectRatio(16f / 9f)
+                Modifier.fillMaxWidth().aspectRatio(16f / 9f).testTag("detail.ep.image.${ep.id}")
                     .clip(RoundedCornerShape(12.dp))
                     .then(
                         if (!LocalTvMode.current && (current || target)) Modifier.border(2.dp, c.mediaIcon, RoundedCornerShape(12.dp))
@@ -2196,6 +2247,11 @@ private fun EpCard(
                 }
                 xyz.linplayer.app.ui.components.EpisodeStatusBadge(ep,
                     Modifier.align(Alignment.TopEnd).padding(Sp.x6))
+                if (compact && target) Text("待播放",
+                    Modifier.align(Alignment.TopStart).padding(Sp.x6)
+                        .background(Color.Black.copy(alpha = .7f), RoundedCornerShape(R.sm))
+                        .padding(horizontal = Sp.x6, vertical = Sp.x2),
+                    color = Color.White, style = LpText.caption)
             }
             Spacer(Modifier.height(Sp.x6))
             if (expanded) {
@@ -2203,9 +2259,9 @@ private fun EpCard(
                     listOfNotNull(ep.seasonNo?.let { "S$it" }, ep.episodeNo?.let { "E$it" }).joinToString("")
                         .let { number -> listOf(number, ep.name).filter(String::isNotBlank).joinToString("：") },
                     color = if (playbackStyle && current) c.mediaAccent else if (target) c.mediaIcon else c.fg, style = LpText.body,
-                    maxLines = 2, overflow = TextOverflow.Ellipsis,
+                    maxLines = if (compact) 1 else 2, overflow = TextOverflow.Ellipsis,
                 )
-                if (target) Text("待播放", color = c.mediaIcon, style = LpText.caption)
+                if (target && !compact) Text("待播放", color = c.mediaIcon, style = LpText.caption)
                 if (playbackStyle && current) Text("当前集", color = c.mediaAccent, style = LpText.caption)
             } else {
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
