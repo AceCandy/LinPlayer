@@ -126,9 +126,9 @@ private val playerRoute = TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王
 
 internal val cases = listOf(
     TvPageShots.Case(6, "player-osd", { player() }, after = { r, c -> playing(r, c) }) { Shell(playerRoute) },
-    TvPageShots.Case(7, "player-seek", { player() }, after = { r, c -> playing(r, c); press(r, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight) }, settle = 300) { Shell(playerRoute) },
+    TvPageShots.Case(7, "player-seek", { player() }, after = { r, c -> playing(r, c); press(r, Key.DirectionRight, Key.DirectionRight) }, settle = 300) { Shell(playerRoute) },
     TvPageShots.Case(8, "player-subtitles", { player() }, after = { r, c ->
-        playing(r, c); press(r, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.Enter)
+        playing(r, c); press(r, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.Enter)
     }) { Shell(playerRoute) },
     TvPageShots.Case(9, "player-more", { player() }, after = { r, c -> playing(r, c); press(r, Key.Menu) }) { Shell(playerRoute) },
     TvPageShots.Case(11, "player-nextup", { player() }, after = { r, c -> playing(r, c); c.tick(3645.0); advance(r, 100); c.tick(3645.25); advance(r, 5600) }) { Shell(playerRoute) },

@@ -119,8 +119,8 @@ class VisualAlignmentTest {
                 CompositionLocalProvider(LocalNav provides nav, LocalFocusMemory provides nav.top.memory) {
                     Box(Modifier.fillMaxSize()) {
                         Image(still, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
-                        Osd(ui, TvRoute.Player("visual-1", "远岸来信"), "mpv", emptyList(),
-                            onSeek = {}, onPause = {}, onPrev = {}, onNext = {}, onPanel = {}, onSkip = {})
+                        Osd(ui, TvRoute.Player("visual-1", "远岸来信"), "mpv",
+                            playbackFocus = androidx.compose.ui.focus.FocusRequester(), onSeek = {}, onPause = {}, onNext = {}, onPanel = {})
                     }
                 }
             } else LpTheme(darkOverride = !light) {
@@ -136,7 +136,8 @@ class VisualAlignmentTest {
             }
         }
         repeat(20) { rule.mainClock.advanceTimeBy(80); rule.waitForIdle() }
-        rule.onNodeWithText(if (tv) "25:17 / 45:29" else "25:17").assertIsDisplayed()
+        rule.onNodeWithText("25:17").assertIsDisplayed()
+        if (tv) rule.onNodeWithText("45:29").assertIsDisplayed()
         val output = File(root, "build/visual-alignment/${if (tv) "tv" else "phone-landscape"}").apply { mkdirs() }
         rule.onRoot().captureRoboImage(File(output, "${if (light) "light" else "dark"}-player.png").path)
     }

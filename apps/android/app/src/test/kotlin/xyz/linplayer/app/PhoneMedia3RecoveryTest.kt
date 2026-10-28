@@ -75,7 +75,16 @@ class PhoneMedia3RecoveryTest {
     private val prepared = mutableMapOf<String, JsonObject>()
     private val core = FakeCore().loggedIn().player()
     private val trace = mutableListOf<String>()
-    private val app = AppState(core, scope)
+    private var advanceGate: kotlinx.coroutines.CompletableDeferred<Unit>? = null
+    private var exitedItem: String? = null
+    private val app = AppState(object : xyz.linplayer.app.core.CorePort by core {
+        override suspend fun callJson(command: String, args: JsonObject?,
+            onPartial: ((kotlinx.serialization.json.JsonElement) -> Unit)?): kotlinx.serialization.json.JsonElement {
+            val result = core.callJson(command, args, onPartial)
+            if (command == "player.advanceQueued") advanceGate?.await()
+            return result
+        }
+    }, scope)
 
     init {
         val pcmSize = 16_000 * 20
@@ -140,6 +149,7 @@ class PhoneMedia3RecoveryTest {
     }
 
     @After fun clean() {
+        advanceGate?.complete(Unit)
         recover.countDown()
         try {
             val player = rule.runOnIdle { currentPlayer() }
@@ -155,18 +165,54 @@ class PhoneMedia3RecoveryTest {
         }
     }
 
-    @Test fun naturalAutoplayRecoversAfterStallWithoutRecreatingPlayer() {
+    @Test fun naturalAutoplayRecoversAfterStallWithoutRecreatingPlayer() = autoplay(tv = false)
+
+    @Test fun tvNaturalAutoplayRecoversAfterStallWithoutRecreatingPlayer() = autoplay(tv = true)
+
+    private fun mount(tv: Boolean) {
         runBlocking { app.boot() }
         rule.mainClock.autoAdvance = false
         rule.setContent {
             LpTheme {
                 CompositionLocalProvider(LocalApp provides app) {
                     val nav = rememberNavController()
-                    if (visible.value) PlayerPage(nav, null,
+                    if (tv) {
+                        val tvNav = androidx.compose.runtime.remember { xyz.linplayer.app.tv.TvNav() }
+                        xyz.linplayer.app.tv.TvFrame(app) {
+                            CompositionLocalProvider(xyz.linplayer.app.tv.LocalNav provides tvNav) {
+                                if (visible.value) xyz.linplayer.app.tv.TvPlayerPage(
+                                    xyz.linplayer.app.tv.TvRoute.Player("sh6", "fixture", engine = "exo"),
+                                    onExit = { exitedItem = it; visible.value = false })
+                            }
+                        }
+                    } else if (visible.value) PlayerPage(nav, null,
                         embeddedRoute = Route.Player("sh6", "fixture", engine = "exo"))
                 }
             }
         }
+    }
+
+    @Test fun tvExitWaitsForHandoffAndStopsTheActualNextEpisode() {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>().also { advanceGate = it }
+        recover.countDown()
+        mount(tv = true)
+        await("handoff pending") { core.calls.any { it.first == "player.advanceQueued" } }
+        val player = currentPlayer()!!
+        xyz.linplayer.app.tv.press(rule, androidx.compose.ui.input.key.Key.MediaStop)
+        assertNull(exitedItem)
+        assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
+        rule.runOnIdle { gate.complete(Unit) }
+        await("exit after handoff") { exitedItem == "sh7" && core.calls.any { it.first == "player.stopPlayback" } }
+        val stopped = core.calls.single { it.first == "player.stopPlayback" }.second
+        assertEquals("sh7", stopped.str("item_id"))
+        assertTrue((stopped?.get("pos") as kotlinx.serialization.json.JsonPrimitive).content.toDouble() < 10)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        advance(rule, 500)
+        assertTrue(player.isReleased)
+    }
+
+    private fun autoplay(tv: Boolean) {
+        mount(tv)
         await("initial playback") { currentPlayer()?.playbackState == Player.STATE_READY }
         val player = currentPlayer()!!
         val owner = ExoPreload.of(player)!!

@@ -26,6 +26,7 @@ class TvPhoneParityTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     private lateinit var app: AppState
+    private lateinit var back: androidx.activity.OnBackPressedDispatcher
     @After fun clean() { scope.cancel(); if (::app.isInitialized) app.bg.cancel() }
 
     private fun core() = FakeCore().loggedIn().player().apply {
@@ -43,14 +44,23 @@ class TvPhoneParityTest {
         FakeImages.install(ApplicationProvider.getApplicationContext())
         val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = engine)) }
         rule.mainClock.autoAdvance = false
-        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
+        rule.setContent {
+            back = androidx.activity.compose.LocalOnBackPressedDispatcherOwner.current!!.onBackPressedDispatcher
+            TvFrame(app) { PlayerHost(nav) }
+        }
         advance(rule, 1500)
     }
 
     private fun click(text: String) {
-        rule.onNodeWithText(text).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNode(if (text == "更多") hasContentDescription(text) else hasText(text)).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.Enter)
         advance(rule, 400)
+    }
+
+    private fun withMediaInfo(assertions: () -> Unit) {
+        click("更多"); click("媒体信息")
+        assertions()
+        repeat(2) { rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300) }
     }
 
     private fun switchEngine() {
@@ -231,11 +241,11 @@ class TvPhoneParityTest {
         }
         try {
             show(port, "mpv")
-            rule.onNodeWithText("2160p", substring = true).assertDoesNotExist()
+            withMediaInfo { rule.onNodeWithText("2160p", substring = true).assertDoesNotExist() }
             rule.runOnIdle { release.complete(Unit) }
             advance(rule, 1000)
-            rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists()
-            rule.onNodeWithText("2160p", substring = true).assertDoesNotExist()
+            withMediaInfo { rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists() }
+            withMediaInfo { rule.onNodeWithText("2160p", substring = true).assertDoesNotExist() }
             assertEquals(1, core.calls.count { it.first == "player.play" })
             assertEquals(1, core.calls.count { it.first == "emby.itemMedia" })
         } finally { release.complete(Unit) }
@@ -252,8 +262,8 @@ class TvPhoneParityTest {
             ret("player.play", buildJsonObject { put("media_source_id", "missing") })
         }
         show(core, "mpv")
-        rule.onNodeWithText("2160p", substring = true).assertDoesNotExist()
-        rule.onNodeWithText("1080p", substring = true).assertDoesNotExist()
+        withMediaInfo { rule.onNodeWithText("2160p", substring = true).assertDoesNotExist() }
+        withMediaInfo { rule.onNodeWithText("1080p", substring = true).assertDoesNotExist() }
     }
 
     @Test fun 换集不保留上一集版本规格() {
@@ -276,14 +286,14 @@ class TvPhoneParityTest {
         }
         try {
             show(port, "mpv")
-            rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists()
+            withMediaInfo { rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists() }
             press(rule, Key.MediaNext)
             advance(rule, 600)
-            rule.onNodeWithText("1080p", substring = true).assertDoesNotExist()
+            withMediaInfo { rule.onNodeWithText("1080p", substring = true).assertDoesNotExist() }
             rule.runOnIdle { release.complete(Unit) }
             advance(rule, 600)
-            rule.onNodeWithText("1080p", substring = true).assertDoesNotExist()
-            rule.onNodeWithText("2160p", substring = true).assertDoesNotExist()
+            withMediaInfo { rule.onNodeWithText("1080p", substring = true).assertDoesNotExist() }
+            withMediaInfo { rule.onNodeWithText("2160p", substring = true).assertDoesNotExist() }
         } finally { release.complete(Unit) }
     }
 
@@ -312,12 +322,12 @@ class TvPhoneParityTest {
             show(port, "mpv")
             press(rule, Key.MediaNext)
             advance(rule, 600)
-            rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists()
+            withMediaInfo { rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists() }
             rule.runOnIdle { release.complete(Unit) }
             advance(rule, 600)
             assertTrue("旧响应已完成才检查当前规格", returned.isCompleted)
-            rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists()
-            rule.onNodeWithText("2160p", substring = true).assertDoesNotExist()
+            withMediaInfo { rule.onNodeWithText("1080p · AAC 7.1", substring = true).assertExists() }
+            withMediaInfo { rule.onNodeWithText("2160p", substring = true).assertDoesNotExist() }
         } finally { release.complete(Unit) }
     }
 

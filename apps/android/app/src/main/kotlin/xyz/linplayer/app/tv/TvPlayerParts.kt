@@ -15,6 +15,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.focusable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -41,8 +42,16 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.onClick
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -50,6 +59,7 @@ import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
@@ -81,7 +91,6 @@ import xyz.linplayer.app.tv.kit.ProgressBar
 import xyz.linplayer.app.tv.kit.TvButton
 import xyz.linplayer.app.tv.kit.TvC
 import xyz.linplayer.app.tv.kit.TvDim
-import xyz.linplayer.app.tv.kit.TvIconButton
 import xyz.linplayer.app.tv.kit.TvR
 import xyz.linplayer.app.tv.kit.TvSp
 import xyz.linplayer.app.tv.kit.TvText
@@ -111,16 +120,6 @@ internal class PlayerCtl(
     val switchEngine: () -> Unit,
     val switchTo: (TvRoute.Player) -> Unit,
 )
-
-/** 进度条宽 = 贴左右安全区(960 − 48 × 2)。 */
-private val BarW = 864.dp
-
-@Composable
-private fun TimeChip(text: String) {
-    Box(Modifier.clip(TvR.sm).background(Color.Black.copy(alpha = .55f)).padding(horizontal = TvSp.x6, vertical = TvSp.x2)) {
-        TvText(text, tvType.meta, Color.White, mono = true)
-    }
-}
 
 /** 速度为 0 时什么都不画:本地文件和缓存喂饱时本来就是 0,画「0 KB/s」像卡住了。 */
 private fun speedText(s: String) = s.takeIf { it.isNotBlank() && !it.startsWith("0 ") }
@@ -167,89 +166,88 @@ internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit
     }
 }
 
+/** 播放页先判断长按；子控件只消费短按释放，避免长按拦截抬键后残留按压态。 */
+private fun Modifier.playerConfirm(enabled: Boolean, onClick: () -> Unit) = onPreviewKeyEvent { e ->
+    if (!isOk(e.key)) false else {
+        if (enabled && e.type == KeyEventType.KeyUp && !e.nativeKeyEvent.isCanceled) onClick()
+        true
+    }
+}
+
+/** 视频上的动作只用图标或当前倍率，名称留在可访问语义中。 */
 @Composable
-private fun BoxScope.TitleBlock(ui: PlayerUi) {
-    val t = tvType
-    // 标题栏本身全透明,只有这一块自带不透明底(§2.2)
-    Column(Modifier.align(Alignment.TopStart).padding(start = TvDim.safeH, top = TvDim.safeV).widthIn(max = 560.dp)
-        .clip(TvR.md).background(Color.Black.copy(alpha = .55f)).padding(horizontal = TvSp.x12, vertical = TvSp.x8)) {
-        // 全屏播放看不到系统时钟,和手机一样在标题旁补一个
-        var clock by remember { mutableStateOf("") }
-        LaunchedEffect(Unit) {
-            val f = java.text.SimpleDateFormat("HH:mm", java.util.Locale.getDefault())
-            while (true) { clock = f.format(java.util.Date()); delay(10_000) }
+private fun PlayerAction(label: String, size: Dp, modifier: Modifier, icon: ImageVector? = null,
+    value: String? = null, enabled: Boolean = true, onClick: () -> Unit) {
+    Surface(onClick = onClick, enabled = enabled,
+        modifier = modifier.height(size).widthIn(min = size).semantics { contentDescription = label }
+            .playerConfirm(enabled, onClick),
+        shape = ClickableSurfaceDefaults.shape(TvR.pill),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.06f, pressedScale = .98f),
+        colors = ClickableSurfaceDefaults.colors(
+            containerColor = Color.Transparent, contentColor = Color.White,
+            focusedContainerColor = Color.White, focusedContentColor = Color.Black,
+            pressedContainerColor = Color.White.copy(alpha = .8f), pressedContentColor = Color.Black,
+            disabledContainerColor = Color.Transparent, disabledContentColor = Color.White.copy(alpha = .35f),
+        ),
+    ) {
+        Box(Modifier.height(size).then(if (icon != null) Modifier.width(size) else Modifier.padding(horizontal = TvSp.x8)),
+            contentAlignment = Alignment.Center) {
+            if (icon != null) Icon(icon, null, Modifier.size(size * .5f))
+            else Text(value.orEmpty(), fontSize = tvType.body, maxLines = 1)
         }
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            TvText(ui.title, t.body, Color.White, Modifier.weight(1f, fill = false), weight = TvW.semi)
-            speedText(ui.netSpeed)?.let { Spacer(Modifier.width(TvSp.x8)); TvText(it, t.meta, Color.White.copy(alpha = .8f), mono = true) }
-            Spacer(Modifier.width(TvSp.x8))
-            TvText(clock, t.meta, Color.White.copy(alpha = .8f), mono = true)
-        }
-        if (ui.episodeLabel.isNotBlank()) TvText(ui.episodeLabel, t.meta, Color.White)
-        // 第二行带上正在用的字幕:OSD 收着时这是唯一看得出字幕挂没挂上的地方
-        val sub = ui.tracks.firstOrNull { it.str("kind") == "sub" && it.bool("selected") }
-            ?.let { it.str("title")?.takeIf { s -> s.isNotBlank() } ?: xyz.linplayer.app.ui.pages.langCn(it.str("lang")) }
-        listOfNotNull(ui.spec.takeIf { it.isNotBlank() }, sub).joinToString(" · ").takeIf { it.isNotEmpty() }
-            ?.let { TvText(it, t.meta, Color.White.copy(alpha = .8f)) }
     }
 }
 
 @Composable
 internal fun BoxScope.Osd(
-    ui: PlayerUi, target: TvRoute.Player, engine: String,
-    pluginPanels: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>,
-    onSeek: (Double) -> Unit, onPause: () -> Unit, onPrev: () -> Unit, onNext: () -> Unit,
-    onPanel: (String) -> Unit, onSkip: () -> Unit,
-    onSeekBy: (Double) -> Unit = { onSeek(ui.position + it) },
+    ui: PlayerUi, target: TvRoute.Player, engine: String, playbackFocus: FocusRequester,
+    onSeek: (Double) -> Unit, onPause: () -> Unit, onNext: () -> Unit,
+    onPanel: (String) -> Unit,
     seekPosition: Double = ui.position,
 ) {
     val mem = LocalFocusMemory.current
     CompositionLocalProvider(LocalTvVideoControls provides true) {
-        TitleBlock(ui)
-        ui.skipWhat?.let { what ->
-            Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
-                TvButton(if (what == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, modifier = Modifier.memo("osd.skip"), onClick = onSkip)
-            }
-        }
-        Column(Modifier.align(Alignment.BottomStart).fillMaxWidth().padding(start = TvDim.safeH, end = TvDim.safeH, bottom = TvDim.safeV)) {
-            key(target, engine) {
-                SeekBar(ui, onSeek, seekPosition, upTo = { if (ui.skipWhat != null) mem.requesters["osd.skip"] else null })
-            }
-            Spacer(Modifier.height(TvSp.x4))
-            Row {
-                // 写当前位置不写预览目标:目标时间在游标上方,两处都写目标就看不出「从哪跳到哪」
-                TimeChip(fmtTime(ui.position) + " / " + if (ui.duration > 0) fmtTime(ui.duration) else "--:--")
-            }
-            Spacer(Modifier.height(TvSp.x12))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                val step = UiPrefs.tvSeekStep.value
-                Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8), verticalAlignment = Alignment.CenterVertically) {
-                    // 上一集 / 下一集 / 选集**只有分集才画**(电影画了选集 = 永远空表)
-                    if (ui.hasEpisodes) TvIconButton(LpIcons.skipPrev, 36.dp, modifier = Modifier.memo("osd.prev"), onClick = onPrev)
-                    TvIconButton(LpIcons.rewind, 36.dp, modifier = Modifier.memo("osd.rew"), onClick = { onSeekBy(-step.toDouble()) })
-                    TvIconButton(if (ui.paused) LpIcons.play else LpIcons.pause, 44.dp, primary = true,
-                        modifier = Modifier.memo("osd.play"), onClick = onPause)
-                    TvIconButton(LpIcons.forward, 36.dp, modifier = Modifier.memo("osd.fwd"), onClick = { onSeekBy(step.toDouble()) })
-                    if (ui.hasEpisodes) TvIconButton(LpIcons.skipNext, 36.dp, modifier = Modifier.memo("osd.next"), onClick = onNext)
+        BoxWithConstraints(Modifier.align(Alignment.BottomCenter).fillMaxWidth()) {
+            val inset = (maxWidth * .038f).coerceIn(16.dp, 48.dp)
+            val size = (maxWidth / 12).coerceIn(36.dp, 44.dp)
+            val barWidth = maxWidth - inset * 2
+            val fadeHeight = 32.dp
+            Column(Modifier.fillMaxWidth()
+                .drawBehind {
+                    // 文字起点已有稳定遮罩，预览缩略图撑高控件时也不降低对比度。
+                    drawRect(Brush.verticalGradient(0f to Color.Transparent,
+                        fadeHeight.toPx() / this.size.height to Color.Black.copy(alpha = .72f),
+                        1f to Color.Black.copy(alpha = .85f)))
                 }
-                // 右组和播控拉开距离,防误触
-                Spacer(Modifier.weight(1f))
-                Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                    if (!target.localEntry && !target.download)
-                        TvButton("弹幕", LpIcons.danmaku, modifier = Modifier.memo("osd.dm"), onClick = { onPanel("danmaku") })
-                    TvButton("音轨", LpIcons.audio, modifier = Modifier.memo("osd.audio"), onClick = { onPanel("audio") })
-                    TvButton("字幕", LpIcons.sub, modifier = Modifier.memo("osd.sub"), onClick = { onPanel("sub") })
-                    if (ui.hasEpisodes) TvButton("选集", LpIcons.list, modifier = Modifier.memo("osd.eps"), onClick = { onPanel("episodes") })
-                    TvButton("更多", LpIcons.more, modifier = Modifier.memo("osd.more"), onClick = { onPanel("more") })
-                    // 插件标签排在官方那几个后面:这一栏的先后顺序是官方优先,插件是增量
-                    pluginPanels.forEach { p ->
-                        TvButton(
-                            p.title.ifBlank { p.target },
-                            xyz.linplayer.app.ui.plugin.iconByName(p.icon) ?: LpIcons.more,
-                            modifier = Modifier.memo("osd.plugin.${p.pluginId}/${p.target}"),
-                            onClick = { onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p)) },
-                        )
+                .padding(start = inset, end = inset, top = fadeHeight, bottom = TvDim.safeV)) {
+                Row(verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(TvSp.x16)) {
+                    Column(Modifier.weight(1f)) {
+                        if (ui.episodeLabel.isNotBlank()) TvText(ui.episodeLabel, tvType.meta, Color.White.copy(alpha = .8f))
+                        TvText(ui.title, tvType.title, Color.White, weight = TvW.semi)
                     }
+                    Row(Modifier.focusProperties {
+                        down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
+                        up = mem.requesters["player.nextUp"] ?: mem.requesters["osd.skip"] ?: FocusRequester.Cancel
+                    }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+                        if (ui.hasEpisodes) PlayerAction("下一集", size, Modifier.memo("osd.next"),
+                            icon = LpIcons.skipNext, enabled = ui.next(target.itemId) != null, onClick = onNext)
+                        PlayerAction("倍速", size, Modifier.memo("osd.speed"), value = "${ui.speed.toString().removeSuffix(".0")}×",
+                            onClick = { onPanel("speed") })
+                        if (!target.localEntry && !target.download)
+                            PlayerAction("弹幕", size, Modifier.memo("osd.dm"), icon = LpIcons.danmaku, onClick = { onPanel("danmaku") })
+                        PlayerAction("音轨", size, Modifier.memo("osd.audio"), icon = LpIcons.audio, onClick = { onPanel("audio") })
+                        PlayerAction("字幕", size, Modifier.memo("osd.sub"), icon = LpIcons.sub, onClick = { onPanel("sub") })
+                        PlayerAction("更多", size, Modifier.memo("osd.more"), icon = LpIcons.more, onClick = { onPanel("more") })
+                    }
+                }
+                Spacer(Modifier.height(TvSp.x8))
+                key(target, engine) {
+                    SeekBar(ui, onSeek, onPause, seekPosition, barWidth,
+                        upTo = { mem.requesters[if (ui.next(target.itemId) != null) "osd.next" else "osd.speed"] })
+                }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                    TvText(fmtTime(seekPosition), tvType.meta, Color.White, mono = true)
+                    TvText(if (ui.duration > 0) fmtTime(ui.duration) else "--:--", tvType.meta, Color.White.copy(alpha = .8f), mono = true)
                 }
             }
         }
@@ -262,15 +260,24 @@ internal fun BoxScope.Osd(
  * ★ 时长未知时不可聚焦:用 0 当量程,「点了跳转画面没动」。
  */
 @Composable
-private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double, upTo: () -> androidx.compose.ui.focus.FocusRequester?) {
+private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, onPause: () -> Unit, seekPosition: Double, width: Dp, upTo: () -> androidx.compose.ui.focus.FocusRequester?) {
     val scope = rememberCoroutineScope()
     var focused by remember { mutableStateOf(false) }
     var commit by remember { mutableStateOf<Job?>(null) }
     val d = ui.duration
     fun frac(v: Double) = if (d > 0) (v / d).toFloat().coerceIn(0f, 1f) else 0f
+    fun confirm() {
+        commit?.cancel()
+        val preview = ui.preview
+        if (preview != null) { onSeek(preview); ui.preview = null } else onPause()
+    }
     Box(
         Modifier.memo("osd.bar")
-            .focusProperties { canFocus = d > 0; upTo()?.let { up = it } }
+            .focusProperties { canFocus = d > 0; down = FocusRequester.Cancel; upTo()?.let { up = it } }
+            .semantics {
+                contentDescription = "播放进度"
+                onClick(label = if (ui.preview != null) "确认跳转" else if (ui.paused) "播放" else "暂停") { confirm(); true }
+            }
             .onFocusChanged { focused = it.isFocused; if (!it.isFocused) { commit?.cancel(); ui.preview = null } }
             .onKeyEvent { e ->
                 val right = e.key == Key.DirectionRight
@@ -287,8 +294,9 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double
                         }
                         true
                     }
-                    isOk(e.key) && ui.preview != null -> {
-                        if (e.type == KeyEventType.KeyUp) { commit?.cancel(); ui.preview?.let(onSeek); ui.preview = null }
+                    isOk(e.key) -> {
+                        commit?.cancel()
+                        if (e.type == KeyEventType.KeyUp) confirm()
                         true
                     }
                     else -> false
@@ -298,9 +306,8 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double
     ) {
         val bmp = ui.thumb
         ProgressBar(
-            played = frac(seekPosition), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = BarW,
+            played = frac(seekPosition), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = width,
             chapters = ui.chapters.map { frac(it.first) }.filter { it in 0.001f..0.999f },
-            intro = ui.intro?.let { frac(it.start)..frac(it.endInclusive) },
             preview = ui.preview?.let(::frac), previewLabel = ui.preview?.let(::fmtTime) ?: "",
             previewThumb = bmp?.let { b -> { Image(b, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
         )
@@ -308,19 +315,29 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, seekPosition: Double
 }
 
 @Composable
-internal fun BoxScope.SkipButton(ui: PlayerUi, onSkip: () -> Unit) {
+internal fun BoxScope.SkipButton(ui: PlayerUi, playbackFocus: FocusRequester, onSkip: () -> Unit) {
+    val mem = LocalFocusMemory.current
     CompositionLocalProvider(LocalTvVideoControls provides true) {
         Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
-            TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext, onClick = onSkip)
+            TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext,
+                modifier = Modifier.memo("osd.skip").playerConfirm(ui.osd, onSkip).focusProperties {
+                    canFocus = ui.osd
+                    down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
+                }, onClick = onSkip)
         }
     }
 }
 
-/** 片尾「接下来」胶囊,外观同手机;和跳过按钮同一角(左上是标题块,底部是控件)。 */
+/** 片尾提示沿用手机胶囊；展开控件后显式聚焦，不占用画面的确认键。 */
 @Composable
-internal fun BoxScope.NextUpChip(ui: PlayerUi, next: Item, onPlay: () -> Unit) {
+internal fun BoxScope.NextUpChip(ui: PlayerUi, next: Item, playbackFocus: FocusRequester, onPlay: () -> Unit) {
+    val mem = LocalFocusMemory.current
     xyz.linplayer.app.ui.player.NextUp(next, ui.duration - ui.position, ui.duration, 150.dp,
-        Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV).alpha(if (ui.osd) 1f else .5f), onClick = onPlay)
+        Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV).alpha(if (ui.osd) 1f else .5f)
+            .memo("player.nextUp").playerConfirm(ui.osd, onPlay).focusProperties {
+                canFocus = ui.osd
+                down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
+            }, onClick = onPlay)
 }
 
 /** 瞬时提示:中央播放暂停图标、「3.0x ▸▸」。 */
@@ -352,6 +369,7 @@ internal fun openPanel(
     target: TvRoute.Player, engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
     /** 这一格是插件标签时的那一行(SPEC 9.5 的 panel),官方面板是 null。 */
     plugin: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
+    plugins: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo> = emptyList(),
 ) {
     overlay.open {
         if (plugin != null) {
@@ -369,7 +387,7 @@ internal fun openPanel(
             "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
             "episodes" -> EpisodesPanel(overlay, ui, target, ctl)
-            else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl)
+            else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl, plugins, if (which == "speed") "speed" else "")
         }
     }
 }
@@ -591,8 +609,17 @@ private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
 private fun BoxScope.MorePanel(
     app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, target: TvRoute.Player,
     engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
+    plugins: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>, initialLevel: String = "",
 ) {
-    var level by remember { mutableStateOf("") }
+    var level by remember { mutableStateOf(initialLevel) }
+    val plugin = plugins.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == level }
+    if (plugin != null) {
+        TvSidePanel(plugin.title.ifBlank { plugin.target }, { overlay.close() }, back = { level = "" }) {
+            xyz.linplayer.app.ui.plugin.PluginSurface(plugin.pluginId, plugin.target, "panel",
+                modifier = Modifier.fillMaxWidth(), focusNs = "${plugin.pluginId}/${plugin.target}.")
+        }
+        return
+    }
     var skipIntro by remember { mutableStateOf<Boolean?>(null) }
     var skipOutro by remember { mutableStateOf<Boolean?>(null) }
     // 带 › 的项把当前值写在右边:不写的话,得点进二级才知道现在是哪一档
@@ -607,7 +634,7 @@ private fun BoxScope.MorePanel(
                 .firstOrNull { it.bool("selected") }.str("name")
         }
     }
-    val back = { level = "" }
+    val back = { if (initialLevel == "speed") overlay.close() else level = "" }
     val local = target.localEntry || target.download
     when (level) {
         "ratio" -> TvSidePanel("画面比例", { overlay.close() }, back = back) {
@@ -639,7 +666,7 @@ private fun BoxScope.MorePanel(
                 PanelItem(name.ifBlank { "章节 ${i + 1}" }, value = fmtTime(at), onClick = { ctl.seek(at); overlay.close() })
             }
         }
-        "info" -> PlaybackInfo(app, overlay, back, exo)
+        "info" -> PlaybackInfo(app, overlay, back, exo, ui)
         else -> TvSidePanel("更多", { overlay.close() }) {
             PanelGroup("画面")
             PanelItem("画面比例", value = ui.fit.label, chevron = true, focused = true, onClick = { level = "ratio" })
@@ -647,6 +674,9 @@ private fun BoxScope.MorePanel(
             if (exo == null) PanelItem("画面增强", value = shaderName, chevron = true, onClick = { level = "shader" })
             if (ui.versions.size > 1) PanelItem("版本", value = ui.versions.firstOrNull { it.id == ui.mediaSourceId }?.let(::resLabel), chevron = true, onClick = { level = "version" })
             PanelGroup("播放")
+            ui.prev(target.itemId)?.let { previous ->
+                PanelItem("上一集", onClick = { ctl.switchTo(TvRoute.Player(previous.id, cardTitleOf(previous))) })
+            }
             PanelItem("倍速", value = "${ui.speed}×", chevron = true, onClick = { level = "speed" })
             if (ui.chapters.isNotEmpty()) PanelItem("章节", chevron = true, onClick = { level = "chapter" })
             skipIntro?.let { on ->
@@ -664,6 +694,10 @@ private fun BoxScope.MorePanel(
             PanelGroup("工具")
             if (!local) PanelItem(if (engine == "exo") "切换到 MPV 内核" else "切换到 Media3 内核", onClick = ctl.switchEngine)
             PanelItem("媒体信息", chevron = true, onClick = { level = "info" })
+            plugins.forEach { p ->
+                PanelItem(p.title.ifBlank { p.target }, chevron = true,
+                    onClick = { level = xyz.linplayer.app.ui.plugin.pluginPanelKind(p) })
+            }
         }
     }
 }
@@ -715,7 +749,7 @@ private fun BoxScope.ShaderLevels(app: AppState, scope: CoroutineScope, overlay:
 }
 
 @Composable
-private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> Unit, exo: ExoPlayer?) {
+private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> Unit, exo: ExoPlayer?, ui: PlayerUi) {
     var opts by remember { mutableStateOf<JsonObject?>(null) }
     LaunchedEffect(Unit) { if (exo == null) opts = runCatching { app.call("player.opts") }.getOrNull().obj() }
     TvSidePanel("媒体信息", { overlay.close() }, back = back) {
@@ -723,6 +757,7 @@ private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> U
         val rows = xyz.linplayer.app.ui.player.playbackMediaInfo(exo, opts)
         // 只读行不可聚焦;放一个可聚焦的首项,面板才圈得住焦点
         PanelItem("返回", chevron = false, focused = true, onClick = back)
+        if (ui.spec.isNotBlank()) PanelItem("当前版本", value = ui.spec, enabled = false)
         rows.forEach { (k, v) -> PanelItem(k, value = v, enabled = false) }
     }
 }

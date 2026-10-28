@@ -50,7 +50,7 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 - 日历只在 `timezone == "Asia/Tokyo"` 时显示 `broadcast_time`；缺失时间保持未知，不从首播日期编造时刻。星期优先有效 `weekday`（1～7），缺失时 ISO 时间按 JST 换算，不能依设备时区分组。
 - `tools/seekcheck/DiscoveryCheck.cs` 覆盖第2页失败保留第1页、失败目标重试、空页和JST跨日；自动回归不替代真实服务器及设备联调。
 
-## 手机下一集准备
+## Android 手机 / TV 下一集准备
 
 - 当前集就绪、未卡顿且距片尾不超过60秒时准备同季下一集；手动切集也先发起准备，与停止收尾并行。尊重核心预加载开关；停止本地输出后仅接管已就绪结果，未就绪或失败时按请求ID取消准备并直接走正常起播，不等待准备任务完成。迟到返回不得影响新目标。
 - `player.prepareNext` 使用独立代理，不改当前目标或上报开始；准备结果按请求ID、账号凭据、条目、版本和选版规则一次消费，2分钟过期。离页或账号变化取消pending及已选未消费结果，迟到结果不得写回。
@@ -58,10 +58,11 @@ UiPrefs 是纯本机呈现偏好的有边界例外，不把核心业务配置移
 - Media3使用同一DefaultPreloadManager/ExoPlayer加载配置，提前加载前5秒样本，正式起播接管同一MediaSource；字幕在接管前隔离，重置当前字幕前停用旧回调。mpv复用核心地址与字节准备，临近片尾追加原生playlist并临时启用prefetch-playlist。
 - 切集`handoff=true`只将网络停止报告后台化，本地输出和历史先收尾；旧Stopped先于新Playing，普通退出继续等待停止上报。快速连续切集最多保留一份后台停止任务，必要时等待上一份完成。
 
-- 手机当前集已缓冲到尾部且剩余不超过10秒时，`player.queuePrepared` 将准备槽转为内核队列槽；排队不改变当前集身份。Media3实际media transition后调用`player.advanceQueued`，MPV按START_FILE的playlist entry ID接管，并发出`player.queueAdvanced`；接管不能重复stop/load或请求播放信息。Media3下一集存在非零续播时仍走常规切换。
+- 手机与TV当前集已缓冲到尾部且剩余不超过10秒时，`player.queuePrepared` 将准备槽转为内核队列槽；排队不改变当前集身份。Media3实际media transition后调用`player.advanceQueued`，MPV按START_FILE的playlist entry ID接管，并发出`player.queueAdvanced`；接管不能重复stop/load或请求播放信息。Media3下一集存在非零续播时仍走常规切换。
 - 接管使用停止屏障，退出位置必须在接管完成后读取；切核前取消排队。排队取消不得关闭已播放的代理，MPV状态采样需先同步实际playlist条目；进度报告携带item_id拒绝跨集迟到报告。内核队列不保证视频首帧无间隙，需真实设备验证。
 
 - `player.stopPlayback` 可携带位置所属的 `item_id`；原生内核已跨集时，核心使用当前内核位置收尾，不把旧位置记给新集。Media3接管完成时同步旧控制器的条目身份，保证等待接管的退出任务使用同一集的身份和位置。
+- TV 接管后构造的新控制器也立即继承实际条目身份；离页时可能跳过起播 effect，不能只在该 effect 内 resolved。退出等 handoff 完成再读取位置和返回条目；普通完播不能抢在已排队/正在接管时再次切集。seek、换版本及换核取消排队并拒绝迟到事件。`TvFocusTest` 与 `PhoneMedia3RecoveryTest` 的 TV 真实页分支验证这些边界。
 - MPV队列衔接继承内核实际倍速；`player.danmakuBegin`在新弹幕会话首次排版前同步持久化样式，不依赖MPV起播或打开设置面板。
 
 ## 跨端隐私空间

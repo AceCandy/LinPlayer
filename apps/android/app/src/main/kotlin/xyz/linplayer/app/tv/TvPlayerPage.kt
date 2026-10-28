@@ -28,6 +28,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
@@ -161,6 +162,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     val overlay = rememberOverlay()
     val mem = LocalFocusMemory.current
     val ui = remember { PlayerUi() }
+    val pluginPanels = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("panel")
     var feedMuted by remember { mutableStateOf(feedVolume == 0f) }
 
     /* 壁纸的三个暂停条件之一(D443)。取**页面在不在**而不是插件的
@@ -184,10 +186,12 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     }
     var attempt by remember { mutableIntStateOf(0) }
     var autoRetried by remember(target) { mutableStateOf(false) }
+    var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
+    var switching by remember { mutableStateOf(false) }
     val controller = remember(target) {
-        PlayerController(if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode) { command, arguments ->
+        PlayerController(adoptedPlayback.str("engine") ?: if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode) { command, arguments ->
             app.call(command, arguments)
-        }
+        }.also { c -> adoptedPlayback?.takeIf { it.str("item_id") == target.itemId }?.let(c::resolved) }
     }
     val engine = controller.engine
     var finished by remember(controller) { mutableStateOf(false) }
@@ -221,21 +225,27 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     ObserveSeekTimeout(controller)
     MatchTvRefreshRate(app, controller, exo, attempt)
     val root = remember { FocusRequester() }
+    var rootFocused by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
     var stopped by remember { mutableStateOf(false) }
 
-    /* 下一集预取(与手机端同一套核心命令):片尾前 60 秒先解析下一集,切集时带 prepared_id 接管。
-       TV 播完走下一集卡,不接手机端的无缝队列(queuePrepared)。 */
+    // 与手机共用准备/预热命令；实际内核跨集后才接管会话，不重复起停。
     var preparedFor by remember { mutableStateOf<String?>(null) }
     var preparedRequest by remember { mutableStateOf<String?>(null) }
     var preparedResult by remember { mutableStateOf<JsonObject?>(null) }
     var prepareJob by remember { mutableStateOf<Job?>(null) }
     var selectedPrepared by remember { mutableStateOf<String?>(null) }
+    var queuedRequest by remember { mutableStateOf<String?>(null) }
+    var queuedItem by remember { mutableStateOf<Item?>(null) }
+    var queueHandoff by remember { mutableStateOf<Job?>(null) }
+    var queueAttempt by remember(controller) { mutableStateOf<String?>(null) }
     fun cancelPrepared(request: String?) {
         request ?: return
         app.bg.launch { runCatching { app.call("player.cancelPrepared", args("request_id" to request)) } }
     }
     fun cancelPreparation() {
+        cancelPrepared(queuedRequest)
+        queuedRequest = null; queuedItem = null
         prepareJob?.cancel()
         cancelPrepared(preparedRequest)
         cancelPrepared(selectedPrepared)
@@ -264,61 +274,82 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
         Libass.reset()
         val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
-        latestController.stopIn(app.bg, pos, app::report) {
+        latestController.stopIn(app.bg, pos, app::report, positionAtStop = {
+            if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
+        }) {
             speedWrite?.join()
             runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
         }
     }
     val leave: () -> Unit = {
-        if (!leaving) {
-            leaving = true
-            stopPlayback()
-            if (onExit != null) onExit(target.itemId.takeIf { !target.localEntry && !target.download && target.src == null })
-            else nav.pop()
-        }
-    }
-    LaunchedEffect(sourceExit) {
-        val next = sourceExit ?: return@LaunchedEffect
         leaving = true
+    }
+    LaunchedEffect(leaving, sourceExit) {
+        if (!leaving && sourceExit == null) return@LaunchedEffect
+        leaving = true
+        queueHandoff?.join()
         stopPlayback()
-        PlayerController.awaitPendingStop()
-        if (!app.privateSpace.value) onSourceSwitch?.invoke(next)
+        val next = sourceExit
+        if (next != null) {
+            PlayerController.awaitPendingStop()
+            if (!app.privateSpace.value) onSourceSwitch?.invoke(next)
+        } else if (onExit != null) onExit(target.itemId.takeIf { !target.localEntry && !target.download && target.src == null })
+        else nav.pop()
     }
 
     suspend fun switchTo(next: TvRoute.Player) {
-        speedWrite?.join()
-        if (leaving) return
-        PlaybackService.volumeBeforeSwitch()?.let { runCatching { controller.volume(it) } }
-        // 只接管已就绪的预取结果;没就绪或换的不是预取那一集就撤掉
-        val adopt = preparedResult.str("request_id")?.takeIf {
-            next.src == null && next.versionId == null && next.itemId == preparedFor && next.itemId != target.itemId
-        }
-        if (adopt != null) {
-            prepareJob?.cancel()
-            selectedPrepared = adopt; preparedFor = null; preparedRequest = null; preparedResult = null
-        } else cancelPreparation()
-        PlaybackService.stop(ctx)
-        runCatching { controller.stop(ui.position) }.onFailure {
-            if (it is kotlinx.coroutines.CancellationException) throw it
-            app.report(it)
-        }
-        coroutineContext.ensureActive()
-        if (leaving) return
-        overlay.close()
-        target = if (next.itemId != target.itemId || next.versionId != target.versionId)
-            next.copy(subtitle = null) else next
+        if (switching || controller.switching || leaving || latestController !== controller) return
+        switching = true
+        try {
+            speedWrite?.join()
+            if (leaving) return
+            PlaybackService.volumeBeforeSwitch()?.let { runCatching { controller.volume(it) } }
+            if (!target.localEntry && !target.download && target.src == null && next.src == null &&
+                next.versionId == null && next.itemId != target.itemId) prepareEpisode(next.itemId)
+            else cancelPreparation()
+            if (queuedRequest != null) cancelPreparation()
+            PlaybackService.stop(ctx)
+            controller.stop(ui.position, handoff = true)
+            coroutineContext.ensureActive()
+            if (leaving) return
+            // 只接管已就绪的预取结果;没就绪或换的不是预取那一集就撤掉
+            val adopt = preparedResult.str("request_id")?.takeIf {
+                next.src == null && next.versionId == null && next.itemId == preparedFor && next.itemId != target.itemId
+            }
+            if (adopt != null) {
+                prepareJob?.cancel()
+                selectedPrepared = adopt; preparedFor = null; preparedRequest = null; preparedResult = null
+            } else cancelPreparation()
+            overlay.close()
+            target = if (next.itemId != target.itemId || next.versionId != target.versionId)
+                next.copy(subtitle = null) else next
+        } catch (cancelled: kotlinx.coroutines.CancellationException) { throw cancelled }
+        catch (failure: Exception) { app.report(failure); ui.failed = failure.message ?: "切换播放失败" }
+        finally { switching = false }
     }
 
     fun doSeek(t: Double) {
+        if (switching) return
+        if (queuedRequest != null) cancelPreparation()
         val to = t.coerceIn(0.0, if (ui.duration > 0) ui.duration else Double.MAX_VALUE)
         scope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { controller.seek(to) } }
     }
     fun doSeekBy(delta: Double) {
+        if (switching) return
+        if (queuedRequest != null) cancelPreparation()
         scope.launch(start = CoroutineStart.UNDISPATCHED) { runCatching { controller.seekBy(delta, ui.position, ui.duration) } }
     }
     fun doPause(want: Boolean) {
         PlaybackService.onUserPause(want)
         scope.launch { runCatching { controller.pause(want) } }
+    }
+    fun togglePause() {
+        val want = !ui.paused
+        doPause(want)
+        ui.flash = !want
+    }
+    LaunchedEffect(ui.flash) {
+        if (ui.flash != null) { delay(600); ui.flash = null }
     }
     fun doSpeed(v: Double) {
         scope.launch { runCatching { controller.speed(v) }.onFailure(app::report) }
@@ -349,6 +380,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         pickTrack = controller::pickTrack, pickExoTrack = controller::pickExoTrack, observeTracks = controller::observeTracks,
         switchEngine = {
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                if (switching || leaving) return@launch
                 try {
                     speedWrite?.join()
                     cancelPreparation()
@@ -366,15 +398,30 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     // ---------------------------------------------------------------- 起播
     val playbackPrefs = trackPrefs
     LaunchedEffect(target, attempt, engine, playbackPrefs) {
-        xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
-        ui.mediaSourceId = null
         if (playbackPrefs == null) return@LaunchedEffect
+        if (leaving || stopped) return@LaunchedEffect
         controller.begin()
         subOffPref = controller.fallback?.subOff ?: initialSubtitle?.let { it.index == null } ?: (trackPrefs?.subEnabled == false)
         ui.tracks = emptyList()
         ui.preview = null
         finished = false
+        val adopted = adoptedPlayback?.takeIf { it.str("item_id") == target.itemId }
+        if (adopted != null) {
+            adoptedPlayback = null
+            controller.resolved(adopted)
+            controller.started()
+            ui.mediaSourceId = adopted.str("media_source_id")
+            ui.buffering = exo?.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+            if (exo != null) launch { loadEmbeddedFonts(adopted.str("play_url") ?: return@launch) }
+            runCatching { PlaybackService.start(ctx, app, exo, target.title, controller) }.onFailure(app::report)
+            runCatching { app.call("companion.setNowPlaying", args("title" to target.title)) }
+            launch { startDanmakuFor(app, target.itemId) }
+            return@LaunchedEffect
+        }
+        xyz.linplayer.app.ui.player.DanmakuSession.invalidate()
+        ui.mediaSourceId = null
         ui.everMoved = false; ui.buffering = true; ui.position = 0.0; ui.duration = 0.0
+        ui.buffered = 0.0
         ui.failed = null; ui.skipWhat = null; ui.osd = true
         PlayerController.awaitPendingStop()
         coroutineContext.ensureActive()
@@ -469,8 +516,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         coroutineContext.ensureActive()
         ui.versions = versions
     }
-    LaunchedEffect(controller, finished, episodeResult, leaving) {
-        if (!finished || leaving) return@LaunchedEffect
+    LaunchedEffect(controller, finished, episodeResult, leaving, queuedRequest, switching) {
+        if (!finished || leaving || queuedRequest != null || switching) return@LaunchedEffect
         if (onCompleted != null) { onCompleted(); return@LaunchedEffect }
         val result = episodeResult ?: return@LaunchedEffect
         if (result.isFailure) {
@@ -528,6 +575,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             controller.observePosition(p, ui.buffering)
             e.playerError?.let { err ->
                 try {
+                    cancelPreparation()
                     if (controller.tryFallback(err, controller.snapshot(e, subOffPref)) { PlaybackService.stop(ctx) }) {
                         overlay.close()
                         app.toast("Media3 无法播放，已切换到 MPV")
@@ -552,10 +600,10 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     LaunchedEffect(target, engine) { delay(12_000); ui.everMoved = true }
     LaunchedEffect(Unit) { sampleNetSpeed { ui.netSpeed = it } }
     val nextItem = if (onCompleted == null) ui.next(target.itemId) else null
-    val prepareSoon = controller.ready && !ui.buffering && !leaving && !controller.switching && nextItem != null &&
+    val prepareSoon = controller.ready && !ui.buffering && !leaving && !switching && !controller.switching && nextItem != null &&
         !target.localEntry && !target.download && target.src == null &&
         ui.duration > 0 && ui.position >= (ui.duration - 60).coerceAtLeast(0.0)
-    // 片尾「接下来」胶囊:时间窗与手机同一份;控件收起时确认键 = 播下一集
+    // 片尾「接下来」胶囊与手机共用时间窗，确认键仅在胶囊聚焦时切集。
     val nextUp = nextItem?.takeIf {
         xyz.linplayer.app.ui.player.nextUpVisible(ui.position, ui.duration) && controller.ready && ui.everMoved &&
             ui.failed == null && !leaving && !overlay.isOpen
@@ -564,7 +612,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     // 与手机一致:胶囊出现时不再显示跳过按钮
     LaunchedEffect(nextUp != null) { if (nextUp != null) ui.skipWhat = null }
     LaunchedEffect(controller, nextItem?.id, prepareSoon) {
-        if (prepareSoon) nextItem?.let { prepareEpisode(it.id) }
+        if (prepareSoon && queuedRequest == null) prepareEpisode(nextItem.id)
     }
     var warmingVideo by remember(controller) { mutableStateOf(false) }
     val allowVideoWarm = prepareSoon && nextPreloadAllowed(warmingVideo, ui.buffering, ui.position, ui.duration, ui.buffered, ui.speed)
@@ -573,13 +621,92 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         // 串行发送启停,避免慢的「开始」响应越过后来的「暂停」
         snapshotFlow { preparedResult.str("request_id") to latestAllowVideoWarm }.collect { (request, enabled) ->
             warmingVideo = enabled
-            if (request != null) {
+            if (request != null && request != queuedRequest) {
                 if (enabled) preparedResult.str("play_url")?.let { url -> ExoPreload.of(exo)?.prepare(url, preparedResult?.get("external_subs")) }
-                else ExoPreload.of(exo)?.cancel()
+                else if (!switching) ExoPreload.of(exo)?.cancel()
                 runCatching { app.call("player.warmPrepared", args("request_id" to request, "enabled" to enabled)) }
                 coroutineContext.ensureActive()
             }
         }
+    }
+    fun adoptQueued(result: JsonObject, item: Item, actualEngine: String) {
+        adoptedPlayback = JsonObject(result + args("engine" to actualEngine))
+        // 离页收尾可能还持有旧控制器，先同步实际播放身份。
+        latestController.resolved(result)
+        selectedPrepared = null
+        preparedFor = null; preparedRequest = null; preparedResult = null
+        queuedRequest = null; queuedItem = null
+        overlay.close()
+        ui.position = if (actualEngine == "exo") latestExo?.currentPosition?.div(1000.0) ?: 0.0 else result.dbl("resume_secs") ?: 0.0
+        ui.duration = if (actualEngine == "exo") latestExo?.duration?.takeIf { it > 0 }?.div(1000.0) ?: 0.0 else 0.0
+        ui.buffered = 0.0
+        ui.failed = null; ui.skipWhat = null
+        ui.chapters = emptyList(); ui.intro = null; ui.outro = null
+        target = target.copy(itemId = item.id, title = cardTitleOf(item), versionId = null, fromStart = false,
+            resumeAt = null, audioIndex = null, subIndex = null, subOff = false, subtitle = null)
+    }
+    LaunchedEffect(Unit) {
+        app.core.events.collect { event ->
+            val result = event.data.obj() ?: return@collect
+            if (event.name == "player.queueCanceled" && result.str("request_id") == queuedRequest) {
+                cancelPreparation()
+                return@collect
+            }
+            if (event.name != "player.queueAdvanced" || leaving || stopped || switching) return@collect
+            val item = queuedItem ?: return@collect
+            if (latestExo == null && result.str("request_id") == queuedRequest && result.str("item_id") == item.id)
+                adoptQueued(result, item, "mpv")
+        }
+    }
+    // 只在当前集已经缓冲到尾部时排队，准备/排队失败仍走正常完播切集。
+    val queueSoon = prepareSoon && ui.duration - ui.position <= 10.0 && ui.buffered >= ui.duration - 1.0
+    LaunchedEffect(controller, queueSoon, preparedResult) {
+        val request = preparedResult.str("request_id") ?: return@LaunchedEffect
+        val item = nextItem ?: return@LaunchedEffect
+        if (!queueSoon || queueAttempt == request || switching || leaving) return@LaunchedEffect
+        queueAttempt = request
+        queuedRequest = request; queuedItem = item
+        val result = try {
+            app.call("player.queuePrepared", args("request_id" to request,
+                "current_item_id" to target.itemId, "engine" to engine)).obj() ?: error("下一集未进入播放队列")
+        } catch (failure: Exception) {
+            if (queuedRequest == request) cancelPreparation() else cancelPrepared(request)
+            if (failure is kotlinx.coroutines.CancellationException) throw failure
+            return@LaunchedEffect
+        }
+        if (latestController !== controller || leaving || stopped || switching || preparedRequest != request) {
+            if (queuedRequest == request) cancelPreparation() else cancelPrepared(request)
+            return@LaunchedEffect
+        }
+        if (exo != null) {
+            val owner = ExoPreload.of(exo)
+            val accepted = owner?.queue(result.str("play_url") ?: "", result["external_subs"]) {
+                if (queuedRequest != request || leaving || stopped || switching || latestController !== controller) return@queue
+                queuedRequest = null; preparedRequest = null; preparedResult = null; queuedItem = null
+                val previousDuration = ui.duration
+                ui.position = exo.currentPosition / 1000.0
+                ui.duration = exo.duration.takeIf { it > 0 }?.div(1000.0) ?: 0.0
+                switching = true
+                queueHandoff = PlayerController.handoffIn(app.bg) {
+                    try {
+                        controller.begin()
+                        val adopted = app.call("player.advanceQueued", args("request_id" to request, "pos" to previousDuration)).obj()
+                            ?: error("下一集会话接管失败")
+                        controller.resolved(adopted)
+                        owner.trimPrevious()
+                        adoptQueued(adopted, item, "exo")
+                    } catch (failure: Exception) {
+                        exo.pause()
+                        ui.failed = "下一集会话接管失败"
+                        app.report(failure)
+                    } finally { switching = false }
+                }
+            } == true
+            if (!accepted) cancelPreparation()
+        }
+    }
+    DisposableEffect(session?.server, session?.userId, session?.token) {
+        onDispose { cancelPreparation() }
     }
     // 缓冲末端在 OSD 亮着或片尾预取时要:事件里没有这个字段,命令版才有
     LaunchedEffect(ui.osd, exo, prepareSoon) {
@@ -665,18 +792,35 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         delay(OsdHideMs)
         ui.osd = false
     }
+    fun focusPlayback(): Boolean = if (ui.osd && ui.duration > 0)
+        mem.requesters["osd.bar"]?.let { runCatching { it.requestFocus() }.getOrDefault(false) } ?: false
+        else runCatching { root.requestFocus() }.getOrDefault(false)
+    LaunchedEffect(ui.duration > 0) {
+        if (!ui.osd || overlay.isOpen) return@LaunchedEffect
+        if (ui.duration <= 0 && mem.key == "osd.bar") root.requestFocus()
+        else if (ui.duration > 0 && rootFocused) {
+            withFrameNanos { }
+            if (rootFocused) focusPlayback()
+        }
+    }
+    LaunchedEffect(ui.skipWhat, nextUp?.id) {
+        if (ui.osd && !overlay.isOpen &&
+            (mem.key == "osd.skip" && ui.skipWhat == null || mem.key == "player.nextUp" && nextUp == null)) {
+            withFrameNanos { }
+            focusPlayback()
+        }
+    }
     var fromPanel by remember { mutableStateOf(false) }
     LaunchedEffect(overlay.isOpen) { if (overlay.isOpen) fromPanel = true }
     LaunchedEffect(ui.osd, overlay.isOpen, ui.failed) {
         if (feedOverlay != null) return@LaunchedEffect
         if (overlay.isOpen || ui.failed != null) return@LaunchedEffect
-        fun want(k: String) = mem.requesters[k]?.let { fr -> runCatching { fr.requestFocus() }.getOrDefault(false) } ?: false
         repeat(8) {
             withFrameNanos { }
-            // OSD **每次重新出现**焦点都回到播放/暂停;从面板回来时交给面板那一侧还给打开它的按钮
+            // 唤醒先落到进度；面板关闭仍恢复入口，不能让确认键误触下一集。
             val ok = if (!ui.osd) runCatching { root.requestFocus() }.getOrDefault(false)
                 else if (fromPanel) { fromPanel = false; true }
-                else want("osd.play")
+                else focusPlayback()
             if (ok) return@LaunchedEffect
         }
     }
@@ -724,12 +868,12 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
 
     /* 插件的 `player.openPanel` / `setOsdVisible`(D67 D162)。和手机端同一个 host 口子,
        翻的是 TV 自己那套面板名 —— 两端面板不是一套,合成一套只会两边都错。 */
-    DisposableEffect(exo, target.itemId) {
+    DisposableEffect(exo, target.itemId, pluginPanels) {
         PluginPlayer.host = object : PluginPlayer.Host {
             override fun openPanel(which: String) {
                 val kind = PluginPlayer.tvKind(which)
                 ui.osd = true
-                openPanel(kind, app, scope, overlay, ui, target, engine, exo, ctl)
+                openPanel(kind, app, scope, overlay, ui, target, engine, exo, ctl, plugins = pluginPanels)
             }
             override fun setOsdVisible(visible: Boolean) { ui.osd = visible }
         }
@@ -737,7 +881,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     }
 
     // ---------------------------------------------------------------- 按键
-    var okDownAt by remember { mutableStateOf(0L) }
     var holdJob by remember { mutableStateOf<Job?>(null) }
     fun defaultKey(e: KeyEvent): Boolean {
         if (feedOverlay != null) {
@@ -755,7 +898,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                     val want = if (e.key == Key.MediaPlay) false else if (e.key == Key.MediaPause) true else !ui.paused
                     doPause(want)
                     // 播放/暂停媒体键**不唤出 OSD**,屏幕中央闪一次图标
-                    if (!ui.osd) scope.launch { ui.flash = !want; delay(600); ui.flash = null }
+                    if (!ui.osd) ui.flash = !want
                 }
                 return true
             }
@@ -767,26 +910,23 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
         if (overlay.isOpen || ui.failed != null) return false
         if (e.key == Key.Menu) {
-            if (!down) { ui.osd = true; openPanel("more", app, scope, overlay, ui, target, engine, exo, ctl) }
+            if (!down) { ui.osd = true; openPanel("more", app, scope, overlay, ui, target, engine, exo, ctl, plugins = pluginPanels) }
             return true
         }
         if (isOk(e.key)) {
             // 长按确认 = 临时倍速,松开恢复;短按在松手时才算
             if (down && e.nativeKeyEvent.repeatCount == 0) {
-                okDownAt = e.nativeKeyEvent.eventTime
-                holdJob = scope.launch {
+                holdJob = if (ui.preview == null) scope.launch {
                     delay(600)
                     ui.hold = true
                     doSpeed(UiPrefs.tvHoldSpeed.value)
-                }
+                } else null
             }
-            if (down) return !ui.osd || ui.hold
+            if (down) return !ui.osd || rootFocused || ui.hold
             holdJob?.cancel()
             if (ui.hold) { ui.hold = false; doSpeed(ui.speed); return true }
-            if (!ui.osd) {
-                // OSD 收起时按确认 = 播下一集 / 跳过片头片尾(此刻按确认最可能的意图)
-                if (nextUp != null) playNext()
-                else if (ui.skipWhat != null) skipNow(ui, ::doSeek, ::playNext) else ui.osd = true
+            if (!ui.osd || rootFocused) {
+                togglePause()
                 return true
             }
             return false
@@ -794,6 +934,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         val dir = e.key == Key.DirectionUp || e.key == Key.DirectionDown || e.key == Key.DirectionLeft || e.key == Key.DirectionRight
         // OSD 收起时方向键**只唤醒**,不移动焦点:否则第一次按键就误触
         if (dir && !ui.osd) { if (down) ui.osd = true; return true }
+        if (dir && rootFocused && down) {
+            if (ui.duration > 0) focusPlayback()
+            else mem.requesters[if (ui.next(target.itemId) != null) "osd.next" else "osd.speed"]?.requestFocus()
+            return true
+        }
         return false
     }
 
@@ -804,9 +949,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
 
     // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
     val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
-    val pluginPanels = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("panel")
 
-    Box(Modifier.fillMaxSize().onPreviewKeyEvent(::onKey).testTag("player.root").focusRequester(root).focusable()) {
+    Box(Modifier.fillMaxSize().onPreviewKeyEvent(::onKey).testTag("player.root").focusRequester(root).onFocusChanged { rootFocused = it.isFocused }.focusable()) {
         if (exo != null) ExoSurface(exo, subOff = subOffPref, fit = ui.fit, m = Modifier.fillMaxSize())
         else VideoSurface(app.core, Modifier.fillMaxSize())
         if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering)
@@ -823,22 +967,20 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         else if (!ui.everMoved) Curtain(ui)
         else if (ui.buffering) BufferingHint(ui)
         if (failed == null && feedOverlay == null) {
-            if (ui.osd && !overlay.isOpen) Osd(ui, target, engine, pluginPanels,
-                onSeek = ::doSeek, onSeekBy = ::doSeekBy, seekPosition = controller.seekTarget ?: ui.position, onPause = { doPause(!ui.paused) },
-                onPrev = { ui.prev(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
+            if (ui.osd && !overlay.isOpen) Osd(ui, target, engine, root,
+                onSeek = ::doSeek, seekPosition = controller.seekTarget ?: ui.position, onPause = ::togglePause,
                 onNext = { ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
                 onPanel = { which ->
                     openPanel(which, app, scope, overlay, ui, target, engine, exo, ctl,
-                        pluginPanels.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == which })
+                        pluginPanels.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == which }, pluginPanels)
                 },
-                onSkip = { skipNow(ui, ::doSeek, ::playNext) },
             )
-            if (ui.skipWhat != null && !ui.osd && !overlay.isOpen) SkipButton(ui) { skipNow(ui, ::doSeek, ::playNext) }
+            if (ui.skipWhat != null && nextUp == null && !overlay.isOpen) SkipButton(ui, root) { skipNow(ui, ::doSeek, ::playNext) }
             // 控件收起时底部细进度条,与手机一致
             xyz.linplayer.app.ui.player.PassiveProgress(ui.position, ui.duration,
                 visible = !ui.osd && !overlay.isOpen && controller.ready && ui.everMoved,
                 m = Modifier.align(Alignment.BottomCenter))
-            nextUp?.let { NextUpChip(ui, it, ::playNext) }
+            nextUp?.let { NextUpChip(ui, it, root, ::playNext) }
             Moments(ui)
         }
         OverlayHost(overlay)

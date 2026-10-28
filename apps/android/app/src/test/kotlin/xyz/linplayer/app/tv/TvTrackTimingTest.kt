@@ -2,6 +2,7 @@ package xyz.linplayer.app.tv
 
 import android.app.Application
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.input.key.Key
@@ -58,11 +59,11 @@ class TvTrackTimingTest {
         rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 2_500)
         try {
-            rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+            rule.onNodeWithContentDescription("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 600)
             rule.onNodeWithText("简体中文").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 200)
-            rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+            rule.onNodeWithContentDescription("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 200)
             rule.onNodeWithText("关闭字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
             advance(rule, 200)
@@ -92,7 +93,7 @@ class TvTrackTimingTest {
         rule.mainClock.autoAdvance = false
         rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 2_500)
-        rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        rule.onNodeWithContentDescription("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 400)
         rule.onNodeWithText("英文字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
@@ -127,11 +128,11 @@ class TvTrackTimingTest {
         rule.setContent { TvFrame(app) { PlayerHost(nav) } }
         advance(rule, 3_000)
         assertEquals(listOf("1"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
-        rule.onNodeWithText("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        rule.onNodeWithContentDescription("字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 400)
         rule.onNodeWithText("英文字幕").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
-        rule.onNodeWithText("更多").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
+        rule.onNodeWithContentDescription("更多").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)
         rule.onNodeWithText("版本").performSemanticsAction(SemanticsActions.RequestFocus) { it() }; press(rule, Key.Enter)
         advance(rule, 300)

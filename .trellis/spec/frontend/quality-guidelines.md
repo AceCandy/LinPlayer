@@ -47,6 +47,10 @@ Robolectric 用空 Application 避免在 JVM 加载进程级 native 库；参照
 
 ### Compose 播放器测试同步
 
+- TV 队列接续不能只测共享预载类：通过真实 TvPlayerPage 验 MPV 请求/跨集事件和 Media3 实际自然 transition，同一播放器连续多集、断流恢复且 play 一次/stop 零次；慢 advanceQueued 期间退出须等待后上报新条目及新位置。`PhoneMedia3RecoveryTest` 复用同一 HTTP/音频夹具覆盖手机与 TV，仍不是视频首帧连续性或实服上报验收。
+- 无常驻播放按钮的 OSD 须验隐藏确认暂停/继续、方向唤醒不 seek、进度确认提交不暂停、长按恢复不误触、未知时长工具往返、跳过/接下来显式聚焦及消失后的恢复。详细规格移入面板时，原版本身份/迟到请求断言须随真实入口迁移，不能删掉覆盖。长按拦截 KeyUp 后检查真实按钮像素，不能只断言未执行动作；明亮帧上的小字须核验合成遮罩对比度。
+- 纯图标 OSD 按语义名称和真实方向键验收，不保留隐藏文字满足旧断言。收起测试同时验标题/按钮移除、只读进度存在与底部遮罩像素消失；窄窗/大字号检查实际边界及截图。更多内插件要验证返回列表、再返回原播控焦点，不仅断言挂载命令。
+
 - 播放上报迁到 `PlaybackService` 后，Robolectric 集成测试须先断言页面已请求启动服务，再用 `Robolectric.buildService(...).create()` 驱动生命周期；只发 `player.status` 事件不能替代服务查询的位置样本。服务 Handler 用主 Looper 的 `idleFor` 推进，Compose `mainClock` 只推进页面时钟；结束时销毁服务并清理绑定。`TvRefreshRatePlaybackTest` 同时断言快进目标累加、上报仍取实际位置及当前 `item_id`，不能删掉上报断言或改报目标位置来消除失败。
 - 直接组合 `rememberExoPlayer` 也必须提供 `LocalApp`；无会话行为的测试复用 `setPlayerContent`，已有 `AppState` 的页面测试提供自己的实例，并在结束时取消 `app.bg`。不得给生产 `LocalApp` 增加默认替身来消除测试失败。
 - 包含后台挂起恢复和 Media3 主线程访问的集成测试使用 `androidx.compose.ui.test.junit4.v2.createComposeRule`，参照 `PhoneMedia3RecoveryTest`；旧版 Unconfined 调度可能把挂起后的播放器访问带到工作线程。保留同实例、自然切集与释放断言，不为此全仓迁移测试规则。

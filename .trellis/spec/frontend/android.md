@@ -2,6 +2,8 @@
 
 ## 入口与主题
 
+- TV 播控只在播放页使用底部纯图标动作，常态透明、焦点反色微放大；不修改浏览按钮的共享配色。季集/片名居左，下一集与倍率/弹幕/音轨/字幕/更多居右，共处进度条上方；时间分置进度条下，实际版本规格移入媒体信息。取消常驻播放/暂停按钮，画面确认暂停/继续；方向唤醒聚焦进度条，未知时长保留画面焦点；进度预览确认提交不暂停，工具上下显式导航，提示需聚焦确认。下一集不等于选集列表，移除列表入口不能一并删除下一集。上一集与插件面板在更多中，倍率直接入口返回恢复原按钮。进度宽度按实际窗口扣安全区计算，不能沿用固定 864dp。真实页验证见 `TvPlayerLayoutTest`、`TvFocusTest`。
+
 - LinPlayerApp 初始化进程级核心；MainActivity 只按形态选择 PhoneRoot / TvRoot，Activity 重建不能重复初始化核心。TV发行包通过 `-Plp.tv=true` 生成 `BuildConfig.TV_BUILD`，启动优先此标记，再检测系统电视模式/自检入口；不得靠改名普通APK交付TV包。TV构建的核心插件平台为android_tv。Manifest同源TV_BUILD标记用于产物门禁；MainActivityShapeTest须分别用lp.tv=true/false运行，覆盖普通系统模式。
 - 手机主题在 ui/theme/Theme.kt，由 LpTheme 提供 Lp.colors；R / Sp / Dim 使用当前源码刻度，不用桌面刻度。
 - 手机与TV浏览页面共用 ui/components；TV顶部导航、扫码和播放器沿用 tv/kit。共享点击控件通过 LocalTvMode 提供遥控焦点与菜单键。
