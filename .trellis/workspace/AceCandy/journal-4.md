@@ -264,3 +264,25 @@
 ### Status
 
 [OK] **Completed**
+
+
+## Session 142: TV 详情信息精简与简介去重
+<!-- trellis-session: v=2 fp=a41a9153db9f2b4e -->
+
+**Date**: 2026-10-28
+**Task**: TV 详情信息精简与简介去重
+**Branch**: `main`
+
+### Summary
+
+TV简介仅保留头部摘要，溢出时可阅读全文并返回恢复焦点；播放选项改纯图标，参数只展示实际值，选季只显示季名。针对性153项测试通过，参数及隐私检查通过。全量组合仍有MaterialLoadingLifecycleTest失败，独立复测通过，原因未确认；基线完整对照因播放器释放等待中止，不能证明全量失败来自基线。用户知悉验证状态后授权提交归档，不记为全量门禁通过。未打包、未推送，真机未验。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `bb82272b` | fix(android): 精简 TV 详情信息并去重简介 |
+
+### Status
+
+[OK] **Completed**
