@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 142
-- **Last Active**: 2026-10-28
+- **Total Sessions**: 143
+- **Last Active**: 2026-10-29
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~288 | Active |
+| `journal-4.md` | ~325 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 143 | 2026-10-29 | TV 播控精简与下一集接续验收归档 | `a7944946` | `main` |
 | 142 | 2026-10-28 | TV 详情信息精简与简介去重 | `bb82272b` | `main` |
 | 141 | 2026-10-28 | TV 详情影院布局与分集参数焦点 | `24e3b398` | `main` |
 | 140 | 2026-10-28 | TV 视频反馈修复审查与归档 | `2717fd7e` | `main` |
