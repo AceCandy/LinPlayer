@@ -530,6 +530,125 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("rail.1").assertIsDisplayed()
     }
 
+    @Test fun conciseDetailKeepsOneShortOverviewAndIconOnlyOptions() {
+        val overview = "一封迟到的信，让故人重新相遇。"
+        mount { fake ->
+            val detail = fake.handlers.getValue("emby.itemDetail")
+            fake.on("emby.itemDetail") { request ->
+                JsonObject(detail(request).jsonObject + ("overview" to JsonPrimitive(overview)))
+            }
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.onAllNodesWithText(overview).assertCountEquals(1)
+        rule.onNodeWithText(overview).assertHasNoClickAction()
+        rule.onNodeWithText("剧情简介").assertDoesNotExist()
+        rule.onNodeWithText("播放选项").assertDoesNotExist()
+        rule.onNodeWithTag("detail.play.options").assertHasClickAction()
+        for (label in listOf("版本", "视频", "音轨", "字幕")) {
+            rule.onNodeWithContentDescription(label).assertExists()
+            rule.onAllNodes(hasAnyAncestor(hasTestTag("detail.options")) and hasText(label, substring = true))
+                .assertCountEquals(0)
+        }
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithTag("detail.play.options").assertIsFocused()
+        rule.onNodeWithText("播放选项").assertDoesNotExist()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("从头开始播放").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play.options").assertIsFocused()
+    }
+
+    @Test fun longHeroOverviewOpensScrollableTextAndBackRestoresFocus() {
+        val overview = "一封迟到的来信，让远行的人重新踏上归途。穿越山海，也重新认识彼此。".repeat(40)
+        mount { fake ->
+            val detail = fake.handlers.getValue("emby.itemDetail")
+            fake.on("emby.itemDetail") { request ->
+                JsonObject(detail(request).jsonObject + ("overview" to JsonPrimitive(overview)))
+            }
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        val summary = rule.onNode(hasTestTag("detail.overview") and hasAnyAncestor(hasTestTag("detail.hero")))
+        summary.assertIsDisplayed()
+        rule.onAllNodesWithText(overview).assertCountEquals(1)
+        press(rule, Key.DirectionUp)
+        summary.assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        val full = rule.onNodeWithTag("detail.overview.full", useUnmergedTree = true)
+        full.assertIsDisplayed().assertIsFocused()
+        val scroll = full.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange]
+        assertEquals(0f, scroll.value())
+        full.performKeyInput { pressKey(Key.DirectionDown) }
+        rule.waitForIdle()
+        assertTrue("长简介应能用遥控器继续向下阅读", scroll.value() > 0f)
+        rule.onNode(isDialog()).captureRoboImage("build/shared-tv/detail-overview.png")
+        rule.runOnUiThread {
+            val view = requireNotNull(org.robolectric.shadows.ShadowDialog.getLatestDialog().window).decorView
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_DOWN, android.view.KeyEvent.KEYCODE_BACK))
+            view.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, android.view.KeyEvent.KEYCODE_BACK))
+        }
+        rule.waitForIdle()
+        full.assertDoesNotExist()
+        summary.assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsDisplayed()
+    }
+
+    @Test fun singleSeasonHeadingOnlyShowsItsNameWithoutFocus() {
+        mount { fake ->
+            cinemaSeries(fake)
+            fake.ret("emby.seriesSeasons", arr(buildJsonObject {
+                put("id", "se1"); put("name", "归途"); put("index_no", 1)
+            }))
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+        }
+        rule.onNodeWithText("分集").assertDoesNotExist()
+        rule.onNodeWithContentDescription("选择季").assertDoesNotExist()
+        rule.onNode(hasText("第1季：归途") and hasAnyAncestor(hasTestTag("detail.episodes")))
+            .assertIsDisplayed().assertHasNoClickAction()
+        press(rule, Key.DirectionDown, Key.DirectionDown)
+        rule.onNodeWithTag("detail.ep.se1e1").assertIsFocused()
+    }
+
+    private fun overviewAnchor(mode: String) {
+        mount { fake ->
+            fake.ret("plugin.anchors", arr(buildJsonObject {
+                put("plugin_id", "test/overview"); put("name", "简介测试")
+                put("anchor", "detail.overview"); put("mode", mode); put("block", "overview")
+            }))
+            fake.on("plugin.ui.mount") { throw IllegalStateException("合成插件错误") }
+        }
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.onAllNodesWithTag("detail.overview").assertCountEquals(if (mode in listOf("hide", "replace")) 0 else 1)
+        if (mode != "hide") {
+            rule.onAllNodesWithText("这一块出错了", substring = true).assertCountEquals(1)
+            rule.onNode(hasText("这一块出错了", substring = true) and hasAnyAncestor(hasTestTag("detail.hero")))
+                .assertIsDisplayed()
+        }
+    }
+
+    @Test fun overviewBeforeAnchorAppearsOnlyOnceInHero() = overviewAnchor("before")
+    @Test fun overviewAfterAnchorAppearsOnlyOnceInHero() = overviewAnchor("after")
+    @Test fun overviewReplacementSuppressesOfficialSummary() = overviewAnchor("replace")
+    @Test fun overviewHiddenAnchorSuppressesOfficialSummary() = overviewAnchor("hide")
+
     @Test @Config(qualifiers = "w800dp-h450dp-land-mdpi")
     fun detailLongTitleAndLargeTextWrapWithoutClipping() {
         val title = "穿越山海与星空的漫长旅程：写给远方的一封信"
@@ -714,6 +833,12 @@ class SharedTvBrowseTest {
     @Test fun cinemaEpisodeWithEmptySeasonDoesNotTrapFocusInParameters() {
         mount { fake ->
             cinemaSeries(fake)
+            val detail = fake.handlers.getValue("emby.itemDetail")
+            fake.on("emby.itemDetail") { request ->
+                JsonObject(detail(request).jsonObject + ("people" to arr(buildJsonObject {
+                    put("id", "actor"); put("name", "测试演员"); put("type_", "Actor")
+                })))
+            }
             fake.ret("emby.seriesSeasons", arr())
             fake.ret("emby.seasonEpisodes", buildJsonObject { put("items", arr()); put("total", 0) })
         }
@@ -725,7 +850,7 @@ class SharedTvBrowseTest {
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionDown)
-        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.overview"))).assertIsDisplayed()
+        rule.onNodeWithTag("detail.person.actor").assertIsDisplayed().assertIsFocused()
     }
 
     private fun containerPlayWaitsForEpisodes(type: String, id: String, parent: String) {

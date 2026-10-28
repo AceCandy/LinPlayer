@@ -21,6 +21,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.focusable
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.WindowInsets
@@ -570,7 +571,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         mediaItemId = null
         media = Block.Loading
         pickedVersion = null
-        if (tv) sheet = null
+        if (tv && sheet in listOf("version", "audio", "sub")) sheet = null
         val target = playbackItemId ?: return@LaunchedEffect
         val preload = app.block("prefs.preloadItem", args("item_id" to target, "return_media" to true))
         // 独立替换过旧核心时仍返回预热状态，沿用旧版媒体读取契约。
@@ -914,7 +915,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     var menuOpen by remember { mutableStateOf(false) }
                     val offset = with(LocalDensity.current) { 52.dp.roundToPx() }
                     Box {
-                        TvDetailAction("播放选项", LpIcons.chevD, enabled = playAvailable,
+                        TvDetailAction("播放选项", LpIcons.chevD, iconOnly = true, showFocusLabel = false, enabled = playAvailable,
                             modifier = Modifier.testTag("detail.play.options"),
                             onClick = { menuOpen = !menuOpen })
                         LpMenu(menuOpen, { menuOpen = false }, alignment = Alignment.TopStart,
@@ -1145,12 +1146,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         Anchored(PluginAnchors.DETAIL_TITLE) {}
                         ratingsBlock()
                         tagsBlock()
-                        val overviewReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_OVERVIEW]
-                            .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
-                        if (!overviewReplaced) d.str("overview")?.takeIf(String::isNotBlank)?.let {
-                            Text(it, Modifier.fillMaxWidth(.56f).padding(top = Sp.x12),
-                                color = Color.White.copy(alpha = .85f), style = LpText.body,
-                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        Anchored(PluginAnchors.DETAIL_OVERVIEW) {
+                            d.str("overview")?.takeIf(String::isNotBlank)?.let {
+                                TvDetailOverview(it, Modifier.focusProperties {
+                                    if (playMounted && playAvailable) down = playFocus
+                                }) { sheet = "overview" }
+                            }
                         }
                         if (showBody) {
                             actionsBlock()
@@ -1227,14 +1228,19 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                         enabled = seasonLoad is Block.Ok) else Modifier),
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                                    Text(if (tv) "分集" else if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
-                                        color = c.fg, style = LpText.rail)
-                                    if (isSeriesEntry || tv) {
-                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f, fill = !tv),
+                                    if (tv) {
+                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f, fill = false), color = c.fg, style = LpText.rail,
+                                            maxLines = 1, overflow = TextOverflow.Ellipsis) }
+                                    } else {
+                                        Text(if (isSeriesEntry) "继续观看" else curSeason?.let { seasonLabel(it) } ?: "选集",
+                                            color = c.fg, style = LpText.rail)
+                                    }
+                                    if (isSeriesEntry && !tv) {
+                                        curSeason?.let { Text(seasonLabel(it), Modifier.weight(1f),
                                             color = c.mediaIcon, style = LpText.compact,
                                             textAlign = androidx.compose.ui.text.style.TextAlign.End,
                                             maxLines = 1, overflow = TextOverflow.Ellipsis) }
-                                            ?: Spacer(if (tv) Modifier else Modifier.weight(1f))
+                                            ?: Spacer(Modifier.weight(1f))
                                     }
                                     if (curSeason != null && seasons.size > 1) Icon(LpIcons.chevD, "选择季", Modifier.size(20.dp), tint = c.fg2)
                                 }
@@ -1347,8 +1353,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         }
                 }
 
-                if (tv || (!isEpisode && !isSeriesEntry)) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
-                    if (tv && !d.str("overview").isNullOrBlank()) SectionTitle("剧情简介")
+                if (!tv && !isEpisode && !isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
@@ -1404,6 +1409,20 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
     /* ── 选择弹窗。**全站没有 bottom sheet**,一律居中弹窗 ── */
     when (sheet) {
+        "overview" -> LpDialog({ sheet = null }, "剧情简介") {
+            val scroll = rememberScrollState()
+            Text(d.str("overview").orEmpty(),
+                Modifier.fillMaxWidth().heightIn(max = androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.dp * .6f)
+                    .testTag("detail.overview.full")
+                    .onPreviewKeyEvent {
+                        if (it.type == KeyEventType.KeyDown && it.key in listOf(Key.DirectionUp, Key.DirectionDown)) {
+                            val step = scroll.viewportSize * 3 / 4 * if (it.key == Key.DirectionDown) 1 else -1
+                            scope.launch { scroll.animateScrollTo((scroll.value + step).coerceIn(0, scroll.maxValue)) }
+                            true
+                        } else false
+                    }.verticalScroll(scroll).focusable(),
+                color = c.fg, style = LpText.body)
+        }
         "version" -> LpDialog({ sheet = null }, "选择版本") {
             Column(Modifier.heightIn(max = 420.dp).verticalScroll(rememberScrollState())) {
                 versions.forEach { v ->
@@ -1528,6 +1547,7 @@ private fun TvDetailAction(
     modifier: Modifier = Modifier,
     primary: Boolean = false,
     iconOnly: Boolean = false,
+    showFocusLabel: Boolean = true,
     selected: Boolean = false,
     enabled: Boolean = true,
     onLongClick: (() -> Unit)? = null,
@@ -1554,7 +1574,7 @@ private fun TvDetailAction(
             Icon(icon, null, Modifier.size(20.dp), tint = if (selected && !focused) c.mediaAccent else ink)
             if (!iconOnly) Text(label, color = ink, style = LpText.action)
         }
-        if (iconOnly && focused) Text(label,
+        if (iconOnly && focused && showFocusLabel) Text(label,
             Modifier.align(Alignment.BottomCenter).offset(y = Sp.x26).wrapContentWidth(unbounded = true)
                 .background(Color.Black.copy(alpha = .85f), RoundedCornerShape(R.sm))
                 .padding(horizontal = Sp.x6, vertical = Sp.x2),
@@ -1848,6 +1868,23 @@ private fun Tag(text: String, onImage: Boolean = false, onClick: (() -> Unit)? =
     )
 }
 
+/** 图上仅显示一份摘要，实际溢出两行时才提供全文入口。 */
+@Composable
+private fun TvDetailOverview(text: String, modifier: Modifier, onOpen: () -> Unit) {
+    var overflow by remember(text) { mutableStateOf(false) }
+    var focused by remember { mutableStateOf(false) }
+    Text(text, modifier.fillMaxWidth(.56f).padding(top = Sp.x12)
+        .testTag("detail.overview")
+        .onFocusChanged { focused = it.isFocused }
+        .clip(RoundedCornerShape(R.sm))
+        .background(if (focused) Color.White else Color.Transparent)
+        .then(if (overflow) Modifier.semantics { contentDescription = "展开简介" }
+            .pressable(onOpen, tvHighlight = false) else Modifier),
+        color = if (focused) Color.Black else Color.White.copy(alpha = .85f),
+        style = LpText.body, maxLines = 2, overflow = TextOverflow.Ellipsis,
+        onTextLayout = { overflow = it.hasVisualOverflow })
+}
+
 /** 简介直接铺正文，点击文字展开/收起，不额外占用一行标题。 */
 @Composable
 private fun Overview(text: String) {
@@ -1962,12 +1999,8 @@ private fun PickList(rows: List<PickRow>, enabled: Boolean = true) {
                         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                         verticalAlignment = Alignment.CenterVertically) {
                         Icon(r.icon, null, Modifier.size(18.dp), tint = ink.copy(alpha = .75f))
-                        Column(Modifier.weight(1f, fill = false)) {
-                            Text(listOfNotNull(r.label, r.metadata?.takeIf(String::isNotBlank), r.subtitle)
-                                .joinToString(" · "), color = ink.copy(alpha = .75f), style = LpText.caption,
-                                maxLines = 1, overflow = TextOverflow.Ellipsis)
-                            Text(r.value, color = ink, style = LpText.body, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                        }
+                        Text(r.value, Modifier.weight(1f, fill = false), color = ink, style = LpText.body,
+                            maxLines = 2, overflow = TextOverflow.Ellipsis)
                         if (r.onClick != null) Icon(LpIcons.chevD, null, Modifier.size(16.dp),
                             tint = ink.copy(alpha = if (enabled) .85f else .45f))
                     }
