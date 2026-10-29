@@ -359,3 +359,40 @@ TV 主进度条合并片头结束、片尾开始与普通章节刻度，去除�
 ### Next Steps
 
 - 未出包、安装或推送；未做全量和真机验收，未知时长与越界仅静态核验，极近首尾的标记仍沿用原过滤。
+
+
+## Session 145: TV 浏览与详情沉浸改版归档
+<!-- trellis-session: v=2 fp=ade2c30dcc06a3f9 -->
+
+**Date**: 2026-10-30
+**Task**: TV 浏览与详情沉浸改版归档
+**Branch**: `main`
+
+### Summary
+
+TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，弹窗遮罩铺满，收藏/列表去掉已看与排序，详情页影院式首屏、媒体信息补探测与首焦点落播放；按用户要求直接提交归档。
+
+### Main Changes
+
+- 顶栏仅一级页显示且返回退场时不闪现，顶栏去遮罩；LpTopBar 在 TV 隐藏返回；LpDialog 改整窗 Dialog 解除 560dp 限宽。
+- 详情播放行先占位、播放可用前拦截方向键进入页面；未探测规格时请求服务端补探测并局部刷新媒体。
+- 归档自动提交受原任务路径校验影响，核验五个已暂存归档文件后补独立归档提交。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `9add2a8b` | fix(android): TV 浏览与详情沉浸改版 |
+
+### Testing
+
+- [OK] [未运行] 未编译、未跑测试；仅 diff 自审、git diff --check 与隐私扫描通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 编译并运行 SharedTvBrowseTest、VisualAlignmentTest、PhoneLibraryUiTest、PhoneBrowseUiTest、TvFocusStyleTest、PhoneDetailOptionsTest，按结果修正。
+- 真机验收首焦点、遥控路径、弹窗、二级页铺色对齐与切页叠影、亮图上顶栏可读性；Emby 补探测效果与非管理员行为未验。
