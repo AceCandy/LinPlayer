@@ -42,6 +42,14 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.layout.findRootCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.unit.toSize
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.graphicsLayer
@@ -82,14 +90,35 @@ fun LpScaffold(
     actions: @Composable () -> Unit = {},
     bottomBar: @Composable () -> Unit = {},
     titleContent: (@Composable () -> Unit)? = null,
+    /** 电视一级页：顶部导航已标明当前页，只留右侧入口；底色透明，透出外层的首页氛围色。 */
+    tvRoot: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
-    Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val root = tvRoot && tv
+    // 电视二级页沉浸：底色用与一级页同一层氛围色（不透明，切页时盖住来源页），标题不铺底，内容上滚时在标题下沿溶掉
+    val tvSub = tv && !tvRoot
+    val pageBg = xyz.linplayer.app.ui.plugin.pageBg(c.bg)
+    val tone = if (tvSub && pageBg != Color.Transparent) xyz.linplayer.app.tv.LocalTvTone.current?.value else null
+    // 渐变按整屏坐标铺满整屏（不裁到本页）：与外层一级页那层逐像素对齐，切页时连四周边距一起盖住来源页
+    var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
+    var screen by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
+    Box(m.fillMaxSize().then(when {
+        root -> Modifier
+        tone != null -> Modifier.onGloballyPositioned {
+            origin = it.positionInRoot()
+            screen = it.findRootCoordinates().size.toSize()
+        }.drawBehind {
+            translate(-origin.x, -origin.y) { drawRect(homeToneScene(tone, c.bg), size = screen.takeIf { it != androidx.compose.ui.geometry.Size.Zero } ?: size) }
+        }
+        else -> Modifier.background(pageBg)
+    })) {
         Column(Modifier.fillMaxSize()) {
             // ★ 没有标题**不等于没有 topbar**:首页就是「无标题但右上角有入口」。
-            LpTopBar(title, subtitle, onBack, scrolled, titleContent = titleContent, actions = actions)
-            Box(Modifier.weight(1f)) { content(contentInsets()) }
+            if (root) Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x4), horizontalArrangement = Arrangement.End) { actions() }
+            else LpTopBar(title, subtitle, onBack, scrolled && !tvSub, titleContent = titleContent, actions = actions)
+            Box(Modifier.weight(1f).then(if (tvSub) Modifier.dissolveTop(Sp.x8) else Modifier)) { content(contentInsets()) }
             bottomBar()
         }
     }
@@ -160,7 +189,8 @@ fun LpTopBar(
             Modifier.fillMaxWidth().heightIn(min = Dim.topBar).padding(horizontal = Sp.x4),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            if (onBack != null) {
+            // 电视用遥控返回键，屏幕上不放返回按钮
+            if (onBack != null && !xyz.linplayer.app.tv.LocalTvMode.current) {
                 LpIconButton(LpIcons.back, "返回", onClick = onBack)
             } else {
                 Spacer(Modifier.width(Sp.x12))

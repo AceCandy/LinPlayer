@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.LocalTvMode
+import xyz.linplayer.app.tv.tvPosterFocus
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -71,9 +72,7 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.compositeOver
 import xyz.linplayer.app.ui.components.dissolve
-import xyz.linplayer.app.ui.components.toneScene
 import xyz.linplayer.app.ui.theme.rememberTone
 import androidx.compose.ui.graphics.Shadow
 import androidx.compose.ui.input.pointer.pointerInput
@@ -230,6 +229,9 @@ fun HomePage(nav: NavController) {
     val motionAccount = currentSession?.let { it.server to it.userId }
     var homeTone by remember(motionAccount) { mutableStateOf<Color?>(null) }
     var banners by keepState<List<CachedHomeImage>>("home.banners:$motionAccount") { emptyList() }
+    xyz.linplayer.app.tv.LocalTvTone.current?.let { shared ->
+        SideEffect { shared.value = if (banners.isNotEmpty()) homeTone else null }
+    }
     val heroRevision by app.userStateRevision.collectAsState()
     val bannerItems = remember(resume, latest, collections) {
         (resume.valueOrNull.orEmpty() + latest.values.flatten() + collections.valueOrNull.orEmpty()).distinctBy { it.id }
@@ -455,8 +457,8 @@ fun HomePage(nav: NavController) {
             refreshing = refreshing,
             onRefresh = onRefresh,
             modifier = Modifier.fillMaxSize().then(
-                if (tv && banners.isNotEmpty() && homeTone != null) Modifier.background(toneScene(homeTone!!,
-                    homeTone!!.copy(alpha = .08f).compositeOver(Lp.colors.bg), depth = 1f)) else Modifier
+                if (tv && banners.isNotEmpty() && homeTone != null) Modifier.background(
+                    xyz.linplayer.app.ui.components.homeToneScene(homeTone!!, Lp.colors.bg)) else Modifier
             ).padding(
                 top = when {
                     banners.isNotEmpty() -> 0.dp
@@ -985,14 +987,13 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {
         items(views, key = { it.id }) { v ->
-            var hasFocus by remember { mutableStateOf(false) }
-            val focused = LocalTvMode.current && hasFocus
+            var focused by remember { mutableStateOf(false) }
             Box(
                 // 叠在头图上用半透明深底，浅色主题下不至于在暗背景上挖出浅灰方块。
-                Modifier.size(cardSize).clip(RoundedCornerShape(R.md))
-                    .onFocusChanged { hasFocus = it.isFocused }
-                    .background(if (onImage) Color.Black.copy(alpha = .28f) else c.s1)
-                    .pressable({ nav.navigate(Route.Library(v.id, v.name)) }, tvHighlight = false),
+                Modifier.size(cardSize).onFocusChanged { focused = it.isFocused }
+                    .tvPosterFocus(focused, R.md).clip(RoundedCornerShape(R.md))
+                    .background(if (onImage) Color.Black.copy(alpha = .5f) else c.s1)
+                    .pressable({ nav.navigate(Route.Library(v.id, v.name)) }, tvHighlight = false, tvScale = false),
                 contentAlignment = Alignment.Center,
             ) {
                 NetImage(if (v.hasPrimary) app.imageUrl(v.id, "Primary", imageHeight) else null, v.name,
@@ -1004,9 +1005,6 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
                             overflow = TextOverflow.Ellipsis,
                             textAlign = androidx.compose.ui.text.style.TextAlign.Center)
                     })
-                if (focused) Text(v.name, Modifier.align(Alignment.BottomCenter).fillMaxWidth()
-                    .background(Color.Black.copy(alpha = .8f)).padding(horizontal = Sp.x6, vertical = Sp.x2),
-                    color = Color.White, style = LpText.caption, maxLines = 1, overflow = TextOverflow.Ellipsis)
             }
         }
     }

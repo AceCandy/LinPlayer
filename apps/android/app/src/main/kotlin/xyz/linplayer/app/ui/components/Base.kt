@@ -39,7 +39,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.wrapContentWidth
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.BasicAlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalContentColor
@@ -121,9 +120,9 @@ internal fun Modifier.pressFeedback(source: MutableInteractionSource): Modifier 
 
 /** 共用按压反馈，不增加点击等待；只在绘制阶段读取缩放。 */
 @Composable
-fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true, tvHighlight: Boolean = true): Modifier {
+fun Modifier.pressable(onClick: () -> Unit, enabled: Boolean = true, tvHighlight: Boolean = true, tvScale: Boolean = true): Modifier {
     val src = remember { MutableInteractionSource() }
-    return Modifier.tvFocusScale(src, enabled).then(this).pressFeedback(src).tvFocus(src, enabled = enabled, highlight = tvHighlight)
+    return Modifier.tvFocusScale(src, enabled && tvScale).then(this).pressFeedback(src).tvFocus(src, enabled = enabled, highlight = tvHighlight)
         .clickable(interactionSource = src, indication = null, enabled = enabled, onClick = onClick)
 }
 
@@ -139,10 +138,12 @@ fun Modifier.pressable(
     onLongClick: (() -> Unit)?,
     enabled: Boolean = true,
     tvHighlight: Boolean = true,
+    /** 海报类自带 [xyz.linplayer.app.tv.tvPosterFocus] 时关掉通用放大，避免叠加。 */
+    tvScale: Boolean = true,
 ): Modifier {
     val src = remember { MutableInteractionSource() }
     val haptic = LocalHapticFeedback.current
-    return Modifier.tvFocusScale(src, enabled).then(this).pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled, tvHighlight)
+    return Modifier.tvFocusScale(src, enabled && tvScale).then(this).pressFeedback(src).tvFocus(src, onLongClick?.takeIf { enabled }, enabled, tvHighlight)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             onLongClick = onLongClick?.let {
@@ -703,7 +704,6 @@ fun ErrorState(message: String, onRetry: (() -> Unit)? = null, m: Modifier = Mod
 internal fun dialogWidth(screenWidthDp: Int): Int =
     (screenWidthDp * 0.82f).toInt().coerceIn(280, 600).coerceAtMost(screenWidthDp)
 
-@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable () -> Unit) {
     val c = Lp.colors
@@ -712,7 +712,8 @@ fun LpDialog(onDismiss: () -> Unit, title: String? = null, content: @Composable 
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val noFocus = if (tv) Modifier.focusProperties { canFocus = false } else Modifier
     val focus = remember { androidx.compose.ui.focus.FocusRequester() }
-    BasicAlertDialog(
+    // 不用 BasicAlertDialog：它把内容限在 560dp 宽，电视和横屏上遮罩只盖中间一条，两侧页面直接露出来
+    androidx.compose.ui.window.Dialog(
         onDismissRequest = onDismiss,
         properties = androidx.compose.ui.window.DialogProperties(
             usePlatformDefaultWidth = false, decorFitsSystemWindows = false),

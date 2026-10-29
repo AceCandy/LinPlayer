@@ -171,10 +171,13 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
     val placement = lpTween<IntOffset>(T.T5)
     val contentAlpha by animateFloatAsState(if (block is Block.Ok) 1f else 0f, fade, label = "favoritesContent")
 
-    LpScaffold(title, onBack = if (isCategory) ({ nav.popBackStack() }) else null, actions = {
-        if (!isCategory) {
-            xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "历史已看") { nav.navigate(Route.Watched) }
-        } else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
+    // 电视收藏只铺内容：不放历史已看入口和排序
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    LpScaffold(title, onBack = if (isCategory) ({ nav.popBackStack() }) else null, tvRoot = !isCategory, actions = {
+        if (!tv) {
+            if (!isCategory) xyz.linplayer.app.ui.components.LpIconButton(LpIcons.history, "历史已看") { nav.navigate(Route.Watched) }
+            else if (!watched) MediaSortControl(sort, ascending, { showSort = true }, Modifier.testTag("favorites.sort"))
+        }
     }) { pad ->
         LpPullRefresh(refreshing, {
             if (!refreshing) { refreshing = true; reload++ }
@@ -209,6 +212,7 @@ fun FavoritesPage(nav: NavController, type: String? = null, libraryId: String? =
                         if (session == null) "请先选择 Emby 服务器" else if (watched) "暂无已看完的${if (watchedType == "Movie") "电影" else "电视剧"}"
                         else when (type) { "Movie" -> "没有未看完的电影收藏"; "Series" -> "没有未看完的电视剧收藏"; else -> "没有未看完的收藏" },
                         if (watched) "这里只显示当前服务器已看完的作品，电视剧有新集后会重新归为未看完。"
+                        else if (tv) "已看完的收藏不在这里显示；收藏状态仍保留。"
                         else "收藏中已看完的内容可在右上角「历史已看」查看；收藏状态仍保留。",
                         LpIcons.heart,
                     ) } else if (isCategory) LazyVerticalGrid(

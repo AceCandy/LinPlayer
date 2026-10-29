@@ -208,6 +208,18 @@ class SharedTvBrowseTest {
         assertEquals(initial, rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y, 1f)
     }
 
+    @Test fun rootBackFromContentReturnsToCurrentNavigationTab() {
+        mount { it.ret("emby.cachedItems", arr(item("hero", "首页轮播", year = 2026))) }
+        rule.waitUntil(5000) { rule.onAllNodesWithTag("home.banners").fetchSemanticsNodes().isNotEmpty() }
+        val initial = rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y
+        repeat(4) { press(rule, Key.DirectionDown) }
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        assertFalse(activity.isFinishing)
+        assertEquals(initial, rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y, 1f)
+    }
+
     @Test fun focusedNavigationTabKeepsShortLineWithoutPillInDarkTheme() = checkNavigationTab("dark")
     @Test fun focusedNavigationTabKeepsShortLineWithoutPillInLightTheme() = checkNavigationTab("light")
 
@@ -252,6 +264,36 @@ class SharedTvBrowseTest {
             .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("沙丘 2").assertIsFocused()
+    }
+
+    @Test fun rowHeaderSidewaysNeverEntersNavigation() {
+        mount()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(hasText("电影") and hasClickAction())
+        rule.onNode(hasText("电影") and hasClickAction())
+            .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionLeft, Key.DirectionLeft)
+        rule.onNode(hasText("电影") and hasClickAction()).assertIsFocused()
+        rule.onNodeWithTag("rail.1").assertIsSelected()
+    }
+
+    @Test fun detailFirstScreenStaysAtTopUnderTvPivotScrolling() {
+        // 真电视默认把焦点项滚到 30% 处；Robolectric 默认不是电视，这里显式打开
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        mount()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        val list = rule.onNode(hasAnyDescendant(hasTestTag("detail.hero")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        assertEquals("首屏聚焦播放不应把详情往上推", 0f, list.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value(), .5f)
     }
 
     @Test fun hiddenLibrariesMakeResumeTheFirstContentRow() {
@@ -419,7 +461,7 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("rail.1").assertDoesNotExist()
         rule.onNodeWithContentDescription("返回").assertDoesNotExist()
         play.assertIsFocused()
-        rule.onNodeWithTag("detail.options").performScrollTo().assertIsDisplayed()
+        rule.onNodeWithTag("detail.tools").performScrollTo().assertIsDisplayed()
         play.performScrollTo().assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.waitForIdle()
@@ -470,6 +512,8 @@ class SharedTvBrowseTest {
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertIsNotEnabled()
             if (moveToAnotherAction) {
+                // 次要操作在播放上方一排，向上进入后横移
+                press(rule, Key.DirectionUp)
                 for (step in 0 until 8) {
                     if (rule.onAllNodes(hasContentDescription("换源") and isFocused()).fetchSemanticsNodes().isNotEmpty()) break
                     press(rule, Key.DirectionRight)
@@ -499,31 +543,39 @@ class SharedTvBrowseTest {
         press(rule, Key.DirectionRight)
         rule.onNodeWithTag("detail.play.options").assertIsFocused()
         rule.onRoot().captureRoboImage("build/shared-tv/detail-options-focus.png")
+        // 次要操作在播放上方：向上进图标行首位，横移到收藏和版本，向下回播放
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithContentDescription("标已看").assertIsFocused()
         press(rule, Key.DirectionRight)
         rule.onNodeWithContentDescription("收藏").assertIsFocused()
         press(rule, Key.DirectionCenter)
         assertTrue(core.calls.any { it.first == "emby.setFavorite" && it.second?.get("fav") == JsonPrimitive(true) })
-        press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionDown)
+        press(rule, Key.DirectionRight)
         rule.onNodeWithContentDescription("版本").assertIsFocused()
+        rule.onNodeWithText("版本 · 1080p", substring = true).assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/shared-tv/detail-tools-focus.png")
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        // 播放向下直达演职人员首位，向上直回播放
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused().assertIsDisplayed()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("返回").assertDoesNotExist()
         val actor = SemanticsMatcher("演职员卡片") {
             it.config.getOrNull(androidx.compose.ui.semantics.SemanticsProperties.TestTag)?.startsWith("detail.person.") == true
         } and isFocused()
-        for (step in 0 until 16) {
-            if (rule.onAllNodes(actor).fetchSemanticsNodes().isNotEmpty()) break
-            press(rule, Key.DirectionDown)
-            rule.onNodeWithContentDescription("返回").assertDoesNotExist()
-        }
-        assertTrue(rule.onNode(isFocused()).printToString(),
-            rule.onAllNodes(actor).fetchSemanticsNodes().isNotEmpty())
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused()
         rule.onNode(actor).assertIsDisplayed()
         for (step in 0 until 16) {
             if (rule.onAllNodes(hasTestTag("detail.play") and isFocused()).fetchSemanticsNodes().isNotEmpty()) break
             press(rule, Key.DirectionUp)
         }
         rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused()
-        press(rule, Key.DirectionUp)
+        press(rule, Key.DirectionUp, Key.DirectionUp)
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.tags"))).assertIsDisplayed()
-        press(rule, Key.DirectionDown)
+        press(rule, Key.DirectionDown, Key.DirectionDown)
         rule.onNodeWithTag("detail.play").assertIsFocused()
         rule.runOnUiThread { back.onBackPressed() }
         rule.waitForIdle()
@@ -548,11 +600,12 @@ class SharedTvBrowseTest {
         rule.onNodeWithText("剧情简介").assertDoesNotExist()
         rule.onNodeWithText("播放选项").assertDoesNotExist()
         rule.onNodeWithTag("detail.play.options").assertHasClickAction()
-        for (label in listOf("版本", "视频", "音轨", "字幕")) {
-            rule.onNodeWithContentDescription(label).assertExists()
-            rule.onAllNodes(hasAnyAncestor(hasTestTag("detail.options")) and hasText(label, substring = true))
-                .assertCountEquals(0)
-        }
+        // 只有一个版本、一条音轨时不出对应按钮；视频规格并进数据行，不再是按钮
+        for (label in listOf("版本", "视频", "音轨")) rule.onNodeWithContentDescription(label).assertDoesNotExist()
+        rule.onNodeWithText("4K HDR10 HEVC", substring = true).assertIsDisplayed()
+        rule.onNode(hasContentDescription("字幕") and hasAnyAncestor(hasTestTag("detail.tools"))).assertExists()
+        rule.onAllNodes(hasAnyAncestor(hasTestTag("detail.tools")) and hasText("字幕", substring = true))
+            .assertCountEquals(0)
         press(rule, Key.DirectionRight)
         rule.onNodeWithTag("detail.play.options").assertIsFocused()
         rule.onNodeWithText("播放选项").assertDoesNotExist()
@@ -578,7 +631,7 @@ class SharedTvBrowseTest {
         val summary = rule.onNode(hasTestTag("detail.overview") and hasAnyAncestor(hasTestTag("detail.hero")))
         summary.assertIsDisplayed()
         rule.onAllNodesWithText(overview).assertCountEquals(1)
-        press(rule, Key.DirectionUp)
+        press(rule, Key.DirectionUp, Key.DirectionUp)
         summary.assertIsFocused()
         press(rule, Key.DirectionCenter)
         val full = rule.onNodeWithTag("detail.overview.full", useUnmergedTree = true)
@@ -597,7 +650,7 @@ class SharedTvBrowseTest {
         rule.waitForIdle()
         full.assertDoesNotExist()
         summary.assertIsFocused()
-        press(rule, Key.DirectionDown)
+        press(rule, Key.DirectionDown, Key.DirectionDown)
         rule.onNodeWithTag("detail.play").assertIsFocused()
         rule.runOnUiThread { back.onBackPressed() }
         rule.waitForIdle()
@@ -746,8 +799,9 @@ class SharedTvBrowseTest {
                 xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
-        rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero"))).assertIsDisplayed()
-        rule.onNodeWithText("se1e2 标准版").assertIsDisplayed()
+        rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero")))
+            .assertIsDisplayed().performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNodeWithText("se1e2 标准版", substring = true).assertIsDisplayed()
         val screen = rule.onRoot().getUnclippedBoundsInRoot()
         val artwork = rule.onNodeWithTag("detail.ep.image.se1e1", useUnmergedTree = true).getUnclippedBoundsInRoot()
         assertTrue("首屏应看清整张分集缩略图", artwork.bottom <= screen.bottom)
@@ -762,7 +816,12 @@ class SharedTvBrowseTest {
             xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
                 xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
         }
+        // 播放向下直达分集；版本等参数在播放上方的图标行
         press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("选择季").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight)
         rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.onNodeWithText("se1e2 高码率").performClick()
@@ -770,16 +829,15 @@ class SharedTvBrowseTest {
         rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionRight)
         rule.onNodeWithContentDescription("音轨").assertIsFocused()
-        rule.onNodeWithContentDescription("视频").assertHasNoClickAction()
-        rule.onNode(hasContentDescription("视频") and isFocused()).assertDoesNotExist()
+        rule.onNodeWithContentDescription("视频").assertDoesNotExist()
         press(rule, Key.DirectionRight, Key.DirectionCenter)
         rule.onNodeWithText("英文字幕").performClick()
         rule.waitForIdle()
         rule.onNodeWithContentDescription("字幕").assertIsFocused()
         press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("选择季").assertIsFocused()
-        press(rule, Key.DirectionUp)
-        rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionUp)
         rule.onNodeWithTag("detail.play").assertIsFocused()
         press(rule, Key.DirectionCenter)
@@ -819,7 +877,7 @@ class SharedTvBrowseTest {
             assertEquals("se2e2", core.calls.last { it.first == "prefs.preloadItem" }.second.str("item_id"))
             rule.runOnIdle { release.complete(Unit) }
             rule.waitForIdle()
-            rule.onNodeWithText("se2e2 标准版").assertIsDisplayed()
+            rule.onNodeWithContentDescription("版本").assertExists()
             rule.onNodeWithTag("detail.play").performClick()
             rule.waitForIdle()
             val intent = org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult.intent
@@ -847,8 +905,6 @@ class SharedTvBrowseTest {
                 xyz.linplayer.app.ui.pages.args("id" to "se2e2", "type" to "Episode"), false)
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
-        press(rule, Key.DirectionDown)
-        rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionDown)
         rule.onNodeWithTag("detail.person.actor").assertIsDisplayed().assertIsFocused()
     }

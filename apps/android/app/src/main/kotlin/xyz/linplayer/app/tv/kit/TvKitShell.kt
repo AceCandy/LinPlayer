@@ -34,11 +34,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
@@ -74,7 +74,7 @@ val railItems = listOf(
 fun TopNavigation(
     current: Int, privateSpace: Boolean = false, focused: Int = -1,
     serverName: String = "服务器", aggregateLabel: String = "发现", onServer: () -> Unit = {}, onPrivateSpace: () -> Unit = {},
-    /** 叠在头图上时保持浅色文字，遮罩始终向下渐隐。 */
+    /** 叠在头图上时保持浅色文字。 */
     overlay: Boolean = false,
     modifier: Modifier = Modifier, onContent: () -> Boolean = { false }, onSelect: (Int) -> Unit = {},
     onFocusSelect: (Int) -> Unit = {},
@@ -83,13 +83,14 @@ fun TopNavigation(
     val order = if (privateSpace) listOf(6, 1, 3, 4, 0) else listOf(6, 1, 3, 4, 0, 7)
     val reqs = remember { List(railItems.size + 1) { FocusRequester() } }
     Row(
+        // 不铺遮罩，栏目直接浮在页面上（同手机底栏）
         modifier.fillMaxWidth().height(TvDim.navigationH)
-            .background(Brush.verticalGradient(
-                0f to if (overlay) Color.Black.copy(alpha = .74f) else TvC.bg.copy(alpha = .94f),
-                .65f to if (overlay) Color.Black.copy(alpha = .66f) else TvC.bg.copy(alpha = .85f),
-                1f to Color.Transparent))
             .padding(horizontal = TvDim.safeH)
-            .focusProperties { if (focused < 0) onEnter = { reqs[current.takeIf { it in order } ?: 1].requestFocus() } }
+            .focusProperties { if (focused < 0) onEnter = {
+                // 只能从内容区向上进入；内容区左右走到尽头不能误入顶栏，否则再按一次就切了页
+                if (requestedFocusDirection == FocusDirection.Left || requestedFocusDirection == FocusDirection.Right) cancelFocusChange()
+                else reqs[current.takeIf { it in order } ?: 1].requestFocus()
+            } }
             .onPreviewKeyEvent {
                 if (it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown) onContent() else false
             }.focusGroup(),
@@ -157,6 +158,11 @@ fun NavigationItem(
     var hasFocus by remember { mutableStateOf(false) }
     val latestOnFocus by rememberUpdatedState(onFocus)
     val focusFill = if (overlay) Color.White else TvC.focus
+    // 栏目和图标入口不用反色实底：聚焦统一半透明胶囊，图标再放大；短横只标当前页
+    val plain = tab || iconOnly
+    val glass = (if (overlay) Color.White else TvC.fg).copy(alpha = .2f)
+    val iconScale by androidx.compose.animation.core.animateFloatAsState(
+        if (iconOnly && (hasFocus || fake)) 1.2f else 1f, label = "navIconScale")
     val focusInk = if (overlay) Color.Black else TvC.onFocus
     LaunchedEffect(hasFocus) {
         if (hasFocus) {
@@ -179,14 +185,14 @@ fun NavigationItem(
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = .97f),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = if (fake && !tab) focusFill else Color.Transparent,
-                contentColor = if (fake && !tab) focusInk else if (overlay) Color.White else if (on) TvC.fg else TvC.fg2,
-                focusedContainerColor = if (tab) Color.Transparent else focusFill,
-                focusedContentColor = if (tab) { if (overlay) Color.White else TvC.fg } else focusInk,
+                containerColor = if (fake) { if (plain) glass else focusFill } else Color.Transparent,
+                contentColor = if (fake && !plain) focusInk else if (overlay) Color.White else if (on || fake) TvC.fg else TvC.fg2,
+                focusedContainerColor = if (plain) glass else focusFill,
+                focusedContentColor = if (plain) { if (overlay) Color.White else TvC.fg } else focusInk,
             ),
         ) {
             Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                if (iconOnly) Icon(icon, null, Modifier.size(20.dp))
+                if (iconOnly) Icon(icon, null, Modifier.size(20.dp).graphicsLayer { scaleX = iconScale; scaleY = iconScale })
                 else Text(label, fontSize = tvType.body,
                     fontWeight = if (hasFocus || fake) TvW.bold else if (on) TvW.semi else TvW.medium)
                 if (on) Box(Modifier.align(Alignment.BottomCenter).padding(bottom = 3.dp)
@@ -194,8 +200,6 @@ fun NavigationItem(
                 if (badge != null) Box(Modifier.align(Alignment.TopEnd)) { Badge(badge, TvC.bad, Color.White) }
             }
         }
-        if (iconOnly && (hasFocus || fake)) TvText(label, tvType.meta, if (overlay) Color.White else TvC.fg2,
-            Modifier.align(Alignment.BottomCenter).graphicsLayer { translationY = 16.dp.toPx() }, maxLines = 1)
     }
 }
 

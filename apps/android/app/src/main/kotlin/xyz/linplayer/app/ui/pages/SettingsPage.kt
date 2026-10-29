@@ -129,7 +129,7 @@ fun SettingsPage(nav: NavController) {
     LongShotTarget(list)
 
 
-    LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
+    LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list), tvRoot = true) { pad ->
         LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
             item("g1") { GroupLabel("播放与外观") }
             item("p1") {

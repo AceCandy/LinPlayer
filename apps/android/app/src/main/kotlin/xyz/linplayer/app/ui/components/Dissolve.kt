@@ -83,6 +83,17 @@ fun Modifier.dissolve(from: Float = 0.55f, to: Float = 1f): Modifier = this
         )
     }
 
+/** 把这一层的上沿溶掉：顶部 [edge] 内由透明过渡到实，滚上去的内容化进上方标题而不是被一刀切掉。 */
+fun Modifier.dissolveTop(edge: androidx.compose.ui.unit.Dp): Modifier = this
+    .graphicsLayer { compositingStrategy = CompositingStrategy.Offscreen }
+    .drawWithContent {
+        drawContent()
+        drawRect(
+            brush = Brush.verticalGradient(0f to Color.Transparent, 1f to Color.Black, startY = 0f, endY = edge.toPx()),
+            blendMode = BlendMode.DstIn,
+        )
+    }
+
 /**
  * 页面底色:从封面取的色在顶上最浓,到 [depth] 处收干净回底色。
  *
@@ -95,6 +106,10 @@ fun toneScene(tone: Color, bg: Color, depth: Float = 0.78f): Brush = Brush.verti
     depth to bg,
     1.00f to bg,
 )
+
+/** 电视首页头图取色铺满整页；收藏等一级页沿用同一层，切页不跳回纯色底。 */
+fun homeToneScene(tone: Color, bg: Color): Brush =
+    toneScene(tone, tone.copy(alpha = .08f).compositeOver(bg), depth = 1f)
 
 /**
  * 一团散在角上的辉光(草稿 06 / 07 的顶部色斑)。

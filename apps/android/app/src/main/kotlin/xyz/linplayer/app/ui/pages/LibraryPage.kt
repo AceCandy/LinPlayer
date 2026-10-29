@@ -270,7 +270,8 @@ fun LibraryPage(nav: NavController, entry: NavBackStackEntry) {
         subtitle = if (first is Block.Ok) "${items.size}${if (ended) "" else "+"} 部" else null,
         onBack = { nav.popBackStack() },
         actions = {
-            MediaSortControl(sort.first, sortOrder == "Ascending", { showFilter = true },
+            // 电视列表只全屏铺内容，不放排序
+            if (!xyz.linplayer.app.tv.LocalTvMode.current) MediaSortControl(sort.first, sortOrder == "Ascending", { showFilter = true },
                 Modifier.testTag("library.sort"))
         },
     ) { pad ->

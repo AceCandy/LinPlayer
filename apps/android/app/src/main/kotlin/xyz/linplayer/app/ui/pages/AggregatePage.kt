@@ -32,6 +32,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -82,7 +83,7 @@ fun AggregatePage(nav: NavController) {
     val privateSpace by app.privateSpace.collectAsState()
     // 私密聚合页只承载本服流影和榜单，不读取普通聚合快照或发起跨服请求。
     if (privateSpace) {
-        LpScaffold("聚合视界") { pad ->
+        LpScaffold("聚合视界", tvRoot = true) { pad ->
             Row(
                 Modifier.fillMaxWidth().padding(pad).padding(horizontal = Sp.x16, vertical = Sp.x12),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8),
@@ -165,7 +166,8 @@ fun AggregatePage(nav: NavController) {
         } }
     }
 
-    LpScaffold("聚合视界", scrolled = rememberScrolled(list)) { pad ->
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    LpScaffold("聚合视界", scrolled = rememberScrolled(list), tvRoot = true) { pad ->
         LpPullRefresh(
             refreshing = pulling,
             onRefresh = { if (!pulling) {
@@ -181,7 +183,8 @@ fun AggregatePage(nav: NavController) {
                 }
                 groups.forEach { g ->
                     item("server-${g.serverId}") {
-                        Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8)) {
+                        // 电视不套卡底，服务器分组像首页栏目一样直接铺在氛围底上
+                        val group: @Composable () -> Unit = {
                             ServerHead(g)
                             (g.error ?: g.countsError)?.let { err ->
                                 Text("现在连不上:$err", color = Lp.colors.fg2, style = LpText.caption,
@@ -196,6 +199,8 @@ fun AggregatePage(nav: NavController) {
                                 menu = if (g.active) { item -> rememberCardActions(app, scope, item) } else null)
                             Spacer(Modifier.height(Sp.x8))
                         }
+                        if (tv) Column(Modifier.padding(vertical = Sp.x8)) { group() }
+                        else Panel(Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8), content = group)
                     }
                 }
                 if (done && failure == null && groups.isEmpty()) item("empty") {
@@ -213,13 +218,38 @@ fun AggregatePage(nav: NavController) {
 /** 聚合页的附加功能入口。 */
 @Composable
 private fun Shortcuts(nav: NavController) {
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     Row(
         Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12),
+        horizontalArrangement = Arrangement.spacedBy(if (tv) Sp.x12 else Sp.x8),
+    ) {
+        if (tv) {
+            TvShortcut("排行榜", LpIcons.trophy) { nav.navigate(Route.Ranking) }
+            TvShortcut("日历", LpIcons.calendar) { nav.navigate(Route.Calendar) }
+        } else {
+            Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
+            Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
+            Shortcut("日历", LpIcons.calendar, Modifier.weight(1f)) { nav.navigate(Route.Calendar) }
+        }
+    }
+}
+
+/** 电视入口：半透明胶囊，按内容宽度排开，不再撑成整块实心卡。 */
+@Composable
+private fun TvShortcut(label: String, icon: ImageVector, onClick: () -> Unit) {
+    val c = Lp.colors
+    var focused by remember { mutableStateOf(false) }
+    Row(
+        Modifier.onFocusChanged { focused = it.isFocused }.clip(CircleShape)
+            .background(c.fg.copy(alpha = if (focused) .22f else .08f)).pressable(onClick, tvHighlight = false)
+            .padding(start = Sp.x6, end = Sp.x16, top = Sp.x6, bottom = Sp.x6),
+        verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {
-        if (!xyz.linplayer.app.tv.LocalTvMode.current) Shortcut("下载", LpIcons.download, Modifier.weight(1f)) { nav.navigate(Route.Downloads) }
-        Shortcut("排行榜", LpIcons.trophy, Modifier.weight(1f)) { nav.navigate(Route.Ranking) }
-        Shortcut("日历", LpIcons.calendar, Modifier.weight(1f)) { nav.navigate(Route.Calendar) }
+        Box(Modifier.size(32.dp).clip(CircleShape).background(c.accDim), contentAlignment = Alignment.Center) {
+            Icon(icon, null, Modifier.size(16.dp), tint = c.acc)
+        }
+        Text(label, color = c.fg, style = LpText.list)
     }
 }
 

@@ -49,3 +49,29 @@ fun ProvideColumnSpec(above: Dp, below: Dp, content: @Composable () -> Unit) {
     }
     CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
 }
+
+/**
+ * [pinned] 为真时只在焦点项出界才滚，且只滚到贴边；否则沿用外层规则(真电视默认 30% 处)。
+ * 详情首屏用它守住顶部：播放键低于 30% 时，默认规则会把整页往上推一截。
+ */
+@OptIn(ExperimentalFoundationApi::class)
+@Composable
+fun ProvideEdgeSpecWhen(pinned: () -> Boolean, content: @Composable () -> Unit) {
+    val outer = LocalBringIntoViewSpec.current
+    val latest = androidx.compose.runtime.rememberUpdatedState(pinned)
+    val spec = remember(outer) {
+        object : BringIntoViewSpec {
+            override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+                if (!latest.value()) return outer.calculateScrollDistance(offset, size, containerSize)
+                val trailing = offset + size
+                return when {
+                    offset >= 0 && trailing <= containerSize -> 0f
+                    offset < 0 && trailing > containerSize -> 0f
+                    kotlin.math.abs(offset) < kotlin.math.abs(trailing - containerSize) -> offset
+                    else -> trailing - containerSize
+                }
+            }
+        }
+    }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides spec, content = content)
+}

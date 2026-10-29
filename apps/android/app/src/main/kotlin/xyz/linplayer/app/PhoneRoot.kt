@@ -30,6 +30,8 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.ime
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.collectAsState
+import xyz.linplayer.app.tv.isTvRootPage
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -274,6 +276,7 @@ private fun MainShell(tv: Boolean) {
     }
 
     val session by app.session.collectAsStateWithLifecycle()
+    val tvTone = remember(session?.server, session?.userId) { mutableStateOf<androidx.compose.ui.graphics.Color?>(null) }
     val pageSlide = lpTween<androidx.compose.ui.unit.IntOffset>(T.T7, LpEasing.emphasizedDecelerate)
     val pageScale = lpTween<Float>(T.T7, LpEasing.emphasizedDecelerate)
     val pageFade = lpTween<Float>(T.T8, LinearEasing)
@@ -296,11 +299,18 @@ private fun MainShell(tv: Boolean) {
         xyz.linplayer.app.tv.LocalTvHomeRefresh provides if (tv) tvHomeRefresh else null,
         xyz.linplayer.app.tv.LocalTvTopNavigation provides if (tv) tvNavigation else null,
         xyz.linplayer.app.tv.LocalTvHomeScroll provides if (tv) tvHomeScroll else null,
+        xyz.linplayer.app.tv.LocalTvTone provides if (tv) tvTone else null,
     ) {
     xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
         enabled = entry?.destination?.hasRoute<Route.Player>() != true)) {
+        val tone = tvTone.value
+        val tvPageBg = xyz.linplayer.app.ui.plugin.pageBg(Lp.colors.bg)
         Box(Modifier.fillMaxSize()
+            // 电视一级页底色透明，由这层铺满整屏（含顶栏后方）；没取到色用原底色，插件壁纸生效时不盖住它
+            .then(if (tv && tvPageBg != androidx.compose.ui.graphics.Color.Transparent) Modifier.background(
+                tone?.let { xyz.linplayer.app.ui.components.homeToneScene(it, Lp.colors.bg) }
+                    ?: androidx.compose.ui.graphics.SolidColor(tvPageBg)) else Modifier)
             .then(if (tv) Modifier.focusRequester(tvContent).focusRestorer().focusGroup() else Modifier)
             .nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
@@ -426,7 +436,10 @@ private fun MainShell(tv: Boolean) {
                 nav.switchTab(target)
             }
         }
-        if (tv && browsePage && entry?.destination?.hasRoute<Route.Detail>() != true) {
+        // 顶栏只属于一级页；返回时当前路由先变成来源页而二级页仍在退场，等它完全退出再画，否则顶栏会先叠在上面闪一下
+        val visibleEntries by nav.visibleEntries.collectAsState()
+        if (tv && browsePage && entry?.destination?.isTvRootPage() == true &&
+            visibleEntries.all { it.destination.isTvRootPage() }) {
             xyz.linplayer.app.tv.SharedTopNavigation(nav, activeTab, tvContent, overlay = tvBarOverlay.value,
                 modifier = Modifier.offset { androidx.compose.ui.unit.IntOffset(0, -tvHomeScroll.value) })
         }

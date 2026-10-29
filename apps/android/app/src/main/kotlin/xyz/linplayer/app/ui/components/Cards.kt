@@ -4,6 +4,7 @@ import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
+import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -46,9 +47,11 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import xyz.linplayer.app.tv.tvPosterFocus
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -247,6 +250,7 @@ fun MediaCard(
             Box(
                 Modifier.fillMaxWidth().aspectRatio(if (thumb) 16f / 9f else 2f / 3f)
                     .onFocusChanged { hasFocus = it.isFocused }
+                    .tvPosterFocus(hasFocus, R.md)
                     .clip(RoundedCornerShape(R.md))
                     .pressable(
                         onClick = {
@@ -263,6 +267,7 @@ fun MediaCard(
                             else -> null
                         },
                         tvHighlight = !showCaption,
+                        tvScale = false,
                     )
             ) {
                 NetImage(imageUrl.takeUnless { item.hasPrimary == false }, item.name, Modifier.fillMaxSize()
@@ -561,18 +566,32 @@ internal val LocalRowHeaderOnImage = androidx.compose.runtime.staticCompositionL
 internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, onDown: (() -> Unit)? = null) {
     val onImage = LocalRowHeaderOnImage.current
     if (xyz.linplayer.app.tv.LocalTvMode.current) {
-        Box(Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x16, bottom = Sp.x4)) {
+        var focused by remember { mutableStateOf(false) }
+        // 胶囊比文字多出的内边距从外层扣回，标题仍与下方海报左缘对齐
+        Box(Modifier.fillMaxWidth().padding(start = Sp.x8, end = Sp.x16, top = Sp.x16, bottom = Sp.x4)) {
             Row(Modifier.onPreviewKeyEvent {
                 if (onDown != null && it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown) {
                     onDown(); true
                 } else false
-            }.then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
-                .padding(horizontal = Sp.x4, vertical = Sp.x6),
+            }.onFocusChanged { focused = it.isFocused }
+                // 标题独占一行，左右无处可去；不让几何搜索斜跳进海报或已滚出屏的顶栏
+                .focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel }
+                // 共用半透明胶囊焦点，箭头轻摆提示可进入
+                .then(if (onMore != null) Modifier.pressable(onMore) else Modifier)
+                .padding(horizontal = Sp.x12, vertical = Sp.x6),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(Sp.x4)) {
                 Text(title, color = if (onImage) Color.White else Lp.colors.fg, style = LpText.title)
-                if (onMore != null) Icon(LpIcons.chevR, null, Modifier.size(16.dp),
-                    tint = if (onImage) Color.White else Lp.colors.fg2)
+                if (onMore != null) {
+                    val nudge = if (focused) androidx.compose.animation.core.rememberInfiniteTransition(label = "rowMore")
+                        .animateFloat(0f, 3f, androidx.compose.animation.core.infiniteRepeatable(
+                            androidx.compose.animation.core.tween(450),
+                            androidx.compose.animation.core.RepeatMode.Reverse), label = "rowMoreX")
+                    else null
+                    Icon(LpIcons.chevR, null, Modifier.size(16.dp)
+                        .graphicsLayer { translationX = (nudge?.value ?: 0f) * density },
+                        tint = if (onImage) Color.White else Lp.colors.fg2)
+                }
             }
         }
         return
