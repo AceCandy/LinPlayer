@@ -307,7 +307,8 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, onPause: () -> Unit,
         val bmp = ui.thumb
         ProgressBar(
             played = frac(seekPosition), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = width,
-            chapters = ui.chapters.map { frac(it.first) }.filter { it in 0.001f..0.999f },
+            chapters = (ui.chapters.map { it.first } + listOfNotNull(ui.intro?.endInclusive, ui.outro?.start))
+                .map(::frac).filter { it in 0.001f..0.999f }.distinct(),
             preview = ui.preview?.let(::frac), previewLabel = ui.preview?.let(::fmtTime) ?: "",
             previewThumb = bmp?.let { b -> { Image(b, null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop) } },
         )

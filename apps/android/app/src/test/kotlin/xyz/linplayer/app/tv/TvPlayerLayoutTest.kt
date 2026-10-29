@@ -37,6 +37,7 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.*
 import xyz.linplayer.app.ui.pages.args
 import java.io.File
+import kotlin.math.roundToInt
 
 /** 真实 TV 播放页与遥控焦点；背景为合成素材，不是实际解码画面。 */
 @RunWith(RobolectricTestRunner::class)
@@ -116,6 +117,41 @@ class TvPlayerLayoutTest {
     }
 
     private fun shot(name: String) = rule.onRoot().captureRoboImage(File(root, "build/visual-alignment/tv/player-$name.png").path)
+
+    private fun assertMarkers(focused: Boolean, vararg seconds: Double) {
+        val pixels = rule.onNodeWithTag("osd.bar").captureToImage().toPixelMap()
+        val y = pixels.height / 2 - if (focused) 5 else 3
+        for (second in seconds) {
+            val x = (pixels.width * second / 3660.0).roundToInt() + 1
+            val expected = Color.White.copy(alpha = .55f).compositeOver(pixels[x + 4, y])
+            val actual = pixels[x, y]
+            assertEquals("${second}s 刻度红色通道（重复绘制会加深）", expected.red, actual.red, .01f)
+            assertEquals("${second}s 刻度绿色通道", expected.green, actual.green, .01f)
+            assertEquals("${second}s 刻度蓝色通道", expected.blue, actual.blue, .01f)
+        }
+    }
+
+    @Test fun introEndAndOutroStartAreVisibleWithoutChapters() {
+        core.ret("player.chapterInfo", args("chapters" to arr(),
+            "intro" to args("start" to 30.0, "end" to 220.0),
+            "outro" to args("start" to 3400.0, "end" to 3600.0)))
+        show(series = true, brightFrame = true)
+        assertMarkers(focused = true, 220.0, 3400.0)
+        shot("boundary-markers-focused")
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("osd.next").assertIsFocused()
+        assertMarkers(focused = false, 220.0, 3400.0)
+        shot("boundary-markers")
+    }
+
+    @Test fun boundaryMarkersDoNotDuplicateChapters() {
+        core.ret("player.chapterInfo", args(
+            "chapters" to arr(*listOf(220.0, 1130.0, 3400.0).map { args("start_secs" to it) }.toTypedArray()),
+            "intro" to args("start" to 0.0, "end" to 220.0),
+            "outro" to args("start" to 3400.0, "end" to 3660.0)))
+        show(series = true, brightFrame = true)
+        assertMarkers(focused = true, 220.0, 1130.0, 3400.0)
+    }
 
     @Test fun movieControlsAndHiddenVideo() {
         show(series = false)
