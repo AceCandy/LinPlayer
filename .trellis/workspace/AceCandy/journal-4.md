@@ -498,3 +498,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 150: 简化播放页弹幕设置
+<!-- trellis-session: v=2 fp=079cc6be6c4640c4 -->
+
+**Date**: 2026-10-30
+**Task**: 简化播放页弹幕设置
+**Branch**: `main`
+
+### Summary
+
+将 Android 手机与 TV 播放页弹幕设置改为常用显示项与高级显示项分组，澄清弹幕位置与匹配文案，保留核心字段与配置兼容；补充手机与 TV 按键回归，完成定向测试、lint 与视觉出图。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6a05c07d` | 简化播放页弹幕设置 |
+
+### Status
+
+[OK] **Completed**
