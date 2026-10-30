@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 146
+- **Total Sessions**: 147
 - **Last Active**: 2026-10-30
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~434 | Active |
+| `journal-4.md` | ~456 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 147 | 2026-10-30 | TV 焦点与排行榜改动提交归档 | `aebe6948` | `main` |
 | 146 | 2026-10-30 | TV 浏览连续性统一与回归收敛 | `a1004bc377dc05f40aa71e79371939be0fa6a545` | `main` |
 | 145 | 2026-10-30 | TV 浏览与详情沉浸改版归档 | `9add2a8b` | `main` |
 | 144 | 2026-10-29 | TV 片头片尾进度节点补齐与归档 | `688d2757` | `main` |
