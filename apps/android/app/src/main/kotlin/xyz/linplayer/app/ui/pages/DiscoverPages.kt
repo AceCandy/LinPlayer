@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.AnimatedContent
@@ -338,7 +340,7 @@ fun RankingPage(nav: NavController) {
             if (cs != null) {
                 // 体系是上一级，用文字页签与下方榜单芯片拉开层级；只有一个体系时整行不画。
                 val groups = cs.map { it.source }.distinct()
-                if (groups.size > 1) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                if (groups.size > 1) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow()
                     .padding(horizontal = Sp.x8),
                     verticalAlignment = Alignment.CenterVertically) {
                     groups.forEach { group ->
@@ -349,7 +351,7 @@ fun RankingPage(nav: NavController) {
                         }
                     }
                 }
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow()
                     .padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x8),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
                     cs.filter { it.source == source }.forEach { category ->
@@ -397,7 +399,7 @@ private fun Podium(top3: List<Rank>, open: (Rank) -> Unit) {
     val ordered = listOfNotNull(
         top3.getOrNull(1), top3.getOrNull(0), top3.getOrNull(2))
     Row(
-        Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x20, bottom = Sp.x16),
+        Modifier.fillMaxWidth().padding(start = Sp.x16, end = Sp.x16, top = Sp.x20, bottom = Sp.x16).tvFocusRow(),
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
         verticalAlignment = Alignment.Bottom,
     ) {
@@ -587,7 +589,7 @@ private fun WeekBar(cur: Int, today: Int, onPick: (Int) -> Unit) {
     val c = Lp.colors
     val monday = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Tokyo")).minusDays((today - 1).toLong())
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Sp.x12, vertical = Sp.x12),
+        Modifier.fillMaxWidth().padding(horizontal = Sp.x12, vertical = Sp.x12).tvFocusRow(),
         horizontalArrangement = Arrangement.spacedBy(Sp.x6),
     ) {
         (1..7).forEach { d ->

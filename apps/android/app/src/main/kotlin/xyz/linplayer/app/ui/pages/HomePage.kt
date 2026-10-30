@@ -2,6 +2,7 @@ package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.LocalTvMode
 import xyz.linplayer.app.tv.tvPosterFocus
+import xyz.linplayer.app.tv.tvFocusRow
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -100,6 +101,7 @@ import androidx.navigation.NavController
 import kotlinx.coroutines.awaitCancellation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
 import xyz.linplayer.app.data.CachedHomeImage
@@ -182,17 +184,20 @@ fun HomePage(nav: NavController) {
         }.collect { navigationScroll.value = it }
     }
     var contentHasFocus by remember { mutableStateOf(false) }
+    var navigationReturn by remember { mutableStateOf<Job?>(null) }
     var bannerPositioned by rememberSaveable { mutableStateOf(false) }
     val homeEntry = xyz.linplayer.app.ui.components.LocalPosterScene.current?.entry
     val homeTop = homeEntry?.savedStateHandle?.getStateFlow("tv.home.top", false)?.collectAsState()
     LaunchedEffect(homeTop?.value) {
         if (tv && homeTop?.value == true) {
+            navigationReturn?.cancel()
             list.scrollToItem(0)
             homeEntry.savedStateHandle["tv.home.top"] = false
         }
     }
     val returnToNavigation: () -> Unit = {
-        scope.launch {
+        // 连按上键沿用正在进行的回顶，避免反复从零速度开始。
+        if (navigationReturn?.isActive != true) navigationReturn = scope.launch {
             list.animateScrollToItem(0)
             androidx.compose.runtime.withFrameNanos { }
             tvNavigation?.requestFocus()
@@ -477,11 +482,15 @@ fun HomePage(nav: NavController) {
                 }
             }
             LazyColumn(Modifier.fillMaxSize().graphicsLayer { alpha = contentAlpha }
-                .onFocusChanged { contentHasFocus = it.hasFocus }
+                .onFocusChanged {
+                    contentHasFocus = it.hasFocus
+                    if (!it.hasFocus) navigationReturn?.cancel()
+                }
                 .onPreviewKeyEvent {
+                    if (it.type == KeyEventType.KeyDown && it.key != Key.DirectionUp) navigationReturn?.cancel()
                     if (tv && tvNavigation != null && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp) {
                         // 首排可能与悬浮顶栏重叠，几何搜索失败时显式上返，不能用滚动偏移判断首排。
-                        if (!focusManager.moveFocus(FocusDirection.Up)) returnToNavigation()
+                        if (navigationReturn?.isActive != true && !focusManager.moveFocus(FocusDirection.Up)) returnToNavigation()
                         true
                     } else false
                 }
@@ -937,6 +946,7 @@ private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: 
     Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
         MediaRowHeader(title)
         LazyRow(
+            modifier = Modifier.tvFocusRow(),
             state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
@@ -982,7 +992,7 @@ private fun ViewsRow(views: List<View>, nav: NavController, onImage: Boolean = f
     val cardSize = libraryCardSize()
     val imageHeight = with(LocalDensity.current) { cardSize.height.roundToPx() }
     LazyRow(
-        Modifier.fillMaxWidth().padding(top = Sp.x4).testTag("home.libraries"),
+        Modifier.fillMaxWidth().padding(top = Sp.x4).testTag("home.libraries").tvFocusRow(),
         contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (LocalTvMode.current) 6.dp else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(Sp.x10),
     ) {

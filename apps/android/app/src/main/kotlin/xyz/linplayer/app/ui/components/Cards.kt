@@ -1,5 +1,6 @@
 package xyz.linplayer.app.ui.components
 
+import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.animation.core.Animatable
@@ -7,6 +8,7 @@ import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.animateFloat
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.foundation.background
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -43,6 +45,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.withFrameNanos
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -500,7 +503,6 @@ fun LpRow(
     val row = rememberLazyListState()
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val firstCard = remember { FocusRequester() }
-    val scope = rememberCoroutineScope()
     val imageHeight = posterImageHeight(thumb)
     val firstId = items.firstOrNull()?.id
     var previousFirst by remember { mutableStateOf(firstId) }
@@ -513,14 +515,12 @@ fun LpRow(
     Column(m.fillMaxWidth()) {
         if (title.isNotBlank()) MediaRowHeader(title, onMore,
             onDown = if (tv && onMore != null && items.isNotEmpty()) ({
-                scope.launch {
-                    row.scrollToItem(0)
-                    withFrameNanos { }
-                    firstCard.requestFocus()
-                }
+                row.scrollToItem(0)
+                withFrameNanos { }
+                firstCard.requestFocus()
             }) else null)
         LazyRow(
-            Modifier.fillMaxWidth().height(rowHeight(thumb)),
+            Modifier.fillMaxWidth().height(rowHeight(thumb)).tvFocusRow(),
             state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (xyz.linplayer.app.tv.LocalTvMode.current) 6.dp else 0.dp),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
@@ -563,17 +563,28 @@ internal val LocalRowHeaderOnImage = androidx.compose.runtime.staticCompositionL
 
 /** 栏目竖杠与标题构成入口；无更多回调时只展示标题。 */
 @Composable
-internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, onDown: (() -> Unit)? = null) {
+internal fun MediaRowHeader(title: String, onMore: (() -> Unit)? = null, onDown: (suspend () -> Unit)? = null) {
     val onImage = LocalRowHeaderOnImage.current
     if (xyz.linplayer.app.tv.LocalTvMode.current) {
         var focused by remember { mutableStateOf(false) }
+        val scope = rememberCoroutineScope()
+        var enterRow by remember { mutableStateOf<Job?>(null) }
         // 胶囊比文字多出的内边距从外层扣回，标题仍与下方海报左缘对齐
         Box(Modifier.fillMaxWidth().padding(start = Sp.x8, end = Sp.x16, top = Sp.x16, bottom = Sp.x4)) {
-            Row(Modifier.onPreviewKeyEvent {
+            Row(Modifier.focusProperties {
+                // 父页面可能先处理上键；离组回调也须撤销尚未完成的向下请求。
+                onExit = { enterRow?.cancel() }
+            }.focusGroup().onPreviewKeyEvent {
+                if (it.type == KeyEventType.KeyDown && it.key != Key.DirectionDown) enterRow?.cancel()
                 if (onDown != null && it.key == Key.DirectionDown && it.type == KeyEventType.KeyDown) {
-                    onDown(); true
+                    if (enterRow?.isActive != true) enterRow = scope.launch { onDown() }
+                    true
                 } else false
-            }.onFocusChanged { focused = it.isFocused }
+            }.onFocusChanged {
+                focused = it.isFocused
+                // 等首卡布局期间失焦，就让新的方向操作接管。
+                if (!it.isFocused) enterRow?.cancel()
+            }
                 // 标题独占一行，左右无处可去；不让几何搜索斜跳进海报或已滚出屏的顶栏
                 .focusProperties { left = FocusRequester.Cancel; right = FocusRequester.Cancel }
                 // 共用半透明胶囊焦点，箭头轻摆提示可进入

@@ -13,6 +13,16 @@ import androidx.compose.ui.unit.Dp
  * 滚动跟随(UI_TV.md §4.3)。草稿和真页面用同一份,否则草稿图和真机长得不一样。
  */
 
+/** TV 浏览两轴沿用原生 30% 停靠，不依赖设备是否声明 Leanback。 */
+@OptIn(ExperimentalFoundationApi::class)
+internal object TvBringIntoViewSpec : BringIntoViewSpec {
+    override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+        val pivot = containerSize * .3f
+        val target = if (size <= containerSize && containerSize - pivot < size) containerSize - size else pivot
+        return offset - target
+    }
+}
+
 /**
  * 横向行:焦点项左缘钉在行首。
  *

@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import android.app.Activity
@@ -279,7 +281,7 @@ fun SourceHomePage(nav: NavController, serverId: String, name: String) {
                     val rec = h.getOrNull()!!["recommended"].arr().mapNotNull { it.obj() }
                     if (cats.isNotEmpty()) header {
                         // 横滑行铺到屏幕边再内缩，首尾芯片的隐私空间霓虹光晕不被网格内边距裁掉
-                        Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
+                        Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
                             cats.forEach { c -> ToneChip(c.str("name") ?: "", on = false) { nav.navigate(Route.SourceCategory(serverId, c.toString())) } }
                         }
                     }
@@ -339,7 +341,7 @@ fun SourceCategoryPage(nav: NavController, entry: NavBackStackEntry) {
             cat?.get("filters").arr().mapNotNull { it.obj() }.forEach { d ->
                 val key = d.str("key") ?: return@forEach
                 header {
-                    Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6),
+                    Row(Modifier.bleed(Sp.x16).fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6),
                         verticalAlignment = Alignment.CenterVertically) {
                         Dim3(d.str("name") ?: "", Modifier.width(48.dp))
                         d["options"].arr().mapNotNull { it.obj() }.forEach { o ->
@@ -430,7 +432,7 @@ fun SourceDetailPage(nav: NavController, entry: NavBackStackEntry) {
                 }
                 val lines = linesOf(x)
                 if (lines.size > 1) item {
-                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
+                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow().padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
                         lines.forEach { l -> ToneChip("${l.str("name")} · ${l["episodes"].arr().size}", on = l.str("id") == line) { line = l.str("id") ?: "" } }
                     }
                 }

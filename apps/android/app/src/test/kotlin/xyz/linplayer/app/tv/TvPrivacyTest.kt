@@ -164,7 +164,15 @@ class TvPrivacyTest {
         rule.runOnUiThread { back.onBackPressed() }
         advance(rule, 400)
         assertTrue(app.privateSpace.value)
-        rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.waitForIdle()
+        rule.onNodeWithText("流影").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.4").assertIsFocused()
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("rail.3").assertIsFocused()
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("rail.1").assertIsFocused()
         press(rule, Key.DirectionLeft)
         rule.onNodeWithTag("nav.server").assertIsFocused()
         press(rule, Key.DirectionCenter)

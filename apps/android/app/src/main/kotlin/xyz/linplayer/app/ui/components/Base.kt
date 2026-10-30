@@ -16,6 +16,13 @@ import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.type
+import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
@@ -87,6 +94,7 @@ import xyz.linplayer.app.ui.theme.T
 import xyz.linplayer.app.ui.theme.lpTween
 import xyz.linplayer.app.ui.theme.lpSpring
 import xyz.linplayer.app.tv.tvFocus
+import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.tv.tvFocusScale
 
 /*
@@ -306,6 +314,8 @@ fun LpField(
     val c = Lp.colors
     // 弹窗面板是 s2 层，再叠半透明 s1 几乎看不出；改用页面底色做成嵌入槽
     val container = if (LocalInDialog.current) c.bg else c.s1
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val focusManager = LocalFocusManager.current
     Column(m) {
         if (label != null) Dim3(label, Modifier.padding(bottom = Sp.x6))
         OutlinedTextField(
@@ -331,7 +341,14 @@ fun LpField(
                 focusedIndicatorColor = c.acc, unfocusedIndicatorColor = c.line,
                 cursorColor = c.acc,
             ),
-            modifier = Modifier.fillMaxWidth(),
+            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent {
+                // TV单行输入框上下离开字段，左右仍用于移动光标；多行保留原生编辑。
+                if (tv && lines <= 1 && it.type == KeyEventType.KeyDown) when (it.key) {
+                    Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
+                    Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
+                    else -> false
+                } else false
+            },
         )
         // ★ 错误挂在字段下面,不弹 toast:行内错误才指得出是哪一项(§6.3 的 E_INVALID)
         if (error != null) Text(error, color = c.bad, style = LpText.caption, modifier = Modifier.padding(top = Sp.x4))
@@ -431,7 +448,7 @@ fun SegRow(
         RowHead(label, sub, icon)
         Spacer(Modifier.height(Sp.x8))
         Row(
-            Modifier.fillMaxWidth().clip(RoundedCornerShape(R.md)).background(c.s2).padding(Sp.x4),
+            Modifier.fillMaxWidth().clip(RoundedCornerShape(R.md)).background(c.s2).padding(Sp.x4).tvFocusRow(),
             horizontalArrangement = Arrangement.spacedBy(Sp.x2),
         ) {
             options.forEach { o ->

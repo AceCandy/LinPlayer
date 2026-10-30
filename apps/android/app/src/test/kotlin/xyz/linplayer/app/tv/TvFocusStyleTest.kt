@@ -15,7 +15,7 @@ import androidx.compose.ui.graphics.toPixelMap
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.*
-import androidx.compose.ui.test.junit4.createComposeRule
+import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.unit.dp
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
 import com.github.takahirom.roborazzi.captureRoboImage
@@ -44,6 +44,55 @@ class TvFocusStyleTest {
         val input = androidx.compose.ui.platform.LocalInputModeManager.current
         LaunchedEffect(input) { input.requestInputMode(androidx.compose.ui.input.InputMode.Keyboard) }
         CompositionLocalProvider(LocalTvMode provides true, content = content)
+    }
+
+    @Test fun singleLineTvFieldLetsRemoteMoveBetweenControls() {
+        val value = mutableStateOf("测试")
+        rule.setContent { LpTheme { Remote {
+            Column {
+                LpButton("上方", {}, Modifier.fillMaxWidth().testTag("before"))
+                xyz.linplayer.app.ui.components.LpField(value.value, { value.value = it }, "输入")
+                LpButton("下方", {}, Modifier.fillMaxWidth().testTag("after"))
+            }
+        } } }
+        rule.onNodeWithTag("before").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNodeWithTag("before").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        val field = rule.onNode(hasSetTextAction()).assertIsFocused()
+        field.performTextInputSelection(androidx.compose.ui.text.TextRange(1))
+        press(rule, Key.DirectionLeft)
+        assertEquals(androidx.compose.ui.text.TextRange(0), field.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
+        press(rule, Key.DirectionRight)
+        assertEquals(androidx.compose.ui.text.TextRange(1), field.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
+        field.assertIsFocused()
+        assertEquals("测试", value.value)
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("after").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNode(hasSetTextAction()).assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("before").assertIsFocused()
+    }
+
+    @Test fun multiLineTvFieldKeepsVerticalCursorNavigation() {
+        rule.setContent { LpTheme { Remote {
+            Column {
+                LpButton("上方", {})
+                xyz.linplayer.app.ui.components.LpField("第一行\n第二行\n第三行", {}, "输入", lines = 3)
+                LpButton("下方", {})
+            }
+        } } }
+        val field = rule.onNode(hasSetTextAction())
+        field.performTextInputSelection(androidx.compose.ui.text.TextRange(5))
+        press(rule, Key.DirectionUp)
+        assertEquals(androidx.compose.ui.text.TextRange(1), field.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
+        press(rule, Key.DirectionDown)
+        assertEquals(androidx.compose.ui.text.TextRange(5), field.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.TextSelectionRange])
+        field.assertIsFocused()
     }
 
     @Test fun sharedFallbackHighlightsSurfaceInsteadOfDrawingAFrame() {
@@ -105,6 +154,42 @@ class TvFocusStyleTest {
         val caption = rule.onNodeWithText("焦点海报", useUnmergedTree = true).fetchSemanticsNode().boundsInRoot
         assertEquals("片名不再铺白底条", Color.Black, pixels[caption.right.toInt() - 4, caption.center.y.toInt()])
         rule.onRoot().captureRoboImage("build/shared-tv/poster-focus.png")
+    }
+
+    @Test fun posterFocusCanReverseDuringAnimationWithoutMovingLayout() {
+        val focused = mutableStateOf(false)
+        rule.setContent { LpTheme {
+            Remote {
+                Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
+                    Box(Modifier.size(120.dp, 180.dp).testTag("poster")
+                        .tvPosterFocus(focused.value, 8.dp).background(Color.Red))
+                }
+            }
+        } }
+        val poster = rule.onNodeWithTag("poster")
+        val bounds = poster.fetchSemanticsNode().boundsInRoot
+        fun visibleWidth(): Int {
+            val pixels = rule.onRoot().captureToImage().toPixelMap()
+            return (0 until pixels.width).count { pixels[it, bounds.center.y.toInt()] != Color.Black }
+        }
+        val rest = visibleWidth()
+        rule.mainClock.autoAdvance = false
+        rule.runOnIdle { focused.value = true }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        val growth = List(6) { rule.mainClock.advanceTimeBy(16); visibleWidth() }
+        val larger = growth.last()
+        assertTrue("放大应经过中间帧: $rest -> $growth", growth.any { it in (rest + 1) until larger })
+        rule.runOnIdle { focused.value = false }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeByFrame()
+        rule.waitForIdle()
+        val shrink = List(6) { rule.mainClock.advanceTimeBy(16); visibleWidth() }
+        assertTrue("反向应从在途大小收回: $larger -> $shrink -> $rest", shrink.any { it in (rest + 1) until larger })
+        rule.mainClock.advanceTimeBy(300)
+        assertEquals(rest, visibleWidth())
+        assertEquals(bounds, poster.fetchSemanticsNode().boundsInRoot)
     }
 
     private fun checkButton(dark: Boolean) {

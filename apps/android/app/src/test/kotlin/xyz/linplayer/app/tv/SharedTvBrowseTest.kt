@@ -186,7 +186,8 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.play").assertIsFocused()
         val initial = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().positionInRoot.y
         repeat(3) { press(rule, Key.DirectionDown) }
-        rule.onNodeWithTag("detail.play").assertIsNotFocused()
+        // TV停靠后首屏可能被懒列表回收；焦点已离开，向上仍须完整恢复首屏。
+        rule.onNode(hasTestTag("detail.play") and isFocused()).assertDoesNotExist()
         repeat(12) {
             if (rule.onAllNodes(hasTestTag("detail.play") and isFocused()).fetchSemanticsNodes().isEmpty())
                 press(rule, Key.DirectionUp)
@@ -220,8 +221,8 @@ class SharedTvBrowseTest {
         assertEquals(initial, rule.onNodeWithTag("home.banners").fetchSemanticsNode().positionInRoot.y, 1f)
     }
 
-    @Test fun focusedNavigationTabKeepsShortLineWithoutPillInDarkTheme() = checkNavigationTab("dark")
-    @Test fun focusedNavigationTabKeepsShortLineWithoutPillInLightTheme() = checkNavigationTab("light")
+    @Test fun focusedNavigationTabShowsPillAndKeepsCurrentLineInDarkTheme() = checkNavigationTab("dark")
+    @Test fun focusedNavigationTabShowsPillAndKeepsCurrentLineInLightTheme() = checkNavigationTab("light")
 
     private fun checkNavigationTab(theme: String) {
         UiPrefs.setTheme(ApplicationProvider.getApplicationContext(), theme)
@@ -229,12 +230,24 @@ class SharedTvBrowseTest {
         press(rule, Key.DirectionRight, Key.DirectionLeft)
         rule.onNodeWithTag("rail.1").assertIsFocused().assertIsSelected()
         val bounds = rule.onNodeWithTag("rail.1").fetchSemanticsNode().boundsInRoot
-        val pixels = rule.onRoot().captureToImage().toPixelMap()
-        val y = bounds.center.y.toInt()
-        assertEquals("栏目聚焦仍保持透明底，不恢复胶囊或描边",
-            pixels[bounds.right.toInt() + 4, y].luminance(),
-            pixels[bounds.left.toInt() + 10, y].luminance(), .04f)
+        val focused = rule.onRoot().captureToImage().toPixelMap()
         rule.onRoot().captureRoboImage("build/shared-tv/focus-navigation-$theme.png")
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("nav.server").assertIsFocused()
+        rule.onNodeWithTag("rail.1").assertIsNotFocused().assertIsSelected()
+        val idle = rule.onRoot().captureToImage().toPixelMap()
+        val x = bounds.left.toInt() + 10
+        val y = bounds.center.y.toInt()
+        assertTrue("聚焦时胶囊底色清晰可见", kotlin.math.abs(focused[x, y].luminance() - idle[x, y].luminance()) > .04f)
+        assertEquals("胶囊圆角外不铺矩形底", idle[bounds.left.toInt() + 2, bounds.top.toInt() + 2].luminance(),
+            focused[bounds.left.toInt() + 2, bounds.top.toInt() + 2].luminance(), .02f)
+        val lineX = bounds.center.x.toInt()
+        val lineY = bounds.bottom.toInt() - 8
+        val line = idle[lineX, lineY]
+        val beside = idle[x, lineY]
+        assertTrue("失焦后当前页短线仍可见", maxOf(kotlin.math.abs(line.red - beside.red),
+            kotlin.math.abs(line.green - beside.green), kotlin.math.abs(line.blue - beside.blue)) > .1f)
+        assertEquals("短线仅标当前页，不随焦点消失", focused[lineX, lineY].luminance(), idle[lineX, lineY].luminance(), .02f)
     }
 
     @Test fun homeDownFromMiddleResumeLeavesResumeRow() {
@@ -248,8 +261,162 @@ class SharedTvBrowseTest {
         rule.onNode(isFocused()).assertIsDisplayed()
     }
 
-    @Test fun compactLibraryHeaderMovesDownToFirstPoster() {
+    @Test fun unifiedPodiumEdgesAndOpen() {
+        mount {
+            it.ret("emby.extRankings", arr(buildJsonObject { put("id", "hot"); put("label", "热门榜") }))
+            it.ret("emby.extRankingItems", arr(*(1..4).map { n -> buildJsonObject {
+                put("id", "rank-$n"); put("rank", n); put("title", "榜单$n")
+                put("source", "tmdb"); put("external_id", "$n"); put("media_type", "movie")
+            } }.toTypedArray()))
+            it.ret("emby.extResolve", buildJsonObject { put("item_id", "movie-4"); put("item_type", "Movie") })
+        }
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("ranking", JsonObject(emptyMap()), false) }
+        rule.onNodeWithText("榜单2").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithText("榜单2").assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithText("榜单3").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("榜单4").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNode(isFocused() and (hasText("榜单1") or hasText("榜单2") or hasText("榜单3"))).assertExists()
+        press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionCenter)
+        assertEquals("2", core.calls.last { it.first == "emby.extResolve" }.second.str("external_id"))
+        rule.onNodeWithTag("detail.play").assertIsDisplayed()
+    }
+
+    @Test fun unifiedPluginTabsKeepEdgesAndSelect() {
+        mount {
+            it.ret("plugin.list", buildJsonObject { put("plugins", arr()) })
+            it.ret("plugin.pendingRestart", JsonPrimitive(false))
+            it.ret("plugin.market", buildJsonObject { put("entries", arr()) })
+        }
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("plugins", JsonObject(emptyMap()), false) }
+        rule.onNodeWithText("已安装").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithText("已安装").assertIsFocused()
+        repeat(4) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithText("仓库").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("从文件安装").assertIsFocused()
+        press(rule, Key.DirectionUp, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionLeft)
+        rule.onNodeWithText("已安装").assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionCenter)
+        rule.onNodeWithText("市场").assertIsSelected().assertIsFocused()
+        assertTrue(core.calls.any { it.first == "plugin.market" })
+    }
+
+    @Test fun unifiedSettingsSegmentsKeepEdgesAndSelect() {
         mount()
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings.appearance", JsonObject(emptyMap()), false) }
+        rule.onNodeWithText("跟随系统").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithText("跟随系统").assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithText("浅色").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("浅色").assertIsSelected()
+        assertEquals("light", UiPrefs.theme.value)
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("色系").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithText("色系").assertIsNotFocused()
+        rule.onNode(isFocused() and (hasText("跟随系统") or hasText("深色") or hasText("浅色"))).assertExists()
+    }
+
+    @Test fun unifiedProxyPresetsKeepEdgesAndSave() {
+        mount {
+            it.ret("prefs.getUpdateSettings", buildJsonObject {
+                put("channel", "stable"); put("auto_check", false); put("proxy", "")
+                put("proxies", buildJsonArray { add("https://one.invalid/"); add("https://two.invalid/") })
+            })
+            it.ret("prefs.setUpdateSettings", JsonNull)
+        }
+        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
+        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("更新"))
+        rule.onNodeWithText("更新").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("GitHub 代理").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        rule.waitForIdle()
+        rule.runOnUiThread {
+            // Dialog有独立窗口；按真实遥控输入离开触摸模式。
+            val view = requireNotNull(org.robolectric.shadows.ShadowDialog.getLatestDialog().window).decorView
+            view.requestFocusFromTouch()
+            assertFalse(view.isInTouchMode)
+        }
+        val direct = hasText("直连") and hasAnyAncestor(isDialog())
+        fun dialogPress(vararg keys: Any) {
+            keys.forEach { key ->
+                rule.onNode(isDialog()).performKeyInput { pressKey(key as Key) }
+                androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                advance(rule, 250)
+            }
+        }
+        rule.onNode(hasSetTextAction()).assertIsFocused()
+        dialogPress(Key.DirectionDown)
+        rule.onNode(isFocused() and hasAnyAncestor(isDialog())).assert(direct or hasText("one.invalid") or hasText("two.invalid"))
+        dialogPress(Key.DirectionLeft, Key.DirectionLeft)
+        rule.onNode(direct).assertIsFocused()
+        dialogPress(Key.DirectionLeft)
+        rule.onNode(direct).assertIsFocused()
+        dialogPress(Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithText("two.invalid").assertIsFocused()
+        dialogPress(Key.DirectionCenter)
+        rule.onNodeWithText("two.invalid").assertIsSelected()
+        dialogPress(Key.DirectionUp)
+        rule.onNode(hasSetTextAction()).assertIsFocused().assertTextContains("https://two.invalid/")
+        dialogPress(Key.DirectionDown, Key.DirectionDown)
+        rule.onNode(isFocused() and (hasText("保存") or hasText("取消"))).assertExists()
+        dialogPress(Key.DirectionRight, Key.DirectionCenter)
+        assertEquals("https://two.invalid/", core.calls.last { it.first == "prefs.setUpdateSettings" }.second.str("proxy"))
+    }
+
+    @Test fun rowHeaderQuickDownThenUpDoesNotStealFocus() = checkRowHeaderReverse(Key.DirectionUp)
+    @Test fun rowHeaderQuickDownThenLeftDoesNotStealFocus() = checkRowHeaderReverse(Key.DirectionLeft)
+
+    @Test fun firstRowHeaderQuickDownThenUpReturnsNavigation() {
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), true)
+        mount { it.ret("emby.listResume", page()) }
+        val header = hasText("电影") and hasClickAction()
+        rule.onNode(header).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionDown); keyUp(Key.DirectionDown) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeByFrame()
+        rule.onNode(isFocused() and hasContentDescription("沙丘 2")).assertDoesNotExist()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsFocused().assertIsDisplayed()
+    }
+
+    private fun checkRowHeaderReverse(direction: Key) {
+        mount()
+        val header = hasText("电影") and hasClickAction()
+        rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .performScrollToNode(header)
+        rule.onNode(header).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionDown); keyUp(Key.DirectionDown) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.onRoot().performKeyInput { keyDown(direction); keyUp(direction) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        val target = rule.onNode(isFocused()).fetchSemanticsNode().id
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        assertEquals("反向后不能被旧Down请求抢焦点", target, rule.onNode(isFocused()).fetchSemanticsNode().id)
+        rule.onNodeWithContentDescription("沙丘 2").assertIsNotFocused()
+    }
+
+    @Test fun compactLibraryHeaderMovesDownToFirstPoster() {
+        mount { fake -> fake.on("emby.listLatest") { args ->
+            if (args.str("parent_id") == "lib-movie")
+                JsonArray(movieItems + (9..12).map { item("m$it", "电影$it") })
+            else showItems
+        } }
         rule.onNode(hasScrollToIndexAction() and
             SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
             .performScrollToNode(hasText("电影") and hasClickAction())
@@ -259,10 +426,16 @@ class SharedTvBrowseTest {
         assertTrue("栏目焦点只覆盖左侧标题", header.width < 240f)
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("沙丘 2").assertIsFocused()
-        repeat(7) { press(rule, Key.DirectionRight) }
+        repeat(11) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithContentDescription("电影12").assertIsFocused()
+        rule.onNodeWithContentDescription("沙丘 2").assertIsNotDisplayed()
         rule.onNode(hasText("电影") and hasClickAction())
             .performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionDown)
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { repeat(6) { keyDown(Key.DirectionDown); keyUp(Key.DirectionDown) } }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
         rule.onNodeWithContentDescription("沙丘 2").assertIsFocused()
     }
 
@@ -276,6 +449,191 @@ class SharedTvBrowseTest {
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionLeft, Key.DirectionLeft)
         rule.onNode(hasText("电影") and hasClickAction()).assertIsFocused()
         rule.onNodeWithTag("rail.1").assertIsSelected()
+    }
+
+    @Test fun unifiedFavoritesPivotWithoutLeanback() = checkFavoritesPivot(false)
+    @Test fun unifiedFavoritesPivotWithLeanback() = checkFavoritesPivot(true)
+
+    private fun checkFavoritesPivot(leanback: Boolean) {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, leanback)
+        mount { it.ret("emby.listFavorites", page(*(0..19).map { n -> item("fav-$n", "收藏$n") }.toTypedArray())) }
+        press(rule, Key.DirectionRight, Key.DirectionDown)
+        rule.onNode(hasText("收藏的电影") and hasClickAction()).assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("收藏0").assertIsFocused()
+        repeat(8) { press(rule, Key.DirectionRight) }
+        val card = rule.onNodeWithContentDescription("收藏8").assertIsFocused().fetchSemanticsNode()
+        val row = rule.onNode(hasAnyDescendant(hasContentDescription("收藏8")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+            .fetchSemanticsNode()
+        assertEquals("其它浏览页与首页使用同一停靠", row.positionInRoot.x + row.size.width * .3f, card.positionInRoot.x, 2f)
+        val before = card.positionInRoot
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        val after = rule.onNodeWithContentDescription("收藏8").assertIsFocused().fetchSemanticsNode().positionInRoot
+        assertEquals(before.x, after.x, 2f)
+        assertEquals(before.y, after.y, 2f)
+    }
+
+    @Test fun unifiedLibraryGridCanMoveVerticallyAndReturn() {
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), false)
+        mount { it.ret("emby.listItemsPage", page(*(0..69).map { n -> item("grid-$n", "网格$n") }.toTypedArray())) }
+        press(rule, Key.DirectionDown, Key.DirectionCenter)
+        rule.onNodeWithContentDescription("网格0").assertIsFocused()
+        repeat(4) { press(rule, Key.DirectionDown) }
+        val card = rule.onNodeWithContentDescription("网格28").assertIsFocused().fetchSemanticsNode()
+        val grid = rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .fetchSemanticsNode()
+        assertEquals("网格纵向沿用TV停靠", grid.positionInRoot.y + grid.size.height * .3f, card.positionInRoot.y, 2f)
+        press(rule, Key.DirectionRight, Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown)
+        rule.onNodeWithContentDescription("网格28").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.onNodeWithContentDescription("网格28").assertIsFocused().assertIsDisplayed()
+    }
+
+    private fun openMovieCast() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        mount()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused()
+    }
+
+    @Test fun unifiedCastEdgesKeepFocusAndUpReturnsToPlay() {
+        openMovieCast()
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused()
+        val count = core.handlers.getValue("emby.itemDetail")(null).jsonObject.getValue("people").jsonArray.size
+        repeat(count + 1) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithTag("detail.person.p${count - 1}").assertIsFocused().assertIsDisplayed()
+        repeat(count + 1) { press(rule, Key.DirectionLeft) }
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun unifiedDetailRepeatedUpKeepsReturnProgress() {
+        openMovieCast()
+        val column = rule.onNode(hasAnyDescendant(hasTestTag("detail.hero")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        fun scroll() = column.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
+        fun up() {
+            rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
+        val start = scroll()
+        rule.mainClock.autoAdvance = false
+        up()
+        repeat(3) { rule.mainClock.advanceTimeBy(32) }
+        val single = scroll()
+        assertTrue("详情回顶采样应在途中", single > 0f && single < start)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        assertEquals(start, scroll(), 1f)
+        rule.mainClock.autoAdvance = false
+        up()
+        repeat(3) { rule.mainClock.advanceTimeBy(32); up() }
+        assertEquals("详情与首页一样合并在途回顶", single, scroll(), 2f)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.play").assertIsFocused()
+    }
+
+    @Test fun unifiedDetailReturnStopsAfterNewDirection() {
+        openMovieCast()
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeBy(48)
+        rule.onNodeWithTag("detail.person.p0").assertIsFocused()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionRight); keyUp(Key.DirectionRight) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.onNodeWithTag("detail.person.p1").assertIsFocused()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.person.p1").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun unifiedSourceFiltersKeepEdgesAndAllowGridNavigation() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        val category = buildJsonObject {
+            put("id", "category"); put("name", "分类0")
+            put("filters", arr(buildJsonObject {
+                put("key", "region"); put("name", "地区")
+                put("options", arr(*(0..19).map { n -> buildJsonObject {
+                    put("value", "region-$n"); put("name", "地区$n")
+                } }.toTypedArray()))
+            }))
+        }
+        mount { fake ->
+            fake.ret("emby.currentSession", JsonNull)
+            fake.ret("account.listAccounts", arr(buildJsonObject {
+                put("id", "plugin:test/source"); put("server", "plugin:test/source")
+                put("name", "测试数据源"); put("active", true)
+                put("plugin", buildJsonObject { put("id", "test/source") })
+            }))
+            fake.ret("source.caps", buildJsonObject { put("home", true) })
+            fake.ret("source.continueWatching", arr())
+            fake.ret("source.home", buildJsonObject {
+                put("categories", arr(category, *(1..19).map { n -> buildJsonObject {
+                    put("id", "category-$n"); put("name", "分类$n")
+                } }.toTypedArray())); put("recommended", arr())
+            })
+            fake.ret("source.category", buildJsonObject {
+                put("items", arr(*(0..23).map { n -> buildJsonObject {
+                    put("id", "source-$n"); put("title", "源片$n")
+                } }.toTypedArray())); put("next", "")
+            })
+            fake.ret("source.detail", buildJsonObject {
+                put("id", "source-detail"); put("title", "源片详情"); put("lines", arr())
+            })
+        }
+        press(rule, Key.DirectionDown)
+        rule.onNode(hasSetTextAction()).assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNode(hasText("分类", substring = true) and isFocused()).assertIsDisplayed()
+        repeat(21) { press(rule, Key.DirectionLeft) }
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithText("分类0").assertIsFocused()
+        repeat(21) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithText("分类19").assertIsFocused().assertIsDisplayed()
+        repeat(21) { press(rule, Key.DirectionLeft) }
+        rule.onNodeWithText("分类0").assertIsFocused()
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("地区0").assertIsFocused()
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithText("地区0").assertIsFocused()
+        repeat(21) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithText("地区19").assertIsFocused().assertIsDisplayed()
+        press(rule, Key.DirectionDown)
+        val selected = hasText("源片", substring = true) and isFocused()
+        fun title() = rule.onNode(selected).assertIsDisplayed().fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.Text].first().text
+        val first = title()
+        press(rule, Key.DirectionDown)
+        assertNotEquals("数据源网格仍能跨行", first, title())
+        press(rule, Key.DirectionUp)
+        assertEquals(first, title())
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("源片详情").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        assertEquals("数据源详情返回原卡片", first, title())
+        press(rule, Key.DirectionUp)
+        rule.onNode(hasText("地区", substring = true) and isFocused()).assertIsDisplayed()
     }
 
     @Test fun detailFirstScreenStaysAtTopUnderTvPivotScrolling() {
@@ -301,6 +659,272 @@ class SharedTvBrowseTest {
         mount()
         press(rule, Key.DirectionDown)
         rule.onNodeWithContentDescription("谎言的代价").assertIsFocused()
+    }
+
+    private fun scrollableHome(leanback: Boolean, banner: Boolean = false, onlyResume: Boolean = false) {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, leanback)
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), true)
+        mount {
+            it.ret("emby.listResume", arr(*(0..19).map { n ->
+                item("scroll-$n", "续播$n", runtime = 2700.0, resume = 840.0)
+            }.toTypedArray()))
+            if (banner) it.ret("emby.cachedItems", arr(item("hero", "首页轮播", year = 2026)))
+            if (onlyResume) it.ret("emby.views", arr())
+        }
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+    }
+
+    @Test fun homeHorizontalEdgesStayInTheirRow() = checkHomeRowEdges(false)
+    @Test fun nativeTvHomeHorizontalEdgesStayInTheirRow() = checkHomeRowEdges(true)
+
+    @Test fun homeTvPivotDoesNotDependOnDeviceFeature() = checkHomeTvPivot(false)
+    @Test fun homeTvPivotMatchesNativeTvDevice() = checkHomeTvPivot(true)
+
+    private fun checkHomeTvPivot(leanback: Boolean) {
+        scrollableHome(leanback, banner = true)
+        repeat(5) { press(rule, Key.DirectionRight) }
+        val card = rule.onNodeWithContentDescription("续播5").assertIsFocused().fetchSemanticsNode()
+        val row = rule.onNode(hasAnyDescendant(hasContentDescription("续播5")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+            .fetchSemanticsNode()
+        val column = rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+            .fetchSemanticsNode()
+        assertEquals("横向停靠使用TV规则", row.positionInRoot.x + row.size.width * .3f, card.positionInRoot.x, 2f)
+        assertEquals("纵向停靠使用TV规则", column.positionInRoot.y + column.size.height * .3f, card.positionInRoot.y, 2f)
+    }
+
+    private fun checkHomeRowEdges(leanback: Boolean) {
+        scrollableHome(leanback)
+        press(rule, Key.DirectionLeft)
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+        repeat(21) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithContentDescription("续播19").assertIsFocused().assertIsDisplayed()
+        val last = rule.onNodeWithContentDescription("续播19").fetchSemanticsNode()
+        val track = rule.onNode(hasAnyDescendant(hasContentDescription("续播19")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+            .fetchSemanticsNode()
+        assertTrue("末卡两侧完整可见", last.positionInRoot.x >= track.positionInRoot.x &&
+            last.positionInRoot.x + last.size.width <= track.positionInRoot.x + track.size.width)
+        repeat(21) { press(rule, Key.DirectionLeft) }
+        rule.onNodeWithContentDescription("续播0").assertIsFocused().assertIsDisplayed()
+        val row = rule.onNode(hasAnyDescendant(hasContentDescription("续播0")) and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.HorizontalScrollAxisRange))
+            .fetchSemanticsNode()
+        val card = rule.onNodeWithContentDescription("续播0").fetchSemanticsNode()
+        assertTrue("首卡两侧完整可见", card.positionInRoot.x >= row.positionInRoot.x &&
+            card.positionInRoot.x + card.size.width <= row.positionInRoot.x + row.size.width)
+        press(rule, Key.DirectionDown)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("home.resume"))).assertDoesNotExist()
+        press(rule, Key.DirectionUp)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
+    }
+
+    @Test fun nativeTvDirectDetailReturnsToNavigation() = checkDirectDetailNavigationReturn(false)
+    @Test fun nativeTvTabThenDirectDetailReturnsToNavigation() = checkDirectDetailNavigationReturn(true)
+
+    private fun checkDirectDetailNavigationReturn(switchTab: Boolean) {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        mount()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        val tab = if (switchTab) "rail.3" else "rail.1"
+        if (switchTab) press(rule, Key.DirectionRight)
+        rule.onNodeWithTag(tab).assertIsFocused()
+        rule.runOnIdle {
+            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+        }
+        rule.waitForIdle()
+        rule.onNodeWithTag("detail.hero").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag(tab).assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun nativeTvCardDetailReturnsToSameCardAndPosition() {
+        scrollableHome(true, banner = true)
+        repeat(6) { press(rule, Key.DirectionRight) }
+        val card = rule.onNodeWithContentDescription("续播6").assertIsFocused()
+        val before = card.fetchSemanticsNode().positionInRoot
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("detail.hero").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        card.assertIsFocused().assertIsDisplayed()
+        val after = card.fetchSemanticsNode().positionInRoot
+        assertEquals(before.x, after.x, 2f)
+        assertEquals(before.y, after.y, 2f)
+    }
+
+    @Test fun nativeTvRepeatedKeysReachBothEdgesAndReverse() {
+        scrollableHome(true)
+        rule.mainClock.autoAdvance = false
+        for (code in listOf(android.view.KeyEvent.KEYCODE_DPAD_RIGHT, android.view.KeyEvent.KEYCODE_DPAD_LEFT)) {
+            val start = android.os.SystemClock.uptimeMillis()
+            repeat(24) { count ->
+                rule.runOnUiThread {
+                    activity.dispatchKeyEvent(android.view.KeyEvent(start, start + count * 32,
+                        android.view.KeyEvent.ACTION_DOWN, code, count))
+                }
+                androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+                rule.mainClock.advanceTimeBy(32)
+            }
+            rule.runOnUiThread { activity.dispatchKeyEvent(android.view.KeyEvent(android.view.KeyEvent.ACTION_UP, code)) }
+            rule.onNodeWithContentDescription(if (code == android.view.KeyEvent.KEYCODE_DPAD_RIGHT) "续播19" else "续播0")
+                .assertIsFocused()
+        }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("续播0").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun nativeTvQuickVerticalReversalReturnsToTheSameCard() {
+        scrollableHome(true)
+        repeat(6) { press(rule, Key.DirectionRight) }
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionDown); keyUp(Key.DirectionDown) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeBy(32)
+        rule.onNodeWithContentDescription("续播6").assertIsNotFocused()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("续播6").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun nativeTvLibrariesStayInTheirRowAtBothEdges() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), false)
+        mount()
+        press(rule, Key.DirectionDown, Key.DirectionLeft)
+        rule.onNode(hasContentDescription("电影") and hasAnyAncestor(hasTestTag("home.libraries"))).assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionRight)
+        rule.onNode(hasContentDescription("剧集") and hasAnyAncestor(hasTestTag("home.libraries"))).assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
+    }
+
+    @Test fun nativeTvPluginRowsKeepHorizontalFocus() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), true)
+        mount {
+            it.ret("emby.views", arr()); it.ret("emby.listResume", arr())
+            it.ret("plugin.homeSections", arr(buildJsonObject {
+                put("plugin_id", "test/rows"); put("id", "one"); put("title", "插件影片")
+            }))
+            it.ret("plugin.homeItems", arr(*(0..11).map { n -> buildJsonObject {
+                put("id", "plugin-$n"); put("title", "插件$n"); put("source", "test/source")
+            } }.toTypedArray()))
+        }
+        press(rule, Key.DirectionDown, Key.DirectionLeft)
+        rule.onNodeWithText("插件0").assertIsFocused()
+        repeat(13) { press(rule, Key.DirectionRight) }
+        rule.onNodeWithText("插件11").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun homeFocusScrollRetargetsDuringAnimation() {
+        scrollableHome(true)
+        repeat(2) { press(rule, Key.DirectionRight) }
+        val start = rule.onNodeWithContentDescription("续播3").fetchSemanticsNode().positionInRoot.x
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionRight); keyUp(Key.DirectionRight) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeBy(48)
+        val moving = rule.onNodeWithContentDescription("续播3").fetchSemanticsNode().positionInRoot.x
+        assertTrue("焦点滚动必须经过中间位置", moving < start - 1f)
+        for (key in listOf(Key.DirectionRight, Key.DirectionRight, Key.DirectionLeft, Key.DirectionLeft)) {
+            rule.onRoot().performKeyInput { keyDown(key); keyUp(key) }
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+            rule.mainClock.advanceTimeBy(16)
+        }
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("续播3").assertIsFocused().assertIsDisplayed()
+        val end = rule.onNodeWithContentDescription("续播3").fetchSemanticsNode().positionInRoot.x
+        assertTrue("不能只检查终态，采样帧应尚未抵达停靠位置", moving > end + 1f)
+    }
+
+    @Test fun homeReturnDoesNotStealFocusAfterNewDirection() {
+        scrollableHome(true, banner = true)
+        val vertical = rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        fun scroll() = vertical.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
+        assertTrue("先让首页离顶", scroll() > 0f)
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        var frames = 0
+        while (scroll() > 0f && frames++ < 120) rule.mainClock.advanceTimeByFrame()
+        assertEquals("列表已回顶且导航尚未获焦", 0f, scroll(), .01f)
+        rule.onNodeWithTag("rail.1").assertIsNotFocused()
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionRight); keyUp(Key.DirectionRight) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.onNodeWithContentDescription("续播1").assertIsFocused()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("续播1").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun homeReturnStopsWhenNewDirectionCannotMoveFocus() {
+        scrollableHome(true, banner = true, onlyResume = true)
+        rule.mainClock.autoAdvance = false
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.mainClock.advanceTimeBy(48)
+        rule.onNodeWithTag("rail.1").assertIsNotFocused()
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+        rule.onRoot().performKeyInput { keyDown(Key.DirectionDown); keyUp(Key.DirectionDown) }
+        androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithContentDescription("续播0").assertIsFocused().assertIsDisplayed()
+    }
+
+    @Test fun repeatedUpKeepsTheSameHomeReturnProgress() = checkRepeatedHomeReturn(true)
+    @Test fun repeatedUpKeepsTheSameHomeReturnProgressWithoutLeanback() = checkRepeatedHomeReturn(false)
+
+    private fun checkRepeatedHomeReturn(leanback: Boolean) {
+        scrollableHome(leanback, banner = true)
+        val vertical = rule.onNode(hasScrollToIndexAction() and
+            SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange))
+        fun scroll() = vertical.fetchSemanticsNode().config[
+            androidx.compose.ui.semantics.SemanticsProperties.VerticalScrollAxisRange].value()
+        fun up() {
+            // pressKey 默认额外推进50ms；轨迹比较只由主时钟推进时间。
+            rule.onRoot().performKeyInput { keyDown(Key.DirectionUp); keyUp(Key.DirectionUp) }
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
+        val start = scroll()
+        rule.mainClock.autoAdvance = false
+        up()
+        repeat(5) { rule.mainClock.advanceTimeBy(32) }
+        val single = scroll()
+        assertTrue("采样时回顶必须处于起终点之间", single > 0f && single < start)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithContentDescription("续播0").assertIsFocused()
+        assertEquals("两轮从同一位置出发", start, scroll(), 1f)
+        rule.mainClock.autoAdvance = false
+        up()
+        repeat(5) {
+            rule.mainClock.advanceTimeBy(32)
+            up()
+        }
+        assertEquals("持续按上不应反复重启回顶动画", single, scroll(), 2f)
+        rule.mainClock.autoAdvance = true
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.1").assertIsFocused()
     }
 
     @Test fun homeUpToNavigationRestoresWholeHero() = checkHomeReturnToTop(false, false)
@@ -582,6 +1206,39 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("rail.1").assertIsDisplayed()
     }
 
+    @Test fun detailUpEntersFirstAvailableToolWhilePlayedIsSaving() {
+        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
+            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
+        val saved = CompletableDeferred<Unit>()
+        mount(intercept = { fake -> object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?,
+                onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "emby.setPlayed") saved.await()
+                return fake.callJson(command, args, onPartial)
+            }
+        } })
+        try {
+            rule.runOnIdle {
+                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
+                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            }
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            press(rule, Key.DirectionUp)
+            rule.onNodeWithContentDescription("标已看").assertIsFocused()
+            press(rule, Key.DirectionCenter)
+            rule.onNodeWithContentDescription("标已看").assertIsNotEnabled()
+            // 禁用项会释放焦点；建立播放起点，单独核验上返对可用项的选择。
+            rule.onNodeWithTag("detail.play").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            rule.onNodeWithTag("detail.play").assertIsFocused()
+            press(rule, Key.DirectionUp)
+            rule.onNodeWithContentDescription("收藏").assertIsFocused()
+            rule.runOnIdle { saved.complete(Unit) }
+            rule.waitForIdle()
+            press(rule, Key.DirectionDown, Key.DirectionUp)
+            rule.onNodeWithContentDescription("标已看").assertIsEnabled().assertIsFocused()
+        } finally { saved.complete(Unit) }
+    }
+
     @Test fun conciseDetailKeepsOneShortOverviewAndIconOnlyOptions() {
         val overview = "一封迟到的信，让故人重新相遇。"
         mount { fake ->
@@ -672,8 +1329,10 @@ class SharedTvBrowseTest {
         rule.onNodeWithContentDescription("选择季").assertDoesNotExist()
         rule.onNode(hasText("第1季：归途") and hasAnyAncestor(hasTestTag("detail.episodes")))
             .assertIsDisplayed().assertHasNoClickAction()
-        press(rule, Key.DirectionDown, Key.DirectionDown)
+        press(rule, Key.DirectionDown)
         rule.onNodeWithTag("detail.ep.se1e1").assertIsFocused()
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithTag("detail.play").assertIsFocused()
     }
 
     private fun overviewAnchor(mode: String) {
@@ -821,7 +1480,9 @@ class SharedTvBrowseTest {
         rule.onNodeWithContentDescription("选择季").assertIsFocused()
         press(rule, Key.DirectionUp)
         rule.onNodeWithTag("detail.play").assertIsFocused()
-        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight)
+        press(rule, Key.DirectionUp)
+        rule.onNodeWithContentDescription("标已看").assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionRight)
         rule.onNodeWithContentDescription("版本").assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.onNodeWithText("se1e2 高码率").performClick()
@@ -928,12 +1589,18 @@ class SharedTvBrowseTest {
             }
             rule.waitForIdle()
             rule.onNodeWithContentDescription("返回").assertDoesNotExist()
-            rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsNotEnabled()
+            press(rule, Key.DirectionUp, Key.DirectionDown, Key.DirectionCenter, Key.Menu)
+            rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.hero"))).assertDoesNotExist()
+            assertNull(org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult)
             rule.runOnIdle { detailReady.complete(Unit) }
             rule.waitForIdle()
             assertEquals(parent, core.calls.last { it.first == "emby.seasonEpisodes" }.second.str("parent_id"))
             rule.onNodeWithContentDescription("返回").assertDoesNotExist()
-            rule.onNode(hasTestTag("detail.play") and isEnabled()).assertDoesNotExist()
+            rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsNotEnabled()
+            press(rule, Key.DirectionUp, Key.DirectionDown, Key.DirectionCenter, Key.Menu)
+            rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("detail.hero"))).assertDoesNotExist()
+            assertNull(org.robolectric.Shadows.shadowOf(activity).nextStartedActivityForResult)
             rule.runOnIdle { episodesReady.complete(Unit) }
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled().assertIsFocused()
@@ -1017,7 +1684,7 @@ class SharedTvBrowseTest {
             }
             rule.waitForIdle()
             rule.onNodeWithContentDescription("返回").assertDoesNotExist()
-            rule.onNodeWithTag("detail.play").assertDoesNotExist()
+            rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsNotEnabled()
             rule.runOnUiThread { back.onBackPressed() }
             rule.waitForIdle()
             rule.onNodeWithTag("rail.1").assertIsDisplayed()

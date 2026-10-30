@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.background
@@ -220,7 +222,7 @@ fun AggregatePage(nav: NavController) {
 private fun Shortcuts(nav: NavController) {
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     Row(
-        Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12),
+        Modifier.fillMaxWidth().padding(horizontal = Sp.x16, vertical = Sp.x12).tvFocusRow(),
         horizontalArrangement = Arrangement.spacedBy(if (tv) Sp.x12 else Sp.x8),
     ) {
         if (tv) {

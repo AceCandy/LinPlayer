@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
@@ -226,7 +228,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 )
                 Spacer(Modifier.height(Sp.x12))
                 if (!aggregate || route.viewId != null) Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
+                    Modifier.fillMaxWidth().padding(horizontal = Sp.x16).tvFocusRow(),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                 ) {
                     listOf("电影" to "Movie", "剧集" to "Series", "人物" to "Person").forEach { (label, type) ->
@@ -242,7 +244,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                    一条都没有时整行不画,不在搜索框下面留一条空白。 */
                 val actions = xyz.linplayer.app.ui.plugin.rememberSearchActions(q)
                 if (actions.isNotEmpty()) Row(
-                    Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x2),
+                    Modifier.horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16, vertical = Sp.x2),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                 ) {
                     actions.forEach { a ->
@@ -274,7 +276,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 g.str("error") != null -> Dim3("$name 没搜成:${g.str("error")}", Modifier.padding(Sp.x16), maxLines = 2)
                                 g.str("kind") == "plugin" -> Column(Modifier.padding(vertical = Sp.x8)) {
                                     MediaRowHeader(name)
-                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
+                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow().padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                         g["items"].arr().mapNotNull { it.obj() }.forEach { it ->
                                             val sourceId = it.str("source") ?: sid
                                             val onOpen = { nav.navigate(Route.SourceDetail(sourceId, it.str("id") ?: "")) }

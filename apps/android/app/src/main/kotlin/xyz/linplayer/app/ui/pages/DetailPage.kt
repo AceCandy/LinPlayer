@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.tv.LocalTvMode
 import xyz.linplayer.app.tv.TvPageSide
 import xyz.linplayer.app.tv.tvPosterFocus
@@ -723,8 +725,16 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
     /** 焦点在首屏头图内：此时列表只在焦点出界才滚，守住顶部。 */
     var heroFocused by remember { mutableStateOf(false) }
     var playMounted by remember { mutableStateOf(false) }
+    var playReturn by remember { mutableStateOf<kotlinx.coroutines.Job?>(null) }
     var initialPlayPending by rememberSaveable { mutableStateOf(true) }
     val playAvailable = live != null && !isBoxSet && (!isSeries || nextEp != null)
+    val returnToPlay: () -> Unit = {
+        if (playReturn?.isActive != true) playReturn = scope.launch {
+            list.animateScrollToItem(0)
+            withFrameNanos { }
+            if (playMounted) playFocus.requestFocus()
+        }
+    }
     // 进页首焦点必须落在播放：播放可用前方向键不能把焦点带进简介或图标行；资料失败或确认没有可播分集就放开
     val awaitingPlay = tv && initialPlayPending && !playAvailable && detail !is Block.Fail &&
         (live == null || (isSeries && !initialReady))
@@ -840,7 +850,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         val plain = listOfNotNull(d.str("official_rating"), d.str("status"))
         DetailReveal(if (d == null) null else jumps to plain, Modifier.testTag("detail.tags"), immediate = live == null && cached != null) { current ->
             if (current != null && (current.first.isNotEmpty() || current.second.isNotEmpty())) Row(
-                Modifier.fillMaxWidth(if (tv) .56f else 1f).horizontalScroll(rememberScrollState())
+                Modifier.fillMaxWidth(if (tv) .56f else 1f).horizontalScroll(rememberScrollState()).tvFocusRow()
                     .padding(start = if (tv) 0.dp else Sp.x16, end = if (tv) 0.dp else Sp.x16,
                         top = if (tv) Sp.x8 else Sp.x12),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x6),
@@ -918,6 +928,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             Column(Modifier.fillMaxWidth().padding(top = Sp.x16)) {
                 // 次要操作排成一行图标放在播放上方：首屏焦点在播放，向上才进入，向下回播放
                 Row(Modifier.testTag("detail.tools").focusRequester(toolsFocus).focusProperties {
+                    onEnter = {
+                        // 上键按组内顺序进入首个可用项，不按向上搜索落到最右侧。
+                        if (requestedFocusDirection == FocusDirection.Up) toolsFocus.requestFocus()
+                    }
                     onExit = {
                         if (requestedFocusDirection == FocusDirection.Down && playMounted && playAvailable) {
                             cancelFocusChange()
@@ -1173,15 +1187,11 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             val anchorBlocks = LocalAnchors.current.blocks
             val listModifier = Modifier.weight(1f)
             xyz.linplayer.app.tv.kit.ProvideEdgeSpecWhen({ tv && heroFocused }) {
-            LazyColumn(listModifier.fillMaxHeight().onPreviewKeyEvent {
+            LazyColumn(listModifier.fillMaxHeight().onFocusChanged { if (!it.hasFocus) playReturn?.cancel() }.onPreviewKeyEvent {
+                if (it.type == KeyEventType.KeyDown && it.key != Key.DirectionUp) playReturn?.cancel()
                 if (tv && it.type == KeyEventType.KeyDown && it.key == Key.DirectionUp) {
-                    if (!focusManager.moveFocus(FocusDirection.Up) && list.canScrollBackward && playAvailable) {
-                        scope.launch {
-                            list.animateScrollToItem(0)
-                            withFrameNanos { }
-                            if (playMounted) playFocus.requestFocus()
-                        }
-                    }
+                    if (playReturn?.isActive != true && !focusManager.moveFocus(FocusDirection.Up) &&
+                        list.canScrollBackward && playAvailable) returnToPlay()
                     true
                 } else false
             }, list,
@@ -1275,11 +1285,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 // 与向下对称：向上直接回首屏播放并恢复整块首屏
                                 if (requestedFocusDirection == FocusDirection.Up && playMounted && playAvailable) {
                                     cancelFocusChange()
-                                    scope.launch {
-                                        list.animateScrollToItem(0)
-                                        withFrameNanos { }
-                                        if (playMounted) playFocus.requestFocus()
-                                    }
+                                    returnToPlay()
                                 }
                             }
                         }.focusGroup() else Modifier)) {
@@ -1356,7 +1362,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         SectionTitle("季")
                         val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 + if (tv) 12.dp else 0.dp }
                         if (seasons.isNotEmpty()) LazyRow(
-                            Modifier.fillMaxWidth().height(seasonHeight),
+                            Modifier.fillMaxWidth().height(seasonHeight).tvFocusRow(),
                             contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (tv) 6.dp else 0.dp),
                             horizontalArrangement = Arrangement.spacedBy(Sp.x12),
                         ) {
@@ -1439,11 +1445,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                                 // 与向下对称：向上直接回首屏播放并恢复整块首屏
                                 if (requestedFocusDirection == FocusDirection.Up && playMounted && playAvailable) {
                                     cancelFocusChange()
-                                    scope.launch {
-                                        list.animateScrollToItem(0)
-                                        withFrameNanos { }
-                                        if (playMounted) playFocus.requestFocus()
-                                    }
+                                    returnToPlay()
                                 }
                             }
                         }.focusGroup()) { nav.navigate(Route.Person(it.id, it.name)) }
@@ -1999,7 +2001,7 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
     val state = rememberLazyListState()
     SectionTitle("演职人员")
     LazyRow(
-        modifier.fillMaxWidth().testTag("detail.people.row"),
+        modifier.fillMaxWidth().testTag("detail.people.row").tvFocusRow(),
         state = state,
         contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (tv) Sp.x4 else 0.dp),
         horizontalArrangement = Arrangement.spacedBy(Sp.x12),
@@ -2263,7 +2265,7 @@ internal fun EpisodeStrip(
         }
     }
     LazyRow(
-        Modifier.fillMaxWidth().height(episodeStripHeight(expanded || playbackStyle, playbackStyle)),
+        Modifier.fillMaxWidth().height(episodeStripHeight(expanded || playbackStyle, playbackStyle)).tvFocusRow(),
         state = state,
         contentPadding = PaddingValues(horizontal = if (playbackStyle) Sp.x20 else Sp.x16,
             vertical = if (LocalTvMode.current) 6.dp else 0.dp),

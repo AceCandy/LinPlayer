@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.plugin
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.background
@@ -240,7 +242,7 @@ internal fun PosterRow(n: UiNode, m: Modifier, surface: String, app: AppState) {
     Column(m.fillMaxWidth()) {
         n.str("title")?.let { H2(it, Modifier.padding(horizontal = Sp.x16, vertical = Sp.x8)) }
         LazyRow(
-            Modifier.fillMaxWidth().height(rowHeight(thumb)),
+            Modifier.fillMaxWidth().height(rowHeight(thumb)).tvFocusRow(),
             state,
             contentPadding = PaddingValues(horizontal = Sp.x16),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),
@@ -331,7 +333,7 @@ internal fun PlugTabs(n: UiNode, m: Modifier, surface: String, app: AppState, li
     val list = n.arrOf(if (lines) "lines" else "tabs")
     val cur = n.str("current")
     Row(
-        m.horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x8),
+        m.horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16, vertical = Sp.x8),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {
         list.forEachIndexed { i, e ->
@@ -361,7 +363,7 @@ internal fun FilterPanel(n: UiNode, m: Modifier, surface: String, app: AppState)
             val picked = cur?.get(key).arr().mapNotNull { (it as? JsonPrimitive)?.content }
             Dim3(d.str("name").orEmpty(), Modifier.padding(horizontal = Sp.x16))
             Row(
-                Modifier.horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16),
+                Modifier.horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x8),
             ) {
                 d?.get("options").arr().forEachIndexed { oi, oe ->

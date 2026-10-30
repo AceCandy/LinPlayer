@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.ui.theme.LpText
+import xyz.linplayer.app.tv.tvFocusRow
 
 import android.content.Context
 import android.content.Intent
@@ -1429,7 +1430,7 @@ private fun ProxyDialog(
         LpField(draft, { draft = it }, "留空 = 直连 GitHub")
         Spacer(Modifier.height(Sp.x10))
         Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow(),
             horizontalArrangement = Arrangement.spacedBy(Sp.x6),
         ) {
             MediaFilterChip("直连", selected = draft.isBlank()) { draft = "" }

@@ -5,6 +5,7 @@ import android.os.SystemClock
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -12,8 +13,11 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.scale
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.CornerRadius
@@ -29,6 +33,9 @@ import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavDestination.Companion.hasRoute
@@ -64,6 +71,15 @@ internal val LocalTvTone = staticCompositionLocalOf<MutableState<androidx.compos
 
 /** 电视浏览页左右边距；首页头图向两侧铺满时按它反推。 */
 internal val TvPageSide = 16.dp
+
+/** 横轨左右到尽头留在本行，上下仍按正常焦点搜索跨行。 */
+@Composable
+internal fun Modifier.tvFocusRow(): Modifier = if (!LocalTvMode.current) this else focusProperties {
+    onExit = {
+        if (requestedFocusDirection == FocusDirection.Left || requestedFocusDirection == FocusDirection.Right)
+            cancelFocusChange()
+    }
+}.focusGroup()
 
 /** 绘制放大不改变焦点矩形；整张封面和按钮一起突出，而非裁剪框内缩放图片。 */
 @Composable
@@ -112,7 +128,15 @@ internal fun Modifier.tvFocus(
         }
     }
     return focusRequester(requester).onFocusChanged {
-        if (it.isFocused) entry?.savedStateHandle?.set("tv.focus", id)
+        if (it.isFocused) {
+            // 转场会临时把焦点交给内容，不能覆盖离页前停在导航的意图。
+            if (entry?.lifecycle?.currentState == androidx.lifecycle.Lifecycle.State.RESUMED)
+                entry.savedStateHandle["tv.navigation"] = false
+            entry?.savedStateHandle?.set("tv.focus", id)
+        }
+    }.onPreviewKeyEvent {
+        if (it.type == KeyEventType.KeyDown) entry?.savedStateHandle?.set("tv.navigation", false)
+        false
     }.then(if (onLongClick != null) Modifier.menuKey(onLongClick) else Modifier)
         .drawWithContent {
             // 半透明胶囊整块托底，比底部短线醒目；不画外框
@@ -128,25 +152,34 @@ internal fun Modifier.tvPosterFocus(focused: Boolean, corner: Dp): Modifier {
     if (!LocalTvMode.current) return this
     val amount by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f,
         xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3), label = "tvPosterFocus")
-    return drawWithContent {
-        if (amount == 0f) { drawContent(); return@drawWithContent }
+    return drawWithCache {
         val radius = CornerRadius(corner.toPx())
         val outline = Path().apply { addRoundRect(RoundRect(size.toRect(), radius)) }
-        scale(1f + .08f * amount, Offset(size.width / 2, size.height * .7f)) {
-            // 投影只画在轮廓外，透明底的卡片不会被垫黑
-            clipPath(outline, ClipOp.Difference) {
-                drawIntoCanvas {
-                    it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y,
-                        android.graphics.Paint().apply {
-                            setShadowLayer(16.dp.toPx(), 0f, 6.dp.toPx(),
-                                android.graphics.Color.argb((150 * amount).toInt(), 0, 0, 0))
-                        })
+        val shadow = android.graphics.Paint()
+        val blur = 16.dp.toPx()
+        val drop = 6.dp.toPx()
+        val pivot = Offset(size.width / 2, size.height * .7f)
+        val stroke = 2.dp.toPx()
+        val border = Stroke(stroke)
+        val borderOffset = Offset(stroke / 2, stroke / 2)
+        val borderSize = Size(size.width - stroke, size.height - stroke)
+        val borderRadius = CornerRadius(radius.x - stroke / 2)
+        onDrawWithContent {
+            // 动画状态只在绘制阶段读取，避免每帧重建固定轮廓和画笔。
+            val progress = amount
+            if (progress == 0f) { drawContent(); return@onDrawWithContent }
+            shadow.setShadowLayer(blur, 0f, drop, android.graphics.Color.argb((150 * progress).toInt(), 0, 0, 0))
+            scale(1f + .08f * progress, pivot) {
+                // 投影只画在轮廓外，透明底的卡片不会被垫黑
+                clipPath(outline, ClipOp.Difference) {
+                    drawIntoCanvas {
+                        it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y, shadow)
+                    }
                 }
+                this@onDrawWithContent.drawContent()
+                drawRoundRect(Color.White.copy(alpha = .9f * progress), borderOffset,
+                    borderSize, borderRadius, style = border)
             }
-            this@drawWithContent.drawContent()
-            val stroke = 2.dp.toPx()
-            drawRoundRect(Color.White.copy(alpha = .9f * amount), Offset(stroke / 2, stroke / 2),
-                Size(size.width - stroke, size.height - stroke), CornerRadius(radius.x - stroke / 2), style = Stroke(stroke))
         }
     }
 }
@@ -183,7 +216,9 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
         }
     }
     LaunchedEffect(Unit) {
-        if (entry?.savedStateHandle?.get<String>("tv.focus") == null) {
+        if (entry?.savedStateHandle?.get<Boolean>("tv.navigation") == true ||
+            entry?.savedStateHandle?.get<String>("tv.focus") == null) {
+            if (entry?.destination?.hasRoute<Route.Home>() == true) entry?.savedStateHandle?.set("tv.home.top", true)
             withFrameNanos { }; focus.requestFocus()
         }
     }
@@ -196,13 +231,22 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
     }
     val refresh = LocalTvHomeRefresh.current?.value
     TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界", overlay = overlay,
-        modifier = modifier.onFocusChanged { navFocused = it.hasFocus },
+        modifier = modifier.onFocusChanged {
+            navFocused = it.hasFocus
+            if (it.hasFocus) {
+                entry?.savedStateHandle?.set("tv.navigation", true)
+                entry?.savedStateHandle?.remove<String>("tv.focus")
+            }
+        },
         currentFocusRequester = focus,
         onServer = { if (privateSpace) app.leavePrivateSpace() else nav.navigate(Route.Servers) { launchSingleTop = true } },
         onPrivateSpace = { if (!privateSpace) scope.launch {
             runCatching { app.enterPrivateSpace() }.onFailure { app.report(it) }
         } },
-        onContent = { content.requestFocus() },
+        onContent = {
+            entry?.savedStateHandle?.set("tv.navigation", false)
+            content.requestFocus()
+        },
         onSelect = { index ->
             when (index) {
                 0 -> nav.navigate(Route.Search()) { launchSingleTop = true }

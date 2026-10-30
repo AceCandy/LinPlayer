@@ -1,5 +1,6 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
 import android.content.Context
 import android.net.Uri
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -109,7 +110,7 @@ fun PluginsPage(nav: NavController, entry: NavBackStackEntry) {
     LpScaffold("插件", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list)) { pad ->
         Column(Modifier.fillMaxSize()) {
             Row(
-                Modifier.manageWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x8),
+                Modifier.manageWidth().horizontalScroll(rememberScrollState()).padding(horizontal = Sp.x16, vertical = Sp.x8).tvFocusRow(),
                 horizontalArrangement = Arrangement.spacedBy(Sp.x6),
             ) {
                 listOf("已安装", "市场", "接管位", "仓库").forEachIndexed { i, s -> ToneChip(s, on = i == tab) { tab = i } }

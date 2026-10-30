@@ -1,5 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
+import xyz.linplayer.app.tv.tvFocusRow
+
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.horizontalScroll
@@ -361,7 +363,7 @@ private fun FilterBar(
     onClearRating: () -> Unit,
 ) {
     Row(
-        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())
+        Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow()
             .padding(horizontal = Sp.x16),
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),
     ) {

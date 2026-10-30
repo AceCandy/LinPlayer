@@ -4,6 +4,8 @@ import android.os.SystemClock
 import android.view.KeyEvent
 import androidx.activity.ComponentActivity
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -41,6 +43,7 @@ import xyz.linplayer.app.ui.theme.LpTheme
 /**
  * TV 根(UI_TV.md §7.0)。和手机根共用同一个 [AppState],浏览页走共享的 `PhoneRoot(tv = true)`。
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TvRoot(app: AppState) {
     val input = androidx.compose.ui.platform.LocalInputModeManager.current
@@ -50,7 +53,9 @@ fun TvRoot(app: AppState) {
         object : ViewConfiguration by base { override val longPressTimeoutMillis = 600L }
     }
     LaunchedEffect(app) { runCatching { app.call("companion.start") } }
-    TvFrame(app, tvConfig) { xyz.linplayer.app.PhoneRoot(app, tv = true) }
+    CompositionLocalProvider(LocalBringIntoViewSpec provides xyz.linplayer.app.tv.kit.TvBringIntoViewSpec) {
+        TvFrame(app, tvConfig) { xyz.linplayer.app.PhoneRoot(app, tv = true) }
+    }
 }
 
 /** 主题 + 字阶 + Toast。拆出来是给 JVM 出图 / 焦点测试直接挂真页面用的。 */
