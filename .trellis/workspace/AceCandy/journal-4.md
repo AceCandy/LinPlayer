@@ -396,3 +396,39 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 
 - 编译并运行 SharedTvBrowseTest、VisualAlignmentTest、PhoneLibraryUiTest、PhoneBrowseUiTest、TvFocusStyleTest、PhoneDetailOptionsTest，按结果修正。
 - 真机验收首焦点、遥控路径、弹窗、二级页铺色对齐与切页叠影、亮图上顶栏可读性；Emby 补探测效果与非管理员行为未验。
+
+
+## Session 146: TV 浏览连续性统一与回归收敛
+<!-- trellis-session: v=2 fp=3ce3cbd1014a9a80 -->
+
+**Date**: 2026-10-30
+**Task**: TV 浏览连续性统一与回归收敛
+**Branch**: `main`
+
+### Summary
+
+统一TV停靠、横轨边界、回顶与返回焦点，补齐榜单/插件/设置及标题异步聚焦；解决原9项失败，完成独立复核和本地归档。
+
+### Main Changes
+
+- 共享TV浏览采用一致停靠和横轨边界，协调回顶与标题进首卡，缓存海报绘制对象。
+- 修复详情工具上返入口，统一现行视觉与加载约定，保留完整播放身份和私密退出检查。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `a1004bc377dc05f40aa71e79371939be0fa6a545` | fix(android): 统一 TV 浏览焦点与滚动连续性 |
+
+### Testing
+
+- [OK] 相关237项整组全部通过；复核后补强的2项两阶段加载定向回归通过。
+- [OK] Android参数194处有效，diff及本轮暂存隐私检查通过；全库既存旧日志告警保留。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真实TV帧耗时、遥控输入延迟、软键盘及实际观感另行验收；本轮未出包、安装或推送。
