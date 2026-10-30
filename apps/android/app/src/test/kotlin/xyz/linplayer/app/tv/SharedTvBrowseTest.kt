@@ -90,7 +90,8 @@ class SharedTvBrowseTest {
     private fun openFilesFromSettings() {
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
         rule.waitForIdle()
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("文件浏览"))
+        rule.onNodeWithTag("settings.group.内容与数据").performClick()
+        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("文件浏览"))
         rule.onNodeWithText("文件浏览").performClick()
         rule.waitForIdle()
     }
@@ -333,7 +334,8 @@ class SharedTvBrowseTest {
             it.ret("prefs.setUpdateSettings", JsonNull)
         }
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("更新"))
+        rule.onNodeWithTag("settings.group.应用").performClick()
+        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("更新"))
         rule.onNodeWithText("更新").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
         rule.onNodeWithText("GitHub 代理").performSemanticsAction(SemanticsActions.RequestFocus) { it() }

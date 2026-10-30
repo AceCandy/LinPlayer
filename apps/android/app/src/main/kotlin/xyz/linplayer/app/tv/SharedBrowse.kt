@@ -75,11 +75,13 @@ internal val LocalTvTone = staticCompositionLocalOf<MutableState<androidx.compos
 /** 电视浏览页左右边距；首页头图向两侧铺满时按它反推。 */
 internal val TvPageSide = 16.dp
 
-/** 横轨左右到尽头留在本行，上下仍按正常焦点搜索跨行。 */
+/** 横轨左右到尽头留在本行；双栏搜索可指定左侧操作区出口，上下仍按正常焦点搜索跨行。 */
 @Composable
-internal fun Modifier.tvFocusRow(): Modifier = if (!LocalTvMode.current) this else focusProperties {
+internal fun Modifier.tvFocusRow(exitLeft: FocusRequester? = null): Modifier = if (!LocalTvMode.current) this else focusProperties {
     onExit = {
-        if (requestedFocusDirection == FocusDirection.Left || requestedFocusDirection == FocusDirection.Right)
+        if (requestedFocusDirection == FocusDirection.Left && exitLeft != null) {
+            if (!exitLeft.requestFocus()) cancelFocusChange()
+        } else if (requestedFocusDirection == FocusDirection.Left || requestedFocusDirection == FocusDirection.Right)
             cancelFocusChange()
     }
 }.focusGroup()

@@ -140,10 +140,13 @@ fun LpImmersive(
     barHorizontalPadding: Dp = Sp.x12,
     barBackground: Color = Color.Transparent,
     barModifier: Modifier = Modifier,
+    /** TV 一级页透出宿主氛围底色。 */
+    tvRoot: Boolean = false,
     content: @Composable (PaddingValues) -> Unit,
 ) {
     val c = Lp.colors
-    Box(m.fillMaxSize().background(xyz.linplayer.app.ui.plugin.pageBg(c.bg))) {
+    val root = tvRoot && xyz.linplayer.app.tv.LocalTvMode.current
+    Box(m.fillMaxSize().then(if (root) Modifier else Modifier.background(xyz.linplayer.app.ui.plugin.pageBg(c.bg)))) {
         content(contentInsets())
         // 遮罩向下淡出，让滚动内容透出，避免顶栏底部出现纯色硬边。
         Column(barModifier.fillMaxWidth().background(Brush.verticalGradient(

@@ -499,6 +499,8 @@ fun LpRow(
     homeAccount: Pair<String, String>? = null,
     /** 卡片停留在屏上时预热其详情所需资源。 */
     warmDetail: (suspend (Item) -> Unit)? = null,
+    /** 双栏搜索在横轨左端返回操作区；其它页面仍锁住左右边界。 */
+    tvExitLeft: FocusRequester? = null,
 ) {
     val row = rememberLazyListState()
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
@@ -520,7 +522,7 @@ fun LpRow(
                 firstCard.requestFocus()
             }) else null)
         LazyRow(
-            Modifier.fillMaxWidth().height(rowHeight(thumb)).tvFocusRow(),
+            Modifier.fillMaxWidth().height(rowHeight(thumb)).tvFocusRow(tvExitLeft),
             state = row,
             contentPadding = PaddingValues(horizontal = Sp.x16, vertical = if (xyz.linplayer.app.tv.LocalTvMode.current) 6.dp else 0.dp),
             horizontalArrangement = Arrangement.spacedBy(Sp.x10),

@@ -15,6 +15,11 @@ import xyz.linplayer.app.ui.components.manageListWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.runtime.key
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.ui.platform.testTag
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
@@ -130,11 +135,12 @@ fun SettingsPage(nav: NavController) {
     LongShotTarget(list)
 
 
-    LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list), tvRoot = true) { pad ->
-        LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad) {
+    var group by rememberSaveable { mutableStateOf("播放与外观") }
+    val entries: LazyListScope.() -> Unit = {
+        if (!tv || group == "播放与外观") {
             item("g1") { GroupLabel("播放与外观") }
             item("p1") {
-                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                SettingsEntryGroup(tv) {
                     LpCell("外观", mediaStyle = true, icon = LpIcons.image) { nav.navigate(Route.SettingsSub("appearance")) }
                     Hairline()
                     LpCell("播放器", mediaStyle = true, icon = LpIcons.play) { nav.navigate(Route.SettingsSub("player")) }
@@ -150,43 +156,47 @@ fun SettingsPage(nav: NavController) {
                     }
                 }
             }
-            if (tv) {
-                item("g-companion") { GroupLabel("手机遥控") }
-                item("p-companion") {
-                    Panel(Modifier.padding(horizontal = Sp.x16)) {
-                        LpCell("手机扫码遥控", mediaStyle = true, icon = LpIcons.sync) { nav.navigate(Route.SettingsSub("companion")) }
-                    }
+        }
+        if (tv && group == "手机遥控") {
+            item("g-companion") { GroupLabel("手机遥控") }
+            item("p-companion") {
+                SettingsEntryGroup(tv) {
+                    LpCell("手机扫码遥控", mediaStyle = true, icon = LpIcons.sync) { nav.navigate(Route.SettingsSub("companion")) }
                 }
             }
+        }
+        if (!tv || group == "网络") {
             item("g2") { GroupLabel("网络") }
             item("p2") {
-                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                SettingsEntryGroup(tv) {
                     LpCell("多线程加载", mediaStyle = true, icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
                     Hairline()
                     LpCell("主进度服", mediaStyle = true, icon = LpIcons.server) { nav.navigate(Route.SettingsSub("primaryprogress")) }
                 }
             }
-            if (pluginEntries.isNotEmpty()) {
-                item("g-pe") { GroupLabel("插件页面") }
-                item("p-pe") {
-                    Panel(Modifier.padding(horizontal = Sp.x16)) {
-                        pluginEntries.forEachIndexed { i, e ->
-                            if (i > 0) Hairline()
-                            // id 是 `<插件id>:<入口id>`,页面 id 在 page 上
-                            val eid = e.str("id").orEmpty()
-                            val pluginId = eid.substringBeforeLast(':', eid)
-                            val page = e.str("page").orEmpty()
-                            val title = e.str("title")?.takeIf { t -> t.isNotEmpty() } ?: page
-                            LpCell(title, mediaStyle = true, icon = LpIcons.plugin) {
-                                nav.navigate(Route.PluginPage(pluginId, page, title))
-                            }
+        }
+        if (pluginEntries.isNotEmpty() && (!tv || group == "插件页面")) {
+            item("g-pe") { GroupLabel("插件页面") }
+            item("p-pe") {
+                SettingsEntryGroup(tv) {
+                    pluginEntries.forEachIndexed { i, e ->
+                        if (i > 0) Hairline()
+                        // id 是 `<插件id>:<入口id>`,页面 id 在 page 上
+                        val eid = e.str("id").orEmpty()
+                        val pluginId = eid.substringBeforeLast(':', eid)
+                        val page = e.str("page").orEmpty()
+                        val title = e.str("title")?.takeIf { t -> t.isNotEmpty() } ?: page
+                        LpCell(title, mediaStyle = true, icon = LpIcons.plugin) {
+                            nav.navigate(Route.PluginPage(pluginId, page, title))
                         }
                     }
                 }
             }
+        }
+        if (!tv || group == "内容与数据") {
             item("g4") { GroupLabel("内容与数据") }
             item("p4") {
-                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                SettingsEntryGroup(tv) {
                     // 「已屏蔽的内容」是**隐藏类功能的集中解除列表** ——
                     // 没有它的话屏蔽了就再也解除不了
                     LpCell("已屏蔽的内容", mediaStyle = true, icon = LpIcons.lock) {
@@ -203,9 +213,11 @@ fun SettingsPage(nav: NavController) {
                     LpCell("存储与数据目录", mediaStyle = true, icon = LpIcons.file) { nav.navigate(Route.SettingsSub("storage")) }
                 }
             }
+        }
+        if (!tv || group == "扩展与账号") {
             item("g-extensions") { GroupLabel("扩展与账号") }
             item("p-extensions") {
-                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                SettingsEntryGroup(tv) {
                     // 账号连接留在宿主(token 不给插件);记进度那部分在同步插件里
                     LpCell("Trakt / Bangumi 账号", mediaStyle = true, icon = LpIcons.sync) {
                         nav.navigate(Route.SettingsSub("sync"))
@@ -216,19 +228,49 @@ fun SettingsPage(nav: NavController) {
                     LpCell("扩展组件", mediaStyle = true, icon = LpIcons.grid) { nav.navigate(Route.Extensions) }
                 }
             }
+        }
+        if (!tv || group == "应用") {
             item("g-app") { GroupLabel("应用") }
             item("p-app") {
-                Panel(Modifier.padding(horizontal = Sp.x16)) {
+                SettingsEntryGroup(tv) {
                     LpCell("更新", mediaStyle = true, icon = LpIcons.refresh) { nav.navigate(Route.SettingsSub("update")) }
                     Hairline()
                     LpCell("关于", mediaStyle = true, icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
                 }
             }
-            // 插件分节(SPEC 6.2 D286):根设置页对应锚点 `settings`
-            item("plugins-sections") { xyz.linplayer.app.ui.plugin.PhonePluginSections("settings") }
-            item("tail") { Spacer(Modifier.height(Sp.x34)) }
         }
+        // 插件分节(SPEC 6.2 D286):根设置页对应锚点 `settings`
+        if (!tv || group == "扩展与账号") item("plugins-sections") { xyz.linplayer.app.ui.plugin.PhonePluginSections("settings") }
+        item("tail") { Spacer(Modifier.height(Sp.x34)) }
     }
+    LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list), tvRoot = true) { pad ->
+        if (tv) Row(Modifier.fillMaxSize().padding(top = Sp.x12)) {
+            Column(Modifier.width(220.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+                .padding(horizontal = Sp.x16, vertical = Sp.x8)) {
+                val groups = listOf("播放与外观", "手机遥控", "网络") +
+                    (if (pluginEntries.isNotEmpty()) listOf("插件页面") else emptyList()) +
+                    listOf("内容与数据", "扩展与账号", "应用")
+                groups.forEach { name ->
+                    LpCell(name, arrow = false,
+                        m = Modifier.padding(bottom = Sp.x4).testTag("settings.group.$name")
+                            .semantics { selected = group == name }
+                            .background(if (group == name) Lp.colors.acc.copy(alpha = .12f) else Color.Transparent, RoundedCornerShape(R.sm)),
+                    ) { group = name }
+                }
+            }
+            key(group) {
+                LazyColumn(Modifier.weight(1f).fillMaxHeight().testTag("settings.entries"),
+                    contentPadding = pad, content = entries)
+            }
+        } else LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad, content = entries)
+    }
+}
+
+/** 电视入口直接落在影院底色上，手机保留原分组面板。 */
+@Composable
+private fun SettingsEntryGroup(tv: Boolean, content: @Composable () -> Unit) {
+    if (tv) Column(Modifier.padding(horizontal = Sp.x16)) { content() }
+    else Panel(Modifier.padding(horizontal = Sp.x16), content = content)
 }
 
 @Composable

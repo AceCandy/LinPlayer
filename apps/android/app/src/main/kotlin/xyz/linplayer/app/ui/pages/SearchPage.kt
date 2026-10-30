@@ -2,10 +2,18 @@ package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.tvFocusRow
 
+import androidx.compose.foundation.focusGroup
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.focusRestorer
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.runtime.collectAsState
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -20,7 +28,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
 import xyz.linplayer.app.ui.components.LpPullRefresh
-import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -126,6 +133,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val resultScroll = rememberLazyListState()
     val aggregateScroll = rememberLazyListState()
     val keyboard = LocalSoftwareKeyboardController.current
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val resultFocus = remember { FocusRequester() }
+    val controlsFocus = remember { FocusRequester() }
 
     // 关键词/模式变化取消旧查询；刷新保留当前关键词与库内范围。
     LaunchedEffect(state, q.trim(), searchType, aggregate, refresh) {
@@ -200,14 +210,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
         finally { aggBusy = false; refreshing = false }
     }
 
-    LpImmersive(barHeight = 0.dp) { pad ->
+    LpImmersive(barHeight = 0.dp, tvRoot = true) { pad ->
         LpPullRefresh(refreshing, {
             if (q.isNotBlank() && !refreshing) {
                 refreshing = true
                 if (aggregate && route.viewId == null) searchAggregate() else refresh++
             }
         }, Modifier.fillMaxSize().statusBarsPadding().padding(top = Sp.x12)) {
-            Column(Modifier.fillMaxSize().imePadding()) {
+            val controls: @Composable () -> Unit = {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                     Modifier.padding(horizontal = Sp.x16).testTag("search.field"),
                     trailingIcon = if (route.viewId == null && !onSource && !app.privateSpace.value) ({
@@ -228,7 +238,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 )
                 Spacer(Modifier.height(Sp.x12))
                 if (!aggregate || route.viewId != null) Row(
-                    Modifier.fillMaxWidth().padding(horizontal = Sp.x16).tvFocusRow(),
+                    Modifier.fillMaxWidth().padding(horizontal = Sp.x16).searchControlRow(tv, resultFocus),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                 ) {
                     listOf("电影" to "Movie", "剧集" to "Series", "人物" to "Person").forEach { (label, type) ->
@@ -237,14 +247,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         }
                     }
                 }
-                if (q.isBlank() && history.isNotEmpty()) HistoryList(history) { q = it }
+                if ((tv || q.isBlank()) && history.isNotEmpty()) HistoryList(history, if (tv) resultFocus else null) { q = it }
                 Spacer(Modifier.height(Sp.x8))
 
                 /* 插件的搜索快捷动作(D242)。摆在搜索框下面、结果上面 —— 结果列表本身不动。
                    一条都没有时整行不画,不在搜索框下面留一条空白。 */
                 val actions = xyz.linplayer.app.ui.plugin.rememberSearchActions(q)
                 if (actions.isNotEmpty()) Row(
-                    Modifier.horizontalScroll(rememberScrollState()).tvFocusRow().padding(horizontal = Sp.x16, vertical = Sp.x2),
+                    Modifier.horizontalScroll(rememberScrollState()).searchControlRow(tv, resultFocus).padding(horizontal = Sp.x16, vertical = Sp.x2),
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8),
                 ) {
                     actions.forEach { a ->
@@ -257,9 +267,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 if (aggregate && route.viewId == null && aggBusy) {
                     Dim3("还有来源在搜…", Modifier.padding(horizontal = Sp.x16, vertical = Sp.x4))
                 }
+            }
+            val results: @Composable (Modifier) -> Unit = { modifier ->
+              BoxWithConstraints(modifier) {
+                val resultWidth = maxWidth
+                val resultPad = if (tv) PaddingValues(top = Sp.x26, bottom = pad.calculateBottomPadding()) else pad
                 val r = result
                 when {
-                    aggregate && route.viewId == null -> LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = aggregateScroll, contentPadding = pad) {
+                    aggregate && route.viewId == null -> LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = aggregateScroll, contentPadding = resultPad) {
                         if (aggRun == 0) item("hint") {
                             EmptyState("在所有来源里搜", "输入关键词后按键盘搜索键，每个来源各占一行。", LpIcons.search)
                         }
@@ -276,7 +291,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 g.str("error") != null -> Dim3("$name 没搜成:${g.str("error")}", Modifier.padding(Sp.x16), maxLines = 2)
                                 g.str("kind") == "plugin" -> Column(Modifier.padding(vertical = Sp.x8)) {
                                     MediaRowHeader(name)
-                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow().padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
+                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow(if (tv) controlsFocus else null).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
                                         g["items"].arr().mapNotNull { it.obj() }.forEach { it ->
                                             val sourceId = it.str("source") ?: sid
                                             val onOpen = { nav.navigate(Route.SourceDetail(sourceId, it.str("id") ?: "")) }
@@ -289,7 +304,8 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
                                     LpRow(name, remember(g) { Item.list(g["emby_items"]) }, { it, h -> app.imageUrl(it.id, "Primary", h) },
-                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { rememberCardActions(app, scope, it, sid) })
+                                        { nav.navigate(Route.Detail(it.id, it.type)) }, menu = { rememberCardActions(app, scope, it, sid) },
+                                        tvExitLeft = if (tv) controlsFocus else null)
                                 }
                             }
                         }
@@ -297,7 +313,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         if (!aggBusy && aggFailure == null && aggRun > 0 && aggRows.isEmpty()) item("none") { EmptyState("「${q.trim()}」没搜到东西", "只包括打开了「允许聚合」的来源。") }
                     }
 
-                    r == null -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { if (history.isEmpty()) EmptyState(
+                    r == null -> Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState())) { if (tv || history.isEmpty()) EmptyState(
                         "搜片名、剧名或演员", "会搜当前服务器；点击搜索框右侧叠层图标可切换聚合搜索。",
                         LpIcons.search,
                     ) }
@@ -317,10 +333,14 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             // 分集**单独一栏横版**;剧和影走网格
                             val (eps, rest) = remember(items) { items.partition { it.isEpisode } }
                             // 列数与媒体库一致：手机 3 列，横屏 / 平板按屏宽加列
-                            val columns = posterColumns()
+                            val columns = if (tv) xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
+                                resultWidth.value.toInt(), xyz.linplayer.app.ui.components.posterLayout(
+                                    resultWidth.value, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat(), tv = true)!!.first,
+                            ) else posterColumns()
                             val rows = remember(rest, columns) { rest.chunked(columns) }
-                            val imageHeight = posterImageHeight(width = gridCellWidth(columns))
-                            LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = pad) {
+                            val imageHeight = posterImageHeight(width = if (tv)
+                                (resultWidth - Sp.x16 * 2 - Sp.x10 * (columns - 1)) / columns else gridCellWidth(columns))
+                            LazyColumn(Modifier.fillMaxSize().testTag("search.results"), state = resultScroll, contentPadding = resultPad) {
                                 if (items.size >= 50) item("limit") {
                                     Dim3("最多显示 50 条,请缩小关键词", Modifier.padding(Sp.x16))
                                 }
@@ -346,12 +366,21 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                                 if (eps.isNotEmpty()) item("eps") {
                                     LpRow("分集", eps, { it, h -> app.imageUrl(it.id, "Primary", h) },
                                         { nav.navigate(Route.Detail(it.id, "Episode")) }, thumb = true,
-                                        menu = { rememberCardActions(app, scope, it) })
+                                        menu = { rememberCardActions(app, scope, it) }, tvExitLeft = if (tv) controlsFocus else null)
                                 }
                             }
                         }
                     }
                 }
+              }
+            }
+            if (tv) Row(Modifier.fillMaxSize().imePadding()) {
+                Column(Modifier.width(280.dp).testTag("search.controls").focusRequester(controlsFocus).focusRestorer().focusGroup()
+                    .verticalScroll(rememberScrollState()).padding(bottom = Sp.x20)) { controls() }
+                results(Modifier.weight(1f).fillMaxSize().focusRequester(resultFocus).focusGroup())
+            } else Column(Modifier.fillMaxSize().imePadding()) {
+                controls()
+                results(Modifier.fillMaxSize())
             }
         }
     }
@@ -360,12 +389,13 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
 private inline fun remember0(list: List<String>, set: (List<String>) -> Unit) = Unit
 
 @Composable
-private fun HistoryList(history: List<String>, onPick: (String) -> Unit) {
+private fun HistoryList(history: List<String>, resultFocus: FocusRequester? = null, onPick: (String) -> Unit) {
     Column(Modifier.fillMaxWidth()) {
         MediaRowHeader("最近搜过")
         Spacer(Modifier.height(Sp.x8))
         androidx.compose.foundation.layout.FlowRow(
-            Modifier.fillMaxWidth().padding(horizontal = Sp.x16),
+            Modifier.fillMaxWidth().padding(horizontal = Sp.x16)
+                .then(if (resultFocus != null) Modifier.searchControlRow(true, resultFocus) else Modifier),
             horizontalArrangement = Arrangement.spacedBy(Sp.x8),
             verticalArrangement = Arrangement.spacedBy(Sp.x4),
         ) {
@@ -373,3 +403,9 @@ private fun HistoryList(history: List<String>, onPick: (String) -> Unit) {
         }
     }
 }
+
+/** 左侧操作横排走到右边缘后进入结果，避免几何搜索跳到另一排历史词。 */
+private fun Modifier.searchControlRow(tv: Boolean, results: FocusRequester): Modifier = if (!tv) this else
+    focusProperties {
+        onExit = { if (requestedFocusDirection == FocusDirection.Right) results.requestFocus() }
+    }.focusGroup()
