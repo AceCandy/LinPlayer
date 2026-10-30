@@ -520,3 +520,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 151: 简化播放页弹幕显示区域设置
+<!-- trellis-session: v=2 fp=7be115c0364aa2d6 -->
+
+**Date**: 2026-10-30
+**Task**: 简化播放页弹幕显示区域设置
+**Branch**: `main`
+
+### Summary
+
+播放页弹幕设置统一精简为显示区域单项，支持 1/4、1/2、3/4、全屏四档；同步 Android 手机、TV、Windows、核心排版测试与 UI 文档。已通过 Android 定向测试、lintDebug、核心测试、Windows 构建和差异检查，并归档任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3126c038` | 简化播放页弹幕显示区域设置 |
+
+### Status
+
+[OK] **Completed**
