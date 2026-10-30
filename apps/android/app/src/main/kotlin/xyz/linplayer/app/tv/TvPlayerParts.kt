@@ -584,9 +584,11 @@ private fun BoxScope.EpisodesPanel(overlay: Overlay, ui: PlayerUi, target: TvRou
 private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
     val app = LocalApp.current
     val t = tvType
+    var hasFocus by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
-        modifier = Modifier.padding(horizontal = TvSp.x6).fillMaxWidth().heightIn(min = t.rowH).let { if (current) it.memo("eps.cur", initial = true) else it },
+        modifier = Modifier.padding(horizontal = TvSp.x6).fillMaxWidth().heightIn(min = t.rowH).let { if (current) it.memo("eps.cur", initial = true) else it }
+            .onFocusChanged { hasFocus = it.isFocused }.tvRaised(hasFocus, corner = 10.dp),
         shape = ClickableSurfaceDefaults.shape(TvR.md),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
         colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = if (current) TvC.fg else TvC.fg2,

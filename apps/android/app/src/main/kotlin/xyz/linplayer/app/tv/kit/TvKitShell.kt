@@ -59,6 +59,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import xyz.linplayer.app.tv.tvRaised
 import xyz.linplayer.app.ui.theme.LpIcons
 
 // ---------------------------------------------------------------- 导航轨(§3.1)
@@ -108,10 +109,12 @@ fun TopNavigation(
                     up = FocusRequester.Cancel
                 }
                 if (i == 6) {
+                var serverFocus by remember { mutableStateOf(false) }
                 Surface(
                     onClick = onServer, onLongClick = onPrivateSpace,
                     modifier = focusModifier.width(180.dp).height(40.dp).testTag("nav.server")
-                        .menuKey(onPrivateSpace).initialFocus(focused == 6),
+                        .menuKey(onPrivateSpace).initialFocus(focused == 6)
+                        .onFocusChanged { serverFocus = it.isFocused }.tvRaised(serverFocus),
                     shape = ClickableSurfaceDefaults.shape(TvR.pill),
                     scale = ClickableSurfaceDefaults.scale(focusedScale = 1f),
                     colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent,
@@ -160,7 +163,8 @@ fun NavigationItem(
     val focusFill = if (overlay) Color.White else TvC.focus
     // 栏目和图标入口不用反色实底：聚焦统一半透明胶囊，图标再放大；短横只标当前页
     val plain = tab || iconOnly
-    val glass = (if (overlay) Color.White else TvC.fg).copy(alpha = .2f)
+    val raised by androidx.compose.animation.core.animateFloatAsState(
+        if (plain && (hasFocus || fake)) 1f else 0f, label = "navRaised")
     val iconScale by androidx.compose.animation.core.animateFloatAsState(
         if (iconOnly && (hasFocus || fake)) 1.2f else 1f, label = "navIconScale")
     val focusInk = if (overlay) Color.Black else TvC.onFocus
@@ -174,6 +178,8 @@ fun NavigationItem(
         Surface(
             onClick = onClick,
             modifier = modifier.size(if (iconOnly) 40.dp else 76.dp, 40.dp).initialFocus(focused)
+                .graphicsLayer { scaleX = 1f + .06f * raised; scaleY = 1f + .06f * raised }
+                .tvRaised(plain && (hasFocus || fake), glass = if (overlay) Color.White else TvC.fg)
                 .onFocusChanged {
                     hasFocus = it.isFocused
                 }
@@ -185,9 +191,9 @@ fun NavigationItem(
             ),
             scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = .97f),
             colors = ClickableSurfaceDefaults.colors(
-                containerColor = if (fake) { if (plain) glass else focusFill } else Color.Transparent,
+                containerColor = if (fake && !plain) focusFill else Color.Transparent,
                 contentColor = if (fake && !plain) focusInk else if (overlay) Color.White else if (on || fake) TvC.fg else TvC.fg2,
-                focusedContainerColor = if (plain) glass else focusFill,
+                focusedContainerColor = if (plain) Color.Transparent else focusFill,
                 focusedContentColor = if (plain) { if (overlay) Color.White else TvC.fg } else focusInk,
             ),
         ) {
@@ -290,11 +296,13 @@ fun PanelItem(
         if (it.type == KeyEventType.KeyDown) onStep(d)
         true
     }
+    var hasFocus by remember { mutableStateOf(false) }
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         modifier = modifier.padding(horizontal = TvSp.x6).fillMaxWidth().heightIn(min = t.rowH).initialFocus(focused)
-            .then(stepKeys).menuKey(onLongClick),
+            .then(stepKeys).menuKey(onLongClick)
+            .onFocusChanged { hasFocus = it.isFocused }.tvRaised(hasFocus, corner = 10.dp),
         shape = ClickableSurfaceDefaults.shape(TvR.md),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
         colors = ClickableSurfaceDefaults.colors(

@@ -5,7 +5,6 @@ import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.ui.theme.LpText
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsFocusedAsState
@@ -63,6 +62,7 @@ import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.tv.memo
+import xyz.linplayer.app.tv.tvRaised
 import xyz.linplayer.app.ui.components.Body
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.Dim2
@@ -95,7 +95,7 @@ internal fun UiNode.arrOf(k: String): List<JsonElement> = props[k].arr()
 /**
  * 可点区域。TV 上**必须能吃焦点**,否则遥控器进不去这一块(整页没落点时方向键失灵)。
  *
- * `combinedClickable` 自带焦点与 DPAD_CENTER/回车,所以两端共用一份;TV 额外加焦点记忆与可见焦点环
+ * `combinedClickable` 自带焦点与 DPAD_CENTER/回车,所以两端共用一份;TV 额外加焦点记忆与全站一致的立体焦点
  * —— 焦点看不见和聚不到在遥控器上是同一种坏。
  */
 @Composable
@@ -108,10 +108,7 @@ internal fun Modifier.plugPress(
     val haptic = LocalHapticFeedback.current
     return this
         .then(if (tv) Modifier.memoFocus(id) else Modifier)
-        .then(
-            if (tv && focused) Modifier.border(2.dp, Lp.colors.acc, RoundedCornerShape(R.md))
-            else Modifier
-        )
+        .tvRaised(tv && focused, glass = Lp.colors.fg, corner = R.md)
         .combinedClickable(
             interactionSource = src, indication = null, enabled = enabled,
             // 长按必须震一下:没反馈的话用户按到一半就松手,以为这块不支持长按

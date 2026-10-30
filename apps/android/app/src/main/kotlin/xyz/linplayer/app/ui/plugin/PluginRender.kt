@@ -45,6 +45,7 @@ import androidx.compose.ui.unit.sp
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.tv.memo
+import xyz.linplayer.app.tv.tvRaised
 import xyz.linplayer.app.ui.components.BtnKind
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.pressable
@@ -543,8 +544,8 @@ private fun TvListRow(listId: Int, index: Int, content: @Composable () -> Unit) 
     val on by src.collectIsFocusedAsState()
     Box(
         Modifier.fillMaxWidth()
+            .tvRaised(on, glass = Color.White, corner = 10.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(if (on) Color.White.copy(alpha = 0.10f) else Color.Transparent)
             .memo(plugKey("list", listId, index), index == 0 && claimsInitialFocus(listId))
             .focusable(interactionSource = src)
     ) { content() }

@@ -48,7 +48,7 @@ fun TvListRow(
     androidx.tv.material3.Surface(
         onClick = onClick, onLongClick = onLongClick, interactionSource = src,
         modifier = modifier.fillMaxWidth().heightIn(min = height).menuKey(onLongClick)
-            .then(if (dim) Modifier.graphicsLayer { alpha = .72f } else Modifier),
+            .then(if (dim) Modifier.graphicsLayer { alpha = .72f } else Modifier).tvRaised(focused, corner = 10.dp),
         shape = androidx.tv.material3.ClickableSurfaceDefaults.shape(TvR.md),
         scale = androidx.tv.material3.ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.99f),
         colors = androidx.tv.material3.ClickableSurfaceDefaults.colors(

@@ -15,6 +15,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.graphics.drawscope.scale
+import androidx.compose.ui.graphics.drawscope.translate
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.focusProperties
@@ -30,6 +32,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.platform.LocalContext
@@ -138,47 +141,104 @@ internal fun Modifier.tvFocus(
         if (it.type == KeyEventType.KeyDown) entry?.savedStateHandle?.set("tv.navigation", false)
         false
     }.then(if (onLongClick != null) Modifier.menuKey(onLongClick) else Modifier)
-        .drawWithContent {
-            // 半透明胶囊整块托底，比底部短线醒目；不画外框
-            if (focused && highlight) drawRoundRect(color.copy(alpha = .2f),
-                cornerRadius = CornerRadius(minOf(size.height / 2, 24.dp.toPx())))
-            drawContent()
-        }
+        .tvRaised(highlight && focused, glass = color)
 }
 
-/** 海报类焦点：明显放大、浅色描边加投影，支点偏下让图多向上长、少压片名；只改绘制，不动焦点几何。 */
+/**
+ * 立体焦点：光从上方来 —— 轮廓外投影、上亮下暗、顶边高光，渐入渐出。
+ * 传 [glass] 时自带半透明胶囊底（文字入口、顶栏）；不传则只给控件自绘的反色实底叠光影。
+ * [corner] 缺省取短边一半且不超过 24dp。只改绘制，不动焦点几何；须挂在裁剪之前，否则投影被裁掉。
+ */
 @Composable
-internal fun Modifier.tvPosterFocus(focused: Boolean, corner: Dp): Modifier {
-    if (!LocalTvMode.current) return this
+internal fun Modifier.tvRaised(focused: Boolean, glass: Color? = null, corner: Dp? = null): Modifier {
+    val amount by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f,
+        xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3), label = "tvRaised")
+    return drawWithCache {
+        val radius = CornerRadius(minOf(size.minDimension / 2, (corner ?: 24.dp).toPx()))
+        val outline = Path().apply { addRoundRect(RoundRect(size.toRect(), radius)) }
+        val shadow = android.graphics.Paint()
+        val edge = 1.5.dp.toPx()
+        val inset = Offset(edge / 2, edge / 2)
+        val inner = Size(size.width - edge, size.height - edge)
+        val innerRadius = CornerRadius((radius.x - edge / 2).coerceAtLeast(0f))
+        val shade = androidx.compose.ui.graphics.Brush.verticalGradient(
+            0f to Color.White.copy(alpha = .16f), .5f to Color.Transparent, 1f to Color.Black.copy(alpha = .16f))
+        onDrawWithContent {
+            val a = amount
+            if (a == 0f) { drawContent(); return@onDrawWithContent }
+            shadow.setShadowLayer(14.dp.toPx(), 0f, 7.dp.toPx(), android.graphics.Color.argb((120 * a).toInt(), 0, 0, 0))
+            // 投影只画在轮廓外，透明底不会被垫黑
+            clipPath(outline, ClipOp.Difference) {
+                drawIntoCanvas { it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y, shadow) }
+            }
+            if (glass != null) {
+                drawRoundRect(androidx.compose.ui.graphics.Brush.verticalGradient(
+                    0f to glass.copy(alpha = .34f * a), .55f to glass.copy(alpha = .15f * a), 1f to glass.copy(alpha = .1f * a)),
+                    cornerRadius = radius)
+                drawRoundRect(glass.copy(alpha = .22f * a), inset, inner, innerRadius, style = Stroke(edge))
+            }
+            drawContent()
+            if (glass == null) clipPath(outline) { drawRect(shade, alpha = a) }
+            // 顶边高光只留上沿与上方圆角
+            clipRect(bottom = radius.x * .9f) {
+                drawRoundRect((glass ?: Color.White).copy(alpha = .5f * a), inset, inner, innerRadius, style = Stroke(edge))
+            }
+        }
+    }
+}
+
+/**
+ * 海报类焦点：立体浮起 —— 上抬并最多放大 10%，厚落地投影加一圈暖色辉光，白边外再套强调色细环，
+ * 表面斜扫一道高光；支点偏下让图多向上长、少压片名。只改绘制，不动焦点几何。
+ */
+@Composable
+internal fun Modifier.tvPosterFocus(focused: Boolean, corner: Dp, tv: Boolean = LocalTvMode.current): Modifier {
+    if (!tv) return this
     val amount by androidx.compose.animation.core.animateFloatAsState(if (focused) 1f else 0f,
         xyz.linplayer.app.ui.theme.lpTween(xyz.linplayer.app.ui.theme.T.T3), label = "tvPosterFocus")
+    val accent = xyz.linplayer.app.tv.kit.TvC.acc
     return drawWithCache {
         val radius = CornerRadius(corner.toPx())
         val outline = Path().apply { addRoundRect(RoundRect(size.toRect(), radius)) }
         val shadow = android.graphics.Paint()
-        val blur = 16.dp.toPx()
-        val drop = 6.dp.toPx()
+        val glow = android.graphics.Paint()
         val pivot = Offset(size.width / 2, size.height * .7f)
+        // 横向每侧最多外扩 4dp，连同 3dp 外环仍落在 10dp 卡间距内，不压邻卡；宽卡靠上抬与投影显立体
+        val grow = minOf(.1f, 8.dp.toPx() / size.width.coerceAtLeast(1f))
+        val lift = 8.dp.toPx()
         val stroke = 2.dp.toPx()
         val border = Stroke(stroke)
         val borderOffset = Offset(stroke / 2, stroke / 2)
         val borderSize = Size(size.width - stroke, size.height - stroke)
         val borderRadius = CornerRadius(radius.x - stroke / 2)
+        val ring = 3.dp.toPx()
+        val ringOffset = Offset(-ring / 2, -ring / 2)
+        val ringSize = Size(size.width + ring, size.height + ring)
+        val ringRadius = CornerRadius(radius.x + ring / 2)
+        val sheen = androidx.compose.ui.graphics.Brush.linearGradient(
+            .3f to Color.Transparent, .44f to Color.White.copy(alpha = .28f), .58f to Color.Transparent,
+            start = Offset.Zero, end = Offset(size.width, size.height * .75f))
         onDrawWithContent {
             // 动画状态只在绘制阶段读取，避免每帧重建固定轮廓和画笔。
             val progress = amount
             if (progress == 0f) { drawContent(); return@onDrawWithContent }
-            shadow.setShadowLayer(blur, 0f, drop, android.graphics.Color.argb((150 * progress).toInt(), 0, 0, 0))
-            scale(1f + .08f * progress, pivot) {
-                // 投影只画在轮廓外，透明底的卡片不会被垫黑
-                clipPath(outline, ClipOp.Difference) {
-                    drawIntoCanvas {
-                        it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y, shadow)
+            shadow.setShadowLayer(26.dp.toPx(), 0f, 14.dp.toPx(), android.graphics.Color.argb((190 * progress).toInt(), 0, 0, 0))
+            glow.setShadowLayer(22.dp.toPx(), 0f, 0f, accent.copy(alpha = .45f * progress).toArgb())
+            translate(top = -lift * progress) {
+                scale(1f + grow * progress, pivot) {
+                    // 投影和辉光只画在轮廓外，透明底的卡片不会被垫黑
+                    clipPath(outline, ClipOp.Difference) {
+                        drawIntoCanvas {
+                            it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y, shadow)
+                            it.nativeCanvas.drawRoundRect(0f, 0f, size.width, size.height, radius.x, radius.y, glow)
+                        }
                     }
+                    this@onDrawWithContent.drawContent()
+                    clipPath(outline) { drawRect(sheen, alpha = progress) }
+                    drawRoundRect(accent.copy(alpha = .3f * progress), ringOffset, ringSize, ringRadius, style = Stroke(ring))
+                    drawRoundRect(Color.White.copy(alpha = .95f * progress), borderOffset,
+                        borderSize, borderRadius, style = border)
                 }
-                this@onDrawWithContent.drawContent()
-                drawRoundRect(Color.White.copy(alpha = .9f * progress), borderOffset,
-                    borderSize, borderRadius, style = border)
             }
         }
     }

@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.components
 
 import xyz.linplayer.app.ui.theme.LpText
+import xyz.linplayer.app.tv.tvRaised
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
@@ -210,7 +211,7 @@ fun ToneChip(
     var hasFocus by remember { mutableStateOf(false) }
     val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Box(
-        m.privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
+        m.tvRaised(focused, corner = R.pill).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
             .onFocusChanged { hasFocus = it.isFocused }
             .semantics { selected = on }
             .background(if (focused) c.fg else if (!on) c.s2 else if (solid) c.acc else c.accDim)
@@ -241,7 +242,7 @@ fun PrimaryAction(
     val ink = if (focused) c.bg else c.mediaOnAccent
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
-            .privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
+            .tvRaised(focused, corner = R.pill).privateNeonBorder(R.pill).clip(RoundedCornerShape(R.pill))
             .background(if (focused) c.fg else c.mediaAccent)
             .pressable(onClick, onLongClick, tvHighlight = false)
             .padding(horizontal = Sp.x20, vertical = Sp.x12),
@@ -277,6 +278,7 @@ fun IconAction(
     val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Column(
         m.heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
+            .tvRaised(focused, corner = R.md)
             .clip(RoundedCornerShape(R.md)).background(if (focused) c.fg else Color.Transparent)
             .pressable(onClick, tvHighlight = false)
             .padding(horizontal = Sp.x12, vertical = Sp.x6),
@@ -310,7 +312,7 @@ fun GlassIcon(
     val focused = xyz.linplayer.app.tv.LocalTvMode.current && hasFocus
     Box(
         m.size(48.dp).onFocusChanged { hasFocus = it.isFocused }
-            .buttonSkin(if (focused) c.fg else c.chip, R.pill)
+            .tvRaised(focused, corner = R.pill).buttonSkin(if (focused) c.fg else c.chip, R.pill)
             .pressable(onClick, tvHighlight = false),
         contentAlignment = Alignment.Center,
     ) { Icon(icon, desc, Modifier.size(24.dp), tint = if (focused) c.bg else c.fg2) }

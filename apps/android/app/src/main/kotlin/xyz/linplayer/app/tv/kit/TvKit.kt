@@ -58,6 +58,8 @@ import androidx.tv.material3.Text
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.components.privateNeonBorder
 import xyz.linplayer.app.tv.tvFocusScale
+import xyz.linplayer.app.tv.tvRaised
+import xyz.linplayer.app.tv.tvPosterFocus
 
 /*
  * TV 组件(UI_TV.md §5)。页面只能用这些件拼;草稿(ui/drafts/tv)用的也是这一份。
@@ -169,16 +171,22 @@ fun TvButton(
     enabled: Boolean = true, neon: Boolean = true, onLongClick: (() -> Unit)? = null, onClick: () -> Unit = {},
 ) {
     val t = tvType
+    val corner = if (LocalTvVideoControls.current) t.controlH / 2 else 6.dp
+    val source = remember { MutableInteractionSource() }
+    val hasFocus by source.collectIsFocusedAsState()
+    // 放大挪到外层绘制，投影与高光才跟着按钮一起放大
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
         enabled = enabled,
-        modifier = modifier.height(t.controlH).initialFocus(focused).fakeScale(fake, 1.04f)
+        modifier = Modifier.tvFocusScale(source, enabled, tv = true).then(modifier).height(t.controlH)
+            .initialFocus(focused).fakeScale(fake, 1.04f)
             .menuKey(onLongClick?.takeIf { enabled })
-            .privateNeonBorder(if (LocalTvVideoControls.current) t.controlH / 2 else 6.dp, enabled = neon),
+            .privateNeonBorder(corner, enabled = neon).tvRaised(hasFocus && enabled, corner = corner),
         shape = ClickableSurfaceDefaults.shape(if (LocalTvVideoControls.current) TvR.pill else TvR.sm),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1.04f, pressedScale = 0.98f),
+        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
         colors = solidColors(primary, false, fake),
+        interactionSource = source,
     ) {
         Row(Modifier.fillMaxHeight().padding(horizontal = TvSp.x16), verticalAlignment = Alignment.CenterVertically) {
             if (icon != null) {
@@ -305,10 +313,11 @@ fun CoverSurface(
     content: @Composable BoxScope.() -> Unit,
 ) {
     val source = interactionSource ?: remember { MutableInteractionSource() }
+    val hasFocus by source.collectIsFocusedAsState()
     Surface(
         onClick = onClick,
         onLongClick = onLongClick,
-        modifier = Modifier.tvFocusScale(source, true, tv = true).then(modifier)
+        modifier = Modifier.tvPosterFocus(hasFocus, 10.dp, tv = true).then(modifier)
             .size(w, h).initialFocus(focused).menuKey(onLongClick).fakeScale(fake, 1.04f),
         shape = ClickableSurfaceDefaults.shape(TvR.md),
         scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),

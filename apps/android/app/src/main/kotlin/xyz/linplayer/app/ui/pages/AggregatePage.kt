@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.tvFocusRow
+import xyz.linplayer.app.tv.tvRaised
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -242,8 +243,8 @@ private fun TvShortcut(label: String, icon: ImageVector, onClick: () -> Unit) {
     val c = Lp.colors
     var focused by remember { mutableStateOf(false) }
     Row(
-        Modifier.onFocusChanged { focused = it.isFocused }.clip(CircleShape)
-            .background(c.fg.copy(alpha = if (focused) .22f else .08f)).pressable(onClick, tvHighlight = false)
+        Modifier.onFocusChanged { focused = it.isFocused }.tvRaised(focused, glass = c.fg).clip(CircleShape)
+            .background(c.fg.copy(alpha = .08f)).pressable(onClick, tvHighlight = false)
             .padding(start = Sp.x6, end = Sp.x16, top = Sp.x6, bottom = Sp.x6),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(Sp.x8),

@@ -1,6 +1,11 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.tvFocusRow
+import xyz.linplayer.app.tv.tvPosterFocus
+import xyz.linplayer.app.tv.tvRaised
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.ui.focus.onFocusChanged
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -325,7 +330,14 @@ fun RankingPage(nav: NavController) {
         }
     } }
 
+    val tv = xyz.linplayer.app.tv.LocalTvMode.current
     LpScaffold("排行榜", onBack = { nav.popBackStack() }) { pad ->
+        if (tv) {
+            TvRankingBody(cats, source, cur, rows, block, list, pad, moreError, open,
+                onCategory = { group, id -> source = group; cur = id },
+                onRetryCatalog = { reload++ }, onRetry = { rankReload++ }, onRetryMore = { moreError = null; moreRetry++ })
+            return@LpScaffold
+        }
         Column(Modifier.fillMaxSize()) {
             val cf = cats
             if (cf is Block.Fail && !cf.isSilent) {
@@ -385,6 +397,141 @@ fun RankingPage(nav: NavController) {
         }
     }
 }
+
+/**
+ * 电视排行榜（榜单墙）：左侧按来源分组的榜单目录，右侧前三名横向大卡，其后两列紧凑行。
+ * ★ 翻页仍由同一个 [list] 驱动：两名一行，靠近末尾自动加载下一页。
+ */
+@Composable
+private fun TvRankingBody(
+    cats: Block<List<RankingCategory>>, source: String?, cur: String?,
+    rows: List<Rank>, block: Block<List<Rank>>, list: androidx.compose.foundation.lazy.LazyListState,
+    pad: PaddingValues, moreError: String?, open: (Rank) -> Unit,
+    onCategory: (String, String) -> Unit, onRetryCatalog: () -> Unit, onRetry: () -> Unit, onRetryMore: () -> Unit,
+) {
+    val c = Lp.colors
+    val cf = cats
+    if (cf is Block.Fail && !cf.isSilent) { ErrorState(cf.message, onRetryCatalog); return }
+    val cs = cats.valueOrNull
+    if (cs != null && cs.isEmpty()) { EmptyState("暂无可用榜单", "稍后再来看看。", LpIcons.trophy); return }
+    val selected = cs?.firstOrNull { it.id == cur }
+    Row(Modifier.fillMaxSize()) {
+        Column(Modifier.width(200.dp).fillMaxHeight().verticalScroll(rememberScrollState())
+            .padding(start = Sp.x8, end = Sp.x16, bottom = Sp.x26)) {
+            cs.orEmpty().map { it.source }.distinct().forEach { group ->
+                Text(rankingSourceLabel(group), Modifier.padding(top = Sp.x16, bottom = Sp.x6, start = Sp.x12),
+                    color = c.fg3, style = LpText.caption, letterSpacing = 2.sp)
+                cs.orEmpty().filter { it.source == group }.forEach { category ->
+                    TvRankingCategory(category.label + if (category.enabled) "" else " · 未开启", category.id == cur) {
+                        onCategory(group, category.id)
+                    }
+                }
+            }
+        }
+        LazyColumn(Modifier.weight(1f).fillMaxHeight(), list,
+            contentPadding = PaddingValues(start = Sp.x8, end = Sp.x8, bottom = pad.calculateBottomPadding()),
+            verticalArrangement = Arrangement.spacedBy(Sp.x10)) {
+            selected?.let { item("heading") {
+                Text("${rankingSourceLabel(it.source)} · ${it.label}", Modifier.padding(top = Sp.x8, bottom = Sp.x6),
+                    color = c.fg2, style = LpText.list)
+            } }
+            if (rows.isEmpty()) item("state") {
+                BlockBox(block, onRetry, skeleton = { LoadingState(Modifier.fillParentMaxSize()) }) {
+                    EmptyState("暂无榜单数据", "这个榜单现在是空的。", LpIcons.trophy)
+                }
+            } else {
+                val podium = if (rows.size >= 3) rows.take(3) else emptyList()
+                if (podium.isNotEmpty()) item("podium") {
+                    Row(Modifier.fillMaxWidth().padding(vertical = Sp.x8).tvFocusRow(), horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
+                        podium.forEach { TvPodCard(it, Modifier.weight(1f), open) }
+                    }
+                }
+                items(rows.drop(podium.size).chunked(2), key = { pair -> pair.first().id }) { pair ->
+                    Row(Modifier.fillMaxWidth().tvFocusRow(), horizontalArrangement = Arrangement.spacedBy(Sp.x20)) {
+                        pair.forEach { TvRankRow(it, Modifier.weight(1f), open) }
+                        if (pair.size == 1) Spacer(Modifier.weight(1f))
+                    }
+                }
+                (block as? Block.Fail)?.let { error -> item("refresh-error") { ErrorState(error.message, onRetry) } }
+            }
+            moreError?.let { error -> item("more-error") { ErrorState(error, onRetryMore) } }
+            item("tail") { Spacer(Modifier.height(Sp.x26)) }
+        }
+    }
+}
+
+/** 榜单目录项：当前榜单左侧强调色短条加粗；获焦用立体胶囊。 */
+@Composable
+private fun TvRankingCategory(label: String, on: Boolean, onClick: () -> Unit) {
+    val c = Lp.colors
+    var focused by remember { mutableStateOf(false) }
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).semantics { selected = on }
+        .tvRaised(focused, glass = c.fg).onFocusChanged { focused = it.isFocused }
+        .pressable({ if (!on) onClick() }, tvHighlight = false, tvScale = false)
+        .padding(horizontal = Sp.x12), verticalAlignment = Alignment.CenterVertically) {
+        if (on) Box(Modifier.padding(end = Sp.x8).size(3.dp, 14.dp).clip(RoundedCornerShape(R.pill)).background(c.acc))
+        Text(label, color = if (on || focused) c.fg else c.fg2, style = LpText.list,
+            fontWeight = if (on || focused) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
+    }
+}
+
+/** 前三名横向大卡：海报铺底压暗，右侧立一张海报，左下奖牌色大名次与片名。 */
+@Composable
+private fun TvPodCard(r: Rank, m: Modifier, open: (Rank) -> Unit) {
+    val app = LocalApp.current
+    var focused by remember { mutableStateOf(false) }
+    val medal = medals.getOrElse(r.rank - 1) { medals[2] }
+    Box(m.height(150.dp).onFocusChanged { focused = it.isFocused }.tvPosterFocus(focused, R.lg)
+        .pressable({ open(r) }, tvHighlight = false, tvScale = false)
+        .clip(RoundedCornerShape(R.lg))) {
+        NetImage(app.proxiedImage(r.image), null, Modifier.matchParentSize(), 0.dp)
+        Box(Modifier.matchParentSize().background(Brush.horizontalGradient(
+            0f to Color.Black.copy(alpha = .82f), .7f to Color.Black.copy(alpha = .35f), 1f to Color.Black.copy(alpha = .2f))))
+        NetImage(app.proxiedImage(r.image), r.title,
+            Modifier.align(Alignment.TopEnd).padding(Sp.x12).size(72.dp, 108.dp), R.sm)
+        Row(Modifier.align(Alignment.BottomStart).padding(start = Sp.x16, end = 96.dp, bottom = Sp.x12),
+            verticalAlignment = Alignment.Bottom) {
+            Text(r.rank.toString(), color = medal, fontSize = 56.sp, lineHeight = 52.sp, fontWeight = FontWeight.Black)
+            Spacer(Modifier.width(Sp.x10))
+            Column(Modifier.padding(bottom = Sp.x4)) {
+                Text(r.title, color = Color.White, style = LpText.title, fontWeight = FontWeight.Bold,
+                    maxLines = 2, overflow = TextOverflow.Ellipsis)
+                rankMeta(r)?.let { Text(it, color = Color.White.copy(alpha = .75f), style = LpText.caption, maxLines = 1) }
+            }
+        }
+    }
+}
+
+/** 第四名起的紧凑行：名次、小海报、片名与副信息，评分靠右。 */
+@Composable
+private fun TvRankRow(r: Rank, m: Modifier, open: (Rank) -> Unit) {
+    val c = Lp.colors
+    var focused by remember { mutableStateOf(false) }
+    Row(m.heightIn(min = 72.dp).onFocusChanged { focused = it.isFocused }.tvPosterFocus(focused, R.md)
+        .pressable({ open(r) }, tvHighlight = false, tvScale = false)
+        .clip(RoundedCornerShape(R.md)).background(c.fg.copy(alpha = .05f))
+        .padding(horizontal = Sp.x12, vertical = Sp.x6), verticalAlignment = Alignment.CenterVertically) {
+        Text(r.rank.toString(), Modifier.width(36.dp), color = c.fg2, textAlign = TextAlign.Center,
+            style = LpText.number.copy(fontSize = 20.sp, lineHeight = 24.sp), fontWeight = FontWeight.Black)
+        Spacer(Modifier.width(Sp.x10))
+        NetImage(LocalApp.current.proxiedImage(r.image), null, Modifier.size(40.dp, 60.dp), R.sm)
+        Spacer(Modifier.width(Sp.x12))
+        Column(Modifier.weight(1f)) {
+            Body(r.title, maxLines = 1)
+            listOfNotNull(r.subtitle, r.code, r.score?.let { "战力 $it" }).joinToString(" · ").takeIf(String::isNotBlank)?.let {
+                Dim3(it, Modifier.padding(top = 2.dp))
+            }
+        }
+        r.rating?.takeIf { it > 0 }?.let {
+            Text("%.1f".format(it), color = GOLD, style = LpText.action.copy(fontFeatureSettings = "tnum"), fontWeight = FontWeight.Bold)
+        }
+    }
+}
+
+/** 大卡副信息：评分、副标题、番号与战力按有则拼。 */
+private fun rankMeta(r: Rank): String? = listOfNotNull(
+    r.rating?.takeIf { it > 0 }?.let { "★ %.1f".format(it) }, r.subtitle, r.code, r.score?.let { "战力 $it" },
+).joinToString(" · ").takeIf(String::isNotBlank)
 
 /** 金银铜。**只有这三个色号写死** —— 它们是奖牌不是主题色,跟着主题变就没意义了。 */
 private val medals = listOf(GOLD, Color(0xFFD8DEE9), Color(0xFFD08B5B))

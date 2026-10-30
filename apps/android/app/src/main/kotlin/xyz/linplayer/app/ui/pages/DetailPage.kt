@@ -5,6 +5,7 @@ import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.tv.LocalTvMode
 import xyz.linplayer.app.tv.TvPageSide
 import xyz.linplayer.app.tv.tvPosterFocus
+import xyz.linplayer.app.tv.tvRaised
 import xyz.linplayer.app.tv.kit.TvDim
 
 import xyz.linplayer.app.ui.theme.LpText
@@ -1656,6 +1657,7 @@ private fun TvDetailAction(
         .semantics { contentDescription = label; this.selected = selected }
         .heightIn(min = 40.dp).widthIn(min = if (iconOnly) 40.dp else 112.dp)
         .graphicsLayer { alpha = if (enabled) 1f else .45f }
+        .tvRaised(focused, corner = R.sm)
         .privateNeonBorder(R.sm).clip(RoundedCornerShape(R.sm))
         .background(when {
             focused -> Color.White
@@ -1944,15 +1946,18 @@ private fun Tag(text: String, onImage: Boolean = false, onClick: (() -> Unit)? =
     // 外观一致的话用户只能靠试
     Text(
         text,
-        Modifier.onFocusChanged { focused = it.isFocused }.clip(RoundedCornerShape(R.pill))
+        Modifier.onFocusChanged { focused = it.isFocused }
+            // 电视焦点与全站一致：立体胶囊自带底，挂在裁剪前保留投影；图上用白色基调，不反白
+            .tvRaised(tv && focused, glass = if (onImage) Color.White else c.fg)
+            .clip(RoundedCornerShape(R.pill))
             .background(when {
-                // 图上文字焦点与全站一致：半透明胶囊，不反白
+                tv && focused -> Color.Transparent
                 onImage && focused -> Color.White.copy(alpha = .28f)
                 onClick != null -> c.mediaAccent.copy(alpha = .18f)
                 onImage -> Color.Black.copy(alpha = .5f)
                 else -> c.s1
             })
-            .let { if (onClick == null) it else if (tv) it.pressable(onClick, tvHighlight = !onImage) else it.clickable(onClick = onClick) }
+            .let { if (onClick == null) it else if (tv) it.pressable(onClick, tvHighlight = false) else it.clickable(onClick = onClick) }
             .padding(horizontal = Sp.x10, vertical = 3.dp),
         color = if (onImage) { if (focused) Color.White else Color.White.copy(alpha = .86f) }
             else if (onClick != null) c.mediaIcon else c.fg.copy(alpha = .86f),
@@ -1968,8 +1973,7 @@ private fun TvDetailOverview(text: String, modifier: Modifier, onOpen: () -> Uni
     Text(text, modifier.fillMaxWidth(.56f).padding(top = Sp.x12)
         .testTag("detail.overview")
         .onFocusChanged { focused = it.isFocused }
-        .clip(RoundedCornerShape(R.sm))
-        .background(if (focused) Color.White.copy(alpha = .2f) else Color.Transparent)
+        .tvRaised(focused, glass = Color.White, corner = R.sm)
         .then(if (overflow) Modifier.semantics { contentDescription = "展开简介" }
             .pressable(onOpen, tvHighlight = false) else Modifier),
         color = if (focused) Color.White else Color.White.copy(alpha = .85f),
@@ -2011,8 +2015,9 @@ internal fun People(app: xyz.linplayer.app.data.AppState, people: List<Person>, 
             val focused = tv && hasFocus
             Column(Modifier.width(avatar + 8.dp).testTag("detail.person.${p.id}")
                 .onFocusChanged { hasFocus = it.isFocused }
-                .pressable({ onOpen(p) }, enabled = p.id.isNotBlank(), tvHighlight = false), horizontalAlignment = Alignment.CenterHorizontally) {
-                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160).takeUnless { p.hasPrimary == false }, p.name, Modifier.size(avatar), R.pill)
+                .pressable({ onOpen(p) }, enabled = p.id.isNotBlank(), tvHighlight = false, tvScale = false), horizontalAlignment = Alignment.CenterHorizontally) {
+                NetImage(app.imageUrl(p.id, "Primary", if (tv) 176 else 160).takeUnless { p.hasPrimary == false }, p.name,
+                    Modifier.size(avatar).tvPosterFocus(focused, avatar / 2), R.pill)
                 Spacer(Modifier.height(5.dp))
                 Text(p.name,
                     color = if (focused || !tv) c.fg else c.fg2, style = LpText.caption.copy(

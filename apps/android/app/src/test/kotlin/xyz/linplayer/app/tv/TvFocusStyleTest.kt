@@ -112,6 +112,47 @@ class TvFocusStyleTest {
             pixels[2, pixels.height / 2].luminance(), .01f)
     }
 
+    @Test fun sharedFallbackHighlightIsRaisedWithShadowBelow() {
+        rule.setContent { LpTheme(darkOverride = true) {
+            Remote {
+                Box(Modifier.fillMaxSize().background(Color.DarkGray).padding(40.dp)) {
+                    Box(Modifier.size(120.dp, 48.dp).testTag("target").pressable({}))
+                }
+            }
+        } }
+        val bounds = rule.onNodeWithTag("target").fetchSemanticsNode().boundsInRoot
+        val idle = rule.onRoot().captureToImage().toPixelMap()
+        rule.onNodeWithTag("target").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNodeWithTag("target").assertIsFocused()
+        val focused = rule.onRoot().captureToImage().toPixelMap()
+        val x = bounds.center.x.toInt()
+        val below = (bounds.bottom + with(rule.density) { 6.dp.toPx() }).toInt()
+        fun lum(y: Float) = focused[x, y.toInt()].luminance()
+        assertTrue("立体胶囊应上亮下暗", lum(bounds.top + bounds.height * .25f) > lum(bounds.bottom - bounds.height * .2f) + .01f)
+        assertTrue("投影应落在轮廓外下方", focused[x, below].luminance() < idle[x, below].luminance() - .005f)
+    }
+
+    @Test fun wideCardFocusGrowsAtMostFourDpPerSide() {
+        val focused = mutableStateOf(false)
+        rule.setContent { LpTheme {
+            Remote {
+                Box(Modifier.fillMaxSize().background(Color.Black).padding(40.dp)) {
+                    Box(Modifier.size(300.dp, 169.dp).testTag("card").tvPosterFocus(focused.value, 8.dp).background(Color.Red))
+                }
+            }
+        } }
+        val bounds = rule.onNodeWithTag("card").fetchSemanticsNode().boundsInRoot
+        rule.runOnIdle { focused.value = true }
+        rule.waitForIdle()
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        val y = bounds.center.y.toInt()
+        // 白描边贴着放大后的卡沿，最右的近白像素即卡片右缘
+        val edge = (0 until pixels.width).last { pixels[it, y].luminance() > .8f } + 1
+        val limit = with(rule.density) { 4.dp.toPx() } + 1
+        assertTrue("宽卡焦点仍应放大", edge > bounds.right)
+        assertTrue("宽卡焦点每侧外扩不应超过 4dp，否则压到 10dp 间距外的邻卡: ${edge - bounds.right}", edge - bounds.right <= limit)
+    }
+
     @Test fun sharedButtonUsesInvertedFillInDarkTheme() = checkButton(true)
     @Test fun sharedButtonUsesInvertedFillInLightTheme() = checkButton(false)
 

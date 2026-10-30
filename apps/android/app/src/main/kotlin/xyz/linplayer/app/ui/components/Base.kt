@@ -96,6 +96,7 @@ import xyz.linplayer.app.ui.theme.lpSpring
 import xyz.linplayer.app.tv.tvFocus
 import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.tv.tvFocusScale
+import xyz.linplayer.app.tv.tvRaised
 
 /*
  * 共用组件词汇(UI_MOBILE.md §4.2)。**页面只能用它拼,不许各页自造一套**
@@ -208,6 +209,7 @@ fun LpIconButton(
     Box(
         m.sizeIn(minWidth = Dim.tap, minHeight = Dim.tap)
             .onFocusChanged { hasFocus = it.isFocused }
+            .tvRaised(focused, corner = R.pill)
             .clip(RoundedCornerShape(R.pill))
             .background(if (focused) c.fg else Color.Transparent)
             .pressable(onClick, tvHighlight = false),
@@ -269,6 +271,7 @@ fun LpButton(
     Box(
         m.heightIn(min = Dim.tap).onFocusChanged { hasFocus = it.isFocused }
             .graphicsLayer { alpha = if (on) 1f else 0.45f }
+            .tvRaised(focused, corner = R.sm)
             .then(skin)
             .then(if (loading) Modifier.semantics { contentDescription = text; stateDescription = "加载中" } else Modifier)
             .pressable(onClick, onLongClick, on, tvHighlight = false)
@@ -397,6 +400,7 @@ fun LpCell(
     Row(
         m.fillMaxWidth().onFocusChanged { hasFocus = it.isFocused }
             .heightIn(min = Dim.tap + Sp.x8)
+            .tvRaised(focused, corner = R.sm)
             .background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm))
             .then(if (rowClick != null) Modifier.pressable(rowClick, tvHighlight = false) else Modifier)
             .padding(horizontal = Sp.x16, vertical = Sp.x10),
@@ -458,6 +462,7 @@ fun SegRow(
                 Box(
                     Modifier.weight(1f).heightIn(min = Dim.tap)
                         .onFocusChanged { hasFocus = it.isFocused }
+                        .tvRaised(focused, corner = R.sm)
                         .clip(RoundedCornerShape(R.sm))
                         // 选中块是浮起的一层而非整块强调色：一页多个分段并排时不抢主按钮
                         .background(if (focused) c.fg else if (on) (if (c.isDark) c.s3 else Color.White) else Color.Transparent)
@@ -578,6 +583,7 @@ fun OptRow(
     Row(
         m.fillMaxWidth().heightIn(min = Dim.tap)
             .onFocusChanged { hasFocus = it.isFocused }
+            .tvRaised(focused, corner = R.sm)
             .clip(RoundedCornerShape(R.sm))
             .background(if (focused) c.fg else if (selected) c.accDim else Color.Transparent)
             .semantics { this.selected = selected }
@@ -850,6 +856,7 @@ fun LpMenuItem(
     Row(
         Modifier.fillMaxWidth().heightIn(min = if (large) Dim.tap + 8.dp else 40.dp)
             .onFocusChanged { hasFocus = it.isFocused }
+            .tvRaised(focused, corner = R.sm)
             .background(if (focused) c.fg else Color.Transparent, RoundedCornerShape(R.sm))
             .pressable(onClick, tvHighlight = false)
             .padding(horizontal = Sp.x12, vertical = if (large) Sp.x6 else Sp.x2),
