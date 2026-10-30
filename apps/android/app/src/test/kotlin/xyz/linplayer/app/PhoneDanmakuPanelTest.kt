@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toPixelMap
@@ -80,7 +79,7 @@ class PhoneDanmakuPanelTest {
         rule.waitForIdle()
     }
 
-    @Test fun 快捷菜单与样式滑杆及开关直接展示() {
+    @Test fun 快捷菜单只保留显示区域设置() {
         val core = core()
         open(core)
         rule.onNodeWithText("测试来源", substring = true).assertIsDisplayed()
@@ -89,44 +88,25 @@ class PhoneDanmakuPanelTest {
         val before = rule.onNodeWithTag("danmaku.host").captureToImage().toPixelMap()[10, 100]
         rule.onNodeWithText("显示设置").performClick()
         rule.onNodeWithText("显示区域").assertIsDisplayed()
-        rule.onNodeWithText("不透明度").assertIsDisplayed()
-        rule.onNodeWithText("字号").assertIsDisplayed()
-        rule.onNodeWithText("滚动速度").assertIsDisplayed()
-        rule.onNodeWithText("粗体").assertDoesNotExist()
+        rule.onNodeWithText("不透明度").assertDoesNotExist()
+        rule.onNodeWithText("字号").assertDoesNotExist()
+        rule.onNodeWithText("滚动速度").assertDoesNotExist()
+        rule.onNodeWithText("更多显示设置").assertDoesNotExist()
         val bounds = rule.onNodeWithTag("player.menu").fetchSemanticsNode().boundsInRoot
         assertEquals(280f, bounds.width, .5f)
         assertTrue(bounds.height <= 360)
         assertEquals(before, rule.onNodeWithTag("danmaku.host").captureToImage().toPixelMap()[10, 100])
-        rule.onNodeWithText("更多显示设置").performClick()
-        rule.onNodeWithText("滚动弹幕行数").assertIsDisplayed()
-        rule.onNodeWithText("顶部固定弹幕行数").assertIsDisplayed()
-        rule.onNodeWithText("底部固定弹幕行数").assertIsDisplayed()
-        val slider = rule.onNodeWithContentDescription("滚动弹幕行数")
-        slider.performTouchInput { down(center); moveTo(centerRight - Offset(20f, 0f)); advanceEventTime(200) }
-        assertEquals(0, core.calls.count { it.first == "player.setDanmakuStyle" })
-        slider.performTouchInput { up() }
-        rule.waitForIdle()
-        val writes = core.calls.filter { it.first == "player.setDanmakuStyle" }
-        assertEquals(1, writes.size)
-        assertTrue(writes.single().second.dbl("roll_lines")!! in 0.0..20.0)
+        rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
+        assertEquals(0.25, stored.dbl("area")!!, .001)
+        rule.onNodeWithText("1/4 屏").assertIsDisplayed()
+        rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
+        assertEquals(0.5, stored.dbl("area")!!, .001)
+        rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
+        assertEquals(0.75, stored.dbl("area")!!, .001)
+        rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
+        assertEquals(1.0, stored.dbl("area")!!, .001)
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/danmaku-style-landscape.png")
-        for ((label, field) in listOf("粗体弹幕" to "bold", "合并重复弹幕" to "merge", "防止弹幕重叠" to "prevent_overlap")) {
-            val was = stored.bool(field)
-            rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(label))
-            rule.onNodeWithText(label).performClick()
-            rule.waitForIdle()
-            assertEquals(!was, stored.bool(field))
-        }
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("显示进度条热力图"))
-        rule.onNodeWithText("显示进度条热力图").assertIsDisplayed()
-        rule.onNodeWithText("更多选项").assertDoesNotExist()
-        rule.onNode(isPopup()).captureRoboImage("build/player-osd/danmaku-style-switches.png")
         // 返回键回一级，外点才关闭整张菜单。
-        rule.runOnIdle {
-            manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
-            manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
-        }
-        rule.onNodeWithText("显示区域").assertIsDisplayed()
         rule.runOnIdle {
             manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BACK))
             manager.views.last().dispatchKeyEvent(KeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BACK))
@@ -139,9 +119,7 @@ class PhoneDanmakuPanelTest {
         rule.onNodeWithTag("player.menu").assertDoesNotExist()
         rule.runOnIdle { itemId.value = "another"; kind.value = "danmaku" }
         rule.onNodeWithText("显示设置").performClick()
-        rule.onNodeWithText("更多显示设置").performClick()
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("防止弹幕重叠"))
-        rule.onNodeWithText("防止弹幕重叠").assertIsOff()
+        rule.onNodeWithText("显示区域").assertIsDisplayed()
         rule.runOnIdle {
             val e = MotionEvent.obtain(0, 0, MotionEvent.ACTION_OUTSIDE, -1f, -1f, 0)
             manager.views.last().dispatchTouchEvent(e); e.recycle()
@@ -154,15 +132,8 @@ class PhoneDanmakuPanelTest {
         val core = core()
         open(core, 2f)
         rule.onNodeWithText("显示设置").performClick()
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasContentDescription("滚动速度"))
-        rule.onNodeWithContentDescription("滚动速度").assertIsDisplayed()
-        rule.onNodeWithText("更多显示设置").performClick()
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("粗体弹幕"))
-        rule.onNodeWithText("粗体弹幕").assertIsDisplayed()
-        rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText("防止弹幕重叠"))
-        rule.onNodeWithText("防止弹幕重叠").assertIsDisplayed()
+        rule.onNodeWithText("显示区域").assertIsDisplayed()
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/danmaku-style-portrait-large.png")
-        rule.onNodeWithContentDescription("返回弹幕菜单").performClick()
         rule.onNodeWithContentDescription("返回弹幕菜单").performClick()
         rule.onNodeWithText("时间偏移").performClick()
         rule.onNodeWithText("+").performClick()
@@ -183,12 +154,9 @@ class PhoneDanmakuPanelTest {
         rule.waitForIdle()
         assertEquals(before, DanmakuStyle.enabled.value)
         rule.onNodeWithText("显示设置").performClick()
-        rule.onNodeWithText("更多显示设置").performClick()
-        val slider = rule.onNodeWithContentDescription("滚动弹幕行数")
-        slider.performTouchInput { down(center); moveTo(centerRight - Offset(20f, 0f)); up() }
+        rule.onNodeWithText("显示区域").performClick()
         rule.waitForIdle()
-        assertEquals(5f, slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current)
-        assertEquals(5, DanmakuStyle.rollLines.intValue)
+        assertEquals(1.0, DanmakuStyle.area.doubleValue, .001)
     }
 
     @Test fun 未读取完不提交且读取失败允许重试() {
@@ -204,15 +172,12 @@ class PhoneDanmakuPanelTest {
         try {
             open(port)
             rule.onNodeWithText("显示设置").performClick()
-            rule.onNodeWithContentDescription("不透明度").assertIsNotEnabled()
-            rule.onNodeWithText("更多显示设置").performClick()
-            rule.onNodeWithContentDescription("滚动弹幕行数").assertIsNotEnabled()
-            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(0)
+            rule.onNodeWithText("显示区域").assertIsNotEnabled()
             rule.runOnIdle { gate.complete(Unit) }
             rule.onNodeWithText("弹幕设置读取失败").assertIsDisplayed()
             rule.runOnIdle { fail = false }
             rule.onNodeWithText("重试").performClick()
-            rule.onNodeWithContentDescription("滚动弹幕行数").assertIsEnabled()
+            rule.onNodeWithText("显示区域").assertIsEnabled()
             assertFalse(core.calls.any { it.first == "player.setDanmakuStyle" })
         } finally { gate.complete(Unit) }
     }

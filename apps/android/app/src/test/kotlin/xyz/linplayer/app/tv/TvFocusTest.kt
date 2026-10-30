@@ -360,7 +360,7 @@ class TvFocusTest {
         assertEquals("sh5", lastPlayed())
     }
 
-    @Test fun 弹幕高级设置按键可调值并逐级返回() {
+    @Test fun 弹幕设置只保留显示区域并按四档循环() {
         val style = args(
             "area" to 1.0, "scale" to 1.0, "opacity" to 1.0, "speed" to 1.0,
             "roll_lines" to 5, "top_lines" to 4, "bottom_lines" to 3,
@@ -373,19 +373,14 @@ class TvFocusTest {
             ret("player.getDanmakuStyle", style)
             ret("prefs.getPrefs", args("danmaku_enabled" to true))
             ret("player.danmakuLayout", args("items" to kotlinx.serialization.json.JsonArray(emptyList())))
+            on("player.setDanmakuStyle") { a -> kotlinx.serialization.json.JsonObject(style + a.orEmpty()) }
         }
         press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.Enter); advance(rule, 400)
         rule.onNodeWithText("当前视频").assertExists()
-        rule.onNodeWithText("更多显示设置").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter); advance(rule, 300)
-        rule.onNodeWithText("滚动弹幕行数").assertExists()
-        rule.onNodeWithText("顶部固定弹幕行数").assertExists()
-        rule.onNodeWithText("底部固定弹幕行数").assertExists()
-        rule.onNodeWithText("滚动弹幕行数").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight); advance(rule, 300)
-        assertTrue(core.calls.any { it.first == "player.setDanmakuStyle" && it.second.dbl("roll_lines") == 6.0 })
-        pressBack()
-        rule.onNodeWithText("显示设置").assertExists()
+        rule.onNodeWithText("显示区域").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        repeat(4) { press(rule, Key.Enter); advance(rule, 200) }
+        val areas = core.calls.filter { it.first == "player.setDanmakuStyle" }.mapNotNull { it.second.dbl("area") }
+        assertEquals(listOf(.25, .5, .75, 1.0), areas.takeLast(4))
         pressBack(); focused("osd.dm")
     }
 

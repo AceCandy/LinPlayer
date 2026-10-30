@@ -44,7 +44,7 @@ object DanmakuStyle {
     }
 
 
-    /** 滚动弹幕占画面高度:0.25 / 0.5 / 1.0。 */
+    /** 滚动弹幕占画面高度:0.25 / 0.5 / 0.75 / 1.0。 */
     val area = mutableDoubleStateOf(1.0)
 
     /** 字号倍率 0.1..3.0。行高跟着一起缩。 */
@@ -133,10 +133,11 @@ object DanmakuStyle {
 
     /* ---- 纯函数。拆出来是为了可测 —— 这两条规则的全部内容就是这几行。 ---- */
 
-    /** 范围是**三档枚举**不是连续值:点一下换下一档,四分之一 → 半 → 全 → 四分之一。 */
+    /** 范围是**四档枚举**不是连续值:点一下换下一档,1/4 → 1/2 → 3/4 → 全屏。 */
     fun nextArea(cur: Double): Double = when {
         cur <= 0.3 -> 0.5
-        cur <= 0.6 -> 1.0
+        cur <= 0.6 -> 0.75
+        cur <= 0.85 -> 1.0
         else -> 0.25
     }
 
@@ -148,8 +149,9 @@ object DanmakuStyle {
         Math.round((cur + if (up) by else -by).coerceIn(min, max) * 100) / 100.0
 
     fun areaLabel(cur: Double): String = when {
-        cur <= 0.3 -> "四分之一屏"
-        cur <= 0.6 -> "半屏"
+        cur <= 0.3 -> "1/4 屏"
+        cur <= 0.6 -> "1/2 屏"
+        cur <= 0.85 -> "3/4 屏"
         else -> "全屏"
     }
 }

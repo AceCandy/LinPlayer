@@ -602,18 +602,20 @@ class LogicTest {
     }
 
     /**
-     * 滚动范围是**三档循环**:四分之一 → 半 → 全 → 四分之一。
+     * 滚动范围是**四档循环**:1/4 → 1/2 → 3/4 → 全屏 → 1/4。
      *
      * ☠ 判据用的是「点了 N 下之后是哪一档」而不是「函数返回什么」——
      *   写成 `>= 0.5` 之类的边界错法会让某一档永远跳不进去,而每一步单看都对。
      */
-    @Test fun `滚动范围三档循环走得回来`() {
+    @Test fun `滚动范围四档循环走得回来`() {
         var a = 1.0
         assertEquals("全屏", DanmakuStyle.areaLabel(a))
         a = DanmakuStyle.nextArea(a); assertEquals(0.25, a, 1e-9)
-        assertEquals("四分之一屏", DanmakuStyle.areaLabel(a))
+        assertEquals("1/4 屏", DanmakuStyle.areaLabel(a))
         a = DanmakuStyle.nextArea(a); assertEquals(0.5, a, 1e-9)
-        assertEquals("半屏", DanmakuStyle.areaLabel(a))
+        assertEquals("1/2 屏", DanmakuStyle.areaLabel(a))
+        a = DanmakuStyle.nextArea(a); assertEquals(0.75, a, 1e-9)
+        assertEquals("3/4 屏", DanmakuStyle.areaLabel(a))
         a = DanmakuStyle.nextArea(a); assertEquals(1.0, a, 1e-9)
         assertEquals("全屏", DanmakuStyle.areaLabel(a))
     }

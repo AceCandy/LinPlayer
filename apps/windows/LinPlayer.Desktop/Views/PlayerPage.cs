@@ -2157,7 +2157,7 @@ public sealed class PlayerPage : UserControl
     private bool _dmMerge, _dmBold, _dmHeat;
 
     /// <summary>
-    /// 弹幕菜单:开关 / 搜索 / 九项显示设置。
+    /// 弹幕菜单:开关 / 搜索 / 显示区域设置。
     ///
     /// <para>以前这颗按钮<b>只有开关</b>,而核心层十四条 <c>danmaku.*</c> 里
     /// 十一条零调用 —— 搜索、选集、换源、屏蔽词全没有入口。</para>
@@ -2218,7 +2218,7 @@ public sealed class PlayerPage : UserControl
 
         body.Children.Add(DanmakuStyleBlock());
         // DanmakuStyleBlock 把 _dmRepaint 占了,这里把开关那一行接回去 ——
-        // 不接的话回显只刷了九项设置,开关还停在打开面板之前的样子
+        // 不接的话回显只刷显示区域,开关还停在打开面板之前的样子
         var styleRepaint = _dmRepaint;
         _dmRepaint = () => { PaintToggle(); styleRepaint?.Invoke(); };
         _popupRows = body.Children.OfType<Button>().ToList();
@@ -2623,7 +2623,7 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>
-    /// 弹幕显示设置(用户 2026-09-09 点名的九项)。
+    /// 弹幕显示设置：只保留用户容易理解的显示区域。
     ///
     /// <para>每一下都是一次提交:核心层收到就重排并落库,画面当场变。
     /// 用滑块的话拖一次会灌上百次重排 —— 而重排要遍历几千条弹幕。</para>
@@ -2631,29 +2631,13 @@ public sealed class PlayerPage : UserControl
     private Control DanmakuStyleBlock()
     {
         var areaRow = MenuRow("");
-        var scaleText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
-        var opText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
-        var speedText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
-        var topText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
-        var botText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
-        var mergeRow = MenuRow("");
-        var boldRow = MenuRow("");
-        var heatRow = MenuRow("");
 
         void Refresh()
         {
-            areaRow.Content = "滚动范围:" + _dmArea switch
+            areaRow.Content = "显示区域:" + _dmArea switch
             {
-                <= 0.3 => "四分之一屏", <= 0.6 => "半屏", _ => "全屏",
+                <= 0.3 => "1/4 屏", <= 0.6 => "1/2 屏", <= 0.85 => "3/4 屏", _ => "全屏",
             };
-            scaleText.Text = $"{_dmScale:0.0}×";
-            opText.Text = $"{_dmOpacity * 100:0}%";
-            speedText.Text = $"{_dmSpeed:0.0}×";
-            topText.Text = _dmTop.ToString();
-            botText.Text = _dmBottom.ToString();
-            mergeRow.Content = (_dmMerge ? "● " : "○ ") + "合并重复弹幕";
-            boldRow.Content = (_dmBold ? "● " : "○ ") + "粗体弹幕";
-            heatRow.Content = (_dmHeat ? "● " : "○ ") + "进度条热力图";
         }
         Refresh();
         _dmRepaint = Refresh;
@@ -2665,55 +2649,19 @@ public sealed class PlayerPage : UserControl
                 var r = await _core.PlayerSetDanmakuStyle(args);
                 // 回的是**钳过之后**的值 —— 照它刷读数才不会显示一个核心层没接受的数
                 ApplyStyleReply(r);
-                // 缩放 / 速度 / 范围 / 行数 / 合并这五项一改就是另一套分轨结果
+                // 显示区域变化后要立即重新排版
                 await RefreshDanmakuLayout();
                 await RefreshHeatmap();
             }
             catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
         }
 
-        Control Row(string label, TextBlock readout, Action<int> step, Action reset)
-        {
-            Button Key(string text, int delta)
-            {
-                var b = new Button
-                {
-                    Content = text, Classes = { "osdstep" },
-                    Width = delta == 0 ? 40 : 28, Height = 28,
-                    HorizontalContentAlignment = HorizontalAlignment.Center,
-                    VerticalContentAlignment = VerticalAlignment.Center,
-                };
-                b.Click += (_, _) => { if (delta == 0) reset(); else step(delta); Refresh(); };
-                return b;
-            }
-            readout.Width = 52;
-            readout.TextAlignment = TextAlignment.Center;
-            return Labeled(label, new StackPanel
-            {
-                Orientation = Orientation.Horizontal, Spacing = 6,
-                VerticalAlignment = VerticalAlignment.Center,
-                Children = { Key("−", -1), readout, Key("+", 1), Key("默认", 0) },
-            });
-        }
-
-        // 范围是**三档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
+        // 范围是**四档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         areaRow.Click += async (_, _) =>
         {
-            _dmArea = _dmArea switch { <= 0.3 => 0.5, <= 0.6 => 1.0, _ => 0.25 };
+            _dmArea = _dmArea switch { <= 0.3 => 0.5, <= 0.6 => 0.75, <= 0.85 => 1.0, _ => 0.25 };
             Refresh();
             await Push(new { area = _dmArea });
-        };
-        mergeRow.Click += async (_, _) =>
-        {
-            _dmMerge = !_dmMerge; Refresh(); await Push(new { merge = _dmMerge });
-        };
-        boldRow.Click += async (_, _) =>
-        {
-            _dmBold = !_dmBold; Refresh(); await Push(new { bold = _dmBold });
-        };
-        heatRow.Click += async (_, _) =>
-        {
-            _dmHeat = !_dmHeat; Refresh(); await Push(new { heatmap = _dmHeat });
         };
 
         return new StackPanel
@@ -2723,29 +2671,6 @@ public sealed class PlayerPage : UserControl
             {
                 PopupTitle("弹幕显示"),
                 areaRow,
-                Row("弹幕缩放", scaleText,
-                    d => { _dmScale = Math.Clamp(Math.Round((_dmScale + d * 0.1) * 10) / 10, 0.1, 3.0);
-                           _ = Push(new { scale = _dmScale }); },
-                    () => { _dmScale = 1.0; _ = Push(new { scale = 1.0 }); }),
-                Row("透明度", opText,
-                    d => { _dmOpacity = Math.Clamp(Math.Round((_dmOpacity + d * 0.1) * 10) / 10, 0.1, 1.0);
-                           _ = Push(new { opacity = _dmOpacity }); },
-                    () => { _dmOpacity = 1.0; _ = Push(new { opacity = 1.0 }); }),
-                Row("滚动速度", speedText,
-                    d => { _dmSpeed = Math.Clamp(Math.Round((_dmSpeed + d * 0.1) * 10) / 10, 0.1, 3.0);
-                           _ = Push(new { speed = _dmSpeed }); },
-                    () => { _dmSpeed = 1.0; _ = Push(new { speed = 1.0 }); }),
-                Row("置顶行数", topText,
-                    d => { _dmTop = Math.Clamp(_dmTop + d, 0, 20);
-                           _ = Push(new { top_lines = _dmTop }); },
-                    () => { _dmTop = 10; _ = Push(new { top_lines = 10 }); }),
-                Row("置底行数", botText,
-                    d => { _dmBottom = Math.Clamp(_dmBottom + d, 0, 20);
-                           _ = Push(new { bottom_lines = _dmBottom }); },
-                    () => { _dmBottom = 10; _ = Push(new { bottom_lines = 10 }); }),
-                mergeRow, boldRow, heatRow,
-                Dimmed("行数设成 0 就是这一类不显示。范围调小之后排不下的弹幕会被丢掉 ——"
-                    + "那正是「少一点」的意思。"),
             },
         };
     }

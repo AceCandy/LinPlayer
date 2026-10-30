@@ -522,28 +522,6 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
                 })
             }
         }
-        3 -> TvSidePanel("更多显示设置", { overlay.close() }, back = { level = 0 }) {
-            val matched = DanmakuStyle.layout.value != null
-            PanelGroup("弹幕位置")
-            if (!matched) PanelItem("这一集没有匹配到弹幕", enabled = false)
-            PanelItem("滚动弹幕行数", value = "${DanmakuStyle.rollLines.intValue}行", step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "roll_lines", (DanmakuStyle.rollLines.intValue + d).coerceIn(0, 20)) }
-            })
-            PanelItem("顶部固定弹幕行数", value = "${DanmakuStyle.topLines.intValue}行", step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "top_lines", (DanmakuStyle.topLines.intValue + d).coerceIn(0, 20)) }
-            })
-            PanelItem("底部固定弹幕行数", value = "${DanmakuStyle.bottomLines.intValue}行", step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "bottom_lines", (DanmakuStyle.bottomLines.intValue + d).coerceIn(0, 20)) }
-            })
-            PanelGroup("显示效果")
-            PanelItem("粗体弹幕", switch = DanmakuStyle.bold.value, enabled = matched,
-                onClick = { scope.launch { DanmakuStyle.set(app, "bold", !DanmakuStyle.bold.value) } })
-            PanelItem("合并重复弹幕", switch = DanmakuStyle.merge.value, enabled = matched,
-                onClick = { scope.launch { DanmakuStyle.set(app, "merge", !DanmakuStyle.merge.value) } })
-            PanelItem("防止弹幕重叠", switch = DanmakuStyle.preventOverlap.value, enabled = matched,
-                onClick = { scope.launch { DanmakuStyle.set(app, "prevent_overlap", !DanmakuStyle.preventOverlap.value) } })
-            PanelItem("行数设为 0 即隐藏这一类弹幕", enabled = false)
-        }
         else -> TvSidePanel("弹幕", { overlay.close() }) {
             PanelGroup("当前视频")
             PanelItem("显示弹幕", switch = DanmakuStyle.enabled.value, focused = true, onClick = {
@@ -562,16 +540,6 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
             PanelItem("显示区域", value = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = matched, onClick = {
                 scope.launch { DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) }
             })
-            PanelItem("字号", value = "%.0f%%".format(DanmakuStyle.scale.doubleValue * 100), step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "scale", DanmakuStyle.step(DanmakuStyle.scale.doubleValue, d > 0, 0.1, 0.1, 3.0)) }
-            })
-            PanelItem("不透明度", value = "%.0f%%".format(DanmakuStyle.opacity.doubleValue * 100), step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "opacity", DanmakuStyle.step(DanmakuStyle.opacity.doubleValue, d > 0, 0.1, 0.1, 1.0)) }
-            })
-            PanelItem("滚动速度", value = "%.1f×".format(DanmakuStyle.speed.doubleValue), step = true, enabled = matched, onStep = { d ->
-                scope.launch { DanmakuStyle.set(app, "speed", DanmakuStyle.step(DanmakuStyle.speed.doubleValue, d > 0, 0.1, 0.1, 3.0)) }
-            })
-            PanelItem("更多显示设置", chevron = true, enabled = matched, onClick = { level = 3 })
         }
     }
 }

@@ -1008,7 +1008,7 @@ TV 需要而手机没有的四个新增到同一个文件,**不开第二套**:
 | 播放 | 硬件解码(开关,`auto-safe` / `no`)· 杜比视界自动软解 · 默认倍速(0.25~4.0)· 画面增强(取值)· **默认播放内核**(自动 / Media3 / MPV)· **快进步长**(5/10/15/30 秒)· **长按倍速**(2.0 / 3.0 / 4.0x)· **自动播放下一集** | `player.setPlaybackPrefs` · `player.setShaderLevel` · 后四项存本机 `UiPrefs`(核心层无消费点) |
 | 跳过片头片尾 | 跳过片头 · 跳过片尾(**两个开关**)· 到点自动跳过 · 服务端没有章节时联网查询 | `player.setPlaybackPrefs`(`skip_intro/skip_outro/skip_auto/skip_use_online`) |
 | 字幕与音轨 | 默认开启字幕 · 字幕语言 · 音轨语言(17 种语言 + 自动)· 字幕字号 / 位置(步进) | `prefs.setPrefs` · `player.setSubStyle` |
-| 弹幕 | 默认显示弹幕 · 显示区域 · 字号 · 不透明度 · 速度 · 屏蔽词(N 条 › → 面板:列表 + 新增输入框,单条长按删除) | `player.setDanmakuEnabled` · `player.setDanmakuStyle` · `danmaku.setBlockwords` |
+| 弹幕 | 默认显示弹幕 · 显示区域(1/4、1/2、3/4、全屏) · 屏蔽词(N 条 › → 面板:列表 + 新增输入框,单条长按删除) | `player.setDanmakuEnabled` · `player.setDanmakuStyle` · `danmaku.setBlockwords` |
 | 网络 | 代理类型 · 服务器地址 · 端口 · 用户名 · 密码 · 播放流也走代理 · 多线程加载(按服务器,每台一个开关)· 预加载(开关 + 头部大小) | `prefs.setProxy` · `prefs.setPrefetchSettings` · `prefs.setPreloadSettings` |
 | 存储 | 缓存(值 = 当前大小,OK → 对话框清空)· 数据目录(只读) | `system.cacheSize` / `system.clearCache` · `system.dataPaths` |
 | 关于 | 当前版本 · 更新渠道 · 自动检查更新 · 立即检查更新 | `prefs.setUpdateSettings` · `system.checkUpdate` → `downloadUpdate` → `installUpdate` |
@@ -1100,7 +1100,7 @@ Compose 层刷一块不透明背景 = **有声音、没画面、一条错都不�
 |---|---|---|
 | 字幕 | 轨道(内封 / 外挂 / 关闭字幕)· 样式 ›(字号、位置)· 延迟(步进 ±0.1s) | `player.tracks`(裸数组,字段 `kind`)· `player.setTrack` · `player.setSubStyle` · `player.setSubDelay` |
 | 音轨 | 轨道 · 延迟(步进) | 同上 · `player.setAudioDelay` |
-| 弹幕 | 显示弹幕(开关)· 重新匹配 · 搜索弹幕 ›(输入框)· 样式:显示区域 / 字号 / 不透明度 / 速度 | `player.setDanmakuEnabled` · `danmaku.resolve` · `danmaku.search` · `player.setDanmakuStyle` |
+| 弹幕 | 显示弹幕(开关)· 重新匹配 · 搜索弹幕 ›(输入框)· 显示区域(1/4、1/2、3/4、全屏) | `player.setDanmakuEnabled` · `danmaku.resolve` · `danmaku.search` · `player.setDanmakuStyle` |
 | 选集 | 季(同一面板内切换,只换下半段)· 集列表:**带封面的行**(64×36 缩略图 + 「E6 · 集名」+ 时长) | `emby.seasonEpisodes {limit:40}` |
 | 更多 | 画面:画面比例 › · 画面增强 ›(**仅 mpv**)· 版本 ›(>1 个才出现)· 线路 ›<br>播放:倍速 › · 章节 ›(有章节才出现)· 跳过片头 · 跳过片尾(两个开关)<br>工具:换内核重播(mpv ↔ ExoPlayer)· 播放信息 | `player.setAspectRatio` · `player.shaderLevels` / `setShaderLevel` · `player.setSpeed` · `player.chapterInfo` |
 

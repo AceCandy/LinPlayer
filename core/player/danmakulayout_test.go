@@ -45,7 +45,7 @@ func TestRollLanesNeverCollide(t *testing.T) {
 	}
 }
 
-// 显示范围调小 = 轨道数跟着少。四分之一屏时轨道号不许越过 1080*0.25/54。
+// 显示范围调小 = 轨道数跟着少。各档轨道号不能越过对应的高度上限。
 func TestAreaLimitsRollLanes(t *testing.T) {
 	// 密到一定挤满:间隔 0.02 秒,而一条长弹幕要 0.5 秒尾巴才进画面
 	in := make([]danmakuItem, 0, 300)
@@ -54,20 +54,25 @@ func TestAreaLimitsRollLanes(t *testing.T) {
 			Time: float64(i) * 0.02, Mode: 1, Count: 1, Text: strings.Repeat("长", 20),
 		})
 	}
-	s := testStyle()
-	s.Area = 0.25
-	max := 0
-	for _, d := range layout(in, s) {
-		if d.lane > max {
-			max = d.lane
+	for _, tc := range []struct {
+		area float64
+		name string
+	}{{0.25, "1/4"}, {0.5, "1/2"}, {0.75, "3/4"}} {
+		s := testStyle()
+		s.Area = tc.area
+		max := 0
+		for _, d := range layout(in, s) {
+			if d.lane > max {
+				max = d.lane
+			}
 		}
-	}
-	want := int(float64(danmakuResY)*0.25/laneHeight) - 1 // = 4
-	if max > want {
-		t.Fatalf("四分之一屏该只有 %d..%d 轨,实得最大 %d 轨", 0, want, max)
-	}
-	if max == 0 {
-		t.Fatal("只用了一条轨:范围限制生效过头了,弹幕会全挤在一行")
+		want := int(float64(danmakuResY)*tc.area/laneHeight) - 1
+		if max > want {
+			t.Fatalf("%s 屏该只有 %d..%d 轨,实得最大 %d 轨", tc.name, 0, want, max)
+		}
+		if max == 0 {
+			t.Fatalf("%s 屏只用了一条轨:范围限制生效过头了,弹幕会全挤在一行", tc.name)
+		}
 	}
 }
 
