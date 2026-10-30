@@ -476,3 +476,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 149: Android TV 侧栏焦点流程修复
+<!-- trellis-session: v=2 fp=9a234291017ac149 -->
+
+**Date**: 2026-10-30
+**Task**: Android TV 侧栏焦点流程修复
+**Branch**: `main`
+
+### Summary
+
+完成排行榜、搜索、设置的侧栏即时切换与返回焦点流程；搜索进入自动聚焦输入框，聚合搜索按钮支持遥控器，设置 TV 隐藏重复分组标题；定向 Android TV 回归通过并提交归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `4c59658c` | 修复 Android TV 侧栏焦点与返回流程 |
+
+### Status
+
+[OK] **Completed**
