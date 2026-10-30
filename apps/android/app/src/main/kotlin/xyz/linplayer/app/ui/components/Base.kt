@@ -10,6 +10,8 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.ui.text.input.TextFieldValue
+import androidx.compose.ui.text.TextRange
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
@@ -324,11 +326,15 @@ fun LpField(
     val container = if (LocalInDialog.current) c.bg else c.s1
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val focusManager = LocalFocusManager.current
+    val input = remember { mutableStateOf(TextFieldValue(value, selection = TextRange(value.length))) }
+    LaunchedEffect(value) {
+        if (input.value.text != value) input.value = TextFieldValue(value, selection = TextRange(value.length))
+    }
     Column(m) {
         if (label != null) Dim3(label, Modifier.padding(bottom = Sp.x6))
         OutlinedTextField(
-            value = value,
-            onValueChange = onChange,
+            value = input.value,
+            onValueChange = { next -> input.value = next; onChange(next.text) },
             enabled = enabled,
             placeholder = { Text(placeholder, style = LpText.body, color = c.fg3) },
             textStyle = LpText.body,
@@ -355,7 +361,12 @@ fun LpField(
                 .onPreviewKeyEvent {
                 // TV单行输入框上下离开字段，左右仍用于移动光标；多行保留原生编辑。
                 if (tv && lines <= 1 && it.type == KeyEventType.KeyDown) when (it.key) {
-                    Key.DirectionRight -> focusRight?.requestFocus() == true
+                    Key.DirectionRight -> {
+                        val selection = input.value.selection
+                        if (focusRight != null && selection.collapsed && selection.end == input.value.text.length) {
+                            focusRight.requestFocus()
+                        } else false
+                    }
                     Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
                     Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
                     else -> false

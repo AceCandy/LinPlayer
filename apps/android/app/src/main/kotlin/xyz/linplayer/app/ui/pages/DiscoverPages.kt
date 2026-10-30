@@ -431,7 +431,7 @@ private fun TvRankingBody(
         pageBack.value = callback
         onDispose { if (pageBack.value === callback) pageBack.value = null }
     }
-    if (rightFocused) BackHandler { sideFocus.value?.requestFocus() }
+    if (rightFocused && sideFocus.value != null) BackHandler { sideFocus.value?.requestFocus() }
     Row(Modifier.fillMaxSize()) {
         Column(Modifier.width(200.dp).fillMaxHeight().verticalScroll(rememberScrollState())
             .padding(start = Sp.x8, end = Sp.x16, bottom = Sp.x26)) {
@@ -440,6 +440,9 @@ private fun TvRankingBody(
                     color = c.fg3, style = LpText.caption, letterSpacing = 2.sp)
                 cs.orEmpty().filter { it.source == group }.forEach { category ->
                     val requester = remember(category.id) { FocusRequester() }
+                    DisposableEffect(requester) {
+                        onDispose { if (sideFocus.value === requester) sideFocus.value = null }
+                    }
                     TvRankingCategory(category.label + if (category.enabled) "" else " · 未开启", category.id == cur,
                         requester, rightFocus,
                         onFocused = { sideFocus.value = it },

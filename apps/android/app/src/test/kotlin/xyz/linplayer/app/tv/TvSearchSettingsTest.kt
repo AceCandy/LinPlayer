@@ -157,7 +157,9 @@ class TvSearchSettingsTest {
         press(rule, Key.DirectionCenter)
         rule.onNode(hasSetTextAction()).performTextInput("影片")
         rule.onNode(hasSetTextAction()).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionRight)
+        press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionRight)
+        rule.onNode(hasSetTextAction()).assertIsFocused()
+        press(rule, Key.DirectionRight, Key.DirectionRight)
         rule.onNodeWithContentDescription("开启聚合搜索").assertIsFocused()
         press(rule, Key.DirectionCenter)
         rule.waitUntil(5000) { core.calls.any { it.first == "source.aggregateSearch" } }
