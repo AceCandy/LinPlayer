@@ -1,0 +1,4 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "遵循最小改动、跨层验证和交付要求"}
+{"file": ".trellis/spec/backend/index.md", "reason": "核对 Go 核心配置与排版测试边界"}
+{"file": ".trellis/spec/frontend/desktop.md", "reason": "遵循 Windows Avalonia UI 和核心调用约束"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "遵循 Android 手机/TV UI 和焦点约束"}
