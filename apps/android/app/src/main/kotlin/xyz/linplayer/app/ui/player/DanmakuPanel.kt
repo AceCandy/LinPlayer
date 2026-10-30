@@ -34,13 +34,16 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
     }
     Column(Modifier.fillMaxWidth()) {
         if (page != "quick") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-            IconButton(onClick = { onPage("quick") }) {
+            IconButton(onClick = { onPage(if (page == "advancedStyle") "style" else "quick") }) {
                 Icon(LpIcons.back, "返回弹幕菜单", tint = Color.White, modifier = Modifier.size(20.dp))
             }
-            Text(when (page) { "style" -> "弹幕样式"; "offset" -> "时间偏移"; else -> "搜索与匹配" },
+            Text(when (page) {
+                "style" -> "显示设置"
+                "advancedStyle" -> "更多显示设置"
+                "offset" -> "时间偏移"
+                else -> "更换弹幕"
+            },
                 Modifier.weight(1f), color = Color.White, style = LpText.action)
-            if (page == "style") Text("全局生效", Modifier.padding(end = 16.dp),
-                color = Color.White.copy(alpha = .6f), style = LpText.caption)
         }
         DanmakuStyle.loadError.value?.let {
             PlayerMenuNote(it)
@@ -52,49 +55,53 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
                     item("on") { DanmakuToggle("显示弹幕", DanmakuStyle.enabled.value, ready) {
                         scope.launch { toggleDanmaku(app, itemId, it) }
                     } }
-                    item("source") { PlayerMenuNote(DanmakuStyle.source.value.ifBlank { "尚未匹配" }, maxLines = 2) }
+                    item("source") { PlayerMenuNote("当前来源：${DanmakuStyle.source.value.ifBlank { "未匹配" }}", maxLines = 2) }
                     item("offset") { PlayerMenuRow("时间偏移", { onPage("offset") },
                         badge = "%.1f秒".format(DanmakuStyle.offset.doubleValue), icon = LpIcons.sync) }
-                    item("style") { PlayerMenuRow("弹幕样式", { onPage("style") }, icon = LpIcons.settings) }
-                    item("match") { PlayerMenuRow("搜索与匹配", { onPage("match") }, icon = LpIcons.search, divider = false) }
+                    item("style") { PlayerMenuRow("显示设置", { onPage("style") }, icon = LpIcons.settings) }
+                    item("match") { PlayerMenuRow("更换弹幕", { onPage("match") }, icon = LpIcons.search, divider = false) }
                 }
                 "offset" -> {
                     item("step") { StepRow("偏移", "%.1f 秒".format(DanmakuStyle.offset.doubleValue)) { up ->
                         scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + if (up) .5 else -.5) }
                     } }
-                    item("note") { PlayerMenuNote("负数提前，正数延后；每次调整0.5秒。") }
+                    item("note") { PlayerMenuNote("负数提前，正数延后；每次调整 0.5 秒。") }
                     item("reset") { PlayerMenuRow("重置弹幕时间", { scope.launch { DanmakuStyle.setOffset(app, 0.0) } }, divider = false) }
                 }
                 "match" -> {
-                    item("source") { PlayerMenuNote(DanmakuStyle.source.value.ifBlank { "尚未匹配" }) }
+                    item("source") { PlayerMenuNote("当前来源：${DanmakuStyle.source.value.ifBlank { "未匹配" }}") }
                     item("search") { PlayerMenuRow("搜索弹幕", onSearch, icon = LpIcons.search) }
                     item("again") { PlayerMenuRow("重新匹配这一集", {
                         scope.launch { loadDanmakuFor(app, itemId, loud = true, ignoreMemory = true) }
                     }) }
-                    item("forget") { PlayerMenuRow("清除匹配记忆", {
+                    item("forget") { PlayerMenuRow("清除当前匹配记忆", {
                         scope.launch { resolveDanmakuFor(app, itemId, forget = true, loud = true) }
                     }, divider = false) }
                 }
                 "style" -> {
-                    item("roll") { PlayerStyleSlider("滚动行数", DanmakuStyle.rollLines.intValue.toFloat(), 0f..20f, 19,
-                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("roll_lines", it.roundToInt()) } }
-                    item("top") { PlayerStyleSlider("顶部行数", DanmakuStyle.topLines.intValue.toFloat(), 0f..20f, 19,
-                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("top_lines", it.roundToInt()) } }
-                    item("bottom") { PlayerStyleSlider("底部行数", DanmakuStyle.bottomLines.intValue.toFloat(), 0f..20f, 19,
-                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("bottom_lines", it.roundToInt()) } }
-                    item("scale") { PlayerStyleSlider("字号", DanmakuStyle.scale.doubleValue.toFloat(), .1f..3f, 28,
-                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${(it * 100).roundToInt()}%" }) { set("scale", (it * 10).roundToInt() / 10.0) } }
+                    item("area") { PlayerMenuRow("显示区域", { set("area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) },
+                        badge = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = ready) }
                     item("opacity") { PlayerStyleSlider("不透明度", DanmakuStyle.opacity.doubleValue.toFloat(), .1f..1f, 8,
                         enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${(it * 100).roundToInt()}%" }) { set("opacity", (it * 10).roundToInt() / 10.0) } }
+                    item("scale") { PlayerStyleSlider("字号", DanmakuStyle.scale.doubleValue.toFloat(), .1f..3f, 28,
+                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${(it * 100).roundToInt()}%" }) { set("scale", (it * 10).roundToInt() / 10.0) } }
                     item("speed") { PlayerStyleSlider("滚动速度", DanmakuStyle.speed.doubleValue.toFloat(), .1f..3f, 28,
                         enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "%.1f×".format(it) }) { set("speed", (it * 10).roundToInt() / 10.0) } }
-                    item("bold") { DanmakuToggle("粗体", DanmakuStyle.bold.value, ready) { set("bold", it) } }
-                    item("merge") { DanmakuToggle("合并重复", DanmakuStyle.merge.value, ready) { set("merge", it) } }
-                    item("overlap") { DanmakuToggle("防止重叠", DanmakuStyle.preventOverlap.value, ready) { set("prevent_overlap", it) } }
-                    item("heat") { DanmakuToggle("进度条热力图", DanmakuStyle.heatmap.value, ready) { set("heatmap", it) } }
-                    item("area") { PlayerMenuRow("滚动范围", { set("area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) },
-                        badge = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = ready) }
-                    item("note") { PlayerMenuNote("行数为0时隐藏该类弹幕。防止重叠开启时，排不下的弹幕会略过。屏蔽词在设置里添加。", maxLines = 6) }
+                    item("advanced") { PlayerMenuRow("更多显示设置", { onPage("advancedStyle") }, icon = LpIcons.settings,
+                        divider = false) }
+                }
+                "advancedStyle" -> {
+                    item("roll") { PlayerStyleSlider("滚动弹幕行数", DanmakuStyle.rollLines.intValue.toFloat(), 0f..20f, 19,
+                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("roll_lines", it.roundToInt()) } }
+                    item("top") { PlayerStyleSlider("顶部固定弹幕行数", DanmakuStyle.topLines.intValue.toFloat(), 0f..20f, 19,
+                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("top_lines", it.roundToInt()) } }
+                    item("bottom") { PlayerStyleSlider("底部固定弹幕行数", DanmakuStyle.bottomLines.intValue.toFloat(), 0f..20f, 19,
+                        enabled = ready, accent = accent, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${it.roundToInt()}行" }) { set("bottom_lines", it.roundToInt()) } }
+                    item("bold") { DanmakuToggle("粗体弹幕", DanmakuStyle.bold.value, ready) { set("bold", it) } }
+                    item("merge") { DanmakuToggle("合并重复弹幕", DanmakuStyle.merge.value, ready) { set("merge", it) } }
+                    item("overlap") { DanmakuToggle("防止弹幕重叠", DanmakuStyle.preventOverlap.value, ready) { set("prevent_overlap", it) } }
+                    item("heat") { DanmakuToggle("显示进度条热力图", DanmakuStyle.heatmap.value, ready) { set("heatmap", it) } }
+                    item("note") { PlayerMenuNote("行数设为 0 即隐藏这一类弹幕。防止重叠开启时，放不下的弹幕会自动跳过。屏蔽词可在设置中添加。", maxLines = 6) }
                 }
             }
         }

@@ -314,8 +314,10 @@ fun PlayerPanel(
         else -> 236.dp
     }
     PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku" || menuKind == "info",
-        sidePanel = menuKind == "danmaku" && danmakuPage == "style",
-        onBack = if (menuKind == "danmaku" && danmakuPage != "quick") ({ danmakuPage = "quick" }) else null,
+        sidePanel = menuKind == "danmaku" && danmakuPage in listOf("style", "advancedStyle"),
+        onBack = if (menuKind == "danmaku" && danmakuPage != "quick") ({
+            danmakuPage = if (danmakuPage == "advancedStyle") "style" else "quick"
+        }) else null,
         onClose = onClose) {
         loadError?.let {
             PlayerMenuNote(it, Modifier.padding(horizontal = Sp.x12), maxLines = 2)

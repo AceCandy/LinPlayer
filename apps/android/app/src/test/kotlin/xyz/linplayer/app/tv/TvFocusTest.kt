@@ -38,6 +38,7 @@ import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.core.CoreEvent
 import xyz.linplayer.app.ui.pages.args
+import xyz.linplayer.app.ui.player.DanmakuStyle
 
 /**
  * 焦点路径断言(UI_TV.md §11.3)。☠ 焦点问题在静态截图上**完全看不出来** —— 出图之外必须有按键驱动的断言。
@@ -357,6 +358,35 @@ class TvFocusTest {
         rule.onNodeWithText("上一集").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.Enter); advance(rule, 800)
         assertEquals("sh5", lastPlayed())
+    }
+
+    @Test fun 弹幕高级设置按键可调值并逐级返回() {
+        val style = args(
+            "area" to 1.0, "scale" to 1.0, "opacity" to 1.0, "speed" to 1.0,
+            "roll_lines" to 5, "top_lines" to 4, "bottom_lines" to 3,
+            "bold" to false, "merge" to false, "prevent_overlap" to true, "heatmap" to false,
+        )
+        DanmakuStyle.loaded.value = false
+        DanmakuStyle.layout.value = null
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.getDanmakuStyle", style)
+            ret("prefs.getPrefs", args("danmaku_enabled" to true))
+            ret("player.danmakuLayout", args("items" to kotlinx.serialization.json.JsonArray(emptyList())))
+        }
+        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.Enter); advance(rule, 400)
+        rule.onNodeWithText("当前视频").assertExists()
+        rule.onNodeWithText("更多显示设置").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter); advance(rule, 300)
+        rule.onNodeWithText("滚动弹幕行数").assertExists()
+        rule.onNodeWithText("顶部固定弹幕行数").assertExists()
+        rule.onNodeWithText("底部固定弹幕行数").assertExists()
+        rule.onNodeWithText("滚动弹幕行数").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionRight); advance(rule, 300)
+        assertTrue(core.calls.any { it.first == "player.setDanmakuStyle" && it.second.dbl("roll_lines") == 6.0 })
+        pressBack()
+        rule.onNodeWithText("显示设置").assertExists()
+        pressBack(); focused("osd.dm")
     }
 
     @Test fun 插件入口移到更多后返回逐级退出并恢复播控() {
