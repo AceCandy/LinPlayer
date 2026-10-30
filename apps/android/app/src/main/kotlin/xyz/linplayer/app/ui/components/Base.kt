@@ -17,6 +17,8 @@ import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.focus.FocusDirection
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.FocusProperties
 import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
@@ -313,6 +315,9 @@ fun LpField(
     enabled: Boolean = true,
     trailingIcon: @Composable (() -> Unit)? = null,
     onSearch: (() -> Unit)? = null,
+    focusRequester: FocusRequester? = null,
+    focusProperties: (FocusProperties.() -> Unit)? = null,
+    focusRight: FocusRequester? = null,
 ) {
     val c = Lp.colors
     // 弹窗面板是 s2 层，再叠半透明 s1 几乎看不出；改用页面底色做成嵌入槽
@@ -344,9 +349,13 @@ fun LpField(
                 focusedIndicatorColor = c.acc, unfocusedIndicatorColor = c.line,
                 cursorColor = c.acc,
             ),
-            modifier = Modifier.fillMaxWidth().onPreviewKeyEvent {
+            modifier = Modifier.fillMaxWidth()
+                .then(focusRequester?.let { Modifier.focusRequester(it) } ?: Modifier)
+                .then(focusProperties?.let { Modifier.focusProperties(it) } ?: Modifier)
+                .onPreviewKeyEvent {
                 // TV单行输入框上下离开字段，左右仍用于移动光标；多行保留原生编辑。
                 if (tv && lines <= 1 && it.type == KeyEventType.KeyDown) when (it.key) {
+                    Key.DirectionRight -> focusRight?.requestFocus() == true
                     Key.DirectionUp -> focusManager.moveFocus(FocusDirection.Up)
                     Key.DirectionDown -> focusManager.moveFocus(FocusDirection.Down)
                     else -> false

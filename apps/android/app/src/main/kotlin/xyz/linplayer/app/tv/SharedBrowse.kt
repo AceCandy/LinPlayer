@@ -64,6 +64,8 @@ val LocalTvMode = staticCompositionLocalOf { false }
 internal val LocalTvBarOverlay = staticCompositionLocalOf<MutableState<Boolean>?> { null }
 
 internal val LocalTvTopNavigation = staticCompositionLocalOf<FocusRequester?> { null }
+/** 一级页右栏按返回时先交还给页面侧栏；返回 false 才继续回顶栏。 */
+internal val LocalTvPageBack = staticCompositionLocalOf<MutableState<(() -> Boolean)?>> { mutableStateOf(null) }
 
 /** 当前首页登记刷新动作，离页撤销；顶栏不复制页面的请求与私密分支。 */
 internal val LocalTvHomeRefresh = staticCompositionLocalOf<MutableState<(() -> Unit)?>?> { null }
@@ -287,9 +289,12 @@ internal fun SharedTopNavigation(nav: NavHostController, activeTab: Int, content
     // 一级页内容区按返回先回到顶栏当前项；焦点已在顶栏时交给下层返回/退出
     var navFocused by remember { mutableStateOf(false) }
     val rootPage = entry?.destination?.isTvRootPage() == true
+    val pageBack = LocalTvPageBack.current
     BackHandler(enabled = rootPage && !navFocused) {
-        if (entry?.destination?.hasRoute<Route.Home>() == true) entry?.savedStateHandle?.set("tv.home.top", true)
-        focus.requestFocus()
+        if (pageBack.value?.invoke() != true) {
+            if (entry?.destination?.hasRoute<Route.Home>() == true) entry?.savedStateHandle?.set("tv.home.top", true)
+            focus.requestFocus()
+        }
     }
     val refresh = LocalTvHomeRefresh.current?.value
     TopNavigation(current, privateSpace = privateSpace, serverName = name, aggregateLabel = "聚合视界", overlay = overlay,

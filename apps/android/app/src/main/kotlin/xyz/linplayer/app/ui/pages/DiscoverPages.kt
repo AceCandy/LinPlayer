@@ -1,11 +1,17 @@
 package xyz.linplayer.app.ui.pages
 
+import androidx.activity.compose.BackHandler
 import xyz.linplayer.app.tv.tvFocusRow
 import xyz.linplayer.app.tv.tvPosterFocus
 import xyz.linplayer.app.tv.tvRaised
+import xyz.linplayer.app.tv.LocalTvPageBack
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
 
 import xyz.linplayer.app.ui.theme.LpText
 
@@ -63,6 +69,7 @@ import xyz.linplayer.app.data.keepState
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.Session
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -415,6 +422,16 @@ private fun TvRankingBody(
     val cs = cats.valueOrNull
     if (cs != null && cs.isEmpty()) { EmptyState("暂无可用榜单", "稍后再来看看。", LpIcons.trophy); return }
     val selected = cs?.firstOrNull { it.id == cur }
+    val sideFocus = remember { mutableStateOf<FocusRequester?>(null) }
+    val rightFocus = remember { FocusRequester() }
+    var rightFocused by remember { mutableStateOf(false) }
+    val pageBack = LocalTvPageBack.current
+    DisposableEffect(sideFocus.value, rightFocused) {
+        val callback: () -> Boolean = { if (rightFocused) sideFocus.value?.requestFocus() == true else false }
+        pageBack.value = callback
+        onDispose { if (pageBack.value === callback) pageBack.value = null }
+    }
+    if (rightFocused) BackHandler { sideFocus.value?.requestFocus() }
     Row(Modifier.fillMaxSize()) {
         Column(Modifier.width(200.dp).fillMaxHeight().verticalScroll(rememberScrollState())
             .padding(start = Sp.x8, end = Sp.x16, bottom = Sp.x26)) {
@@ -422,13 +439,20 @@ private fun TvRankingBody(
                 Text(rankingSourceLabel(group), Modifier.padding(top = Sp.x16, bottom = Sp.x6, start = Sp.x12),
                     color = c.fg3, style = LpText.caption, letterSpacing = 2.sp)
                 cs.orEmpty().filter { it.source == group }.forEach { category ->
-                    TvRankingCategory(category.label + if (category.enabled) "" else " · 未开启", category.id == cur) {
+                    val requester = remember(category.id) { FocusRequester() }
+                    TvRankingCategory(category.label + if (category.enabled) "" else " · 未开启", category.id == cur,
+                        requester, rightFocus,
+                        onFocused = { sideFocus.value = it },
+                        onFocus = { if (category.id != cur) onCategory(group, category.id) }) {
                         onCategory(group, category.id)
+                        rightFocus.requestFocus()
                     }
                 }
             }
         }
-        LazyColumn(Modifier.weight(1f).fillMaxHeight(), list,
+        LazyColumn(Modifier.weight(1f).fillMaxHeight().focusRequester(rightFocus)
+            .onFocusChanged { rightFocused = it.hasFocus }
+            .focusProperties { if (sideFocus.value != null) left = sideFocus.value!! }, list,
             contentPadding = PaddingValues(start = Sp.x8, end = Sp.x8, bottom = pad.calculateBottomPadding()),
             verticalArrangement = Arrangement.spacedBy(Sp.x10)) {
             selected?.let { item("heading") {
@@ -442,12 +466,12 @@ private fun TvRankingBody(
             } else {
                 val podium = if (rows.size >= 3) rows.take(3) else emptyList()
                 if (podium.isNotEmpty()) item("podium") {
-                    Row(Modifier.fillMaxWidth().padding(vertical = Sp.x8).tvFocusRow(), horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
+                    Row(Modifier.fillMaxWidth().padding(vertical = Sp.x8).tvFocusRow(sideFocus.value), horizontalArrangement = Arrangement.spacedBy(Sp.x16)) {
                         podium.forEach { TvPodCard(it, Modifier.weight(1f), open) }
                     }
                 }
                 items(rows.drop(podium.size).chunked(2), key = { pair -> pair.first().id }) { pair ->
-                    Row(Modifier.fillMaxWidth().tvFocusRow(), horizontalArrangement = Arrangement.spacedBy(Sp.x20)) {
+                    Row(Modifier.fillMaxWidth().tvFocusRow(sideFocus.value), horizontalArrangement = Arrangement.spacedBy(Sp.x20)) {
                         pair.forEach { TvRankRow(it, Modifier.weight(1f), open) }
                         if (pair.size == 1) Spacer(Modifier.weight(1f))
                     }
@@ -462,18 +486,22 @@ private fun TvRankingBody(
 
 /** 榜单目录项：当前榜单左侧强调色短条加粗；获焦用立体胶囊。 */
 @Composable
-private fun TvRankingCategory(label: String, on: Boolean, onClick: () -> Unit) {
+private fun TvRankingCategory(label: String, on: Boolean, requester: FocusRequester, right: FocusRequester,
+    onFocused: (FocusRequester) -> Unit, onFocus: () -> Unit, onClick: () -> Unit) {
     val c = Lp.colors
     var focused by remember { mutableStateOf(false) }
-    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).semantics { selected = on }
-        .tvRaised(focused, glass = c.fg).onFocusChanged { focused = it.isFocused }
-        .pressable({ if (!on) onClick() }, tvHighlight = false, tvScale = false)
+    Row(Modifier.fillMaxWidth().heightIn(min = 40.dp).focusRequester(requester)
+        .focusProperties { this.right = right }.semantics { selected = on }
+        .tvRaised(focused, glass = c.fg)
+        .onFocusChanged { if (it.isFocused) { focused = true; onFocused(requester); onFocus() } else focused = false }
+        .pressable(onClick, tvHighlight = false, tvScale = false)
         .padding(horizontal = Sp.x12), verticalAlignment = Alignment.CenterVertically) {
         if (on) Box(Modifier.padding(end = Sp.x8).size(3.dp, 14.dp).clip(RoundedCornerShape(R.pill)).background(c.acc))
         Text(label, color = if (on || focused) c.fg else c.fg2, style = LpText.list,
             fontWeight = if (on || focused) FontWeight.SemiBold else FontWeight.Normal, maxLines = 1, overflow = TextOverflow.Ellipsis)
     }
 }
+
 
 /** 前三名横向大卡：海报铺底压暗，右侧立一张海报，左下奖牌色大名次与片名。 */
 @Composable

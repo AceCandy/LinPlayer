@@ -2,6 +2,7 @@ package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.ui.theme.LpText
 import xyz.linplayer.app.tv.tvFocusRow
+import xyz.linplayer.app.tv.LocalTvPageBack
 
 import android.content.Context
 import android.content.Intent
@@ -9,6 +10,7 @@ import android.net.Uri
 import android.os.Build
 import android.provider.Settings
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.focusGroup
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import xyz.linplayer.app.ui.components.manageListWidth
@@ -16,7 +18,6 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyListScope
-import androidx.compose.runtime.key
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.ui.platform.testTag
@@ -24,8 +25,10 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -44,6 +47,8 @@ import xyz.linplayer.app.core.Logs
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
+import androidx.navigation.NavDestination.Companion.hasRoute
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.JsonObject
@@ -93,6 +98,10 @@ import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusProperties
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -126,6 +135,8 @@ fun SettingsPage(nav: NavController) {
        (2026-09-21)。手机上没有侧栏,放在设置根列表里 —— 两层就能到。 */
     val app = LocalApp.current
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
+    val currentEntry by nav.currentBackStackEntryAsState()
+    val pageActive = currentEntry?.destination?.hasRoute<Route.Settings>() == true
     var pluginEntries by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
     LaunchedEffect(Unit) {
         pluginEntries = runCatching { app.call("plugin.sidebar") }.getOrNull().arr().mapNotNull { it.obj() }
@@ -136,9 +147,20 @@ fun SettingsPage(nav: NavController) {
 
 
     var group by rememberSaveable { mutableStateOf("播放与外观") }
+    val sideFocus = remember { mutableStateOf<FocusRequester?>(null) }
+    val rightFocus = remember { FocusRequester() }
+    var rightFocused by remember { mutableStateOf(false) }
+    var sideFocusInitialized by remember { mutableStateOf(false) }
+    val pageBack = LocalTvPageBack.current
+    LaunchedEffect(pageActive) { if (!pageActive) sideFocusInitialized = false }
+    DisposableEffect(tv, pageActive, sideFocus.value, rightFocused) {
+        val callback: () -> Boolean = { if (rightFocused) { sideFocus.value?.requestFocus() == true } else false }
+        if (tv && pageActive) pageBack.value = callback
+        onDispose { if (pageBack.value === callback) pageBack.value = null }
+    }
     val entries: LazyListScope.() -> Unit = {
         if (!tv || group == "播放与外观") {
-            item("g1") { GroupLabel("播放与外观") }
+            item("g1") { if (!tv) GroupLabel("播放与外观") }
             item("p1") {
                 SettingsEntryGroup(tv) {
                     LpCell("外观", mediaStyle = true, icon = LpIcons.image) { nav.navigate(Route.SettingsSub("appearance")) }
@@ -158,7 +180,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (tv && group == "手机遥控") {
-            item("g-companion") { GroupLabel("手机遥控") }
+            item("g-companion") { if (!tv) GroupLabel("手机遥控") }
             item("p-companion") {
                 SettingsEntryGroup(tv) {
                     LpCell("手机扫码遥控", mediaStyle = true, icon = LpIcons.sync) { nav.navigate(Route.SettingsSub("companion")) }
@@ -166,7 +188,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (!tv || group == "网络") {
-            item("g2") { GroupLabel("网络") }
+            item("g2") { if (!tv) GroupLabel("网络") }
             item("p2") {
                 SettingsEntryGroup(tv) {
                     LpCell("多线程加载", mediaStyle = true, icon = LpIcons.cloud) { nav.navigate(Route.SettingsSub("prefetch")) }
@@ -176,7 +198,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (pluginEntries.isNotEmpty() && (!tv || group == "插件页面")) {
-            item("g-pe") { GroupLabel("插件页面") }
+            item("g-pe") { if (!tv) GroupLabel("插件页面") }
             item("p-pe") {
                 SettingsEntryGroup(tv) {
                     pluginEntries.forEachIndexed { i, e ->
@@ -194,7 +216,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (!tv || group == "内容与数据") {
-            item("g4") { GroupLabel("内容与数据") }
+            item("g4") { if (!tv) GroupLabel("内容与数据") }
             item("p4") {
                 SettingsEntryGroup(tv) {
                     // 「已屏蔽的内容」是**隐藏类功能的集中解除列表** ——
@@ -215,7 +237,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (!tv || group == "扩展与账号") {
-            item("g-extensions") { GroupLabel("扩展与账号") }
+            item("g-extensions") { if (!tv) GroupLabel("扩展与账号") }
             item("p-extensions") {
                 SettingsEntryGroup(tv) {
                     // 账号连接留在宿主(token 不给插件);记进度那部分在同步插件里
@@ -230,7 +252,7 @@ fun SettingsPage(nav: NavController) {
             }
         }
         if (!tv || group == "应用") {
-            item("g-app") { GroupLabel("应用") }
+            item("g-app") { if (!tv) GroupLabel("应用") }
             item("p-app") {
                 SettingsEntryGroup(tv) {
                     LpCell("更新", mediaStyle = true, icon = LpIcons.refresh) { nav.navigate(Route.SettingsSub("update")) }
@@ -251,15 +273,29 @@ fun SettingsPage(nav: NavController) {
                     (if (pluginEntries.isNotEmpty()) listOf("插件页面") else emptyList()) +
                     listOf("内容与数据", "扩展与账号", "应用")
                 groups.forEach { name ->
+                    val requester = remember(name) { FocusRequester() }
                     LpCell(name, arrow = false,
                         m = Modifier.padding(bottom = Sp.x4).testTag("settings.group.$name")
+                            .focusRequester(requester)
+                            .focusProperties { right = rightFocus }
+                            .onFocusChanged {
+                                if (tv && pageActive && it.isFocused) {
+                                    val initial = !sideFocusInitialized
+                                    sideFocusInitialized = true
+                                    sideFocus.value = requester
+                                    if (!initial || group == name) group = name
+                                }
+                            }
                             .semantics { selected = group == name }
                             .background(if (group == name) Lp.colors.acc.copy(alpha = .12f) else Color.Transparent, RoundedCornerShape(R.sm)),
-                    ) { group = name }
+                    ) { group = name; if (pageActive) rightFocus.requestFocus() }
                 }
             }
             key(group) {
-                LazyColumn(Modifier.weight(1f).fillMaxHeight().testTag("settings.entries"),
+                LazyColumn(Modifier.weight(1f).fillMaxHeight().testTag("settings.entries")
+                    .focusRequester(rightFocus).focusGroup()
+                    .onFocusChanged { rightFocused = it.hasFocus }
+                    .focusProperties { left = sideFocus.value ?: FocusRequester.Default },
                     contentPadding = pad, content = entries)
             }
         } else LazyColumn(Modifier.manageListWidth(), list, contentPadding = pad, content = entries)

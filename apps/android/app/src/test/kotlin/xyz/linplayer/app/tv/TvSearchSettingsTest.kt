@@ -80,6 +80,7 @@ class TvSearchSettingsTest {
         mount(theme, large)
         rule.onNodeWithTag("rail.0").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
+        rule.onNode(hasSetTextAction()).assertIsFocused()
         rule.onNode(hasSetTextAction()).performTextInput("影片")
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" } }
         rule.waitForIdle()
@@ -91,6 +92,7 @@ class TvSearchSettingsTest {
         assertTrue("首排须给浮起焦点留出上方空间", bounds.top - results.top >= with(rule.density) { 20.dp.toPx() })
         assertTrue("海报宽度须按右栏计算", bounds.width <= with(rule.density) { 138.dp.toPx() } + 1f)
         rule.onNodeWithText("人物").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.onNodeWithText("人物").assertIsSelected()
         press(rule, Key.DirectionRight)
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("search.results"))).assertExists()
         rule.onRoot().captureRoboImage("build/search-settings/search-$theme.png")
@@ -99,6 +101,12 @@ class TvSearchSettingsTest {
         rule.runOnUiThread { back.onBackPressed() }
         rule.waitForIdle()
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("search.results"))).assertExists()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNode(hasSetTextAction()).assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.0").assertIsFocused()
     }
 
 
@@ -124,7 +132,10 @@ class TvSearchSettingsTest {
         rule.waitUntil(5000) { core.calls.any { it.first == "emby.search" && it.second.str("query") == "失败" } }
         rule.onNodeWithText("重试").assertIsDisplayed().performClick()
         rule.waitUntil(5000) { core.calls.count { it.first == "emby.search" && it.second.str("query") == "失败" } == 2 }
-        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.onNode(hasSetTextAction()).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithContentDescription("开启聚合搜索").assertIsFocused()
+        press(rule, Key.DirectionCenter)
         rule.waitUntil(5000) { core.calls.any { it.first == "source.aggregateSearch" } }
         rule.onNodeWithContentDescription("关闭聚合搜索").assertIsSelected()
         rule.onNodeWithText("「失败」没搜到东西").assertIsDisplayed()
@@ -145,7 +156,10 @@ class TvSearchSettingsTest {
         rule.onNodeWithTag("rail.0").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
         rule.onNode(hasSetTextAction()).performTextInput("影片")
-        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
+        rule.onNode(hasSetTextAction()).performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionRight)
+        rule.onNodeWithContentDescription("开启聚合搜索").assertIsFocused()
+        press(rule, Key.DirectionCenter)
         rule.waitUntil(5000) { core.calls.any { it.first == "source.aggregateSearch" } }
         rule.waitForIdle()
         rule.onNodeWithText("银翼杀手").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
@@ -176,9 +190,10 @@ class TvSearchSettingsTest {
             "内容与数据" to listOf("已屏蔽的内容", "备份与还原", "文件浏览", "存储与数据目录"),
             "扩展与账号" to listOf("Trakt / Bangumi 账号", "插件", "扩展组件"), "应用" to listOf("更新", "关于"),
         )) {
+            rule.onNodeWithTag("settings.group.$group").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
             rule.onNodeWithTag("settings.group.$group").assertIsFocused()
             press(rule, Key.DirectionCenter)
-            rule.onNodeWithTag("settings.group.$group").assertIsSelected().assertIsFocused()
+            rule.onNodeWithTag("settings.group.$group").assertIsSelected()
             labels.forEach { rule.onNodeWithText(it).assertIsDisplayed().assertHasClickAction() }
             if (group != "应用") press(rule, Key.DirectionDown)
         }
@@ -187,6 +202,23 @@ class TvSearchSettingsTest {
 
     @Test fun settingsDarkGroupsKeepFocusAndRestoreEntry() = settings("dark")
     @Test fun settingsLightLargeGroupsKeepFocusAndRestoreEntry() = settings("light", large = true)
+
+    @Test fun settingsSidebarSwitchesOnFocusAndBackReturnsThroughSidebar() {
+        mount("dark")
+        rule.onNodeWithTag("rail.7").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithTag("settings.group.播放与外观").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionDown, Key.DirectionDown)
+        rule.onNodeWithTag("settings.group.网络").assertIsFocused().assertIsSelected()
+        press(rule, Key.DirectionCenter)
+        rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("settings.entries"))).assertExists()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("settings.group.网络").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithTag("rail.7").assertIsFocused()
+    }
 
     private fun settings(theme: String, large: Boolean = false) {
         mount(theme, large)
@@ -198,9 +230,9 @@ class TvSearchSettingsTest {
         val right = rule.onNodeWithText("播放器").fetchSemanticsNode().boundsInRoot
         assertTrue("设置入口应位于分类右侧", right.left > left.right)
         group.performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionCenter)
+        press(rule, Key.DirectionDown, Key.DirectionDown)
         rule.onNodeWithTag("settings.group.网络").assertIsFocused().assertIsSelected()
-        press(rule, Key.DirectionRight)
+        press(rule, Key.DirectionCenter)
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("settings.entries"))).assertExists()
         rule.onRoot().captureRoboImage("build/search-settings/settings-$theme.png")
         press(rule, Key.DirectionCenter)

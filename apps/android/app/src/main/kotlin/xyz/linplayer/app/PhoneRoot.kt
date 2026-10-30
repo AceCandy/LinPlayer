@@ -171,6 +171,7 @@ private fun MainShell(tv: Boolean) {
     val entry by nav.currentBackStackEntryAsState()
     val tvContent = remember { androidx.compose.ui.focus.FocusRequester() }
     val tvNavigation = remember { androidx.compose.ui.focus.FocusRequester() }
+    val tvPageBack = remember { mutableStateOf<(() -> Boolean)?>(null) }
     if (tv) xyz.linplayer.app.tv.SharedTvNavigation(nav)
     // 「启动时自动检查更新」。放在登录之后:没进门就先弹更新是打扰
     var newVersion by androidx.compose.runtime.remember {
@@ -298,6 +299,7 @@ private fun MainShell(tv: Boolean) {
         xyz.linplayer.app.tv.LocalTvBarOverlay provides if (tv) tvBarOverlay else null,
         xyz.linplayer.app.tv.LocalTvHomeRefresh provides if (tv) tvHomeRefresh else null,
         xyz.linplayer.app.tv.LocalTvTopNavigation provides if (tv) tvNavigation else null,
+        xyz.linplayer.app.tv.LocalTvPageBack provides tvPageBack,
         xyz.linplayer.app.tv.LocalTvHomeScroll provides if (tv) tvHomeScroll else null,
         xyz.linplayer.app.tv.LocalTvTone provides if (tv) tvTone else null,
     ) {

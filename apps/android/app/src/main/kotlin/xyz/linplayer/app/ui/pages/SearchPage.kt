@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.pages
 
 import xyz.linplayer.app.tv.tvFocusRow
+import xyz.linplayer.app.tv.LocalTvPageBack
 
 import androidx.compose.foundation.focusGroup
 import androidx.compose.ui.focus.FocusRequester
@@ -27,15 +28,19 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.minimumInteractiveComponentSize
 import xyz.linplayer.app.ui.components.LpPullRefresh
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.platform.testTag
@@ -53,6 +58,7 @@ import xyz.linplayer.app.ui.components.LpIconButton
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavBackStackEntry
 import androidx.navigation.NavController
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.toRoute
 import kotlinx.coroutines.launch
 import xyz.linplayer.app.core.CoreException
@@ -77,6 +83,7 @@ import xyz.linplayer.app.ui.components.gridCellWidth
 import xyz.linplayer.app.ui.components.posterImageHeight
 import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.MediaFilterChip
+import xyz.linplayer.app.ui.components.ToneChip
 import xyz.linplayer.app.ui.components.BlockBox
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -103,6 +110,8 @@ internal class SearchPageState : ViewModel() {
 @Composable
 fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val route = entry.toRoute<Route.Search>()
+    val currentEntry by nav.currentBackStackEntryAsState()
+    val pageActive = currentEntry?.id == entry.id
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
 
@@ -136,6 +145,18 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val resultFocus = remember { FocusRequester() }
     val controlsFocus = remember { FocusRequester() }
+    val inputFocus = remember { FocusRequester() }
+    val aggregateFocus = remember { FocusRequester() }
+    var resultsFocused by remember { mutableStateOf(false) }
+    val pageBack = LocalTvPageBack.current
+    LaunchedEffect(tv, entry.id) {
+        if (tv) { withFrameNanos { }; inputFocus.requestFocus() }
+    }
+    DisposableEffect(tv, pageActive, inputFocus, resultsFocused) {
+        val callback: () -> Boolean = { if (resultsFocused) { inputFocus.requestFocus(); true } else false }
+        if (tv && pageActive) pageBack.value = callback
+        onDispose { if (pageBack.value === callback) pageBack.value = null }
+    }
 
     // 关键词/模式变化取消旧查询；刷新保留当前关键词与库内范围。
     LaunchedEffect(state, q.trim(), searchType, aggregate, refresh) {
@@ -223,7 +244,12 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     trailingIcon = if (route.viewId == null && !onSource && !app.privateSpace.value) ({
                         LpIconButton(
                             LpIcons.layers, if (aggregate) "关闭聚合搜索" else "开启聚合搜索",
-                            Modifier.testTag("search.aggregate").semantics { selected = aggregate },
+                            Modifier.testTag("search.aggregate").focusRequester(aggregateFocus)
+                                .focusProperties {
+                                    left = if (tv) inputFocus else FocusRequester.Default
+                                    right = if (tv) resultFocus else FocusRequester.Default
+                                }
+                                .semantics { selected = aggregate },
                             tint = if (aggregate) Lp.colors.mediaAccent else Lp.colors.fg2,
                         ) {
                             aggregate = !aggregate; refreshing = false
@@ -235,6 +261,13 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         if (!app.privateSpace.value) xyz.linplayer.app.data.UiPrefs.recordSearch(ctx, q)
                         if (aggregate && route.viewId == null) searchAggregate() else refresh++
                     },
+                    focusRequester = if (tv) inputFocus else null,
+                    focusProperties = {
+                        right = if (!tv) FocusRequester.Default else if (route.viewId == null && !onSource && !app.privateSpace.value) aggregateFocus else resultFocus
+                    },
+                    focusRight = if (tv) {
+                        if (route.viewId == null && !onSource && !app.privateSpace.value) aggregateFocus else resultFocus
+                    } else null,
                 )
                 Spacer(Modifier.height(Sp.x12))
                 if (!aggregate || route.viewId != null) Row(
@@ -243,7 +276,11 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 ) {
                     listOf("电影" to "Movie", "剧集" to "Series", "人物" to "Person").forEach { (label, type) ->
                         androidx.compose.foundation.layout.Box(Modifier.testTag("search.type.$type")) {
-                            MediaFilterChip(label, searchType == type, { searchType = type })
+                            if (tv) ToneChip(label, searchType == type,
+                                Modifier.minimumInteractiveComponentSize().onFocusChanged { if (it.isFocused) searchType = type }) {
+                                    searchType = type
+                                }
+                            else MediaFilterChip(label, searchType == type) { searchType = type }
                         }
                     }
                 }
@@ -377,7 +414,8 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             if (tv) Row(Modifier.fillMaxSize().imePadding()) {
                 Column(Modifier.width(280.dp).testTag("search.controls").focusRequester(controlsFocus).focusRestorer().focusGroup()
                     .verticalScroll(rememberScrollState()).padding(bottom = Sp.x20)) { controls() }
-                results(Modifier.weight(1f).fillMaxSize().focusRequester(resultFocus).focusGroup())
+                results(Modifier.weight(1f).fillMaxSize().focusRequester(resultFocus).focusGroup()
+                    .onFocusChanged { resultsFocused = it.hasFocus })
             } else Column(Modifier.fillMaxSize().imePadding()) {
                 controls()
                 results(Modifier.fillMaxSize())

@@ -143,6 +143,7 @@ class SharedTvBrowseTest {
         rule.onNodeWithText("子目录影片.mkv").assertDoesNotExist()
         rule.runOnUiThread { back.onBackPressed() }
         rule.waitForIdle()
+        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("文件浏览"))
         rule.onNodeWithText("文件浏览").assertExists()
         rule.onNodeWithText("电影.mkv").assertDoesNotExist()
     }
@@ -272,16 +273,21 @@ class SharedTvBrowseTest {
             it.ret("emby.extResolve", buildJsonObject { put("item_id", "movie-4"); put("item_type", "Movie") })
         }
         rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("ranking", JsonObject(emptyMap()), false) }
+        rule.onNodeWithText("热门榜").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
+        rule.onNodeWithText("榜单1").assertIsFocused()
+        rule.runOnUiThread { back.onBackPressed() }
+        rule.waitForIdle()
+        rule.onNodeWithText("热门榜").assertIsFocused()
         rule.onNodeWithText("榜单2").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionLeft)
-        rule.onNodeWithText("榜单2").assertIsFocused()
-        press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
+        rule.onNodeWithText("榜单3").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         rule.onNodeWithText("榜单3").assertIsFocused()
         press(rule, Key.DirectionDown)
         rule.onNodeWithText("榜单4").assertIsFocused()
         press(rule, Key.DirectionUp)
         rule.onNode(isFocused() and (hasText("榜单1") or hasText("榜单2") or hasText("榜单3"))).assertExists()
-        press(rule, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionCenter)
+        rule.onNodeWithText("榜单2").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.DirectionCenter)
         assertEquals("2", core.calls.last { it.first == "emby.extResolve" }.second.str("external_id"))
         rule.onNodeWithTag("detail.play").assertIsDisplayed()
     }
