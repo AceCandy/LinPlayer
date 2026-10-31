@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 154
+- **Total Sessions**: 155
 - **Last Active**: 2026-10-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~625 | Active |
+| `journal-4.md` | ~647 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 155 | 2026-10-31 | 恢复弹幕高级设置及三端热力图 | `9fa31962` | `main` |
 | 154 | 2026-10-31 | 连续弹幕排轨修复与设置核对 | `68eede99` | `main` |
 | 153 | 2026-10-31 | 精简播控并修复弹幕加载与显示 | `0fba718a` | `main` |
 | 152 | 2026-10-31 | 手动片头片尾标记与 TV 下一集提示 | `5b467323` | `main` |
