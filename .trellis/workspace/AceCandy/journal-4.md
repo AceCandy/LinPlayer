@@ -758,3 +758,33 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Next Steps
 
 - 真机同影片同网络测首次与重进可见首帧；未出包、未推送，不保证与Hills等速。
+
+
+## Session 160: 起播优化代码复核
+<!-- trellis-session: v=2 fp=ffc5ac919c996270 -->
+
+**Date**: 2026-10-31
+**Task**: 起播优化代码复核
+**Branch**: `main`
+
+### Summary
+
+复核四项起播优化，修复慢进度上报消耗停止预算、同控制器本地回执后仍持锁两处问题；新增回归先红后绿，独立审查通过并归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `3f9cfcd7` | fix: 修正本地停播放行与最终上报超时边界 |
+
+### Testing
+
+- [OK] Android123项、player/progress全量race及196处参数检查通过；核心门禁仅既有TV插件入口对账缺口失败，其余通过。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 未出包、未推送，真机及Hills同条件首帧仍需实测。
