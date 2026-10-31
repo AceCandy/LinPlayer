@@ -157,12 +157,26 @@ class PhonePlayerOsdTest {
         val visible = mutableStateOf(true)
         val duration = mutableStateOf(100.0)
         val position = mutableStateOf(25.0)
-        rule.setContent { LpTheme { PassiveProgress(position.value, duration.value, visible.value) } }
+        val theme = mutableStateOf("blue")
+        var accent = Color.Unspecified
+        rule.setContent { LpTheme(darkOverride = dark.value, color = theme.value) {
+            accent = xyz.linplayer.app.ui.theme.Lp.colors.acc
+            PassiveProgress(position.value, duration.value, visible.value)
+        } }
         val bar = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
         assertEquals(.25f, bar.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current)
         assertEquals(3f, bar.fetchSemanticsNode().boundsInRoot.height, .01f)
         bar.assert(SemanticsMatcher.keyNotDefined(androidx.compose.ui.semantics.SemanticsActions.SetProgress))
         bar.assert(hasClickAction().not())
+        for (color in listOf("blue", "green", "purple", "amber")) {
+            for (isDark in listOf(false, true)) {
+                rule.runOnIdle { theme.value = color; dark.value = isDark }
+                val pixel = bar.captureToImage().toPixelMap()[2, 1]
+                assertEquals(accent.red, pixel.red, .01f)
+                assertEquals(accent.green, pixel.green, .01f)
+                assertEquals(accent.blue, pixel.blue, .01f)
+            }
+        }
         rule.runOnIdle { position.value = 200.0 }
         assertEquals(1f, bar.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current)
         for (d in listOf(0.0, Double.NaN, Double.POSITIVE_INFINITY)) {

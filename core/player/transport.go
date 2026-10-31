@@ -152,12 +152,14 @@ func registerTransport() {
 
 	bus.Register("player.setSpeed", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		v, ok := a["speed"].(float64)
-		if !ok || v < config.SpeedMin || v > config.SpeedMax {
+		if !ok || math.IsNaN(v) || math.IsInf(v, 0) || v < config.SpeedMin || v > config.SpeedMax {
 			return nil, bus.NewErr(bus.EInvalid, "倍速只支持 %.2f~%.2f×", config.SpeedMin, config.SpeedMax)
 		}
 		// ★ 播放中调倍速**不回写偏好** —— 那是临时调整,回写会让下一部片也变速
-		setProp("speed", strconv.FormatFloat(v, 'f', -1, 64))
-		return map[string]any{"speed": v}, nil
+		if err := command("set", "speed", strconv.FormatFloat(v, 'f', -1, 64)); err != nil {
+			return nil, bus.NewErr(bus.EInternal, "倍速设置失败: %v", err)
+		}
+		return map[string]any{"speed": propF("speed")}, nil
 	})
 
 	bus.Register("player.setVolume", func(ctx context.Context, seq int64, a map[string]any) (any, error) {

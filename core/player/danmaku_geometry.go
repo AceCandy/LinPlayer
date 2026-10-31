@@ -9,7 +9,7 @@ import (
 
 // measuredLayoutReply 将同一候选快照和宿主实际几何绑定；测量结果不写全局布局。
 func measuredLayoutReply(ctx context.Context, a map[string]any) (any, error) {
-	if a["prepare"] == nil && a["revision"] == nil && a["viewport_width"] == nil && a["widths"] == nil {
+	if a["prepare"] == nil && a["revision"] == nil && a["viewport_width"] == nil && a["widths"] == nil && a["until"] == nil {
 		return danmakuLayoutReply(), nil
 	}
 	if err := ctx.Err(); err != nil {
@@ -18,6 +18,20 @@ func measuredLayoutReply(ctx context.Context, a map[string]any) (any, error) {
 	dmMu.Lock()
 	items, style, revision := dmPrepared, dmPreparedStyle, dmRevision
 	dmMu.Unlock()
+	if raw, exists := a["until"]; exists {
+		until, ok := raw.(float64)
+		if !ok || until < 0 || math.IsNaN(until) || math.IsInf(until, 0) {
+			return nil, bus.NewErr(bus.EInvalid, "弹幕准备终点无效")
+		}
+		// 保留所有此前候选；只截未来，避免跨批次改变占轨和合并结果。
+		prefix := make([]danmakuItem, 0)
+		for _, item := range items {
+			if item.Time <= until {
+				prefix = append(prefix, item)
+			}
+		}
+		items = prefix
+	}
 	if prepare, ok := a["prepare"].(bool); ok && prepare && a["widths"] == nil && a["revision"] == nil {
 		formatted := append([]danmakuItem(nil), items...)
 		for i := range formatted {
@@ -53,6 +67,7 @@ func measuredLayoutReply(ctx context.Context, a map[string]any) (any, error) {
 	}
 	dmMu.Lock()
 	current := dmRevision
+	style.Opacity = dmPreparedStyle.Opacity
 	dmMu.Unlock()
 	if current != revision {
 		return nil, bus.NewErr(bus.EInvalid, "弹幕测量已过期")

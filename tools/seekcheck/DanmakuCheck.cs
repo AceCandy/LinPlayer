@@ -86,9 +86,11 @@ internal static class DanmakuCheck
             var controls = Buttons(style).Where(b => b.Content as string == "−").ToArray();
             Check(controls.Length == 3 && Buttons(style).Any(b => b.Content is string s && s.StartsWith("更多设置")), "常用设置或更多入口不完整");
             for (var i = 0; i < controls.Length; i++) {
+                var request = Field<long>(player, "_dmLayoutRequest");
                 controls[i].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Wait(() => style.IsEnabled, "样式保存未完成");
                 Check(Math.Abs(Await(core.PlayerGetDanmakuStyle()).GetProperty(keys[i]).GetDouble() - .9) < .001, "样式步进未保存");
+                if (keys[i] == "opacity") Check(Field<long>(player, "_dmLayoutRequest") == request, "透明度仍重新测量布局");
             }
             var advancedKeys = new[] { ("粗体", "bold"), ("合并重复", "merge"), ("防止重叠", "prevent_overlap"), ("进度条热力图", "heatmap") };
             var advanced = Buttons(style).Single(b => b.Content is string s && s.StartsWith("粗体"));
@@ -155,6 +157,7 @@ internal static class DanmakuCheck
             } finally { Directory.Delete(configFile); File.WriteAllBytes(configFile, original); }
             CheckDrawing(window);
             CheckContinuous(core, window, player);
+            CheckStaged(core, window, player);
             Console.WriteLine("弹幕：源管理/手选/偏移、四项设置、实际测宽/区域绘制、连续同轨及迟到测量通过");
         } finally {
             if (player != null) Field<CancellationTokenSource>(player, "_dmCancellation").Cancel();
@@ -183,13 +186,62 @@ internal static class DanmakuCheck
         window.Width = 320; window.Height = 600;
         Wait(() => Field<DmLayout?>(dm, "_renderLayout") is { } changed && !ReferenceEquals(changed, rendered), "窗口变化未重测");
         var pending = new TaskCompletionSource<DmLayout?>();
-        resolver.SetValue(dm, (Func<DmLayout, Size, CancellationToken, Task<DmLayout?>>)((_, _, _) => pending.Task));
+        resolver.SetValue(dm, (Func<DmLayout, Size, double?, Dictionary<string, double>, CancellationToken, Task<DmLayout?>>)((_, _, _, _, _) => pending.Task));
         dm.Layout = prepared;
         Check(Field<DmLayout?>(dm, "_renderLayout") == null, "重测期间仍绘制旧布局");
         dm.Layout = null;
         pending.SetResult(rendered);
         Dispatcher.UIThread.RunJobs();
         Check(Field<DmLayout?>(dm, "_renderLayout") == null, "迟到测量恢复了已清空弹幕");
+    }
+
+    private static void CheckStaged(CoreClient core, Window window, PlayerPage player)
+    {
+        Await(core.PlayerDanmakuSet(new { items = new[] {
+            new { time = 0, mode = 1, text = "首批", color = 0xFFFFFF },
+            new { time = 100, mode = 1, text = "后续", color = 0xFFFFFF },
+            new { time = 400, mode = 1, text = "片尾", color = 0xFFFFFF },
+        } }));
+        var prepared = DmLayout.Parse(Await(core.PlayerDanmakuLayout(new { prepare = true })))!;
+        var dm = new DanmakuLayer();
+        var resolver = typeof(DanmakuLayer).GetField("ResolveLayout", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        var resolve = (Func<DmLayout, Size, double?, Dictionary<string, double>, CancellationToken, Task<DmLayout?>>)resolver.GetValue(Field<DanmakuLayer>(player, "_dm"))!;
+        var release = new TaskCompletionSource();
+        resolver.SetValue(dm, (Func<DmLayout, Size, double?, Dictionary<string, double>, CancellationToken, Task<DmLayout?>>)(async (input, size, until, cache, ct) => {
+            if (until == null) await release.Task.WaitAsync(ct);
+            return await resolve(input, size, until, cache, ct);
+        }));
+        window.Content = dm; dm.Sync(1, true, 1); dm.Layout = prepared;
+        try {
+            Wait(() => Field<DmLayout?>(dm, "_renderLayout")?.Items.Count == 1, "首批等待整集测量");
+            var first = Field<DmLayout>(dm, "_renderLayout").Items[0];
+            dm.Sync(100, true, 1);
+            Wait(() => Field<DmLayout?>(dm, "_renderLayout")?.Items.Count == 2, "跳转后首批仍等待整集测量");
+            Check(!release.Task.IsCompleted, "首批跳转测试未阻塞整集");
+            release.SetResult();
+            Wait(() => Field<DmLayout?>(dm, "_renderLayout")?.Items.Count == 3, "后台整集未补齐");
+            var full = Field<DmLayout>(dm, "_renderLayout");
+            Check(full.Items[0].Lane == first.Lane && full.Items[0].W == first.W, "后台补齐改变首批排轨");
+            var handler = typeof(DanmakuLayer).Assembly.GetType("LinPlayer.Desktop.Views.DanmakuVisualHandler")!;
+            var hasActivity = handler.GetMethod("HasActivity", BindingFlags.Static | BindingFlags.NonPublic)!;
+            bool Active(double now, double ahead) => (bool)hasActivity.Invoke(null, new object[] { full, now, ahead })!;
+            Check(Active(1, .35) && !Active(50, .35) && Active(99.8, .35) && !Active(109, .35), "空窗停止或入场唤醒判定错误");
+            // 真正推进合成器，验证空窗没有继续注册动画帧。
+            void Frames(int n) {
+                Dispatcher.UIThread.RunJobs();
+                AvaloniaHeadlessPlatform.ForceRenderTimerTick(n);
+                using var frame = window.CaptureRenderedFrame();
+            }
+            dm.Sync(50, false, 1);
+            Frames(3);
+            var count = handler.GetField("Rendered", BindingFlags.Static | BindingFlags.NonPublic)!;
+            var before = (long)count.GetValue(null)!;
+            Frames(20);
+            Check((long)count.GetValue(null)! - before <= 1, "空窗仍在逐帧绘制");
+            dm.Sync(1, false, 1);
+            Frames(5);
+            Check((long)count.GetValue(null)! > before, "跳回可见弹幕未恢复绘制");
+        } finally { release.TrySetResult(); dm.Layout = null; }
     }
 
     private static void CheckDrawing(Window window)
@@ -218,6 +270,10 @@ internal static class DanmakuCheck
         var fixedText = Pixels();
         Check(fixedText.X.Count > 0, "固定弹幕未绘制");
         Check(Math.Abs((fixedText.X.Min() + fixedText.X.Max()) / 2.0 - fixedText.W / 2.0) <= 2, "固定弹幕未按实际宽度居中");
+        var shaped = Field<object>(item, "Runs");
+        dm.SetOpacity(.5); Pixels();
+        Check(ReferenceEquals(shaped, Field<object>(item, "Runs")), "透明度改变仍重建字形缓存");
+        dm.SetOpacity(1);
         item.Mode = 4; dm.Layout = layout;
         var bottom = Pixels();
         Check(bottom.Y.Count > 0 && bottom.Y.Max() < bottom.H * .25 && bottom.Y.Min() > bottom.H * .15, "底部弹幕越出区域");

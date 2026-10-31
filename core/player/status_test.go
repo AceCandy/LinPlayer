@@ -15,7 +15,7 @@ func TestStatusFields(t *testing.T) {
 		"eof-reached":      "no",
 		"hwdec-current":    "mediacodec",
 	}
-	nums := map[string]float64{"time-pos": 12.5, "duration": 1440, "frame-drop-count": 3}
+	nums := map[string]float64{"time-pos": 12.5, "duration": 1440, "frame-drop-count": 3, "speed": 1.75}
 	got := statusFields(
 		func(k string) string { return props[k] },
 		func(k string) float64 { return nums[k] },
@@ -24,6 +24,7 @@ func TestStatusFields(t *testing.T) {
 	want := map[string]any{
 		"position": 12.5, "duration": 1440.0, "paused": true, "buffering": true,
 		"eof": false, "dropped": 3.0, "hwdec": "mediacodec", "renderFps": int64(77),
+		"speed": 1.75,
 	}
 	if len(got) != len(want) {
 		t.Fatalf("字段数不对:%d,要 %d(%v)", len(got), len(want), got)

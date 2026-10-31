@@ -96,7 +96,9 @@ class TvPhoneParityTest {
         show(core, "exo")
         switchEngine()
         assertEquals(1.5, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
-        click("更多"); click("倍速"); click("2.0×")
+        rule.onNodeWithContentDescription("倍速").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter); advance(rule, 400)
+        click("2.0×")
         assertEquals(2.0, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
         assertNull(core.calls.last { it.first == "player.setPlaybackPrefs" }.second?.get("liuying_speed"))
     }
@@ -116,6 +118,98 @@ class TvPhoneParityTest {
             assertEquals("sh6", core.calls.last { it.first == "player.play" }.second.str("item_id"))
             assertEquals("exo", core.calls.last { it.first == "player.play" }.second.str("engine"))
         } finally { UiPrefs.engine.value = previous }
+    }
+
+    @Test fun 倍率保存缓慢时仍应用最后一次选择() {
+        val core = core()
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val port = object : xyz.linplayer.app.core.CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.setPlaybackPrefs" && args.dbl("default_speed") == 2.0) {
+                    entered.complete(Unit); release.await()
+                }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        fun choose(value: String) {
+            rule.onNodeWithContentDescription("倍速").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.Enter); advance(rule, 400)
+            click(value)
+        }
+        try {
+            show(port, "mpv")
+            choose("2.0×")
+            assertTrue(entered.isCompleted)
+            choose("3.0×")
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 600)
+            assertEquals(3.0, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
+            assertEquals(3.0, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
+            rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status",
+                buildJsonObject { put("item_id", "sh6"); put("position", 40.0); put("speed", 1.75) })) }
+            advance(rule, 200)
+            core.on("player.setPlaybackPrefs") { error("保存失败") }
+            choose("2.5×")
+            assertEquals(1.75, core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
+            rule.onNodeWithText("1.75×").assertIsDisplayed()
+            core.on("player.setSpeed") { a -> if (a.dbl("speed") == 1.75) error("回滚失败") else JsonNull }
+            choose("2.25×")
+            rule.onNodeWithText("2.25×").assertIsDisplayed()
+        } finally { release.complete(Unit) }
+    }
+
+    @Test fun MPV状态回读校准倍率且忽略旧片状态() {
+        val core = core()
+        show(core, "mpv")
+        fun status(id: String, value: Double) {
+            rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status",
+                buildJsonObject { put("item_id", id); put("position", 40.0); put("duration", 3660.0); put("speed", value) })) }
+            advance(rule, 200)
+        }
+        status("sh6", 1.75)
+        rule.onNodeWithText("1.75×").assertIsDisplayed()
+        status("sh7", 3.0)
+        rule.onNodeWithText("1.75×").assertIsDisplayed()
+        status("sh6", 0.0)
+        rule.onNodeWithText("1.75×").assertIsDisplayed()
+    }
+
+    @Test fun 退出后仍保存最后一次已接受倍率且不操作旧内核() = savePendingSpeedAfterExit(false)
+
+    @Test fun 停止失败也必须等待已登记倍率保存() = savePendingSpeedAfterExit(true)
+
+    private fun savePendingSpeedAfterExit(stopFails: Boolean) {
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        val core = core().apply { if (stopFails) on("player.stopPlayback") { error("停止失败") } }
+        val port = object : xyz.linplayer.app.core.CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.setPlaybackPrefs") { entered.complete(Unit); release.await() }
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        var settled = false
+        try {
+            show(port, "mpv")
+            rule.onNodeWithContentDescription("倍速").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.Enter); advance(rule, 300); click("2.0×")
+            assertTrue(entered.isCompleted)
+            rule.onNodeWithContentDescription("倍速").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.Enter); advance(rule, 300); click("3.0×")
+            press(rule, Key.MediaStop); advance(rule, 400)
+            val appliedBeforeExit = core.calls.count { it.first == "player.setSpeed" }
+            rule.runOnIdle { scope.launch(start = CoroutineStart.UNDISPATCHED) {
+                xyz.linplayer.app.ui.player.PlayerController.awaitPendingStop(); settled = true
+            } }
+            advance(rule, 200)
+            assertFalse("新播放不得越过未完成的倍率保存", settled)
+            rule.runOnIdle { release.complete(Unit) }; advance(rule, 400)
+            rule.waitForIdle()
+            assertTrue(settled)
+            assertEquals(3.0, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.dbl("default_speed")!!, .001)
+            assertEquals("退出后只保存偏好，不向旧内核提交待处理倍率", appliedBeforeExit,
+                core.calls.count { it.first == "player.setSpeed" })
+        } finally { release.complete(Unit) }
     }
 
     @Test fun 显式MPV自动连播不回全局Media3() {

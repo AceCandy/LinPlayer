@@ -51,6 +51,15 @@ class TvRefreshRateTest {
         assertEquals(5, matchingTvMode(sixty, arrayOf(sixty, tvMode(5, 47.952f)), 23.976f)!!.modeId)
     }
 
+    @Test fun 有弹幕时不降到低刷新率并优先保留整倍频() {
+        val current = tvMode(1, 60f)
+        val modes = arrayOf(current, tvMode(2, 24f), tvMode(3, 120f))
+        assertEquals(3, matchingTvMode(current, modes, 24f, smoothOverlay = true)!!.modeId)
+        assertNull(matchingTvMode(current, arrayOf(current, tvMode(2, 24f)), 24f, smoothOverlay = true))
+        assertEquals(1, matchingTvMode(current, modes, 30f, smoothOverlay = true)!!.modeId)
+        assertEquals(2, matchingTvMode(current, modes, 24f)!!.modeId)
+    }
+
     @Test fun 不跨分辨率也不以近似整数频率代替分数频率() {
         val current = tvMode(1, 60f)
         assertNull(matchingTvMode(current, arrayOf(current, tvMode(2, 24f, 3840, 2160)), 24f))

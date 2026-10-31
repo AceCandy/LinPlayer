@@ -137,6 +137,8 @@ class CoreClient private constructor() : LinPlayerCommands, CorePort {
         args: JsonObject?,
         onPartial: ((JsonElement) -> Unit)?,
     ): JsonElement = suspendCancellableCoroutine { cont ->
+        // 大批测宽参数由后台调用者序列化，避免持提交锁时阻塞其它界面命令。
+        val payload = args?.toString() ?: "{}"
         synchronized(submissionLock) {
             val s = seq.incrementAndGet()
             pending[s] = cont
@@ -154,7 +156,7 @@ class CoreClient private constructor() : LinPlayerCommands, CorePort {
                 return@suspendCancellableCoroutine
             }
             if (!cont.isActive) return@suspendCancellableCoroutine
-            val rc = Native.call(s, command, args?.toString() ?: "{}")
+            val rc = Native.call(s, command, payload)
             if (rc != 0) {
                 partials.remove(s)
                 val error = when (rc) {

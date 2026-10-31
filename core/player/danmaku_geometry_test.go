@@ -3,8 +3,78 @@ package player
 import (
 	"context"
 	"math"
+	"reflect"
 	"testing"
 )
+
+func TestMeasuredPrefixMatchesFullLayout(t *testing.T) {
+	setup(t)
+	for _, overlap := range []bool{true, false} {
+		styMu.Lock()
+		sty = testStyle()
+		sty.Speed, sty.Merge, sty.PreventOverlap = .1, true, overlap
+		styMu.Unlock()
+		var comments []feedComment
+		for i := 200; i >= 0; i-- {
+			comments = append(comments, feedComment{Time: float64(i), Mode: []int{1, 4, 5}[i%3], Text: "边界合并"})
+		}
+		danmakuSet(comments)
+		styMu.Lock()
+		dmOffset = -2.5
+		if !overlap {
+			dmOffset = 3.5
+		}
+		styMu.Unlock()
+		relayout()
+		prepare, err := measuredLayoutReply(context.Background(), map[string]any{"prepare": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		r := prepare.(map[string]any)
+		measure := func(until *float64) []map[string]any {
+			t.Helper()
+			var widths []any
+			for _, d := range r["items"].([]map[string]any) {
+				if until == nil || d["t"].(float64) <= *until {
+					widths = append(widths, 140.0)
+				}
+			}
+			a := map[string]any{"revision": float64(r["revision"].(int64)), "viewport_width": 1920.0, "widths": widths}
+			if until != nil {
+				a["until"] = *until
+				prepared, err := measuredLayoutReply(context.Background(), map[string]any{"prepare": true, "until": *until})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if len(prepared.(map[string]any)["items"].([]map[string]any)) != len(widths) {
+					t.Fatal("准备与提交前缀不一致")
+				}
+			}
+			result, err := measuredLayoutReply(context.Background(), a)
+			if err != nil {
+				t.Fatal(err)
+			}
+			return result.(map[string]any)["items"].([]map[string]any)
+		}
+		full := measure(nil)
+		for _, until := range []float64{0, 30, 84, 150, 300} {
+			want := make([]map[string]any, 0)
+			for _, d := range full {
+				if d["t"].(float64) <= until {
+					want = append(want, d)
+				}
+			}
+			if got := measure(&until); !reflect.DeepEqual(got, want) {
+				t.Fatalf("前后批次跳轨: until=%v overlap=%v", until, overlap)
+			}
+		}
+	}
+	for _, until := range []any{-1.0, math.NaN(), math.Inf(1), "30"} {
+		if _, err := measuredLayoutReply(context.Background(), map[string]any{"prepare": true, "until": until}); err == nil {
+			t.Fatal("接受非法前缀终点")
+		}
+	}
+}
 
 func TestMeasuredRollReusesOccupiedLane(t *testing.T) {
 	s := testStyle()

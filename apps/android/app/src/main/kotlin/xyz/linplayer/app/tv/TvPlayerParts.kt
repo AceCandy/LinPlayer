@@ -63,7 +63,11 @@ import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.tv.material3.ClickableSurfaceDefaults
 import androidx.tv.material3.Icon
@@ -129,20 +133,20 @@ private fun speedText(s: String) = s.takeIf { it.isNotBlank() && !it.startsWith(
 
 /** 起播黑幕:32dp 转圈 + 状态文字 + 缓冲速度(§8.5),文字与手机一致。 */
 @Composable
-internal fun Curtain(ui: PlayerUi) {
+internal fun Curtain(ui: PlayerUi, showSpeed: Boolean) {
     Box(Modifier.fillMaxSize().background(Color.Black), contentAlignment = Alignment.Center) {
-        Spinner(ui, if (ui.buffering) "正在缓冲…" else "正在打开…")
+        Spinner(ui, if (ui.buffering) "正在缓冲…" else "正在打开…", showSpeed)
     }
 }
 
 /** 起播后卡住缓冲:画面上叠同一个转圈,不盖黑底。 */
 @Composable
-internal fun BoxScope.BufferingHint(ui: PlayerUi) {
-    Box(Modifier.align(Alignment.Center)) { Spinner(ui, "正在缓冲…") }
+internal fun BoxScope.BufferingHint(ui: PlayerUi, showSpeed: Boolean) {
+    Box(Modifier.align(Alignment.Center)) { Spinner(ui, "正在缓冲…", showSpeed) }
 }
 
 @Composable
-private fun Spinner(ui: PlayerUi, label: String) {
+private fun Spinner(ui: PlayerUi, label: String, showSpeed: Boolean) {
     val tr = rememberInfiniteTransition(label = "spin")
     val a by tr.animateFloat(0f, 360f, infiniteRepeatable(tween(1000, easing = LinearEasing)), label = "spinA")
     Column(horizontalAlignment = Alignment.CenterHorizontally) {
@@ -151,9 +155,42 @@ private fun Spinner(ui: PlayerUi, label: String) {
         }
         Spacer(Modifier.height(TvSp.x8))
         TvText(label, tvType.meta, Color.White)
-        speedText(ui.netSpeed)?.let {
+        speedText(ui.netSpeed)?.takeIf { showSpeed }?.let {
             Spacer(Modifier.height(TvSp.x4))
             TvText(it, tvType.meta, Color.White.copy(alpha = .8f), mono = true)
+        }
+    }
+}
+
+@Composable
+internal fun BoxScope.PlayerTopStatus(ui: PlayerUi, controlsVisible: Boolean,
+    showIntro: Boolean, playbackFocus: FocusRequester, onSkip: () -> Unit) {
+    var clock by remember { mutableStateOf("") }
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+    LaunchedEffect(lifecycle) {
+        lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) {
+                clock = android.text.format.DateFormat.format("HH:mm", System.currentTimeMillis()).toString()
+                delay(10_000)
+            }
+        }
+    }
+    BoxWithConstraints(Modifier.align(Alignment.TopCenter).fillMaxWidth()) {
+        val inset = (maxWidth * .038f).coerceIn(16.dp, 48.dp)
+        val badge = Modifier.background(Color.Black.copy(alpha = .6f), TvR.sm)
+            .padding(horizontal = TvSp.x8, vertical = TvSp.x4)
+        Row(Modifier.fillMaxWidth().padding(start = inset, end = inset, top = TvDim.safeV),
+            verticalAlignment = Alignment.Top) {
+            if (clock.isNotEmpty()) TvText(clock, tvType.body, Color.White.copy(alpha = .9f),
+                Modifier.testTag("player.clock").then(badge), weight = TvW.medium, mono = true)
+            Spacer(Modifier.weight(1f))
+            Column(horizontalAlignment = Alignment.End, verticalArrangement = Arrangement.spacedBy(TvSp.x8)) {
+                speedText(ui.netSpeed)?.takeIf { controlsVisible }?.let {
+                    TvText(it, tvType.meta, Color.White.copy(alpha = .9f),
+                        Modifier.testTag("player.netSpeed").then(badge), weight = TvW.medium, mono = true)
+                }
+                if (showIntro) SkipButton(ui, playbackFocus, onSkip)
+            }
         }
     }
 }
@@ -205,7 +242,7 @@ private fun PlayerAction(label: String, size: Dp, modifier: Modifier, icon: Imag
 internal fun BoxScope.Osd(
     ui: PlayerUi, target: TvRoute.Player, engine: String, playbackFocus: FocusRequester,
     onSeek: (Double) -> Unit, onPause: () -> Unit, onNext: () -> Unit,
-    onPanel: (String) -> Unit,
+    onPanel: (String) -> Unit, nextUpVisible: Boolean,
     seekPosition: Double = ui.position,
 ) {
     val mem = LocalFocusMemory.current
@@ -232,13 +269,13 @@ internal fun BoxScope.Osd(
                         down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
                         up = mem.requesters["player.nextUp"] ?: mem.requesters["osd.skip"] ?: FocusRequester.Cancel
                     }, verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(TvSp.x8)) {
-                        if (ui.hasEpisodes) PlayerAction("下一集", size, Modifier.memo("osd.next"),
+                        if (ui.hasEpisodes && !nextUpVisible) PlayerAction("下一集", size, Modifier.memo("osd.next"),
                             icon = LpIcons.skipNext, enabled = ui.next(target.itemId) != null, onClick = onNext)
                         PlayerAction("倍速", size, Modifier.memo("osd.speed"), value = "${ui.speed.toString().removeSuffix(".0")}×",
                             onClick = { onPanel("speed") })
                         if (!target.localEntry && !target.download)
                             PlayerAction("弹幕", size, Modifier.memo("osd.dm"), icon = LpIcons.danmaku, onClick = { onPanel("danmaku") })
-                        PlayerAction("音轨", size, Modifier.memo("osd.audio"), icon = LpIcons.audio, onClick = { onPanel("audio") })
+                        PlayerAction("音轨", size, Modifier.memo("osd.audio"), icon = LpIcons.music, onClick = { onPanel("audio") })
                         PlayerAction("字幕", size, Modifier.memo("osd.sub"), icon = LpIcons.sub, onClick = { onPanel("sub") })
                         PlayerAction("更多", size, Modifier.memo("osd.more"), icon = LpIcons.more, onClick = { onPanel("more") })
                     }
@@ -246,7 +283,7 @@ internal fun BoxScope.Osd(
                 Spacer(Modifier.height(TvSp.x8))
                 key(target, engine) {
                     SeekBar(ui, onSeek, onPause, seekPosition, barWidth,
-                        upTo = { mem.requesters[if (ui.next(target.itemId) != null) "osd.next" else "osd.speed"] })
+                        upTo = { mem.requesters[if (ui.next(target.itemId) != null && !nextUpVisible) "osd.next" else "osd.speed"] })
                 }
                 Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
                     TvText(fmtTime(seekPosition), tvType.meta, Color.White, mono = true)
@@ -322,16 +359,14 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, onPause: () -> Unit,
 }
 
 @Composable
-internal fun BoxScope.SkipButton(ui: PlayerUi, playbackFocus: FocusRequester, onSkip: () -> Unit) {
+private fun SkipButton(ui: PlayerUi, playbackFocus: FocusRequester, onSkip: () -> Unit) {
     val mem = LocalFocusMemory.current
     CompositionLocalProvider(LocalTvVideoControls provides true) {
-        Box(Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV)) {
-            TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext,
-                modifier = Modifier.memo("osd.skip").playerConfirm(ui.osd, onSkip).focusProperties {
-                    canFocus = ui.osd
-                    down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
-                }, onClick = onSkip)
-        }
+        TvButton(if (ui.skipWhat == "intro") "跳过片头" else "跳过片尾", LpIcons.skipNext,
+            modifier = Modifier.memo("osd.skip").playerConfirm(ui.osd, onSkip).focusProperties {
+                canFocus = ui.osd
+                down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
+            }, onClick = onSkip)
     }
 }
 
@@ -632,7 +667,7 @@ private fun BoxScope.MorePanel(
         }
         "speed" -> TvSidePanel("倍速", { overlay.close() }, back = back) {
             (1..16).map { it * .25 }.forEach { v ->
-                PanelItem("${v}×", selected = v == ui.speed, focused = v == ui.speed, onClick = { ui.speed = v; ctl.speed(v); overlay.close() })
+                PanelItem("${v}×", selected = v == ui.speed, focused = v == ui.speed, onClick = { ctl.speed(v); overlay.close() })
             }
         }
         "chapter" -> TvSidePanel("章节", { overlay.close() }, back = back) {
@@ -653,16 +688,15 @@ private fun BoxScope.MorePanel(
                 PanelItem("上一集", onClick = { ctl.switchTo(TvRoute.Player(previous.id, cardTitleOf(previous))) })
             }
             if (!local && target.src == null) PanelItem("片头片尾", chevron = true, onClick = { level = "segments" })
-            PanelItem("倍速", value = "${ui.speed}×", chevron = true, onClick = { level = "speed" })
             if (ui.chapters.isNotEmpty()) PanelItem("章节", chevron = true, onClick = { level = "chapter" })
             skipIntro?.let { on ->
-                PanelItem("跳过片头", switch = on, onClick = {
+                PanelItem("自动跳过片头", switch = on, onClick = {
                     skipIntro = !on
                     scope.launch { runCatching { app.call("player.setPlaybackPrefs", args("skip_intro" to !on)) }.onFailure { skipIntro = on; app.report(it) } }
                 })
             }
             skipOutro?.let { on ->
-                PanelItem("跳过片尾", switch = on, onClick = {
+                PanelItem("自动跳过片尾", switch = on, onClick = {
                     skipOutro = !on
                     scope.launch { runCatching { app.call("player.setPlaybackPrefs", args("skip_outro" to !on)) }.onFailure { skipOutro = on; app.report(it) } }
                 })

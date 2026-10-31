@@ -31,6 +31,7 @@ import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
@@ -537,8 +538,8 @@ fun ProgressBar(
 ) {
     val onVideo = LocalTvVideoControls.current
     val ink = if (onVideo) Color.White else TvC.fg
-    val barH = if (focused) 7.dp else 4.dp
-    val knob = if (focused) 20.dp else 13.dp
+    val barH = if (focused) 5.dp else 3.dp
+    val knob = if (focused) 14.dp else 8.dp
     val tall = preview != null && previewThumb != null
     Box(Modifier.width(width).height(if (tall) 110.dp else if (preview != null) 50.dp else 24.dp)) {
         Box(Modifier.align(Alignment.BottomStart).fillMaxWidth().height(24.dp)) {
@@ -547,19 +548,19 @@ fun ProgressBar(
                 Modifier.align(Alignment.CenterStart).offset(x = width * intro.start, y = -(barH / 2 + 4.dp))
                     .width(width * (intro.endInclusive - intro.start)).height(2.dp).clip(TvR.pill).background(TvC.warn),
             )
-            Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(barH).clip(TvR.pill).background(Color(0xFF3A3642))) {
+            Box(Modifier.align(Alignment.CenterStart).fillMaxWidth().height(barH).clip(TvR.pill).background(ink.copy(alpha = .18f))) {
                 // 缓冲段从播放头画到缓冲末端:demuxer 缓存只往前存,从 0 画是假的
                 Box(Modifier.offset(x = width * played).width(width * (buffered - played).coerceAtLeast(0f))
-                    .fillMaxHeight().background(Color(0xFF6A6474)))
+                    .fillMaxHeight().background(ink.copy(alpha = .28f)))
                 Box(Modifier.fillMaxWidth(played).fillMaxHeight().background(TvC.acc))
-            }
-            chapters.forEach { c ->
-                Box(Modifier.align(Alignment.CenterStart).offset(x = width * c).width(2.dp).height(barH + 4.dp)
-                    .background(ink.copy(alpha = .55f)))
+                chapters.forEach { c ->
+                    Box(Modifier.offset(x = width * c).width(1.dp).fillMaxHeight()
+                        .background(ink.copy(alpha = .55f)))
+                }
             }
             Box(
                 Modifier.align(Alignment.CenterStart).offset(x = width * played - knob / 2).size(knob)
-                    .then(if (focused) Modifier.border(3.dp, TvC.bg, TvR.pill) else Modifier)
+                    .shadow(if (focused) 3.dp else 1.dp, TvR.pill, clip = false)
                     .clip(TvR.pill).background(ink),
             )
             if (preview != null) Box(

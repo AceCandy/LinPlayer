@@ -443,7 +443,7 @@ C# `TaskCompletionSource`、Swift `withCheckedContinuation`)。
 
 | name | 触发时机 | 载荷要点 |
 |---|---|---|
-| `player.status` | 播放中 4 Hz | position / duration / paused / buffering / eof / ready |
+| `player.status` | 播放中 4 Hz | position / duration / speed / paused / buffering / eof / ready |
 | `player.tracks` | 文件加载完成 | 音轨、字幕轨列表 |
 | `player.ended` | 播完或出错停止 | reason |
 | `download.progress` | 下载任务变化 | id / bytes / speed / state |
@@ -964,6 +964,7 @@ Avalonia 11 的 `OpenGlControlBase` 每帧把一个 FBO 交给你,签名与本�
 > **v0.3 的结论:** 排版(合并 / 分轨 / 丢弃)留在核心层,一次算好由
 > `player.danmakuLayout` 整份交出;绘制在两端 UI(安卓 Compose `Canvas`、
 > 桌面 Avalonia `Control`),各自用本地帧回调插位置。
+> 当前实测路径允许until前缀先上屏，再后台补齐整集；保留此前全部候选以保证两批排轨一致。空窗停止高频帧循环，由播放采样唤醒；透明度不改变测量/排轨身份。
 >
 > 三条推翻理由:
 > ① **Exo 内核下 `osd-overlay` 根本不存在**,而 `player.danmakuSet` 照样返回成功;

@@ -7,11 +7,13 @@ import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonElement
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
 import androidx.compose.runtime.mutableStateOf
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.bool
+import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
@@ -73,19 +75,25 @@ object DanmakuStyle {
     val loadError = mutableStateOf<String?>(null)
     val saveRevision = mutableIntStateOf(0)
     private val styleMutex = Mutex()
+    private var savedStyle = JsonObject(emptyMap())
+    private val pendingStyle = mutableMapOf<String, JsonElement>()
 
     /** 排好版的那一份。null = 还没灌语料。 */
     val layout = mutableStateOf<DmLayout?>(null)
     private var layoutRequest = 0L
 
     /** 重新取一次排版。灌完语料、改完设置都要调。 */
-    suspend fun reloadLayout(app: AppState) {
+    suspend fun reloadLayout(app: AppState, clear: Boolean = true) {
         val request = ++layoutRequest
         val generation = DanmakuSession.generation
-        layout.value = null
+        if (clear) layout.value = null
         val result = runCatching { app.call("player.danmakuLayout", args("prepare" to true)) }.getOrNull().obj()
         currentCoroutineContext().ensureActive()
-        if (request == layoutRequest && generation == DanmakuSession.generation) layout.value = parseDmLayout(result)
+        if (request != layoutRequest || generation != DanmakuSession.generation) return
+        val parsed = withContext(kotlinx.coroutines.Dispatchers.Default) { parseDmLayout(result) }
+        if (request != layoutRequest || generation != DanmakuSession.generation) return
+        if (parsed != null) layout.value = parsed
+        else if (!clear) app.toast("弹幕设置已保存，画面更新失败，请重新打开设置重试")
     }
 
     suspend fun load(app: AppState) = styleMutex.withLock {
@@ -95,7 +103,8 @@ object DanmakuStyle {
             val r = app.call("player.getDanmakuStyle").obj() ?: error("弹幕样式为空")
             val prefs = app.call("prefs.getPrefs").obj() ?: error("弹幕偏好为空")
             currentCoroutineContext().ensureActive()
-            applyStyle(r)
+            savedStyle = r
+            applyStyle(JsonObject(r + pendingStyle))
             enabled.value = prefs.bool("danmaku_enabled")
             loaded.value = true
             reloadLayout(app)
@@ -103,27 +112,39 @@ object DanmakuStyle {
           catch (e: Exception) { loadError.value = "弹幕设置读取失败" }
     }
 
-    /** 按提交顺序完成保存和重排，关闭菜单不丢已提交设置；只照核心成功回值刷新。 */
+    /** 即时回显输入；在途保存之后只提交后续字段的最新值。 */
     suspend fun set(app: AppState, key: String, value: Any) = set(app, key) { value }
 
-    /** 步进目标在锁内读取，慢保存期间的连续按键也逐次累加。 */
-    suspend fun set(app: AppState, key: String, next: () -> Any) = styleMutex.withLock {
+    /** 步进以最新意图累加，旧回执不覆盖新输入；关闭面板仍完成已登记的保存。 */
+    suspend fun set(app: AppState, key: String, next: () -> Any) {
         currentCoroutineContext().ensureActive()
-        withContext(NonCancellable) {
-            try {
-                val r = app.call("player.setDanmakuStyle", when (val value = next()) {
-                    // 用户改区域时交还自动排布，避免旧的零行数/低行数继续限制显示。
-                    is Double -> if (key == "area") args(key to value, "roll_lines" to 20,
-                        "top_lines" to 20, "bottom_lines" to 20) else args(key to value)
-                    is Int -> args(key to value.toDouble())
-                    is Boolean -> args(key to value)
-                    else -> args()
-                }).obj() ?: error("弹幕样式为空")
-                applyStyle(r)
-                reloadLayout(app)
-            } catch (e: Exception) { app.report(e) }
-            finally { saveRevision.intValue++ }
+        val update = when (val value = next()) {
+            // 用户改区域时交还自动排布，避免旧的零行数/低行数继续限制显示。
+            is Double -> if (key == "area") args(key to value, "roll_lines" to 20,
+                "top_lines" to 20, "bottom_lines" to 20) else args(key to value)
+            is Int -> args(key to value.toDouble())
+            is Boolean -> args(key to value)
+            else -> return
         }
+        pendingStyle.putAll(update)
+        applyStyle(update)
+        withContext(NonCancellable) { styleMutex.withLock {
+            var reflow = false
+            while (pendingStyle.isNotEmpty()) {
+                val changes = JsonObject(pendingStyle.toMap())
+                pendingStyle.clear()
+                try {
+                    val result = app.call("player.setDanmakuStyle", changes).obj() ?: error("弹幕样式为空")
+                    reflow = reflow || changes.any { (name, value) -> name != "opacity" && name != "heatmap" && savedStyle[name] != value }
+                    savedStyle = result
+                } catch (e: Exception) { app.report(e) }
+                finally {
+                    applyStyle(JsonObject(savedStyle + pendingStyle))
+                    saveRevision.intValue++
+                }
+            }
+            if (reflow) reloadLayout(app, clear = false)
+        } }
     }
 
     private fun applyStyle(r: JsonObject) {
@@ -134,10 +155,10 @@ object DanmakuStyle {
         r.long("roll_lines")?.let { rollLines.intValue = it.toInt() }
         r.long("top_lines")?.let { topLines.intValue = it.toInt() }
         r.long("bottom_lines")?.let { bottomLines.intValue = it.toInt() }
-        preventOverlap.value = r.bool("prevent_overlap")
-        merge.value = r.bool("merge")
-        bold.value = r.bool("bold")
-        heatmap.value = r.bool("heatmap")
+        r.boolOrNull("prevent_overlap")?.let { preventOverlap.value = it }
+        r.boolOrNull("merge")?.let { merge.value = it }
+        r.boolOrNull("bold")?.let { bold.value = it }
+        r.boolOrNull("heatmap")?.let { heatmap.value = it }
     }
 
     /* ---- 纯函数。拆出来是为了可测 —— 这两条规则的全部内容就是这几行。 ---- */

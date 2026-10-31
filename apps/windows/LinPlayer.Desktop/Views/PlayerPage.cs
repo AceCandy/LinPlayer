@@ -353,16 +353,18 @@ public sealed class PlayerPage : UserControl
         _initialSubtitle = initialSubtitle;
         _mediaSourceId = mediaSourceId;
         _core = core;
-        _dm.ResolveLayout = async (input, size, ct) =>
+        _dm.ResolveLayout = (input, size, until, cache, ct) => Task.Run(async () =>
         {
-            var widths = await Task.Run(() => DanmakuVisualHandler.MeasureWidths(input, size.Height, ct), ct);
-            var reply = await _core.PlayerDanmakuLayout(new
+            var widths = DanmakuVisualHandler.MeasureWidths(input, size.Height, ct, until, cache);
+            var args = new Dictionary<string, object>
             {
-                revision = input.Revision, viewport_width = size.Width * input.ResY / size.Height, widths,
-            }, ct);
+                ["revision"] = input.Revision, ["viewport_width"] = size.Width * input.ResY / size.Height, ["widths"] = widths,
+            };
+            if (until is { } end) args["until"] = end;
+            var reply = await _core.PlayerDanmakuLayout(args, ct);
             ct.ThrowIfCancellationRequested();
             return DmLayout.Parse(reply);
-        };
+        }, ct);
         _seek = new PlaybackSeek(to => _core.PlayerSeek(new { pos = to }));
         _isSource = isSource || src is not null;
         _title = title;
@@ -2321,8 +2323,9 @@ public sealed class PlayerPage : UserControl
         try
         {
             var reply = await _core.PlayerDanmakuLayout(new { prepare = true }, ct);
+            var layout = await Task.Run(() => DmLayout.Parse(reply), ct);
             if (request == _dmLayoutRequest && !ct.IsCancellationRequested && _dmOn && !_leaving)
-                _dm.Layout = DmLayout.Parse(reply);
+                _dm.Layout = layout;
         }
         catch { if (request == _dmLayoutRequest && !ct.IsCancellationRequested) _dm.Layout = null; }
     }
@@ -2451,6 +2454,7 @@ public sealed class PlayerPage : UserControl
         _dmArea = N("area", _dmArea);
         _dmScale = N("scale", _dmScale);
         _dmOpacity = N("opacity", _dmOpacity);
+        _dm.SetOpacity(_dmOpacity);
         _dmSpeed = N("speed", _dmSpeed);
         _dmTop = (int)N("top_lines", _dmTop);
         _dmBottom = (int)N("bottom_lines", _dmBottom);
@@ -2667,7 +2671,7 @@ public sealed class PlayerPage : UserControl
             body.IsEnabled = _dmStyleLoaded && _dmStylePending == 0;
         }
 
-        async Task Push(object args)
+        async Task Push(object args, bool geometry = true)
         {
             if (_dmStylePending != 0 || !_dmStyleLoaded || _leaving) return;
             _dmStylePending++;
@@ -2679,7 +2683,7 @@ public sealed class PlayerPage : UserControl
                 // 回的是**钳过之后**的值 —— 照它刷读数才不会显示一个核心层没接受的数
                 ApplyStyleReply(r);
                 // 仅按保存成功的回值更新读数和排版。
-                await RefreshDanmakuLayout();
+                if (geometry) await RefreshDanmakuLayout();
                 await RefreshHeatmap();
             }
             catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
@@ -2699,7 +2703,7 @@ public sealed class PlayerPage : UserControl
                 button.Click += async (_, _) => await Push(new Dictionary<string, double>
                 {
                     [key] = Math.Clamp(Math.Round((current() + delta * .1) * 10) / 10, .1, max),
-                });
+                }, geometry: key != "opacity");
                 return button;
             }
             readout.Width = 52;
@@ -2715,7 +2719,7 @@ public sealed class PlayerPage : UserControl
         void Toggle(string label, string key, Func<bool> current)
         {
             var row = MenuRow("");
-            row.Click += async (_, _) => await Push(new Dictionary<string, bool> { [key] = !current() });
+            row.Click += async (_, _) => await Push(new Dictionary<string, bool> { [key] = !current() }, geometry: key != "heatmap");
             toggles.Add((row, label, current));
             advanced.Children.Add(row);
         }

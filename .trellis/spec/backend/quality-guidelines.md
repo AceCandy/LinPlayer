@@ -166,3 +166,5 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 5. 案例：同轨前条未离场时，入口及前条离场时均有半字安全间距即可接入；拥挤直接略过，不排队篡改时间戳。固定和跨类型保留存续期避让；旧无参调用兼容保守排版。
 6. 回归：TestMeasuredRollReusesOccupiedLane旧整段占轨时只能接入2/16条；TestMeasuredRollPreventsLongTextCatchup与TestMeasuredMixedModesStaySeparated覆盖追尾/混排；TestMeasuredLayoutSnapshotContract验证完整候选、非法几何与过期拒绝。DanmakuGeometryTest和seekcheck --danmaku-only覆盖实际测量接线、尺寸变化、取消和迟到结果。
 7. 正反例：不能只修绘制字宽却仍整段占轨，也不能按估宽放宽避碰。正确做法是完整候选实测后分轨；宿主在后台测量，换源/样式/尺寸时清旧布局并拒收旧结果，零尺寸等待、不逐帧跨FFI。
+
+- 弹幕实测布局支持可选until（有限非负、含终点），合并先于截取，保留全部历史候选及原顺序；widths匹配同一前缀，revision仍校验。禁止仅回看最长存续期后独立重排，排轨依赖可沿历史连续传递。TestMeasuredPrefixMatchesFullLayout验证80秒慢速、混合模式、合并、顺序与防重叠开关下的首批/整集一致性。宿主先显示当前位置加30秒前缀，再复用同一测宽缓存后台补齐；全量语料和后段续播准备仍存在，不宣称已全程窗口化。

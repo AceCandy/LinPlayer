@@ -191,6 +191,24 @@ class TvRefreshRatePlaybackTest {
         assertEquals(101, activity.window.attributes.preferredDisplayModeId)
     }
 
+    @Test fun 弹幕开启期间退出低频模式关闭后恢复匹配() {
+        mount()
+        val style = xyz.linplayer.app.ui.player.DanmakuStyle
+        try {
+            rule.runOnIdle {
+                fps = ""
+                style.enabled.value = true
+                style.layout.value = xyz.linplayer.app.ui.player.DmLayout(1920.0, 1080.0, 54.0, 8.0, 5.0, 40.0, 1.0, false,
+                    listOf(xyz.linplayer.app.ui.player.DmItem(0.0, 1, 0, 80.0, 0xFFFFFF, "弹幕")))
+            }
+            advance(rule, 1500)
+            assertEquals("没有高刷新整倍频时恢复入播显示偏好", 0, activity.window.attributes.preferredDisplayModeId)
+            rule.runOnIdle { fps = "24"; style.enabled.value = false }
+            advance(rule, 1500)
+            assertEquals(101, activity.window.attributes.preferredDisplayModeId)
+        } finally { style.enabled.value = false; style.layout.value = null }
+    }
+
     @Test fun 补帧从起播启用时多个采样周期都不按源帧率降频() {
         filters = "@lpinterp:lpinterp=multi=2"
         mount(expectMatch = false)

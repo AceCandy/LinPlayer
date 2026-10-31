@@ -120,7 +120,7 @@ class VisualAlignmentTest {
                     Box(Modifier.fillMaxSize()) {
                         Image(still, null, Modifier.fillMaxSize(), contentScale = ContentScale.Fit)
                         Osd(ui, TvRoute.Player("visual-1", "远岸来信"), "mpv",
-                            playbackFocus = androidx.compose.ui.focus.FocusRequester(), onSeek = {}, onPause = {}, onNext = {}, onPanel = {})
+                            playbackFocus = androidx.compose.ui.focus.FocusRequester(), onSeek = {}, onPause = {}, onNext = {}, onPanel = {}, nextUpVisible = false)
                     }
                 }
             } else LpTheme(darkOverride = !light) {

@@ -205,6 +205,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     var preferredSpeed by remember { mutableDoubleStateOf(1.0) }
     var speedBusy by remember { mutableStateOf(false) }
     var speedWrite by remember { mutableStateOf<Job?>(null) }
+    var pendingSpeed by remember { mutableStateOf<Double?>(null) }
     LaunchedEffect(controller, controller.manualSubtitleOff) {
         controller.manualSubtitleOff?.let { subOffPref = it }
     }
@@ -224,7 +225,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     val latestExo by rememberUpdatedState(exo)
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
-    MatchTvRefreshRate(app, controller, exo, attempt)
+    MatchTvRefreshRate(app, controller, exo, attempt,
+        smoothOverlay = DanmakuStyle.enabled.value && DanmakuStyle.layout.value?.items?.isNotEmpty() == true)
     val root = remember { FocusRequester() }
     var rootFocused by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
@@ -277,7 +279,9 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
         latestController.stopIn(app.bg, pos, app::report, positionAtStop = {
             if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
-        }) {
+        })
+        // 停播失败也要等在途偏好保存，后续播放才能读到最终倍率。
+        PlayerController.handoffIn(app.bg) {
             speedWrite?.join()
             runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
         }
@@ -357,24 +361,35 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     }
 
     fun saveSpeed(v: Double) {
-        if (speedBusy || !controller.ready || controller.switching || leaving || !v.isFinite() || v !in .25..4.0) return
+        if (!controller.ready || controller.switching || switching || leaving || stopped || !v.isFinite() || v !in .25..4.0) return
+        pendingSpeed = v
+        if (speedBusy) return
         speedBusy = true
-        val before = preferredSpeed
         // 保存不随离页取消；内核操作仍受当前会话和停止屏障保护。
         speedWrite = app.bg.launch(start = CoroutineStart.UNDISPATCHED) {
-            val active = { latestController === controller && controller.ready && !leaving }
+            val active = { latestController === controller && controller.ready && !leaving && !stopped }
             try {
-                if (!controller.speed(v, active)) return@launch
-                app.call("player.setPlaybackPrefs", args((if (feedOverlay == null) "default_speed" else "liuying_speed") to v))
-                preferredSpeed = v
-                if (active()) ui.speed = v
-            } catch (error: Exception) {
-                if (active()) {
-                    runCatching { controller.speed(before, active) }
-                    ui.speed = before
+                while (pendingSpeed != null) {
+                    val next = pendingSpeed!!
+                    pendingSpeed = null
+                    val before = ui.speed
+                    try {
+                        if (active()) {
+                            if (!controller.speed(next, active) && active()) break
+                            if (active()) ui.speed = next
+                        }
+                        // 已接受的选择离页后仍落库，停止后的旧内核不再应用倍率。
+                        app.call("player.setPlaybackPrefs", args((if (feedOverlay == null) "default_speed" else "liuying_speed") to next))
+                        preferredSpeed = next
+                    } catch (error: Exception) {
+                        if (active()) {
+                            if (runCatching { controller.speed(before, active) }.onFailure(app::report).getOrDefault(false) && active())
+                                ui.speed = before
+                        }
+                        app.report(error)
+                    }
                 }
-                app.report(error)
-            } finally { speedBusy = false }
+            } finally { pendingSpeed = null; speedBusy = false }
         }
     }
     var skippedIntro by remember(target) { mutableStateOf(false) }
@@ -389,6 +404,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         switchEngine = {
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 if (switching || leaving) return@launch
+                switching = true
                 try {
                     speedWrite?.join()
                     cancelPreparation()
@@ -399,7 +415,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                 catch (error: Exception) {
                     app.report(error)
                     if (!controller.ready) ui.failed = "切换播放内核失败，请返回后重试"
-                }
+                } finally { switching = false }
             }
         }) { scope.launch { switchTo(it) } }
 
@@ -568,6 +584,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             o.dbl("duration")?.takeIf { it > 0 }?.let { ui.duration = it }
             ui.paused = o.bool("paused")
             ui.buffering = o.bool("buffering")
+            if (!speedBusy && !ui.hold) o.dbl("speed")?.takeIf { it.isFinite() && it in .25..4.0 }?.let { ui.speed = it }
             controller.observePosition(p, ui.buffering)
             // ☠ keep-open 下 END_FILE 永远不发,判播完读 eof;**只收尾一次**
             if (o.bool("eof") && !finished && ui.failed == null) {
@@ -594,6 +611,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             e.duration.takeIf { it > 0 }?.let { ui.duration = it / 1000.0 }
             ui.paused = !e.playWhenReady
             ui.buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
+            if (!speedBusy && !ui.hold) ui.speed = e.playbackParameters.speed.toDouble()
             controller.observePosition(p, ui.buffering)
             e.playerError?.let { err ->
                 try {
@@ -831,16 +849,21 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (rootFocused) focusPlayback()
         }
     }
-    LaunchedEffect(ui.skipWhat, endPrompt) {
-        if (ui.osd && !overlay.isOpen &&
-            (mem.key == "osd.skip" && ui.skipWhat == null || mem.key == "player.nextUp" && !endPrompt)) {
+    LaunchedEffect(ui.skipWhat, endPrompt, nextUp != null, overlay.isOpen) {
+        if (!ui.osd || overlay.isOpen) return@LaunchedEffect
+        val previous = mem.key
+        if (previous == "osd.next" && nextUp != null) {
+            // 下一集卡接替已聚焦的小按钮；不打断其它控件上的操作。
             withFrameNanos { }
-            focusPlayback()
+            if (mem.key == previous) mem.requesters["player.nextUp"]?.requestFocus()
+        } else if (previous == "osd.skip" && ui.skipWhat == null || previous == "player.nextUp" && !endPrompt) {
+            withFrameNanos { }
+            if (mem.key == previous) focusPlayback()
         }
     }
     var fromPanel by remember { mutableStateOf(false) }
     LaunchedEffect(overlay.isOpen) { if (overlay.isOpen) fromPanel = true }
-    LaunchedEffect(ui.osd, overlay.isOpen, ui.failed, endPrompt) {
+    LaunchedEffect(ui.osd, overlay.isOpen, ui.failed) {
         if (feedOverlay != null) return@LaunchedEffect
         if (overlay.isOpen || ui.failed != null) return@LaunchedEffect
         if (ui.osd && focusNextUpOnWake && endPrompt) {
@@ -1009,7 +1032,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
         if (dir && rootFocused && down) {
             if (ui.duration > 0) focusPlayback()
-            else mem.requesters[if (ui.next(target.itemId) != null) "osd.next" else "osd.speed"]?.requestFocus()
+            else mem.requesters[if (ui.next(target.itemId) != null && nextUp == null) "osd.next" else "osd.speed"]?.requestFocus()
             return true
         }
         return false
@@ -1026,29 +1049,34 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     Box(Modifier.fillMaxSize().onPreviewKeyEvent(::onKey).testTag("player.root").focusRequester(root).onFocusChanged { rootFocused = it.isFocused }.focusable()) {
         if (exo != null) ExoSurface(exo, subOff = subOffPref, fit = ui.fit, m = Modifier.fillMaxSize())
         else VideoSurface(app.core, Modifier.fillMaxSize())
-        if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering, app = app)
+        if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering, app = app,
+            opacity = DanmakuStyle.opacity.doubleValue)
 
         /* 插件覆盖层。摆在 OSD **之前**:盖住控制条等于把暂停和进度条一起弄没,
            接管控制条是 `osd[]` 贡献点的事。不声明 interactive 的那批连焦点都进不去。 */
         xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = false)
         xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true)
         val failed = ui.failed
+        val controlsVisible = failed == null && feedOverlay == null && ui.osd && !overlay.isOpen
         if (failed != null) PlayerFailure(failed, retried = autoRetried, finished = finished, onRetry = {
             if (finished) { ui.failed = null; episodeResult = null; episodeRetry++ } else attempt++
         }, onSwitchSource = if (target.src != null && !app.privateSpace.value && !finished)
             ({ sourceSwitch = true }) else null)
-        else if (!ui.everMoved) Curtain(ui)
-        else if (ui.buffering) BufferingHint(ui)
+        else if (!ui.everMoved) Curtain(ui, showSpeed = !controlsVisible)
+        else if (ui.buffering) BufferingHint(ui, showSpeed = !controlsVisible)
         if (failed == null && feedOverlay == null) {
-            if (ui.osd && !overlay.isOpen) Osd(ui, target, engine, root,
+            if (controlsVisible) Osd(ui, target, engine, root,
                 onSeek = ::doSeek, seekPosition = controller.seekTarget ?: ui.position, onPause = ::togglePause,
+                nextUpVisible = nextUp != null,
                 onNext = { ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
                 onPanel = { which ->
                     openPanel(which, app, scope, overlay, ui, target, engine, exo, ctl,
                         pluginPanels.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == which }, pluginPanels)
                 },
             )
-            if (ui.skipWhat == "intro" && !markerReloading && !markerWriting && !endPrompt && !overlay.isOpen) SkipButton(ui, root) { skipNow(ui, ::doSeek, ::playNext) }
+            PlayerTopStatus(ui, controlsVisible,
+                showIntro = ui.skipWhat == "intro" && !markerReloading && !markerWriting && !endPrompt && !overlay.isOpen,
+                playbackFocus = root, onSkip = { skipNow(ui, ::doSeek, ::playNext) })
             // 控件收起时底部细进度条,与手机一致
             xyz.linplayer.app.ui.player.PassiveProgress(ui.position, ui.duration,
                 visible = !ui.osd && !overlay.isOpen && controller.ready && ui.everMoved,

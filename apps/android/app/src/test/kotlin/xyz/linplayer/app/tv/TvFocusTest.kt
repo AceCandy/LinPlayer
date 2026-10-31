@@ -37,6 +37,7 @@ import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.PageCache
 import xyz.linplayer.app.data.str
 import xyz.linplayer.app.data.bool
+import xyz.linplayer.app.data.boolOrNull
 import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.core.CoreEvent
 import xyz.linplayer.app.ui.pages.args
@@ -357,6 +358,9 @@ class TvFocusTest {
         rule.onNodeWithText("倍速").assertExists()
         pressBack(); focused("osd.speed")
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.Enter)
+        rule.onNodeWithText("倍速").assertDoesNotExist()
+        pressBack(); focused("osd.more")
+        press(rule, Key.Enter)
         rule.onNodeWithText("上一集").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.Enter); advance(rule, 800)
         assertEquals("sh5", lastPlayed())
@@ -449,9 +453,15 @@ class TvFocusTest {
             rule.onNodeWithText("显示区域").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
             press(rule, Key.Enter, Key.Enter, Key.DirectionDown, Key.DirectionLeft, Key.DirectionLeft)
             assertFalse(core.calls.any { it.first == "player.setDanmakuStyle" })
+            assertEquals("慢保存不得阻塞新的步进回显", .5, DanmakuStyle.area.doubleValue, .001)
+            assertEquals(.8, DanmakuStyle.opacity.doubleValue, .001)
+            repeat(5) { press(rule, Key.DirectionLeft) }
+            assertEquals(.3, DanmakuStyle.opacity.doubleValue, .001)
+            pressBack(); focused("osd.dm")
             rule.runOnIdle { hold = false; gate.complete(Unit) }; advance(rule, 800)
             assertEquals(.5, style.dbl("area")!!, .001)
-            assertEquals(.8, style.dbl("opacity")!!, .001)
+            assertEquals(.3, style.dbl("opacity")!!, .001)
+            assertTrue("在途之后只提交合并的最终值", core.calls.count { it.first == "player.setDanmakuStyle" } <= 2)
         } finally { gate.complete(Unit) }
     }
 
@@ -609,9 +619,11 @@ class TvFocusTest {
         core.tick(3640.0); advance(rule, 150)
         core.tick(3640.25); advance(rule, 150)
         rule.onNodeWithText("跳过片尾").assertExists()
+        rule.onNodeWithTag("osd.next").assertExists()
         pressBack()
         press(rule, Key.Enter)
         rule.onNodeWithText("跳过片尾").assertIsFocused()
+        rule.onNodeWithTag("osd.next").assertExists()
         assertFalse(core.calls.any { it.first == "player.seek" })
         assertEquals(1, core.calls.count { it.first == "player.play" })
         press(rule, Key.Enter); advance(rule, 300)
@@ -627,7 +639,75 @@ class TvFocusTest {
         core.tick(3401.0); advance(rule, 150)
         core.tick(3401.25); advance(rule, 150)
         rule.onNodeWithTag("player.nextUp").assertExists()
+        rule.onNodeWithTag("osd.next").assertDoesNotExist()
         assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 下一集卡替代已聚焦按钮且回退进度后恢复按钮() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) { player() }
+        core.tick(1200.0); advance(rule, 150)
+        core.tick(1200.25); advance(rule, 150)
+        press(rule, Key.DirectionUp); focused("osd.next")
+        core.tick(3645.0); advance(rule, 300)
+        rule.onNodeWithTag("osd.next").assertDoesNotExist()
+        focused("player.nextUp")
+        press(rule, Key.DirectionDown); focused("osd.bar")
+        press(rule, Key.DirectionUp); focused("osd.speed")
+        press(rule, Key.DirectionUp); focused("player.nextUp")
+        core.tick(1200.0); advance(rule, 300)
+        rule.onNodeWithTag("player.nextUp").assertDoesNotExist()
+        focused("osd.bar")
+        press(rule, Key.DirectionUp); focused("osd.next")
+        press(rule, Key.Enter); advance(rule, 800)
+        assertEquals("sh7", lastPlayed())
+    }
+
+    @Test fun 下一集卡出现消失不抢其它按钮焦点() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) { player() }
+        core.tick(1200.0); advance(rule, 150)
+        core.tick(1200.25); advance(rule, 150)
+        press(rule, Key.DirectionUp, Key.DirectionRight); focused("osd.speed")
+        core.tick(3645.0); advance(rule, 300)
+        focused("osd.speed")
+        rule.onNodeWithTag("osd.next").assertDoesNotExist()
+        press(rule, Key.DirectionRight); focused("osd.dm")
+        core.tick(1200.0); advance(rule, 300)
+        focused("osd.dm")
+        rule.onNodeWithTag("osd.next").assertExists()
+        press(rule, Key.DirectionLeft, Key.DirectionLeft); focused("osd.next")
+    }
+
+    @Test fun 下一集卡在菜单期间变化仍能恢复可用焦点() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) { player() }
+        core.tick(1200.0); advance(rule, 150)
+        core.tick(1200.25); advance(rule, 150)
+        press(rule, Key.DirectionUp); focused("osd.next")
+        press(rule, Key.Menu); advance(rule, 300)
+        core.tick(3645.0); advance(rule, 300)
+        pressBack(); focused("player.nextUp")
+        rule.onNodeWithTag("osd.next").assertDoesNotExist()
+        press(rule, Key.Menu); advance(rule, 300)
+        core.tick(1200.0); advance(rule, 300)
+        pressBack(); focused("osd.bar")
+        press(rule, Key.DirectionUp); focused("osd.next")
+    }
+
+    @Test fun 更多自动跳过开关文案明确且沿用原偏好字段() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.getPlaybackPrefs", args("skip_intro" to false, "skip_outro" to true))
+            ret("player.setPlaybackPrefs", kotlinx.serialization.json.JsonNull)
+        }
+        press(rule, Key.Menu); advance(rule, 300)
+        rule.onNodeWithText("跳过片头").assertDoesNotExist()
+        rule.onNodeWithText("跳过片尾").assertDoesNotExist()
+        rule.onNodeWithText("自动跳过片头").performSemanticsAction(SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 200)
+        assertEquals(true, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.boolOrNull("skip_intro"))
+        press(rule, Key.DirectionDown)
+        rule.onNodeWithText("自动跳过片尾").assertIsFocused()
+        press(rule, Key.Enter); advance(rule, 200)
+        assertEquals(false, core.calls.last { it.first == "player.setPlaybackPrefs" }.second.boolOrNull("skip_outro"))
     }
 
     @Test fun 片尾半隐下一集确认先展开再切集() {

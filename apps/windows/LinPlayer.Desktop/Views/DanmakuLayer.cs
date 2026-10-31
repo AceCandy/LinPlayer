@@ -81,6 +81,7 @@ public sealed class DmLayout
 /// <summary>UI 线程发给合成器线程的两种消息。合成器侧的状态只由它们改。</summary>
 internal sealed record DmLayoutMsg(DmLayout? Layout);
 internal sealed record DmSyncMsg(double Position, bool Paused, double Speed);
+internal sealed record DmOpacityMsg(double Opacity);
 
 /// <summary>
 /// 弹幕的真正画法,跑在<b>合成器线程</b>上。
@@ -95,24 +96,26 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
         new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
 
     /// <summary>使用绘制相同的字体整形测量完整候选，结果统一为核心逻辑坐标。</summary>
-    internal static double[] MeasureWidths(DmLayout layout, double height, CancellationToken ct)
+    internal static double[] MeasureWidths(DmLayout layout, double height, CancellationToken ct,
+        double? until = null, Dictionary<string, double>? cache = null)
     {
         var sy = height / layout.ResY;
         var face = layout.Bold ? FaceBold : Face;
-        var cache = new Dictionary<string, double>(StringComparer.Ordinal);
-        var widths = new double[layout.Items.Count];
-        for (var i = 0; i < widths.Length; i++)
+        cache ??= new Dictionary<string, double>(StringComparer.Ordinal);
+        var widths = new List<double>();
+        foreach (var item in layout.Items)
         {
             ct.ThrowIfCancellationRequested();
-            var text = layout.Items[i].Text;
+            if (until is { } end && item.T > end) continue;
+            var text = item.Text;
             if (!cache.TryGetValue(text, out var width))
             {
                 using var shaped = new TextLayout(text, face, layout.FontSize * sy, null);
                 cache[text] = width = shaped.WidthIncludingTrailingWhitespace / sy;
             }
-            widths[i] = width;
+            widths.Add(width);
         }
-        return widths;
+        return widths.ToArray();
     }
 
     private DmLayout? _layout;
@@ -121,6 +124,7 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     private double _speed = 1;
     private TimeSpan _synced;
     private bool _looping;
+    private double? _opacity;
 
     /// <summary>硬对表的门槛。超过这么多秒就是 seek / 换集,不是抖动。</summary>
     private const double SnapThreshold = 1.0;
@@ -138,7 +142,7 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     private int _gen;
     private double _genFont = -1;
     private bool _genBold;
-    private byte _genAlpha;
+    private int _genAlpha = -1;
     private int _liveFrom;
     private readonly Dictionary<uint, IImmutableBrush> _brushes = [];
     private IImmutableBrush _shadow = new ImmutableSolidColorBrush(Colors.Black);
@@ -151,6 +155,9 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     {
         switch (message)
         {
+            case DmOpacityMsg m:
+                _opacity = m.Opacity;
+                break;
             case DmLayoutMsg m:
                 _layout = m.Layout;
                 _liveFrom = 0;
@@ -178,15 +185,15 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     /// <summary>该转就转起来。<b>只在有弹幕且没暂停时转</b> —— 一直转着的话没弹幕的片子也在烧电。</summary>
     private void Kick()
     {
-        if (_looping || _paused || _layout is not { Items.Count: > 0 }) return;
+        if (_looping || _paused || _layout is null || !HasActivity(_layout, NowClock(), .35 * _speed)) return;
         _looping = true;
         RegisterForNextAnimationFrameUpdate();
     }
 
     public override void OnAnimationFrameUpdate()
     {
-        if (_paused || _layout is not { Items.Count: > 0 }) { _looping = false; return; }
         Invalidate();
+        if (_paused || _layout is null || !HasActivity(_layout, NowClock(), .35 * _speed)) { _looping = false; return; }
         RegisterForNextAnimationFrameUpdate();
     }
 
@@ -206,11 +213,15 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
         var font = l.FontSize * sy;
         var laneH = l.LaneHeight * sy;
         var areaH = Math.Min(h, l.AreaHeight * sy);
-        var a = (byte)Math.Clamp(l.Opacity * 255, 0, 255);
+        var a = (byte)Math.Clamp((_opacity ?? l.Opacity) * 255, 0, 255);
         var face = l.Bold ? FaceBold : Face;
-        if (font != _genFont || _genBold != l.Bold || _genAlpha != a)
+        if (font != _genFont || _genBold != l.Bold)
         {
-            _genFont = font; _genBold = l.Bold; _genAlpha = a; _gen++;
+            _genFont = font; _genBold = l.Bold; _gen++;
+        }
+        if (_genAlpha != a)
+        {
+            _genAlpha = a;
             _brushes.Clear();
             // 描边靠一层黑影垫底。四向描边要多画四遍,而弹幕本来就是薄薄一层
             _shadow = new ImmutableSolidColorBrush(Color.FromArgb((byte)(a * 3 / 4), 0, 0, 0));
@@ -341,6 +352,18 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
         }
         return lo;
     }
+
+    internal static bool HasActivity(DmLayout layout, double now, double lookAhead)
+    {
+        var from = FirstAtOrAfter(layout.Items, now - Math.Max(layout.RollSeconds, layout.FixSeconds));
+        for (var i = from; i < layout.Items.Count; i++)
+        {
+            var item = layout.Items[i];
+            if (item.T > now + lookAhead) return false;
+            if (item.T + (item.Mode == 1 ? layout.RollSeconds : layout.FixSeconds) >= now) return true;
+        }
+        return false;
+    }
 }
 
 /// <summary>
@@ -359,8 +382,10 @@ public sealed class DanmakuLayer : Control
     private Size _measureSize;
     private long _measureVersion;
     private CancellationTokenSource? _measureCancellation;
-    internal Func<DmLayout, Size, CancellationToken, Task<DmLayout?>>? ResolveLayout;
+    internal Func<DmLayout, Size, double?, Dictionary<string, double>, CancellationToken, Task<DmLayout?>>? ResolveLayout;
     private DmSyncMsg _lastSync = new(0, true, 1);
+    private DmOpacityMsg? _lastOpacity;
+    private double? _preparedUntil;
 
     public DanmakuLayer()
     {
@@ -373,27 +398,43 @@ public sealed class DanmakuLayer : Control
         set { _layout = value; _ = RefreshLayout(); }
     }
 
-    private async Task RefreshLayout()
+    private async Task RefreshLayout(bool keepCurrent = false)
     {
         var version = ++_measureVersion;
         _measureCancellation?.Cancel();
         _measureCancellation?.Dispose();
         _measureCancellation = null;
-        _renderLayout = _layout is { NeedsMeasurement: false } ? _layout : null;
-        Send(new DmLayoutMsg(_renderLayout));
+        _preparedUntil = null;
+        if (!keepCurrent)
+        {
+            _renderLayout = _layout is { NeedsMeasurement: false } ? _layout : null;
+            Send(new DmLayoutMsg(_renderLayout));
+        }
         if (_layout is not { NeedsMeasurement: true } input || ResolveLayout is null ||
             _measureSize.Width <= 0 || _measureSize.Height <= 0) return;
         _measureCancellation = new CancellationTokenSource();
         var ct = _measureCancellation.Token;
+        var size = _measureSize;
         try
         {
-            var result = await ResolveLayout(input, _measureSize, ct);
+            var cache = new Dictionary<string, double>(StringComparer.Ordinal);
+            var until = Math.Max(0, _lastSync.Position) + 30;
+            _preparedUntil = until;
+            if (input.Items.Exists(item => item.T > until))
+            {
+                var first = await ResolveLayout(input, size, until, cache, ct);
+                if (ct.IsCancellationRequested || version != _measureVersion) return;
+                _renderLayout = first;
+                Send(new DmLayoutMsg(first));
+            }
+            var result = await ResolveLayout(input, size, null, cache, ct);
             if (ct.IsCancellationRequested || version != _measureVersion) return;
             _renderLayout = result;
+            _preparedUntil = null;
             Send(new DmLayoutMsg(result));
         }
         catch (OperationCanceledException) { /* 换片或变尺寸后旧测量作废。 */ }
-        catch { /* 测量失败不绘制不安全布局，下一次有效输入会重新请求。 */ }
+        catch { if (version == _measureVersion) Toast.Show("弹幕排版更新失败，请重新打开设置重试"); }
     }
 
     /// <summary>对表。由播放页的状态轮询每 250ms 调一次。</summary>
@@ -401,6 +442,13 @@ public sealed class DanmakuLayer : Control
     {
         _lastSync = new DmSyncMsg(position, paused, speed);
         Send(_lastSync);
+        if (_preparedUntil is { } until && position > until - 5) _ = RefreshLayout(keepCurrent: true);
+    }
+
+    public void SetOpacity(double opacity)
+    {
+        _lastOpacity = new DmOpacityMsg(opacity);
+        Send(_lastOpacity);
     }
 
     private void Send(object msg)
@@ -426,6 +474,7 @@ public sealed class DanmakuLayer : Control
         // 挂晚了的话前面那几条消息都丢了 —— 补发一次当前状态
         _visual.SendHandlerMessage(new DmLayoutMsg(_renderLayout));
         _visual.SendHandlerMessage(_lastSync);
+        if (_lastOpacity is { } opacity) _visual.SendHandlerMessage(opacity);
     }
 
     protected override void OnAttachedToVisualTree(VisualTreeAttachmentEventArgs e)

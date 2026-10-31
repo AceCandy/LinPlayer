@@ -32,9 +32,10 @@ private fun matches(refreshRate: Float, fps: Float): Boolean {
 }
 
 /** 只挑同分辨率的整倍频；已匹配时保留当前模式，避免多余切屏。 */
-internal fun matchingTvMode(current: Display.Mode, modes: Array<Display.Mode>, fps: Float): Display.Mode? {
+internal fun matchingTvMode(current: Display.Mode, modes: Array<Display.Mode>, fps: Float, smoothOverlay: Boolean = false): Display.Mode? {
     val candidates = modes.filter {
-        it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight && matches(it.refreshRate, fps)
+        it.physicalWidth == current.physicalWidth && it.physicalHeight == current.physicalHeight && matches(it.refreshRate, fps) &&
+            (!smoothOverlay || it.refreshRate >= 50f)
     }
     return candidates.firstOrNull { it.modeId == current.modeId } ?: candidates.minByOrNull { it.refreshRate }
 }
@@ -44,7 +45,7 @@ internal class TvRefreshRate(private val window: Window, private val display: Di
     private val original = window.attributes.preferredDisplayModeId
     private var closed = false
 
-    fun match(fps: Float) {
+    fun match(fps: Float, smoothOverlay: Boolean = false) {
         if (closed) return
         // 设备可忽略模式请求；该辅助功能失败不能中断播放。
         runCatching {
@@ -52,8 +53,9 @@ internal class TvRefreshRate(private val window: Window, private val display: Di
             val modes = display.supportedModes
             val requested = modes.firstOrNull { it.modeId == window.attributes.preferredDisplayModeId }
             if (requested != null && requested.physicalWidth == current.physicalWidth &&
-                requested.physicalHeight == current.physicalHeight && matches(requested.refreshRate, fps)) return
-            val mode = matchingTvMode(current, modes, fps)
+                requested.physicalHeight == current.physicalHeight && matches(requested.refreshRate, fps) &&
+                (!smoothOverlay || requested.refreshRate >= 50f)) return
+            val mode = matchingTvMode(current, modes, fps, smoothOverlay)
             if (mode == null) restore()
             else if (mode.modeId != current.modeId || window.attributes.preferredDisplayModeId != 0) setMode(mode.modeId)
         }
@@ -88,7 +90,7 @@ internal fun tvVideoFrameRate(player: ExoPlayer): Float? {
 /** TV 双内核共用窗口匹配；手机继续使用原有 Surface 策略。 */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo: ExoPlayer?, attempt: Int) {
+internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo: ExoPlayer?, attempt: Int, smoothOverlay: Boolean = false) {
     val activity = LocalContext.current as? Activity
     val rates = remember(activity) {
         activity?.window?.let { window -> window.decorView.display?.let { TvRefreshRate(window, it) } }
@@ -102,7 +104,7 @@ internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo
         }
     }
     val ready = controller.ready
-    LaunchedEffect(rates, controller, exo, attempt, ready) {
+    LaunchedEffect(rates, controller, exo, attempt, ready, smoothOverlay) {
         if (!ready || rates == null) return@LaunchedEffect
         var unknown = 0
         while (true) {
@@ -123,8 +125,9 @@ internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo
             }
             coroutineContext.ensureActive()
             if (!controller.ready) return@LaunchedEffect
-            if (fps != null && fps.isFinite() && fps > 0) { unknown = 0; rates.match(fps) }
-            else if (++unknown >= 10) rates.restore()
+            // 弹幕独立于视频帧率运动，24/30Hz显示模式会连同覆盖层一起降频。
+            if (fps != null && fps.isFinite() && fps > 0) { unknown = 0; rates.match(fps, smoothOverlay) }
+            else if (smoothOverlay || ++unknown >= 10) rates.restore()
             delay(500)
         }
     }

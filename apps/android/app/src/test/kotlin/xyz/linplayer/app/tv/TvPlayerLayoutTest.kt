@@ -53,6 +53,8 @@ class TvPlayerLayoutTest {
     private val oldTheme = UiPrefs.theme.value
     private val oldColor = UiPrefs.colorScheme.value
     private val oldTouch = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
+    private val oldRx = android.net.TrafficStats.getTotalRxBytes().toInt()
+    private val oldTimeZone = java.util.TimeZone.getDefault()
     private lateinit var back: OnBackPressedDispatcher
     private val root = generateSequence(File(requireNotNull(System.getProperty("user.dir")))) { it.parentFile }
         .first { File(it, "tools/visual-fixtures/catalog.json").exists() }
@@ -61,6 +63,8 @@ class TvPlayerLayoutTest {
         scope.cancel(); app.bg.cancel()
         UiPrefs.setTheme(context, oldTheme); UiPrefs.setColorScheme(context, oldColor)
         androidx.test.platform.app.InstrumentationRegistry.getInstrumentation().setInTouchMode(oldTouch)
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(oldRx)
+        java.util.TimeZone.setDefault(oldTimeZone)
     }
 
     private fun show(series: Boolean, light: Boolean = false, fontScale: Float = 1f, speed: Double = 1.0, brightFrame: Boolean = false) {
@@ -131,16 +135,104 @@ class TvPlayerLayoutTest {
 
     private fun shot(name: String) = rule.onRoot().captureRoboImage(File(root, "build/visual-alignment/tv/player-$name.png").path)
 
+    @Test fun hiddenProgressFollowsCurrentThemeColor() {
+        show(series = true)
+        rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300)
+        val bar = rule.onNode(SemanticsMatcher.keyIsDefined(SemanticsProperties.ProgressBarRangeInfo))
+        for (color in listOf("green", "purple")) {
+            rule.runOnIdle { UiPrefs.setColorScheme(context, color) }; advance(rule, 200)
+            val pixel = bar.captureToImage().toPixelMap()[2, 1]
+            val accent = xyz.linplayer.app.tv.kit.TvC.acc
+            assertEquals(accent.red, pixel.red, .01f)
+            assertEquals(accent.green, pixel.green, .01f)
+            assertEquals(accent.blue, pixel.blue, .01f)
+        }
+        shot("hidden-theme")
+    }
+
+    @Test fun clockStaysVisibleWhenControlsHideAndUpdates() {
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(1000)
+        show(series = true)
+        val clock = rule.onNodeWithTag("player.clock").assertIsDisplayed().fetchSemanticsNode()
+        val text = clock.config[SemanticsProperties.Text].single().text
+        assertTrue(text.matches(Regex("[0-2][0-9]:[0-5][0-9]")))
+        assertFalse(clock.config.contains(SemanticsProperties.Focused))
+        assertTrue(clock.boundsInRoot.left > 16f && clock.boundsInRoot.top > 16f)
+        rule.onNodeWithTag("player.netSpeed").assertDoesNotExist()
+        val pixelX = (clock.boundsInRoot.left + 4).toInt()
+        val pixelY = clock.boundsInRoot.center.y.toInt()
+        val clockBackground = rule.onRoot().captureToImage().toPixelMap()[pixelX, pixelY]
+        shot("status-expanded")
+        rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300)
+        rule.onNodeWithTag("osd.more").assertDoesNotExist()
+        rule.onNodeWithTag("player.clock").assertIsDisplayed()
+        assertEquals(clock.boundsInRoot, rule.onNodeWithTag("player.clock").fetchSemanticsNode().boundsInRoot)
+        rule.onNodeWithTag("player.root").assertIsFocused()
+        shot("status-hidden")
+        assertEquals("收起后时钟仍实际绘制", clockBackground, rule.onRoot().captureToImage().toPixelMap()[pixelX, pixelY])
+        java.util.TimeZone.setDefault(java.util.SimpleTimeZone(
+            oldTimeZone.getOffset(System.currentTimeMillis()) + 3_600_000, "clock-test"))
+        advance(rule, 10_100)
+        assertNotEquals(text, rule.onNodeWithTag("player.clock").fetchSemanticsNode().config[SemanticsProperties.Text].single().text)
+    }
+
+    @Test fun speedMovesToCornerAndAvoidsIntroThenReturnsToBuffering() {
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(1000)
+        show(series = true)
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(2_000_000)
+        advance(rule, 1000)
+        val speed = rule.onNodeWithTag("player.netSpeed").assertIsDisplayed().fetchSemanticsNode()
+        val speedText = speed.config[SemanticsProperties.Text].single().text
+        val bounds = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        assertTrue(speed.boundsInRoot.right > bounds.right * .9f)
+        assertTrue(speed.boundsInRoot.top < bounds.height * .1f)
+        shot("status-expanded-speed")
+        core.tick(10.0); advance(rule, 100)
+        rule.runOnIdle { core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status",
+            args("position" to 10.25, "duration" to 3660, "buffering" to true))) }
+        advance(rule, 100)
+        assertTrue(rule.onNodeWithTag("osd.skip").fetchSemanticsNode().boundsInRoot.top > speed.boundsInRoot.bottom)
+        rule.onAllNodesWithText(speedText).assertCountEquals(1)
+        rule.onNodeWithText("正在缓冲…").assertIsDisplayed()
+        rule.runOnUiThread { back.onBackPressed() }; advance(rule, 100)
+        rule.onNodeWithTag("player.netSpeed").assertDoesNotExist()
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(4_000_000)
+        advance(rule, 1000)
+        rule.onAllNodes(hasText("/s", substring = true)).assertCountEquals(1)
+        val central = rule.onNode(hasText("/s", substring = true)).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+        shot("status-hidden-buffering")
+        assertTrue(central.top > bounds.height * .4f && central.bottom < bounds.height * .7f)
+        rule.onNodeWithTag("player.clock").assertIsDisplayed()
+    }
+
+    @Test @Config(qualifiers = "w640dp-h360dp-land-mdpi") fun statusRemainsReadableOnBrightVideoAtLargeText() {
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(1000)
+        show(series = false, brightFrame = true, fontScale = 1.4f)
+        org.robolectric.shadows.ShadowTrafficStats.setTotalRxBytes(2_000_000)
+        advance(rule, 1000)
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        for (tag in listOf("player.clock", "player.netSpeed")) {
+            val rect = rule.onNodeWithTag(tag).assertIsDisplayed().fetchSemanticsNode().boundsInRoot
+            val background = pixels[(rect.left + 4).toInt(), rect.center.y.toInt()]
+            val ink = Color.White.copy(alpha = .9f).compositeOver(background)
+            assertTrue("$tag 亮画面对比度", (ink.luminance() + .05f) / (background.luminance() + .05f) >= 4.5f)
+            assertTrue(rect.top > 16f && rect.bottom < pixels.height / 3 && rect.right <= pixels.width - 16f)
+        }
+        shot("status-bright-large-text")
+    }
+
     private fun assertMarkers(focused: Boolean, vararg seconds: Double) {
         val pixels = rule.onNodeWithTag("osd.bar").captureToImage().toPixelMap()
-        val y = pixels.height / 2 - if (focused) 5 else 3
+        val y = pixels.height / 2
+        val outside = y - if (focused) 4 else 3
         for (second in seconds) {
-            val x = (pixels.width * second / 3660.0).roundToInt() + 1
+            val x = (pixels.width * second / 3660.0).roundToInt()
             val expected = Color.White.copy(alpha = .55f).compositeOver(pixels[x + 4, y])
             val actual = pixels[x, y]
             assertEquals("${second}s 刻度红色通道（重复绘制会加深）", expected.red, actual.red, .01f)
             assertEquals("${second}s 刻度绿色通道", expected.green, actual.green, .01f)
             assertEquals("${second}s 刻度蓝色通道", expected.blue, actual.blue, .01f)
+            assertEquals("${second}s 刻度不伸出轨道", pixels[x + 4, outside], pixels[x, outside])
         }
     }
 
@@ -203,12 +295,18 @@ class TvPlayerLayoutTest {
 
     @Test fun 下一集卡固定右下并按OSD显隐避让底栏() {
         show(series = true)
+        val actionBefore = rule.onNodeWithTag("osd.speed").fetchSemanticsNode().boundsInRoot
+        val barBefore = rule.onNodeWithTag("osd.bar").fetchSemanticsNode().boundsInRoot
         core.tick(3645.0); advance(rule, 300)
+        rule.onNodeWithTag("osd.next").assertDoesNotExist()
         val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
-        val action = rule.onNodeWithTag("osd.next").fetchSemanticsNode().boundsInRoot
+        val action = rule.onNodeWithTag("osd.speed").fetchSemanticsNode().boundsInRoot
+        assertEquals("卡片出现不移动其余按钮", actionBefore, action)
+        assertEquals("卡片出现不移动进度条", barBefore, rule.onNodeWithTag("osd.bar").fetchSemanticsNode().boundsInRoot)
         val expanded = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
         assertTrue("展开态下一集卡在右下", expanded.right > root.right - TvDim.safeH.value - 2f)
         assertTrue("展开态下一集卡在按钮上方", expanded.bottom < action.top)
+        shot("next-up-expanded")
         rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300)
         val hidden = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
         assertTrue("收起态下一集卡仍在右下", hidden.right > root.right - TvDim.safeH.value - 2f)

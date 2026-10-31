@@ -482,6 +482,7 @@ func statusFields(get func(string) string, getF func(string) float64, fps int64)
 	return map[string]any{
 		"position":  getF("time-pos"),
 		"duration":  getF("duration"),
+		"speed":     getF("speed"),
 		"paused":    get("pause") == "yes",
 		"buffering": get("paused-for-cache") == "yes",
 		"eof":       get("eof-reached") == "yes",

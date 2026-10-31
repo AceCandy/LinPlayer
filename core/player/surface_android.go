@@ -53,6 +53,9 @@ var (
 	surfReady atomic.Bool
 )
 
+// gpu-next 支持杜比视界重映射；旧 GPU 无法初始化时仍允许播放普通片源。
+const androidVideoOutput = "gpu-next,gpu"
+
 // videoOutReady:安卓的「视频输出就绪」= surface 已绑上。
 // 语义和桌面那条(render context 就绪)是同一件事 —— 起播之前视频输出必须存在,
 // 否则 vo 初始化失败且 mpv 不重试,表现是全程黑屏而没有任何回调会喊。
@@ -68,11 +71,13 @@ func videoOutReady() bool { return surfReady.Load() }
 // ☠☠ **`vo` 和 `android-surface-size` 要用 property 接口改,不能用 option 接口。**
 // mpv 初始化**之后**,`mpv_set_option_string` 会被转成 `options/<name>` ——
 // 那只改存着的选项值,**不会拆掉 / 重建已经跑着的 vo**。于是:
-//   第一部片正常(vo 还没建,loadfile 时才读选项)→ 退出重进第二部 →
-//   旧 vo 还抓着那个已经没了的 Surface → **有声音没画面**,而一条错不报。
+//
+//	第一部片正常(vo 还没建,loadfile 时才读选项)→ 退出重进第二部 →
+//	旧 vo 还抓着那个已经没了的 Surface → **有声音没画面**,而一条错不报。
+//
 // 写法照 mpv-android 那套(它是这个库在安卓上的参考实现):
 // 解绑 = `vo=null`(property) + `force-window=no` + `wid=0`;
-// 绑定 = `wid=<jobject>` + `force-window=yes` + `vo=gpu`(property)。
+// 绑定 = `wid=<jobject>` + `force-window=yes` + 恢复 androidVideoOutput(property)。
 // `force-window` 不切的话,vo 拆掉之后没东西把输出链重新拉起来。
 func SetSurface(kind int32, handle int64, width, height int32) int32 {
 	if kind != 0 && kind != 1 {
@@ -113,8 +118,8 @@ func SetSurface(kind int32, handle int64, width, height int32) int32 {
 	}
 	setOpt(h, "force-window", "yes")
 	setSurfProp(h, "android-surface-size", fmt.Sprintf("%dx%d", width, height))
-	if rc := setSurfProp(h, "vo", "gpu"); rc < 0 {
-		bus.Logf("error", "mpv vo=gpu 没设上(错误码 %d)", rc)
+	if rc := setSurfProp(h, "vo", androidVideoOutput); rc < 0 {
+		bus.Logf("error", "mpv 视频输出没设上(错误码 %d)", rc)
 		return -1
 	}
 	surfWid = handle
@@ -166,7 +171,7 @@ func setSurfProp(h unsafe.Pointer, k, v string) int {
 // sub-fonts-dir:不给的话 libass 找不到字体,**文本字幕整个不显示**(桌面早有、安卓漏过)。
 func platformOptions() [][2]string {
 	opts := [][2]string{
-		{"vo", "gpu"},
+		{"vo", androidVideoOutput},
 		{"gpu-context", "android"},
 		{"opengl-es", "yes"},
 		{"sub-fonts-dir", "/system/fonts"},

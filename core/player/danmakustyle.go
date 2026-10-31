@@ -65,12 +65,21 @@ func curStyle() dmStyle {
 	return sty
 }
 
-// loadDanmakuStyle 把落库的设置读进内存并重排。起播时调一次。
+// loadDanmakuStyle 只在几何变化时重排；透明度不使宿主已有测量失效。
 func loadDanmakuStyle() {
 	styMu.Lock()
-	sty = dmStyleOf(config.Current().PrefsOf())
+	next := dmStyleOf(config.Current().PrefsOf())
+	geometry := sty
+	geometry.Opacity = next.Opacity
+	reflow := geometry != next
+	sty = next
+	dmMu.Lock()
+	dmPreparedStyle.Opacity = next.Opacity
+	dmMu.Unlock()
 	styMu.Unlock()
-	relayout()
+	if reflow {
+		relayout()
+	}
 }
 
 // ---------------------------------------------------------------- 布局

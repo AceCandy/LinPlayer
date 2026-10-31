@@ -36,13 +36,14 @@ class DanmakuLayerTest {
     private val position = mutableStateOf(11.0)
     private val paused = mutableStateOf(false)
     private val buffering = mutableStateOf(false)
+    private val speed = mutableStateOf(1.0)
     private val layout = DmLayout(640.0, 360.0, 40.0, 8.0, 5.0, 30.0, 1.0, false,
         listOf(DmItem(10.0, 1, 0, 100.0, 0xFFFFFF, "MMMM")))
 
     private fun open(layout: DmLayout = this.layout) {
         rule.mainClock.autoAdvance = false
         rule.setContent {
-            DanmakuLayer(layout, position.value, paused.value, 1.0,
+            DanmakuLayer(layout, position.value, paused.value, speed.value,
                 Modifier.fillMaxSize().background(Color.Black).testTag("danmaku"), buffering = buffering.value)
         }
         rule.waitForIdle()
@@ -123,6 +124,28 @@ class DanmakuLayerTest {
             assertTrue("250ms移动量=${left - next}，应约24px", left - next in 18..28)
             left = next
         }
+    }
+
+    @Test fun idleSeekWakesFramesAndSpeedChangeDoesNotJumpBackToOldSample() {
+        position.value = 50.0
+        open()
+        rule.mainClock.advanceTimeBy(1000); rule.waitForIdle()
+        assertTrue(visibleColumns().isEmpty())
+        rule.runOnIdle { position.value = 11.0 }
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(64); rule.waitForIdle()
+        val first = textLeft()
+        rule.mainClock.advanceTimeBy(250); rule.waitForIdle()
+        val moving = textLeft()
+        assertTrue(moving < first - 15)
+        rule.runOnIdle { speed.value = 2.0 }
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(32); rule.waitForIdle()
+        assertTrue("变速不应退回旧采样", textLeft() <= moving)
+        rule.runOnIdle { position.value = 50.0 }
+        rule.waitForIdle()
+        rule.mainClock.advanceTimeBy(64); rule.waitForIdle()
+        assertTrue("最后一帧应清除旧字", visibleColumns().isEmpty())
     }
 
     @Test fun pauseFreezesDrawingAndPausedSeekMovesIt() {

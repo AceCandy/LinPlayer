@@ -134,3 +134,40 @@ func TestDanmakuOptionsRejectInvalidValues(t *testing.T) {
 		}
 	}
 }
+
+func TestDanmakuOpacityPreservesMeasuredRevision(t *testing.T) {
+	setup(t)
+	loadDanmakuStyle()
+	danmakuSet([]feedComment{{Time: 0, Mode: 1, Text: "连续显示"}})
+	prepared, err := measuredLayoutReply(context.Background(), map[string]any{"prepare": true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	revision := prepared.(map[string]any)["revision"].(int64)
+	req := map[string]any{"revision": float64(revision), "viewport_width": 1920.0, "widths": []any{140.0}}
+	for _, update := range []map[string]any{{"opacity": .3}, {"heatmap": true}} {
+		if _, err := bus.Invoke(context.Background(), "player.setDanmakuStyle", update); err != nil {
+			t.Fatal(err)
+		}
+		result, err := measuredLayoutReply(context.Background(), req)
+		if err != nil {
+			t.Fatalf("非几何设置不应使在途测量过期: %v", err)
+		}
+		if result.(map[string]any)["opacity"] != .3 {
+			t.Fatal("测量回复仍是旧透明度")
+		}
+		prepared, err = measuredLayoutReply(context.Background(), map[string]any{"prepare": true})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if prepared.(map[string]any)["revision"] != revision || prepared.(map[string]any)["opacity"] != .3 {
+			t.Fatal("非几何设置仍重新排版或准备快照过期")
+		}
+	}
+	if _, err := bus.Invoke(context.Background(), "player.setDanmakuStyle", map[string]any{"scale": 1.5}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := measuredLayoutReply(context.Background(), req); err == nil {
+		t.Fatal("字号变化必须拒收旧测量")
+	}
+}

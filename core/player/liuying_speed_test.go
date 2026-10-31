@@ -2,6 +2,7 @@ package player
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -94,6 +95,9 @@ func TestLiuYingSpeedPlayCommand(t *testing.T) {
 	}
 	setup(t)
 	regTransportOnce.Do(registerTransport)
+	if _, err := bus.Invoke(context.Background(), "player.setSpeed", map[string]any{"speed": 2.0}); err == nil {
+		t.Fatal("内核未初始化时不能返回倍率设置成功")
+	}
 	// 此用例只读原生属性，宿主图形通道用就绪标志代替，不执行渲染。
 	rctxSet.Store(true)
 	defer rctxSet.Store(false)
@@ -129,6 +133,12 @@ func TestLiuYingSpeedPlayCommand(t *testing.T) {
 		}
 		if got := propF("speed"); got != want {
 			t.Fatalf("作用域 %q 起播倍率=%v，期望%v", scope, got, want)
+		}
+		if _, err := bus.Invoke(context.Background(), "player.setSpeed", map[string]any{"speed": 1.75}); err != nil {
+			t.Fatal(err)
+		}
+		if got := propF("speed"); got != 1.75 {
+			t.Fatalf("手动倍率未进入真实内核: %v", got)
 		}
 		a["pos"] = 0.0
 		if r := call(t, int64(962+i*2), "player.stopPlayback", a); !r.OK {
