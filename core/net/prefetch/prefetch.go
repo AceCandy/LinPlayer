@@ -197,7 +197,7 @@ func (h *Handle) CachedSpans() [][2]float64 {
 		run = -1
 	}
 	for c := int64(0); c < chunks; c++ {
-		if o.disk.has(c) {
+		if o.disk.has(c) && !o.disk.needsVerification(c) {
 			if run < 0 {
 				run = c
 			}

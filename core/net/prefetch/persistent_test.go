@@ -172,6 +172,63 @@ func TestPersistentRejectsWrongRangeOrVersionBeforeFeed(t *testing.T) {
 		})
 	}
 }
+func TestPersistentRestoreDefersBodyVerification(t *testing.T) {
+	for _, damaged := range []bool{false, true} {
+		t.Run(fmt.Sprint(damaged), func(t *testing.T) {
+			paths.SetRoot(t.TempDir())
+			u := persistentOrigin(t)
+			h := persistentOpen(t, u, "lazy-restore", 1<<30)
+			expectVersion(t, h, 0, 1)
+			file := h.origin.disk.blockPath(h.origin.disk.slotOf(0))
+			h.Close()
+			if damaged {
+				f, err := os.OpenFile(file, os.O_WRONLY, 0600)
+				if err != nil {
+					t.Fatal(err)
+				}
+				_, err = f.WriteAt([]byte{99}, blockHeader+200)
+				_ = f.Close()
+				if err != nil {
+					t.Fatal(err)
+				}
+			}
+			h = persistentOpen(t, u, "lazy-restore", 1<<30)
+			if !h.origin.disk.has(0) {
+				t.Fatal("restore must retain header-valid candidate without reading its body")
+			}
+			if len(h.CachedSpans()) != 0 {
+				t.Fatal("unverified candidates must not be advertised as cached")
+			}
+			before := u.downloads.Load()
+			req, _ := http.NewRequest(http.MethodGet, h.CachedURL, nil)
+			req.Header.Set("Range", "bytes=0-31")
+			resp, err := http.DefaultClient.Do(req)
+			if err != nil {
+				t.Fatal(err)
+			}
+			body, err := io.ReadAll(resp.Body)
+			_ = resp.Body.Close()
+			if err != nil {
+				t.Fatal("cache response truncated:", err)
+			}
+			if damaged {
+				if resp.StatusCode != 416 || len(body) != 0 {
+					t.Fatal("corrupt candidate promised readable bytes")
+				}
+			} else if resp.StatusCode != 206 || len(body) != 32 || len(h.CachedSpans()) == 0 {
+				t.Fatal("valid candidate was not verified on demand")
+			}
+			if u.downloads.Load() != before {
+				t.Fatal("read-only endpoint accessed upstream")
+			}
+			expectVersion(t, h, 0, 1)
+			if damaged && u.downloads.Load() <= before {
+				t.Fatal("damaged candidate was not fetched again")
+			}
+		})
+	}
+}
+
 func TestPersistentDamagedAndUncommittedBlocksReload(t *testing.T) {
 	for _, damage := range []string{"short", "hash", "index", "missing"} {
 		t.Run(damage, func(t *testing.T) {
@@ -219,6 +276,39 @@ func TestPersistentDamagedAndUncommittedBlocksReload(t *testing.T) {
 				t.Fatal("incomplete temporary file retained")
 			}
 		})
+	}
+}
+
+func TestPersistentOpenEndedCacheReadVerifiesOneBlock(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	u := persistentOrigin(t)
+	h := persistentOpen(t, u, "bounded-restore", 1<<30)
+	expectVersion(t, h, 0, 1)
+	expectVersion(t, h, 1, 1)
+	h.Close()
+	h = persistentOpen(t, u, "bounded-restore", 1<<30)
+	before := u.downloads.Load()
+	for _, method := range []string{http.MethodHead, http.MethodGet} {
+		req, _ := http.NewRequest(method, h.CachedURL, nil)
+		req.Header.Set("Range", "bytes=0-")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, err := io.ReadAll(resp.Body)
+		_ = resp.Body.Close()
+		if err != nil || resp.ContentLength != ChunkSize {
+			t.Fatalf("unbounded or truncated response: %d %v", resp.ContentLength, err)
+		}
+		if method == http.MethodGet && int64(len(b)) != ChunkSize {
+			t.Fatal("incorrect prefix")
+		}
+		if !h.origin.disk.needsVerification(1) {
+			t.Fatal("unused body eagerly verified")
+		}
+	}
+	if u.downloads.Load() != before {
+		t.Fatal("cache read accessed upstream")
 	}
 }
 func TestPersistentBudgetTTLAndActiveClear(t *testing.T) {

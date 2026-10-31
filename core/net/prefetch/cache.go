@@ -174,6 +174,7 @@ type diskCache struct {
 	f  *os.File
 	// slots 槽位 -> 当前存的分段号。slots[c%ring] == c 才算命中。
 	slots         map[int64]int64
+	pendingVerify map[int64]bool // 重开时只核验块头，正文供给前才验证哈希。
 	ring          int64
 	path          string
 	total         int64
@@ -320,6 +321,12 @@ func (d *diskCache) has(c int64) bool {
 	return ok && v == c
 }
 
+func (d *diskCache) needsVerification(c int64) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	return d.pendingVerify[d.slotOf(c)]
+}
+
 // put 写入一段并标记就绪。
 //
 // ★★ 全程持锁,且**先把槽标失效再写**。
@@ -371,11 +378,12 @@ func (d *diskCache) get(c int64, length int) []byte {
 		return nil // 已被挤掉
 	}
 	if d.persistent {
-		found, b := d.readBlockLocked(d.slotOf(c))
+		found, b := d.readBlockLocked(d.slotOf(c), true)
 		if found != c || len(b) != length {
 			delete(d.slots, d.slotOf(c))
 			return nil
 		}
+		delete(d.pendingVerify, d.slotOf(c))
 		now := time.Now()
 		_ = os.Chtimes(d.path, now, now)
 		return b

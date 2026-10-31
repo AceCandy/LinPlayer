@@ -102,7 +102,7 @@ func newPersistentCache(total int64, identity, validator string, epochs ...uint6
 	if n := (total + ChunkSize - 1) / ChunkSize; ring > n {
 		ring = n
 	}
-	d := &diskCache{mu: &mediaStore.Mutex, total: total, ring: ring, slots: map[int64]int64{}, persistent: true,
+	d := &diskCache{mu: &mediaStore.Mutex, total: total, ring: ring, slots: map[int64]int64{}, pendingVerify: map[int64]bool{}, persistent: true,
 		path: filepath.Join(paths.MediaCache(), mediaDirKey(identity, validator, total))}
 	if err := trimMediaLocked(0, ""); err != nil {
 		return nil, err
@@ -139,12 +139,13 @@ func newPersistentCache(total int64, identity, validator string, epochs ...uint6
 			_ = os.Remove(filepath.Join(d.path, name))
 			continue
 		}
-		c, data := d.readBlockLocked(slot)
+		c, data := d.readBlockLocked(slot, false)
 		if data == nil || c < 0 || c*ChunkSize >= total || d.slotOf(c) != slot {
 			_ = os.Remove(filepath.Join(d.path, name))
 			continue
 		}
 		d.slots[slot] = c
+		d.pendingVerify[slot] = true
 	}
 	now := time.Now()
 	_ = os.Chtimes(d.path, now, now)
@@ -191,21 +192,22 @@ func (d *diskCache) blockPath(slot int64) string {
 	return filepath.Join(d.path, strconv.FormatInt(slot, 10)+".block")
 }
 
-func (d *diskCache) readBlockLocked(slot int64) (int64, []byte) {
+// 恢复只读块头；实际供给必须验证完整正文。
+func (d *diskCache) readBlockLocked(slot int64, verify bool) (int64, []byte) {
 	f, err := os.Open(d.blockPath(slot))
 	if err != nil {
 		return -1, nil
 	}
 	defer f.Close()
 	info, err := f.Stat()
-	if err != nil || info.Size() > ChunkSize+blockHeader {
+	if err != nil || info.Size() < blockHeader || info.Size() > ChunkSize+blockHeader {
 		return -1, nil
 	}
-	b, err := io.ReadAll(io.LimitReader(f, ChunkSize+blockHeader))
-	if err != nil || len(b) < blockHeader || !bytes.Equal(b[:8], []byte("LPCACHE1")) {
+	var header [blockHeader]byte
+	if _, err = io.ReadFull(f, header[:]); err != nil || !bytes.Equal(header[:8], []byte("LPCACHE1")) {
 		return -1, nil
 	}
-	c := int64(binary.LittleEndian.Uint64(b[8:16]))
+	c := int64(binary.LittleEndian.Uint64(header[8:16]))
 	if c < 0 || c >= (d.total+ChunkSize-1)/ChunkSize {
 		return -1, nil
 	}
@@ -213,14 +215,21 @@ func (d *diskCache) readBlockLocked(slot int64) (int64, []byte) {
 	if length > ChunkSize {
 		length = ChunkSize
 	}
-	if int64(len(b)) != length+blockHeader {
+	if info.Size() != length+blockHeader {
 		return -1, nil
 	}
-	sum := sha256.Sum256(b[blockHeader:])
-	if !bytes.Equal(sum[:], b[16:48]) {
+	if !verify {
+		return c, header[:]
+	}
+	b := make([]byte, length)
+	if _, err = io.ReadFull(f, b); err != nil {
 		return -1, nil
 	}
-	return c, b[blockHeader:]
+	sum := sha256.Sum256(b)
+	if !bytes.Equal(sum[:], header[16:48]) {
+		return -1, nil
+	}
+	return c, b
 }
 
 func (d *diskCache) putPersistentLocked(c int64, data []byte) bool {
@@ -236,6 +245,7 @@ func (d *diskCache) putPersistentLocked(c int64, data []byte) bool {
 	}
 	slot := d.slotOf(c)
 	delete(d.slots, slot)
+	delete(d.pendingVerify, slot)
 	if err := os.Remove(d.blockPath(slot)); err != nil && !os.IsNotExist(err) {
 		return false
 	}

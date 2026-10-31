@@ -526,12 +526,22 @@ func (o *origin) cachedRun(start, end int64) int64 {
 		if !o.disk.has(c) {
 			break
 		}
+		pending := o.disk.needsVerification(c)
+		if pending {
+			// 开放Range也只预验证首块，后续请求继续，避免缩略图一次读完整个缓存窗口。
+			if n > 0 || o.disk.get(c, o.chunkLen(c)) == nil {
+				break
+			}
+		}
 		segEnd := c*ChunkSize + int64(o.chunkLen(c)) - 1
 		if segEnd > end {
 			segEnd = end
 		}
 		n += segEnd - pos + 1
 		pos = segEnd + 1
+		if pending {
+			break
+		}
 	}
 	return n
 }
