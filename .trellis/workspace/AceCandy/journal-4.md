@@ -810,3 +810,40 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 162: 播放优化审查与缓存诊断归档
+<!-- trellis-session: v=2 fp=0415d41a33718e3b -->
+
+**Date**: 2026-11-01
+**Task**: 播放优化审查与缓存诊断归档
+**Branch**: `main`
+
+### Summary
+
+完成四项播放改动审查，修正缓存迟到与校验、拖动收尾及缩略图取消问题，提交并归档已完成部分，真机体验与 TV 退出根因另列待验任务。
+
+### Main Changes
+
+- 详情 PlaybackInfo 一次复用，查询代次隔离、缺版本回退及私密命令验证。
+- 拖动提交前同步退出，换媒体/内核清理，缩略图取消继续传播；Media3 1.11.1，磁盘默认 2GiB/单片 512MiB，增加 TV 数值诊断。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `26fbe7a0` | fix(player): 完善起播复用与拖动预览并调整缓存 |
+
+### Testing
+
+- [OK] 新增故障回归先失败再通过；go vet 与 go test -race -count=1 ./player ./emby 通过；此前 config/prefs/prefetch/preload 回归结果复用。
+- [OK] Android 四类74项通过；此前 ReportExitTest 与 PlaybackBufferTest 已通过；参数检查196处、工作流50块及暂存隐私门禁通过。
+- [OK] 两项独立只读复核无阻断；未出包、未做真实设备与 Hills 等速对比；未完成核心全量出库及 C# 宿主门禁。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 11-01-android-playback-device-validation：取得 TV 设备及退出日志、定位修复，验证拖动/缩略图与首帧耗时。
