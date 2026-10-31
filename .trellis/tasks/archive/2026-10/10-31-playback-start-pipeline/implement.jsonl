@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "共享缓存、续播、取消与上报契约"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "两核生命周期与真实播放回归"}
