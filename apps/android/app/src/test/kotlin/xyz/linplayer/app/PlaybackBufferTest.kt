@@ -30,6 +30,38 @@ import xyz.linplayer.app.ui.player.TrackPrefs
 class PlaybackBufferTest {
     @get:Rule val rule = createComposeRule()
 
+    @Test fun 流媒体半秒起播且保留恢复和本地策略() {
+        for (target in listOf(0L, 64 * BUFFER_MIB)) {
+            val control = playbackLoadControl(target)
+            val previous = DefaultLoadControl.Builder().apply {
+                if (target > 0) { setTargetBufferBytes(target.toInt()); setPrioritizeTimeOverSizeThresholds(false) }
+            }.build()
+            val id = PlayerId("startup-buffer")
+            fun params(local: Boolean, ms: Long, rebuffer: Boolean): LoadControl.Parameters {
+                val timeline = SinglePeriodTimeline(60_000_000, true, false, false, null,
+                    MediaItem.fromUri(if (local) "file:///fixture.mkv" else "https://buffer-fixture.invalid/video.mkv"))
+                return LoadControl.Parameters(id, timeline, MediaPeriodId(timeline.getUidOfPeriod(0)),
+                    0L, ms * 1000, 1f, true, rebuffer, C.TIME_UNSET, C.TIME_UNSET)
+            }
+            control.onPrepared(id); previous.onPrepared(id)
+            try {
+                control.onTracksSelected(params(false, 0, false), TrackGroupArray.EMPTY, emptyArray())
+                previous.onTracksSelected(params(false, 0, false), TrackGroupArray.EMPTY, emptyArray())
+                assertFalse(control.shouldStartPlayback(params(false, 499, false)))
+                assertTrue("首播或seek后不再等一秒", control.shouldStartPlayback(params(false, 500, false)))
+                assertFalse(control.shouldStartPlayback(params(false, 1999, true)))
+                assertTrue(control.shouldStartPlayback(params(false, 2000, true)))
+                for (ms in listOf(499L, 500L, 999L, 1000L, 1999L, 2000L, 10_000L, 50_000L)) {
+                    for (rebuffer in listOf(false, true)) {
+                        val p = params(true, ms, rebuffer)
+                        assertEquals("本地门槛不变: $target/$ms/$rebuffer", previous.shouldStartPlayback(p), control.shouldStartPlayback(p))
+                        assertEquals(previous.shouldContinueLoading(p), control.shouldContinueLoading(p))
+                    }
+                }
+            } finally { control.onReleased(id); previous.onReleased(id) }
+        }
+    }
+
     @Test fun 自定义达到容量后停止加载但起播不等待填满() {
         val control = playbackLoadControl(64 * BUFFER_MIB)
         val id = PlayerId("buffer-test")

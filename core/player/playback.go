@@ -314,7 +314,10 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	     不清的话,上一次放网盘源留下的 Authorization / Cookie 会**发给 Emby 服务器**,
 	     而且画面照放,只有服务端日志里看得出来。 */
 	if useMpv {
-		if err := loadWith(playURL, resumeSecs, nil, ""); err != nil {
+		loadAt := time.Now()
+		err := loadWith(playURL, resumeSecs, nil, "")
+		bus.Logf("info", "phase=startup_mpv_submit elapsed_ms=%d success=%t first_frame_verified=false", time.Since(loadAt).Milliseconds(), err == nil)
+		if err != nil {
 			report.mu.Lock()
 			report.stopped.Store(true)
 			report.mu.Unlock()

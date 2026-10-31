@@ -178,3 +178,12 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 5. 案例：无自定义TV设置bilinear缩放；手机/桌面和有效自定义配置不注入；{"frame-drop-count":"0","decoder-frame-drop-count":""}仅显示渲染0帧，不伪造解码计数。
 6. 验证：TestTvRendering*用真实libmpv初始化回读验证缩放、抖动、其它播放选项及自定义配置；TestPlayerOptsIncludesDropCounters经真实命令注册核验字段。宿主探针不替代Android驱动或目标电视性能验证。
 7. 反例与正例：不能把菜单倍率当内核实际倍率、把未知计数补0或覆盖用户配置；应分别回读实际字段并仅为无配置TV提供默认值。
+
+
+## 首次与重进起播
+
+- `player.stopPlayback` 的本地 partial 与最终 result 是不同完成点；普通新播放只等本地停止，详情刷新、切核及换源仍等完整收尾。停止快照在状态锁释放前发布，按完整Session/条目/分类三态隔离，按实际源/时长核对，只在上报在途时存在；最终位置允许倒退，不能取最大值覆盖回退。主服Prepare必须等旧Sync完成，已提交的Stopped不因命令取消而断开顺序链。
+- 长等待通过 `bus.Deferred` 从Go worker转交；普通命令池不能被停止上报占满。总在途数受原队列容量加worker数约束，保留seq取消、Invoke同步结果和panic边界；返回Deferred前不能提交副作用。
+- 持久媒体恢复只读索引、固定块头与长度；正文首次供给前仍验哈希。候选块不进入CachedSpans，只读缓存端点不回源；开放Range/HEAD最多预验证一个候选块并返回实际可供给前缀。
+- 只有正式新建代理可合并探测与首块响应；准备及ReadControl请求仍用0-0。先取响应头，不等正文；严格匹配Range的响应只接管一次，8秒探测预算仅覆盖响应头，消费沿用空闲超时。缓存首块候选、非零块首读、取消与关闭均释放未用响应；缓存命中仍可能有上游抢发字节，不承诺零网络开销。
+- 回归：`TestQuickReopenKeepsFinalPositionAndOrderedReports`、`TestPendingStopResumeIsolationAndExplicitPosition`、`TestDeferredKeepsWorkersAvailableAndBoundsInflight`、`TestPersistentRestoreDefersBodyVerification`、`TestInitialResponseOwnership`。MPV `startup_mpv_submit` 只表示同步加载提交耗时，不表示解码或可见首帧。
