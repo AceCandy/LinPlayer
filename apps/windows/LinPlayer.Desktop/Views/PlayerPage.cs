@@ -2093,8 +2093,10 @@ public sealed class PlayerPage : UserControl
     private CancellationTokenSource _dmCancellation = new();
     private double _dmOffset;
 
-    private CancellationToken BeginDanmakuRequest()
+    private CancellationToken BeginDanmakuRequest(bool clearHeat = true)
     {
+        _dmHeatRequest++;
+        if (clearHeat) { _bar.Heat = []; _bar.InvalidateVisual(); }
         _dmCancellation.Cancel();
         _dmCancellation.Dispose();
         _dmCancellation = CancellationTokenSource.CreateLinkedTokenSource(_episodeCancellation.Token);
@@ -2136,6 +2138,7 @@ public sealed class PlayerPage : UserControl
     private double _dmArea = 1.0, _dmScale = 1.0, _dmOpacity = 1.0, _dmSpeed = 1.0;
     private int _dmTop = 10, _dmBottom = 10;
     private bool _dmMerge, _dmBold, _dmHeat;
+    private bool _dmPreventOverlap = true;
     private bool _dmStyleLoaded;
     private readonly SemaphoreSlim _dmStyleGate = new(1, 1);
     private int _dmStylePending, _dmStyleRead;
@@ -2256,7 +2259,7 @@ public sealed class PlayerPage : UserControl
 
     private async Task<int> ResolveDanmaku(object? selection = null, bool ignoreMemory = false, bool forget = false)
     {
-        var ct = BeginDanmakuRequest();
+        var ct = BeginDanmakuRequest(clearHeat: !forget);
         var generationReply = forget ? default : await _core.PlayerDanmakuBegin(ct: ct);
         ct.ThrowIfCancellationRequested();
         var generation = forget ? 0 : generationReply.GetProperty("generation").GetInt64();
@@ -2379,6 +2382,7 @@ public sealed class PlayerPage : UserControl
             var p = await _core.PrefsGetPrefs(ct: ct);
             ct.ThrowIfCancellationRequested();
             _dmOn = p.TryGetProperty("danmaku_enabled", out var v) && v.ValueKind == JsonValueKind.True;
+            _dmHeat = p.TryGetProperty("danmaku_heatmap", out var heat) && heat.ValueKind == JsonValueKind.True;
             Dispatcher.UIThread.Post(() => _dmBtn.Content = _dmOn ? "弹幕 ●" : "弹幕");
             if (_dmOn) await AutoLoadDanmaku(false);
         }
@@ -2386,13 +2390,18 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>把弹幕密度喂给进度条。关掉热力图时喂空表 —— 不喂的话上一集那条还留着。</summary>
+    private long _dmHeatRequest;
     private async Task RefreshHeatmap()
     {
+        var request = ++_dmHeatRequest;
+        var ct = _dmCancellation.Token;
+        _bar.Heat = [];
+        _bar.InvalidateVisual();
         try
         {
-            if (!_dmHeat) { _bar.Heat = []; _bar.InvalidateVisual(); return; }
-            var h = await _core.PlayerDanmakuHeatmap(new { buckets = 160, duration = _duration });
-            if (h.ValueKind != JsonValueKind.Array) return;
+            if (!_dmHeat || !_dmOn || _duration <= 0 || _leaving) return;
+            var h = await _core.PlayerDanmakuHeatmap(new { buckets = 160, duration = _duration }, ct);
+            if (ct.IsCancellationRequested || request != _dmHeatRequest || !_dmHeat || !_dmOn || _leaving || h.ValueKind != JsonValueKind.Array) return;
             _bar.Heat = h.EnumerateArray().Select(x => x.GetDouble()).ToList();
             _bar.InvalidateVisual();
         }
@@ -2422,6 +2431,7 @@ public sealed class PlayerPage : UserControl
                 _dmBtn.Content = _dmOn ? "弹幕 ●" : "弹幕";
                 ApplyStyleReply(r);
                 _ = RefreshDanmakuLayout();
+                _ = RefreshHeatmap();
             });
         }
         catch
@@ -2447,6 +2457,7 @@ public sealed class PlayerPage : UserControl
         _dmMerge = B("merge");
         _dmBold = B("bold");
         _dmHeat = B("heatmap");
+        _dmPreventOverlap = B("prevent_overlap");
         _dmRepaint?.Invoke();
     }
 
@@ -2628,7 +2639,7 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>
-    /// 弹幕显示设置：区域、不透明度、字体大小和速度。
+    /// 弹幕显示设置：四项常用值与折叠的高级开关。
     ///
     /// <para>每一下都是一次提交:核心层收到就重排并落库,画面当场变。
     /// 用滑块的话拖一次会灌上百次重排 —— 而重排要遍历几千条弹幕。</para>
@@ -2640,6 +2651,8 @@ public sealed class PlayerPage : UserControl
         var opText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
         var speedText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
         var body = new StackPanel { Spacing = 2 };
+        var advanced = new StackPanel { Spacing = 2, IsVisible = false };
+        var toggles = new List<(Button Row, string Label, Func<bool> Current)>();
 
         void Refresh()
         {
@@ -2650,10 +2663,9 @@ public sealed class PlayerPage : UserControl
             scaleText.Text = $"{_dmScale * 100:0}%";
             opText.Text = $"{_dmOpacity * 100:0}%";
             speedText.Text = $"{_dmSpeed:0.0}×";
+            foreach (var (row, label, current) in toggles) row.Content = label + (current() ? " · 已开启" : " · 已关闭");
             body.IsEnabled = _dmStyleLoaded && _dmStylePending == 0;
         }
-        Refresh();
-        _dmRepaint = Refresh;
 
         async Task Push(object args)
         {
@@ -2700,6 +2712,14 @@ public sealed class PlayerPage : UserControl
             });
         }
 
+        void Toggle(string label, string key, Func<bool> current)
+        {
+            var row = MenuRow("");
+            row.Click += async (_, _) => await Push(new Dictionary<string, bool> { [key] = !current() });
+            toggles.Add((row, label, current));
+            advanced.Children.Add(row);
+        }
+
         // 范围是**四档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         areaRow.Click += async (_, _) =>
         {
@@ -2713,6 +2733,19 @@ public sealed class PlayerPage : UserControl
         body.Children.Add(Row("不透明度", opText, "opacity", () => _dmOpacity, 1));
         body.Children.Add(Row("字体大小", scaleText, "scale", () => _dmScale, 3));
         body.Children.Add(Row("弹幕速度", speedText, "speed", () => _dmSpeed, 3));
+        var more = MenuRow("更多设置 · 展开");
+        more.Click += (_, _) => {
+            advanced.IsVisible = !advanced.IsVisible;
+            more.Content = advanced.IsVisible ? "更多设置 · 收起" : "更多设置 · 展开";
+        };
+        Toggle("粗体", "bold", () => _dmBold);
+        Toggle("合并重复", "merge", () => _dmMerge);
+        Toggle("防止重叠", "prevent_overlap", () => _dmPreventOverlap);
+        Toggle("进度条热力图", "heatmap", () => _dmHeat);
+        body.Children.Add(more);
+        body.Children.Add(advanced);
+        _dmRepaint = Refresh;
+        Refresh();
         return body;
     }
 

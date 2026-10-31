@@ -3,6 +3,7 @@ package xyz.linplayer.app
 import android.app.Application
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.width
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Modifier
@@ -12,6 +13,7 @@ import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.test.captureToImage
 import androidx.compose.ui.test.junit4.v2.createComposeRule
 import androidx.compose.ui.test.onNodeWithTag
+import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.unit.dp
 import kotlinx.coroutines.*
 import kotlinx.serialization.json.*
@@ -100,5 +102,53 @@ class DanmakuGeometryTest {
         DanmakuSession.invalidate()
         release.complete(Unit); job.join()
         assertNull(DanmakuStyle.layout.value)
+    }
+
+    @Test fun heatmapClearsOnDisableAndIgnoresLateReply() {
+        val release = CompletableDeferred<Unit>()
+        val entered = CompletableDeferred<Unit>()
+        var calls = 0
+        val fake = FakeCore().loggedIn()
+        val port = object : CorePort by fake {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command != "player.danmakuHeatmap") return fake.callJson(command, args, onPartial)
+                calls++
+                if (calls == 1) { entered.complete(Unit); withContext(NonCancellable) { release.await() } }
+                return JsonArray(listOf(JsonPrimitive(0.0), JsonPrimitive(1.0)))
+            }
+        }
+        val app = AppState(port, scope)
+        val duration = mutableStateOf(100.0)
+        DanmakuStyle.enabled.value = true
+        DanmakuStyle.heatmap.value = true
+        DanmakuStyle.layout.value = prepared(1)
+        try {
+            rule.setContent {
+                val heat = rememberDanmakuHeatmap(app, duration.value)
+                Box(androidx.compose.ui.Modifier.width(240.dp).height(40.dp).background(Color.Black)) {
+                    DanmakuHeatmap(heat, Modifier.width(240.dp).height(10.dp))
+                }
+            }
+            rule.waitUntil(5000) { entered.isCompleted }
+            rule.runOnIdle { DanmakuStyle.heatmap.value = false }
+            rule.waitForIdle()
+            rule.runOnIdle { release.complete(Unit) }
+            rule.waitForIdle()
+            rule.onNodeWithContentDescription("弹幕热力图").assertDoesNotExist()
+            rule.runOnIdle { DanmakuStyle.heatmap.value = true }
+            rule.waitForIdle(); rule.waitUntil(5000) { calls == 2 }; rule.waitForIdle()
+            val pixels = rule.onNodeWithContentDescription("弹幕热力图").captureToImage().toPixelMap()
+            assertTrue(pixels[180, 5].red > .3f && pixels[60, 5].red < .1f)
+            rule.runOnIdle { duration.value = 0.0 }
+            rule.waitForIdle()
+            rule.onNodeWithContentDescription("弹幕热力图").assertDoesNotExist()
+            assertEquals(2, calls)
+            rule.runOnIdle { duration.value = 50.0 }
+            rule.waitForIdle(); rule.waitUntil(5000) { calls == 3 }; rule.waitForIdle()
+            rule.onNodeWithContentDescription("弹幕热力图").assertExists()
+            rule.runOnIdle { DanmakuStyle.layout.value = null }
+            rule.waitForIdle()
+            rule.onNodeWithContentDescription("弹幕热力图").assertDoesNotExist()
+        } finally { release.complete(Unit); DanmakuStyle.heatmap.value = false; DanmakuStyle.layout.value = null }
     }
 }

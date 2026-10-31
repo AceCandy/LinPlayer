@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -307,6 +308,9 @@ private fun SeekBar(ui: PlayerUi, onSeek: (Double) -> Unit, onPause: () -> Unit,
             .focusable(),
     ) {
         val bmp = ui.thumb
+        val heat = xyz.linplayer.app.ui.player.rememberDanmakuHeatmap(LocalApp.current, ui.duration)
+        xyz.linplayer.app.ui.player.DanmakuHeatmap(heat, Modifier.width(width).height(10.dp)
+            .align(Alignment.BottomCenter).offset(y = (-16).dp))
         ProgressBar(
             played = frac(seekPosition), buffered = frac(maxOf(ui.buffered, ui.position)), focused = focused, width = width,
             chapters = (ui.chapters.map { it.first } + listOfNotNull(ui.intro?.endInclusive, ui.outro?.start))
@@ -474,6 +478,7 @@ private fun BoxScope.TrackPanel(kind: String, app: AppState, scope: CoroutineSco
 @Composable
 private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay: Overlay, target: TvRoute.Player) {
     var level by remember { mutableIntStateOf(0) }
+    var advancedReturn by remember { mutableStateOf(false) }
     var keyword by remember { mutableStateOf(target.title.substringBefore(" · ")) }
     var groups by remember { mutableStateOf<List<JsonObject>?>(null) }
     var status by remember { mutableStateOf("") }
@@ -527,9 +532,20 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
                 })
             }
         }
+        3 -> TvSidePanel("更多设置", { overlay.close() }, back = { advancedReturn = true; level = 0 }) {
+            listOf(
+                Triple("粗体", "bold", DanmakuStyle.bold),
+                Triple("合并重复", "merge", DanmakuStyle.merge),
+                Triple("防止重叠", "prevent_overlap", DanmakuStyle.preventOverlap),
+                Triple("进度条热力图", "heatmap", DanmakuStyle.heatmap),
+            ).forEachIndexed { i, (label, key, state) ->
+                PanelItem(label, switch = state.value, focused = i == 0, enabled = DanmakuStyle.loaded.value,
+                    onClick = { scope.launch { DanmakuStyle.set(app, key) { !state.value } } })
+            }
+        }
         else -> TvSidePanel("弹幕", { overlay.close() }) {
             PanelGroup("当前视频")
-            PanelItem("显示弹幕", switch = DanmakuStyle.enabled.value, focused = true, onClick = {
+            PanelItem("显示弹幕", switch = DanmakuStyle.enabled.value, focused = !advancedReturn, onClick = {
                 scope.launch { toggleDanmaku(app, target.itemId, !DanmakuStyle.enabled.value) }
             })
             PanelItem("当前来源", value = DanmakuStyle.source.value.ifBlank { "未匹配" }, enabled = false)
@@ -557,6 +573,7 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
             PanelItem("弹幕速度", value = "%.1f×".format(DanmakuStyle.speed.doubleValue), enabled = ready,
                 step = true, onStep = { d -> scope.launch { DanmakuStyle.set(app, "speed") {
                     DanmakuStyle.step(DanmakuStyle.speed.doubleValue, d > 0, .1, .1, 3.0) } } })
+            PanelItem("更多设置", chevron = true, focused = advancedReturn, enabled = ready, onClick = { level = 3 })
         }
     }
 }

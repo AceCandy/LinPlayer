@@ -57,6 +57,10 @@ internal static class DanmakuCheck
             Wait(() => Buttons(settings).Any(b => b.Content as string == "停用"), "启用没有回显");
             player = new PlayerPage(core, "", "本机视频", 0, isSource: true);
             Field<DispatcherTimer>(player, "_poll").Stop();
+            Await(core.PlayerSetDanmakuStyle(new { heatmap = true }));
+            Await((Task)typeof(PlayerPage).GetMethod("StartDanmaku", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player, null)!);
+            Check(Field<bool>(player, "_dmHeat"), "起播未读取已保存热力图偏好");
+            Await(core.PlayerSetDanmakuStyle(new { heatmap = false }));
             var task = (Task<int>)typeof(PlayerPage).GetMethod("ResolveDanmaku", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player,
                 new object[] { new { source_id = "fixture", anime_id = "anime", anime_title = "作品", episode_id = "ep", episode_title = "分集" }, false, false })!;
             Check(Await(task) == 1, "手选没有加载弹幕");
@@ -80,12 +84,33 @@ internal static class DanmakuCheck
             }
             var keys = new[] { "opacity", "scale", "speed" };
             var controls = Buttons(style).Where(b => b.Content as string == "−").ToArray();
-            Check(controls.Length == 3 && Buttons(style).Count() == 7, "四项设置入口不完整或仍有高级项");
+            Check(controls.Length == 3 && Buttons(style).Any(b => b.Content is string s && s.StartsWith("更多设置")), "常用设置或更多入口不完整");
             for (var i = 0; i < controls.Length; i++) {
                 controls[i].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Wait(() => style.IsEnabled, "样式保存未完成");
                 Check(Math.Abs(Await(core.PlayerGetDanmakuStyle()).GetProperty(keys[i]).GetDouble() - .9) < .001, "样式步进未保存");
             }
+            var advancedKeys = new[] { ("粗体", "bold"), ("合并重复", "merge"), ("防止重叠", "prevent_overlap"), ("进度条热力图", "heatmap") };
+            var advanced = Buttons(style).Single(b => b.Content is string s && s.StartsWith("粗体"));
+            Check(!advanced.IsEffectivelyVisible, "高级项没有默认折叠");
+            Buttons(style).Single(b => b.Content is string s && s.StartsWith("更多设置")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Check(advanced.IsEffectivelyVisible, "展开后高级项不可见");
+            typeof(PlayerPage).GetField("_duration", BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(player, 100.0);
+            foreach (var (label, key) in advancedKeys) {
+                var before = Await(core.PlayerGetDanmakuStyle()).GetProperty(key).GetBoolean();
+                var button = Buttons(style).Single(b => b.Content is string s && s.StartsWith(label));
+                button.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Wait(() => style.IsEnabled, "高级项保存未完成");
+                Check(Await(core.PlayerGetDanmakuStyle()).GetProperty(key).GetBoolean() != before, "高级项没有保存: " + key);
+                Check(button.Content as string == label + (before ? " · 已关闭" : " · 已开启"), "高级项回显不匹配");
+            }
+            Check(Field<PlayerBar>(player, "_bar").Heat.Any(v => v > 0), "开启热力图后没有密度");
+            Await((Task<int>)typeof(PlayerPage).GetMethod("ResolveDanmaku", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player,
+                new object?[] { null, false, true })!);
+            Check(Field<PlayerBar>(player, "_bar").Heat.Any(v => v > 0), "仅清除匹配记忆不应清空当前热力图");
+            window.Width = 360; window.Height = 580; window.Background = Brushes.Black;
+            Dispatcher.UIThread.RunJobs(); AvaloniaHeadlessPlatform.ForceRenderTimerTick(3);
+            using (var capture = window.CaptureRenderedFrame()) capture?.Save(Path.Combine(AppContext.BaseDirectory, "danmaku-advanced.png"));
             // 读取或保存尚未返回时重开菜单，也必须共用同一条事务队列。
             var gate = Field<SemaphoreSlim>(player, "_dmStyleGate");
             var load = typeof(PlayerPage).GetMethod("LoadDanmakuStyle", BindingFlags.Instance | BindingFlags.NonPublic)!;
@@ -101,6 +126,11 @@ internal static class DanmakuCheck
             } finally { gate.Release(); }
             Await(Task.WhenAll(firstRead, lastRead));
             Check(style.IsEnabled && Field<double>(player, "_dmScale") == 1.7, "重开没有回显最新设置");
+            Check(Field<bool>(player, "_dmBold") && !Field<bool>(player, "_dmMerge") && !Field<bool>(player, "_dmPreventOverlap") && Field<bool>(player, "_dmHeat"), "重开丢失高级设置");
+            Buttons(style).Single(b => b.Content is string s && s.StartsWith("更多设置")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Buttons(style).Single(b => b.Content is string s && s.StartsWith("进度条热力图")).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Wait(() => style.IsEnabled, "关闭热力图未完成");
+            Check(Field<PlayerBar>(player, "_bar").Heat.Count == 0, "关闭热力图后未清空");
             gate.Wait();
             try {
                 Buttons(style).Where(b => b.Content as string == "+").ElementAt(1).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
@@ -114,6 +144,10 @@ internal static class DanmakuCheck
             var original = File.ReadAllBytes(configFile);
             File.Delete(configFile); Directory.CreateDirectory(configFile);
             try {
+                var bold = Buttons(style).Single(b => b.Content is string s && s.StartsWith("粗体"));
+                bold.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Wait(() => style.IsEnabled, "高级设置失败后仍被锁住");
+                Check(Field<bool>(player, "_dmBold") && bold.Content as string == "粗体 · 已开启", "高级设置失败改变了回显");
                 Buttons(style).First(b => b.Content as string == "+").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
                 Wait(() => style.IsEnabled, "保存失败后设置仍被锁住");
                 Check(Field<double>(player, "_dmOpacity") == .9, "保存失败修改了回显");

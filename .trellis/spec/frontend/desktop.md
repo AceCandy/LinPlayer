@@ -57,3 +57,5 @@
 ## 虚拟列表头部
 
 Avalonia 11.3.11 中，不把反复随ItemsSource重设的同一个头部Control直接作为数据项：own-container回收后保留RecycleKey，再插入会跳过视觉挂接，注册滚动锚点时报非视觉后代。BrowsePage/DownloadPage使用普通object标记，由模板返回头部，让框架管理容器；保留虚拟化，不吞布局异常。`tools/seekcheck --scroll-anchor-only`覆盖真实文件浏览筛选、滚动、离页返回，带临时核心路径的 `--scroll-anchor-download-only`覆盖真实下载刷新。文件浏览测试已在旧实现复现同堆栈、修复后通过；不把它当作所有滚动页面或Windows实机验证。
+
+- 弹幕高级四开关放在默认折叠的更多设置中，沿用样式读写锁、成功回值与失败回显。热力图起播时读取偏好，刷新绑定弹幕请求取消和请求序号；换源清图，单纯清除匹配记忆保留当前图。seekcheck --danmaku-only覆盖四开关、重开、保存失败、热力图启停与清记忆。

@@ -1,0 +1,7 @@
+# 实现边界
+
+复用player.get/setDanmakuStyle既有四布尔字段与存储，核心和绑定不变。手机沿用DanmakuToggle；TV沿用PanelItem(switch)和TvSidePanel，返回回弹幕一级；桌面沿用MenuRow和读写事务锁。
+
+Android手机与TV复用同一热力图请求状态与Canvas，TV在SeekBar进度轨道上方呈现；改动涉及DanmakuPanel、DanmakuStyle周边新共用热力图组件、PlayerPage及TvPlayerParts。桌面补防重叠状态、偏好初读、取消/代次及开关刷新，沿用ProgressBar.Heat。
+
+测试扩展PhoneDanmakuPanelTest、TvFocusTest、热力图组件回归及桌面seekcheck；设计正本更新更多设置规则，不改其它播放器功能。

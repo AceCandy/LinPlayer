@@ -304,18 +304,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     var dmSearch by remember { mutableStateOf(false) }
     var srcSwitch by remember { mutableStateOf(false) }
     var sourceExit by remember { mutableStateOf<SourceSwitchTarget?>(null) }
-    /** 弹幕密度。空表 = 不画(关了热力图、或者这一集没弹幕)。 */
-    var heat by remember { mutableStateOf<List<Float>>(emptyList()) }
-    /* 语料换了要重取一次。**跟着弹幕开关和热力图开关走**,不做轮询 ——
-       密度是一集一份的静态数据,每秒问一次纯属白烧。 */
-    LaunchedEffect(DanmakuStyle.enabled.value, DanmakuStyle.heatmap.value, DanmakuStyle.layout.value, DanmakuStyle.offset.doubleValue, duration) {
-        heat = if (!DanmakuStyle.enabled.value || !DanmakuStyle.heatmap.value) emptyList()
-        else runCatching {
-            app.call("player.danmakuHeatmap", args("buckets" to 120, "duration" to duration))
-        }.getOrNull().arr().mapNotNull {
-            (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toFloatOrNull()
-        }
-    }
+    val heat = rememberDanmakuHeatmap(app, duration)
     /* ☠ **弹幕要自己加载,不能等用户去拨那个开关。**
        上一版只有「拨开关」和「重新匹配」两条路会去匹配 —— 而开关是**落库**的:
        用户上一集打开过,这一集进来面板上写着「已打开」,却一条弹幕都没取。
@@ -1951,20 +1940,8 @@ internal fun ProgressRow(
            叠进去的话它和已播那半截互相染色,两个都读不出来。
            空表就整块不占位:关掉热力图之后进度条要回到原来的高度。 */
         Box(Modifier.weight(1f), contentAlignment = Alignment.Center) {
-        if (heat.isNotEmpty()) androidx.compose.foundation.Canvas(
-            Modifier.fillMaxWidth().height(10.dp)
-                .align(Alignment.TopCenter).padding(horizontal = Sp.x10),
-        ) {
-            val cw = size.width / heat.size
-            heat.forEachIndexed { i, v ->
-                val h = v.coerceIn(0f, 1f) * size.height
-                if (h > 0.5f) drawRect(
-                    Color(0xFFFF9D3F).copy(alpha = .4f),
-                    topLeft = androidx.compose.ui.geometry.Offset(i * cw, size.height - h),
-                    size = androidx.compose.ui.geometry.Size(cw + .5f, h),
-                )
-            }
-        }
+        DanmakuHeatmap(heat, Modifier.fillMaxWidth().height(10.dp)
+            .align(Alignment.TopCenter).padding(horizontal = Sp.x10))
         Slider(
             value = if (enabled) live.coerceIn(0f, duration.toFloat()) else 0f,
             onValueChange = { dragValue = it },

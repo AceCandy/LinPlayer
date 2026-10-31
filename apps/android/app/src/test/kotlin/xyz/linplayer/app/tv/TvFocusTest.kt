@@ -19,6 +19,7 @@ import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -373,9 +374,12 @@ class TvFocusTest {
             player()
             ret("player.getDanmakuStyle", style)
             ret("prefs.getPrefs", args("danmaku_enabled" to false))
-            ret("player.danmakuLayout", kotlinx.serialization.json.JsonNull)
+            ret("player.danmakuLayout", args("items" to kotlinx.serialization.json.JsonArray(emptyList())))
+            ret("player.danmakuHeatmap", kotlinx.serialization.json.JsonArray(listOf(kotlinx.serialization.json.JsonPrimitive(1.0))))
             on("player.setDanmakuStyle") { a -> kotlinx.serialization.json.JsonObject(style + a.orEmpty()).also { style = it } }
         }
+        core.tick(1200.0); advance(rule, 100)
+        core.tick(1200.25); advance(rule, 100)
         press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.Enter); advance(rule, 400)
         rule.onNodeWithText("当前视频").assertExists()
         rule.onNodeWithText("显示区域").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
@@ -391,7 +395,32 @@ class TvFocusTest {
         assertEquals(1.1, style.dbl("scale")!!, .001)
         press(rule, Key.DirectionDown, Key.DirectionRight); advance(rule, 200)
         assertEquals(1.1, style.dbl("speed")!!, .001)
+        press(rule, Key.DirectionDown, Key.Enter); advance(rule, 200)
+        rule.onNodeWithText("粗体").assertIsFocused()
+        for (key in listOf("bold", "merge", "prevent_overlap", "heatmap")) {
+            val expected = !style.bool(key)
+            press(rule, Key.Enter); advance(rule, 200)
+            assertEquals(expected, style.bool(key))
+            if (key != "heatmap") press(rule, Key.DirectionDown)
+        }
+        rule.onRoot().captureRoboImage("build/player-osd/danmaku-advanced-tv.png")
+        pressBack()
+        rule.onNodeWithText("更多设置").assertIsFocused()
+        rule.runOnIdle { DanmakuStyle.enabled.value = true }
         pressBack(); focused("osd.dm")
+        advance(rule, 300)
+        assertTrue("热力图开关未开启", DanmakuStyle.heatmap.value)
+        assertTrue("语料布局尚未到达", DanmakuStyle.layout.value != null)
+        assertTrue("没有请求热力图", core.calls.any { it.first == "player.danmakuHeatmap" })
+        rule.onNodeWithContentDescription("弹幕热力图").assertExists()
+        press(rule, Key.Enter); advance(rule, 200)
+        rule.onNodeWithText("更多设置").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        press(rule, Key.Enter); advance(rule, 200)
+        rule.onNodeWithText("粗体").assertIsFocused()
+        press(rule, Key.DirectionDown, Key.DirectionDown, Key.DirectionDown, Key.Enter); advance(rule, 200)
+        pressBack()
+        pressBack(); focused("osd.dm")
+        rule.onNodeWithContentDescription("弹幕热力图").assertDoesNotExist()
     }
 
     @Test fun 弹幕慢保存时连续按键逐次累加() {

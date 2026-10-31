@@ -139,6 +139,34 @@ class PhoneDanmakuPanelTest {
     }
 
     @Test @Config(qualifiers = "w320dp-h640dp-port-mdpi")
+    fun 更多设置保存四个开关并在重开后回显() {
+        val core = core()
+        open(core, 1.5f)
+        rule.onNodeWithText("显示设置").performClick()
+        rule.onNodeWithText("粗体").assertDoesNotExist()
+        rule.onNodeWithText("更多设置").performScrollTo().performClick()
+        for ((index, option) in listOf("粗体" to "bold", "合并重复" to "merge", "防止重叠" to "prevent_overlap", "进度条热力图" to "heatmap").withIndex()) {
+            val (label, key) = option
+            val expected = !stored.bool(key)
+            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(5 + index)
+            rule.onNodeWithText(label).performScrollTo().performClick(); rule.waitForIdle()
+            assertEquals(expected, stored.bool(key))
+            assertEquals(expected, core.calls.last { it.first == "player.setDanmakuStyle" }.second.bool(key))
+        }
+        rule.onNode(isPopup()).captureRoboImage("build/player-osd/danmaku-advanced.png")
+        rule.onNodeWithContentDescription("返回弹幕菜单").performClick()
+        rule.onNodeWithText("显示设置").performClick()
+        rule.onNodeWithText("更多设置").performScrollTo().performClick()
+        listOf("粗体", "合并重复", "防止重叠", "进度条热力图").forEachIndexed { i, label ->
+            rule.onNode(hasScrollToIndexAction()).performScrollToIndex(5 + i)
+            if (i == 0 || i == 3) rule.onNodeWithText(label).assertIsOn() else rule.onNodeWithText(label).assertIsOff()
+        }
+        core.on("player.setDanmakuStyle") { error("保存失败") }
+        rule.onNodeWithText("进度条热力图").performClick(); rule.waitForIdle()
+        rule.onNodeWithText("进度条热力图").assertIsOn()
+    }
+
+    @Test @Config(qualifiers = "w320dp-h640dp-port-mdpi")
     fun 大字竖屏样式与时间偏移可操作() {
         val core = core()
         open(core, 2f)

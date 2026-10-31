@@ -9,6 +9,10 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
@@ -26,6 +30,7 @@ import xyz.linplayer.app.ui.theme.LpText
 internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, page: String,
     onPage: (String) -> Unit, onSearch: () -> Unit) {
     val ready = DanmakuStyle.loaded.value
+    var more by remember(page) { mutableStateOf(false) }
     Column(Modifier.fillMaxWidth()) {
         if (page != "quick") Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButton(onClick = { onPage("quick") }) {
@@ -87,6 +92,17 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
                         enabled = ready, resetKey = DanmakuStyle.saveRevision.intValue, format = { "%.1f×".format(it) }) {
                         scope.launch { DanmakuStyle.set(app, "speed", it.toDouble()) }
                     } }
+                    item("more") { PlayerMenuRow("更多设置", { more = !more }, badge = if (more) "收起" else "展开", divider = false) }
+                    if (more) listOf(
+                        Triple("粗体", "bold", DanmakuStyle.bold),
+                        Triple("合并重复", "merge", DanmakuStyle.merge),
+                        Triple("防止重叠", "prevent_overlap", DanmakuStyle.preventOverlap),
+                        Triple("进度条热力图", "heatmap", DanmakuStyle.heatmap),
+                    ).forEach { (label, key, state) ->
+                        item(key) { DanmakuToggle(label, state.value, ready) {
+                            scope.launch { DanmakuStyle.set(app, key) { !state.value } }
+                        } }
+                    }
                 }
             }
         }
