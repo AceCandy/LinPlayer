@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/frontend/quality-guidelines.md", "reason": "真实页面回归与实测边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "共享准备与取消竞态核验"}

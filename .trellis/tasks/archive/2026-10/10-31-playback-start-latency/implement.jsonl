@@ -1,0 +1,3 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "保持修改范围、取消与验证纪律"}
+{"file": ".trellis/spec/frontend/android.md", "reason": "手机和TV首帧呈现与生命周期"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "续播、预热取消和共享代理契约"}
