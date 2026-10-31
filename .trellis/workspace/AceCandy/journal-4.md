@@ -788,3 +788,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Next Steps
 
 - 未出包、未推送，真机及Hills同条件首帧仍需实测。
+
+
+## Session 161: 完成 Hills 起播缓存优化审核与归档
+<!-- trellis-session: v=2 fp=1baf912d3c7bf3e0 -->
+
+**Date**: 2026-10-31
+**Task**: 完成 Hills 起播缓存优化审核与归档
+**Branch**: `main`
+
+### Summary
+
+复核并提交缓存命中先播后验、代理复用、片尾预热和256MiB缓存改动；Go全量构建/vet及prefetch/player/emby/preload race测试通过，任务已归档。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `6f4593d5` | chore(task): 归档 Hills 起播优化 |
+
+### Status
+
+[OK] **Completed**
