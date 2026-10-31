@@ -187,3 +187,5 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 - 持久媒体恢复只读索引、固定块头与长度；正文首次供给前仍验哈希。候选块不进入CachedSpans，只读缓存端点不回源；开放Range/HEAD最多预验证一个候选块并返回实际可供给前缀。
 - 只有正式新建代理可合并探测与首块响应；准备及ReadControl请求仍用0-0。先取响应头，不等正文；严格匹配Range的响应只接管一次，8秒探测预算仅覆盖响应头，消费沿用空闲超时。缓存首块候选、非零块首读、取消与关闭均释放未用响应；缓存命中仍可能有上游抢发字节，不承诺零网络开销。
 - 回归：`TestQuickReopenKeepsFinalPositionAndOrderedReports`、`TestPendingStopResumeIsolationAndExplicitPosition`、`TestDeferredKeepsWorkersAvailableAndBoundsInflight`、`TestPersistentRestoreDefersBodyVerification`、`TestInitialResponseOwnership`。MPV `startup_mpv_submit` 只表示同步加载提交耗时，不表示解码或可见首帧。
+
+- 最终Stopped的网络超时在取得报告锁并等完Playing后才开始，不能让旧Progress等待消耗该预算。普通退出和队列衔接共用reportStopped的计时边界；`TestSlowProgressDoesNotConsumeFinalStopBudget`用真实延迟HTTP确认最终位置送达。

@@ -273,9 +273,7 @@ func activateQueuedLocked(q *queuedPlayback, previousPosition float64) map[strin
 		if oldProxy != nil {
 			oldProxy.Close()
 		}
-		ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-		defer cancel()
-		_ = reportStopped(ctx, &p.session, old, oldReport, previousPosition, watched)
+		_ = reportStopped(context.Background(), &p.session, old, oldReport, previousPosition, watched)
 	}()
 	setShaderScope(seriesScope(p.session.Server, q.history))
 	if q.engine == "mpv" {

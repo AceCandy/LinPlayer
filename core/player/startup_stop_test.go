@@ -252,3 +252,76 @@ func TestPrimaryStopWaitsAndPrivateStopCanAcknowledgeLocally(t *testing.T) {
 		})
 	}
 }
+
+func TestSlowProgressDoesNotConsumeFinalStopBudget(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	if _, err := config.Load(); err != nil {
+		t.Fatal(err)
+	}
+	progressEntered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	stopped := make(chan int64, 1)
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch {
+		case strings.HasSuffix(r.URL.Path, "/Progress"):
+			close(progressEntered)
+			select {
+			case <-release:
+			case <-r.Context().Done():
+			}
+		case strings.HasSuffix(r.URL.Path, "/Stopped"):
+			var body struct {
+				Position int64 `json:"PositionTicks"`
+			}
+			_ = json.NewDecoder(r.Body).Decode(&body)
+			stopped <- body.Position
+		}
+		w.WriteHeader(204)
+	}))
+	defer up.Close()
+	defer unblock()
+	s := &emby.Session{Server: up.URL, UserID: "user", Token: "test"}
+	target := &emby.PlaybackTarget{ItemID: "film", RunTimeTicks: 10000000000}
+	report := &playbackReport{started: make(chan struct{}), session: *s}
+	close(report.started)
+	currentMu.Lock()
+	current, currentReport, currentCtx = target, report, nil
+	currentMu.Unlock()
+	progressDone := make(chan error, 1)
+	go func() { _, err := report.progress(context.Background(), s, target, 10, false); progressDone <- err }()
+	select {
+	case <-progressEntered:
+	case <-time.After(time.Second):
+		t.Fatal("progress not started")
+	}
+	local, result := make(chan struct{}), make(chan error, 1)
+	go func() {
+		result <- stopPlaybackOwned(context.Background(), s, 12, false, "film", nil, func() { close(local) })
+	}()
+	select {
+	case <-local:
+	case <-time.After(time.Second):
+		t.Fatal("local stop blocked on progress")
+	}
+	// 使用真实超时与HTTP，确保覆盖15秒预算在等锁时被消耗的原故障。
+	time.Sleep(16 * time.Second)
+	if pendingResumeFor(context.Background(), s, "film") == nil {
+		t.Fatal("inflight stop lost final position")
+	}
+	unblock()
+	if err := <-progressDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-result; err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case position := <-stopped:
+		if position != 120000000 {
+			t.Fatalf("wrong final position: %d", position)
+		}
+	default:
+		t.Fatal("slow progress consumed stop budget; final position was never sent")
+	}
+}

@@ -3,7 +3,7 @@
 - Media3 起播黑幕在真实 `onRenderedFirstFrame` 后即可撤除，包括暂停且位置未推进的首帧；该状态只用于呈现，不改 `everMoved`、失败或完播判据。按播放器、播放拥有者与重试代次隔离，媒体切换/IDLE清零，离页移除监听并拒绝已失效监听器回调，停止状态（IDLE）的首帧通知也不得撤幕；MPV保留自然推进和既有兜底。`StartupTimingTest`覆盖生命周期，手机/TV页面回归验证首帧即时撤幕与失败仍可见；冻结Compose时钟时，注入原生监听事件后需提交Snapshot通知再推进帧，不能将未刷新的测试界面误判为生产状态丢失。真机首帧耗时另验。
 
 - Media3流媒体首播门槛500ms，断流恢复2000ms及自动/自定义容量下本地策略保留；使用当前版本分流媒体/本地setter。`PlaybackBufferTest`比较499/500ms、1999/2000ms及旧本地策略。
-- 离页 `stopIn` 将本地停止和网络收尾分开登记：手机/TV新播放等 `awaitLocalStop`，详情/换源等 `awaitPendingStop`。页面取消不能跳过前序本地停止；TV标题清理与偏好保存须在本地放行前完成，不能由旧网络回调清除新标题。新增可选回调不能改变既有尾lambda所属参数。`PlayerControllerTest`覆盖连续重进、迟到收尾及取消。
+- 离页 `stopIn` 将本地停止和网络收尾分开登记：手机/TV新播放等 `awaitLocalStop`，详情/换源等 `awaitPendingStop`。页面取消不能跳过前序本地停止；TV标题清理与偏好保存须在本地放行前完成，不能由旧网络回调清除新标题。新增可选回调不能改变既有尾lambda所属参数。`PlayerControllerTest`覆盖连续重进、迟到收尾及取消。 收到local_stopped时同时释放传输锁，同一控制器重用也不能等网络；释放仅执行一次，旧finally不得解锁新命令。
 
 ## 入口与主题
 

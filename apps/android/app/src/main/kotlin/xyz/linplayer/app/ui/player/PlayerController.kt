@@ -23,6 +23,7 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.coroutineContext
+import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.serialization.json.JsonElement
 import kotlinx.serialization.json.JsonObject
 import xyz.linplayer.app.data.arr
@@ -193,8 +194,13 @@ internal class PlayerController(
         seekEnabled = false
         clearSeek()
         invalidateTracks()
-        transportMutex.withLock {
-            if (!isCurrent()) return@withLock
+        transportMutex.lock()
+        val released = AtomicBoolean(false)
+        val releaseTransport = {
+            if (released.compareAndSet(false, true)) transportMutex.unlock()
+        }
+        try {
+            if (!isCurrent()) return
             controls.stopOutput()
             val arguments = args(*buildList<Pair<String, Any>> {
                 add("pos" to position)
@@ -203,10 +209,14 @@ internal class PlayerController(
             }.toTypedArray())
             if (stopCall != null && onLocalStopped != null) {
                 stopCall.invoke(arguments) { partial ->
-                    if (partial.obj().bool("local_stopped")) onLocalStopped()
+                    if (partial.obj().bool("local_stopped")) {
+                        // 核心已停本地输出，旧网络收尾不能继续占用新会话的传输锁。
+                        releaseTransport()
+                        onLocalStopped()
+                    }
                 }
             } else call("player.stopPlayback", arguments)
-        }
+        } finally { releaseTransport() }
     }
 
     /** 离页任务立即登记，新页起播等待收尾，避免旧 stop 停掉新会话。 */

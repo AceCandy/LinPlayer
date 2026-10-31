@@ -722,6 +722,46 @@ class PlayerControllerTest {
         first.join(); stale.join(); detail.join()
     }
 
+    @Test fun 本地回执释放同控制器且旧收尾不解锁新命令() = runBlocking {
+        val reportRelease = CompletableDeferred<Unit>()
+        val controlRelease = CompletableDeferred<Unit>()
+        val calls = mutableListOf<Double>()
+        val controller = PlayerController("mpv", stopCall = { _, partial ->
+            partial(buildJsonObject { put("local_stopped", true) })
+            reportRelease.await()
+            JsonObject(emptyMap())
+        }) { command, arguments ->
+            if (command == "player.setSpeed") {
+                calls += arguments.dbl("speed")!!
+                if (calls.size == 1) controlRelease.await()
+            }
+            JsonObject(emptyMap())
+        }
+        val oldStop = controller.stopIn(this, 10.0, { throw it })
+        try {
+            PlayerController.awaitLocalStop()
+            val next = launch { controller.begin() }
+            yield()
+            assertTrue("同控制器不能继续等待停止上报", next.isCompleted)
+            assertFalse(oldStop.isCompleted)
+            val first = launch { controller.speed(1.25) }
+            yield()
+            assertEquals(listOf(1.25), calls)
+            reportRelease.complete(Unit)
+            oldStop.join()
+            val second = launch { controller.speed(1.5) }
+            yield()
+            assertEquals("旧停止的finally不能解锁新命令", listOf(1.25), calls)
+            controlRelease.complete(Unit)
+            first.join(); second.join()
+            assertEquals(listOf(1.25, 1.5), calls)
+        } finally {
+            reportRelease.complete(Unit)
+            controlRelease.complete(Unit)
+            oldStop.join()
+        }
+    }
+
     @Test fun 本地放行前清理标题且取消等待不会留下永久屏障() = runBlocking {
         val release = CompletableDeferred<Unit>()
         var title = "旧片"

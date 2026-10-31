@@ -862,9 +862,7 @@ func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handof
 		if previousStop != nil {
 			<-previousStop
 		}
-		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
-		defer cancel()
-		return reportStopped(reportCtx, &snapshot, t, report, pos, watched)
+		return reportStopped(context.WithoutCancel(ctx), &snapshot, t, report, pos, watched)
 	}
 	if handoff {
 		transferred = true
@@ -885,6 +883,9 @@ func reportStopped(ctx context.Context, s *emby.Session, t *emby.PlaybackTarget,
 		}
 		s = &report.session
 	}
+	// 等待旧进度和开始上报不消耗最终停止请求的网络预算。
+	ctx, cancel := context.WithTimeout(ctx, 15*time.Second)
+	defer cancel()
 	/* ★★ 越过用户那条阈值就**明着告诉服务器已看完**。
 
 	   不能只靠 ReportStopped:服务器按**它自己**的阈值判(Emby 默认 90,
