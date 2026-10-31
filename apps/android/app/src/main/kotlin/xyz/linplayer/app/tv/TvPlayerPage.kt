@@ -223,6 +223,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     }
     val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null, preload = true)
     val latestExo by rememberUpdatedState(exo)
+    val renderedFirstFrame = xyz.linplayer.app.ui.player.rememberRenderedFirstFrame(exo, controller to attempt)
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
     MatchTvRefreshRate(app, controller, exo, attempt,
@@ -1062,7 +1063,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (finished) { ui.failed = null; episodeResult = null; episodeRetry++ } else attempt++
         }, onSwitchSource = if (target.src != null && !app.privateSpace.value && !finished)
             ({ sourceSwitch = true }) else null)
-        else if (!ui.everMoved) Curtain(ui, showSpeed = !controlsVisible)
+        else if (!ui.everMoved && !renderedFirstFrame) Curtain(ui, showSpeed = !controlsVisible)
         else if (ui.buffering) BufferingHint(ui, showSpeed = !controlsVisible)
         if (failed == null && feedOverlay == null) {
             if (controlsVisible) Osd(ui, target, engine, root,

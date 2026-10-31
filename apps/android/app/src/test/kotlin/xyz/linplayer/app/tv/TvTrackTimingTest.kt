@@ -2,6 +2,7 @@ package xyz.linplayer.app.tv
 
 import android.app.Application
 import androidx.compose.ui.test.onNodeWithText
+import androidx.compose.ui.test.assertIsDisplayed
 import androidx.compose.ui.test.onNodeWithContentDescription
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.semantics.SemanticsActions
@@ -194,6 +195,46 @@ class TvTrackTimingTest {
         rule.runOnIdle { release.complete(Unit) }
         advance(rule, 2_500)
         assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun media3FirstFrameRevealsPausedVideoWithoutProgress() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.play", buildJsonObject { put("media_source_id", "ea") })
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        val nav = TvNav().apply { push(TvRoute.Player("sh6", "测试剧集", engine = "exo")) }
+        rule.mainClock.autoAdvance = false
+        rule.setContent { TvFrame(app) { PlayerHost(nav) } }
+        advance(rule, 800)
+        lateinit var player: androidx.media3.exoplayer.ExoPlayer
+        rule.runOnIdle {
+            player = org.robolectric.util.ReflectionHelpers.getStaticField(
+                xyz.linplayer.app.ui.player.PlaybackService::class.java, "externalPlayer")
+            val info: Any = org.robolectric.util.ReflectionHelpers.getField(player, "playbackInfo")
+            org.robolectric.util.ReflectionHelpers.setField(info, "playbackState", androidx.media3.common.Player.STATE_READY)
+        }
+        advance(rule, 300)
+        rule.onNodeWithText("正在打开…").assertExists()
+        rule.runOnIdle {
+            assertEquals(0L, player.currentPosition)
+            org.junit.Assert.assertFalse(player.isPlaying)
+            val listeners: androidx.media3.common.util.ListenerSet<androidx.media3.common.Player.Listener> =
+                org.robolectric.util.ReflectionHelpers.getField(player, "listeners")
+            listeners.sendEvent(androidx.media3.common.Player.EVENT_RENDERED_FIRST_FRAME) { it.onRenderedFirstFrame() }
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
+        advance(rule, 32)
+        rule.onNodeWithText("正在打开…").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        rule.runOnIdle {
+            val info: Any = org.robolectric.util.ReflectionHelpers.getField(player, "playbackInfo")
+            val error = androidx.media3.exoplayer.ExoPlaybackException.createForSource(
+                java.io.IOException("网络连接失败"), androidx.media3.common.PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED)
+            org.robolectric.util.ReflectionHelpers.setField(info, "playbackError", error)
+        }
+        advance(rule, 300)
+        rule.onNodeWithText("这一片没能播起来").assertIsDisplayed()
     }
 
 }

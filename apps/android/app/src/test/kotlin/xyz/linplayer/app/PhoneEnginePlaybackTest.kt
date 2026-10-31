@@ -1648,6 +1648,34 @@ class PhoneEnginePlaybackTest {
 
     private fun currentExo(): ExoPlayer = ReflectionHelpers.getStaticField(PlaybackService::class.java, "externalPlayer")
 
+    @Test fun media3FirstFrameRevealsPausedVideoWithoutProgress() {
+        val core = FakeCore().loggedIn().player().apply {
+            ret("player.play", buildJsonObject { put("media_source_id", "requested-version") })
+        }
+        showPlayer(core, "exo")
+        rule.runOnIdle {
+            val info: Any = ReflectionHelpers.getField(currentExo(), "playbackInfo")
+            ReflectionHelpers.setField(info, "playbackState", androidx.media3.common.Player.STATE_READY)
+        }
+        advance(rule, 300)
+        rule.onNodeWithContentDescription("正在打开…").assertExists()
+        rule.runOnIdle {
+            val player = currentExo()
+            assertEquals(0L, player.currentPosition)
+            assertFalse(player.isPlaying)
+            val listeners: androidx.media3.common.util.ListenerSet<androidx.media3.common.Player.Listener> =
+                ReflectionHelpers.getField(player, "listeners")
+            listeners.sendEvent(androidx.media3.common.Player.EVENT_RENDERED_FIRST_FRAME) { it.onRenderedFirstFrame() }
+            androidx.compose.runtime.snapshots.Snapshot.sendApplyNotifications()
+        }
+        advance(rule, 32)
+        rule.onNodeWithContentDescription("正在打开…").assertDoesNotExist()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        rule.runOnIdle { injectError(currentExo(), PlaybackException.ERROR_CODE_IO_NETWORK_CONNECTION_FAILED) }
+        advance(rule, 300)
+        rule.onNodeWithText("这一片没能播起来").assertIsDisplayed()
+    }
+
     /** 注入安装版本的 Media3 状态，仍由真实页面读取错误并执行整条回退链路。 */
     private fun injectError(player: ExoPlayer, errorCode: Int, selectedAudio: Boolean = false) {
         val info: Any = ReflectionHelpers.getField(player, "playbackInfo")

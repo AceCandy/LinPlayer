@@ -145,4 +145,64 @@ class StartupTimingTest {
         val holders = ReflectionHelpers.getField<Set<Any>>(set, "listeners")
         return holders.map { ReflectionHelpers.getField(it, "listener") }
     }
+
+    @Test fun renderedFrameResetsForMediaRetryAndOwnerAndRejectsLateCallbacks() {
+        val key = mutableStateOf(0)
+        val visible = mutableStateOf(true)
+        var rendered = false
+        lateinit var player: ExoPlayer
+        rule.setPlayerContent {
+            player = rememberExoPlayer(true, null)!!
+            rendered = if (visible.value) rememberRenderedFirstFrame(player, key.value) else false
+        }
+        lateinit var listener: Player.Listener
+        rule.runOnIdle {
+            listener = listeners(player).single { it.javaClass.name.contains("ProgressKt") }
+            val info: Any = ReflectionHelpers.getField(player, "playbackInfo")
+            ReflectionHelpers.setField(info, "playbackState", Player.STATE_READY)
+            listener.onPlaybackStateChanged(Player.STATE_READY)
+        }
+        rule.runOnIdle {
+            assertFalse("ready 不是首帧", rendered)
+            listener.onRenderedFirstFrame()
+        }
+        rule.runOnIdle {
+            assertTrue(rendered)
+            listener.onMediaItemTransition(androidx.media3.common.MediaItem.EMPTY, Player.MEDIA_ITEM_TRANSITION_REASON_AUTO)
+        }
+        rule.runOnIdle {
+            assertFalse(rendered)
+            listener.onRenderedFirstFrame()
+        }
+        rule.runOnIdle { assertTrue(rendered); key.value++ }
+        rule.runOnIdle {
+            assertFalse("新拥有者或重试不继承旧首帧", rendered)
+            assertFalse(listeners(player).contains(listener))
+            listener.onRenderedFirstFrame()
+        }
+        rule.runOnIdle {
+            assertFalse("旧回调不能解除新遮罩", rendered)
+            listener = listeners(player).single { it.javaClass.name.contains("ProgressKt") }
+            val info: Any = ReflectionHelpers.getField(player, "playbackInfo")
+            ReflectionHelpers.setField(info, "playbackState", Player.STATE_IDLE)
+            val events: androidx.media3.common.util.ListenerSet<Player.Listener> = ReflectionHelpers.getField(player, "listeners")
+            events.sendEvent(Player.EVENT_RENDERED_FIRST_FRAME) { it.onRenderedFirstFrame() }
+        }
+        rule.runOnIdle {
+            assertFalse("停止后迟到的首帧不能通过新监听器解除遮罩", rendered)
+            val info: Any = ReflectionHelpers.getField(player, "playbackInfo")
+            ReflectionHelpers.setField(info, "playbackState", Player.STATE_READY)
+            listener.onRenderedFirstFrame()
+        }
+        rule.runOnIdle {
+            assertTrue(rendered)
+            listener.onPlaybackStateChanged(Player.STATE_IDLE)
+        }
+        rule.runOnIdle { assertFalse(rendered); visible.value = false }
+        rule.runOnIdle {
+            assertFalse(listeners(player).contains(listener))
+            listener.onRenderedFirstFrame()
+        }
+        rule.runOnIdle { assertFalse(rendered) }
+    }
 }

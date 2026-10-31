@@ -657,6 +657,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     val playbackPrefs = trackPrefs
     /** 失败页「重试」的计数:同一控制器重新起播一次。 */
     var attempt by remember(controller) { mutableStateOf(0) }
+    val renderedFirstFrame = rememberRenderedFirstFrame(exo, controller to attempt)
     LaunchedEffect(controller, playbackPrefs, engine, attempt) {
         // 按本次重组的快照放行，不能让旧的 null-key 协程读取新偏好后先起播一次。
         if (playbackPrefs == null) return@LaunchedEffect
@@ -1254,14 +1255,14 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         Box(videoLayerModifier) { xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = false) }
 
 
-        /* 未出画时的黑幕。**判据是「时间真的往前走了」**。
+        /* Media3 真实首帧即可撤幕；MPV 沿用「时间真的往前走了」判据。
            ☠☠ **这块布必须有一个撤不掉就自己撤的死线**(见 everMoved 那两个兜底)。
               它是不透明的,一旦「时间不往前走」这个判据被别的 bug 卡住,用户看到的
               就是「有声音、没画面、一直正在缓冲」—— 而画面其实一直在下面好好画着。
               2026-09-07 真出过这一次:安卓上 player.status 一条都发不出去
               (闸用错了标志,见 core/player/player.go 的 pumpStatus),
               位置永远是 0,这块布就永远撤不掉。修好了根因,死线也得留。 */
-        if (!everMoved || openFailed) Box(videoLayerModifier.background(Color.Black),
+        if ((!everMoved && !renderedFirstFrame) || openFailed) Box(videoLayerModifier.background(Color.Black),
             contentAlignment = Alignment.Center) {
             if (openFailed) Column(
                 Modifier.padding(horizontal = Sp.x26),
@@ -1379,7 +1380,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 
         /* 出画之后的缓冲提示。黑幕撤了但流还没跟上时,得有个东西说明在等 ——
            没有它的话画面卡住和播放器死了长得一模一样。 */
-        if (everMoved && buffering) Box(videoLayerModifier, contentAlignment = Alignment.Center) {
+        if ((everMoved || renderedFirstFrame) && buffering) Box(videoLayerModifier, contentAlignment = Alignment.Center) {
             xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White, label = "正在缓冲…")
         }
 
