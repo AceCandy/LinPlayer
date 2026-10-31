@@ -502,7 +502,9 @@ func startPrefetch(ctx context.Context, s *emby.Session, target *emby.PlaybackTa
 	}
 	proxyMu.Unlock()
 
-	h := proxyFor(ctx, target.URL, p, on, mediaCacheOptions(s, target))
+	options := mediaCacheOptions(s, target)
+	options.StartPlayback = true
+	h := proxyFor(ctx, target.URL, p, on, options)
 	if h == nil {
 		return target.URL
 	}

@@ -104,6 +104,8 @@ type CacheOptions struct {
 	Identity string
 	Bitrate  int64
 	Budget   int64
+	// 正式起播可复用首段响应；纯准备与受限读取仍只探测元数据。
+	StartPlayback bool
 	// 仅显式启用的流影请求使用，零值保持普通代理原行为。
 	Epoch uint64
 	Reads *ReadControl
@@ -227,6 +229,7 @@ func (h *Handle) Close() {
 	h.once.Do(func() {
 		h.origin.closed.Store(true)
 		h.origin.cancel()
+		h.origin.closeInitial()
 		h.origin.stop.notifyAll()
 		_ = h.ln.Close()
 		h.connMu.Lock()
@@ -247,6 +250,7 @@ type origin struct {
 	firstSupply sync.Once
 	validator   string
 	upMu        sync.Mutex
+	initial     *initialResponse // upMu保护，首块只可被一个读取者接管。
 	url         string
 	// resolved 跟随 302 后的**最终**地址(CDN 直链);worker 优先打它。
 	//
@@ -327,8 +331,19 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 	if epoch != 0 && epoch != MediaCacheEpoch() {
 		return nil, context.Canceled
 	}
+	o.ctx, o.cancel = context.WithCancel(context.WithoutCancel(ctx))
+	stopPreparation := context.AfterFunc(ctx, o.cancel)
+	committed := false
+	defer func() {
+		stopPreparation()
+		if !committed {
+			o.cancel()
+			o.closeInitial()
+		}
+	}()
+	prime := len(cacheOptions) > 0 && cacheOptions[0].StartPlayback && o.reads == nil
 	probeAt := time.Now()
-	if err := o.probe(ctx, upstreamURL); err != nil {
+	if err := o.probe(o.ctx, upstreamURL, prime); err != nil {
 		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
 		return nil, err
 	}
@@ -355,7 +370,10 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 	}
 	bus.Logf("info", "phase=cache_restore elapsed_ms=%d persistent=%t restored_blocks=%d", time.Since(restoreAt).Milliseconds(), disk.persistent, len(disk.slots))
 	o.disk = disk
-	o.ctx, o.cancel = context.WithCancel(context.Background())
+	if disk.has(0) {
+		// 候选块损坏仍由正常供给重拉；命中时不消费探测正文。
+		o.closeInitial()
+	}
 
 	ln, err := net.Listen("tcp", "127.0.0.1:0")
 	if err != nil {
@@ -399,30 +417,50 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 			}()
 		}
 	}()
+	if !stopPreparation() || ctx.Err() != nil {
+		h.Close()
+		return nil, context.Canceled
+	}
+	committed = true
 	return h, nil
 }
 
-// probe 探总大小 + Content-Type:`Range: bytes=0-0` → 206 + `Content-Range: bytes 0-0/<total>`。
-func (o *origin) probe(ctx context.Context, u string) error {
-	ctx, cancel := context.WithTimeout(ctx, 8*time.Second)
-	defer cancel()
+// probe 读取元数据；正式起播保留首块响应，随后由供给端接管。
+func (o *origin) probe(ctx context.Context, u string, prime bool) error {
+	ctx, cancel := context.WithCancel(ctx)
+	timer := time.AfterFunc(8*time.Second, cancel)
+	retained := false
+	defer func() {
+		timer.Stop()
+		if !retained {
+			cancel()
+		}
+	}()
 	ctx, slot := withTTLSlot(ctx)
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
 	if err != nil {
 		return err
 	}
-	req.Header.Set("Range", "bytes=0-0")
+	end := int64(0)
+	if prime {
+		end = ChunkSize - 1
+	}
+	req.Header.Set("Range", fmt.Sprintf("bytes=0-%d", end))
 	req.Header.Set("User-Agent", o.policy.Load().ua)
 	req.Header.Set("Accept-Encoding", "identity")
 	resp, err := o.client.Do(req)
 	if err != nil {
 		return fmt.Errorf("探测文件大小失败: %w", err)
 	}
-	defer resp.Body.Close()
-	// 探测只需要一个字节；忽略Range的服务器可能返回整片，不能在这里下载完。
-	_, _ = io.CopyN(io.Discard, resp.Body, 1)
-
-	// 探测本来就跟完了 302,顺手把落点**和它声明的有效期**一起记下来给 worker 用
+	defer func() {
+		if !retained {
+			_ = resp.Body.Close()
+		}
+	}()
+	// 首段正文沿用逐次读取的空闲超时，不继承探测响应头的8秒预算。
+	if !timer.Stop() || ctx.Err() != nil {
+		return context.DeadlineExceeded
+	}
 	o.noteResolved(u, resp.Request.URL.String(), slot.ttl())
 	o.contentType = resp.Header.Get("Content-Type")
 	if o.contentType == "" {
@@ -433,14 +471,17 @@ func (o *origin) probe(ctx context.Context, u string) error {
 		o.totalSize, _ = strconv.ParseInt(strings.TrimSpace(cr[i+1:]), 10, 64)
 	}
 	if o.totalSize <= 0 {
-		// ★ 取不到文件大小就**不能代理**:没有 total 就发不出正确的 Content-Length,
-		//   播放器算不出进度条也没法 seek。调用方回退直连。
 		return errors.New("上游没给文件大小,无法代理(调用方回退直连)")
 	}
+	end = min(end, o.totalSize-1)
 	mediaType := strings.ToLower(strings.Split(o.contentType, ";")[0])
 	manifest := strings.Contains(mediaType, "mpegurl") || mediaType == "application/dash+xml"
-	if !manifest && !strings.Contains(strings.ToLower(resp.Header.Get("Cache-Control")), "no-store") && validRangeResponse(resp, 0, 0, o.totalSize) {
+	if !manifest && validRangeResponse(resp, 0, end, o.totalSize) {
 		o.validator = cacheValidator(resp.Header)
+		if prime {
+			o.initial = &initialResponse{response: resp, cancel: cancel}
+			retained = true
+		}
 	}
 	return nil
 }
@@ -588,6 +629,17 @@ func (o *origin) fetchChunk(ctx context.Context, c int64, l *live) []byte {
 
 // fetchOnce 返回 (地址不灵, 该重试同一地址)。
 func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *live) (badAddr, retry bool) {
+	if start < ChunkSize {
+		if initial := o.takeInitial(); initial != nil {
+			if validRangeResponse(initial.response, start, end, o.totalSize) {
+				defer initial.close()
+				stopCancel := context.AfterFunc(ctx, initial.cancel)
+				defer stopCancel()
+				return o.readResponse(ctx, initial.response, l)
+			}
+			initial.close()
+		}
+	}
 	o.probes.Add(1)
 	reqCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
@@ -642,6 +694,10 @@ func (o *origin) fetchOnce(ctx context.Context, u string, start, end int64, l *l
 	// 打的是 Emby 直链、又真跳转了 = 拿到一个新落点,连同新的有效期一起换上
 	o.noteResolved(u, resp.Request.URL.String(), slot.ttl())
 
+	return o.readResponse(ctx, resp, l)
+}
+
+func (o *origin) readResponse(ctx context.Context, resp *http.Response, l *live) (badAddr, retry bool) {
 	/* 收体:**每来一块就重置计时**,只有真的停止吐字节才判死。
 	   ★ 收到就 feed —— 这就是「边收边吐」:供给端不再等整段落盘。
 	     skip 让重试从上一轮的断点续上。 */

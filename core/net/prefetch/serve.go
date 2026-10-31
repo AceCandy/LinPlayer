@@ -434,6 +434,9 @@ func (o *origin) handle(conn *net.TCPConn) error {
 	}
 
 	first := start / ChunkSize
+	if first > 0 {
+		o.closeInitial()
+	}
 	s := &stream{
 		o: o, firstChunk: first, lastChunk: end / ChunkSize,
 		headWithin:  int(start - first*ChunkSize),
