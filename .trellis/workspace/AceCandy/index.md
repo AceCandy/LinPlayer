@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 157
+- **Total Sessions**: 158
 - **Last Active**: 2026-10-31
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~691 | Active |
+| `journal-4.md` | ~727 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 158 | 2026-10-31 | TV 播放性能审查与归档 | `9256c169` | `main` |
 | 157 | 2026-10-31 | 安卓首帧呈现优化审查与归档 | `72b247b9` | `main` |
 | 156 | 2026-10-31 | TV播放体验与全端弹幕优化审核归档 | `91ed2f0c` | `main` |
 | 155 | 2026-10-31 | 恢复弹幕高级设置及三端热力图 | `9fa31962` | `main` |
