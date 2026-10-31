@@ -3,6 +3,7 @@ package player
 import (
 	"context"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"linplayer/core/bus"
@@ -17,7 +18,8 @@ type playbackReport struct {
 	started      chan struct{}
 	previousStop <-chan struct{}
 	mu           sync.Mutex
-	stopped      bool
+	stopped      atomic.Bool
+	adult        *bool
 	session      emby.Session
 	primary      *progress.Link
 	runtimeTicks int64
@@ -27,6 +29,7 @@ type playbackReport struct {
 var stopPlaybackMu sync.Mutex
 var stopReportMu sync.Mutex
 var stopReportDone <-chan struct{}
+var handoffReportSlots = make(chan struct{}, 8) // 连续切集仍需给网络收尾施加有界背压。
 
 func pendingStopReport() <-chan struct{} {
 	stopReportMu.Lock()
@@ -77,7 +80,7 @@ func (r *playbackReport) progress(ctx context.Context, s *emby.Session, t *emby.
 	if r != nil {
 		r.mu.Lock()
 		defer r.mu.Unlock()
-		if r.stopped {
+		if r.stopped.Load() {
 			return false, nil
 		}
 		if err := r.waitStart(ctx); err != nil {

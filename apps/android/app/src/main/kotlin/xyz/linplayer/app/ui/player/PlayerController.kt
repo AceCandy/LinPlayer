@@ -11,6 +11,7 @@ import androidx.media3.common.MimeTypes
 import androidx.media3.common.PlaybackException
 import androidx.media3.exoplayer.ExoPlayer
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -75,6 +76,7 @@ internal data class PlaybackSnapshot(
 /** 单次播放的模式固定；自动模式只在明确兼容错误时从 Media3 回退一次。 */
 internal class PlayerController(
     private val mode: String,
+    private val stopCall: (suspend (JsonObject, (JsonElement) -> Unit) -> JsonElement)? = null,
     private val call: suspend (String, JsonObject) -> JsonElement,
 ) {
     var engine by mutableStateOf(if (mode == "auto" || mode == "exo") "exo" else "mpv")
@@ -185,7 +187,7 @@ internal class PlayerController(
     }
     fun started() { ready = true; seekEnabled = true }
 
-    suspend fun stop(position: Double, handoff: Boolean = false, isCurrent: () -> Boolean = { true }) {
+    suspend fun stop(position: Double, handoff: Boolean = false, onLocalStopped: (() -> Unit)? = null, isCurrent: () -> Boolean = { true }) {
         seekTiming?.interrupt()
         ready = false
         seekEnabled = false
@@ -194,42 +196,59 @@ internal class PlayerController(
         transportMutex.withLock {
             if (!isCurrent()) return@withLock
             controls.stopOutput()
-            call("player.stopPlayback", args(*buildList<Pair<String, Any>> {
+            val arguments = args(*buildList<Pair<String, Any>> {
                 add("pos" to position)
                 if (handoff) add("handoff" to true)
                 itemId?.let { add("item_id" to it) }
-            }.toTypedArray()))
+            }.toTypedArray())
+            if (stopCall != null && onLocalStopped != null) {
+                stopCall.invoke(arguments) { partial ->
+                    if (partial.obj().bool("local_stopped")) onLocalStopped()
+                }
+            } else call("player.stopPlayback", arguments)
         }
     }
 
     /** 离页任务立即登记，新页起播等待收尾，避免旧 stop 停掉新会话。 */
-    fun stopIn(scope: CoroutineScope, position: Double, onError: (Throwable) -> Unit, isCurrent: () -> Boolean = { true }, positionAtStop: () -> Double = { position }, afterStop: suspend () -> Unit = {}): Job {
+    fun stopIn(scope: CoroutineScope, position: Double, onError: (Throwable) -> Unit, isCurrent: () -> Boolean = { true }, positionAtStop: () -> Double = { position }, beforeStop: suspend () -> Unit = {}, afterStop: suspend () -> Unit = {}): Job {
         seekTiming?.interrupt()
         seekEnabled = false
         clearSeek()
         invalidateTracks()
-        val previous = pendingStop
+        val previous = pendingLocalStop
+        val previousReport = pendingStop
+        val local = CompletableDeferred<Unit>()
+        pendingLocalStop = local
         return scope.launch(start = CoroutineStart.UNDISPATCHED) {
-            previous?.join()
-            try {
-                stop(positionAtStop(), isCurrent = isCurrent)
-                afterStop()
-            } catch (cancelled: CancellationException) { throw cancelled }
-            catch (failure: Exception) { onError(failure) }
+            withContext(NonCancellable) {
+                try {
+                    previous?.join()
+                    beforeStop()
+                    stop(positionAtStop(), isCurrent = isCurrent, onLocalStopped = { local.complete(Unit) })
+                    afterStop()
+                } catch (cancelled: CancellationException) { throw cancelled }
+                catch (failure: Exception) { onError(failure) }
+                finally {
+                    local.complete(Unit)
+                    previousReport?.join()
+                }
+            }
         }.also { pendingStop = it }
     }
 
     companion object {
         // 进程只有一个核心播放目标；两个页面的离页收尾共用这一道屏障。
         private var pendingStop: Job? = null
+        private var pendingLocalStop: Job? = null
         suspend fun awaitPendingStop() { pendingStop?.join() }
+        suspend fun awaitLocalStop() { pendingLocalStop?.join() }
         /** 内核已经切入下一集，离页收尾必须等待会话接管完成。 */
         fun handoffIn(scope: CoroutineScope, block: suspend () -> Unit): Job {
             val previous = pendingStop
             return scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 previous?.join()
                 withContext(NonCancellable) { block() }
-            }.also { pendingStop = it }
+            }.also { pendingStop = it; pendingLocalStop = it }
         }
     }
 

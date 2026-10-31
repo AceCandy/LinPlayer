@@ -246,6 +246,10 @@ func activateQueuedLocked(q *queuedPlayback, previousPosition float64) map[strin
 	stopReportMu.Unlock()
 	current, currentCtx = p.target, q.history
 	report := &playbackReport{started: make(chan struct{}), previousStop: done, session: p.session, primary: q.primary, runtimeTicks: p.target.RunTimeTicks, useMpv: q.engine == "mpv"}
+	if oldReport != nil {
+		report.adult = oldReport.adult
+		oldReport.stopped.Store(true)
+	}
 	currentReport = report
 	pendingSubs = p.target.ExternalSubs
 	currentMu.Unlock()

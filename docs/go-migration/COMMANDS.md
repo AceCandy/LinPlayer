@@ -207,7 +207,7 @@
 | [x] | `player.setVolume` | `set_volume` | `volume: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.shaderLevels` | `shader_levels` | `—` | `Vec<ShaderLevel>` | ✅ |
 | [x] | `player.status` | `status` | `—` | `Result<Value, String>` | ✅ |
-| [x] | `player.stopPlayback` | `stop_playback` | `pos: f64, handoff: Option<bool>, item_id: Option<String>` | `Result<(), String>` | ✅ |
+| [x] | `player.stopPlayback` | `stop_playback` | `pos: f64, handoff: Option<bool>, item_id: Option<String>` | `{stopped, reported}` | ✅ | <!-- 普通停止在本地收尾后可发partial {local_stopped:true}，最终result仍等待有序上报；主进度服同步未完成不提前放行。handoff=true仍为既有后台上报语义。私密空间由播放报告保存身份；无会话reported=false。 -->
 | [x] | `player.takePending` | `player_take_pending` | `—` | `Option<serde_json::Value>` | ❌ |
 | [x] | `player.thumbnail` | **新增** | `position: f64` | `Result<Thumbnail, String>` | — | <!-- 进度条某一点的缩略图。从**本地已缓存的字节**解,走只读缓存端点 + 第二个 mpv 实例 -->
 | [x] | `player.tracks` | `tracks` | `—` | `Result<Vec<Track>, String>` | ✅ |

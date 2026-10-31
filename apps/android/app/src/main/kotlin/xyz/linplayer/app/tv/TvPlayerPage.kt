@@ -190,7 +190,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
     var switching by remember { mutableStateOf(false) }
     val controller = remember(target) {
-        PlayerController(adoptedPlayback.str("engine") ?: if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode) { command, arguments ->
+        PlayerController(adoptedPlayback.str("engine") ?: if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode,
+            stopCall = { arguments, partial -> app.call("player.stopPlayback", arguments, partial) }) { command, arguments ->
             app.call(command, arguments)
         }.also { c -> adoptedPlayback?.takeIf { it.str("item_id") == target.itemId }?.let(c::resolved) }
     }
@@ -211,7 +212,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         controller.manualSubtitleOff?.let { subOffPref = it }
     }
     LaunchedEffect(Unit) {
-        PlayerController.awaitPendingStop()
+        PlayerController.awaitLocalStop()
         val p = runCatching { app.call("prefs.getPrefs") }.getOrNull().obj()
         bufferTargetBytes = p.long("buffer_target_bytes") ?: 0L
         preferredSpeed = (p.dbl(if (feedOverlay == null) "default_speed" else "liuying_speed") ?: 1.0).coerceIn(.25, 4.0)
@@ -282,12 +283,10 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         val pos = if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
         latestController.stopIn(app.bg, pos, app::report, positionAtStop = {
             if (ui.duration > 0 && ui.position >= ui.duration - 2) ui.duration else ui.position
-        })
-        // 停播失败也要等在途偏好保存，后续播放才能读到最终倍率。
-        PlayerController.handoffIn(app.bg) {
+        }, beforeStop = {
             speedWrite?.join()
             runCatching { app.call("companion.setNowPlaying", args("title" to "")) }
-        }
+        })
     }
     val leave: () -> Unit = {
         leaving = true
@@ -454,7 +453,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         ui.everMoved = false; ui.buffering = true; ui.position = 0.0; ui.duration = 0.0
         ui.buffered = 0.0
         ui.failed = null; ui.skipWhat = null; ui.osd = true
-        PlayerController.awaitPendingStop()
+        PlayerController.awaitLocalStop()
         coroutineContext.ensureActive()
         // ☠ 换片连 libass 的事件缓存一起清,和手机端同一顺序
         ExoPreload.of(exo)?.deactivate()

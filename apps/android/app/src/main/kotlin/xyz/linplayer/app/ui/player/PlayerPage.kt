@@ -336,7 +336,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     // 数据源播放只走 mpv:取流、解析、请求头都在核心层,ExoPlayer 那条路拿不到这些
     var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
     val controller = remember(route.itemId, route.versionId, route.src) {
-        PlayerController(adoptedPlayback.str("engine") ?: if (route.src != null) "mpv" else initialMode) { command, arguments ->
+        PlayerController(adoptedPlayback.str("engine") ?: if (route.src != null) "mpv" else initialMode,
+            stopCall = { arguments, partial -> app.call("player.stopPlayback", arguments, partial) }) { command, arguments ->
             app.call(command, arguments)
         }
     }
@@ -677,7 +678,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
         everMoved = false; buffering = true; position = 0.0; duration = 0.0; openFailed = false; failReason = null
         buffered = 0.0
-        PlayerController.awaitPendingStop()
+        PlayerController.awaitLocalStop()
         coroutineContext.ensureActive()
         // ☠ 换片必须连 libass 的事件缓存一起清:留着就是把上一集的字幕画给这一集
         ExoPreload.of(latestExo)?.deactivate()

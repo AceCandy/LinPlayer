@@ -128,6 +128,7 @@ func play(ctx context.Context, s *emby.Session, itemID string, resumeSecs float6
 
 // 默认路径保持通用单槽；只有显式流影接管使用独立准备与发布守卫。
 func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resumeSecs float64, mediaSourceID string, useMpv, exactResume bool, speedScope, requestID string, start *liuyingStart) (*PlayResult, error) {
+	stoppedAt := pendingResumeFor(ctx, s, itemID)
 	currentMu.Lock()
 	if start != nil && (current != nil || start.ctx.Err() != nil) {
 		currentMu.Unlock()
@@ -242,7 +243,7 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 		return nil, ctx.Err()
 	}
 	bus.Logf("info", "phase=startup_history_wait elapsed_ms=%d", time.Since(historyAt).Milliseconds())
-	resumeSecs, primary, err := resolvePlaybackPosition(ctx, s, target, whCtx, prefs, resumeSecs, exactResume)
+	resumeSecs, primary, err := resolvePlaybackPosition(ctx, s, target, whCtx, prefs, resumeSecs, exactResume, stoppedAt)
 	if err != nil {
 		return nil, err
 	}
@@ -297,6 +298,7 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	pendingSubs = target.ExternalSubs
 	current = target
 	report := &playbackReport{started: make(chan struct{}), session: *s, primary: primary, runtimeTicks: target.RunTimeTicks, useMpv: useMpv}
+	report.adult = emby.AdultFilter(ctx)
 	currentReport = report
 	liuyingCurrent = nil
 	if start != nil {
@@ -314,7 +316,7 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 	if useMpv {
 		if err := loadWith(playURL, resumeSecs, nil, ""); err != nil {
 			report.mu.Lock()
-			report.stopped = true
+			report.stopped.Store(true)
 			report.mu.Unlock()
 			close(report.started)
 			currentMu.Lock()
@@ -367,7 +369,7 @@ func playbackSpeed(p config.Prefs, scope string) float64 {
 }
 
 // resolvePlaybackPosition 两核与提前排队共用续播及主服同步规则，不改变当前播放。
-func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.PlaybackTarget, whCtx *historyContext, prefs config.Prefs, resumeSecs float64, exactResume bool) (float64, *progress.Link, error) {
+func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.PlaybackTarget, whCtx *historyContext, prefs config.Prefs, resumeSecs float64, exactResume bool, stopped ...*stopResume) (float64, *progress.Link, error) {
 	c := config.Current()
 	private := emby.AdultFilter(ctx) != nil && *emby.AdultFilter(ctx)
 	if private {
@@ -386,6 +388,10 @@ func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.
 	var primary *progress.Link
 	var primaryState *emby.ProgressSnapshot
 	if prefs.PrimaryProgressServer != nil && whCtx != nil {
+		// 主服Prepare会接管同步归属，必须让旧会话的最终Sync先完成。
+		if err := awaitStopReport(ctx); err != nil {
+			return 0, nil, err
+		}
 		progressAt := time.Now()
 		primaryCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 		primary, primaryState, err = progress.Shared().Prepare(primaryCtx, prefsClient, c, s, whCtx.candidate, whCtx.seriesTmdbID, target.MediaSourceID, target.RunTimeTicks)
@@ -447,6 +453,15 @@ func resolvePlaybackPosition(ctx context.Context, s *emby.Session, target *emby.
 			if prefs.WatchedAt(resumeSecs, runtime) {
 				bus.Logf("info", "这一集已经看到 %.0f%%(阈值 %d%%),从头放",
 					resumeSecs/runtime*100, prefs.WatchedThresholdPercent)
+				resumeSecs = 0
+			}
+		}
+	}
+	if !fromStart && !exactResume && prefs.PrimaryProgressServer == nil && len(stopped) > 0 && stopped[0] != nil {
+		r := stopped[0]
+		if r.source == target.MediaSourceID && r.runtime == target.RunTimeTicks {
+			resumeSecs = r.pos
+			if r.watched {
 				resumeSecs = 0
 			}
 		}
@@ -711,7 +726,20 @@ func stopPlayback(ctx context.Context, s *emby.Session, pos float64, handoff boo
 }
 
 // guard只用于流影；迟到的清理不能取消普通排队、预热或替换后的代理。
-func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handoff bool, expected string, guard *liuyingBinding) error {
+func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handoff bool, expected string, guard *liuyingBinding, localDone ...func()) error {
+	transferred := false
+	if handoff {
+		select {
+		case handoffReportSlots <- struct{}{}:
+		case <-ctx.Done():
+			return ctx.Err()
+		}
+		defer func() {
+			if !transferred {
+				<-handoffReportSlots
+			}
+		}()
+	}
 	requestedGuard := guard
 	if guard == nil {
 		cancelQueued("")
@@ -724,11 +752,13 @@ func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handof
 		}
 	}
 	stopPlaybackMu.Lock()
-	defer stopPlaybackMu.Unlock()
-	// 限制后台停止任务数量，且在发布新屏障前等待旧屏障。
-	if err := awaitStopReport(ctx); err != nil {
-		return err
-	}
+	locked := true
+	defer func() {
+		if locked {
+			stopPlaybackMu.Unlock()
+		}
+	}()
+	previousStop := pendingStopReport()
 	if guard == nil {
 		cancelWarm()
 	}
@@ -763,6 +793,9 @@ func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handof
 		stopReportMu.Unlock()
 	}
 	currentReport = nil
+	if report != nil {
+		report.stopped.Store(true)
+	}
 	liuyingCurrent = nil
 	playbackRevision++
 	// 停播落盘、取消补建和清空目标是同一次状态转换,补建不能穿过收尾。
@@ -792,29 +825,55 @@ func stopPlaybackOwned(ctx context.Context, s *emby.Session, pos float64, handof
 			guard.proxy.Close()
 		}
 	}
+	var snapshot emby.Session
+	if s != nil {
+		snapshot = *s
+	}
+	adult := emby.AdultFilter(ctx)
+	if report != nil {
+		snapshot, adult = report.session, report.adult
+	}
+	var resume *stopResume
+	if t != nil && s != nil {
+		resume = rememberStopResume(snapshot, t, adult, pos, watched)
+	}
 	queueMu.Unlock()
-	if t == nil || s == nil {
+	locked = false
+	stopPlaybackMu.Unlock()
+	if resume == nil {
 		return nil
+	}
+	// 旧上报保持最终result语义；普通起播只需收到本地收尾的中间回执。
+	if len(localDone) > 0 && ((adult != nil && *adult) || config.Current().PrefsOf().PrimaryProgressServer == nil) {
+		localDone[0]()
+	}
+	finish := func() error {
+		if handoff {
+			defer func() { <-handoffReportSlots }()
+		}
+		defer close(done)
+		defer resume.finish()
+		// 已提交的停止不能因调用方取消而断开后续Playing的顺序链。
+		if previousStop != nil {
+			<-previousStop
+		}
+		reportCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 15*time.Second)
+		defer cancel()
+		return reportStopped(reportCtx, &snapshot, t, report, pos, watched)
 	}
 	if handoff {
-		snapshot := *s
-		go func() {
-			defer close(done)
-			reportCtx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-			defer cancel()
-			_ = reportStopped(reportCtx, &snapshot, t, report, pos, watched)
-		}()
+		transferred = true
+		go func() { _ = finish() }()
 		return nil
 	}
-	defer close(done)
-	return reportStopped(ctx, s, t, report, pos, watched)
+	return finish()
 }
 
 func reportStopped(ctx context.Context, s *emby.Session, t *emby.PlaybackTarget, report *playbackReport, pos float64, watched bool) error {
 	if report != nil {
 		report.mu.Lock()
 		defer report.mu.Unlock()
-		report.stopped = true
+		report.stopped.Store(true)
 		defer report.syncPrimary(pos, watched)
 		if err := report.waitStart(ctx); err != nil {
 			return err

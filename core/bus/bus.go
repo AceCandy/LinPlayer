@@ -34,6 +34,10 @@ const (
 //   - 想发流式中间结果,用 Partial(seq, …)
 type Handler func(ctx context.Context, seq int64, args map[string]any) (any, error)
 
+// Deferred 将长等待交给有界的在途任务，保留最终结果、取消及panic边界。
+// 只能在尚未提交副作用时返回；由现有Go worker转交，不从宿主线程派生。
+type Deferred func() (any, error)
+
 // Err 是带 code 的错误。不带 code 的普通 error 一律归到 E_INTERNAL。
 type Err struct {
 	Code      string
@@ -224,10 +228,11 @@ func failResult(seq int64, e *Err) {
 // 报告:docs/go-migration/spikes/SPIKE-2-go-ffi.md §4.2
 
 type job struct {
-	seq  int64
-	cmd  string
-	args string
-	ctx  context.Context
+	seq      int64
+	cmd      string
+	args     string
+	ctx      context.Context
+	deferred Deferred
 }
 
 var jobs chan job
@@ -274,6 +279,9 @@ func Call(seq int64, cmd, argsJSON string) error {
 	if _, exists := inflight[seq]; exists {
 		return NewErr(EInvalid, "seq 已在执行")
 	}
+	if len(inflight) >= cap(jobs)+WorkerCount {
+		return &Err{Code: EBusy, Msg: "在途命令已满,请稍后重试", Retryable: true}
+	}
 	ctx, cancel := context.WithCancel(context.Background())
 	// 接纳检查、登记和投递与关停同锁;满载立即拒绝,不阻塞宿主线程。
 	select {
@@ -310,7 +318,11 @@ func Invoke(ctx context.Context, cmd string, args map[string]any) (out any, err 
 	if args == nil {
 		args = map[string]any{}
 	}
-	return h(ctx, 0, args)
+	out, err = h(ctx, 0, args)
+	if deferred, ok := out.(Deferred); ok && err == nil {
+		return deferred()
+	}
+	return out, err
 }
 
 // Cancel 取消一条在途命令。对已完成的 seq 是空操作。
@@ -379,7 +391,11 @@ func QueueStats() map[string]any {
 // 宿主的 try/catch 一个都拦不住 —— 用户看到的是「程序突然没了」且没有任何线索。
 // 所以这里的 recover 不是编码习惯,是契约(SPEC §5.10)。
 func runGuarded(j job) {
+	transferred := false
 	defer func() {
+		if transferred {
+			return
+		}
 		inflightMu.Lock()
 		delete(inflight, j.seq)
 		inflightMu.Unlock()
@@ -401,23 +417,35 @@ func runGuarded(j job) {
 		failResult(j.seq, &Err{Code: EInvalid, Msg: "命令已取消"})
 		return
 	}
-	h, ok := lookup(j.cmd)
-	if !ok {
-		// 未注册的命令是**调用方的 bug**,不是「条目不存在」——
-		// 所以是 E_INVALID(记日志)而不是 E_NOTFOUND(空态)。
-		failResult(j.seq, &Err{Code: EInvalid, Msg: "未注册的命令", Detail: j.cmd})
-		return
-	}
+	var out any
+	var err error
+	if j.deferred != nil {
+		out, err = j.deferred()
+	} else {
+		h, ok := lookup(j.cmd)
+		if !ok {
+			// 未注册的命令是**调用方的 bug**,不是「条目不存在」——
+			// 所以是 E_INVALID(记日志)而不是 E_NOTFOUND(空态)。
+			failResult(j.seq, &Err{Code: EInvalid, Msg: "未注册的命令", Detail: j.cmd})
+			return
+		}
 
-	var args map[string]any
-	if j.args != "" {
-		if err := json.Unmarshal([]byte(j.args), &args); err != nil {
-			failResult(j.seq, &Err{Code: EInvalid, Msg: "参数不是合法 JSON", Detail: err.Error()})
+		var args map[string]any
+		if j.args != "" {
+			if err := json.Unmarshal([]byte(j.args), &args); err != nil {
+				failResult(j.seq, &Err{Code: EInvalid, Msg: "参数不是合法 JSON", Detail: err.Error()})
+				return
+			}
+		}
+
+		out, err = h(j.ctx, j.seq, args)
+		if deferred, ok := out.(Deferred); ok && err == nil {
+			j.deferred = deferred
+			transferred = true
+			go runGuarded(j)
 			return
 		}
 	}
-
-	out, err := h(j.ctx, j.seq, args)
 	if err != nil {
 		if e, ok := err.(*Err); ok {
 			failResult(j.seq, e)

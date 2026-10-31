@@ -74,21 +74,27 @@ func registerTransport() {
 	})
 
 	bus.Register("player.stopPlayback", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		pos, _ := a["pos"].(float64)
-		expected, _ := a["item_id"].(string)
-		s, err := sessionFrom(a)
-		if err != nil {
-			// 没有会话也要能停 —— 停播是本地动作,上报才需要会话
-			if stopErr := stopPlayback(ctx, nil, pos, false, expected); stopErr != nil {
-				return nil, stopErr
+		return bus.Deferred(func() (any, error) {
+			pos, _ := a["pos"].(float64)
+			expected, _ := a["item_id"].(string)
+			s, err := sessionFrom(a)
+			if err != nil {
+				// 没有会话也要能停 —— 停播是本地动作,上报才需要会话
+				if stopErr := stopPlayback(ctx, nil, pos, false, expected); stopErr != nil {
+					return nil, stopErr
+				}
+				return map[string]any{"stopped": true, "reported": false}, nil
 			}
-			return map[string]any{"stopped": true, "reported": false}, nil
-		}
-		handoff, _ := a["handoff"].(bool)
-		if err := stopPlayback(ctx, s, pos, handoff, expected); err != nil {
-			return nil, err
-		}
-		return map[string]any{"stopped": true, "reported": true}, nil
+			handoff, _ := a["handoff"].(bool)
+			if err := stopPlaybackOwned(ctx, s, pos, handoff, expected, nil, func() {
+				if seq != 0 {
+					bus.Partial(seq, map[string]any{"local_stopped": true})
+				}
+			}); err != nil {
+				return nil, err
+			}
+			return map[string]any{"stopped": true, "reported": true}, nil
+		}), nil
 	})
 
 	// reportProgress 播放中定时上报。

@@ -9,6 +9,7 @@ import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.common.PlaybackException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.yield
@@ -661,6 +662,30 @@ class PlayerControllerTest {
         assertEquals("sub", calls.last().second.str("kind"))
     }
 
+    @Test fun 本地停止回执放行重进但详情仍等待网络收尾() = runBlocking {
+        val releases = listOf(CompletableDeferred<Unit>(), CompletableDeferred<Unit>())
+        val reports = mutableListOf<Job>()
+        for (i in 0..1) {
+            val controller = PlayerController("mpv", stopCall = { _, partial ->
+                partial(buildJsonObject { put("local_stopped", true) })
+                releases[i].await()
+                JsonObject(emptyMap())
+            }) { _, _ -> JsonObject(emptyMap()) }
+            reports += controller.stopIn(this, 10.0 + i, { throw it })
+            val local = launch { PlayerController.awaitLocalStop() }
+            yield()
+            assertTrue("连续停止不能等待前一次网络请求", local.isCompleted)
+            val detail = launch { PlayerController.awaitPendingStop() }
+            yield()
+            assertFalse("详情不能在上报前刷新旧状态", detail.isCompleted)
+            detail.cancel()
+        }
+        assertFalse(reports[0].isCompleted)
+        releases.forEach { it.complete(Unit) }
+        reports.forEach { it.join() }
+        PlayerController.awaitPendingStop()
+    }
+
     @Test fun 下一页起播等待离页收尾和附加清理完成() = runBlocking {
         val release = CompletableDeferred<Unit>()
         val events = mutableListOf<String>()
@@ -675,6 +700,53 @@ class PlayerControllerTest {
         release.complete(Unit)
         next.join(); stopped.join()
         assertEquals(listOf("stop开始", "stop完成", "标题清理", "新起播"), events)
+    }
+
+    @Test fun 失效停止不能覆盖更早的完整收尾屏障() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        val controller = PlayerController("mpv", stopCall = { _, partial ->
+            partial(buildJsonObject { put("local_stopped", true) })
+            release.await()
+            JsonObject(emptyMap())
+        }) { _, _ -> JsonObject(emptyMap()) }
+        val first = controller.stopIn(this, 10.0, { throw it })
+        PlayerController.awaitLocalStop()
+        val staleController = PlayerController("mpv") { _, _ -> error("失效停止不得发命令") }
+        val stale = staleController.stopIn(this, 10.0, { throw it }, isCurrent = { false })
+        PlayerController.awaitLocalStop()
+        val detail = launch { PlayerController.awaitPendingStop() }
+        try {
+            yield()
+            assertFalse("完整屏障必须保留更早上报", detail.isCompleted)
+        } finally { release.complete(Unit) }
+        first.join(); stale.join(); detail.join()
+    }
+
+    @Test fun 本地放行前清理标题且取消等待不会留下永久屏障() = runBlocking {
+        val release = CompletableDeferred<Unit>()
+        var title = "旧片"
+        val controller = PlayerController("mpv", stopCall = { _, partial ->
+            partial(buildJsonObject { put("local_stopped", true) })
+            release.await()
+            JsonObject(emptyMap())
+        }) { _, _ -> JsonObject(emptyMap()) }
+        val stop = controller.stopIn(this, 10.0, { throw it }, beforeStop = { title = "" })
+        PlayerController.awaitLocalStop()
+        assertEquals("", title)
+        title = "新片"
+        release.complete(Unit)
+        stop.join()
+        assertEquals("新片", title)
+
+        val previous = CompletableDeferred<Unit>()
+        val first = controller.stopIn(this, 10.0, { throw it }, beforeStop = { previous.await() })
+        val cancelled = controller.stopIn(this, 11.0, { throw it })
+        cancelled.cancel()
+        val wait = launch { PlayerController.awaitLocalStop() }
+        yield()
+        assertFalse("取消不能越过前一次本地停止", wait.isCompleted)
+        previous.complete(Unit)
+        first.join(); cancelled.join(); wait.join()
     }
     @Test fun 强制与位图属性参与唯一匹配且未知不能当作普通字幕() = runBlocking {
         fun track(id: String, forced: Boolean?, codec: String) = buildJsonObject {
