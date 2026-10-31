@@ -174,7 +174,7 @@ type Prefs struct {
 	// ★ 旧配置里存的是 1GB(那时它被误当成下限用)。引擎会把超限值钳回,
 	// 但**读出来给设置页时也要钳** —— 否则设置页拿到超限值、一保存就被核层拒。
 	PrefetchCacheBytes int64 `json:"prefetch_cache_bytes"`
-	// MediaCacheBytes 是跨会话共享媒体缓存的全局预算；0关闭，单片仍最多128MiB。
+	// MediaCacheBytes 是跨会话共享媒体缓存的全局预算；0关闭，单片仍最多256MiB。
 	MediaCacheBytes int64 `json:"media_cache_bytes"`
 
 	// ---- 预加载(详情页预热)----

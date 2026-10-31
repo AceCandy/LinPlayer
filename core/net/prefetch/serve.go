@@ -102,6 +102,13 @@ func (s *stream) worker(ctx context.Context, index int) {
 			s.mu.Unlock()
 			continue
 		}
+		// 固定块的在途下载不随连接取消,供给端从共享登记处接着读;失败时由供给端倒回游标重拉。
+		if s.o.reads == nil && s.o.disk.pinned(c) && s.o.liveGet(c) != nil {
+			s.mu.Lock()
+			delete(s.inFlight, c)
+			s.mu.Unlock()
+			continue
+		}
 
 		/* 首段若不对齐,只拉播放器真正要的那截(残段),挂在本连接上不进共享登记处。
 
@@ -368,6 +375,11 @@ func (o *origin) handle(conn *net.TCPConn) error {
 	// 只读缓存端点(见 serveCached)。路径是普通端点和它唯一的区别。
 	cachedOnly := path == cachedPath
 
+	// 后缀Range(`bytes=-N`)按总长换算成正向范围;片尾固定块因此能被预热写进缓存。
+	if hasRange && rangeStart < 0 {
+		rangeStart = max64(o.totalSize+rangeStart, 0)
+	}
+
 	/* ★ 越界判定必须在**钳位之前**用原始 start:原来先 min 再判,那个分支就永远
 	   进不去(死代码),越界请求会被悄悄挪回最后一字节回一个 206 ——
 	   播放器拿到的是「有效但错位」的数据。 */
@@ -485,8 +497,11 @@ func readRequest(conn net.Conn) (method, path string, start, end int64, hasRange
 			return method, path, start, end, hasRange, nil
 		}
 		if k, v, ok := strings.Cut(line, ":"); ok && strings.EqualFold(strings.TrimSpace(k), "range") {
-			if s, e2, ok := parseRange(strings.TrimSpace(v)); ok {
+			v = strings.TrimSpace(v)
+			if s, e2, ok := parseRange(v); ok {
 				start, end, hasRange = s, e2, true
+			} else if n, err := strconv.ParseInt(strings.TrimPrefix(v, "bytes=-"), 10, 64); strings.HasPrefix(v, "bytes=-") && err == nil && n > 0 {
+				start, end, hasRange = -n, -1, true // 负起点交给 handle 按总长换算
 			}
 		}
 	}
@@ -494,10 +509,7 @@ func readRequest(conn net.Conn) (method, path string, start, end int64, hasRange
 
 // parseRange 解析 `bytes=start-end` / `bytes=start-`。
 //
-// ★ 后缀范围(`bytes=-N`)**不支持**:总长度在这一层已知,本可以算,
-// 但代理这条路上 mpv 从不发后缀范围,而支持它就要多一条分支和一份测试。
-// 不支持时返回 ok=false,调用方按「没带 Range」处理 —— 那是**安全**的降级
-// (给全量),不会给出错位数据。
+// ★ 后缀范围(`bytes=-N`)在这里返回 ok=false;代理的 readRequest 另行识别并按总长换算。
 func parseRange(v string) (start, end int64, ok bool) {
 	spec, found := strings.CutPrefix(v, "bytes=")
 	if !found {

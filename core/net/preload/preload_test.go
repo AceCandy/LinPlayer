@@ -33,10 +33,11 @@ func rangeEcho(t *testing.T, bodyLen int) (*httptest.Server, func() []string) {
 	}
 }
 
-// ★★ 预热必须打**两段**:头一段正向 Range,尾一段**后缀** Range。
+// ★★ 预热必须打**两段**:先尾一段**后缀** Range,再头一段正向 Range。
 //
 // 只热头部的话 MKV 起播仍要冷 seek 去文件末尾读 cues 索引 ——
 // 那正是起播最慢的一跳,预热了个寂寞。
+// 尾部先热:头部量大,用户点播放取消预热时尾部也已经在代理缓存里。
 func TestC27_头尾都要热而且尾部用后缀Range(t *testing.T) {
 	srv, seen := rangeEcho(t, 64)
 	p := New()
@@ -46,21 +47,18 @@ func TestC27_头尾都要热而且尾部用后缀Range(t *testing.T) {
 	if len(rs) != 2 {
 		t.Fatalf("该打两段(头 + 尾),实得 %d 段:%v", len(rs), rs)
 	}
-	if rs[0] != "bytes=0-63" {
-		t.Fatalf("头段该是正向 Range,实得 %q", rs[0])
+	if !strings.HasPrefix(rs[0], "bytes=-") {
+		t.Fatalf("尾段必须先热且是**后缀** Range(MKV 索引在末尾),实得 %q", rs[0])
 	}
-	if !strings.HasPrefix(rs[1], "bytes=-") {
-		t.Fatalf("尾段必须是**后缀** Range(MKV 索引在末尾),实得 %q", rs[1])
+	if rs[1] != "bytes=0-63" {
+		t.Fatalf("头段该是正向 Range,实得 %q", rs[1])
 	}
 	if st.HeadBytes <= 0 || st.TailBytes <= 0 {
 		t.Fatalf("两段都该热到字节: %+v", st)
 	}
 }
 
-// ★★ 头尾**可以是两个地址**,而且尾部必须走直连。
-//
-// 代理的环形缓存按 `chunk % ring` 定位,尾部段号和头部段号模 ring 有约一半的概率
-// 同槽 —— 那样预热完尾巴正好把头顶掉。而且我们自家的预取代理**不认后缀 Range**。
+// 头尾**可以是两个地址**:下一集准备仍让尾部走直连,暂停时不留下代理里的固定块下载。
 func TestC27_尾部走另一个地址(t *testing.T) {
 	proxy, proxySeen := rangeEcho(t, 64)   // 假装是本地预取代理
 	direct, directSeen := rangeEcho(t, 32) // 直连地址
@@ -73,7 +71,7 @@ func TestC27_尾部走另一个地址(t *testing.T) {
 		t.Fatalf("头部该只打代理,实得 %v", ph)
 	}
 	if len(dh) != 1 || !strings.HasPrefix(dh[0], "bytes=-") {
-		t.Fatalf("尾部该只打直连且用后缀 Range,实得 %v —— 打代理会把刚热好的头顶掉", dh)
+		t.Fatalf("尾部该只打直连且用后缀 Range,实得 %v", dh)
 	}
 }
 
@@ -123,9 +121,9 @@ func TestC27_开新一轮掐掉上一轮(t *testing.T) {
 	}
 }
 
-// 取消之后**尾部那段压根不该发出去**。
-func TestC27_取消后不再打尾部(t *testing.T) {
-	// ★ 上游必须**慢**:用秒回的假服务器的话,头部那段在 Cancel 之前就读完了,
+// 取消之后**头部那段压根不该发出去**。
+func TestC27_取消后不再打头部(t *testing.T) {
+	// ★ 上游必须**慢**:用秒回的假服务器的话,尾部那段在 Cancel 之前就读完了,
 	//   Warm 早已返回,断言测的是「谁先跑完」而不是「取消管不管用」。
 	//   第一版就是这么假绿……不,是这么**假红**的 —— 但同样说明用例的形状不对。
 	var seenMu sync.Mutex
@@ -157,7 +155,7 @@ func TestC27_取消后不再打尾部(t *testing.T) {
 	p := New()
 	done := make(chan Stats, 1)
 	go func() {
-		done <- p.Warm(context.Background(), "it1", srv.URL+"/x", 32*1024*1024, srv.URL+"/x", 1024)
+		done <- p.Warm(context.Background(), "it1", srv.URL+"/x", 1024, srv.URL+"/x", 32*1024*1024)
 	}()
 	time.Sleep(80 * time.Millisecond)
 	p.Cancel()
@@ -167,11 +165,11 @@ func TestC27_取消后不再打尾部(t *testing.T) {
 		if !st.Canceled {
 			t.Fatal("取消旗标该反映在结果里")
 		}
-		if st.TailBytes != 0 {
-			t.Fatalf("取消之后不该再热尾部,实得 %d 字节", st.TailBytes)
+		if st.HeadBytes != 0 {
+			t.Fatalf("取消之后不该再热头部,实得 %d 字节", st.HeadBytes)
 		}
 		if n := len(seen()); n != 1 {
-			t.Fatalf("取消之后只该打过头部那一次,实得 %d 次", n)
+			t.Fatalf("取消之后只该打过尾部那一次,实得 %d 次", n)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatal("取消之后 Warm 没能收场")

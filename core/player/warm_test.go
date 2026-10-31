@@ -14,6 +14,7 @@ import (
 
 	"linplayer/core/config"
 	"linplayer/core/emby"
+	"linplayer/core/net/prefetch"
 	"linplayer/core/paths"
 	"strings"
 )
@@ -144,6 +145,46 @@ func TestC27_预热之后起播复用同一句柄(t *testing.T) {
 	}
 	if _, err := os.Stat(first.CachePathForTest()); err == nil {
 		t.Fatal("旧句柄的缓存文件没删掉")
+	}
+}
+
+// 每次取流的播放会话参数不同；同一媒体、同一线路要复用预热代理并换上新授权地址。
+func TestProxyForReusesSameMediaAcrossPlaySessions(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	var probes atomic.Int32
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		probes.Add(1)
+		w.Header().Set("Content-Range", fmt.Sprintf("bytes 0-0/%d", 8<<20))
+		w.WriteHeader(http.StatusPartialContent)
+		_, _ = w.Write(make([]byte, 1))
+	}))
+	defer up.Close()
+	defer closeSharedProxy()
+	p := config.DefaultPrefs()
+	media := prefetch.CacheOptions{Identity: "same-media", Budget: 1 << 30}
+	first := proxyFor(context.Background(), up.URL+"/v.mkv?PlaySessionId=a", p, true, media)
+	if first == nil {
+		t.Fatal("该起得来")
+	}
+	before := probes.Load()
+	again := proxyFor(context.Background(), up.URL+"/v.mkv?PlaySessionId=b", p, true, media)
+	if again != first || probes.Load() != before {
+		t.Fatal("同一媒体换播放会话后重新探测")
+	}
+	if again.Upstream() != up.URL+"/v.mkv?PlaySessionId=b" {
+		t.Fatalf("复用后仍用旧授权地址: %s", again.Upstream())
+	}
+	again.Close() // 后台校验发现换版本时代理会自己停掉,重试不能再拿回它
+	if fresh := proxyFor(context.Background(), up.URL+"/v.mkv?PlaySessionId=e", p, true, media); fresh == nil || fresh == first {
+		t.Fatal("已停的代理被复用")
+	}
+	otherLine := strings.Replace(up.URL, "127.0.0.1", "localhost", 1) + "/v.mkv?PlaySessionId=c"
+	if line := proxyFor(context.Background(), otherLine, p, true, media); line == first {
+		t.Fatal("换线路仍复用旧代理")
+	}
+	other := prefetch.CacheOptions{Identity: "other-media", Budget: 1 << 30}
+	if h := proxyFor(context.Background(), up.URL+"/v.mkv?PlaySessionId=d", p, true, other); h == nil || h == first {
+		t.Fatal("不同媒体共用了代理")
 	}
 }
 

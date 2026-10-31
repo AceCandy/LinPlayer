@@ -6,13 +6,107 @@ import (
 	"crypto/md5"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/http/httptest"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"linplayer/core/paths"
 )
+
+// 详情预热用后缀Range读片尾；代理按总长换算后片尾固定块落盘，起播读索引直接命中。
+func TestSuffixRangeServesTailAndCachesPinnedChunk(t *testing.T) {
+	up := newUpstream(t)
+	h := startProxy(t, up, 2, 64<<20)
+	req, _ := http.NewRequest(http.MethodGet, h.URL, nil)
+	req.Header.Set("Range", "bytes=-1000")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	want := fmt.Sprintf("bytes %d-%d/%d", testTotal-1000, testTotal-1, testTotal)
+	if resp.StatusCode != http.StatusPartialContent || resp.Header.Get("Content-Range") != want || !bytes.Equal(body, bodyAt(testTotal-1000, 1000)) {
+		t.Fatalf("后缀Range错位: %d %q len=%d", resp.StatusCode, resp.Header.Get("Content-Range"), len(body))
+	}
+	last := testTotal/ChunkSize - 1
+	for deadline := time.Now().Add(5 * time.Second); !h.origin.disk.has(last); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("片尾固定块没有进缓存")
+		}
+	}
+}
+
+// 代理之间共用连接池：上一次播放留下的空闲连接直接用于下一次探测，免去重新握手。
+func TestProxiesShareUpstreamConnections(t *testing.T) {
+	body := bodyAt(0, int(testTotal))
+	var dials atomic.Int64
+	up := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("ETag", `"v1"`)
+		http.ServeContent(w, r, "video.mkv", time.Time{}, bytes.NewReader(body))
+	}))
+	up.Config.ConnState = func(_ net.Conn, s http.ConnState) {
+		if s == http.StateNew {
+			dials.Add(1)
+		}
+	}
+	up.Start()
+	t.Cleanup(up.Close)
+	paths.SetRoot(t.TempDir())
+	first, err := Start(context.Background(), up.URL+"/video.mkv", 2, 64<<20, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	getRange(t, first, 0, 1023)
+	for deadline := time.Now().Add(5 * time.Second); !first.origin.disk.has(0); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("首块没有落盘")
+		}
+	}
+	first.Close()
+	before := dials.Load()
+	second, err := Start(context.Background(), up.URL+"/video.mkv", 2, 64<<20, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if got := dials.Load(); got != before {
+		t.Fatalf("新代理探测重新建连: %d -> %d", before, got)
+	}
+}
+
+// 固定块的在途下载不随连接取消;播放器先读标签、再读索引,或预热刚开始拉片尾时,后到的连接接着它读,不重复下载。
+func TestPinnedChunkInFlightIsSharedAcrossConnections(t *testing.T) {
+	up := newUpstream(t)
+	up.slow = 5 * time.Millisecond
+	h := startProxy(t, up, 2, 64<<20)
+	last := testTotal/ChunkSize - 1
+	before := up.requests.Load()
+	read := func(n int) []byte {
+		req, _ := http.NewRequest(http.MethodGet, h.URL, nil)
+		req.Header.Set("Range", fmt.Sprintf("bytes=%d-", last*ChunkSize+100))
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		b := make([]byte, n)
+		if _, err := io.ReadFull(resp.Body, b); err != nil {
+			t.Fatal(err)
+		}
+		return b
+	}
+	read(1000)
+	if got := read(int(ChunkSize - 100)); !bytes.Equal(got, bodyAt(last*ChunkSize+100, int(ChunkSize-100))) {
+		t.Fatal("片尾字节错位")
+	}
+	if n := up.requests.Load() - before; n != 1 {
+		t.Fatalf("片尾固定块下载了 %d 次", n)
+	}
+}
 
 // 判据:**总长不是整段倍数**时,整条流吐出来的字节要和上游一模一样。
 //

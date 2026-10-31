@@ -497,12 +497,9 @@ func startPrefetch(ctx context.Context, s *emby.Session, target *emby.PlaybackTa
 	on := acc != nil && p.PrefetchEnabledFor(acc.Server)
 
 	/* ★★ 预热已经把这条流的头部灌进某个代理的环形缓存里了 —— 那就**必须走那个代理**,
-	   否则预热白做。判据是**上游地址一致**(同一条流)。 */
-	warmHit := false
+	   否则预热白做。判据见 sameStream(同一媒体、同一线路)。 */
 	proxyMu.Lock()
-	if sharedProxy != nil && sharedProxy.Upstream() == target.URL {
-		warmHit = true
-	}
+	previous := sharedProxy
 	proxyMu.Unlock()
 
 	options := mediaCacheOptions(s, target)
@@ -512,7 +509,7 @@ func startPrefetch(ctx context.Context, s *emby.Session, target *emby.PlaybackTa
 		return target.URL
 	}
 	switch {
-	case warmHit:
+	case h == previous:
 		bus.Logf("info", "复用预热好的本地代理(缓存已就位)")
 	case on:
 		bus.Logf("info", "多线程加载已开(%d 线程,缓存上限 %d MB)", p.PrefetchThreads, p.PrefetchCacheBytes>>20)

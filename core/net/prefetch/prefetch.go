@@ -106,6 +106,8 @@ type CacheOptions struct {
 	Budget   int64
 	// 正式起播可复用首段响应；纯准备与受限读取仍只探测元数据。
 	StartPlayback bool
+	// Size 是 PlaybackInfo 报的文件大小;先播后验时须与确认缓存版本那次报的一致。
+	Size int64
 	// 仅显式启用的流影请求使用，零值保持普通代理原行为。
 	Epoch uint64
 	Reads *ReadControl
@@ -218,8 +220,18 @@ func (h *Handle) Upstream() string {
 	return h.origin.url
 }
 
+// Retarget 换成同线路同资源的新授权地址；已校验版本、缓存与跳转落点继续沿用。
+func (h *Handle) Retarget(u string) {
+	h.origin.upMu.Lock()
+	defer h.origin.upMu.Unlock()
+	h.origin.url = u
+}
+
 // CachePathForTest 缓存文件路径。**只给测试用**(验换片时旧文件真的删了)。
 func (h *Handle) CachePathForTest() string { return h.origin.disk.path }
+
+// Closed 代理已停(主动关闭,或后台校验发现上游换了版本)。停了的代理不能再复用。
+func (h *Handle) Closed() bool { return h.origin.over() }
 
 // Identity 是调用方生成的稳定身份摘要，仅供同流代理复用比对。
 func (h *Handle) Identity() string { return h.identity }
@@ -310,6 +322,9 @@ func StartPassthrough(ctx context.Context, upstreamURL string, cacheLimit int64,
 	return start(ctx, upstreamURL, 2, cacheLimit, 1, httpx.UA(), onInvalid)
 }
 
+// upstreamTransport 由所有代理共用：预热与起播、退出与重进之间复用已建好的 TCP/TLS 连接。
+var upstreamTransport = tlspolicy.Transport()
+
 func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int64,
 	readAheadChunks int64, ua string, onInvalid ResignFn, cacheOptions ...CacheOptions) (*Handle, error) {
 	o := &origin{
@@ -319,7 +334,7 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		// ★ 走 tlspolicy:不走的话自签名服务器上「多线程加载」一开就取不到流
 		// ★ CheckRedirect 不是为了拦跳转,是为了**顺路把 302 的 Cache-Control 收下来**
 		//   —— 直链落点能缓存多久,只有那一跳自己知道。见 resolve.go。
-		client:    &http.Client{Transport: tlspolicy.Transport(), CheckRedirect: captureRedirectTTL},
+		client:    &http.Client{Transport: upstreamTransport, CheckRedirect: captureRedirectTTL},
 		onInvalid: onInvalid,
 		liveMap:   map[int64]*live{},
 	}
@@ -341,24 +356,54 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 			o.closeInitial()
 		}
 	}()
-	prime := len(cacheOptions) > 0 && cacheOptions[0].StartPlayback && o.reads == nil
-	probeAt := time.Now()
-	if err := o.probe(o.ctx, upstreamURL, prime); err != nil {
-		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
-		return nil, err
+	identity := ""
+	if len(cacheOptions) > 0 && cacheOptions[0].Budget > 0 {
+		identity = cacheOptions[0].Identity
 	}
-	if err := ctx.Err(); err != nil {
-		return nil, err
-	}
-	bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=true version_verified=%t", time.Since(probeAt).Milliseconds(), o.validator != "")
 	restoreAt := time.Now()
 	var disk *diskCache
 	var err error
-	if len(cacheOptions) > 0 && cacheOptions[0].Budget > 0 && cacheOptions[0].Identity != "" && o.validator != "" {
-		disk, err = newPersistentCache(o.totalSize, cacheOptions[0].Identity, o.validator, epoch)
+	/* 先播后验(同 Hills 的 lazy_open):这个身份上次确认过的版本还在盘上、块0也在,
+	   就不等上游探测,当场供给本地字节;版本校验转后台,见 verifyLazy。 */
+	lazy := false
+	if identity != "" && o.reads == nil {
+		if v, ok := lastMediaVersion(identity, cacheOptions[0].Size); ok {
+			disk, err = newPersistentCache(v.Total, identity, v.Validator, epoch)
+			if errors.Is(err, context.Canceled) {
+				return nil, err
+			}
+			if lazy = err == nil && disk.has(0); lazy {
+				o.totalSize, o.validator, o.contentType = v.Total, v.Validator, v.ContentType
+				bus.Logf("info", "phase=cache_probe elapsed_ms=0 success=true lazy=true")
+			} else {
+				if disk != nil {
+					disk.close()
+				}
+				disk, err = nil, nil
+			}
+		}
 	}
-	if errors.Is(err, context.Canceled) {
-		return nil, err
+	if !lazy {
+		prime := len(cacheOptions) > 0 && cacheOptions[0].StartPlayback && o.reads == nil
+		probeAt := time.Now()
+		if err := o.probe(o.ctx, upstreamURL, prime); err != nil {
+			bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=false", time.Since(probeAt).Milliseconds())
+			return nil, err
+		}
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
+		bus.Logf("info", "phase=cache_probe elapsed_ms=%d success=true version_verified=%t", time.Since(probeAt).Milliseconds(), o.validator != "")
+		restoreAt = time.Now()
+		if identity != "" && o.validator != "" {
+			disk, err = newPersistentCache(o.totalSize, identity, o.validator, epoch)
+			if err == nil {
+				saveMediaVersion(disk, mediaVersion{identity, o.validator, o.totalSize, o.contentType, cacheOptions[0].Size})
+			}
+		}
+		if errors.Is(err, context.Canceled) {
+			return nil, err
+		}
 	}
 	if disk == nil {
 		// 磁盘不可用或没有可信版本时仍保持会话内边收边吐，不复用旧媒体字节。
@@ -422,7 +467,48 @@ func start(ctx context.Context, upstreamURL string, threads int, cacheLimit int6
 		return nil, context.Canceled
 	}
 	committed = true
+	if lazy {
+		o.workers.Add(1)
+		go o.verifyLazy(upstreamURL)
+	}
 	return h, nil
+}
+
+// verifyLazy 先播后验的版本校验。上游明确换了版本(大小或校验器不同)就作废这一版缓存并停掉代理:
+// 本次播放随之报错,下次起播改走同步探测。网络或授权失败不下结论,后续取块仍带 If-Range 校验。
+func (o *origin) verifyLazy(u string) {
+	defer o.workers.Done()
+	at := time.Now()
+	ctx, cancel := context.WithTimeout(o.ctx, 8*time.Second)
+	defer cancel()
+	ctx, slot := withTTLSlot(ctx)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u, nil)
+	if err != nil {
+		return
+	}
+	req.Header.Set("Range", "bytes=0-0")
+	req.Header.Set("User-Agent", o.policy.Load().ua)
+	req.Header.Set("Accept-Encoding", "identity")
+	resp, err := o.client.Do(req)
+	if err != nil {
+		bus.Logf("info", "phase=cache_lazy_verify elapsed_ms=%d result=unknown", time.Since(at).Milliseconds())
+		return
+	}
+	_ = resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		bus.Logf("info", "phase=cache_lazy_verify elapsed_ms=%d result=unknown status=%d", time.Since(at).Milliseconds(), resp.StatusCode)
+		return
+	}
+	if validRangeResponse(resp, 0, 0, o.totalSize) && cacheValidator(resp.Header) == o.validator {
+		o.noteResolved(u, resp.Request.URL.String(), slot.ttl())
+		bus.Logf("info", "phase=cache_lazy_verify elapsed_ms=%d result=same", time.Since(at).Milliseconds())
+		return
+	}
+	bus.Logf("warn", "上游文件已换版本,作废本地缓存并停止本次播放")
+	o.disk.dropVersion()
+	o.closed.Store(true)
+	o.cancel()
+	o.stop.notifyAll()
 }
 
 // probe 读取元数据；正式起播保留首块响应，随后由供给端接管。

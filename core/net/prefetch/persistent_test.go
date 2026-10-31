@@ -154,9 +154,70 @@ func TestPersistentIsolationAndValidators(t *testing.T) {
 			}
 			u.version.Store(2)
 			h = persistentOpen(t, u, "server-user-item-source", 1<<30)
+			if mode == 0 {
+				// 先播后验:后台校验发现同大小换了内容就停掉代理,下一次起播才是新版本。
+				waitClosed(t, h)
+				h = persistentOpen(t, u, "server-user-item-source", 1<<30)
+			}
 			expectVersion(t, h, 0, 2)
 		})
 	}
+}
+
+func waitClosed(t *testing.T, h *Handle) {
+	t.Helper()
+	for deadline := time.Now().Add(3 * time.Second); !h.Closed(); time.Sleep(10 * time.Millisecond) {
+		if time.Now().After(deadline) {
+			t.Fatal("换版本后代理没有停")
+		}
+	}
+}
+
+// 重进命中缓存时不等上游:上游不可达也当场供给;PlaybackInfo 报的大小变了才同步探测。
+// strm/网盘源报的大小常与流长不同,只要和上次报的一致就能先播。
+func TestLazyOpenServesCacheWithoutUpstream(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	u := persistentOrigin(t)
+	open := func(reported int64) (*Handle, error) {
+		return StartCached(context.Background(), u.URL+"/file", 2, 128<<20, false, CacheOptions{Identity: "identity", Budget: 1 << 30, Size: reported})
+	}
+	h, err := open(123)
+	if err != nil {
+		t.Fatal(err)
+	}
+	expectVersion(t, h, 0, 1)
+	h.Close()
+	u.Close()
+	if h, err = open(123); err != nil {
+		t.Fatal(err)
+	}
+	defer h.Close()
+	expectVersion(t, h, 0, 1)
+	if h, err := open(456); err == nil {
+		h.Close()
+		t.Fatal("PlaybackInfo 大小变了仍跳过了探测")
+	}
+}
+
+// 同大小换了内容:先播的代理被停掉,这一版缓存和记录一起作废。
+func TestLazyOpenDropsReplacedVersion(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	u := persistentOrigin(t)
+	h := persistentOpen(t, u, "identity", 1<<30)
+	expectVersion(t, h, 0, 1)
+	old := h.CachePathForTest()
+	h.Close()
+	u.version.Store(2)
+	h = persistentOpen(t, u, "identity", 1<<30)
+	waitClosed(t, h)
+	if _, err := os.Stat(old); !os.IsNotExist(err) {
+		t.Fatalf("旧版本缓存还在: %v", err)
+	}
+	if _, ok := lastMediaVersion("identity", 0); ok {
+		t.Fatal("旧版本记录还在")
+	}
+	h = persistentOpen(t, u, "identity", 1<<30)
+	expectVersion(t, h, 0, 2)
 }
 func TestPersistentRejectsWrongRangeOrVersionBeforeFeed(t *testing.T) {
 	for _, mode := range []int64{3, 4, 5} {
@@ -471,6 +532,27 @@ func TestPersistentSingleMediaBoundAndPinnedIndexes(t *testing.T) {
 		}
 	}
 }
+
+// mpv默认向前缓冲150MiB；退出时续播位置所在块不能被向前读取的新块挤掉。
+func TestPersistentKeepsResumeBlockBehindDefaultForwardBuffer(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	ConfigureMediaCache(1 << 30)
+	d, e := newPersistentCache(200*ChunkSize, "long-item", `"version"`)
+	if e != nil {
+		t.Fatal(e)
+	}
+	defer d.close()
+	const resume = int64(50)
+	block := bodyAt(0, int(ChunkSize))
+	for c := resume; c <= resume+(150<<20)/ChunkSize; c++ {
+		if !d.put(c, block) {
+			t.Fatal("block not stored")
+		}
+	}
+	if !d.has(resume) {
+		t.Fatal("续播位置被向前缓冲挤出持久缓存")
+	}
+}
 func TestPersistentDisabledAlsoBoundsTransientDisk(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	u := persistentOrigin(t)
@@ -627,6 +709,9 @@ func TestPersistentLastModified(t *testing.T) {
 		t.Fatal("Last-Modified cache downloaded again")
 	}
 	version.Store(2)
+	h = open()
+	waitClosed(t, h) // 先播后验:后台校验发现 Last-Modified 变了就停掉这一次
+	h.Close()
 	h = open()
 	defer h.Close()
 	expectVersion(t, h, 0, 2)

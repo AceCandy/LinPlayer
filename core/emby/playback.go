@@ -46,6 +46,8 @@ type PlaybackTarget struct {
 	RunTimeTicks int64 `json:"-"`
 	// Bitrate 是选中媒体源的码率，仅估算预取时间，不证明媒体内容身份。
 	Bitrate int64 `json:"-"`
+	// Size 是选中媒体源的文件大小;本地缓存先播后验时与上次确认的版本比对。
+	Size int64 `json:"-"`
 	// 实时源不能用未来内容预载；未知时长也由调用方保守处理。
 	IsLive bool `json:"-"`
 }
@@ -175,6 +177,9 @@ func (c *Client) ResolvePlaybackInfo(ctx context.Context, s *Session, itemID, me
 	}
 	if ms.Bitrate != nil {
 		target.Bitrate = *ms.Bitrate
+	}
+	if ms.Size != nil {
+		target.Size = *ms.Size
 	}
 
 	/* ★★ **永远不走转码流**。用户 2026-09-03 定的口径:

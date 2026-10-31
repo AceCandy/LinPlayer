@@ -12,6 +12,7 @@ import (
 	"crypto/sha256"
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"strings"
 	"sync"
 
@@ -48,7 +49,8 @@ func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead
 		return nil
 	}
 	if sharedProxy != nil {
-		if sharedProxy.Upstream() == upstreamURL && (len(options) == 0 || sharedProxy.Identity() == options[0].Identity) {
+		if !sharedProxy.Closed() && sameStream(sharedProxy, upstreamURL, options...) {
+			sharedProxy.Retarget(upstreamURL)
 			if len(options) > 0 {
 				sharedProxy.SetReadAhead(p.PrefetchThreads, readAhead, options[0].Bitrate)
 			}
@@ -84,6 +86,24 @@ func proxyFor(ctx context.Context, upstreamURL string, p config.Prefs, readAhead
 	return h
 }
 
+// sameStream 判定能否复用代理:地址相同;或同一媒体身份且线路与资源路径相同,只是授权/播放会话参数换了。
+// Emby 每次取流都会换 PlaySessionId,只比整条地址会让预热好的代理在起播时被关掉重探。
+func sameStream(h *prefetch.Handle, upstreamURL string, options ...prefetch.CacheOptions) bool {
+	if len(options) == 0 {
+		return h.Upstream() == upstreamURL
+	}
+	if h.Identity() != options[0].Identity {
+		return false
+	}
+	if h.Upstream() == upstreamURL {
+		return true
+	}
+	a, errA := url.Parse(h.Upstream())
+	b, errB := url.Parse(upstreamURL)
+	return options[0].Identity != "" && errA == nil && errB == nil &&
+		a.Scheme == b.Scheme && a.Host == b.Host && a.Path == b.Path
+}
+
 // currentProxy 当前那个共享代理句柄(可能为 nil)。缩略图和进度条都要问它。
 func currentProxy() *prefetch.Handle {
 	proxyMu.Lock()
@@ -93,7 +113,7 @@ func currentProxy() *prefetch.Handle {
 
 // mediaCacheOptions 以固定服务器账号和实际会话用户隔离；线路及授权token不参与稳定键。
 func mediaCacheOptions(s *emby.Session, target *emby.PlaybackTarget) prefetch.CacheOptions {
-	options := prefetch.CacheOptions{Budget: config.Current().PrefsOf().MediaCacheBytes, Bitrate: target.Bitrate}
+	options := prefetch.CacheOptions{Budget: config.Current().PrefsOf().MediaCacheBytes, Bitrate: target.Bitrate, Size: target.Size}
 	if s == nil || s.UserID == "" || target.ItemID == "" || target.MediaSourceID == "" {
 		return options
 	}
@@ -272,18 +292,17 @@ func registerWarmCommands() {
 				bus.Logf("info", "预热取流失败(不影响详情页): %v", err)
 				return
 			}
-			headURL := target.URL
+			headURL, tailURL := target.URL, target.URL
 			// ★ 头部指向**本地代理**:字节流经代理时顺手进环形缓存,
 			//   起播时 mpv 连同一个代理,预热了多少当场吐多少。
 			//   只对直传流做 —— 转码 URL 是分段流,套代理没有意义。
 			if target.PlayMethod == "DirectStream" {
 				if h := proxyFor(ctx, target.URL, p, true, mediaCacheOptions(s, target)); h != nil {
-					headURL = h.URL
+					headURL, tailURL = h.URL, h.URL
 				}
 			}
-			// ★★ 尾部走**直连**,两个理由都在 core/net/preload 的注释里:
-			//   环形缓存同槽会把刚热好的头顶掉;而且代理不认后缀 Range。
-			st := preloader.Warm(ctx, itemID, headURL, p.PreloadHeadMB<<20, target.URL, preload.DefaultTailBytes)
+			// 尾部也走代理:片尾两块是固定槽,不会顶掉头部;落盘后起播读 MKV 标签/索引不再等网络。
+			st := preloader.Warm(ctx, itemID, headURL, p.PreloadHeadMB<<20, tailURL, preload.DefaultTailBytes)
 			if ctx.Err() != nil {
 				return
 			}

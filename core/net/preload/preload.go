@@ -13,6 +13,7 @@
 //     中间有 CDN 时边缘节点把这两段收进缓存。
 //     尾部 2MB 是**为 MKV 准备的**:cues 索引在文件末尾,ffmpeg 打开容器的第一件事
 //     就是 seek 到尾巴读索引;不预热尾巴,起播必然多一次冷 seek。
+//     尾部**先热**:它小而且起播必读;头部量大,用户点播放取消预热时尾部已经热好。
 //
 // ★ 这和「多线程加载(net/prefetch)」是**两个功能,别合并**:
 //
@@ -109,7 +110,7 @@ func (p *Preloader) begin(item string) (*atomic.Bool, *atomic.Int64) {
 	return cancel, got
 }
 
-// Warm 预热头 head 字节 + 尾 tail 字节。本函数自己**读完即丢**;
+// Warm 先预热尾 tail 字节、再预热头 head 字节。本函数自己**读完即丢**;
 // 字节留不留得下来,取决于调用方把 headURL 指到哪儿。
 //
 // # 头尾为什么可以是两个地址
@@ -118,11 +119,8 @@ func (p *Preloader) begin(item string) (*atomic.Bool, *atomic.Int64) {
 // 所以调用方把 headURL 指向**本地预取代理**:字节流经代理时顺手进它的环形缓存,
 // 起播时 mpv 连同一个代理,已经预热的部分**当场就吐**。
 //
-// ★★ 尾部仍然打**直连地址**,两个理由:
-//  1. 代理的环形缓存按 `chunk % ring` 定位,尾部段号和头部段号模 ring
-//     **有约一半的概率同槽** —— 那样预热完尾巴正好把头顶掉。
-//     尾巴只有 2MB,重拉便宜;把路跑热就够本了。
-//  2. 尾部用**后缀 Range**(`bytes=-N`),而我们自家的预取代理**不认**后缀 Range。
+// 详情页预热把尾部也指向代理:代理认后缀 Range,片尾两块有固定槽,不会顶掉头部。
+// 下一集准备仍让尾部走直连:代理里的固定块下到一半不取消,而准备槽暂停时必须让出带宽。
 //
 // 任何失败都只是「没热成」,不是错误 —— 服务器不支持 Range、网络抖、条目没权限,
 // 统统按 0 字节收场,**绝不能把详情页拦下来**。
@@ -130,14 +128,14 @@ func (p *Preloader) Warm(ctx context.Context, itemID, headURL string, head int64
 	cancel, got := p.begin(itemID)
 
 	var st Stats
-	if head > 0 {
-		st.HeadBytes = p.pull(ctx, headURL, rangeHeader(0, head-1), head, cancel, got)
-	}
 	/* 尾部用**后缀 Range**,不用先 HEAD 探总长度:少一次往返,而且对
 	   「不给 Content-Length 的分块响应」也成立。服务端不认后缀 Range 就拿不到数据 ——
 	   那正好,它多半也不支持 Range,预热本来就无从谈起。 */
-	if tail > 0 && !cancel.Load() {
+	if tail > 0 {
 		st.TailBytes = p.pull(ctx, tailURL, suffixRange(tail), tail, cancel, got)
+	}
+	if head > 0 && !cancel.Load() {
+		st.HeadBytes = p.pull(ctx, headURL, rangeHeader(0, head-1), head, cancel, got)
 	}
 	st.Canceled = cancel.Load()
 	return st

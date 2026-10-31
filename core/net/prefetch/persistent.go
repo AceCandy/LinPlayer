@@ -21,7 +21,9 @@ import (
 )
 
 const (
-	mediaLimit  int64 = 128 << 20
+	// 单片上限须大于 mpv 默认向前缓冲(demuxer-max-bytes 150MiB),否则退出时续播位置的块已被向前读取的新块挤掉。
+	// shortcut: 自定义缓冲目标超过约230MiB时续播块仍会被挤掉;需要时按缓冲目标放大单片上限。
+	mediaLimit  int64 = 256 << 20
 	mediaTTL          = 7 * 24 * time.Hour
 	blockHeader       = 64
 )
@@ -91,6 +93,61 @@ func mediaDirKey(identity, validator string, total int64) string {
 	return fmt.Sprintf("%x", sha256.Sum256(b))
 }
 
+// versionFile 记录这片缓存属于哪个身份的哪一版;重进时据此不等上游先开缓存。
+const versionFile = "version.json"
+
+type mediaVersion struct {
+	Identity    string `json:"identity"`
+	Validator   string `json:"validator"`
+	Total       int64  `json:"total"`
+	ContentType string `json:"content_type"`
+	// Reported 是确认这一版时 PlaybackInfo 报的大小;strm/网盘源报的未必等于流长,所以只和上次报的比。
+	Reported int64 `json:"reported"`
+}
+
+// saveMediaVersion 同步探测确认版本后写下记录;内容没变就不重写。
+func saveMediaVersion(d *diskCache, v mediaVersion) {
+	mediaStore.Lock()
+	defer mediaStore.Unlock()
+	b, _ := json.Marshal(v)
+	name := filepath.Join(d.path, versionFile)
+	if old, err := os.ReadFile(name); d.storeDisabled || err == nil && bytes.Equal(old, b) {
+		return
+	}
+	_ = atomicCacheWrite(name, b)
+}
+
+// lastMediaVersion 找这个身份最近确认过的版本;PlaybackInfo 报的大小和确认时不同就不认。
+func lastMediaVersion(identity string, reported int64) (mediaVersion, bool) {
+	mediaStore.Lock()
+	defer mediaStore.Unlock()
+	entries, _ := os.ReadDir(paths.MediaCache())
+	var best mediaVersion
+	var bestAt time.Time
+	found := false
+	for _, e := range entries {
+		b, err := os.ReadFile(filepath.Join(paths.MediaCache(), e.Name(), versionFile))
+		var v mediaVersion
+		if err != nil || json.Unmarshal(b, &v) != nil || v.Identity != identity || v.Validator == "" || v.Total <= 0 ||
+			v.Reported != reported || mediaDirKey(identity, v.Validator, v.Total) != e.Name() {
+			continue
+		}
+		info, err := e.Info()
+		if err == nil && (!found || info.ModTime().After(bestAt)) {
+			best, bestAt, found = v, info.ModTime(), true
+		}
+	}
+	return best, found
+}
+
+// dropVersion 上游已换版本:删掉这一版缓存,版本记录随目录一起消失。
+func (d *diskCache) dropVersion() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	d.storeDisabled = true
+	_ = removeMediaLocked(d.path)
+}
+
 func newPersistentCache(total int64, identity, validator string, epochs ...uint64) (*diskCache, error) {
 	mediaStore.Lock()
 	defer mediaStore.Unlock()
@@ -131,7 +188,7 @@ func newPersistentCache(total int64, identity, validator string, epochs ...uint6
 	}
 	for _, entry := range entries {
 		name := entry.Name()
-		if name == "index.json" {
+		if name == "index.json" || name == versionFile {
 			continue
 		}
 		slot, e := strconv.ParseInt(strings.TrimSuffix(name, ".block"), 10, 64)
