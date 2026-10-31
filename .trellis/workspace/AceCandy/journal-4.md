@@ -542,3 +542,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 152: 手动片头片尾标记与 TV 下一集提示
+<!-- trellis-session: v=2 fp=e947bf84995784b4 -->
+
+**Date**: 2026-10-31
+**Task**: 手动片头片尾标记与 TV 下一集提示
+**Branch**: `main`
+
+### Summary
+
+完成按季/按集手动片头片尾标记，接入 Android 手机/TV 与桌面，完善片尾后续内容提示、TV 右下角下一集焦点和回归验证；已提交并归档两个 10-31 任务。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `5b467323` | feat: 手动标记片头片尾并完善下一集提示 |
+
+### Status
+
+[OK] **Completed**
