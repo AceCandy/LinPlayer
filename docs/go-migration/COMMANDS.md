@@ -155,7 +155,7 @@
 | [x] | `player.mpvCommand` | `mpv_command` | `args: Vec<String>` | `Result<(), String>` | ✅ |
 | [x] | `player.mpvGet` | `mpv_get` | `name: String` | `Result<Option<String>, String>` | ✅ |
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
-| [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ |
+| [x] | `player.opts` | `player_opts` | `—` | `Result<PlayerOpts, String>` | ✅ | <!-- 可选字符串frame-drop-count/decoder-frame-drop-count为内核两类独立累计丢帧快照，不相加；不可用返回空串。speed仍为实际倍率。 -->
 | [x] | `player.prepareNext` | **新增** | `item_id: String, request_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `{request_id, play_url, media_source_id, external_subs} 或 {skipped}` | ❌ | <!-- prepareNext: 尊重PreloadEnabled，独立单槽且不开始上报；直连代理只解析和探测，准备后2分钟过期；warmPrepared按缓冲状态放行视频读取，头部上限8MiB。prepared_id按完整Session/条目/版本/选版规则一次消费；取消使用原request_id。stopPlayback handoff=true仅后台停止上报，旧Stopped先于新Playing；默认同步收尾。 -->
 | [x] | `player.liuyingOpen` | **新增** | `owner_id: String, generation: i64, is_adult: Option<bool>` | `{opened}` | ❌ | <!-- 手机流影仅当前隐私身份。Open初始代数1；范围代数单调递增。准备池最多5项含在途，停止移交瞬间可暂存第6项，独立于通用单槽，2分钟失效；未知owner拒绝。 -->
 | [x] | `player.liuyingPrepare` | **新增** | `owner_id: String, generation: i64, request_id: String, item_id: String, media_source_id: Option<String>, is_adult: Option<bool>` | `{request_id, play_url, media_source_id, external_subs, can_preload} 或 {skipped}` | ❌ |

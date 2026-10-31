@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/android.md", "reason": "TV 播放与刷新率契约"}
+{"file": ".trellis/spec/shared/development.md", "reason": "最小改动与故障回归"}
+{"file": ".trellis/tasks/10-31-tv-playback-performance/research.md", "reason": "依赖版本与参考实现边界"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "平台初始化、真实MPV探针与核心绑定门禁"}
+{"file": "docs/go-migration/COMMANDS.md", "reason": "player.opts追加可选字符串属性，不新增命令"}

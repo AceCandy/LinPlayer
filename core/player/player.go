@@ -188,11 +188,28 @@ var (
 	rctx    unsafe.Pointer // mpv_render_context*
 	rctxSet atomic.Bool    // 起播要等它(SPEC §7.2 约束 6)
 
-	renderCalls  atomic.Int64
-	swapCalls    atomic.Int64
-	advanceCalls atomic.Int64
-	drainStop    atomic.Bool
+	renderCalls     atomic.Int64
+	swapCalls       atomic.Int64
+	advanceCalls    atomic.Int64
+	drainStop       atomic.Bool
+	hostIsAndroidTV atomic.Bool
 )
+
+// SetHostPlatform 在宿主初始化时设置平台，仅影响后续创建播放器的默认选项。
+func SetHostPlatform(platform string) {
+	hostIsAndroidTV.Store(platform == "android_tv")
+}
+
+func tvRenderOptions(isTV bool, confDir string) [][2]string {
+	if !isTV || confDir != "" {
+		return nil
+	}
+	// 采用 fast 的轻量缩放参数，保留抖动，不随 profile 升级引入其它画质改动。
+	return [][2]string{
+		{"scale", "bilinear"}, {"dscale", "bilinear"}, {"dither", "fruit"},
+		{"correct-downscaling", "no"}, {"linear-downscaling", "no"}, {"sigmoid-upscaling", "no"},
+	}
+}
 
 // baseOptions 是 mpv 起手的选项表。
 //
@@ -277,7 +294,7 @@ func checkOptionNames(opts [][2]string) []string {
 //
 // ours 为空 = 我们不设这一项(用来反向确认探针**真的**读到了配置文件)。
 // 返回 init 之后 key 的实际取值(取不到返回空串)。
-func probeConfDirPrecedence(confDir, key, ours string) string {
+func probeConfDirPrecedence(confDir, key, ours string, options ...[2]string) string {
 	h := C.mpv_create()
 	if h == nil {
 		return ""
@@ -293,6 +310,9 @@ func probeConfDirPrecedence(confDir, key, ours string) string {
 	set("config", "yes")
 	set("config-dir", confDir)
 	set("vo", "null")
+	for _, kv := range options {
+		set(kv[0], kv[1])
+	}
 	if ours != "" {
 		set(key, ours)
 	}
@@ -337,7 +357,9 @@ func ensureMpv() int32 {
 	}
 	// 平台专属选项追加在后面(后写的赢)。桌面返回 nil,所以 baseOptions 的
 	// 输出一字不变;安卓在这里换 vo 并带上软解调优与字幕字体目录。
-	opts := append(baseOptions(hw, sc, ensureConfDir()), platformOptions()...)
+	confDir := ensureConfDir()
+	opts := append(baseOptions(hw, sc, confDir), tvRenderOptions(hostIsAndroidTV.Load(), confDir)...)
+	opts = append(opts, platformOptions()...)
 	// 日志走 LP_MPV_LOG 门控:log-file 会把 mpv+ffmpeg 钉在 debug 级
 	if lp := os.Getenv("LP_MPV_LOG"); lp != "" {
 		opts = append(opts, [2]string{"log-file", lp}, [2]string{"msg-level", "all=v"})

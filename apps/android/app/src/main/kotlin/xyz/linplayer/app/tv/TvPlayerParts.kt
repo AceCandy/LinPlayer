@@ -797,7 +797,7 @@ private fun BoxScope.ShaderLevels(app: AppState, scope: CoroutineScope, overlay:
 private fun BoxScope.PlaybackInfo(app: AppState, overlay: Overlay, back: () -> Unit, exo: ExoPlayer?, ui: PlayerUi) {
     var opts by remember { mutableStateOf<JsonObject?>(null) }
     LaunchedEffect(Unit) { if (exo == null) opts = runCatching { app.call("player.opts") }.getOrNull().obj() }
-    TvSidePanel("媒体信息", { overlay.close() }, back = back) {
+    TvSidePanel("媒体信息", { overlay.close() }, back = back, scrollWithArrows = true) {
         // 与手机同一份字段表,两个内核都列得出参数
         val rows = xyz.linplayer.app.ui.player.playbackMediaInfo(exo, opts)
         // 只读行不可聚焦;放一个可聚焦的首项,面板才圈得住焦点

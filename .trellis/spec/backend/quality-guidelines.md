@@ -168,3 +168,13 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 7. 正反例：不能只修绘制字宽却仍整段占轨，也不能按估宽放宽避碰。正确做法是完整候选实测后分轨；宿主在后台测量，换源/样式/尺寸时清旧布局并拒收旧结果，零尺寸等待、不逐帧跨FFI。
 
 - 弹幕实测布局支持可选until（有限非负、含终点），合并先于截取，保留全部历史候选及原顺序；widths匹配同一前缀，revision仍校验。禁止仅回看最长存续期后独立重排，排轨依赖可沿历史连续传递。TestMeasuredPrefixMatchesFullLayout验证80秒慢速、混合模式、合并、顺序与防重叠开关下的首批/整集一致性。宿主先显示当前位置加30秒前缀，再复用同一测宽缓存后台补齐；全量语料和后段续播准备仍存在，不宣称已全程窗口化。
+
+## TV 默认渲染与性能快照
+
+1. 范围：TV发行包的MPV默认缩放，以及Android媒体信息；不改硬解、杜比软解、字幕、VO和Surface绑定。
+2. 签名：宿主lp_init复用platform，经SetHostPlatform(string)在开放命令前传入player；player.opts仍无参，追加frame-drop-count/decoder-frame-drop-count字符串字段，无ABI变化。
+3. 契约：仅android_tv且ensureConfDir无有效目录时注入轻量缩放、保留fruit抖动；已有自定义配置不能混入默认profile残余，Surface重绑不重设。计数来自各自Prop，不相加，不新增轮询。
+4. 校验与错误：Prop不可用返回空串，客户端只显示非负整数，0是有效值；非法/缺失隐藏。既有配置过滤和写入规则不变，选项设置失败保留错误日志。
+5. 案例：无自定义TV设置bilinear缩放；手机/桌面和有效自定义配置不注入；{"frame-drop-count":"0","decoder-frame-drop-count":""}仅显示渲染0帧，不伪造解码计数。
+6. 验证：TestTvRendering*用真实libmpv初始化回读验证缩放、抖动、其它播放选项及自定义配置；TestPlayerOptsIncludesDropCounters经真实命令注册核验字段。宿主探针不替代Android驱动或目标电视性能验证。
+7. 反例与正例：不能把菜单倍率当内核实际倍率、把未知计数补0或覆盖用户配置；应分别回读实际字段并仅为无配置TV提供默认值。

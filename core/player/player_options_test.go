@@ -76,6 +76,51 @@ func Test选项名探测_对不存在的选项必须报出来(t *testing.T) {
 	}
 }
 
+func TestTvRenderingOptionsPreservesDitherAndPlaybackOptions(t *testing.T) {
+	dir := t.TempDir()
+	opts := tvRenderOptions(true, "")
+	if bad := checkOptionNames(opts); len(bad) > 0 {
+		t.Fatalf("libmpv 不支持 TV 渲染选项: %v", bad)
+	}
+	for key, want := range map[string]string{
+		"scale": "bilinear", "dscale": "bilinear", "dither": "fruit",
+		"correct-downscaling": "no", "linear-downscaling": "no", "sigmoid-upscaling": "no",
+	} {
+		if got := probeConfDirPrecedence(dir, key, "", opts...); got != want {
+			t.Errorf("TV 初始化后 %s = %q, want %q", key, got, want)
+		}
+	}
+	for _, key := range []string{"hwdec", "vo", "sub-visibility", "tone-mapping"} {
+		want := probeConfDirPrecedence(dir, key, "")
+		if got := probeConfDirPrecedence(dir, key, "", opts...); want == "" || got != want {
+			t.Errorf("TV 轻量选项不应改变 %s: %q -> %q", key, want, got)
+		}
+	}
+}
+
+func TestTvRenderingOptionsHonorsHostAndCustomConfig(t *testing.T) {
+	wasTV := hostIsAndroidTV.Load()
+	t.Cleanup(func() { hostIsAndroidTV.Store(wasTV) })
+	for _, platform := range []string{"android_tv", "android", "windows", "linux", ""} {
+		SetHostPlatform(platform)
+		if got := len(tvRenderOptions(hostIsAndroidTV.Load(), "")) > 0; got != (platform == "android_tv") {
+			t.Errorf("平台 %q 的 TV 默认配置启用状态错误: %v", platform, got)
+		}
+	}
+	dir := confDirWith(t, "scale=ewa_lanczossharp\nlinear-downscaling=yes\ndither=ordered\n")
+	opts := tvRenderOptions(true, dir)
+	if len(opts) != 0 {
+		t.Fatalf("有效自定义配置不能混入 TV 默认选项: %v", opts)
+	}
+	for key, want := range map[string]string{
+		"scale": "ewa_lanczossharp", "linear-downscaling": "yes", "dither": "ordered",
+	} {
+		if got := probeConfDirPrecedence(dir, key, "", opts...); got != want {
+			t.Errorf("自定义配置 %s = %q, want %q", key, got, want)
+		}
+	}
+}
+
 // ---- 用户的 mpv.conf ----
 
 // 不给 config-dir 时**一个 config 相关的选项都不许出现**:

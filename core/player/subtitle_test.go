@@ -1,14 +1,29 @@
 package player
 
 import (
+	"context"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
+	"linplayer/core/bus"
 	"linplayer/core/config"
 	"linplayer/core/paths"
 )
+
+func TestPlayerOptsIncludesDropCounters(t *testing.T) {
+	registerSubtitleCommands()
+	result, err := bus.Invoke(context.Background(), "player.opts", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, key := range []string{"speed", "frame-drop-count", "decoder-frame-drop-count"} {
+		if _, ok := result.(map[string]any)[key].(string); !ok {
+			t.Errorf("player.opts 缺少字符串属性 %s", key)
+		}
+	}
+}
 
 // mpv.conf:**全空 = 删文件**,回到「完全不读配置」的出厂状态。
 //
@@ -70,7 +85,8 @@ func TestSubScale钳位(t *testing.T) {
 // 字幕位置 mpv 只收**整数** —— 给小数它会静默拒绝,而调用方以为设上了。
 //
 // ★ 上限 2026-09-08 从 100 放开到 150:100 是画面下沿,再往下才是黑边。
-//   宽银幕片子上「把字压进黑边、一点画面都不挡」是最常用的一档。
+//
+//	宽银幕片子上「把字压进黑边、一点画面都不挡」是最常用的一档。
 func TestSubPosition取整(t *testing.T) {
 	for _, c := range []struct {
 		in   float64

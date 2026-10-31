@@ -111,6 +111,7 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 		//   迁移随后看见目标已存在就跳过 → 旧根里的账号 / token 永远搬不过来。
 		//   顺序错了不报错,只是用户升级后「服务器全没了」(SPEC §16.1)。
 		paths.SetRoot(hostCfg.DataDir)
+		player.SetHostPlatform(hostCfg.Platform)
 		// tvOS 先恢复安全状态，再开放命令和后台任务。失败状态在重复 init 时仍保留。
 		if platformStateRequired {
 			if err := paths.EnsureDirs(); err != nil {

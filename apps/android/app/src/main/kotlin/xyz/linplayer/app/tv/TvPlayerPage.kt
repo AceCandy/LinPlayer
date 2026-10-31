@@ -206,6 +206,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     var speedBusy by remember { mutableStateOf(false) }
     var speedWrite by remember { mutableStateOf<Job?>(null) }
     var pendingSpeed by remember { mutableStateOf<Double?>(null) }
+    var temporarySpeedWrites by remember(controller) { mutableIntStateOf(0) }
     LaunchedEffect(controller, controller.manualSubtitleOff) {
         controller.manualSubtitleOff?.let { subOffPref = it }
     }
@@ -227,7 +228,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     SideEffect { controller.bind(exo) }
     ObserveSeekTimeout(controller)
     MatchTvRefreshRate(app, controller, exo, attempt,
-        smoothOverlay = DanmakuStyle.enabled.value && DanmakuStyle.layout.value?.items?.isNotEmpty() == true)
+        smoothOverlay = DanmakuStyle.enabled.value && DanmakuStyle.layout.value?.items?.isNotEmpty() == true,
+        temporarySpeed = ui.hold || temporarySpeedWrites > 0)
     val root = remember { FocusRequester() }
     var rootFocused by remember { mutableStateOf(false) }
     var leaving by remember { mutableStateOf(false) }
@@ -358,7 +360,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         if (ui.flash != null) { delay(600); ui.flash = null }
     }
     fun doSpeed(v: Double) {
-        scope.launch { runCatching { controller.speed(v) }.onFailure(app::report) }
+        scope.launch(start = CoroutineStart.UNDISPATCHED) {
+            temporarySpeedWrites++
+            try { runCatching { controller.speed(v) }.onFailure(app::report) }
+            finally { temporarySpeedWrites-- }
+        }
     }
 
     fun saveSpeed(v: Double) {
@@ -479,7 +485,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                     controller.resolved(res)
                     ui.mediaSourceId = res.str("media_source_id")
                     val url = res.str("play_url")
-                    ui.speed = preferredSpeed
+                    ui.speed = controller.fallback?.speed ?: preferredSpeed
                     if (exo != null && url != null) {
                         exo.setPlaybackSpeed(preferredSpeed.toFloat())
                         exo.trackSelectionParameters = exo.trackSelectionParameters.buildUpon()
@@ -492,6 +498,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                         subOffPref = it.subOff
                         ui.speed = it.speed
                         app.call("player.setAspectRatio", args("ratio" to ui.fit.mpvRatio))
+                        if (ui.hold) doSpeed(UiPrefs.tvHoldSpeed.value)
                     }
                 }
             }
@@ -585,7 +592,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             o.dbl("duration")?.takeIf { it > 0 }?.let { ui.duration = it }
             ui.paused = o.bool("paused")
             ui.buffering = o.bool("buffering")
-            if (!speedBusy && !ui.hold) o.dbl("speed")?.takeIf { it.isFinite() && it in .25..4.0 }?.let { ui.speed = it }
+            if (!speedBusy && !ui.hold && temporarySpeedWrites == 0)
+                o.dbl("speed")?.takeIf { it.isFinite() && it in .25..4.0 }?.let { ui.speed = it }
             controller.observePosition(p, ui.buffering)
             // ☠ keep-open 下 END_FILE 永远不发,判播完读 eof;**只收尾一次**
             if (o.bool("eof") && !finished && ui.failed == null) {
@@ -612,12 +620,15 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             e.duration.takeIf { it > 0 }?.let { ui.duration = it / 1000.0 }
             ui.paused = !e.playWhenReady
             ui.buffering = e.playbackState == androidx.media3.common.Player.STATE_BUFFERING
-            if (!speedBusy && !ui.hold) ui.speed = e.playbackParameters.speed.toDouble()
+            if (!speedBusy && !ui.hold && temporarySpeedWrites == 0) ui.speed = e.playbackParameters.speed.toDouble()
             controller.observePosition(p, ui.buffering)
             e.playerError?.let { err ->
                 try {
                     cancelPreparation()
-                    if (controller.tryFallback(err, controller.snapshot(e, subOffPref)) { PlaybackService.stop(ctx) }) {
+                    val state = controller.snapshot(e, subOffPref)
+                    // 临时倍率不能成为新内核的正常倍率；松键可能发生在停止屏障内。
+                    val normalState = if (ui.hold || temporarySpeedWrites > 0) state.copy(speed = ui.speed) else state
+                    if (controller.tryFallback(err, normalState) { PlaybackService.stop(ctx) }) {
                         overlay.close()
                         app.toast("Media3 无法播放，已切换到 MPV")
                         return@LaunchedEffect
@@ -1014,8 +1025,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                 } else null
             }
             if (down) return !ui.osd || rootFocused || ui.hold
-            holdJob?.cancel()
-            if (ui.hold) { ui.hold = false; doSpeed(ui.speed); return true }
             if (!ui.osd || rootFocused) {
                 togglePause()
                 return true
@@ -1042,7 +1051,17 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     /* 插件覆盖层开着时这一下键先归插件(D563)。没开着就一句都不问 —— 判断在
        PluginKeys.gate 里,遥控器上每按一下都要过它。 */
     val taken = rememberPluginKeyTaken()
-    fun onKey(e: KeyEvent): Boolean = PluginKeys.gate(app, scope, taken, e, ::defaultKey)
+    fun onKey(e: KeyEvent): Boolean {
+        // 开始于播放页的长按必须先收尾，不能被后来打开的面板吞掉松键。
+        if (isOk(e.key) && e.type == KeyEventType.KeyUp) {
+            val consumed = ui.hold || (holdJob != null && (overlay.isOpen || ui.failed != null))
+            holdJob?.cancel()
+            holdJob = null
+            if (ui.hold) { ui.hold = false; doSpeed(ui.speed) }
+            if (consumed) { taken.remove(e.key); return true }
+        }
+        return PluginKeys.gate(app, scope, taken, e, ::defaultKey)
+    }
 
     // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
     val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")

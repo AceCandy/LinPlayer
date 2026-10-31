@@ -8,7 +8,12 @@ import xyz.linplayer.app.data.str
 internal fun playbackMediaInfo(player: ExoPlayer?, opts: JsonObject?): List<Pair<String, String>> = buildList {
     add("播放内核" to if (player == null) "MPV" else "Media3")
     fun field(label: String, value: String?) { value?.takeIf { it.isNotBlank() }?.let { add(label to it) } }
+    val speed = if (player == null) opts.str("speed")?.toDoubleOrNull() else player.playbackParameters.speed.toDouble()
+    speed?.takeIf { it.isFinite() && it > 0 }?.let { add("实际倍速" to "%.2f×".format(it)) }
     if (player == null) {
+        for ((label, key) in listOf("渲染丢帧" to "frame-drop-count", "解码丢帧" to "decoder-frame-drop-count")) {
+            opts.str(key)?.toLongOrNull()?.takeIf { it >= 0 }?.let { add(label to "$it 帧") }
+        }
         field("视频编码", opts.str("video-codec"))
         val width = opts.str("dwidth")?.toIntOrNull()
         val height = opts.str("dheight")?.toIntOrNull()

@@ -90,7 +90,8 @@ internal fun tvVideoFrameRate(player: ExoPlayer): Float? {
 /** TV 双内核共用窗口匹配；手机继续使用原有 Surface 策略。 */
 @OptIn(UnstableApi::class)
 @Composable
-internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo: ExoPlayer?, attempt: Int, smoothOverlay: Boolean = false) {
+internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo: ExoPlayer?, attempt: Int,
+    smoothOverlay: Boolean = false, temporarySpeed: Boolean = false) {
     val activity = LocalContext.current as? Activity
     val rates = remember(activity) {
         activity?.window?.let { window -> window.decorView.display?.let { TvRefreshRate(window, it) } }
@@ -104,12 +105,13 @@ internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo
         }
     }
     val ready = controller.ready
-    LaunchedEffect(rates, controller, exo, attempt, ready, smoothOverlay) {
-        if (!ready || rates == null) return@LaunchedEffect
+    LaunchedEffect(rates, controller, exo, attempt, ready, smoothOverlay, temporarySpeed) {
+        // 长按只临时加速，不为按下/松开反复切屏；同时取消在途模式查询。
+        if (!ready || rates == null || temporarySpeed) return@LaunchedEffect
         var unknown = 0
         while (true) {
             delay(500)
-            val fps = if (exo != null) tvVideoFrameRate(exo) else {
+            val fps = if (exo != null) tvVideoFrameRate(exo)?.times(exo.playbackParameters.speed) else {
                 val opts = runCatching { app.call("player.opts") }.getOrNull().obj()
                 coroutineContext.ensureActive()
                 val filters = runCatching { app.call("player.mpvGet", args("name" to "vf")) }.getOrNull().obj()
@@ -121,7 +123,9 @@ internal fun MatchTvRefreshRate(app: AppState, controller: PlayerController, exo
                     delay(500)
                     continue
                 }
-                opts.str("container-fps")?.toFloatOrNull()
+                // 菜单倍率可能还在保存或等待同步，显示模式只跟随内核实际倍率。
+                val speed = opts.str("speed")?.toFloatOrNull()?.takeIf { it.isFinite() && it > 0 }
+                speed?.let { opts.str("container-fps")?.toFloatOrNull()?.times(it) }
             }
             coroutineContext.ensureActive()
             if (!controller.ready) return@LaunchedEffect

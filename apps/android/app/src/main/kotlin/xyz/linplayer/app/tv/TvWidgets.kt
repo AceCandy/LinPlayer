@@ -160,6 +160,7 @@ fun BoxScope.OverlayHost(o: Overlay) {
 @Composable
 fun BoxScope.TvSidePanel(
     title: String, onClose: () -> Unit, back: (() -> Unit)? = null,
+    scrollWithArrows: Boolean = false,
     content: @Composable ColumnScope.() -> Unit,
 ) {
     BackHandler { if (back != null) back() else onClose() }
@@ -174,7 +175,7 @@ fun BoxScope.TvSidePanel(
     }
     PanelSlot {
         SidePanel(
-            title, back = back != null,
+            title, back = back != null, scrollWithArrows = scrollWithArrows,
             modifier = Modifier.focusRequester(fr).onFocusChanged { inside = it.hasFocus }
                 .focusProperties { onExit = { cancelFocusChange() } }.focusGroup(),
             content = content,

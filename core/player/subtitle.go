@@ -193,6 +193,7 @@ func registerSubtitleCommands() {
 			"video-codec", "audio-codec-name", "container-fps",
 			"dwidth", "dheight", "video-format",
 			"sub-scale", "sub-pos", "secondary-sub-ass-override", "speed", "volume",
+			"frame-drop-count", "decoder-frame-drop-count",
 		} {
 			out[k] = Prop(k)
 		}

@@ -10,9 +10,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.test.hasTestTag
+import androidx.compose.ui.test.onRoot
+import androidx.compose.ui.test.performKeyInput
 import androidx.compose.ui.test.junit4.createComposeRule
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.RobolectricDeviceQualifiers
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -47,6 +50,7 @@ import xyz.linplayer.app.ui.player.rememberExoPlayer
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.PlaybackException
+import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Player
 import androidx.media3.common.Tracks
 import androidx.media3.exoplayer.ExoPlayer
@@ -66,9 +70,11 @@ class TvRefreshRatePlaybackTest {
     private lateinit var activity: Activity
     private lateinit var nav: TvNav
     private var fps = "24"
+    private var speed = "1"
     private var filters = ""
     private var deferNext = false
     private var pending: Continuation<JsonElement>? = null
+    private var speedGate: CompletableDeferred<Unit>? = null
 
     @Before fun setup() {
         PageCache.clear()
@@ -82,11 +88,13 @@ class TvRefreshRatePlaybackTest {
 
     private fun opts(value: String) = buildJsonObject {
         put("container-fps", value); put("current-vo", "gpu"); put("dwidth", "1920"); put("dheight", "1080")
+        put("speed", speed)
     }
 
     private fun mount(expectMatch: Boolean = true) {
         val port = object : CorePort by core {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.setSpeed") speedGate?.await()
                 if (command == "player.opts" && deferNext) {
                     deferNext = false
                     // 忠实模拟无法撤回的 FFI 请求：取消后仍让旧响应完成。
@@ -191,6 +199,125 @@ class TvRefreshRatePlaybackTest {
         assertEquals(101, activity.window.attributes.preferredDisplayModeId)
     }
 
+    @Test fun MPV按实际倍率匹配分数帧率且不依赖菜单倍率() {
+        mount()
+        rule.runOnIdle {
+            val display = activity.windowManager.defaultDisplay
+            val current = display.mode
+            org.robolectric.shadows.ShadowDisplayManager.setSupportedModes(display.displayId,
+                current, tvMode(101, 24f, current.physicalWidth, current.physicalHeight),
+                tvMode(103, 48f, current.physicalWidth, current.physicalHeight),
+                tvMode(104, 59.94f, current.physicalWidth, current.physicalHeight))
+            // 实际倍率还未同步至菜单；匹配必须直接使用内核回读。
+            speed = "2"
+        }
+        advance(rule, 1500)
+        assertEquals(103, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { fps = "23.976"; speed = "1.25" }
+        advance(rule, 1500)
+        assertEquals(104, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { speed = "1.1" }
+        advance(rule, 1500)
+        assertEquals("不支持倍速后的帧率时撤回旧模式", 0, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { fps = "24"; speed = "1" }
+        advance(rule, 1500)
+        assertEquals(101, activity.window.attributes.preferredDisplayModeId)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 长按临时倍速保留模式拒绝在途帧率松手后恢复匹配() {
+        core.on("player.setSpeed") { a -> speed = a.dbl("speed")!!.toString(); JsonNull }
+        mount()
+        rule.runOnIdle { core.tick(1200.0) }; advance(rule, 100)
+        rule.runOnIdle { core.tick(1200.25) }; advance(rule, 100)
+        rule.runOnUiThread { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
+        advance(rule, 300)
+        rule.runOnIdle { deferNext = true }
+        advance(rule, 1200)
+        assertNotNull(pending)
+        rule.onRoot().performKeyInput { keyDown(Key.Enter) }
+        advance(rule, 750)
+        assertEquals(xyz.linplayer.app.data.UiPrefs.tvHoldSpeed.value, speed.toDouble(), .001)
+        rule.runOnIdle { pending!!.resume(opts("25")); pending = null }
+        rule.runOnIdle { assertEquals("迟到响应完成时也不能修改模式", 101, activity.window.attributes.preferredDisplayModeId) }
+        advance(rule, 1500)
+        assertEquals("临时倍速期间迟到响应也不能切屏", 101, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { speedGate = CompletableDeferred() }
+        try {
+            rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+            advance(rule, 1500)
+            assertEquals("恢复倍率仍在等待内核时不能按临时倍率切屏", 101, activity.window.attributes.preferredDisplayModeId)
+            rule.runOnIdle {
+                core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
+                    put("position", 1201.0); put("duration", 3660.0); put("speed", speed.toDouble())
+                }))
+            }
+            advance(rule, 100)
+            rule.onRoot().performKeyInput { keyDown(Key.Enter) }
+            advance(rule, 750)
+            rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+            advance(rule, 300)
+        } finally { rule.runOnIdle { speedGate!!.complete(Unit); speedGate = null } }
+        advance(rule, 1500)
+        assertEquals(1.0, speed.toDouble(), .001)
+        assertEquals(101, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { speed = "2" }
+        advance(rule, 1500)
+        assertEquals("松手后继续根据实际倍率匹配", 0, activity.window.attributes.preferredDisplayModeId)
+        assertFalse(core.calls.any { it.first == "player.setPause" })
+    }
+
+    private fun releaseHoldInMenu(holdMillis: Long) {
+        core.on("player.setSpeed") { a -> speed = a.dbl("speed")!!.toString(); JsonNull }
+        mount()
+        rule.runOnUiThread { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
+        advance(rule, 300)
+        rule.onRoot().performKeyInput { keyDown(Key.Enter) }
+        advance(rule, holdMillis)
+        press(rule, Key.Menu)
+        advance(rule, 32)
+        rule.onNode(androidx.compose.ui.test.hasText("媒体信息")).assertExists()
+        rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+        advance(rule, 1200)
+        assertEquals("菜单中松键也要结束临时倍速", 1.0, speed.toDouble(), .001)
+        rule.onNode(androidx.compose.ui.test.hasText("媒体信息")).assertExists()
+        assertFalse(core.calls.any { it.first == "player.setPause" })
+        rule.runOnIdle { speed = "2" }
+        advance(rule, 1500)
+        assertEquals("松手后恢复按实际倍率匹配", 0, activity.window.attributes.preferredDisplayModeId)
+    }
+
+    @Test fun 长按倍速打开菜单后松键仍恢复() = releaseHoldInMenu(750)
+
+    @Test fun 长按计时中打开菜单后松键不再触发倍速() = releaseHoldInMenu(100)
+
+    @Test fun MPV倍速匹配仍保护弹幕刷新率且无效倍率不沿用低频() {
+        mount()
+        val style = xyz.linplayer.app.ui.player.DanmakuStyle
+        try {
+            rule.runOnIdle {
+                val display = activity.windowManager.defaultDisplay
+                val current = display.mode
+                org.robolectric.shadows.ShadowDisplayManager.setSupportedModes(display.displayId,
+                    current, tvMode(101, 24f, current.physicalWidth, current.physicalHeight),
+                    tvMode(103, 48f, current.physicalWidth, current.physicalHeight))
+                speed = "2"
+                style.enabled.value = true
+                style.layout.value = xyz.linplayer.app.ui.player.DmLayout(1920.0, 1080.0, 54.0, 8.0, 5.0, 40.0, 1.0, false,
+                    listOf(xyz.linplayer.app.ui.player.DmItem(0.0, 1, 0, 80.0, 0xFFFFFF, "弹幕")))
+            }
+            advance(rule, 1500)
+            assertEquals("有弹幕不能为两倍速降到48Hz", 0, activity.window.attributes.preferredDisplayModeId)
+            rule.runOnIdle { style.enabled.value = false }
+            advance(rule, 1500)
+            assertEquals(103, activity.window.attributes.preferredDisplayModeId)
+            rule.runOnIdle { speed = "NaN" }
+            advance(rule, 11_000)
+            assertEquals(0, activity.window.attributes.preferredDisplayModeId)
+            rule.onNode(hasTestTag("player.root")).assertExists()
+        } finally { style.enabled.value = false; style.layout.value = null }
+    }
+
     @Test fun 弹幕开启期间退出低频模式关闭后恢复匹配() {
         mount()
         val style = xyz.linplayer.app.ui.player.DanmakuStyle
@@ -272,12 +399,14 @@ class TvRefreshRatePlaybackTest {
         val app = AppState(core, scope)
         val controller = PlayerController("auto") { command, args -> core.callJson(command, args) }
         var strategy = C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_ONLY_IF_SEAMLESS
+        var playbackParameters = PlaybackParameters.DEFAULT
         val player = Proxy.newProxyInstance(ExoPlayer::class.java.classLoader, arrayOf(ExoPlayer::class.java)) { proxy, method, args ->
             when (method.name) {
                 "isReleased" -> false
                 "getPlaybackState" -> Player.STATE_READY
                 "getVideoFormat" -> Format.Builder().setFrameRate(24f).build()
                 "getCurrentTracks" -> Tracks.EMPTY
+                "getPlaybackParameters" -> playbackParameters
                 "getVideoChangeFrameRateStrategy" -> strategy
                 "setVideoChangeFrameRateStrategy" -> { strategy = args!![0] as Int; null }
                 "stop" -> null
@@ -299,6 +428,16 @@ class TvRefreshRatePlaybackTest {
         assertEquals(101, activity.window.attributes.preferredDisplayModeId)
         assertEquals(C.VIDEO_CHANGE_FRAME_RATE_STRATEGY_OFF, strategy)
         assertFalse("Media3 不应查询 MPV", core.calls.any { it.first == "player.opts" })
+        rule.runOnIdle { playbackParameters = PlaybackParameters(1.25f) }
+        advance(rule, 1400)
+        assertEquals("24fps的1.25倍应匹配60Hz", activity.windowManager.defaultDisplay.mode.modeId,
+            activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { playbackParameters = PlaybackParameters(2f) }
+        advance(rule, 1400)
+        assertEquals("没有48Hz整倍频时恢复偏好", 0, activity.window.attributes.preferredDisplayModeId)
+        rule.runOnIdle { playbackParameters = PlaybackParameters.DEFAULT }
+        advance(rule, 1400)
+        assertEquals(101, activity.window.attributes.preferredDisplayModeId)
         rule.runOnIdle {
             runBlocking {
                 assertTrue(controller.tryFallback(PlaybackException("解码失败", null,

@@ -3,6 +3,7 @@ package xyz.linplayer.app.tv.kit
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.focusGroup
+import androidx.compose.foundation.gestures.scrollBy
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
@@ -26,12 +27,14 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.testTag
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusDirection
@@ -59,6 +62,7 @@ import androidx.tv.material3.Border
 import androidx.tv.material3.Icon
 import androidx.tv.material3.Surface
 import androidx.tv.material3.Text
+import kotlinx.coroutines.launch
 import xyz.linplayer.app.tv.tvRaised
 import xyz.linplayer.app.ui.theme.LpIcons
 
@@ -239,10 +243,18 @@ fun PageHead(title: String, count: String? = null, sub: String? = null) {
 // ---------------------------------------------------------------- 侧面板(§5.3)
 
 @Composable
-fun SidePanel(title: String, back: Boolean = false, modifier: Modifier = Modifier, content: @Composable ColumnScope.() -> Unit) {
+fun SidePanel(title: String, back: Boolean = false, modifier: Modifier = Modifier, scrollWithArrows: Boolean = false,
+    content: @Composable ColumnScope.() -> Unit) {
     val scroll = rememberScrollState()
+    val scope = rememberCoroutineScope()
+    val step = with(LocalDensity.current) { tvType.rowH.toPx() }
+    val scrollKeys = if (!scrollWithArrows) Modifier else Modifier.onPreviewKeyEvent {
+        val direction = when (it.key) { Key.DirectionDown -> 1; Key.DirectionUp -> -1; else -> return@onPreviewKeyEvent false }
+        if (it.type == KeyEventType.KeyDown) scope.launch { scroll.scrollBy(direction * step) }
+        true
+    }
     Column(
-        modifier.width(TvDim.panelW).heightIn(max = TvDim.panelMaxH)
+        modifier.then(scrollKeys).width(TvDim.panelW).heightIn(max = TvDim.panelMaxH)
             .shadow(12.dp, TvR.lg).clip(TvR.lg).background(TvC.surface2).padding(vertical = TvSp.x12),
     ) {
         Row(Modifier.padding(horizontal = TvSp.x16).padding(bottom = TvSp.x6), verticalAlignment = Alignment.CenterVertically) {

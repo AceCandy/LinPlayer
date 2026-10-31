@@ -59,6 +59,7 @@ class PhonePlayerMenuTest {
         val core = core().apply { ret("player.opts", buildJsonObject {
             put("video-codec", "hevc"); put("dwidth", "3840"); put("dheight", "2160")
             put("container-fps", "23.976"); put("audio-codec-name", "aac"); put("hwdec-current", "mediacodec")
+            put("speed", "1.75"); put("frame-drop-count", "12"); put("decoder-frame-drop-count", "0")
             put("last_error", "private diagnostic"); put("path", "private playback address")
         }) }
         val app = AppState(core, scope)
@@ -69,6 +70,9 @@ class PhonePlayerMenuTest {
         rule.onNodeWithText("MPV").assertExists()
         rule.onNodeWithText("3840 × 2160").assertExists()
         rule.onNodeWithText("23.976 fps").assertExists()
+        rule.onNodeWithText("1.75×").assertExists()
+        rule.onNodeWithText("12 帧").assertExists()
+        rule.onNodeWithText("0 帧").assertExists()
         rule.onNodeWithText("private diagnostic").assertDoesNotExist()
         rule.onNodeWithText("private playback address").assertDoesNotExist()
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/media-info.png")
@@ -81,13 +85,39 @@ class PhonePlayerMenuTest {
                 .setSampleMimeType("video/avc").setWidth(1920).setHeight(1080).setFrameRate(24f).build())
             org.robolectric.util.ReflectionHelpers.setField(player, "audioFormat", androidx.media3.common.Format.Builder()
                 .setSampleMimeType("audio/mp4a-latm").setSampleRate(48000).setChannelCount(2).build())
-            val rows = playbackMediaInfo(player, buildJsonObject { put("video-codec", "旧MPV编码") }).toMap()
+            player.setPlaybackSpeed(1.5f)
+            val rows = playbackMediaInfo(player, buildJsonObject {
+                put("video-codec", "旧MPV编码"); put("speed", "3.0")
+                put("frame-drop-count", "12"); put("decoder-frame-drop-count", "34")
+            }).toMap()
             assertEquals("Media3", rows["播放内核"])
             assertEquals("1920 × 1080", rows["分辨率"])
             assertEquals("48000 Hz", rows["采样率"])
             assertEquals("2", rows["声道数"])
+            assertEquals("1.50×", rows["实际倍速"])
+            assertFalse(rows.containsKey("渲染丢帧"))
+            assertFalse(rows.containsKey("解码丢帧"))
             assertFalse(rows.values.contains("旧MPV编码"))
         } finally { player.release() }
+    }
+
+    @Test fun mediaInfoHidesUnknownOrInvalidPerformanceFields() {
+        for (value in listOf<String?>(null, "", "-1", "NaN", "Infinity", "not a number")) {
+            val rows = playbackMediaInfo(null, buildJsonObject {
+                if (value != null) {
+                    put("speed", value); put("frame-drop-count", value); put("decoder-frame-drop-count", value)
+                }
+            }).toMap()
+            assertFalse(rows.containsKey("实际倍速"))
+            assertFalse(rows.containsKey("渲染丢帧"))
+            assertFalse(rows.containsKey("解码丢帧"))
+        }
+        val rows = playbackMediaInfo(null, buildJsonObject {
+            put("speed", "0"); put("frame-drop-count", "1.5"); put("decoder-frame-drop-count", "0")
+        }).toMap()
+        assertFalse(rows.containsKey("实际倍速"))
+        assertFalse(rows.containsKey("渲染丢帧"))
+        assertEquals("0 帧", rows["解码丢帧"])
     }
 
     @Test fun passiveStatusOnlyShowsBatteryBelowTwentyPercent() {

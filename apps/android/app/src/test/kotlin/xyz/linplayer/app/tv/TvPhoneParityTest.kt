@@ -71,6 +71,110 @@ class TvPhoneParityTest {
         advance(rule, 1000)
     }
 
+    private fun fallbackDuringHold(releaseAt: String) {
+        val core = core()
+        val stopped = CompletableDeferred<Unit>()
+        val release = CompletableDeferred<Unit>()
+        val restoring = CompletableDeferred<Unit>()
+        val restoreRelease = CompletableDeferred<Unit>()
+        val normalSpeed = 1.75
+        val port = object : xyz.linplayer.app.core.CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.stopPlayback") { stopped.complete(Unit); release.await() }
+                val result = core.callJson(command, args, onPartial)
+                if (releaseAt == "restore" && command == "player.setSpeed" && args.dbl("speed") == normalSpeed) {
+                    restoring.complete(Unit); restoreRelease.await()
+                }
+                return result
+            }
+        }
+        try {
+            show(port, "auto")
+            val player = org.robolectric.util.ReflectionHelpers.getStaticField<androidx.media3.exoplayer.ExoPlayer>(
+                xyz.linplayer.app.ui.player.PlaybackService::class.java, "externalPlayer")
+            // 当前实际倍率与保存偏好不同，切核应保留前者。
+            rule.runOnIdle { player.setPlaybackSpeed(normalSpeed.toFloat()) }
+            advance(rule, 400)
+            rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300)
+            rule.onRoot().performKeyInput { keyDown(Key.Enter) }
+            advance(rule, 750)
+            rule.runOnIdle {
+                assertEquals(UiPrefs.tvHoldSpeed.value, player.playbackParameters.speed.toDouble(), .001)
+                val info = org.robolectric.util.ReflectionHelpers.getField<Any>(player, "playbackInfo")
+                val error = androidx.media3.exoplayer.ExoPlaybackException.createForSource(java.io.IOException("不支持解码"),
+                    androidx.media3.common.PlaybackException.ERROR_CODE_DECODING_FAILED)
+                org.robolectric.util.ReflectionHelpers.setField(info, "playbackError", error)
+            }
+            advance(rule, 400)
+            assertTrue("应进入自动切核的停止屏障", stopped.isCompleted)
+            if (releaseAt == "stop") {
+                rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+                advance(rule, 300)
+            }
+            rule.runOnIdle { release.complete(Unit) }
+            advance(rule, 500)
+            if (releaseAt == "restore") {
+                assertTrue("新内核已应用正常倍率但回执仍未返回", restoring.isCompleted)
+                rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+                advance(rule, 200)
+                rule.runOnIdle { restoreRelease.complete(Unit) }
+            }
+            advance(rule, 1000)
+            assertEquals("mpv", core.calls.last { it.first == "player.play" }.second.str("engine"))
+            if (releaseAt == "ready") {
+                assertEquals("仍按住时新内核继续临时倍速", UiPrefs.tvHoldSpeed.value,
+                    core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
+                rule.onRoot().performKeyInput { keyUp(Key.Enter) }
+                advance(rule, 400)
+            }
+            assertEquals("松手后恢复切核前的正常倍率", normalSpeed,
+                core.calls.last { it.first == "player.setSpeed" }.second.dbl("speed")!!, .001)
+            assertFalse(core.calls.any { it.first == "player.setPlaybackPrefs" })
+        } finally { rule.runOnIdle { release.complete(Unit); restoreRelease.complete(Unit) } }
+    }
+
+    @Test fun 长按时自动切核中途松手恢复正常倍率() = fallbackDuringHold("stop")
+
+    @Test fun 长按时自动切核完成再松手恢复正常倍率() = fallbackDuringHold("ready")
+
+    @Test fun 长按时新内核恢复倍率回执缓慢松手不读旧偏好() = fallbackDuringHold("restore")
+
+    @Test fun 媒体信息显示内核快照并能用方向键查看完整内容() {
+        val core = core().apply { ret("player.opts", buildJsonObject {
+            put("speed", "1.75"); put("frame-drop-count", "12"); put("decoder-frame-drop-count", "0")
+            put("video-codec", "hevc"); put("dwidth", "3840"); put("dheight", "2160")
+            put("container-fps", "23.976"); put("video-format", "yuv420p10"); put("hwdec-current", "mediacodec")
+            put("current-vo", "gpu-next"); put("audio-codec-name", "aac")
+            put("last_error", "private diagnostic"); put("path", "private playback address")
+        }) }
+        show(core, "mpv")
+        withMediaInfo {
+            rule.onNodeWithText("1.75×").assertIsDisplayed()
+            rule.onNodeWithText("12 帧").assertIsDisplayed()
+            rule.onNodeWithText("0 帧").assertIsDisplayed()
+            repeat(16) { press(rule, Key.DirectionDown); advance(rule, 100) }
+            rule.onNodeWithText("aac").assertIsDisplayed()
+            repeat(16) { press(rule, Key.DirectionUp); advance(rule, 100) }
+            rule.onNodeWithText("返回").assertIsDisplayed()
+            rule.onNodeWithText("private diagnostic").assertDoesNotExist()
+            rule.onNodeWithText("private playback address").assertDoesNotExist()
+        }
+    }
+
+    @Test fun Media3媒体信息读取实际倍率且不查询MPV快照() {
+        val core = core().apply { ret("player.opts", buildJsonObject {
+            put("speed", "3.0"); put("frame-drop-count", "12"); put("decoder-frame-drop-count", "34")
+        }) }
+        show(core, "exo")
+        val reads = core.calls.count { it.first == "player.opts" }
+        withMediaInfo {
+            rule.onNodeWithText("1.50×").assertIsDisplayed()
+            rule.onNodeWithText("渲染丢帧").assertDoesNotExist()
+            rule.onNodeWithText("解码丢帧").assertDoesNotExist()
+        }
+        assertEquals(reads, core.calls.count { it.first == "player.opts" })
+    }
+
     @Test fun 手动双向切核保留暂停倍率和精确续播() {
         val core = core().apply {
             ret("player.status", buildJsonObject {
