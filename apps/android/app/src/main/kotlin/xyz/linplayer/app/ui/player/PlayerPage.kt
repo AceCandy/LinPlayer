@@ -1,6 +1,7 @@
 package xyz.linplayer.app.ui.player
 
 import xyz.linplayer.app.ui.theme.LpText
+import kotlin.math.roundToInt
 import androidx.compose.ui.graphics.graphicsLayer
 
 import android.app.Activity
@@ -1511,7 +1512,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         if (!inPip) key(controller, engine) {
             PlayerPanel(
                 panel, route.itemId, exo,
-                hasEpisodes = episodeLabel.isNotBlank(), chapters = chapters,
+                chapters = chapters,
                 markerPosition = position, markerDuration = duration,
                 allowMarkers = route.src == null && !route.localEntry && feedOverlay == null,
                 onMarkersSaved = { if (latestController === controller) { markerReloading = true; markerRevision++ } },
@@ -1697,22 +1698,22 @@ internal fun Osd(
                 .offset(y = if (!portrait && LocalConfiguration.current.screenHeightDp <= 360) (-4).dp
                     else if (!portrait && LocalConfiguration.current.screenHeightDp <= 400) (-16).dp else 0.dp)
                 .safeDrawingPadding().padding(end = if (portrait) Sp.x6 else Sp.x16)
-                // 加、读数、减共用一条胶囊底，读成一个步进器而不是三颗散落的控件。
-                .clip(RoundedCornerShape(R.pill)).background(Color.Black.copy(alpha = .38f)),
+                .clip(RoundedCornerShape(R.pill)),
                 horizontalAlignment = Alignment.CenterHorizontally,
                 verticalArrangement = Arrangement.spacedBy(if (portrait) Sp.x6
                     else if (LocalConfiguration.current.screenHeightDp <= 360) 0.dp else Sp.x12)) {
-                PlayerControl(if (portrait) LpIcons.plus else LpIcons.minus, if (portrait) "加速" else "减速",
-                    faceSize = controlFace, face = false, onClick = { onSpeed(step(speed, if (portrait) +1 else -1)) })
+                PlayerControl(LpIcons.plus, "加速",
+                    faceSize = controlFace, onClick = { onSpeed(step(speed, +1)) })
                 // 命中区固定48dp以免压到相邻控件；读数单行，放不下时缩小字号，不能拆出单独一行「×」。
                 Box(menuAnchor("speed").size(48.dp).pressable({ onPanel("speed") })
                     .semantics { contentDescription = "倍速" }, contentAlignment = Alignment.Center) {
                     Text("%.2f×".format(speed).replace(".00", ""), color = Color.White,
-                        style = LpText.number.copy(lineHeight = 20.sp), maxLines = 1, softWrap = false,
+                        style = LpText.number.copy(lineHeight = 20.sp,
+                            shadow = androidx.compose.ui.graphics.Shadow(Color.Black.copy(alpha = .75f), Offset(1f, 1f), 2f)), maxLines = 1, softWrap = false,
                         autoSize = androidx.compose.foundation.text.TextAutoSize.StepBased(minFontSize = 8.sp, maxFontSize = 15.sp))
                 }
-                PlayerControl(if (portrait) LpIcons.minus else LpIcons.plus, if (portrait) "减速" else "加速",
-                    faceSize = controlFace, face = false, onClick = { onSpeed(step(speed, if (portrait) -1 else +1)) })
+                PlayerControl(LpIcons.minus, "减速",
+                    faceSize = controlFace, onClick = { onSpeed(step(speed, -1)) })
             }
             if (!portrait) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth().background(BottomVeil)
                 .safeDrawingPadding()
@@ -1773,25 +1774,21 @@ internal fun Osd(
     }
 }
 
-/** 半透明圆底在亮暗画面上保持对比，图标操作至少48dp命中。 */
+/** 无底色图标用偏移暗影保持亮画面对比，操作至少48dp命中。 */
 @Composable
 private fun PlayerControl(
     icon: androidx.compose.ui.graphics.vector.ImageVector, label: String,
     size: androidx.compose.ui.unit.Dp = 48.dp, enabled: Boolean = true,
     faceSize: androidx.compose.ui.unit.Dp = size, modifier: Modifier = Modifier,
-    /** 放进共用胶囊底时关掉自身圆底，避免叠出深色圆斑。 */
-    face: Boolean = true,
     onClick: () -> Unit,
 ) {
     Box(modifier.size(size).clip(RoundedCornerShape(R.pill))
         .pressable(onClick, enabled = enabled),
         contentAlignment = Alignment.Center) {
-        Box(Modifier.size(faceSize).clip(RoundedCornerShape(R.pill))
-            .background(if (face) Color.Black.copy(alpha = .38f) else Color.Transparent),
-            contentAlignment = Alignment.Center) {
-            Icon(icon, label, Modifier.size(if (faceSize >= 70.dp) 34.dp else if (faceSize <= 28.dp) 18.dp else 23.dp),
-                tint = Color.White.copy(alpha = if (enabled) 1f else .4f))
-        }
+        val iconSize = if (faceSize >= 70.dp) 34.dp else if (faceSize <= 28.dp) 18.dp else 23.dp
+        Icon(icon, null, Modifier.size(iconSize + 2.dp).offset(y = 1.dp),
+            tint = Color.Black.copy(alpha = if (enabled) .75f else .3f))
+        Icon(icon, label, Modifier.size(iconSize), tint = Color.White.copy(alpha = if (enabled) 1f else .4f))
     }
 }
 
@@ -1888,9 +1885,9 @@ private fun NetSpeed(text: String) {
     )
 }
 
-/** 倍速:**连续不是档位**。点一下走 0.25。 */
-private fun step(cur: Double, dir: Int) =
-    ((cur + dir * 0.25).coerceIn(SP_MIN, SP_MAX) * 100).toInt() / 100.0
+/** 百分位整数步进，避免0.1的浮点误差累积到读数。 */
+internal fun step(cur: Double, dir: Int) =
+    ((cur * 100).roundToInt() + dir * 10).coerceIn((SP_MIN * 100).toInt(), (SP_MAX * 100).toInt()) / 100.0
 
 /**
  * OSD 上的一颗功能钮。

@@ -186,7 +186,7 @@
 | [x] | `player.setDanmakuEnabled` | **新增** | `enabled: bool` | `{enabled: bool}` | ✅ | <!-- 弹幕开关,落 prefs.danmaku_enabled。以前三端都在发一条不存在的命令 -->
 | [x] | `player.setDanmakuStyle` | **新增** | `area: f64, scale: f64, opacity: f64, speed: f64, roll_lines: i64, top_lines: i64, bottom_lines: i64, prevent_overlap: bool, merge: bool, bold: bool, heatmap: bool` | `DanmakuStyle` | ✅ | <!-- 全局显示设置,只传要改的那几个；roll_lines为0–20整数(0隐藏)，prevent_overlap默认true，保存失败回滚;回的是钳过之后的值,UI 照它刷读数 -->
 | [x] | `player.getDanmakuStyle` | **新增** | `—` | `DanmakuStyle` | ✅ | <!-- 面板打开时回显。不回显的话滑块从写死的默认值起手,和画面上的弹幕对不上 -->
-| [x] | `player.danmakuLayout` | **新增** | `—` | `DanmakuLayout` | ✅ | <!-- 排好版的弹幕(时刻/模式/轨道/宽/颜色/正文)+ 折算过的字号行高滚动时长。灌完语料、改完设置各取一次,UI 自己按帧插位置 -->
+| [x] | `player.danmakuLayout` | **新增** | `—` | `DanmakuLayout` | ✅ | <!-- 排好版的弹幕(时刻/模式/轨道/估宽/颜色/正文)+ 折算过的字号行高滚动时长及area_height区域高度(与res_y同单位，三类弹幕共用，底部从区域下沿向上排)。宿主用实际字体测宽绘制，旧回复缺area_height时按res_y。灌完语料、改完设置各取一次,UI 自己按帧插位置 -->
 | [x] | `player.danmakuHeatmap` | **新增** | `buckets: Option<i64>, duration: Option<f64>` | `Vec<f64>` | ✅ | <!-- 当前语料的密度(0..1),两端在进度条上画同一份 -->
 | [x] | `player.setPlaybackPrefs` | `set_playback_prefs` | `settings: PlaybackPrefs` | `Result<(), String>` | ✅ | <!-- liuying_speed为流影独立倍速，默认1，支持0.25–4；部分更新不改default_speed，保存失败回滚。 -->
 | [x] | `player.setScreenshotDir` | `set_screenshot_dir` | `dir: Option<String>` | `Result<ScreenshotDir, String>` | ❌ |

@@ -63,6 +63,9 @@ struct PlayerView: View {
                     VStack(alignment: .leading, spacing: 22) {
                         manualSkipButton
                         if let error = controller.skipError { RetryMessage(text: error) { controller.retrySkip(); touch() } }
+                        if !controller.ended, let error = controller.queueError {
+                            RetryMessage(text: error) { controller.loadQueue(); touch() }
+                        }
                         progressControl
                         transportControls
                     }.padding(.horizontal, 64).padding(.bottom, 40).padding(.top, 28)
@@ -131,7 +134,6 @@ struct PlayerView: View {
         case "speed": return "speed:\(controller.speed)"
         case "picture": return "picture:\(controller.pictureMode)"
         case "versions": return "version:\(controller.actualVersion)"
-        case "episodes": return "episode:\(controller.item)"
         case "chapters": return controller.engine?.mediaChapters.last(where: { $0.startSeconds <= controller.position }).map { "chapter:\($0.id)" }
         default: return nil
         }
@@ -232,7 +234,6 @@ struct PlayerView: View {
             Button("画面") { openPanel("picture") }.focused($focus, equals: "picture")
             Button("版本") { openPanel("versions") }.focused($focus, equals: "versions")
             if controller.engine?.mediaChapters.isEmpty == false { Button("章节") { openPanel("chapters") }.focused($focus, equals: "chapters") }
-            if controller.queueLoading || controller.queueError != nil || !controller.episodes.isEmpty { Button("选集") { openPanel("episodes") }.focused($focus, equals: "episodes") }
             if controller.message != nil && !controller.ended {
                 Button("重试") { Task { await model.switchPlayer(item: controller.item, title: controller.title, version: controller.version, fromStart: controller.fromStart) } }
             }
@@ -260,14 +261,6 @@ struct PlayerView: View {
                             Task { await controller.seek(to: chapter.startSeconds) }; closePanel()
                         }.focused($panelFocus, equals: "chapter:\(chapter.id)")
                     }
-                } else if panel == "episodes" {
-                    if controller.queueLoading { TVLoading("正在加载当前季") }
-                    if let error = controller.queueError { RetryMessage(text: error) { controller.loadQueue() } }
-                    ForEach(controller.episodes) { episode in
-                        Button((episode.id == controller.item ? "✓ " : "") + episode.title) { if episode.id != controller.item { switchEpisode(episode) } }
-                            .focused($panelFocus, equals: "episode:\(episode.id)").disabled(model.switchingPlayback)
-                    }
-                    Toggle("自动下一集", isOn: $autoNext)
                 } else if panel == "versions" {
                     if let error = controller.versionError { RetryMessage(text: error) { controller.loadVersions() } }
                     ForEach(controller.versions) { version in
@@ -314,7 +307,6 @@ struct PlayerView: View {
         case "speed": return "倍速"
         case "picture": return "画面比例"
         case "chapters": return "章节"
-        case "episodes": return "选集"
         case "versions": return "播放版本"
         default: return "字幕"
         }

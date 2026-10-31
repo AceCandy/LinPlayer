@@ -140,9 +140,9 @@ func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 	items := append([]danmakuItem(nil), in...)
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Time < items[j].Time })
 	laneH := laneHeight * s.Scale
-	maxLanes := int((float64(danmakuResY) - 8) / laneH)
-	rollLanes := min(s.RollLines, maxLanes, max(1, int(float64(danmakuResY)*s.Area/laneH)))
-	limits := map[int]int{1: rollLanes, 5: min(s.TopLines, maxLanes), 4: min(s.BottomLines, maxLanes)}
+	areaHeight := float64(danmakuResY) * s.Area
+	maxLanes := int((areaHeight - 8) / laneH)
+	limits := map[int]int{1: min(s.RollLines, maxLanes), 5: min(s.TopLines, maxLanes), 4: min(s.BottomLines, maxLanes)}
 	next := map[int]int{}
 	type occupiedRow struct{ top, until float64 }
 	active := make([]occupiedRow, 0, maxLanes)
@@ -154,7 +154,7 @@ func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 		}
 		topAt := func(lane int) float64 {
 			if d.Mode == 4 {
-				return float64(danmakuResY) - 4 - float64(lane+1)*laneH
+				return areaHeight - 4 - float64(lane+1)*laneH
 			}
 			return 4 + float64(lane)*laneH
 		}
@@ -213,7 +213,7 @@ func displayText(d danmakuItem) string {
 //
 // ★ 只能估:精确宽度得问两端各自的排字引擎,而排版在核心层跑。
 //
-//	估宽只影响「一轨能塞多密」和「什么时候完全走出左边」,偏一点不会画错。
+// 保留旧回复字段；宿主绘制的居中与滚动距离必须使用实际字体测宽。
 func textWidth(text string, scale float64) float64 {
 	w := 0.0
 	for _, r := range text {
@@ -397,6 +397,7 @@ func danmakuLayoutReply() map[string]any {
 	}
 	return map[string]any{
 		"res_x": danmakuResX, "res_y": danmakuResY,
+		"area_height": float64(danmakuResY) * s.Area,
 		"lane_height": laneHeight * s.Scale,
 		// 这两个时长已经把速度算进去了:UI 不该再知道 speed 这一档怎么折算
 		"roll_seconds": rollSeconds / s.Speed,

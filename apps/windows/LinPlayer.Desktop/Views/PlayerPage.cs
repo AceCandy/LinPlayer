@@ -120,7 +120,7 @@ public sealed class PlayerPage : UserControl
        但压不住官方控制条 —— 覆盖层不是 OSD 接管(那是 osd[] 贡献点),
        盖住控制条等于把暂停和进度条一起弄没了。 */
     private readonly Panel _overlays = new();
-    /// <summary>侧栏里的插件标签(<c>playerPanels</c>)。进页拉一次,开选集栏时交给它。</summary>
+    /// <summary>侧栏里的插件标签(<c>playerPanels</c>)。进页拉一次,打开侧栏时交给它。</summary>
     private IReadOnlyList<PlayerSurfaceInfo> _pluginPanels = [];
     /// <summary>进度条。 自绘,不是 Slider —— 理由见 <see cref="PlayerBar"/> 的注释。</summary>
     private readonly PlayerBar _bar = new();
@@ -574,15 +574,10 @@ public sealed class PlayerPage : UserControl
             else _ = SwitchSource.ShowForEmby(this, _core, _itemId, _position);
         };
 
-        /* 选集(用户 2026-09-05:「播放页没有选集按钮,不方便切换」)。
-           光有「下一集」不够 —— 追剧时常见的动作是**跳回去看某一集**,
-           而那件事原来只能退出播放页、回详情页、再翻到那一集。
-           分集表**播放页自己拉**,不让调用方喂:从集详情页进来的那条路
-           (2026-09-04 之后它是主路)调用方手上根本没有那张表。
-           按钮先不画,拉到了再显 —— 电影上它永远不该出现。 */
-        _pickEp = Glyph(Ico.Episodes, "选集 / 章节(E)");
-        _pickEp.IsVisible = false;
-        _pickEp.Click += (_, _) => ShowEpisodes();
+        // 章节和插件共用侧栏，只有可展示内容时才显示入口。
+        _drawerBtn = Glyph(Ico.Episodes, "章节 / 插件面板");
+        _drawerBtn.IsVisible = false;
+        _drawerBtn.Click += (_, _) => ShowDrawer();
 
         /* **一级按钮 + 一层弹层,到此为止**(用户 2026-09-06:
              「不应该做成太多二级三级菜单,尽量做成一级或二级」)。
@@ -601,7 +596,7 @@ public sealed class PlayerPage : UserControl
             _ = Send("player.setAspectRatio", new { ratio = Aspects[Math.Max(0, _aspect.SelectedIndex)].Value });
 
         /* 顶栏右边放**看片时基本不动**的那几样:截图、增强、比例、片头片尾。
-           底栏留给一直在用的:播放、进退、选集、倍速、音轨、字幕、音量、全屏。
+           底栏留给一直在用的:播放、进退、章节、倍速、音轨、字幕、音量、全屏。
            两条各管一类,比十个按钮挤在底栏一排更好瞄 —— 用户 2026-09-06 点的名。
            这几个用**文字**不用图标:「增强」「比例」没有公认的图标,
              随手挑一个 MDL2 字形的结果是用户得靠试才知道它是什么
@@ -722,13 +717,13 @@ public sealed class PlayerPage : UserControl
         left.Children.Add(_nextBtn);
         left.Children.Add(_volBox);
         left.Children.Add(clock);
-        // 右下角:选集 / 倍速 / 音轨 / 字幕 / 全屏(用户 2026-09-06 点名的那一组)
+        // 右下角:章节 / 倍速 / 音轨 / 字幕 / 全屏(用户 2026-09-06 点名的那一组)
         var right = new StackPanel
         {
             Orientation = Orientation.Horizontal, Spacing = 6,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { lineBtn, switchBtn, _pickEp, _speed, _audioBtn, subsBtn, dmBtn, full },
+            Children = { lineBtn, switchBtn, _drawerBtn, _speed, _audioBtn, subsBtn, dmBtn, full },
         };
         var controls = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
         Grid.SetColumn(left, 0);
@@ -981,7 +976,7 @@ public sealed class PlayerPage : UserControl
             空白处也会暂停,而那儿用户的意图是「什么都不做」。 */
         _view.PointerPressed += (_, e) =>
         {
-            // 选集栏开着时点画面 = 收起它,不是暂停:用户的意图是「不选了」
+            // 侧栏开着时点画面先收起它，不暂停视频
             if (_drawer is not null) { CloseDrawer(); e.Handled = true; return; }
             if (e.ClickCount != 1) return;   // 第二下是双击全屏,别顺带再暂停一次
             if (Fire(Actions.Hit(Actions.Player, Actions.Spec(e.GetCurrentPoint(_view).Properties))))
@@ -1041,7 +1036,7 @@ public sealed class PlayerPage : UserControl
                 ShowOsd(true);
                 switch (ui)
                 {
-                    case "drawer": ShowEpisodes(); break;
+                    case "drawer": ShowDrawer(); break;
                     case "seg": ShowSegments(segBtn); break;
                     case "subs": subsBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
                     case "dm": ShowDanmakuMenu(_dmBtn); break;
@@ -1131,21 +1126,13 @@ public sealed class PlayerPage : UserControl
         catch (Exception e) { _msg.Text = "截图失败:" + LibraryPage.Advice(e); }
     }
 
-    /// <summary>选集键。分集表拉到之前不画 —— 电影上它永远不出现。</summary>
-    private Button _pickEp = null!;
+    /// <summary>章节与插件侧栏入口，没有内容时隐藏。</summary>
+    private Button _drawerBtn = null!;
 
     /// <summary>当前季的分集表(按集号排好)。空 = 还没拉到,或者这根本不是剧集。</summary>
     private List<CardItem> _episodes = [];
 
-    /// <summary>
-    /// 拉当前季的分集表,供选集与连播共用。
-    ///
-    /// <para><b>播放页自己拉,不让调用方喂</b>:2026-09-04 之后点一集是进它自己的
-    /// 详情页,而集详情页手里没有分集表(它就是一个普通条目详情页)。
-    /// 让调用方喂的结果是「从剧详情页进来有选集、从集详情页进来没有」,
-    /// 而后者才是主路。</para>
-    /// <para>拉不到就整个不画:电影 / 网盘源 / 本地文件本来就没有分集。</para>
-    /// </summary>
+    /// <summary>实时读取当前季队列，供下一集与连播使用。</summary>
     private async Task<bool> LoadEpisodes()
     {
         if (NoEmby || _isLocal || _isSource || _itemId == "" || Nav.Session is not { } s) return true;
@@ -1163,7 +1150,6 @@ public sealed class PlayerPage : UserControl
             if (at < 0) throw new InvalidOperationException("当前集不在分集列表中");
             _next = _episodes.ElementAtOrDefault(at + 1);
             _nextBtn.IsVisible = _next is not null;
-            _pickEp.IsVisible = _episodes.Count > 1;
             return true;
         }
         catch (Exception e) {
@@ -1196,40 +1182,39 @@ public sealed class PlayerPage : UserControl
             foreach (var s in overlays)
                 if (PlayerSurfaces.Overlay(_core, s) is { } c) _overlays.Children.Add(c);
             _pluginPanels = panels;
-            // 侧栏里有插件标签,那一栏就得有路进去 —— 电影没有分集表时这颗按钮本来是藏着的
-            if (panels.Count > 0 && !_pickEp.IsVisible)
+            // 插件面板也需要可见入口。
+            if (panels.Count > 0 && !_drawerBtn.IsVisible)
             {
-                _pickEp.IsVisible = true;
-                ToolTip.SetTip(_pickEp, "插件面板(E)");
+                _drawerBtn.IsVisible = true;
+                ToolTip.SetTip(_drawerBtn, "插件面板");
             }
         });
     }
 
-    /// <summary>右侧那一栏(选集 + 章节)。开着时它就是这个;关着是 null。</summary>
-    private EpisodeDrawer? _drawer;
+    /// <summary>右侧章节与插件面板。开着时它就是这个;关着是 null。</summary>
+    private PlayerDrawer? _drawer;
 
     /// <summary>
-    /// 选集栏:贴右边滑出来,见 <see cref="EpisodeDrawer"/>。再按一次 / Esc / 点画面收起。
+    /// 章节与插件栏:贴右边滑出来,见 <see cref="PlayerDrawer"/>。再按一次 / Esc / 点画面收起。
     /// </summary>
-    private void ShowEpisodes()
+    private void ShowDrawer()
     {
         if (_drawer is not null) { CloseDrawer(); return; }
         var chapters = (_chapters.ItemsSource?.Cast<ChapterOption>() ?? [])
             .Select(c => (c.At, c.Label)).ToList();
-        if (_episodes.Count == 0 && chapters.Count == 0 && _pluginPanels.Count == 0) return;
-        var d = new EpisodeDrawer(_core, Nav.Session?.server ?? "", _episodes, _itemId, chapters,
-            e => { CloseDrawer(); PlayEpisode(e); },
+        if (chapters.Count == 0 && _pluginPanels.Count == 0) return;
+        var d = new PlayerDrawer(_core, chapters,
             at => _ = SeekTo(at),
             CloseDrawer, _pluginPanels);
         // 出场先摆在屏外,下一帧再给终值 —— 同一帧里设两次,过渡读不到「变过」
-        EpisodeDrawer.Slide(d, false);
+        PlayerDrawer.Slide(d, false);
         d.Transitions = Fade(OsdInMs);
         _drawer = d;
         _root!.Children.Insert(_root.Children.IndexOf(_bubble), d);
         Dispatcher.UIThread.Post(() =>
         {
             if (_drawer != d) return; // 已收起或换栏时,旧回调不能重新启用控件并抢焦点。
-            EpisodeDrawer.Slide(d, true);
+            PlayerDrawer.Slide(d, true);
             d.FocusInitial();
         }, DispatcherPriority.Render);
     }
@@ -1238,7 +1223,7 @@ public sealed class PlayerPage : UserControl
     {
         if (_drawer is not { } d) return;
         _drawer = null;
-        EpisodeDrawer.Slide(d, false);
+        PlayerDrawer.Slide(d, false);
         // 等滑出去再摘:当场摘掉就看不到收起的那一下
         DispatcherTimer.RunOnce(() => _root?.Children.Remove(d), TimeSpan.FromMilliseconds(OsdOutMs));
         Focus();
@@ -1329,8 +1314,8 @@ public sealed class PlayerPage : UserControl
             {
                 if (list.Count == 0) return;
                 _chapters.ItemsSource = list;
-                // 电影没有分集但可能有章节 —— 那时这个按钮也该亮,它是同一个入口
-                _pickEp.IsVisible = true;
+                // 章节可用时显示侧栏入口。
+                _drawerBtn.IsVisible = true;
                 // 进度条上切缺口。现代播放器都有这一下 ——
                 // 它把「这片子有几段」直接画在了用户要拖的那条线上。
                 _bar.Chapters = list.Select(c => c.At).ToList();
@@ -2011,12 +1996,7 @@ public sealed class PlayerPage : UserControl
             case "audio": _audioBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
             case "enhance": ShowEnhance(); break;
             case "danmaku": ShowDanmakuMenu(_dmBtn); break;
-            // ShowEpisodes 是开关:已经开着的时候再调一次会把它收起来,那不是「打开」
-            case "episodes" when _drawer is not null: break;
-            case "episodes":
-                if (!_pickEp.IsVisible) throw new NotSupportedException("这一部没有分集表(电影,或者分集还没拉到),选集面板打不开");
-                ShowEpisodes();
-                break;
+            case "episodes": throw new NotSupportedException("播放器已移除选集列表，请返回详情页选集");
             case "lines":
                 if (_src is null) throw new NotSupportedException("这一集不是数据源来的,没有线路可换");
                 ShowSourceLines(_lineBtn);
@@ -2079,7 +2059,6 @@ public sealed class PlayerPage : UserControl
             case "player.speedDown": _ = CycleSpeed(-1); break;
             case "player.fullscreen": ToggleFullscreen(); break;
             case "player.next": _ = GoNext(); break;
-            case "player.episodes" when _pickEp.IsVisible: ShowEpisodes(); break;
             // 抽屉关着时直接展开下拉框,列表会飘在一块看不见的面板上 —— 得先把面板拿出来
             case "player.quality": ShowEnhance(); break;
             case "player.screenshot": _ = Screenshot(); break;
@@ -2147,6 +2126,9 @@ public sealed class PlayerPage : UserControl
     private double _dmArea = 1.0, _dmScale = 1.0, _dmOpacity = 1.0, _dmSpeed = 1.0;
     private int _dmTop = 10, _dmBottom = 10;
     private bool _dmMerge, _dmBold, _dmHeat;
+    private bool _dmStyleLoaded;
+    private readonly SemaphoreSlim _dmStyleGate = new(1, 1);
+    private int _dmStylePending, _dmStyleRead;
 
     /// <summary>
     /// 弹幕菜单:开关 / 搜索 / 显示区域设置。
@@ -2400,28 +2382,40 @@ public sealed class PlayerPage : UserControl
 
     private async Task LoadDanmakuStyle()
     {
+        var read = ++_dmStyleRead;
+        _dmStylePending++;
+        _dmStyleLoaded = false;
+        _dmRepaint?.Invoke();
+        await _dmStyleGate.WaitAsync();
         try
         {
+            if (read != _dmStyleRead || _leaving) return;
             // 两个请求互不依赖,串起来的话面板要等两个往返才刷出正确的读数
             var t1 = _core.PlayerGetDanmakuStyle();
             var t2 = _core.PrefsGetPrefs();
             await Task.WhenAll(t1, t2);
             var r = await t1;
             var p = await t2;
-            Dispatcher.UIThread.Post(() =>
+            await Dispatcher.UIThread.InvokeAsync(() =>
             {
+                if (read != _dmStyleRead || _leaving) return;
                 _dmOn = p.TryGetProperty("danmaku_enabled", out var v) && v.ValueKind == JsonValueKind.True;
                 _dmBtn.Content = _dmOn ? "弹幕 ●" : "弹幕";
                 ApplyStyleReply(r);
                 _ = RefreshDanmakuLayout();
             });
         }
-        catch { /* 读不回来就用默认值起手 —— 面板不该因为这个消失 */ }
+        catch
+        {
+            if (read == _dmStyleRead && !_leaving) Toast.Show("弹幕设置读取失败，请重新打开菜单重试");
+        }
+        finally { _dmStyleGate.Release(); _dmStylePending--; _dmRepaint?.Invoke(); }
     }
 
     private void ApplyStyleReply(JsonElement r)
     {
         if (r.ValueKind != JsonValueKind.Object) return;
+        _dmStyleLoaded = true;
         double N(string k, double def) =>
             r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.Number ? v.GetDouble() : def;
         bool B(string k) => r.TryGetProperty(k, out var v) && v.ValueKind == JsonValueKind.True;
@@ -2615,7 +2609,7 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>
-    /// 弹幕显示设置：只保留用户容易理解的显示区域。
+    /// 弹幕显示设置：区域、不透明度、字体大小和速度。
     ///
     /// <para>每一下都是一次提交:核心层收到就重排并落库,画面当场变。
     /// 用滑块的话拖一次会灌上百次重排 —— 而重排要遍历几千条弹幕。</para>
@@ -2623,6 +2617,10 @@ public sealed class PlayerPage : UserControl
     private Control DanmakuStyleBlock()
     {
         var areaRow = MenuRow("");
+        var scaleText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
+        var opText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
+        var speedText = new TextBlock { Foreground = Brushes.White, FontSize = 13 };
+        var body = new StackPanel { Spacing = 2 };
 
         void Refresh()
         {
@@ -2630,41 +2628,73 @@ public sealed class PlayerPage : UserControl
             {
                 <= 0.3 => "1/4 屏", <= 0.6 => "1/2 屏", <= 0.85 => "3/4 屏", _ => "全屏",
             };
+            scaleText.Text = $"{_dmScale * 100:0}%";
+            opText.Text = $"{_dmOpacity * 100:0}%";
+            speedText.Text = $"{_dmSpeed:0.0}×";
+            body.IsEnabled = _dmStyleLoaded && _dmStylePending == 0;
         }
         Refresh();
         _dmRepaint = Refresh;
 
         async Task Push(object args)
         {
+            if (_dmStylePending != 0 || !_dmStyleLoaded || _leaving) return;
+            _dmStylePending++;
+            _dmRepaint?.Invoke();
+            await _dmStyleGate.WaitAsync();
             try
             {
                 var r = await _core.PlayerSetDanmakuStyle(args);
                 // 回的是**钳过之后**的值 —— 照它刷读数才不会显示一个核心层没接受的数
                 ApplyStyleReply(r);
-                // 显示区域变化后要立即重新排版
+                // 仅按保存成功的回值更新读数和排版。
                 await RefreshDanmakuLayout();
                 await RefreshHeatmap();
             }
             catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
+            finally { _dmStyleGate.Release(); _dmStylePending--; _dmRepaint?.Invoke(); }
+        }
+
+        Control Row(string label, TextBlock readout, string key, Func<double> current, double max)
+        {
+            Button Key(string text, int delta)
+            {
+                var button = new Button
+                {
+                    Content = text, Classes = { "osdstep" }, Width = 28, Height = 28,
+                    HorizontalContentAlignment = HorizontalAlignment.Center,
+                    VerticalContentAlignment = VerticalAlignment.Center,
+                };
+                button.Click += async (_, _) => await Push(new Dictionary<string, double>
+                {
+                    [key] = Math.Clamp(Math.Round((current() + delta * .1) * 10) / 10, .1, max),
+                });
+                return button;
+            }
+            readout.Width = 52;
+            readout.TextAlignment = TextAlignment.Center;
+            return Labeled(label, new StackPanel
+            {
+                Orientation = Orientation.Horizontal, Spacing = 6,
+                VerticalAlignment = VerticalAlignment.Center,
+                Children = { Key("−", -1), readout, Key("+", 1) },
+            });
         }
 
         // 范围是**四档枚举**不是连续值,所以是「点一下换下一档」而不是步进器
         areaRow.Click += async (_, _) =>
         {
-            _dmArea = _dmArea switch { <= 0.3 => 0.5, <= 0.6 => 0.75, <= 0.85 => 1.0, _ => 0.25 };
-            Refresh();
-            await Push(new { area = _dmArea });
+            var area = _dmArea switch { <= 0.3 => 0.5, <= 0.6 => 0.75, <= 0.85 => 1.0, _ => 0.25 };
+            // 调整区域时解除旧行数限制，其余外观偏好沿用。
+            await Push(new { area, roll_lines = 20, top_lines = 20, bottom_lines = 20 });
         };
 
-        return new StackPanel
-        {
-            Spacing = 2,
-            Children =
-            {
-                PopupTitle("弹幕显示"),
-                areaRow,
-            },
-        };
+        body.Children.Add(PopupTitle("弹幕显示"));
+        body.Children.Add(areaRow);
+        body.Children.Add(Row("不透明度", opText, "opacity", () => _dmOpacity, 1));
+        body.Children.Add(Row("字体大小", scaleText, "scale", () => _dmScale, 3));
+        body.Children.Add(Row("弹幕速度", speedText, "speed", () => _dmSpeed, 3));
+        return body;
     }
 
     /// <summary>跳过片头 / 片尾。按钮和快捷键走同一条路,不各写一遍。</summary>

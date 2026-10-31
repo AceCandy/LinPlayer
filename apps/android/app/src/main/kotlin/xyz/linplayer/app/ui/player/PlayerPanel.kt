@@ -41,7 +41,6 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.ensureActive
-import xyz.linplayer.app.data.Item
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.bool
@@ -59,7 +58,7 @@ import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
 import xyz.linplayer.app.ui.theme.Sp
 
-/** 播放器入口锚定菜单，保留原有选轨、分页与插件操作。 */
+/** 播放器入口锚定菜单，保留原有选轨、章节与插件操作。 */
 @Composable
 fun PlayerPanel(
     kind: String?,
@@ -68,7 +67,6 @@ fun PlayerPanel(
     fit: VideoFit = VideoFit.Source,
     anchor: Rect? = null,
     speed: Double = 1.0,
-    hasEpisodes: Boolean = false,
     chapters: List<JsonObject>? = null,
     onSwitchEngine: (() -> Unit)? = null,
     onSpeed: (Double) -> Unit = {},
@@ -108,7 +106,6 @@ fun PlayerPanel(
     var options by remember(menuKind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
     var mediaInfo by remember(menuKind, itemId, exo) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
     var current by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
-    var episodes by remember(menuKind, itemId) { mutableStateOf<List<Item>>(emptyList()) }
     var loadError by remember(menuKind, itemId, exo) { mutableStateOf<String?>(null) }
     var retry by remember(menuKind, itemId, exo) { mutableIntStateOf(0) }
     var positioned by remember(menuKind, itemId, exo) { mutableStateOf(false) }
@@ -118,10 +115,10 @@ fun PlayerPanel(
     val displayHz = androidx.compose.ui.platform.LocalView.current.display?.refreshRate ?: 0f
     var loading by remember(menuKind, itemId, exo) { mutableStateOf(true) }
 
-    LaunchedEffect(active, menuKind, itemId, exo, retry, hasEpisodes, onSwitchEngine != null, chapters) {
+    LaunchedEffect(active, menuKind, itemId, exo, retry, onSwitchEngine != null, chapters) {
         if (!active) return@LaunchedEffect
         loading = true; loadError = null
-        if (menuKind != "episodes") options = emptyList()
+        options = emptyList()
         when (menuKind) {
             "audio", "subtitle" -> if (exo != null) {
                 /* ☠☠ **Exo 内核不走 `player.tracks`。** 那条命令问的是 mpv,
@@ -173,30 +170,6 @@ fun PlayerPanel(
                     val o = it.obj() ?: return@mapNotNull null
                     Triple(o.str("id") ?: return@mapNotNull null,
                         if (o.bool("preferred")) "推荐" else null, o.str("name") ?: "版本")
-                }
-            }
-            "episodes" -> {
-                try {
-                    val d = app.call("emby.itemDetail", args("item_id" to itemId)).obj()
-                    currentCoroutineContext().ensureActive()
-                    val season = d.str("season_id")?.takeIf { it.isNotBlank() }
-                    val number = d.long("season_no")
-                    val parent = season ?: d.str("series_id")?.takeIf { it.isNotBlank() && number != null }
-                    checkNotNull(parent) { "无法确认当前季" }
-                    current = itemId
-                    // 缓存原始分页以保留重试游标，显示时才过滤剧级查询中的其它季。
-                    app.seasonEpisodes(parent, episodes) { items, _ ->
-                        episodes = items
-                        options = items.filter { season != null || it.seasonNo == number }.map {
-                            Triple(it.id, (it.runtimeSecs / 60).toInt().takeIf { m -> m > 0 }?.let { m -> "$m 分钟" },
-                                "S${it.seasonNo ?: number ?: 1}E${it.episodeNo ?: 1} ${it.name}")
-                        }
-                    }
-                    check(options.any { it.first == itemId }) { "当前集不在分集列表中" }
-                } catch (e: CancellationException) { throw e }
-                  catch (e: Exception) {
-                    currentCoroutineContext().ensureActive()
-                    loadError = "选集加载失败"
                 }
             }
             /* 画面增强。★ **`will_run == false` 的档位不进列表**
@@ -264,7 +237,7 @@ fun PlayerPanel(
                ☠ 上一版把它当设置项走 `pick`,而 pick 的 when 里根本没有 "more"
                   这一支 —— 落到 `else -> Unit`,表现是「更多里点什么都没反应」。 */
             "speed" -> {
-                options = (1..16).map { Triple((it * .25).toString(), null, "${it * .25}×") }
+                options = (3..13).map { Triple((it * .25).toString(), null, "${it * .25}×") }
                 current = speed.toString()
             }
             "info" -> {
@@ -277,7 +250,6 @@ fun PlayerPanel(
             }
             "more" -> {
                 options = listOfNotNull(
-                    if (hasEpisodes) Triple("episodes", null, "选集") else null,
                     Triple("ratio", null, "画面比例"),
                     if (allowMarkers) Triple("segments", null, "片头片尾") else null,
                     Triple("source", null, "版本与线路"),
@@ -314,7 +286,8 @@ fun PlayerPanel(
 
     val width = when (menuKind) {
         "more" -> 192.dp
-        "audio", "subtitle", "ratio", "speed", "chapters" -> 200.dp
+        "speed" -> 136.dp
+        "audio", "subtitle", "ratio", "chapters" -> 200.dp
         "substyle", "info", "segments" -> 272.dp
         "danmaku" -> if (danmakuPage == "quick") 220.dp else 280.dp
         else -> 236.dp
@@ -365,9 +338,8 @@ fun PlayerPanel(
                         else if (menuKind == "ratio") { onFit(VideoFit.of(id)); onClose() }
                         else if (menuKind == "speed") { id.toDoubleOrNull()?.let(onSpeed); onClose() }
                         else if (menuKind == "chapters") { id.toDoubleOrNull()?.let(onSeek); onClose() }
-                        else if (menuKind == "source" || menuKind == "episodes") {
-                            onPlaybackTarget(if (menuKind == "source") itemId else id,
-                                if (menuKind == "source") id else null, label)
+                        else if (menuKind == "source") {
+                            onPlaybackTarget(itemId, id, label)
                             onClose()
                         }
                         else {
@@ -379,7 +351,7 @@ fun PlayerPanel(
                         sub = badge?.takeIf { (menuKind == "audio" || menuKind == "subtitle") && it != label },
                         badge = badge.takeUnless { menuKind == "audio" || menuKind == "subtitle" },
                         icon = if (menuKind == "more") when (id) {
-                            "episodes" -> LpIcons.list; "ratio" -> LpIcons.aspect; "source" -> LpIcons.version
+                            "ratio" -> LpIcons.aspect; "source" -> LpIcons.version
                             "quality" -> LpIcons.sparkle; "engine" -> LpIcons.play; "info" -> LpIcons.list; else -> LpIcons.sub
                         } else null,
                         divider = loading || i < options.lastIndex)
@@ -469,14 +441,18 @@ private fun SubStylePanel(app: xyz.linplayer.app.data.AppState, scope: kotlinx.c
 internal fun PlayerStyleSlider(label: String, value: Float, range: ClosedFloatingPointRange<Float>, steps: Int,
     enabled: Boolean = SubStyle.loaded.value, accent: Color = PlayerMenuAccent, resetKey: Int = 0,
     format: (Float) -> String, onCommit: (Float) -> Unit) {
-    var live by remember(value, resetKey) { mutableStateOf(value.coerceIn(range)) }
+    var live by remember { mutableStateOf(value.coerceIn(range)) }
+    var editing by remember { mutableStateOf(false) }
+    LaunchedEffect(value, resetKey) {
+        if (!editing) live = value.coerceIn(range)
+    }
     Column(Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 4.dp)) {
         androidx.compose.foundation.layout.Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             Text(label, Modifier.weight(1f), color = Color.White.copy(alpha = .7f), style = LpText.action)
             Text(format(live), color = Color.White.copy(alpha = .7f), style = LpText.number)
         }
-        Slider(live, { live = it }, enabled = enabled, valueRange = range, steps = steps,
-            onValueChangeFinished = { onCommit(live) }, modifier = Modifier.semantics { contentDescription = label },
+        Slider(live, { editing = true; live = it }, enabled = enabled, valueRange = range, steps = steps,
+            onValueChangeFinished = { editing = false; onCommit(live) }, modifier = Modifier.semantics { contentDescription = label },
             colors = SliderDefaults.colors(thumbColor = accent, activeTrackColor = accent,
                 inactiveTrackColor = Color.White.copy(alpha = .2f)))
     }

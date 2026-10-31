@@ -1,9 +1,51 @@
 package player
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 )
+
+func TestAreaBoundsAllDanmaku(t *testing.T) {
+	for _, area := range []float64{0.25, 0.5, 0.75, 1} {
+		for _, scale := range []float64{0.1, 1, 3} {
+			t.Run(fmt.Sprintf("area=%g/scale=%g", area, scale), func(t *testing.T) {
+				s := testStyle()
+				s.Area, s.Scale = area, scale
+				s.TopLines, s.BottomLines = 20, 20
+				var in []danmakuItem
+				for i := 0; i < 60; i++ {
+					in = append(in, danmakuItem{Time: float64(i) / 10, Mode: []int{1, 4, 5}[i%3], Text: "混合弹幕"})
+				}
+				height, row := float64(danmakuResY)*area, laneHeight*scale
+				top := func(d danmakuItem) float64 {
+					if d.Mode == 4 {
+						return height - 4 - float64(d.lane+1)*row
+					}
+					return 4 + float64(d.lane)*row
+				}
+				out := layout(in, s)
+				if len(out) == 0 {
+					t.Fatal("区域内没有弹幕")
+				}
+				for i, a := range out {
+					if top(a) < 4 || top(a)+row > height-4+1e-9 {
+						t.Fatalf("弹幕超出区域: %+v, top=%v, height=%v", a, top(a), height)
+					}
+					span := fixSeconds
+					if a.Mode == 1 {
+						span = rollSeconds / s.Speed
+					}
+					for _, b := range out[i+1:] {
+						if b.Time < a.Time+span && top(a)+1e-9 < top(b)+row && top(b)+1e-9 < top(a)+row {
+							t.Fatalf("区域内类型互相覆盖: %+v / %+v", a, b)
+						}
+					}
+				}
+			})
+		}
+	}
+}
 
 func testStyle() dmStyle {
 	return dmStyle{
@@ -167,6 +209,7 @@ func TestLayoutReplyFoldsStyleIn(t *testing.T) {
 	s.Speed = 2.0
 	s.Opacity = 0.5
 	s.Bold = true
+	s.Area = .25
 	styMu.Lock()
 	sty = s
 	styMu.Unlock()
@@ -175,6 +218,9 @@ func TestLayoutReplyFoldsStyleIn(t *testing.T) {
 	dmMu.Unlock()
 
 	r := danmakuLayoutReply()
+	if got := r["area_height"]; got != 270.0 {
+		t.Fatalf("区域高度未同步给宿主: %v", got)
+	}
 	if got := r["font_size"].(float64); got != 80 {
 		t.Fatalf("缩放 2× 该给 80 号字,实得 %v", got)
 	}

@@ -39,18 +39,20 @@ object PluginPlayer {
      */
     fun phoneKind(panel: String, hasExo: Boolean): String = when (panel) {
         "subtitles" -> "subtitle"
-        "audio", "danmaku", "episodes", "more" -> panel
+        "audio", "danmaku", "more" -> panel
+        "episodes" -> no("播放器已移除选集列表，请返回详情页选集")
         "lines" -> "source"
         // 画面增强是 mpv 的 glsl-shaders;Exo 那条路上开了也是空转,不如说清楚
         "enhance" -> if (hasExo) no("当前是 Exo 内核,没有画面增强这一档") else "quality"
-        "speed" -> no("手机端倍速是控制栏上的步进按钮,没有单独的面板")
+        "speed" -> no("手机端请从控制栏倍率入口打开倍速菜单")
         else -> no("安卓手机端没有「$panel」这个面板")
     }
 
     /** SDK 的 `PlayerPanel` → TV 端面板名。 */
     fun tvKind(panel: String): String = when (panel) {
         "subtitles" -> "sub"
-        "audio", "danmaku", "episodes", "more" -> panel
+        "audio", "danmaku", "more" -> panel
+        "episodes" -> no("播放器已移除选集列表，请返回详情页选集")
         // 这两项在 TV 上没有独立侧栏,直接开会开出一个空面板
         "speed", "enhance" -> no("TV 端「$panel」在「更多」面板里,请用 openPanel('more')")
         "lines" -> no("安卓 TV 播放器没有线路面板")

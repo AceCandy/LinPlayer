@@ -361,8 +361,8 @@ class TvFocusTest {
         assertEquals("sh5", lastPlayed())
     }
 
-    @Test fun 弹幕设置只保留显示区域并按四档循环() {
-        val style = args(
+    @Test fun 弹幕四项设置可遥控且区域按四档循环() {
+        var style = args(
             "area" to 1.0, "scale" to 1.0, "opacity" to 1.0, "speed" to 1.0,
             "roll_lines" to 5, "top_lines" to 4, "bottom_lines" to 3,
             "bold" to false, "merge" to false, "prevent_overlap" to true, "heatmap" to false,
@@ -372,9 +372,9 @@ class TvFocusTest {
         mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
             player()
             ret("player.getDanmakuStyle", style)
-            ret("prefs.getPrefs", args("danmaku_enabled" to true))
-            ret("player.danmakuLayout", args("items" to kotlinx.serialization.json.JsonArray(emptyList())))
-            on("player.setDanmakuStyle") { a -> kotlinx.serialization.json.JsonObject(style + a.orEmpty()) }
+            ret("prefs.getPrefs", args("danmaku_enabled" to false))
+            ret("player.danmakuLayout", kotlinx.serialization.json.JsonNull)
+            on("player.setDanmakuStyle") { a -> kotlinx.serialization.json.JsonObject(style + a.orEmpty()).also { style = it } }
         }
         press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.Enter); advance(rule, 400)
         rule.onNodeWithText("当前视频").assertExists()
@@ -382,7 +382,48 @@ class TvFocusTest {
         repeat(4) { press(rule, Key.Enter); advance(rule, 200) }
         val areas = core.calls.filter { it.first == "player.setDanmakuStyle" }.mapNotNull { it.second.dbl("area") }
         assertEquals(listOf(.25, .5, .75, 1.0), areas.takeLast(4))
+        assertEquals(20.0, style.dbl("roll_lines")!!, .001)
+        assertEquals(20.0, style.dbl("top_lines")!!, .001)
+        assertEquals(20.0, style.dbl("bottom_lines")!!, .001)
+        press(rule, Key.DirectionDown, Key.DirectionLeft); advance(rule, 200)
+        assertEquals(.9, style.dbl("opacity")!!, .001)
+        press(rule, Key.DirectionDown, Key.DirectionRight); advance(rule, 200)
+        assertEquals(1.1, style.dbl("scale")!!, .001)
+        press(rule, Key.DirectionDown, Key.DirectionRight); advance(rule, 200)
+        assertEquals(1.1, style.dbl("speed")!!, .001)
         pressBack(); focused("osd.dm")
+    }
+
+    @Test fun 弹幕慢保存时连续按键逐次累加() {
+        val gate = kotlinx.coroutines.CompletableDeferred<Unit>()
+        var hold = true
+        var style = args("area" to 1.0, "scale" to 1.0, "opacity" to 1.0, "speed" to 1.0)
+        DanmakuStyle.loaded.value = false
+        DanmakuStyle.layout.value = null
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv"), intercept = { fake ->
+            object : xyz.linplayer.app.core.CorePort by fake {
+                override suspend fun callJson(command: String, args: kotlinx.serialization.json.JsonObject?,
+                    onPartial: ((kotlinx.serialization.json.JsonElement) -> Unit)?): kotlinx.serialization.json.JsonElement {
+                    if (command == "player.setDanmakuStyle" && hold) gate.await()
+                    return fake.callJson(command, args, onPartial)
+                }
+            }
+        }) {
+            player()
+            ret("player.getDanmakuStyle", style)
+            ret("prefs.getPrefs", args("danmaku_enabled" to false))
+            ret("player.danmakuLayout", kotlinx.serialization.json.JsonNull)
+            on("player.setDanmakuStyle") { a -> kotlinx.serialization.json.JsonObject(style + a.orEmpty()).also { style = it } }
+        }
+        try {
+            press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.Enter); advance(rule, 400)
+            rule.onNodeWithText("显示区域").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+            press(rule, Key.Enter, Key.Enter, Key.DirectionDown, Key.DirectionLeft, Key.DirectionLeft)
+            assertFalse(core.calls.any { it.first == "player.setDanmakuStyle" })
+            rule.runOnIdle { hold = false; gate.complete(Unit) }; advance(rule, 800)
+            assertEquals(.5, style.dbl("area")!!, .001)
+            assertEquals(.8, style.dbl("opacity")!!, .001)
+        } finally { gate.complete(Unit) }
     }
 
     @Test fun 插件入口移到更多后返回逐级退出并恢复播控() {

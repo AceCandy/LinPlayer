@@ -1052,6 +1052,7 @@ export interface PlayerTracks {
   subtitle: { id: number; title?: string; lang?: string; external: boolean; selected: boolean }[]
 }
 
+/** episodes为旧兼容值；宿主拒绝打开已移除的选集列表，错误按现有异步通知记录。 */
 export type PlayerPanel = 'subtitles' | 'audio' | 'speed' | 'enhance' | 'danmaku' | 'episodes' | 'lines' | 'more'
 
 export declare namespace player {

@@ -57,6 +57,51 @@ func TestResolvePriorityFailureAndStop(t *testing.T) {
 	}
 }
 
+func TestResolveSkipsEmptyCandidateWithinSource(t *testing.T) {
+	for _, tc := range []struct {
+		name, title string
+		wantMatch   bool
+	}{
+		{"同作品后续候选有弹幕", "测试番", true},
+		{"不尝试低分候选", "unrelated", false},
+		{"不回退到明确其它季", "测试番 第二季", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var emptyCalls, availableCalls atomic.Int32
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case "/api/v2/comment/empty":
+					emptyCalls.Add(1)
+					_, _ = w.Write([]byte(`{"comments":[]}`))
+				case "/api/v2/comment/available":
+					availableCalls.Add(1)
+					_, _ = w.Write([]byte(`{"comments":[{"p":"1,1,16777215,u","m":"自动加载弹幕"}]}`))
+				default:
+					_ = json.NewEncoder(w).Encode(map[string]any{"animes": []any{
+						map[string]any{"animeId": "first", "animeTitle": "测试番", "episodes": []any{map[string]any{"episodeId": "empty", "episodeNumber": "1"}}},
+						map[string]any{"animeId": "second", "animeTitle": tc.title, "episodes": []any{map[string]any{"episodeId": "available", "episodeNumber": "1"}}},
+					}})
+				}
+			}))
+			defer srv.Close()
+			isolatedSources(t, []SourceConfig{{ID: "source", Name: "测试源", APIURL: srv.URL}})
+			result, err := resolveSource(context.Background(), map[string]any{"input": map[string]any{"title": "测试番", "season_no": 1, "episode_no": 1}})
+			if err != nil || (result.Match != nil) != tc.wantMatch {
+				t.Fatalf("自动匹配结果不符: %+v %v", result, err)
+			}
+			if tc.wantMatch && (result.Match.EpisodeID != "available" || len(result.Items) != 1 || availableCalls.Load() != 1) {
+				t.Fatalf("未加载后续候选: %+v", result)
+			}
+			if !tc.wantMatch && availableCalls.Load() != 0 {
+				t.Fatal("低分或明确错季候选不应请求弹幕")
+			}
+			if emptyCalls.Load() != 1 {
+				t.Fatalf("多路召回的同一分集重复请求: %d", emptyCalls.Load())
+			}
+		})
+	}
+}
+
 func TestRememberedUsesRealEpisodeListAndAccountScope(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{"bangumi":{"episodes":[{"episodeId":"11","episodeNumber":"1"},{"episodeId":"12","episodeNumber":"SP1"},{"episodeId":"95","episodeNumber":2}]}}`))

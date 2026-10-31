@@ -29,12 +29,14 @@ public sealed class DmItem
     internal IImmutableGlyphRunReference[]? Runs;
     /// <summary>缓存是按哪一档字号排的。字号变了(换窗口大小 / 改设置)就得重排。</summary>
     internal int Gen = -1;
+    internal double MeasuredWidth;
 }
 
 /// <summary>一整份排版结果 + 已经把缩放和速度折算进去的几何量。</summary>
 public sealed class DmLayout
 {
     public double ResX = 1920, ResY = 1080;
+    public double AreaHeight = 1080;
     public double LaneHeight = 54, RollSeconds = 8, FixSeconds = 5, FontSize = 40;
     public double Opacity = 1;
     public bool Bold;
@@ -49,6 +51,7 @@ public sealed class DmLayout
         var l = new DmLayout
         {
             ResX = N("res_x", 1920), ResY = N("res_y", 1080),
+            AreaHeight = N("area_height", N("res_y", 1080)),
             LaneHeight = N("lane_height", 54), RollSeconds = N("roll_seconds", 8),
             FixSeconds = N("fix_seconds", 5), FontSize = N("font_size", 40),
             Opacity = N("opacity", 1),
@@ -142,6 +145,8 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
                 _synced = CompositionNow;
                 break;
         }
+        // 暂停时没有帧循环，改样式或拖动仍须立即重绘。
+        Invalidate();
         Kick();
     }
 
@@ -175,9 +180,10 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
         var sy = h / l.ResY;
         var font = l.FontSize * sy;
         var laneH = l.LaneHeight * sy;
+        var areaH = Math.Min(h, l.AreaHeight * sy);
         var a = (byte)Math.Clamp(l.Opacity * 255, 0, 255);
         var face = l.Bold ? FaceBold : Face;
-        if (Math.Abs(font - _genFont) > 0.5 || _genBold != l.Bold || _genAlpha != a)
+        if (font != _genFont || _genBold != l.Bold || _genAlpha != a)
         {
             _genFont = font; _genBold = l.Bold; _genAlpha = a; _gen++;
             _brushes.Clear();
@@ -196,6 +202,7 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
         }
         _liveFrom = from;
 
+        using var clip = ctx.PushClip(new Rect(0, 0, w, areaH));
         for (var i = from; i < l.Items.Count; i++)
         {
             var d = l.Items[i];
@@ -203,7 +210,13 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
             var age = now - d.T;
             var span = d.Mode == 1 ? l.RollSeconds : l.FixSeconds;
             if (age > span) continue;
-            var wPx = d.W * sy;
+            if (d.Gen != _gen || d.Runs is null)
+            {
+                d.Runs = Shape(d.Text, face, font, out d.MeasuredWidth);
+                d.Gen = _gen;
+            }
+            if (d.Runs.Length == 0) continue;   // 单条整形失败不影响其余弹幕
+            var wPx = d.MeasuredWidth;
             double x, top;
             if (d.Mode == 1)
             {
@@ -216,16 +229,10 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
                 x = (w - wPx) / 2;
                 top = d.Mode == 5
                     ? 4 * sy + d.Lane * laneH
-                    : h - 4 * sy - (d.Lane + 1) * laneH;
+                    : areaH - 4 * sy - (d.Lane + 1) * laneH;
             }
             if (x > w || x + wPx < 0) continue;
 
-            if (d.Gen != _gen || d.Runs is null)
-            {
-                d.Runs = Shape(d.Text, face, font);
-                d.Gen = _gen;
-            }
-            if (d.Runs.Length == 0) continue;   // 这条整形不出来就跳过,别让一条坏数据停掉整屏
             if (!_brushes.TryGetValue(d.Color, out var brush))
                 _brushes[d.Color] = brush = new ImmutableSolidColorBrush(Color.FromArgb(
                     a, (byte)(d.Color >> 16), (byte)(d.Color >> 8), (byte)d.Color));
@@ -247,21 +254,23 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     /// 默认字体里没有的字(中文、emoji)全画成方块 —— 2026-09-17 用户报「一堆口口口」。
     /// 回退字体是 <c>TextLayout</c> 逐段挑的,这里只把它挑好的每一段照原样搬出来。</para>
     /// </summary>
-    private static IImmutableGlyphRunReference[] Shape(string text, Typeface face, double font)
+    private static IImmutableGlyphRunReference[] Shape(string text, Typeface face, double font, out double width)
     {
         var refs = new List<IImmutableGlyphRunReference>();
-        foreach (var run in ShapeRuns(text, face, font))
+        foreach (var run in ShapeRuns(text, face, font, out width))
             if (run.TryCreateImmutableGlyphRunReference() is { } r) refs.Add(r);
         return [.. refs];
     }
 
     /// <summary>整形出来的字形段。单拎出来是给探针查「有没有落成 .notdef(方块)」。</summary>
-    internal static List<GlyphRun> ShapeRuns(string text, Typeface face, double font)
+    internal static List<GlyphRun> ShapeRuns(string text, Typeface face, double font, out double width)
     {
+        width = 0;
         var runs = new List<GlyphRun>();
         try
         {
             using var layout = new TextLayout(text, face, font, null);
+            width = layout.WidthIncludingTrailingWhitespace;
             foreach (var line in layout.TextLines)
             {
                 var x = 0.0;

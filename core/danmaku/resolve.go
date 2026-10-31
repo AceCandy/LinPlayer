@@ -258,9 +258,21 @@ func resolveSource(ctx context.Context, a map[string]any) (ResolveResult, error)
 		timed, cancel := context.WithTimeout(ctx, sourceTimeout)
 		candidates, e := matchOne(timed, cfg, in)
 		sort.SliceStable(candidates, func(i, j int) bool { return candidates[i].Score > candidates[j].Score })
-		if e == nil && len(candidates) > 0 && candidates[0].Score >= MinAutoScore {
+		seen := make(map[string]bool)
+		for _, candidate := range candidates {
+			if e != nil || candidate.Score < MinAutoScore {
+				break
+			}
+			if seen[candidate.EpisodeID] {
+				continue
+			}
+			if _, known := seasonOf(candidate.AnimeTitle); len(seen) > 0 && known && SeasonTerm(in, candidate.AnimeTitle) < 0 {
+				continue
+			}
+			seen[candidate.EpisodeID] = true
 			var ok bool
-			ok, e = load(timed, candidates[0])
+			// 空弹幕不能终止同源匹配；仍共用该源的时限和可信度门槛。
+			ok, e = load(timed, candidate)
 			if ok {
 				cancel()
 				return result, nil

@@ -393,7 +393,6 @@ internal fun openPanel(
             "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
-            "episodes" -> EpisodesPanel(overlay, ui, target, ctl)
             else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl, plugins, if (which == "speed") "speed" else "")
         }
     }
@@ -541,53 +540,27 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
                 onStep = { d -> scope.launch { DanmakuStyle.setOffset(app, DanmakuStyle.offset.doubleValue + d * 0.5) } })
             PanelItem("重置弹幕时间", onClick = { scope.launch { DanmakuStyle.setOffset(app, 0.0) } })
             PanelGroup("显示设置")
-            val matched = DanmakuStyle.layout.value != null
-            if (!matched) PanelItem("这一集没有匹配到弹幕", enabled = false)
-            PanelItem("显示区域", value = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = matched, onClick = {
-                scope.launch { DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) }
-            })
-        }
-    }
-}
-
-/**
- * 选集面板:列当前季,与手机一致。行**带封面**【继承手机 A-26】:播放中换集,用户是靠画面认集的,「第 7 集」三个字唤不起记忆。
- */
-@Composable
-private fun BoxScope.EpisodesPanel(overlay: Overlay, ui: PlayerUi, target: TvRoute.Player, ctl: PlayerCtl) {
-    TvSidePanel("选集", { overlay.close() }) {
-        if (ui.episodes.isEmpty()) PanelItem("这一季没有别的集", enabled = false)
-        ui.episodes.forEach { ep -> ThumbRow(ep, current = ep.id == target.itemId) { overlay.close(); ctl.switchTo(TvRoute.Player(ep.id, cardTitleOf(ep))) } }
-    }
-}
-
-@Composable
-private fun ThumbRow(ep: Item, current: Boolean, onClick: () -> Unit) {
-    val app = LocalApp.current
-    val t = tvType
-    var hasFocus by remember { mutableStateOf(false) }
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.padding(horizontal = TvSp.x6).fillMaxWidth().heightIn(min = t.rowH).let { if (current) it.memo("eps.cur", initial = true) else it }
-            .onFocusChanged { hasFocus = it.isFocused }.tvRaised(hasFocus, corner = 10.dp),
-        shape = ClickableSurfaceDefaults.shape(TvR.md),
-        scale = ClickableSurfaceDefaults.scale(focusedScale = 1f, pressedScale = 0.98f),
-        colors = ClickableSurfaceDefaults.colors(containerColor = Color.Transparent, contentColor = if (current) TvC.fg else TvC.fg2,
-            focusedContainerColor = TvC.focus, focusedContentColor = TvC.onFocus),
-    ) {
-        Box {
-            if (current) Box(Modifier.align(Alignment.CenterStart).width(3.dp).height(t.rowH * 0.45f).clip(TvR.pill).background(TvC.acc))
-            Row(Modifier.padding(horizontal = TvSp.x12, vertical = TvSp.x6), verticalAlignment = Alignment.CenterVertically) {
-                Box(Modifier.size(64.dp, 36.dp).clip(TvR.sm)) { TvImage(app.imageUrl(ep.id, "Primary", 120).takeUnless { ep.hasPrimary == false }) }
-                Spacer(Modifier.width(TvSp.x8))
-                Column {
-                    Text("S${ep.seasonNo ?: 1}E${ep.episodeNo ?: 1} ${ep.name}", fontSize = t.body, maxLines = 2)
-                    if (ep.runtimeSecs > 0) Text("${(ep.runtimeSecs / 60).toInt()} 分钟", fontSize = t.meta)
-                }
+            val ready = DanmakuStyle.loaded.value
+            DanmakuStyle.loadError.value?.let {
+                PanelItem(it, enabled = false)
+                PanelItem("重试读取设置", onClick = { scope.launch { DanmakuStyle.load(app) } })
             }
+            PanelItem("显示区域", value = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = ready, onClick = {
+                scope.launch { DanmakuStyle.set(app, "area") { DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue) } }
+            })
+            PanelItem("不透明度", value = "${kotlin.math.round(DanmakuStyle.opacity.doubleValue * 100).toInt()}%", enabled = ready,
+                step = true, onStep = { d -> scope.launch { DanmakuStyle.set(app, "opacity") {
+                    DanmakuStyle.step(DanmakuStyle.opacity.doubleValue, d > 0, .1, .1, 1.0) } } })
+            PanelItem("字体大小", value = "${kotlin.math.round(DanmakuStyle.scale.doubleValue * 100).toInt()}%", enabled = ready,
+                step = true, onStep = { d -> scope.launch { DanmakuStyle.set(app, "scale") {
+                    DanmakuStyle.step(DanmakuStyle.scale.doubleValue, d > 0, .1, .1, 3.0) } } })
+            PanelItem("弹幕速度", value = "%.1f×".format(DanmakuStyle.speed.doubleValue), enabled = ready,
+                step = true, onStep = { d -> scope.launch { DanmakuStyle.set(app, "speed") {
+                    DanmakuStyle.step(DanmakuStyle.speed.doubleValue, d > 0, .1, .1, 3.0) } } })
         }
     }
 }
+
 
 @Composable
 private fun BoxScope.MorePanel(

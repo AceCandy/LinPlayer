@@ -56,7 +56,7 @@ internal static class DanmakuProbe
     private static bool NoTofu()
     {
         const string text = "前方高能!!ここすき 草www 🎉 233";
-        var runs = DanmakuVisualHandler.ShapeRuns(text, DanmakuVisualHandler.Face, 40);
+        var runs = DanmakuVisualHandler.ShapeRuns(text, DanmakuVisualHandler.Face, 40, out _);
         var glyphs = runs.Sum(r => r.GlyphInfos.Count);
         var tofu = runs.Sum(r => r.GlyphInfos.Count(g => g.GlyphIndex == 0));
         var faces = string.Join(" / ", runs.Select(r => r.GlyphTypeface.FamilyName).Distinct());

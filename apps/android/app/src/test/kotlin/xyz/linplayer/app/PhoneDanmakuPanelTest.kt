@@ -79,7 +79,7 @@ class PhoneDanmakuPanelTest {
         rule.waitForIdle()
     }
 
-    @Test fun 快捷菜单只保留显示区域设置() {
+    @Test fun 显示设置保留四项且区域解除旧行数限制() {
         val core = core()
         open(core)
         rule.onNodeWithText("测试来源", substring = true).assertIsDisplayed()
@@ -88,9 +88,9 @@ class PhoneDanmakuPanelTest {
         val before = rule.onNodeWithTag("danmaku.host").captureToImage().toPixelMap()[10, 100]
         rule.onNodeWithText("显示设置").performClick()
         rule.onNodeWithText("显示区域").assertIsDisplayed()
-        rule.onNodeWithText("不透明度").assertDoesNotExist()
-        rule.onNodeWithText("字号").assertDoesNotExist()
-        rule.onNodeWithText("滚动速度").assertDoesNotExist()
+        rule.onNodeWithText("不透明度").assertIsDisplayed()
+        rule.onNodeWithText("字体大小").assertIsDisplayed()
+        rule.onNodeWithText("弹幕速度").assertIsDisplayed()
         rule.onNodeWithText("更多显示设置").assertDoesNotExist()
         val bounds = rule.onNodeWithTag("player.menu").fetchSemanticsNode().boundsInRoot
         assertEquals(280f, bounds.width, .5f)
@@ -98,6 +98,9 @@ class PhoneDanmakuPanelTest {
         assertEquals(before, rule.onNodeWithTag("danmaku.host").captureToImage().toPixelMap()[10, 100])
         rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
         assertEquals(0.25, stored.dbl("area")!!, .001)
+        listOf("roll_lines", "top_lines", "bottom_lines").forEach { assertEquals(20.0, stored.dbl(it)!!, .001) }
+        assertEquals(.5, stored.dbl("opacity")!!, .001)
+        assertTrue(stored.bool("merge"))
         rule.onNodeWithText("1/4 屏").assertIsDisplayed()
         rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
         assertEquals(0.5, stored.dbl("area")!!, .001)
@@ -105,6 +108,14 @@ class PhoneDanmakuPanelTest {
         assertEquals(0.75, stored.dbl("area")!!, .001)
         rule.onNodeWithText("显示区域").performClick(); rule.waitForIdle()
         assertEquals(1.0, stored.dbl("area")!!, .001)
+        for ((label, key, value) in listOf(Triple("不透明度", "opacity", .7f),
+            Triple("字体大小", "scale", 1.2f), Triple("弹幕速度", "speed", 1.5f))) {
+            val beforeCalls = core.calls.count { it.first == "player.setDanmakuStyle" }
+            rule.onNodeWithContentDescription(label).performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(value) }
+            rule.waitForIdle()
+            assertEquals(beforeCalls + 1, core.calls.count { it.first == "player.setDanmakuStyle" })
+            assertEquals(value.toDouble(), stored.dbl(key)!!, .001)
+        }
         rule.onNode(isPopup()).captureRoboImage("build/player-osd/danmaku-style-landscape.png")
         // 返回键回一级，外点才关闭整张菜单。
         rule.runOnIdle {
@@ -157,6 +168,12 @@ class PhoneDanmakuPanelTest {
         rule.onNodeWithText("显示区域").performClick()
         rule.waitForIdle()
         assertEquals(1.0, DanmakuStyle.area.doubleValue, .001)
+        val beforeCalls = core.calls.count { it.first == "player.setDanmakuStyle" }
+        rule.onNodeWithContentDescription("不透明度").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.8f) }
+        rule.waitForIdle()
+        assertEquals(beforeCalls + 1, core.calls.count { it.first == "player.setDanmakuStyle" })
+        assertEquals(.5, DanmakuStyle.opacity.doubleValue, .001)
+        rule.onNodeWithText("50%").assertIsDisplayed()
     }
 
     @Test fun 未读取完不提交且读取失败允许重试() {
@@ -173,12 +190,39 @@ class PhoneDanmakuPanelTest {
             open(port)
             rule.onNodeWithText("显示设置").performClick()
             rule.onNodeWithText("显示区域").assertIsNotEnabled()
+            rule.onNodeWithContentDescription("不透明度").assertIsNotEnabled()
             rule.runOnIdle { gate.complete(Unit) }
             rule.onNodeWithText("弹幕设置读取失败").assertIsDisplayed()
             rule.runOnIdle { fail = false }
             rule.onNodeWithText("重试").performClick()
             rule.onNodeWithText("显示区域").assertIsEnabled()
             assertFalse(core.calls.any { it.first == "player.setDanmakuStyle" })
+        } finally { gate.complete(Unit) }
+    }
+
+    @Test fun 其它设置保存完成不打断正在拖动的滑杆() {
+        val gate = CompletableDeferred<Unit>()
+        val core = core()
+        val port = object : CorePort by core {
+            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
+                if (command == "player.setDanmakuStyle" && args?.containsKey("opacity") == true) gate.await()
+                return core.callJson(command, args, onPartial)
+            }
+        }
+        try {
+            open(port)
+            rule.onNodeWithText("显示设置").performClick()
+            rule.onNodeWithContentDescription("不透明度").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.SetProgress) { it(.8f) }
+            val slider = rule.onNodeWithContentDescription("字体大小")
+            slider.performTouchInput { down(center); moveTo(androidx.compose.ui.geometry.Offset(width * .8f, centerY)) }
+            val dragged = slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current
+            assertTrue(dragged > 1.5f)
+            rule.runOnIdle { gate.complete(Unit) }
+            rule.waitForIdle()
+            assertEquals(dragged, slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo].current, .001f)
+            slider.performTouchInput { up() }
+            rule.waitForIdle()
+            assertEquals(dragged.toDouble(), stored.dbl("scale")!!, .001)
         } finally { gate.complete(Unit) }
     }
 }

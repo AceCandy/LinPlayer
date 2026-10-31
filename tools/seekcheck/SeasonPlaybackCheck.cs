@@ -5,6 +5,7 @@ using System.Text.Json;
 using Avalonia.Controls;
 using Avalonia.Interactivity;
 using Avalonia.VisualTree;
+using Avalonia.LogicalTree;
 using LinPlayer.Core;
 using Avalonia.Threading;
 using LinPlayer.Desktop.Core;
@@ -124,6 +125,16 @@ internal static class SeasonPlaybackCheck
         }
         Await(core.PlayerSetPlaybackPrefs(new { skip_auto = true, skip_use_online = false }));
         Await(Invoke(page, "LoadEpisodes"));
+        Check(!Get<Button>(page, "_drawerBtn").IsVisible, "仅有分集队列时不能显示选集入口");
+        Check(Actions.All.All(a => a.Id != "player.episodes"), "旧选集快捷键仍注册");
+        try { page.OpenPanel("episodes"); throw new Exception("旧插件请求仍可打开选集"); }
+        catch (NotSupportedException) { }
+        double chapterTarget = -1;
+        var drawer = new PlayerDrawer(core, [(30.0, "测试章节")], at => chapterTarget = at, () => { });
+        var chapterButton = drawer.GetLogicalDescendants().OfType<Button>()
+            .Single(b => b.Content is TextBlock text && text.Text == "测试章节");
+        chapterButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+        Check(chapterTarget == 30.0, "移除选集后章节选择失效");
         Set("_duration", 1400.0); Set("_position", 90.0);
         var seeks = new List<double>();
         Set("_seek", new PlaybackSeek(value => { seeks.Add(value); return Task.CompletedTask; }, () => 0));

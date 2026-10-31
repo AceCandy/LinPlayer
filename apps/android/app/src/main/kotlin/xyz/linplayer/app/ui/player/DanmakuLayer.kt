@@ -10,6 +10,7 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
@@ -60,6 +61,7 @@ class DmLayout(
     val bold: Boolean,
     /** 按时刻升序 —— 每帧靠二分找起点,不遍历全表。 */
     val items: List<DmItem>,
+    val areaHeight: Double = resY,
 )
 
 fun parseDmLayout(r: JsonObject?): DmLayout? {
@@ -85,6 +87,7 @@ fun parseDmLayout(r: JsonObject?): DmLayout? {
         opacity = r.dbl("opacity") ?: 1.0,
         bold = r.bool("bold"),
         items = items,
+        areaHeight = r.dbl("area_height") ?: r.dbl("res_y") ?: 1080.0,
     )
 }
 
@@ -181,8 +184,9 @@ fun DanmakuLayer(
     // 两支笔跨帧复用:每帧新建 Paint 会把 GC 拖进渲染帧里
     val fill = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val shadow = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
+    val widths = remember(layout) { FloatArray(layout.items.size) { Float.NaN } }
 
-    Canvas(modifier) { drawDanmaku(layout, clock.doubleValue, fill, shadow) }
+    Canvas(modifier) { drawDanmaku(layout, clock.doubleValue, fill, shadow, widths) }
 }
 
 /**
@@ -194,14 +198,16 @@ fun DanmakuLayer(
  * 换成「先画一层深色偏一点,再压上正文」:两次都吃字形缓存,代价接近零,
  * 而看上去是同一回事(PC 那层一直就是这么画的)。
  */
-private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow: Paint) {
+private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow: Paint, widths: FloatArray) {
     if (size.height <= 0f || size.width <= 0f) return
     /* 按**高度**换算比例:弹幕的行数和字号是相对画面高度定的。
        宽高各自缩会把字压扁,而横向扫过多远本来就该用整块宽度。 */
     val sy = size.height / l.resY.toFloat()
     val fontPx = (l.fontSize * sy).toFloat()
     val laneH = (l.laneHeight * sy).toFloat()
+    val areaH = (l.areaHeight * sy).toFloat().coerceAtMost(size.height)
     val alpha = (l.opacity.coerceIn(0.0, 1.0) * 255).toInt()
+    if (fill.textSize != fontPx || fill.isFakeBoldText != l.bold) widths.fill(Float.NaN)
     fill.textSize = fontPx
     shadow.textSize = fontPx
     fill.isFakeBoldText = l.bold
@@ -211,7 +217,7 @@ private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow:
 
     val life = maxOf(l.rollSeconds, l.fixSeconds)
     var i = dmFirstAtOrAfter(l.items, now - life)
-    drawIntoCanvas { c ->
+    clipRect(bottom = areaH) { drawIntoCanvas { c ->
         val nc = c.nativeCanvas
         while (i < l.items.size) {
             val d = l.items[i]
@@ -220,7 +226,12 @@ private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow:
             val age = now - d.t
             val span = if (d.mode == 1) l.rollSeconds else l.fixSeconds
             if (age > span) continue
-            val wPx = (d.w * sy).toFloat()
+            // 测量和绘制使用同一支笔；只在字号、粗体或语料变化后重测。
+            var wPx = widths[i - 1]
+            if (wPx.isNaN()) {
+                wPx = fill.measureText(d.text)
+                widths[i - 1] = wPx
+            }
             val x: Float
             val topPx: Float
             when (d.mode) {
@@ -235,7 +246,7 @@ private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow:
                 }
                 else -> {
                     x = (size.width - wPx) / 2
-                    topPx = size.height - 4 * sy - (d.lane + 1) * laneH
+                    topPx = areaH - 4 * sy - (d.lane + 1) * laneH
                 }
             }
             if (x > size.width || x + wPx < 0) continue
@@ -245,5 +256,5 @@ private fun DrawScope.drawDanmaku(l: DmLayout, now: Double, fill: Paint, shadow:
             nc.drawText(d.text, x + off, baseline + off, shadow)
             nc.drawText(d.text, x, baseline, fill)
         }
-    }
+    } }
 }

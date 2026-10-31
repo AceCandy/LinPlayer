@@ -1,8 +1,12 @@
 using System.Net;
 using System.Net.Sockets;
 using System.Reflection;
+using System.Runtime.InteropServices;
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia;
+using Avalonia.Headless;
+using Avalonia.Media;
 using Avalonia.Interactivity;
 using Avalonia.Threading;
 using Avalonia.VisualTree;
@@ -12,7 +16,7 @@ using LinPlayer.Desktop.Views;
 
 internal static class DanmakuCheck
 {
-    internal static void Run(CoreClient core)
+    internal static void Run(CoreClient core, string dataDir)
     {
         using var socket = new TcpListener(IPAddress.Loopback, 0);
         socket.Start();
@@ -60,11 +64,101 @@ internal static class DanmakuCheck
             var offset = (Task)typeof(PlayerPage).GetMethod("SetDanmakuOffset", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player, new object[] { 1.5 })!;
             Await(offset);
             Check(Await(core.PlayerDanmakuOffset()).GetProperty("seconds").GetDouble() == 1.5, "时间偏移没有进入核心");
-            Console.WriteLine("弹幕：桌面真实控件/FFI、官方保护、启停持久化、手选及时间偏移通过");
+            Await(core.PlayerSetDanmakuStyle(new { roll_lines = 0, top_lines = 0, bottom_lines = 0, merge = true }));
+            var style = (Control)typeof(PlayerPage).GetMethod("DanmakuStyleBlock", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player, null)!;
+            window.Content = style;
+            Await((Task)typeof(PlayerPage).GetMethod("LoadDanmakuStyle", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player, null)!);
+            Wait(() => style.IsEnabled, "显示设置读取后未启用");
+            var area = Buttons(style).Single(b => b.Content is string s && s.StartsWith("显示区域"));
+            foreach (var expected in new[] { .25, .5, .75, 1.0 }) {
+                area.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Wait(() => style.IsEnabled, "区域保存未完成");
+                var saved = Await(core.PlayerGetDanmakuStyle());
+                Check(saved.GetProperty("area").GetDouble() == expected, "区域四档未保存");
+                Check(new[] { "roll_lines", "top_lines", "bottom_lines" }.All(k => saved.GetProperty(k).GetInt32() == 20), "旧行数仍限制区域");
+                Check(saved.GetProperty("merge").GetBoolean(), "调整区域覆盖了合并偏好");
+            }
+            var keys = new[] { "opacity", "scale", "speed" };
+            var controls = Buttons(style).Where(b => b.Content as string == "−").ToArray();
+            Check(controls.Length == 3 && Buttons(style).Count() == 7, "四项设置入口不完整或仍有高级项");
+            for (var i = 0; i < controls.Length; i++) {
+                controls[i].RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Wait(() => style.IsEnabled, "样式保存未完成");
+                Check(Math.Abs(Await(core.PlayerGetDanmakuStyle()).GetProperty(keys[i]).GetDouble() - .9) < .001, "样式步进未保存");
+            }
+            // 读取或保存尚未返回时重开菜单，也必须共用同一条事务队列。
+            var gate = Field<SemaphoreSlim>(player, "_dmStyleGate");
+            var load = typeof(PlayerPage).GetMethod("LoadDanmakuStyle", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            var block = typeof(PlayerPage).GetMethod("DanmakuStyleBlock", BindingFlags.Instance | BindingFlags.NonPublic)!;
+            gate.Wait();
+            Task firstRead, lastRead;
+            try {
+                firstRead = (Task)load.Invoke(player, null)!;
+                style = (Control)block.Invoke(player, null)!; window.Content = style;
+                lastRead = (Task)load.Invoke(player, null)!;
+                Check(!style.IsEnabled && !firstRead.IsCompleted && !lastRead.IsCompleted, "慢读取时重开提前启用");
+                Await(core.PlayerSetDanmakuStyle(new { scale = 1.7 }));
+            } finally { gate.Release(); }
+            Await(Task.WhenAll(firstRead, lastRead));
+            Check(style.IsEnabled && Field<double>(player, "_dmScale") == 1.7, "重开没有回显最新设置");
+            gate.Wait();
+            try {
+                Buttons(style).Where(b => b.Content as string == "+").ElementAt(1).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                style = (Control)block.Invoke(player, null)!; window.Content = style;
+                lastRead = (Task)load.Invoke(player, null)!;
+                Check(!style.IsEnabled, "前一菜单保存中重开提前启用");
+            } finally { gate.Release(); }
+            Await(lastRead);
+            Check(style.IsEnabled && Field<double>(player, "_dmScale") == 1.8, "保存中重开被旧值覆盖");
+            var configFile = Path.Combine(dataDir, "config.json");
+            var original = File.ReadAllBytes(configFile);
+            File.Delete(configFile); Directory.CreateDirectory(configFile);
+            try {
+                Buttons(style).First(b => b.Content as string == "+").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Wait(() => style.IsEnabled, "保存失败后设置仍被锁住");
+                Check(Field<double>(player, "_dmOpacity") == .9, "保存失败修改了回显");
+                Check(Await(core.PlayerGetDanmakuStyle()).GetProperty("opacity").GetDouble() == .9, "保存失败修改了核心偏好");
+            } finally { Directory.Delete(configFile); File.WriteAllBytes(configFile, original); }
+            CheckDrawing(window);
+            Console.WriteLine("弹幕：源管理/手选/偏移、四项显示设置及旧行数恢复、实际测宽/区域绘制通过");
         } finally {
             if (player != null) Field<CancellationTokenSource>(player, "_dmCancellation").Cancel();
             window.Content = null; window.Close(); server.Stop(); worker.GetAwaiter().GetResult();
         }
+    }
+
+    private static void CheckDrawing(Window window)
+    {
+        window.Width = 640; window.Height = 360; window.Background = Brushes.Black;
+        var dm = new DanmakuLayer();
+        window.Content = dm;
+        var item = new DmItem { T = 0, Mode = 5, W = 104, Text = "MMMMMMMM", Color = 0xFFFFFF };
+        var layout = new DmLayout { AreaHeight = 270, Items = [item] };
+        dm.Layout = layout; dm.Sync(1, true, 1);
+        (List<int> X, List<int> Y, int W, int H) Pixels()
+        {
+            Dispatcher.UIThread.RunJobs();
+            AvaloniaHeadlessPlatform.ForceRenderTimerTick(3);
+            using var bitmap = window.CaptureRenderedFrame() ?? throw new Exception("弹幕未生成画面");
+            var w = bitmap.PixelSize.Width; var h = bitmap.PixelSize.Height;
+            var bytes = new byte[w * h * 4];
+            var pin = GCHandle.Alloc(bytes, GCHandleType.Pinned);
+            try { bitmap.CopyPixels(new PixelRect(bitmap.PixelSize), pin.AddrOfPinnedObject(), bytes.Length, w * 4); }
+            finally { pin.Free(); }
+            var xs = new List<int>(); var ys = new List<int>();
+            for (var y = 0; y < h; y++) for (var x = 0; x < w; x++)
+                if (bytes[(y * w + x) * 4 + 1] > 127) { xs.Add(x); ys.Add(y); }
+            return (xs, ys, w, h);
+        }
+        var fixedText = Pixels();
+        Check(fixedText.X.Count > 0, "固定弹幕未绘制");
+        Check(Math.Abs((fixedText.X.Min() + fixedText.X.Max()) / 2.0 - fixedText.W / 2.0) <= 2, "固定弹幕未按实际宽度居中");
+        item.Mode = 4; dm.Layout = layout;
+        var bottom = Pixels();
+        Check(bottom.Y.Count > 0 && bottom.Y.Max() < bottom.H * .25 && bottom.Y.Min() > bottom.H * .15, "底部弹幕越出区域");
+        item.Mode = 1; dm.Layout = layout; dm.Sync(7.99, true, 1);
+        var tail = Pixels();
+        Check(tail.X.Distinct().Count() <= 3, "滚动结束前仍有大段尾部将被截断");
     }
     private static IEnumerable<Button> Buttons(Control root) => root.GetVisualDescendants().OfType<Button>();
     private static T Field<T>(object owner, string name) => (T)owner.GetType().GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.GetValue(owner)!;

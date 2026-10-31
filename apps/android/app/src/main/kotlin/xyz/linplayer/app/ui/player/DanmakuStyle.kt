@@ -44,7 +44,7 @@ object DanmakuStyle {
     }
 
 
-    /** 滚动弹幕占画面高度:0.25 / 0.5 / 0.75 / 1.0。 */
+    /** 所有弹幕占画面高度:0.25 / 0.5 / 0.75 / 1.0。 */
     val area = mutableDoubleStateOf(1.0)
 
     /** 字号倍率 0.1..3.0。行高跟着一起缩。 */
@@ -100,12 +100,17 @@ object DanmakuStyle {
     }
 
     /** 按提交顺序完成保存和重排，关闭菜单不丢已提交设置；只照核心成功回值刷新。 */
-    suspend fun set(app: AppState, key: String, value: Any) = styleMutex.withLock {
+    suspend fun set(app: AppState, key: String, value: Any) = set(app, key) { value }
+
+    /** 步进目标在锁内读取，慢保存期间的连续按键也逐次累加。 */
+    suspend fun set(app: AppState, key: String, next: () -> Any) = styleMutex.withLock {
         currentCoroutineContext().ensureActive()
         withContext(NonCancellable) {
             try {
-                val r = app.call("player.setDanmakuStyle", when (value) {
-                    is Double -> args(key to value)
+                val r = app.call("player.setDanmakuStyle", when (val value = next()) {
+                    // 用户改区域时交还自动排布，避免旧的零行数/低行数继续限制显示。
+                    is Double -> if (key == "area") args(key to value, "roll_lines" to 20,
+                        "top_lines" to 20, "bottom_lines" to 20) else args(key to value)
                     is Int -> args(key to value.toDouble())
                     is Boolean -> args(key to value)
                     else -> args()

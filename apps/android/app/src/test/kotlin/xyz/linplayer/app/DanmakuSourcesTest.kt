@@ -111,12 +111,19 @@ class DanmakuSourcesTest {
         }
         val app = AppState(fake, scope); app.boot()
 
-        startDanmakuFor(app, "episode")
+        launch { startDanmakuFor(app, "episode") }.join()
 
         assertEquals(1, fake.calls.count { it.first == "player.danmakuBegin" })
         val set = fake.calls.single { it.first == "player.danmakuSet" }.second
         assertEquals(generation, set.long("generation"))
         assertTrue(DanmakuStyle.enabled.value)
         assertEquals("自动弹幕", DanmakuStyle.layout.value?.items?.single()?.text)
+
+        fake.on("prefs.getPrefs") { buildJsonObject { put("danmaku_enabled", false) } }
+        fake.ret("player.danmakuLayout", JsonNull)
+        launch { startDanmakuFor(app, "next-episode") }.join()
+        assertEquals("关闭弹幕后不能继续自动匹配", 1, fake.calls.count { it.first == "danmaku.resolve" })
+        assertFalse(DanmakuStyle.enabled.value)
+        assertNull(DanmakuStyle.layout.value)
     }
 }

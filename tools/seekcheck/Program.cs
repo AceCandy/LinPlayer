@@ -91,7 +91,7 @@ try {
     using var core = new CoreClient(Path.GetFullPath(args[0]), root, "test");
     if (args.Contains("--skip-markers-only")) { SeasonPlaybackCheck.Run(core, markersOnly: true); return; }
     if (args.Contains("--phone-parity-only")) { PhoneParityCheck.Run(core); return; }
-    if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
+    if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core, root); return; }
     if (args.Contains("--user-state-only")) { UserStateCheck.Run(core); return; }
     if (args.Contains("--discovery-only")) { DiscoveryCheck.Run(core); return; }
     if (args.Contains("--liuying-only")) { LiuYingCheck.Run(core); return; }

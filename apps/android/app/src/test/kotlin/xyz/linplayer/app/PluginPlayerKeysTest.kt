@@ -38,7 +38,7 @@ class PluginPlayerKeysTest {
         assertEquals("subtitle", PluginPlayer.phoneKind("subtitles", false))
         assertEquals("source", PluginPlayer.phoneKind("lines", false))
         assertEquals("quality", PluginPlayer.phoneKind("enhance", false))
-        listOf("audio", "danmaku", "episodes", "more")
+        listOf("audio", "danmaku", "more")
             .forEach { assertEquals(it, PluginPlayer.phoneKind(it, false)) }
     }
 
@@ -47,13 +47,14 @@ class PluginPlayerKeysTest {
         assertThrows(UnsupportedOperationException::class.java) { PluginPlayer.phoneKind("enhance", true) }
         assertThrows(UnsupportedOperationException::class.java) { PluginPlayer.phoneKind("speed", false) }
         assertThrows(UnsupportedOperationException::class.java) { PluginPlayer.phoneKind("nope", false) }
-        listOf("speed", "enhance", "lines", "nope")
+        assertThrows(UnsupportedOperationException::class.java) { PluginPlayer.phoneKind("episodes", false) }
+        listOf("speed", "enhance", "lines", "episodes", "nope")
             .forEach { assertThrows(UnsupportedOperationException::class.java) { PluginPlayer.tvKind(it) } }
     }
 
     @Test fun TV面板名对得上() {
         assertEquals("sub", PluginPlayer.tvKind("subtitles"))
-        listOf("audio", "danmaku", "episodes", "more")
+        listOf("audio", "danmaku", "more")
             .forEach { assertEquals(it, PluginPlayer.tvKind(it)) }
     }
 

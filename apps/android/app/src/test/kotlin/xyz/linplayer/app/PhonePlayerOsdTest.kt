@@ -51,12 +51,12 @@ class PhonePlayerOsdTest {
         rule.onNodeWithContentDescription("电量 10%").assertIsDisplayed()
     }
 
-    private fun open(portrait: Boolean = false) {
+    private fun open(portrait: Boolean = false, bright: Boolean = false) {
         rule.setContent {
             LpTheme(darkOverride = dark.value) {
                 CompositionLocalProvider(LocalDensity provides Density(LocalDensity.current.density, 1.3f)) {
                     Box(Modifier.fillMaxSize().background(Brush.linearGradient(
-                        listOf(Color(0xFF455F48), Color(0xFF181D26))))) {
+                        if (bright) listOf(Color.White, Color.White) else listOf(Color(0xFF455F48), Color(0xFF181D26))))) {
                         Box(Modifier.fillMaxSize()) {
                         Osd(portrait, "1.13 MB/s",
                             title = "测试剧集", episodeLabel = "S1E7：一段用于核查横屏布局的单集标题",
@@ -100,7 +100,7 @@ class PhonePlayerOsdTest {
             val overlap = a.boundsInRoot.intersect(b.boundsInRoot)
             assertTrue("全屏竖屏小屏大字命中不能重叠：${a.config} ${a.boundsInRoot} / ${b.config} ${b.boundsInRoot}", overlap.width <= 0f || overlap.height <= 0f)
         } }
-        rule.onNodeWithContentDescription("加速").performClick(); rule.onNodeWithText("1.75×").assertIsDisplayed()
+        rule.onNodeWithContentDescription("加速").performClick(); rule.onNodeWithText("1.60×").assertIsDisplayed()
         rule.onNodeWithContentDescription("减速").performClick(); rule.onNodeWithText("1.50×").assertIsDisplayed()
         rule.onNodeWithContentDescription("切换方向").performClick(); assertEquals("方向", action)
         rule.onNodeWithContentDescription("弹幕").performScrollTo().performClick(); assertEquals("danmaku", action)
@@ -108,6 +108,33 @@ class PhonePlayerOsdTest {
         rule.onNodeWithContentDescription("暂停").assertIsDisplayed()
         rule.onNodeWithContentDescription("加速").assertIsDisplayed()
         rule.onNodeWithContentDescription("切换方向").assertIsDisplayed()
+    }
+
+    @Test fun speedStepsUseTenthsWithoutDriftAndPreserveLimits() {
+        assertEquals(.85, xyz.linplayer.app.ui.player.step(.75, 1), 0.0)
+        assertEquals(.65, xyz.linplayer.app.ui.player.step(.75, -1), 0.0)
+        assertEquals(.25, xyz.linplayer.app.ui.player.step(.25, -1), 0.0)
+        assertEquals(4.0, xyz.linplayer.app.ui.player.step(3.95, 1), 0.0)
+        var value = .75
+        repeat(20) { value = xyz.linplayer.app.ui.player.step(value, 1) }
+        assertEquals(2.75, value, 0.0)
+        repeat(20) { value = xyz.linplayer.app.ui.player.step(value, -1) }
+        assertEquals(.75, value, 0.0)
+    }
+
+    @Test fun transparentControlsRemainVisibleOnBrightFrames() {
+        open(bright = true)
+        val pause = rule.onNodeWithContentDescription("暂停").fetchSemanticsNode().boundsInRoot
+        val pixels = rule.onRoot().captureToImage().toPixelMap()
+        assertEquals(1f, pixels[pause.center.x.toInt(), pause.top.toInt() + 2].red, .01f)
+        var shadowPixels = 0
+        for (x in pause.left.toInt() until pause.right.toInt())
+            for (y in pause.top.toInt() until pause.bottom.toInt())
+                if (pixels[x, y].red < .6f) shadowPixels++
+        assertTrue("白画面上必须保留可见的图标暗影", shadowPixels > 10)
+        rule.onNodeWithContentDescription("暂停").performClick()
+        assertEquals("暂停", action)
+        rule.onRoot().captureRoboImage("build/player-osd/landscape-bright.png")
     }
 
     @Test fun sliderDragKeepsItsValueAcrossPlaybackPollsAndCancel() {
@@ -186,7 +213,7 @@ class PhonePlayerOsdTest {
         val picture = rule.onRoot().captureToImage().toPixelMap()
         val inside = picture[pause.center.x.toInt(), pause.top.toInt() + 2]
         val outside = picture[pause.center.x.toInt(), pause.top.toInt() - 2]
-        assertTrue("半透明圆底应压暗画面以保持图标对比", inside.red < outside.red - .04f)
+        assertEquals("按钮不能再压出独立圆底", outside.red, inside.red, .01f)
         assertTrue(rewind.right < pause.left && pause.right < faster.left && shot.right < rewind.left)
         rule.onNodeWithText("25:17").assertIsDisplayed()
         rule.onNodeWithText("45:29").assertIsDisplayed()
@@ -202,7 +229,7 @@ class PhonePlayerOsdTest {
         rule.onNodeWithContentDescription("前进 10 秒").performClick()
         assertEquals(1527.0, seek, 0.001)
         rule.onNodeWithContentDescription("加速").performClick()
-        rule.onNodeWithText("1.75×").assertIsDisplayed()
+        rule.onNodeWithText("1.60×").assertIsDisplayed()
         rule.onNodeWithContentDescription("选集").assertDoesNotExist()
         rule.onNodeWithContentDescription("音轨").performClick()
         assertEquals("audio", action)

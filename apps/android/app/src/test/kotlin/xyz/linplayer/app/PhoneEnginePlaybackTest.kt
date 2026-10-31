@@ -497,9 +497,11 @@ class PhoneEnginePlaybackTest {
                     exoState(3_660_000, ended = true)
                 }
             } else {
-                rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel(if (version) "lines" else "episodes") }
-                advance(rule, 300)
-                rule.onNode(hasText(if (version) "1080p" else "S1E7", substring = true)).performClick()
+                if (version) {
+                    rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("lines") }
+                    advance(rule, 300)
+                    rule.onNodeWithText("1080p").performClick()
+                } else rule.onNodeWithContentDescription("下一集").performClick()
             }
             advance(rule, 500)
             assertTrue("新集尺寸请求必须实际挂起", waiting)
@@ -539,9 +541,7 @@ class PhoneEnginePlaybackTest {
         try {
             showPlayer(port, "mpv", ar = 0f)
             assertTrue(waiting)
-            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
-            advance(rule, 300)
-            rule.onNode(hasText("S1E7", substring = true)).performClick()
+            rule.onNodeWithContentDescription("下一集").performClick()
             advance(rule, 500)
             assertEquals(ActivityInfo.SCREEN_ORIENTATION_SENSOR_LANDSCAPE, activity.requestedOrientation)
             if (exitFirst) {
@@ -836,9 +836,7 @@ class PhoneEnginePlaybackTest {
         val unlock = rule.onNodeWithContentDescription("解锁").fetchSemanticsNode().boundsInRoot
         assertEquals(lock.left, unlock.left, 1f); assertEquals(lock.top, unlock.top, 1f)
         rule.onNodeWithContentDescription("解锁").performClick(); advance(rule, 300)
-        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
-        rule.onNodeWithText("选集").performClick(); advance(rule, 300)
-        rule.onNode(hasText("S1E7", substring = true)).performClick(); advance(rule, 400)
+        rule.onNodeWithContentDescription("下一集").performClick(); advance(rule, 400)
         assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(1, core.calls.count { it.first == "player.stopPlayback" })
     }
@@ -1129,7 +1127,7 @@ class PhoneEnginePlaybackTest {
         assertEquals(1130.0, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, 0.0)
     }
 
-    @Test fun 选集连续点击只提交一次在途切换() {
+    @Test fun 上下集连续点击只提交一次在途切换() {
         val release = CompletableDeferred<Unit>()
         val core = episodeCore()
         var stops = 0
@@ -1141,11 +1139,9 @@ class PhoneEnginePlaybackTest {
         }
         try {
             showPlayer(port, "mpv")
-            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
-            advance(rule, 300)
-            val first = rule.onNode(hasText("S1E7", substring = true)).fetchSemanticsNode().config[
+            val first = rule.onNodeWithContentDescription("下一集").fetchSemanticsNode().config[
                 androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
-            val second = rule.onNode(hasText("S1E8", substring = true)).fetchSemanticsNode().config[
+            val second = rule.onNodeWithContentDescription("上一集").fetchSemanticsNode().config[
                 androidx.compose.ui.semantics.SemanticsActions.OnClick].action!!
             rule.runOnIdle { first(); second() }
             advance(rule, 300)
@@ -1410,10 +1406,8 @@ class PhoneEnginePlaybackTest {
         val stop = core.calls.indexOfFirst { it.first == "player.stopPlayback" }
         val next = core.calls.indexOfLast { it.first == "player.play" }
         assertTrue(stop in 0 until next)
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
-        advance(rule, 300)
         assertNull(Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService)
-        rule.onNode(hasText("S1E7", substring = true)).performClick()
+        rule.onNodeWithContentDescription("下一集").performClick()
         advance(rule, 500)
         assertEquals(PlaybackService::class.java.name,
             Shadows.shadowOf(ApplicationProvider.getApplicationContext<Application>()).nextStoppedService?.component?.className)
@@ -1536,9 +1530,7 @@ class PhoneEnginePlaybackTest {
         rule.onNodeWithText("英文字幕").performClick()
         advance(rule, 300)
         assertEquals(listOf("2"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("episodes") }
-        advance(rule, 300)
-        rule.onNode(hasText("S1E7", substring = true)).performClick()
+        rule.onNodeWithContentDescription("下一集").performClick()
         advance(rule, 2_000)
         assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
         assertEquals(listOf("2", "9"), core.calls.filter { it.first == "player.setTrack" }.map { it.second.str("id") })

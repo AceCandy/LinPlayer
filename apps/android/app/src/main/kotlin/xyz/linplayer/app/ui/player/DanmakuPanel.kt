@@ -73,8 +73,20 @@ internal fun DanmakuPanel(app: AppState, scope: CoroutineScope, itemId: String, 
                 }
                 "style" -> {
                     item("area") { PlayerMenuRow("显示区域", {
-                        scope.launch { DanmakuStyle.set(app, "area", DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue)) }
+                        scope.launch { DanmakuStyle.set(app, "area") { DanmakuStyle.nextArea(DanmakuStyle.area.doubleValue) } }
                     }, badge = DanmakuStyle.areaLabel(DanmakuStyle.area.doubleValue), enabled = ready, divider = false) }
+                    item("opacity") { PlayerStyleSlider("不透明度", DanmakuStyle.opacity.doubleValue.toFloat(), .1f..1f, 8,
+                        enabled = ready, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${kotlin.math.round(it * 100).toInt()}%" }) {
+                        scope.launch { DanmakuStyle.set(app, "opacity", it.toDouble()) }
+                    } }
+                    item("scale") { PlayerStyleSlider("字体大小", DanmakuStyle.scale.doubleValue.toFloat(), .1f..3f, 28,
+                        enabled = ready, resetKey = DanmakuStyle.saveRevision.intValue, format = { "${kotlin.math.round(it * 100).toInt()}%" }) {
+                        scope.launch { DanmakuStyle.set(app, "scale", it.toDouble()) }
+                    } }
+                    item("speed") { PlayerStyleSlider("弹幕速度", DanmakuStyle.speed.doubleValue.toFloat(), .1f..3f, 28,
+                        enabled = ready, resetKey = DanmakuStyle.saveRevision.intValue, format = { "%.1f×".format(it) }) {
+                        scope.launch { DanmakuStyle.set(app, "speed", it.toDouble()) }
+                    } }
                 }
             }
         }

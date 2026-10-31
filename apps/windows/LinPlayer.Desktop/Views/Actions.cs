@@ -59,7 +59,6 @@ internal static class Actions
         new("player.speedDown",  Player, "播放", "减速",            ","),
         new("player.fullscreen", Player, "播放", "全屏 / 退出全屏", "F 或 回车"),
         new("player.next",       Player, "播放", "下一集",          "N"),
-        new("player.episodes",   Player, "播放", "选集",            "E"),
         new("player.quality",    Player, "播放", "画质档位",        "U"),
         new("player.screenshot", Player, "播放", "截图",            "S"),
         new("player.skip",       Player, "播放", "跳过片头 / 片尾", "侧键2"),
