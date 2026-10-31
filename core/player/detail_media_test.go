@@ -33,6 +33,10 @@ func TestDetailMediaSharesPlaybackInfoWithWarm(t *testing.T) {
 			fmt.Fprint(w, `{"PlaySessionId":"test-session","MediaSources":[{"Id":"source","Name":"4K","Container":"mkv"}]}`)
 			return
 		}
+		if !strings.HasPrefix(r.URL.Path, "/Videos/") {
+			fmt.Fprint(w, `{"Id":"item","Name":"Test","Type":"Movie"}`)
+			return
+		}
 		select {
 		case streamed <- struct{}{}:
 		default:
@@ -63,12 +67,152 @@ func TestDetailMediaSharesPlaybackInfoWithWarm(t *testing.T) {
 		t.Fatalf("展示与预热请求次数=%d", got)
 	}
 	cancelWarm()
-	_, err := prefsClient.ResolveStream(context.Background(), &emby.Session{Server: up.URL, Token: "test", UserID: "user"}, "item", "", "")
-	if err != nil {
+	s := &emby.Session{Server: up.URL, Token: "test", UserID: "user"}
+	ctx := context.Background()
+	defer stopPlayback(ctx, s, 0, false)
+	if _, err := PlayResolve(ctx, s, "item", 0, ""); err != nil {
+		t.Fatal(err)
+	}
+	if got := requests.Load(); got != 1 {
+		t.Fatalf("复用不应再请求: %d", got)
+	}
+	if err := stopPlayback(ctx, s, 0, false); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := PlayResolve(ctx, s, "item", 0, ""); err != nil {
 		t.Fatal(err)
 	}
 	if got := requests.Load(); got != 2 {
-		t.Fatalf("正式解析必须重新请求: %d", got)
+		t.Fatalf("第二次正式起播必须取新会话: %d", got)
+	}
+}
+
+func TestDetailInfoRefreshAndPrivateValidation(t *testing.T) {
+	for _, private := range []bool{false, true} {
+		t.Run(fmt.Sprint(private), func(t *testing.T) {
+			regWarmOnce.Do(registerWarmCommands)
+			setup(t)
+			p := config.Current().PrefsOf()
+			p.PreloadEnabled = false
+			if err := config.Current().SetPrefs(p); err != nil {
+				t.Fatal(err)
+			}
+			var requests, streams atomic.Int64
+			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case strings.HasSuffix(r.URL.Path, "/Views"):
+					if requests.Load() == 0 {
+						fmt.Fprint(w, `{"Items":[{"Id":"library","Type":"CollectionFolder","IsAdult":true}]}`)
+					} else {
+						fmt.Fprint(w, `{"Items":[{"Id":"library","Type":"CollectionFolder"}]}`)
+					}
+				case strings.HasSuffix(r.URL.Path, "/PlaybackInfo"):
+					if requests.Add(1) == 1 {
+						fmt.Fprint(w, `{"MediaSources":[{"Id":"old","Container":"mkv"}]}`)
+					} else {
+						fmt.Fprint(w, `{"MediaSources":[{"Id":"old","Container":"mkv"},{"Id":"new","Container":"mkv"}]}`)
+					}
+				case strings.HasPrefix(r.URL.Path, "/Videos/"):
+					streams.Add(1)
+					http.ServeContent(w, r, "video.mkv", time.Time{}, bytes.NewReader(make([]byte, 1024)))
+				default:
+					fmt.Fprint(w, `{"Id":"item","Name":"Test","Type":"Movie"}`)
+				}
+			}))
+			defer up.Close()
+			defer closeSharedProxy()
+			defer cancelWarm()
+			args := map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "item", "return_media": true, "is_adult": private}
+			if _, err := bus.Invoke(context.Background(), "prefs.preloadItem", args); err != nil {
+				t.Fatal(err)
+			}
+			ctx, _ := emby.AdultFilterContext(context.Background(), args)
+			s := &emby.Session{Server: up.URL, Token: "test", UserID: "user"}
+			defer stopPlayback(ctx, s, 0, false)
+			version := "new"
+			if private {
+				version = "old"
+			}
+			out, err := PlayResolve(ctx, s, "item", 0, version)
+			if private {
+				if err == nil || streams.Load() != 0 {
+					t.Fatal("详情缓存不得绕过本次播放的私密能力校验")
+				}
+			} else if err != nil || out.MediaSourceID != "new" || requests.Load() != 2 {
+				t.Fatalf("缓存缺少指定版本时应重新请求: result=%v err=%v requests=%d", out, err, requests.Load())
+			}
+		})
+	}
+}
+
+func TestDetailInfoIgnoresOutOfOrderQuery(t *testing.T) {
+	regWarmOnce.Do(registerWarmCommands)
+	setup(t)
+	p := config.Current().PrefsOf()
+	p.PreloadEnabled = false
+	if err := config.Current().SetPrefs(p); err != nil {
+		t.Fatal(err)
+	}
+	entered, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	unblock := func() { once.Do(func() { close(release) }) }
+	var requests atomic.Int64
+	up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		n := requests.Add(1)
+		if n == 1 {
+			close(entered)
+			<-release
+		}
+		fmt.Fprintf(w, `{"MediaSources":[{"Id":"source-%d","Container":"mkv"}]}`, n)
+	}))
+	defer up.Close()
+	defer unblock()
+	defer cancelWarm()
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	args := map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "item", "return_media": true}
+	done := make(chan error, 1)
+	go func() { _, err := bus.Invoke(ctx, "prefs.preloadItem", args); done <- err }()
+	select {
+	case <-entered:
+	case <-ctx.Done():
+		t.Fatal("旧查询未开始")
+	}
+	if _, err := bus.Invoke(ctx, "prefs.preloadItem", args); err != nil {
+		t.Fatal(err)
+	}
+	unblock()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	s := &emby.Session{Server: up.URL, Token: "test", UserID: "user"}
+	info := takeDetailInfo(ctx, s, "item")
+	if info == nil || info.Versions("")[0].ID != "source-2" {
+		t.Fatal("旧详情响应不能覆盖新响应")
+	}
+}
+
+func TestDetailInfoReuseRequiresSameRequest(t *testing.T) {
+	ctx := context.Background()
+	s := emby.Session{Server: "http://a", Token: "t", UserID: "u"}
+	other := s
+	other.Token = "t2"
+	adult, _ := emby.AdultFilterContext(ctx, map[string]any{"is_adult": true})
+	info := &emby.PlaybackInfo{}
+	for name, take := range map[string]func() *emby.PlaybackInfo{
+		"账号": func() *emby.PlaybackInfo { return takeDetailInfo(ctx, &other, "item") },
+		"条目": func() *emby.PlaybackInfo { return takeDetailInfo(ctx, &s, "other") },
+		"分级": func() *emby.PlaybackInfo { return takeDetailInfo(adult, &s, "item") },
+	} {
+		keepDetailInfo(ctx, &s, "item", info, beginDetailInfo())
+		if take() != nil {
+			t.Fatalf("%s不同不得复用", name)
+		}
+	}
+	keepDetailInfo(ctx, &s, "item", info, beginDetailInfo())
+	detailInfo.at = time.Now().Add(-3 * time.Minute)
+	if takeDetailInfo(ctx, &s, "item") != nil {
+		t.Fatal("过期不得复用")
 	}
 }
 
@@ -221,74 +365,85 @@ func TestDetailMediaReturnsBeforeVideoProbeAndCancelsIt(t *testing.T) {
 }
 
 func TestDetailMediaWarmCancellationKeepsQuery(t *testing.T) {
-	for _, action := range []string{"cancel", "play", "replace"} {
-		t.Run(action, func(t *testing.T) {
-			regWarmOnce.Do(registerWarmCommands)
-			setup(t)
-			entered, release := make(chan struct{}), make(chan struct{})
-			var releaseOnce sync.Once
-			unblock := func() { releaseOnce.Do(func() { close(release) }) }
-			var streams atomic.Int64
-			up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-				if strings.HasSuffix(r.URL.Path, "/PlaybackInfo") {
-					if strings.Contains(r.URL.Path, "/new/") {
-						http.Error(w, "failed", 503)
+	for _, preload := range []bool{false, true} {
+		for _, action := range []string{"cancel", "play", "replace"} {
+			t.Run(fmt.Sprintf("%t/%s", preload, action), func(t *testing.T) {
+				regWarmOnce.Do(registerWarmCommands)
+				setup(t)
+				p := config.Current().PrefsOf()
+				p.PreloadEnabled = preload
+				if err := config.Current().SetPrefs(p); err != nil {
+					t.Fatal(err)
+				}
+				entered, release := make(chan struct{}), make(chan struct{})
+				var releaseOnce sync.Once
+				unblock := func() { releaseOnce.Do(func() { close(release) }) }
+				var streams atomic.Int64
+				up := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					if strings.HasSuffix(r.URL.Path, "/PlaybackInfo") {
+						if strings.Contains(r.URL.Path, "/new/") {
+							http.Error(w, "failed", 503)
+							return
+						}
+						close(entered)
+						<-release
+						fmt.Fprint(w, `{"MediaSources":[{"Id":"source","Name":"4K","Container":"mkv"}]}`)
 						return
 					}
-					close(entered)
-					<-release
-					fmt.Fprint(w, `{"MediaSources":[{"Id":"source","Name":"4K","Container":"mkv"}]}`)
-					return
-				}
-				if strings.HasPrefix(r.URL.Path, "/Videos/old/") {
-					streams.Add(1)
-				}
-			}))
-			defer up.Close()
-			defer unblock()
-			defer cancelWarm()
-			defer closeSharedProxy()
-			done := make(chan error, 1)
-			ctx, cancel := context.WithCancel(context.Background())
-			defer cancel()
-			go func() {
-				out, err := bus.Invoke(ctx, "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "old", "return_media": true})
-				if err == nil {
-					versions := out.([]emby.MediaVersion)
-					if len(versions) != 1 || versions[0].ID != "source" {
-						err = fmt.Errorf("媒体版本未返回: %v", out)
+					if strings.HasPrefix(r.URL.Path, "/Videos/old/") {
+						streams.Add(1)
 					}
+				}))
+				defer up.Close()
+				defer unblock()
+				defer cancelWarm()
+				defer closeSharedProxy()
+				done := make(chan error, 1)
+				ctx, cancel := context.WithCancel(context.Background())
+				defer cancel()
+				go func() {
+					out, err := bus.Invoke(ctx, "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "old", "return_media": true})
+					if err == nil {
+						versions := out.([]emby.MediaVersion)
+						if len(versions) != 1 || versions[0].ID != "source" {
+							err = fmt.Errorf("媒体版本未返回: %v", out)
+						}
+					}
+					done <- err
+				}()
+				select {
+				case <-entered:
+				case <-time.After(5 * time.Second):
+					t.Fatal("媒体查询未开始")
 				}
-				done <- err
-			}()
-			select {
-			case <-entered:
-			case <-time.After(5 * time.Second):
-				t.Fatal("媒体查询未开始")
-			}
-			if streams.Load() != 0 {
-				t.Fatal("取得媒体信息前不能读取视频")
-			}
-			switch action {
-			case "cancel":
-				_, _ = bus.Invoke(context.Background(), "prefs.preloadCancel", nil)
-			case "play":
-				_, _ = PlayResolve(context.Background(), &emby.Session{Server: up.URL, Token: "test", UserID: "user"}, "new", 0, "")
-			case "replace":
-				_, _ = bus.Invoke(context.Background(), "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "new", "return_media": true})
-			}
-			unblock()
-			select {
-			case err := <-done:
-				if err != nil {
-					t.Fatalf("停止预热不应打断当前详情媒体查询: %v", err)
+				if streams.Load() != 0 {
+					t.Fatal("取得媒体信息前不能读取视频")
 				}
-			case <-time.After(5 * time.Second):
-				t.Fatal("媒体查询未完成")
-			}
-			if streams.Load() != 0 {
-				t.Fatal("查询完成不应恢复已停止的预热")
-			}
-		})
+				switch action {
+				case "cancel":
+					_, _ = bus.Invoke(context.Background(), "prefs.preloadCancel", nil)
+				case "play":
+					_, _ = PlayResolve(context.Background(), &emby.Session{Server: up.URL, Token: "test", UserID: "user"}, "new", 0, "")
+				case "replace":
+					_, _ = bus.Invoke(context.Background(), "prefs.preloadItem", map[string]any{"server": up.URL, "token": "test", "user_id": "user", "item_id": "new", "return_media": true})
+				}
+				unblock()
+				select {
+				case err := <-done:
+					if err != nil {
+						t.Fatalf("停止预热不应打断当前详情媒体查询: %v", err)
+					}
+				case <-time.After(5 * time.Second):
+					t.Fatal("媒体查询未完成")
+				}
+				if streams.Load() != 0 {
+					t.Fatal("查询完成不应恢复已停止的预热")
+				}
+				s := &emby.Session{Server: up.URL, Token: "test", UserID: "user"}
+				if takeDetailInfo(ctx, s, "old") != nil {
+					t.Fatal("迟到的详情响应不得重新填入已失效缓存")
+				}
+			})
+		}
 	}
 }

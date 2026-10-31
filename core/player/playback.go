@@ -181,13 +181,26 @@ func playWithLiuying(ctx context.Context, s *emby.Session, itemID string, resume
 		}
 	}
 	var err error
+	reused := false
 	if target == nil {
-		target, err = prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+		var info *emby.PlaybackInfo
+		if start == nil {
+			info = takeDetailInfo(ctx, s, itemID)
+		}
+		reused = info != nil
+		if reused {
+			target, err = prefsClient.ResolvePlaybackInfo(ctx, s, itemID, mediaSourceID, prefs.VersionRegex, info)
+		}
+		// 详情之后媒体源可能已变化，缓存解析失败时仍保留正常取流机会。
+		if !reused || err != nil && ctx.Err() == nil {
+			reused = false
+			target, err = prefsClient.ResolveStream(ctx, s, itemID, mediaSourceID, prefs.VersionRegex)
+		}
 		if start != nil {
 			start.validUntil = time.Now().Add(2 * time.Minute)
 		}
 	}
-	bus.Logf("info", "phase=startup_resolve elapsed_ms=%d success=%t", time.Since(resolveAt).Milliseconds(), err == nil)
+	bus.Logf("info", "phase=startup_resolve elapsed_ms=%d success=%t reused=%t", time.Since(resolveAt).Milliseconds(), err == nil, reused)
 	if err != nil {
 		return nil, err
 	}

@@ -107,7 +107,7 @@ func (c *Client) ResolveStream(ctx context.Context, s *Session, itemID, mediaSou
 	return c.ResolvePlaybackInfo(ctx, s, itemID, mediaSourceID, versionRegex, info)
 }
 
-// PlaybackInfo 保存本次请求的媒体信息，仅供详情展示与预热共用，不缓存正式播放授权。
+// PlaybackInfo 保存本次请求的媒体信息，供详情展示、预热及紧接着的一次正式起播共用。
 type PlaybackInfo struct {
 	MediaSources  []rawMediaSource `json:"MediaSources"`
 	PlaySessionID *string          `json:"PlaySessionId"`
@@ -148,6 +148,10 @@ func (c *Client) PlaybackInfo(ctx context.Context, s *Session, itemID string) (*
 
 // ResolvePlaybackInfo 从本次响应选源并探测地址；详情预热可在后台调用，不阻塞版本展示。
 func (c *Client) ResolvePlaybackInfo(ctx context.Context, s *Session, itemID, mediaSourceID, versionRegex string, info *PlaybackInfo) (*PlaybackTarget, error) {
+	// 跨命令复用详情响应时，私密分类能力仍须按当前命令确认。
+	if err := c.requireAdultSupport(ctx, s); err != nil {
+		return nil, err
+	}
 	// 服务器发的 PlaySessionId 优先;缺则本地兜底生成(但同一次播放内保持一致)
 	psid := ""
 	if info.PlaySessionID != nil {

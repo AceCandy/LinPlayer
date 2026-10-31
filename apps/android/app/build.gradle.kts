@@ -204,7 +204,7 @@ dependencies {
        ★ 只引 exoplayer + 它的默认 DataSource,**不引 media3-ui / media3-session**:
          OSD 是我们自己的 Compose,通知栏走 androidx.media 的 MediaSessionCompat
          (理由见上面那段)。多引一个包等于把两套通知实现摆在一起。 */
-    implementation("androidx.media3:media3-exoplayer:1.11.0")
+    implementation("androidx.media3:media3-exoplayer:1.11.1")
     // 含 NDK 集成:libmpv / liblpcore 里的原生崩溃也接得住
     // 不用总包 sentry-android:它顺带拉录屏(replay),我们不录屏
     implementation("io.sentry:sentry-android-core:8.57.0")

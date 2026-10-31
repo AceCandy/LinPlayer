@@ -1,7 +1,6 @@
 package xyz.linplayer.app.tv
 
 import android.app.Activity
-import android.graphics.BitmapFactory
 import android.view.WindowManager
 import kotlin.coroutines.coroutineContext
 import androidx.activity.compose.BackHandler
@@ -32,7 +31,6 @@ import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ImageBitmap
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -289,6 +287,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         })
     }
     val leave: () -> Unit = {
+        xyz.linplayer.app.core.Logs.d("lp-playback", "phase=tv_leave engine=$engine failed=${ui.failed != null} finished=$finished")
         leaving = true
     }
     LaunchedEffect(leaving, sourceExit) {
@@ -430,6 +429,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     LaunchedEffect(target, attempt, engine, playbackPrefs) {
         if (playbackPrefs == null) return@LaunchedEffect
         if (leaving || stopped) return@LaunchedEffect
+        val runtime = Runtime.getRuntime()
+        xyz.linplayer.app.core.Logs.d("lp-playback",
+            "phase=tv_start engine=$engine buffer_target_bytes=$bufferTargetBytes " +
+                "heap_used_bytes=${runtime.totalMemory() - runtime.freeMemory()} heap_max_bytes=${runtime.maxMemory()} " +
+                "native_heap_bytes=${android.os.Debug.getNativeHeapAllocatedSize()} process_64bit=${android.os.Process.is64Bit()}")
         controller.begin()
         subOffPref = controller.fallback?.subOff ?: initialSubtitle?.let { it.index == null } ?: (trackPrefs?.subEnabled == false)
         ui.tracks = emptyList()
@@ -898,18 +902,15 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             }
         }
     }
-    // 预览游标的缩略图:没有本地字节时核心层回 available=false,只显示时间
-    LaunchedEffect(ui.preview?.let { (it / 5).toLong() }) {
-        val p = ui.preview ?: run { ui.thumb = null; return@LaunchedEffect }
+    // 预览游标:Media3 走拖动模式让画面直接跟到游标;MPV 取缩略图,没有本地字节时只显示时间
+    DisposableEffect(controller, exo) { onDispose { controller.endScrub() } }
+    LaunchedEffect(controller, exo, ui.preview) { exo?.let { controller.scrub(it, ui.preview) } }
+    LaunchedEffect(controller, exo, ui.preview?.let { (it / 5).toLong() }) {
+        ui.thumb = null
+        val p = ui.preview ?: return@LaunchedEffect
         if (exo != null) return@LaunchedEffect
         delay(250)
-        val o = runCatching { app.call("player.thumbnail", args("position" to p)) }.getOrNull().obj()
-        ui.thumb = if (o.bool("available")) o.str("jpeg")?.let { b64 ->
-            runCatching {
-                val bytes = android.util.Base64.decode(b64, android.util.Base64.DEFAULT)
-                BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
-            }.getOrNull()
-        } else null
+        ui.thumb = controller.thumbnail(p)
     }
 
     DisposableEffect(ui.paused) {
@@ -920,7 +921,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     // 主页键离开应用 → 暂停 + 落库 + 停止(TV 不做后台播放)
     val lifecycle = LocalLifecycleOwner.current.lifecycle
     DisposableEffect(lifecycle, controller, engine) {
-        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) { doPause(true); leave() } }
+        val obs = LifecycleEventObserver { _, e -> if (e == Lifecycle.Event.ON_STOP) {
+            xyz.linplayer.app.core.Logs.d("lp-playback",
+                "phase=tv_lifecycle_stop engine=$engine changing_configuration=${activity?.isChangingConfigurations == true}")
+            doPause(true); leave()
+        } }
         lifecycle.addObserver(obs)
         onDispose { lifecycle.removeObserver(obs) }
     }

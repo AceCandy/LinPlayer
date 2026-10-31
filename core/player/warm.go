@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"time"
 
 	"linplayer/core/bus"
 	"linplayer/core/config"
@@ -202,6 +203,9 @@ func closeSharedProxy() {
 
 // cancelWarm 取消取流与字节预热；共享代理和已缓存字节仍归正式播放复用。
 func cancelWarm() {
+	detailInfoMu.Lock()
+	detailInfoGeneration++
+	detailInfoMu.Unlock()
 	warmCancelMu.Lock()
 	if warmCancel != nil {
 		warmCancel()
@@ -212,6 +216,52 @@ func cancelWarm() {
 	// 等在途代理探测退出，取消返回后旧任务不得再替换正式播放代理。
 	proxyMu.Lock()
 	proxyMu.Unlock()
+}
+
+// 详情页刚取到的 PlaybackInfo 留给紧接着的正式起播用一次，省掉起播前一次服务器往返。
+// 取消预热不清它：正式起播会先 cancelWarm 再来取。
+type detailPlaybackInfo struct {
+	session emby.Session
+	itemID  string
+	adult   *bool
+	info    *emby.PlaybackInfo
+	at      time.Time
+}
+
+var detailInfoMu sync.Mutex
+var detailInfo *detailPlaybackInfo
+var detailInfoGeneration uint64
+
+// 新查询淘汰旧响应；停止预热只失效在途查询，保留已完成响应供起播消费。
+func beginDetailInfo() uint64 {
+	detailInfoMu.Lock()
+	defer detailInfoMu.Unlock()
+	detailInfoGeneration++
+	detailInfo = nil
+	return detailInfoGeneration
+}
+
+func keepDetailInfo(ctx context.Context, s *emby.Session, itemID string, info *emby.PlaybackInfo, generation uint64) {
+	detailInfoMu.Lock()
+	defer detailInfoMu.Unlock()
+	if generation != detailInfoGeneration || ctx.Err() != nil {
+		return
+	}
+	detailInfo = &detailPlaybackInfo{*s, itemID, emby.AdultFilter(ctx), info, time.Now()}
+}
+
+// takeDetailInfo 一次消费：PlaySessionId 只贯穿一次播放；账号、分级过滤、条目不同或超过两分钟都重新请求。
+func takeDetailInfo(ctx context.Context, s *emby.Session, itemID string) *emby.PlaybackInfo {
+	detailInfoMu.Lock()
+	defer detailInfoMu.Unlock()
+	d := detailInfo
+	detailInfo = nil
+	detailInfoGeneration++
+	if d == nil || d.session != *s || d.itemID != itemID ||
+		!emby.SameAdultFilter(d.adult, emby.AdultFilter(ctx)) || time.Since(d.at) > 2*time.Minute {
+		return nil
+	}
+	return d.info
 }
 
 // registerWarmCommands 由 RegisterCommands 调用。
@@ -238,11 +288,13 @@ func registerWarmCommands() {
 		if err != nil {
 			return nil, err
 		}
+		generation := beginDetailInfo()
 		if !p.PreloadEnabled {
 			info, err := prefsClient.PlaybackInfo(ctx, s, itemID)
 			if err != nil {
 				return nil, err
 			}
+			keepDetailInfo(ctx, s, itemID, info, generation)
 			return info.Versions(p.VersionRegex), nil
 		}
 		msID, _ := a["media_source_id"].(string)
@@ -266,6 +318,7 @@ func registerWarmCommands() {
 				cancel()
 				return nil, err
 			}
+			keepDetailInfo(ctx, s, itemID, info, generation)
 		}
 
 		go func() {

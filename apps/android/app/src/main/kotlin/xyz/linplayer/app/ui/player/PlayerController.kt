@@ -5,6 +5,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.media3.common.C
 import androidx.media3.common.Format
 import androidx.media3.common.MimeTypes
@@ -161,9 +162,12 @@ internal class PlayerController(
     private var seekSubmitted = false
     private var seekAt = 0L
     private var seekEnabled = true
+    private var scrubPlayer: ExoPlayer? = null
+    private var scrubFrom: Long? = null
     var seekTiming: SeekTiming? = null
 
     fun bind(player: ExoPlayer?) {
+        if (scrubPlayer !== player) endScrub()
         controls = if (player == null) MpvPlayerEngine(call) else Media3PlayerEngine(player)
     }
 
@@ -176,6 +180,7 @@ internal class PlayerController(
         resume = result.dbl("resume_secs") ?: 0.0
     }
     suspend fun begin() {
+        endScrub()
         seekTiming?.interrupt()
         ready = false
         seekEnabled = false
@@ -189,6 +194,7 @@ internal class PlayerController(
     fun started() { ready = true; seekEnabled = true }
 
     suspend fun stop(position: Double, handoff: Boolean = false, onLocalStopped: (() -> Unit)? = null, isCurrent: () -> Boolean = { true }) {
+        endScrub()
         seekTiming?.interrupt()
         ready = false
         seekEnabled = false
@@ -221,6 +227,7 @@ internal class PlayerController(
 
     /** 离页任务立即登记，新页起播等待收尾，避免旧 stop 停掉新会话。 */
     fun stopIn(scope: CoroutineScope, position: Double, onError: (Throwable) -> Unit, isCurrent: () -> Boolean = { true }, positionAtStop: () -> Double = { position }, beforeStop: suspend () -> Unit = {}, afterStop: suspend () -> Unit = {}): Job {
+        endScrub()
         seekTiming?.interrupt()
         seekEnabled = false
         clearSeek()
@@ -265,6 +272,7 @@ internal class PlayerController(
     /** 请求串行并合并未提交目标；返回只代表命令已提交，不代表画面已到达。 */
     suspend fun seek(position: Double, isCurrent: () -> Boolean = { true }) {
         if (switching || !seekEnabled || !position.isFinite() || !isCurrent()) return
+        endScrub()
         val target = position.coerceAtLeast(0.0)
         val revision = ++seekRevision
         seekTiming?.request(revision, target, engine)
@@ -297,6 +305,48 @@ internal class PlayerController(
         val target = ((seekTarget ?: position) + delta)
             .coerceIn(0.0, if (duration.isFinite() && duration > 0) duration else Double.MAX_VALUE)
         seek(target)
+    }
+
+    /** Media3 拖动模式：拖动中画面逐帧跟手，过密的 seek 由 Media3 合并；position 为空即退出，松手仍由 [seek] 提交。
+     *  未提交就退出（取消拖动、TV 游标失焦）回到起点，与 MPV「松手才跳」一致。 */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun scrub(player: ExoPlayer, position: Double?) {
+        if (player.isReleased) return
+        val target = position?.takeIf { seekEnabled && !switching && it.isFinite() }
+        if (target != null) {
+            if (scrubPlayer !== player) {
+                endScrub()
+                scrubPlayer = player
+                scrubFrom = player.currentPosition
+                player.setScrubbingModeEnabled(true)
+            }
+            player.seekTo((target.coerceAtLeast(0.0) * 1000).toLong())
+        } else if (scrubPlayer === player) {
+            endScrub(restorePosition = true)
+        }
+    }
+
+    /** 提交跳转及换媒体时同步收尾；只有取消当前拖动才恢复起点。 */
+    @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun endScrub(restorePosition: Boolean = false) {
+        val player = scrubPlayer
+        val from = scrubFrom
+        scrubPlayer = null
+        scrubFrom = null
+        if (player == null || player.isReleased) return
+        player.setScrubbingModeEnabled(false)
+        if (restorePosition && from != null && seekEnabled && !switching) player.seekTo(from)
+    }
+
+    /** MPV 拖动预览：核心只读已缓存字节解一帧，未缓存的位置返回 null。 */
+    suspend fun thumbnail(position: Double): androidx.compose.ui.graphics.ImageBitmap? {
+        return try {
+            val o = call("player.thumbnail", args("position" to position)).obj()
+            if (!o.bool("available")) return null
+            val bytes = android.util.Base64.decode(o.str("jpeg") ?: return null, android.util.Base64.DEFAULT)
+            android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)?.asImageBitmap()
+        } catch (cancelled: CancellationException) { throw cancelled }
+        catch (_: Exception) { null }
     }
 
     fun observePosition(position: Double, buffering: Boolean, paused: Boolean? = null, source: SeekSampleSource = SeekSampleSource.PAGE) {

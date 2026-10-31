@@ -476,7 +476,7 @@ func TestMediaCacheSettingsPartialSaveAndRollback(t *testing.T) {
 		t.Fatal(e)
 	}
 	r := call(t, 9101, "prefs.getPrefetchSettings", nil)
-	if !r.OK || r.Data["media_cache_bytes"] != float64(1<<30) {
+	if !r.OK || r.Data["media_cache_bytes"] != float64(2<<30) {
 		t.Fatalf("default missing: %+v", r)
 	}
 	r = call(t, 9102, "prefs.setPrefetchSettings", map[string]any{"settings": map[string]any{"media_cache_bytes": float64(256 << 20)}})

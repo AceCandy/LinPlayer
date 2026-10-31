@@ -22,8 +22,8 @@ import (
 
 const (
 	// 单片上限须大于 mpv 默认向前缓冲(demuxer-max-bytes 150MiB),否则退出时续播位置的块已被向前读取的新块挤掉。
-	// shortcut: 自定义缓冲目标超过约230MiB时续播块仍会被挤掉;需要时按缓冲目标放大单片上限。
-	mediaLimit  int64 = 256 << 20
+	// shortcut: 自定义缓冲接近单片上限时续播块仍可能被挤掉;需要时按缓冲目标放大单片上限。
+	mediaLimit  int64 = 512 << 20
 	mediaTTL          = 7 * 24 * time.Hour
 	blockHeader       = 64
 )
@@ -35,7 +35,7 @@ var mediaStore = struct {
 	budget int64
 	disks  map[*diskCache]bool
 	epoch  uint64
-}{budget: 1 << 30, disks: make(map[*diskCache]bool), epoch: 1}
+}{budget: 2 << 30, disks: make(map[*diskCache]bool), epoch: 1}
 
 // MediaCacheEpoch 由流影在解析前捕获，拒绝清理前请求迟到创建磁盘缓存。
 func MediaCacheEpoch() uint64 {

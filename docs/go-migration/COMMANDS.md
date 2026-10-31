@@ -308,7 +308,7 @@
 | [x] | `prefs.backupImport` | **新增** | `content: Option<String>, path: Option<String>, accounts: Option<bool>, settings: Option<bool>` | `BackupImported` | — | <!-- 备份与还原：导入（合并不覆盖） -->
 | [x] | `prefs.backupPreview` | **新增** | `content: Option<String>, path: Option<String>` | `BackupPreview` | — | <!-- 导入前看清楚要还原什么 -->
 | [x] | `prefs.getHomeSettings` | **新增** | `-` | `HomeSettings` | — | <!-- 首页栏目设置(合集栏按服开关等) -->
-| [x] | `prefs.getPrefetchSettings` | `get_prefetch_settings` | `—` | `PrefetchSettings` | ✅ | <!-- servers/threads/cache_bytes + media_cache_bytes(全局媒体预算,默认1GiB,0关闭,64MiB~4GiB整数) -->
+| [x] | `prefs.getPrefetchSettings` | `get_prefetch_settings` | `—` | `PrefetchSettings` | ✅ | <!-- servers/threads/cache_bytes + media_cache_bytes(全局媒体预算,默认2GiB,0关闭,64MiB~4GiB整数) -->
 | [x] | `prefs.getPrimaryProgressServer` | **新增** | `—` | `PrimaryProgressSettings` | ✅ |
 | [x] | `prefs.getPrefs` | `get_prefs` | `—` | `Prefs` | ✅ |
 | [x] | `prefs.getPreloadSettings` | `get_preload_settings` | `—` | `PreloadSettings` | ❌ |

@@ -84,6 +84,26 @@ func TestParsePrefs空段(t *testing.T) {
 	}
 }
 
+func TestMediaCacheDefaultAndExistingPreferences(t *testing.T) {
+	for _, tc := range []struct {
+		raw  string
+		want int64
+	}{
+		{`{}`, 2 << 30},
+		{`{"media_cache_bytes":1073741824}`, 1 << 30},
+		{`{"media_cache_bytes":0}`, 0},
+		{`{"media_cache_bytes":805306368}`, 768 << 20},
+	} {
+		p := ParsePrefs(json.RawMessage(tc.raw))
+		if p.MediaCacheBytes != tc.want {
+			t.Fatalf("%s: got %d, want %d", tc.raw, p.MediaCacheBytes, tc.want)
+		}
+		if p.BufferTargetBytes != 0 || p.PreloadHeadMB != 32 {
+			t.Fatal("磁盘容量调整不得扩大默认内存缓冲或详情预热")
+		}
+	}
+}
+
 // 越界值**读出来的时候就要钳**,不能只在保存时钳。
 //
 // ★ 否则设置页拿到一个越界值,用户什么都没改点一下保存就被核层拒,

@@ -3,6 +3,7 @@ package prefetch
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"linplayer/core/paths"
@@ -508,17 +509,18 @@ func TestPersistentStopCancelsPinnedFetch(t *testing.T) {
 func TestPersistentSingleMediaBoundAndPinnedIndexes(t *testing.T) {
 	paths.SetRoot(t.TempDir())
 	ConfigureMediaCache(1 << 30)
-	d, e := newPersistentCache(100*ChunkSize, "large-item", `"version"`)
+	chunks := mediaLimit/ChunkSize + 32
+	d, e := newPersistentCache(chunks*ChunkSize, "large-item", `"version"`)
 	if e != nil {
 		t.Fatal(e)
 	}
 	defer d.close()
-	for _, c := range []int64{0, 98, 99} {
+	for _, c := range []int64{0, chunks - 2, chunks - 1} {
 		if !d.put(c, bodyAt(c*ChunkSize, int(ChunkSize))) {
 			t.Fatal("index not stored")
 		}
 	}
-	for c := int64(1); c < 98; c++ {
+	for c := int64(1); c < chunks-2; c++ {
 		if !d.put(c, bodyAt(c*ChunkSize, int(ChunkSize))) {
 			t.Fatal("block not stored")
 		}
@@ -526,10 +528,63 @@ func TestPersistentSingleMediaBoundAndPinnedIndexes(t *testing.T) {
 	if d.sizeOnDisk() > mediaLimit {
 		t.Fatal("single media budget exceeded")
 	}
-	for _, c := range []int64{0, 98, 99} {
+	if d.has(1) {
+		t.Fatal("已超过单片容量，旧非固定块应被淘汰")
+	}
+	for _, c := range []int64{0, chunks - 2, chunks - 1} {
 		if !bytes.Equal(d.get(c, int(ChunkSize)), bodyAt(c*ChunkSize, int(ChunkSize))) {
 			t.Fatal("head/tail evicted by ring")
 		}
+	}
+}
+
+func TestPersistentKeepsResumeBlockBehind384MiBForwardBuffer(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	ConfigureMediaCache(1 << 30)
+	d, err := newPersistentCache(200*ChunkSize, "high-bitrate", `"version"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	const resume = int64(50)
+	block := bodyAt(0, int(ChunkSize))
+	for c := resume; c <= resume+(384<<20)/ChunkSize; c++ {
+		if !d.put(c, block) {
+			t.Fatal("block not stored")
+		}
+	}
+	if !d.has(resume) {
+		t.Fatal("续播位置被384MiB向前读取挤出缓存")
+	}
+}
+
+func TestPersistentOldRingIsRebuiltWhenCapacityChanges(t *testing.T) {
+	paths.SetRoot(t.TempDir())
+	ConfigureMediaCache(2 << 30)
+	d, err := newPersistentCache(200*ChunkSize, "old-ring", `"version"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d.ring = ((256 << 20) - 4096) / (ChunkSize + blockHeader)
+	index, _ := json.Marshal(mediaIndex{1, d.total, d.ring, ChunkSize})
+	if err := os.WriteFile(filepath.Join(d.path, "index.json"), index, 0600); err != nil {
+		t.Fatal(err)
+	}
+	block := bodyAt(0, int(ChunkSize))
+	if !d.put(70, block) {
+		t.Fatal("old block not stored")
+	}
+	d.close()
+	d, err = newPersistentCache(200*ChunkSize, "old-ring", `"version"`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer d.close()
+	if d.ring <= 63 || len(d.slots) != 0 {
+		t.Fatal("新容量不得读取旧槽号映射")
+	}
+	if !d.put(70, block) || !bytes.Equal(d.get(70, int(ChunkSize)), block) {
+		t.Fatal("缓存重建后无法保存和读取")
 	}
 }
 

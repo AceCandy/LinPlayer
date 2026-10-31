@@ -56,6 +56,10 @@ object Report {
             .getOrNull()?.firstOrNull() ?: return null
         val prefs = ctx.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
         val seen = prefs.getLong(SEEN, -1)
+        // 低内存回收不当作崩溃自动发送；首次系统记录也留数值线索供导出日志定位。
+        if (info.timestamp > seen) Logs.d("process-exit",
+            "reason=${info.reason} status=${info.status} importance=${info.importance} " +
+                "pss_kib=${info.pss} rss_kib=${info.rss} timestamp=${info.timestamp}")
         prefs.edit().putLong(SEEN, info.timestamp).apply()
         if (seen < 0 || info.timestamp <= seen) return null
         val kind = when (info.reason) {

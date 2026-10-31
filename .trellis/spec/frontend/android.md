@@ -1,5 +1,9 @@
 # Android 手机与 TV
 
+- Media3 拖动由 `PlayerController` 保存所属播放器及起点，正式 seek 前同步退出拖动模式；取消才回起点，起播、停播、换内核和页面销毁只收尾、不将旧位置写入新媒体。手机预览按 controller/engine 隔离，重试清空；缩略图请求不得吞取消异常，防止旧请求覆盖新预览。`PlayerControllerTest`覆盖提交、取消、重新起播、解绑及取消传播。
+
+- TV高码率退出须区分错误面板、主动离页与系统进程退出，不凭文件大小或相似上游issue认定OOM。`Report.takePending`首次取得系统退出记录也写reason/status/importance/PSS/RSS/时间戳，禁止原始description进入新增日志；低内存回收不自动作为崩溃发送。`ReportExitTest`覆盖首次记录、去重和原生崩溃原上报策略。TV起播记录内核、缓冲目标、堆容量及位数，离页与ON_STOP记录路径；日志不包含媒体标题、ID、地址或账号。
+
 - Media3 起播黑幕在真实 `onRenderedFirstFrame` 后即可撤除，包括暂停且位置未推进的首帧；该状态只用于呈现，不改 `everMoved`、失败或完播判据。按播放器、播放拥有者与重试代次隔离，媒体切换/IDLE清零，离页移除监听并拒绝已失效监听器回调，停止状态（IDLE）的首帧通知也不得撤幕；MPV保留自然推进和既有兜底。`StartupTimingTest`覆盖生命周期，手机/TV页面回归验证首帧即时撤幕与失败仍可见；冻结Compose时钟时，注入原生监听事件后需提交Snapshot通知再推进帧，不能将未刷新的测试界面误判为生产状态丢失。真机首帧耗时另验。
 
 - Media3流媒体首播门槛500ms，断流恢复2000ms及自动/自定义容量下本地策略保留；使用当前版本分流媒体/本地setter。`PlaybackBufferTest`比较499/500ms、1999/2000ms及旧本地策略。

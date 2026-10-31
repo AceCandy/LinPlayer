@@ -1191,7 +1191,7 @@ private fun MediaCachePanel() {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     var capacity by remember { mutableStateOf<Long?>(null) }
-    var lastCapacity by remember { mutableStateOf(1024L shl 20) }
+    var lastCapacity by remember { mutableStateOf(2048L shl 20) }
     var saving by remember { mutableStateOf(false) }
     var loadFailed by remember { mutableStateOf(false) }
     var reload by remember { mutableStateOf(0) }
@@ -1199,7 +1199,7 @@ private fun MediaCachePanel() {
         loadFailed = false
         runCatching { app.call("prefs.getPrefetchSettings") }
             .onSuccess {
-                capacity = it.obj().long("media_cache_bytes") ?: (1024L shl 20)
+                capacity = it.obj().long("media_cache_bytes") ?: (2048L shl 20)
                 if ((capacity ?: 0L) > 0L) lastCapacity = capacity!!
             }.onFailure { loadFailed = true; app.report(it) }
     }

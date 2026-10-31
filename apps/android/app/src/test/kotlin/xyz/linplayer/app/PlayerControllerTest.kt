@@ -36,6 +36,58 @@ import xyz.linplayer.app.ui.player.matchingTrack
 @RunWith(RobolectricTestRunner::class)
 @Config(sdk = [36], application = Application::class)
 class PlayerControllerTest {
+    @Test @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun 拖动模式只在可跳转时进入_取消回起点_提交留在目标() = runBlocking {
+        val controller = PlayerController("exo") { _, _ -> JsonObject(emptyMap()) }
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            controller.bind(player)
+            controller.begin()
+            controller.scrub(player, 30.0)
+            assertFalse("起播未就绪不得进入拖动模式", player.isScrubbingModeEnabled)
+            controller.started()
+            controller.scrub(player, 30.0)
+            assertTrue(player.isScrubbingModeEnabled)
+            assertEquals(30_000L, player.currentPosition)
+            controller.scrub(player, null)
+            assertFalse("松手后必须退出拖动模式,否则画面停住", player.isScrubbingModeEnabled)
+            assertEquals("未提交即取消,回到起拖位置", 0L, player.currentPosition)
+            controller.scrub(player, 40.0)
+            controller.seek(40.0)
+            assertFalse("最终跳转提交前就要退出拖动模式", player.isScrubbingModeEnabled)
+            controller.scrub(player, null)
+            assertEquals("已提交的跳转不得被拉回", 40_000L, player.currentPosition)
+        } finally { player.release() }
+    }
+
+    @Test @androidx.annotation.OptIn(androidx.media3.common.util.UnstableApi::class)
+    fun 重新起播和换内核都结束旧拖动且不恢复旧位置() = runBlocking {
+        val controller = PlayerController("exo") { _, _ -> JsonObject(emptyMap()) }
+        val player = ExoPlayer.Builder(RuntimeEnvironment.getApplication()).build()
+        try {
+            controller.bind(player)
+            controller.started()
+            controller.scrub(player, 30.0)
+            controller.begin()
+            assertFalse(player.isScrubbingModeEnabled)
+            player.seekTo(5000)
+            controller.started()
+            controller.scrub(player, null)
+            assertEquals("旧拖动不能把新媒体拉回原点", 5000L, player.currentPosition)
+            controller.scrub(player, 40.0)
+            controller.bind(null)
+            assertFalse("换内核不能留下暂停画面的拖动模式", player.isScrubbingModeEnabled)
+        } finally { player.release() }
+    }
+
+    @Test fun 取消缩略图请求不能作为空结果返回() = runBlocking {
+        val controller = PlayerController("mpv") { _, _ -> throw kotlinx.coroutines.CancellationException("cancelled") }
+        try {
+            controller.thumbnail(30.0)
+            fail("取消必须继续传播，防止旧请求清空新预览")
+        } catch (_: kotlinx.coroutines.CancellationException) { }
+    }
+
     @Test fun skippedSpeedDoesNotAcknowledgeApplication() = runBlocking {
         val calls = mutableListOf<String>()
         val controller = PlayerController("mpv") { command, _ ->

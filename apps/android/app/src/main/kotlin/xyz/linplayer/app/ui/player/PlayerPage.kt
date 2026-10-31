@@ -22,6 +22,7 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -311,8 +312,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
        表现就是「不会自动加载弹幕」,而且看上去还像是开着的。
        ★ 挂在 itemId 上:换一集就重来一遍。匹配不上不弹错(九成片子没弹幕)。 */
     LaunchedEffect(route.itemId) { startDanmakuFor(app, route.itemId) }
-    /** 跟手 seek 的预览值。**松手才发命令** —— 跟着滑发是每帧一条,把核心层的 seek 闩打乱。 */
-    var seekPreview by remember { mutableStateOf<Double?>(null) }
     var volume by remember { mutableFloatStateOf(feedVolume ?: 1f) }
     /* 亮度自己存一份。**不能每次去读 `window.attributes`** —— 没设过时它是 -1
        (「跟随系统」),拿 -1 当起点算增量的话第一下会直接跳到最暗。 */
@@ -342,6 +341,9 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
     }
     val engine = controller.engine
+    /** 横滑与进度条共用预览；松手才提交正式 seek，换媒体或内核清除旧预览。 */
+    var seekPreview by remember(controller, engine) { mutableStateOf<Double?>(null) }
+    var seekThumb by remember(controller, engine) { mutableStateOf<androidx.compose.ui.graphics.ImageBitmap?>(null) }
     var finished by remember(controller) { mutableStateOf(false) }
     var episodeResult by remember(controller) { mutableStateOf<Result<List<xyz.linplayer.app.data.Item>>?>(null) }
     var episodeRetry by remember(controller) { mutableStateOf(0) }
@@ -388,6 +390,15 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     val exo = rememberExoPlayer(engine == "exo" && trackPrefs != null, trackPrefs, bufferTargetBytes, initialSubtitle != null, preload = true)
     val latestExo by rememberUpdatedState(exo)
     SideEffect { controller.bind(exo) }
+    DisposableEffect(controller, exo) { onDispose { controller.endScrub() } }
+    LaunchedEffect(controller, exo, seekPreview) { exo?.let { controller.scrub(it, seekPreview) } }
+    // 与 TV 同口径:按 5 秒分桶、停 250ms 再取;未缓存的位置只显示时间
+    LaunchedEffect(controller, exo, seekPreview?.let { (it / 5).toLong() }) {
+        seekThumb = null
+        if (seekPreview == null || exo != null) return@LaunchedEffect
+        delay(250)
+        seekThumb = seekPreview?.let { controller.thumbnail(it) }
+    }
     ObserveSeekTimeout(controller)
     ObserveSeekTiming(controller)
     ObserveStartupTiming(exo, startupTiming)
@@ -662,6 +673,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     LaunchedEffect(controller, playbackPrefs, engine, attempt) {
         // 按本次重组的快照放行，不能让旧的 null-key 协程读取新偏好后先起播一次。
         if (playbackPrefs == null) return@LaunchedEffect
+        seekPreview = null
         controller.begin()
         subOff = controller.fallback?.subOff ?: !playbackPrefs.subEnabled
         controller.fallback?.let { speed = it.speed; volume = it.volume }
@@ -1381,18 +1393,27 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 
         /* 出画之后的缓冲提示。黑幕撤了但流还没跟上时,得有个东西说明在等 ——
            没有它的话画面卡住和播放器死了长得一模一样。 */
-        if ((everMoved || renderedFirstFrame) && buffering) Box(videoLayerModifier, contentAlignment = Alignment.Center) {
+        // 拖动预览期间不叠缓冲圈:Media3 拖动模式跳进未缓冲段会短暂缓冲,和预览框同居中
+        if ((everMoved || renderedFirstFrame) && buffering && seekPreview == null) Box(videoLayerModifier, contentAlignment = Alignment.Center) {
             xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White, label = "正在缓冲…")
         }
 
-        // seek 预览:滑动中显示目标时间与差值
+        // seek 预览:滑动中显示目标时间与差值。差值按起拖位置算 —— Media3 拖动模式下当前位置会跟着手指走
+        val seekFrom = remember(seekPreview == null) { controller.seekTarget ?: position }
         seekPreview?.let { t ->
             Box(videoLayerModifier, contentAlignment = Alignment.Center) {
-                Text(
-                    "${fmtTime(t)}  ${if (t >= position) "+" else "−"}${fmtTime(kotlin.math.abs(t - position))}",
-                    Modifier.clip(RoundedCornerShape(R.sm)).background(c.chip).padding(Sp.x12),
-                    color = Color.White, style = LpText.title.copy(fontFeatureSettings = "tnum"),
-                )
+                Column(Modifier.clip(RoundedCornerShape(R.sm)).background(c.chip),
+                    horizontalAlignment = Alignment.CenterHorizontally) {
+                    seekThumb?.let { b ->
+                        androidx.compose.foundation.Image(b, null,
+                            Modifier.width(160.dp).aspectRatio(b.width.toFloat() / b.height.coerceAtLeast(1)))
+                    }
+                    Text(
+                        "${fmtTime(t)}  ${if (t >= seekFrom) "+" else "−"}${fmtTime(kotlin.math.abs(t - seekFrom))}",
+                        Modifier.padding(Sp.x12),
+                        color = Color.White, style = LpText.title.copy(fontFeatureSettings = "tnum"),
+                    )
+                }
             }
         }
 
@@ -1428,6 +1449,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 onBack = leave,
                 onToggle = { doPause(!paused) },
                 onSeek = { t -> doSeek(t) }, onSeekBy = ::doSeekBy, seekKey = controller,
+                onPreview = { seekPreview = it },
                 onSpeed = { v -> speed = v; doSpeed(v) },
                 onLock = { locked = true },
                 onShot = {
@@ -1641,6 +1663,7 @@ internal fun Osd(
     onPanelAnchor: (String, Rect) -> Unit = { _, _ -> },
     onSeekBy: (Double) -> Unit = { delta -> onSeek((position + delta).coerceIn(0.0, if (duration > 0) duration else Double.MAX_VALUE)) },
     seekKey: Any = Unit,
+    onPreview: (Double?) -> Unit = {},
     buffered: Double = 0.0,
     onBottomBarHeight: (Int) -> Unit = {},
     onEpisodeRowHeight: (Int) -> Unit = {},
@@ -1721,7 +1744,7 @@ internal fun Osd(
                 }
                 Row(verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Sp.x8)) {
-                    Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered) }
+                    Box(Modifier.weight(1f)) { ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered, onPreview = onPreview) }
                     PlayerControl(LpIcons.danmaku, "弹幕", modifier = menuAnchor("danmaku"), onClick = { onPanel("danmaku") })
                     PlayerControl(LpIcons.music, "音轨", modifier = menuAnchor("audio"), onClick = { onPanel("audio") })
                     PlayerControl(LpIcons.sub, "字幕", modifier = menuAnchor("subtitle"), onClick = { onPanel("subtitle") })
@@ -1744,7 +1767,7 @@ internal fun Osd(
                 }
                 Marquee(episodeLabel.ifBlank { title }, Modifier.weight(1f).padding(horizontal = Sp.x6, vertical = Sp.x6))
             }
-            ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered)
+            ProgressRow(position, duration, heat, onSeek, showTotal = true, seekKey = seekKey, buffered = buffered, onPreview = onPreview)
             Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
                 verticalAlignment = Alignment.CenterVertically) {
                 Row(Modifier.width(controlWidth).padding(horizontal = Sp.x16),
@@ -1921,6 +1944,7 @@ internal fun ProgressRow(
     showTotal: Boolean = false,
     seekKey: Any = Unit,
     buffered: Double = 0.0,
+    onPreview: (Double?) -> Unit = {},
 ) {
     val enabled = duration.isFinite() && duration > 0
     val bufferedEnd = if (enabled && buffered.isFinite() && buffered > 0) buffered.coerceAtMost(duration) else 0.0
@@ -1928,9 +1952,12 @@ internal fun ProgressRow(
     val rtl = LocalLayoutDirection.current == LayoutDirection.Rtl
     var dragValue by remember(seekKey, duration) { mutableStateOf<Float?>(null) }
     val interactions = remember(seekKey, duration) { MutableInteractionSource() }
+    val preview by androidx.compose.runtime.rememberUpdatedState(onPreview)
     LaunchedEffect(interactions) {
-        interactions.interactions.collect { if (it is DragInteraction.Cancel) dragValue = null }
+        interactions.interactions.collect { if (it is DragInteraction.Cancel) { dragValue = null; preview(null) } }
     }
+    // 拖到一半整条被收起或重建时也要收尾,否则 Media3 停在拖动模式、画面冻住
+    androidx.compose.runtime.DisposableEffect(interactions) { onDispose { if (dragValue != null) preview(null) } }
     val live = dragValue ?: position.toFloat()
     Row(Modifier.fillMaxWidth().padding(horizontal = Sp.x12), verticalAlignment = Alignment.CenterVertically) {
     if (showTotal) Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
@@ -1947,10 +1974,11 @@ internal fun ProgressRow(
             .align(Alignment.TopCenter).padding(horizontal = Sp.x10))
         Slider(
             value = if (enabled) live.coerceIn(0f, duration.toFloat()) else 0f,
-            onValueChange = { dragValue = it },
+            onValueChange = { dragValue = it; preview(it.toDouble()) },
             onValueChangeFinished = {
                 dragValue?.let { if (enabled) onSeek(it.toDouble()) }
                 dragValue = null
+                preview(null)
             },
             interactionSource = interactions,
             valueRange = 0f..(if (enabled) duration.toFloat() else 1f),

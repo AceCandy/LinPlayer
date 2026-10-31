@@ -40,7 +40,7 @@
 `prefs.preloadItem`、`prefs.preloadCancel`、`Play` / `PlayResolve`、`Stop`；内部 `cancelWarm()` 与 `proxyFor(ctx, upstreamURL, prefs, readAhead)`。
 
 ### 3. 契约
-默认预热模式保持原响应；可选 return_media 模式见下方契约，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖后台取流、代理初始化、字节预热；return_media 查询使用页面命令 ctx，页面取消时终止查询。共享代理和已有缓存保留，正式播放仍独立解析 PlaybackInfo。
+默认预热模式保持原响应；可选 return_media 模式见下方契约，无新增环境变量。预热拥有独立可取消 context，不能使用命令返回即失效的请求 context。取消覆盖后台取流、代理初始化、字节预热；return_media 查询使用页面命令 ctx，页面取消时终止查询。共享代理和已有缓存保留；return_media 取得的 PlaybackInfo 可供正式起播复用一次（见下方契约）。
 
 ### 4. 校验 / 错误
 缺 item_id → EInvalid；预热关闭 → skipped；取消后的取流错误不记失败日志、不发 preload.done。代理初始化失败仍沿用直连回退。
@@ -66,11 +66,11 @@
 ## 持久共享媒体缓存
 
 - 准备代理接管和详情预热代理复用时，原地恢复当前服务器预取开关、线程数与码率窗口；已建立连接也读取原子策略快照，最多4个worker槽，关闭预取仅单块窗口。不得重建代理或重复探测丢掉已准备字节。`TestPreparedProxyPromotesExistingStream` 挂起首块验证接管前不抢跑、接管后四路并发及完整供给。
-- 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合可信版本和总长：优先强ETag，无ETag时允许Date至少晚于Last-Modified 60秒的有效修改时间；弱ETag不回退。后续块响应须匹配同一验证器及有效范围，no-store拒绝写入。每次起播重新解析授权；非流影起播命中同身份已确认版本（缓存目录内 version.json，且 PlaybackInfo 报的大小与确认时一致）且块0在盘时先供给缓存、后台 Range 0-0 校验，大小或验证器变化即删除该版缓存并停掉代理（本次报错，下次同步探测），网络/授权失败不下结论；其余情况同步探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
-- 4MiB块保持边收边吐与头尾固定槽；完整块附64字节位置/哈希头，临时写→Sync→关闭→rename才发布，恢复与读取校验损坏，索引不保存URL或账号原文。单片数据+元数据≤256MiB（大于mpv默认150MiB向前缓冲，续播块不被挤出），全局默认1GiB含会话ring/持久块/索引/在途临时写，TTL7天与LRU在访问/配置时执行。
+- 两核共用StartCached；身份摘要包含固定server/user/item/source，授权token与线路不参与稳定键，持久目录再结合可信版本和总长：优先强ETag，无ETag时允许Date至少晚于Last-Modified 60秒的有效修改时间；弱ETag不回退。后续块响应须匹配同一验证器及有效范围，no-store拒绝写入。每次起播按下方详情响应复用契约解析授权；非流影起播命中同身份已确认版本（缓存目录内 version.json，且 PlaybackInfo 报的大小与确认时一致）且块0在盘时先供给缓存、后台 Range 0-0 校验，大小或验证器变化即删除该版缓存并停掉代理（本次报错，下次同步探测），网络/授权失败不下结论；其余情况同步探测；206范围/长度/版本校验必须先于live.feed，条件Range回200或版本变化拒绝拼接。无可信版本只会话内缓存；no-store、HLS/DASH清单不持久化。
+- 4MiB块保持边收边吐与头尾固定槽；完整块附64字节位置/哈希头，临时写→Sync→关闭→rename才发布，恢复与读取校验损坏，索引不保存URL或账号原文。单片数据+元数据≤512MiB（大于mpv默认150MiB向前缓冲，续播块不被挤出），全局默认2GiB含会话ring/持久块/索引/在途临时写，TTL7天与LRU在访问/配置时执行。
 - 磁盘读写/清理/淘汰共用屏障，活动条目可安全失效重取，不能无限pin超预算；写盘失败由连接内有界ready载体继续供给，消费后释放。Close取消origin与连接并等worker退出，再关盘，保留完整持久块。清理关闭活动临时文件兼容Windows，旧句柄禁写。
 - worker认领inFlight和推进fetchCursor必须同锁原子完成；否则供给端会误判被淘汰而重复下载。取数取消后已收到的完整已验证块可提交，残块不可发布。
-- prefs.media_cache_bytes=0或64MiB～4GiB整数，旧配置默认1GiB；setter部分更新保留省略字段、保存失败回滚，再收紧预算。真实HTTP回归覆盖授权更新、账号/版本隔离、弱/缺失ETag、错误Range、跨进程恢复、损坏/半写、单片/全局预算、并发弱校验流、TTL/LRU、活动清理与Stop；运行prefetch/player/preload竞态检查。
+- prefs.media_cache_bytes=0或64MiB～4GiB整数，缺失字段默认2GiB，合法已有预算（含0和1GiB）不变；setter部分更新保留省略字段、保存失败回滚，再收紧预算。真实HTTP回归覆盖授权更新、账号/版本隔离、弱/缺失ETag、错误Range、跨进程恢复、损坏/半写、单片/全局预算、并发弱校验流、TTL/LRU、活动清理与Stop；运行prefetch/player/preload竞态检查。
 
 - 首页缓存轮播通过本地数据通道/img-cache读取，GET/HEAD仍校验X-LP-Token与来源白名单并使用既有尺寸key；Get2L未命中404，禁止调用sharedImage。普通/img仍可回源。独立路由保证旧核心不认识新入口时不误下载。缓存候选与渲染都必须使用/img-cache，不能探测命中后改回普通/img；TestCachedImgNeverFetches与TestCachedImgKeepsAuthenticationAndOriginAllowlist覆盖回源计数、清理、磁盘/HEAD与授权。
 
@@ -123,7 +123,7 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 
 ## 详情版本与预热共用响应
 
-`prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。响应仅存本次任务，正式播放仍重新获取 PlaybackInfo；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、页面取消、停止/替换预热与正式起播不打断版本查询、返回不等待视频探测与正式解析重新请求。
+`prefs.preloadItem(return_media=true)` 返回本次 `MediaVersion[]`，使用与正式解析相同的 DeviceProfile。只等待 PlaybackInfo，视频地址探测与字节预热仍在后台；关闭预热也须返回版本，失败不可变成成功空列表。成功响应另存一份供紧接着的非流影正式起播一次性复用（省一次往返；PlaySessionId 只贯穿一次播放）：须同 session、item、分级过滤且两分钟内；取消预热保留已完成响应但使在途查询失效，新查询按代次拒绝旧响应覆盖，消费后不能重新填入；解析失败且命令仍有效时重新取流，私密分类仍按当前命令确认能力，其余情况重新获取；旧模式保持立即返回状态。手机和桌面可播详情使用该模式，旧核心返回状态对象时才回退 emby.itemMedia。桌面同一页面重绘不重复加载版本。TestDetailMedia*覆盖一次请求、首选版本、关闭预热、错误、页面取消、停止/替换预热与正式起播不打断版本查询、返回不等待视频探测、正式起播复用一次且不再请求，以及账号/条目/分级不同或过期时不复用。
 
 ## 首页剧集实时选集
 
