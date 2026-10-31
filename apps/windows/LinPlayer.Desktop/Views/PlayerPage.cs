@@ -212,6 +212,11 @@ public sealed class PlayerPage : UserControl
     private (double Start, double End)? _intro, _outro;
     /// <summary>这一次已经跳过的那个区间,别反复弹。</summary>
     private string _skipped = "";
+    private string _manualSkipOnly = "";
+    private bool _skipNext, _editingSegments;
+    private int _markerWrites;
+    private int _chapterRevision;
+    private double _chapterDuration;
     // 自动跳 / 数据出处,都由核心层随 chapterInfo 一起给 —— 开关判两次早晚判岔
     private bool _skipAuto;
     private string _skipSource = "";
@@ -605,7 +610,8 @@ public sealed class PlayerPage : UserControl
         _qualityBtn.Click += (_, _) => ShowEnhance();
         _aspectBtn = Osd("比例", "画面比例");
         _aspectBtn.Click += (_, _) => Pick(_aspectBtn, _aspect, "画面比例", null, true);
-        var segBtn = Osd("片头片尾", "填片头片尾时长 —— 这部剧以后一直用这一份");
+        var segBtn = Osd("片头片尾", "用当前位置标记片头片尾");
+        segBtn.IsVisible = !NoEmby;
         segBtn.Click += (_, _) => ShowSegments(segBtn);
 
         /* 延迟**收进各自那个按钮里**(用户 2026-09-06:
@@ -1287,9 +1293,11 @@ public sealed class PlayerPage : UserControl
     /// <b>调用方不必再判一次开关</b> —— 判两次早晚判岔,那就是「关了还在跳」。</para>
     /// <para>拉不到不报错:没刮章节的库返回空表,两个功能静默不工作,那是正常情况。</para>
     /// </summary>
-    private async Task LoadChapters()
+    private async Task LoadChapters(bool manual = false)
     {
         if (NoEmby || _itemId == "") return;
+        var revision = ++_chapterRevision;
+        _chapterDuration = _duration;
         try
         {
             var s = Nav.Session!;
@@ -1298,6 +1306,7 @@ public sealed class PlayerPage : UserControl
                 s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
                 item_id = _itemId, runtime_secs = _duration,
             });
+            if (_seek.Stopped || revision != _chapterRevision) return;
             var list = r.TryGetProperty("chapters", out var cs) && cs.ValueKind == JsonValueKind.Array
                 ? cs.EnumerateArray()
                     .Select(c => new ChapterOption(Num(c, "start_secs"),
@@ -1310,7 +1319,12 @@ public sealed class PlayerPage : UserControl
             _skipAuto = r.TryGetProperty("skip_auto", out var sa) && sa.ValueKind == JsonValueKind.True;
             _skipSource = Str(r, "skip_source");
             // 换片重来一遍:上一集跳过了片头,不该让这一集的片头直接不弹
-            _skipped = "";
+            if (manual) {
+                _skipped = "";
+                _manualSkipOnly = _intro is { } i && _position >= i.Start && _position < i.End ? "intro"
+                    : _outro is { } o && _position >= o.Start && _position < o.End ? "outro" : "";
+                _skip.IsVisible = false;
+            } else _skipped = "";
             Dispatcher.UIThread.Post(() =>
             {
                 if (list.Count == 0) return;
@@ -1322,36 +1336,7 @@ public sealed class PlayerPage : UserControl
                 _bar.Chapters = list.Select(c => c.At).ToList();
             });
         }
-        catch { /* 没有章节是常态,不是错误 */ }
-    }
-
-    /// <summary>
-    /// 手动设片头片尾。两段都传 null = 清掉这部剧的设定。
-    ///
-    /// <para>设完<b>就地生效</b>,不等下一次起播 —— 用户刚量完就想看它对不对,
-    /// 让他退出重进等于让他无法确认自己设对了没有。</para>
-    /// </summary>
-    private async Task SaveSkipRange((double Start, double End)? intro, double outroLen)
-    {
-        if (NoEmby || _itemId == "") return;
-        try
-        {
-            var s = Nav.Session!;
-            await _core.PlayerSetSkipRange(new
-            {
-                s.server, s.token, s.user_id, s.device_id, server_id = _serverId,
-                item_id = _itemId,
-                intro_start = intro?.Start ?? 0, intro_end = intro?.End ?? 0,
-                outro_len = outroLen,
-            });
-            _intro = intro is { End: > 0 } ? intro : null;
-            _outro = outroLen > 0 && _duration > outroLen ? (_duration - outroLen, _duration) : null;
-            _skipped = "";
-            var none = intro is null && outroLen <= 0;
-            _skipSource = none ? "" : "手动设定";
-            Toast.Show(none ? "已清除这部剧的片头片尾" : "已记下,这部剧都按它来");
-        }
-        catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
+        catch { if (manual) throw; /* 起播章节读取失败不阻止播放，手动刷新向界面报错。 */ }
     }
 
     private static (double, double)? RangeOf(JsonElement r, string k) =>
@@ -1377,18 +1362,20 @@ public sealed class PlayerPage : UserControl
             return;
         }
         _skipTo = hit.Value.End;
+        _skipNext = which == "outro" && _duration > 0 && _skipTo >= _duration;
+        if (_skipNext && _next is null) { _skip.IsVisible = false; return; }
         var what = which == "intro" ? "片头" : "片尾";
         /* 自动跳:替用户按一下,然后**说清楚是谁给的数据**。
            不说的话跳错了(众投数据会错)用户只知道「播放器乱跳」,
            既不知道该去哪儿关,也不知道该改哪一条。 */
-        if (_skipAuto)
+        if (_skipAuto && !_editingSegments && _markerWrites == 0 && _manualSkipOnly != which)
         {
             _skipped = which;
             DoSkip();
             Toast.Show(_skipSource.Length > 0 ? $"已跳过{what} · {_skipSource}" : $"已跳过{what}");
             return;
         }
-        _skip.Content = "跳过" + what;
+        _skip.Content = _skipNext ? "下一集" : "跳过" + what;
         _skip.IsVisible = true;
     }
 
@@ -1690,89 +1677,94 @@ public sealed class PlayerPage : UserControl
         return fly;
     }
 
-    /// <summary>
-    /// 片头片尾弹层:**填时长**,不是「从这到这」(用户 2026-09-18:「给用户一个输入栏
-    /// 让用户输入跳过的时长 这样用户点一下就可以跳过了」)。
-    ///
-    /// <para>片头 = 从第几秒起、长几秒(大多数片子起点是 0,冷开场的番剧才要改);
-    /// 片尾只填长度,按每集最后几秒算 —— 每集长短不一,存绝对时间的话换一集就切进正片。
-    /// 进了区间右下角出「跳过片头 / 片尾」,点一下跳到区间末尾。</para>
-    /// </summary>
+    /// <summary>以点击时的实际播放位置标记，保存与刷新不会触发跳转。</summary>
     private void ShowSegments(Button anchor)
     {
-        var body = new StackPanel { Spacing = 10, Width = 300, Margin = new Thickness(10, 6, 10, 10) };
-        body.Children.Add(PopupTitle("片头片尾"));
-
-        TextBox Box(double secs) => new()
+        if (NoEmby || _itemId == "") return;
+        var body = new StackPanel { Spacing = 6, Width = 300, Margin = new Thickness(10, 6, 10, 10) };
+        var scope = "auto";
+        var open = true;
+        _editingSegments = true;
+        var scopeRow = MenuRow("应用范围 · 读取中");
+        var intro = Dimmed("");
+        var outro = Dimmed("");
+        var note = Dimmed("");
+        var custom = new StackPanel { Spacing = 6, IsVisible = false };
+        var clear = MenuRow("清除标记");
+        var toggle = MenuRow("自定义区间 · 展开");
+        body.Children.Add(scopeRow);
+        void Present(JsonElement data)
         {
-            Text = secs > 0 ? Clock(secs) : "", Watermark = "秒 或 分:秒", Width = 96,
-            HorizontalContentAlignment = HorizontalAlignment.Center,
-        };
-        var introFrom = Box(_intro?.Start ?? 0);
-        if (_intro is null) introFrom.Text = "0:00";
-        var introLen = Box(_intro is { } a ? a.End - a.Start : 0);
-        var outroLen = Box(_outro is { } b && _duration > 0 ? _duration - b.Start : 0);
-
-        var here = new Button { Classes = { "ghost" }, Content = "取当前", Foreground = Brushes.White, Padding = new Thickness(10, 6) };
-        ToolTip.SetTip(here, "片头从现在这个位置开始");
-        here.Click += (_, _) => introFrom.Text = Clock(_position);
-
-        Control Line(string label, params Control[] parts)
+            scope = Str(data, "scope");
+            scopeRow.Content = "应用范围 · " + (scope == "season" ? "本季" : "仅本集");
+            scopeRow.IsEnabled = Bool(data, "can_season");
+            string Label(string part) => RangeOf(data, part) is { } r ? $"{Clock(r.Item1)} — {Clock(r.Item2)}" : "未设置";
+            intro.Text = "片头 · " + Label("intro");
+            outro.Text = "片尾 · " + Label("outro");
+            clear.Content = scope == "season" ? "清除本季标记" : "清除本集标记";
+            note.Text = Bool(data, "legacy") ? "未覆盖的片段沿用旧整剧标记" : "本集标记优先于本季；清除后恢复继承的设置";
+        }
+        async Task Load(string requested)
         {
-            var row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
-            row.Children.Add(new TextBlock
-            {
-                Text = label, Width = 44, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center,
-            });
-            foreach (var p in parts) row.Children.Add(p);
+            body.IsEnabled = false;
+            try {
+                var s = Nav.Session!;
+                var data = await _core.PlayerGetSkipRange(new { s.server, s.token, s.user_id, s.device_id,
+                    server_id = _serverId, item_id = _itemId, scope = requested, runtime_secs = _duration });
+                if (open && !_seek.Stopped) Present(data);
+            } catch (Exception e) {
+                if (open) { note.Text = LibraryPage.Advice(e); if (scope == "auto") scopeRow.Content = "重试读取标记"; }
+            }
+            finally { body.IsEnabled = true; }
+        }
+        async Task Mark(string action)
+        {
+            if (scope == "auto") { await Load("auto"); return; }
+            var position = _position;
+            _markerWrites++;
+            body.IsEnabled = false;
+            try {
+                var s = Nav.Session!;
+                var data = await _core.PlayerSetSkipRange(new { s.server, s.token, s.user_id, s.device_id,
+                    server_id = _serverId, item_id = _itemId, scope, action, position, runtime_secs = _duration });
+                if (_seek.Stopped) return;
+                if (open) Present(data);
+                // 刷新失败明确说明已保存，不能把旧区间当成本次保存结果。
+                try { await LoadChapters(manual: true); }
+                catch (Exception e) {
+                    if (!_seek.Stopped) {
+                        _intro = null; _outro = null; _skip.IsVisible = false;
+                        Toast.Show("标记已保存，刷新失败：" + LibraryPage.Advice(e));
+                    }
+                    return;
+                }
+                if (_seek.Stopped) return;
+                Toast.Show(action == "clear" ? "已清除，恢复继承的设置" : "已保存");
+            } catch (Exception e) { if (open) note.Text = LibraryPage.Advice(e); else Toast.Show(LibraryPage.Advice(e)); }
+            finally { _markerWrites--; body.IsEnabled = true; }
+        }
+        Button Marker(string label, string action) {
+            var row = MenuRow(label);
+            row.Click += async (_, _) => await Mark(action);
             return row;
         }
-        TextBlock Unit(string t) => new() { Text = t, Foreground = Brushes.White, Opacity = 0.62, VerticalAlignment = VerticalAlignment.Center };
-        body.Children.Add(Line("片头", Unit("从"), introFrom, here));
-        body.Children.Add(Line("", Unit("长"), introLen, Unit("秒")));
-        body.Children.Add(Line("片尾", Unit("最后"), outroLen, Unit("秒")));
-
-        var err = Dimmed("");
-        err.IsVisible = false;
-        body.Children.Add(err);
-
-        Flyout? fly = null;
-        var save = new Button { Classes = { "primary" }, Content = "保存" };
-        save.Click += (_, _) =>
-        {
-            if (!TryParseClock(introFrom.Text, out var from) || !TryParseClock(introLen.Text, out var il)
-                || !TryParseClock(outroLen.Text, out var ol))
-            {
-                err.Text = "填秒数(90)或 分:秒(1:30)";
-                err.IsVisible = true;
-                return;
-            }
-            fly?.Hide();
-            _ = SaveSkipRange(il > 0 ? (from, from + il) : null, ol);
-        };
-        var clear = new Button { Classes = { "ghost" }, Content = "清除", Foreground = Brushes.White };
-        clear.Click += (_, _) => { fly?.Hide(); _ = SaveSkipRange(null, 0); };
-        body.Children.Add(new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 6, Children = { save, clear },
-        });
-        body.Children.Add(Dimmed("按剧存,同一部剧只填一遍。" + (_skipSource.Length > 0 ? $"现在用的是:{_skipSource}" : "")));
-        fly = Popup(anchor, body, true);
-    }
-
-    /// <summary>「90」「1:30」「1:02:03」都认。空 = 0(这一段不设)。</summary>
-    internal static bool TryParseClock(string? text, out double secs)
-    {
-        secs = 0;
-        var t = (text ?? "").Trim().Replace('：', ':');
-        if (t == "") return true;
-        foreach (var part in t.Split(':'))
-        {
-            if (!double.TryParse(part, System.Globalization.NumberStyles.Float,
-                    System.Globalization.CultureInfo.InvariantCulture, out var v) || v < 0) return false;
-            secs = secs * 60 + v;
-        }
-        return true;
+        scopeRow.Click += async (_, _) => await Load(scope == "season" ? "episode" : scope == "episode" ? "season" : "auto");
+        body.Children.Add(Marker("当前位置设为片头结束", "intro_end"));
+        body.Children.Add(intro);
+        body.Children.Add(Marker("当前位置设为片尾开始", "outro_start"));
+        body.Children.Add(outro);
+        toggle.Click += (_, _) => { custom.IsVisible = !custom.IsVisible; toggle.Content = "自定义区间 · " + (custom.IsVisible ? "收起" : "展开"); };
+        body.Children.Add(toggle);
+        custom.Children.Add(Marker("当前位置设为片头开始", "intro_start"));
+        custom.Children.Add(Marker("当前位置设为片尾结束", "outro_end"));
+        custom.Children.Add(Dimmed("保留片头前和片尾后的内容"));
+        body.Children.Add(custom);
+        clear.Click += async (_, _) => await Mark("clear");
+        body.Children.Add(clear);
+        body.Children.Add(note);
+        var fly = Popup(anchor, body, true);
+        fly.Closed += (_, _) => { open = false; _editingSegments = false; };
+        _ = Load("auto");
     }
 
     /// <summary>片头片尾当前是什么,以及这份数据是谁给的。</summary>
@@ -2678,7 +2670,8 @@ public sealed class PlayerPage : UserControl
     /// <summary>跳过片头 / 片尾。按钮和快捷键走同一条路,不各写一遍。</summary>
     private void DoSkip()
     {
-        if (_skipTo > 0) _ = SeekTo(_skipTo);
+        if (_skipNext) _ = GoNext();
+        else if (_skipTo > 0) _ = SeekTo(_skipTo);
         _skip.IsVisible = false;
         // 跳过之后用户又拖回这一段,那是他**故意要看**,别再跳一次把他弹出去
         if (_intro is { } a && _skipTo >= a.End - 0.5 && _skipTo <= a.End + 0.5) _skipped = "intro";
@@ -4405,6 +4398,11 @@ public sealed class PlayerPage : UserControl
             _speedValue = sp;
             _speed.Content = Math.Abs(sp - 1.0) < 0.01 ? "1×" : $"{sp:0.##}×";
             _speed.Classes.Set("on", Math.Abs(sp - 1.0) > 0.01);
+        }
+        if (!NoEmby && dur > 0 && dur != _chapterDuration) {
+            _intro = null; _outro = null; _skip.IsVisible = false;
+            _duration = dur;
+            _ = LoadChapters(manual: true);
         }
         SyncSkip(pos);
 

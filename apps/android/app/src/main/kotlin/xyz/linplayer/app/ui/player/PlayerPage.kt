@@ -57,6 +57,7 @@ import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -1084,10 +1085,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     val turning = embeddedRoute == null && turningTo(wantLandscape, portrait)
     var turnGaveUp by remember(wantLandscape) { mutableStateOf(false) }
     val controlsVisible = !inPip && (osd && !locked || panel != null) && !openFailed && !(leaving || turning && !turnGaveUp)
-    val nextUp = nextEpisode?.takeIf {
-        nextUpVisible(position, duration) && (controller.ready || switching) &&
-            !leaving && !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
-    }
     var bottomBarHeight by remember { mutableStateOf(0) }
     var episodeRowHeight by remember { mutableStateOf(0) }
     val density = LocalDensity.current
@@ -1152,17 +1149,33 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     var skipWhat by remember(route.itemId) { mutableStateOf<String?>(null) }
     var skippedIntro by remember(route.itemId) { mutableStateOf(false) }
     var skippedOutro by remember(route.itemId) { mutableStateOf(false) }
-    LaunchedEffect(route.itemId, duration > 0) {
+    var markerWriting by remember(controller) { mutableStateOf(false) }
+    var markerReloading by remember(controller) { mutableStateOf(false) }
+    var markerRevision by remember(controller) { mutableIntStateOf(0) }
+    LaunchedEffect(controller, duration, markerRevision) {
         if (route.src != null || feedOverlay != null || duration <= 0) return@LaunchedEffect
+        markerReloading = true
         val c = runCatching { app.call("player.chapterInfo", args("item_id" to route.itemId, "runtime_secs" to duration)).obj() }.getOrNull()
         coroutineContext.ensureActive()
         fun range(k: String) = c?.get(k).obj()?.let { o ->
             val s = o.dbl("start"); val e = o.dbl("end"); if (s != null && e != null && e > s) s..e else null
         }
-        intro = range("intro"); outro = range("outro"); skipAuto = c.bool("skip_auto")
+        val nextIntro = range("intro"); val nextOutro = range("outro")
+        if (markerRevision > 0) {
+            if (intro != nextIntro) skippedIntro = false
+            if (outro != nextOutro) skippedOutro = false
+        }
+        intro = nextIntro; outro = nextOutro; skipAuto = c.bool("skip_auto")
+        markerReloading = false
+        if (c == null && markerRevision > 0) app.toast("标记已保存，刷新失败，请重新打开播放页")
+        if (markerRevision > 0) {
+            skipWhat = null
+            if (intro?.contains(position) == true) { skippedIntro = true; skipWhat = "intro" }
+            if (outro?.contains(position) == true) { skippedOutro = true; skipWhat = "outro" }
+        }
     }
     fun skipOutro(o: ClosedFloatingPointRange<Double>) {
-        if (o.endInclusive < duration - 2) doSeek(o.endInclusive) else nextEpisode?.let { switchEpisode(it) }
+        if (o.endInclusive < duration) doSeek(o.endInclusive) else nextEpisode?.let { switchEpisode(it) }
     }
     fun skipNow() {
         when (skipWhat) {
@@ -1172,7 +1185,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         skipWhat = null
     }
     LaunchedEffect(position.toLong(), intro, outro) {
-        if (!controller.ready || switching || leaving) return@LaunchedEffect
+        if (!controller.ready || switching || leaving || markerWriting || markerReloading || panel == "segments") return@LaunchedEffect
         val p = position
         val i = intro
         val o = outro
@@ -1182,14 +1195,22 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 if (skipAuto) { doSeek(i.endInclusive); app.toast("已跳过片头") } else skipWhat = "intro"
             }
             o != null && !skippedOutro && p >= o.start && p < o.endInclusive - 1 &&
-                (o.endInclusive < duration - 2 || nextEpisode != null) -> {
+                (o.endInclusive < duration || nextEpisode != null) -> {
                 skippedOutro = true
                 if (skipAuto) { skipOutro(o); app.toast("已跳过片尾") } else skipWhat = "outro"
             }
         }
     }
     // 按钮停留 8 秒;不挂在上面那个按秒重启的效应里,否则倒计时每秒被取消
-    LaunchedEffect(skipWhat) { if (skipWhat != null) { delay(8000); skipWhat = null } }
+    LaunchedEffect(skipWhat) { if (skipWhat == "intro") { delay(8000); skipWhat = null } }
+    LaunchedEffect(position.toLong(), intro, outro) {
+        if (skipWhat == "intro" && intro?.contains(position) != true || skipWhat == "outro" && outro?.contains(position) != true) skipWhat = null
+    }
+    val nextUp = nextEpisode?.takeIf {
+        nextUpForOutro(position, duration, outro) && !markerReloading && !markerWriting && (controller.ready || switching) &&
+            !leaving && !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
+    }
+
 
     // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
     val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
@@ -1217,7 +1238,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         // 矮横屏的倍率按钮延伸到底栏上方，保留其48dp命中区及4dp间隙。
         val nextUpEnd = if (controlsVisible && !portrait && maxHeight < 360.dp) Sp.x16 + 48.dp + Sp.x4 else Sp.x12
         // 跳过按钮与「接下来」同位,片尾两者撞上时让给「接下来」
-        val skipVisible = skipWhat != null && nextUp == null && controller.ready && !switching && !leaving &&
+        val skipVisible = skipWhat != null && nextUp == null && !markerReloading && !markerWriting && controller.ready && !switching && !leaving &&
             !locked && !inPip && !openFailed && panel == null && !(turning && !turnGaveUp)
         Box(Modifier.fillMaxSize()) {
         val videoModifier = Modifier.fillMaxSize().graphicsLayer { translationY = feedOffset }.testTag("player.video")
@@ -1491,6 +1512,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             PlayerPanel(
                 panel, route.itemId, exo,
                 hasEpisodes = episodeLabel.isNotBlank(), chapters = chapters,
+                markerPosition = position, markerDuration = duration,
+                allowMarkers = route.src == null && !route.localEntry && feedOverlay == null,
+                onMarkersSaved = { if (latestController === controller) { markerReloading = true; markerRevision++ } },
+                onMarkersWriting = { if (latestController === controller) markerWriting = it },
                 onSwitchEngine = if (route.src == null && controller.ready && !switching && !controller.switching && !leaving) ({
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
                         if (!switching && !leaving) {
@@ -1555,7 +1580,7 @@ internal fun nextUpVisible(position: Double, duration: Double): Boolean =
 
 /** 跳过片头 / 片尾的胶囊,外观与「接下来」一致。 */
 @Composable
-private fun SkipChip(label: String, width: androidx.compose.ui.unit.Dp, m: Modifier, onClick: () -> Unit) {
+internal fun SkipChip(label: String, width: androidx.compose.ui.unit.Dp, m: Modifier, onClick: () -> Unit) {
     Box(m.width(width).heightIn(min = 48.dp).testTag("player.skip")
         .semantics { contentDescription = label }.pressable(onClick).padding(vertical = 6.dp)) {
         Row(Modifier.fillMaxWidth().heightIn(min = 36.dp).clip(RoundedCornerShape(50))

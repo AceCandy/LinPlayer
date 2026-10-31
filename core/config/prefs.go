@@ -230,10 +230,7 @@ type Prefs struct {
 	// ★ 单独一个开关而不是跟着 SkipIntro 走:那两个决定「跳不跳」,
 	//   这个决定「要不要为此发一次外网请求」—— 后者是隐私口径,不该被前者顺带打开。
 	SkipUseOnline bool `json:"skip_use_online"`
-	// SkipOverrides 用户手动设定的片头片尾。键 = 服务器|剧 id(电影则是影片 id)。
-	//
-	// ★ 按**剧**存不按集存:一部剧的片头片尾在每一集上是同一段,
-	//   按集存的话用户得为每一集设一遍,而那不是他要的。
+	// SkipOverrides 按服务器/季或本集保存；旧服务器|剧键仅作兼容回退。
 	SkipOverrides map[string]SkipRange `json:"skip_overrides"`
 	// 进度条悬停缩略图。数据来自服务端章节图,没有则退回纯时间气泡。默认 true。
 	PreviewThumbs bool `json:"preview_thumbs"`
@@ -415,6 +412,8 @@ type SkipRange struct {
 	// OutroLen 片尾按「每集最后几秒」算。每集长短不一,存绝对时间的话
 	// 换一集片尾就落进正片里。非 0 时压过 OutroStart/OutroEnd。
 	OutroLen float64 `json:"outro_len,omitempty"`
+	// OutroEndOffset 保留片尾后的内容，按距视频结尾的秒数计算。
+	OutroEndOffset float64 `json:"outro_end_offset,omitempty"`
 }
 
 func DefaultPrefs() Prefs {

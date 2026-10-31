@@ -74,6 +74,27 @@ class PhoneEnginePlaybackTest {
         scope.cancel()
     }
 
+    @Test fun 清除本集标记后恢复的区间仍可自动跳过() {
+        val core = episodeCore().apply {
+            ret("player.chapterInfo", xyz.linplayer.app.ui.pages.args("intro" to xyz.linplayer.app.ui.pages.args("start" to 0.0, "end" to 100.0), "skip_auto" to true))
+            ret("player.getSkipRange", xyz.linplayer.app.ui.pages.args("scope" to "episode", "can_season" to true))
+            on("player.setSkipRange") {
+                ret("player.chapterInfo", xyz.linplayer.app.ui.pages.args("intro" to xyz.linplayer.app.ui.pages.args("start" to 200.0, "end" to 300.0), "skip_auto" to true))
+                xyz.linplayer.app.ui.pages.args("scope" to "episode", "can_season" to true)
+            }
+        }
+        showPlayer(core, "mpv")
+        core.tick(10.0); advance(rule, 150)
+        assertTrue(core.calls.any { it.first == "player.seek" && it.second.dbl("pos") == 100.0 })
+        core.tick(150.0); advance(rule, 150)
+        rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+        rule.onNodeWithText("片头片尾").performClick(); advance(rule, 300)
+        rule.onNodeWithText("清除本集标记").performClick(); advance(rule, 300)
+        rule.runOnIdle { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }; advance(rule, 300)
+        core.tick(210.0); advance(rule, 300)
+        assertTrue(core.calls.any { it.first == "player.seek" && it.second.dbl("pos") == 300.0 })
+    }
+
     @Test fun 全屏倍率菜单沿用实际调速与全局偏好提交() {
         val core = episodeCore()
         showPlayer(core, "mpv")

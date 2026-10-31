@@ -117,6 +117,8 @@ internal class PlayerCtl(
     val pickTrack: suspend (String, String) -> Unit,
     val pickExoTrack: ((ExoPlayer, String, String) -> Unit)? = null,
     val observeTracks: (List<JsonObject>) -> Unit = {},
+    val markersSaved: () -> Unit = {},
+    val markersWriting: (Boolean) -> Unit = {},
     val switchEngine: () -> Unit,
     val switchTo: (TvRoute.Player) -> Unit,
 )
@@ -331,14 +333,18 @@ internal fun BoxScope.SkipButton(ui: PlayerUi, playbackFocus: FocusRequester, on
 
 /** 片尾提示沿用手机胶囊；展开控件后显式聚焦，不占用画面的确认键。 */
 @Composable
-internal fun BoxScope.NextUpChip(ui: PlayerUi, next: Item, playbackFocus: FocusRequester, onPlay: () -> Unit) {
+internal fun BoxScope.NextUpChip(ui: PlayerUi, next: Item?, playbackFocus: FocusRequester, onPlay: () -> Unit) {
     val mem = LocalFocusMemory.current
-    xyz.linplayer.app.ui.player.NextUp(next, ui.duration - ui.position, ui.duration, 150.dp,
-        Modifier.align(Alignment.TopEnd).padding(end = TvDim.safeH, top = TvDim.safeV).alpha(if (ui.osd) 1f else .5f)
-            .memo("player.nextUp").playerConfirm(ui.osd, onPlay).focusProperties {
-                canFocus = ui.osd
-                down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
-            }, onClick = onPlay)
+    // 收起时贴着底部细进度线；展开时避开时间码、进度条和按钮行，落在按钮上方。
+    val bottom = if (ui.osd) TvDim.safeV + 24.dp + 24.dp + TvSp.x8 + 44.dp + TvSp.x8 else 3.dp + TvSp.x8
+    val modifier = Modifier.align(Alignment.BottomEnd).padding(end = TvDim.safeH, bottom = bottom).alpha(if (ui.osd) 1f else .5f)
+        .memo("player.nextUp").playerConfirm(ui.osd, onPlay).focusProperties {
+            canFocus = ui.osd
+            down = if (ui.duration > 0) mem.requesters["osd.bar"] ?: playbackFocus else playbackFocus
+        }
+    if (next != null) xyz.linplayer.app.ui.player.NextUp(next, ui.duration - ui.position, ui.duration, 150.dp, modifier, onClick = onPlay)
+    else xyz.linplayer.app.ui.player.SkipChip("跳过片尾", 150.dp, modifier, onPlay)
+
 }
 
 /** 瞬时提示:中央播放暂停图标、「3.0x ▸▸」。 */
@@ -644,6 +650,7 @@ private fun BoxScope.MorePanel(
                 PanelItem(name.ifBlank { "章节 ${i + 1}" }, value = fmtTime(at), onClick = { ctl.seek(at); overlay.close() })
             }
         }
+        "segments" -> MarkerPanel(app, scope, overlay, ui, target, ctl, back)
         "info" -> PlaybackInfo(app, overlay, back, exo, ui)
         else -> TvSidePanel("更多", { overlay.close() }) {
             PanelGroup("画面")
@@ -655,6 +662,7 @@ private fun BoxScope.MorePanel(
             ui.prev(target.itemId)?.let { previous ->
                 PanelItem("上一集", onClick = { ctl.switchTo(TvRoute.Player(previous.id, cardTitleOf(previous))) })
             }
+            if (!local && target.src == null) PanelItem("片头片尾", chevron = true, onClick = { level = "segments" })
             PanelItem("倍速", value = "${ui.speed}×", chevron = true, onClick = { level = "speed" })
             if (ui.chapters.isNotEmpty()) PanelItem("章节", chevron = true, onClick = { level = "chapter" })
             skipIntro?.let { on ->
@@ -677,6 +685,41 @@ private fun BoxScope.MorePanel(
                     onClick = { level = xyz.linplayer.app.ui.plugin.pluginPanelKind(p) })
             }
         }
+    }
+}
+
+@Composable
+private fun BoxScope.MarkerPanel(app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi,
+    target: TvRoute.Player, ctl: PlayerCtl, back: () -> Unit) {
+    val markers = remember(app, target.itemId) { xyz.linplayer.app.ui.player.SkipMarkers(app, target.itemId) }
+    var custom by remember { mutableStateOf(false) }
+    LaunchedEffect(target.itemId) { markers.load(ui.duration) }
+    fun mark(action: String) {
+        val position = ui.position
+        val duration = ui.duration
+        scope.launch { markers.mark(action, position, duration, ctl.markersSaved, ctl.markersWriting) }
+    }
+    TvSidePanel("片头片尾", { overlay.close() }, back = back) {
+        PanelItem("应用范围", value = if (markers.scope == "season") "本季" else "仅本集",
+            enabled = markers.data != null && markers.canSeason, onClick = {
+                scope.launch { markers.load(ui.duration, if (markers.scope == "season") "episode" else "season") }
+            })
+        markers.error?.let {
+            PanelItem(it, enabled = false)
+            PanelItem("重试", enabled = !markers.busy, onClick = { scope.launch { markers.load(ui.duration) } })
+        }
+        PanelItem("当前位置设为片头结束", sub = "片头 · ${markers.label("intro")}", focused = true,
+            enabled = markers.data != null && ui.duration > 0, onClick = { mark("intro_end") })
+        PanelItem("当前位置设为片尾开始", sub = "片尾 · ${markers.label("outro")}",
+            enabled = markers.data != null && ui.duration > 0, onClick = { mark("outro_start") })
+        PanelItem("自定义区间", value = if (custom) "收起" else "展开", onClick = { custom = !custom })
+        if (custom) {
+            PanelItem("当前位置设为片头开始", enabled = markers.data != null && ui.duration > 0, onClick = { mark("intro_start") })
+            PanelItem("当前位置设为片尾结束", sub = "保留片尾后的内容", enabled = markers.data != null && ui.duration > 0, onClick = { mark("outro_end") })
+        }
+        PanelItem(if (markers.scope == "season") "清除本季标记" else "清除本集标记", enabled = markers.data != null, onClick = { mark("clear") })
+        if (markers.busy) PanelItem("正在保存或读取…", enabled = false)
+        if (markers.data.bool("legacy")) PanelItem("未覆盖的片段沿用旧整剧标记", enabled = false)
     }
 }
 

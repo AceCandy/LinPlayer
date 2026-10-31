@@ -31,6 +31,7 @@ import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.str
+import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.core.CoreException
 import xyz.linplayer.app.core.CorePort
@@ -49,6 +50,42 @@ class PhonePlayerPanelTest {
     @get:Rule val rule = createComposeRule()
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main)
     @After fun clean() { scope.cancel() }
+
+    @Test fun nextUpHonorsMarkedOutroAndEvenShortTrailingContent() {
+        assertEquals(true, xyz.linplayer.app.ui.player.nextUpForOutro(1200.0, 1400.0, 1200.0..1400.0))
+        assertEquals(false, xyz.linplayer.app.ui.player.nextUpForOutro(1399.7, 1400.0, 1200.0..1399.8))
+        assertEquals(true, xyz.linplayer.app.ui.player.nextUpForOutro(1399.0, 1400.0, null))
+        assertEquals(false, xyz.linplayer.app.ui.player.nextUpForOutro(0.0, 0.0, null))
+    }
+
+    @Test fun markerMenuUsesCurrentPositionAndScopeWithoutSeeking() {
+        fun result(scope: String) = xyz.linplayer.app.ui.pages.args("scope" to scope, "can_season" to true)
+        val core = FakeCore().loggedIn().apply {
+            on("player.getSkipRange") { a -> result(if (a.str("scope") == "auto") "season" else a.str("scope")!!) }
+            on("player.setSkipRange") { a -> result(a.str("scope")!!) }
+        }
+        val app = AppState(core, scope)
+        runBlocking { app.boot() }
+        var saved = 0
+        rule.setContent { LpTheme { CompositionLocalProvider(LocalApp provides app) {
+            PlayerPanel("segments", "current", markerPosition = 90.0, markerDuration = 1400.0, onMarkersSaved = { saved++ }, onClose = {})
+        } } }
+        rule.waitForIdle()
+        rule.onNodeWithText("本季").assertIsDisplayed()
+        rule.onNodeWithText("当前位置设为片头结束").performClick()
+        rule.waitForIdle()
+        assertEquals("intro_end", core.calls.last { it.first == "player.setSkipRange" }.second.str("action"))
+        assertEquals(90.0, core.calls.last { it.first == "player.setSkipRange" }.second.dbl("position")!!, .001)
+        rule.onNodeWithText("应用范围").performClick()
+        rule.waitForIdle()
+        rule.onNodeWithText("仅本集").assertIsDisplayed()
+        rule.onNodeWithText("当前位置设为片尾开始").performClick()
+        rule.waitForIdle()
+        assertEquals("episode", core.calls.last { it.first == "player.setSkipRange" }.second.str("scope"))
+        assertEquals(2, saved)
+        assertEquals(0, core.calls.count { it.first == "player.seek" || it.first == "player.play" })
+        rule.onRoot().captureRoboImage("build/outputs/roborazzi/player-skip-markers.png")
+    }
 
     @Test fun missingSeasonIdUsesSeriesAndKnownSeason() {
         val core = FakeCore().loggedIn().apply {

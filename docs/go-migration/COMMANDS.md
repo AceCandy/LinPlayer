@@ -151,7 +151,7 @@
 | [x] | `player.getMpvConf` | `get_mpv_conf` | `—` | `MpvConf` | ❌ |
 | [x] | `player.getPlaybackPrefs` | `get_playback_prefs` | `—` | `PlaybackPrefs` | ✅ |
 | [x] | `player.getScreenshotDir` | `get_screenshot_dir` | `—` | `ScreenshotDir` | ❌ |
-| [x] | `player.getSkipRange` | **新增** | `item_id: String` | `SkipRangeOf` | ✅ | <!-- 这部剧手动设过的片头片尾;没设过 range 为 null -->
+| [x] | `player.getSkipRange` | **新增** | `item_id: String, scope: Option<String>, runtime_secs: Option<f64>` | `{key,range,scope,can_season,intro,outro,legacy}` | ✅ | <!-- scope=auto/season/episode；省略保持旧剧级查询。range为选定范围原记录，intro/outro为该范围及下层继承后的区间，不含更高范围。 -->
 | [x] | `player.mpvCommand` | `mpv_command` | `args: Vec<String>` | `Result<(), String>` | ✅ |
 | [x] | `player.mpvGet` | `mpv_get` | `name: String` | `Result<Option<String>, String>` | ✅ |
 | [x] | `player.mpvSet` | `mpv_set` | `name: String, value: String` | `Result<(), String>` | ✅ |
@@ -193,7 +193,7 @@
 | [x] | `player.setSecondarySub` | `set_secondary_sub` | `id: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setSecondarySubOpts` | `set_secondary_sub_opts` | `delay: Option<f64>, position: Option<f64>, ass_override: Option<String>` | `Result<(), String>` | ✅ |
 | [x] | `player.setShaderLevel` | `set_shader_level` | `level: String` | `Result<ShaderApplied, String>` | ✅ |
-| [x] | `player.setSkipRange` | **新增** | `item_id: String, intro_start: f64, intro_end: f64, outro_start: f64, outro_end: f64, outro_len: f64` | `SkipRangeOf` | ✅ | <!-- 手动设片头片尾;全 0 = 清掉。outro_len = 每集最后几秒。键由核心层按剧算 -->
+| [x] | `player.setSkipRange` | **新增** | `item_id: String, scope: Option<String>, action: Option<String>, position: Option<f64>, runtime_secs: Option<f64>, intro_start: Option<f64>, intro_end: Option<f64>, outro_start: Option<f64>, outro_end: Option<f64>, outro_len: Option<f64>` | `{key,range,scope,can_season,intro,outro,legacy}` | ✅ | <!-- 显式scope=season/episode时action=intro_end/outro_start/intro_start/outro_end/clear。标记必须有有效position/runtime_secs；补标需先有完整区间；清除只删除所选范围。片尾按距结尾距离存储，outro_end_offset保留后续内容；本集>本季>旧剧逐段覆盖。省略scope保持旧整条替换，全0删除。 -->
 | [x] | `player.setSpeed` | `set_speed` | `speed: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.setSubDelay` | `set_sub_delay` | `secs: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.setSubStyle` | `set_sub_style` | `font: Option<String>, scale: Option<f64>, position: Option<f64>, background: Option<bool>, blend_mode: Option<String>` | `Result<(), String>` | ✅ |

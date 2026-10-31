@@ -13,6 +13,7 @@ import androidx.compose.ui.test.onNodeWithTag
 import androidx.compose.ui.test.onNodeWithText
 import androidx.compose.ui.test.performSemanticsAction
 import androidx.compose.ui.test.performKeyInput
+import androidx.compose.ui.test.pressKey
 import androidx.compose.ui.test.onRoot
 import androidx.compose.ui.semantics.SemanticsActions
 import androidx.compose.ui.test.junit4.createComposeRule
@@ -155,8 +156,8 @@ class TvFocusTest {
         mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
             player(); ret("player.setSpeed", kotlinx.serialization.json.JsonNull)
         }
-        core.tick(3645.0); advance(rule, 100)
-        core.tick(3645.25); advance(rule, 100)
+        core.tick(1200.0); advance(rule, 100)
+        core.tick(1200.25); advance(rule, 100)
         pressBack(); focused("player.root")
         rule.onRoot().performKeyInput { keyDown(Key.Enter) }
         advance(rule, 750)
@@ -481,7 +482,85 @@ class TvFocusTest {
         } finally { release.complete(Unit) }
     }
 
-    @Test fun 片尾胶囊需显式聚焦确认且隐藏确认不切集() {
+    @Test fun 清除本集标记后恢复的区间仍可自动跳过() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.chapterInfo", args("intro" to args("start" to 0.0, "end" to 100.0), "skip_auto" to true))
+            ret("player.getSkipRange", args("scope" to "episode", "can_season" to true))
+            on("player.setSkipRange") {
+                ret("player.chapterInfo", args("intro" to args("start" to 200.0, "end" to 300.0), "skip_auto" to true))
+                args("scope" to "episode", "can_season" to true)
+            }
+        }
+        core.tick(10.0); advance(rule, 150)
+        core.tick(10.25); advance(rule, 150)
+        assertTrue(core.calls.any { it.first == "player.seek" && it.second.dbl("pos") == 100.0 })
+        core.tick(150.0); advance(rule, 150)
+        press(rule, Key.Menu)
+        rule.onNodeWithText("片头片尾").performSemanticsAction(SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 300)
+        rule.onNodeWithText("清除本集标记").performSemanticsAction(SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 300)
+        pressBack(); pressBack()
+        core.tick(210.0); advance(rule, 300)
+        assertTrue(core.calls.any { it.first == "player.seek" && it.second.dbl("pos") == 300.0 })
+    }
+
+    @Test fun 设置片尾后不自动跳转且焦点留在当前操作() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.chapterInfo", args("skip_auto" to true))
+            ret("player.getSkipRange", args("scope" to "season", "can_season" to true))
+            on("player.setSkipRange") { a ->
+                val outro = args("start" to a.dbl("position")!!, "end" to 3660.0)
+                ret("player.chapterInfo", args("outro" to outro, "skip_auto" to true))
+                args("scope" to "season", "can_season" to true, "outro" to outro)
+            }
+        }
+        core.tick(3400.0); advance(rule, 150)
+        core.tick(3400.25); advance(rule, 150)
+        press(rule, Key.Menu)
+        rule.onNodeWithText("片头片尾").performSemanticsAction(SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 300)
+        rule.onNodeWithText("当前位置设为片尾开始").performSemanticsAction(SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 300)
+        rule.onNodeWithText("当前位置设为片尾开始").assertIsFocused()
+        assertEquals("outro_start", core.calls.last { it.first == "player.setSkipRange" }.second.str("action"))
+        pressBack(); pressBack(); advance(rule, 300)
+        assertFalse(core.calls.any { it.first == "player.seek" })
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 有后续内容的片尾半隐确认先展开再跳到区间末尾() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.chapterInfo", args("outro" to args("start" to 3500.0, "end" to 3650.0), "skip_auto" to false))
+        }
+        core.tick(3640.0); advance(rule, 150)
+        core.tick(3640.25); advance(rule, 150)
+        rule.onNodeWithText("跳过片尾").assertExists()
+        pressBack()
+        press(rule, Key.Enter)
+        rule.onNodeWithText("跳过片尾").assertIsFocused()
+        assertFalse(core.calls.any { it.first == "player.seek" })
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+        press(rule, Key.Enter); advance(rule, 300)
+        assertEquals(3650.0, core.calls.last { it.first == "player.seek" }.second.dbl("pos")!!, .001)
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 标记到结尾的片尾提前出现下一集() {
+        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
+            player()
+            ret("player.chapterInfo", args("outro" to args("start" to 3400.0, "end" to 3660.0), "skip_auto" to false))
+        }
+        core.tick(3401.0); advance(rule, 150)
+        core.tick(3401.25); advance(rule, 150)
+        rule.onNodeWithTag("player.nextUp").assertExists()
+        assertEquals(1, core.calls.count { it.first == "player.play" })
+    }
+
+    @Test fun 片尾半隐下一集确认先展开再切集() {
         mount(TvRoute.Player("sh6", "第六集")) { player() }
         core.tick(3645.0); advance(rule, 300)
         core.tick(3645.25); advance(rule, 300)
@@ -491,14 +570,43 @@ class TvFocusTest {
         assertEquals(1, core.calls.count { it.first == "player.play" })
         press(rule, Key.Enter)
         assertEquals(1, core.calls.count { it.first == "player.play" })
-        assertTrue("没有暂停调用：${core.calls.map { it.first }}", core.calls.any { it.first == "player.setPause" })
-        press(rule, Key.DirectionUp); focused("osd.bar")
-        press(rule, Key.DirectionUp); focused("osd.next")
-        press(rule, Key.DirectionUp)
+        assertFalse(core.calls.any { it.first == "player.setPause" })
+        advance(rule, 300)
         rule.onNodeWithTag("player.nextUp").assertIsFocused()
         press(rule, Key.Enter)
         advance(rule, 600)
         assertEquals("sh7", lastPlayed())
+    }
+
+    @Test fun 片尾半隐下一集上下键唤醒后仍聚焦下一集() {
+        mount(TvRoute.Player("sh6", "第六集")) { player() }
+        core.tick(3645.0); advance(rule, 300)
+        core.tick(3645.25); advance(rule, 300)
+        advance(rule, 5600)
+        focused("player.root")
+        press(rule, Key.DirectionDown)
+        advance(rule, 300)
+        rule.onNodeWithTag("player.nextUp").assertIsFocused()
+        pressBack()
+        focused("player.root")
+        press(rule, Key.DirectionUp)
+        advance(rule, 300)
+        rule.onNodeWithTag("player.nextUp").assertIsFocused()
+    }
+
+    @Test fun 片尾半隐下一集快速连续确认仍直接切集() {
+        mount(TvRoute.Player("sh6", "第六集")) { player() }
+        core.tick(3645.0); advance(rule, 300)
+        core.tick(3645.25); advance(rule, 300)
+        advance(rule, 5600)
+        focused("player.root")
+        rule.onRoot().performKeyInput {
+            pressKey(Key.Enter)
+            pressKey(Key.Enter)
+        }
+        advance(rule, 800)
+        assertEquals("sh7", lastPlayed())
+        assertFalse(core.calls.any { it.first == "player.setPause" })
     }
 
     @Test fun 跳过提示不接管隐藏确认且消失后返回进度焦点() {

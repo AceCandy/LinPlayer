@@ -85,6 +85,11 @@ fun PlayerPanel(
     onExoTrackPick: ((String, String) -> Unit)? = null,
     onPlaybackTarget: (String, String?, String) -> Unit = { _, _, _ -> },
     onSeek: (Double) -> Unit = {},
+    markerPosition: Double = 0.0,
+    markerDuration: Double = 0.0,
+    allowMarkers: Boolean = false,
+    onMarkersSaved: () -> Unit = {},
+    onMarkersWriting: (Boolean) -> Unit = {},
     onClose: () -> Unit,
 ) {
     val app = LocalApp.current
@@ -274,6 +279,7 @@ fun PlayerPanel(
                 options = listOfNotNull(
                     if (hasEpisodes) Triple("episodes", null, "选集") else null,
                     Triple("ratio", null, "画面比例"),
+                    if (allowMarkers) Triple("segments", null, "片头片尾") else null,
                     Triple("source", null, "版本与线路"),
                     /* ☠ **Exo 内核下没有「画面增强」这一项。** 它是 mpv 的 glsl-shaders,
                        Exo 那条路上 mpv 手里根本没有这一片 —— 挂上去是空转,
@@ -309,11 +315,11 @@ fun PlayerPanel(
     val width = when (menuKind) {
         "more" -> 192.dp
         "audio", "subtitle", "ratio", "speed", "chapters" -> 200.dp
-        "substyle", "info" -> 272.dp
+        "substyle", "info", "segments" -> 272.dp
         "danmaku" -> if (danmakuPage == "quick") 220.dp else 280.dp
         else -> 236.dp
     }
-    PlayerMenu(active, anchor, width, tall = menuKind == "substyle" || menuKind == "danmaku" || menuKind == "info",
+    PlayerMenu(active, anchor, width, tall = menuKind == "more" || menuKind == "segments" || menuKind == "substyle" || menuKind == "danmaku" || menuKind == "info",
         sidePanel = menuKind == "danmaku" && danmakuPage == "style",
         onBack = if (menuKind == "danmaku" && danmakuPage != "quick") ({
             danmakuPage = "quick"
@@ -330,6 +336,7 @@ fun PlayerPanel(
                 claimInitialFocus = false,
                 focusNs = "${shownPluginPanel.pluginId}/${shownPluginPanel.target}.",
             )
+            menuKind == "segments" -> SkipMarkerPanel(itemId, markerPosition, markerDuration, active, scope, onMarkersSaved, onMarkersWriting)
             menuKind == "substyle" -> SubStylePanel(app, scope)
             menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, danmakuPage, onPage = { danmakuPage = it }, onSearch = {
                 onClose(); onSearch()
@@ -389,6 +396,33 @@ fun PlayerPanel(
         if (!positioned && i >= 0) {
             list.scrollToItem(i + if (menuKind == "subtitle") 1 else 0)
             positioned = true
+        }
+    }
+}
+
+@Composable
+private fun SkipMarkerPanel(itemId: String, position: Double, duration: Double, active: Boolean,
+    scope: kotlinx.coroutines.CoroutineScope, onSaved: () -> Unit, onWriting: (Boolean) -> Unit) {
+    val app = LocalApp.current
+    val markers = remember(app, itemId) { SkipMarkers(app, itemId) }
+    var custom by remember { mutableStateOf(false) }
+    val saved by androidx.compose.runtime.rememberUpdatedState(onSaved)
+    LaunchedEffect(active, itemId) { if (active) markers.load(duration) }
+    fun mark(action: String) { scope.launch { markers.mark(action, position, duration, saved, onWriting) } }
+    LazyColumn(Modifier.fillMaxWidth()) {
+        item {
+            PlayerMenuRow("应用范围", { scope.launch { markers.load(duration, if (markers.scope == "season") "episode" else "season") } },
+                badge = if (markers.scope == "season") "本季" else "仅本集", enabled = markers.ready && markers.canSeason)
+            markers.error?.let { PlayerMenuNote(it); PlayerMenuRow("重试", { scope.launch { markers.load(duration) } }, enabled = !markers.busy) }
+            PlayerMenuRow("当前位置设为片头结束", { mark("intro_end") }, sub = "片头 · ${markers.label("intro")}", enabled = markers.ready && duration > 0)
+            PlayerMenuRow("当前位置设为片尾开始", { mark("outro_start") }, sub = "片尾 · ${markers.label("outro")}", enabled = markers.ready && duration > 0)
+            PlayerMenuRow("自定义区间", { custom = !custom }, badge = if (custom) "收起" else "展开")
+            if (custom) {
+                PlayerMenuRow("当前位置设为片头开始", { mark("intro_start") }, enabled = markers.ready && duration > 0)
+                PlayerMenuRow("当前位置设为片尾结束", { mark("outro_end") }, sub = "保留片尾后的内容", enabled = markers.ready && duration > 0)
+            }
+            PlayerMenuRow(if (markers.scope == "season") "清除本季标记" else "清除本集标记", { mark("clear") }, enabled = markers.ready, divider = false)
+            if (markers.data.bool("legacy")) PlayerMenuNote("未覆盖的片段沿用旧整剧标记")
         }
     }
 }

@@ -89,6 +89,7 @@ var root = Path.Combine(Path.GetTempPath(), "linplayer-seek-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
 try {
     using var core = new CoreClient(Path.GetFullPath(args[0]), root, "test");
+    if (args.Contains("--skip-markers-only")) { SeasonPlaybackCheck.Run(core, markersOnly: true); return; }
     if (args.Contains("--phone-parity-only")) { PhoneParityCheck.Run(core); return; }
     if (args.Contains("--danmaku-only")) { DanmakuCheck.Run(core); return; }
     if (args.Contains("--user-state-only")) { UserStateCheck.Run(core); return; }

@@ -35,6 +35,7 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.*
+import xyz.linplayer.app.tv.kit.TvDim
 import xyz.linplayer.app.ui.pages.args
 import java.io.File
 import kotlin.math.roundToInt
@@ -91,6 +92,18 @@ class TvPlayerLayoutTest {
         core.tick(1517.0); advance(rule, 150)
         core.tick(1517.25); advance(rule, 150)
         rule.onNodeWithTag("osd.bar").assertIsFocused()
+    }
+
+    @Test fun 标记面板展示常用操作并保持遥控焦点() {
+        core.ret("player.getSkipRange", args("scope" to "season", "can_season" to true,
+            "intro" to args("start" to 0.0, "end" to 90.0)))
+        show(series = true)
+        press(rule, Key.Menu); advance(rule, 300)
+        rule.onNodeWithText("片头片尾").performSemanticsAction(androidx.compose.ui.semantics.SemanticsActions.RequestFocus)
+        press(rule, Key.Enter); advance(rule, 300)
+        rule.onNodeWithText("当前位置设为片头结束").assertIsFocused()
+        rule.onNodeWithText("当前位置设为片尾开始").assertIsDisplayed()
+        rule.onRoot().captureRoboImage("build/outputs/roborazzi/tv-skip-markers.png")
     }
 
     private fun capture(name: String) {
@@ -186,6 +199,20 @@ class TvPlayerLayoutTest {
         press(rule, Key.Enter)
         rule.onNodeWithText("字幕").assertExists()
         shot("subtitles")
+    }
+
+    @Test fun 下一集卡固定右下并按OSD显隐避让底栏() {
+        show(series = true)
+        core.tick(3645.0); advance(rule, 300)
+        val root = rule.onRoot().fetchSemanticsNode().boundsInRoot
+        val action = rule.onNodeWithTag("osd.next").fetchSemanticsNode().boundsInRoot
+        val expanded = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
+        assertTrue("展开态下一集卡在右下", expanded.right > root.right - TvDim.safeH.value - 2f)
+        assertTrue("展开态下一集卡在按钮上方", expanded.bottom < action.top)
+        rule.runOnUiThread { back.onBackPressed() }; advance(rule, 300)
+        val hidden = rule.onNodeWithTag("player.nextUp").fetchSemanticsNode().boundsInRoot
+        assertTrue("收起态下一集卡仍在右下", hidden.right > root.right - TvDim.safeH.value - 2f)
+        assertTrue("收起态下一集卡贴近底线", hidden.bottom > expanded.bottom + 60f)
     }
 
     @Test @Config(qualifiers = "w640dp-h360dp-land-mdpi") fun compactLargeText() {

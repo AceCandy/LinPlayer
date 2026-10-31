@@ -177,6 +177,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     var sourceExit by remember { mutableStateOf<xyz.linplayer.app.ui.pages.SourceSwitchTarget?>(null) }
     val initialMode = remember { r.engine ?: UiPrefs.engine.value }
     LaunchedEffect(target.itemId) {
+        ui.intro = null; ui.outro = null
         ui.title = target.title
         ui.episodeLabel = ""
         ui.versions = emptyList()
@@ -376,8 +377,15 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             } finally { speedBusy = false }
         }
     }
+    var skippedIntro by remember(target) { mutableStateOf(false) }
+    var skippedOutro by remember(target) { mutableStateOf(false) }
+    var markerWriting by remember(controller) { mutableStateOf(false) }
+    var markerReloading by remember(controller) { mutableStateOf(false) }
+    var markerRevision by remember(controller) { mutableIntStateOf(0) }
     val ctl = PlayerCtl(::doSeek, ::doPause, ::saveSpeed, trackPicked = controller::trackPicked,
         pickTrack = controller::pickTrack, pickExoTrack = controller::pickExoTrack, observeTracks = controller::observeTracks,
+        markersSaved = { if (!leaving && latestController === controller) { markerReloading = true; markerRevision++ } },
+        markersWriting = { if (latestController === controller) markerWriting = it },
         switchEngine = {
             scope.launch(start = CoroutineStart.UNDISPATCHED) {
                 if (switching || leaving) return@launch
@@ -524,12 +532,26 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             ui.failed = "无法加载下一集：${result.exceptionOrNull()?.message ?: "分集加载失败"}"
         } else ui.next(target.itemId)?.let { n -> switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } ?: leave()
     }
-    LaunchedEffect(target.itemId, ui.duration > 0) {
+    LaunchedEffect(controller, ui.duration, markerRevision) {
         if (ui.duration <= 0 || target.localEntry || target.download || target.src != null) return@LaunchedEffect
+        markerReloading = true
         val c = runCatching { app.call("player.chapterInfo", args("item_id" to target.itemId, "runtime_secs" to ui.duration)) }.getOrNull().obj()
+        coroutineContext.ensureActive()
         ui.chapters = c?.get("chapters").arr().mapNotNull { it.obj() }.mapNotNull { o -> o.dbl("start_secs")?.let { it to (o.str("name") ?: "") } }
         fun range(k: String) = c?.get(k).obj()?.let { o -> val s = o.dbl("start"); val e = o.dbl("end"); if (s != null && e != null && e > s) s..e else null }
-        ui.intro = range("intro"); ui.outro = range("outro"); ui.skipAuto = c.bool("skip_auto")
+        val nextIntro = range("intro"); val nextOutro = range("outro")
+        if (markerRevision > 0) {
+            if (ui.intro != nextIntro) skippedIntro = false
+            if (ui.outro != nextOutro) skippedOutro = false
+        }
+        ui.intro = nextIntro; ui.outro = nextOutro; ui.skipAuto = c.bool("skip_auto")
+        markerReloading = false
+        if (c == null && markerRevision > 0) app.toast("标记已保存，刷新失败，请重新打开播放页")
+        if (markerRevision > 0) {
+            ui.skipWhat = null
+            if (ui.intro?.contains(ui.position) == true) { skippedIntro = true; ui.skipWhat = "intro" }
+            if (ui.outro?.contains(ui.position) == true) { skippedOutro = true; ui.skipWhat = "outro" }
+        }
     }
 
     // ---------------------------------------------------------------- 状态来源
@@ -605,12 +627,13 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         ui.duration > 0 && ui.position >= (ui.duration - 60).coerceAtLeast(0.0)
     // 片尾「接下来」胶囊与手机共用时间窗，确认键仅在胶囊聚焦时切集。
     val nextUp = nextItem?.takeIf {
-        xyz.linplayer.app.ui.player.nextUpVisible(ui.position, ui.duration) && controller.ready && ui.everMoved &&
+        xyz.linplayer.app.ui.player.nextUpForOutro(ui.position, ui.duration, ui.outro) && !markerReloading && !markerWriting && controller.ready && ui.everMoved &&
             ui.failed == null && !leaving && !overlay.isOpen
     }
     fun playNext() { ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } }
-    // 与手机一致:胶囊出现时不再显示跳过按钮
-    LaunchedEffect(nextUp != null) { if (nextUp != null) ui.skipWhat = null }
+    val endPrompt = nextUp != null || (!markerReloading && !markerWriting && ui.skipWhat == "outro" && ui.outro?.contains(ui.position) == true &&
+        controller.ready && ui.everMoved && ui.failed == null && !leaving && !overlay.isOpen)
+    fun performEndPrompt() { if (nextUp != null) playNext() else if (endPrompt) skipNow(ui, ::doSeek, ::playNext) }
     LaunchedEffect(controller, nextItem?.id, prepareSoon) {
         if (prepareSoon && queuedRequest == null) prepareEpisode(nextItem.id)
     }
@@ -761,9 +784,8 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
     }
     // 跳过片头 / 片尾:每片各跳一次;倒回去看片头不许被再踹走
-    var skippedIntro by remember(target) { mutableStateOf(false) }
-    var skippedOutro by remember(target) { mutableStateOf(false) }
-    LaunchedEffect(ui.position.toLong(), ui.intro, ui.outro) {
+    LaunchedEffect(ui.position.toLong(), ui.intro, ui.outro, overlay.isOpen) {
+        if (!controller.ready || switching || leaving || markerWriting || markerReloading || overlay.isOpen) return@LaunchedEffect
         val p = ui.position
         val intro = ui.intro
         val outro = ui.outro
@@ -775,7 +797,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             }
             // 片尾只在后面还有内容时才跳【继承 PC A-18】:片尾就是片子最后一段时,跳过去等于直接播完
             outro != null && !skippedOutro && p >= outro.start && p < outro.endInclusive - 1 &&
-                (outro.endInclusive < ui.duration - 2 || ui.next(target.itemId) != null) -> {
+                (outro.endInclusive < ui.duration || ui.next(target.itemId) != null) -> {
                 skippedOutro = true
                 if (ui.skipAuto) { skipOutro(ui, ::doSeek, ::playNext); app.toast("已跳过片尾") }
                 else ui.skipWhat = "outro"
@@ -783,10 +805,16 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
     }
     // 按钮停留时长单独计时:上面那个效应随位置每秒重启,倒计时放在里面会被反复取消,按钮永远不消失
-    LaunchedEffect(ui.skipWhat) { if (ui.skipWhat != null) { delay(SkipShowMs); ui.skipWhat = null } }
+    LaunchedEffect(ui.skipWhat) { if (ui.skipWhat == "intro") { delay(SkipShowMs); ui.skipWhat = null } }
+    LaunchedEffect(ui.position.toLong(), ui.intro, ui.outro) {
+        if (ui.skipWhat == "intro" && ui.intro?.contains(ui.position) != true || ui.skipWhat == "outro" && ui.outro?.contains(ui.position) != true) ui.skipWhat = null
+    }
 
     // ---------------------------------------------------------------- OSD 显隐与焦点
     var poke by remember { mutableIntStateOf(0) }
+    var focusNextUpOnWake by remember(target) { mutableStateOf(false) }
+    var revealNextUpKey by remember(target) { mutableStateOf(false) }
+    var pendingNextUpConfirm by remember(target) { mutableStateOf(false) }
     LaunchedEffect(ui.osd, overlay.isOpen, ui.paused, poke) {
         if (!ui.osd || overlay.isOpen || ui.paused) return@LaunchedEffect
         delay(OsdHideMs)
@@ -803,25 +831,37 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (rootFocused) focusPlayback()
         }
     }
-    LaunchedEffect(ui.skipWhat, nextUp?.id) {
+    LaunchedEffect(ui.skipWhat, endPrompt) {
         if (ui.osd && !overlay.isOpen &&
-            (mem.key == "osd.skip" && ui.skipWhat == null || mem.key == "player.nextUp" && nextUp == null)) {
+            (mem.key == "osd.skip" && ui.skipWhat == null || mem.key == "player.nextUp" && !endPrompt)) {
             withFrameNanos { }
             focusPlayback()
         }
     }
     var fromPanel by remember { mutableStateOf(false) }
     LaunchedEffect(overlay.isOpen) { if (overlay.isOpen) fromPanel = true }
-    LaunchedEffect(ui.osd, overlay.isOpen, ui.failed) {
+    LaunchedEffect(ui.osd, overlay.isOpen, ui.failed, endPrompt) {
         if (feedOverlay != null) return@LaunchedEffect
         if (overlay.isOpen || ui.failed != null) return@LaunchedEffect
+        if (ui.osd && focusNextUpOnWake && endPrompt) {
+            repeat(4) {
+                withFrameNanos { }
+                if (mem.requesters["player.nextUp"]?.let { runCatching { it.requestFocus() }.getOrDefault(false) } == true) {
+                    focusNextUpOnWake = false
+                }
+            }
+            return@LaunchedEffect
+        }
         repeat(8) {
             withFrameNanos { }
-            // 唤醒先落到进度；面板关闭仍恢复入口，不能让确认键误触下一集。
+            // 半隐下一集被方向键或确认键唤醒时，保持焦点在卡片上，避免先落进度条。
             val ok = if (!ui.osd) runCatching { root.requestFocus() }.getOrDefault(false)
                 else if (fromPanel) { fromPanel = false; true }
                 else focusPlayback()
-            if (ok) return@LaunchedEffect
+            if (ok) {
+                if (focusNextUpOnWake) focusNextUpOnWake = false
+                return@LaunchedEffect
+            }
         }
     }
     // 预览游标的缩略图:没有本地字节时核心层回 available=false,只显示时间
@@ -914,6 +954,33 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             return true
         }
         if (isOk(e.key)) {
+            if (revealNextUpKey) {
+                if (!down) {
+                    revealNextUpKey = false
+                }
+                return true
+            }
+            // 卡片从半隐态移动到按钮上方的几帧内，确认键不能落到根节点暂停。
+            if (pendingNextUpConfirm) {
+                if (!down) {
+                    pendingNextUpConfirm = false
+                    if (endPrompt) performEndPrompt()
+                }
+                return true
+            }
+            if (focusNextUpOnWake && endPrompt) {
+                if (down && e.nativeKeyEvent.repeatCount == 0) pendingNextUpConfirm = true
+                return true
+            }
+            if (!ui.osd && endPrompt) {
+                if (down) {
+                    revealNextUpKey = true
+                    focusNextUpOnWake = true
+                    ui.osd = true
+                }
+                return true
+            }
+            if (ui.osd && endPrompt && mem.key == "player.nextUp") return false
             // 长按确认 = 临时倍速,松开恢复;短按在松手时才算
             if (down && e.nativeKeyEvent.repeatCount == 0) {
                 holdJob = if (ui.preview == null) scope.launch {
@@ -933,7 +1000,13 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
         val dir = e.key == Key.DirectionUp || e.key == Key.DirectionDown || e.key == Key.DirectionLeft || e.key == Key.DirectionRight
         // OSD 收起时方向键**只唤醒**,不移动焦点:否则第一次按键就误触
-        if (dir && !ui.osd) { if (down) ui.osd = true; return true }
+        if (dir && !ui.osd) {
+            if (down) {
+                if (endPrompt && (e.key == Key.DirectionUp || e.key == Key.DirectionDown)) focusNextUpOnWake = true
+                ui.osd = true
+            }
+            return true
+        }
         if (dir && rootFocused && down) {
             if (ui.duration > 0) focusPlayback()
             else mem.requesters[if (ui.next(target.itemId) != null) "osd.next" else "osd.speed"]?.requestFocus()
@@ -975,12 +1048,12 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                         pluginPanels.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == which }, pluginPanels)
                 },
             )
-            if (ui.skipWhat != null && nextUp == null && !overlay.isOpen) SkipButton(ui, root) { skipNow(ui, ::doSeek, ::playNext) }
+            if (ui.skipWhat == "intro" && !markerReloading && !markerWriting && !endPrompt && !overlay.isOpen) SkipButton(ui, root) { skipNow(ui, ::doSeek, ::playNext) }
             // 控件收起时底部细进度条,与手机一致
             xyz.linplayer.app.ui.player.PassiveProgress(ui.position, ui.duration,
                 visible = !ui.osd && !overlay.isOpen && controller.ready && ui.everMoved,
                 m = Modifier.align(Alignment.BottomCenter))
-            nextUp?.let { NextUpChip(ui, it, root, ::playNext) }
+            if (endPrompt) NextUpChip(ui, nextUp, root, ::performEndPrompt)
             Moments(ui)
         }
         OverlayHost(overlay)
@@ -1024,7 +1097,7 @@ private fun skipNow(ui: PlayerUi, seek: (Double) -> Unit, playNext: () -> Unit) 
 /** 片尾后面还有正片就跳过去,片尾就是结尾则直接播下一集(同手机)。 */
 private fun skipOutro(ui: PlayerUi, seek: (Double) -> Unit, playNext: () -> Unit) {
     val o = ui.outro ?: return
-    if (o.endInclusive < ui.duration - 2) seek(o.endInclusive) else playNext()
+    if (o.endInclusive < ui.duration) seek(o.endInclusive) else playNext()
 }
 
 /**

@@ -3,6 +3,9 @@ using System.Net.Sockets;
 using System.Reflection;
 using System.Text.Json;
 using Avalonia.Controls;
+using Avalonia.Interactivity;
+using Avalonia.VisualTree;
+using LinPlayer.Core;
 using Avalonia.Threading;
 using LinPlayer.Desktop.Core;
 using LinPlayer.Desktop.Views;
@@ -10,7 +13,7 @@ using LinPlayer.Desktop.Views;
 /// <summary>通过真实页面与核心 HTTP 解析验证季内连播，不加载实际视频。</summary>
 internal static class SeasonPlaybackCheck
 {
-    public static void Run(CoreClient core)
+    public static void Run(CoreClient core, bool markersOnly = false)
     {
         using var port = new TcpListener(IPAddress.Loopback, 0);
         port.Start();
@@ -54,6 +57,7 @@ internal static class SeasonPlaybackCheck
             Nav.Root(new StackPanel());
             var page = Page("e1");
             Nav.Push(page);
+            if (markersOnly) { CheckMarkers(core, page); return; }
             for (var next = 2; next <= 3; next++) {
                 Await(Invoke(page, "LoadEpisodes"));
                 Check(parents.All(p => p == "season"), "分集请求未限定当前季");
@@ -107,6 +111,53 @@ internal static class SeasonPlaybackCheck
             SuppressStart(page);
             return page;
         }
+    }
+
+    private static void CheckMarkers(CoreClient core, PlayerPage page)
+    {
+        void Set(string name, object value) => typeof(PlayerPage).GetField(name, BindingFlags.Instance | BindingFlags.NonPublic)!.SetValue(page, value);
+        void Call(string name, params object[] values) => typeof(PlayerPage).GetMethod(name, BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, values);
+        void Until(Func<bool> done) {
+            var until = Environment.TickCount64 + 10000;
+            while (!done() && Environment.TickCount64 < until) { Jobs(); Thread.Sleep(10); }
+            Check(done(), "标记面板操作超时"); Jobs();
+        }
+        Await(core.PlayerSetPlaybackPrefs(new { skip_auto = true, skip_use_online = false }));
+        Await(Invoke(page, "LoadEpisodes"));
+        Set("_duration", 1400.0); Set("_position", 90.0);
+        var seeks = new List<double>();
+        Set("_seek", new PlaybackSeek(value => { seeks.Add(value); return Task.CompletedTask; }, () => 0));
+        var window = new Window { Width = 1000, Height = 800, Content = page };
+        window.Show();
+        try {
+            var anchor = page.GetVisualDescendants().OfType<Button>().First(b => b.Content as string == "片头片尾");
+            anchor.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            Until(() => Get<Flyout?>(page, "_openFlyout") != null);
+            var fly = Get<Flyout>(page, "_openFlyout");
+            var body = (StackPanel)((ScrollViewer)fly.Content!).Content!;
+            IEnumerable<Button> Buttons() => body.GetVisualDescendants().OfType<Button>();
+            Until(() => Buttons().Any(b => b.Content as string == "应用范围 · 本季"));
+            void Click(string label) {
+                Buttons().Single(b => b.Content as string == label).RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+                Until(() => body.IsEnabled && Get<int>(page, "_markerWrites") == 0);
+            }
+            Click("当前位置设为片头结束");
+            Set("_position", 1200.0); Click("当前位置设为片尾开始");
+            Check(seeks.Count == 0 && Get<string>(page, "_itemId") == "e1", "保存触发了跳转或切集");
+            Call("SyncSkip", 1200.0);
+            Check(Get<Button>(page, "_skip").Content as string == "下一集", "尾段没有展示下一集");
+            Click("自定义区间 · 展开");
+            Set("_position", 1360.0); Click("当前位置设为片尾结束");
+            Check(Get<(double Start, double End)?>(page, "_outro") == (1200.0, 1360.0), "自定义片尾未刷新");
+            Set("_position", 1300.0); Set("_skipped", "outro");
+            Await(Invoke(page, "LoadChapters", true));
+            fly.Hide(); Call("SyncSkip", 1300.0);
+            Check(seeks.Count == 0 && Get<Button>(page, "_skip").IsVisible, "重标后立即跳转或旧跳过状态屏蔽提示");
+            Check(Get<Button>(page, "_skip").Content as string == "跳过片尾", "有后续内容仍显示下一集");
+            Call("DoSkip");
+            Check(seeks.SequenceEqual(new[] {1360.0}), "跳过片尾未保留后续内容");
+            Console.WriteLine("手动标记：真实面板/FFI，本季默认、当前位置保存、刷新不跳转、片尾保留内容通过");
+        } finally { window.Content = null; window.Close(); }
     }
 
     private static object Episode(string id, int season, int episode) => new {
