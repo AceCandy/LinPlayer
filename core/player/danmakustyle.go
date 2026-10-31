@@ -44,6 +44,10 @@ var (
 	dmMu sync.Mutex
 	// dmItems 排好版的那一份。UI 层一次性取走,自己按帧插位置。
 	dmItems []danmakuItem
+	// 测量快照保留分轨前的完整候选，避免拥挤丢弃后无法恢复。
+	dmPrepared      []danmakuItem
+	dmPreparedStyle       = sty
+	dmRevision      int64 = 1
 )
 
 func dmStyleOf(p config.Prefs) dmStyle {
@@ -97,6 +101,8 @@ func relayout() {
 	out := layout(items, s)
 	dmMu.Lock()
 	dmItems = out
+	dmPrepared, dmPreparedStyle = items, s
+	dmRevision++
 	dmMu.Unlock()
 }
 
@@ -134,17 +140,31 @@ func mergeSame(in []danmakuItem, window float64) []danmakuItem {
 	return out
 }
 
-// layout 按行数分轨。防重叠开启时，三种模式共同占用纵向空间直到离场。
-// 不依赖文本估宽来拼接同轨滚动弹幕，避免实际画面较窄或长句追尾；代价是密集时略过更多条目。
+// layout 为未提供宿主测量的旧调用保留保守排版。
 func layout(in []danmakuItem, s dmStyle) []danmakuItem {
+	return layoutMeasured(in, s, 0, nil)
+}
+
+// layoutMeasured 用实际字宽检查同轨进场与追尾，固定类型仍按纵向空间避让。
+func layoutMeasured(in []danmakuItem, s dmStyle, viewport float64, widths []float64) []danmakuItem {
 	items := append([]danmakuItem(nil), in...)
+	for i := range items {
+		items[i].Text = displayText(items[i])
+		items[i].w = textWidth(items[i].Text, s.Scale)
+		if widths != nil {
+			items[i].w = widths[i]
+		}
+	}
 	sort.SliceStable(items, func(i, j int) bool { return items[i].Time < items[j].Time })
 	laneH := laneHeight * s.Scale
 	areaHeight := float64(danmakuResY) * s.Area
 	maxLanes := int((areaHeight - 8) / laneH)
 	limits := map[int]int{1: min(s.RollLines, maxLanes), 5: min(s.TopLines, maxLanes), 4: min(s.BottomLines, maxLanes)}
 	next := map[int]int{}
-	type occupiedRow struct{ top, until float64 }
+	type occupiedRow struct {
+		top, until float64
+		item       danmakuItem
+	}
 	active := make([]occupiedRow, 0, maxLanes)
 	out := make([]danmakuItem, 0, len(items))
 	for _, d := range items {
@@ -173,6 +193,10 @@ func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 				available := true
 				for _, row := range active {
 					if top < row.top+laneH && row.top < top+laneH {
+						if viewport > 0 && d.Mode == 1 && row.item.Mode == 1 &&
+							canFollow(row.item, d, viewport, rollSeconds/s.Speed, 20*s.Scale) {
+							continue
+						}
 						available = false
 						break
 					}
@@ -189,16 +213,42 @@ func layout(in []danmakuItem, s dmStyle) []danmakuItem {
 			if d.Mode == 1 {
 				span = rollSeconds / s.Speed
 			}
-			active = append(active, occupiedRow{topAt(lane), d.Time + span})
+			row := occupiedRow{topAt(lane), d.Time + span, d}
+			replaced := false
+			// 同轨已有条目互不追尾，最后进入的一条位于最右侧且最后离场。
+			if d.Mode == 1 {
+				for i := range active {
+					if active[i].top == row.top && active[i].item.Mode == 1 {
+						active[i], replaced = row, true
+						break
+					}
+				}
+			}
+			if !replaced {
+				active = append(active, row)
+			}
 		} else {
 			next[d.Mode] = lane + 1
 		}
-		d.Text = displayText(d)
-		d.w = textWidth(d.Text, s.Scale)
 		d.lane = lane
 		out = append(out, d)
 	}
 	return out
+}
+
+// 匀速运动的间距是线性函数，两端均安全即可保证整个共同存续期不追尾。
+func canFollow(previous, next danmakuItem, viewport, duration, gap float64) bool {
+	delta := next.Time - previous.Time
+	if delta >= duration {
+		return true
+	}
+	if delta <= 0 {
+		return false
+	}
+	ratio := delta / duration
+	startGap := viewport*ratio - previous.w*(1-ratio)
+	endGap := viewport*ratio - next.w*(1-ratio)
+	return startGap >= gap && endGap >= gap
 }
 
 // displayText 合并过的带上 xN。
@@ -358,7 +408,7 @@ func registerDanmakuStyle() {
 
 	// player.danmakuLayout 排好版的弹幕。灌完语料、改完设置各取一次。
 	bus.Register("player.danmakuLayout", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		return danmakuLayoutReply(), nil
+		return measuredLayoutReply(ctx, a)
 	})
 
 	// player.danmakuHeatmap 当前这一集的弹幕密度。两端画同一份数据。
@@ -387,7 +437,10 @@ func danmakuLayoutReply() map[string]any {
 	dmMu.Lock()
 	items := dmItems
 	dmMu.Unlock()
+	return danmakuReply(items, s)
+}
 
+func danmakuReply(items []danmakuItem, s dmStyle) map[string]any {
 	out := make([]map[string]any, 0, len(items))
 	for i := range items {
 		d := &items[i]

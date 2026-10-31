@@ -353,6 +353,16 @@ public sealed class PlayerPage : UserControl
         _initialSubtitle = initialSubtitle;
         _mediaSourceId = mediaSourceId;
         _core = core;
+        _dm.ResolveLayout = async (input, size, ct) =>
+        {
+            var widths = await Task.Run(() => DanmakuVisualHandler.MeasureWidths(input, size.Height, ct), ct);
+            var reply = await _core.PlayerDanmakuLayout(new
+            {
+                revision = input.Revision, viewport_width = size.Width * input.ResY / size.Height, widths,
+            }, ct);
+            ct.ThrowIfCancellationRequested();
+            return DmLayout.Parse(reply);
+        };
         _seek = new PlaybackSeek(to => _core.PlayerSeek(new { pos = to }));
         _isSource = isSource || src is not null;
         _title = title;
@@ -2298,11 +2308,20 @@ public sealed class PlayerPage : UserControl
     }
 
     /// <summary>把排好版的那一份取回来交给绘制层。灌完语料、改完设置都要调。</summary>
+    private long _dmLayoutRequest;
     private async Task RefreshDanmakuLayout()
     {
-        if (!_dmOn) { _dm.Layout = null; return; }
-        try { _dm.Layout = DmLayout.Parse(await _core.PlayerDanmakuLayout(new { })); }
-        catch { _dm.Layout = null; }
+        var request = ++_dmLayoutRequest;
+        var ct = _dmCancellation.Token;
+        _dm.Layout = null;
+        if (!_dmOn) return;
+        try
+        {
+            var reply = await _core.PlayerDanmakuLayout(new { prepare = true }, ct);
+            if (request == _dmLayoutRequest && !ct.IsCancellationRequested && _dmOn && !_leaving)
+                _dm.Layout = DmLayout.Parse(reply);
+        }
+        catch { if (request == _dmLayoutRequest && !ct.IsCancellationRequested) _dm.Layout = null; }
     }
 
     /// <summary>

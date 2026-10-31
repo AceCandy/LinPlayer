@@ -1256,7 +1256,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         /* 弹幕层。**画在这儿而不是交给 mpv** —— 两个内核下都要有,
            而 mpv 的 osd-overlay 在 Exo 那条路上根本不存在(见 DanmakuLayer 顶上那段)。 */
         if (DanmakuStyle.enabled.value) DanmakuLayer(
-            DanmakuStyle.layout.value, position, paused, speed, videoLayerModifier, buffering = buffering)
+            DanmakuStyle.layout.value, position, paused, speed, videoLayerModifier, buffering = buffering, app = app)
 
         /* 插件覆盖层 · 不拦交互的那批。**摆在手势层底下就是穿透**:
            Compose 的命中测试到不了被上层全屏手势盖住的节点,插件里有没有

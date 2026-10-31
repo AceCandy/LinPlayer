@@ -120,11 +120,42 @@ internal static class DanmakuCheck
                 Check(Await(core.PlayerGetDanmakuStyle()).GetProperty("opacity").GetDouble() == .9, "保存失败修改了核心偏好");
             } finally { Directory.Delete(configFile); File.WriteAllBytes(configFile, original); }
             CheckDrawing(window);
-            Console.WriteLine("弹幕：源管理/手选/偏移、四项显示设置及旧行数恢复、实际测宽/区域绘制通过");
+            CheckContinuous(core, window, player);
+            Console.WriteLine("弹幕：源管理/手选/偏移、四项设置、实际测宽/区域绘制、连续同轨及迟到测量通过");
         } finally {
             if (player != null) Field<CancellationTokenSource>(player, "_dmCancellation").Cancel();
             window.Content = null; window.Close(); server.Stop(); worker.GetAwaiter().GetResult();
         }
+    }
+
+    private static void CheckContinuous(CoreClient core, Window window, PlayerPage player)
+    {
+        Await(core.PlayerSetDanmakuStyle(new { scale = 1, speed = 1, opacity = 1, area = .25,
+            roll_lines = 1, top_lines = 0, bottom_lines = 0, merge = false, prevent_overlap = true }));
+        Await(core.PlayerDanmakuOffset(new { seconds = 0 }));
+        Await(core.PlayerDanmakuSet(new { items = Enumerable.Range(0, 16).Select(i =>
+            new { time = i, mode = 1, text = "flow", color = 0xFFFFFF }).ToArray() }));
+        var prepared = DmLayout.Parse(Await(core.PlayerDanmakuLayout(new { prepare = true })))!;
+        Check(prepared.NeedsMeasurement && prepared.Items.Count == 16, "测量前遗漏完整候选");
+        var dm = new DanmakuLayer();
+        var resolver = typeof(DanmakuLayer).GetField("ResolveLayout", BindingFlags.Instance | BindingFlags.NonPublic)!;
+        resolver.SetValue(dm, resolver.GetValue(Field<DanmakuLayer>(player, "_dm")));
+        window.Width = 640; window.Height = 360; window.Content = dm;
+        dm.Layout = prepared; dm.Sync(4, true, 1);
+        Wait(() => Field<DmLayout?>(dm, "_renderLayout") != null, "实测排版未完成");
+        var rendered = Field<DmLayout>(dm, "_renderLayout");
+        Check(!rendered.NeedsMeasurement && rendered.Items.Count == 16 && rendered.Items.All(i => i.Lane == 0 && i.W > 0),
+            "实际FFI仍按整批占轨或没有使用实测宽度");
+        window.Width = 320; window.Height = 600;
+        Wait(() => Field<DmLayout?>(dm, "_renderLayout") is { } changed && !ReferenceEquals(changed, rendered), "窗口变化未重测");
+        var pending = new TaskCompletionSource<DmLayout?>();
+        resolver.SetValue(dm, (Func<DmLayout, Size, CancellationToken, Task<DmLayout?>>)((_, _, _) => pending.Task));
+        dm.Layout = prepared;
+        Check(Field<DmLayout?>(dm, "_renderLayout") == null, "重测期间仍绘制旧布局");
+        dm.Layout = null;
+        pending.SetResult(rendered);
+        Dispatcher.UIThread.RunJobs();
+        Check(Field<DmLayout?>(dm, "_renderLayout") == null, "迟到测量恢复了已清空弹幕");
     }
 
     private static void CheckDrawing(Window window)

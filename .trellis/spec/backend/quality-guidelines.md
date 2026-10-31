@@ -101,7 +101,7 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 2. 接口：player.getDanmakuStyle / player.setDanmakuStyle新增roll_lines与prevent_overlap，命令表为真源。
 3. 数据：danmaku_roll_lines默认20，0隐藏滚动；danmaku_prevent_overlap默认true，旧配置缺字段沿用默认，显式0/false必须保留。
 4. 校验：roll_lines只接收0–20整数，prevent_overlap只接收bool，非法值返回E_INVALID；样式命令与弹幕总开关共用锁串行，保存失败回滚Prefs，不发布新排版；总开关失败也不能遗留内存新值。
-5. 排版：滚动行数同时受范围、字号、可见高度与上限约束；防重叠开启时三类共享纵向占位直到完整离场，拥挤略过；关闭轮流分配各类行，允许重叠，0行仍隐藏。
+5. 排版：滚动行数同时受范围、字号、可见高度与上限约束；防重叠开启时三类共享纵向空间；有宿主实际几何时滚动按进场间距和追尾检查连续同轨，固定/跨类型及无测量旧调用仍独占到离场，拥挤略过；关闭轮流分配各类行，允许重叠，0行仍隐藏。
 6. 回归：danmaku_options_test.go覆盖持久化、单项保留、失败回滚、非法值、0行、密集开关和三类互斥。
 7. 正反例：宿主使用核心lane与生命周期绘制；不能把搜索多源候选当作全部已加载来源，或仅改变UI读数却不重新取得排版。
 
@@ -155,3 +155,14 @@ Android 手机/TV 通过 `displayBlock`，桌面通过 `CallDisplayAsync`，tvOS
 
 ### 7. 错误与正确做法
 错误：核心w估宽直接用于居中/离屏，或仅移动宿主底部位置而不改核心避让。正确：宿主按实际字体测宽并缓存，核心与宿主共享区域边界；未知真实字宽和视口时保留整段占轨，不能根据估宽放宽防重叠。
+
+
+## 连续弹幕的测量与排轨
+
+1. 范围：手机、TV和桌面实测排版；业务分轨仍由Go核心负责，不引入新依赖或改变语料时间。
+2. 签名：`player.danmakuLayout(prepare?: bool, revision?: i64, viewport_width?: f64, widths?: f64[])`；prepare回复增加revision和needs_measurement=true，最终回复不需要再次测量。
+3. 契约：prepare必须返回合并后的完整候选和最终文字(含×N)，不能先丢弃拥挤项；宿主按实际字体/字号/粗体和高度测宽，宽度与视口按res_y换算并按原候选顺序提交。排版前后检查修订，结果不写全局视口状态。
+4. 校验：视口须为有限正值，widths须等长且有限非负；非法或过期为E_INVALID。间距用时间比例分别乘视口/字宽，避免有限大数的中间运算溢出。
+5. 案例：同轨前条未离场时，入口及前条离场时均有半字安全间距即可接入；拥挤直接略过，不排队篡改时间戳。固定和跨类型保留存续期避让；旧无参调用兼容保守排版。
+6. 回归：TestMeasuredRollReusesOccupiedLane旧整段占轨时只能接入2/16条；TestMeasuredRollPreventsLongTextCatchup与TestMeasuredMixedModesStaySeparated覆盖追尾/混排；TestMeasuredLayoutSnapshotContract验证完整候选、非法几何与过期拒绝。DanmakuGeometryTest和seekcheck --danmaku-only覆盖实际测量接线、尺寸变化、取消和迟到结果。
+7. 正反例：不能只修绘制字宽却仍整段占轨，也不能按估宽放宽避碰。正确做法是完整候选实测后分轨；宿主在后台测量，换源/样式/尺寸时清旧布局并拒收旧结果，零尺寸等待、不逐帧跨FFI。

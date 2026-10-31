@@ -1026,7 +1026,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     Box(Modifier.fillMaxSize().onPreviewKeyEvent(::onKey).testTag("player.root").focusRequester(root).onFocusChanged { rootFocused = it.isFocused }.focusable()) {
         if (exo != null) ExoSurface(exo, subOff = subOffPref, fit = ui.fit, m = Modifier.fillMaxSize())
         else VideoSurface(app.core, Modifier.fillMaxSize())
-        if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering)
+        if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering, app = app)
 
         /* 插件覆盖层。摆在 OSD **之前**:盖住控制条等于把暂停和进度条一起弄没,
            接管控制条是 `osd[]` 贡献点的事。不声明 interactive 的那批连焦点都进不去。 */

@@ -76,12 +76,16 @@ object DanmakuStyle {
 
     /** 排好版的那一份。null = 还没灌语料。 */
     val layout = mutableStateOf<DmLayout?>(null)
+    private var layoutRequest = 0L
 
     /** 重新取一次排版。灌完语料、改完设置都要调。 */
     suspend fun reloadLayout(app: AppState) {
-        val result = runCatching { app.call("player.danmakuLayout") }.getOrNull().obj()
+        val request = ++layoutRequest
+        val generation = DanmakuSession.generation
+        layout.value = null
+        val result = runCatching { app.call("player.danmakuLayout", args("prepare" to true)) }.getOrNull().obj()
         currentCoroutineContext().ensureActive()
-        layout.value = parseDmLayout(result)
+        if (request == layoutRequest && generation == DanmakuSession.generation) layout.value = parseDmLayout(result)
     }
 
     suspend fun load(app: AppState) = styleMutex.withLock {

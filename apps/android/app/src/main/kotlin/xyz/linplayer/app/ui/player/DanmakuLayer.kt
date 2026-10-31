@@ -5,10 +5,17 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.mutableDoubleStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.unit.IntSize
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
@@ -16,6 +23,10 @@ import androidx.compose.ui.graphics.nativeCanvas
 import kotlin.math.abs
 import kotlin.math.pow
 import kotlinx.serialization.json.JsonObject
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonPrimitive
+import xyz.linplayer.app.data.AppState
+import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.data.arr
 import xyz.linplayer.app.data.bool
 import xyz.linplayer.app.data.dbl
@@ -35,7 +46,7 @@ import xyz.linplayer.app.data.str
  * 画在 View 层这三条一条都不存在:帧回调是 Compose 自己的,和内核无关。
  *
  * ★ 排版(哪条排第几轨、排不下丢哪条)仍在核心层,这里只做两件事:
- *   按帧把 x 插出来、把字画上去。见 `core/player/danmakustyle.go`。
+ *   测量文字交给核心分轨，再按帧插值绘制。见 `core/player/danmakustyle.go`。
  */
 
 /** 一条排好版的弹幕。字段名照 `player.danmakuLayout` 的单字母键。 */
@@ -43,7 +54,7 @@ class DmItem(
     val t: Double,
     val mode: Int,
     val lane: Int,
-    /** 核心层估的文本宽,单位是 1920×1080 画布的像素。 */
+    /** 以res_y=1080换算的实测宽度；旧调用可返回估宽。 */
     val w: Double,
     val color: Int,
     val text: String,
@@ -62,6 +73,8 @@ class DmLayout(
     /** 按时刻升序 —— 每帧靠二分找起点,不遍历全表。 */
     val items: List<DmItem>,
     val areaHeight: Double = resY,
+    val revision: Long = 0,
+    val needsMeasurement: Boolean = false,
 )
 
 fun parseDmLayout(r: JsonObject?): DmLayout? {
@@ -88,7 +101,29 @@ fun parseDmLayout(r: JsonObject?): DmLayout? {
         bold = r.bool("bold"),
         items = items,
         areaHeight = r.dbl("area_height") ?: r.dbl("res_y") ?: 1080.0,
+        revision = r.long("revision") ?: 0,
+        needsMeasurement = r.bool("needs_measurement"),
     )
+}
+
+/** 批量测量最终显示文字，按本次画布几何请求核心分轨，不在每帧跨语言调用。 */
+internal suspend fun measureDanmaku(app: AppState, layout: DmLayout, size: IntSize): DmLayout? {
+    val sy = size.height / layout.resY
+    val widths = withContext(Dispatchers.Default) {
+        val paint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+            textSize = (layout.fontSize * sy).toFloat()
+            isFakeBoldText = layout.bold
+        }
+        val cache = HashMap<String, Double>()
+        layout.items.map { item ->
+            currentCoroutineContext().ensureActive()
+            cache.getOrPut(item.text) { paint.measureText(item.text) / sy }
+        }
+    }
+    val reply = app.call("player.danmakuLayout", args("revision" to layout.revision,
+        "viewport_width" to size.width / sy, "widths" to JsonArray(widths.map { JsonPrimitive(it) }))).obj()
+    currentCoroutineContext().ensureActive()
+    return parseDmLayout(reply)
 }
 
 /**
@@ -151,8 +186,21 @@ fun DanmakuLayer(
     speed: Double,
     modifier: Modifier = Modifier,
     buffering: Boolean = false,
+    app: AppState? = null,
 ) {
     if (layout == null || layout.items.isEmpty()) return
+    val viewport = remember { mutableStateOf(IntSize.Zero) }
+    val drawingSize = viewport.value
+    val measured = remember(layout, drawingSize) { mutableStateOf<DmLayout?>(null) }
+    LaunchedEffect(layout, drawingSize, app) {
+        val size = drawingSize
+        if (!layout.needsMeasurement || app == null || size.width <= 0 || size.height <= 0) return@LaunchedEffect
+        try { measured.value = measureDanmaku(app, layout, size) }
+        catch (e: kotlinx.coroutines.CancellationException) { throw e }
+        catch (_: Exception) { /* 过期或失败的排版不绘制；新语料/几何会发起自己的测量。 */ }
+    }
+    val drawing = if (layout.needsMeasurement) measured.value else layout
+    val hasItems = drawing?.items?.isNotEmpty() == true
 
     /* ★ 每收到一次 position 就**对表**,两次之间自己按帧往前推。
        直接拿 position 画的表现是弹幕每秒只动 4 下(或者 Exo 那边 10 下)—— 一格一格地跳。
@@ -165,8 +213,8 @@ fun DanmakuLayer(
     val timeline = remember { DmClock(position) }
     val target = rememberUpdatedState(position)
     val stopped = paused || buffering
-    LaunchedEffect(stopped, speed) {
-        if (stopped) return@LaunchedEffect
+    LaunchedEffect(stopped, speed, hasItems) {
+        if (stopped || !hasItems) return@LaunchedEffect
         var last = withFrameNanos { it }
         while (true) {
             withFrameNanos { n ->
@@ -184,9 +232,12 @@ fun DanmakuLayer(
     // 两支笔跨帧复用:每帧新建 Paint 会把 GC 拖进渲染帧里
     val fill = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
     val shadow = remember { Paint(Paint.ANTI_ALIAS_FLAG) }
-    val widths = remember(layout) { FloatArray(layout.items.size) { Float.NaN } }
+    val widths = remember(drawing) { FloatArray(drawing?.items?.size ?: 0) { Float.NaN } }
 
-    Canvas(modifier) { drawDanmaku(layout, clock.doubleValue, fill, shadow, widths) }
+    Canvas(modifier.onSizeChanged { viewport.value = it }) {
+        if (!layout.needsMeasurement || drawingSize.width == size.width.toInt() && drawingSize.height == size.height.toInt())
+            drawing?.let { drawDanmaku(it, clock.doubleValue, fill, shadow, widths) }
+    }
 }
 
 /**

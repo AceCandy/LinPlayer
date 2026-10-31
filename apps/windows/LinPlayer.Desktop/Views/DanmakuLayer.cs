@@ -17,7 +17,7 @@ public sealed class DmItem
     public double T;
     public int Mode;
     public int Lane;
-    /// <summary>核心层估的文本宽,单位是 1920×1080 画布的像素。</summary>
+    /// <summary>以res_y=1080换算的实测宽度；旧调用可返回估宽。</summary>
     public double W;
     public uint Color;
     public string Text = "";
@@ -40,6 +40,8 @@ public sealed class DmLayout
     public double LaneHeight = 54, RollSeconds = 8, FixSeconds = 5, FontSize = 40;
     public double Opacity = 1;
     public bool Bold;
+    public long Revision;
+    public bool NeedsMeasurement;
     /// <summary>按时刻升序 —— 每帧靠二分找起点,不遍历全表。</summary>
     public List<DmItem> Items = [];
 
@@ -56,6 +58,8 @@ public sealed class DmLayout
             FixSeconds = N("fix_seconds", 5), FontSize = N("font_size", 40),
             Opacity = N("opacity", 1),
             Bold = r.TryGetProperty("bold", out var b) && b.ValueKind == JsonValueKind.True,
+            Revision = r.TryGetProperty("revision", out var revision) ? revision.GetInt64() : 0,
+            NeedsMeasurement = r.TryGetProperty("needs_measurement", out var measure) && measure.ValueKind == JsonValueKind.True,
         };
         if (!r.TryGetProperty("items", out var arr) || arr.ValueKind != JsonValueKind.Array) return l;
         foreach (var e in arr.EnumerateArray())
@@ -89,6 +93,27 @@ internal sealed class DanmakuVisualHandler : CompositionCustomVisualHandler
     internal static readonly Typeface Face = new(FontFamily.Default);
     private static readonly Typeface FaceBold =
         new(FontFamily.Default, FontStyle.Normal, FontWeight.Bold);
+
+    /// <summary>使用绘制相同的字体整形测量完整候选，结果统一为核心逻辑坐标。</summary>
+    internal static double[] MeasureWidths(DmLayout layout, double height, CancellationToken ct)
+    {
+        var sy = height / layout.ResY;
+        var face = layout.Bold ? FaceBold : Face;
+        var cache = new Dictionary<string, double>(StringComparer.Ordinal);
+        var widths = new double[layout.Items.Count];
+        for (var i = 0; i < widths.Length; i++)
+        {
+            ct.ThrowIfCancellationRequested();
+            var text = layout.Items[i].Text;
+            if (!cache.TryGetValue(text, out var width))
+            {
+                using var shaped = new TextLayout(text, face, layout.FontSize * sy, null);
+                cache[text] = width = shaped.WidthIncludingTrailingWhitespace / sy;
+            }
+            widths[i] = width;
+        }
+        return widths;
+    }
 
     private DmLayout? _layout;
     private double _clock;
@@ -330,6 +355,11 @@ public sealed class DanmakuLayer : Control
 {
     private CompositionCustomVisual? _visual;
     private DmLayout? _layout;
+    private DmLayout? _renderLayout;
+    private Size _measureSize;
+    private long _measureVersion;
+    private CancellationTokenSource? _measureCancellation;
+    internal Func<DmLayout, Size, CancellationToken, Task<DmLayout?>>? ResolveLayout;
     private DmSyncMsg _lastSync = new(0, true, 1);
 
     public DanmakuLayer()
@@ -340,7 +370,30 @@ public sealed class DanmakuLayer : Control
     public DmLayout? Layout
     {
         get => _layout;
-        set { _layout = value; Send(new DmLayoutMsg(value)); }
+        set { _layout = value; _ = RefreshLayout(); }
+    }
+
+    private async Task RefreshLayout()
+    {
+        var version = ++_measureVersion;
+        _measureCancellation?.Cancel();
+        _measureCancellation?.Dispose();
+        _measureCancellation = null;
+        _renderLayout = _layout is { NeedsMeasurement: false } ? _layout : null;
+        Send(new DmLayoutMsg(_renderLayout));
+        if (_layout is not { NeedsMeasurement: true } input || ResolveLayout is null ||
+            _measureSize.Width <= 0 || _measureSize.Height <= 0) return;
+        _measureCancellation = new CancellationTokenSource();
+        var ct = _measureCancellation.Token;
+        try
+        {
+            var result = await ResolveLayout(input, _measureSize, ct);
+            if (ct.IsCancellationRequested || version != _measureVersion) return;
+            _renderLayout = result;
+            Send(new DmLayoutMsg(result));
+        }
+        catch (OperationCanceledException) { /* 换片或变尺寸后旧测量作废。 */ }
+        catch { /* 测量失败不绘制不安全布局，下一次有效输入会重新请求。 */ }
     }
 
     /// <summary>对表。由播放页的状态轮询每 250ms 调一次。</summary>
@@ -371,7 +424,7 @@ public sealed class DanmakuLayer : Control
         _visual.Size = new Vector(Bounds.Width, Bounds.Height);
         ElementComposition.SetElementChildVisual(this, _visual);
         // 挂晚了的话前面那几条消息都丢了 —— 补发一次当前状态
-        _visual.SendHandlerMessage(new DmLayoutMsg(_layout));
+        _visual.SendHandlerMessage(new DmLayoutMsg(_renderLayout));
         _visual.SendHandlerMessage(_lastSync);
     }
 
@@ -379,11 +432,16 @@ public sealed class DanmakuLayer : Control
     {
         base.OnAttachedToVisualTree(e);
         Ensure();
+        _ = RefreshLayout();
     }
 
     protected override void OnDetachedFromVisualTree(VisualTreeAttachmentEventArgs e)
     {
         base.OnDetachedFromVisualTree(e);
+        _measureVersion++;
+        _measureCancellation?.Cancel();
+        _measureCancellation?.Dispose();
+        _measureCancellation = null;
         // 摘干净:留着的话它还挂在一棵已经卸载的树上,而下次进来会再造一个
         ElementComposition.SetElementChildVisual(this, null);
         _visual = null;
@@ -395,6 +453,7 @@ public sealed class DanmakuLayer : Control
         Ensure();
         // 尺寸是合成器侧算位置的基准(EffectiveSize),不同步的话全屏切换后弹幕位置全错
         if (_visual is not null) _visual.Size = new Vector(s.Width, s.Height);
+        if (_measureSize != s) { _measureSize = s; _ = RefreshLayout(); }
         return s;
     }
 }
