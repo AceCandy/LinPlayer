@@ -23,7 +23,8 @@
 - Android 定向 `:app:testDebugUnitTest`：SwitchSourceTest、PhoneManagementUiTest、TvSearchSettingsTest 通过；追加异常修复后 SwitchSourceTest 三项再通过。
 - 前一阶段 tools/listcheck、productcheck、homecheck、privacycheck 构建通过。
 - 工作流 50 个 shell 块与 5 个凭据接线、桌面风格 7 项、Android 参数 151 处 / 返回字段 112 处、UI_MOBILE 命令引用 119 条及相关 shell 语法通过。
-- `git diff --check` 无空白错误；提交前另执行暂存内容敏感值门禁。
+- `git diff --check` 无空白错误；提交前暂存内容敏感值门禁扫描 161 个修改 / 新增文件通过，无新增真实地址或凭据。已有基线 32 处不在本次新增范围。
+- 本轮 Gradle 与 Kotlin 编译守护进程按已确认 PID 停止；没有遗留本轮启动的测试服务。
 
 ## 已知基线与未验证项
 
