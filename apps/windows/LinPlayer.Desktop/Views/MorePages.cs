@@ -91,45 +91,11 @@ public sealed class SearchPage : PageBase
         bar.Children.Add(go);
         bar.Children.Add(everywhere);
 
-        /* 插件的搜索快捷动作(SPEC 6.2,D242):「在豆瓣查看」「导入这个订阅」这类。
-           摆在搜索框下面、结果上面 —— 结果列表本身不动,这是 D242 的原话。
-           一条都没有时整行不占高度:空的 StackPanel 会连 Spacing 一起吃掉 14 像素。 */
-        var actions = new WrapPanel { Margin = new Thickness(0, -4, 0, 0), IsVisible = false };
-
         Content = Scrolled(new StackPanel
         {
             Spacing = 14,
-            Children = { H1("搜索"), bar, actions, status, host },
+            Children = { H1("搜索"), bar, status, host },
         });
-
-        async Task LoadActions(string q, int mine)
-        {
-            if (BrowseSpace.IsPrivate) return;
-            JsonElement list;
-            try { list = await core.PluginSearchActions(new { q }); }
-            catch (Exception e) { Log.W("搜索", "取插件快捷动作失败,这一次只画官方结果:" + e.Message); return; }
-            if (!SpaceCurrent || mine != _seq || list.ValueKind != JsonValueKind.Array) return;
-            actions.Children.Clear();
-            foreach (var it in list.EnumerateArray())
-            {
-                var title = Mi.Str(it, "title");
-                var pid = Mi.Str(it, "plugin_id");
-                var cmd = Mi.Str(it, "command");
-                if (title.Length == 0 || pid.Length == 0 || cmd.Length == 0) continue;
-                var args = it.TryGetProperty("args", out var av) && av.ValueKind is not (JsonValueKind.Null or JsonValueKind.Undefined)
-                    ? av.Clone() : (JsonElement?)null;
-                var chip = new Button { Classes = { "chip" }, Content = title, Margin = new Thickness(0, 6, 10, 0) };
-                ToolTip.SetTip(chip, $"{title} · 来自插件 {Mi.Str(it, "name")}");
-                chip.Click += async (_, _) =>
-                {
-                    try { await core.SourceRunCommand(new { plugin_id = pid, command = cmd, args }); }
-                    // 插件自己抛的错要原样给用户看:它写的是中文,而且往往是「先填一下账号」这类
-                    catch (Exception e) { Toast.Error(LibraryPage.Advice(e)); }
-                };
-                actions.Children.Add(chip);
-            }
-            actions.IsVisible = actions.Children.Count > 0;
-        }
 
         WatchUserState(core, () => _ = Run(true));
 
@@ -141,16 +107,12 @@ public sealed class SearchPage : PageBase
                 // 清空输入框 = 回到空态,不是「没搜到」。两者不能混。
                 _seq++;
                 status.Text = "";
-                actions.Children.Clear();
-                actions.IsVisible = false;
                 _ = LoadHistory(core, ShowEmpty);
                 return;
             }
 
             var mine = ++_seq;
             status.Text = $"正在搜「{q}」…";
-            // 和官方结果各走各的:插件慢了不该拖住结果,插件挂了也不该让这一页空着
-            _ = LoadActions(q, mine);
             if (!refresh) host.Content = Skeleton.Grid(false, 12);
             var all = everywhere.IsChecked == true;
             try
@@ -163,7 +125,7 @@ public sealed class SearchPage : PageBase
                      但**别给它 include_episodes**。 */
                 if (all)
                 {
-                    // 数据源一起搜(D258 D262):按源分行、谁先回谁先显示;只含「允许聚合」的源
+                    // 跨服一起搜(D258 D262):按服务器分行、谁先回谁先显示;只含「允许聚合」的服务器
                     var rowsHost = new StackPanel { Spacing = 18 };
                     host.Content = rowsHost;
                     int hit = 0, total = 0, failed = 0;
@@ -255,7 +217,7 @@ public sealed class SearchPage : PageBase
             _typing?.Cancel();
             await Run();
         };
-        // 当前是插件数据源:没有 Emby 会话,只能聚合搜
+        // 没有 Emby 会话时只能聚合搜
         if (Nav.Session is null) { everywhere.IsChecked = true; everywhere.IsEnabled = false; }
         // 换了「聚合搜索」要重搜 —— 不重搜的话开关看着像没生效。
         everywhere.IsCheckedChanged += async (_, _) => { if ((box.Text ?? "") != "") await Run(); };
@@ -281,14 +243,6 @@ public sealed class SearchPage : PageBase
         var nm = g.TryGetProperty("server_name", out var nv) && nv.GetString() is { Length: > 0 } n ? n : srv;
         if (g.TryGetProperty("error", out var ev) && ev.ValueKind == JsonValueKind.String)
             return (new StackPanel { Spacing = 6, Children = { H2($"{nm} · 没搜成"), Dim(ev.GetString() ?? "") } }, 0);
-        if (g.TryGetProperty("kind", out var kv) && kv.GetString() == "plugin")
-        {
-            var its = g.TryGetProperty("items", out var iv) && iv.ValueKind == JsonValueKind.Array ? iv.EnumerateArray().ToList() : [];
-            if (its.Count == 0) return null;
-            var wrap = new WrapPanel { ItemSpacing = 18, LineSpacing = 26 };
-            foreach (var it in its) wrap.Children.Add(new SourceCard(core, it, SourceNav.OpenDetail(core, srv)));
-            return (new StackPanel { Spacing = 10, Children = { H2($"{nm} · {its.Count} 条"), wrap } }, its.Count);
-        }
         var items = g.TryGetProperty("emby_items", out var ei) && ei.ValueKind == JsonValueKind.Array
             ? ei.EnumerateArray().Select(CardItem.From).ToList() : [];
         var warning = g.TryGetProperty("warning", out var wv) && wv.ValueKind == JsonValueKind.String ? wv.GetString() ?? "" : "";
@@ -700,7 +654,7 @@ public sealed class SettingsPage : PageBase
 
            ☠ **不改成左右分栏。** 2026-09-04 用户明确否过:「不要做成一列一列
              导致视线需要从左往右拉很长去对齐」。所以仍然是居中单列,只加两样:
-               ① 大节标题(常规 / 播放 / 弹幕与字幕 / 网络 / 高级)+ 一条发丝分隔线
+               ① 大节标题(常规 / 播放 / 弹幕与字幕 / 网络 / 高级 / 关于)+ 一条发丝分隔线
                ② 顶部锚点条,点一下滚到那一节
            锚点条放在**滚动容器外面**(DockPanel 的 Top),不做 sticky ——
              sticky 在 ScrollViewer 里要自己算偏移量,而放外面天生就一直在,
@@ -740,8 +694,6 @@ public sealed class SettingsPage : PageBase
                 var home = await Safe(() => core.PrefsGetHomeSettings(new { }));
                 var primaryProgress = await Safe(() => core.PrefsGetPrimaryProgressServer(new { }));
                 var update = await Safe(() => core.PrefsGetUpdateSettings(new { }));
-                // 插件声明的分节(SPEC 6.2 D286)。和别的组一样各拉各的:没装插件时它就是空数组
-                var psecs = await Safe(() => core.PluginSettingsSections(new { }));
 
                 Dispatcher.UIThread.Post(() =>
                 {
@@ -764,27 +716,20 @@ public sealed class SettingsPage : PageBase
                     var gDanmaku = Sec("弹幕与字幕");
                     var gNet = Sec("网络");
                     var gAdv = Sec("高级");
+                    var gAbout = Sec("关于");
                     static void Add(StackPanel sec, Control c) => sec.Children.Add(c);
 
-                    // ── 常规:界面长什么样、首页放什么、怎么更新、怎么操作 ──
+                    // ── 常规:界面长什么样、首页放什么、怎么操作 ──
                     Add(gGeneral, SettingsSections.UiFontSection(core, p));
-                    Add(gGeneral, SettingsSections.ThemeAndWallpaper(core));
+                    Add(gGeneral, SettingsSections.Look());
                     if (home is { } hm) Add(gGeneral, SettingsSections.Home(core, hm));
-                    if (update is { } up) Add(gGeneral, SettingsSections.Update(core, up));
-                    // 账号连接留在宿主(token 不给插件),记进度那部分在同步插件里
-                    Add(gGeneral, SettingsSections.SyncAccounts(core));
-                    Add(gGeneral, SettingsSections.Feedback(core));
                     Add(gGeneral, Shortcut(core));
                     // 快捷键不挂 Features 开关:它是操作方式,不是一块可下线的功能
                     Add(gGeneral, SettingsKeys.Section(core));
-                    Add(gGeneral, Jump("插件", "安装、启停、市场、仓库订阅。", "打开插件页", () => new PluginPage(core)));
 
                     // ── 播放:从选轨到 mpv,由浅入深 ──
                     Add(gPlay, TrackPrefs(core, p));
                     Add(gPlay, Playback(core, p));
-                    // 补帧组件排在「播放」后面:N 卡包要装五六分钟,得在开片前就找得到(用户 2026-09-18)
-                    // 管理挪到扩展组件页(SPEC 18.5),这里留入口
-                    Add(gPlay, Jump("补帧组件", "RIFE / DRBA 补帧要先下组件,在扩展组件页装。", "去扩展组件页", () => new ExtensionsPage(core)));
                     Add(gPlay, SettingsSections.SkipSegments(core, p));
                     // mpv 配置排这一节最后:它是同一件事的「高级」那一档
                     Add(gPlay, SettingsSections.MpvConf(core));
@@ -809,16 +754,10 @@ public sealed class SettingsPage : PageBase
                     // 不挂 Features 开关:它是排查工具,任何版本都得有
                     Add(gAdv, SettingsSections.Logging(core));
 
-                    /* 插件分节挂在各大节末尾:官方项在前,插件在后(SPEC 6.2)。
-                       只给这三节 —— 「网络」「高级」在 SPEC 20.3 里没有锚点,
-                       给了等于我们自己发明一个公开契约。 */
-                    if (psecs is { } ps)
-                    {
-                        PluginSettingsSections.Fill(core, ps, new Dictionary<string, StackPanel>
-                        {
-                            ["常规"] = gGeneral, ["播放"] = gPlay, ["弹幕与字幕"] = gDanmaku,
-                        });
-                    }
+                    // ── 关于:版本、检查更新与更新选项、反馈 ──
+                    if (update is { } up) Add(gAbout, SettingsSections.About(core, up));
+                    Add(gAbout, SettingsSections.Feedback(core));
+
 
                     foreach (var (name, body) in secs)
                     {
@@ -1012,13 +951,6 @@ public sealed class SettingsPage : PageBase
     /// <para>非 Windows 上<b>整块不画</b> —— 那儿没有 .lnk 这回事,
     /// 摆一个必定失败的按钮比不摆更糟。</para>
     /// </summary>
-    private static Control Jump(string title, string desc, string action, Func<Control> page)
-    {
-        var b = new Button { Classes = { "ghost" }, Content = action };
-        b.Click += (_, _) => Nav.Push(page(), page);
-        return Card(title, new StackPanel { Spacing = 10, Children = { Dim(desc), b } });
-    }
-
     private static Control Shortcut(CoreClient core)
     {
         var state = Dim("检查中…");

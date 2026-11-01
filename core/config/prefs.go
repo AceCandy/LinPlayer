@@ -325,34 +325,6 @@ type Prefs struct {
 	// 空态写「暂无数据」等于白占一屏,而「上次搜的那个」是这里最可能的下一步。
 	SearchHistory []string `json:"search_history,omitempty"`
 
-	// SourceLines 数据源按剧记住的线路名(`开放键#条目id` → 线路名)。再次打开默认上次的线路,
-	// 线路没了退回第一条(D343)。记名字不记下标:换源、订阅刷新后线路顺序会变。
-	SourceLines map[string]string `json:"source_lines,omitempty"`
-
-	// DevMode 开发者模式(SPEC 16.4,D80):关于页连点版本号 7 次打开。
-	//
-	// ★ 它同时是 `debug` 命名空间的总闸:关着的时候整个命名空间不挂,
-	//   插件调用当场报 unsupported。挂一个永远返回空表的版本的话,
-	//   调试面板会把「这一版不收」显示成「这个插件没日志」。
-	DevMode bool `json:"dev_mode,omitempty"`
-
-	// CalendarNotify 追剧日历开播提醒:追的剧有新集发系统通知(D366)。默认开。
-	CalendarNotify bool `json:"calendar_notify"`
-
-	// CalendarUnlockOrder 保留旧版订单字段与验证接口兼容；日历访问不再读取此字段。
-	CalendarUnlockOrder string `json:"calendar_unlock_order,omitempty"`
-
-	// ActiveTheme 选中的主题插件 id(SPEC 11.6,D69:**重启生效**)。空 = 官方主题。
-	ActiveTheme string `json:"active_theme,omitempty"`
-
-	/* ThemeFailed 上次加载崩了的主题 id(D372)。
-	   ☠ 记它是这条路上唯一能救回来的机制:主题坏了整个界面画不出来,
-	     这时候用户连「换回官方主题」的按钮都点不到。用户手动重选时清掉。 */
-	ThemeFailed string `json:"theme_failed,omitempty"`
-
-	// ActiveWallpaper 选中的壁纸插件 id(D441:**切换不用重启**)。空 = 用主题自带的。
-	ActiveWallpaper string `json:"active_wallpaper,omitempty"`
-
 	// EpisodeDesc 选集倒序显示的剧(D332):键 = 服务器#剧 id。只影响显示,连播仍按正序。
 	EpisodeDesc map[string]bool `json:"episode_desc,omitempty"`
 
@@ -419,7 +391,6 @@ type SkipRange struct {
 func DefaultPrefs() Prefs {
 	return Prefs{
 		SubEnabled:                   true,
-		CalendarNotify:               true,
 		DanmakuEnabled:               false,
 		DanmakuArea:                  1.0,
 		DanmakuScale:                 1.0,

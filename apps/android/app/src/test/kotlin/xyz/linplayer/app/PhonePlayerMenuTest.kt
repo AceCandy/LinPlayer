@@ -173,7 +173,7 @@ class PhonePlayerMenuTest {
                 val anchors = remember { mutableStateMapOf<String, Rect>() }
                 Box(Modifier.fillMaxSize().background(Color(0xFF31535E)).testTag("player.host")) {
                     Osd(portrait, "", title = "测试片源", episodeLabel = "S1E1 测试单集", position = 20.0,
-                        duration = 120.0, paused = true, speed = speed.value, heat = emptyList(), pluginPanels = listOf(xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo("test", "panel", "测试插件", "plugin", false)),
+                        duration = 120.0, paused = true, speed = speed.value, heat = emptyList(),
                         onBack = {}, onToggle = {}, onSeek = {}, onSpeed = { speed.value = it }, onLock = {}, onShot = {},
                         onPanel = { entrance.value = it; panel.value = it }, onPanelAnchor = { k, r -> anchors[k] = r },
                         onOrientation = {}, onChapters = {}, onPip = {})
@@ -239,13 +239,6 @@ class PhonePlayerMenuTest {
             try { manager!!.views.last().dispatchTouchEvent(outside) } finally { outside.recycle() }
         }
         rule.onNodeWithTag("player.menu").assertDoesNotExist()
-        rule.onNodeWithText("测试插件").performScrollTo()
-        rule.waitForIdle()
-        rule.onNodeWithText("测试插件").performClick()
-        val pluginEntrance = rule.onNodeWithText("测试插件").fetchSemanticsNode().boundsInWindow
-        val pluginMenu = popupBounds(manager!!)
-        assertFalse(pluginMenu.overlaps(pluginEntrance))
-        assertTrue("插件菜单应在底部入口附近：$pluginMenu / $pluginEntrance", pluginMenu.bottom <= pluginEntrance.top && pluginMenu.bottom >= pluginEntrance.top - 8)
     }
 
     @Test @Config(qualifiers = "w180dp-h400dp-port-mdpi")

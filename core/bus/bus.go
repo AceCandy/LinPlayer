@@ -155,6 +155,22 @@ func Emit(name string, data any, mergeKey string) {
 	q.push(&Event{T: "event", Name: name, Data: d, mergeKey: mergeKey})
 }
 
+// EmitContext 将主动请求投递纳入调用方的取消与超时边界。
+func EmitContext(ctx context.Context, name string, data any) error {
+	d, err := json.Marshal(data)
+	if err != nil {
+		return err
+	}
+	if q == nil {
+		return context.Canceled
+	}
+	if err := q.pushContext(ctx, &Event{T: "event", Name: name, Data: d}); err != nil {
+		return err
+	}
+	notifyTaps(name, d)
+	return nil
+}
+
 // ---------------------------------------------------------------- 进程内旁路
 
 var (

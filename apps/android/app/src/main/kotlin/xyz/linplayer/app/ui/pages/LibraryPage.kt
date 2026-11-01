@@ -377,7 +377,7 @@ private fun SectionLabel(t: String) =
     Text(t, color = Lp.colors.fg3, style = LpText.filter,
         modifier = Modifier.padding(start = Sp.x12, top = Sp.x12, bottom = Sp.x4))
 
-/** 海报列数。插件主题的 `layout.posterColumns` 覆盖官方值:手机竖屏 3 列,宽屏按海报刻度推算(SPEC 11.4)。 */
+/** 海报列数:手机竖屏 3 列,宽屏按海报刻度推算(SPEC 11.4)。 */
 @Composable
 internal fun posterColumns(): Int {
     val layout = if (xyz.linplayer.app.tv.LocalTvMode.current) {
@@ -388,8 +388,7 @@ internal fun posterColumns(): Int {
                 size.height.toDp().value, tv = true)
         }
     } else xyz.linplayer.app.ui.components.posterLayout()
-    return xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
-        androidx.compose.ui.platform.LocalConfiguration.current.screenWidthDp, layout?.first ?: 3)
+    return layout?.first ?: 3
 }
 
 /** 媒体库与收藏分类共用的右侧排序入口。 */

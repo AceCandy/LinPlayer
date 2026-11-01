@@ -138,7 +138,7 @@ func TestSave_未接的字段原样保留(t *testing.T) {
 		t.Fatalf("保存后的文件必须是合法 JSON: %v", err)
 	}
 	for _, k := range []string{"accounts", "prefs", "proxy", "danmaku_sources",
-		"plugin_sources", "sync_trakt", "sync_bangumi"} {
+		"plugin_official_enabled"} {
 		if _, ok := m[k]; !ok {
 			t.Fatalf("★ 保存把还没移植的键 %q 抹掉了", k)
 		}

@@ -18,7 +18,7 @@ cp "$ROOT/tools/visual-fixtures/catalog.json" "$ROOT"/tools/visual-fixtures/*.pn
 SDK="$(xcrun --sdk appletvsimulator --show-sdk-path)"
 xcrun swiftc -parse-as-library -D UI_RENDER_CHECK -swift-version 5 \
   -target arm64-apple-tvos18.0-simulator -sdk "$SDK" \
-  "$ROOT"/apps/tvos/Sources/{AppModel,MediaAPI,ImageLoader,BrowseViews,ProductViews,PlayerView}.swift \
+  "$ROOT"/apps/tvos/Sources/{AppModel,MediaAPI,ImageLoader,BrowseViews,ProductViews,PlayerView,DanmakuView,LiuYingView,CompanionView,RemoteFocus}.swift \
   "$ROOT"/bindings/swift/*.swift "$ROOT/apps/tvos/Tests/VisualCheck.swift" \
   -I "$LOADING" "$LOADING/libLottie.a" -o "$APP/VisualCheck"
 python3 - "$APP/Info.plist" <<'PY'

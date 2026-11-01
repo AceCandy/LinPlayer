@@ -132,7 +132,6 @@ object LinPlayerCommandNames {
         "player.play",
         "player.playExternal",
         "player.playLocal",
-        "player.playUrl",
         "player.screenshot",
         "player.seek",
         "player.setAspectRatio",
@@ -161,7 +160,6 @@ object LinPlayerCommandNames {
         "player.getSubStyle",
         "player.interpLevels",
         "player.setInterpLevel",
-        "player.interpInstall",
         "player.selectTrackPreferences",
         "player.setTrack",
         "player.setTrackRegexes",
@@ -175,33 +173,9 @@ object LinPlayerCommandNames {
         "player.validateTrackRegex",
         "player.windowClose",
         "player.windowOpen",
-        "source.currentSource",
-        "source.listDir",
-        "source.login",
-        "source.formSchema",
-        "source.play",
-        "source.search",
-        "source.watchdog",
-        "source.caps",
-        "source.home",
-        "source.category",
-        "source.searchItems",
-        "source.person",
-        "source.detail",
-        "source.playItem",
-        "source.continueWatching",
-        "source.createSources",
-        "source.addSources",
         "source.setAggregate",
-        "source.setHost",
-        "source.removeGroup",
-        "source.serverMenus",
-        "source.runCommand",
         "source.aggregateSearch",
         "source.switchCandidates",
-        "source.checkAll",
-        "source.history",
-        "source.linkSwitch",
         "danmaku.resolve",
         "danmaku.forget",
         "danmaku.testSource",
@@ -282,86 +256,12 @@ object LinPlayerCommandNames {
         "system.pickLocalFolder",
         "system.ping",
         "system.updateProgress",
-        "system.afdianSponsorUrl",
-        "system.afdianVerify",
         "companion.start",
         "companion.status",
         "companion.setEnabled",
         "companion.setNowPlaying",
-        "sync.traktAccount",
-        "sync.traktDeviceCode",
-        "sync.traktPoll",
-        "sync.traktLogout",
-        "sync.traktCalendar",
-        "sync.bangumiAccount",
-        "sync.bangumiAuthorizeUrl",
-        "sync.bangumiExchange",
-        "sync.bangumiLoginToken",
-        "sync.bangumiLogout",
-        "sync.bangumiSummary",
-        "sync.bangumiCalendar",
-        "sync.calendarLibrary",
-        "sync.calendarDue",
-        "plugin.list",
-        "plugin.pendingRestart",
-        "plugin.inspect",
-        "plugin.installFile",
-        "plugin.installFromRepo",
-        "plugin.uninstall",
-        "plugin.cancelUninstall",
-        "plugin.setEnabled",
-        "plugin.disableAll",
-        "plugin.restoreAll",
-        "plugin.rollback",
-        "plugin.setLocked",
-        "plugin.skipVersion",
-        "plugin.detail",
-        "plugin.setSetting",
-        "plugin.clearData",
-        "plugin.errorDetail",
-        "plugin.market",
-        "plugin.repos",
-        "plugin.addRepo",
-        "plugin.removeRepo",
-        "plugin.setGithubPrefix",
-        "plugin.setAutoUpdate",
-        "plugin.updates",
-        "plugin.updateAll",
-        "plugin.takeovers",
-        "plugin.setTakeover",
-        "plugin.devLoad",
-        "plugin.devUnload",
-        "plugin.devList",
-        "plugin.setCapabilities",
-        "plugin.appEvent",
-        "plugin.anchors",
-        "plugin.settingsSections",
-        "sync.traktRequest",
-        "sync.bangumiRequest",
-        "player.getSubtitleText",
-        "plugin.setEnv",
-        "plugin.shellResult",
-        "plugin.themes",
-        "plugin.activeTheme",
-        "plugin.setActiveTheme",
-        "plugin.themeFailed",
-        "plugin.wallpapers",
-        "plugin.activeWallpaper",
-        "plugin.initialWallpaper",
-        "plugin.setActiveWallpaper",
-        "plugin.playerSurfaces",
-        "plugin.sidebar",
-        "plugin.homeSections",
-        "plugin.homeItems",
-        "plugin.pageTakeovers",
-        "plugin.searchActions",
-        "plugin.backRequest",
-        "plugin.playerKey",
-        "plugin.setCookies",
-        "plugin.ui.mount",
-        "plugin.ui.unmount",
-        "plugin.ui.event",
-        "plugin.ui.viewport",
+        "companion.hostSession",
+        "companion.hostReply",
     )
 }
 
@@ -525,7 +425,7 @@ suspend fun LinPlayerCommands.accountTestConnection(args: Map<String, Any?>? = n
 suspend fun LinPlayerCommands.accountUpdateAccount(args: Map<String, Any?>? = null): JsonElement =
     call("account.updateAccount", args)
 
-// ---- 播放器 · player.* (68 条) ----
+// ---- 播放器 · player.* (66 条) ----
 suspend fun LinPlayerCommands.playerAddSubtitle(args: Map<String, Any?>? = null): JsonElement =
     call("player.addSubtitle", args)
 suspend fun LinPlayerCommands.playerChapterInfo(args: Map<String, Any?>? = null): JsonElement =
@@ -576,8 +476,6 @@ suspend fun LinPlayerCommands.playerPlayExternal(args: Map<String, Any?>? = null
     call("player.playExternal", args)
 suspend fun LinPlayerCommands.playerPlayLocal(args: Map<String, Any?>? = null): JsonElement =
     call("player.playLocal", args)
-suspend fun LinPlayerCommands.playerPlayUrl(args: Map<String, Any?>? = null): JsonElement =
-    call("player.playUrl", args)
 suspend fun LinPlayerCommands.playerScreenshot(args: Map<String, Any?>? = null): JsonElement =
     call("player.screenshot", args)
 suspend fun LinPlayerCommands.playerSeek(args: Map<String, Any?>? = null): JsonElement =
@@ -634,8 +532,6 @@ suspend fun LinPlayerCommands.playerInterpLevels(args: Map<String, Any?>? = null
     call("player.interpLevels", args)
 suspend fun LinPlayerCommands.playerSetInterpLevel(args: Map<String, Any?>? = null): JsonElement =
     call("player.setInterpLevel", args)
-suspend fun LinPlayerCommands.playerInterpInstall(args: Map<String, Any?>? = null): JsonElement =
-    call("player.interpInstall", args)
 suspend fun LinPlayerCommands.playerSelectTrackPreferences(args: Map<String, Any?>? = null): JsonElement =
     call("player.selectTrackPreferences", args)
 suspend fun LinPlayerCommands.playerSetTrack(args: Map<String, Any?>? = null): JsonElement =
@@ -663,61 +559,13 @@ suspend fun LinPlayerCommands.playerWindowClose(args: Map<String, Any?>? = null)
 suspend fun LinPlayerCommands.playerWindowOpen(args: Map<String, Any?>? = null): JsonElement =
     call("player.windowOpen", args)
 
-// ---- 媒体源与数据源 · source.* (27 条) ----
-suspend fun LinPlayerCommands.sourceCurrentSource(args: Map<String, Any?>? = null): JsonElement =
-    call("source.currentSource", args)
-suspend fun LinPlayerCommands.sourceListDir(args: Map<String, Any?>? = null): JsonElement =
-    call("source.listDir", args)
-suspend fun LinPlayerCommands.sourceLogin(args: Map<String, Any?>? = null): JsonElement =
-    call("source.login", args)
-suspend fun LinPlayerCommands.sourceFormSchema(args: Map<String, Any?>? = null): JsonElement =
-    call("source.formSchema", args)
-suspend fun LinPlayerCommands.sourcePlay(args: Map<String, Any?>? = null): JsonElement =
-    call("source.play", args)
-suspend fun LinPlayerCommands.sourceSearch(args: Map<String, Any?>? = null): JsonElement =
-    call("source.search", args)
-suspend fun LinPlayerCommands.sourceWatchdog(args: Map<String, Any?>? = null): JsonElement =
-    call("source.watchdog", args)
-suspend fun LinPlayerCommands.sourceCaps(args: Map<String, Any?>? = null): JsonElement =
-    call("source.caps", args)
-suspend fun LinPlayerCommands.sourceHome(args: Map<String, Any?>? = null): JsonElement =
-    call("source.home", args)
-suspend fun LinPlayerCommands.sourceCategory(args: Map<String, Any?>? = null): JsonElement =
-    call("source.category", args)
-suspend fun LinPlayerCommands.sourceSearchItems(args: Map<String, Any?>? = null): JsonElement =
-    call("source.searchItems", args)
-suspend fun LinPlayerCommands.sourcePerson(args: Map<String, Any?>? = null): JsonElement =
-    call("source.person", args)
-suspend fun LinPlayerCommands.sourceDetail(args: Map<String, Any?>? = null): JsonElement =
-    call("source.detail", args)
-suspend fun LinPlayerCommands.sourcePlayItem(args: Map<String, Any?>? = null): JsonElement =
-    call("source.playItem", args)
-suspend fun LinPlayerCommands.sourceContinueWatching(args: Map<String, Any?>? = null): JsonElement =
-    call("source.continueWatching", args)
-suspend fun LinPlayerCommands.sourceCreateSources(args: Map<String, Any?>? = null): JsonElement =
-    call("source.createSources", args)
-suspend fun LinPlayerCommands.sourceAddSources(args: Map<String, Any?>? = null): JsonElement =
-    call("source.addSources", args)
+// ---- 跨服聚合 · source.* (3 条) ----
 suspend fun LinPlayerCommands.sourceSetAggregate(args: Map<String, Any?>? = null): JsonElement =
     call("source.setAggregate", args)
-suspend fun LinPlayerCommands.sourceSetHost(args: Map<String, Any?>? = null): JsonElement =
-    call("source.setHost", args)
-suspend fun LinPlayerCommands.sourceRemoveGroup(args: Map<String, Any?>? = null): JsonElement =
-    call("source.removeGroup", args)
-suspend fun LinPlayerCommands.sourceServerMenus(args: Map<String, Any?>? = null): JsonElement =
-    call("source.serverMenus", args)
-suspend fun LinPlayerCommands.sourceRunCommand(args: Map<String, Any?>? = null): JsonElement =
-    call("source.runCommand", args)
 suspend fun LinPlayerCommands.sourceAggregateSearch(args: Map<String, Any?>? = null): JsonElement =
     call("source.aggregateSearch", args)
 suspend fun LinPlayerCommands.sourceSwitchCandidates(args: Map<String, Any?>? = null): JsonElement =
     call("source.switchCandidates", args)
-suspend fun LinPlayerCommands.sourceCheckAll(args: Map<String, Any?>? = null): JsonElement =
-    call("source.checkAll", args)
-suspend fun LinPlayerCommands.sourceHistory(args: Map<String, Any?>? = null): JsonElement =
-    call("source.history", args)
-suspend fun LinPlayerCommands.sourceLinkSwitch(args: Map<String, Any?>? = null): JsonElement =
-    call("source.linkSwitch", args)
 
 // ---- 弹幕 · danmaku.* (20 条) ----
 suspend fun LinPlayerCommands.danmakuResolve(args: Map<String, Any?>? = null): JsonElement =
@@ -849,7 +697,7 @@ suspend fun LinPlayerCommands.prefsSetUpdateSettings(args: Map<String, Any?>? = 
 suspend fun LinPlayerCommands.prefsSetWritebackSettings(args: Map<String, Any?>? = null): JsonElement =
     call("prefs.setWritebackSettings", args)
 
-// ---- 系统 · system.* (20 条) ----
+// ---- 系统 · system.* (18 条) ----
 suspend fun LinPlayerCommands.systemCacheSize(args: Map<String, Any?>? = null): JsonElement =
     call("system.cacheSize", args)
 suspend fun LinPlayerCommands.systemCancelUpdate(args: Map<String, Any?>? = null): JsonElement =
@@ -886,12 +734,8 @@ suspend fun LinPlayerCommands.systemPing(args: Map<String, Any?>? = null): JsonE
     call("system.ping", args)
 suspend fun LinPlayerCommands.systemUpdateProgress(args: Map<String, Any?>? = null): JsonElement =
     call("system.updateProgress", args)
-suspend fun LinPlayerCommands.systemAfdianSponsorUrl(args: Map<String, Any?>? = null): JsonElement =
-    call("system.afdianSponsorUrl", args)
-suspend fun LinPlayerCommands.systemAfdianVerify(args: Map<String, Any?>? = null): JsonElement =
-    call("system.afdianVerify", args)
 
-// ---- 手机扫码遥控(电视端) · companion.* (4 条) ----
+// ---- 手机扫码遥控(电视端) · companion.* (6 条) ----
 suspend fun LinPlayerCommands.companionStart(args: Map<String, Any?>? = null): JsonElement =
     call("companion.start", args)
 suspend fun LinPlayerCommands.companionStatus(args: Map<String, Any?>? = null): JsonElement =
@@ -900,155 +744,7 @@ suspend fun LinPlayerCommands.companionSetEnabled(args: Map<String, Any?>? = nul
     call("companion.setEnabled", args)
 suspend fun LinPlayerCommands.companionSetNowPlaying(args: Map<String, Any?>? = null): JsonElement =
     call("companion.setNowPlaying", args)
-
-// ---- 同步账号与追剧日历 · sync.* (14 条) ----
-suspend fun LinPlayerCommands.syncTraktAccount(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktAccount", args)
-suspend fun LinPlayerCommands.syncTraktDeviceCode(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktDeviceCode", args)
-suspend fun LinPlayerCommands.syncTraktPoll(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktPoll", args)
-suspend fun LinPlayerCommands.syncTraktLogout(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktLogout", args)
-suspend fun LinPlayerCommands.syncTraktCalendar(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktCalendar", args)
-suspend fun LinPlayerCommands.syncBangumiAccount(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiAccount", args)
-suspend fun LinPlayerCommands.syncBangumiAuthorizeUrl(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiAuthorizeUrl", args)
-suspend fun LinPlayerCommands.syncBangumiExchange(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiExchange", args)
-suspend fun LinPlayerCommands.syncBangumiLoginToken(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiLoginToken", args)
-suspend fun LinPlayerCommands.syncBangumiLogout(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiLogout", args)
-suspend fun LinPlayerCommands.syncBangumiSummary(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiSummary", args)
-suspend fun LinPlayerCommands.syncBangumiCalendar(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiCalendar", args)
-suspend fun LinPlayerCommands.syncCalendarLibrary(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.calendarLibrary", args)
-suspend fun LinPlayerCommands.syncCalendarDue(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.calendarDue", args)
-
-// ---- 插件 · plugin.* (60 条) ----
-suspend fun LinPlayerCommands.pluginList(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.list", args)
-suspend fun LinPlayerCommands.pluginPendingRestart(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.pendingRestart", args)
-suspend fun LinPlayerCommands.pluginInspect(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.inspect", args)
-suspend fun LinPlayerCommands.pluginInstallFile(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.installFile", args)
-suspend fun LinPlayerCommands.pluginInstallFromRepo(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.installFromRepo", args)
-suspend fun LinPlayerCommands.pluginUninstall(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.uninstall", args)
-suspend fun LinPlayerCommands.pluginCancelUninstall(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.cancelUninstall", args)
-suspend fun LinPlayerCommands.pluginSetEnabled(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setEnabled", args)
-suspend fun LinPlayerCommands.pluginDisableAll(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.disableAll", args)
-suspend fun LinPlayerCommands.pluginRestoreAll(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.restoreAll", args)
-suspend fun LinPlayerCommands.pluginRollback(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.rollback", args)
-suspend fun LinPlayerCommands.pluginSetLocked(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setLocked", args)
-suspend fun LinPlayerCommands.pluginSkipVersion(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.skipVersion", args)
-suspend fun LinPlayerCommands.pluginDetail(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.detail", args)
-suspend fun LinPlayerCommands.pluginSetSetting(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setSetting", args)
-suspend fun LinPlayerCommands.pluginClearData(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.clearData", args)
-suspend fun LinPlayerCommands.pluginErrorDetail(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.errorDetail", args)
-suspend fun LinPlayerCommands.pluginMarket(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.market", args)
-suspend fun LinPlayerCommands.pluginRepos(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.repos", args)
-suspend fun LinPlayerCommands.pluginAddRepo(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.addRepo", args)
-suspend fun LinPlayerCommands.pluginRemoveRepo(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.removeRepo", args)
-suspend fun LinPlayerCommands.pluginSetGithubPrefix(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setGithubPrefix", args)
-suspend fun LinPlayerCommands.pluginSetAutoUpdate(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setAutoUpdate", args)
-suspend fun LinPlayerCommands.pluginUpdates(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.updates", args)
-suspend fun LinPlayerCommands.pluginUpdateAll(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.updateAll", args)
-suspend fun LinPlayerCommands.pluginTakeovers(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.takeovers", args)
-suspend fun LinPlayerCommands.pluginSetTakeover(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setTakeover", args)
-suspend fun LinPlayerCommands.pluginDevLoad(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.devLoad", args)
-suspend fun LinPlayerCommands.pluginDevUnload(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.devUnload", args)
-suspend fun LinPlayerCommands.pluginDevList(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.devList", args)
-suspend fun LinPlayerCommands.pluginSetCapabilities(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setCapabilities", args)
-suspend fun LinPlayerCommands.pluginAppEvent(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.appEvent", args)
-suspend fun LinPlayerCommands.pluginAnchors(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.anchors", args)
-suspend fun LinPlayerCommands.pluginSettingsSections(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.settingsSections", args)
-suspend fun LinPlayerCommands.syncTraktRequest(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.traktRequest", args)
-suspend fun LinPlayerCommands.syncBangumiRequest(args: Map<String, Any?>? = null): JsonElement =
-    call("sync.bangumiRequest", args)
-suspend fun LinPlayerCommands.playerGetSubtitleText(args: Map<String, Any?>? = null): JsonElement =
-    call("player.getSubtitleText", args)
-suspend fun LinPlayerCommands.pluginSetEnv(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setEnv", args)
-suspend fun LinPlayerCommands.pluginShellResult(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.shellResult", args)
-suspend fun LinPlayerCommands.pluginThemes(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.themes", args)
-suspend fun LinPlayerCommands.pluginActiveTheme(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.activeTheme", args)
-suspend fun LinPlayerCommands.pluginSetActiveTheme(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setActiveTheme", args)
-suspend fun LinPlayerCommands.pluginThemeFailed(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.themeFailed", args)
-suspend fun LinPlayerCommands.pluginWallpapers(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.wallpapers", args)
-suspend fun LinPlayerCommands.pluginActiveWallpaper(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.activeWallpaper", args)
-suspend fun LinPlayerCommands.pluginInitialWallpaper(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.initialWallpaper", args)
-suspend fun LinPlayerCommands.pluginSetActiveWallpaper(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setActiveWallpaper", args)
-suspend fun LinPlayerCommands.pluginPlayerSurfaces(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.playerSurfaces", args)
-suspend fun LinPlayerCommands.pluginSidebar(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.sidebar", args)
-suspend fun LinPlayerCommands.pluginHomeSections(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.homeSections", args)
-suspend fun LinPlayerCommands.pluginHomeItems(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.homeItems", args)
-suspend fun LinPlayerCommands.pluginPageTakeovers(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.pageTakeovers", args)
-suspend fun LinPlayerCommands.pluginSearchActions(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.searchActions", args)
-suspend fun LinPlayerCommands.pluginBackRequest(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.backRequest", args)
-suspend fun LinPlayerCommands.pluginPlayerKey(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.playerKey", args)
-suspend fun LinPlayerCommands.pluginSetCookies(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.setCookies", args)
-suspend fun LinPlayerCommands.pluginUiMount(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.ui.mount", args)
-suspend fun LinPlayerCommands.pluginUiUnmount(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.ui.unmount", args)
-suspend fun LinPlayerCommands.pluginUiEvent(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.ui.event", args)
-suspend fun LinPlayerCommands.pluginUiViewport(args: Map<String, Any?>? = null): JsonElement =
-    call("plugin.ui.viewport", args)
+suspend fun LinPlayerCommands.companionHostSession(args: Map<String, Any?>? = null): JsonElement =
+    call("companion.hostSession", args)
+suspend fun LinPlayerCommands.companionHostReply(args: Map<String, Any?>? = null): JsonElement =
+    call("companion.hostReply", args)

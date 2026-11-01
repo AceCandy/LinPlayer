@@ -2,9 +2,10 @@
 
 **LinPlayer** —— 第三方媒体播放器。**只做 Emby**(2026-09-04 定的范围):
 网盘、局域网源(SMB/WebDAV/FTP)、Ani-RSS 全部不做,已从代码里删净;
-资源站(VOD)将来只以**插件**形式出现。
-本机文件夹播放(`local`)保留 —— 它是播放器的基础能力,不算网盘。
-自带弹幕、下载、跨服续播(字幕翻译 / Trakt·Bangumi 同步 2026-09-19 从宿主删除,改做官方插件;排行榜 / 追剧日历同日删除后 2026-09-20 决定改回宿主,插件系统第 ① 阶段从 `6b290d80^` 恢复)。插件系统从零重做中,设计正本 `docs/plugin-system/SPEC.md`。
+2026-11-01 按用户确认彻底删除本机文件浏览、插件系统、扩展组件及 Trakt / Bangumi 账号，旧本机与插件源账号在升级读取配置时删除，备份导入不恢复这些账号。
+Windows 的 RIFE / DRBA 外置补帧组件、下载与安装管理及播放选项一并删除；Android 内建 OpenCL 补帧和其它画质增强保留，旧外置组件文件不自动删除。
+保留 Emby 浏览播放、弹幕、下载、跨服搜索 / 换源 / 续播以及服务端提供的公共榜单和日历；Bangumi 元数据识别不是账号同步，不随之删除。
+Android 手机 / TV 与桌面设置的更新入口统一放入「关于与更新」，包含版本、检查更新、更新渠道、自动检查和 GitHub 代理。tvOS 外壳不在本次修改范围。
 
 覆盖端:**Windows / Linux / Android 手机 / Android TV**。tvOS 已授权建立最小客户端，当前开发中、正式应用未验收；iOS/macOS 暂不做。
 
@@ -31,7 +32,7 @@
 - 以 **Emby 浏览与播放**为核心,参考 Yamby / Hills 这类客户端的产品方向,核心目标是**快、丝滑、稳定**。未经具体对照核实,不要臆测它们的功能或照搬界面。
 - 主流程是连接服务器 → 浏览媒体库 / 继续观看 → 打开详情 / 选集 → 播放。页面、导航和默认设置优先服务这条流程,减少进入播放前的步骤。
 - 保证播放正确性、安全和数据一致性后,优先启动速度、首屏速度、起播速度、滚动与焦点响应、拖动进度和切集体验,再考虑附加功能数量、复杂动画及视觉装饰。
-- 弹幕、下载、排行榜、日历、同步、翻译、直播和插件等附加能力,不得阻塞启动、媒体库首屏或起播,不得强制登录额外服务后才能完成核心播放。其初始化和数据请求应按需进行;调整现有功能入口或默认行为前需确认具体范围。
+- 弹幕、下载、排行榜和公共日历等附加能力,不得阻塞启动、媒体库首屏或起播,不得强制登录额外服务后才能完成核心播放。其初始化和数据请求应按需进行;调整现有功能入口或默认行为前需确认具体范围。
 - UI 线程不得执行阻塞网络、磁盘或重计算;列表使用分页和虚拟化,图片异步加载并复用缓存。请求按当前可见内容和用户操作安排,离页或切换账号后取消失效请求,避免重复拉取、旧响应覆盖和无界预加载。
 - 性能改动必须记录所涉及路径在同设备、同网络、同媒体库条件下的前后数据:冷 / 热启动、首屏可操作、点击播放到首帧、拖动进度后恢复、切集耗时,以及大列表滚动 / TV 焦点表现。记录请求数、内存和失败情况,避免以降低正确性或后台资源失控换取表面速度。先建立基线,不凭空宣称性能达标。
 
@@ -49,6 +50,13 @@
 
 - `/Users/{user}/Items` 列表返回404时可回退同服务器、同前缀的 `/Items?UserId=...`；原ParentId、类型、Fields、排序和分页参数全部保留，两次请求均鉴权并使用同一context。401/403/5xx、取消、成功空结果不触发回退，条目详情路径不改写，替代请求失败保留其真实错误。`items_route_test.go`覆盖前缀、查询、分页、鉴权、失败与取消。基准为MediaStationGo fa61d42当前工作树的同一Items handler；未验证问题服务器，不能将mock通过当成实服404已解决。
 - 空季回退和接口404是不同故障分支，诊断与回归须分别覆盖；非登录请求的404仅说明内容或接口未找到，不直接指责服务器地址错误。
+
+## Emby 跨服换源
+
+- `source.switchCandidates` 用配置的 `Resolve` 将当前会话线路归一到账号主键，不能把当前服的备用线路当成其它候选服。
+- 选中候选先切活跃账号，再刷新并核对目标会话的生效线路和用户；完成后重建首页根与目标详情，不保留旧服详情返回栈。
+- 切服提交期间阻止关闭换源弹窗；会话读取失败不进入目标详情，也不保留跨服旧栈。空间变化的迟到操作仍应取消。
+- 回归：`core/aggregate/sources_test.go`、手机 / TV 共用 `SwitchSourceTest`、桌面 `tools/seekcheck --discovery-only`；这些检查不代替真机或生产服务器验收。
 
 ## MSG 流影与能力缓存
 
@@ -83,6 +91,6 @@ MSG 标准 Emby 返回对所有播放器一致，不按客户端名称或 UA 隐
 2. 签名：`emby.listFavorites` 保留数组/分页双契约；`emby.listWatched(type, start_index?, limit?, sort?, sort_by?, sort_order?, is_adult?)` 返回 `{items,total,next_index,has_more}`，type 仅 Movie/Series。
 3. 契约：收藏 Filters=IsFavorite,IsUnplayed；已看 Filters=IsPlayed + IncludeItemTypes，不设 ParentId。Series 明确未看集数优先于 Played，缺统计不按默认零推导完成。完成后不写取消收藏，新增未看集后实时刷新恢复未看完。
 4. 校验与错误：非法类型 E_INVALID 且不出网；原始游标在屏蔽/流影/状态复筛前计算，过滤空页不表示末页。缓存按命令/类型/页/身份隔离，收藏新后缀不读取旧全部收藏快照。
-5. 案例：半看电影留收藏；当前上线集全看完的剧进入已看，新集后退出；未收藏的已看作品同样显示。源收藏三条命令与各端入口已移除，source.history 与播放保留，旧本地收藏文件不自动删除或转为已看。
+5. 案例：半看电影留收藏；当前上线集全看完的剧进入已看，新集后退出；未收藏的已看作品同样显示。源收藏、源历史及浏览播放命令已移除，旧本地收藏文件不自动删除或转为已看。
 6. 测试：`TestFavoritesHideCompletedWithoutChangingCursor`、`TestWatchedPageCurrentUserTypeAndNewEpisode`、`TestFavoritesIgnoresLegacyMixedSnapshot`、`TestWatchedSnapshotsSeparateTypeAndIdentity`；手机 `watchedEntryUsesCurrentServerAndOnlyMovieSeriesCategories`、`watchedFilteredEmptyPageKeepsServerCursor`。真实服务器新增集后的更新仍需联调。
 7. 正反例：不能将本地播放历史改名作为全部已看，不能给普通 Items 传 IsPlayed=false 代替 Filters；应使用服务端筛选后分页，再按可信状态复筛。服务端基准为 MediaStationGo 4097a299 工作树，未修改该仓。

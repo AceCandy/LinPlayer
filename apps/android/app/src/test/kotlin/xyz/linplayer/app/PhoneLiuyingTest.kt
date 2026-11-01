@@ -41,7 +41,6 @@ import java.util.Collections
 import kotlin.concurrent.thread
 import kotlin.math.roundToInt
 import xyz.linplayer.app.ui.theme.LpTheme
-import xyz.linplayer.app.ui.theme.PluginTheme
 
 /** 原生入口只消费入库候选；能力缺失与空库不能退回网页。 */
 @RunWith(RobolectricTestRunner::class)
@@ -54,7 +53,6 @@ class PhoneLiuyingTest {
     private var showing by mutableStateOf(true)
     private lateinit var session: LiuyingPlaybackSession
     private val imageRequests = Collections.synchronizedList(mutableListOf<String>())
-    private val originalColumns = ReflectionHelpers.getField<Map<String, Int>>(PluginTheme, "columns")
     private val mediaServer = ServerSocket(0)
     private val mediaConnections = Collections.synchronizedList(mutableListOf<Socket>())
     init {
@@ -68,7 +66,6 @@ class PhoneLiuyingTest {
         PageCache.clear(); scope.cancel(); if (::app.isInitialized) app.bg.cancel()
         mediaServer.close()
         synchronized(mediaConnections) { mediaConnections.forEach { it.close() } }
-        ReflectionHelpers.setField(PluginTheme, "columns", originalColumns)
     }
 
     private fun open(enabled: Boolean = true, populated: Boolean = false, more: Boolean = false, fontScale: Float = 1f, dark: Boolean = true,
@@ -375,8 +372,8 @@ class PhoneLiuyingTest {
         rule.onNodeWithText("循环播放").assertExists()
     }
 
-    @Test fun favoriteGridUsesNormalColumnsCoversAndOnlyTitles() = verifyFavoriteGrid(true, 3)
-    @Test fun lightFavoriteGridUsesThemeColumnsAndKeepsDarkSheetReadable() = verifyFavoriteGrid(false, 4)
+    @Test fun favoriteGridUsesNormalColumnsCoversAndOnlyTitles() = verifyFavoriteGrid(true)
+    @Test fun lightFavoriteGridKeepsDarkSheetReadable() = verifyFavoriteGrid(false)
 
     @Test fun missingFavoriteCoverStillAllowsExactPlayback() {
         val core = open(populated = true)
@@ -397,8 +394,8 @@ class PhoneLiuyingTest {
         rule.onNodeWithText("循环播放").assertExists()
     }
 
-    private fun verifyFavoriteGrid(dark: Boolean, columns: Int) {
-        ReflectionHelpers.setField(PluginTheme, "columns", mapOf("compact" to columns))
+    private fun verifyFavoriteGrid(dark: Boolean) {
+        val columns = 3
         val core = open(populated = true, dark = dark)
         core.on("emby.extLiuYingItems") { buildJsonObject {
             put("items", arr(*(1..8).map { index -> buildJsonObject {

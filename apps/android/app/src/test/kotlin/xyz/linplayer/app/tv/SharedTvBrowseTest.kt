@@ -70,84 +70,6 @@ class SharedTvBrowseTest {
         rule.waitForIdle()
     }
 
-    private fun localFiles(core: FakeCore) {
-        core.ret("emby.currentSession", JsonNull)
-        core.ret("account.listAccounts", arr(buildJsonObject {
-            put("server", "local-library"); put("name", "本地影片"); put("active", true); put("source_kind", "local")
-        }))
-        core.ret("source.currentSource", buildJsonObject { put("server_id", "local-library"); put("server_name", "本地影片"); put("kind", "local") })
-        core.on("source.listDir") { args ->
-            if (args.str("dir_id") == "folder") arr(buildJsonObject {
-                put("id", "episode"); put("name", "子目录影片.mkv"); put("is_video", true)
-            }) else arr(
-                buildJsonObject { put("id", "folder"); put("name", "剧集目录"); put("is_dir", true) },
-                buildJsonObject { put("id", "movie"); put("name", "电影.mkv"); put("is_video", true) },
-                buildJsonObject { put("id", "note"); put("name", "说明.txt"); put("is_video", false) },
-            )
-        }
-    }
-
-    private fun openFilesFromSettings() {
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
-        rule.waitForIdle()
-        rule.onNodeWithTag("settings.group.内容与数据").performClick()
-        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("文件浏览"))
-        rule.onNodeWithText("文件浏览").performClick()
-        rule.waitForIdle()
-    }
-
-    @Test fun localHomeOffersFileBrowserWithoutEmbyRequests() {
-        mount(configure = ::localFiles)
-        rule.onNodeWithText("打开文件夹").assertIsDisplayed()
-        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
-        press(rule, Key.DirectionDown)
-        rule.onNodeWithText("打开文件夹").assertIsFocused()
-        rule.onRoot().captureRoboImage("build/shared-tv/local-home.png")
-        press(rule, Key.DirectionCenter)
-        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
-        assertFalse(core.calls.any { it.first in setOf("emby.listResume", "emby.views", "emby.listLatest") })
-        rule.onRoot().captureRoboImage("build/shared-tv/local-files.png")
-    }
-
-    @Test fun localHomeUpdatesWhenSwitchingFromEmbyAndBack() {
-        mount()
-        rule.runOnIdle { localFiles(core); kotlinx.coroutines.runBlocking { app.refreshSession() } }
-        rule.waitForIdle()
-        rule.onNodeWithText("打开文件夹").assertIsDisplayed()
-        assertEquals("local", app.localSource.value?.kind)
-        assertNull(app.activeSource.value)
-        rule.runOnIdle { core.loggedIn(); kotlinx.coroutines.runBlocking { app.refreshSession() } }
-        rule.waitForIdle()
-        assertNull(app.localSource.value)
-        rule.onNodeWithText("打开文件夹").assertDoesNotExist()
-        rule.onNodeWithContentDescription("谎言的代价").assertExists()
-        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
-    }
-
-    @Test fun televisionFileBrowserOnlyShowsFoldersAndVideos() {
-        mount(configure = ::localFiles)
-        openFilesFromSettings()
-        rule.onNodeWithText("剧集目录").assertIsDisplayed()
-        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
-        rule.onNodeWithText("说明.txt").assertDoesNotExist()
-    }
-
-    @Test fun televisionBackLeavesFolderBeforeLeavingFileBrowser() {
-        mount(configure = ::localFiles)
-        openFilesFromSettings()
-        rule.onNodeWithText("剧集目录").performClick()
-        rule.onNodeWithText("子目录影片.mkv").assertIsDisplayed()
-        rule.runOnUiThread { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithText("电影.mkv").assertIsDisplayed()
-        rule.onNodeWithText("子目录影片.mkv").assertDoesNotExist()
-        rule.runOnUiThread { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("文件浏览"))
-        rule.onNodeWithText("文件浏览").assertExists()
-        rule.onNodeWithText("电影.mkv").assertDoesNotExist()
-    }
-
     @Test fun actualTvEntryUsesSharedHomeAndTopNavigation() {
         mount()
         rule.onNodeWithText("聚合视界").assertIsDisplayed()
@@ -163,8 +85,7 @@ class SharedTvBrowseTest {
         assertFalse(activity.isFinishing)
         rule.onNodeWithContentDescription("谎言的代价").assertExists()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.onNodeWithTag("detail.play").assertIsDisplayed()
         rule.runOnUiThread { back.onBackPressed() }
@@ -182,8 +103,7 @@ class SharedTvBrowseTest {
     @Test fun seriesRemoteUpRestoresWholeHero() {
         mount(configure = ::seriesDetails)
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            openPage("detail:s1:Series")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         val initial = rule.onNodeWithTag("detail.hero").fetchSemanticsNode().positionInRoot.y
@@ -272,7 +192,7 @@ class SharedTvBrowseTest {
             } }.toTypedArray()))
             it.ret("emby.extResolve", buildJsonObject { put("item_id", "movie-4"); put("item_type", "Movie") })
         }
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("ranking", JsonObject(emptyMap()), false) }
+        rule.runOnIdle { openPage("ranking") }
         rule.onNodeWithText("热门榜").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
         rule.onNodeWithText("榜单1").assertIsFocused()
@@ -292,30 +212,9 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.play").assertIsDisplayed()
     }
 
-    @Test fun unifiedPluginTabsKeepEdgesAndSelect() {
-        mount {
-            it.ret("plugin.list", buildJsonObject { put("plugins", arr()) })
-            it.ret("plugin.pendingRestart", JsonPrimitive(false))
-            it.ret("plugin.market", buildJsonObject { put("entries", arr()) })
-        }
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("plugins", JsonObject(emptyMap()), false) }
-        rule.onNodeWithText("已安装").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.DirectionLeft)
-        rule.onNodeWithText("已安装").assertIsFocused()
-        repeat(4) { press(rule, Key.DirectionRight) }
-        rule.onNodeWithText("仓库").assertIsFocused()
-        press(rule, Key.DirectionDown)
-        rule.onNodeWithText("从文件安装").assertIsFocused()
-        press(rule, Key.DirectionUp, Key.DirectionLeft, Key.DirectionLeft, Key.DirectionLeft)
-        rule.onNodeWithText("已安装").assertIsFocused()
-        press(rule, Key.DirectionRight, Key.DirectionCenter)
-        rule.onNodeWithText("市场").assertIsSelected().assertIsFocused()
-        assertTrue(core.calls.any { it.first == "plugin.market" })
-    }
-
     @Test fun unifiedSettingsSegmentsKeepEdgesAndSelect() {
         mount()
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings.appearance", JsonObject(emptyMap()), false) }
+        rule.runOnIdle { openPage("settings.appearance") }
         rule.onNodeWithText("跟随系统").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionLeft)
         rule.onNodeWithText("跟随系统").assertIsFocused()
@@ -339,10 +238,10 @@ class SharedTvBrowseTest {
             })
             it.ret("prefs.setUpdateSettings", JsonNull)
         }
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginNav.host!!.push("settings", JsonObject(emptyMap()), false) }
-        rule.onNodeWithTag("settings.group.应用").performClick()
-        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("更新"))
-        rule.onNodeWithText("更新").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
+        rule.runOnIdle { openPage("settings") }
+        rule.onNodeWithTag("settings.group.关于").performClick()
+        rule.onNodeWithTag("settings.entries").performScrollToNode(hasText("关于与更新"))
+        rule.onNodeWithText("关于与更新").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
         rule.onNodeWithText("GitHub 代理").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
@@ -509,8 +408,7 @@ class SharedTvBrowseTest {
             .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
         mount()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         press(rule, Key.DirectionDown)
@@ -575,83 +473,13 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.person.p1").assertIsFocused().assertIsDisplayed()
     }
 
-    @Test fun unifiedSourceFiltersKeepEdgesAndAllowGridNavigation() {
-        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
-            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
-        val category = buildJsonObject {
-            put("id", "category"); put("name", "分类0")
-            put("filters", arr(buildJsonObject {
-                put("key", "region"); put("name", "地区")
-                put("options", arr(*(0..19).map { n -> buildJsonObject {
-                    put("value", "region-$n"); put("name", "地区$n")
-                } }.toTypedArray()))
-            }))
-        }
-        mount { fake ->
-            fake.ret("emby.currentSession", JsonNull)
-            fake.ret("account.listAccounts", arr(buildJsonObject {
-                put("id", "plugin:test/source"); put("server", "plugin:test/source")
-                put("name", "测试数据源"); put("active", true)
-                put("plugin", buildJsonObject { put("id", "test/source") })
-            }))
-            fake.ret("source.caps", buildJsonObject { put("home", true) })
-            fake.ret("source.continueWatching", arr())
-            fake.ret("source.home", buildJsonObject {
-                put("categories", arr(category, *(1..19).map { n -> buildJsonObject {
-                    put("id", "category-$n"); put("name", "分类$n")
-                } }.toTypedArray())); put("recommended", arr())
-            })
-            fake.ret("source.category", buildJsonObject {
-                put("items", arr(*(0..23).map { n -> buildJsonObject {
-                    put("id", "source-$n"); put("title", "源片$n")
-                } }.toTypedArray())); put("next", "")
-            })
-            fake.ret("source.detail", buildJsonObject {
-                put("id", "source-detail"); put("title", "源片详情"); put("lines", arr())
-            })
-        }
-        press(rule, Key.DirectionDown)
-        rule.onNode(hasSetTextAction()).assertIsFocused()
-        press(rule, Key.DirectionDown)
-        rule.onNode(hasText("分类", substring = true) and isFocused()).assertIsDisplayed()
-        repeat(21) { press(rule, Key.DirectionLeft) }
-        press(rule, Key.DirectionLeft)
-        rule.onNodeWithText("分类0").assertIsFocused()
-        repeat(21) { press(rule, Key.DirectionRight) }
-        rule.onNodeWithText("分类19").assertIsFocused().assertIsDisplayed()
-        repeat(21) { press(rule, Key.DirectionLeft) }
-        rule.onNodeWithText("分类0").assertIsFocused()
-        press(rule, Key.DirectionCenter)
-        rule.onNodeWithText("地区0").assertIsFocused()
-        press(rule, Key.DirectionLeft)
-        rule.onNodeWithText("地区0").assertIsFocused()
-        repeat(21) { press(rule, Key.DirectionRight) }
-        rule.onNodeWithText("地区19").assertIsFocused().assertIsDisplayed()
-        press(rule, Key.DirectionDown)
-        val selected = hasText("源片", substring = true) and isFocused()
-        fun title() = rule.onNode(selected).assertIsDisplayed().fetchSemanticsNode().config[
-            androidx.compose.ui.semantics.SemanticsProperties.Text].first().text
-        val first = title()
-        press(rule, Key.DirectionDown)
-        assertNotEquals("数据源网格仍能跨行", first, title())
-        press(rule, Key.DirectionUp)
-        assertEquals(first, title())
-        press(rule, Key.DirectionCenter)
-        rule.onNodeWithText("源片详情").assertIsDisplayed()
-        rule.runOnUiThread { back.onBackPressed() }
-        assertEquals("数据源详情返回原卡片", first, title())
-        press(rule, Key.DirectionUp)
-        rule.onNode(hasText("地区", substring = true) and isFocused()).assertIsDisplayed()
-    }
-
     @Test fun detailFirstScreenStaysAtTopUnderTvPivotScrolling() {
         // 真电视默认把焦点项滚到 30% 处；Robolectric 默认不是电视，这里显式打开
         org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
             .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
         mount()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         press(rule, Key.DirectionRight, Key.DirectionLeft, Key.DirectionUp, Key.DirectionDown)
@@ -742,8 +570,7 @@ class SharedTvBrowseTest {
         if (switchTab) press(rule, Key.DirectionRight)
         rule.onNodeWithTag(tab).assertIsFocused()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.waitForIdle()
         rule.onNodeWithTag("detail.hero").assertIsDisplayed()
@@ -815,25 +642,6 @@ class SharedTvBrowseTest {
         rule.onNode(hasContentDescription("剧集") and hasAnyAncestor(hasTestTag("home.libraries"))).assertIsFocused()
         press(rule, Key.DirectionDown)
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("home.resume"))).assertExists()
-    }
-
-    @Test fun nativeTvPluginRowsKeepHorizontalFocus() {
-        org.robolectric.Shadows.shadowOf(ApplicationProvider.getApplicationContext<android.app.Application>().packageManager)
-            .setSystemFeature(android.content.pm.PackageManager.FEATURE_LEANBACK, true)
-        UiPrefs.setHideHomeLibraries(ApplicationProvider.getApplicationContext(), true)
-        mount {
-            it.ret("emby.views", arr()); it.ret("emby.listResume", arr())
-            it.ret("plugin.homeSections", arr(buildJsonObject {
-                put("plugin_id", "test/rows"); put("id", "one"); put("title", "插件影片")
-            }))
-            it.ret("plugin.homeItems", arr(*(0..11).map { n -> buildJsonObject {
-                put("id", "plugin-$n"); put("title", "插件$n"); put("source", "test/source")
-            } }.toTypedArray()))
-        }
-        press(rule, Key.DirectionDown, Key.DirectionLeft)
-        rule.onNodeWithText("插件0").assertIsFocused()
-        repeat(13) { press(rule, Key.DirectionRight) }
-        rule.onNodeWithText("插件11").assertIsFocused().assertIsDisplayed()
     }
 
     @Test fun homeFocusScrollRetargetsDuringAnimation() {
@@ -970,33 +778,13 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("rail.1").assertIsFocused()
     }
 
-    @Test fun televisionColumnsReadWindowAndKeepPluginOverride() {
-        val theme = xyz.linplayer.app.ui.theme.PluginTheme
-        val savedColumns = buildJsonObject {
-            for ((name, width) in listOf("compact" to 411, "medium" to 960, "expanded" to 1280)) {
-                val columns = theme.posterColumns(width, 0)
-                if (columns > 0) put(name, columns)
+    @Test fun televisionColumnsReadWindow() {
+        rule.setContent {
+            androidx.compose.runtime.CompositionLocalProvider(LocalTvMode provides true) {
+                androidx.compose.material3.Text("列数：${xyz.linplayer.app.ui.pages.posterColumns()}")
             }
         }
-        val revision = androidx.compose.runtime.mutableIntStateOf(0)
-        try {
-            theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject {}) }, "android_tv")
-            rule.setContent {
-                androidx.compose.runtime.key(revision.intValue) {
-                    androidx.compose.runtime.CompositionLocalProvider(LocalTvMode provides true) {
-                        androidx.compose.material3.Text("列数：${xyz.linplayer.app.ui.pages.posterColumns()}")
-                    }
-                }
-            }
-            rule.onNodeWithText("列数：7").assertExists()
-            rule.runOnIdle {
-                theme.applyLayout(buildJsonObject { put("posterColumns", buildJsonObject { put("medium", 9) }) }, "android_tv")
-                revision.intValue++
-            }
-            rule.onNodeWithText("列数：9").assertExists()
-        } finally {
-            theme.applyLayout(buildJsonObject { put("posterColumns", savedColumns) }, "android_tv")
-        }
+        rule.onNodeWithText("列数：7").assertExists()
     }
 
     @Test fun homeRemoteRefreshIsReachableAndCoalescesWhileLoading() {
@@ -1036,8 +824,7 @@ class SharedTvBrowseTest {
     @Test fun homeRefreshIsRemovedOnDetailAndReboundOnReturnAndAccountChange() {
         mount()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.waitForIdle()
         rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
@@ -1066,27 +853,10 @@ class SharedTvBrowseTest {
         assertEquals(JsonPrimitive(false), last["request_scope"]?.jsonObject?.get("private"))
     }
 
-    @Test fun pluginSourceHomeHasNoEmbyRefreshAction() {
-        mount { fake ->
-            fake.ret("emby.currentSession", JsonNull)
-            fake.ret("account.listAccounts", arr(buildJsonObject {
-                put("id", "plugin:test/source"); put("server", "plugin:test/source")
-                put("name", "测试数据源"); put("active", true)
-                put("plugin", buildJsonObject { put("id", "test/source") })
-            }))
-            fake.ret("source.caps", buildJsonObject { put("home", true) })
-            fake.ret("source.home", buildJsonObject { put("categories", arr()); put("recommended", arr()) })
-        }
-        assertNotNull(app.activeSource.value)
-        rule.onNodeWithTag("nav.refresh").assertDoesNotExist()
-        assertFalse(core.calls.any { it.first == "emby.views" })
-    }
-
     @Test fun moviePlayIsVisibleBeforeOptionsAndRemoteOpensTheOriginalTarget() {
         mount()
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.waitForIdle()
         val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsEnabled()
@@ -1101,7 +871,6 @@ class SharedTvBrowseTest {
         val intent = launch.intent
         val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
         assertEquals("m1", route.itemId)
-        assertNull(route.src)
         assertTrue(intent.getBooleanExtra("player.tv", false))
         rule.runOnIdle {
             (activity as androidx.activity.ComponentActivity).activityResultRegistry.dispatchResult(
@@ -1129,8 +898,7 @@ class SharedTvBrowseTest {
         } })
         try {
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+                openPage("detail:m1:Movie")
             }
             rule.onNodeWithTag("detail.play").assertIsFocused()
             press(rule, Key.DirectionCenter)
@@ -1168,8 +936,7 @@ class SharedTvBrowseTest {
             ))
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         press(rule, Key.DirectionRight)
@@ -1227,8 +994,7 @@ class SharedTvBrowseTest {
         } })
         try {
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+                openPage("detail:m1:Movie")
             }
             rule.onNodeWithTag("detail.play").assertIsFocused()
             press(rule, Key.DirectionUp)
@@ -1256,8 +1022,7 @@ class SharedTvBrowseTest {
             }
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         rule.onAllNodesWithText(overview).assertCountEquals(1)
@@ -1290,8 +1055,7 @@ class SharedTvBrowseTest {
             }
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         val summary = rule.onNode(hasTestTag("detail.overview") and hasAnyAncestor(hasTestTag("detail.hero")))
         summary.assertIsDisplayed()
@@ -1330,8 +1094,7 @@ class SharedTvBrowseTest {
             }))
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            openPage("detail:s1:Series")
         }
         rule.onNodeWithText("分集").assertDoesNotExist()
         rule.onNodeWithContentDescription("选择季").assertDoesNotExist()
@@ -1343,32 +1106,6 @@ class SharedTvBrowseTest {
         rule.onNodeWithTag("detail.play").assertIsFocused()
     }
 
-    private fun overviewAnchor(mode: String) {
-        mount { fake ->
-            fake.ret("plugin.anchors", arr(buildJsonObject {
-                put("plugin_id", "test/overview"); put("name", "简介测试")
-                put("anchor", "detail.overview"); put("mode", mode); put("block", "overview")
-            }))
-            fake.on("plugin.ui.mount") { throw IllegalStateException("合成插件错误") }
-        }
-        rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
-        }
-        rule.onNodeWithTag("detail.play").assertIsFocused()
-        rule.onAllNodesWithTag("detail.overview").assertCountEquals(if (mode in listOf("hide", "replace")) 0 else 1)
-        if (mode != "hide") {
-            rule.onAllNodesWithText("这一块出错了", substring = true).assertCountEquals(1)
-            rule.onNode(hasText("这一块出错了", substring = true) and hasAnyAncestor(hasTestTag("detail.hero")))
-                .assertIsDisplayed()
-        }
-    }
-
-    @Test fun overviewBeforeAnchorAppearsOnlyOnceInHero() = overviewAnchor("before")
-    @Test fun overviewAfterAnchorAppearsOnlyOnceInHero() = overviewAnchor("after")
-    @Test fun overviewReplacementSuppressesOfficialSummary() = overviewAnchor("replace")
-    @Test fun overviewHiddenAnchorSuppressesOfficialSummary() = overviewAnchor("hide")
-
     @Test @Config(qualifiers = "w800dp-h450dp-land-mdpi")
     fun detailLongTitleAndLargeTextWrapWithoutClipping() {
         val title = "穿越山海与星空的漫长旅程：写给远方的一封信"
@@ -1379,8 +1116,7 @@ class SharedTvBrowseTest {
             })
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+            openPage("detail:m1:Movie")
         }
         val layouts = mutableListOf<androidx.compose.ui.text.TextLayoutResult>()
         rule.onNodeWithTag("detail.title").performSemanticsAction(SemanticsActions.GetTextLayoutResult) { it(layouts) }
@@ -1462,8 +1198,7 @@ class SharedTvBrowseTest {
     @Test fun cinemaSeriesShowsTargetOptionsAndEpisodeArtworkInFirstViewport() {
         mount(configure = ::cinemaSeries)
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            openPage("detail:s1:Series")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         rule.onNode(hasContentDescription("版本") and hasAnyAncestor(hasTestTag("detail.hero")))
@@ -1480,8 +1215,7 @@ class SharedTvBrowseTest {
     @Test fun cinemaSeriesRemoteOptionsReachPlayerWithTargetIdentity() {
         mount(configure = ::cinemaSeries)
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+            openPage("detail:s1:Series")
         }
         // 播放向下直达分集；版本等参数在播放上方的图标行
         press(rule, Key.DirectionDown)
@@ -1531,8 +1265,7 @@ class SharedTvBrowseTest {
         } }, configure = ::cinemaSeries)
         try {
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+                openPage("detail:s1:Series")
             }
             rule.onNodeWithContentDescription("版本").performClick()
             rule.onNodeWithText("se1e2 高码率").performClick()
@@ -1570,8 +1303,7 @@ class SharedTvBrowseTest {
             fake.ret("emby.seasonEpisodes", buildJsonObject { put("items", arr()); put("total", 0) })
         }
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "se2e2", "type" to "Episode"), false)
+            openPage("detail:se2e2:Episode")
         }
         rule.onNodeWithTag("detail.play").assertIsFocused()
         press(rule, Key.DirectionDown)
@@ -1592,8 +1324,7 @@ class SharedTvBrowseTest {
         } }, configure = ::seriesDetails)
         try {
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to id, "type" to type), false)
+                openPage("detail:$id:$type")
             }
             rule.waitForIdle()
             rule.onNodeWithContentDescription("返回").assertDoesNotExist()
@@ -1619,7 +1350,6 @@ class SharedTvBrowseTest {
             val route = xyz.linplayer.app.PlayerActivity.readRoute(intent)!!
             assertEquals("${parent}e2", route.itemId)
             assertEquals("va", route.versionId)
-            assertNull(route.src)
             assertTrue(intent.getBooleanExtra("player.tv", false))
         } finally {
             detailReady.complete(Unit)
@@ -1642,8 +1372,7 @@ class SharedTvBrowseTest {
         try {
             mount(configure = ::seriesDetails)
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "s1", "type" to "Series"), false)
+                openPage("detail:s1:Series")
             }
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertIsFocused()
@@ -1687,8 +1416,7 @@ class SharedTvBrowseTest {
         } })
         try {
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
+                openPage("detail:m1:Movie")
             }
             rule.waitForIdle()
             rule.onNodeWithContentDescription("返回").assertDoesNotExist()
@@ -1700,8 +1428,7 @@ class SharedTvBrowseTest {
             rule.waitForIdle()
             rule.onNodeWithTag("rail.1").assertIsDisplayed()
             rule.runOnIdle {
-                xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                    xyz.linplayer.app.ui.pages.args("id" to "box", "type" to "BoxSet"), false)
+                openPage("detail:box:BoxSet")
             }
             rule.waitForIdle()
             rule.onNodeWithTag("detail.play").assertDoesNotExist()
@@ -1712,31 +1439,6 @@ class SharedTvBrowseTest {
         } finally { release.complete(Unit) }
     }
 
-    private fun pluginPrimaryTakeover(mode: String) {
-        mount { fake ->
-            fake.ret("plugin.anchors", arr(buildJsonObject {
-                put("plugin_id", "test/actions"); put("name", "接管主操作")
-                put("anchor", "detail.actions"); put("mode", mode); put("block", "actions")
-            }))
-            fake.on("plugin.ui.mount") { throw IllegalStateException("合成插件错误") }
-        }
-        rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginNav.host!!.push("detail",
-                xyz.linplayer.app.ui.pages.args("id" to "m1", "type" to "Movie"), false)
-        }
-        rule.waitForIdle()
-        rule.onNodeWithTag("detail.play").assertDoesNotExist()
-        if (mode == "replace") rule.onNodeWithText("这一块出错了", substring = true).assertIsDisplayed()
-        rule.onNodeWithContentDescription("返回").assertDoesNotExist()
-        rule.runOnUiThread { back.onBackPressed() }
-        rule.waitForIdle()
-        rule.onNodeWithTag("rail.1").assertIsDisplayed()
-    }
-
-    @Test fun pluginHiddenPrimaryStillAllowsRemoteBack() = pluginPrimaryTakeover("hide")
-    @Test fun pluginReplacedPrimaryStillAllowsRemoteBack() = pluginPrimaryTakeover("replace")
-
-    @OptIn(ExperimentalTestApi::class)
     @Test fun remoteBackClosesDetailMenuBeforeReturningToSourceCard() {
         val instrumentation = androidx.test.platform.app.InstrumentationRegistry.getInstrumentation()
         val wasTouch = org.robolectric.shadows.ShadowWindowManagerGlobal.getInTouchMode()
@@ -1851,15 +1553,12 @@ class SharedTvBrowseTest {
         actor.assertIsFocused()
     }
 
-    @Test fun serverNameIsSingleManagementEntryAndPluginCannotOpenDownloads() {
+    @Test fun serverNameIsSingleManagementEntry() {
         mount()
         rule.onAllNodesWithText("服务器 A").assertCountEquals(1)
         rule.onNodeWithTag("rail.1").assertIsFocused()
         press(rule, Key.DirectionLeft, Key.DirectionCenter)
         rule.onNodeWithText("服务器", substring = false).assertIsDisplayed()
-        rule.runOnIdle {
-            assertFalse(xyz.linplayer.app.plugin.PluginNav.host!!.push("downloads", kotlinx.serialization.json.JsonObject(emptyMap()), false))
-        }
         assertFalse(core.calls.any { it.first == "download.list" })
     }
 }

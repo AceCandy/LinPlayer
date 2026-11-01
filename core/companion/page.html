@@ -182,6 +182,16 @@ button.pri:disabled{opacity:.5}
     <textarea id="s-words" autocapitalize="off" spellcheck="false"></textarea>
     <button class="pri" id="s-save-words">保存屏蔽词</button>
   </section>
+  <section class="pane" id="p-backup">
+    <h2>备份与还原</h2>
+    <p class="hint">请在电视上开启本次传输。含账号的备份包含登录凭据，请勿公开分享。</p>
+    <button class="pri" id="backup-download">领取电视上准备的备份</button>
+    <h2>上传备份预览</h2>
+    <label for="backup-file">选择备份文件，最大 2 MiB</label>
+    <input id="backup-file" type="file" accept=".lpbak,.json,.txt">
+    <button class="pri" id="backup-upload">上传到电视预览</button>
+    <p id="backup-result" class="hint"></p>
+  </section>
 </main>
 
 <nav>
@@ -190,6 +200,7 @@ button.pri:disabled{opacity:.5}
   <button data-p="search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg>搜索</button>
   <button data-p="servers"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="7" rx="2"/><rect x="3" y="13" width="18" height="7" rx="2"/></svg>服务器</button>
   <button data-p="settings"><svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>设置</button>
+  <button data-p="backup" id="backup-tab" style="display:none">备份</button>
 </nav>
 
 <div id="toast"></div>
@@ -315,6 +326,7 @@ async function poll() {
     const s = await api("state", {});
     $("conn").textContent = "已连接";
     renderPlaying(s.title, s.player);
+    $("backup-tab").style.display = s.backup ? "flex" : "none";
   } catch {
     $("conn").textContent = "电视没响应";
   }
@@ -490,6 +502,25 @@ $("s-save-words").onclick = () => busy($("s-save-words"), "保存中…", () =>
     words: $("s-words").value.split("\n").map((s) => s.trim()).filter(Boolean),
   }).then(() => toast("屏蔽词已保存")).catch(fail));
 
+$("backup-download").onclick = () => busy($("backup-download"), "领取中…", async () => {
+  try {
+    const result = await api("prefs.backupExport");
+    if (typeof result.content !== "string" || !result.content) throw new Error("电视没有提供备份内容");
+    const url = URL.createObjectURL(new Blob([result.content], {type:"application/octet-stream"}));
+    const link = document.createElement("a"); link.href = url; link.download = result.filename || "LinPlayer.lpbak";
+    document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1000);
+    $("backup-result").textContent = "已交给浏览器下载，请确认文件已保存。";
+  } catch (e) { fail(e); }
+});
+$("backup-upload").onclick = () => busy($("backup-upload"), "上传中…", async () => {
+  try {
+    const file = $("backup-file").files[0];
+    if (!file || file.size > 2 * 1024 * 1024) throw new Error("请选择不超过 2 MiB 的备份文件");
+    await api("prefs.backupPreview", {content: await file.text()});
+    $("backup-file").value = "";
+    $("backup-result").textContent = "已上传，请在电视上核对并确认还原。";
+  } catch (e) { fail(e); }
+});
 schedule();
 </script>
 </body>

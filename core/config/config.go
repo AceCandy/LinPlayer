@@ -55,9 +55,6 @@ type AppConfig struct {
 	Prefs          json.RawMessage `json:"prefs,omitempty"`
 	DanmakuSources json.RawMessage `json:"danmaku_sources,omitempty"`
 	Proxy          json.RawMessage `json:"proxy,omitempty"`
-	// SyncTrakt / SyncBangumi 宿主里连接的 Trakt / Bangumi 账号(追剧日历用;同步插件经宿主借用,D365)。
-	SyncTrakt   json.RawMessage `json:"sync_trakt,omitempty"`
-	SyncBangumi json.RawMessage `json:"sync_bangumi,omitempty"`
 
 	// 未知字段的兜底。加载时把整份 JSON 也存一份,保存时合并回去 ——
 	// 这样即使上面漏了某个键,也不会在保存时把它抹掉。
@@ -113,7 +110,33 @@ func Load() (*AppConfig, error) {
 	mu.Lock()
 	current = c
 	mu.Unlock()
+	if c.dropRetired() {
+		// 落盘失败不挡启动:内存里已经清掉,下一次保存会一并写下去
+		_ = c.Save()
+	}
 	return c, nil
+}
+
+// retiredKeys 已下线功能在配置顶层留下的键:Trakt / Bangumi 连接与旧版插件源表。
+var retiredKeys = []string{"sync_trakt", "sync_bangumi", "plugin_sources"}
+
+// dropRetired 清掉已下线功能留下的数据:本机文件夹 / 插件数据源账号(只剩 Emby 一种源)、
+// Trakt / Bangumi 连接。返回是否有改动。
+func (c *AppConfig) dropRetired() bool {
+	changed := false
+	for i := len(c.AccountList) - 1; i >= 0; i-- {
+		if a := c.AccountList[i]; a.IsFileBrowse() {
+			c.Remove(a.Server)
+			changed = true
+		}
+	}
+	for _, k := range retiredKeys {
+		if _, ok := c.unknown[k]; ok {
+			delete(c.unknown, k)
+			changed = true
+		}
+	}
+	return changed
 }
 
 // Save 原子写(SPEC §14.2):临时文件 + rename。

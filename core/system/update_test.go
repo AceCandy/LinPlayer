@@ -296,3 +296,19 @@ func Test界面版本串保留构建号(t *testing.T) {
 		t.Fatalf("相邻两个构建显示成同一串 %q —— 用户没法分辨「新版本」到底新在哪", a)
 	}
 }
+
+func TestAppleTVDoesNotSelectOrInstallDesktopAssets(t *testing.T) {
+	for _, platform := range []string{"ios", "tvos"} {
+		if got := pickAsset([]string{"LinPlayer-linux.zip", "LinPlayer-tv.apk"}, assetKeywordSetsFor(platform, "arm64")); got != -1 {
+			t.Fatalf("%s 选中了其它平台安装包", platform)
+		}
+		if checkUpdatePlatform(platform) == nil {
+			t.Fatalf("%s 放行了应用内下载安装", platform)
+		}
+	}
+	for _, platform := range []string{"windows", "linux", "android"} {
+		if err := checkUpdatePlatform(platform); err != nil {
+			t.Fatalf("已有平台被阻止: %s", platform)
+		}
+	}
+}

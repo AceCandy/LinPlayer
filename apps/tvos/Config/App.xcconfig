@@ -16,3 +16,5 @@ INFOPLIST_FILE = Config/Info.plist
 CURRENT_PROJECT_VERSION = 1
 CODE_SIGN_STYLE = Automatic
 LD_RUNPATH_SEARCH_PATHS = $(inherited) @executable_path/Frameworks
+
+OTHER_SWIFT_FLAGS = $(inherited) -Xcc -fmodule-map-file=$(SRCROOT)/Config/Libass.modulemap

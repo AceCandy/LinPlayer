@@ -555,99 +555,9 @@ public static class SettingsSections
     }
 
     /// <summary>
-    /// 补帧组件提前装(用户 2026-09-18:「准备工作要提前做好,不应该让用户观看的时候才做」)。
-    /// N 卡要下 2.9GB,再解压 + 预建引擎三五分钟(实测 104 + 105 秒),放到开片后才做等于这一集白看。
-    /// 和播放页弹层走同一条命令;核心层一次只让装一个,两边谁先点都一样。
+    /// 关于:当前版本 + 检查更新,更新选项紧跟在下面。
     /// </summary>
-    public static Control Interp(CoreClient core)
-    {
-        var body = new StackPanel { Spacing = 10 };
-        var hint = Hint();
-        // 自检:LP_SELFCHECK_SETTINGS=补帧 滚到这张卡;=补帧点 再真点按钮走完整条安装,进度打到 app.log
-        var sc = Environment.GetEnvironmentVariable("LP_SELFCHECK_SETTINGS");
-        var scClick = sc == "补帧点";
-        async Task Fill()
-        {
-            body.Children.Clear();
-            body.Children.Add(Note("开片后在「画质增强」里选补帧档位。组件在这里先装好,看的时候点开就能用。"));
-            JsonElement st;
-            try { st = await core.PlayerInterpLevels(); }
-            catch (Exception e) { body.Children.Add(Note(LibraryPage.Advice(e))); return; }
-            if (!Bool(st, "supported")) { body.Children.Add(Note(Str(st, "reason"))); return; }
-            var installed = Bool(st, "installed");
-            var hasTrt = st.TryGetProperty("trt", out var trt) && trt.ValueKind == JsonValueKind.Object;
-            var trtReady = hasTrt && Bool(trt, "ready");
-            var offerTrt = hasTrt && !trtReady && Bool(trt, "available");
-            var gpu = Str(st, "gpu");
-            body.Children.Add(Note(trtReady ? $"已装好,走 N 卡加速(TensorRT)。显卡:{gpu}"
-                : installed ? $"已装好(通用版)。显卡:{gpu}"
-                : $"还没装。显卡:{gpu}"));
-            if (hasTrt && !trtReady && !Bool(trt, "available") && Str(trt, "reason") != "")
-                body.Children.Add(Note(Str(trt, "reason")));
-
-            Button? btn = null;
-            object? pack = null;
-            if (offerTrt)
-            {
-                body.Children.Add(Note(PlayerPage.TrtNote(st, trt)));
-                btn = new Button { Classes = { "primary" }, Content = installed ? "下载 N 卡加速包" : "下载补帧组件(N 卡加速版)" };
-                pack = new { pack = "trt" };
-            }
-            else if (!installed)
-            {
-                var mb = st.TryGetProperty("download_bytes", out var b) && b.TryGetInt64(out var n) ? n / (1 << 20) : 0;
-                btn = new Button { Classes = { "primary" }, Content = $"下载补帧组件(约 {mb} MB)" };
-            }
-            var busy = Bool(st, "installing") || (hasTrt && Bool(trt, "preparing"));
-            hint.Text = busy ? "正在准备(播放页那边点的),进度在这里也看得到。" : "";
-            if (btn is not null)
-            {
-                body.Children.Add(Note("可选组件含 DirectML/MSVC 等专有许可运行库;N 卡版另含 TensorRT/CUDA,按各组件许可使用。"));
-                btn.IsEnabled = !busy;
-                btn.Click += async (_, _) =>
-                {
-                    btn.IsEnabled = false;
-                    hint.Text = "正在下载…";
-                    try
-                    {
-                        await (pack is null ? core.PlayerInterpInstall() : core.PlayerInterpInstall(pack));
-                        Toast.Show(pack is null ? "补帧组件已装好" : "N 卡加速已启用");
-                        if (scClick) Console.WriteLine("[补帧卡] 装好了");
-                        await Fill();
-                    }
-                    catch (Exception e)
-                    {
-                        hint.Text = LibraryPage.Advice(e);
-                        btn.IsEnabled = true;
-                        if (scClick) Console.WriteLine($"[补帧卡] 失败:{e.Message}");
-                    }
-                };
-                body.Children.Add(Row(btn));
-                if (scClick && btn.IsEnabled)
-                    btn.RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
-            }
-            // 装好了就没有进度可报,空着的一行会在卡底撑出一条空白
-            if (btn is not null || busy) body.Children.Add(hint);
-        }
-
-        void OnEvent(string name, JsonElement data)
-        {
-            if (name != "player.interpInstall") return;
-            var text = PlayerPage.InstallProgressText(data);
-            if (text is null) return;
-            if (scClick) Console.WriteLine($"[补帧卡] {text}");
-            Dispatcher.UIThread.Post(() => hint.Text = text);
-        }
-        var card = Group("补帧组件", body);
-        card.AttachedToVisualTree += (_, _) => core.OnEvent += OnEvent;
-        card.DetachedFromVisualTree += (_, _) => core.OnEvent -= OnEvent;
-        _ = Fill();
-        if (sc is "补帧" or "补帧点")
-            _ = Task.Delay(3000).ContinueWith(_ => Dispatcher.UIThread.Post(() => card.BringIntoView(new Rect(0, 0, 1, 1000))));
-        return card;
-    }
-
-    public static Control Update(CoreClient core, JsonElement s)
+    public static Control About(CoreClient core, JsonElement s)
     {
         var hint = Hint();
         // 线上值是 `prerelease`,不是 `preview`。写错的那一版选「预览版」会被核心层
@@ -701,21 +611,7 @@ public static class SettingsSections
             picks.Children.Add(b);
         }
 
-        var body = new StackPanel
-        {
-            Spacing = 10,
-            Children =
-            {
-                Field("更新渠道", ch), auto,
-                Note("GitHub 在部分网络下连不上。填一个代理,查版本和下载都会走它。"),
-                Field("GitHub 代理", proxy), picks,
-            },
-        };
-        body.Children.Add(new TextBlock
-        {
-            Text = $"当前版本 {Str(s, "current_version")}",
-            Classes = { "dim" }, FontSize = 12,
-        });
+        var body = new StackPanel { Spacing = 10 };
         /* 立即检查更新 —— 查到了就一路走完:下载、装上、重启。
            「检查更新」只吐一条下载链接的那一版等于半条链路(用户 2026-09-11:
            「不然检查更新也没啥用」)。整条流程在 Updater 里,启动自检共用同一份。 */
@@ -729,17 +625,20 @@ public static class SettingsSections
             check.IsEnabled = true;
         };
 
+        body.Children.Add(new TextBlock { Text = $"LinPlayer {Str(s, "current_version")}", FontSize = 15, FontWeight = FontWeight.SemiBold });
+        body.Children.Add(Row(check));
         // 绿色包解压在写不进去的地方(多半是 Program Files)时覆盖不了。
         // 如实说清楚 —— 摆一个点了必然失败的「立即更新」比没有更糟。
         if (!Bool(s, "can_self_update"))
             body.Children.Add(Note("程序所在的文件夹写不进去,装不了更新。把整个文件夹挪到个人目录下就能自动更新。"));
-        body.Children.Add(new StackPanel
-        {
-            Orientation = Orientation.Horizontal, Spacing = 10, Children = { check },
-        });
         body.Children.Add(hint);
+        body.Children.Add(Field("更新渠道", ch));
+        body.Children.Add(auto);
+        body.Children.Add(Note("GitHub 在部分网络下连不上。填一个代理,查版本和下载都会走它。"));
+        body.Children.Add(Field("GitHub 代理", proxy));
+        body.Children.Add(picks);
 
-        return Group("更新", body);
+        return Group("关于", body);
     }
 
     // ---------------------------------------------------------------- 已屏蔽的内容
@@ -1293,10 +1192,10 @@ public static class SettingsSections
         });
     }
 
-    // ---------------------------------------------------------------- 主题与壁纸
+    // ---------------------------------------------------------------- 外观
 
-    /// <summary>插件主题与壁纸(SPEC 11.5~11.6,D69 D441)。主题重启生效,壁纸即时生效。</summary>
-    public static Control ThemeAndWallpaper(CoreClient core)
+    /// <summary>明暗模式。仅影响本机,即时生效。</summary>
+    public static Control Look()
     {
         var hint = Hint();
         var modes = new[] { "system", "dark", "light" };
@@ -1317,244 +1216,11 @@ public static class SettingsSections
             }
             finally { mode.IsEnabled = true; updating = false; }
         };
-        var themes = new ComboBox { MinWidth = 260, MinHeight = 34 };
-        var papers = new ComboBox { MinWidth = 260, MinHeight = 34 };
-        var body = new StackPanel { Spacing = 10 };
-
-        if (FailCard() is { } f) body.Children.Add(f);
-        body.Children.Add(Field("明暗模式", mode));
-        body.Children.Add(Note("仅影响本机，即时生效；插件主题提供的样式仍优先。"));
-        body.Children.Add(Note("主题换的是整套 token 与组件样式,重启后生效;壁纸切换即时生效。"));
-        body.Children.Add(Field("主题", themes));
-        body.Children.Add(Field("壁纸", papers));
-        body.Children.Add(LookRow("模糊度", Look.Blur, v => Look.Set(v, Look.Dim)));
-        body.Children.Add(LookRow("压暗", Look.Dim, v => Look.Set(Look.Blur, v)));
-        body.Children.Add(hint);
-
-        _ = FillThemePickers(core, themes, papers, hint);
-        return Group("主题与壁纸", body);
-    }
-
-    /// <summary>上次启动主题没加载起来的话,原因摆在这儿并且能复制 —— D372 那条路的出口。</summary>
-    private static Control? FailCard()
-    {
-        if (PluginTheme.FailedName.Length == 0) return null;
-        var copy = new Button { Classes = { "ghost" }, Content = "复制错误" };
-        copy.Click += async (_, _) =>
+        return Group("外观", new StackPanel
         {
-            if (TopLevel.GetTopLevel(copy)?.Clipboard is { } cb) await cb.SetTextAsync(PluginTheme.FailedDetail);
-        };
-        return new Border
-        {
-            CornerRadius = new CornerRadius(10), Padding = new Thickness(14, 10),
-            Background = Tok.Of("DangerBg"), BorderBrush = Tok.Of("Danger"), BorderThickness = new Thickness(1),
-            Child = new StackPanel
-            {
-                Spacing = 6,
-                Children =
-                {
-                    new TextBlock
-                    {
-                        Text = $"「{PluginTheme.FailedName}」加载失败,这次用的是官方主题。",
-                        TextWrapping = TextWrapping.Wrap, Foreground = Tok.Of("DangerInk"),
-                    },
-                    new SelectableTextBlock
-                    {
-                        Text = PluginTheme.FailedDetail, TextWrapping = TextWrapping.Wrap,
-                        Foreground = Tok.Of("DangerInk"), FontSize = 12,
-                    },
-                    Row(copy),
-                },
-            },
-        };
-    }
-
-    /// <summary>一条 0~1 的滑杆。模糊度与压暗都是对任何壁纸生效的官方设置(SPEC 11.5)。</summary>
-    private static Control LookRow(string label, double now, Action<double> set)
-    {
-        var s = new Slider { Width = 260, Minimum = 0, Maximum = 1, Value = now };
-        var pct = new TextBlock { VerticalAlignment = VerticalAlignment.Center, Width = 42 };
-        void Show() => pct.Text = $"{s.Value * 100:0}%";
-        Show();
-        // 拖的过程中就跟着变:壁纸模糊到什么程度只能看着调,松手才生效的话等于盲调
-        s.PropertyChanged += (_, e) => { if (e.Property == Avalonia.Controls.Primitives.RangeBase.ValueProperty) { Show(); set(s.Value); } };
-        return Field(label, Row(s, pct));
-    }
-
-    /// <summary>两个下拉的内容都是运行期才知道的(装了哪些插件)。</summary>
-    private static async Task FillThemePickers(CoreClient core, ComboBox themes, ComboBox papers, TextBlock hint)
-    {
-        JsonElement ts, ws, aw;
-        try
-        {
-            ts = await core.PluginThemes(new { platform = "desktop" });
-            ws = await core.PluginWallpapers(new { });
-            aw = await core.PluginActiveWallpaper(new { });
-        }
-        catch (Exception e) { Dispatcher.UIThread.Post(() => hint.Text = LibraryPage.Advice(e)); return; }
-
-        // 第一项恒是「官方」:没有它用户就没有退回去的路
-        var tl = new List<(string Id, string Name)> { ("", "官方主题") };
-        if (ts.ValueKind == JsonValueKind.Array)
-            foreach (var t in ts.EnumerateArray()) tl.Add((Str(t, "plugin_id"), Str(t, "name")));
-        var wl = new List<(string Id, string Name)> { ("", "不用壁纸") };
-        if (ws.ValueKind == JsonValueKind.Array)
-            foreach (var w in ws.EnumerateArray())
-                wl.Add((Str(w, "plugin_id"), Str(w, "title") is { Length: > 0 } t2 ? t2 : Str(w, "name")));
-
-        Dispatcher.UIThread.Post(() =>
-        {
-            themes.ItemsSource = tl.Select(x => x.Name).ToList();
-            themes.SelectedIndex = Math.Max(0, tl.FindIndex(x => x.Id == PluginTheme.ActiveId));
-            papers.ItemsSource = wl.Select(x => x.Name).ToList();
-            papers.SelectedIndex = Math.Max(0, wl.FindIndex(x => x.Id == Str(aw, "id")));
-
-            themes.SelectionChanged += async (_, _) =>
-            {
-                var id = tl[Math.Max(0, themes.SelectedIndex)].Id;
-                try
-                {
-                    await core.PluginSetActiveTheme(new { id });
-                    hint.Text = "重启后生效。";
-                }
-                catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
-            };
-            papers.SelectionChanged += async (_, _) =>
-            {
-                var id = wl[Math.Max(0, papers.SelectedIndex)].Id;
-                try
-                {
-                    await core.PluginSetActiveWallpaper(new { id });
-                    // 换人了先清空:新插件下一次 wallpaper.set 之前,留着的还是上一家那张
-                    Wallpaper.Clear();
-                    hint.Text = id.Length == 0 ? "已关掉壁纸。" : "已切换,等这个插件送来第一张。";
-                }
-                catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
-            };
+            Spacing = 10,
+            Children = { Field("明暗模式", mode), Note("仅影响本机,即时生效。"), hint },
         });
-    }
-
-    // ---------------------------------------------------------------- Trakt / Bangumi 账号
-
-    /// <summary>
-    /// 连 Trakt / Bangumi 账号。<b>只管「连上」</b> —— 记进度、标看完、管收藏
-    /// 都在「Trakt / Bangumi 同步」插件里(SPEC 19.1 阶段 ③)。
-    ///
-    /// <para>账号连接留在宿主是因为 token 不能交给插件:插件经
-    /// <c>sync.traktRequest</c> / <c>sync.bangumiRequest</c> 代发,拿不到 token 本身。
-    /// 少了这一格,插件里那句「到设置里的账号页连一次」就指向一个不存在的地方。</para>
-    /// </summary>
-    public static Control SyncAccounts(CoreClient core)
-    {
-        var body = new StackPanel { Spacing = 10 };
-        var hint = Note("");
-        var box = new StackPanel { Spacing = 10 };
-        body.Children.Add(Note("连上之后,装了「Trakt / Bangumi 同步」插件就会自动记录观看进度。" +
-                               "只连账号不装插件也行 —— 追剧日历用的是同一个账号。"));
-        body.Children.Add(box);
-        body.Children.Add(hint);
-
-        // Trakt 设备码轮询的取消闩:换页/重连时要停掉,否则两个循环一起打限流
-        CancellationTokenSource? poll = null;
-
-        async void Reload()
-        {
-            box.Children.Clear();
-            box.Children.Add(new TextBlock { Classes = { "dim" }, Text = "查询已连接的账号…" });
-            JsonElement trakt = default, bgm = default;
-            // 两个都静默:没连过账号时核心层本来就报错,那不是异常,是「未连接」这个状态本身。
-            // 真出错时下面画的也是「连接 X」按钮,用户点一次就会看到真正的原因。
-            try { trakt = await core.SyncTraktAccount(); } catch { }
-            try { bgm = await core.SyncBangumiAccount(); } catch { }
-            box.Children.Clear();
-            box.Children.Add(Account("Trakt", trakt, ConnectTrakt, () => core.SyncTraktLogout(), Reload, hint));
-            box.Children.Add(Account("Bangumi", bgm, ConnectBangumi, () => core.SyncBangumiLogout(), Reload, hint));
-        }
-
-        // 设备码流程:电视/桌面都不方便打字,出一个短码让用户在手机上输
-        async void ConnectTrakt()
-        {
-            poll?.Cancel();
-            var cts = new CancellationTokenSource();
-            poll = cts;
-            JsonElement d;
-            try { d = await core.SyncTraktDeviceCode(); }
-            catch (Exception e) { hint.Text = LibraryPage.Advice(e); return; }
-
-            var url = Str(d, "verification_url");
-            var code = Str(d, "user_code");
-            hint.Text = $"在手机上打开 {url},输入 {code}";
-            // 间隔听服务端的 interval:自己拍更短会被限流,表现是「码是对的但一直连不上」
-            var interval = Math.Max(1, (int)Num(d, "interval")) * 1000;
-            while (!cts.IsCancellationRequested)
-            {
-                try { await Task.Delay(interval, cts.Token); } catch { return; }
-                JsonElement r;
-                try { r = await core.SyncTraktPoll(new { device_code = Str(d, "device_code") }); }
-                catch (Exception e) { hint.Text = LibraryPage.Advice(e); return; }
-                switch (Str(r, "state"))
-                {
-                    case "pending": continue;
-                    case "slowDown": interval += 5000; continue;
-                    case "authorized": hint.Text = "Trakt 已连接"; Reload(); return;
-                    case "expired": hint.Text = "设备码过期了,再点一次连接"; return;
-                    case "denied": hint.Text = "在手机上被拒绝了"; return;
-                    default: hint.Text = "Trakt 连接失败"; return;
-                }
-            }
-        }
-
-        // Bangumi 没有设备码:出授权链接,用户拿回 Access Token 粘进来
-        async void ConnectBangumi()
-        {
-            var url = "";
-            try
-            {
-                var r = await core.SyncBangumiAuthorizeUrl();
-                url = r.ValueKind == JsonValueKind.String ? r.GetString() ?? "" : Str(r, "url");
-            }
-            catch (Exception e) { hint.Text = LibraryPage.Advice(e); return; }
-
-            var input = new TextBox { Width = 300, Watermark = "Access Token" };
-            var ok = new Button { Content = "连接" };
-            ok.Click += async (_, _) =>
-            {
-                var tok = (input.Text ?? "").Trim();
-                if (tok == "") return;
-                try { await core.SyncBangumiLoginToken(new { token = tok }); hint.Text = "Bangumi 已连接"; Reload(); }
-                catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
-            };
-            // 链接常驻显示,不用 Toast:几十上百字符,3 秒没了抄不完
-            box.Children.Add(new StackPanel
-            {
-                Spacing = 6,
-                Children = { Note($"打开 {url} 授权,把拿到的 Access Token 粘到下面。"), Row(input, ok) },
-            });
-        }
-
-        Reload();
-        return Group("Trakt / Bangumi 账号", body);
-    }
-
-    private static Control Account(string name, JsonElement acc, Action connect,
-        Func<Task<JsonElement>> logout, Action reload, TextBlock hint)
-    {
-        var connected = acc.ValueKind == JsonValueKind.Object && acc.EnumerateObject().Any();
-        if (!connected)
-        {
-            var btn = new Button { Content = $"连接 {name}" };
-            btn.Click += (_, _) => connect();
-            return Field(name, btn);
-        }
-        var who = new TextBlock { Classes = { "dim" }, VerticalAlignment = VerticalAlignment.Center, Text = Str(acc, "username") is { Length: > 0 } u ? u : "已连接" };
-        var off = new Button { Classes = { "ghost" }, Content = "断开" };
-        // 断开之后必须重画:不重画的话「断开」按钮还在,再点一次报「未登录」
-        off.Click += async (_, _) =>
-        {
-            try { await logout(); reload(); }
-            catch (Exception e) { hint.Text = LibraryPage.Advice(e); }
-        };
-        return Field(name, Row(who, off));
     }
 
     // ---------------------------------------------------------------- 小工具

@@ -8,13 +8,13 @@
 //
 //   - 只绑 127.0.0.1。手机扫码遥控**不在这里**,是 core/companion 的独立监听器(UI_TV §9.3)。
 //   - 所有路由都要鉴权。
-//   - **/img 的 src 必须命中白名单**(已登录服务器 + 已授权插件源),否则 404。
+//   - **/img 的 src 必须命中白名单**(已登录服务器),否则 404。
 //     没有这一条,它就是一个开放的 SSRF 代理 —— 局域网里任何一个能连到本机
 //     回环的东西,都能借我们的进程去打内网。
 //
 // # 【坑】给 mpv 吃的路由,token 必须在 URL 里,不能在请求头
 //
-//	三端图片加载器、WebView  →  /img /icon /plugin/*  →  请求头 X-LP-Token
+//	三端图片加载器、WebView  →  /img /icon            →  请求头 X-LP-Token
 //	libmpv                   →  /stream/* /sub/*      →  URL 路径段
 //
 // 理由:给 mpv 加请求头只能改 http-header-fields,而那是一个**全局粘连属性** ——
@@ -38,8 +38,6 @@ import (
 	"net"
 	"net/http"
 	"net/url"
-	"path"
-	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -135,7 +133,6 @@ func Start() (*Server, error) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/img", s.handleImg)
 	mux.HandleFunc("/img-cache", s.handleCachedImg)
-	mux.HandleFunc("/p/", s.handlePluginAsset)
 	s.http = &http.Server{Handler: mux, ReadHeaderTimeout: 10 * time.Second}
 	go func() {
 		if err := s.http.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
@@ -233,37 +230,6 @@ func originOf(raw string) (string, bool) {
 		return "", false
 	}
 	return strings.ToLower(u.Scheme + "://" + u.Host), true
-}
-
-// PluginAssetDir 插件 id → 包解压目录;由插件宿主注入(本包不认识插件)。
-var PluginAssetDir func(pluginID string) string
-
-// PluginAssetURL 包内资源在数据通道上的地址(SPEC 4.1)。
-// token 放路径段:这个地址会交给 <Image>、mpv、WebView,它们没法统一带请求头。
-func (s *Server) PluginAssetURL(pluginID, p string) string {
-	return s.BaseURL() + "/p/" + s.Token + "/" + pluginID + "/" + strings.TrimPrefix(p, "/")
-}
-
-// handlePluginAsset GET /p/<token>/<作者>/<名字>/<路径>
-func (s *Server) handlePluginAsset(w http.ResponseWriter, r *http.Request) {
-	parts := strings.SplitN(strings.TrimPrefix(r.URL.Path, "/p/"), "/", 4)
-	if len(parts) < 4 || subtle.ConstantTimeCompare([]byte(parts[0]), []byte(s.Token)) != 1 || PluginAssetDir == nil {
-		http.NotFound(w, r)
-		return
-	}
-	root := PluginAssetDir(parts[1] + "/" + parts[2])
-	if root == "" {
-		http.NotFound(w, r)
-		return
-	}
-	// ServeFile 拒绝含 .. 的路径;再把请求钉在包目录里
-	clean := filepath.Join(root, filepath.FromSlash(path.Clean("/"+parts[3])))
-	if !strings.HasPrefix(clean, root+string(filepath.Separator)) {
-		http.NotFound(w, r)
-		return
-	}
-	w.Header().Set("Access-Control-Allow-Origin", "*")
-	http.ServeFile(w, r, clean)
 }
 
 // authed 校验 token。

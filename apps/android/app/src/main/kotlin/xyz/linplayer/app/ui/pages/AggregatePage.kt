@@ -262,7 +262,7 @@ private fun cachedOverview(): List<Overview> {
     val home = PageCache.get<Block<List<Item>>>("home.resume") as? Block.Ok ?: return saved
     val account = PageCache.get<List<Account>>("home.accounts")?.firstOrNull { it.isActive }
         ?: return saved
-    if (!account.aggregate || account.plugin != null) return saved
+    if (!account.aggregate) return saved
     val previous = saved.firstOrNull { it.serverId == account.server }
     val current = previous?.copy(resume = home.value) ?: Overview(
         account.server, account.name, true, null, null, null, home.value, null,

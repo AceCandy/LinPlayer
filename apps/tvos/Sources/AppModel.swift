@@ -18,8 +18,19 @@ import SwiftUI
     @Published var userStateRevision = 0
     @Published private(set) var writingItems = Set<String>()
     @Published var privateSpace = false
+    @Published var backupEnabled = false
+    @Published var backupExport: JSONValue = .null
+    @Published var backupPreview: JSONValue = .null
+    var backupContent: String?
+    @Published var companionStatus: JSONValue = .null
+    var remoteEpoch = ""
+    var remoteNavigation: ((String) async -> Bool)?
+    var remotePlayback: ((String) async -> Bool)?
+    private var companionTasks: [String: Task<Void, Never>] = [:]
     @Published var pendingItem: MediaItem?
+    @Published var liuying: TVLiuYingSession?
     @Published var playback: PlaybackController?
+    let remoteFocus = TVRemoteFocus()
     let images: ImageLoader
 
     init(imageConfiguration: URLSessionConfiguration = .ephemeral) {
@@ -63,6 +74,9 @@ import SwiftUI
                 if name == "data.userState" {
                     Task { @MainActor in self?.api?.userStateChanged(data) }
                 }
+                if name == "companion.request" { Task { @MainActor in self?.startCompanionTask(data) } }
+                if name == "companion.cancel" { Task { @MainActor in self?.cancelCompanionTask(data) } }
+                if name == "companion.status" { Task { @MainActor in self?.companionStatus = data } }
                 if name == "localserve.ready" {
                     Task { @MainActor in self?.images.setChannel(base: data["baseUrl"].string, token: data["token"].string) }
                 }
@@ -73,6 +87,7 @@ import SwiftUI
             let service = MediaAPI(core: client); service.deviceID = device
             service.onAuthExpired = { [weak self] in
                 guard let self else { return }
+                self.remoteEpoch = ""
                 self.playback?.suspend()
                 self.api?.use(nil)
                 self.images.clearIdentity()
@@ -88,7 +103,22 @@ import SwiftUI
         }
     }
 
-    private func restoreSession() async throws {
+    private func startCompanionTask(_ event: JSONValue) {
+        guard let id = event["request_id"].string else { return }
+        companionTasks[id]?.cancel()
+        companionTasks[id] = Task { @MainActor [weak self] in
+            await self?.handleCompanion(event)
+            self?.companionTasks[id] = nil
+        }
+    }
+
+    private func cancelCompanionTask(_ event: JSONValue) {
+        guard let id = event["request_id"].string else { return }
+        companionTasks[id]?.cancel()
+        companionTasks[id] = nil
+    }
+
+    private func restoreSession(refreshCompanion: Bool = true) async throws {
         guard let core, let api else { return }
         let value = try await core.embyCurrentSession()
         let accounts = try await core.accountListAccounts().decode([MediaAccount].self)
@@ -100,31 +130,47 @@ import SwiftUI
         }
         privateSpace = false
         identity = UUID()
+        if refreshCompanion { try await refreshCompanionSession(privateSpace: false) }
+    }
+
+    func companion(_ command: String, _ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        guard let core else { throw CoreFailure(code: "E_SESSION") }
+        return try await core.call(command, args)
     }
 
     func changePrivateSpace(_ enabled: Bool) async throws {
         guard let api, !busy else { return }
         busy = true; defer { busy = false }
         await closePlayer()
-        try await api.setPrivateSpace(enabled)
-        privateSpace = enabled
+        let previous = privateSpace
+        try await refreshCompanionSession(privateSpace: true)
+        do {
+            try await api.setPrivateSpace(enabled)
+            privateSpace = enabled
+            try await refreshCompanionSession(privateSpace: enabled)
+        } catch {
+            try? await refreshCompanionSession(privateSpace: previous)
+            throw error
+        }
         if let server = api.session?.server { images.use(server: server) }
         pendingItem = nil; identity = UUID()
     }
 
-    func switchServer(_ server: String, opening item: MediaItem? = nil) async throws {
+    func switchServer(_ server: String, opening item: MediaItem? = nil, refreshCompanion: Bool = true) async throws {
         guard !privateSpace else { throw CoreFailure(code: "E_UNSUPPORTED") }
         guard let core, !busy else { throw CoreFailure(code: "E_BUSY") }
         busy = true; defer { busy = false }
+        if refreshCompanion { remoteEpoch = "" }
         await closePlayer()
+        if refreshCompanion { try await refreshCompanionSession(privateSpace: false) }
         let accounts = try await core.call("account.setActiveServer", ["server_id": .string(server)]).decode([MediaAccount].self)
         guard let target = accounts.first(where: { $0.server == server && $0.active }) else { throw CoreFailure(code: "E_PROTOCOL") }
-        try await restoreSession()
+        try await restoreSession(refreshCompanion: refreshCompanion)
         guard api?.session?.server == target.line_url, api?.session?.user_id == target.user_id else { throw CoreFailure(code: "E_PROTOCOL") }
         pendingItem = item
     }
 
-    func reloadAccounts() async throws { try await restoreSession() }
+    func reloadAccounts(refreshCompanion: Bool = true) async throws { try await restoreSession(refreshCompanion: refreshCompanion) }
 
     func testConnection(server: String, username: String, password: String) async throws -> JSONValue {
         guard let core, let api else { throw CoreFailure(code: "E_SESSION") }
@@ -156,16 +202,17 @@ import SwiftUI
         do {
             _ = try await core.accountRemoveAccount(["server_id": .string(account.server)])
             api.use(nil); self.account = nil; needsLogin = true; identity = UUID(); images.clearIdentity()
+            try await refreshCompanionSession(privateSpace: false)
             notice = serverOK ? "已退出账号。" : "本机账号已移除；服务端未确认登出。"
         } catch {
             notice = "本机账号移除失败，尚未完成退出。请重试。"
         }
     }
 
-    func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, origin: String? = nil) {
+    func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, origin: String? = nil, speedScope: String = "normal") {
         guard playback == nil, let api else { return }
         playbackOrigin = origin ?? item
-        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle, audio: audio)
+        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle, audio: audio, speedScope: speedScope)
     }
 
     func switchPlayer(item: String, title: String, version: String? = nil, fromStart: Bool = false) async {
@@ -173,7 +220,7 @@ import SwiftUI
         switchingPlayback = true; defer { switchingPlayback = false }
         await old.close()
         guard playback === old, !exitingPlayback else { return }
-        let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart)
+        let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, speedScope: old.speedScope)
         if !sceneActive { next.suspend() }
         playback = next
         userStateRevision += 1
@@ -181,14 +228,20 @@ import SwiftUI
     }
 
     func closePlayer() async {
-        guard let player = playback else { return }
+        guard let player = playback else {
+            await liuying?.stop(); liuying = nil; return
+        }
         exitingPlayback = true
         defer { exitingPlayback = false }
+        let wasLiuYing = liuying != nil
+        await liuying?.stop(); liuying = nil
         await player.close()
         if playback === player {
-            returnedOrigin = playbackOrigin
-            returnedItem = .route(id: player.item, name: player.title, type: "Episode")
-            returnRevision += 1
+            if !wasLiuYing {
+                returnedOrigin = playbackOrigin
+                returnedItem = .route(id: player.item, name: player.title, type: "Episode")
+                returnRevision += 1
+            }
             playback = nil
         }
         userStateRevision += 1

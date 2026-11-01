@@ -33,7 +33,6 @@ import org.robolectric.RobolectricTestRunner
 import org.robolectric.annotation.Config
 import org.robolectric.annotation.GraphicsMode
 import xyz.linplayer.app.data.*
-import xyz.linplayer.app.plugin.PluginNav
 import xyz.linplayer.app.tv.*
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.theme.LpTheme
@@ -129,7 +128,7 @@ class VisualAlignmentTest {
                     xyz.linplayer.app.ui.player.Osd(
                         portrait = false, netSpeed = "", title = "远岸来信",
                         position = 1517.0, duration = 2729.0, paused = false, speed = 1.0,
-                        heat = emptyList(), pluginPanels = emptyList(), buffered = 2050.0,
+                        heat = emptyList(), buffered = 2050.0,
                         onBack = {}, onToggle = {}, onSeek = {}, onSpeed = {},
                         onLock = {}, onShot = {}, onPanel = {})
                 }
@@ -188,8 +187,7 @@ class VisualAlignmentTest {
             ret("emby.similarItems", JsonArray(items.drop(1)))
             ret("emby.listItemsPage", buildJsonObject { put("items", items); put("total", items.size); put("has_more", false) })
             ret("emby.getFilters", data.getValue("filters"))
-            listOf("plugin.homeSections", "plugin.pageTakeovers", "plugin.navEntries", "emby.blockedList")
-                .forEach { ret(it, arr()) }
+            ret("emby.blockedList", arr())
         }
         val state = AppState(core, scope).also { app = it }
         runBlocking { state.boot() }
@@ -261,7 +259,7 @@ class VisualAlignmentTest {
             else rule.onNodeWithTag("phone.tabs").assertIsDisplayed().fetchSemanticsNode().boundsInRoot.top
         assertTrue("首页滚到底后卡片仍被遮挡", lastCard.bottom < limit)
         shot("home-bottom", "远岸来信")
-        rule.runOnIdle { PluginNav.host!!.push("library", args("id" to "visual-library", "title" to "电影"), false) }
+        rule.runOnIdle { openPage("library:visual-library:电影") }
         shot("library", "远岸来信")
         if (platform == "tv") {
             rule.onNodeWithText("远岸来信").assertIsDisplayed()
@@ -270,7 +268,7 @@ class VisualAlignmentTest {
             assertTrue("TV首排海报的年份不能被屏幕底部裁切",
                 year.bottom < rule.onRoot().fetchSemanticsNode().boundsInRoot.bottom)
         }
-        rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-1", "type" to "Movie"), false) }
+        rule.runOnIdle { openPage("detail:visual-1:Movie") }
         shot("detail", "远岸来信")
         if (platform == "tv") {
             rule.onNodeWithTag("rail.1").assertDoesNotExist()
@@ -292,7 +290,7 @@ class VisualAlignmentTest {
             rule.onNodeWithTag("detail.play.options").assertIsFocused()
             shot("detail-options-focus", "远岸来信")
         } else rule.onNodeWithContentDescription("返回").assertIsDisplayed()
-        rule.runOnIdle { PluginNav.host!!.push("detail", args("id" to "visual-series", "type" to "Series"), false) }
+        rule.runOnIdle { openPage("detail:visual-series:Series") }
         shot("series", "山海之间")
         if (platform == "tv") {
             val play = rule.onNodeWithTag("detail.play").assertIsDisplayed().assertIsFocused().getUnclippedBoundsInRoot()
@@ -305,7 +303,7 @@ class VisualAlignmentTest {
             assertTrue("TV剧集首屏还应看清分集标题",
                 rule.onNodeWithTag("detail.ep.$firstEpisode").getUnclippedBoundsInRoot().bottom <= screen.bottom)
         }
-        rule.runOnIdle { PluginNav.host!!.push("settings", args(), false) }
+        rule.runOnIdle { openPage("settings") }
         shot("settings", "播放与外观")
     }
 }

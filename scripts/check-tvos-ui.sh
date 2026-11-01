@@ -17,6 +17,7 @@ xcrun swift build --package-path "$CACHE/Dependencies/AetherEngine" --scratch-pa
 MODULES="$SCRATCH/debug"
 xcrun swiftc -typecheck -warnings-as-errors -swift-version 5 -target arm64-apple-tvos18.0 -sdk "$SDK" \
   -I "$MODULES" -F "$MODULES" -I "$LOADING" -I "$MODULES/include" -I "$ROOT/build/tvos/core" \
+  -Xcc "-fmodule-map-file=$ROOT/apps/tvos/Config/Libass.modulemap" \
   -import-objc-header "$ROOT/apps/tvos/Config/Bridge.h" \
   "$ROOT"/apps/tvos/Sources/*.swift "$ROOT"/bindings/swift/*.swift
 bash "$ROOT/scripts/check-tvos.sh"

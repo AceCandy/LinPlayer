@@ -96,14 +96,6 @@ class AppState(val core: CorePort, scope: CoroutineScope) {
     private val _caps = MutableStateFlow(Capabilities.EMPTY)
     val caps: StateFlow<Capabilities> = _caps.asStateFlow()
 
-    /** 当前服务器是插件数据源时是它(首页 / 搜索 / 收藏据此换成数据源那一套),否则 null。 */
-    private val _activeSource = MutableStateFlow<Account?>(null)
-    val activeSource: StateFlow<Account?> = _activeSource.asStateFlow()
-
-    /** 当前本机文件源，与只表示插件源的activeSource分开。 */
-    private val _localSource = MutableStateFlow<Account?>(null)
-    val localSource: StateFlow<Account?> = _localSource.asStateFlow()
-
     private val _hasAnyAccount = MutableStateFlow(false)
     val hasAnyAccount: StateFlow<Boolean> = _hasAnyAccount.asStateFlow()
 
@@ -162,8 +154,6 @@ class AppState(val core: CorePort, scope: CoroutineScope) {
         if (_session.value != s) requestScopeID = java.util.UUID.randomUUID().toString()
         _session.value = s
         _aggregatePrimary.value = accounts.firstOrNull { it.aggregatePrimary }?.server
-        _activeSource.value = accounts.firstOrNull { it.isActive && it.plugin != null }
-        _localSource.value = accounts.firstOrNull { it.isActive && it.kind == "local" }
         _hasAnyAccount.value = accounts.isNotEmpty()
         _loggedIn.value = s != null || accounts.isNotEmpty()
     }

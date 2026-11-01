@@ -16,26 +16,25 @@ func TestDropCounter跨seek累计(t *testing.T) {
 
 // 用户在剧里选的补帧档记到剧上,不动全局;在剧外选的记全局。和画面增强同一套记法。
 func TestInterp按剧记住(t *testing.T) {
-	g, m := "drba_2", map[string]string{}
-	if !rememberScoped(&g, &m, "srv|s1", "rife_3") || m["srv|s1"] != "rife_3" || g != "drba_2" {
+	g, m := "ocl_2", map[string]string{}
+	if !rememberScoped(&g, &m, "srv|s1", "ocl_3") || m["srv|s1"] != "ocl_3" || g != "ocl_2" {
 		t.Fatalf("剧内选择记错了:global=%q map=%v", g, m)
 	}
-	if scopedLevel(g, m, "srv|s1") != "rife_3" || scopedLevel(g, m, "srv|s2") != "drba_2" {
+	if scopedLevel(g, m, "srv|s1") != "ocl_3" || scopedLevel(g, m, "srv|s2") != "ocl_2" {
 		t.Fatal("取档不对:记过的剧用剧的,没记过的用全局")
 	}
-	if rememberScoped(&g, &m, "srv|s1", "rife_3") {
+	if rememberScoped(&g, &m, "srv|s1", "ocl_3") {
 		t.Fatal("没变化不该回 true(会白写一次盘)")
 	}
 }
 
-// 补帧脚本 / 滤镜的报错按**模块名**认。mpv 日志正文里多半不带「vapoursynth」
-// (比如 `Script evaluation failed`),只看正文的话这类错一条都认不出来。
+// 只识别内建补帧滤镜的错误，不把其它滤镜失败当作补帧失败。
 func TestNoteInterpLog按模块名认(t *testing.T) {
 	cases := []struct {
 		prefix, text string
 		want         bool
 	}{
-		{"vapoursynth", "Script evaluation failed:", true},
+		{"vapoursynth", "Script evaluation failed:", false},
 		{"lpinterp", "lpinterp: 这台设备没有可用的 OpenCL", true},
 		{"vf", "Disabling filter lpinterp.00 because it has failed.", true},
 		{"vo/gpu", "fragment shader source:", false},

@@ -693,29 +693,6 @@ class PhoneBrowseUiTest {
         assertEquals(listOf("library-one", "library-two", "library-one"), requests.map { it.str("parent_id") })
     }
 
-    @Test fun aggregatePluginPosterHasDetailsWithoutFavorites() {
-        val delegate = FakeCore().loggedIn()
-        delegate.ret("emby.search", page())
-        val picked = buildJsonObject { put("id", "source-result"); put("title", "插件结果"); put("source", "plugin-origin") }
-        val row = buildJsonObject {
-            put("server_id", "plugin-row"); put("server_name", "插件服"); put("kind", "plugin"); put("items", arr(picked))
-        }
-        val core = object : CorePort by delegate {
-            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command != "source.aggregateSearch") return delegate.callJson(command, args, onPartial)
-                onPartial?.invoke(row)
-                return arr(row)
-            }
-        }
-        open(core, Route.Search(q = "插件"))
-        rule.onNodeWithContentDescription("开启聚合搜索").performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText("插件结果").performTouchInput { longClick() }
-        rule.onNodeWithText("查看详情").assertIsDisplayed()
-        rule.onNodeWithText("收藏").assertDoesNotExist()
-        assertTrue(delegate.calls.none { it.first == "source.setFavorite" })
-    }
-
     @Test fun aggregateSearchReturnsWithRowsAndRoutesMenuToOrigin() {
         val delegate = FakeCore().loggedIn()
         delegate.ret("emby.search", page())

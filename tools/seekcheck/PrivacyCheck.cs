@@ -77,7 +77,7 @@ internal static class PrivacyCheck
             Wait(() => refresh.IsCompleted, "私密快照刷新未完成"); refresh.GetAwaiter().GetResult();
             Check(cached is not null && cached.Value.GetRawText().Contains("私密作品"), "私密核心快照未交付");
 
-            foreach (var command in new[] { "emby.watchHistoryList", "source.home", "source.aggregateSearch", "plugin.searchActions", "download.enqueue", "prefs.pushSearch", "emby.aggregateVersions" }) {
+            foreach (var command in new[] { "emby.watchHistoryList", "source.switchCandidates", "source.aggregateSearch", "download.enqueue", "prefs.pushSearch", "emby.aggregateVersions" }) {
                 var rejected = core.CallAsync(command, new { });
                 Wait(() => rejected.IsCompleted, "边界请求未结束");
                 Check(rejected.IsFaulted && rejected.Exception!.InnerException is CoreException { Code: "E_UNSUPPORTED" }, "私密边界未拦截:" + command);

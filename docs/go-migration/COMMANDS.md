@@ -41,20 +41,18 @@
 <!-- BEGIN GENERATED -->
 | 域 | 前缀 | 条数 | 安卓已有 |
 |---|---|--:|--:|
-| Emby 浏览与详情 | `emby.*` | 44 | 40 |
-| 账号与线路 | `account.*` | 21 | 21 |
-| 播放器 | `player.*` | 52 | 40 |
-| 媒体源与数据源 | `source.*` | 30 | 30 |
-| 弹幕 | `danmaku.*` | 17 | 17 |
+| Emby 浏览与详情 | `emby.*` | 56 | 52 |
+| 账号与线路 | `account.*` | 22 | 22 |
+| 播放器 | `player.*` | 66 | 43 |
+| 跨服聚合 | `source.*` | 3 | 3 |
+| 弹幕 | `danmaku.*` | 20 | 20 |
 | 下载 | `download.*` | 9 | 8 |
-| 设置与偏好 | `prefs.*` | 30 | 21 |
-| 系统 | `system.*` | 20 | 10 |
+| 设置与偏好 | `prefs.*` | 33 | 24 |
+| 系统 | `system.*` | 18 | 8 |
 | 手机扫码遥控(电视端) | `companion.*` | 4 | 0 |
-| 同步账号与追剧日历 | `sync.*` | 14 | 14 |
-| 插件 | `plugin.*` | 32 | 32 |
-| **合计** | | **273** | **233** |
+| **合计** | | **233** | **180** |
 
-### Emby 浏览与详情 · `emby.*` — 44 条
+### Emby 浏览与详情 · `emby.*` — 56 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -102,7 +100,7 @@
 | [x] | `emby.seriesPlaybackTarget` | — | `series_id: String, is_adult: Option<bool>` | `Item；实时逐季首个未看分集，全已看回首集；空季列表成功才回退剧ID` | ✅ |
 | [x] | `emby.seasonEpisodes` | `season_episodes` | `parent_id: String, start_index: Option<i64>, limit: Option<i64>, all: Option<bool>（全季聚合）, is_adult: Option<bool>` | `Page` | ✅ |
 | [x] | `emby.seriesSeasons` | `series_seasons` | `series_id: String, is_adult: Option<bool>` | `Result<Vec<emby::SeasonInfo>, String>` | ✅ |
-| [x] | `emby.providers` | **新增** | `item_id: String, series_id: Option<String>` | `Map<String,String>` | ✅ | <!-- 条目的外部 id 表(tmdb/imdb/…),键小写。同步插件拿它对 Trakt 条目;分集自己没刮到就问它所属的剧 -->
+| [x] | `emby.providers` | **新增** | `item_id: String, series_id: Option<String>` | `Map<String,String>` | ✅ | <!-- 条目的外部 id 表(tmdb/imdb/…),键小写。分集自己没刮到就问它所属的剧 -->
 | [x] | `emby.setBlocked` | `set_blocked` | `item_id: String, name: String, blocked: bool` | `()` | ✅ |
 | [x] | `emby.setFavorite` | `set_favorite` | `item_id: String, fav: bool` | `Result<(), String>` | ✅ |
 | [x] | `emby.setPlayed` | `set_played` | `item_id: String, played: bool` | `Result<(), String>` | ✅ |
@@ -115,7 +113,7 @@
 | [x] | `emby.watchHistoryRestoreCandidate` | `watch_history_restore_candidate` | `candidate: wh::RestoreCandidate, is_adult: Option<bool>` | `Result<bool, String>` | ✅ |
 | [x] | `emby.watchHistoryScanRestore` | `watch_history_scan_restore` | `is_adult: Option<bool>` | `Result<linplayer_core::watch_history_sync::RestoreReport, String>` | ✅ |
 
-### 账号与线路 · `account.*` — 21 条
+### 账号与线路 · `account.*` — 22 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -142,7 +140,7 @@
 | [x] | `account.testConnection` | `test_connection` | `server: String, username: String, password: String` | `Result<account::TestResult, String>` | ✅ |
 | [x] | `account.updateAccount` | `update_account` | `server_id: String, name: Option<String>, remark: Option<String>, icon_url: Option<String>, allow_insecure_tls: Option<bool>, password: Option<String>` | `Result<Vec<Info>, String>` | ✅ |
 
-### 播放器 · `player.*` — 52 条
+### 播放器 · `player.*` — 66 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -171,7 +169,6 @@
 | [x] | `player.play` | `play` | `item_id: String, resume_secs: f64, from_start: Option<bool>, resume_exact: Option<bool>, prepared_id: Option<String>, media_source_id: Option<String>, engine: Option<String>, speed_scope: Option<String>, is_adult: Option<bool>` | `Result<PlayResult, String>` | ✅ | <!-- player.play: resume_exact=true 沿用明确的非负有限 resume_secs（切核恢复），跳过服务端/跨服续播和已看归零；from_start=true 优先从零开始。省略 resume_exact 保留原续播行为。speed_scope省略或空为普通倍速，liuying使用独立liuying_speed，其他值拒绝。 -->
 | [x] | `player.playExternal` | `play_external` | `item_id: String, resume_secs: f64, media_source_id: Option<String>, engine: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.playLocal` | `play_local` | `id: String, resume_secs: f64` | `Result<f64, String>` | ✅ |
-| [x] | `player.playUrl` | **新增** | `url: String, headers: Option<Map<String,String>>, title: Option<String>, start_secs: Option<f64>` | `{url, title}` | ✅ | <!-- 直接播一条地址(直播频道 / 插件找到的流)。不走 Emby 上报与续播记录 -->
 | [x] | `player.screenshot` | `screenshot` | `dir: Option<String>` | `Result<String, String>` | ✅ |
 | [x] | `player.seek` | `seek` | `pos: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.setAspectRatio` | `set_aspect_ratio` | `ratio: String` | `Result<(), String>` | ✅ |
@@ -198,9 +195,8 @@
 | [x] | `player.setSubDelay` | `set_sub_delay` | `secs: f64` | `Result<(), String>` | ✅ |
 | [x] | `player.setSubStyle` | `set_sub_style` | `font: Option<String>, scale: Option<f64>, position: Option<f64>, background: Option<bool>, blend_mode: Option<String>` | `Result<(), String>` | ✅ |
 | [x] | `player.getSubStyle` | **新增** | `-` | `SubStyle` | — | <!-- 读回落库的字幕样式，面板打开时用 -->
-| [x] | `player.interpLevels` | **新增** | `display_hz: Option<f64>` | `InterpState` | ❌ | <!-- 补帧面板:平台/独显支不支持、组件装没装、档位表(带 will_run + note)。安卓由 UI 报 display_hz;Linux 返回 supported=false -->
+| [x] | `player.interpLevels` | **新增** | `display_hz: Option<f64>` | `InterpState` | ❌ | <!-- 内建补帧面板:平台/GPU 能力、档位表(带 will_run + note)。安卓由 UI 报 display_hz;其它平台返回 supported=false -->
 | [x] | `player.setInterpLevel` | **新增** | `level: String, display_hz: Option<f64>` | `InterpApplied` | ❌ | <!-- 挂补帧档;挂上之后跑不动由 player.interpReverted 事件通知 -->
-| [x] | `player.interpInstall` | **新增** | `pack: Option<String>` | `Result<(), String>` | ❌ | <!-- 下载补帧运行时;pack=trt 装 N 卡加速包并预建引擎。阻塞到装完,进度走 player.interpInstall 事件(stage=download/prepare) -->
 | [x] | `player.selectTrackPreferences` | — | `tracks: Track[], prefs: Option<Object>` | `{sub: String, audio: String}；空串保持，sub=no关闭，其余为传入轨ID` | ✅ |
 | [x] | `player.setTrack` | `set_track` | `kind: String, id: String` | `Result<(), String>` | ✅ |
 | [x] | `player.setTrackRegexes` | `set_track_regexes` | `version_regex: String, sub_regex: String, audio_regex: String` | `Result<(), String>` | ✅ |
@@ -215,37 +211,15 @@
 | [x] | `player.windowClose` | `player_window_close` | `—` | `Result<(), String>` | ❌ |
 | [x] | `player.windowOpen` | `player_window_open` | `payload: serde_json::Value` | `Result<(), String>` | ❌ |
 
-### 媒体源与数据源 · `source.*` — 30 条
+### 跨服聚合 · `source.*` — 3 条
+
+只覆盖「允许聚合」的 Emby 服务器;命令名沿用 `source.*`。
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
-| [x] | `source.currentSource` | `current_source` | `—` | `CurrentSource` | ✅ |
-| [x] | `source.listDir` | `source_list_dir` | `dir_id: Option<String>` | `Entry` | ✅ |
-| [x] | `source.login` | `source_login` | `kind: SourceKind, base_url: String, username: String, password: String, cookie: Option<String>, // 令牌系源用它带 refresh_token(也可走 cookie)与可选的 oplist 地址/driver 覆盖。 // additive:老调用不传即空, 行为不变。 extra: Option<HashMap<String, String>>` | `Result<(), String>` | ✅ |
-| [x] | `source.formSchema` | **新增** | `—` | `Vec<sourcecmd::SourceForm>` | ✅ | <!-- 源类型与登录表单的唯一声明。三端各写渲染器,不许再各自硬编源类型表 -->
-| [x] | `source.play` | `source_play` | `entry_id: String, entry_name: String, resume_secs: f64, raw: Option<serde_json::Value>` | `Result<f64, String>` | ✅ |
-| [x] | `source.search` | `source_search` | `query: String` | `Entry` | ✅ |
-| [x] | `source.watchdog` | `source_watchdog` | `pos: f64` | `Result<bool, String>` | ✅ |
-| [x] | `source.caps` | **新增** | `server_id` | `{home,category,search,person}` | ✅ |
-| [x] | `source.home` | **新增** | `server_id` | `{categories, recommended}` | ✅ |
-| [x] | `source.category` | **新增** | `server_id, category_id, filters?, cursor?` | `Page<MediaItem>` | ✅ |
-| [x] | `source.searchItems` | **新增** | `server_id, keyword, cursor?` | `Page<MediaItem>` | ✅ |
-| [x] | `source.person` | **新增** | `server_id, name, id?, cursor?` | `Page<MediaItem>` | ✅ |
-| [x] | `source.detail` | **新增** | `server_id, item_id` | `MediaDetail` | ✅ |
-| [x] | `source.playItem` | **新增** | `server_id, item, line_id, episode_id, resume_secs?` | `{resume_secs, url, parser}` | ✅ |
-| [x] | `source.continueWatching` | **新增** | `server_id` | `[]ContinueEntry` | ✅ |
-| [x] | `source.createSources` | **新增** | `plugin_id, type_id, form, repos?` | `{sources, repos}` | ✅ |
-| [x] | `source.addSources` | **新增** | `plugin_id, type_id, sources` | `{added}` | ✅ |
 | [x] | `source.setAggregate` | **新增** | `server_id, allow` | `{aggregate}` | ✅ |
-| [x] | `source.setHost` | **新增** | `server_id, host` | `{host}` | ✅ |
-| [x] | `source.removeGroup` | **新增** | `group` | `{removed}` | ✅ |
-| [x] | `source.serverMenus` | **新增** | `plugin_id` | `[]GroupMenu` | ✅ |
-| [x] | `source.runCommand` | **新增** | `plugin_id, command, args?` | `Json` | ✅ |
 | [x] | `source.aggregateSearch` | **新增** | `query, is_adult: Option<bool>` | `[]SearchRow(逐行 partial)` | ✅ |
-| [x] | `source.switchCandidates` | **新增** | `server_id, title, year?, episode_index?, line_id?, item?, layer_order?` | `[]Candidate(逐源 partial)` | ✅ |
-| [x] | `source.checkAll` | **新增** | `group?` | `[]CheckResult(逐源 partial)` | ✅ |
-| [x] | `source.history` | **新增** | `—` | `[]HistoryEntry` | ✅ |
-| [x] | `source.linkSwitch` | **新增** | `from_server, from_item, to_server, to_item` | `—` | ✅ |
+| [x] | `source.switchCandidates` | **新增** | `server_id, title, year?` | `[]Candidate(逐服 partial,layer 恒为 3)` | ✅ |
 
 ### 弹幕 · `danmaku.*` — 20 条
 
@@ -331,7 +305,7 @@
 | [x] | `prefs.setUpdateSettings` | `set_update_settings` | `channel: String, auto_check: bool, proxy: String` | `Result<(), String>` | ✅ |
 | [x] | `prefs.setWritebackSettings` | `set_writeback_settings` | `settings: WritebackSettings` | `Result<(), String>` | ✅ |
 
-### 系统 · `system.*` — 20 条
+### 系统 · `system.*` — 18 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -353,10 +327,8 @@
 | [x] | `system.pickLocalFolder` | `pick_local_folder` | `—` | `Result<Option<String>, String>` | ❌ |
 | [x] | `system.ping` | **新增** | `-` | `{ pong: true, ... }` | — | <!-- 核心层活着吗。契约测试的第一条 -->
 | [x] | `system.updateProgress` | **新增** | `-` | `Result<system::UpdateProgress, String>` | ✅ | <!-- 轮询下载进度 -->
-| [x] | `system.afdianSponsorUrl` | `afdian_sponsor_url` | `—` | `String` | ✅ |
-| [x] | `system.afdianVerify` | `afdian_verify` | `order_no: String` | `Result<linplayer_core::sync::AfdianVerifyResult, String>` | ✅ |
 
-### 手机扫码遥控(电视端) · `companion.*` — 4 条
+### 手机扫码遥控(电视端) · `companion.*` — 6 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -364,90 +336,9 @@
 | [x] | `companion.status` | **新增** | `—` | `{enabled, running, url, port, error, ip_error, connected}` | — | <!-- url 拿不到 IP 时为空串;error 是起服失败原话;connected = 15 秒内收到过手机页请求 -->
 | [x] | `companion.setEnabled` | **新增** | `enabled: bool` | `{enabled, running, url, port, error, ip_error, connected}` | — | <!-- 持久化 companion_enabled;关=停监听,开=换新 token 起 -->
 | [x] | `companion.setNowPlaying` | **新增** | `title: String` | `{title}` | — | <!-- 播放页起播/离页时报片名,空串=清空。事件:companion.key{key} / companion.open{item_id,type,server_id} / companion.status / account.status{} -->
+| [x] | `companion.hostSession` | **新增** | `private: bool, backup?: bool` | `{epoch}` | — | <!-- tvOS 宿主撤销旧二维码和待执行请求，私密时停监听，退出按原开关恢复；不开放给手机HTTP -->
+| [x] | `companion.hostReply` | **新增** | `request_id: String, validate?: bool, data?: JSON, error?: String` | `{accepted?: bool, valid?: bool, epoch?: String}` | — | <!-- tvOS companion.request{request_id,epoch,name,args} 的执行前校验和最终回执；过期/重复请求拒绝，HTTP不可调用 -->
 
-### 同步账号与追剧日历 · `sync.*` — 14 条
-
-| 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
-|:--:|---|---|---|---|:--:|
-| [x] | `sync.traktAccount` | `trakt_account` | `—` | `Option<linplayer_core::sync::SyncAccount>` | ✅ |
-| [x] | `sync.traktDeviceCode` | `trakt_device_code` | `—` | `Result<trakt::TraktDeviceCode, String>` | ✅ |
-| [x] | `sync.traktPoll` | `trakt_poll` | `device_code: String` | `Result<trakt::TraktPollResult, String>` | ✅ |
-| [x] | `sync.traktLogout` | `trakt_logout` | `—` | `()` | ✅ |
-| [x] | `sync.traktCalendar` | `trakt_calendar` | `only_mine: Option<bool>` | `Result<Vec<linplayer_core::sync::calendar::CalendarEntry>, String>` | ✅ |
-| [x] | `sync.bangumiAccount` | `bangumi_account` | `—` | `Option<linplayer_core::sync::SyncAccount>` | ✅ |
-| [x] | `sync.bangumiAuthorizeUrl` | `bangumi_authorize_url` | `redirect_uri: Option<String>` | `String` | ✅ |
-| [x] | `sync.bangumiExchange` | `bangumi_exchange` | `code: String, redirect_uri: Option<String>` | `Result<linplayer_core::sync::SyncAccount, String>` | ✅ |
-| [x] | `sync.bangumiLoginToken` | `bangumi_login_token` | `token: String` | `Result<linplayer_core::sync::SyncAccount, String>` | ✅ |
-| [x] | `sync.bangumiLogout` | `bangumi_logout` | `—` | `()` | ✅ |
-| [x] | `sync.bangumiSummary` | `bangumi_summary` | `subject_id: i64` | `Result<Option<String>, String>` | ✅ |
-| [x] | `sync.bangumiCalendar` | `bangumi_calendar` | `—` | `Result<Vec<linplayer_core::sync::calendar::CalendarEntry>, String>` | ✅ | <!-- 仅返回已登录账号的在看条目；公共日历使用 emby.extCalendar。 -->
-| [x] | `sync.calendarLibrary` | **新增** | `entries: [{key, title, tmdb_id?, season?, episode?}]` | `{key: LibraryHit}` | ✅ | <!-- 追剧日历「已入库 / 可播」(D366) -->
-| [x] | `sync.calendarDue` | **新增** | `—` | `Vec<CalendarEntry>` | ✅ | <!-- 开播提醒:新开播且没提醒过的(D366) -->
-
-### 插件 · `plugin.*` — 32 条
-
-| 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
-|:--:|---|---|---|---|:--:|
-| [x] | `plugin.list` | **新增** | `with_updates?` | `{plugins, pending_restart, safe_mode, safe_banner, safe_suspect, disabled_all}` | ✅ |
-| [x] | `plugin.pendingRestart` | **新增** | `—` | `bool` | ✅ |
-| [x] | `plugin.inspect` | **新增** | `path` | `Inspection` | ✅ |
-| [x] | `plugin.installFile` | **新增** | `path` | `{id,name,version}` | ✅ |
-| [x] | `plugin.installFromRepo` | **新增** | `repo, id, version?` | `{id,name,version}` | ✅ |
-| [x] | `plugin.uninstall` | **新增** | `id, delete_data` | `—` | ✅ |
-| [x] | `plugin.cancelUninstall` | **新增** | `id` | `—` | ✅ |
-| [x] | `plugin.setEnabled` | **新增** | `id, enabled` | `—` | ✅ |
-| [x] | `plugin.disableAll` | **新增** | `—` | `—` | ✅ |
-| [x] | `plugin.restoreAll` | **新增** | `—` | `—` | ✅ |
-| [x] | `plugin.rollback` | **新增** | `id` | `—` | ✅ |
-| [x] | `plugin.setLocked` | **新增** | `id, locked` | `—` | ✅ |
-| [x] | `plugin.skipVersion` | **新增** | `id, version` | `—` | ✅ |
-| [x] | `plugin.detail` | **新增** | `id` | `{info, manifest, settings, values, usage, contributes}` | ✅ |
-| [x] | `plugin.setSetting` | **新增** | `id, key, value` | `—` | ✅ |
-| [x] | `plugin.clearData` | **新增** | `id, cache_only` | `—` | ✅ |
-| [x] | `plugin.errorDetail` | **新增** | `id` | `{logs, requests, version, issues}` | ✅ |
-| [x] | `plugin.market` | **新增** | `refresh?` | `Market` | ✅ |
-| [x] | `plugin.repos` | **新增** | `—` | `{repos, github_prefix, auto_update}` | ✅ |
-| [x] | `plugin.addRepo` | **新增** | `url` | `RepoInfo` | ✅ |
-| [x] | `plugin.removeRepo` | **新增** | `url` | `—` | ✅ |
-| [x] | `plugin.setGithubPrefix` | **新增** | `prefix` | `—` | ✅ |
-| [x] | `plugin.setAutoUpdate` | **新增** | `on` | `—` | ✅ |
-| [x] | `plugin.updates` | **新增** | `refresh?` | `{id: version}` | ✅ |
-| [x] | `plugin.updateAll` | **新增** | `ids?` | `{ok, failed}` | ✅ |
-| [x] | `plugin.takeovers` | **新增** | `—` | `[]Slot` | ✅ |
-| [x] | `plugin.setTakeover` | **新增** | `slot, plugin_id` | `—` | ✅ |
-| [x] | `plugin.devLoad` | **新增** | `dir` | `{id,name,version}` | ✅ |
-| [x] | `plugin.devUnload` | **新增** | `id` | `—` | ✅ |
-| [x] | `plugin.devList` | **新增** | `—` | `{id: dir}` | ✅ |
-| [x] | `plugin.setCapabilities` | **新增** | `webview, spider_jar, spider_py` | `—` | ✅ |
-| [x] | `plugin.appEvent` | **新增** | `name, data?` | `—` | — | <!-- 壳报的应用事件(导航 / 服务器切换 / 前后台,SPEC 9.1 的事件表);播放类由核心层自己推导 -->
-| [x] | `plugin.anchors` | **新增** | `anchor?` | `[{plugin_id,name,anchor,mode,block}]` | — | <!-- 官方页锚点上有哪些插件块(SPEC 6.1 6.2 D155 D159);只列启用中的 -->
-| [x] | `plugin.settingsSections` | **新增** | `anchor?` | `[{plugin_id,name,anchor,title,settings,block}]` | — | <!-- 官方设置页里的插件分节(D286 D289) -->
-| [x] | `sync.traktRequest` | **新增** | `method, path, body?` | `Json` | — | <!-- Trakt 代发(SPEC 17.3 18.2 D365):宿主带 token 发,插件拿不到 token -->
-| [x] | `sync.bangumiRequest` | **新增** | `method, path, body?` | `Json` | — | <!-- 同上,Bangumi -->
-| [x] | `player.getSubtitleText` | **新增** | `track_id?` | `{format,text}` | — | <!-- 字幕轨全文(SPEC 9.7 D487):宿主带 token 拉,插件拿不到地址 -->
-| [x] | `plugin.setEnv` | **新增** | `theme_mode, theme_tokens, reduced_motion` | `—` | ✅ |
-| [x] | `plugin.shellResult` | **新增** | `id, ok, data?, error?` | `—` | ✅ |
-| [x] | `plugin.themes` | **新增** | `platform: Option<String>` | `Vec<ThemeInfo>` | ✅ | <!-- 这一端能选的主题。一包一端(D72),platform 不匹配的不列 -->
-| [x] | `plugin.activeTheme` | **新增** | `platform: Option<String>` | `Option<ThemeInfo>` | ✅ | <!-- 当前该用哪个;上次加载崩过的不再自动用(D372) -->
-| [x] | `plugin.setActiveTheme` | **新增** | `id: String` | `—` | ✅ | <!-- 空串 = 官方主题。重启生效(D69) -->
-| [x] | `plugin.themeFailed` | **新增** | `id: String, detail: Option<String>` | `—` | ✅ | <!-- 壳加载主题失败时报一次:下次启动直接用官方 -->
-| [x] | `plugin.wallpapers` | **新增** | `—` | `Vec<WallpaperInfo>` | ✅ | <!-- 能选的壁纸接管位(D441) -->
-| [x] | `plugin.activeWallpaper` | **新增** | `—` | `{id}` | ✅ |
-| [x] | `plugin.initialWallpaper` | **新增** | `—` | `Option<WallpaperContent>` | ✅ | <!-- 问当前壁纸插件要初始内容。只实现 definePlugin({wallpaper}) 从不调 set 的插件靠它才画得出来 -->
-| [x] | `plugin.setActiveWallpaper` | **新增** | `id: String` | `—` | ✅ | <!-- 切换即时生效,不重启(D441) -->
-| [x] | `plugin.playerSurfaces` | **新增** | `kind: Option<String>` | `Vec<PlayerSurface>` | ✅ | <!-- 播放页上要挂的插件覆盖层与侧栏页。没有这张表的话壳根本不知道该挂谁 -->
-| [x] | `plugin.sidebar` | **新增** | `—` | `Vec<SidebarEntry>` | ✅ | <!-- 侧栏入口(D158 D305);id 是「插件id:入口id」 -->
-| [x] | `plugin.homeSections` | **新增** | `—` | `Vec<HomeSection>` | ✅ | <!-- 首页栏目(D156 D303);kind=items 由宿主画海报行,custom 挂插件的 block -->
-| [x] | `plugin.homeItems` | **新增** | `plugin_id: String, id: String` | `Vec<MediaItem>` | ✅ | <!-- kind=items 那一栏的数据。壳不直接调插件:预算与连错计数都在 Host.Call 里 -->
-| [x] | `plugin.pageTakeovers` | **新增** | `—` | `Vec<PageTakeover>` | ✅ | <!-- 用户选中的整页接管(D15 D29 D586)。壳画官方页之前问一次;以前只能选不能生效 -->
-| [x] | `plugin.searchActions` | **新增** | `q: String` | `Vec<SearchAction>` | ✅ | <!-- 搜索页快捷动作(D242)。并发问,2 秒不回当这个插件没给 -->
-| [x] | `plugin.backRequest` | **新增** | `plugin: Option<String>` | `{handled: bool}` | ✅ | <!-- 壳按下返回键时问一次:有插件用 nav.onBack 接走就回 true(D85) -->
-| [x] | `plugin.playerKey` | **新增** | `key: String, repeat: Option<bool>, plugin: Option<String>` | `{consumed: bool}` | ✅ | <!-- 播放器按键问一次:插件的 player.onKey 接走就回 true(D563)。TV 直播换台/数字键靠它 -->
-| [x] | `plugin.setCookies` | **新增** | `plugin_id, jar, url, cookies` | `—` | ✅ |
-| [x] | `plugin.ui.mount` | **新增** | `plugin, target, kind, props?` | `{surface,frame,ops}` | ✅ |
-| [x] | `plugin.ui.unmount` | **新增** | `surface` | `—` | ✅ |
-| [x] | `plugin.ui.event` | **新增** | `surface, fn, args?` | `—` | ✅ |
-| [x] | `plugin.ui.viewport` | **新增** | `surface, width, height, breakpoint, formFactor, insets` | `—` | ✅ |
 <!-- END GENERATED -->
 
 ### 详情日期可选字段

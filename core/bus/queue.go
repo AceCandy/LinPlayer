@@ -14,10 +14,36 @@ package bus
 
 import (
 	"container/list"
+	"context"
 	"encoding/json"
 	"sync"
 	"time"
 )
+
+// pushContext 供需要限时应答的宿主请求使用，取消时解除队列背压。
+func (q *queue) pushContext(ctx context.Context, e *Event) error {
+	q.mu.Lock()
+	defer q.mu.Unlock()
+	stop := context.AfterFunc(ctx, func() {
+		q.mu.Lock()
+		q.notFull.Broadcast()
+		q.mu.Unlock()
+	})
+	defer stop()
+	for q.l.Len() >= queueCap && !q.closed && ctx.Err() == nil {
+		q.notFull.Wait()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if q.closed {
+		return context.Canceled
+	}
+	e.Ts = MonoMillis()
+	q.l.PushBack(e)
+	q.notEmpty.Signal()
+	return nil
+}
 
 // 队列容量。**这个数不是拍的**:4 Hz 的 player.status + 1 Hz 的 prefetch.stats + 日志,
 // 正常态稳态占用是个位数;1024 意味着 UI 得卡住几十秒才碰得到底。
@@ -104,7 +130,7 @@ func newQueue() *queue {
 	q := &queue{l: list.New(), lastPop: time.Now()}
 	q.notEmpty = sync.NewCond(&q.mu)
 	q.notFull = sync.NewCond(&q.mu)
-	go q.watchStall()
+	go q.watchStall(stallAfter, stallTick)
 	return q
 }
 
@@ -211,8 +237,8 @@ func (q *queue) close() {
 	q.notFull.Broadcast()
 }
 
-func (q *queue) watchStall() {
-	tick := time.NewTicker(stallTick)
+func (q *queue) watchStall(after, interval time.Duration) {
+	tick := time.NewTicker(interval)
 	defer tick.Stop()
 	for range tick.C {
 		q.mu.Lock()
@@ -220,7 +246,7 @@ func (q *queue) watchStall() {
 			q.mu.Unlock()
 			return
 		}
-		stall := q.l.Len() > 0 && time.Since(q.lastPop) > stallAfter && !q.stalled
+		stall := q.l.Len() > 0 && time.Since(q.lastPop) > after && !q.stalled
 		if stall {
 			q.stalled = true
 		}
@@ -228,7 +254,7 @@ func (q *queue) watchStall() {
 		q.mu.Unlock()
 		if stall {
 			// 不走 q.push(否则可能自己把自己堵住),直接打到宿主日志通道
-			Logf("warn", "事件队列停滞:%d 条积压,已 %.0fs 没有被取过 —— UI 的事件线程被堵住了", n, stallAfter.Seconds())
+			Logf("warn", "事件队列停滞:%d 条积压,已 %.0fs 没有被取过 —— UI 的事件线程被堵住了", n, after.Seconds())
 		}
 	}
 }

@@ -1,6 +1,6 @@
 title: LinPlayer · Pixel Dream Archive
 subtitle: 闪亮像素风播放器档案馆
-description: LinPlayer 的像素风 Wiki 与更新记录，收纳功能、插件、播放内核与使用说明。
+description: LinPlayer 的像素风 Wiki 与更新记录，收纳功能、播放内核与使用说明。
 keywords:
   - LinPlayer
   - Emby
@@ -8,7 +8,6 @@ keywords:
   - Pixel Blog
   - mpv
   - ExoPlayer
-  - 插件
   - 字幕
 author: LinPlayer
 language: zh-CN

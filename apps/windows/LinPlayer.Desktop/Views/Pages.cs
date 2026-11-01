@@ -208,155 +208,14 @@ public sealed class AddServerPage : PageBase
             finally { Busy(false); }
         };
 
-        /* 源类型选择(UI_PC §7.6:一份表单定义 + 三种版式)。
-            **不能只有 Emby**:核心层已经接了本地文件夹 / WebDAV / Ani-RSS 三个
-             文件浏览型源,而界面上没有入口的话它们等于不存在 —— 而且这种「后端有、
-             前端没接」正是本仓最常见的一类静默缺口。
-            新增一种源只改这张表一处:分散在各处的话,漏掉的那处就是
-             「某个入口加不了这种源」。 */
-        var kinds = new List<(string, string, string)>
-        {
-            ("Emby", "emby", "填服务器地址和账号即可。先点「测试连接」可以确认地址对不对。"),
-            ("本地文件夹", "local", "选一个本机目录当作源。没有地址也没有账号密码。"),
-        };
-        // 插件提供的服务器类型(D131 D423):只有装了数据源插件才出现,字段按 source.formSchema 渲染
-        var pluginForms = new Dictionary<int, JsonElement>();
-        var pluginFields = new Dictionary<string, TextBox>();
-        var pluginRow = new StackPanel { Spacing = 10, IsVisible = false };
-        /* 本地文件夹**不跟着 nav.browse 走**。它曾被那个开关一起滤掉,
-           于是芯片只剩一条、整条选择器不画,界面上根本选不到「本地」——
-           而 AGENTS.md §0 写的是「本机文件夹播放是播放器的基础能力,不算网盘」。
-           那次是砍网盘入口时的误伤:开关管的是网盘/局域网,不该连它一起管。 */
-        // 用 WrapPanel:四个芯片在固定宽的卡里一行放不下,
-        // 用 StackPanel 的话最后一个会被卡的边缘裁掉(而且**一点提示都没有**)。
-        /* 只剩一种源类型时**整条不画**。
-           一个只有一个选项的选择器是纯噪音 —— 用户会盯着它想「还能选什么」,
-           而答案是没有。(同一条规矩用在详情页的季选择条上。)
-           2026-09-02 砍功能之后这里就只剩 Emby 了,芯片却还孤零零摆着。 */
-        var kindBar = new WrapPanel { IsVisible = kinds.Count > 1 };
-        var kindDesc = Dim(kinds[0].Item3);
-        var kindIndex = 0;
-        var serverRow = new StackPanel { Spacing = 10, Children = { Label("服务器地址"), server } };
-        var userRow = new StackPanel { Spacing = 10, Children = { Label("用户名"), user } };
-        var passRow = new StackPanel { Spacing = 10, Children = { Label("密码"), pass } };
-        var pickDir = new Button { Classes = { "ghost" }, Content = "选择文件夹…" };
-        var pickedDir = Dim("");
-        var dirRow = new StackPanel
-        {
-            Spacing = 10, IsVisible = false,
-            Children = { Label("本机目录"), pickDir, pickedDir },
-        };
-
-        void ApplyKind()
-        {
-            var k = kinds[kindIndex].Item2;
-            kindDesc.Text = kinds[kindIndex].Item3;
-            // 本地源的表单**只有一个「选择文件夹」按钮** —— 没有地址框也没有账号密码。
-            var isLocal = k == "local";
-            var isPlugin = pluginForms.TryGetValue(kindIndex, out var pf);
-            serverRow.IsVisible = userRow.IsVisible = passRow.IsVisible = !isLocal && !isPlugin;
-            pluginRow.IsVisible = isPlugin;
-            login.Content = isPlugin ? "添加" : "登录";
-            pluginRow.Children.Clear();
-            pluginFields.Clear();
-            if (isPlugin)
-                foreach (var f in Mi.Arr(pf, "fields"))
-                {
-                    var multi = PluginPage.B(f, "multiline");
-                    var tb = new TextBox
-                    {
-                        Classes = { "field" }, Watermark = Get(f, "placeholder"),
-                        PasswordChar = Get(f, "type") == "password" ? '●' : ' ',
-                        AcceptsReturn = multi, TextWrapping = multi ? TextWrapping.Wrap : TextWrapping.NoWrap,
-                        MinHeight = multi ? 90 : 0, MaxHeight = multi ? 240 : double.PositiveInfinity,
-                    };
-                    pluginFields[Get(f, "key")] = tb;
-                    pluginRow.Children.Add(Label(Get(f, "label")));
-                    pluginRow.Children.Add(tb);
-                    // 多行字段配一个「从文件读入」:插件读不到本地文件(宿主不给它 file://),
-                    // 所以导入一份 vod.json / m3u 只能靠把内容贴进来 —— 由壳来读那个文件。
-                    if (multi) pluginRow.Children.Add(FileIntoBox(tb));
-                }
-            dirRow.IsVisible = isLocal;
-            test.IsVisible = k == "emby";
-            server.Watermark = "https://你的服务器地址";
-            for (var i = 0; i < kindBar.Children.Count; i++)
-                ((Button)kindBar.Children[i]).Classes.Set("primary", i == kindIndex);
-        }
-
-        static Button FileIntoBox(TextBox tb)
-        {
-            var btn = new Button { Classes = { "ghost" }, Content = "从文件读入…" };
-            btn.Click += async (_, _) =>
-            {
-                if (TopLevel.GetTopLevel(btn) is not { } top) return;
-                var files = await top.StorageProvider.OpenFilePickerAsync(new FilePickerOpenOptions
-                {
-                    Title = "选择配置文件", AllowMultiple = false,
-                    FileTypeFilter = [new FilePickerFileType("配置文件") { Patterns = ["*.json", "*.txt", "*.m3u", "*.m3u8", "*.js", "*.fwd", "*"] }],
-                });
-                if (files.Count == 0 || files[0].TryGetLocalPath() is not { } path) return;
-                try
-                {
-                    // 配置文件都是几十 KB 的量级;真拖进来一个几百兆的文件,填进文本框只会把界面卡死
-                    var info = new System.IO.FileInfo(path);
-                    if (info.Length > 4 * 1024 * 1024) { btn.Content = "这个文件太大了(" + info.Length / 1024 / 1024 + " MB)"; return; }
-                    tb.Text = await System.IO.File.ReadAllTextAsync(path);
-                    btn.Content = info.Name;
-                }
-                catch (Exception e) { btn.Content = "读不出来:" + e.Message; }
-            };
-            return btn;
-        }
-
-        void AddChip(int idx)
-        {
-            var chip = new Button
-            {
-                Classes = { "ghost" }, Content = kinds[idx].Item1,
-                Margin = new Thickness(0, 0, 10, 10),
-            };
-            chip.Click += (_, _) => { kindIndex = idx; ApplyKind(); };
-            kindBar.Children.Add(chip);
-        }
-        for (var i = 0; i < kinds.Count; i++) AddChip(i);
-        _ = Task.Run(async () =>
-        {
-            JsonElement schema;
-            try { schema = await core.SourceFormSchema(new { }); }
-            catch (CoreException e) { Log.W("添加服务器", "取插件服务器类型失败:" + e.Message); return; } // Emby / 本地照常能加
-            Dispatcher.UIThread.Post(() =>
-            {
-                foreach (var f in schema.EnumerateArray().Where(f => Get(f, "kind") == "plugin"))
-                {
-                    pluginForms[kinds.Count] = f.Clone();
-                    kinds.Add((Get(f, "label"), "plugin", $"由插件「{Get(f, "plugin_name")}」提供。"));
-                    AddChip(kinds.Count - 1);
-                }
-                kindBar.IsVisible = kinds.Count > 1;
-                ApplyKind();
-            });
-        });
-
-        pickDir.Click += async (_, _) =>
-        {
-            var top = TopLevel.GetTopLevel(pickDir);
-            if (top is null) return;
-            var dirs = await top.StorageProvider.OpenFolderPickerAsync(new FolderPickerOpenOptions
-            {
-                Title = "选择要当作源的文件夹", AllowMultiple = false,
-            });
-            if (dirs.Count > 0) pickedDir.Text = dirs[0].Path.LocalPath;
-        };
-
         var form = new StackPanel
         {
             Spacing = 10,
             Children =
             {
                 H1("连接到你的媒体服务器"),
-                kindBar, kindDesc,
-                serverRow, userRow, passRow, dirRow, pluginRow,
+                Dim("填服务器地址和账号即可。先点「测试连接」可以确认地址对不对。"),
+                Label("服务器地址"), server, Label("用户名"), user, Label("密码"), pass,
                 new StackPanel
                 {
                     Orientation = Orientation.Horizontal, Spacing = 10,
@@ -366,57 +225,26 @@ public sealed class AddServerPage : PageBase
                 hint,
             },
         };
-        ApplyKind();
-
         login.Click += async (_, _) =>
         {
             Busy(true, "正在登录…");
             try
             {
-                var kind = kinds[kindIndex].Item2;
-                if (pluginForms.TryGetValue(kindIndex, out var pf))
+                await core.EmbyLogin(new
                 {
-                    var values = pluginFields.ToDictionary(kv => kv.Key, kv => (kv.Value.Text ?? "").Trim());
-                    if (!await PluginSources.Add(core, this, Get(pf, "plugin_id"), Get(pf, "type_id"), values)) { Busy(false, ""); return; }
-                }
-                else if (kind == "emby")
-                {
-                    await core.EmbyLogin(new
-                    {
-                        server = WithScheme(server.Text ?? ""),
-                        username = user.Text ?? "",
-                        password = pass.Text ?? "",
-                        // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,
-                        // 续播会话也对不上。核心层的 config 里有一个,这里先用机器名兜底。
-                        device_id = DeviceId(),
-                    });
-                }
-                else
-                {
-                    // 文件浏览型源走 source.login:它会先探一次再落盘,
-                    // 探不通就不入库 —— 免得列表里躺着一台永远打不开的源。
-                    await core.SourceLogin(new
-                    {
-                        kind,
-                        base_url = kind == "local" ? (pickedDir.Text ?? "") : WithScheme(server.Text ?? ""),
-                        username = user.Text ?? "",
-                        password = pass.Text ?? "",
-                    });
-                }
+                    server = WithScheme(server.Text ?? ""),
+                    username = user.Text ?? "",
+                    password = pass.Text ?? "",
+                    // 设备 id 必须**持久**:每次换一个会把服务器的设备列表刷满,
+                    // 续播会话也对不上。核心层的 config 里有一个,这里先用机器名兜底。
+                    device_id = DeviceId(),
+                });
                 onDone();
             }
             catch (CoreException e) { hint.Text = e.Advice; Busy(false); }
             catch (Exception e) { hint.Text = e.Message; Busy(false); }
         };
 
-
-        // 真机自检:LP_SELFCHECK_SOURCE=<源 kind> 直接切到那一种源的版式,
-        // 用来验「本地源只有一个选择文件夹按钮」这类**只有真渲染才看得见**的判据。
-        if (Environment.GetEnvironmentVariable("LP_SELFCHECK_SOURCE") is { Length: > 0 } wantKind)
-        {
-            var at = kinds.FindIndex(k => k.Item2 == wantKind);
-            if (at >= 0) { kindIndex = at; ApplyKind(); }
-        }
 
         // 真机自检:LP_SELFCHECK_PAGE=login:<地址>|<用户名>|<密码> 直接填好并点登录。
         // 不能靠 SendKeys —— 焦点落在哪儿不确定,实测一个字符都没进去。
@@ -435,7 +263,7 @@ public sealed class AddServerPage : PageBase
            必须等挂上可视树 —— 构造函数里 Focus() 是对着还没上屏的控件调,静默无效。 */
         AttachedToVisualTree += (_, _) => Dispatcher.UIThread.Post(() =>
         {
-            if (serverRow.IsVisible) server.Focus();
+            server.Focus();
         });
 
         Content = new Border

@@ -3,7 +3,7 @@
   只对外开**一个**目录:更新包落点。
 
   ☠ 不要图省事写 `<files-path name="all" path="." />`。那会把 config.json、
-  history.json、插件状态一起变成任何拿到 content:// 的应用都能读的东西 ——
+  history.json 一起变成任何拿到 content:// 的应用都能读的东西 ——
   而我们要交出去的只有那一个 APK。
 
   路径跟着核心层走:数据根 = filesDir(LinPlayerApp 里传的),
@@ -11,6 +11,4 @@
 -->
 <paths>
     <files-path name="lp-update" path="cache/update/" />
-    <!-- 插件 system.share 的图片落点(PluginSystem.imageUri)。同理只开这一个子目录。 -->
-    <cache-path name="lp-plugin-share" path="plugin-share/" />
 </paths>

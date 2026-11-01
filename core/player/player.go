@@ -139,7 +139,7 @@ static const char* lp_event_log_text(void *ev) {
     return d ? ((lp_log_msg*)d)->text : 0;
 }
 
-// lp_event_log_prefix 取日志的模块名(`vapoursynth`、`lpinterp`…)。正文里**不带**它。
+// lp_event_log_prefix 取日志的模块名(`lpinterp` 等)。正文里**不带**它。
 static const char* lp_event_log_prefix(void *ev) {
     if (!ev) return 0;
     void *d = ((lp_mpv_event*)ev)->data;
@@ -418,8 +418,7 @@ func drainEvents(h unsafe.Pointer) {
 			if t := C.lp_event_log_text(ev); t != nil {
 				txt := C.GoString(t)
 				noteMpvLog(txt)
-				/* 补帧按模块名认:正文里多半不带「vapoursynth」这个词
-				   (比如 `Script evaluation failed`),只看正文会漏掉脚本报错 */
+				// 补帧错误需同时检查模块名，日志正文不一定包含滤镜名称。
 				pfx := ""
 				if p := C.lp_event_log_prefix(ev); p != nil {
 					pfx = C.GoString(p)

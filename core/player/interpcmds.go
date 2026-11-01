@@ -1,6 +1,6 @@
 package player
 
-// 补帧档位:命令 + 起播回挂 + 跑不起来就退回的闸。算法和运行时在 core/interp。
+// 补帧档位:命令 + 起播回挂 + 跑不起来就退回的闸。平台能力在 core/interp。
 //
 // 和画面增强是两件事、两套档位,但口径一致:全局一份 + 按剧一份;
 // 挂不上 / 跑不动就**自己退回关闭并说清原因**,不许界面显示「已开」而画面没变。
@@ -35,34 +35,15 @@ type InterpLevel struct {
 // InterpState 补帧面板要的全部东西。
 type InterpState struct {
 	// Supported false = 这台机器 / 这个平台没有补帧,Reason 是原因。UI 整段不画。
-	Supported bool   `json:"supported"`
-	Reason    string `json:"reason,omitempty"`
-	GPU       string `json:"gpu,omitempty"`
-	// Installed false 时档位表照发,UI 显示「下载组件」按钮。
-	Installed     bool          `json:"installed"`
-	Installing    bool          `json:"installing"`
-	DownloadBytes int64         `json:"download_bytes"`
-	Levels        []InterpLevel `json:"levels"`
-	// Backend 现在补帧走哪条:"trt"(N 卡加速包 + 引擎都就绪)/ "dml" / 安卓为空
-	Backend string `json:"backend,omitempty"`
-	// TRT 只有 N 卡才给;A 卡 / I 卡为 null,界面上不提这件事
-	TRT *InterpTRT `json:"trt,omitempty"`
-}
-
-// InterpTRT N 卡加速包的状态。
-type InterpTRT struct {
-	// Available false 时 Reason 说为什么(架构太老 / 驱动太旧)
-	Available bool   `json:"available"`
-	Reason    string `json:"reason,omitempty"`
-	Ready     bool   `json:"ready"`
-	Bytes     int64  `json:"bytes"`
-	// Preparing 包下好了,正在预建引擎(一两分钟)
-	Preparing bool `json:"preparing"`
+	Supported bool          `json:"supported"`
+	Reason    string        `json:"reason,omitempty"`
+	GPU       string        `json:"gpu,omitempty"`
+	Levels    []InterpLevel `json:"levels"`
 }
 
 // InterpApplied setInterpLevel 的回执。
 //
-// ★ 挂上 ≠ 在补:脚本要一两秒才起来,显卡跟不跟得上要播几秒才知道。
+// ★ 挂上 ≠ 在补:滤镜需要时间启动,显卡跟不跟得上要播几秒才知道。
 // 所以这里只回「挂上了」,之后跑不起来由 player.interpReverted 事件通知。
 type InterpApplied struct {
 	Level    string `json:"level"`
@@ -74,10 +55,7 @@ var (
 	curInterp atomic.Value // 本进程当前挂着的档位
 	// interpGen 每挂一次加一。闸看到代数变了就收手 —— 用户连点两档时,
 	// 上一档的闸不能把下一档撤掉。
-	interpGen      atomic.Int64
-	interpInstMu   sync.Mutex
-	interpInstBusy atomic.Bool
-	interpWarming  atomic.Bool
+	interpGen atomic.Int64
 )
 
 func interpLevelFor(p config.Prefs, scope string) string {
@@ -125,17 +103,7 @@ func mountInterp(level string) string {
 	if err != nil {
 		return err.Error()
 	}
-	if interp.NeedsRuntime && !interp.Installed() {
-		return "补帧组件还没下载"
-	}
 	name, idx, err := interp.Device()
-	if err != nil {
-		return err.Error()
-	}
-	if err := interp.Preload(); err != nil {
-		return err.Error()
-	}
-	script, err := interp.ScriptPath()
 	if err != nil {
 		return err.Error()
 	}
@@ -143,10 +111,7 @@ func mountInterp(level string) string {
 	gen := interpGen.Add(1)
 	// 不设成 no 的话 seek 之后画面和时间轴会错开一段(mpv_PlayKit #123 里的配置)
 	setProp("hr-seek-framedrop", "no")
-	if interp.TRTReady() {
-		spec.Backend = "trt"
-	}
-	vf := interp.FilterString(script, spec, idx)
+	vf := interp.FilterString(spec)
 	setProp("vf", vf)
 	curInterp.Store(level)
 	bus.Logf("info", "补帧:挂上 %s(%s,设备 #%d %s)", level, vf, idx, name)
@@ -162,10 +127,10 @@ var (
 )
 
 // noteInterpLog 由事件线程调用(只有 error 级日志会到这)。只认补帧滤镜自己的错:
-// 模块名是 vapoursynth(PC)/ lpinterp(安卓),或者 mpv 撤滤镜时那句带着我们的标签 `@lpinterp`。
+// 模块名是 lpinterp,或者 mpv 撤滤镜时那句带着我们的标签 `@lpinterp`。
 func noteInterpLog(prefix, text string) {
 	p, t := strings.ToLower(prefix), strings.ToLower(text)
-	if p != "vapoursynth" && !strings.HasPrefix(p, "lpinterp") && !strings.Contains(t, "lpinterp") {
+	if !strings.HasPrefix(p, "lpinterp") && !strings.Contains(t, "lpinterp") {
 		return
 	}
 	interpErrMu.Lock()
@@ -187,7 +152,6 @@ func takeInterpErr() string {
 var (
 	interpTick = 500 * time.Millisecond
 	// interpStartWindow 播放中累计这么久还没见到输出帧率翻上去,就判「没生效」。
-	// 脚本冷启动(Python + onnxruntime 建会话)实测 2~3 秒。
 	interpStartWindow = 15 * time.Second
 	// interpDropWindow 起来之后量这么久的丢帧。
 	interpDropWindow = 8 * time.Second
@@ -200,7 +164,7 @@ const interpMaxDropRatio = 0.10
 // interpEarlyDropRatio 量窗没满时提前撤的门槛,比 interpMaxDropRatio 宽:开头两秒样本少,别误伤。
 const interpEarlyDropRatio = 0.25
 
-// guardInterp 挂上之后盯着:脚本报错 / 这一片不该补 / 输出帧率没翻上去 / 丢帧太多 → 撤掉。
+// guardInterp 挂上之后盯着:滤镜报错 / 这一片不该补 / 输出帧率没翻上去 / 丢帧太多 → 撤掉。
 //
 // 只数**在播**的时间:暂停时没有帧,不数的话暂停十几秒回来就被判成「没生效」。
 func guardInterp(gen int64, level string, spec interp.Spec) {
@@ -215,7 +179,7 @@ func guardInterp(gen int64, level string, spec interp.Spec) {
 			return
 		}
 		if e := takeInterpErr(); e != "" {
-			revertInterp(gen, level, "补帧脚本跑不起来,已退回关闭。mpv 的原话:"+firstLine(e))
+			revertInterp(gen, level, "补帧滤镜跑不起来,已退回关闭。mpv 的原话:"+firstLine(e))
 			return
 		}
 		if prop("pause") == "yes" || prop("core-idle") == "yes" {
@@ -291,7 +255,7 @@ func revertInterp(gen int64, level, note string) {
 
 // applySavedInterp 起播时把记住的档挂回去。挂不上只进日志,不改记住的值。
 func applySavedInterp(level string) {
-	if level == "" || level == "off" {
+	if !interp.Supported || level == "" || level == "off" {
 		if v, _ := curInterp.Load().(string); v != "" && v != "off" {
 			interpOff()
 		}
@@ -315,11 +279,7 @@ func noteDisplayHz(a map[string]any) {
 func registerInterp() {
 	bus.Register("player.interpLevels", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		noteDisplayHz(a)
-		st := InterpState{Supported: interp.Supported, Installed: !interp.NeedsRuntime || interp.Installed(),
-			Installing: interpInstBusy.Load()}
-		if interp.NeedsRuntime {
-			st.DownloadBytes = interp.RuntimeSize
-		}
+		st := InterpState{Supported: interp.Supported}
 		if !st.Supported {
 			st.Reason = "这个平台还没有补帧"
 			return st, nil
@@ -330,21 +290,6 @@ func registerInterp() {
 			return st, nil
 		}
 		st.GPU = name
-		if interp.NeedsRuntime {
-			st.Backend = "dml"
-			if interp.TRTReady() {
-				st.Backend = "trt"
-			}
-			if nv := interp.NvidiaGPU(); nv.Name != "" {
-				arch, size, why := interp.TRTOffer(nv)
-				// 没装通用运行时的话 N 卡包会顺带装它,下载量要算进去
-				if arch != "" && !interp.Installed() {
-					size += interp.RuntimeSize
-				}
-				st.TRT = &InterpTRT{Available: arch != "", Reason: why, Ready: interp.TRTReady(),
-					Bytes: size, Preparing: interpWarming.Load()}
-			}
-		}
 		cur := currentInterpLevel()
 		src, hz := propF("container-fps"), interp.DisplayHz()
 		for _, l := range interp.Levels() {
@@ -385,73 +330,4 @@ func registerInterp() {
 		return InterpApplied{Level: level}, nil
 	})
 
-	// interpInstall 下载补帧组件。pack="trt" 装 N 卡加速包(没装通用的会先装)并预建引擎。
-	// 阻塞到装完;进度走 player.interpInstall 事件:stage=download(done/total 字节)/ prepare(step/steps)。
-	bus.Register("player.interpInstall", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		if !interp.NeedsRuntime {
-			return nil, bus.NewErr(bus.EUnsupported, "这个平台的补帧不用下载组件")
-		}
-		if !interpInstMu.TryLock() {
-			return nil, bus.NewErr(bus.EInvalid, "补帧组件正在下载")
-		}
-		defer interpInstMu.Unlock()
-		interpInstBusy.Store(true)
-		defer interpInstBusy.Store(false)
-		last := time.Now()
-		progress := func(done, total int64) {
-			// 限流:几百 MB 按 32KB 一块报会把事件队列刷爆
-			if time.Since(last) < 200*time.Millisecond && done != total {
-				return
-			}
-			last = time.Now()
-			bus.Emit("player.interpInstall", map[string]any{"stage": "download", "done": done, "total": total}, "player.interpInstall")
-		}
-		pack, _ := a["pack"].(string)
-		if pack != "trt" {
-			if err := interp.Install(ctx, progress); err != nil {
-				return nil, bus.NewErr(bus.ENetwork, "%v", err)
-			}
-			return map[string]any{"ok": true}, nil
-		}
-		// 阶段进日志(desktop.log 收「补帧」开头的行):几 GB 的下载没有日志的话,排查时分不清卡在哪一步
-		t0 := time.Now()
-		// 包已经解好、只是引擎没建完(上次预建被打断 / 失败)的话,直接去建,不再下 2.9GB
-		if interp.TRTInstalled() {
-			bus.Logf("info", "补帧:N 卡加速包已在,只预建引擎")
-		} else {
-			bus.Logf("info", "补帧:开始下载 N 卡加速包(上游 vsNV 完整包)")
-			err := interp.InstallTRT(ctx, progress, func(stage string) {
-				bus.Logf("info", "补帧:N 卡加速包下载完,开始解压(下载用时 %.0f 秒)", time.Since(t0).Seconds())
-				bus.Emit("player.interpInstall", map[string]any{"stage": stage}, "player.interpInstall")
-			})
-			if err != nil {
-				bus.Logf("warn", "补帧:N 卡加速包没装上 —— %v", err)
-				return nil, bus.NewErr(bus.ENetwork, "%v", err)
-			}
-		}
-		interpWarming.Store(true)
-		defer interpWarming.Store(false)
-		bus.Logf("info", "补帧:N 卡加速包装好(用时 %.0f 秒),开始预建引擎", time.Since(t0).Seconds())
-		t0 = time.Now()
-		if err := warmTRT(ctx, func(i, n int) {
-			bus.Emit("player.interpInstall", map[string]any{"stage": "prepare", "step": i, "steps": n}, "player.interpInstall")
-		}); err != nil {
-			bus.Logf("warn", "补帧:预建引擎失败 —— %v", err)
-			return nil, bus.NewErr(bus.EInternal, "%v", err)
-		}
-		bus.Logf("info", "补帧:引擎建好,用时 %.0f 秒,之后走 N 卡加速", time.Since(t0).Seconds())
-		// 正开着补帧的话换到 N 卡加速上;不重挂的话要等下一次开才生效
-		if lv := currentInterpLevel(); lv != "off" && curInterpMounted() {
-			if why := mountInterp(lv); why != "" {
-				interpOff()
-			}
-		}
-		return map[string]any{"ok": true}, nil
-	})
-}
-
-// curInterpMounted 本进程里是不是真挂着一档(而不只是配置里记着)。
-func curInterpMounted() bool {
-	v, _ := curInterp.Load().(string)
-	return v != "" && v != "off"
 }

@@ -64,30 +64,4 @@ class PhoneListStabilityTest {
         assertEquals(2, seen.size)
         assertSame(seen[0], seen[1])
     }
-
-    /** 插件给的条目ID可能为空或重复，首页不能因重复key崩溃。 */
-    @Test fun pluginRowToleratesDuplicateIds() {
-        FakeImages.install(ApplicationProvider.getApplicationContext())
-        val core = FakeCore().loggedIn().apply {
-            ret("plugin.homeSections", arr(buildJsonObject {
-                put("id", "s"); put("plugin_id", "p"); put("title", "插件栏"); put("kind", "items")
-            }))
-            ret("plugin.homeItems", arr(
-                buildJsonObject { put("id", "x"); put("title", "甲") },
-                buildJsonObject { put("id", "x"); put("title", "乙") },
-                buildJsonObject { put("title", "丙") },
-                buildJsonObject { put("title", "丁") },
-            ))
-        }
-        val app = AppState(core, scope)
-        runBlocking { app.boot() }
-        rule.setContent {
-            LpTheme { CompositionLocalProvider(LocalApp provides app) { HomePage(rememberNavController()) } }
-        }
-        rule.waitUntil(5000) { rule.onAllNodes(hasScrollToIndexAction()).fetchSemanticsNodes().isNotEmpty() }
-        rule.waitUntil(5000) {
-            runCatching { rule.onAllNodes(hasScrollToIndexAction())[0].performScrollToKey("ps:p:s") }.isSuccess
-        }
-        rule.waitUntil(5000) { rule.onAllNodesWithText("插件栏").fetchSemanticsNodes().isNotEmpty() }
-    }
 }

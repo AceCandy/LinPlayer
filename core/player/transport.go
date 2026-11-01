@@ -262,21 +262,10 @@ func registerTransport() {
 		if title == "" {
 			title = "外挂字幕"
 		}
-		/* text:插件(字幕翻译、在线字幕)直接交文本,宿主先落进字幕缓存再 sub-add(D164 D188)。
-		   ☠ 不能把文本当 data: URL 交给 mpv —— 一整轨字幕几十 KB,mpv 的
-		     命令参数走的是 C 字符串,长参数在某些版本上被静默截断,
-		     表现是「字幕挂上了但后半部分没有」。 */
-		if txt, ok := a["text"].(string); ok && strings.TrimSpace(txt) != "" {
-			p, err := cacheSubtitle(txt, str(a, "format"))
-			if err != nil {
-				return nil, bus.NewErr(bus.EInternal, "%v", err)
-			}
-			u = p
-		}
 		if u == "" {
-			return nil, bus.NewErr(bus.EInvalid, "缺少 url 或 text")
+			return nil, bus.NewErr(bus.EInvalid, "缺少 url")
 		}
-		// select 默认为真:插件挂字幕的场景里「挂上但不选中」几乎没有用处
+		// select 默认为真:用户主动加的字幕要立刻切过去
 		sel := "select"
 		if v, ok := a["select"].(bool); ok && !v {
 			sel = "auto"
@@ -285,15 +274,6 @@ func registerTransport() {
 			return nil, bus.NewErr(bus.EInternal, "%v", err)
 		}
 		return map[string]any{"url": u, "title": title, "id": subIDOf(title)}, nil
-	})
-
-	// getSubtitleText 字幕轨全文(SPEC 9.7 D487)。宿主带 token 拉,插件拿不到地址。
-	bus.Register("player.getSubtitleText", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
-		id := -1
-		if v, ok := a["track_id"].(float64); ok {
-			id = int(v)
-		}
-		return subtitleText(ctx, id)
 	})
 
 	// ---- 直通 mpv(设置页的高级项 / 自检用)----
@@ -425,7 +405,6 @@ func registerTransport() {
 	registerApplyPrefs()
 	registerExternalCommands()
 	registerLocalCommands()
-	registerPlayURL()
 
 	// tracks 当前文件的轨道表。
 	bus.Register("player.tracks", func(ctx context.Context, seq int64, a map[string]any) (any, error) {

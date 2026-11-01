@@ -93,7 +93,6 @@ built as the `lpcore` shared library; each platform only writes its own UI. So a
 | **Progress reporting & cross-server resume** | Emby progress reporting; the furthest position across servers wins | ✅ | ✅ | ✅ | ✅ |
 | **Downloads** | Custom multi-threaded ranged downloads, whole-season download | ✅ | ✅ | ✅ | ✅ |
 | **Multi-threaded loading** | Local prefetch proxy feeding the player with concurrent ranged reads | ✅ | ✅ | ✅ | ✅ |
-| **Local folder playback** | Pick a local directory and browse / play it | ✅ | ✅ | ✅ | ✅ |
 | **In-app updates** | Dual channel, picks the right package per platform and ABI | ✅ | ✅ | ✅ | ✅ |
 | **Custom network proxy** | | ⬜ | ⬜ | ⬜ | ✅ |
 | **Cloudflare best-IP speed test** | Samples Cloudflare edge nodes and measures them | ✅ | ✅ | ⬜ | ⬜ |
@@ -107,7 +106,7 @@ built as the `lpcore` shared library; each platform only writes its own UI. So a
 
 > **Out of scope** (decided 2026-09-04): cloud drives (Aliyun, Baidu, 115, 189, 139, Quark, OpenList, Feiniu),
 > LAN sources (SMB / WebDAV / FTP) and Ani-RSS are all dropped and their code removed.
-> Video-resource sites will only ever come back as **plugins** — the plugin system is being rebuilt from scratch, see [`plugin-system/SPEC.md`](plugin-system/SPEC.md) (Chinese). Local folder playback stays — it is table stakes for a player.
+> Local file browsing, plugins/extensions and Trakt/Bangumi account sync have been removed. Upgrades remove old local and plugin-source accounts; Emby, danmaku, downloads and public rankings/calendars remain. Update controls are now under Settings → About & updates.
 
 ## Screenshots
 
@@ -203,7 +202,7 @@ scripts/           build, packaging and gate scripts (pack-win.sh / pack-linux.s
 ## License
 
 [LICENSE](../LICENSE) covers the project source. Distributed and optional components retain their own licenses.
-Optional interpolation packages include proprietary Microsoft DirectML/VC++ runtimes and, for NVIDIA acceleration, TensorRT/CUDA. The DirectML repository's MIT license does not cover DirectML.dll. See [third-party components](THIRD_PARTY.md).
+Windows external interpolation components have been removed. See [third-party components](THIRD_PARTY.md) for playback engine licenses and the license boundaries of legacy optional packages.
 
 ## Acknowledgements
 

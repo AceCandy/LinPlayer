@@ -1,5 +1,7 @@
 # Android 手机与 TV
 
+> **2026-11-01 范围更新：** 以[当前产品基准](../shared/product-and-api.md)为准。本机文件浏览、插件 / 扩展组件与 Trakt / Bangumi 账号已下线，更新入口合并到关于；下文相关旧功能描述仅作历史记录。
+
 - Media3 拖动由 `PlayerController` 保存所属播放器及起点，正式 seek 前同步退出拖动模式；取消才回起点，起播、停播、换内核和页面销毁只收尾、不将旧位置写入新媒体。手机预览按 controller/engine 隔离，重试清空；缩略图请求不得吞取消异常，防止旧请求覆盖新预览。`PlayerControllerTest`覆盖提交、取消、重新起播、解绑及取消传播。
 
 - TV高码率退出须区分错误面板、主动离页与系统进程退出，不凭文件大小或相似上游issue认定OOM。`Report.takePending`首次取得系统退出记录也写reason/status/importance/PSS/RSS/时间戳，禁止原始description进入新增日志；低内存回收不自动作为崩溃发送。`ReportExitTest`覆盖首次记录、去重和原生崩溃原上报策略。TV起播记录内核、缓冲目标、堆容量及位数，离页与ON_STOP记录路径；日志不包含媒体标题、ID、地址或账号。

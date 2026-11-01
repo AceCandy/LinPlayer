@@ -60,7 +60,7 @@ class PhonePlayerTabletTest {
                 val anchors = remember { mutableStateMapOf<String, Rect>() }
                 Box(Modifier.fillMaxSize().background(Color(0xFF31535E))) {
                     Osd(false, "", title = "测试片源", episodeLabel = "S1E1 第 1 集", position = 600.0,
-                        duration = 2700.0, paused = true, speed = 1.0, heat = emptyList(), pluginPanels = emptyList(),
+                        duration = 2700.0, paused = true, speed = 1.0, heat = emptyList(),
                         onBack = {}, onToggle = {}, onSeek = {}, onSpeed = {}, onLock = {}, onShot = {},
                         onPanel = { entrance.value = it; panel.value = it }, onPanelAnchor = { k, r -> anchors[k] = r },
                         onOrientation = {}, onChapters = {}, onPip = {})

@@ -85,6 +85,12 @@ internal fun advance(rule: ComposeContentTestRule, ms: Long) {
     while (left > 0) { rule.mainClock.advanceTimeBy(50); left -= 50 }
 }
 
+/** 走真机自检直达入口打开官方页面,格式同 `lp_page`:「名字:id:标题或类型」。须在主线程调用。 */
+internal fun openPage(page: String) {
+    xyz.linplayer.app.MainActivity.SelfCheck.page = page
+    xyz.linplayer.app.MainActivity.SelfCheck.pageTick.intValue++
+}
+
 @OptIn(ExperimentalTestApi::class)
 internal fun press(rule: ComposeContentTestRule, vararg keys: Any) {
     // Key 是 value class,不许直接做 vararg;装箱传进来再拆

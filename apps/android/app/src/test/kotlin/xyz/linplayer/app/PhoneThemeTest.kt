@@ -62,7 +62,6 @@ import xyz.linplayer.app.ui.pages.DetailPage
 import xyz.linplayer.app.ui.pages.HomePage
 import xyz.linplayer.app.ui.pages.LibraryPage
 import xyz.linplayer.app.ui.pages.SettingsSubPage
-import xyz.linplayer.app.ui.plugin.Wallpaper
 import xyz.linplayer.app.ui.theme.DarkColors
 import xyz.linplayer.app.ui.theme.LightColors
 import xyz.linplayer.app.ui.theme.Lp
@@ -81,7 +80,6 @@ class PhoneThemeTest {
 
     @After fun resetTheme() {
         UiPrefs.setTheme(ApplicationProvider.getApplicationContext(), originalTheme)
-        Wallpaper.set(null)
         PageCache.clear()
         scope.cancel()
     }
@@ -190,15 +188,12 @@ class PhoneThemeTest {
         assertBackground(DarkColors.bg)
     }
 
-    @Test fun homeKeepsThemeBackgroundWhenWallpaperCannotRender() {
+    @Test fun homeKeepsThemeBackground() {
         PageCache.clear()
-        val wall = buildJsonObject { put("kind", "shader"); put("file", "unsupported") }
         val core = FakeCore().loggedIn().apply {
-            ret("plugin.initialWallpaper", wall)
             listOf("emby.listRandom", "emby.listResume", "emby.listNextUp", "emby.views", "emby.listCollections")
                 .forEach { ret(it, arr()) }
         }
-        Wallpaper.set(wall)
         UiPrefs.theme.value = "light"
         val app = AppState(core, scope)
         rule.setContent {
@@ -264,7 +259,6 @@ class PhoneThemeTest {
 
     private fun checkMediaPage(route: Any, core: FakeCore, name: String) {
         PageCache.clear()
-        Wallpaper.set(null)
         FakeImages.install(ApplicationProvider.getApplicationContext())
         UiPrefs.theme.value = "light"
         val app = AppState(core, scope)

@@ -20,6 +20,9 @@ struct PlayerView: View {
     @State private var controls = true
     @State private var controlHeight: CGFloat = 270
     @State private var panel: String?
+    @State private var panelParent: String?
+    @State private var panelReturnFocus: String?
+    @State private var advancedMarkers = false
     @State private var preview: Double?
     @State private var interaction = 0
     @State private var countdown: Int?
@@ -29,35 +32,24 @@ struct PlayerView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black.ignoresSafeArea()
-            if let engine = controller.engine { VideoSurface(engine: engine).ignoresSafeArea() }
-            if !controller.subtitleText.isEmpty && !controller.ended {
-                Text(controller.subtitleText).font(.title3.bold()).multilineTextAlignment(.center)
-                    .padding(12).background(.black.opacity(0.65)).padding(.horizontal, 100)
-                    .padding(.trailing, panel == nil ? 0 : 620)
-                    .padding(.bottom, controls ? controlHeight + 24 : 60).allowsHitTesting(false).accessibilityHidden(true)
+            if let engine = controller.engine { VideoSurface(engine: engine).id(ObjectIdentifier(engine)).ignoresSafeArea() }
+#if UI_RENDER_CHECK
+            if !controller.subtitleText.isEmpty { Text(controller.subtitleText).padding(.bottom, controls ? controlHeight + 24 : 60) }
+#else
+            if let engine = controller.engine, !controller.ended {
+                SubtitleSurface(engine: engine, bottomInset: controls ? controlHeight + 24 : 60, style: controller.subtitleStyle).id(ObjectIdentifier(engine)).ignoresSafeArea().allowsHitTesting(false)
             }
+#endif
+            TVDanmakuOverlay(session: controller.danmaku, position: { controller.engine?.currentTime ?? controller.position }, duration: controller.engine?.duration ?? 0, paused: controller.paused)
+                .ignoresSafeArea()
             if !controls {
                 Color.clear.contentShape(Rectangle()).focusable().focused($focus, equals: "surface")
-                    .onTapGesture { showControls() }
+                    .onTapGesture { controller.toggle(); touch() }
                     .onMoveCommand { _ in showControls() }
             }
             if controller.loading || controller.engine?.isBuffering == true { TVLoading("正在缓冲").frame(maxHeight: .infinity) }
             if controls {
                 VStack(alignment: .leading, spacing: 0) {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Text(controller.title).font(.system(size: 34, weight: .semibold)).lineLimit(1)
-                        if let source = controller.versions.first(where: { $0.id == controller.actualVersion }), let video = source.streams?.first(where: { $0.type_ == "Video" }) {
-                            Text(video.summary).font(.system(size: 22)).foregroundStyle(.white.opacity(0.7))
-                        }
-                        if let subtitle = controller.textTracks.first(where: { $0.id == controller.engine?.activeSubtitleTrackIndex }) {
-                            Text("字幕 · " + subtitle.name).font(.system(size: 22)).foregroundStyle(.white.opacity(0.7))
-                        }
-                        if let message = controller.message { Text(message).foregroundStyle(.orange) }
-                        if let note = controller.subtitleNote { Text(note).font(.caption).foregroundStyle(.secondary) }
-                        if let warning = controller.syncWarning { Text(warning).font(.caption).foregroundStyle(.orange) }
-                    }.padding(.horizontal, 64).padding(.top, 48).padding(.bottom, 50)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(LinearGradient(colors: [.black.opacity(0.85), .clear], startPoint: .top, endPoint: .bottom))
                     Spacer()
                     nextEpisodeCard
                     VStack(alignment: .leading, spacing: 22) {
@@ -66,15 +58,27 @@ struct PlayerView: View {
                         if !controller.ended, let error = controller.queueError {
                             RetryMessage(text: error) { controller.loadQueue(); touch() }
                         }
-                        progressControl
+                        if let message = controller.message { Text(message).foregroundStyle(.orange) }
+                        if let note = controller.subtitleNote { Text(note).font(.caption).foregroundStyle(.secondary) }
+                        if let warning = controller.syncWarning { Text(warning).font(.caption).foregroundStyle(.orange) }
                         transportControls
+                        progressControl
                     }.padding(.horizontal, 64).padding(.bottom, 40).padding(.top, 28)
                         .background(LinearGradient(colors: [.clear, .black.opacity(0.92)], startPoint: .top, endPoint: .bottom))
                         .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { controlHeight = $0 }
                 }.disabled(panel != nil || model.switchingPlayback || controller.closing)
             } else if panel == nil {
-                manualSkipButton.padding(.trailing, 64).padding(.bottom, 110).frame(maxWidth: .infinity, alignment: .trailing)
+                VStack {
+                    nextEpisodeCard
+                    manualSkipButton.padding(.trailing, 64).padding(.bottom, 110).frame(maxWidth: .infinity, alignment: .trailing)
+                    GeometryReader { geometry in
+                        Rectangle().fill(.white.opacity(0.6)).frame(width: geometry.size.width * min(1, max(0, controller.position / max(1, controller.engine?.duration ?? 0))))
+                    }.frame(height: 2).allowsHitTesting(false)
+                }
             }
+            VStack { HStack { Spacer(); TimelineView(.periodic(from: .now, by: 30)) { context in
+                Text(context.date, style: .time).font(.system(size: 24)).monospacedDigit().shadow(color: .black, radius: 3)
+            }.padding(.trailing, 64).padding(.top, 32) }; Spacer() }.allowsHitTesting(false)
 
         }
         .ignoresSafeArea(.container)
@@ -83,7 +87,7 @@ struct PlayerView: View {
         .tint(TVPalette.accent(false, palette: model.colorScheme))
         .interactiveDismissDisabled()
         .onPlayPauseCommand { controller.toggle(); touch() }
-        .onExitCommand {
+        .tvExitCommand {
             if panel != nil { closePanel() }
             else if preview != nil { preview = nil }
             else if controls { controls = false; focus = "surface" }
@@ -92,7 +96,20 @@ struct PlayerView: View {
         .onMoveCommand { _ in touch() }
         .onChange(of: focus) { _, _ in touch() }
         .onChange(of: controller.message) { _, next in if next != nil { showControls() } else { touch() } }
-        .task { await controller.start(); focus = "pause" }
+        .onAppear {
+            model.remotePlayback = { key in
+                if ["up", "down", "left", "right"].contains(key), !controls { showControls(); return true }
+                if key == "ok", !controls { controller.toggle(); return true }
+                if key == "menu" { openPanel("more"); return true }
+                if panel == nil, focus == "progress", ["left", "right"].contains(key), controller.canSeek {
+                    preview = min(max(0, (preview ?? controller.position) + (key == "left" ? -10 : 10)), controller.engine?.duration ?? 0)
+                    touch(); return true
+                }
+                return false
+            }
+        }
+        .onDisappear { if model.playback === controller { model.remotePlayback = nil } }
+        .task { await controller.start(); focus = "progress" }
         .task(id: "\(controller.ended):\(controller.queueLoading):\(controller.nextEpisode?.id ?? ""):\(autoNext):\(model.sceneActive):\(panel ?? "")") {
             countdown = nil
             guard controller.ended, !controller.queueLoading, controller.queueError == nil,
@@ -114,19 +131,31 @@ struct PlayerView: View {
         .overlay(alignment: .trailing) {
             if panel != nil {
                 trackPanel.frame(width: 620).frame(maxHeight: .infinity).background(.black.opacity(0.96))
-                    .task(id: panel) { await Task.yield(); panelFocus = selectedPanelKey }
+                    .task(id: panel) { await Task.yield(); panelFocus = panelReturnFocus ?? selectedPanelKey; panelReturnFocus = nil }
             }
         }
 
     }
 
     @State private var lastPanel = "subtitles"
-    private func showControls() { controls = true; focus = "pause"; touch() }
+    private func showControls() { controls = true; focus = "progress"; touch() }
     private func touch() { interaction += 1 }
 
     @FocusState private var panelFocus: String?
-    private func closePanel() { panel = nil; focus = lastPanel; touch() }
-    private func openPanel(_ key: String) { lastPanel = key; panel = key; touch() }
+    private func closePanel() {
+        if let parent = panelParent { panelReturnFocus = panel; panel = parent; panelParent = nil }
+        else { panel = nil; focus = lastPanel }
+        touch()
+    }
+    private func openPanel(_ key: String) {
+        if panel == "more" { panelParent = "more" } else { lastPanel = key; panelParent = nil }
+        panel = key
+        if key == "markers" { controller.loadMarkers() }
+        touch()
+    }
+    private var nextUp: Bool {
+        controller.ended || PlaybackSkip.nextUp(at: controller.position, duration: controller.engine?.duration ?? 0, outro: controller.skipInfo?.outro)
+    }
     private var selectedPanelKey: String? {
         switch panel {
         case "audio": return controller.engine?.activeAudioTrackIndex.map { "audio:\($0)" }
@@ -147,7 +176,7 @@ struct PlayerView: View {
         }
     }
     @ViewBuilder private var nextEpisodeCard: some View {
-        if controller.ended {
+        if nextUp, controller.nextEpisode != nil || controller.ended {
             HStack {
                 Spacer()
                 VStack(alignment: .leading, spacing: 16) {
@@ -173,6 +202,7 @@ struct PlayerView: View {
         if controller.canSeek, let duration = controller.engine?.duration, duration > 0 {
             Button {
                 if let value = preview { preview = nil; Task { await controller.seek(to: value) } }
+                else { controller.toggle(); touch() }
             } label: {
                 VStack(spacing: 16) {
                     if let preview, controller.skipInfo?.thumbs == true,
@@ -188,6 +218,7 @@ struct PlayerView: View {
                     }
                     GeometryReader { geometry in
                         ZStack(alignment: .leading) {
+                            TVDanmakuHeatmap(session: controller.danmaku).frame(height: 28).offset(y: -20)
                             Capsule().fill(.white.opacity(0.25))
                             Capsule().fill(.white.opacity(0.45)).frame(width: geometry.size.width * min(max(0, controller.bufferedPosition / duration), 1))
                             if let info = controller.skipInfo {
@@ -223,21 +254,23 @@ struct PlayerView: View {
     }
     private var transportControls: some View {
         HStack(spacing: 20) {
-            if let previous = controller.previousEpisode { Button { switchEpisode(previous) } label: { Image(systemName: "backward.end.fill") }.accessibilityLabel("上一集") }
-            Button { controller.toggle(); touch() } label: { Label(controller.paused ? "播放" : "暂停", systemImage: controller.paused ? "play.fill" : "pause.fill") }
-                .disabled(controller.loading || controller.changingTrack).focused($focus, equals: "pause")
-            if let next = controller.nextEpisode { Button { switchEpisode(next) } label: { Image(systemName: "forward.end.fill") }.accessibilityLabel("下一集") }
-            Spacer(minLength: 20)
-            if controller.audioSelectable { Button("音轨") { openPanel("audio") }.disabled(controller.changingTrack).focused($focus, equals: "audio") }
-            Button("字幕") { openPanel("subtitles") }.focused($focus, equals: "subtitles")
-            Button("倍速") { openPanel("speed") }.disabled(!controller.canSetSpeed).focused($focus, equals: "speed")
-            Button("画面") { openPanel("picture") }.focused($focus, equals: "picture")
-            Button("版本") { openPanel("versions") }.focused($focus, equals: "versions")
-            if controller.engine?.mediaChapters.isEmpty == false { Button("章节") { openPanel("chapters") }.focused($focus, equals: "chapters") }
-            if controller.message != nil && !controller.ended {
-                Button("重试") { Task { await model.switchPlayer(item: controller.item, title: controller.title, version: controller.version, fromStart: controller.fromStart) } }
+            Text(controller.title).font(.system(size: 30, weight: .semibold)).lineLimit(1)
+            Spacer(minLength: 24)
+            if let next = controller.nextEpisode, !nextUp {
+                Button { switchEpisode(next) } label: { Image(systemName: "forward.end.fill") }.accessibilityLabel("下一集")
             }
-            Button(controller.closing ? "正在保存…" : "退出") { Task { await model.closePlayer() } }.disabled(controller.closing)
+            Button { openPanel("speed") } label: { Image(systemName: "speedometer") }
+                .accessibilityLabel("倍速").disabled(!controller.canSetSpeed).focused($focus, equals: "speed")
+            Button { openPanel("danmaku") } label: { Image(systemName: "text.bubble") }
+                .accessibilityLabel("弹幕").focused($focus, equals: "danmaku")
+            if controller.audioSelectable {
+                Button { openPanel("audio") } label: { Image(systemName: "waveform") }
+                    .accessibilityLabel("音轨").disabled(controller.changingTrack).focused($focus, equals: "audio")
+            }
+            Button { openPanel("subtitles") } label: { Image(systemName: "captions.bubble") }
+                .accessibilityLabel("字幕").focused($focus, equals: "subtitles")
+            Button { openPanel("more") } label: { Image(systemName: "ellipsis") }
+                .accessibilityLabel("更多").focused($focus, equals: "more")
         }.buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
     }
 
@@ -245,8 +278,40 @@ struct PlayerView: View {
         ScrollView {
             VStack(spacing: 24) {
                 Text(panelTitle).font(.title)
-                if panel == "speed", let engine = controller.engine {
-                    ForEach([Float(0.5), 0.75, 1, 1.25, 1.5, 1.75, 2].filter { $0 <= engine.maxSupportedRate }, id: \.self) { rate in
+                if panel == "danmaku" {
+                    TVDanmakuPanel(session: controller.danmaku)
+                } else if panel == "more" {
+                    Button("画面比例") { openPanel("picture") }.focused($panelFocus, equals: "picture")
+                    if controller.versions.count > 1 || controller.versionError != nil {
+                        Button("播放版本") { openPanel("versions") }.focused($panelFocus, equals: "versions")
+                    }
+                    if let previous = controller.previousEpisode { Button("上一集") { switchEpisode(previous) } }
+                    Button("片头片尾标记") { openPanel("markers") }.focused($panelFocus, equals: "markers")
+                    Toggle("自动跳过片头片尾", isOn: Binding(get: { controller.skipInfo?.skip_auto == true }, set: { controller.setSkipAuto($0) }))
+                        .disabled(controller.markerBusy || controller.skipInfo == nil)
+                    if let error = controller.markerError { Text(error).foregroundStyle(.orange) }
+                    if controller.engine?.mediaChapters.isEmpty == false {
+                        Button("章节") { openPanel("chapters") }.focused($panelFocus, equals: "chapters")
+                    }
+                    Button("媒体信息") { openPanel("info") }.focused($panelFocus, equals: "info")
+                    if controller.message != nil && !controller.ended {
+                        Button("重试播放") { Task { await model.switchPlayer(item: controller.item, title: controller.title, version: controller.version, fromStart: controller.fromStart) } }
+                    }
+                    Button(controller.closing ? "正在保存…" : "退出播放") { Task { await model.closePlayer() } }.disabled(controller.closing)
+                } else if panel == "markers" {
+                    markerControls
+                } else if panel == "info" {
+                    Text("播放内核：AetherEngine")
+                    if let source = controller.versions.first(where: { $0.id == controller.actualVersion }) {
+                        Text(source.name)
+                        if let path = source.displayPath { Text(path).font(.system(size: 20)).foregroundStyle(.secondary) }
+                        if let size = source.size_bytes { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
+                        ForEach(source.streams ?? []) { stream in
+                            VStack(alignment: .leading, spacing: 8) { Text(stream.label); Text(stream.summary).foregroundStyle(.secondary) }
+                        }
+                    }
+                } else if panel == "speed", let engine = controller.engine {
+                    ForEach([Float(0.25), 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4].filter { $0 <= engine.maxSupportedRate }, id: \.self) { rate in
                         Button((controller.speed == rate ? "✓ " : "") + "\(rate)×") {
                             if controller.setSpeed(rate) { closePanel() }
                         }.disabled(!controller.canSetSpeed).focused($panelFocus, equals: "speed:\(rate)")
@@ -279,7 +344,15 @@ struct PlayerView: View {
                             }
                         }.focused($panelFocus, equals: "audio:\(track.id)")
                     }
-                } else {
+                } else if panel == "subtitles" {
+                    if let error = controller.subtitleStyleError { RetryMessage(text: error) { controller.loadSubtitleStyle() } }
+                    VStack(alignment: .leading, spacing: 20) {
+                        TVChoice(title: "字号", selection: subtitleNumber("scale", fallback: 1), options: [0.5, 0.75, 1, 1.25, 1.5, 2, 3, 4].map { ($0, "\($0)×") })
+                        TVChoice(title: "位置", selection: subtitleNumber("position", fallback: 100), options: [0.0, 25, 50, 75, 100].map { ($0, String(Int($0))) })
+                        TVChoice(title: "描边", selection: subtitleNumber("border_size", fallback: 3), options: [0.0, 1, 2, 3, 4, 6, 8, 10].map { ($0, String(Int($0))) })
+                        Toggle("粗体", isOn: Binding(get: { controller.subtitleStyle["bold"].bool == true }, set: { controller.setSubtitleStyle("bold", .bool($0)) }))
+                        Text("ASS 保留自身描边和字体样式；位图字幕不改变字号。").font(.system(size: 20)).foregroundStyle(.secondary)
+                    }.disabled(!controller.canChangeSubtitleStyle)
                     Button((controller.engine?.activeSubtitleTrackIndex == nil ? "✓ " : "") + "关闭字幕") {
                         lastPanel = "subtitles"; controller.selectSubtitle(nil); closePanel()
                     }.focused($panelFocus, equals: "sub:-1")
@@ -292,13 +365,13 @@ struct PlayerView: View {
                             }
                         }.focused($panelFocus, equals: "sub:\(track.id)")
                     }
-                    if controller.textTracks.isEmpty { Text("无可用文本字幕").foregroundStyle(.secondary) }
-                    if controller.unsupportedSubtitleCount > 0 { Text("样式、位图或由系统渲染的字幕暂不提供切换。").foregroundStyle(.secondary) }
+                    if controller.textTracks.isEmpty { Text("无可用字幕").foregroundStyle(.secondary) }
+                    if controller.unsupportedSubtitleCount > 0 { Text("部分外挂字幕无法识别。").foregroundStyle(.secondary) }
                 }
                 Button("返回") { closePanel() }
             }.padding(40).buttonStyle(TVRowStyle()).toggleStyle(TVToggleStyle()).focusEffectDisabled()
         }
-        .onExitCommand { closePanel() }
+        .tvExitCommand { closePanel() }
     }
 
     private var panelTitle: String {
@@ -308,8 +381,46 @@ struct PlayerView: View {
         case "picture": return "画面比例"
         case "chapters": return "章节"
         case "versions": return "播放版本"
+        case "more": return "更多"
+        case "danmaku": return "弹幕"
+        case "markers": return "片头片尾标记"
+        case "info": return "媒体信息"
         default: return "字幕"
         }
+    }
+
+    @ViewBuilder private var markerControls: some View {
+        if let markers = controller.markers {
+            Text("当前位置 · " + time(controller.position)).monospacedDigit()
+            if markers.can_season {
+                TVChoice(title: "应用范围", selection: Binding(get: { markers.scope }, set: { controller.loadMarkers(scope: $0) }), options: [("episode", "本集"), ("season", "本季")])
+                    .disabled(controller.markerBusy)
+            }
+            Text("片头：" + markerLabel(markers.intro)).foregroundStyle(.secondary)
+            Text("片尾：" + markerLabel(markers.outro)).foregroundStyle(.secondary)
+            Group {
+                Button("标记片头结束") { controller.mark("intro_end") }
+                Button("标记片尾开始") { controller.mark("outro_start") }
+                Toggle("自定义区间", isOn: $advancedMarkers)
+                if advancedMarkers {
+                    Button("标记片头开始") { controller.mark("intro_start") }.disabled(markers.intro == nil)
+                    Button("标记片尾结束") { controller.mark("outro_end") }.disabled(markers.outro == nil)
+                }
+                Button("清除当前范围的标记") { controller.mark("clear") }
+            }.disabled(controller.markerBusy || !controller.canSeek)
+        }
+        if controller.markerBusy { TVLoading("正在处理标记") }
+        if let error = controller.markerError { RetryMessage(text: error) { controller.loadMarkers() } }
+    }
+    private func subtitleNumber(_ key: String, fallback: Double) -> Binding<Double> {
+        Binding(get: {
+            let value = controller.subtitleStyle[key].number ?? -1
+            return value < 0 || key == "scale" && value == 0 ? fallback : value
+        }, set: { controller.setSubtitleStyle(key, .number($0)) })
+    }
+
+    private func markerLabel(_ range: PlaybackSkip.Range?) -> String {
+        range.map { time($0.start) + " — " + time($0.end) } ?? "未设置"
     }
 
     private func switchEpisode(_ episode: MediaItem) {

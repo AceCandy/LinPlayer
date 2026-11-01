@@ -43,19 +43,6 @@ class MainActivity : ComponentActivity() {
     private val askNotification =
         registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒了就没有通知栏控制,不拦流程 */ }
 
-    private val askStorage =
-        registerForActivityResult(ActivityResultContracts.RequestPermission()) { /* 拒了就只是列不出文件,不拦流程 */ }
-
-    override fun onDestroy() {
-        xyz.linplayer.app.plugin.PluginShell.release(this)
-        super.onDestroy()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        xyz.linplayer.app.plugin.PluginShell.activate(this)
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         // 开屏必须在 super.onCreate 之前装(U1.17)。
         // ★ 不挂 setKeepOnScreenCondition:核心层已经在 Application 里起好了,
@@ -79,22 +66,15 @@ class MainActivity : ComponentActivity() {
         // 不能靠 input text —— 焦点落在哪儿不确定,实测一个字符都没进去(PC 端同一条教训)
         intent?.getStringExtra("lp_login")?.let { SelfCheck.login = it }
         intent?.getStringExtra("lp_page")?.let { SelfCheck.page = it }
-        // 自检:先用开发版加载一个本地插件目录(不必先打包再安装)
-        intent?.getStringExtra("lp_devplugin")?.let { SelfCheck.devPlugin = it }
 
         xyz.linplayer.app.data.UiPrefs.load(this)
-
-        /* 插件主题(SPEC 11.4)。**必须在 setContent 之前** —— 组合完再改 token,
-           已经画出来的那一屏拿的还是官方值,表现是「换了主题要重启两次」。 */
-        xyz.linplayer.app.ui.theme.PluginTheme.loadAtStartup(app.core, if (tvShape()) "android_tv" else "android")
 
         setContent {
             val privateSpace by app.privateSpace.collectAsStateWithLifecycle()
             LpTheme(color = xyz.linplayer.app.data.UiPrefs.colorScheme.value,
                 privateSpace = privateSpace,
                 darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
-                // 只给一种明暗的主题,系统切到另一种也保持它(D70)
-                "dark" -> true; "light" -> false; else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
+                "dark" -> true; "light" -> false; else -> null
             }) {
                 val darkBars = xyz.linplayer.app.ui.theme.Lp.colors.isDark
                 SideEffect {
@@ -108,9 +88,6 @@ class MainActivity : ComponentActivity() {
                     ) { darkBars }
                     enableEdgeToEdge(statusBarStyle = style, navigationBarStyle = navigationStyle)
                 }
-                // 主题与「减少动态效果」报给插件宿主。挂在主题里面:切深浅色时这里会重组,
-                // 报的就是切完之后那一套(D558)
-                xyz.linplayer.app.plugin.ReportPluginEnv(app)
                 // TV 草稿画廊:`am start ... -e lp_page 'tvdrafts:<n>'`。不连网,不看登录态,手机上也能打开
                 val tvDraft = SelfCheck.page?.takeIf { it.startsWith("tvdrafts") }
                 when {
@@ -123,10 +100,6 @@ class MainActivity : ComponentActivity() {
                 }
             }
         }
-
-        // 插件要壳做的事(WebView / jar spider),见 plugin/PluginShell
-        xyz.linplayer.app.plugin.PluginShell.start(this, app, lifecycleScope)
-        CalendarWorker.schedule(this)
 
         // 深链交给核心层解析,**UI 不自己解析 URL**(SPEC §8.5)
         lifecycleScope.launch {
@@ -156,8 +129,6 @@ class MainActivity : ComponentActivity() {
            ☠ 没有它的话每次直达都得先 force-stop,于是**只量得到冷路径** ——
            首帧预算里「第二次进同一页」那半截永远没有数。 */
         val pageTick = androidx.compose.runtime.mutableIntStateOf(0)
-        /** 开发版加载的本地插件目录(`-e lp_devplugin <路径>`)。 */
-        @Volatile var devPlugin: String? = null
     }
 
     private fun handleIntent(i: Intent?) {
@@ -180,24 +151,7 @@ class MainActivity : ComponentActivity() {
         askNotification.launch(Manifest.permission.POST_NOTIFICATIONS)
     }
 
-    /**
-     * 本机视频的读权限。**在用户要添加本机文件夹的那一刻要**,不在冷启动时要。
-     *
-     * ★ 权限名按版本分:Android 13 起是 `READ_MEDIA_VIDEO`,之前是
-     *   `READ_EXTERNAL_STORAGE`(manifest 里两条都声明了,`maxSdkVersion=32`)。
-     *   要错了的表现是**弹不出框**且 `checkSelfPermission` 恒 denied ——
-     *   界面上只会是「这个文件夹是空的」,看着像路径填错了。
-     * ★ 拒了不拦流程:用户可能只想连服务器。
-     */
-    fun askStoragePermission() {
-        val perm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU)
-            Manifest.permission.READ_MEDIA_VIDEO
-        else Manifest.permission.READ_EXTERNAL_STORAGE
-        if (ContextCompat.checkSelfPermission(this, perm) == PackageManager.PERMISSION_GRANTED) return
-        askStorage.launch(perm)
-    }
-
-    /** 走 TV 形态吗。主题要在 setContent 之前按端加载,所以这一判要能单独拿出来。 */
+    /** 走 TV 形态吗。 */
     internal fun tvShape(): Boolean = BuildConfig.TV_BUILD || isTelevision() || SelfCheck.page?.startsWith("tv") == true
 
     /** 双形态分流(SPEC §8.2):同一个 APK、同一个 Activity。 */

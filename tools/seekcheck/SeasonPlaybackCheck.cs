@@ -127,10 +127,8 @@ internal static class SeasonPlaybackCheck
         Await(Invoke(page, "LoadEpisodes"));
         Check(!Get<Button>(page, "_drawerBtn").IsVisible, "仅有分集队列时不能显示选集入口");
         Check(Actions.All.All(a => a.Id != "player.episodes"), "旧选集快捷键仍注册");
-        try { page.OpenPanel("episodes"); throw new Exception("旧插件请求仍可打开选集"); }
-        catch (NotSupportedException) { }
         double chapterTarget = -1;
-        var drawer = new PlayerDrawer(core, [(30.0, "测试章节")], at => chapterTarget = at, () => { });
+        var drawer = new PlayerDrawer([(30.0, "测试章节")], at => chapterTarget = at, () => { });
         var chapterButton = drawer.GetLogicalDescendants().OfType<Button>()
             .Single(b => b.Content is TextBlock text && text.Text == "测试章节");
         chapterButton.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));

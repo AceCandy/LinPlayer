@@ -14,11 +14,10 @@ import xyz.linplayer.app.ui.pages.args
 internal fun TvPlaybackHost(
     app: AppState, route: Route.Player,
     onExit: (String?) -> Unit, onNavigate: (String, JsonObject) -> Unit,
-    onSourceSwitch: (xyz.linplayer.app.ui.pages.SourceSwitchTarget) -> Unit,
 ) {
     val target = remember(route) {
         TvRoute.Player(route.itemId, route.title, versionId = route.versionId, engine = route.engine,
-            fromStart = route.fromStart, src = route.src, subtitle = route.subtitle, localEntry = route.localEntry)
+            fromStart = route.fromStart, subtitle = route.subtitle)
     }
     val nav = remember { TvNav().apply { push(target) } }
     TvFrame(app) {
@@ -31,7 +30,7 @@ internal fun TvPlaybackHost(
             }
         })
         CompositionLocalProvider(LocalNav provides nav, LocalFocusMemory provides nav.top.memory) {
-            TvPlayerPage(target, onExit, onSourceSwitch = onSourceSwitch)
+            TvPlayerPage(target, onExit)
         }
     }
 }

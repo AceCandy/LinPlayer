@@ -4,10 +4,12 @@ import SwiftUI
 
 @MainActor final class PlaybackController: ObservableObject {
     let api: MediaAPI
+    let danmaku: TVDanmakuSession
     let item: String
     let title: String
     let version: String?
     let fromStart: Bool
+    let speedScope: String
     @Published private(set) var engine: AetherEngine?
     @Published var message: String?
     @Published var syncWarning: String?
@@ -18,6 +20,9 @@ import SwiftUI
     @Published var position: Double = 0
     @Published var subtitleText = ""
     @Published var subtitleNote: String?
+    @Published var subtitleStyle: JSONValue = .null
+    @Published var subtitleStyleError: String?
+    @Published private var subtitleStyleWork: Task<Void, Never>?
     @Published var episodes: [MediaItem] = []
     @Published var queueLoading = true
     @Published var queueError: String?
@@ -28,9 +33,14 @@ import SwiftUI
     @Published var versionError: String?
     @Published var skipInfo: PlaybackSkip?
     @Published var skipError: String?
+    @Published var markers: SkipMarkerSelection?
+    @Published var markerBusy = false
+    @Published var markerError: String?
+    private var markerWork: Task<Void, Never>?
     private var skipWork: Task<Void, Never>?
     private var skipSeekWork: Task<Void, Never>?
     private var skippedEnds = Set<Double>()
+    private var suppressSavedSkip = false
     private var queueWork: Task<Void, Never>?
     private var versionWork: Task<Void, Never>?
     private let initialAudio: InitialAudio?
@@ -55,7 +65,9 @@ import SwiftUI
     private var loadingEngine = false
     private var trackWasPaused = false
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal") {
+        self.speedScope = speedScope
+        danmaku = TVDanmakuSession(api: api, item: item)
         initialAudio = audio; initialSubtitle = subtitle
         self.api = api; self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
         do {
@@ -110,10 +122,9 @@ import SwiftUI
         return engine.audioTracks.count > 1 && engine.videoRoute != .remoteBypass && engine.canSeek
     }
     var textTracks: [TrackInfo] {
-        (engine?.subtitleTracks ?? []).filter { Self.plainCodec($0.codec) && !$0.isNativelyRenderedSubtitle }
+        engine?.subtitleTracks ?? []
     }
-    var unsupportedSubtitleCount: Int { (engine?.subtitleTracks.count ?? 0) - textTracks.count }
-    private static func plainCodec(_ codec: String) -> Bool { ["subrip", "srt", "webvtt", "mov_text", "text"].contains(codec.lowercased()) }
+    @Published private(set) var unsupportedSubtitleCount = 0
 
     func start() async {
         guard startWork == nil, !closing, engine != nil else { return }
@@ -129,7 +140,8 @@ import SwiftUI
         do {
             let prefs = try await api.request("prefs.getPrefs")
             trackPrefs = prefs
-            let result = try await api.play(item: item, version: version, fromStart: fromStart)
+            loadSubtitleStyle()
+            let result = try await api.play(item: item, version: version, fromStart: fromStart, speedScope: speedScope)
             resolved = true
             actualVersion = result.media_source_id
             guard !closing else { loading = false; return }
@@ -141,25 +153,28 @@ import SwiftUI
                 switch sub.mime_type?.lowercased() {
                 case "text/vtt": hint = "vtt"
                 case "application/x-subrip": hint = "srt"
-                default: hint = ["srt", "vtt"].contains(url.pathExtension.lowercased()) ? url.pathExtension.lowercased() : nil
+                case "text/x-ass", "text/x-ssa", "application/x-ass", "application/x-ssa": hint = "ass"
+                default: hint = ["srt", "vtt", "ass", "ssa"].contains(url.pathExtension.lowercased()) ? url.pathExtension.lowercased() : nil
                 }
                 guard let hint else { unsupported += 1; return nil }
                 // 核心地址自带资源鉴权；禁止把主服 token 额外加到跨源字幕请求。
                 return ExternalSubtitleTrack(url: url, name: sub.title, language: sub.lang, isDefault: false, httpHeaders: [:], formatHint: hint)
             }
-            if unsupported > 0 { subtitleNote = "部分样式或位图字幕暂不支持。" }
-            let options = LoadOptions(httpHeaders: [:], externalSubtitles: external, autoplay: false)
+            unsupportedSubtitleCount = unsupported
+            if unsupported > 0 { subtitleNote = "部分外挂字幕格式无法识别。" }
+            let options = LoadOptions(httpHeaders: [:], preserveASSMarkup: true, externalSubtitles: external, autoplay: false)
             loadingEngine = true
             defer { loadingEngine = false }
             _ = try await engine.load(url: url, startPosition: result.resume_secs, options: options)
             try Task.checkCancellation()
             engine.clearSubtitle()
-            let preferredSpeed = Float(prefs["default_speed"].number ?? 1)
+            let preferredSpeed = Float(prefs[speedScope == "liuying" ? "liuying_speed" : "default_speed"].number ?? 1)
             speed = min(max(preferredSpeed, 0.25), engine.maxSupportedRate)
             engine.setRate(speed)
             loading = false
             applyTrackPreferences()
             loadSkip()
+            if speedScope != "liuying" { danmaku.resolve() }
             if !closing && !suspended { engine.play() }
             if !closing {
                 ticker = Task { [weak self] in
@@ -221,12 +236,12 @@ import SwiftUI
     }
 
     func loadSkip() {
-        guard skipWork == nil, !loading, !closing, let duration = engine?.duration, duration.isFinite, duration > 0 else { return }
+        guard skipWork == nil, !markerBusy, !loading, !closing, let duration = engine?.duration, duration.isFinite, duration > 0 else { return }
         skipWork = Task {
             do {
                 let info = try await api.request("player.chapterInfo", ["item_id": .string(item), "runtime_secs": .number(duration)]).decode(PlaybackSkip.self)
                 guard !closing, !Task.isCancelled else { return }
-                skipInfo = info; skipError = nil; updateSkip()
+                acceptSkip(info); updateSkip()
             } catch is CancellationError {} catch { if !closing { skipError = "片头片尾信息加载失败，可重试。" } }
         }
     }
@@ -235,17 +250,73 @@ import SwiftUI
 
     private func updateSkip() {
         if skipWork == nil { loadSkip() }
-        guard !suspended, !paused, skipInfo?.skip_auto == true,
+        guard !markerBusy, !suspended, !paused, skipInfo?.skip_auto == true,
               let range = activeSkip, !skippedEnds.contains(range.end) else { return }
         skip(range)
     }
 
     func skip(_ range: PlaybackSkip.Range) {
-        guard canSeek, skipSeekWork == nil else { return }
+        guard !markerBusy, canSeek, skipSeekWork == nil else { return }
         skippedEnds.insert(range.end)
         skipSeekWork = Task {
             await seek(to: range.end)
             skipSeekWork = nil
+        }
+    }
+
+    func loadMarkers(scope: String? = nil) {
+        guard !markerBusy, !closing, let duration = engine?.duration, duration.isFinite, duration > 0 else { return }
+        let selected = scope ?? markers?.scope ?? "auto"
+        markerBusy = true; markerError = nil; markers = nil
+        markerWork = Task {
+            defer { markerBusy = false; markerWork = nil }
+            do {
+                let value = try await api.request("player.getSkipRange", ["item_id": .string(item), "scope": .string(selected), "runtime_secs": .number(duration)]).decode(SkipMarkerSelection.self)
+                if !closing { markers = value }
+            } catch is CancellationError {} catch { if !closing { markerError = error.localizedDescription } }
+        }
+    }
+
+    func mark(_ action: String) {
+        guard !markerBusy, !closing, let markers, let engine, canSeek,
+              engine.currentTime.isFinite, engine.duration.isFinite, engine.duration > 0 else { return }
+        let position = engine.currentTime, duration = engine.duration
+        markerBusy = true; markerError = nil
+        markerWork = Task {
+            defer { markerBusy = false; markerWork = nil }
+            do {
+                let value = try await api.request("player.setSkipRange", ["item_id": .string(item), "scope": .string(markers.scope),
+                    "action": .string(action), "position": .number(position), "runtime_secs": .number(duration)]).decode(SkipMarkerSelection.self)
+                guard !closing else { return }
+                self.markers = value; suppressSavedSkip = true
+                skipWork?.cancel(); await skipWork?.value; skipWork = nil
+                skipInfo = nil; skippedEnds.removeAll()
+                let info = try await api.request("player.chapterInfo", ["item_id": .string(item), "runtime_secs": .number(duration)]).decode(PlaybackSkip.self)
+                guard !closing else { return }
+                acceptSkip(info)
+            } catch is CancellationError {} catch { if !closing { markerError = error.localizedDescription } }
+        }
+    }
+
+    private func acceptSkip(_ info: PlaybackSkip) {
+        skipInfo = info; skipError = nil
+        // 刷新失败后也保留抑制，保存操作不能在重试时触发跳转。
+        if suppressSavedSkip {
+            if let engine, let range = info.active(at: engine.currentTime, duration: engine.duration) { skippedEnds.insert(range.end) }
+            suppressSavedSkip = false
+        }
+    }
+
+    func setSkipAuto(_ enabled: Bool) {
+        guard !markerBusy, !closing else { return }
+        markerBusy = true; markerError = nil
+        markerWork = Task {
+            defer { markerBusy = false; markerWork = nil }
+            do {
+                _ = try await api.request("player.setPlaybackPrefs", ["skip_auto": .bool(enabled)])
+                guard !closing else { return }
+                markerBusy = false; skipInfo = nil; retrySkip()
+            } catch is CancellationError {} catch { if !closing { markerError = error.localizedDescription } }
         }
     }
 
@@ -257,7 +328,7 @@ import SwiftUI
         speedWork = Task {
             defer { speedWork = nil }
             do {
-                _ = try await api.request("player.setPlaybackPrefs", ["default_speed": .number(Double(value))])
+                _ = try await api.request("player.setPlaybackPrefs", [speedScope == "liuying" ? "liuying_speed" : "default_speed": .number(Double(value))])
                 guard !closing else { return }
                 speed = value; engine.setRate(value)
                 if message == "倍率保存失败，请重试。" { message = nil }
@@ -276,6 +347,13 @@ import SwiftUI
         default: engine.videoGravity = .resizeAspect
         }
         pictureMode = mode
+    }
+
+    func setMuted(_ muted: Bool) { engine?.volume = muted ? 0 : 1 }
+    func restart() async {
+        guard canSeek else { return }
+        await seek(to: 0)
+        if !closing && !suspended { engine?.play() }
     }
 
     func toggle() {
@@ -315,6 +393,27 @@ import SwiftUI
                 }
             }
             self?.message = "音轨切换未完成，请重试或返回。"
+        }
+    }
+
+    var canChangeSubtitleStyle: Bool { !closing && subtitleStyle != .null && subtitleStyleWork == nil }
+    func loadSubtitleStyle() {
+        guard !closing, subtitleStyleWork == nil else { return }
+        subtitleStyleWork = Task {
+            defer { subtitleStyleWork = nil }
+            do { let value = try await api.request("player.getSubStyle"); if !closing { subtitleStyle = value; subtitleStyleError = nil } }
+            catch is CancellationError {} catch { if !closing { subtitleStyleError = error.localizedDescription } }
+        }
+    }
+    func setSubtitleStyle(_ key: String, _ value: JSONValue) {
+        guard canChangeSubtitleStyle else { return }
+        subtitleStyleWork = Task {
+            defer { subtitleStyleWork = nil }
+            do {
+                _ = try await api.request("player.setSubStyle", [key: value])
+                let result = try await api.request("player.getSubStyle")
+                if !closing { subtitleStyle = result; subtitleStyleError = nil }
+            } catch is CancellationError {} catch { if !closing { subtitleStyleError = error.localizedDescription } }
         }
     }
 
@@ -382,15 +481,7 @@ import SwiftUI
     private func refreshSubtitles(at time: Double? = nil) {
         guard !closing, let engine else { subtitleText = ""; return }
         let now = time ?? engine.sourceTime
-        let cues = engine.subtitleCues.filter { $0.startTime <= now && now < $0.endTime }
-        var lines: [String] = []
-        for cue in cues {
-            guard case .text(let text) = cue.body else {
-                engine.clearSubtitle(); subtitleText = ""; subtitleNote = "这条字幕包含样式或位图，暂不支持。"; return
-            }
-            lines.append(text)
-        }
-        let text = lines.joined(separator: "\n")
+        let text = engine.subtitleCues.filter { $0.startTime <= now && now < $0.endTime }.compactMap(\.text).joined(separator: "\n")
         if subtitleText != text { subtitleText = text }
     }
 
@@ -426,6 +517,9 @@ import SwiftUI
         closeWork = Task {
             await startWork?.value
             await speedWork?.value
+            await markerWork?.value
+            await subtitleStyleWork?.value
+            await danmaku.close()
             let pos = max(lastPosition, engine?.currentTime ?? 0)
             engine?.stop(); subtitleText = ""
             await reportWork?.value

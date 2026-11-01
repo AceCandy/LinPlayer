@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 162
+- **Total Sessions**: 164
 - **Last Active**: 2026-11-01
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~849 | Active |
+| `journal-4.md` | ~907 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,8 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 164 | 2026-11-01 | 完成 tvOS Android TV 对齐实现与代码审查 | `00fd773f` | `refactor/settings-cleanup` |
+| 163 | 2026-11-01 | 设置精简与附加功能移除审查归档 | `226bae09` | `refactor/settings-cleanup` |
 | 162 | 2026-11-01 | 播放优化审查与缓存诊断归档 | `26fbe7a0` | `main` |
 | 161 | 2026-10-31 | 完成 Hills 起播缓存优化审核与归档 | `6f4593d5` | `main` |
 | 160 | 2026-10-31 | 起播优化代码复核 | `3f9cfcd7` | `main` |

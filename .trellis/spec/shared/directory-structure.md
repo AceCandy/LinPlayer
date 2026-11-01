@@ -10,7 +10,7 @@
 | `apps/tvos/` | 开发中的 SwiftUI / UIKit tvOS 外壳与原生工程 |
 | `bindings/csharp/`、`bindings/kotlin/`、`bindings/swift/` | 从命令表生成的绑定及绑定验证工程 |
 | `third_party/libmpv/` | 链接所需头文件与导入库；可拉取的运行库不入仓 |
-| `oauth-proxy/` | OAuth 中转与官网静态站 |
+| `oauth-proxy/` | 问题反馈 / 崩溃报告、徽章服务与官网静态站 |
 | `scripts/` | 构建、打包、生成与门禁的可执行入口 |
 | `docs/` | 面向开发者的概览、设计正本、草稿与历史经验 |
 | `.trellis/spec/` | 当前规范正文，见 [总索引](../index.md) |

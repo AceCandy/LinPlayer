@@ -22,9 +22,8 @@ sys.stdout.reconfigure(encoding="utf-8")
 #   于是那些文件「读不到」—— 而上一版是**静默跳过**的,门禁照样报绿。
 sys.stdin.reconfigure(encoding="utf-8", errors="surrogateescape")
 
-# ☠ 不许把 `ts` 放进来:本意是 MPEG-TS 切片,而它同时是**所有插件源码**的后缀。
-# 放进来之后 plugins/ 下一整棵 TypeScript 全部不扫 —— 自测时往 .ts 里塞一条
-# 假地址,门禁照样绿。真的 .ts 视频切片不会进仓库。
+# ☠ 不许把 `ts` 放进来:它既是 MPEG-TS 切片,也是 TypeScript 源码的后缀。
+# 放进来会漏扫源码中的敏感值。真的 .ts 视频切片不会进仓库。
 SKIP_EXT = re.compile(
     r"\.(png|jpg|jpeg|gif|webp|ico|svg|ttf|otf|woff2?|zip|gz|xz|apk|aab|dll|so|dylib"
     r"|exe|bin|jar|lock|sum|pdf|mp4|mkv|class|dex|kotlin_module)$",

@@ -1,22 +1,10 @@
 package interp
 
-import (
-	"archive/zip"
-	"bytes"
-	"context"
-	"crypto/sha256"
-	"encoding/hex"
-	"net/http"
-	"net/http/httptest"
-	"os"
-	"path/filepath"
-	"testing"
-	"time"
-)
+import "testing"
 
 func TestWhyNot(t *testing.T) {
-	two := Spec{Algo: "drba", Multi: 2}
-	three := Spec{Algo: "drba", Multi: 3}
+	two := Spec{Algo: "ocl", Multi: 2}
+	three := Spec{Algo: "ocl", Multi: 3}
 	cases := []struct {
 		name     string
 		spec     Spec
@@ -38,27 +26,6 @@ func TestWhyNot(t *testing.T) {
 	}
 }
 
-func TestUnzip拒绝逃出目录的条目(t *testing.T) {
-	dir := t.TempDir()
-	for name, wantErr := range map[string]bool{"ok/a.txt": false, "../evil.txt": true} {
-		zp := filepath.Join(dir, "p.zip")
-		f, _ := os.Create(zp)
-		zw := zip.NewWriter(f)
-		w, _ := zw.Create(name)
-		w.Write([]byte("x"))
-		zw.Close()
-		f.Close()
-		out := filepath.Join(dir, "out")
-		err := unzip(zp, out)
-		if (err != nil) != wantErr {
-			t.Errorf("%s:err=%v,期望报错=%v", name, err, wantErr)
-		}
-		if _, e := os.Stat(filepath.Join(dir, "evil.txt")); e == nil {
-			t.Fatalf("%s 被写到了目录外面", name)
-		}
-	}
-}
-
 // 「倍」按补了几倍叫:24→48 是补 1 倍【用户定 2026-09-17】。内部 multi=2 不变。
 func TestMultiName按补几倍叫(t *testing.T) {
 	if got := MultiName(2); got != "补 1 倍" {
@@ -72,33 +39,5 @@ func TestMultiName按补几倍叫(t *testing.T) {
 	}
 	if FPSNote(2, 0) != "" {
 		t.Fatal("片源帧率未知时不该给帧数")
-	}
-}
-
-// 多线程分段下载:内容必须逐字节落在 [off, off+size),前面的字节不能被碰。
-func TestDownloadRanged落在对的偏移(t *testing.T) {
-	data := make([]byte, 3<<20+123)
-	for i := range data {
-		data[i] = byte(i*31 + i>>8)
-	}
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		http.ServeContent(w, r, "v", time.Time{}, bytes.NewReader(data))
-	}))
-	defer srv.Close()
-	out := filepath.Join(t.TempDir(), "pkg")
-	const off = 1000
-	if err := os.WriteFile(out, bytes.Repeat([]byte{7}, off), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	if err := downloadRanged(context.Background(), srv.URL, out, off, int64(len(data)), nil); err != nil {
-		t.Fatal(err)
-	}
-	got, _ := os.ReadFile(out)
-	if !bytes.Equal(got[off:], data) || !bytes.Equal(got[:off], bytes.Repeat([]byte{7}, off)) {
-		t.Fatal("分段下载的内容或位置不对")
-	}
-	want := sha256.Sum256(data)
-	if sum, _ := sha256Range(out, off, int64(len(data))); sum != hex.EncodeToString(want[:]) {
-		t.Fatal("区段 sha256 不对")
 	}
 }

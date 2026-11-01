@@ -116,12 +116,6 @@ public sealed class PlayerPage : UserControl
     /* 弹幕层。**画在这棵树里,不交给 mpv**(见 DanmakuLayer 的类注释)。
        它排在 _view 之后、_top 之前:压在画面上、被 OSD 压住。 */
     private readonly DanmakuLayer _dm = new();
-    /* 插件覆盖层那一格(SPEC 9.5)。排在 _dm 之后、_top 之前:压在画面与弹幕上,
-       但压不住官方控制条 —— 覆盖层不是 OSD 接管(那是 osd[] 贡献点),
-       盖住控制条等于把暂停和进度条一起弄没了。 */
-    private readonly Panel _overlays = new();
-    /// <summary>侧栏里的插件标签(<c>playerPanels</c>)。进页拉一次,打开侧栏时交给它。</summary>
-    private IReadOnlyList<PlayerSurfaceInfo> _pluginPanels = [];
     /// <summary>进度条。 自绘,不是 Slider —— 理由见 <see cref="PlayerBar"/> 的注释。</summary>
     private readonly PlayerBar _bar = new();
     /// <summary>悬停/拖动时浮在进度条上方的时间气泡。</summary>
@@ -163,7 +157,7 @@ public sealed class PlayerPage : UserControl
     /// <summary>音轨 / 字幕 / 画面增强那一盘。 平铺在控制条上的话底下一整行都是下拉框,
     /// 那是设置面板不是 OSD;而且它们**看片时基本不动**,不该长期占着画面。</summary>
     /// <summary>增强弹层的锚点。快捷键 U 也走它 —— 键和按钮同一条路。</summary>
-    private Button _qualityBtn = null!, _aspectBtn = null!, _audioBtn = null!, _subsBtn = null!, _lineBtn = null!;
+    private Button _qualityBtn = null!, _aspectBtn = null!, _audioBtn = null!, _subsBtn = null!;
     /// <summary>正开着的那个弹层。自检要能把它关掉,别的地方不该碰。</summary>
     private Flyout? _openFlyout;
     /// <summary>正开着的弹层里那几行。自检要点其中一行 —— 弹层住在另一棵可视树里,
@@ -275,12 +269,6 @@ public sealed class PlayerPage : UserControl
     /// <summary>只保存显示目标和提交顺序，不覆盖真实 _position。</summary>
     private readonly PlaybackSeek _seek;
 
-    /// <summary>这一条是不是文件浏览型源的条目(走 source.play)。</summary>
-    private readonly bool _isSource;
-
-    /// <summary>插件数据源的一次播放(线路 + 集);null = 不是数据源。起播走 source.playItem。</summary>
-    private readonly SourcePlay? _src;
-
     /// <summary>
     /// 播的是<b>已经下载到本地的文件</b>(下载页点进来的),走 <c>player.playLocal</c>。
     ///
@@ -291,20 +279,14 @@ public sealed class PlayerPage : UserControl
     /// </summary>
     private readonly bool _isLocal;
 
-    /// <summary>这一场播放<b>没有 Emby 会话</b>(源播放 / 本地文件)。
+    /// <summary>这一场播放<b>没有 Emby 会话</b>(本地文件)。
     /// 章节、进度上报、停播上报这些要 server/token 的事全靠它挡。</summary>
-    private bool NoEmby => _isSource || _isLocal;
+    private bool NoEmby => _isLocal;
 
     private readonly string _title = "";
 
     /// <summary>
     /// 播放页。
-    ///
-    /// <para><paramref name="isSource"/> = true 表示这是**文件浏览型源**的条目
-    /// (网盘 / 局域网 / 本地),走 <c>source.play</c> 而不是 <c>player.play</c>。</para>
-    ///
-    /// <para>两条起播路的差别只在这一句上,别的(OSD、快捷键、进度、轨道)全共用 ——
-    /// 另开一个「源播放页」等于把这些再实现一遍,还得再维护一遍。</para>
     /// </summary>
     /// <param name="mediaSourceId">
     /// 指定播哪一个版本(MediaSource)。空 = 交给核心层按版本正则挑。
@@ -340,12 +322,11 @@ public sealed class PlayerPage : UserControl
     /// (<c>account.listAccounts</c> 故意不带),会话由核心层按 id 解析。</para>
     /// </param>
     public PlayerPage(CoreClient core, string itemId, string title, double resumeSecs,
-        bool isSource = false, string mediaSourceId = "",
+        string mediaSourceId = "",
         int audioIndex = -1, int subIndex = -1, bool isLocal = false,
-        string serverId = "", SourcePlay? src = null, Func<Task>? onCompleted = null, InitialSubtitle? initialSubtitle = null)
+        string serverId = "", Func<Task>? onCompleted = null, InitialSubtitle? initialSubtitle = null)
     {
         _onCompleted = onCompleted;
-        _src = src;
         _serverId = serverId;
         _isLocal = isLocal;
         _wantAudioIndex = audioIndex;
@@ -366,7 +347,6 @@ public sealed class PlayerPage : UserControl
             return DmLayout.Parse(reply);
         }, ct);
         _seek = new PlaybackSeek(to => _core.PlayerSeek(new { pos = to }));
-        _isSource = isSource || src is not null;
         _title = title;
         _itemId = itemId;
         _frames = new Thumbs(core);
@@ -573,21 +553,13 @@ public sealed class PlayerPage : UserControl
         // 下一集。 没有下一集就**整个不画**,不摆一个灰着的按钮
         _nextBtn = Glyph(Ico.Next, "下一集(N)");
         _nextBtn.Click += async (_, _) => await GoNext();
-        // 数据源:播放页内切线路(保持集数与进度,D54 D464)与换源(D232)
-        var lineBtn = _lineBtn = Osd("线路", "换线路(保持集数和进度)");
-        lineBtn.IsVisible = _src is not null;
-        lineBtn.Click += (_, _) => ShowSourceLines(lineBtn);
-        // Emby 的片也能换到数据源看(D525)
-        var switchBtn = Osd("换源", "去别的源找这一集");
-        switchBtn.IsVisible = _src is not null || (!NoEmby && !_isLocal && !_isSource && _itemId != "");
-        switchBtn.Click += (_, _) =>
-        {
-            if (_src is { } sp) SwitchSource.Show(this, _core, sp.ServerId, sp.Item, sp.LineId, SrcIndex(), _position);
-            else _ = SwitchSource.ShowForEmby(this, _core, _itemId, _position);
-        };
+        // 换源:去其它允许聚合的 Emby 服务器找这一部(D233)
+        var switchBtn = Osd("换源", "去别的服务器找这一集");
+        switchBtn.IsVisible = !NoEmby && _itemId != "";
+        switchBtn.Click += (_, _) => _ = SwitchSource.ShowForEmby(this, _core, _itemId);
 
-        // 章节和插件共用侧栏，只有可展示内容时才显示入口。
-        _drawerBtn = Glyph(Ico.Episodes, "章节 / 插件面板");
+        // 章节侧栏，只有可展示内容时才显示入口。
+        _drawerBtn = Glyph(Ico.Episodes, "章节");
         _drawerBtn.IsVisible = false;
         _drawerBtn.Click += (_, _) => ShowDrawer();
 
@@ -613,7 +585,7 @@ public sealed class PlayerPage : UserControl
            这几个用**文字**不用图标:「增强」「比例」没有公认的图标,
              随手挑一个 MDL2 字形的结果是用户得靠试才知道它是什么
              (而且字体里没有那个码位时画出来是个空心方框,还编译绿)。 */
-        _qualityBtn = Osd("增强", "画质增强 / 补帧(U)");
+        _qualityBtn = Osd("增强", "画质增强(U)");
         _qualityBtn.Click += (_, _) => ShowEnhance();
         _aspectBtn = Osd("比例", "画面比例");
         _aspectBtn.Click += (_, _) => Pick(_aspectBtn, _aspect, "画面比例", null, true);
@@ -725,7 +697,7 @@ public sealed class PlayerPage : UserControl
             VerticalAlignment = VerticalAlignment.Center,
             Children = { _pause, back10, fwd10 },
         };
-        _nextBtn.IsVisible = SrcNext() is not null;
+        _nextBtn.IsVisible = false;
         left.Children.Add(_nextBtn);
         left.Children.Add(_volBox);
         left.Children.Add(clock);
@@ -735,7 +707,7 @@ public sealed class PlayerPage : UserControl
             Orientation = Orientation.Horizontal, Spacing = 6,
             HorizontalAlignment = HorizontalAlignment.Right,
             VerticalAlignment = VerticalAlignment.Center,
-            Children = { lineBtn, switchBtn, _drawerBtn, _speed, _audioBtn, subsBtn, dmBtn, full },
+            Children = { switchBtn, _drawerBtn, _speed, _audioBtn, subsBtn, dmBtn, full },
         };
         var controls = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
         Grid.SetColumn(left, 0);
@@ -884,7 +856,7 @@ public sealed class PlayerPage : UserControl
             Background = Brushes.Black,
             // 气泡排在 _bottom <b>之后</b> —— 它要画在控制条上面,而不是被压在下面
             // 弹幕搜索排在 _bottom 之后:它是「旁边那扇窗」,不该被控制条压住
-            Children = { _view, _dm, _overlays, _top, _bottom, _lock, _dmPanel, _skip, _bubble },
+            Children = { _view, _dm, _top, _bottom, _lock, _dmPanel, _skip, _bubble },
         };
         _root = root;
         /* 一圈发丝边:窗口化时画面四周是黑的,和桌面、别的黑窗口分不出边界,
@@ -917,7 +889,6 @@ public sealed class PlayerPage : UserControl
                原来只有按 F 进全屏才收 —— 不全屏看片时左边一直杵着导航栏,
                而那上面每一个入口点下去都会把正在放的片子扔掉。 */
             Nav.Immersive?.Invoke(true);
-            _ = LoadPluginSurfaces();
             // 播放页底下是控制条和进度条,轻提示压在上面既挡进度条又会被人去点
             Toast.AtTop = true;
         };
@@ -1020,10 +991,6 @@ public sealed class PlayerPage : UserControl
            绕开 UI 直接调命令的自检只能证明核心层活着,证明不了这个面板接对了。 */
         var lvl = Environment.GetEnvironmentVariable("LP_SELFCHECK_SHADER");
         if (!string.IsNullOrEmpty(lvl)) _ = SelfCheckPickQuality(lvl);
-        var interpLvl = Environment.GetEnvironmentVariable("LP_SELFCHECK_INTERP");
-        if (!string.IsNullOrEmpty(interpLvl)) _ = SelfCheckInterp(interpLvl);
-        _core.OnEvent += OnInterpEvent;
-        DetachedFromVisualTree += (_, _) => _core.OnEvent -= OnInterpEvent;
         SelfCheckOsdFade();
         SelfCheckThumb();
         SelfCheckAvSync();
@@ -1138,7 +1105,7 @@ public sealed class PlayerPage : UserControl
         catch (Exception e) { _msg.Text = "截图失败:" + LibraryPage.Advice(e); }
     }
 
-    /// <summary>章节与插件侧栏入口，没有内容时隐藏。</summary>
+    /// <summary>章节侧栏入口，没有内容时隐藏。</summary>
     private Button _drawerBtn = null!;
 
     /// <summary>当前季的分集表(按集号排好)。空 = 还没拉到,或者这根本不是剧集。</summary>
@@ -1147,7 +1114,7 @@ public sealed class PlayerPage : UserControl
     /// <summary>实时读取当前季队列，供下一集与连播使用。</summary>
     private async Task<bool> LoadEpisodes()
     {
-        if (NoEmby || _isLocal || _isSource || _itemId == "" || Nav.Session is not { } s) return true;
+        if (NoEmby || _itemId == "" || Nav.Session is not { } s) return true;
         try
         {
             var result = await _core.EmbyPlaybackSeason(new
@@ -1173,51 +1140,21 @@ public sealed class PlayerPage : UserControl
         }
     }
 
-    private bool _pluginSurfacesAsked;
-
-    /// <summary>
-    /// 挂插件的覆盖层、记下侧栏页(SPEC 9.5)。
-    ///
-    /// <para>只拉一次:表只随装/停用插件变,而那两件事都要重启。
-    /// 卸载不在这里 —— <see cref="PluginSurface"/> 自己挂在 attach/detach 上,
-    /// 离开播放页时整棵子树一起摘,换片之后不会留着上一场的层。</para>
-    /// </summary>
-    private async Task LoadPluginSurfaces()
-    {
-        if (BrowseSpace.IsPrivate) return;
-        if (_pluginSurfacesAsked) return;
-        _pluginSurfacesAsked = true;
-        var overlays = await PlayerSurfaces.Load(_core, "overlay");
-        var panels = await PlayerSurfaces.Load(_core, "panel");
-        Dispatcher.UIThread.Post(() =>
-        {
-            foreach (var s in overlays)
-                if (PlayerSurfaces.Overlay(_core, s) is { } c) _overlays.Children.Add(c);
-            _pluginPanels = panels;
-            // 插件面板也需要可见入口。
-            if (panels.Count > 0 && !_drawerBtn.IsVisible)
-            {
-                _drawerBtn.IsVisible = true;
-                ToolTip.SetTip(_drawerBtn, "插件面板");
-            }
-        });
-    }
-
-    /// <summary>右侧章节与插件面板。开着时它就是这个;关着是 null。</summary>
+    /// <summary>右侧章节面板。开着时它就是这个;关着是 null。</summary>
     private PlayerDrawer? _drawer;
 
     /// <summary>
-    /// 章节与插件栏:贴右边滑出来,见 <see cref="PlayerDrawer"/>。再按一次 / Esc / 点画面收起。
+    /// 章节栏:贴右边滑出来,见 <see cref="PlayerDrawer"/>。再按一次 / Esc / 点画面收起。
     /// </summary>
     private void ShowDrawer()
     {
         if (_drawer is not null) { CloseDrawer(); return; }
         var chapters = (_chapters.ItemsSource?.Cast<ChapterOption>() ?? [])
             .Select(c => (c.At, c.Label)).ToList();
-        if (chapters.Count == 0 && _pluginPanels.Count == 0) return;
-        var d = new PlayerDrawer(_core, chapters,
+        if (chapters.Count == 0) return;
+        var d = new PlayerDrawer(chapters,
             at => _ = SeekTo(at),
-            CloseDrawer, _pluginPanels);
+            CloseDrawer);
         // 出场先摆在屏外,下一帧再给终值 —— 同一帧里设两次,过渡读不到「变过」
         PlayerDrawer.Slide(d, false);
         d.Transitions = Fade(OsdInMs);
@@ -1260,12 +1197,6 @@ public sealed class PlayerPage : UserControl
         finished |= _finishing;
         try {
             if (finished && _onCompleted is not null) { Stop(); await _onCompleted(); return; }
-            if (_src is not null && SrcNext() is { } n && !finished) {
-                Stop();
-                _leaving = true;
-                Nav.Replace(new PlayerPage(_core, n.EpisodeId, $"{Mi.Str(n.Item, "title")} {n.Label}".Trim(), 0, src: n));
-                return;
-            }
             if (_episodesTask is { IsCompletedSuccessfully: true } && !_episodesTask.Result)
                 _episodesTask = null;
             if (!await (_episodesTask ??= LoadEpisodes())) {
@@ -1829,31 +1760,13 @@ public sealed class PlayerPage : UserControl
         resumeSecs = Math.Max(resumeSecs, 0);
         try
         {
-            if (_src is { } sp)
-            {
-                // resume 给 0 = 让核心层按观看记录定;换源 / 切线路带过来的进度才显式送
-                if (resumeSecs > 0)
-                    await _core.SourcePlayItem(new { server_id = sp.ServerId, item = sp.Item, line_id = sp.LineId, episode_id = sp.EpisodeId, resume_secs = resumeSecs });
-                else
-                    await _core.SourcePlayItem(new { server_id = sp.ServerId, item = sp.Item, line_id = sp.LineId, episode_id = sp.EpisodeId });
-            }
-            else if (_isLocal)
+            if (_isLocal)
             {
                 /* 本地文件那条路:核心层自己按下载任务 id 找到落盘路径,
                    还会再 stat 一次确认文件真的在(用户可能手动删了 / 挪走了)。
                    不走代理、不走预取 —— 它已经在本地了。 */
                 await _core.CallAsync("player.playLocal",
                     new { id = itemId, resume_secs = resumeSecs });
-            }
-            else if (_isSource)
-            {
-                /* 源播放**没有 Emby 会话**:网盘 / 局域网 / 本地源根本没有 server/token。
-                   硬塞 Nav.Session 的话,网盘用户那边 Session 是 null,
-                   这里会抛在 Task 里 —— 没提示、不崩、就是永远停在黑屏。 */
-                await _core.SourcePlay(new
-                {
-                    entry_id = itemId, entry_name = _title, resume_secs = resumeSecs,
-                });
             }
             else
             {
@@ -1873,68 +1786,7 @@ public sealed class PlayerPage : UserControl
         {
             if (_seek.Stopped) return;
             _msg.Text = $"起播失败:{LibraryPage.Advice(e)}";
-            // 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)
-            if (_src is { } sp) Dispatcher.UIThread.Post(() => SwitchSource.Show(this, _core, sp.ServerId, sp.Item, sp.LineId, SrcIndex(), 0));
         }
-    }
-
-    // ---------------------------------------------------------------- 数据源:线路与下一集
-
-    private List<JsonElement> SrcEpisodes(string lineId)
-    {
-        if (_src is null) return [];
-        foreach (var l in Mi.Arr(_src.Item, "lines"))
-            if (Mi.Str(l, "id") == lineId) return Mi.Arr(l, "episodes");
-        return [];
-    }
-
-    /// <summary>当前这一集的序号(换源 / 切线路按集序号对应,D464)。</summary>
-    private int SrcIndex()
-    {
-        if (_src is null) return 0;
-        var eps = SrcEpisodes(_src.LineId);
-        var i = eps.FindIndex(e => Mi.Str(e, "id") == _src.EpisodeId);
-        if (i < 0) return 0;
-        return Mi.Num(eps[i], "index") is var n && n > 0 ? (int)n : i + 1;
-    }
-
-    /// <summary>下一集:同线路、按选集格的正序(D460),最后一集就没有。</summary>
-    private SourcePlay? SrcNext()
-    {
-        if (_src is null) return null;
-        var eps = SrcEpisodes(_src.LineId);
-        var i = eps.FindIndex(e => Mi.Str(e, "id") == _src.EpisodeId);
-        if (i < 0 || i + 1 >= eps.Count) return null;
-        var n = eps[i + 1];
-        return _src with { EpisodeId = Mi.Str(n, "id"), Label = Mi.Str(n, "label") is { Length: > 0 } lb ? lb : Mi.Str(n, "name") };
-    }
-
-    private void ShowSourceLines(Button anchor)
-    {
-        if (_src is not { } sp) return;
-        var idx = SrcIndex();
-        var items = new List<(string Label, Action? Go)>();
-        var lines = Mi.Arr(sp.Item, "lines");
-        var focus = -1;
-        foreach (var l in lines)
-        {
-            var id = Mi.Str(l, "id");
-            var name = Mi.Str(l, "name");
-            if (id == sp.LineId) focus = items.Count;
-            items.Add((name, () =>
-            {
-                if (id == sp.LineId) return;
-                var eps = Mi.Arr(l, "episodes");
-                var hit = eps.FindIndex(e => (Mi.Num(e, "index") is var n && n > 0 ? (int)n : eps.IndexOf(e) + 1) == idx);
-                if (hit < 0) { Toast.Show($"{name} 没有第 {idx} 集"); return; } // 留在原线路(D464)
-                var e = eps[hit];
-                var next = sp with { LineId = id, EpisodeId = Mi.Str(e, "id") };
-                Stop();
-                _leaving = true;
-                Nav.Replace(new PlayerPage(_core, next.EpisodeId, _title, _position, src: next));
-            }));
-        }
-        DetailPage.Flyout(anchor, items, focus);
     }
 
     // ---------------------------------------------------------------- 交互
@@ -1958,18 +1810,11 @@ public sealed class PlayerPage : UserControl
            空格会暂停。隧道阶段页面比输入框先拿到这一下,所以必须在最前面放行。
            看 Source 不看焦点:弹层是另一个顶层窗口,这一页的 FocusManager 看不见它里面的焦点。 */
         if (e.Source is TextBox) return;
-        /* 插件的播放器层在最上面时这一下先归它(D563)。问核心层是异步的,所以先吃掉:
-           不吃的话插件回「我接走了」的那一刻,我们已经把这一下按默认处理完了。
-           它说没接走,PluginShell 会原样把下面两步补上。 */
-        if (PluginShell.PlayerKeyPressed(this, e.Key, e.KeyModifiers)) { e.Handled = true; return; }
         if (KeyDefault(e.Key, e.KeyModifiers)) { e.Handled = true; return; }
         ForwardToMpv(e);
     }
 
-    /// <summary>
-    /// 默认按键处理。<b>只收键值不收事件</b> —— 问完插件回来时事件早走完了,
-    /// 那会儿再去改它的 <c>Handled</c> 一点用都没有。
-    /// </summary>
+    /// <summary>默认按键处理。</summary>
     private bool KeyDefault(Key key, KeyModifiers mods)
     {
         /* 数字键跳到百分之几。 事实标准(0=开头,5=一半)。
@@ -1983,50 +1828,8 @@ public sealed class PlayerPage : UserControl
         return Fire(Actions.Hit(Actions.Player, Actions.Spec(Ev(key, mods))));
     }
 
-    /// <summary>插件没接走:把默认处理补上,包括转发给 mpv 那一步。</summary>
-    internal void KeyFallback(Key key, KeyModifiers mods)
-    {
-        if (!KeyDefault(key, mods)) ForwardToMpv(Ev(key, mods));
-    }
-
     private static KeyEventArgs Ev(Key key, KeyModifiers mods) =>
         new() { Key = key, KeyModifiers = mods, RoutedEvent = KeyDownEvent };
-
-    /// <summary>
-    /// 插件要打开的官方子面板(<c>player.openPanel</c>,D67)。
-    /// 这一端没有的那几档要<b>抛出去</b> —— 静默不动的话插件作者只看得到「点了没反应」,
-    /// 而他在自己那边查不到任何线索。
-    /// </summary>
-    internal void OpenPanel(string panel)
-    {
-        // 弹层挂在 OSD 上那几颗按钮上:条收着的时候先叫出来,否则弹层飘在一片透明上
-        _lastMove = DateTime.UtcNow;
-        ShowOsd(true);
-        switch (panel)
-        {
-            case "subtitles": _subsBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
-            case "audio": _audioBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)); break;
-            case "enhance": ShowEnhance(); break;
-            case "danmaku": ShowDanmakuMenu(_dmBtn); break;
-            case "episodes": throw new NotSupportedException("播放器已移除选集列表，请返回详情页选集");
-            case "lines":
-                if (_src is null) throw new NotSupportedException("这一集不是数据源来的,没有线路可换");
-                ShowSourceLines(_lineBtn);
-                break;
-            case "speed": throw new NotSupportedException("桌面的倍速是一颗按钮(点一下换一档、右键回 1×),没有可打开的倍速面板");
-            default: throw new NotSupportedException($"桌面播放页没有「{panel}」这块面板");
-        }
-    }
-
-    /// <summary>
-    /// 插件自管 OSD 显隐(<c>player.setOsdVisible</c>,D162)。
-    /// <c>_lastMove</c> 要一起改:只改显隐的话轮询那一句过 3 秒又把它收回去了。
-    /// </summary>
-    internal void SetOsdVisible(bool visible)
-    {
-        _lastMove = visible ? DateTime.UtcNow : DateTime.UtcNow.AddYears(-1);
-        ShowOsd(visible);
-    }
 
     /// <summary>
     /// 我们没用掉的键<b>原样交给 mpv</b>,这样用户那份 <c>input.conf</c> 才真能生效。
@@ -2825,14 +2628,6 @@ public sealed class PlayerPage : UserControl
         _frame.BorderThickness = new Thickness(windowed ? 1 : 0);
         _caption.IsVisible = !_full;
     }
-
-    /// <summary>
-    /// 插件 <c>nav.back</c> 落在播放页时走这条(D459)。
-    ///
-    /// <para>不能让它直接 <c>Nav.Back()</c>:那样 mpv 没停、全屏没退,
-    /// 弹出去的只是那棵控件树,留下一个还在出声的孤儿播放器。</para>
-    /// </summary>
-    internal void RequestLeave() => Fire("player.leave");
 
     private void Leave()
     {
@@ -4068,291 +3863,10 @@ public sealed class PlayerPage : UserControl
         public override string ToString() => Name;
     }
 
-    /// <summary>
-    /// 「增强」弹层:上半段画质增强(下拉框摊开),下半段补帧。
-    ///
-    /// <para>两类分开摆是用户定的(2026-09-17):画质增强 / 补帧 / SDR2HDR 三类各管各的,
-    /// 补帧先放进这个弹层,不单开按钮。</para>
-    /// </summary>
-    private void ShowEnhance()
-    {
-        _interpHost = new StackPanel { Spacing = 2, Margin = new Thickness(0, 10, 0, 0) };
-        _ = FillInterp();
-        Pick(_qualityBtn, _quality, "画质增强", _interpHost, true);
-    }
-
-    private StackPanel? _interpHost;
-    private TextBlock? _interpProgress;
-
-    /// <summary>
-    /// 补帧那半段。档位、装没装、为什么不能开,全按核心层给的画 ——
-    /// <c>will_run == false</c> 的档不列(用户:「不生效的选项直接删掉」),
-    /// 一组全被滤掉时把核心层的原因摆出来,免得用户对着一段空白猜。
-    /// </summary>
-    private async Task FillInterp()
-    {
-        var host = _interpHost;
-        if (host is null) return;
-        host.Children.Clear();
-        host.Children.Add(PopupTitle("补帧"));
-        JsonElement st;
-        try { st = await _core.PlayerInterpLevels(); }
-        catch (Exception e) { host.Children.Add(Dimmed(LibraryPage.Advice(e))); return; }
-        if (!Bool(st, "supported")) { host.Children.Add(Dimmed(Str(st, "reason"))); return; }
-        /* 检测到能用 TensorRT 的 N 卡:第一次下载就直接装 N 卡加速版,不让用户先装通用版再装一遍
-           【用户定 2026-09-18:「检测到 N 卡的时候,补帧选择的方案直接就是 N 卡的特供方案」】 */
-        var nvidiaFirst = !Bool(st, "installed") && st.TryGetProperty("trt", out var trt0) &&
-                          trt0.ValueKind == JsonValueKind.Object && Bool(trt0, "available");
-        if (nvidiaFirst)
-        {
-            AddTrtOffer(host, st);
-            return;
-        }
-        if (!Bool(st, "installed"))
-        {
-            var mb = st.TryGetProperty("download_bytes", out var b) && b.TryGetInt64(out var n) ? n / (1 << 20) : 0;
-            host.Children.Add(Dimmed("可选组件含 DirectML/MSVC 等专有许可运行库;N 卡版另含 TensorRT/CUDA,按各组件许可使用。"));
-            host.Children.Add(Dimmed($"第一次用要下载补帧组件(约 {mb} MB),下完以后一直能用。显卡:{Str(st, "gpu")}"));
-            _interpProgress = Dimmed(Bool(st, "installing") ? "正在下载…" : "");
-            var dl = MenuRow("下载补帧组件");
-            dl.Click += async (_, _) =>
-            {
-                dl.IsEnabled = false;
-                _interpProgress.Text = "正在下载…";
-                try
-                {
-                    await _core.PlayerInterpInstall();
-                    Toast.Show("补帧组件已装好");
-                    await FillInterp();
-                }
-                catch (Exception e) { _interpProgress.Text = LibraryPage.Advice(e); dl.IsEnabled = true; }
-            };
-            host.Children.Add(dl);
-            host.Children.Add(_interpProgress);
-            AddTrtOffer(host, st);
-            return;
-        }
-        /* 一种算法一行,倍数横着排(2× 3× 4×)。竖着一档一行的话七档加两个组名,
-           弹层要滚才看得到第二种算法(2026-09-17 截图)。 */
-        var shown = 0;
-        var why = "";
-        var groups = new List<(string Name, StackPanel Bar)>();
-        foreach (var l in st.GetProperty("levels").EnumerateArray())
-        {
-            var id = Str(l, "id");
-            if (l.TryGetProperty("will_run", out var wr) && wr.ValueKind == JsonValueKind.False)
-            {
-                if (why == "") why = Str(l, "note");
-                continue;
-            }
-            var g = Str(l, "group");
-            if (g == "")
-            {
-                var off = MenuRow((Bool(l, "selected") ? "● " : "○ ") + Str(l, "name"));
-                off.Tag = id;
-                off.Click += (_, _) => _ = PickInterp(id, "关闭");
-                host.Children.Add(off);
-                continue;
-            }
-            if (groups.Count == 0 || groups[^1].Name != g)
-                groups.Add((g, new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 }));
-            var b = new Button
-            {
-                Content = Str(l, "name"), Tag = id, // 自检按 id 找按钮点
-                MinWidth = 42, MinHeight = 30, Padding = new Thickness(10, 0, 10, 0),
-                HorizontalContentAlignment = HorizontalAlignment.Center,
-                VerticalContentAlignment = VerticalAlignment.Center,
-            };
-            /* 没选中的用 .osdstep(压在画面上的半透明底,.ghost 的边框在深色弹层上看不见 = 扁平字),
-               选中的用 .ghost.on 的强调色描边 —— 一眼看得出现在开着哪一档。 */
-            if (Bool(l, "selected")) { b.Classes.Add("ghost"); b.Classes.Add("on"); }
-            else b.Classes.Add("osdstep");
-            // 在播时核心层给实际帧数(24→48 帧):「倍」按输出算还是按补的算,用户和我们理解过不一样
-            var fps = Str(l, "fps");
-            if (fps != "") ToolTip.SetTip(b, fps);
-            var label = fps == "" ? $"{g} {Str(l, "name")}" : $"{g} {Str(l, "name")}({fps})";
-            b.Click += (_, _) => _ = PickInterp(id, label);
-            groups[^1].Bar.Children.Add(b);
-            shown++;
-        }
-        foreach (var (name, bar) in groups)
-        {
-            var row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(10, 2, 6, 2) };
-            row.Children.Add(new TextBlock { Text = name, Foreground = Brushes.White, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 14, 0) });
-            Grid.SetColumn(bar, 1);
-            row.Children.Add(bar);
-            host.Children.Add(row);
-        }
-        if (shown == 0 && why != "") host.Children.Add(Dimmed(why));
-        AddTrtOffer(host, st);
-    }
-
-    /// <summary>
-    /// N 卡加速包(TensorRT)的入口。只有 N 卡才有这一段 —— A 卡 / I 卡照旧用通用版,界面上不提。
-    ///
-    /// <para>用户 2026-09-17:5060 上 RIFE 通用版开不起来,「得加入 N 卡特供的版本」,
-    /// 并定了「TensorRT 单独一个 Release,A 卡那些直接默认用」。</para>
-    /// </summary>
-    private void AddTrtOffer(StackPanel host, JsonElement st)
-    {
-        if (!st.TryGetProperty("trt", out var trt) || trt.ValueKind != JsonValueKind.Object) return;
-        if (Bool(trt, "ready"))
-        {
-            host.Children.Add(Dimmed("已启用 N 卡加速(TensorRT)"));
-            return;
-        }
-        if (!Bool(trt, "available"))
-        {
-            if (Str(trt, "reason") != "") host.Children.Add(Dimmed(Str(trt, "reason")));
-            return;
-        }
-        var first = !Bool(st, "installed");
-        host.Children.Add(Dimmed("N 卡加速包含 TensorRT/CUDA 等专有许可组件,按各组件许可使用。"));
-        host.Children.Add(Dimmed(TrtNote(st, trt)));
-        _interpProgress = Dimmed(Bool(trt, "preparing") ? "正在为显卡准备加速引擎…" : Bool(st, "installing") ? "正在下载…" : "");
-        var dl = MenuRow(first ? "下载补帧组件(N 卡加速版)" : "下载 N 卡加速包");
-        dl.IsEnabled = !Bool(st, "installing");
-        dl.Click += async (_, _) =>
-        {
-            dl.IsEnabled = false;
-            _interpProgress.Text = "正在下载…";
-            try
-            {
-                await _core.PlayerInterpInstall(new { pack = "trt" });
-                Toast.Show("N 卡加速已启用");
-                await FillInterp();
-            }
-            catch (Exception e) { _interpProgress.Text = LibraryPage.Advice(e); dl.IsEnabled = true; }
-        };
-        host.Children.Add(dl);
-        host.Children.Add(_interpProgress);
-    }
-
-    /// <summary>N 卡加速包的说明。播放页弹层和设置页那张卡共用,改大小只改这一处。</summary>
-    internal static string TrtNote(JsonElement st, JsonElement trt)
-    {
-        var mb = trt.TryGetProperty("bytes", out var b) && b.TryGetInt64(out var n) ? n / (1 << 20) : 0;
-        var size = mb >= 1024 ? $"{mb / 1024.0:F1} GB" : $"{mb} MB";
-        // 整目录解出 TRT 相关的四个目录(只剔掉别代显卡的构建资源),包删掉后占盘约 2.3GB
-        return !Bool(st, "installed")
-            ? $"检测到 N 卡({Str(st, "gpu")}),补帧组件装 N 卡加速版(TensorRT):要下载约 {size}(解压后占约 2.3 GB)," +
-              "下完解压、为显卡准备引擎还要三五分钟。"
-            : $"N 卡加速(TensorRT):补帧余量大得多。要下载约 {size}(解压后占约 2.3 GB)," +
-              "下完解压、准备引擎还要三五分钟;装好之前先用通用版。";
-    }
-
-    /// <summary>player.interpInstall 进度事件 → 一行字。不是这个事件或没有可说的返回 null。</summary>
-    internal static string? InstallProgressText(JsonElement data)
-    {
-        var stage = Str(data, "stage");
-        if (stage == "extract") return "下载完成,正在解压(一两分钟)";
-        if (stage == "prepare")
-        {
-            var step = data.TryGetProperty("step", out var sp) ? sp.GetInt32() : 0;
-            var steps = data.TryGetProperty("steps", out var sps) ? sps.GetInt32() : 0;
-            return $"正在为显卡准备加速引擎({step}/{steps},一个一两分钟,期间可以照常看片)";
-        }
-        var done = data.TryGetProperty("done", out var d) ? d.GetInt64() : 0;
-        var total = data.TryGetProperty("total", out var t) ? t.GetInt64() : 0;
-        return total > 0 ? $"正在下载 {done * 100 / total}%({done >> 20} / {total >> 20} MB)" : null;
-    }
-
-    /// <summary>选一档补帧。挂上只说明滤镜收下了,跑不动由核心层事件回来说(见 <see cref="OnInterpEvent"/>)。</summary>
-    private async Task PickInterp(string id, string label)
-    {
-        try
-        {
-            var r = await _core.PlayerSetInterpLevel(new { level = id });
-            Toast.Show(Bool(r, "reverted") ? Str(r, "note")
-                : id == "off" ? "补帧已关闭" : $"补帧:{label}(脚本起来要两三秒)");
-        }
-        catch (Exception e) { Toast.Show(LibraryPage.Advice(e)); }
-        await FillInterp();
-    }
-
-    /// <summary>核心层的补帧事件。在事件线程上来,必须切回 UI 线程。</summary>
-    private void OnInterpEvent(string name, JsonElement data)
-    {
-        switch (name)
-        {
-            case "player.interpInstall":
-                var text = InstallProgressText(data);
-                Dispatcher.UIThread.Post(() =>
-                {
-                    if (_interpProgress is not null && text is not null) _interpProgress.Text = text;
-                });
-                break;
-            case "player.interpReverted":
-                var note = Str(data, "note");
-                Dispatcher.UIThread.Post(() => { Toast.Show(note); _ = FillInterp(); });
-                break;
-        }
-    }
+    private void ShowEnhance() => Pick(_qualityBtn, _quality, "画质增强", null, true);
 
     private static bool Bool(JsonElement e, string key) =>
         e.ValueKind == JsonValueKind.Object && e.TryGetProperty(key, out var v) && v.ValueKind == JsonValueKind.True;
-
-    /// <summary>
-    /// 自检:LP_SELFCHECK_INTERP=档位 id。没装组件先走真下载;挂档走**真点击**
-    /// (点「增强」→ 点补帧那一行),之后每 2 秒打一次状态,第 10 秒 seek 一次看能不能接着补。
-    /// 真正的判决在核心层日志里(LP_CORELOG=1 看「补帧:… 起来了 / 量了 / 撤掉」)。
-    /// 最后把弹层再打开并钉住 OSD,截图看布局。
-    /// </summary>
-    private async Task SelfCheckInterp(string id)
-    {
-        await Task.Delay(7000);
-        try
-        {
-            var st = await _core.PlayerInterpLevels();
-            Console.WriteLine($"[interp] 状态 {st}");
-            if (!Bool(st, "installed"))
-            {
-                var t0 = DateTime.UtcNow;
-                await _core.PlayerInterpInstall();
-                Console.WriteLine($"[interp] 组件装好,用时 {(DateTime.UtcNow - t0).TotalSeconds:F1}s");
-            }
-            // LP_SELFCHECK_INTERP_TRT=1:先装 N 卡加速包并预建引擎(走真下载)
-            if (Environment.GetEnvironmentVariable("LP_SELFCHECK_INTERP_TRT") == "1" &&
-                st.TryGetProperty("trt", out var trt) && trt.ValueKind == JsonValueKind.Object && !Bool(trt, "ready"))
-            {
-                var t1 = DateTime.UtcNow;
-                await _core.PlayerInterpInstall(new { pack = "trt" });
-                Console.WriteLine($"[interp] N 卡加速包装好 + 引擎建好,用时 {(DateTime.UtcNow - t1).TotalSeconds:F1}s");
-            }
-            await OpenEnhanceAndClick(id);
-            for (var i = 0; i < 12; i++)
-            {
-                await Task.Delay(2000);
-                if (i == 4) { await _core.PlayerSeek(new { pos = 55.0 }); Console.WriteLine("[interp] seek → 55s"); }
-                var s2 = await _core.PlayerInterpLevels();
-                var cur = s2.GetProperty("levels").EnumerateArray().FirstOrDefault(x => Bool(x, "selected"));
-                var ps = await _core.PlayerStatus();
-                Console.WriteLine($"[interp] t={2 * (i + 1)}s 当前档 {Str(cur, "id")} status={ps}");
-            }
-            await OpenEnhanceAndClick(null);
-        }
-        catch (Exception e) { Console.WriteLine($"[interp] ERR {e.Message}"); }
-    }
-
-    private async Task OpenEnhanceAndClick(string? id)
-    {
-        await Dispatcher.UIThread.InvokeAsync(() =>
-        {
-            _lastMove = DateTime.UtcNow.AddYears(1);
-            ShowOsd(true);
-            _qualityBtn.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        });
-        await Task.Delay(1500); // FillInterp 是异步的
-        if (id is null) return;
-        Button? row = null;
-        await Dispatcher.UIThread.InvokeAsync(() =>
-            row = _interpHost?.GetLogicalDescendants().OfType<Button>().FirstOrDefault(b => (b.Tag as string) == id));
-        if (row is null) { Console.WriteLine($"[interp] ✗ 弹层里找不到 {id} 那一行"); return; }
-        await Dispatcher.UIThread.InvokeAsync(() => row!.RaiseEvent(new RoutedEventArgs(Button.ClickEvent)));
-        Console.WriteLine($"[interp] ✓ 点了弹层里的 {id}");
-        await Task.Delay(800);
-        await Dispatcher.UIThread.InvokeAsync(() => _openFlyout?.Hide());
-    }
 
     private async Task PickTrack(string kind, ComboBox box)
     {

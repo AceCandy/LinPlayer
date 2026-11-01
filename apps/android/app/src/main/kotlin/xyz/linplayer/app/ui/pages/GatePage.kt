@@ -58,8 +58,7 @@ import xyz.linplayer.app.ui.theme.Sp
  * **同一页的两种版式**:首登 = 全屏居中卡片(无返回);添加 = 从服务器页推入(有返回)。
  * 两套的话新增一种源就要改两处,漏掉的那处就是「某个入口加不了这种源」。
  *
- * Emby 表单写在这一处;插件提供的服务器类型(D131 D423)按 `source.formSchema` 渲染,
- * 只有装了数据源插件时才出现那排类型片。
+ * Emby 表单只写在这一处。
  */
 @Composable
 fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
@@ -78,44 +77,6 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
     var report by remember { mutableStateOf<Pair<String, String>?>(null) }
     var selfCheckLogin by remember { mutableStateOf(false) }
     val focus = remember { FocusRequester() }
-    var pluginForms by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
-    /** null = Emby;否则是选中的插件服务器类型。 */
-    var kind by remember { mutableStateOf<JsonObject?>(null) }
-    val pluginValues = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
-    /* 多行字段的「从文件读入」:插件读不到本地文件(宿主不给它 file://),
-       所以导入一份 vod.json / m3u 只能是壳把文件读出来填进输入框。
-       ★ launcher 只起**一个**,要填哪个框放 state 里 —— 在 forEach 里按条件起
-         launcher 会随字段表变动而增减,那是组合期的忌讳。 */
-    var fileTarget by remember { mutableStateOf<String?>(null) }
-    val ctx = androidx.compose.ui.platform.LocalContext.current
-    val pickFile = androidx.activity.compose.rememberLauncherForActivityResult(
-        androidx.activity.result.contract.ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        val k = fileTarget
-        if (uri != null && k != null) {
-            val text = runCatching {
-                ctx.contentResolver.openInputStream(uri)!!.use { i ->
-                    // 配置文件都是几十 KB 的量级;真选中一个几百兆的,填进输入框只会把界面卡死。
-                    // 多读一个字节:读满了就说明它比上限还大(readNBytes 要 API 33,这里 minSdk 24)
-                    val cap = 4 * 1024 * 1024
-                    val buf = ByteArray(cap + 1)
-                    var n = 0
-                    while (n < buf.size) {
-                        val r = i.read(buf, n, buf.size - n)
-                        if (r < 0) break
-                        n += r
-                    }
-                    if (n > cap) null else String(buf, 0, n)
-                }
-            }.getOrNull()
-            if (text == null) app.toast("这个文件读不出来,或者太大了", xyz.linplayer.app.data.ToastKind.Error)
-            else pluginValues[k] = text
-        }
-    }
-    var flow by remember { mutableStateOf<Map<String, String>?>(null) }
-    LaunchedEffect(Unit) {
-        pluginForms = runCatching { app.call("source.formSchema") }.getOrNull().arr().mapNotNull { it.obj() }.filter { it.str("kind") == "plugin" }
-    }
 
     // 打开就把光标放进第一个要填的框:这一屏只有一件事可做,
     // 还要用户先点一下输入框,那一下点击是白让人做的
@@ -173,32 +134,7 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
                 Spacer(Modifier.height(Sp.x20))
                 H1("连接到你的媒体服务器")
             }
-            if (pluginForms.isNotEmpty()) {
-                Spacer(Modifier.height(Sp.x10))
-                Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()), horizontalArrangement = Arrangement.spacedBy(Sp.x6)) {
-                    xyz.linplayer.app.ui.components.ToneChip("Emby", on = kind == null) { kind = null }
-                    pluginForms.forEach { f -> xyz.linplayer.app.ui.components.ToneChip(f.str("label") ?: "", on = kind == f) { kind = f; pluginValues.clear() } }
-                }
-            }
             Spacer(Modifier.height(Sp.x6))
-            val pk = kind
-            if (pk != null) {
-                Dim2("由插件「${pk.str("plugin_name") ?: ""}」提供。")
-                Spacer(Modifier.height(Sp.x20))
-                pk["fields"].arr().mapNotNull { it.obj() }.forEach { f ->
-                    val key = f.str("key") ?: return@forEach
-                    LpField(pluginValues[key] ?: "", { pluginValues[key] = it }, f.str("placeholder") ?: "", label = f.str("label"),
-                        password = f.str("type") == "password", lines = if (f.bool("multiline")) 5 else 1)
-                    if (f.bool("multiline")) {
-                        Spacer(Modifier.height(Sp.x6))
-                        LpButton("从文件读入", { fileTarget = key; pickFile.launchOrToast(arrayOf("*/*"), app) }, kind = BtnKind.Ghost)
-                    }
-                    Spacer(Modifier.height(Sp.x12))
-                }
-                hint?.let { Dim2(it); Spacer(Modifier.height(Sp.x12)) }
-                LpButton("添加", { keyboard?.hide(); flow = pluginValues.toMap() }, Modifier.fillMaxWidth())
-                return@Column
-            }
             if (!embedded) Spacer(Modifier.height(Sp.x16))
 
             // 标签已说明字段，占位只在地址框给格式示例，不再把标签重复一遍
@@ -261,14 +197,6 @@ fun GatePage(onDone: suspend () -> Unit, embedded: Boolean = false) {
                     }
                 }, kind = BtnKind.Secondary, loading = busy)
             }
-        }
-    }
-
-    flow?.let { form ->
-        val pk = kind ?: return@let
-        PluginSourceFlow(pk.str("plugin_id") ?: "", pk.str("type_id") ?: "", form) { ok ->
-            flow = null
-            if (ok) scope.launch { onDone() }
         }
     }
 

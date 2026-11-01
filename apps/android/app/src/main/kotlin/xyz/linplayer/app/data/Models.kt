@@ -187,8 +187,6 @@ data class Account(
     val userName: String?,
     val isActive: Boolean,
     val kind: String?,
-    /** 插件数据源才有:分组、来源插件、灰显原因、上次失败(core/account PluginInfo)。 */
-    val plugin: JsonObject? = null,
     /** 「允许聚合」(D233):聚合搜索与换源时包不包括它。 */
     val aggregate: Boolean = false,
     val aggregatePrimary: Boolean = false,
@@ -207,7 +205,6 @@ data class Account(
                 userName = o.str("user_name") ?: o.str("username"),
                 isActive = o.bool("active") || o.bool("is_active"),
                 kind = o.str("source_kind"),
-                plugin = o["plugin"].obj(),
                 aggregate = o.bool("aggregate"),
                 aggregatePrimary = o.bool("aggregate_primary"),
                 lineUrl = o.str("line_url") ?: server,

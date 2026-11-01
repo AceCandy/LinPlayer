@@ -10,7 +10,7 @@
 | `.trellis/spec/` | 当前目录职责、开发约束、接口边界、验证与交付规则 |
 | `.trellis/workflow.md` | Trellis 任务阶段与运行流程 |
 | `.trellis/tasks/` | 单次需求、方案、计划与研究材料 |
-| `docs/go-migration/` / `docs/plugin-system/` | 架构、命令与插件设计正本；保留原路径 |
+| `docs/go-migration/` | 架构与命令设计正本；保留原路径 |
 | `docs/lessons/` | 故障症状、根因、实测过程、失效条件；链接当前规范 |
 | `.trellis/workspace/` | 开发者会话记录 |
 

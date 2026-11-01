@@ -276,15 +276,6 @@ fun HomePage(nav: NavController) {
         val perm = runCatching { app.call("emby.permissions") }.getOrNull().obj()
         canHideResume = perm != null && perm["capabilities"].obj()?.get("hide_resume")?.toString() != "false"
     }
-    /* 插件声明的首页栏目(SPEC 6.1,D156 D303)。
-       ☠ 这张表以前**声明了没人画** —— 插件写了 homeSections,核心层没有取它的命令,
-       壳自然也画不出来,而 manifest 合法、lp check 通过、贡献点清单里还列着它。 */
-    var pluginSections by keepState<List<JsonObject>>("home.pluginSections") { emptyList() }
-    LaunchedEffect(reload) {
-        pluginSections = runCatching { app.call("plugin.homeSections") }.getOrNull()
-            .arr().mapNotNull { it.obj() }
-            .filter { !it.str("id").isNullOrEmpty() && !it.str("plugin_id").isNullOrEmpty() }
-    }
     /** 顶栏服名展开的服务器选择菜单。 */
     var pickServer by remember { mutableStateOf(false) }
 
@@ -581,10 +572,6 @@ fun HomePage(nav: NavController) {
                 item("collections") {
                     RowBlock("合集", collections, thumb = false, app = app, open = open, menu = menu,
                         homeAccount = motionAccount)
-                }
-                // 插件栏目排在官方栏目**后面**(D156:新装的追加到末尾)
-                items(if (privateSpace) emptyList() else pluginSections, key = { "ps:" + it.str("plugin_id") + ":" + it.str("id") }) { sec ->
-                    PluginHomeSection(sec, nav, motionAccount)
                 }
                 item("tail") { Spacer(Modifier.height(Sp.x26)) }
             }
@@ -911,59 +898,6 @@ private fun RowBlock(
  *   宁可两侧留边也不切。
  * ★ 未加载或缺少封面时居中显示库名，加载成功后只展示封面。
  */
-/**
- * 插件的一条首页栏目(D303)。
- *
- * `kind=custom` 整块交给插件自己画(轮播、日历、流量这类);
- * `kind=items` 插件只给条目,由壳画成和数据源一样的海报行 —— 主题自动跟随。
- *
- * ★ 拿不到就**整条不画**:插件栏目是锦上添花,不该在首页上留一行空标题,
- *   更不该因为某个插件抽风就把首页弄坏。
- */
-@Composable
-private fun PluginHomeSection(sec: JsonObject, nav: NavController, homeAccount: Pair<String, String>?) {
-    val app = LocalApp.current
-    val pid = sec.str("plugin_id") ?: return
-    val sid = sec.str("id") ?: return
-    val title = sec.str("title")?.takeIf { it.isNotEmpty() } ?: sid
-    if (sec.str("kind") == "custom") {
-        Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
-            MediaRowHeader(title)
-            xyz.linplayer.app.ui.plugin.PluginSurface(pid, sec.str("block")?.takeIf { it.isNotEmpty() } ?: sid,
-                modifier = Modifier.padding(horizontal = Sp.x16))
-        }
-        return
-    }
-    var items by remember(pid, sid) { mutableStateOf<List<JsonObject>?>(null) }
-    LaunchedEffect(pid, sid) {
-        items = runCatching { app.call("plugin.homeItems", args("plugin_id" to pid, "id" to sid)) }
-            .getOrNull().arr().mapNotNull { it.obj() } ?: emptyList()
-    }
-    val got = items ?: return
-    if (got.isEmpty()) return
-    val shape = sec.str("shape") ?: "portrait"
-    val row = rememberLazyListState()
-    Column(Modifier.fillMaxWidth().padding(top = Sp.x20)) {
-        MediaRowHeader(title)
-        LazyRow(
-            modifier = Modifier.tvFocusRow(),
-            state = row,
-            contentPadding = PaddingValues(horizontal = Sp.x16),
-            horizontalArrangement = Arrangement.spacedBy(Sp.x10),
-        ) {
-            // 插件数据不可信：空ID或重复ID都会让懒列表因重复key崩溃，拼上序号兜底
-            itemsIndexed(got, key = { index, it -> "$index:" + (it.str("id") ?: "") }) { index, x ->
-                SourceCard(x, {
-                    // 条目带来源(D282),按它回到对应数据源的详情页
-                    nav.navigate(Route.SourceDetail(x.str("source") ?: "", x.str("id") ?: ""))
-                }, Modifier.width(if (shape == "landscape") 200.dp else 120.dp)
-                    .then(if (homeAccount != null) Modifier.homePosterEntrance(x.str("id") ?: "", index, homeAccount, row) else Modifier),
-                    shape = shape)
-            }
-        }
-    }
-}
-
 /** 保持横轨高度与可见范围的静态占位；加载图只在首页整页等待时居中出现一次。 */
 @Composable
 private fun HomeRowLoading(title: String, thumb: Boolean) = LpRowSkeleton(title, thumb)

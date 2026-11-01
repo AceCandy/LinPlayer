@@ -102,6 +102,7 @@ var st struct {
 
 // RegisterCommands 由 core/commands 调用。
 func RegisterCommands() {
+	registerHostCommands()
 	bus.Register("companion.start", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
 		start()
 		return Status(), nil
@@ -154,8 +155,12 @@ func statusLocked() map[string]any {
 }
 
 func start() {
+	if hostPrivate() {
+		return
+	}
+	temporaryBackup := hostBackupCommand("prefs.backupExport")
 	st.mu.Lock()
-	if st.srv != nil || !config.Current().CompanionEnabled {
+	if st.srv != nil || (!config.Current().CompanionEnabled && !temporaryBackup) {
 		st.mu.Unlock()
 		return
 	}
@@ -168,7 +173,7 @@ func start() {
 		bus.Emit("companion.status", s, "")
 		return
 	}
-	b := make([]byte, 6)
+	b := make([]byte, 16)
 	_, _ = rand.Read(b) // crypto/rand.Read 按文档不会返回错误
 	tok := hex.EncodeToString(b)
 	srv := &http.Server{Handler: handler(tok), ReadHeaderTimeout: 10 * time.Second}
@@ -188,6 +193,7 @@ func start() {
 }
 
 func stop() {
+	revokeHost()
 	st.mu.Lock()
 	if st.srv == nil {
 		st.mu.Unlock()
@@ -204,6 +210,15 @@ func stop() {
 func handler(tok string) http.Handler {
 	base := "/c/" + tok
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if usesHost() {
+			st.mu.Lock()
+			valid := st.srv != nil && st.token == tok
+			st.mu.Unlock()
+			if !valid {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+		}
 		p := r.URL.Path
 		if p == base || p == base+"/" {
 			if r.Method != http.MethodGet && r.Method != http.MethodHead {
@@ -238,13 +253,50 @@ func reply(w http.ResponseWriter, code int, v any) {
 
 func serveAPI(w http.ResponseWriter, r *http.Request, name string) {
 	var args map[string]any
-	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 256<<10)).Decode(&args)
+	limit := int64(256 << 10)
+	backup := hostBackupCommand(name)
+	if backup {
+		limit = 4 << 20
+	}
+	err := json.NewDecoder(http.MaxBytesReader(w, r.Body, limit)).Decode(&args)
 	if err != nil && !errors.Is(err, io.EOF) {
 		reply(w, http.StatusBadRequest, map[string]any{"error": "请求体不是合法 JSON"})
 		return
 	}
 	if args == nil {
 		args = map[string]any{}
+	}
+	if backup {
+		if _, exists := args["path"]; exists {
+			reply(w, http.StatusForbidden, map[string]any{"error": "手机备份不接受文件路径"})
+			return
+		}
+		if content, _ := args["content"].(string); len(content) > 2<<20 {
+			reply(w, http.StatusBadRequest, map[string]any{"error": "备份文件不能超过 2 MiB"})
+			return
+		}
+	}
+	if usesHost() {
+		valid := backup || allowed[name] || name == "state" || name == "key" || name == "open"
+		if name == "key" {
+			key, _ := args["key"].(string)
+			valid = keys[key]
+		}
+		if name == "open" {
+			id, _ := args["item_id"].(string)
+			valid = id != ""
+		}
+		if !valid {
+			reply(w, http.StatusForbidden, map[string]any{"error": "遥控操作不受支持"})
+			return
+		}
+		out, err := requestHost(r.Context(), name, args)
+		if err != nil {
+			reply(w, http.StatusOK, map[string]any{"error": err.Error()})
+			return
+		}
+		reply(w, http.StatusOK, map[string]any{"data": out})
+		return
 	}
 	switch name {
 	case "key":

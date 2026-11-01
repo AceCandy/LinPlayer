@@ -18,9 +18,6 @@ internal static class Program
     /// <summary>数据根(userdata)。WebView2 的用户数据目录放在它下面。</summary>
     public static string DataDir { get; private set; } = "";
 
-    /// <summary>主窗口:插件的可见 WebView 要居中到它上面。</summary>
-    public static Avalonia.Controls.Window? MainWindowRef { get; set; }
-
     /// <summary>核心层起不来时的原因(启动页要如实显示,不能白屏)。</summary>
     public static string? CoreError { get; private set; }
 
@@ -228,10 +225,6 @@ internal static class Program
         try
         {
             Core = new CoreClient(dll, dataDir, Version);
-            /* 壁纸的订阅紧挨着核心层起来那一句。`load: startup` 的壁纸插件在 lp_init 里
-               就 set 完了,而事件不重发、内容也不落盘 —— 挪到窗口里再订就永远收不到
-               第一张(表现是「装了壁纸插件没反应」,一声不吭)。 */
-            Views.Wallpaper.Listen(Core);
             Views.Report.Trail("核心层就绪");
             Views.Report.SendPendingCrashEarly(Core);
         }

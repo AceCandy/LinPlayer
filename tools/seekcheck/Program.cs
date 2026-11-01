@@ -83,7 +83,6 @@ Console.WriteLine("跳转状态：累加/合并、边界、回执/缓冲/代数�
 if (args.Contains("--liuying-native")) { Environment.ExitCode = NativeWebCheck.Run(); return; }
 AppBuilder.Configure<CheckApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
 if (args.Contains("--theme-only")) { ThemeCheck.Run(); return; }
-if (args.Contains("--scroll-anchor-only")) { ScrollAnchorCheck.Run(); return; }
 if (args.Contains("--server-menu-only")) { ServerMenuCheck.Run(); return; }
 var root = Path.Combine(Path.GetTempPath(), "linplayer-seek-" + Guid.NewGuid());
 Directory.CreateDirectory(root);
@@ -98,7 +97,7 @@ try {
     if (args.Contains("--person-only")) { PersonCheck.Run(core); return; }
     if (args.Contains("--scroll-anchor-download-only")) { ScrollAnchorCheck.RunDownloads(core); return; }
     if (args.Contains("--privacy-only")) { PrivacyCheck.Run(core, root); return; }
-    var page = new PlayerPage(core, "", "跳转回归", 0, isSource: true);
+    var page = new PlayerPage(core, "", "跳转回归", 0, isLocal: true);
     Get<DispatcherTimer>(page, "_poll").Stop();
     Set(Get<object>(page, "_view"), "OnReady", null);
     now = 1000;
@@ -113,8 +112,8 @@ try {
         window.Show(); Jobs();
         var forward = page.GetVisualDescendants().OfType<Button>().Single(b => ToolTip.GetTip(b) as string == "前进 10 秒(→)");
         forward.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
-        page.KeyFallback(Key.Right, KeyModifiers.None);
-        page.KeyFallback(Key.Right, KeyModifiers.None);
+        typeof(PlayerPage).GetMethod("KeyDefault", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, [Key.Right, KeyModifiers.None]);
+        typeof(PlayerPage).GetMethod("KeyDefault", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(page, [Key.Right, KeyModifiers.None]);
         Check(state.Target == 70, "页面按钮/键盘未接累加入口");
         Check(Get<double>(page, "_position") == 40, "待跳转目标污染实际位置");
         Check(Get<TextBlock>(page, "_time").Text == "1:10", "待跳转时间未即时显示");

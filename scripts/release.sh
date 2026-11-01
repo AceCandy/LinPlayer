@@ -2,7 +2,7 @@
 #
 # 发版前的一条命令:门禁 → 出三端包 → 生成更新说明 → 打 tag。
 #
-# ☠ **它不推**。推是外发操作,由人来做(见 docs/plugin-system/RELEASE-RUNBOOK.md)。
+# ☠ **它不推**。推是外发操作,由人来做。
 #   把 push 放进来的话,这个脚本就变成了「跑一下试试」会把版本发出去的东西。
 #
 #   bash scripts/release.sh            # 全跑一遍,最后停在「可以推了」
@@ -56,7 +56,7 @@ echo "全过。产物:"
 ls -1 "$ROOT/build/pack"/*.zip "$ROOT/build/android"/*.apk 2>/dev/null | sed 's/^/  /' || true
 echo "  $ROOT/build/notes-$VER.md"
 echo
-echo "接下来(人来做,见 docs/plugin-system/RELEASE-RUNBOOK.md):"
+echo "接下来(人来做):"
 echo "  git tag v$VER"
 echo "  git push origin main      # 触发自动预发布"
 echo "  git push origin v$VER     # 发正式版"

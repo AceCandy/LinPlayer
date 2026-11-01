@@ -61,9 +61,6 @@ import xyz.linplayer.app.tv.item
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.HomePage
-import xyz.linplayer.app.ui.pages.SourceHomePage
-import xyz.linplayer.app.ui.pages.SourceCategoryPage
-import xyz.linplayer.app.ui.pages.SourceDetailPage
 import xyz.linplayer.app.ui.theme.LpTheme
 
 /** 真实手机首页的导航恢复、下拉手势与请求次数回归。 */
@@ -118,16 +115,11 @@ class PhoneHomeRefreshTest {
                     androidx.compose.runtime.key(app.spaceRevision.collectAsState().value) {
                     nav = rememberNavController()
                     NavHost(nav, startDestination = Route.Home) {
-                        composable<Route.Home> {
-                            val source = app.activeSource.collectAsState().value
-                            if (source != null) SourceHomePage(nav, source.id, source.name) else HomePage(nav)
-                        }
+                        composable<Route.Home> { HomePage(nav) }
                         composable<Route.Settings> { Text("其它页面") }
                         composable<Route.Detail> { Text("作品详情") }
                         composable<Route.Library> { Text("媒体库目标：" + it.toRoute<Route.Library>().viewId) }
                         composable<Route.Servers> { Text("服务器管理目标") }
-                        composable<Route.SourceCategory> { SourceCategoryPage(nav, it) }
-                        composable<Route.SourceDetail> { SourceDetailPage(nav, it) }
                     }
                     }
                 }
@@ -315,14 +307,13 @@ class PhoneHomeRefreshTest {
     @Test fun 附加请求未返回时首页仍可进入媒体库且核心请求不重复() {
         val core = FakeCore().loggedIn().apply {
             ret("emby.permissions", buildJsonObject {})
-            ret("plugin.homeSections", arr())
         }
         val release = CompletableDeferred<Unit>()
         val pending = mutableSetOf<String>()
         val port = object : CorePort by core {
             override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
                 val result = core.callJson(command, args, onPartial)
-                if (command == "emby.permissions" || command == "plugin.homeSections") {
+                if (command == "emby.permissions") {
                     pending += command
                     release.await()
                 }
@@ -331,7 +322,7 @@ class PhoneHomeRefreshTest {
         }
         try {
             openHome(port)
-            assertEquals(setOf("emby.permissions", "plugin.homeSections"), pending)
+            assertEquals(setOf("emby.permissions"), pending)
             assertTrue(!release.isCompleted)
             assertEquals(1, core.calls.count { it.first == "emby.views" })
             assertEquals(1, core.calls.count { it.first == "emby.listResume" })
@@ -546,118 +537,4 @@ class PhoneHomeRefreshTest {
     }
     @Test fun lightServerMenu() = serverMenu(false)
     @Test fun darkServerMenu() = serverMenu(true)
-
-    private fun sourceCore(): FakeCore {
-        val core = FakeCore().loggedIn()
-        var active = "plugin:test/sources/a"
-        core.on("account.listAccounts") {
-            kotlinx.serialization.json.buildJsonArray {
-                for ((id, name) in listOf(
-                    "plugin:test/sources/a" to "测试源 A",
-                    "plugin:test/sources/b" to "测试源 B",
-                    "http://emby-a.invalid" to "服务器 A",
-                )) add(buildJsonObject {
-                    put("id", id); put("server", id); put("name", name); put("active", active == id)
-                    put("source_kind", if (id.startsWith("plugin:")) id else "emby")
-                    if (id.startsWith("plugin:")) put("plugin", buildJsonObject { put("id", "test/sources") })
-                })
-            }
-        }
-        core.on("emby.currentSession") {
-            if (active.startsWith("plugin:")) JsonNull else buildJsonObject {
-                put("server", active); put("token", "test"); put("user_id", "u")
-            }
-        }
-        core.on("account.setActiveServer") {
-            active = it.str("server_id")!!
-            JsonNull
-        }
-        core.ret("source.caps", buildJsonObject { put("home", true) })
-        core.ret("source.continueWatching", arr())
-        core.ret("source.home", buildJsonObject {
-            put("categories", arr())
-            put("recommended", arr(buildJsonObject { put("id", "one"); put("title", "测试推荐") }))
-        })
-        return core
-    }
-
-    private fun assertSourceMenuAndSwitch(core: CorePort, dark: Boolean = false, capture: Boolean = false) {
-        openHome(core, fontScale = 1.3f, dark = dark, cachedImages = false)
-        if (capture) rule.onRoot().captureRoboImage("build/source-server-picker/home-${if (dark) "dark" else "light"}.png")
-        rule.onNodeWithText("测试源 A").performClick()
-        rule.onNodeWithText("管理服务器…").assertIsDisplayed()
-        if (capture) rule.onNode(isPopup()).captureRoboImage("build/source-server-picker/menu-${if (dark) "dark" else "light"}.png")
-        rule.onNodeWithText("服务器 A").performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText("服务器 A").assertIsDisplayed()
-        rule.onNodeWithText("电影").assertExists()
-        rule.runOnIdle { assertEquals(null, nav.previousBackStackEntry) }
-    }
-
-    @Test fun sourceServerPickerWorksAfterHomeLoads() = assertSourceMenuAndSwitch(sourceCore(), capture = true)
-    @Test fun sourceServerPickerWorksInDarkTheme() = assertSourceMenuAndSwitch(sourceCore(), dark = true, capture = true)
-
-    @Test fun sourceServerPickerWorksWithEmptyHome() {
-        val core = sourceCore()
-        core.ret("source.home", buildJsonObject { put("categories", arr()); put("recommended", arr()) })
-        assertSourceMenuAndSwitch(core)
-    }
-
-    @Test fun sourceServerPickerWorksAfterHomeFails() {
-        val core = sourceCore()
-        core.on("source.home") { throw CoreException("E_UPSTREAM", "测试源加载失败", true) }
-        assertSourceMenuAndSwitch(core)
-    }
-
-    @Test fun sourceServerPickerWorksWhileHomeIsLoading() {
-        val core = sourceCore()
-        var requested = false
-        assertSourceMenuAndSwitch(object : CorePort by core {
-            override suspend fun callJson(command: String, args: JsonObject?, onPartial: ((JsonElement) -> Unit)?): JsonElement {
-                if (command == "source.home") {
-                    requested = true
-                    return kotlinx.coroutines.awaitCancellation()
-                }
-                return core.callJson(command, args, onPartial)
-            }
-        })
-        assertTrue(requested)
-    }
-
-    @Test fun sourceServerPickerChangesSourceAndClearsOldSearch() {
-        val core = sourceCore()
-        openHome(core, cachedImages = false)
-        rule.onNodeWithText("在「测试源 A」里搜索").performTextInput("旧源查询")
-        rule.onNodeWithText("测试源 A").performClick()
-        rule.onNodeWithText("测试源 B").performClick()
-        rule.waitForIdle()
-        rule.onNodeWithText("测试源 B").assertIsDisplayed()
-        rule.onNodeWithText("旧源查询").assertDoesNotExist()
-        rule.onNodeWithText("测试推荐").assertExists()
-        rule.onNodeWithText("测试源 B").performClick()
-        rule.onNodeWithText("服务器 A").assertIsDisplayed()
-        rule.onAllNodesWithText("测试源 B").onLast().performClick()
-        assertEquals(1, core.calls.count { it.first == "account.setActiveServer" })
-    }
-
-    @Test fun sourceServerPickerKeepsCategoryAndDetailBackNavigation() {
-        val core = sourceCore()
-        core.ret("source.home", buildJsonObject {
-            put("categories", arr(buildJsonObject { put("id", "category"); put("name", "测试分类") }))
-            put("recommended", arr(buildJsonObject { put("id", "one"); put("title", "测试推荐") }))
-        })
-        core.ret("source.category", buildJsonObject { put("items", arr()) })
-        core.ret("source.detail", buildJsonObject {
-            put("id", "one"); put("title", "测试详情"); put("lines", arr())
-        })
-        openHome(core, cachedImages = false)
-        rule.onNodeWithText("测试分类").performClick()
-        rule.onNodeWithContentDescription("返回").performClick()
-        rule.onNodeWithText("测试源 A").assertIsDisplayed()
-        rule.onNodeWithText("测试推荐").performClick()
-        rule.onNodeWithContentDescription("返回").performClick()
-        rule.onNodeWithText("测试源 A").performClick()
-        rule.onNodeWithText("管理服务器…").assertIsDisplayed()
-    }
-
 }

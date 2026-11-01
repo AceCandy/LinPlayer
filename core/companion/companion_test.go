@@ -247,8 +247,13 @@ func Test页面接口与白名单一致(t *testing.T) {
 		used[m[1]] = true
 	}
 	for name := range used {
-		if name != "key" && name != "open" && name != "state" && !allowed[name] {
+		if name != "key" && name != "open" && name != "state" && !allowed[name] && !backupCommand(name) {
 			t.Errorf("页面调了白名单外的 %s", name)
+		}
+	}
+	for _, name := range []string{"prefs.backupExport", "prefs.backupPreview"} {
+		if allowed[name] {
+			t.Errorf("备份命令不能进入常驻白名单: %s", name)
 		}
 	}
 	for name := range allowed {

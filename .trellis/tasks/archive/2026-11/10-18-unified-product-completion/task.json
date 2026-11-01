@@ -1,0 +1,31 @@
+{
+  "id": "unified-product-completion",
+  "name": "unified-product-completion",
+  "title": "跨端统一与 tvOS 对齐及验收",
+  "description": "统一承接跨端核心和tvOS客户端的剩余实现、平台方案及真机验收，保留探针与产品对齐证据。",
+  "status": "completed",
+  "dev_type": null,
+  "scope": null,
+  "package": null,
+  "priority": "P2",
+  "creator": "AceCandy",
+  "assignee": "AceCandy",
+  "createdAt": "2026-10-18",
+  "completedAt": "2026-11-01",
+  "branch": "refactor/settings-cleanup",
+  "base_branch": "main",
+  "worktree_path": null,
+  "commit": null,
+  "pr_url": null,
+  "subtasks": [],
+  "children": [],
+  "parent": null,
+  "relatedFiles": [],
+  "notes": "跨端统一与tvOS总任务保持in_progress。已验阶段另行归档；六模块UI源码续作已补同源加载动画、共有设置保存、安全媒体路径、季集摘要/定位、首页Go统一实时剧集播放。328条绑定门禁、Android首页回归、Emby包回归及离线固定输入通过；核心全量门禁的日历能力缓存测试仍失败。新Swift编译/契约回归、同数据视觉和遥控未验，Mac SSH此前认证失败只影响Apple验证，不阻碍本地实施。本批按用户要求单独提交源码阶段归档至10-21-tvos-ui-alignment-checkpoint；未出包/安装/推送，不能宣称整体对齐；详情见resume和research报告。 2026-10-24手机基准补齐：TV换核/倍率/流影收藏、桌面字幕/发现主服/流影/缓存/首页、tvOS已看历史/季校准/卡片/倍率源码完成。Android56项、桌面4组自检、Go三包筛选回归及静态门禁通过；新TV挂起倍率保存竞态已先红后绿验证。tvOS缺Apple工具链未运行新Swift检查；实服/设备验收仍开放。未出包、安装、提交、推送，总任务继续in_progress。 复核两项修复：桌面冷图片缓存保留Hero候选，真实HomePage回归先红后绿；tvOS倍率保存期间统一禁用并仅接受后关闭面板，静态接线检查及故障注入通过，Swift运行验证仍未执行。",
+  "meta": {
+    "merged_from": [
+      "10-17-appletv-playback-spike",
+      "10-18-tvos-minimal-client"
+    ]
+  }
+}

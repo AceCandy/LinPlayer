@@ -167,7 +167,7 @@ class PhoneEnginePlaybackTest {
         }
         assertEquals(3, core.calls.count { it.first == "player.play" })
         rule.runOnIdle { core.tick(120.0) }; advance(rule, 300)
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+        setOsdVisible(false)
         advance(rule, 300)
         rule.runOnIdle { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }
         advance(rule, 300)
@@ -198,10 +198,8 @@ class PhoneEnginePlaybackTest {
             ret("player.status", buildJsonObject { put("buffered", 3605.0) })
         }
         showPlayer(core, "mpv")
-        rule.runOnIdle {
-            core.tick(3601.0)
-            xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false)
-        }
+        rule.runOnIdle { core.tick(3601.0) }
+        setOsdVisible(false)
         advance(rule, 1500)
         assertEquals(1, core.calls.count { it.first == "player.prepareNext" })
         assertFalse(core.calls.any { it.first == "player.warmPrepared" && it.second.bool("enabled") })
@@ -229,7 +227,7 @@ class PhoneEnginePlaybackTest {
         rule.runOnIdle { core.tick(3601.0) }; advance(rule, 300)
         val prepared = core.calls.single { it.first == "player.prepareNext" }.second
         assertEquals("sh7", prepared.str("item_id"))
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 100)
+        setOsdVisible(true); advance(rule, 100)
         rule.onNodeWithContentDescription("下一集").performClick(); advance(rule, 600)
         assertEquals(prepared.str("request_id"), core.calls.last { it.first == "player.play" }.second.str("prepared_id"))
         assertTrue(core.calls.last { it.first == "player.stopPlayback" }.second.bool("handoff"))
@@ -253,7 +251,7 @@ class PhoneEnginePlaybackTest {
             showPlayer(port, "mpv")
             rule.runOnIdle { core.tick(3601.0) }; advance(rule, 300)
             val request = core.calls.single { it.first == "player.prepareNext" }.second.str("request_id")
-            rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 100)
+            setOsdVisible(true); advance(rule, 100)
             rule.onNodeWithContentDescription("下一集").performClick(); advance(rule, 600)
             assertEquals("sh7", core.calls.last { it.first == "player.play" }.second.str("item_id"))
             assertNull(core.calls.last { it.first == "player.play" }.second.str("prepared_id"))
@@ -343,7 +341,7 @@ class PhoneEnginePlaybackTest {
         assertEquals(1, core.calls.count { it.first == "player.play" })
         assertEquals(0, core.calls.count { it.first == "player.stopPlayback" })
         rule.runOnIdle { core.tick(8.0) }; advance(rule, 300)
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }; advance(rule, 300)
+        setOsdVisible(false); advance(rule, 300)
         rule.runOnIdle { (activity as androidx.activity.ComponentActivity).onBackPressedDispatcher.onBackPressed() }; advance(rule, 300)
         assertEquals("sh7", returned)
     }
@@ -381,7 +379,7 @@ class PhoneEnginePlaybackTest {
         assertEquals("触摸高度保留48dp", 48f, capsule.height, .1f)
         assertEquals(1, core.calls.count { it.first == "player.play" })
         assertFalse(core.calls.any { it.first == "player.stopPlayback" })
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+        setOsdVisible(false)
         advance(rule, 500)
         rule.onNodeWithContentDescription("更多").assertDoesNotExist()
         val hiddenCapsule = rule.onNodeWithTag("player.nextUp").assertIsDisplayed().fetchSemanticsNode().boundsInRoot
@@ -498,8 +496,8 @@ class PhoneEnginePlaybackTest {
                 }
             } else {
                 if (version) {
-                    rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.openPanel("lines") }
-                    advance(rule, 300)
+                    rule.onNodeWithContentDescription("更多").performClick(); advance(rule, 300)
+                    rule.onNodeWithText("版本与线路").performClick(); advance(rule, 300)
                     rule.onNodeWithText("1080p").performClick()
                 } else rule.onNodeWithContentDescription("下一集").performClick()
             }
@@ -1084,8 +1082,8 @@ class PhoneEnginePlaybackTest {
         rule.runOnIdle { videoBackground(960, 440, 16f / 9) }
         rule.runOnIdle { core.tick(40.0) }; advance(rule, 300)
         rule.runOnIdle { core.tick(40.25) }; advance(rule, 300)
+        setOsdVisible(false)
         rule.runOnIdle {
-            xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false)
             core.events.tryEmit(xyz.linplayer.app.core.CoreEvent("player.status", buildJsonObject {
                 put("position", 40.25); put("duration", 3660); put("buffering", true)
             }))
@@ -1114,7 +1112,7 @@ class PhoneEnginePlaybackTest {
         assertEquals(root.center.x, status.center.x, 1f)
         assertTrue(status.bottom < root.height / 4)
         rule.onRoot().captureRoboImage("build/player-osd/hidden-status.png")
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }; advance(rule, 300)
+        setOsdVisible(true); advance(rule, 300)
         assertEquals(status, rule.onNodeWithTag("player.passiveStatus").assertIsDisplayed().fetchSemanticsNode().boundsInRoot)
     }
 
@@ -1214,7 +1212,7 @@ class PhoneEnginePlaybackTest {
         core.ret("player.status", buildJsonObject { })
         advance(rule, 1200)
         assertTrue(slider.fetchSemanticsNode().config[androidx.compose.ui.semantics.SemanticsProperties.StateDescription].endsWith("缓冲进度未知"))
-        rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+        setOsdVisible(false)
         advance(rule, 400)
         val queries = core.calls.count { it.first == "player.status" }
         advance(rule, 2200)
@@ -1315,9 +1313,9 @@ class PhoneEnginePlaybackTest {
                 rule.runOnIdle { core.tick(40.0); core.tick(40.25) }
                 advance(rule, 1200)
             } else {
-                rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(false) }
+                setOsdVisible(false)
                 advance(rule, 400)
-                rule.runOnIdle { xyz.linplayer.app.plugin.PluginPlayer.host!!.setOsdVisible(true) }
+                setOsdVisible(true)
                 advance(rule, 600)
             }
             val slider = rule.onNode(SemanticsMatcher.keyIsDefined(androidx.compose.ui.semantics.SemanticsProperties.ProgressBarRangeInfo))
@@ -1644,6 +1642,16 @@ class PhoneEnginePlaybackTest {
             }
         }
         advance(rule, 800)
+    }
+
+    /** 点画面空白处切换 OSD，已是目标状态时不点；单击要等双击判定超时才生效。 */
+    private fun setOsdVisible(visible: Boolean) {
+        val shown = rule.onAllNodesWithContentDescription("更多").fetchSemanticsNodes().isNotEmpty()
+        if (shown == visible) return
+        rule.onNodeWithTag("player.video").performTouchInput {
+            click(androidx.compose.ui.geometry.Offset(width * .3f, height * .4f))
+        }
+        advance(rule, 400)
     }
 
     private fun currentExo(): ExoPlayer = ReflectionHelpers.getStaticField(PlaybackService::class.java, "externalPlayer")

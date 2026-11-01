@@ -17,35 +17,10 @@
          本应用只走自有渠道分发,不上 Google Play,不受该权限的上架限制。 -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
-    <!-- 本机视频(B2)。
-         ☠ **不要 MANAGE_EXTERNAL_STORAGE**:那是全盘访问,Google Play 对播放器不放行,
-           而且我们根本不需要 —— 要的只是「能读到用户的视频」。
-         READ_MEDIA_VIDEO 拿到的是 MediaStore 里视频的**真实文件路径**,
-         不是 SAF 的 content:// —— mpv 的 protocol-list 里没有 content,
-         给它 content:// 等于给一个它不认识的 scheme。
-         Android 13 以下没有这个权限名,回落 READ_EXTERNAL_STORAGE。 -->
-    <uses-permission android:name="android.permission.READ_MEDIA_VIDEO" />
-    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE"
-        android:maxSdkVersion="32" />
-
     <!-- 两条都必须 required=false:电视没有触摸屏,默认的 required=true 会让
          电视桌面和商店把本应用当成「不兼容」藏掉;leanback 反过来会让手机看不到它 -->
     <uses-feature android:name="android.hardware.touchscreen" android:required="false" />
     <uses-feature android:name="android.software.leanback" android:required="false" />
-
-    <!-- targetSdk 30+ 的包可见性会把 resolveActivity 过滤成 null。不声明这两条,
-         插件的 system.openUrl / system.share 在有浏览器的手机上也会被判成「这端做不到」。
-         openApp 的深链花样太多没法枚举,那条改成发一次看抛不抛(PluginSystem.openApp)。 -->
-    <queries>
-        <intent>
-            <action android:name="android.intent.action.VIEW" />
-            <data android:scheme="https" />
-        </intent>
-        <intent>
-            <action android:name="android.intent.action.SEND" />
-            <data android:mimeType="*/*" />
-        </intent>
-    </queries>
 
     <application
         android:name=".LinPlayerApp"
@@ -136,11 +111,5 @@
             android:exported="false"
             android:foregroundServiceType="mediaPlayback">
         </service>
-
-        <!-- TVBox jar spider 独立进程(插件 SPEC D354):jar 崩了只死这个进程,播放不断 -->
-        <service
-            android:name=".plugin.SpiderService"
-            android:exported="false"
-            android:process=":spider" />
     </application>
 </manifest>

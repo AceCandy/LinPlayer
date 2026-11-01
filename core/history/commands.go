@@ -229,7 +229,7 @@ func visibleHistoryRecords(ctx context.Context, records []Record, adult *bool) (
 	cfg := config.Current()
 	sessions := map[string]*emby.Session{}
 	for _, account := range cfg.AccountList {
-		if account.IsFileBrowse() || account.PluginSource() != nil {
+		if account.IsFileBrowse() {
 			continue
 		}
 		session := &emby.Session{Server: account.ActiveLineURL(), UserID: account.UserID, Token: account.Token, DeviceID: cfg.DeviceID}

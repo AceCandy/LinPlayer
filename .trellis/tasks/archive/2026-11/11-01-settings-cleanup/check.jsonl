@@ -1,0 +1,2 @@
+{"file": ".trellis/spec/shared/development.md", "reason": "遵守独立复核与红绿回归"}
+{"file": ".trellis/spec/backend/quality-guidelines.md", "reason": "核心命令与跨宿主门禁"}

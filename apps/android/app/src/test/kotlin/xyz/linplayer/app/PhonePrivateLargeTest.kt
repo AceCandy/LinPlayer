@@ -17,8 +17,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonArray
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.After
@@ -39,12 +37,9 @@ import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.PrivateNeonHost
 import xyz.linplayer.app.ui.pages.GatePage
-import xyz.linplayer.app.ui.pages.PluginsPage
 import xyz.linplayer.app.ui.pages.ServersPage
 import xyz.linplayer.app.ui.pages.SettingsPage
 import xyz.linplayer.app.ui.pages.SettingsSubPage
-import xyz.linplayer.app.ui.pages.SourceCategoryPage
-import xyz.linplayer.app.ui.pages.SourceHomePage
 import xyz.linplayer.app.ui.theme.LocalMotionScale
 import xyz.linplayer.app.ui.theme.LpTheme
 
@@ -64,23 +59,6 @@ class PhonePrivateLargeTest {
             account("p-b", "备用服务器", "周末观看", false),
         ))
         ret("account.probeAccounts", arr(buildJsonObject { put("server", "p-a"); put("ok", true) }))
-        ret("plugin.pendingRestart", JsonPrimitive(false))
-        ret("plugin.list", buildJsonObject {
-            put("plugins", arr(
-                buildJsonObject { put("id", "a"); put("name", "豆瓣评分"); put("version", "1.2.0"); put("author", "linplayer"); put("want", true) },
-                buildJsonObject { put("id", "b"); put("name", "弹幕增强"); put("version", "0.9.1"); put("author", "someone"); put("want", false); put("status", "update"); put("update", "1.0.0") },
-            ))
-        })
-        ret("source.continueWatching", JsonArray(emptyList()))
-        ret("source.caps", buildJsonObject { put("home", true) })
-        ret("source.home", buildJsonObject {
-            put("categories", arr(*listOf("电影", "剧集", "动漫", "综艺").map { n -> buildJsonObject { put("id", n); put("name", n) } }.toTypedArray()))
-            put("recommended", arr(*(1..6).map { i -> buildJsonObject {
-                put("id", "v$i"); put("title", "一部名字相当长的推荐影片 $i"); put("year", 2020 + i)
-                put("poster", buildJsonObject { put("url", "fake:poster-$i") })
-            } }.toTypedArray()))
-        })
-        ret("source.category", buildJsonObject { put("items", arr()); put("next", "") })
         ret("player.getPlaybackPrefs", buildJsonObject { put("skip_intro", true) })
     }
 
@@ -95,12 +73,9 @@ class PhonePrivateLargeTest {
                     PrivateNeonHost {
                         val nav = rememberNavController()
                         NavHost(nav, startDestination = start) {
-                            composable<Route.Home> { SourceHomePage(nav, "src-a", "测试源") }
-                            composable<Route.SourceCategory> { SourceCategoryPage(nav, it) }
                             composable<Route.Servers> { ServersPage(nav) }
                             composable<Route.Settings> { SettingsPage(nav) }
                             composable<Route.SettingsSub> { SettingsSubPage(nav, it) }
-                            composable<Route.Plugins> { PluginsPage(nav, it) }
                             composable<Route.AddServer> { GatePage({}, embedded = true) }
                         }
                     }
@@ -117,15 +92,5 @@ class PhonePrivateLargeTest {
     @Test fun settings() = shoot("settings", Route.Settings)
     @Test fun playerPrefs() = shoot("player", Route.SettingsSub("player"))
     @Test fun servers() = shoot("servers", Route.Servers)
-    @Test fun plugins() = shoot("plugins", Route.Plugins(0))
-    @Test fun sourceHome() = shoot("source", Route.Home)
-    @Test fun sourceCategory() = shoot("category", Route.SourceCategory("src-a", buildJsonObject {
-        put("id", "movie"); put("name", "电影")
-        put("filters", arr(buildJsonObject {
-            put("key", "area"); put("name", "地区")
-            put("options", arr(*listOf("" to "全部", "cn" to "大陆", "us" to "欧美", "jp" to "日本", "kr" to "韩国").map { (v, n) ->
-                buildJsonObject { put("value", v); put("name", n) } }.toTypedArray()))
-        }))
-    }.toString()))
     @Test fun addServer() = shoot("gate", Route.AddServer)
 }

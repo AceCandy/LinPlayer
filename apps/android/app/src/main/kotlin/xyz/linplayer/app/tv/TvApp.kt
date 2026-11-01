@@ -64,19 +64,14 @@ fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.cu
     val privateSpace = app.privateSpace.collectAsStateWithLifecycle().value
     SideEffect { TvC.privateMode = privateSpace }
     DisposableEffect(app) { onDispose { TvC.privateMode = false } }
-    /* 插件 UI 在 TV 上必须整个 shell 都走可聚焦的那一套。只在插件整页上给的话,
-       锚点块(详情页 / 设置页)画出来的是手机控件 —— 它们**没有 FocusTarget**,
-       遥控器的方向键把它们当不存在直接跳过,而截图上按钮画得好好的。 */
     CompositionLocalProvider(
         LocalApp provides app, LocalTvType provides TypeB, LocalViewConfiguration provides config,
-        xyz.linplayer.app.ui.plugin.LocalPluginTv provides true,
     ) {
-        if (!privateSpace) xyz.linplayer.app.ui.plugin.LoadTakeovers()
         LpTheme(
             darkOverride = when (xyz.linplayer.app.data.UiPrefs.theme.value) {
                 "dark" -> true
                 "light" -> false
-                else -> xyz.linplayer.app.ui.theme.PluginTheme.forcedDark
+                else -> null
             },
             color = xyz.linplayer.app.data.UiPrefs.colorScheme.value,
             privateSpace = privateSpace,
@@ -84,21 +79,15 @@ fun TvFrame(app: AppState, config: ViewConfiguration = LocalViewConfiguration.cu
             val colors = xyz.linplayer.app.ui.theme.Lp.colors
             // 配色是进程级设备偏好；播放窗口退出不能清掉仍存活的浏览窗口配色。
             SideEffect {
-                TvC.sharedColors = if (xyz.linplayer.app.ui.theme.PluginTheme.activeName.isEmpty()) colors else null
+                TvC.sharedColors = colors
             }
             MaterialTheme(colorScheme = (if (colors.isDark) darkColorScheme() else lightColorScheme()).copy(
                 background = colors.bg, surface = colors.s2.compositeOver(colors.bg), onSurface = colors.fg,
                 primary = colors.acc, onPrimary = colors.accFg,
             )) {
-                Box(Modifier.fillMaxSize().background(
-                    xyz.linplayer.app.ui.plugin.pageBg(colors.bg))) {
-                    // 壁纸垫在最底下(SPEC 11.5):它在内容之前组合,所以永远画在内容下面
-                    if (!privateSpace) xyz.linplayer.app.ui.plugin.WallpaperLayer()
+                Box(Modifier.fillMaxSize().background(colors.bg)) {
                     content()
-                    // 对话框排在 content 后面:它的 BackHandler 组合得更晚,返回键先给它(§3.4)
-                    if (!privateSpace) TvPluginDialog()
                     TvToastHost()
-                    xyz.linplayer.app.ui.theme.ThemeFailedToast()
                 }
             }
         }

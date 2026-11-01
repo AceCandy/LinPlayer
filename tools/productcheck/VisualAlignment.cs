@@ -68,7 +68,7 @@ static class VisualAlignment
                 Shot("series", () => Text(window, "山海之间") && Text(window, "归途"));
                 Nav.Push(new SettingsPage(core));
                 Shot("settings", () => Text(window, "明暗模式"));
-                var player = new PlayerPage(core, "", "远岸来信", 0, isSource: true);
+                var player = new PlayerPage(core, "", "远岸来信", 0, isLocal: true);
                 object Field(object target, string field) => target.GetType().GetField(field, BindingFlags.NonPublic | BindingFlags.Public | BindingFlags.Instance)!.GetValue(target)!;
                 ((DispatcherTimer)Field(player, "_poll")).Stop();
                 var view = Field(player, "_view");

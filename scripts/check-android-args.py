@@ -62,7 +62,7 @@ READ_PATTERNS = [
 def go_commands():
     """command -> 它读过的参数名集合。"""
     out = {}
-    # reg(...) 是 core/plugin 包装过的注册(把插件错误映射成 bus 错误),读参数的写法一样
+    # reg(...) 是核心命令注册的简写,读参数的写法一样
     reg = re.compile(r'(?:bus\.Register|displaycache\.Register|list|reg)\("([a-z]+\.[A-Za-z]+)",\s*(\w+)?')
     for base, _, files in os.walk(CORE):
         for f in files:
@@ -84,8 +84,7 @@ def go_commands():
                             body += hsrc[fm.end(): nxt if nxt > 0 else len(hsrc)]
                             break
                 # `x := helper(a)` / `return h().foo(ctx, a)` —— 参数在同包的另一个函数
-                # 或**方法**里读。方法这一种 2026-09-21 之前是盲区:plugin.backRequest 的
-                # 注册体只有一句转发,判成「一个参数都没读」,壳传的 plugin 就被报成假红。
+                # 或**方法**里读。注册体只有一句转发时,继续沿调用链检查实际读取点。
                 for h in set(re.findall(r'\b(\w+)\(\s*(?:ctx\s*,\s*)?a\s*\)', body)):
                     for hsrc in pkg_sources(base):
                         hm = re.search(r'\nfunc (?:\([^)]*\) )?' + re.escape(h) +

@@ -847,3 +847,61 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Next Steps
 
 - 11-01-android-playback-device-validation：取得 TV 设备及退出日志、定位修复，验证拖动/缩略图与首帧耗时。
+
+
+## Session 163: 设置精简与附加功能移除审查归档
+<!-- trellis-session: v=2 fp=b9f65ac2a97c3753 -->
+
+**Date**: 2026-11-01
+**Task**: 设置精简与附加功能移除审查归档
+**Branch**: `refactor/settings-cleanup`
+
+### Summary
+
+按确认范围完成删除、关于更新整合及换源修复，独立复核后提交归档。
+
+### Main Changes
+
+- 移除本机浏览、第三方同步账号、插件外围与 Windows 外置补帧；保留 Emby 核心与 Android 内建补帧。
+- 修复备用线路候选、跨服会话、返回栈及切服异常收尾；更新契约、CI、产品规范与发布说明。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `226bae09` | refactor(settings): 精简设置并移除本机浏览、同步账号与扩展功能 |
+
+### Testing
+
+- [OK] 核心门禁、231 命令绑定、桌面编译及真实 HTTP/FFI 换源回归通过；Android 核心交叉编译、设置定向测试与换源三项红绿回归通过。
+- [OK] 暂存敏感扫描161个文件无新增；Android原全量5项失败已在基线2ff373c6复现，未宣称全绿。
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- 真机播放、完整设置视觉与 TV 焦点待验；未生成安装包、推送或部署。详细证据见任务归档 verification.md。
+
+
+## Session 164: 完成 tvOS Android TV 对齐实现与代码审查
+<!-- trellis-session: v=2 fp=9788de80c02dd980 -->
+
+**Date**: 2026-11-01
+**Task**: 完成 tvOS Android TV 对齐实现与代码审查
+**Branch**: `refactor/settings-cleanup`
+
+### Summary
+
+按 Android TV 基线补齐 Apple TV 浏览、详情、搜索、设置、Aether 播放器、字幕、弹幕、流影、手机遥控、备份与更新保护；审查并修复遥控取消、跨服务器打开和流影清理问题。Go 定向测试、race、绑定和静态检查通过；Apple SDK/真机仍未验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00fd773f` | feat(tvOS): 对齐 Android TV 功能与界面 |
+
+### Status
+
+[OK] **Completed**

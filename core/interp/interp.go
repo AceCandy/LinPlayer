@@ -1,11 +1,5 @@
-// Package interp 是补帧:档位表、平台后端、(Windows)运行时组件。
-//
-// 两个平台两套后端,档位口径一致(算法 × 2/3/4 倍,补完超过屏幕刷新率不给开):
-//   - Windows(vs_windows.go):mpv 的 vf=vapoursynth 跑 DRBA / RIFE,推理走 DirectML;
-//     运行时约 110MB,用户点了才下(runtime.go)。
-//   - 安卓(ocl_android.go):自编 libmpv 里的 vf=lpinterp,OpenCL 光流(third_party/mpv-interp)。
-//
-// 实测数字和踩过的坑见 docs/lessons/player-mpv.md「补帧」。
+// Package interp 提供 Android 内建 OpenCL 补帧的档位和平台能力判断。
+// 补完超过屏幕刷新率不给开；其它平台不提供补帧。
 package interp
 
 import (
@@ -30,8 +24,6 @@ type Spec struct {
 	Algo   string
 	Multi  int
 	Height int // 补帧前降到的高度;0 = 滤镜自己定
-	// Backend Windows 上的推理后端:"dml"(默认,任何 DX12 独显)/ "trt"(N 卡加速包装好之后)
-	Backend string
 }
 
 // algo 平台后端提供的一种算法。height[倍数] 必须有键,那一档才存在。
@@ -79,7 +71,7 @@ func SpecOf(id string) (Spec, error) {
 	return Spec{}, fmt.Errorf("未知的补帧档位:%s", id)
 }
 
-// MaxSourceFPS 超过这个帧率的片源不补。和两个平台滤镜里的判断是同一个数。
+// MaxSourceFPS 超过这个帧率的片源不补。和内建滤镜里的判断是同一个数。
 const MaxSourceFPS = 32
 
 // WhyNot 这一档在当前片源 / 屏幕下为什么不该开。空串 = 可以开。
@@ -97,10 +89,6 @@ func WhyNot(spec Spec, srcFPS, displayHz float64) string {
 	}
 	return ""
 }
-
-// quote 把值包成 mpv 选项解析器的定长引用 `%字节数%值`。
-// 路径里有空格、逗号、冒号都不会被切开 —— 用户的数据目录可能在「D:\新建 文件夹」里。
-func quote(v string) string { return "%" + strconv.Itoa(len(v)) + "%" + v }
 
 // reportedHz UI 报上来的屏幕刷新率(安卓的核心层拿不到窗口系统,只能由 UI 传)。
 var reportedHz atomic.Uint64
