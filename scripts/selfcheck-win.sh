@@ -10,8 +10,6 @@
 # 几个跑得最多的:
 #   LP_SHADER=ak_sharp LP_DRILL=1 bash scripts/selfcheck-win.sh quality player <片子>
 #                                                              画质档位面板(真选下拉项)
-#   LP_INTERP=drba_2 LP_CORELOG=1 LP_WAIT=60 bash scripts/selfcheck-win.sh interp player <片子>
-#                                                              补帧:没装组件先真下载,再挂档,看核心层日志「补帧:… 起来了」
 #   LP_REPAINT=1 bash scripts/selfcheck-win.sh repaint detail:ep-1
 #                                                            详情页画两遍(那条崩溃)
 #   LP_EPS=1200 LP_RAIL=1 LP_RAILSTRESS=1 LP_WAIT=26 bash scripts/selfcheck-win.sh eps detail:s1
@@ -22,8 +20,6 @@
 #                                                              媒体库:已选筛选片 + 点 ✕ 去掉
 #   LP_VIEW=1  bash scripts/selfcheck-win.sh view grid:lib-1
 #                                                              媒体库版式开关:海报网格 ⇄ 列表
-#   LP_DEVPLUGIN="$(cd plugins/devtools && pwd -W)" bash scripts/selfcheck-win.sh plugui pluginpage:linplayer/devtools/panel
-#                                                              插件 UI 渲染器:把调试面板真渲染出来
 #   LP_HOME=1 bash scripts/selfcheck-win.sh home                首页合集栏(有合集)
 #   LP_HOME=1 LP_NOBOXSET=1 bash scripts/selfcheck-win.sh home-nobox
 #                                                              没有合集 -> 整条不画
@@ -135,36 +131,6 @@ if [ "${LP_FRESH:-}" = "1" ] || [ "${LP_FRESH:-}" = "2" ]; then
   fi
 else
 
-if [ "${LP_SOURCE:-}" = "1" ]; then
-  # 文件浏览型源(本地源)。造一棵真的目录树 —— 假的目录树列不出真的排序 / 大小 / 视频判定。
-  echo "== 4/5 灌一个**本地源**账号 + 造目录树(LP_SOURCE=1)=="
-  TREE="$BIN/userdata/_selfcheck_tree"
-  rm -rf "$TREE"; mkdir -p "$TREE/剧集/S01" "$TREE/空文件夹"
-  printf 'x%.0s' $(seq 1 1234) > "$TREE/某部电影.mkv"
-  printf 'x%.0s' $(seq 1 999)  > "$TREE/封面.jpg"
-  printf 'x%.0s' $(seq 1 5678) > "$TREE/剧集/S01/第01集.mp4"
-  # ★ 路径要进 JSON,反斜杠必须转义。Windows 上 $TREE 是 /d/... 形式,
-  #   但 exe 拿到的是 D:\... —— 统一用正斜杠,Go 的 filepath 两种都吃。
-  TREE_JSON="$(cd "$TREE" && pwd -W 2>/dev/null || printf '%s' "$TREE")"
-  mkdir -p "$BIN/userdata"
-  cat > "$BIN/userdata/config.json" <<JSON
-{
-  "device_id": "linplayer-selfcheck",
-  "accounts": [{
-    "server": "$TREE_JSON",
-    "user_name": "本地文件夹",
-    "name": "自检本地源",
-    "lines": [],
-    "active_line": 0,
-    "source_kind": "local",
-    "source": { "id": "$TREE_JSON", "base_url": "$TREE_JSON", "extra": {} }
-  }],
-  "active": 0,
-  "theme": "dark"
-}
-JSON
-else
-
 echo "== 4/5 灌一个账号(冷启动形态:配置里就有,本次会话没登录过)=="
 mkdir -p "$BIN/userdata"
 # ★★ LP_SRV2=1 再灌**第二台**服务器。
@@ -209,7 +175,6 @@ cat > "$BIN/userdata/config.json" <<JSON
   }
 }
 JSON
-fi
 fi
 
 # ★★ **每次都清掉图片缓存**。
@@ -284,26 +249,11 @@ if [ -n "${LP_PANEL:-}" ]; then
   export LP_SELFCHECK_SRT="$(cd "$ROOT/build" && pwd -W 2>/dev/null || printf '%s' "$ROOT/build")/selfcheck.srt"
 fi
 
-# LP_TVBOX=1:起假资源站(core/cmd/fakevod),开发版加载 plugins/tvbox,订阅它的配置并切到第一个源。
-#   第二个参数照旧是「之后落到哪页」(空 = 数据源首页)。插件数据目录每次清掉,订阅从零走一遍。
-if [ -n "${LP_TVBOX:-}" ]; then
-  echo "== 4.6/5 起假资源站 + 订阅(LP_TVBOX=1)=="
-  powershell -NoProfile -Command "Get-Process fakevod -EA SilentlyContinue | Stop-Process -Force" || true
-  ( cd "$ROOT/core" && go build -o "$ROOT/build/fakevod.exe" ./cmd/fakevod )
-  ( cd "$ROOT" && "$ROOT/build/fakevod.exe" -addr "127.0.0.1:18097" ${LP_TVBOX_MEDIA:+-media "$LP_TVBOX_MEDIA"} > "$ROOT/build/fakevod.log" 2>&1 & )
-  rm -rf "$BIN/userdata/plugins"
-  for _ in $(seq 30); do curl -s -o /dev/null "http://127.0.0.1:18097/config/plain.json" && break; sleep 0.2; done
-  PLUGIN_DIR="$(cd "$ROOT/plugins/tvbox" && pwd -W)"
-  PAGE="tvbox:$PLUGIN_DIR|http://127.0.0.1:18097/config/${LP_TVBOX_CFG:-plain.json}|$PAGE"
-fi
-
 echo "== 5/5 起 exe 截图 =="
 # 图标库的聚合源(假服务器兼职图床)。
 # ★ 真实构建里这个是 -ldflags 注入的,源码里没有 —— 自检走环境变量那条覆盖。
 export LP_ICON_LIBRARY_SOURCES="http://127.0.0.1:$PORT/icons.json"
-# ☠ 默认档位是 Warn,而插件首帧那条打点是 Info —— 不抬档的话这条数字永远量不到,
-#   而「量不到」和「很快」在日志里长得一样(上一轮就是这么以为自己量过的)。
-LP_LOG="${LP_LOG:-Info}" LP_CORELOG="${LP_CORELOG:-}" LP_SELFCHECK=1 LP_SELFCHECK_MENU="${LP_MENU:-}" LP_SELFCHECK_COUNT="${LP_COUNT:-}" LP_SELFCHECK_BOOM="${LP_BOOM:-}" LP_SELFCHECK_VERSION="${LP_VER:-}" LP_SELFCHECK_REPAINT="${LP_REPAINT:-}" LP_SELFCHECK_HERO="${LP_HERO:-}" LP_SELFCHECK_NAVHOVER="${LP_NAVHOVER:-}" LP_SELFCHECK_GLYPH="${LP_GLYPH:-}" LP_SELFCHECK_COLLAPSE="${LP_COLLAPSE:-}" LP_SELFCHECK_FILL="${LP_FILL:-}" LP_SELFCHECK_SIDEBAR="${LP_SIDEBAR:-}" LP_SELFCHECK_SRVMENU="${LP_SRVMENU:-}" LP_SELFCHECK_RAIL="${LP_RAIL:-}" LP_SELFCHECK_RAILSTRESS="${LP_RAILSTRESS:-}" LP_SELFCHECK_EPVIEW="${LP_EPVIEW:-}" LP_SELFCHECK_HEROBAND="${LP_BAND:-}" LP_SELFCHECK_FILTERCHIPS="${LP_CHIPS:-}" LP_SELFCHECK_VIEW="${LP_VIEW:-}" LP_SELFCHECK_CHROME="${LP_CHROME:-}" LP_SELFCHECK_OSDFADE="${LP_OSDFADE:-}" LP_SELFCHECK_RESUME="${LP_RESUME:-}" LP_SELFCHECK_RECLICK="${LP_RECLICK:-}" LP_SELFCHECK_SRVICON="${LP_SRVICON:-}" LP_SELFCHECK_THUMB="${LP_THUMB:-}" LP_SELFCHECK_AVSYNC="${LP_AVSYNC:-}" LP_SELFCHECK_STUTTER="${LP_STUTTER:-}" LP_SELFCHECK_PICK="${LP_PICK:-}" LP_SELFCHECK_HOVERLAYOUT="${LP_HOVERLAYOUT:-}" LP_SELFCHECK_PAUSE="${LP_PAUSEAT:-}" LP_SELFCHECK_PANEL="${LP_PANEL:-}" LP_SELFCHECK_DOWNLOAD="${LP_DL:-}" LP_SELFCHECK_TOAST="${LP_TOAST:-}" LP_SELFCHECK_KEYS="${LP_KEYS:-}" LP_SELFCHECK_HOME="${LP_HOME:-}" LP_SELFCHECK_HOMESET="${LP_HOMESET:-}" LP_SELFCHECK_WATCHED="${LP_WATCHED:-}" LP_SELFCHECK_PAGE="$PAGE" LP_SELFCHECK_DEVPLUGIN="${LP_DEVPLUGIN:-}" LP_SELFCHECK_MAXIMIZE="${LP_MAX:-}" LP_SELFCHECK_PLAYER_DRILL="${LP_DRILL:-}" LP_SELFCHECK_SCROLL="${LP_SCROLL:-}" LP_SELFCHECK_SOURCE="${LP_SRCKIND:-}" LP_SELFCHECK_SHADER="${LP_SHADER:-}" LP_SELFCHECK_INTERP="${LP_INTERP:-}" LP_SELFCHECK_INTERP_TRT="${LP_INTERP_TRT:-}" LP_SELFCHECK_REORDER="${LP_REORDER:-}" LP_SELFCHECK_PLAYERUI="${LP_PLAYERUI:-}" "$BIN/LinPlayer.exe" > "$ROOT/build/app.log" 2>&1 &
+LP_LOG="${LP_LOG:-Info}" LP_CORELOG="${LP_CORELOG:-}" LP_SELFCHECK=1 LP_SELFCHECK_MENU="${LP_MENU:-}" LP_SELFCHECK_COUNT="${LP_COUNT:-}" LP_SELFCHECK_BOOM="${LP_BOOM:-}" LP_SELFCHECK_VERSION="${LP_VER:-}" LP_SELFCHECK_REPAINT="${LP_REPAINT:-}" LP_SELFCHECK_HERO="${LP_HERO:-}" LP_SELFCHECK_NAVHOVER="${LP_NAVHOVER:-}" LP_SELFCHECK_GLYPH="${LP_GLYPH:-}" LP_SELFCHECK_COLLAPSE="${LP_COLLAPSE:-}" LP_SELFCHECK_FILL="${LP_FILL:-}" LP_SELFCHECK_SIDEBAR="${LP_SIDEBAR:-}" LP_SELFCHECK_SRVMENU="${LP_SRVMENU:-}" LP_SELFCHECK_RAIL="${LP_RAIL:-}" LP_SELFCHECK_RAILSTRESS="${LP_RAILSTRESS:-}" LP_SELFCHECK_EPVIEW="${LP_EPVIEW:-}" LP_SELFCHECK_HEROBAND="${LP_BAND:-}" LP_SELFCHECK_FILTERCHIPS="${LP_CHIPS:-}" LP_SELFCHECK_VIEW="${LP_VIEW:-}" LP_SELFCHECK_CHROME="${LP_CHROME:-}" LP_SELFCHECK_OSDFADE="${LP_OSDFADE:-}" LP_SELFCHECK_RESUME="${LP_RESUME:-}" LP_SELFCHECK_RECLICK="${LP_RECLICK:-}" LP_SELFCHECK_SRVICON="${LP_SRVICON:-}" LP_SELFCHECK_THUMB="${LP_THUMB:-}" LP_SELFCHECK_AVSYNC="${LP_AVSYNC:-}" LP_SELFCHECK_STUTTER="${LP_STUTTER:-}" LP_SELFCHECK_PICK="${LP_PICK:-}" LP_SELFCHECK_HOVERLAYOUT="${LP_HOVERLAYOUT:-}" LP_SELFCHECK_PAUSE="${LP_PAUSEAT:-}" LP_SELFCHECK_PANEL="${LP_PANEL:-}" LP_SELFCHECK_DOWNLOAD="${LP_DL:-}" LP_SELFCHECK_TOAST="${LP_TOAST:-}" LP_SELFCHECK_KEYS="${LP_KEYS:-}" LP_SELFCHECK_HOME="${LP_HOME:-}" LP_SELFCHECK_HOMESET="${LP_HOMESET:-}" LP_SELFCHECK_WATCHED="${LP_WATCHED:-}" LP_SELFCHECK_PAGE="$PAGE" LP_SELFCHECK_MAXIMIZE="${LP_MAX:-}" LP_SELFCHECK_PLAYER_DRILL="${LP_DRILL:-}" LP_SELFCHECK_SCROLL="${LP_SCROLL:-}" LP_SELFCHECK_SHADER="${LP_SHADER:-}" LP_SELFCHECK_REORDER="${LP_REORDER:-}" LP_SELFCHECK_PLAYERUI="${LP_PLAYERUI:-}" "$BIN/LinPlayer.exe" > "$ROOT/build/app.log" 2>&1 &
 # 播放页要等起播 + 解码,别的页 6 秒够
 # LP_SHADER=all 要把 28 档挨个挂一遍(每档要等真渲染一帧才编译),得多给点时间
 # LP_WAIT=秒 覆盖等待时长(滚动扫描这类要跑几秒的自检用)
@@ -318,32 +268,6 @@ if [ -n "${LP_BURST:-}" ]; then
 fi
 powershell -NoProfile -ExecutionPolicy Bypass -File "$ROOT/scripts/shot-window.ps1" \
   -ProcName LinPlayer -Out "$ROOT/build/$SHOT.png"
-# ---------------------------------------------------------------- 插件 UI 的数字验收(D543)
-#
-# ☠ 这一段**会改退出码**。上一版只 echo 一行,于是「有组件被降级成占位」写在日志里
-#   躺了一整轮没人管 —— 只报不判的检查等于没有检查。
-DESKLOG="$BIN/userdata/logs/desktop.log"
-if [ -f "$DESKLOG" ] && grep -q "未知组件" "$DESKLOG"; then
-  echo "  ✗ 有组件被降级成占位(D319 的占位是给「老宿主遇到新组件」的,不是给我们自己没做的):"
-  grep "未知组件" "$DESKLOG" | tail -5 | sed 's/^/      /'
-  SELF_FAIL=$((SELF_FAIL + 1))
-fi
-# 首帧 < 300ms(SPEC 7.12:nav.push → 真正上屏,**插件已加载的前提下**)。
-# 冷的那一次还要装运行时 + 现编 TS,拿它签字等于把门槛放宽到冷路径,热路径就没门槛了。
-cold="$(grep -o "首帧上屏(冷) [0-9]* ms" "$DESKLOG" 2>/dev/null | grep -o "[0-9]*" | sort -n | tail -1)"
-worst="$(grep -o "首帧上屏(热) [0-9]* ms" "$DESKLOG" 2>/dev/null | grep -o "[0-9]*" | sort -n | tail -1)"
-[ -n "$cold" ] && echo "    (冷启动那一次 ${cold} ms,不计入门槛)"
-if [ -n "$worst" ]; then
-  if [ "$worst" -le "${LP_FIRSTFRAME_MS:-300}" ]; then
-    echo "[插件首帧] ✓ 热路径最慢 ${worst} ms(预算 ${LP_FIRSTFRAME_MS:-300} ms)"
-  else
-    echo "[插件首帧] ✗ 热路径最慢 ${worst} ms,超过 ${LP_FIRSTFRAME_MS:-300} ms(SPEC 7.12 D543)"
-    SELF_FAIL=$((SELF_FAIL + 1))
-  fi
-elif [ -n "${LP_DEVPLUGIN:-}" ]; then
-  echo "[插件首帧] ✗ 加载了开发插件却没量到热路径首帧 —— 要么打点断了,要么这一趟只进过一次插件页"
-  SELF_FAIL=$((SELF_FAIL + 1))
-fi
 # ★ **优雅关闭**,不是 Stop-Process。
 #   Kill 掉的话退出路径(lp_shutdown:停 mpv + 上报进度 + 写历史)根本不会跑,
 #   而「看一半退出续播不落地」正是这条路断掉的唯一表现。
@@ -351,7 +275,6 @@ powershell -NoProfile -Command "
   \$p = Get-Process LinPlayer -EA SilentlyContinue
   if (\$p) { \$null = \$p.CloseMainWindow(); if (-not \$p.WaitForExit(8000)) { \$p.Kill(); Write-Output '!! 8 秒没退干净,只能 kill' } }
 " || true
-[ -n "${LP_TVBOX:-}" ] && { powershell -NoProfile -Command "Get-Process fakevod -EA SilentlyContinue | Stop-Process -Force" || true; }
 
 # ☠☠ **播放上报三件套**只在服务器那边看得见。
 #   缺哪一件都是「看一半退出续播不落地」,而客户端一切正常:

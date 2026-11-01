@@ -181,7 +181,7 @@ func TestSourceKind线上小写(t *testing.T) {
 
 // 账号里**还没移植的键**必须原样留住。
 //
-// ★ 丢了的表现是「升级之后我配的网盘源没了」,而且不报错。
+// ★ 丢了的表现是「升级之后账号里的设置没了」,而且不报错。
 func TestAccount未接的键不丢(t *testing.T) {
 	dir := withTempRoot(t)
 	raw := `{
@@ -193,7 +193,7 @@ func TestAccount未接的键不丢(t *testing.T) {
       "token": "PLACEHOLDER-TOKEN",
       "user_id": "PLACEHOLDER-USER",
       "user_name": "someone",
-      "source_kind": "local",
+      "source_kind": "emby",
       "source": {"cookie": "PLACEHOLDER-COOKIE", "root": "/"}
     }
   ]
@@ -216,7 +216,7 @@ func TestAccount未接的键不丢(t *testing.T) {
 	out, _ := os.ReadFile(filepath.Join(dir, "config.json"))
 	for _, k := range []string{"source_kind", "PLACEHOLDER-COOKIE", `"source"`} {
 		if !strings.Contains(string(out), k) {
-			t.Fatalf("保存后 %s 没了 —— 用户会看到「升级之后我配的网盘源没了」\n%s", k, out)
+			t.Fatalf("保存后 %s 没了\n%s", k, out)
 		}
 	}
 }
@@ -322,5 +322,44 @@ func TestResolve识别当前优选本地地址(t *testing.T) {
 	}
 	if c.Resolve("http://unknown.example.test") != nil {
 		t.Fatal("未知地址匹配了活跃账号")
+	}
+}
+
+// 已下线的源(本机文件夹 / 插件数据源)和 Trakt / Bangumi 连接,升级加载时直接清掉并落盘。
+func TestLoad清掉下线功能的数据(t *testing.T) {
+	dir := withTempRoot(t)
+	raw := `{
+  "active": 1,
+  "accounts": [
+    {"server": "https://emby", "token": "PLACEHOLDER-TOKEN", "user_id": "u"},
+    {"server": "local:/media", "source_kind": "local"},
+    {"server": "plugin:alice/tvbox/s1", "source_kind": "plugin:alice/tvbox/s1", "psource": {"plugin": "alice/tvbox"}}
+  ],
+  "sync_trakt": {"access_token": "PLACEHOLDER"},
+  "sync_bangumi": {"access_token": "PLACEHOLDER"},
+  "plugin_sources": []
+}`
+	p := filepath.Join(dir, "config.json")
+	if err := os.WriteFile(p, []byte(raw), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	c, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.AccountList) != 1 || c.AccountList[0].Server != "https://emby" {
+		t.Fatalf("应只剩 Emby 账号: %+v", c.AccountList)
+	}
+	if a := c.ActiveAccount(); a == nil || a.Server != "https://emby" {
+		t.Fatalf("活跃账号指向被删的源时应回落到剩下的账号: %+v", a)
+	}
+	out, _ := os.ReadFile(p)
+	for _, k := range []string{"local:/media", "plugin:alice", "sync_trakt", "sync_bangumi", "plugin_sources"} {
+		if strings.Contains(string(out), k) {
+			t.Fatalf("加载后没落盘清掉 %s:\n%s", k, out)
+		}
+	}
+	if merged := MergeAccounts(c.AccountList, []Account{{Server: "local:/x", rest: map[string]json.RawMessage{"source_kind": json.RawMessage(`"local"`)}}}); len(merged) != 1 {
+		t.Fatalf("导入旧备份里的本机文件夹账号应被丢掉: %+v", merged)
 	}
 }

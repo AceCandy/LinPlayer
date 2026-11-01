@@ -99,8 +99,7 @@ fun LpScaffold(
     val root = tvRoot && tv
     // 电视二级页沉浸：底色用与一级页同一层氛围色（不透明，切页时盖住来源页），标题不铺底，内容上滚时在标题下沿溶掉
     val tvSub = tv && !tvRoot
-    val pageBg = xyz.linplayer.app.ui.plugin.pageBg(c.bg)
-    val tone = if (tvSub && pageBg != Color.Transparent) xyz.linplayer.app.tv.LocalTvTone.current?.value else null
+    val tone = if (tvSub) xyz.linplayer.app.tv.LocalTvTone.current?.value else null
     // 渐变按整屏坐标铺满整屏（不裁到本页）：与外层一级页那层逐像素对齐，切页时连四周边距一起盖住来源页
     var origin by remember { mutableStateOf(androidx.compose.ui.geometry.Offset.Zero) }
     var screen by remember { mutableStateOf(androidx.compose.ui.geometry.Size.Zero) }
@@ -112,7 +111,7 @@ fun LpScaffold(
         }.drawBehind {
             translate(-origin.x, -origin.y) { drawRect(homeToneScene(tone, c.bg), size = screen.takeIf { it != androidx.compose.ui.geometry.Size.Zero } ?: size) }
         }
-        else -> Modifier.background(pageBg)
+        else -> Modifier.background(c.bg)
     })) {
         Column(Modifier.fillMaxSize()) {
             // ★ 没有标题**不等于没有 topbar**:首页就是「无标题但右上角有入口」。
@@ -146,7 +145,7 @@ fun LpImmersive(
 ) {
     val c = Lp.colors
     val root = tvRoot && xyz.linplayer.app.tv.LocalTvMode.current
-    Box(m.fillMaxSize().then(if (root) Modifier else Modifier.background(xyz.linplayer.app.ui.plugin.pageBg(c.bg)))) {
+    Box(m.fillMaxSize().then(if (root) Modifier else Modifier.background(c.bg))) {
         content(contentInsets())
         // 遮罩向下淡出，让滚动内容透出，避免顶栏底部出现纯色硬边。
         Column(barModifier.fillMaxWidth().background(Brush.verticalGradient(

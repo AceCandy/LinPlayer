@@ -18,7 +18,7 @@
 
 ## 门禁与证据
 
-- 日历无需赞助或订单：`sync.traktCalendar` / `sync.bangumiCalendar` / `sync.calendarLibrary` / `sync.calendarDue` 不检查旧订单字段。个人 Bangumi 日历始终要求账号，只返回在看条目；公共日历使用 `emby.extCalendar`。参数校验和提醒开关保留；`TestCalendarWithoutSponsorOrder` / `TestBangumiCalendarRequiresAccount` / `TestPersonalCalendarWithoutSponsorOrder` 验证无订单、无账号不出网和真实 HTTP 个人条目过滤。
+- 公共日历使用 `emby.extCalendar`，不要求赞助订单或第三方账号；Trakt / Bangumi 账号、个人日历同步与提醒命令已删除。服务端公共日历与 Bangumi 元数据匹配继续保留。
 - 核心变更：`bash scripts/check-core.sh`，包含 go vet、无缓存 go test、出库、FFI 头文件、C# 核心契约与差分对账。
 - 命令表或绑定变更：`bash scripts/check-bindings.sh`。
 - Emby 相关改动核查 `core/cmd/diffcheck/corpus/` 的既有差分语料及相关测试；真实 API 联调按 [基准](../shared/product-and-api.md) 执行。

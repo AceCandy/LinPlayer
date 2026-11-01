@@ -23,6 +23,7 @@ internal static class DiscoveryCheck
         var requests = new ConcurrentQueue<string>();
         var matches = new ConcurrentQueue<string>();
         var tokens = new ConcurrentQueue<string>();
+        var detailTokens = new ConcurrentQueue<string>();
         var fail = false;
         var pageFailure = false;
         var worker = Task.Run(async () => {
@@ -33,6 +34,7 @@ internal static class DiscoveryCheck
                     var path = c.Request.Url!.AbsolutePath;
                     requests.Enqueue(c.Request.RawUrl!);
                     tokens.Enqueue(c.Request.Headers["X-Emby-Token"] ?? "");
+                    if (path.EndsWith("/Items/switch-item")) detailTokens.Enqueue(c.Request.Headers["X-Emby-Token"] ?? "");
                     object response;
                     if (path.EndsWith("AuthenticateByName")) {
                         response = new { AccessToken = path.StartsWith("/primary/") ? "primary-fixture" : "fixture",
@@ -52,6 +54,8 @@ internal static class DiscoveryCheck
                     else if (path.EndsWith("library/matches")) {
                         matches.Enqueue(await new StreamReader(c.Request.InputStream).ReadToEndAsync());
                         response = new { items = new[] { new { key = "item", matches = new[] { new { item_id = "library-item", item_type = "Series" } } } } };
+                    } else if (c.Request.QueryString["SearchTerm"] != null) {
+                        response = new { Items = new[] { new { Id = "switch-item", Name = "媒体详情", Type = "Movie" } }, TotalRecordCount = 1 };
                     } else response = new { Id = "library-item", Name = "媒体详情", Type = "Series", Items = Array.Empty<object>() };
                     var bytes = JsonSerializer.SerializeToUtf8Bytes(response);
                     c.Response.ContentType = "application/json";
@@ -118,7 +122,23 @@ internal static class DiscoveryCheck
             primaryRanking.GetVisualDescendants().OfType<Button>().First(b => b.Content is PodiumCard)
                 .RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Wait(() => Nav.Current is DetailPage && Nav.Session?.server == primary, "主服匹配后未切换会话并进入详情");
-            Console.WriteLine("发现页：真实HTTP/FFI、榜单分页、周历、实时精确匹配和权限撤销通过");
+            Await(core.CallAsync("source.setAggregate", new { server_id = address.TrimEnd('/'), allow = true }));
+            var showSource = SwitchSource.ShowForEmby(window, core, "library-item");
+            Wait(() => showSource.IsCompleted, "换源对话框未打开");
+            showSource.GetAwaiter().GetResult();
+            Window? sourceDialog = null;
+            Wait(() => (sourceDialog = window.OwnedWindows.FirstOrDefault(w => w.Title == "换源")) != null &&
+                sourceDialog.GetVisualDescendants().OfType<Button>().Any(b => Text(b, "媒体详情")), "换源没有显示其它服的候选");
+            var candidate = sourceDialog!.GetVisualDescendants().OfType<Button>().First(b => Text(b, "媒体详情"));
+            candidate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            candidate.RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
+            sourceDialog.Close();
+            Check(sourceDialog.IsVisible, "切服提交期间允许提前关窗");
+            Wait(() => detailTokens.Count > 0, "换源未请求目标详情");
+            Check(Nav.Session?.server == address.TrimEnd('/') && Nav.Session.token == "fixture" &&
+                detailTokens.All(t => t == "fixture"), "换源详情使用了旧服务器会话");
+            Check(Nav.Current is DetailPage && Nav.Depth == 2, "换源未清理旧服务器的返回栈");
+            Console.WriteLine("发现页：真实HTTP/FFI、榜单分页、周历、实时精确匹配、权限撤销及跨服换源会话通过");
         } finally {
             window.Content = null; window.Close(); Nav.Host = previousHost;
             Nav.Root(new StackPanel()); Nav.Session = previous;

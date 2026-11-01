@@ -95,7 +95,6 @@ func statDir(p string) (bool, error) {
 	}
 	return fi.IsDir(), nil
 }
-func InterpDir() string { return sub("components", "interp") } // 补帧运行时,按需下载,重下代价高所以不在 cache/
 
 // TempDir 自家临时目录。
 //

@@ -162,11 +162,6 @@ import xyz.linplayer.app.ui.components.LpRow
 import xyz.linplayer.app.ui.components.NetImage
 import xyz.linplayer.app.ui.components.OptRow
 import xyz.linplayer.app.ui.components.SectionTitle
-import xyz.linplayer.app.ui.plugin.Anchored
-import xyz.linplayer.app.ui.plugin.LocalAnchors
-import xyz.linplayer.app.ui.plugin.PluginAnchors
-import xyz.linplayer.app.ui.plugin.detailProps
-import xyz.linplayer.app.ui.plugin.rememberAnchorScope
 import xyz.linplayer.app.ui.components.dissolve
 import xyz.linplayer.app.ui.components.bleed
 import xyz.linplayer.app.ui.components.pressable
@@ -786,8 +781,8 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     }
 
-    // 评分就在这条数据带里(★ 评分是第一格),锚点挂它
-    val ratingsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_RATINGS, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
+    // 评分就在这条数据带里(★ 评分是第一格)
+    val ratingsBlock: @Composable () -> Unit = ratings@{
         if (tv) {
             val values = listOfNotNull(
                 d.dbl("rating")?.takeIf { it > 0 && !isEpisode }?.let { "★ %.1f".format(it) },
@@ -800,7 +795,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             )
             if (values.isNotEmpty()) Text(values.joinToString("  ·  "), Modifier.testTag("detail.ratings"),
                 color = Color.White.copy(alpha = .85f), style = LpText.body)
-            return@Anchored
+            return@ratings
         }
         if (isSeriesEntry) {
             val summary = Triple(d.dbl("rating")?.takeIf { it > 0 },
@@ -823,7 +818,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     current.third?.let { count -> Text("共 $count 季", color = c.fg2, style = LpText.body) }
                 }
             }
-            return@Anchored
+            return@ratings
         }
         val values = listOfNotNull(
             d.dbl("rating")?.takeIf { it > 0 && !isEpisode }?.let { "★ %.1f".format(it) },
@@ -838,7 +833,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 color = c.fg2, style = LpText.body,
             )
         }
-    } }
+    }
 
     val tagsBlock: @Composable () -> Unit = {
         /* 类型 / 标签 / 工作室这三种**能点**
@@ -912,9 +907,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
     }
 
-    val actionsBlock: @Composable () -> Unit = { Anchored(PluginAnchors.DETAIL_ACTIONS, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
-        // 合集不是一部片,没有播放按钮 —— 但锚点位照留,插件还能往这儿挂
-        if (isBoxSet) return@Anchored
+    val actionsBlock: @Composable () -> Unit = actions@{
+        // 合集不是一部片,没有播放按钮
+        if (isBoxSet) return@actions
         val target = if (isSeries) nextEp?.id ?: route.itemId else route.itemId
         val resume = if (isSeries) shownNextEp?.resumeSecs ?: 0.0 else live.dbl("resume_secs") ?: 0.0
         val runtime = if (isSeries) shownNextEp?.runtimeSecs ?: 0.0 else d.dbl("runtime_secs") ?: 0.0
@@ -1014,7 +1009,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 if (failure != null && !failure.isSilent && (isSeries || presentation?.media == null))
                     xyz.linplayer.app.ui.components.ErrorState("播放选项读取失败：${failure.message}", { mediaRetry++ })
             }
-            return@Anchored
+            return@actions
         }
         Column(Modifier.padding(top = Sp.x16)) {
             Row(
@@ -1108,7 +1103,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 ) }
             }
         }
-    } }
+    }
 
     LpImmersive(
         m = if (tv) Modifier.focusProperties {
@@ -1162,12 +1157,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
         }
 
         // ★ 取色底铺满整屏并且**不跟着滚**:图往上走、色留在原地,那一层视差就是「华丽」的来源
-        /* 插件注入位(SPEC 6.2)。详情还没回来时先给一张空表:props 是**挂载那一刻**
-           读走的,拿 null 条目挂上去的插件块此后永远收不到真数据。 */
-        val anchors = rememberAnchorScope(PluginAnchors.Detail, detailProps(if (app.privateSpace.value) null else live))
-        androidx.compose.runtime.CompositionLocalProvider(
-            LocalAnchors provides if (live == null || app.privateSpace.value) xyz.linplayer.app.ui.plugin.AnchorScope() else anchors
-        ) {
         Box(Modifier.fillMaxSize().background(toneScene(tone,
             if (tv) tone.copy(alpha = .08f).compositeOver(c.bg) else c.bg))) {
             if (wide) WideBackdrop(app, route.itemId, d, isEpisode)
@@ -1175,17 +1164,13 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
             Row(Modifier.fillMaxSize()) {
             if (wide) Column(Modifier.width(WideSideWidth).fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(top = topInset, bottom = pad.calculateBottomPadding()).testTag("detail.wide.side")) {
-                Anchored(PluginAnchors.DETAIL_HEADER) {
-                    WideHead(app, route.itemId, d, isEpisode, isSeriesEntry) {
-                        live.str("series_id")?.let { sid -> nav.navigate(Route.Detail(sid, "Series")) }
-                    }
+                WideHead(app, route.itemId, d, isEpisode, isSeriesEntry) {
+                    live.str("series_id")?.let { sid -> nav.navigate(Route.Detail(sid, "Series")) }
                 }
-                Anchored(PluginAnchors.DETAIL_TITLE, Modifier.padding(horizontal = Sp.x16)) {}
                 ratingsBlock()
                 tagsBlock()
                 actionsBlock()
             }
-            val anchorBlocks = LocalAnchors.current.blocks
             val listModifier = Modifier.weight(1f)
             xyz.linplayer.app.tv.kit.ProvideEdgeSpecWhen({ tv && heroFocused }) {
             LazyColumn(listModifier.fillMaxHeight().onFocusChanged { if (!it.hasFocus) playReturn?.cancel() }.onPreviewKeyEvent {
@@ -1209,13 +1194,10 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     }.focusGroup()) {
                     TvDetailHero(app, route.itemId, d, isEpisode, isSeries,
                         onSeries = { live.str("series_id")?.let { nav.navigate(Route.Detail(it, "Series")) } }) {
-                        Anchored(PluginAnchors.DETAIL_TITLE) {}
                         ratingsBlock()
                         tagsBlock()
-                        Anchored(PluginAnchors.DETAIL_OVERVIEW) {
-                            d.str("overview")?.takeIf(String::isNotBlank)?.let {
-                                TvDetailOverview(it, Modifier) { sheet = "overview" }
-                            }
+                        d.str("overview")?.takeIf(String::isNotBlank)?.let {
+                            TvDetailOverview(it, Modifier) { sheet = "overview" }
                         }
                         // 播放行先占位（不可用时置灰），资料与媒体到达后原地刷新，首屏不跳
                         actionsBlock()
@@ -1223,14 +1205,12 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     }
                 } else if (!wide) item("hero") {
                     Box {
-                        Anchored(PluginAnchors.DETAIL_HEADER) {
-                            if (isEpisode) EpisodeHead(app, route.itemId, d, list) {
-                                live.str("series_id")?.let { sid ->
-                                    nav.navigate(Route.Detail(sid, "Series"))
-                                }
+                        if (isEpisode) EpisodeHead(app, route.itemId, d, list) {
+                            live.str("series_id")?.let { sid ->
+                                nav.navigate(Route.Detail(sid, "Series"))
                             }
-                            else SeriesHead(app, route.itemId, d, list, isSeriesEntry)
                         }
+                        else SeriesHead(app, route.itemId, d, list, isSeriesEntry)
                     }
                 }
 
@@ -1238,10 +1218,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                     xyz.linplayer.app.ui.components.ErrorState("资料刷新失败：${f.message}", { detailRetry++ })
                 }
 
-                // 标题画在头图**里面**,没有独立的一块可以换掉,所以这里是纯插入位:
-                // 「标题下方」(SPEC 20.3)—— hide 没有东西可藏,replace 等同于 after
                 if (!wide && !tv) {
-                    item("anchor-title") { Anchored(PluginAnchors.DETAIL_TITLE, Modifier.padding(horizontal = Sp.x16)) {} }
                     item("data") { ratingsBlock() }
                     item("tags") { tagsBlock() }
                 }
@@ -1260,20 +1237,14 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
 
                 if (!wide && !tv) item("actions") { actionsBlock() }
 
-                if (!tv && (isEpisode || isSeriesEntry)) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                if (!tv && (isEpisode || isSeriesEntry)) item("overview") {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
-                } }
+                }
 
-                // 剧集入口的季海报位于分集之后；其它详情继续保留季插件插入位。
-                // 空锚点不占 TV 懒列表项，避免连续零高度项阻断离屏焦点搜索；插件插入仍保留。
-                if (!isSeriesEntry && (!tv || !anchorBlocks[PluginAnchors.DETAIL_SEASONS].isNullOrEmpty()))
-                    item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {} }
-                // 换季仍复用同一请求链和滚动状态。
-                if (!tv || isSeries || isEpisode || !anchorBlocks[PluginAnchors.DETAIL_EPISODES].isNullOrEmpty())
-                    item("episodes") { Anchored(PluginAnchors.DETAIL_EPISODES, Modifier.padding(horizontal = if (tv) 0.dp else Sp.x16)) {
-                    if (!isSeries && !isEpisode) return@Anchored
+                // 剧集入口的季海报位于分集之后；换季仍复用同一请求链和滚动状态。
+                if (isSeries || isEpisode) item("episodes") {
                     var seasonsOpen by remember { mutableStateOf(false) }
                     val menuOffset = with(LocalDensity.current) { 48.dp.roundToPx() }
                     if (tv) DisposableEffect(Unit) {
@@ -1356,9 +1327,9 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         if (shownEpisodes.isNotEmpty() && episodeLoad is Block.Fail)
                             xyz.linplayer.app.ui.components.ErrorState((episodeLoad as Block.Fail).message, { episodeRetry++ })
                     }
-                } }
+                }
 
-                if (isSeriesEntry) item("seasons") { Anchored(PluginAnchors.DETAIL_SEASONS, Modifier.padding(horizontal = Sp.x16)) {
+                if (isSeriesEntry) item("seasons") {
                     Column(Modifier.fillMaxWidth().testTag("detail.seasons")) {
                         SectionTitle("季")
                         val seasonHeight = with(LocalDensity.current) { 156.dp + Sp.x6 + LpText.compact.lineHeight.toDp() * 2 + if (tv) 12.dp else 0.dp }
@@ -1399,7 +1370,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             }
                         } else if (seasonLoad is Block.Loading) Spacer(Modifier.fillMaxWidth().height(seasonHeight))
                     }
-                } }
+                }
 
                 /* 合集的成员。**影片和剧集分成两段**(用户 2026-09-08:
                    「合集要把影片和剧集分开,方便用户查找」)。
@@ -1426,17 +1397,16 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                         }
                 }
 
-                if (!tv && !isEpisode && !isSeriesEntry) item("overview") { Anchored(PluginAnchors.DETAIL_OVERVIEW, Modifier.padding(horizontal = Sp.x16)) {
+                if (!tv && !isEpisode && !isSeriesEntry) item("overview") {
                     DetailReveal(d.str("overview")?.takeIf { it.isNotBlank() }, Modifier.testTag("detail.overview"), immediate = live == null && cached != null) { ov ->
                         ov?.let { Overview(it) }
                     }
-                } }
+                }
 
-                item("people") { Anchored(PluginAnchors.DETAIL_CAST, Modifier.padding(horizontal = Sp.x16)) {
+                item("people") {
                     DetailReveal(people, Modifier.testTag("detail.people"), immediate = live == null && cached != null) { current ->
                         if (current.isEmpty()) return@DetailReveal
-                        val direct = tv && !isSeries && !isEpisode && anchorBlocks[PluginAnchors.DETAIL_SEASONS].isNullOrEmpty() &&
-                            anchorBlocks[PluginAnchors.DETAIL_EPISODES].isNullOrEmpty()
+                        val direct = tv && !isSeries && !isEpisode
                         if (direct) DisposableEffect(Unit) {
                             peopleMounted = true
                             onDispose { peopleMounted = false }
@@ -1451,7 +1421,7 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                             }
                         }.focusGroup()) { nav.navigate(Route.Person(it.id, it.name)) }
                     }
-                } }
+                }
 
                 // 媒体信息:**照 Emby 官端分组成卡**,不是一张 kv 大表
                 if (!isSeries && !isBoxSet) item("media") {
@@ -1472,14 +1442,14 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                    ★ 换季那一栏一动,下面的集数栏当场跟着换 —— 两栏是一条链,不是两个列表。
                    ★ 点一集进的是**这一集的详情页**,不是直接起播:起播是详情页里那颗大按钮。
                      上一版是一条竖着的长列表,把整页撑得看不到下面的相似推荐。 */
-                item("similar") { Anchored(PluginAnchors.DETAIL_SIMILAR, Modifier.padding(horizontal = Sp.x16)) {
-                    if (similar.isEmpty()) return@Anchored
+                item("similar") {
+                    if (similar.isEmpty()) return@item
                     LpRow("相似推荐", similar, { it, h -> app.imageUrl(it.id, "Primary", h) },
                         { nav.navigate(Route.Detail(it.id, it.type)) },
                         menu = { rememberCardActions(app, scope, it) })
-                } }
+                }
 
-                item("tail") { Anchored(PluginAnchors.DETAIL_FOOTER, Modifier.padding(horizontal = Sp.x16)) { Spacer(Modifier.height(Sp.x26)) } }
+                item("tail") { Spacer(Modifier.height(Sp.x26)) }
                 }
             }
             }
@@ -1492,7 +1462,6 @@ private fun DetailContent(nav: NavController, route: Route.Detail, cacheKey: Str
                 LoadingState(Modifier.fillMaxSize()
                     .padding(start = if (wide) WideSideWidth else 0.dp, top = with(LocalDensity.current) { filled.toDp() }))
             }
-        }
         }
     }
 
@@ -1584,13 +1553,11 @@ private fun TvDetailHero(
     val useBackdrop = d.bool("has_backdrop") && !backdropFailed
     val url = if (useBackdrop) app.imageUrl(id, "Backdrop", 720)
         else app.imageUrl(id, "Primary", 720).takeUnless { d.boolOrNull("has_primary") == false }
-    val headerReplaced = LocalAnchors.current.blocks[PluginAnchors.DETAIL_HEADER]
-        .orEmpty().any { it.mode == "hide" || it.mode == "replace" }
     Box(Modifier.bleed(TvPageSide).fillMaxWidth()
         .heightIn(min = screenHeight * if (series) .64f else .68f).testTag("detail.hero")) {
         // 与手机一致：从点中的海报放大成头图，溶解与压暗随共享层一起长大。
         // 图层至少铺满一屏，越出头部的部分垫在演职人员/分集后面，首屏整体都是图
-        if (!headerReplaced) Box(Modifier.matchParentSize().layout { measurable, constraints ->
+        Box(Modifier.matchParentSize().layout { measurable, constraints ->
             val height = maxOf(constraints.maxHeight, screenHeight.roundToPx())
             val placeable = measurable.measure(constraints.copy(minHeight = height, maxHeight = height))
             layout(constraints.maxWidth, constraints.maxHeight) { placeable.place(0, 0) }
@@ -1608,27 +1575,25 @@ private fun TvDetailHero(
                 .32f to Color.Black.copy(alpha = .72f),
                 .58f to Color.Black.copy(alpha = .24f),
                 .8f to Color.Transparent)))
-        } else Box(Modifier.matchParentSize().background(Color.Black.copy(alpha = .9f)))
+        }
         Column(Modifier.align(Alignment.BottomStart).aboveSharedPoster().fillMaxWidth()
             .padding(start = TvPageSide + Sp.x16, end = TvPageSide + Sp.x16,
                 top = TvDim.safeV + Sp.x8, bottom = if (series) Sp.x8 else Sp.x12)) {
-            Anchored(PluginAnchors.DETAIL_HEADER) {
-                if (episode) d.str("series_name")?.let { series ->
-                    Text(series, Modifier.fillMaxWidth(.66f)
-                        .then(if (!d.str("series_id").isNullOrBlank()) Modifier.pressable(onSeries) else Modifier)
-                        .padding(bottom = Sp.x8),
-                        color = Color.White.copy(alpha = .85f), style = LpText.section)
-                }
-                val number = if (episode) listOfNotNull(
-                    d.long("season_no")?.let { "S$it" }, d.long("episode_no")?.let { "E$it" }).joinToString("") else ""
-                Text(listOf(number, d.str("name") ?: detailPreview(id)?.name.orEmpty())
-                    .filter(String::isNotBlank).joinToString("："),
-                    Modifier.fillMaxWidth(.56f).padding(bottom = Sp.x10).testTag("detail.title"),
-                    color = Color.White, style = LpText.hero.copy(fontSize = 28.sp, lineHeight = 34.sp))
-                d.str("tagline")?.takeIf(String::isNotBlank)?.let {
-                    Text(it, Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12),
-                        color = Color.White.copy(alpha = .85f), style = LpText.section)
-                }
+            if (episode) d.str("series_name")?.let { series ->
+                Text(series, Modifier.fillMaxWidth(.66f)
+                    .then(if (!d.str("series_id").isNullOrBlank()) Modifier.pressable(onSeries) else Modifier)
+                    .padding(bottom = Sp.x8),
+                    color = Color.White.copy(alpha = .85f), style = LpText.section)
+            }
+            val number = if (episode) listOfNotNull(
+                d.long("season_no")?.let { "S$it" }, d.long("episode_no")?.let { "E$it" }).joinToString("") else ""
+            Text(listOf(number, d.str("name") ?: detailPreview(id)?.name.orEmpty())
+                .filter(String::isNotBlank).joinToString("："),
+                Modifier.fillMaxWidth(.56f).padding(bottom = Sp.x10).testTag("detail.title"),
+                color = Color.White, style = LpText.hero.copy(fontSize = 28.sp, lineHeight = 34.sp))
+            d.str("tagline")?.takeIf(String::isNotBlank)?.let {
+                Text(it, Modifier.fillMaxWidth(.66f).padding(bottom = Sp.x12),
+                    color = Color.White.copy(alpha = .85f), style = LpText.section)
             }
             content()
         }

@@ -115,14 +115,11 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
 
-    val source = app.activeSource.collectAsState().value
     val session = app.session.collectAsState().value
-    val onSource = source != null
     val state: SearchPageState = viewModel(viewModelStoreOwner = entry,
-        key = "search:${session?.server}:${session?.userId}:${source?.id}")
+        key = "search:${session?.server}:${session?.userId}")
     if (!state.initialized) {
         state.q.value = route.q.orEmpty()
-        state.aggregate.value = onSource && !app.privateSpace.value
         state.initialized = true
     }
     var q by state.q
@@ -241,7 +238,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
             val controls: @Composable () -> Unit = {
                 LpField(q, { q = it }, if (route.viewId != null) "在这个库里搜" else "搜片名、剧名或演员",
                     Modifier.padding(horizontal = Sp.x16).testTag("search.field"),
-                    trailingIcon = if (route.viewId == null && !onSource && !app.privateSpace.value) ({
+                    trailingIcon = if (route.viewId == null && !app.privateSpace.value) ({
                         LpIconButton(
                             LpIcons.layers, if (aggregate) "关闭聚合搜索" else "开启聚合搜索",
                             Modifier.testTag("search.aggregate").focusRequester(aggregateFocus)
@@ -263,10 +260,10 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                     },
                     focusRequester = if (tv) inputFocus else null,
                     focusProperties = {
-                        right = if (!tv) FocusRequester.Default else if (route.viewId == null && !onSource && !app.privateSpace.value) aggregateFocus else resultFocus
+                        right = if (!tv) FocusRequester.Default else if (route.viewId == null && !app.privateSpace.value) aggregateFocus else resultFocus
                     },
                     focusRight = if (tv) {
-                        if (route.viewId == null && !onSource && !app.privateSpace.value) aggregateFocus else resultFocus
+                        if (route.viewId == null && !app.privateSpace.value) aggregateFocus else resultFocus
                     } else null,
                 )
                 Spacer(Modifier.height(Sp.x12))
@@ -287,20 +284,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                 if ((tv || q.isBlank()) && history.isNotEmpty()) HistoryList(history, if (tv) resultFocus else null) { q = it }
                 Spacer(Modifier.height(Sp.x8))
 
-                /* 插件的搜索快捷动作(D242)。摆在搜索框下面、结果上面 —— 结果列表本身不动。
-                   一条都没有时整行不画,不在搜索框下面留一条空白。 */
-                val actions = xyz.linplayer.app.ui.plugin.rememberSearchActions(q)
-                if (actions.isNotEmpty()) Row(
-                    Modifier.horizontalScroll(rememberScrollState()).searchControlRow(tv, resultFocus).padding(horizontal = Sp.x16, vertical = Sp.x2),
-                    horizontalArrangement = Arrangement.spacedBy(Sp.x8),
-                ) {
-                    actions.forEach { a ->
-                        xyz.linplayer.app.ui.components.LpButton(a.str("title") ?: "", {
-                            scope.launch { xyz.linplayer.app.ui.plugin.runSearchAction(app, a) }
-                        })
-                    }
-                }
-
                 if (aggregate && route.viewId == null && aggBusy) {
                     Dim3("还有来源在搜…", Modifier.padding(horizontal = Sp.x16, vertical = Sp.x4))
                 }
@@ -318,7 +301,7 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                         if (aggBusy && aggRows.isEmpty()) item("loading") {
                             xyz.linplayer.app.ui.components.LoadingState(Modifier.fillParentMaxSize())
                         }
-                        // 来源结果分批到达并原位替换：按来源ID保持行身份，三种行形态分开复用
+                        // 来源结果分批到达并原位替换：按来源ID保持行身份，两种行形态分开复用
                         items(aggRows.size, key = { aggRows[it].str("server_id") ?: "#$it" },
                             contentType = { aggRows[it].let { g -> if (g.str("error") != null) "error" else g.str("kind") ?: "emby" } }) { i ->
                             val g = aggRows[i]
@@ -326,18 +309,6 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             val sid = g.str("server_id") ?: ""
                             when {
                                 g.str("error") != null -> Dim3("$name 没搜成:${g.str("error")}", Modifier.padding(Sp.x16), maxLines = 2)
-                                g.str("kind") == "plugin" -> Column(Modifier.padding(vertical = Sp.x8)) {
-                                    MediaRowHeader(name)
-                                    Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()).tvFocusRow(if (tv) controlsFocus else null).padding(Sp.x16), horizontalArrangement = Arrangement.spacedBy(Sp.x10)) {
-                                        g["items"].arr().mapNotNull { it.obj() }.forEach { it ->
-                                            val sourceId = it.str("source") ?: sid
-                                            val onOpen = { nav.navigate(Route.SourceDetail(sourceId, it.str("id") ?: "")) }
-                                            SourceCard(it, onOpen, Modifier.width(108.dp), menu = listOf(
-                                                xyz.linplayer.app.ui.components.CardAction("查看详情", onClick = onOpen),
-                                            ))
-                                        }
-                                    }
-                                }
                                 // 跨服写操作必须携带来源账号，不能落到当前活跃服务器。
                                 else -> Column {
                                     LpRow(name, remember(g) { Item.list(g["emby_items"]) }, { it, h -> app.imageUrl(it.id, "Primary", h) },
@@ -370,10 +341,9 @@ fun SearchPage(nav: NavController, entry: NavBackStackEntry) {
                             // 分集**单独一栏横版**;剧和影走网格
                             val (eps, rest) = remember(items) { items.partition { it.isEpisode } }
                             // 列数与媒体库一致：手机 3 列，横屏 / 平板按屏宽加列
-                            val columns = if (tv) xyz.linplayer.app.ui.theme.PluginTheme.posterColumns(
-                                resultWidth.value.toInt(), xyz.linplayer.app.ui.components.posterLayout(
-                                    resultWidth.value, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat(), tv = true)!!.first,
-                            ) else posterColumns()
+                            val columns = if (tv) xyz.linplayer.app.ui.components.posterLayout(
+                                resultWidth.value, androidx.compose.ui.platform.LocalConfiguration.current.screenHeightDp.toFloat(), tv = true)!!.first
+                            else posterColumns()
                             val rows = remember(rest, columns) { rest.chunked(columns) }
                             val imageHeight = posterImageHeight(width = if (tv)
                                 (resultWidth - Sp.x16 * 2 - Sp.x10 * (columns - 1)) / columns else gridCellWidth(columns))

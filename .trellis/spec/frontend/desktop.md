@@ -5,7 +5,7 @@
 当前为 C# / Avalonia，共用源码位于 apps/windows。页面继承 PageBase，使用既有 Nav、反馈、图片与加载入口。
 色彩用 Theme/Tokens.axaml 与 `Tok.Of(key)`；不在 Application 初始化前缓存静态画刷。
 
-普通主题语义色对齐当前手机；`Appearance` 将本机明暗模式原子保存至 userdata/appearance.txt，保存失败不改变当前外观。启动在插件主题之前应用模式；`ThemeVariant.Default` 跟随系统。Tokens 的共享画刷通过 DynamicResource 更新 Color，`tools/seekcheck --theme-only` 必须覆盖已创建控件明暗往返，而非只测试重新调用 Tok.Of。
+普通主题语义色对齐当前手机；`Appearance` 将本机明暗模式原子保存至 userdata/appearance.txt，保存失败不改变当前外观。启动时应用模式；`ThemeVariant.Default` 跟随系统。Tokens 的共享画刷通过 DynamicResource 更新 Color，`tools/seekcheck --theme-only` 必须覆盖已创建控件明暗往返，而非只测试重新调用 Tok.Of。
 
 桌面风格刻度由 `scripts/check-style.sh` 检查：
 
@@ -56,7 +56,7 @@
 
 ## 虚拟列表头部
 
-Avalonia 11.3.11 中，不把反复随ItemsSource重设的同一个头部Control直接作为数据项：own-container回收后保留RecycleKey，再插入会跳过视觉挂接，注册滚动锚点时报非视觉后代。BrowsePage/DownloadPage使用普通object标记，由模板返回头部，让框架管理容器；保留虚拟化，不吞布局异常。`tools/seekcheck --scroll-anchor-only`覆盖真实文件浏览筛选、滚动、离页返回，带临时核心路径的 `--scroll-anchor-download-only`覆盖真实下载刷新。文件浏览测试已在旧实现复现同堆栈、修复后通过；不把它当作所有滚动页面或Windows实机验证。
+Avalonia 11.3.11 中，不把反复随ItemsSource重设的同一个头部Control直接作为数据项：own-container回收后保留RecycleKey，再插入会跳过视觉挂接，注册滚动锚点时报非视觉后代。DownloadPage使用普通object标记，由模板返回头部，让框架管理容器；保留虚拟化，不吞布局异常。带临时核心路径的 `tools/seekcheck --scroll-anchor-download-only`覆盖真实下载刷新。本机浏览已下线，对应 `--scroll-anchor-only` 测试已移除；历史文件浏览复现不代表其它页面或Windows实机验证。
 
 - 弹幕高级四开关放在默认折叠的更多设置中，沿用样式读写锁、成功回值与失败回显。热力图起播时读取偏好，刷新绑定弹幕请求取消和请求序号；换源清图，单纯清除匹配记忆保留当前图。seekcheck --danmaku-only覆盖四开关、重开、保存失败、热力图启停与清记忆。
 

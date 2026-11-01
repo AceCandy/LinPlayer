@@ -18,7 +18,6 @@ import androidx.navigation.compose.rememberNavController
 import androidx.test.core.app.ApplicationProvider
 import com.github.takahirom.roborazzi.captureRoboImage
 import kotlinx.coroutines.*
-import kotlinx.serialization.json.Json
 import org.junit.After
 import org.junit.Assert.*
 import org.junit.Rule
@@ -32,7 +31,6 @@ import xyz.linplayer.app.tv.FakeCore
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.*
 import xyz.linplayer.app.ui.pages.SettingsSubPage
-import xyz.linplayer.app.ui.plugin.mediaItem
 import xyz.linplayer.app.ui.theme.*
 
 @RunWith(RobolectricTestRunner::class)
@@ -141,18 +139,6 @@ class PhoneColorSchemeTest {
         rule.onRoot().captureRoboImage("build/phone-color-scheme/poster-menu.png")
         rule.onNodeWithText("收藏").performClick()
         rule.runOnIdle { assertTrue(clicked) }
-    }
-
-    @Test fun pluginRatingRequiresExplicitDoubanSourceAndTenPointScale() {
-        fun item(rating: String) = mediaItem(Json.parseToJsonElement("""{"id":"p","ratings":[$rating]}""").obj())
-        assertNull(item("""{"source":"TMDB","value":8.6}""").doubanRating)
-        assertEquals(8.6, item("""{"source":"豆瓣","value":8.6,"max":10}""").doubanRating!!, 0.0)
-        assertNull(item("""{"source":"豆瓣","value":8.6,"max":10}""").rating)
-        assertNull(item("""{"source":"Douban","value":86,"max":100}""").doubanRating)
-        assertNull(item("""{"source":"Other","value":4.3,"max":5}""").rating)
-        val both = item("""{"source":"Douban","value":8.6},{"source":"TMDB","value":7.4}""")
-        assertEquals(7.4, both.rating!!, 0.0)
-        assertEquals(8.6, both.doubanRating!!, 0.0)
     }
 
     private fun contrast(fg: Color, bg: Color): Float {

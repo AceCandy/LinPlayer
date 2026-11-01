@@ -262,11 +262,18 @@ func accountsFromContainer(container map[string]any) []Account {
 //
 // ★★ **导入是合并不是覆盖**(UI_PC §7.15)。覆盖的话用户在新机器上先加了一台服务器,
 // 扫码导入就把它抹了 —— 而他以为只是「把老机器上的搬过来」。
+// 旧备份里的本机文件夹 / 插件数据源账号直接丢掉:这两种源已下线。
 func MergeAccounts(existing, incoming []Account) []Account {
 	ids := map[string]bool{}
+	kept := incoming[:0:0]
 	for _, a := range incoming {
+		if a.IsFileBrowse() {
+			continue
+		}
 		ids[a.Server] = true
+		kept = append(kept, a)
 	}
+	incoming = kept
 	out := []Account{}
 	for _, a := range existing {
 		if !ids[a.Server] {

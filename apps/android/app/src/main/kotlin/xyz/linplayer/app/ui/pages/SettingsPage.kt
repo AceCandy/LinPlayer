@@ -129,19 +129,9 @@ import xyz.linplayer.app.ui.theme.R
 @Composable
 fun SettingsPage(nav: NavController) {
     val list = rememberLazyListState()
-    /* 插件声明的侧栏入口(contributes.sidebar)。
-       ☠ 这些入口以前**哪个壳都没画**:直播插件装上之后唯一的入口是
-       设置 → 插件 → 详情页 → 「页面」,四层深,用户报的是「甚至不知道哪里打开」
-       (2026-09-21)。手机上没有侧栏,放在设置根列表里 —— 两层就能到。 */
-    val app = LocalApp.current
     val tv = xyz.linplayer.app.tv.LocalTvMode.current
     val currentEntry by nav.currentBackStackEntryAsState()
     val pageActive = currentEntry?.destination?.hasRoute<Route.Settings>() == true
-    var pluginEntries by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
-    LaunchedEffect(Unit) {
-        pluginEntries = runCatching { app.call("plugin.sidebar") }.getOrNull().arr().mapNotNull { it.obj() }
-            .filter { !it.str("page").isNullOrEmpty() }
-    }
     // 截长屏认的就是这个滚动容器(设置里开了才画按钮,见 LongShot)
     LongShotTarget(list)
 
@@ -197,24 +187,6 @@ fun SettingsPage(nav: NavController) {
                 }
             }
         }
-        if (pluginEntries.isNotEmpty() && (!tv || group == "插件页面")) {
-            item("g-pe") { if (!tv) GroupLabel("插件页面") }
-            item("p-pe") {
-                SettingsEntryGroup(tv) {
-                    pluginEntries.forEachIndexed { i, e ->
-                        if (i > 0) Hairline()
-                        // id 是 `<插件id>:<入口id>`,页面 id 在 page 上
-                        val eid = e.str("id").orEmpty()
-                        val pluginId = eid.substringBeforeLast(':', eid)
-                        val page = e.str("page").orEmpty()
-                        val title = e.str("title")?.takeIf { t -> t.isNotEmpty() } ?: page
-                        LpCell(title, mediaStyle = true, icon = LpIcons.plugin) {
-                            nav.navigate(Route.PluginPage(pluginId, page, title))
-                        }
-                    }
-                }
-            }
-        }
         if (!tv || group == "内容与数据") {
             item("g4") { if (!tv) GroupLabel("内容与数据") }
             item("p4") {
@@ -230,48 +202,26 @@ fun SettingsPage(nav: NavController) {
                         nav.navigate(Route.SettingsSub("backup"))
                     }
                     Hairline()
-                    LpCell("文件浏览", mediaStyle = true, icon = LpIcons.folder) { nav.navigate(Route.Browse) }
-                    Hairline()
                     LpCell("存储与数据目录", mediaStyle = true, icon = LpIcons.file) { nav.navigate(Route.SettingsSub("storage")) }
                 }
             }
         }
-        if (!tv || group == "扩展与账号") {
-            item("g-extensions") { if (!tv) GroupLabel("扩展与账号") }
-            item("p-extensions") {
-                SettingsEntryGroup(tv) {
-                    // 账号连接留在宿主(token 不给插件);记进度那部分在同步插件里
-                    LpCell("Trakt / Bangumi 账号", mediaStyle = true, icon = LpIcons.sync) {
-                        nav.navigate(Route.SettingsSub("sync"))
-                    }
-                    Hairline()
-                    LpCell("插件", mediaStyle = true, icon = LpIcons.plugin) { nav.navigate(Route.Plugins()) }
-                    Hairline()
-                    LpCell("扩展组件", mediaStyle = true, icon = LpIcons.grid) { nav.navigate(Route.Extensions) }
-                }
-            }
-        }
-        if (!tv || group == "应用") {
-            item("g-app") { if (!tv) GroupLabel("应用") }
+        if (!tv || group == "关于") {
+            item("g-app") { if (!tv) GroupLabel("关于") }
             item("p-app") {
                 SettingsEntryGroup(tv) {
-                    LpCell("更新", mediaStyle = true, icon = LpIcons.refresh) { nav.navigate(Route.SettingsSub("update")) }
-                    Hairline()
-                    LpCell("关于", mediaStyle = true, icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
+                    // 版本、检查更新与更新选项都在这一页
+                    LpCell("关于与更新", mediaStyle = true, icon = LpIcons.info) { nav.navigate(Route.SettingsSub("about")) }
                 }
             }
         }
-        // 插件分节(SPEC 6.2 D286):根设置页对应锚点 `settings`
-        if (!tv || group == "扩展与账号") item("plugins-sections") { xyz.linplayer.app.ui.plugin.PhonePluginSections("settings") }
         item("tail") { Spacer(Modifier.height(Sp.x34)) }
     }
     LpScaffold("设置", onBack = { nav.popBackStack() }, scrolled = rememberScrolled(list), tvRoot = true) { pad ->
         if (tv) Row(Modifier.fillMaxSize().padding(top = Sp.x12)) {
             Column(Modifier.width(220.dp).fillMaxHeight().verticalScroll(rememberScrollState())
                 .padding(horizontal = Sp.x16, vertical = Sp.x8)) {
-                val groups = listOf("播放与外观", "手机遥控", "网络") +
-                    (if (pluginEntries.isNotEmpty()) listOf("插件页面") else emptyList()) +
-                    listOf("内容与数据", "扩展与账号", "应用")
+                val groups = listOf("播放与外观", "手机遥控", "网络", "内容与数据", "关于")
                 groups.forEach { name ->
                     val requester = remember(name) { FocusRequester() }
                     LpCell(name, arrow = false,
@@ -332,9 +282,8 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
         "prefetch" -> "多线程加载"
         "primaryprogress" -> "主进度服"
         "blocked" -> "已屏蔽的内容"; "storage" -> "存储与数据目录"
-        "sync" -> "Trakt / Bangumi 账号"
         "companion" -> "手机扫码遥控"
-        "update" -> "更新"; else -> "关于"
+        else -> "关于与更新"
     }
 
     LpScaffold(title, onBack = { nav.popBackStack() },
@@ -352,20 +301,9 @@ fun SettingsSubPage(nav: NavController, entry: NavBackStackEntry) {
                     "primaryprogress" -> PrimaryProgressPanel()
                     "blocked" -> BlockedPanel()
                     "storage" -> StoragePanel()
-                    "sync" -> SyncAccountsPanel()
                     "companion" -> CompanionPanel()
-                    "update" -> UpdatePanel()
                     else -> AboutPanel()
                 }
-            }
-            // SPEC 20.3 只给了这几页锚点名;截屏 / mpv 配置 / 备份这些本来就不在那张表里
-            val anchor = when (route.group) {
-                "appearance" -> "settings.appearance"; "player" -> "settings.playback"
-                "danmaku" -> "settings.danmaku"; "storage" -> "settings.storage"
-                "about" -> "settings.about"; else -> null
-            }
-            if (anchor != null) item("plugins-sections") {
-                xyz.linplayer.app.ui.plugin.PhonePluginSections(anchor)
             }
             item("tail") { Spacer(Modifier.height(Sp.x34)) }
         }
@@ -435,8 +373,6 @@ private fun AppearancePanel() {
             sub = "首页媒体库入口与续看标题",
             switch = xyz.linplayer.app.data.UiPrefs.hideHomeLibraries.value,
             onSwitch = { xyz.linplayer.app.data.UiPrefs.setHideHomeLibraries(ctx, it) })
-        Hairline()
-        ThemePickerCell()
     }
 }
 
@@ -1259,6 +1195,11 @@ private fun AboutPanel() {
     var checkFailed by remember { mutableStateOf(false) }
     // 点一下直接开下载是不对的:手机上多半是流量,而且用户没看见这一版改了什么
     var offer by remember { mutableStateOf<JsonObject?>(null) }
+    var channel by remember { mutableStateOf("stable") }
+    var auto by remember { mutableStateOf(false) }
+    var proxy by remember { mutableStateOf("") }
+    var proxies by remember { mutableStateOf<List<String>>(emptyList()) }
+    var editing by remember { mutableStateOf(false) }
 
     suspend fun check(): JsonObject? {
         val res = runCatching { app.call("system.checkUpdate") }
@@ -1270,6 +1211,28 @@ private fun AboutPanel() {
         return newest
     }
     LaunchedEffect(Unit) { check() }
+    LaunchedEffect(Unit) {
+        val o = runCatching { app.call("prefs.getUpdateSettings") }.getOrNull().obj()
+        channel = o.str("channel") ?: "stable"
+        auto = o.bool("auto_check")
+        proxy = o.str("proxy") ?: ""
+        proxies = o.strList("proxies")
+    }
+
+    /** 改完即生效。**失败必须回滚** —— 不回滚的话界面显示的是一个没落盘的值。 */
+    fun push(ch: String, on: Boolean, px: String) {
+        val undo = Triple(channel, auto, proxy)
+        channel = ch; auto = on; proxy = px
+        scope.launch {
+            runCatching {
+                app.call("prefs.setUpdateSettings",
+                    args("channel" to ch, "auto_check" to on, "proxy" to px))
+            }.onFailure {
+                channel = undo.first; auto = undo.second; proxy = undo.third
+                app.report(it)
+            }
+        }
+    }
 
     Panel(Modifier.padding(Sp.x16)) {
         LpCell("版本", mediaStyle = true, value = caps.version, arrow = false)
@@ -1285,9 +1248,23 @@ private fun AboutPanel() {
                 }
             },
         )
+        Hairline()
+        SegRow("更新渠道", CHANNEL_LABELS, channelLabel(channel),
+            { v -> push(channelCode(v), auto, proxy) })
+        Hairline()
+        LpCell("启动时自动检查更新", mediaStyle = true,
+            switch = auto, onSwitch = { v -> push(channel, v, proxy) })
+        Hairline()
+        LpCell("GitHub 代理", mediaStyle = true, value = proxyLabel(proxy),
+            sub = "GitHub 连不上时使用",
+            onClick = { editing = true })
     }
 
     UpdateFlow(offer) { offer = null }
+    if (editing) ProxyDialog(proxy, proxies, { editing = false }) { px ->
+        editing = false
+        push(channel, auto, px)
+    }
 }
 
 /**
@@ -1427,69 +1404,6 @@ internal fun proxyLabel(url: String) =
     url.substringAfter("://").trimEnd('/').ifEmpty { "直连" }
 
 /**
- * 更新设置。
- *
- * ☠ 这三项此前**只有桌面端有**:安卓能查能下能装,但渠道、自动检查、GitHub 代理
- *   一个都改不了 —— 也就是安卓用户只能走正式版直连 GitHub,而直连 GitHub
- *   恰恰是这条链路在国内最常断的一段。核心层的命令从落地那天起就在,没人接。
- */
-@Composable
-private fun UpdatePanel() {
-    val app = LocalApp.current
-    val scope = rememberCoroutineScope()
-    var channel by remember { mutableStateOf("stable") }
-    var auto by remember { mutableStateOf(false) }
-    var proxy by remember { mutableStateOf("") }
-    var proxies by remember { mutableStateOf<List<String>>(emptyList()) }
-    var version by remember { mutableStateOf("") }
-    var editing by remember { mutableStateOf(false) }
-
-    LaunchedEffect(Unit) {
-        val o = runCatching { app.call("prefs.getUpdateSettings") }.getOrNull().obj()
-        channel = o.str("channel") ?: "stable"
-        auto = o.bool("auto_check")
-        proxy = o.str("proxy") ?: ""
-        proxies = o.strList("proxies")
-        // 设置读不到时用宿主已知版本，避免一直显示“…”
-        version = o.str("current_version") ?: app.caps.value.version
-    }
-
-    /** 改完即生效。**失败必须回滚** —— 不回滚的话界面显示的是一个没落盘的值。 */
-    fun push(ch: String, on: Boolean, px: String) {
-        val undo = Triple(channel, auto, proxy)
-        channel = ch; auto = on; proxy = px
-        scope.launch {
-            runCatching {
-                app.call("prefs.setUpdateSettings",
-                    args("channel" to ch, "auto_check" to on, "proxy" to px))
-            }.onFailure {
-                channel = undo.first; auto = undo.second; proxy = undo.third
-                app.report(it)
-            }
-        }
-    }
-
-    Panel(Modifier.padding(Sp.x16)) {
-        SegRow("更新渠道", CHANNEL_LABELS, channelLabel(channel),
-            { v -> push(channelCode(v), auto, proxy) })
-        Hairline()
-        LpCell("启动时自动检查更新", mediaStyle = true,
-            switch = auto, onSwitch = { v -> push(channel, v, proxy) })
-        Hairline()
-        LpCell("GitHub 代理", mediaStyle = true, value = proxyLabel(proxy),
-            sub = "GitHub 连不上时使用",
-            onClick = { editing = true })
-        Hairline()
-        LpCell("当前版本", mediaStyle = true, value = version.ifEmpty { "…" }, arrow = false)
-    }
-
-    if (editing) ProxyDialog(proxy, proxies, { editing = false }) { px ->
-        editing = false
-        push(channel, auto, px)
-    }
-}
-
-/**
  * 代理编辑。
  *
  * ★ 输入框 + 几颗快填,不是一个下拉:用户点名要「支持用户自定义」,而这类公共代理
@@ -1539,130 +1453,4 @@ internal suspend fun autoCheckUpdate(app: AppState): JsonObject? {
     // 查不动就安静走开:这不是用户点出来的动作,不该弹错
     val r = runCatching { app.call("system.checkUpdate") }.getOrNull().obj()
     return if (r.bool("has_update")) r?.get("update").obj() else null
-}
-
-// ---------------------------------------------------------------- Trakt / Bangumi 账号
-
-/**
- * 连 Trakt / Bangumi 账号。**只管「连上」** —— 记进度、标看完、管收藏都在
- * 「Trakt / Bangumi 同步」插件里。
- *
- * token 不交给插件:插件经 `sync.traktRequest` / `sync.bangumiRequest` 代发。
- * 少了这一页,插件里那句「到设置里的账号页连一次」就指向一个不存在的地方。
- */
-@Composable
-private fun SyncAccountsPanel() {
-    val app = LocalApp.current
-    val scope = rememberCoroutineScope()
-    // null = 还没问到。画成「未连接」的话每次进页都闪一下
-    var trakt by remember { mutableStateOf<JsonObject?>(null) }
-    var bangumi by remember { mutableStateOf<JsonObject?>(null) }
-    var loaded by remember { mutableStateOf(false) }
-    var reload by remember { mutableStateOf(0) }
-    var device by remember { mutableStateOf<JsonObject?>(null) }
-    var bgmUrl by remember { mutableStateOf("") }
-    var bgmToken by remember { mutableStateOf("") }
-
-    LaunchedEffect(reload) {
-        loaded = false
-        // 同一面板里的多个请求必须并发
-        launch { trakt = runCatching { app.call("sync.traktAccount") }.getOrNull().obj() }
-        launch { bangumi = runCatching { app.call("sync.bangumiAccount") }.getOrNull().obj() }
-        launch {
-            bgmUrl = runCatching { app.call("sync.bangumiAuthorizeUrl") }.getOrNull().let {
-                (it as? JsonPrimitive)?.content ?: it.obj().str("url")
-            } ?: ""
-        }
-        loaded = true
-    }
-
-    // Trakt 设备码轮询:间隔听服务端的 interval,自己拍更短会被限流
-    // ——表现是「码是对的但一直连不上」
-    LaunchedEffect(device) {
-        val d = device ?: return@LaunchedEffect
-        var interval = (d.long("interval") ?: 5L) * 1000
-        while (true) {
-            delay(interval)
-            val r = runCatching {
-                app.call("sync.traktPoll", args("device_code" to (d.str("device_code") ?: "")))
-            }.getOrNull().obj()
-            when (r.str("state")) {
-                "pending" -> Unit
-                "slowDown" -> interval += 5000
-                "authorized" -> { device = null; reload++; app.toast("Trakt 已连接", ToastKind.Ok); return@LaunchedEffect }
-                "expired" -> { device = null; app.toast("设备码过期了,再点一次连接", ToastKind.Error); return@LaunchedEffect }
-                "denied" -> { device = null; app.toast("在手机上被拒绝了", ToastKind.Error); return@LaunchedEffect }
-                else -> { device = null; app.toast("Trakt 连接失败", ToastKind.Error); return@LaunchedEffect }
-            }
-        }
-    }
-
-    Column(Modifier.padding(Sp.x16)) {
-        Dim3("装「Trakt / Bangumi 同步」插件后自动记录进度", maxLines = 2)
-        Spacer(Modifier.height(Sp.x12))
-        Panel {
-            val tr = trakt
-            if (!loaded) LpCell("Trakt", mediaStyle = true, value = "查询中…", arrow = false)
-            else if (tr != null && tr.isNotEmpty()) {
-                LpCell("Trakt", mediaStyle = true, value = tr.str("username") ?: "已连接", arrow = false)
-                Hairline()
-                LpCell("断开 Trakt", mediaStyle = true, arrow = false, onClick = {
-                    scope.launch {
-                        runCatching { app.call("sync.traktLogout") }
-                            .onSuccess { reload++ }.onFailure { app.report(it) }
-                    }
-                })
-            } else {
-                LpCell("连接 Trakt", mediaStyle = true, onClick = {
-                    scope.launch {
-                        runCatching { app.call("sync.traktDeviceCode") }
-                            .onSuccess { device = it.obj() }.onFailure { app.report(it) }
-                    }
-                })
-                device?.let { d ->
-                    Hairline()
-                    Column(Modifier.padding(Sp.x16)) {
-                        Dim2("打开 ${d.str("verification_url") ?: ""}")
-                        Spacer(Modifier.height(Sp.x6))
-                        Text((d.str("user_code") ?: ""), color = Lp.colors.acc, style = LpText.heading.copy(fontSize = 22.sp, lineHeight = 28.sp))
-                    }
-                }
-            }
-        }
-        Spacer(Modifier.height(Sp.x12))
-        Panel {
-            val bg = bangumi
-            if (!loaded) LpCell("Bangumi", mediaStyle = true, value = "查询中…", arrow = false)
-            else if (bg != null && bg.isNotEmpty()) {
-                LpCell("Bangumi", mediaStyle = true, value = bg.str("username") ?: "已连接", arrow = false)
-                Hairline()
-                LpCell("断开 Bangumi", mediaStyle = true, arrow = false, onClick = {
-                    scope.launch {
-                        runCatching { app.call("sync.bangumiLogout") }
-                            .onSuccess { reload++ }.onFailure { app.report(it) }
-                    }
-                })
-            } else {
-                LpCell("Bangumi", mediaStyle = true, value = "未连接", arrow = false)
-                Column(Modifier.padding(start = Sp.x16, end = Sp.x16, bottom = Sp.x16)) {
-                    // 授权链接常驻显示,不用 toast:几十上百字符,3 秒没了抄不完
-                    if (bgmUrl.isNotBlank()) {
-                        Dim3("打开 $bgmUrl 授权,把拿到的 Access Token 粘到下面。")
-                        Spacer(Modifier.height(Sp.x10))
-                    }
-                    LpField(bgmToken, { bgmToken = it }, "Access Token")
-                    Spacer(Modifier.height(Sp.x10))
-                    LpButton("连接 Bangumi", {
-                        val tok = bgmToken.trim()
-                        if (tok.isBlank()) return@LpButton
-                        scope.launch {
-                            runCatching { app.call("sync.bangumiLoginToken", args("token" to tok)) }
-                                .onSuccess { bgmToken = ""; reload++; app.toast("Bangumi 已连接", ToastKind.Ok) }
-                                .onFailure { app.report(it) }
-                        }
-                    })
-                }
-            }
-        }
-    }
 }

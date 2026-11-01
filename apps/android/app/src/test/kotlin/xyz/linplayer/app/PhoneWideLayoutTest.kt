@@ -21,7 +21,6 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.runBlocking
-import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import kotlinx.serialization.json.put
 import org.junit.Assert.assertEquals
@@ -50,7 +49,6 @@ import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.pages.DetailPage
 import xyz.linplayer.app.ui.pages.HomePage
 import xyz.linplayer.app.ui.pages.LibraryPage
-import xyz.linplayer.app.ui.pages.PluginsPage
 import xyz.linplayer.app.ui.pages.SearchPage
 import xyz.linplayer.app.ui.pages.ServersPage
 import xyz.linplayer.app.ui.pages.SettingsPage
@@ -89,7 +87,6 @@ class PhoneWideLayoutTest {
                             composable<Route.Detail> { DetailPage(nav, it) }
                             composable<Route.Settings> { SettingsPage(nav) }
                             composable<Route.Servers> { ServersPage(nav) }
-                            composable<Route.Plugins> { PluginsPage(nav, it) }
                             composable<Route.Search> { SearchPage(nav, it) }
                         }
                     }
@@ -107,13 +104,6 @@ class PhoneWideLayoutTest {
             account("w-b", "备用服务器", "周末观看", false),
         ))
         ret("account.probeAccounts", arr(buildJsonObject { put("server", "w-a"); put("ok", true) }))
-        ret("plugin.pendingRestart", JsonPrimitive(false))
-        ret("plugin.list", buildJsonObject {
-            put("plugins", arr(
-                buildJsonObject { put("id", "a"); put("name", "豆瓣评分"); put("version", "1.2.0"); put("author", "linplayer"); put("want", true) },
-                buildJsonObject { put("id", "b"); put("name", "弹幕增强"); put("version", "0.9.1"); put("author", "someone"); put("want", false) },
-            ))
-        })
     }
 
     private fun searchCore() = FakeCore().loggedIn().apply {
@@ -142,7 +132,6 @@ class PhoneWideLayoutTest {
     @Test @Config(qualifiers = LANDSCAPE) fun settingsLandscape() = shoot("settings-landscape", Route.Settings)
     @Test @Config(qualifiers = TABLET) fun settingsTablet() = shoot("settings-tablet", Route.Settings)
     @Test @Config(qualifiers = TABLET) fun serversTablet() = shoot("servers-tablet", Route.Servers, manage())
-    @Test @Config(qualifiers = TABLET) fun pluginsTablet() = shoot("plugins-tablet", Route.Plugins(0), manage())
     @Test @Config(qualifiers = FOLD) fun homeFold() = shoot("home-fold", Route.Home)
     @Test @Config(qualifiers = FOLD) fun libraryFold() = shoot("library-fold", Route.Library("lib-0", "电影"), FakeCore().loggedIn().library())
     @Test @Config(qualifiers = FOLD) fun detailFold() = shoot("detail-fold", Route.Detail("m1", "Movie"), FakeCore().loggedIn().movie())

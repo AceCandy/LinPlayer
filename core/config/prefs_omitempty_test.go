@@ -45,22 +45,22 @@ func TestPrefs带omitempty的键也要认(t *testing.T) {
 // 真的跑一遍「设了再清」:上面那条是形状,这条是行为。
 func TestPrefs清空omitempty项不会复活(t *testing.T) {
 	p := DefaultPrefs()
-	p.ThemeFailed = "alice/demo"
+	p.LibraryView = "list"
 	b, err := json.Marshal(p)
 	if err != nil {
 		t.Fatal(err)
 	}
 	got := ParsePrefs(b)
-	if got.ThemeFailed != "alice/demo" {
-		t.Fatalf("设了都没存住:%q", got.ThemeFailed)
+	if got.LibraryView != "list" {
+		t.Fatalf("设了都没存住:%q", got.LibraryView)
 	}
-	got.ThemeFailed = ""
+	got.LibraryView = ""
 	b2, err := json.Marshal(got)
 	if err != nil {
 		t.Fatal(err)
 	}
 	again := ParsePrefs(b2)
-	if again.ThemeFailed != "" {
-		t.Fatalf("清空之后旧值又回来了:%q —— 这一项永远清不掉", again.ThemeFailed)
+	if again.LibraryView != "" {
+		t.Fatalf("清空之后旧值又回来了:%q —— 这一项永远清不掉", again.LibraryView)
 	}
 }

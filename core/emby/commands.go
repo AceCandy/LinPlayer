@@ -162,7 +162,7 @@ func RegisterCommands(version string) {
 		return defaultClient.Detail(ctx, s, id, wc)
 	})
 	/* providers 条目的外部 id 表(Tmdb / Imdb / Tvdb / …)。
-	   分集自己通常没刮到这些,要回头问它所属的剧 —— 同步插件拿它对应 Trakt 条目,
+	   分集自己通常没刮到这些,要回头问它所属的剧 —— 外部资料源可能用它做作品匹配,
 	   对不上就只能按片名搜,而片名搜在多语言库里经常搜错部。 */
 	list("emby.providers", func(ctx context.Context, s *Session, a map[string]any) (any, error) {
 		id := str(a, "item_id")
@@ -368,7 +368,7 @@ func RegisterCommands(version string) {
 			cancel()
 		}
 		// ★ 空密码**不存成空串** —— 那会让「有密码」和「没设过密码」分不清。
-		//   存它是给重新登录和插件的 emby.credentials 权限用的。
+		//   存它是给重新登录时恢复账号凭据用的。
 		if pw := str(args, "password"); pw != "" {
 			acc.Password = &pw
 		}

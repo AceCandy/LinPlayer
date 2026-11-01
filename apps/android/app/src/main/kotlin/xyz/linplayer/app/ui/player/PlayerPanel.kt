@@ -70,8 +70,6 @@ fun PlayerPanel(
     chapters: List<JsonObject>? = null,
     onSwitchEngine: (() -> Unit)? = null,
     onSpeed: (Double) -> Unit = {},
-    /** 这一格是插件标签时的那一行(`plugin.playerSurfaces` 的 panel),官方面板是 null。 */
-    pluginPanel: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
     onOpen: (String) -> Unit = {},
     onFit: (VideoFit) -> Unit = {},
     // 搜索弹幕是**居中大弹窗**,不塞进这个 236dp 的小面板里 ——
@@ -99,9 +97,6 @@ fun PlayerPanel(
     SideEffect { if (kind != null) lastKind = kind }
     val menuKind = kind ?: lastKind
     var danmakuPage by remember(kind, itemId, exo) { mutableStateOf("quick") }
-    var lastPluginPanel by remember { mutableStateOf(pluginPanel) }
-    SideEffect { if (active) lastPluginPanel = pluginPanel }
-    val shownPluginPanel = if (active) pluginPanel else lastPluginPanel
 
     var options by remember(menuKind, itemId, exo) { mutableStateOf<List<Triple<String, String?, String>>>(emptyList()) }
     var mediaInfo by remember(menuKind, itemId, exo) { mutableStateOf<List<Pair<String, String>>>(emptyList()) }
@@ -303,12 +298,6 @@ fun PlayerPanel(
             PlayerMenuRow("重试", { retry++ })
         }
         when {
-            shownPluginPanel != null -> xyz.linplayer.app.ui.plugin.PluginSurface(
-                shownPluginPanel.pluginId, shownPluginPanel.target, "panel",
-                modifier = Modifier.fillMaxWidth(),
-                claimInitialFocus = false,
-                focusNs = "${shownPluginPanel.pluginId}/${shownPluginPanel.target}.",
-            )
             menuKind == "segments" -> SkipMarkerPanel(itemId, markerPosition, markerDuration, active, scope, onMarkersSaved, onMarkersWriting)
             menuKind == "substyle" -> SubStylePanel(app, scope)
             menuKind == "danmaku" -> DanmakuPanel(app, scope, itemId, danmakuPage, onPage = { danmakuPage = it }, onSearch = {

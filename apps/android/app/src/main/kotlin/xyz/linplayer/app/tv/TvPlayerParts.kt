@@ -195,14 +195,12 @@ internal fun BoxScope.PlayerTopStatus(ui: PlayerUi, controlsVisible: Boolean,
     }
 }
 
-/** 起播失败 / 放不出来(§8.6)。第一行给人看，第二行是核心层原话；数据源还可重新选择换源。 */
+/** 起播失败 / 放不出来(§8.6)。第一行给人看，第二行是核心层原话。 */
 @Composable
-internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, finished: Boolean = false,
-    onSwitchSource: (() -> Unit)? = null) {
+internal fun PlayerFailure(reason: String, retried: Boolean, onRetry: () -> Unit, finished: Boolean = false) {
     Box(Modifier.fillMaxSize().background(TvC.bg)) {
         FullState(LpIcons.info, if (finished) "无法继续播放下一集" else "这一片没能播起来", sub = if (retried) "已自动重试 1 次仍然失败" else null, detail = reason,
-            buttons = if (onSwitchSource == null) listOf("重试") else listOf("重试", "换源"),
-            tone = TvC.bad, onButton = { if (it == 0) onRetry() else onSwitchSource?.invoke() })
+            buttons = listOf("重试"), tone = TvC.bad, onButton = { onRetry() })
     }
 }
 
@@ -273,7 +271,7 @@ internal fun BoxScope.Osd(
                             icon = LpIcons.skipNext, enabled = ui.next(target.itemId) != null, onClick = onNext)
                         PlayerAction("倍速", size, Modifier.memo("osd.speed"), value = "${ui.speed.toString().removeSuffix(".0")}×",
                             onClick = { onPanel("speed") })
-                        if (!target.localEntry && !target.download)
+                        if (!target.download)
                             PlayerAction("弹幕", size, Modifier.memo("osd.dm"), icon = LpIcons.danmaku, onClick = { onPanel("danmaku") })
                         PlayerAction("音轨", size, Modifier.memo("osd.audio"), icon = LpIcons.music, onClick = { onPanel("audio") })
                         PlayerAction("字幕", size, Modifier.memo("osd.sub"), icon = LpIcons.sub, onClick = { onPanel("sub") })
@@ -413,26 +411,13 @@ internal fun BoxScope.Moments(ui: PlayerUi) {
 internal fun openPanel(
     which: String, app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi,
     target: TvRoute.Player, engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
-    /** 这一格是插件标签时的那一行(SPEC 9.5 的 panel),官方面板是 null。 */
-    plugin: xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo? = null,
-    plugins: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo> = emptyList(),
 ) {
     overlay.open {
-        if (plugin != null) {
-            TvSidePanel(plugin.title.ifBlank { plugin.target }, { overlay.close() }) {
-                xyz.linplayer.app.ui.plugin.PluginSurface(
-                    plugin.pluginId, plugin.target, "panel",
-                    modifier = Modifier.fillMaxWidth(),
-                    focusNs = "${plugin.pluginId}/${plugin.target}.",
-                )
-            }
-            return@open
-        }
         when (which) {
             "sub" -> TrackPanel("sub", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "audio" -> TrackPanel("audio", app, scope, overlay, ui, exo, ctl.trackPicked, ctl.pickTrack, ctl.pickExoTrack, ctl.observeTracks)
             "danmaku" -> DanmakuPanel(app, scope, overlay, target)
-            else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl, plugins, if (which == "speed") "speed" else "")
+            else -> MorePanel(app, scope, overlay, ui, target, engine, exo, ctl, if (which == "speed") "speed" else "")
         }
     }
 }
@@ -617,18 +602,9 @@ private fun BoxScope.DanmakuPanel(app: AppState, scope: CoroutineScope, overlay:
 @Composable
 private fun BoxScope.MorePanel(
     app: AppState, scope: CoroutineScope, overlay: Overlay, ui: PlayerUi, target: TvRoute.Player,
-    engine: String, exo: ExoPlayer?, ctl: PlayerCtl,
-    plugins: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>, initialLevel: String = "",
+    engine: String, exo: ExoPlayer?, ctl: PlayerCtl, initialLevel: String = "",
 ) {
     var level by remember { mutableStateOf(initialLevel) }
-    val plugin = plugins.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == level }
-    if (plugin != null) {
-        TvSidePanel(plugin.title.ifBlank { plugin.target }, { overlay.close() }, back = { level = "" }) {
-            xyz.linplayer.app.ui.plugin.PluginSurface(plugin.pluginId, plugin.target, "panel",
-                modifier = Modifier.fillMaxWidth(), focusNs = "${plugin.pluginId}/${plugin.target}.")
-        }
-        return
-    }
     var skipIntro by remember { mutableStateOf<Boolean?>(null) }
     var skipOutro by remember { mutableStateOf<Boolean?>(null) }
     // 带 › 的项把当前值写在右边:不写的话,得点进二级才知道现在是哪一档
@@ -644,7 +620,7 @@ private fun BoxScope.MorePanel(
         }
     }
     val back = { if (initialLevel == "speed") overlay.close() else level = "" }
-    val local = target.localEntry || target.download
+    val local = target.download
     when (level) {
         "ratio" -> TvSidePanel("画面比例", { overlay.close() }, back = back) {
             VideoFit.entries.forEach { f ->
@@ -687,7 +663,7 @@ private fun BoxScope.MorePanel(
             ui.prev(target.itemId)?.let { previous ->
                 PanelItem("上一集", onClick = { ctl.switchTo(TvRoute.Player(previous.id, cardTitleOf(previous))) })
             }
-            if (!local && target.src == null) PanelItem("片头片尾", chevron = true, onClick = { level = "segments" })
+            if (!local) PanelItem("片头片尾", chevron = true, onClick = { level = "segments" })
             if (ui.chapters.isNotEmpty()) PanelItem("章节", chevron = true, onClick = { level = "chapter" })
             skipIntro?.let { on ->
                 PanelItem("自动跳过片头", switch = on, onClick = {
@@ -704,10 +680,6 @@ private fun BoxScope.MorePanel(
             PanelGroup("工具")
             if (!local) PanelItem(if (engine == "exo") "切换到 MPV 内核" else "切换到 Media3 内核", onClick = ctl.switchEngine)
             PanelItem("媒体信息", chevron = true, onClick = { level = "info" })
-            plugins.forEach { p ->
-                PanelItem(p.title.ifBlank { p.target }, chevron = true,
-                    onClick = { level = xyz.linplayer.app.ui.plugin.pluginPanelKind(p) })
-            }
         }
     }
 }

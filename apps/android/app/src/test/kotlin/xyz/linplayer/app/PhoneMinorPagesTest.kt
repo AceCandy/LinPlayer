@@ -40,8 +40,6 @@ import xyz.linplayer.app.tv.item
 import xyz.linplayer.app.tv.loggedIn
 import xyz.linplayer.app.tv.page
 import xyz.linplayer.app.ui.Route
-import xyz.linplayer.app.ui.pages.BrowsePage
-import xyz.linplayer.app.ui.pages.ExtensionsPage
 import xyz.linplayer.app.ui.pages.FacetPage
 import xyz.linplayer.app.ui.pages.LinesPage
 import xyz.linplayer.app.ui.theme.Lp
@@ -70,8 +68,6 @@ class PhoneMinorPagesTest {
                     NavHost(nav, startDestination = route) {
                         composable<Route.Facet> { FacetPage(nav, it) }
                         composable<Route.Lines> { LinesPage(nav, it) }
-                        composable<Route.Browse> { BrowsePage(nav) }
-                        composable<Route.Extensions> { ExtensionsPage(nav) }
                     }
                 }
             } }
@@ -96,35 +92,8 @@ class PhoneMinorPagesTest {
         }))
     }
 
-    private fun browse() = FakeCore().loggedIn().apply {
-        ret("source.currentSource", buildJsonObject { put("server_id", "/storage/Movies"); put("server_name", "电影") })
-        ret("account.listAccounts", arr())
-        ret("source.listDir", arr(
-            buildJsonObject { put("id", "d1"); put("name", "漫威系列"); put("is_dir", true) },
-            buildJsonObject { put("id", "d2"); put("name", "纪录片"); put("is_dir", true) },
-            buildJsonObject { put("id", "v1"); put("name", "沙丘2.2160p.mkv"); put("is_video", true); put("size", 66_120_000_000L) },
-            buildJsonObject { put("id", "v2"); put("name", "奥本海默.1080p.mp4"); put("is_video", true); put("size", 8_400_000_000L) },
-        ))
-    }
-
-    private fun browseEmpty() = FakeCore().loggedIn().apply {
-        // 真实核心在没有文件源时回 null，不是空对象
-        ret("source.currentSource", kotlinx.serialization.json.JsonNull)
-        ret("account.listAccounts", arr())
-    }
-
-    private fun extensions() = FakeCore().loggedIn().apply {
-        ret("plugin.list", buildJsonObject {
-            put("plugins", arr(buildJsonObject { put("id", "a"); put("name", "影视聚合"); putJsonArray("components") { add(kotlinx.serialization.json.JsonPrimitive("jar-runtime")) } }))
-        })
-    }
-
     @Test @Config(qualifiers = PHONE) fun facetPhone() = shoot("facet-phone", Route.Facet("genre", "科幻", "科幻"), facet(), "科幻片 0")
     @Test @Config(qualifiers = TABLET) fun facetTablet() = shoot("facet-tablet", Route.Facet("genre", "科幻", "科幻"), facet(), "科幻片 0")
     @Test @Config(qualifiers = PHONE) fun linesPhone() = shoot("lines-phone", Route.Lines("srv", "家庭影音服务器"), lines(), "公网中转")
     @Test @Config(qualifiers = TABLET) fun linesTablet() = shoot("lines-tablet", Route.Lines("srv", "家庭影音服务器"), lines(), "公网中转")
-    @Test @Config(qualifiers = PHONE) fun browsePhone() = shoot("browse-phone", Route.Browse, browse(), "纪录片")
-    @Test @Config(qualifiers = TABLET) fun browseTablet() = shoot("browse-tablet", Route.Browse, browse(), "纪录片")
-    @Test @Config(qualifiers = PHONE) fun browseEmptyPhone() = shoot("browse-empty-phone", Route.Browse, browseEmpty(), "还没有添加本机文件夹")
-    @Test @Config(qualifiers = PHONE) fun extensionsPhone() = shoot("extensions-phone", Route.Extensions, extensions(), "影视聚合")
 }

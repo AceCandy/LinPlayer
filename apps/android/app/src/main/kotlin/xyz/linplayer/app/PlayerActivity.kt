@@ -24,7 +24,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.core.content.ContextCompat
 import androidx.navigation.compose.NavHost
@@ -32,33 +31,18 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
-import kotlinx.serialization.json.JsonObject
-import xyz.linplayer.app.data.str
-import xyz.linplayer.app.plugin.PluginNav
 import xyz.linplayer.app.data.AppState
 import xyz.linplayer.app.data.LocalApp
 import xyz.linplayer.app.data.UiPrefs
 import xyz.linplayer.app.ui.Route
-import xyz.linplayer.app.ui.pages.SourceSwitchTarget
 import xyz.linplayer.app.ui.player.PlayerPage
 import xyz.linplayer.app.ui.theme.LpTheme
-import xyz.linplayer.app.ui.theme.PluginTheme
 
 /** 手机播放窗口。方向由入口 Activity 的 Manifest 预设，切集与手动转屏复用当前窗口。 */
 open class PlayerActivity : ComponentActivity() {
     private lateinit var app: AppState
     protected open fun playerApp(): AppState = (application as LinPlayerApp).appState
     private val askNotification = registerForActivityResult(ActivityResultContracts.RequestPermission()) { }
-
-    override fun onDestroy() {
-        xyz.linplayer.app.plugin.PluginShell.release(this)
-        super.onDestroy()
-    }
-
-    override fun onResume() {
-        super.onResume()
-        xyz.linplayer.app.plugin.PluginShell.activate(this)
-    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -69,42 +53,18 @@ open class PlayerActivity : ComponentActivity() {
         val tv = intent.getBooleanExtra(EXTRA_TV, false)
         var navigationResult = false
         // 隐私播放只在已解锁的进程内恢复；进程回收不能靠旧Intent重新进入。
-        if (privatePlayback != app.privateSpace.value || (privatePlayback && (route.localEntry || route.src != null))) { finish(); return }
-        val sourceSwitch: (SourceSwitchTarget) -> Unit = { target ->
-            if (!privatePlayback && !app.privateSpace.value && target !is SourceSwitchTarget.Line) {
-                navigationResult = true
-                setResult(RESULT_OK, Intent().putExtra(SOURCE_SWITCH, Json.encodeToString(target)))
-                finish()
-            }
-        }
+        if (privatePlayback != app.privateSpace.value) { finish(); return }
         UiPrefs.load(this)
-        if (app.loggedIn.value == null) PluginTheme.loadAtStartup(app.core, if (tv) "android_tv" else "android")
         enableEdgeToEdge()
         if (Build.VERSION.SDK_INT >= 29) window.decorView.isForceDarkAllowed = false
         setContent {
             LpTheme(color = UiPrefs.colorScheme.value, privateSpace = privatePlayback, darkOverride = when (UiPrefs.theme.value) {
-                "dark" -> true; "light" -> false; else -> PluginTheme.forcedDark
+                "dark" -> true; "light" -> false; else -> null
             }) {
                 CompositionLocalProvider(LocalApp provides app) {
                     val privateSpace by app.privateSpace.collectAsStateWithLifecycle()
                     LaunchedEffect(privateSpace) {
                         if (privateSpace != privatePlayback) finish()
-                    }
-                    DisposableEffect(Unit) {
-                        val previous = PluginNav.host
-                        val host = object : PluginNav.Host {
-                            override fun back() = finish()
-                            override fun push(route: String, params: JsonObject, replace: Boolean): Boolean {
-                                if (privatePlayback || (tv && route == "downloads") || officialRoute(route) { params.str(it) } == null) return false
-                                navigationResult = true
-                                setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, route)
-                                    .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, replace))
-                                finish()
-                                return true
-                            }
-                        }
-                        PluginNav.host = host
-                        onDispose { if (PluginNav.host === host) PluginNav.host = previous }
                     }
                     var ready by remember { mutableStateOf(app.loggedIn.value != null) }
                     LaunchedEffect(Unit) {
@@ -123,7 +83,7 @@ open class PlayerActivity : ComponentActivity() {
                                     setResult(RESULT_OK, Intent().putExtra(NAV_ROUTE, name)
                                         .putExtra(NAV_PARAMS, params.toString()).putExtra(NAV_REPLACE, true))
                                     finish()
-                                }, onSourceSwitch = sourceSwitch)
+                                })
                         } else if (ready) {
                             val nav = rememberNavController()
                             NavHost(nav, startDestination = route) {
@@ -134,19 +94,15 @@ open class PlayerActivity : ComponentActivity() {
                                         onExit = { itemId ->
                                             if (!navigationResult) setResult(RESULT_OK, Intent().putExtra(PLAYED_ITEM, itemId))
                                             finish()
-                                        }, onSourceSwitch = sourceSwitch)
+                                        })
                                 }
                             }
                         }
-                        if (!tv) {
-                            xyz.linplayer.app.ui.plugin.PhonePluginDialog()
-                            ToastHost()
-                        }
+                        if (!tv) ToastHost()
                     }
                 }
             }
         }
-        xyz.linplayer.app.plugin.PluginShell.start(this, app, lifecycleScope)
     }
 
     fun askNotificationPermission() {
@@ -186,7 +142,6 @@ open class PlayerActivity : ComponentActivity() {
         internal const val NAV_ROUTE = "player.navRoute"
         internal const val NAV_PARAMS = "player.navParams"
         internal const val NAV_REPLACE = "player.navReplace"
-        internal const val SOURCE_SWITCH = "player.sourceSwitch"
         private const val EXTRA_ROUTE = "player.route"
         private const val EXTRA_CLICK = "player.clickedAt"
         private const val EXTRA_PRIVATE = "player.privateSpace"

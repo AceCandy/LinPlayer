@@ -55,7 +55,7 @@ internal static class DanmakuCheck
             Check(config[1].GetProperty("disabled").GetBoolean(), "启停未落核心配置");
             Buttons(settings).Last(b => b.Content as string == "启用").RaiseEvent(new RoutedEventArgs(Button.ClickEvent));
             Wait(() => Buttons(settings).Any(b => b.Content as string == "停用"), "启用没有回显");
-            player = new PlayerPage(core, "", "本机视频", 0, isSource: true);
+            player = new PlayerPage(core, "", "本机视频", 0, isLocal: true);
             Field<DispatcherTimer>(player, "_poll").Stop();
             Await(core.PlayerSetDanmakuStyle(new { heatmap = true }));
             Await((Task)typeof(PlayerPage).GetMethod("StartDanmaku", BindingFlags.Instance | BindingFlags.NonPublic)!.Invoke(player, null)!);

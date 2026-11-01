@@ -45,20 +45,6 @@ type Info struct {
 	// Aggregate「允许聚合」(D233 D235)。
 	Aggregate        bool `json:"aggregate"`
 	AggregatePrimary bool `json:"aggregate_primary,omitempty"`
-	// Plugin 插件数据源才有:分组、来源角标、灰显原因、上次访问失败(SPEC 8.7)。
-	Plugin *PluginInfo `json:"plugin,omitempty"`
-}
-
-// PluginInfo 服务器列表上插件源要显示的东西。配置本体(config)不给 UI。
-type PluginInfo struct {
-	PluginID     string `json:"plugin_id"`
-	SourceID     string `json:"source_id"`
-	Group        string `json:"group"`
-	GroupName    string `json:"group_name"`
-	ServerType   string `json:"server_type"`
-	Unavailable  string `json:"unavailable"`
-	LastFailed   bool   `json:"last_failed"`
-	HostOverride string `json:"host_override"`
 }
 
 func infoOf(a config.Account, active bool) Info {
@@ -79,13 +65,6 @@ func infoOf(a config.Account, active bool) Info {
 		Lines: lines, ActiveLine: a.ActiveLine,
 		AllowInsecureTLS: a.AllowInsecureTLS, Active: active,
 		Aggregate: a.AllowAggregate(),
-	}
-	if ps := a.PluginSource(); ps != nil {
-		in.Plugin = &PluginInfo{PluginID: ps.Plugin, SourceID: ps.ID, Group: ps.Group, GroupName: ps.GroupName,
-			ServerType: ps.ServerType, Unavailable: ps.Unavailable, LastFailed: ps.LastFailed, HostOverride: ps.HostOverride}
-		if in.IconURL == "" {
-			in.IconURL = ps.Icon
-		}
 	}
 	return in
 }
@@ -199,7 +178,7 @@ func RegisterCommands(version string) {
 		c := config.Current()
 		if id != "" {
 			acc := c.Find(id)
-			if acc == nil || acc.IsFileBrowse() || acc.PluginSource() != nil || acc.UserID == "" {
+			if acc == nil || acc.IsFileBrowse() || acc.UserID == "" {
 				return nil, bus.NewErr(bus.EInvalid, "请选择已登录的 Emby 服务器")
 			}
 		}

@@ -1,28 +1,19 @@
-//go:build !windows && !android
+//go:build !android
 
 package interp
 
 import "errors"
 
-// Supported Linux 还没有补帧(PC 的 vapoursynth 方案要换 Linux 运行时,没做)。
+// Supported 只有 Android 提供内建补帧。
 const Supported = false
-
-// NeedsRuntime 见 vs_windows.go。
-const NeedsRuntime = false
 
 var algos []algo
 
-// Device 见 vs_windows.go。
-func Device() (string, int, error) { return "", 0, errors.New("这个平台还没有补帧") }
+// Device 非 Android 平台不提供补帧设备。
+func Device() (string, int, error) { return "", 0, errors.New("这个平台没有补帧") }
 
-// Preload 见 vs_windows.go。
-func Preload() error { return errors.New("这个平台还没有补帧") }
-
-// DisplayHz 见 vs_windows.go。
+// DisplayHz 返回宿主报告的屏幕刷新率。
 func DisplayHz() float64 { return reported() }
 
-// FilterString 见 vs_windows.go。
-func FilterString(scriptPath string, spec Spec, gpu int) string { return "" }
-
-// ScriptPath 见 vs_windows.go。
-func ScriptPath() (string, error) { return "", errors.New("这个平台还没有补帧") }
+// FilterString 非 Android 平台没有补帧滤镜。
+func FilterString(spec Spec) string { return "" }

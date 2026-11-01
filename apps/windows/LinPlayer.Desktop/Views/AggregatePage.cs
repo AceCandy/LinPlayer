@@ -65,7 +65,6 @@ public sealed class AggregatePage : PageBase
         var server = Str(c, "server_id");
         var name = Str(c, "server_name");
         var active = c.TryGetProperty("active", out var ac) && ac.ValueKind == JsonValueKind.True;
-        var browse = c.TryGetProperty("is_file_browse", out var fb) && fb.ValueKind == JsonValueKind.True;
 
         var head = new StackPanel
         {
@@ -77,13 +76,6 @@ public sealed class AggregatePage : PageBase
         };
 
         var body = new StackPanel { Spacing = 10, Children = { head } };
-
-        if (browse)
-        {
-            // 浏览型源(网盘 / 局域网)没有统计,也没有继续观看 —— 说清楚,别留空白
-            body.Children.Add(Dim("文件浏览型的源,没有规模统计和继续观看。"));
-            return Wrap(body);
-        }
 
         var counts = c.TryGetProperty("counts", out var k) ? k : default;
         var bits = new List<string>();
@@ -144,7 +136,6 @@ public sealed class HistoryPage : PageBase
         var list = new StackPanel { Spacing = 10 };
         var status = Dim("加载中…");
         var scanHint = Dim("");
-        var sources = new ContentControl();
 
         /* 扫描恢复:换服 / 重装之后把本地记录推回服务器。
             报告里的 errors 必须显示出来。这条链路最危险的 bug 是
@@ -184,15 +175,9 @@ public sealed class HistoryPage : PageBase
                     Orientation = Orientation.Horizontal, Spacing = 10,
                     Children = { only, scan },
                 },
-                scanHint, sources, status, list,
+                scanHint, status, list,
             },
         });
-        _ = LoadSources();
-        async Task LoadSources()
-        {
-            try { if (await SourceNav.HistorySection(core) is { } c) sources.Content = c; }
-            catch (Exception e) { sources.Content = Dim("数据源的观看记录读不到:" + LibraryPage.Advice(e)); }
-        }
 
         async Task Load()
         {

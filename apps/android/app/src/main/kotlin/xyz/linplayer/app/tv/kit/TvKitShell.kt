@@ -140,7 +140,6 @@ fun TopNavigation(
                 val (label, icon) = railItems[i]
                 NavigationItem(if (i == 4) aggregateLabel else label, icon, on = i == current || (i == 1 && current == 2), iconOnly = i !in 1..4,
                     focused = focused == i,
-                    badge = if (privateSpace) null else xyz.linplayer.app.plugin.PluginNav.badges[railTargets[i]],
                     overlay = overlay, tab = i in setOf(1, 3, 4),
                     onFocus = if (i in setOf(1, 3, 4) && i != current) ({ onFocusSelect(i) }) else null,
                     modifier = focusModifier.testTag("rail.$i"), onClick = { onSelect(i) })
@@ -149,10 +148,6 @@ fun TopNavigation(
         }
     }
 }
-
-/** 第 i 项对应的官方路由名,插件角标继续按它认入口。 */
-private val railTargets = listOf(
-    "search", "home", "library", "favorites", "aggregate", "downloads", "servers", "settings")
 
 /** 栏目保留短横与聚焦字重，动作入口用反色填充，不叠加外框。 */
 @Composable

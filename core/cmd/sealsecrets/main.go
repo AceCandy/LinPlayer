@@ -71,10 +71,5 @@ func main() {
 	// ★ CF 优选的测速文件地址,同样是具体域名 —— 不注入时下载测速阶段跳过,
 	//   排序退化成纯按延迟,功能仍然可用。
 	addTo("linplayer/core/net/cf", "defaultTestURL", strings.TrimSpace(os.Getenv("LP_CF_TEST_URL")))
-	// ★ 追剧日历:Bangumi OAuth 回调地址是我们的中转页;赞助地址是收款账号 —— 错了不会报错,只是收益归零。
-	addTo("linplayer/core/sync", "bangumiRedirectURI", strings.TrimSpace(os.Getenv("LP_BANGUMI_REDIRECT_URI")))
-	addTo("linplayer/core/system", "afdianSponsorURL", strings.TrimSpace(os.Getenv("LP_AFDIAN_SPONSOR_URL")))
-	// ★ 官方插件市场的 index.json 地址(D118)。不注入 = 这个构建只有用户自己订阅的仓库。
-	addTo("linplayer/core/plugin", "officialMarket", strings.TrimSpace(os.Getenv("LP_PLUGIN_MARKET_URL")))
 	fmt.Print(strings.Join(parts, " "))
 }

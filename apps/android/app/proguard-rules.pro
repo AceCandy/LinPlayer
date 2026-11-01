@@ -37,13 +37,7 @@
 -dontobfuscate
 -keepattributes SourceFile
 
-# TVBox jar 在运行时用 DexClassLoader 加载,它继承 / 调用的宿主类只在反射里出现,R8 看不见。
-# catvod 基类的类名和签名是外部 jar 的硬契约;jar 常直接用宿主的 OkHttp,也得原样保住。
--keep class com.github.catvod.** { *; }
--keep class okhttp3.** { *; }
--keep class okio.** { *; }
-
-# WebView 的 @JavascriptInterface 方法只有 JS 调,R8 同样看不到调用点(上面第一条的同一个坑)。
+# WebView 的 @JavascriptInterface 方法只有 JS 调,R8 看不到调用点。
 # 裁掉的表现是网页里 LinPlayer.post 是 undefined —— release 静默失灵,debug 正常。
 -keepclassmembers class * {
     @android.webkit.JavascriptInterface <methods>;

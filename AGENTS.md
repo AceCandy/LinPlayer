@@ -5,7 +5,7 @@
 ## 项目范围
 
 LinPlayer 是第三方 Emby 媒体客户端。当前为 Go 核心 + C# / Avalonia 桌面外壳 + Kotlin / Compose Android 外壳；覆盖 Windows、Linux、Android 手机和 TV。
-本机文件播放保留；其它源与附加能力遵守 [产品与 API 基准](.trellis/spec/shared/product-and-api.md)，不因历史文档扩大范围。
+本机文件浏览、插件与 Trakt / Bangumi 账号已下线；当前范围遵守 [产品与 API 基准](.trellis/spec/shared/product-and-api.md)，不因历史文档扩大范围。
 播放控制优先核查 libmpv 能力。Rust / React / Tauri 已删除，历史实现只从 rust-final 查阅。
 
 ## 必须加载的规范
@@ -31,7 +31,6 @@ CodeGraph 使用见 [CODEGRAPH.md](CODEGRAPH.md)；实际源码以工作树为�
 | [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) | 面向开发者的技术概览 |
 | [docs/go-migration/SPEC.md](docs/go-migration/SPEC.md) | 跨端架构与 FFI 设计正本 |
 | [docs/go-migration/COMMANDS.md](docs/go-migration/COMMANDS.md) | 命令契约真源，生成绑定不手改 |
-| [docs/plugin-system/SPEC.md](docs/plugin-system/SPEC.md) | 插件设计正本 |
 | [docs/lessons/](docs/lessons/) | 领域故障过程、根因、实测与失效条件 |
 | .trellis/tasks/ | 单次需求、方案与研究 |
 | .trellis/workspace/ | 会话记录 |

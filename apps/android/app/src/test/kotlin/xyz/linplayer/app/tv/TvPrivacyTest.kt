@@ -47,8 +47,6 @@ class TvPrivacyTest {
             }) }
             on("emby.listResume") { a -> if (a?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true))
                 arr(item("private", "私密作品")) else arr(item("normal", "普通作品")) }
-            ret("plugin.homeSections", arr())
-            ret("plugin.pageTakeovers", arr())
             ret("emby.search", arr())
             ret("emby.extRankings", arr(buildJsonObject {
                 put("id", "huangguoai_hot"); put("label", "黄果 AI 热播榜"); put("source", "huangguoai")
@@ -126,7 +124,7 @@ class TvPrivacyTest {
         assertFalse(app.privateSpace.value)
     }
 
-    @Test fun unclassifiedServerCannotEnterAndPrivateSearchDoesNotUseHistoryOrPlugins() {
+    @Test fun unclassifiedServerCannotEnterAndPrivateSearchDoesNotUseHistory() {
         mount(classified = false)
         enter()
         assertFalse(app.privateSpace.value)
@@ -134,10 +132,6 @@ class TvPrivacyTest {
         enter(longClick = true)
         assertTrue(app.privateSpace.value)
         val before = core.calls.size
-        rule.runOnUiThread { xyz.linplayer.app.plugin.PluginNav.host!!.push("search", JsonObject(emptyMap()), false) }
-        advance(rule, 100)
-        // 插件不能把私密导航拉到另一个页面。
-        rule.onNodeWithTag("search.field").assertDoesNotExist()
         rule.onNodeWithTag("rail.1").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionCenter)
         advance(rule, 500)
@@ -146,7 +140,7 @@ class TvPrivacyTest {
         rule.onNodeWithText("搜索历史").assertDoesNotExist()
         val calls = core.calls.drop(before)
         assertTrue(calls.any { it.first == "emby.search" && it.second?.get("request_scope")?.jsonObject?.get("private") == JsonPrimitive(true) })
-        assertFalse(calls.any { it.first in setOf("prefs.pushSearch", "plugin.searchActions", "source.aggregateSearch") })
+        assertFalse(calls.any { it.first in setOf("prefs.pushSearch", "source.aggregateSearch") })
     }
 
     @Test fun privateDiscoverOpensLiuyingAndRankingAndServerClickExits() {

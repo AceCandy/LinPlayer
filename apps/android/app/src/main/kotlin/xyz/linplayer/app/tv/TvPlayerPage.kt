@@ -58,7 +58,6 @@ import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
-import xyz.linplayer.app.plugin.PluginPlayer
 import xyz.linplayer.app.ui.pages.Version
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.player.DanmakuLayer
@@ -82,8 +81,6 @@ import xyz.linplayer.app.ui.player.nextPreloadAllowed
 import xyz.linplayer.app.ui.player.rememberExoPlayer
 import xyz.linplayer.app.ui.player.sampleNetSpeed
 import xyz.linplayer.app.ui.player.startDanmakuFor
-import xyz.linplayer.app.ui.plugin.PluginKeys
-import xyz.linplayer.app.ui.plugin.rememberPluginKeyTaken
 
 /** OSD 自动收起。= Media3 默认值,别自己发明【继承 PC A-23】。 */
 private const val OsdHideMs = 5000L
@@ -148,8 +145,7 @@ internal fun isOk(k: Key) = k == Key.DirectionCenter || k == Key.Enter || k == K
 @Composable
 fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompleted: (() -> Unit)? = null,
     feedOverlay: (@Composable (xyz.linplayer.app.ui.player.FeedPlayback) -> Unit)? = null,
-    feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {},
-    onSourceSwitch: ((xyz.linplayer.app.ui.pages.SourceSwitchTarget) -> Unit)? = null) {
+    feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {}) {
     val app = LocalApp.current
     val session by app.session.collectAsState()
     val trackMemory = remember(session?.server, session?.userId) { SessionTrackMemory() }
@@ -160,19 +156,9 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     val overlay = rememberOverlay()
     val mem = LocalFocusMemory.current
     val ui = remember { PlayerUi() }
-    val pluginPanels = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("panel")
     var feedMuted by remember { mutableStateOf(feedVolume == 0f) }
 
-    /* 壁纸的三个暂停条件之一(D443)。取**页面在不在**而不是插件的
-       `player.start` / `player.end`:那两条事件只在核心层的插件运行时里发,
-       过不了 FFI;而 ExoPlayer 那一路连 `player.status` 都不发。 */
-    DisposableEffect(Unit) {
-        xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, true)
-        onDispose { xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, false) }
-    }
     var target by remember { mutableStateOf(r) }
-    var sourceSwitch by remember(target) { mutableStateOf(false) }
-    var sourceExit by remember { mutableStateOf<xyz.linplayer.app.ui.pages.SourceSwitchTarget?>(null) }
     val initialMode = remember { r.engine ?: UiPrefs.engine.value }
     LaunchedEffect(target.itemId) {
         ui.intro = null; ui.outro = null
@@ -188,7 +174,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
     var switching by remember { mutableStateOf(false) }
     val controller = remember(target) {
-        PlayerController(adoptedPlayback.str("engine") ?: if (target.localEntry || target.download || target.src != null) "mpv" else target.engine ?: initialMode,
+        PlayerController(adoptedPlayback.str("engine") ?: if (target.download) "mpv" else target.engine ?: initialMode,
             stopCall = { arguments, partial -> app.call("player.stopPlayback", arguments, partial) }) { command, arguments ->
             app.call(command, arguments)
         }.also { c -> adoptedPlayback?.takeIf { it.str("item_id") == target.itemId }?.let(c::resolved) }
@@ -290,16 +276,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         xyz.linplayer.app.core.Logs.d("lp-playback", "phase=tv_leave engine=$engine failed=${ui.failed != null} finished=$finished")
         leaving = true
     }
-    LaunchedEffect(leaving, sourceExit) {
-        if (!leaving && sourceExit == null) return@LaunchedEffect
-        leaving = true
+    LaunchedEffect(leaving) {
+        if (!leaving) return@LaunchedEffect
         queueHandoff?.join()
         stopPlayback()
-        val next = sourceExit
-        if (next != null) {
-            PlayerController.awaitPendingStop()
-            if (!app.privateSpace.value) onSourceSwitch?.invoke(next)
-        } else if (onExit != null) onExit(target.itemId.takeIf { !target.localEntry && !target.download && target.src == null })
+        if (onExit != null) onExit(target.itemId.takeIf { !target.download })
         else nav.pop()
     }
 
@@ -310,7 +291,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             speedWrite?.join()
             if (leaving) return
             PlaybackService.volumeBeforeSwitch()?.let { runCatching { controller.volume(it) } }
-            if (!target.localEntry && !target.download && target.src == null && next.src == null &&
+            if (!target.download &&
                 next.versionId == null && next.itemId != target.itemId) prepareEpisode(next.itemId)
             else cancelPreparation()
             if (queuedRequest != null) cancelPreparation()
@@ -320,7 +301,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (leaving) return
             // 只接管已就绪的预取结果;没就绪或换的不是预取那一集就撤掉
             val adopt = preparedResult.str("request_id")?.takeIf {
-                next.src == null && next.versionId == null && next.itemId == preparedFor && next.itemId != target.itemId
+                next.versionId == null && next.itemId == preparedFor && next.itemId != target.itemId
             }
             if (adopt != null) {
                 prepareJob?.cancel()
@@ -468,10 +449,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (feedOverlay != null) feedVolume?.let { controller.volume(it) }
             when {
                 target.download -> app.call("player.playLocal", args("id" to target.itemId))
-                // 数据源:取流、解析、请求头都在核心层(source.playItem)
-                target.src != null -> app.call("source.playItem", kotlinx.serialization.json.Json.parseToJsonElement(target.src!!) as kotlinx.serialization.json.JsonObject)
-                target.localEntry -> app.call("source.play", args("entry_id" to target.itemId, "entry_name" to target.title,
-                    "resume_secs" to (target.resumeAt ?: 0.0)))
                 else -> {
                     // 没按过版本确认就不传 media_source_id(§11.2):否则核心层的版本正则整个被跳过
                     val a = buildMap<String, Any> {
@@ -515,10 +492,9 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (!autoRetried && (e as? CoreException)?.retryable == true) { autoRetried = true; attempt++; return@LaunchedEffect }
             // 第二行写核心层原话(§8.6),给人看的那句在第一行
             ui.failed = e.message ?: "起播失败"
-            if (target.src != null && !app.privateSpace.value) sourceSwitch = true
         }
         runCatching { app.call("companion.setNowPlaying", args("title" to target.title)) }
-        if (!target.localEntry && !target.download && target.src == null) launch { startDanmakuFor(app, target.itemId) }
+        if (!target.download) launch { startDanmakuFor(app, target.itemId) }
     }
 
     // 剧集上下文、规格行、章节 / 片头片尾
@@ -526,7 +502,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         controller.clearSeriesContext(trackMemory)
         episodeResult = null
         ui.episodes = emptyList(); ui.seasonId = null; ui.seriesId = null
-        if (target.localEntry || target.download || target.src != null) {
+        if (target.download) {
             controller.seriesContext(trackMemory, null)
             episodeResult = Result.success(emptyList())
             return@LaunchedEffect
@@ -560,7 +536,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         } else ui.next(target.itemId)?.let { n -> switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } ?: leave()
     }
     LaunchedEffect(controller, ui.duration, markerRevision) {
-        if (ui.duration <= 0 || target.localEntry || target.download || target.src != null) return@LaunchedEffect
+        if (ui.duration <= 0 || target.download) return@LaunchedEffect
         markerReloading = true
         val c = runCatching { app.call("player.chapterInfo", args("item_id" to target.itemId, "runtime_secs" to ui.duration)) }.getOrNull().obj()
         coroutineContext.ensureActive()
@@ -588,7 +564,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             if (ev.name != "player.status") return@collect
             if (!controller.ready) return@collect
             val o = ev.data.obj()
-            if (!target.localEntry && !target.download && target.src == null && o.str("item_id")?.let { it != target.itemId } == true) return@collect
+            if (!target.download && o.str("item_id")?.let { it != target.itemId } == true) return@collect
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(ui.position, p)) ui.everMoved = true
             ui.position = p
@@ -656,7 +632,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
     LaunchedEffect(Unit) { sampleNetSpeed { ui.netSpeed = it } }
     val nextItem = if (onCompleted == null) ui.next(target.itemId) else null
     val prepareSoon = controller.ready && !ui.buffering && !leaving && !switching && !controller.switching && nextItem != null &&
-        !target.localEntry && !target.download && target.src == null &&
+        !target.download &&
         ui.duration > 0 && ui.position >= (ui.duration - 60).coerceAtLeast(0.0)
     // 片尾「接下来」胶囊与手机共用时间窗，确认键仅在胶囊聚焦时切集。
     val nextUp = nextItem?.takeIf {
@@ -945,20 +921,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
     }
 
-    /* 插件的 `player.openPanel` / `setOsdVisible`(D67 D162)。和手机端同一个 host 口子,
-       翻的是 TV 自己那套面板名 —— 两端面板不是一套,合成一套只会两边都错。 */
-    DisposableEffect(exo, target.itemId, pluginPanels) {
-        PluginPlayer.host = object : PluginPlayer.Host {
-            override fun openPanel(which: String) {
-                val kind = PluginPlayer.tvKind(which)
-                ui.osd = true
-                openPanel(kind, app, scope, overlay, ui, target, engine, exo, ctl, plugins = pluginPanels)
-            }
-            override fun setOsdVisible(visible: Boolean) { ui.osd = visible }
-        }
-        onDispose { PluginPlayer.host = null }
-    }
-
     // ---------------------------------------------------------------- 按键
     var holdJob by remember { mutableStateOf<Job?>(null) }
     fun defaultKey(e: KeyEvent): Boolean {
@@ -989,7 +951,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         }
         if (overlay.isOpen || ui.failed != null) return false
         if (e.key == Key.Menu) {
-            if (!down) { ui.osd = true; openPanel("more", app, scope, overlay, ui, target, engine, exo, ctl, plugins = pluginPanels) }
+            if (!down) { ui.osd = true; openPanel("more", app, scope, overlay, ui, target, engine, exo, ctl) }
             return true
         }
         if (isOk(e.key)) {
@@ -1052,9 +1014,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         return false
     }
 
-    /* 插件覆盖层开着时这一下键先归插件(D563)。没开着就一句都不问 —— 判断在
-       PluginKeys.gate 里,遥控器上每按一下都要过它。 */
-    val taken = rememberPluginKeyTaken()
     fun onKey(e: KeyEvent): Boolean {
         // 开始于播放页的长按必须先收尾，不能被后来打开的面板吞掉松键。
         if (isOk(e.key) && e.type == KeyEventType.KeyUp) {
@@ -1062,13 +1021,10 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
             holdJob?.cancel()
             holdJob = null
             if (ui.hold) { ui.hold = false; doSpeed(ui.speed) }
-            if (consumed) { taken.remove(e.key); return true }
+            if (consumed) return true
         }
-        return PluginKeys.gate(app, scope, taken, e, ::defaultKey)
+        return defaultKey(e)
     }
-
-    // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
-    val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
 
     Box(Modifier.fillMaxSize().onPreviewKeyEvent(::onKey).testTag("player.root").focusRequester(root).onFocusChanged { rootFocused = it.isFocused }.focusable()) {
         if (exo != null) ExoSurface(exo, subOff = subOffPref, fit = ui.fit, m = Modifier.fillMaxSize())
@@ -1076,16 +1032,11 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         if (DanmakuStyle.enabled.value) DanmakuLayer(DanmakuStyle.layout.value, ui.position, ui.paused, ui.speed, Modifier.fillMaxSize(), buffering = ui.buffering, app = app,
             opacity = DanmakuStyle.opacity.doubleValue)
 
-        /* 插件覆盖层。摆在 OSD **之前**:盖住控制条等于把暂停和进度条一起弄没,
-           接管控制条是 `osd[]` 贡献点的事。不声明 interactive 的那批连焦点都进不去。 */
-        xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = false)
-        xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true)
         val failed = ui.failed
         val controlsVisible = failed == null && feedOverlay == null && ui.osd && !overlay.isOpen
         if (failed != null) PlayerFailure(failed, retried = autoRetried, finished = finished, onRetry = {
             if (finished) { ui.failed = null; episodeResult = null; episodeRetry++ } else attempt++
-        }, onSwitchSource = if (target.src != null && !app.privateSpace.value && !finished)
-            ({ sourceSwitch = true }) else null)
+        })
         else if (!ui.everMoved && !renderedFirstFrame) Curtain(ui, showSpeed = !controlsVisible)
         else if (ui.buffering) BufferingHint(ui, showSpeed = !controlsVisible)
         if (failed == null && feedOverlay == null) {
@@ -1094,8 +1045,7 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
                 nextUpVisible = nextUp != null,
                 onNext = { ui.next(target.itemId)?.let { n -> scope.launch { switchTo(TvRoute.Player(n.id, cardTitleOf(n))) } } },
                 onPanel = { which ->
-                    openPanel(which, app, scope, overlay, ui, target, engine, exo, ctl,
-                        pluginPanels.firstOrNull { xyz.linplayer.app.ui.plugin.pluginPanelKind(it) == which }, pluginPanels)
+                    openPanel(which, app, scope, overlay, ui, target, engine, exo, ctl)
                 },
             )
             PlayerTopStatus(ui, controlsVisible,
@@ -1122,20 +1072,6 @@ fun TvPlayerPage(r: TvRoute.Player, onExit: ((String?) -> Unit)? = null, onCompl
         ))
     }
     LaunchedEffect(Unit) { if (feedOverlay == null) runCatching { root.requestFocus() } }
-    if (sourceSwitch) target.src?.let { raw ->
-        CompositionLocalProvider(LocalTvMode provides true) {
-            xyz.linplayer.app.ui.pages.SourcePlayFailed(raw, ui.position, onSwitch = { next ->
-                if (!leaving && !app.privateSpace.value) {
-                    if (next is xyz.linplayer.app.ui.pages.SourceSwitchTarget.Line)
-                        switchTo(TvRoute.Player(next.route.itemId, next.route.title, src = next.route.src))
-                    else {
-                        check(onSourceSwitch != null) { "当前播放入口无法跨源跳转" }
-                        sourceExit = next
-                    }
-                }
-            }, onClose = { sourceSwitch = false })
-        }
-    }
 }
 
 private fun skipNow(ui: PlayerUi, seek: (Double) -> Unit, playNext: () -> Unit) {

@@ -23,14 +23,10 @@ sealed interface TvRoute {
         val versionId: String? = null,
         val audioIndex: Long? = null, val subIndex: Long? = null, val subOff: Boolean = false,
         val engine: String? = null, val fromStart: Boolean = false,
-        /** 本机文件夹里的视频走 `source.play`,不走 `player.play`。 */
-        val localEntry: Boolean = false,
         /** 下载完成的任务走 `player.playLocal`(itemId 是任务 id)。 */
         val download: Boolean = false,
         /** 换内核 / 换线路 / 换版本重播时接着当前位置,不回到服务端记的进度。 */
         val resumeAt: Double? = null,
-        /** 数据源播放:`{server_id, item, line_id, episode_id}` 的 JSON 原文,走 source.playItem。 */
-        val src: String? = null,
         /** 共用详情页预选的字幕身份，随本次版本交接。 */
         val subtitle: String? = null,
     ) : TvRoute

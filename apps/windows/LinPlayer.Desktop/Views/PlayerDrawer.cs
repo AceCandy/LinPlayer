@@ -12,7 +12,7 @@ using LinPlayer.Desktop.Core;
 
 namespace LinPlayer.Desktop.Views;
 
-/// <summary>播放页右侧的章节与插件面板。</summary>
+/// <summary>播放页右侧的章节面板。</summary>
 internal sealed class PlayerDrawer : Border
 {
     public const double DrawerWidth = 420;
@@ -21,8 +21,7 @@ internal sealed class PlayerDrawer : Border
     private readonly List<Button> _tabs = [];
     private Action? _focusContent;
 
-    public PlayerDrawer(CoreClient core, IReadOnlyList<(double At, string Label)> chapters, Action<double> onChapter,
-        Action onClose, IReadOnlyList<PlayerSurfaceInfo>? panels = null)
+    public PlayerDrawer(IReadOnlyList<(double At, string Label)> chapters, Action<double> onChapter, Action onClose)
     {
         Width = DrawerWidth;
         HorizontalAlignment = HorizontalAlignment.Right;
@@ -68,12 +67,6 @@ internal sealed class PlayerDrawer : Border
         }
         if (chapters.Count > 0)
             Tab($"章节 · {chapters.Count}", () => ChapterList(chapters, onChapter));
-        foreach (var p in panels ?? [])
-        {
-            // 造一次留着:make 每次点标签都调,不存的话来回切两下就是两次挂载 + 两次插件重渲染
-            Control? made = null;
-            Tab(TabHead(p), () => made ??= new PluginSurface(core, p.Plugin, p.Target, "panel"));
-        }
 
         var head = new Grid
         {
@@ -85,28 +78,10 @@ internal sealed class PlayerDrawer : Border
         DockPanel.SetDock(head, Dock.Top);
         Child = new DockPanel { Children = { head, _body } };
 
-        // 使用标签的同一创建路径，保留插件面板的按需挂载。
         if (_tabs.Count > 0) _tabs[0].RaiseEvent(new Avalonia.Interactivity.RoutedEventArgs(Button.ClickEvent));
     }
 
     internal void FocusInitial() => _tabs.FirstOrDefault()?.Focus();
-
-    /// <summary>插件侧栏页的标签:manifest 给了 <c>icon</c> 就图标 + 名字(D300)。</summary>
-    private static object TabHead(PlayerSurfaceInfo p)
-    {
-        var title = p.Title.Length > 0 ? p.Title : p.Plugin;
-        if (PluginIcon.GlyphOf(p.Icon) is not { } cp) return title;
-        return new StackPanel
-        {
-            Orientation = Orientation.Horizontal,
-            Spacing = 6,
-            Children =
-            {
-                new TextBlock { Text = cp, FontFamily = Glyph.Font, VerticalAlignment = VerticalAlignment.Center },
-                new TextBlock { Text = title, VerticalAlignment = VerticalAlignment.Center },
-            },
-        };
-    }
 
     private Control ChapterList(IReadOnlyList<(double At, string Label)> chapters, Action<double> onChapter)
     {

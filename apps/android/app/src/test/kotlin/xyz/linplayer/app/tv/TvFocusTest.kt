@@ -465,28 +465,6 @@ class TvFocusTest {
         } finally { gate.complete(Unit) }
     }
 
-    @Test fun 插件入口移到更多后返回逐级退出并恢复播控() {
-        mount(TvRoute.Player("sh6", "第六集", engine = "mpv")) {
-            player()
-            on("plugin.playerSurfaces") { a -> if (a.str("kind") == "panel")
-                arr(args("plugin_id" to "fixture", "id" to "notes", "title" to "测试插件")) else arr() }
-            ret("plugin.ui.mount", args("surface" to "fixture-surface", "ops" to arr()))
-            ret("plugin.ui.unmount", kotlinx.serialization.json.JsonNull)
-            ret("plugin.ui.viewport", kotlinx.serialization.json.JsonNull)
-        }
-        press(rule, Key.DirectionUp, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight, Key.DirectionRight)
-        focused("osd.more")
-        press(rule, Key.Enter)
-        rule.onNodeWithText("测试插件").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
-        press(rule, Key.Enter)
-        assertEquals("notes", core.calls.single { it.first == "plugin.ui.mount" }.second.str("target"))
-        pressBack()
-        rule.onNodeWithText("画面比例").assertExists()
-        assertEquals(1, core.calls.count { it.first == "plugin.ui.unmount" })
-        pressBack(); focused("osd.more")
-        assertEquals(1, core.calls.count { it.first == "plugin.playerSurfaces" && it.second.str("kind") == "panel" })
-    }
-
     @Test fun 播放页OSD收起后方向键只唤醒不移动焦点() {
         mount(TvRoute.Player("sh6", "幕府将军 · S1E06 妾之王国")) { player() }
         listOf(2170.0, 2171.0, 2172.0).forEach { core.tick(it); advance(rule, 100) }

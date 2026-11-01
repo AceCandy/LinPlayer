@@ -65,9 +65,6 @@ import (
 // Supported 安卓走自编 libmpv 里的 OpenCL 光流滤镜。设备有没有 OpenCL 由 Device() 说。
 const Supported = true
 
-// NeedsRuntime 滤镜编在 libmpv 里,不用下载。
-const NeedsRuntime = false
-
 // algos 只有一种算法。高度交给滤镜(光流固定在 270p 上算,输出原分辨率)。
 var algos = []algo{
 	{"ocl", "OpenCL 光流", map[int]int{2: 0, 3: 0, 4: 0}},
@@ -97,16 +94,10 @@ func Device() (string, int, error) {
 	return probeName, 0, probeErr
 }
 
-// Preload 安卓不需要预加载。
-func Preload() error { return nil }
-
 // DisplayHz 屏幕刷新率,由 UI 报(见 SetDisplayHz)。
 func DisplayHz() float64 { return reported() }
 
-// FilterString 挂到 mpv `vf` 属性上的那一串。scriptPath / gpu 在安卓上用不着。
-func FilterString(scriptPath string, spec Spec, gpu int) string {
+// FilterString 挂到 mpv `vf` 属性上的内建滤镜参数。
+func FilterString(spec Spec) string {
 	return "@lpinterp:lpinterp=multi=" + strconv.Itoa(spec.Multi)
 }
-
-// ScriptPath 安卓没有脚本。
-func ScriptPath() (string, error) { return "", nil }

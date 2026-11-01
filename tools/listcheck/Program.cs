@@ -11,11 +11,10 @@ using LinPlayer.Desktop.Views;
 
 AppBuilder.Configure<BenchApp>().UseHeadless(new AvaloniaHeadlessPlatformOptions { UseHeadlessDrawing = false }).UseSkia().SetupWithoutStarting();
 foreach (var count in new[] { 1000, 10000 })
-foreach (var download in new[] { false, true })
 {
     using var doc = JsonDocument.Parse("""{"id":"test","name":"测试视频","is_video":true,"status":"completed","title":"测试下载","total_bytes":1024,"received_bytes":1024}""");
     var item = doc.RootElement;
-    var page = download ? (Control)new DownloadPage(null!) : new BrowsePage(null!, "本机");
+    var page = new DownloadPage(null!);
     var flags = BindingFlags.Instance | BindingFlags.NonPublic;
     var row = page.GetType().GetMethod("Row", flags)!;
     var sw = Stopwatch.StartNew();
@@ -24,12 +23,7 @@ foreach (var download in new[] { false, true })
     baseline.Clear();
     var list = (ItemsControl)page.GetType().GetField("_rows", flags)!.GetValue(page)!;
     var header = page.GetType().GetField("_head", flags)!.GetValue(page)!;
-    if (!download)
-    {
-        page.GetType().GetField("_entries", flags)!.SetValue(page, Enumerable.Repeat(item, count).ToList());
-        page.GetType().GetMethod("Render", flags)!.Invoke(page, null);
-    }
-    else list.ItemsSource = new[] { header }.Concat(Enumerable.Repeat<object>(item, count)).ToList();
+    list.ItemsSource = new[] { header }.Concat(Enumerable.Repeat<object>(item, count)).ToList();
     var window = new Window { Width = 800, Height = 600, Content = page };
     sw.Restart();
     window.Show();
@@ -62,7 +56,7 @@ if (!records.Select(it => it.Id).SequenceEqual(new[] { "first", "second", "fresh
 paged.ReplaceFrom(2, Array.Empty<CardItem>());
 if (paged.Count != 2) throw new Exception("成功空页未撤掉旧分页快照");
 Console.WriteLine("缓存分页预览与实时替换检查通过");
-Console.WriteLine("本机目录及下载列表规模检查通过");
+Console.WriteLine("下载列表规模检查通过");
 
 sealed class BenchApp : Application
 {

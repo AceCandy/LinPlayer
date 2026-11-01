@@ -181,7 +181,6 @@ fun FakeCore.loggedIn(): FakeCore {
         account("http://emby-c.invalid", "服务器 C", "朋友的服务器", false),
         account("http://emby-d.invalid", "旧 NAS", "只剩动漫", false),
     ))
-    ret("source.currentSource", buildJsonObject { })
     ret("emby.listRandom", arr(
         item("h1", "寂静的星河", "Series", year = 2024, rating = 8.6, genres = listOf("科幻", "悬疑")),
         item("h2", "幕府将军", "Series", year = 2024, rating = 8.9), item("h3", "沙丘 2", year = 2024),

@@ -61,7 +61,7 @@ CommonConfig 的客户端把 `.lpbak` 当配置文件喂进去就能用，它只
   "linplayer": {                        // 我们的扩展段，别家可以整段忽略
     "name": "备注名", "remark": null, "icon_url": null, "password": "…",
     "lines": [...], "active_line": 0, "allow_insecure_tls": false,
-    "source_kind": "emby",              // 网盘 / 局域网账号靠它和 source 才完整
+    "source_kind": "emby",              // 只接受 Emby；旧本机 / 插件源账号不再导入
     "source": { }
   }
 }
@@ -116,6 +116,7 @@ CommonConfig 的客户端把 `.lpbak` 当配置文件喂进去就能用，它只
 只是「把老机器上的搬过来」。
 
 解不开的**单条跳过**，不让整次导入失败：文件里可能混着别家客户端写的条目。
+只导入 Emby 账号；旧本机 / 插件源账号和 Trakt / Bangumi 连接信息不恢复。
 
 ## 6. 命令
 

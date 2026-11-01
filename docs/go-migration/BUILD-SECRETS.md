@@ -13,7 +13,7 @@
 
 ## 全表
 
-> ★★ **发行版这九个全都要配。**「选配」这个说法在播放器上不成立 ——
+> ★★ **发行版这六个全都要配。**「选配」这个说法在播放器上不成立 ——
 > 用户不会觉得「这个版本没带弹幕凭据所以搜不到」是一种配置,他只会觉得弹幕坏了。
 > 下面那列写的是**漏配之后用户实际看到什么**,不是「可以不要」。
 >
@@ -24,9 +24,6 @@
 |---|---|---|
 | `DANDANPLAY_APP_ID` | 弹幕(弹弹Play) | 弹幕搜不到 |
 | `DANDANPLAY_APP_SECRET` | 弹幕(弹弹Play)签名 | 弹幕搜不到 |
-| `LP_BANGUMI_REDIRECT_URI` | 追剧日历的 Bangumi 授权回调页(我们的中转) | Bangumi 只能粘贴 token 登录 |
-| `LP_AFDIAN_SPONSOR_URL` | 旧赞助 URL 命令兼容配置 | 日历已免费开放，此项不再影响日历访问 |
-| `LP_PLUGIN_MARKET_URL` | 官方插件市场 `index.json` 地址 | 插件页的市场里没有官方市场,只有用户自己订阅的仓库 |
 | `LP_SYNC_PROXY_BASE` | 自建代理(`oauth-proxy/`)**地址**,**要带 `/api` 后缀**;现在只有问题反馈 / 崩溃报告走它 | 「发送反馈」报「这个构建没有配反馈服务」 |
 | `LP_SYNC_PROXY_KEY` | 访问代理的**共享密钥**,= 代理的 `LINPLAYER_PROXY_KEY` | 同上(值填错是另一个现象:全 401) |
 | `LP_ICON_LIBRARY_SOURCES` | 服务器图标库(逗号分隔的多个 registry 地址) | 图标库页只能上传本地图片 |
@@ -43,8 +40,8 @@
 > 2026-09-19 删过 `TMDB_API_KEY` / `LP_BANGUMI_REDIRECT_URI` / `LP_AFDIAN_SPONSOR_URL`;2026-09-20 排行榜与付费追剧日历
 > 改回宿主内置(D361,插件走 CF 中转配额不够),三个原名加回。`LP_SYNC_PROXY_*` 名字沿用:CI 里的 Secret 就叫这个,改名 = 反馈静默断掉。
 >
-> 另有一个**只给门禁用**的:`LP_DRPY_BASE`(TVBox 插件内置 drpy 引擎的上游 raw 地址,`scripts/fetch-drpy.sh` 按 sha256 拉)。
-> 它不进产物,只挂在 Core gate 那一步;漏配的表现是 TVBox 全链路测试红,不是静默。
+> 2026-11-01 插件系统、Trakt / Bangumi 账号一并删除,`LP_BANGUMI_REDIRECT_URI` / `LP_AFDIAN_SPONSOR_URL` /
+> `LP_PLUGIN_MARKET_URL` / `LP_DRPY_BASE` 已无人读取,GitHub 里的同名 Secret 可以删掉。
 
 ★ 图标源和测速地址是 2026-09-01 从黄金实现里挪出来的:Rust 版把四条图标源和测速地址
 **硬编在 `.rs` 里**,那是既有的红线欠账。Go 侧一律注入,并各有一条测试钉住
@@ -67,47 +64,24 @@
 - 弹弹允许一个 AppId 配**多个 Secret**(换行分隔),轮换时用得上
 - 别再提「挪到服务端」——那个方向已经被否掉了。要重提,先解决「用户不部署服务也得有弹幕」
 
-## GitHub Actions 里**不该有**的
+## 自建代理(问题反馈 / 崩溃报告)
 
-这几个属于 **oauth-proxy(Cloudflare Pages)**,GitHub 这边一次都不会被引用,
-放着只是多一份泄露面:
-
-| 别放在 GitHub | 该放哪 |
-|---|---|
-| `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | Cloudflare Pages 项目的环境变量 |
-| `BANGUMI_APP_ID` / `BANGUMI_APP_SECRET` | 同上 |
-
-> 核查办法:`grep -rc "secrets.<名字>" .github/workflows/`。
-> **零引用不等于该删**:删之前先分清「用不上」和「还没接上」。
-
-## 代理上的 Trakt / Bangumi 凭据(宿主已不用,插件重做时还要)
-
-**这是最容易搞混的一处。** 客户端**从来不持有** Trakt / Bangumi 的 secret ——
-那两对凭据配在**代理**上,客户端只知道「去哪找代理」和「敲门用什么暗号」。
-宿主的同步已于 2026-09-19 删除;代理和下面这套分工留着,官方插件重做登录时照用。
+客户端只知道「去哪找代理」和「敲门用什么暗号」:
 
 ```
                      LP_SYNC_PROXY_KEY(暗号)
-LinPlayer 客户端  ──────────────────────────>  你的 OAuth 代理  ────>  Trakt / Bangumi
-                LP_SYNC_PROXY_BASE(地址)        TRAKT_CLIENT_SECRET
-                                                BANGUMI_APP_SECRET
+LinPlayer 客户端  ──────────────────────────>  你的代理(oauth-proxy/)  ────>  Telegram
+                LP_SYNC_PROXY_BASE(地址)
 ```
 
 | 配在哪 | 变量 | 是什么 |
 |---|---|---|
 | **客户端**(本表) | `LP_SYNC_PROXY_BASE` | 代理地址 + `/api`。空 = 这个构建没配 |
 | **客户端**(本表) | `LP_SYNC_PROXY_KEY` | 敲门的共享密钥。代理没设就留空 |
-| **代理**(`oauth-proxy/`) | `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | Trakt 那对 |
-| **代理**(`oauth-proxy/`) | `BANGUMI_APP_ID` / `BANGUMI_APP_SECRET` | Bangumi 那对 |
 | **代理**(`oauth-proxy/`) | `LINPLAYER_PROXY_KEY` | 和客户端的 `LP_SYNC_PROXY_KEY` 对上 |
 
 代理本身在本仓库的 `oauth-proxy/`(Cloudflare Pages Functions),部署步骤见它的 README。
-
-★ Trakt 的 `client_id` 和 Bangumi 的 `app_id` 是 OAuth 的**公开标识符**,旧宿主编译在客户端里(已随同步删除)。
-**代理上那两个 id 必须和客户端用的是同一个应用** —— 换成新注册的应用而不动客户端,
-表现是「授权成功了,但每次同步都 401」。插件重做时同样适用。
-
-★ Bangumi 还有一条**完全不经代理**的路:直接贴个人 Access Token。Trakt 没有(设备码流必须换 secret)。
+Trakt / Bangumi 的令牌交换路由已于 2026-11-01 随账号功能删除,代理上的 `TRAKT_*` / `BANGUMI_*` 环境变量可以删掉。
 
 ⚠️ **老的 Rust 版把这把共享密钥明文写在 `crates/core/src/sync/mod.rs` 里,
 已经进了 git 历史。** 换语言不会让它消失 —— 要轮换那把 key 并按红线改写历史。
@@ -144,14 +118,11 @@ LinPlayer 客户端  ───────────────────�
     LP_SYNC_PROXY_KEY: ${{ secrets.LP_SYNC_PROXY_KEY }}
     LP_ICON_LIBRARY_SOURCES: ${{ secrets.LP_ICON_LIBRARY_SOURCES }}
     LP_CF_TEST_URL: ${{ secrets.LP_CF_TEST_URL }}
-    LP_BANGUMI_REDIRECT_URI: ${{ secrets.LP_BANGUMI_REDIRECT_URI }}
-    LP_AFDIAN_SPONSOR_URL: ${{ secrets.LP_AFDIAN_SPONSOR_URL }}
-    LP_PLUGIN_MARKET_URL: ${{ secrets.LP_PLUGIN_MARKET_URL }}
 ```
 
 > ★★ **漏传一个是静默的**:构建照样绿,产物照样能跑,只是那个功能永远不工作。
 > 2026-07-21 就这么栽过一次(安卓 job 从建起来就没传 `DANDANPLAY_*`/`TMDB_API_KEY`)。
-> `scripts/check-workflows.sh` 里有一道闸门,九个一个都不能少(出包步骤另要 `SENTRY_DSN`)。
+> `scripts/check-workflows.sh` 里有一道闸门,六个一个都不能少(出包步骤另要 `SENTRY_DSN`)。
 
 ## 本机怎么试
 

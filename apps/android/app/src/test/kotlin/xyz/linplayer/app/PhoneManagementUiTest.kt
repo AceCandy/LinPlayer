@@ -137,16 +137,12 @@ class PhoneManagementUiTest {
 
     @Test fun settingsGroupsKeepNavigationAndBothThemes() {
         val core = FakeCore().loggedIn()
-        core.ret("plugin.sidebar", arr(buildJsonObject {
-            put("id", "test-plugin:entry"); put("page", "test-page"); put("title", "测试插件入口")
-        }))
         open(core, Route.Settings)
         rule.onNodeWithText("播放与外观").assertIsDisplayed()
         rule.onRoot().captureRoboImage("build/management-ui/settings-light-large.png")
         rule.runOnIdle { dark.value = true }
         rule.onRoot().captureRoboImage("build/management-ui/settings-dark-large.png")
-        for (label in listOf("多线程加载", "测试插件入口", "已屏蔽的内容", "备份与还原", "文件浏览",
-            "存储与数据目录", "Trakt / Bangumi 账号", "插件", "扩展组件", "更新", "关于")) {
+        for (label in listOf("多线程加载", "已屏蔽的内容", "备份与还原", "存储与数据目录", "关于与更新")) {
             rule.onNode(hasScrollToIndexAction()).performScrollToNode(hasText(label))
             rule.onNodeWithText(label).assertIsDisplayed().assertHasClickAction()
         }
@@ -177,14 +173,18 @@ class PhoneManagementUiTest {
                 }
             }
         }
-        for (g in listOf("storage", "danmaku", "shot", "mpvconf", "prefetch", "primaryprogress", "blocked", "backup", "sync", "update", "about")) {
+        for (g in listOf("storage", "danmaku", "shot", "mpvconf", "prefetch", "primaryprogress", "blocked", "backup", "about")) {
             rule.runOnIdle { group.value = g }
             rule.waitForIdle()
             // 主进度并发读取失败必须落到页内错误态，不能让子任务异常冲出组合作用域
             if (g == "primaryprogress") rule.onNodeWithText("主进度设置读取失败，请重试").assertIsDisplayed()
             // 读取失败要明说，不能无限转圈或冒充“已是最新”
             if (g == "storage") assertEquals(2, rule.onAllNodesWithText("读取失败").fetchSemanticsNodes().size)
-            if (g == "about") rule.onNodeWithText("检查失败").assertIsDisplayed()
+            if (g == "about") {
+                rule.onNodeWithText("检查失败").assertIsDisplayed()
+                // 更新选项并入关于页
+                for (label in listOf("更新渠道", "启动时自动检查更新", "GitHub 代理")) rule.onNodeWithText(label).assertExists()
+            }
             rule.onRoot().captureRoboImage("build/management-ui/sub-$g.png")
         }
     }

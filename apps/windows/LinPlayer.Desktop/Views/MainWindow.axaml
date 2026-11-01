@@ -18,11 +18,6 @@
   -->
   <Grid Name="RootGrid" RowDefinitions="36,*">
 
-    <!-- 壁纸层(SPEC 11.5)。排在**第一个**子元素 = 画在最底下;跨两行是因为
-         主题可以把侧栏 / 标题栏改成半透明,那时壁纸就该透到那儿去。
-         IsHitTestVisible 在 Wallpaper.Attach 里关掉:背景吃掉一次点击没人查得出来。 -->
-    <Panel Name="WallpaperLayer" Grid.Row="0" Grid.RowSpan="2" />
-
     <!-- ══════ 标题栏 ══════ -->
     <Grid Grid.Row="0" Name="TitleBar" Background="{DynamicResource Panel}"
           ColumnDefinitions="Auto,*,Auto">
@@ -96,7 +91,6 @@
             <StackPanel Spacing="0">
           <StackPanel Name="NavList" Spacing="0">
             <RadioButton Classes="nav" Name="NavHome" GroupName="nav" Content="首页" IsChecked="True" Tag="&#xE80F;" />
-            <RadioButton Classes="nav" Name="NavBrowse" GroupName="nav" Content="文件浏览" IsVisible="False" Tag="&#xE8B7;" />
             <RadioButton Classes="nav" Name="NavLibrary" GroupName="nav" Content="媒体库" Tag="&#xE8F1;" />
             <RadioButton Classes="nav" Name="NavSearch" GroupName="nav" Content="搜索" Tag="&#xE721;" />
             <RadioButton Classes="nav" Name="NavFavorites" GroupName="nav" Content="收藏" Tag="&#xE734;" />
@@ -106,10 +100,6 @@
             <RadioButton Classes="nav" Name="NavRanking" GroupName="nav" Content="排行榜" Tag="&#xE8CB;" />
             <RadioButton Classes="nav" Name="NavCalendar" GroupName="nav" Content="追剧日历" Tag="&#xE787;" />
           </StackPanel>
-
-          <!-- 插件的侧栏入口(SPEC 6.5 D158 D305)。内容由 C# 填,见 BuildPluginEntries。
-               装了直播插件却在侧栏上找不到「直播」—— 那个插件就等于没装(用户 2026-09-21)。 -->
-          <StackPanel Name="PluginEntries" Spacing="0" Margin="0,6,0,0" />
 
           <!--
             服务器区。
@@ -127,7 +117,6 @@
                        FontSize="11" FontWeight="SemiBold"
                        Foreground="{DynamicResource Ink3}" />
             <StackPanel Name="ServerList" Spacing="0" />
-            <StackPanel Name="SourceGroups" Spacing="0" />
           </StackPanel>
             </StackPanel>
           </ScrollViewer>

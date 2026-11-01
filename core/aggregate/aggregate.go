@@ -84,6 +84,7 @@ func RegisterCommands(version string) {
 	})
 
 	registerVersionCommands()
+	registerSourceCommands()
 
 	// aggregateOverview 聚合视界:每台服务器一张卡(规模统计 + 继续观看)。
 	displaycache.Register("emby.aggregateOverview", func(ctx context.Context, seq int64, a map[string]any) (any, error) {

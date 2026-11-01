@@ -115,13 +115,10 @@ import xyz.linplayer.app.data.dbl
 import xyz.linplayer.app.data.long
 import xyz.linplayer.app.data.obj
 import xyz.linplayer.app.data.str
-import xyz.linplayer.app.plugin.PluginPlayer
 import xyz.linplayer.app.ui.Route
 import xyz.linplayer.app.ui.components.pressable
 import xyz.linplayer.app.ui.pages.args
 import xyz.linplayer.app.ui.pages.fmtTime
-import xyz.linplayer.app.ui.pages.SourceSwitchTarget
-import xyz.linplayer.app.ui.pages.destination
 import xyz.linplayer.app.ui.theme.Dim
 import xyz.linplayer.app.ui.theme.LpIcons
 import xyz.linplayer.app.ui.theme.Lp
@@ -252,7 +249,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     embeddedRoute: Route.Player? = null, onCompleted: (() -> Unit)? = null,
     feedOverlay: (@Composable (FeedPlayback) -> Unit)? = null, feedOffset: Float = 0f,
     feedVolume: Float? = null, onFeedVolume: (Float) -> Unit = {},
-    onSourceSwitch: ((SourceSwitchTarget) -> Unit)? = null,
 ) {
     var route by remember(entry) { mutableStateOf(embeddedRoute ?: requireNotNull(entry).toRoute<Route.Player>()) }
     val initialMode = remember(entry) { route.engine ?: xyz.linplayer.app.data.UiPrefs.engine.value }
@@ -280,14 +276,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         onDispose { host?.removeOnPictureInPictureModeChangedListener(listener) }
     }
 
-    /* 壁纸的三个暂停条件之一(D443)。取**页面在不在**而不是插件的
-       `player.start` / `player.end`:那两条事件只在核心层的插件运行时里发,
-       过不了 FFI;而 ExoPlayer 那一路连 `player.status` 都不发。 */
-    DisposableEffect(Unit) {
-        xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, true)
-        onDispose { xyz.linplayer.app.ui.plugin.WallpaperGate.set(xyz.linplayer.app.ui.plugin.WallpaperGate.PLAYER, false) }
-    }
-
     var position by remember { mutableStateOf(0.0) }
     var duration by remember { mutableStateOf(0.0) }
     var buffered by remember { mutableStateOf(0.0) }
@@ -303,8 +291,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     val panelAnchors = remember { mutableStateMapOf<String, Rect>() }
     var panelAnchorKey by remember { mutableStateOf("more") }
     var dmSearch by remember { mutableStateOf(false) }
-    var srcSwitch by remember { mutableStateOf(false) }
-    var sourceExit by remember { mutableStateOf<SourceSwitchTarget?>(null) }
     val heat = rememberDanmakuHeatmap(app, duration)
     /* ☠ **弹幕要自己加载,不能等用户去拨那个开关。**
        上一版只有「拨开关」和「重新匹配」两条路会去匹配 —— 而开关是**落库**的:
@@ -334,8 +320,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
        所以设置页那一行明说「退出当前播放再进才生效」。 */
     // 数据源播放只走 mpv:取流、解析、请求头都在核心层,ExoPlayer 那条路拿不到这些
     var adoptedPlayback by remember { mutableStateOf<JsonObject?>(null) }
-    val controller = remember(route.itemId, route.versionId, route.src) {
-        PlayerController(adoptedPlayback.str("engine") ?: if (route.src != null) "mpv" else initialMode,
+    val controller = remember(route.itemId, route.versionId) {
+        PlayerController(adoptedPlayback.str("engine") ?: initialMode,
             stopCall = { arguments, partial -> app.call("player.stopPlayback", arguments, partial) }) { command, arguments ->
             app.call(command, arguments)
         }
@@ -447,17 +433,17 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         }
     }
 
-    suspend fun switchTarget(id: String, versionId: String?, title: String, source: Route.Player? = null) {
+    suspend fun switchTarget(id: String, versionId: String?, title: String) {
         if (switching || controller.switching || leaving || latestController !== controller) return
-        if (source == null && id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
+        if (id == route.itemId && (versionId == null || versionId == route.versionId || versionId == controller.mediaSourceId)) return
         switching = true
         try {
             val switchedAt = android.os.SystemClock.elapsedRealtime()
             buffered = 0.0
             startupTiming.close()
-            val resumeAt = if (source == null && id == route.itemId) position else null
+            val resumeAt = if (id == route.itemId) position else null
             PlaybackService.volumeBeforeSwitch()?.let { controller.volume(it) }
-            if (route.src == null && id != route.itemId && versionId == null) prepareEpisode(id)
+            if (id != route.itemId && versionId == null) prepareEpisode(id)
             else cancelPreparation()
             PlaybackService.stop(ctx)
             queuedRequest?.let { cancelPreparation() }
@@ -473,7 +459,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             preparedFor = null
             preparedResult = null
             startupOrigin = switchedAt to StartupOrigin.TARGET
-            route = source ?: route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
+            route = route.copy(itemId = id, title = if (id == route.itemId) route.title else title,
                 versionId = versionId, fromStart = false, ar = 0f, subtitle = null)
         } finally { switching = false }
     }
@@ -489,14 +475,14 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         controller.clearSeriesContext(trackMemory)
         episodeResult = null
         val loaded = runCatching {
-            if (route.src == null) app.call("emby.itemDetail", args("item_id" to route.itemId)).obj() else null
+            app.call("emby.itemDetail", args("item_id" to route.itemId)).obj()
         }
         val detail = loaded.getOrNull()
         coroutineContext.ensureActive()
         controller.seriesContext(trackMemory, sessionTrackScope(session, detail, route.itemId))
         launch {
             val result = runCatching {
-                if (route.src != null) emptyList() else playbackSeason(app, loaded.getOrThrow(), route.itemId)
+                playbackSeason(app, loaded.getOrThrow(), route.itemId)
             }
             coroutineContext.ensureActive()
             episodeResult = result
@@ -540,7 +526,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             }
         }
     }
-    val prepareSoon = controller.ready && !buffering && !leaving && !switching && route.src == null &&
+    val prepareSoon = controller.ready && !buffering && !leaving && !switching &&
         duration > 0 && position >= (duration - 60).coerceAtLeast(0.0)
     LaunchedEffect(controller, nextEpisode?.id, prepareSoon) {
         if (prepareSoon && queuedRequest == null) nextEpisode?.let { prepareEpisode(it.id) }
@@ -714,15 +700,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                     if (it <= 0) put("from_start", true)
                 }
             }
-            val src = route.src?.let { kotlinx.serialization.json.Json.parseToJsonElement(it).obj() }
-            if (src != null) {
-                // resume 不给 = 让核心层按观看记录定;换源 / 切线路带过来的进度才显式送
-                val pos = src["resume_secs"]?.let { (it as? kotlinx.serialization.json.JsonPrimitive)?.content?.toDoubleOrNull() } ?: 0.0
-                startupTiming.request()
-                app.call("source.playItem", kotlinx.serialization.json.JsonObject(src.filterKeys { k -> k != "resume_secs" || pos > 0 }))
-                startupTiming.requestComplete()
-                return@runCatching
-            }
             startupTiming.request()
             val r = app.call("player.play", controller.playbackArgs(a)).obj()
             selectedPrepared = null
@@ -755,23 +732,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             if (it is kotlinx.coroutines.CancellationException) throw it
             startupTiming.failed()
             app.report(it)
-            if (route.src != null && !app.privateSpace.value) srcSwitch = true
             // 普通起播失败也进失败页:只弹提示的话黑幕撤掉后就是一块没有原因、也没法重试的黑屏
             failReason = it.message; openFailed = true
         }
     }
-    /* 数据源播放失败**不自动切线路**,直接弹换源列表让用户选(D263)。
-       进度带过去:从别的源接着看同一集。 */
-    if (srcSwitch) route.src?.let { raw ->
-        xyz.linplayer.app.ui.pages.SourcePlayFailed(raw, position, onSwitch = { target ->
-            if (!leaving && !app.privateSpace.value) {
-                if (target is SourceSwitchTarget.Line)
-                    switchTarget(target.route.itemId, target.route.versionId, target.route.title, source = target.route)
-                else { sourceExit = target; leaving = true }
-            }
-        }, onClose = { srcSwitch = false })
-    }
-
     /* ExoPlayer 那条路的状态:**轮询 4 Hz**,和 mpv 的 `player.status` 同频。
        ★ 只能在主线程读 ExoPlayer(它是单线程模型),`LaunchedEffect` 正好跑在
          composition 的调度器上,也就是主线程 —— 挪到别的 dispatcher 会当场抛
@@ -828,7 +792,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             if (ev.name != "player.status") return@collect
             if (!controller.ready) return@collect
             val o = ev.data as? JsonObject
-            if (route.src == null && o.str("item_id")?.let { it != route.itemId } == true) return@collect
+            if (o.str("item_id")?.let { it != route.itemId } == true) return@collect
             val p = o.dbl("position") ?: 0.0
             if (advancedNaturally(position, p)) everMoved = true
             position = p
@@ -930,23 +894,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         if (!leaving) return@LaunchedEffect
         queueHandoff?.join()
         stopOnExit()
-        sourceExit?.let { target ->
-            PlayerController.awaitPendingStop()
-            if (!app.privateSpace.value) {
-                if (onSourceSwitch != null) onSourceSwitch(target)
-                else try {
-                    val next = target.destination(app)
-                    nav.popBackStack()
-                    nav.navigate(next)
-                } catch (e: CancellationException) { throw e }
-                  catch (e: Exception) {
-                    app.report(e)
-                    sourceExit = null; leaving = false; stopRegistered = false
-                }
-            }
-            return@LaunchedEffect
-        }
-        if (onExit != null) onExit(route.itemId.takeIf { route.src == null }) else {
+        if (onExit != null) onExit(route.itemId) else {
             activity?.requestedOrientation = ActivityInfo.SCREEN_ORIENTATION_UNSPECIFIED
             delay(TurnSettleMs)
             nav.popBackStack()
@@ -1009,23 +957,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
         scope.launch { runCatching { controller.volume(v) } }
     }
 
-    /* 插件的 `player.openPanel` / `setOsdVisible`(D67 D162):面板名和 OSD 都是这一页的
-       局部状态,所以由页面登记自己,离页摘掉 —— 和 PluginNav 同一个做法。
-       ☠ 挂在 exo 上重登记:内核换了之后旧的那个 host 手里还是上一个 exo,
-       「画面增强」该不该挡就判反了。 */
-    DisposableEffect(exo) {
-        PluginPlayer.host = object : PluginPlayer.Host {
-            override fun openPanel(which: String) {
-                val kind = PluginPlayer.phoneKind(which, exo != null)
-                panelAnchorKey = kind
-                panel = kind
-                osd = true
-            }
-            override fun setOsdVisible(visible: Boolean) { osd = visible }
-        }
-        onDispose { PluginPlayer.host = null }
-    }
-
     // 返回键四级:小浮层 → 面板 → OSD → 才退出播放
     BackHandler {
         when {
@@ -1044,7 +975,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     }
     var manualOrientation by remember { mutableStateOf(false) }
     LaunchedEffect(controller, controller.ready, leaving) {
-        if (leaving || route.ar > 0f || !controller.ready || route.src != null) return@LaunchedEffect
+        if (leaving || route.ar > 0f || !controller.ready) return@LaunchedEffect
         val target = route
         val versions = runCatching { app.call("emby.itemMedia", args("item_id" to target.itemId)) }.getOrNull().arr()
         coroutineContext.ensureActive()
@@ -1138,7 +1069,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
 
     var chapters by remember(route.itemId) { mutableStateOf<List<JsonObject>?>(emptyList()) }
     LaunchedEffect(route.itemId, tracksReady) {
-        if (route.src != null || !tracksReady) return@LaunchedEffect
+        if (!tracksReady) return@LaunchedEffect
         val loaded = runCatching { app.call("player.chapterInfo", args("item_id" to route.itemId)).obj() }
         coroutineContext.ensureActive()
         chapters = if (loaded.isFailure) null else loaded.getOrNull()?.get("chapters").arr().mapNotNull { it.obj() }
@@ -1157,7 +1088,7 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     var markerReloading by remember(controller) { mutableStateOf(false) }
     var markerRevision by remember(controller) { mutableIntStateOf(0) }
     LaunchedEffect(controller, duration, markerRevision) {
-        if (route.src != null || feedOverlay != null || duration <= 0) return@LaunchedEffect
+        if (feedOverlay != null || duration <= 0) return@LaunchedEffect
         markerReloading = true
         val c = runCatching { app.call("player.chapterInfo", args("item_id" to route.itemId, "runtime_secs" to duration)).obj() }.getOrNull()
         coroutineContext.ensureActive()
@@ -1216,10 +1147,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
     }
 
 
-    // 插件的两个挂载点(SPEC 9.5)。拉不到是空表,播放页照放
-    val pluginOverlays = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("overlay")
-    val pluginPanels = xyz.linplayer.app.ui.plugin.rememberPlayerSurfaces("panel")
-
     val c = Lp.colors
     /* ☠☠ **这一层不许有不透明底色。**
        `SurfaceView`(非 ZOrderOnTop)的画面是从**窗口下面**透上来的,靠它自己在
@@ -1262,10 +1189,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
             DanmakuStyle.layout.value, position, paused, speed, videoLayerModifier, buffering = buffering, app = app,
             opacity = DanmakuStyle.opacity.doubleValue)
 
-        /* 插件覆盖层 · 不拦交互的那批。**摆在手势层底下就是穿透**:
-           Compose 的命中测试到不了被上层全屏手势盖住的节点,插件里有没有
-           `clickable` 都一样 —— 单击呼 OSD、双击暂停、拖进度条照常。 */
-        Box(videoLayerModifier) { xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = false) }
 
 
         /* Media3 真实首帧即可撤幕；MPV 沿用「时间真的往前走了」判据。
@@ -1297,14 +1220,8 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                         kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
                     xyz.linplayer.app.ui.components.LpButton("重试", {
                         openFailed = false; failReason = null
-                        if (finished) { episodeResult = null; episodeRetry++ } else { srcSwitch = false; attempt++ }
+                        if (finished) { episodeResult = null; episodeRetry++ } else attempt++
                     }, Modifier.widthIn(min = 112.dp))
-                }
-                // 数据源失败会先弹换源;关掉之后从这里再打开
-                if (route.src != null && !finished && !app.privateSpace.value) {
-                    Spacer(Modifier.height(Sp.x8))
-                    xyz.linplayer.app.ui.components.LpButton("换源", { srcSwitch = true }, Modifier.widthIn(min = 112.dp),
-                        kind = xyz.linplayer.app.ui.components.BtnKind.Secondary)
                 }
             } else if (!openFailed) xyz.linplayer.app.ui.components.LpLoading(size = PlayerLoadingSize, tint = Color.White,
                 label = if (buffering) "正在缓冲…" else "正在打开…")
@@ -1388,9 +1305,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
            否则「不拦交互」的插件覆盖层会变成锁屏状态下唯一点得动的东西。 */
         if (locked) Box(videoLayerModifier.pointerInput(Unit) { detectTapGestures { } })
 
-        // 声明了 interactive 的才挂在手势层之上;仍在 OSD 之下,盖不住暂停和进度条
-        if (!openFailed) Box(videoLayerModifier) { xyz.linplayer.app.ui.plugin.PlayerOverlays(pluginOverlays, interactive = true) }
-
         /* 出画之后的缓冲提示。黑幕撤了但流还没跟上时,得有个东西说明在等 ——
            没有它的话画面卡住和播放器死了长得一模一样。 */
         // 拖动预览期间不叠缓冲圈:Media3 拖动模式跳进未缓冲段会短暂缓冲,和预览框同居中
@@ -1438,11 +1352,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 nextUpInset = if (nextUp != null || skipVisible) nextUpWidth + nextUpEnd - Sp.x12 + Sp.x8 else 0.dp,
                 title = playTitle, episodeLabel = episodeLabel, position = seekPreview ?: controller.seekTarget ?: position, duration = duration,
                 paused = paused, speed = speed, heat = heat, buffered = buffered,
-                pluginPanels = pluginPanels,
                 onPrevious = previousEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onNext = nextEpisode?.takeUnless { switching }?.let { { switchEpisode(it) } },
                 onOrientation = { manualOrientation = true; wantLandscape = portrait },
-                onChapters = if (route.src == null && chapters?.isEmpty() != true) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
+                onChapters = if (chapters?.isEmpty() != true) ({ panelAnchorKey = "chapters"; panel = "chapters" }) else null,
                 onPip = (activity as? xyz.linplayer.app.PlayerActivity)?.takeIf {
                     android.os.Build.VERSION.SDK_INT >= 26 && it.packageManager.hasSystemFeature(android.content.pm.PackageManager.FEATURE_PICTURE_IN_PICTURE)
                 }?.let { host -> { if (!host.enterPlayerPip(returnToHome = true)) app.toast("无法打开画中画", ToastKind.Error) } },
@@ -1528,10 +1441,10 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 panel, route.itemId, exo,
                 chapters = chapters,
                 markerPosition = position, markerDuration = duration,
-                allowMarkers = route.src == null && !route.localEntry && feedOverlay == null,
+                allowMarkers = feedOverlay == null,
                 onMarkersSaved = { if (latestController === controller) { markerReloading = true; markerRevision++ } },
                 onMarkersWriting = { if (latestController === controller) markerWriting = it },
-                onSwitchEngine = if (route.src == null && controller.ready && !switching && !controller.switching && !leaving) ({
+                onSwitchEngine = if (controller.ready && !switching && !controller.switching && !leaving) ({
                     scope.launch(start = CoroutineStart.UNDISPATCHED) {
                         if (!switching && !leaving) {
                             switching = true
@@ -1554,9 +1467,6 @@ fun PlayerPage(nav: NavController, entry: NavBackStackEntry?,
                 }) else null,
                 fit = videoFit, anchor = panelAnchors[panelAnchorKey],
                 speed = speed, onSpeed = { speed = it; doSpeed(it) },
-                pluginPanel = pluginPanels.firstOrNull { p ->
-                    xyz.linplayer.app.ui.plugin.pluginPanelKind(p) == panel
-                },
                 onOpen = { k -> panel = k },
                 onSearch = { dmSearch = true },
                 onTrackPicked = controller::trackPicked,
@@ -1656,7 +1566,6 @@ internal fun Osd(
     portrait: Boolean, netSpeed: String,
     title: String, episodeLabel: String = "", position: Double, duration: Double, paused: Boolean, speed: Double,
     heat: List<Float>,
-    pluginPanels: List<xyz.linplayer.app.ui.plugin.PlayerSurfaceInfo>,
     onBack: () -> Unit, onToggle: () -> Unit, onSeek: (Double) -> Unit,
     onSpeed: (Double) -> Unit, onLock: () -> Unit, onShot: () -> Unit,
     onPanel: (String) -> Unit,
@@ -1749,14 +1658,6 @@ internal fun Osd(
                     PlayerControl(LpIcons.music, "音轨", modifier = menuAnchor("audio"), onClick = { onPanel("audio") })
                     PlayerControl(LpIcons.sub, "字幕", modifier = menuAnchor("subtitle"), onClick = { onPanel("subtitle") })
                 }
-                if (pluginPanels.isNotEmpty()) Row(Modifier.fillMaxWidth().horizontalScroll(rememberScrollState())) {
-                    pluginPanels.forEach { p ->
-                        Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon),
-                        modifier = menuAnchor(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))) {
-                            onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))
-                        }
-                    }
-                }
             }
         if (portrait) Column(Modifier.align(Alignment.BottomCenter).fillMaxWidth()
             .background(BottomVeil).safeDrawingPadding().onSizeChanged { onBottomBarHeight(it.height) }.padding(bottom = Sp.x6)) {
@@ -1778,12 +1679,6 @@ internal fun Osd(
                 }
                 PlayerControl(LpIcons.danmaku, "弹幕", modifier = menuAnchor("danmaku"), faceSize = controlFace, onClick = { onPanel("danmaku") })
                 PlayerControl(LpIcons.camera, "截屏", faceSize = controlFace, onClick = onShot)
-                pluginPanels.forEach { p ->
-                    Chip(p.title.ifBlank { p.target }, xyz.linplayer.app.ui.plugin.iconByName(p.icon),
-                        modifier = menuAnchor(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))) {
-                        onPanel(xyz.linplayer.app.ui.plugin.pluginPanelKind(p))
-                    }
-                }
             }
         }
     }
@@ -1903,33 +1798,6 @@ private fun NetSpeed(text: String) {
 /** 百分位整数步进，避免0.1的浮点误差累积到读数。 */
 internal fun step(cur: Double, dir: Int) =
     ((cur * 100).roundToInt() + dir * 10).coerceIn((SP_MIN * 100).toInt(), (SP_MAX * 100).toInt()) / 100.0
-
-/**
- * OSD 上的一颗功能钮。
- *
- * ★ **拆掉灰底,只剩字**:画面才是这一页的主角,常态的按钮不该在上面盖出几块补丁。
- * ☠ 命中区**必须靠 `heightIn` 撑到 44dp**,不能靠外边距 —— 外边距在 `pressable`
- *   外面,撑大的是间隙不是命中区。上一版就是这么写的,实测可点高度只有 28dp。
- */
-@Composable
-private fun Chip(
-    label: String,
-    icon: androidx.compose.ui.graphics.vector.ImageVector? = null,
-    modifier: Modifier = Modifier,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier.heightIn(min = Dim.tap).clip(RoundedCornerShape(R.pill))
-            .pressable(onClick).padding(horizontal = Sp.x10),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        if (icon != null) {
-            androidx.compose.material3.Icon(icon, null, Modifier.size(16.dp), tint = Color.White)
-            Spacer(Modifier.width(Sp.x6))
-        }
-        Text(label, color = Color.White, style = LpText.secondary, maxLines = 1)
-    }
-}
 
 /**
  * 已播与总长在滑杆左侧同排；跳转仍由原生 Slider 管理。

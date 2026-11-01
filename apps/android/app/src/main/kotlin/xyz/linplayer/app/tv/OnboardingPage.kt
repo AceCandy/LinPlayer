@@ -59,54 +59,18 @@ import xyz.linplayer.app.ui.theme.LpIcons
  *
  * ★ **初始焦点在「连接」,不在输入框**【用户定 2026-07-21】:焦点落输入框输入法立刻升起盖住半屏,
  *   把扫码这条主路径挡了。
- * ⚠️ `source.formSchema` 不存在(MOBILE_BLOCKERS B1),源类型表照手机端写在这一处。
  */
 @Composable
 fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
     val app = LocalApp.current
     val scope = rememberCoroutineScope()
     val t = tvType
-    var kind by remember { mutableIntStateOf(0) }
     var server by remember { mutableStateOf("") }
     var user by remember { mutableStateOf("") }
     var pass by remember { mutableStateOf("") }
     var busy by remember { mutableStateOf(false) }
     var testing by remember { mutableStateOf(false) }
     var hint by remember { mutableStateOf<String?>(null) }
-    // 插件提供的服务器类型(D131 D423):装了数据源插件才出现在类型片里
-    var pluginForms by remember { mutableStateOf<List<JsonObject>>(emptyList()) }
-    val pluginValues = remember { androidx.compose.runtime.mutableStateMapOf<String, String>() }
-    LaunchedEffect(Unit) {
-        pluginForms = runCatching { app.call("source.formSchema") }.getOrNull().arr().mapNotNull { it.obj() }.filter { it.str("kind") == "plugin" }
-    }
-
-    /* TV 上逐个勾几十个源太累:仓全订、源全加(不可用的除外),不要的在服务器页整组或单个删。
-       订阅免责提示照样给(D523)。 */
-    fun addPluginSources(f: JsonObject) {
-        if (busy) return
-        busy = true; hint = null
-        scope.launch {
-            try {
-                app.toast("订阅内容由你自行添加,与 LinPlayer 官方无关。")
-                val pid = f.str("plugin_id") ?: ""
-                val tid = f.str("type_id") ?: ""
-                var r = app.call("source.createSources", xyz.linplayer.app.ui.pages.j("plugin_id" to pid, "type_id" to tid, "form" to pluginValues.toMap())).obj()
-                val repos = r?.get("repos").arr().mapNotNull { it.obj()?.str("id") }
-                if (repos.isNotEmpty()) r = app.call("source.createSources", xyz.linplayer.app.ui.pages.j("plugin_id" to pid, "type_id" to tid, "form" to pluginValues.toMap(), "repos" to repos)).obj()
-                val chosen = r?.get("sources").arr().mapNotNull { it.obj() }.filter { !it.bool("exists") && it.str("unavailableReason").isNullOrEmpty() }
-                if (chosen.isEmpty()) { hint = "这份配置里没有可添加的源"; return@launch }
-                app.call("source.addSources", xyz.linplayer.app.ui.pages.j("plugin_id" to pid, "type_id" to tid, "sources" to chosen))
-                app.toast("已添加 ${chosen.size} 个源,不要的在服务器页删", ToastKind.Ok)
-                app.refreshSession()
-                onDone?.invoke()
-            } catch (e: CoreException) {
-                hint = e.advice
-            } catch (e: Throwable) {
-                hint = e.message ?: "添加失败"
-            } finally { busy = false }
-        }
-    }
-
     fun connect() {
         if (busy || testing) return
         busy = true; hint = null
@@ -136,50 +100,31 @@ fun OnboardingPage(embedded: Boolean, onDone: (() -> Unit)? = null) {
             TvText(if (embedded) "添加服务器" else "连接到你的媒体服务器", t.display, TvC.fg, weight = TvW.bold)
             TvText("推荐用手机扫右边的码,不用在电视上打字", t.body, TvC.fg2)
             Spacer(Modifier.height(TvSp.x16))
-            ScopeChips(listOf("Emby") + pluginForms.map { it.str("label") ?: "" }, kind,
-                itemModifier = { i -> Modifier.memo("gate.kind.$i") }, onSelect = { kind = it; pluginValues.clear() })
-            Spacer(Modifier.height(TvSp.x16))
-            if (kind == 0) {
-                Field("服务器地址") { TvTextField(server, { server = it }, "例如 https://example.com", 384.dp, Modifier.memo("gate.server")) }
-                Field("用户名") { TvTextField(user, { user = it }, "", 384.dp, Modifier.memo("gate.user")) }
-                Field("密码") { TvTextField(pass, { pass = it }, "", 384.dp, Modifier.memo("gate.pass"), password = true) }
-                Spacer(Modifier.height(TvSp.x12))
-                Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
-                    TvButton(if (busy) "登录中…" else "登录", LpIcons.check, primary = true,
-                        modifier = Modifier.memo("gate.connect", initial = true), onClick = { connect() })
-                    // 「测试连接」只探测,不添加、不切会话【继承 PC A-47】;填了账号就真登一次,和手机端同一口径
-                    TvButton(if (testing) "测试中…" else "测试连接", LpIcons.sync, modifier = Modifier.memo("gate.test"), onClick = {
-                        if (busy || testing) return@TvButton
-                        testing = true; hint = null
-                        scope.launch {
-                            runCatching {
-                                app.call("account.testConnection", JsonObject(mapOf(
-                                    "server" to JsonPrimitive(withScheme(server)), "username" to JsonPrimitive(user),
-                                    "password" to JsonPrimitive(pass), "device_id" to JsonPrimitive(app.deviceId()),
-                                ))).obj()
-                            }.onSuccess { d ->
-                                val who = d.str("user_name").orEmpty()
-                                val tail = if (who.isNotEmpty()) "已用「$who」登录成功" else "没填账号,只验了地址通不通"
-                                app.toast("连上了:${d.str("name").orEmpty()} · 版本 ${d.str("version").orEmpty()} · $tail", ToastKind.Ok)
-                            }.onFailure { e -> hint = (e as? CoreException)?.advice ?: e.message ?: "连不上" }
-                            testing = false
-                        }
-                    })
-                }
-            } else {
-                val f = pluginForms[kind - 1]
-                TvText("由插件「${f.str("plugin_name") ?: ""}」提供。长文本用手机扫右边的码填更快", t.body, TvC.fg2, maxLines = 2)
-                Spacer(Modifier.height(TvSp.x8))
-                f["fields"].arr().mapNotNull { it.obj() }.forEach { fd ->
-                    val key = fd.str("key") ?: return@forEach
-                    Field(fd.str("label") ?: key) {
-                        TvTextField(pluginValues[key] ?: "", { pluginValues[key] = it }, fd.str("placeholder") ?: "", 384.dp,
-                            Modifier.memo("gate.p.$key"), password = fd.str("type") == "password")
+            Field("服务器地址") { TvTextField(server, { server = it }, "例如 https://example.com", 384.dp, Modifier.memo("gate.server")) }
+            Field("用户名") { TvTextField(user, { user = it }, "", 384.dp, Modifier.memo("gate.user")) }
+            Field("密码") { TvTextField(pass, { pass = it }, "", 384.dp, Modifier.memo("gate.pass"), password = true) }
+            Spacer(Modifier.height(TvSp.x12))
+            Row(horizontalArrangement = Arrangement.spacedBy(TvSp.x12)) {
+                TvButton(if (busy) "登录中…" else "登录", LpIcons.check, primary = true,
+                    modifier = Modifier.memo("gate.connect", initial = true), onClick = { connect() })
+                // 「测试连接」只探测,不添加、不切会话【继承 PC A-47】;填了账号就真登一次,和手机端同一口径
+                TvButton(if (testing) "测试中…" else "测试连接", LpIcons.sync, modifier = Modifier.memo("gate.test"), onClick = {
+                    if (busy || testing) return@TvButton
+                    testing = true; hint = null
+                    scope.launch {
+                        runCatching {
+                            app.call("account.testConnection", JsonObject(mapOf(
+                                "server" to JsonPrimitive(withScheme(server)), "username" to JsonPrimitive(user),
+                                "password" to JsonPrimitive(pass), "device_id" to JsonPrimitive(app.deviceId()),
+                            ))).obj()
+                        }.onSuccess { d ->
+                            val who = d.str("user_name").orEmpty()
+                            val tail = if (who.isNotEmpty()) "已用「$who」登录成功" else "没填账号,只验了地址通不通"
+                            app.toast("连上了:${d.str("name").orEmpty()} · 版本 ${d.str("version").orEmpty()} · $tail", ToastKind.Ok)
+                        }.onFailure { e -> hint = (e as? CoreException)?.advice ?: e.message ?: "连不上" }
+                        testing = false
                     }
-                }
-                Spacer(Modifier.height(TvSp.x12))
-                TvButton(if (busy) "添加中…" else "添加", LpIcons.check, primary = true, modifier = Modifier.memo("gate.padd"),
-                    onClick = { addPluginSources(f) })
+                })
             }
             hint?.let { Spacer(Modifier.height(TvSp.x8)); TvText(it, t.meta, TvC.bad, maxLines = 3) }
         }

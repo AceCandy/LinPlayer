@@ -79,8 +79,6 @@ import xyz.linplayer.app.ui.pages.GatePage
 import xyz.linplayer.app.ui.pages.HomePage
 import xyz.linplayer.app.ui.pages.LibraryPage
 import xyz.linplayer.app.ui.pages.LinesPage
-import xyz.linplayer.app.ui.pages.BrowsePage
-import xyz.linplayer.app.ui.pages.PluginsPage
 import xyz.linplayer.app.ui.pages.RankingPage
 import xyz.linplayer.app.ui.pages.SearchPage
 import xyz.linplayer.app.ui.pages.ServersPage
@@ -140,11 +138,7 @@ fun PhoneRoot(app: AppState, tv: Boolean = false) = PrivateNeonHost {
                 }
             }
             }
-            if (!tv) {
-                xyz.linplayer.app.ui.plugin.PhonePluginDialog()
-                ToastHost()
-                xyz.linplayer.app.ui.theme.ThemeFailedToast()
-            }
+            if (!tv) ToastHost()
         }
     }
 }
@@ -179,22 +173,6 @@ private fun MainShell(tv: Boolean) {
     }
     LaunchedEffect(Unit) { newVersion = xyz.linplayer.app.ui.pages.autoCheckUpdate(app) }
     xyz.linplayer.app.ui.pages.UpdateFlow(newVersion) { newVersion = null }
-
-    /* 插件的 nav.* 接到这个栈上(SPEC 7.9)。绑在 MainShell 而不是 PhoneRoot:
-       闸口页还没有栈,这时插件跳页无处可去,报「界面还没起来」比静默丢掉清楚。 */
-    androidx.compose.runtime.DisposableEffect(nav) {
-        xyz.linplayer.app.plugin.PluginNav.host = object : xyz.linplayer.app.plugin.PluginNav.Host {
-            override fun push(route: String, params: kotlinx.serialization.json.JsonObject, replace: Boolean): Boolean {
-                if (app.privateSpace.value || (tv && route == "downloads")) return false
-                val r = officialRoute(route) { k -> params.str(k) } ?: return false
-                if (replace) nav.popBackStack()
-                nav.navigate(r)
-                return true
-            }
-            override fun back() { nav.popBackStack() }
-        }
-        onDispose { xyz.linplayer.app.plugin.PluginNav.host = null }
-    }
 
     val route = entry?.destination?.route.orEmpty()
     val tab = when {
@@ -243,29 +221,17 @@ private fun MainShell(tv: Boolean) {
 
     /* 真机自检直达:`am start ... -e lp_page <名字>`。
        ★ 不能靠 input tap 走到目标页 —— 坐标随字号 / 数据变,而且中间任何一步
-         没点中,后面全错位;截图看起来还像是「那一页做坏了」。 */
-    LaunchedEffect(Unit) {
-        MainActivity.SelfCheck.devPlugin?.let { dir ->
-            MainActivity.SelfCheck.devPlugin = null
-            runCatching { app.call("plugin.devLoad", xyz.linplayer.app.ui.pages.args("dir" to dir)) }.onFailure { app.report(it) }
-        }
+         没点中,后面全错位;截图看起来还像是「那一页做坏了」。
+       热启动再送一次时 pageTick 变化,这里重跑一遍。 */
+    LaunchedEffect(MainActivity.SelfCheck.pageTick.intValue) {
         val p = MainActivity.SelfCheck.page?.removePrefix("tv:") ?: return@LaunchedEffect
         MainActivity.SelfCheck.page = null
-        if (p.startsWith("tvbox:")) { xyz.linplayer.app.ui.pages.selfCheckTvbox(app, nav, p.removePrefix("tvbox:")); return@LaunchedEffect }
         val parts = p.split(":")
         when (parts[0]) {
             "favoritesTab" -> nav.switchTab(Route.Favorites)
-            "browse" -> nav.navigate(Route.Browse)
             "addServer" -> nav.navigate(Route.AddServer)
-            "extensions" -> nav.navigate(Route.Extensions)
             "settingsSub" -> nav.navigate(Route.SettingsSub(parts.getOrElse(1) { "about" }))
-            // pluginpage:<插件id>/<页面id> —— 插件 id 自带一个「/」,页面 id 取最后一段
-            "pluginpage" -> {
-                val raw = p.removePrefix("pluginpage:")
-                val at = raw.lastIndexOf('/')
-                if (at > 0) nav.navigate(Route.PluginPage(raw.substring(0, at), raw.substring(at + 1), "插件页"))
-            }
-            // 其余走插件那张官方路由表:自检的第 2 / 3 段按位置喂进去,省得同一份映射写两遍
+            // 其余走官方路由表:自检的第 2 / 3 段按位置喂进去,省得同一份映射写两遍
             else -> officialRoute(parts[0]) { k ->
                 when (k) {
                     "id", "tab" -> parts.getOrNull(1)
@@ -303,16 +269,14 @@ private fun MainShell(tv: Boolean) {
         xyz.linplayer.app.tv.LocalTvHomeScroll provides if (tv) tvHomeScroll else null,
         xyz.linplayer.app.tv.LocalTvTone provides if (tv) tvTone else null,
     ) {
-    xyz.linplayer.app.ui.plugin.LoadTakeovers()
     Box(Modifier.fillMaxSize().privateNeonBorder(R.lg, inset = 3.dp,
         enabled = entry?.destination?.hasRoute<Route.Player>() != true)) {
         val tone = tvTone.value
-        val tvPageBg = xyz.linplayer.app.ui.plugin.pageBg(Lp.colors.bg)
         Box(Modifier.fillMaxSize()
-            // 电视一级页底色透明，由这层铺满整屏（含顶栏后方）；没取到色用原底色，插件壁纸生效时不盖住它
-            .then(if (tv && tvPageBg != androidx.compose.ui.graphics.Color.Transparent) Modifier.background(
+            // 电视一级页底色透明，由这层铺满整屏（含顶栏后方）；没取到色用原底色
+            .then(if (tv) Modifier.background(
                 tone?.let { xyz.linplayer.app.ui.components.homeToneScene(it, Lp.colors.bg) }
-                    ?: androidx.compose.ui.graphics.SolidColor(tvPageBg)) else Modifier)
+                    ?: androidx.compose.ui.graphics.SolidColor(Lp.colors.bg)) else Modifier)
             .then(if (tv) Modifier.focusRequester(tvContent).focusRestorer().focusGroup() else Modifier)
             .nestedScroll(scroll)) {
             PosterMotionHost(nav, session?.let { it.server to it.userId }) {
@@ -355,54 +319,33 @@ private fun MainShell(tv: Boolean) {
                     else DefaultNavTransitions.predictivePopExitTransition(this, edge)
                 },
             ) {
-                // 当前是插件数据源:首页换成数据源首页(D167),Emby 那一套它一样都没有
                 // 首页自己处理电视边距:有头图时铺到顶栏下面
-                posterComposable<Route.Home>(tvInset = false) { xyz.linplayer.app.ui.plugin.Takeover("home") {
-                    val src by app.activeSource.collectAsStateWithLifecycle()
-                    val local by app.localSource.collectAsStateWithLifecycle()
-                    if (tv && local != null && !app.privateSpace.value) xyz.linplayer.app.tv.TvPageInset {
-                        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                            xyz.linplayer.app.ui.components.EmptyState(
-                                "本机文件夹没有首页推荐", "打开文件夹浏览本地影片。", LpIcons.folder,
-                                "打开文件夹", onAction = { nav.navigate(Route.Browse) },
-                            )
-                        }
-                    } else src?.let { xyz.linplayer.app.tv.TvPageInset { xyz.linplayer.app.ui.pages.SourceHomePage(nav, it.id, it.name) } } ?: HomePage(nav)
-                } }
-                posterComposable<Route.Aggregate> { xyz.linplayer.app.ui.plugin.Takeover("aggregate") { AggregatePage(nav) } }
+                posterComposable<Route.Home>(tvInset = false) { HomePage(nav) }
+                posterComposable<Route.Aggregate> { AggregatePage(nav) }
                 posterComposable<Route.Liuying>(tvInset = false) { xyz.linplayer.app.ui.pages.LiuyingPage(nav) }
-                posterComposable<Route.Servers> { xyz.linplayer.app.ui.plugin.Takeover("servers") { ServersPage(nav) } }
-                posterComposable<Route.Library> { xyz.linplayer.app.ui.plugin.Takeover("library") { LibraryPage(nav, it) } }
+                posterComposable<Route.Servers> { ServersPage(nav) }
+                posterComposable<Route.Library> { LibraryPage(nav, it) }
                 posterComposable<Route.Detail>(tvInset = false) {
-                    xyz.linplayer.app.ui.plugin.Takeover("detail") { DetailPage(nav, it) }
+                    DetailPage(nav, it)
                 }
                 posterComposable<Route.Person> { xyz.linplayer.app.ui.pages.PersonPage(nav, it) }
-                posterComposable<Route.Search> { xyz.linplayer.app.ui.plugin.Takeover("search") { SearchPage(nav, it) } }
-                posterComposable<Route.Favorites> { xyz.linplayer.app.ui.plugin.Takeover("favorites") {
-                    FavoritesPage(nav)
-                } }
+                posterComposable<Route.Search> { SearchPage(nav, it) }
+                posterComposable<Route.Favorites> { FavoritesPage(nav) }
                 posterComposable<Route.FavoriteCategory> {
                     val route = it.toRoute<Route.FavoriteCategory>()
                     FavoritesPage(nav, route.type, route.libraryId, route.title)
                 }
                 posterComposable<Route.Facet> { FacetPage(nav, it) }
                 posterComposable<Route.Lines> { LinesPage(nav, it) }
-                posterComposable<Route.Browse> { xyz.linplayer.app.ui.plugin.Takeover("browse") { BrowsePage(nav) } }
                 posterComposable<Route.Downloads> {
                     if (tv) LaunchedEffect(Unit) { nav.popBackStack() }
-                    else xyz.linplayer.app.ui.plugin.Takeover("downloads") { DownloadsPage(nav) }
+                    else DownloadsPage(nav)
                 }
-                posterComposable<Route.Plugins> { PluginsPage(nav, it) }
-                posterComposable<Route.PluginDetail> { xyz.linplayer.app.ui.pages.PluginDetailPage(nav, it) }
-                posterComposable<Route.PluginPage> { xyz.linplayer.app.ui.pages.PluginHostPage(nav, it) }
-                posterComposable<Route.Extensions> { xyz.linplayer.app.ui.pages.ExtensionsPage(nav) }
-                posterComposable<Route.SourceCategory> { xyz.linplayer.app.ui.pages.SourceCategoryPage(nav, it) }
-                posterComposable<Route.SourceDetail> { xyz.linplayer.app.ui.pages.SourceDetailPage(nav, it) }
                 // 手机不再有本机观看历史页，官方 history 位落到服务端历史已看
-                posterComposable<Route.Watched> { xyz.linplayer.app.ui.plugin.Takeover("history") { FavoritesPage(nav, watched = true) } }
-                posterComposable<Route.Ranking> { xyz.linplayer.app.ui.plugin.Takeover("ranking") { RankingPage(nav) } }
-                posterComposable<Route.Calendar> { xyz.linplayer.app.ui.plugin.Takeover("calendar") { CalendarPage(nav) } }
-                posterComposable<Route.Settings> { xyz.linplayer.app.ui.plugin.Takeover("settings") { SettingsPage(nav) } }
+                posterComposable<Route.Watched> { FavoritesPage(nav, watched = true) }
+                posterComposable<Route.Ranking> { RankingPage(nav) }
+                posterComposable<Route.Calendar> { CalendarPage(nav) }
+                posterComposable<Route.Settings> { SettingsPage(nav) }
                 posterComposable<Route.SettingsSub> { SettingsSubPage(nav, it) }
                 /* ☠ 加完服务器**必须重取一次会话**。只 popBackStack 的话:
                    `emby.login` 已经在核心层把活动服务器换成了新加的这台,
@@ -494,10 +437,8 @@ internal fun ToastHost() {
 }
 
 /**
- * 官方路由名(插件 SPEC 20.3)→ 手机路由对象。**这是那张表在手机端唯一的一份**,
- * 插件的 `nav.push` 和真机自检直达都从这里出。认不出来回 null,调用方负责报错。
- *
- * 凭据页(`server.add` `login`)**能跳但不能接管**(D407):跳的是添加服务器那一版。
+ * 官方路由名 → 手机路由对象。**这是那张表在手机端唯一的一份**,
+ * 播放窗口回跳和真机自检直达都从这里出。认不出来回 null,调用方负责报错。
  */
 internal fun officialRoute(route: String, p: (String) -> String?): Any? = when (route) {
     "home" -> Route.Home
@@ -513,9 +454,7 @@ internal fun officialRoute(route: String, p: (String) -> String?): Any? = when (
     "servers" -> Route.Servers
     "server.lines" -> Route.Lines(p("id") ?: "", p("name") ?: "")
     "player" -> Route.Player(p("id") ?: p("itemId") ?: "", p("title") ?: "播放")
-    "plugins" -> Route.Plugins(p("tab")?.toIntOrNull() ?: 0)
     "settings" -> Route.Settings
-    "settings.extensions" -> Route.Extensions
     "server.add", "login" -> Route.AddServer
     // 手机上「账号」就是服务器列表(一台服务器一个账号),没有独立的账号页
     "settings.account" -> Route.Servers

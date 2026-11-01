@@ -61,7 +61,7 @@ class PhonePlayerOsdTest {
                         Osd(portrait, "1.13 MB/s",
                             title = "测试剧集", episodeLabel = "S1E7：一段用于核查横屏布局的单集标题",
                             position = 1517.0, duration = 2729.0, paused = false, speed = speed.value, buffered = 2050.0,
-                            heat = emptyList(), pluginPanels = emptyList(),
+                            heat = emptyList(),
                             onBack = { action = "返回" }, onToggle = { action = "暂停" },
                             onSeek = { seek = it }, onSpeed = { speed.value = it },
                             onLock = { action = "锁屏" }, onShot = { action = "截屏" },

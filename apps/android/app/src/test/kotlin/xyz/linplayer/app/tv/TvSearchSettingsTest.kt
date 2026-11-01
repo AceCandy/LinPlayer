@@ -176,28 +176,23 @@ class TvSearchSettingsTest {
         rule.onNode(isFocused() and hasAnyAncestor(hasTestTag("search.controls"))).assertExists()
     }
 
-    @Test fun settingsRetainsDynamicPluginAndAllGroups() {
-        mount("dark") { fake ->
-            fake.ret("plugin.sidebar", arr(buildJsonObject {
-                put("id", "test-plugin:entry"); put("page", "test-page"); put("title", "测试插件入口")
-            }))
-        }
+    @Test fun settingsRetainsAllGroups() {
+        mount("dark")
         rule.onNodeWithTag("rail.7").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         press(rule, Key.DirectionCenter)
         rule.onNodeWithTag("settings.group.播放与外观").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
         for ((group, labels) in listOf(
             "播放与外观" to listOf("外观", "播放器", "mpv 配置", "弹幕"),
             "手机遥控" to listOf("手机扫码遥控"), "网络" to listOf("多线程加载", "主进度服"),
-            "插件页面" to listOf("测试插件入口"),
-            "内容与数据" to listOf("已屏蔽的内容", "备份与还原", "文件浏览", "存储与数据目录"),
-            "扩展与账号" to listOf("Trakt / Bangumi 账号", "插件", "扩展组件"), "应用" to listOf("更新", "关于"),
+            "内容与数据" to listOf("已屏蔽的内容", "备份与还原", "存储与数据目录"),
+            "关于" to listOf("关于与更新"),
         )) {
             rule.onNodeWithTag("settings.group.$group").performSemanticsAction(SemanticsActions.RequestFocus) { it() }
             rule.onNodeWithTag("settings.group.$group").assertIsFocused()
             press(rule, Key.DirectionCenter)
             rule.onNodeWithTag("settings.group.$group").assertIsSelected()
             labels.forEach { rule.onNodeWithText(it).assertIsDisplayed().assertHasClickAction() }
-            if (group != "应用") press(rule, Key.DirectionDown)
+            if (group != "关于") press(rule, Key.DirectionDown)
         }
         rule.onNodeWithText("截屏").assertDoesNotExist()
     }

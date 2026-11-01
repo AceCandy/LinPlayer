@@ -113,7 +113,6 @@ enum LinPlayerCommandNames {
         "player.play",
         "player.playExternal",
         "player.playLocal",
-        "player.playUrl",
         "player.screenshot",
         "player.seek",
         "player.setAspectRatio",
@@ -142,7 +141,6 @@ enum LinPlayerCommandNames {
         "player.getSubStyle",
         "player.interpLevels",
         "player.setInterpLevel",
-        "player.interpInstall",
         "player.selectTrackPreferences",
         "player.setTrack",
         "player.setTrackRegexes",
@@ -156,33 +154,9 @@ enum LinPlayerCommandNames {
         "player.validateTrackRegex",
         "player.windowClose",
         "player.windowOpen",
-        "source.currentSource",
-        "source.listDir",
-        "source.login",
-        "source.formSchema",
-        "source.play",
-        "source.search",
-        "source.watchdog",
-        "source.caps",
-        "source.home",
-        "source.category",
-        "source.searchItems",
-        "source.person",
-        "source.detail",
-        "source.playItem",
-        "source.continueWatching",
-        "source.createSources",
-        "source.addSources",
         "source.setAggregate",
-        "source.setHost",
-        "source.removeGroup",
-        "source.serverMenus",
-        "source.runCommand",
         "source.aggregateSearch",
         "source.switchCandidates",
-        "source.checkAll",
-        "source.history",
-        "source.linkSwitch",
         "danmaku.resolve",
         "danmaku.forget",
         "danmaku.testSource",
@@ -263,86 +237,10 @@ enum LinPlayerCommandNames {
         "system.pickLocalFolder",
         "system.ping",
         "system.updateProgress",
-        "system.afdianSponsorUrl",
-        "system.afdianVerify",
         "companion.start",
         "companion.status",
         "companion.setEnabled",
         "companion.setNowPlaying",
-        "sync.traktAccount",
-        "sync.traktDeviceCode",
-        "sync.traktPoll",
-        "sync.traktLogout",
-        "sync.traktCalendar",
-        "sync.bangumiAccount",
-        "sync.bangumiAuthorizeUrl",
-        "sync.bangumiExchange",
-        "sync.bangumiLoginToken",
-        "sync.bangumiLogout",
-        "sync.bangumiSummary",
-        "sync.bangumiCalendar",
-        "sync.calendarLibrary",
-        "sync.calendarDue",
-        "plugin.list",
-        "plugin.pendingRestart",
-        "plugin.inspect",
-        "plugin.installFile",
-        "plugin.installFromRepo",
-        "plugin.uninstall",
-        "plugin.cancelUninstall",
-        "plugin.setEnabled",
-        "plugin.disableAll",
-        "plugin.restoreAll",
-        "plugin.rollback",
-        "plugin.setLocked",
-        "plugin.skipVersion",
-        "plugin.detail",
-        "plugin.setSetting",
-        "plugin.clearData",
-        "plugin.errorDetail",
-        "plugin.market",
-        "plugin.repos",
-        "plugin.addRepo",
-        "plugin.removeRepo",
-        "plugin.setGithubPrefix",
-        "plugin.setAutoUpdate",
-        "plugin.updates",
-        "plugin.updateAll",
-        "plugin.takeovers",
-        "plugin.setTakeover",
-        "plugin.devLoad",
-        "plugin.devUnload",
-        "plugin.devList",
-        "plugin.setCapabilities",
-        "plugin.appEvent",
-        "plugin.anchors",
-        "plugin.settingsSections",
-        "sync.traktRequest",
-        "sync.bangumiRequest",
-        "player.getSubtitleText",
-        "plugin.setEnv",
-        "plugin.shellResult",
-        "plugin.themes",
-        "plugin.activeTheme",
-        "plugin.setActiveTheme",
-        "plugin.themeFailed",
-        "plugin.wallpapers",
-        "plugin.activeWallpaper",
-        "plugin.initialWallpaper",
-        "plugin.setActiveWallpaper",
-        "plugin.playerSurfaces",
-        "plugin.sidebar",
-        "plugin.homeSections",
-        "plugin.homeItems",
-        "plugin.pageTakeovers",
-        "plugin.searchActions",
-        "plugin.backRequest",
-        "plugin.playerKey",
-        "plugin.setCookies",
-        "plugin.ui.mount",
-        "plugin.ui.unmount",
-        "plugin.ui.event",
-        "plugin.ui.viewport",
     ]
 }
 
@@ -659,9 +557,6 @@ extension LinPlayerCommands {
     func playerPlayLocal(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.playLocal", args)
     }
-    func playerPlayUrl(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("player.playUrl", args)
-    }
     func playerScreenshot(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.screenshot", args)
     }
@@ -746,9 +641,6 @@ extension LinPlayerCommands {
     func playerSetInterpLevel(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.setInterpLevel", args)
     }
-    func playerInterpInstall(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("player.interpInstall", args)
-    }
     func playerSelectTrackPreferences(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.selectTrackPreferences", args)
     }
@@ -788,87 +680,15 @@ extension LinPlayerCommands {
     func playerWindowOpen(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("player.windowOpen", args)
     }
-    // 媒体源与数据源 · source.*
-    func sourceCurrentSource(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.currentSource", args)
-    }
-    func sourceListDir(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.listDir", args)
-    }
-    func sourceLogin(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.login", args)
-    }
-    func sourceFormSchema(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.formSchema", args)
-    }
-    func sourcePlay(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.play", args)
-    }
-    func sourceSearch(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.search", args)
-    }
-    func sourceWatchdog(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.watchdog", args)
-    }
-    func sourceCaps(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.caps", args)
-    }
-    func sourceHome(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.home", args)
-    }
-    func sourceCategory(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.category", args)
-    }
-    func sourceSearchItems(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.searchItems", args)
-    }
-    func sourcePerson(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.person", args)
-    }
-    func sourceDetail(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.detail", args)
-    }
-    func sourcePlayItem(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.playItem", args)
-    }
-    func sourceContinueWatching(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.continueWatching", args)
-    }
-    func sourceCreateSources(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.createSources", args)
-    }
-    func sourceAddSources(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.addSources", args)
-    }
+    // 跨服聚合 · source.*
     func sourceSetAggregate(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("source.setAggregate", args)
-    }
-    func sourceSetHost(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.setHost", args)
-    }
-    func sourceRemoveGroup(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.removeGroup", args)
-    }
-    func sourceServerMenus(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.serverMenus", args)
-    }
-    func sourceRunCommand(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.runCommand", args)
     }
     func sourceAggregateSearch(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("source.aggregateSearch", args)
     }
     func sourceSwitchCandidates(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("source.switchCandidates", args)
-    }
-    func sourceCheckAll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.checkAll", args)
-    }
-    func sourceHistory(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.history", args)
-    }
-    func sourceLinkSwitch(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("source.linkSwitch", args)
     }
     // 弹幕 · danmaku.*
     func danmakuResolve(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
@@ -1114,12 +934,6 @@ extension LinPlayerCommands {
     func systemUpdateProgress(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("system.updateProgress", args)
     }
-    func systemAfdianSponsorUrl(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("system.afdianSponsorUrl", args)
-    }
-    func systemAfdianVerify(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("system.afdianVerify", args)
-    }
     // 手机扫码遥控(电视端) · companion.*
     func companionStart(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("companion.start", args)
@@ -1132,229 +946,5 @@ extension LinPlayerCommands {
     }
     func companionSetNowPlaying(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("companion.setNowPlaying", args)
-    }
-    // 同步账号与追剧日历 · sync.*
-    func syncTraktAccount(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktAccount", args)
-    }
-    func syncTraktDeviceCode(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktDeviceCode", args)
-    }
-    func syncTraktPoll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktPoll", args)
-    }
-    func syncTraktLogout(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktLogout", args)
-    }
-    func syncTraktCalendar(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktCalendar", args)
-    }
-    func syncBangumiAccount(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiAccount", args)
-    }
-    func syncBangumiAuthorizeUrl(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiAuthorizeUrl", args)
-    }
-    func syncBangumiExchange(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiExchange", args)
-    }
-    func syncBangumiLoginToken(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiLoginToken", args)
-    }
-    func syncBangumiLogout(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiLogout", args)
-    }
-    func syncBangumiSummary(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiSummary", args)
-    }
-    func syncBangumiCalendar(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiCalendar", args)
-    }
-    func syncCalendarLibrary(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.calendarLibrary", args)
-    }
-    func syncCalendarDue(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.calendarDue", args)
-    }
-    // 插件 · plugin.*
-    func pluginList(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.list", args)
-    }
-    func pluginPendingRestart(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.pendingRestart", args)
-    }
-    func pluginInspect(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.inspect", args)
-    }
-    func pluginInstallFile(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.installFile", args)
-    }
-    func pluginInstallFromRepo(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.installFromRepo", args)
-    }
-    func pluginUninstall(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.uninstall", args)
-    }
-    func pluginCancelUninstall(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.cancelUninstall", args)
-    }
-    func pluginSetEnabled(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setEnabled", args)
-    }
-    func pluginDisableAll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.disableAll", args)
-    }
-    func pluginRestoreAll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.restoreAll", args)
-    }
-    func pluginRollback(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.rollback", args)
-    }
-    func pluginSetLocked(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setLocked", args)
-    }
-    func pluginSkipVersion(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.skipVersion", args)
-    }
-    func pluginDetail(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.detail", args)
-    }
-    func pluginSetSetting(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setSetting", args)
-    }
-    func pluginClearData(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.clearData", args)
-    }
-    func pluginErrorDetail(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.errorDetail", args)
-    }
-    func pluginMarket(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.market", args)
-    }
-    func pluginRepos(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.repos", args)
-    }
-    func pluginAddRepo(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.addRepo", args)
-    }
-    func pluginRemoveRepo(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.removeRepo", args)
-    }
-    func pluginSetGithubPrefix(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setGithubPrefix", args)
-    }
-    func pluginSetAutoUpdate(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setAutoUpdate", args)
-    }
-    func pluginUpdates(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.updates", args)
-    }
-    func pluginUpdateAll(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.updateAll", args)
-    }
-    func pluginTakeovers(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.takeovers", args)
-    }
-    func pluginSetTakeover(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setTakeover", args)
-    }
-    func pluginDevLoad(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.devLoad", args)
-    }
-    func pluginDevUnload(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.devUnload", args)
-    }
-    func pluginDevList(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.devList", args)
-    }
-    func pluginSetCapabilities(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setCapabilities", args)
-    }
-    func pluginAppEvent(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.appEvent", args)
-    }
-    func pluginAnchors(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.anchors", args)
-    }
-    func pluginSettingsSections(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.settingsSections", args)
-    }
-    func syncTraktRequest(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.traktRequest", args)
-    }
-    func syncBangumiRequest(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("sync.bangumiRequest", args)
-    }
-    func playerGetSubtitleText(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("player.getSubtitleText", args)
-    }
-    func pluginSetEnv(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setEnv", args)
-    }
-    func pluginShellResult(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.shellResult", args)
-    }
-    func pluginThemes(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.themes", args)
-    }
-    func pluginActiveTheme(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.activeTheme", args)
-    }
-    func pluginSetActiveTheme(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setActiveTheme", args)
-    }
-    func pluginThemeFailed(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.themeFailed", args)
-    }
-    func pluginWallpapers(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.wallpapers", args)
-    }
-    func pluginActiveWallpaper(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.activeWallpaper", args)
-    }
-    func pluginInitialWallpaper(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.initialWallpaper", args)
-    }
-    func pluginSetActiveWallpaper(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setActiveWallpaper", args)
-    }
-    func pluginPlayerSurfaces(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.playerSurfaces", args)
-    }
-    func pluginSidebar(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.sidebar", args)
-    }
-    func pluginHomeSections(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.homeSections", args)
-    }
-    func pluginHomeItems(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.homeItems", args)
-    }
-    func pluginPageTakeovers(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.pageTakeovers", args)
-    }
-    func pluginSearchActions(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.searchActions", args)
-    }
-    func pluginBackRequest(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.backRequest", args)
-    }
-    func pluginPlayerKey(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.playerKey", args)
-    }
-    func pluginSetCookies(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.setCookies", args)
-    }
-    func pluginUiMount(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.ui.mount", args)
-    }
-    func pluginUiUnmount(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.ui.unmount", args)
-    }
-    func pluginUiEvent(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.ui.event", args)
-    }
-    func pluginUiViewport(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
-        try await call("plugin.ui.viewport", args)
     }
 }
