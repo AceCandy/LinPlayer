@@ -126,6 +126,8 @@ Trakt / Bangumi 的令牌交换路由已于 2026-11-01 随账号功能删除,代
 
 ## 本机怎么试
 
+Android 核心构建会自动读取仓库根目录已忽略的 `build-secrets.env`，其中可配置 `LP_SYNC_PROXY_BASE` 和 `LP_SYNC_PROXY_KEY`，手机与 TV 出包均经过此入口。只有调用环境未显式设置这两个变量时才成对读取文件；任一变量已设置（含空值）时，保留外部配置，不混入本机凭据。`python3 scripts/test-review-gates.py` 覆盖本地加载、缺文件、外部配置优先、显式空值和单项配置。
+
 ```bash
 export LP_ICON_LIBRARY_SOURCES="https://example.com/icons.json"
 bash scripts/build-core.sh

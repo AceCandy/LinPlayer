@@ -22,6 +22,13 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck source=/dev/null
 source "$ROOT/scripts/env.sh"
 
+# 反馈地址与密钥成对加载；显式环境配置优先，避免混用本机和外部凭据。
+if [ -f "$ROOT/build-secrets.env" ] && [ -z "${LP_SYNC_PROXY_BASE+x}${LP_SYNC_PROXY_KEY+x}" ]; then
+  # shellcheck source=/dev/null
+  source "$ROOT/build-secrets.env"
+  export LP_SYNC_PROXY_BASE LP_SYNC_PROXY_KEY
+fi
+
 MIN_API="${LP_ANDROID_MIN_API:-24}"
 ABIS=("$@")
 # ★ 默认只编 arm64-v8a【用户定 2026-09-06】。x86_64 只有模拟器用得上,
