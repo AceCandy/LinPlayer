@@ -883,3 +883,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Next Steps
 
 - 真机播放、完整设置视觉与 TV 焦点待验；未生成安装包、推送或部署。详细证据见任务归档 verification.md。
+
+
+## Session 164: 完成 tvOS Android TV 对齐实现与代码审查
+<!-- trellis-session: v=2 fp=9788de80c02dd980 -->
+
+**Date**: 2026-11-01
+**Task**: 完成 tvOS Android TV 对齐实现与代码审查
+**Branch**: `refactor/settings-cleanup`
+
+### Summary
+
+按 Android TV 基线补齐 Apple TV 浏览、详情、搜索、设置、Aether 播放器、字幕、弹幕、流影、手机遥控、备份与更新保护；审查并修复遥控取消、跨服务器打开和流影清理问题。Go 定向测试、race、绑定和静态检查通过；Apple SDK/真机仍未验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `00fd773f` | feat(tvOS): 对齐 Android TV 功能与界面 |
+
+### Status
+
+[OK] **Completed**
