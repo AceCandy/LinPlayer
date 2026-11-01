@@ -146,13 +146,6 @@ struct MediaPerson: Decodable, Identifiable {
     let has_primary: Bool
 }
 
-struct MediaFilters: Decodable {
-    let genres: [String]?
-    let tags: [String]?
-    let years: [Int]?
-    let unavailable: [String]?
-}
-
 struct BrowseQuery: Equatable {
     var sort = "SortName"
     var descending = false
@@ -208,28 +201,6 @@ struct MediaSeason: Decodable, Identifiable {
     }
 }
 
-// 本机历史仅用服务端条目 ID 导航，不把旧断点当作实时播放授权。
-struct WatchHistoryRecord: Decodable, Identifiable {
-    let record_id: String
-    let title: String
-    let series_title: String?
-    let media_kind: String
-    let last_emby_item_id: String?
-    let last_played_at: Double
-    let last_position_ticks: Double
-    let run_time_ticks: Double?
-    let played: Bool
-    var id: String { record_id }
-    var item: MediaItem? {
-        guard let id = last_emby_item_id, !id.isEmpty else { return nil }
-        return MediaItem(id: id, name: title, type_: media_kind == "episode" ? "Episode" : "Movie",
-            is_folder: false, has_primary: true, runtime_secs: (run_time_ticks ?? 0) / 10_000_000,
-            resume_secs: last_position_ticks / 10_000_000, series_name: series_title,
-            episode_no: nil, year: nil, season_no: nil, series_id: nil, season_id: nil,
-            has_backdrop: nil, played: played, is_favorite: nil)
-    }
-}
-
 // 展示快照不含可靠的收藏/续播状态，与可操作的实时详情分开解码。
 struct DetailPresentation: Decodable {
     let id: String
@@ -266,6 +237,12 @@ struct MediaVersion: Decodable, Identifiable {
         if components.scheme == nil && components.host == nil { return value }
         // 网络源仅展示路径，凭据、查询令牌与片段不进入界面。
         return components.path.isEmpty ? nil : components.path
+    }
+    var displayName: String {
+        let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        let fallback = displayPath?.replacingOccurrences(of: "\\", with: "/").split(separator: "/").last.map(String.init)
+        if !value.isEmpty && !["版本", "默认版本", "default", "default version"].contains(value.lowercased()) { return value }
+        return fallback ?? "未提供版本名称"
     }
 }
 
@@ -342,6 +319,12 @@ struct MediaAccount: Decodable {
     let remark: String?
     var icon_url: String? = nil
     let allow_insecure_tls: Bool?
+    var activeLineName: String {
+        let index = active_line ?? 0
+        guard let lines, !lines.isEmpty else { return "主线路" }
+        guard lines.indices.contains(index) else { return "线路 \(index + 1)" }
+        return lines[index].name?.isEmpty == false ? lines[index].name! : "线路 \(index + 1)"
+    }
 }
 
 struct MediaLine: Decodable {
@@ -503,7 +486,7 @@ struct PlayTarget: Decodable {
 
     func episodes(parent: String, start: Int, snapshot: ((MediaPage) -> Void)? = nil) async throws -> MediaPage {
         try await request("emby.seasonEpisodes", ["parent_id": .string(parent),
-            "start_index": .number(Double(start)), "limit": .number(30)], snapshot: { value in
+            "start_index": .number(Double(start)), "limit": .number(200)], snapshot: { value in
                 if let page = try? value.decode(MediaPage.self) { snapshot?(page) }
             }).decode(MediaPage.self)
     }

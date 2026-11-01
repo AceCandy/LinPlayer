@@ -162,16 +162,18 @@ struct TVAboutView: View {
     @State private var error: String?
     @State private var checking = false
     @State private var channel = "stable"
+    @State private var channelTouched = false
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 28) {
             TVSectionHeading("关于 LinPlayer")
             Text("版本 " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
             Text("播放内核：AetherEngine")
             TVChoice(title: "更新渠道", selection: Binding(get: { channel }, set: { value in
+                channelTouched = true
                 checking = true
                 Task {
                     defer { checking = false }
-                    do { _ = try await api.request("prefs.setPrefs", ["update_channel": .string(value)]); channel = value; update = .null }
+                    do { _ = try await api.request("prefs.setUpdateSettings", ["channel": .string(value)]); channel = value; update = .null; error = nil }
                     catch { self.error = error.localizedDescription }
                 }
             }), options: [("stable", "稳定版"), ("prerelease", "预发布版")]).disabled(checking)
@@ -190,7 +192,12 @@ struct TVAboutView: View {
             Text("Apple TV 请通过原安装渠道更新应用。").foregroundStyle(.secondary)
             if let error { Text(error).foregroundStyle(.orange) }
         }.padding(64) }.buttonStyle(TVActionStyle())
-            .task { do { channel = try await api.request("prefs.getPrefs")["update_channel"].string ?? "stable" } catch { self.error = error.localizedDescription } }
+            .task {
+                do {
+                    let value = try await api.request("prefs.getUpdateSettings")["channel"].string ?? "stable"
+                    if !channelTouched { channel = value }
+                } catch { self.error = error.localizedDescription }
+            }
     }
 }
 

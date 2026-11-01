@@ -1,4 +1,5 @@
 import SwiftUI
+import Foundation
 #if !UI_RENDER_CHECK
 import AetherEngine
 
@@ -25,9 +26,13 @@ struct PlayerView: View {
     @State private var advancedMarkers = false
     @State private var preview: Double?
     @State private var interaction = 0
-    @State private var countdown: Int?
-    @AppStorage("autoNextEpisode") private var autoNext = true
     @FocusState private var focus: String?
+
+    private var episodeLabel: String? {
+        guard let episode = controller.episodes.first(where: { $0.id == controller.item }),
+              let season = episode.season_no, let number = episode.episode_no else { return nil }
+        return String(format: "S%02dE%02d · %@", season, number, episode.name)
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -110,17 +115,11 @@ struct PlayerView: View {
         }
         .onDisappear { if model.playback === controller { model.remotePlayback = nil } }
         .task { await controller.start(); focus = "progress" }
-        .task(id: "\(controller.ended):\(controller.queueLoading):\(controller.nextEpisode?.id ?? ""):\(autoNext):\(model.sceneActive):\(panel ?? "")") {
-            countdown = nil
+        .task(id: "\(controller.ended):\(controller.queueLoading):\(controller.nextEpisode?.id ?? ""):\(model.sceneActive):\(panel ?? "")") {
             guard controller.ended, !controller.queueLoading, controller.queueError == nil,
-                  let next = controller.nextEpisode, autoNext, model.sceneActive, panel == nil else { return }
-            for seconds in stride(from: 5, through: 1, by: -1) {
-                countdown = seconds
-                do { try await Task.sleep(for: .seconds(1)) } catch { countdown = nil; return }
-            }
-            guard !Task.isCancelled, !controller.closing, model.sceneActive, autoNext, panel == nil,
-                  controller.ended, controller.nextEpisode?.id == next.id else { countdown = nil; return }
-            countdown = nil; switchEpisode(next)
+                  !controller.closing, model.playback === controller, model.sceneActive, panel == nil else { return }
+            if let next = controller.nextEpisode { switchEpisode(next) }
+            else { await model.closePlayer() }
         }
         .task(id: interaction) {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
@@ -187,12 +186,11 @@ struct PlayerView: View {
                             HStack(spacing: 20) {
                                 MediaArtwork(item: next, loader: model.images, width: 240, height: 135)
                                 VStack(alignment: .leading, spacing: 10) {
-                                    Text("下一集" + (countdown.map { " · \($0) 秒后播放" } ?? "")).foregroundStyle(.secondary)
+                                    Text("下一集").foregroundStyle(.secondary)
                                     Text(next.title).lineLimit(2)
                                 }
                             }
                         }.buttonStyle(TVRowStyle()).focusEffectDisabled()
-                        Toggle("自动下一集", isOn: $autoNext).toggleStyle(TVToggleStyle())
                     } else { Text("本季已播放完毕").foregroundStyle(.secondary) }
                 }.frame(width: 650).padding(24).background(.black.opacity(0.8), in: RoundedRectangle(cornerRadius: 18))
             }.padding(.horizontal, 64).padding(.bottom, 18)
@@ -253,8 +251,11 @@ struct PlayerView: View {
         } else if !controller.loading { Text("当前内容暂不支持定位").font(.caption).foregroundStyle(.secondary) }
     }
     private var transportControls: some View {
-        HStack(spacing: 20) {
-            Text(controller.title).font(.system(size: 30, weight: .semibold)).lineLimit(1)
+        HStack(alignment: .firstTextBaseline, spacing: 20) {
+            VStack(alignment: .leading, spacing: 4) {
+                if let episodeLabel { Text(episodeLabel).font(.system(size: 22)).foregroundStyle(.secondary).lineLimit(1) }
+                Text(controller.title).font(.system(size: 30, weight: .semibold)).lineLimit(1)
+            }
             Spacer(minLength: 24)
             if let next = controller.nextEpisode, !nextUp {
                 Button { switchEpisode(next) } label: { Image(systemName: "forward.end.fill") }.accessibilityLabel("下一集")
@@ -303,7 +304,7 @@ struct PlayerView: View {
                 } else if panel == "info" {
                     Text("播放内核：AetherEngine")
                     if let source = controller.versions.first(where: { $0.id == controller.actualVersion }) {
-                        Text(source.name)
+                        Text(source.displayName)
                         if let path = source.displayPath { Text(path).font(.system(size: 20)).foregroundStyle(.secondary) }
                         if let size = source.size_bytes { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
                         ForEach(source.streams ?? []) { stream in
@@ -329,7 +330,7 @@ struct PlayerView: View {
                 } else if panel == "versions" {
                     if let error = controller.versionError { RetryMessage(text: error) { controller.loadVersions() } }
                     ForEach(controller.versions) { version in
-                        Button((version.id == controller.actualVersion ? "✓ " : "") + version.name) {
+                        Button((version.id == controller.actualVersion ? "✓ " : "") + version.displayName) {
                             closePanel()
                             Task { await model.switchPlayer(item: controller.item, title: controller.title, version: version.id) }
                         }.focused($panelFocus, equals: "version:\(version.id)").disabled(model.switchingPlayback)

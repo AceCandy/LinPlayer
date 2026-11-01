@@ -108,7 +108,8 @@ private struct TVRemoteNativeStyle: ButtonStyle {
 }
 
 private struct TVRemoteExit: ViewModifier {
-    let action: () -> Void
+    // nil 表示不拦截返回键，交给 tvOS 回到主屏幕。
+    let action: (() -> Void)?
     @EnvironmentObject private var model: AppModel
     @State private var id = UUID()
     @State private var visible = false
@@ -119,14 +120,15 @@ private struct TVRemoteExit: ViewModifier {
             .background(TVRemoteProbe { value in if probe !== value { probe = value } })
             .onChange(of: probe) { _, _ in register() }
             .onChange(of: active) { _, _ in register() }
+            .onChange(of: action == nil) { _, _ in register() }
             .onAppear { visible = true; register() }
             .onDisappear { visible = false; model.remoteFocus.exits[id] = nil }
     }
     private func register() {
-        if visible && active, let probe { model.remoteFocus.exits[id] = (probe, action) }
+        if visible && active, let probe, let action { model.remoteFocus.exits[id] = (probe, action) }
         else { model.remoteFocus.exits[id] = nil }
     }
 }
 extension View {
-    func tvExitCommand(perform action: @escaping () -> Void) -> some View { modifier(TVRemoteExit(action: action)) }
+    func tvExitCommand(perform action: (() -> Void)?) -> some View { modifier(TVRemoteExit(action: action)) }
 }
