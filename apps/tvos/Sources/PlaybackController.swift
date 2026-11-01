@@ -251,7 +251,9 @@ import SwiftUI
     private func updateSkip() {
         if skipWork == nil { loadSkip() }
         guard !markerBusy, !suspended, !paused, skipInfo?.skip_auto == true,
-              let range = activeSkip, !skippedEnds.contains(range.end) else { return }
+              let engine, let range = activeSkip, !skippedEnds.contains(range.end) else { return }
+        let hasFollowingContent = range.end < engine.duration || (!queueLoading && queueError == nil && nextEpisode != nil)
+        guard hasFollowingContent else { return }
         skip(range)
     }
 

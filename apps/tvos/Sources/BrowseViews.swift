@@ -521,19 +521,14 @@ struct HomeView: View {
         .task(id: "\(reload):\(model.userStateRevision)") {
             resumeLoading = true; defer { resumeLoading = false }
             do {
-                resume = try await api.request("emby.listResume", ["limit": .number(16)], snapshot: { value in if let cached = try? value.decode([MediaItem].self) { resume = cached } }).decode([MediaItem].self)
+                resume = try await api.request("emby.listResume", ["limit": .number(12)], snapshot: { value in if let cached = try? value.decode([MediaItem].self) { resume = cached } }).decode([MediaItem].self)
                 resumeError = nil
             } catch is CancellationError {} catch { if invalidatesDisplay(error) { resume = [] }; resumeError = error.localizedDescription }
         }
         .task(id: "\(reload):\(model.userStateRevision)") {
             librariesLoading = true; defer { librariesLoading = false }
-            do { libraries = try await api.request("emby.views", snapshot: { value in if let cached = try? value.decode([MediaItem].self) { libraries = cached } }).decode([MediaItem].self); librariesLoaded = true; libraryError = nil }
+            do { libraries = try await api.request("emby.views", ["home": .bool(true)], snapshot: { value in if let cached = try? value.decode([MediaItem].self) { libraries = cached } }).decode([MediaItem].self); librariesLoaded = true; libraryError = nil }
             catch is CancellationError {} catch { if invalidatesDisplay(error) { libraries = []; latest = [:] }; librariesLoaded = true; libraryError = error.localizedDescription }
-        }
-        .task(id: "\(libraries.map(\.id)):\(reload)") {
-            guard let first = libraries.first, latest[first.id] == nil else { return }
-            do { latest[first.id] = try await api.request("emby.listLatest", ["parent_id": .string(first.id), "limit": .number(16)]).decode([MediaItem].self); bannerError = nil }
-            catch is CancellationError {} catch { bannerError = error.localizedDescription }
         }
         .task(id: reload) {
             do {
@@ -661,12 +656,7 @@ struct LibraryView: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
     let item: MediaItem
-    private let defaultQuery = BrowseQuery(sort: "DateLastContentAdded", descending: true)
-    @State private var query = BrowseQuery(sort: "DateLastContentAdded", descending: true)
-    @State private var filters: MediaFilters?
-    @State private var filterError: String?
-    @State private var reload = 0
-    @State private var showFilters = false
+    private let query = BrowseQuery(sort: "DateLastContentAdded", descending: true)
     @State private var loaded = 0
     @State private var more = true
     var body: some View {
@@ -679,53 +669,9 @@ struct LibraryView: View {
                 Spacer()
                 NavigationLink { SearchView(api: api, parent: item.id) } label: { Image(systemName: "magnifyingglass").accessibilityLabel("库内搜索") }
                     .buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
-                Button { showFilters = true } label: { Label("筛选与排序", systemImage: "slider.horizontal.3") }
-                    .buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
             }.padding(.horizontal, 64)
-            if query != defaultQuery {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 16) {
-                        if !query.genre.isEmpty { filterChip(query.genre) { query.genre = "" } }
-                        if query.ratingMin > 0 { filterChip("评分 ≥ \(query.ratingMin)") { query.ratingMin = 0 } }
-                        if !query.tag.isEmpty { filterChip(query.tag) { query.tag = "" } }
-                        if !query.year.isEmpty { filterChip(query.year) { query.year = "" } }
-                        if !query.played.isEmpty { filterChip(query.played == "true" ? "已看" : "未看") { query.played = "" } }
-                        Button("重置全部") { query = defaultQuery }.buttonStyle(TVActionStyle(compact: true))
-                    }.padding(.horizontal, 64).padding(.vertical, 4)
-                }.focusEffectDisabled()
-            }
-            if let filterError { RetryMessage(text: filterError) { reload += 1 } }
-            ItemGrid(api: api, parent: item.id, episodes: false, query: query, onLoaded: { count, hasMore in loaded = count; more = hasMore }, clearFilters: query == defaultQuery ? nil : { query = defaultQuery })
-                .id(String(describing: query))
+            ItemGrid(api: api, parent: item.id, episodes: false, query: query, onLoaded: { count, hasMore in loaded = count; more = hasMore })
         }.padding(.top, 28).toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
-        .onChange(of: query) { _, _ in loaded = 0; more = true }
-        .sheet(isPresented: $showFilters) {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 24) {
-                    TVSectionHeading("筛选与排序")
-                    TVChoice(title: "排序", selection: $query.sort, options: [("DateLastContentAdded", "更新日期"), ("PremiereDate", "上映日期"), ("SortName", "名称"), ("CommunityRating", "评分"), ("ProductionYear", "年份"), ("DateCreated", "入库时间")])
-                    Button(query.descending ? "降序" : "升序") { query.descending.toggle() }
-                    TVChoice(title: "评分下限", selection: $query.ratingMin, options: [(0, "不限"), (9, "9 分以上"), (8, "8 分以上"), (7, "7 分以上"), (6, "6 分以上")])
-                    TVChoice(title: "类型", selection: $query.genre, options: [("", "全部类型")] + (filters?.genres ?? []).map { ($0, $0) })
-                    TVChoice(title: "标签", selection: $query.tag, options: [("", "全部标签")] + (filters?.tags ?? []).map { ($0, $0) })
-                    TVChoice(title: "年份", selection: $query.year, options: [("", "全部年份")] + (filters?.years ?? []).map { (String($0), String($0)) })
-                    TVChoice(title: "已看", selection: $query.played, options: [("", "全部"), ("true", "已看"), ("false", "未看")])
-                    Button("完成") { showFilters = false }
-                }.buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled().padding(64)
-            }.tvExitCommand { showFilters = false }
-        }
-        .task(id: reload) {
-            do {
-                let result = try await api.request("emby.getFilters", ["parent_id": .string(item.id)], snapshot: { value in
-                    if let cached = try? value.decode(MediaFilters.self) { filters = cached }
-                }).decode(MediaFilters.self)
-                filters = result
-                filterError = (result.unavailable ?? []).isEmpty ? nil : "部分筛选项暂时无法获取。"
-            } catch is CancellationError {} catch { if invalidatesDisplay(error) { filters = nil }; filterError = error.localizedDescription }
-        }
-    }
-    private func filterChip(_ title: String, clear: @escaping () -> Void) -> some View {
-        Button(action: clear) { Label(title, systemImage: "xmark") }.buttonStyle(TVActionStyle(primary: true, compact: true))
     }
 
 }
@@ -738,7 +684,6 @@ struct ItemGrid: View {
     let episodes: Bool
     var query = BrowseQuery()
     var onLoaded: ((Int, Bool) -> Void)? = nil
-    var clearFilters: (() -> Void)? = nil
     @StateObject private var pager = ItemPager()
     @FocusState private var focus: String?
     @State private var lastFocus: String?
@@ -755,13 +700,7 @@ struct ItemGrid: View {
                 }.padding(.horizontal, 64).padding(.vertical, 28)
                 if let error = pager.error { RetryMessage(text: error) { reload += 1 } }
                 else if pager.loading { TVLoading("正在加载") }
-                else if pager.items.isEmpty {
-                    VStack(spacing: 20) {
-                        Text("暂无内容").foregroundStyle(.secondary)
-                        if let clearFilters { Button("清除筛选", action: clearFilters).buttonStyle(TVActionStyle()).focusEffectDisabled() }
-                    }
-                }
-                else if pager.more { Button("加载更多") { reload += 1 }.buttonStyle(TVActionStyle()).focusEffectDisabled().padding(30) }
+                else if pager.items.isEmpty { Text("暂无内容").foregroundStyle(.secondary) }
             }
             .onChange(of: focus) { _, next in
                 if let next {
@@ -912,7 +851,7 @@ struct DetailView: View {
                         ScrollView(.horizontal) {
                             HStack(spacing: 16) {
                                 TVChoice(title: "版本", selection: $version,
-                                    options: [("", "自动（核心偏好）")] + versions.map { ($0.id, $0.name) })
+                                    options: [("", "自动（核心偏好）")] + versions.map { ($0.id, $0.displayName) })
                                 if let video = source.streams?.first(where: { $0.type_ == "Video" }) {
                                     Label(video.summary, systemImage: "video").font(.system(size: 22))
                                 }
@@ -925,7 +864,7 @@ struct DetailView: View {
                                         options: [(nil, "自动"), (-1, "关闭字幕")] + streams.filter { $0.type_ == "Subtitle" }.map { (Optional($0.index), $0.label) })
                                 }
                                 if let account = model.account, (account.lines?.count ?? 0) > 1, !model.privateSpace {
-                                    NavigationLink("线路 · " + account.name) { AccountEditor(api: api, account: account) }
+                                    NavigationLink(account.name + " · " + account.activeLineName) { AccountEditor(api: api, account: account) }
                                         .buttonStyle(TVActionStyle(compact: true))
                                 }
                             }.padding(.vertical, 8)
@@ -986,7 +925,7 @@ struct DetailView: View {
                 if let source = selectedVersion, let streams = source.streams {
                     VStack(alignment: .leading, spacing: 16) {
                         TVSectionHeading("媒体信息")
-                        Text(source.name).font(.system(size: 24))
+                        Text(source.displayName).font(.system(size: 24))
                         if let path = source.displayPath { Text(path).font(.system(size: 21)).foregroundStyle(.secondary) }
                                     ScrollView(.horizontal) {
                                         LazyHStack(alignment: .top, spacing: 20) {
@@ -1066,8 +1005,15 @@ struct DetailView: View {
             versions = []; versionsReady = false; mediaError = nil; mediaItemID = ""
             guard let target else { return }
             do {
-                let prefs = try await api.request("prefs.getPrefs")
-                let values = try await api.request("emby.itemMedia", ["item_id": .string(target.id), "version_regex": prefs["version_regex"]]).decode([MediaVersion].self)
+                let values: [MediaVersion]
+                do {
+                    values = try await api.request("prefs.preloadItem", ["item_id": .string(target.id), "return_media": .bool(true)]).decode([MediaVersion].self)
+                } catch is CancellationError {
+                    throw CancellationError()
+                } catch {
+                    let prefs = try await api.request("prefs.getPrefs")
+                    values = try await api.request("emby.itemMedia", ["item_id": .string(target.id), "version_regex": prefs["version_regex"]]).decode([MediaVersion].self)
+                }
                 try Task.checkCancellation()
                 guard mediaItem?.id == target.id else { return }
                 versions = values; mediaItemID = target.id; versionsReady = true

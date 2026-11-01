@@ -82,8 +82,13 @@
 - 外观加载样式本机保存，0为平台系统样式，1/2/3/4/5/7复用Android同源JSON，固定Lottie4.5.1。样式4只用`**.Color`通配主题色；该版本Core Animation属性白名单不支持`**.Stroke Color`，注册会在运行时断言，不能靠类型检查判断安全。资源/许可证/本地SPM由fetch-tvos.py和锁管理；检查宿主独立编译同版本源码。
 - `TVLoadingAnimation.sizeThatFits`接受父提议尺寸，正式槽位48×48；仅外包SwiftUI `.frame`会保留Lottie的200–1200点固有尺寸并溢出。VisualCheck检查六种实际UIKit bounds和资源解码，不以裁剪掩盖尺寸错误；样式预览必须实际运行，不能只检查JSON可解析。
 - 等待统一TVLoading，确定性播放/续播进度条保留；减少动态使用中间帧，离页/后台/隐藏保留栏目停止循环。ProductRoot用tvPageActive传递栏目活动状态，不能仅靠onDisappear判断opacity隐藏页。
-- 语言输入完成后即保存；字幕/主进度服/跨服续播/媒体容量即时保存并失败回滚；版本/音轨/字幕正则仍按核心整组校验提交。不要将“即时保存”扩展成拆开核心原子规则。
+- 字幕/主进度服/媒体容量即时保存并失败回滚；Android TV 没有的语言、版本/音轨/字幕正则和跨服续播入口不在 tvOS 显示，核心命令保留。不要将“即时保存”扩展成拆开核心原子规则。
 - MediaVersion.displayPath仅在界面展示；远程URL去用户信息、query和fragment，本地路径保留。CoreClientCheck有本地/Windows/远程/空路径断言，2026-10-24已通过Mac回归。
 - 白字首页使用`Backdrop(whiteForeground: true)`的暗遮罩，末段才融入主题底色；详情使用默认主题渐变，不能一并改黑。顶栏在文字/焦点区域维持主题底色覆盖，底部才羽化，避免浅色导航压暗图。
 - VisualCheck固定1920×1080夹具，采样实际标题/元信息/未选中导航字色及同高度空白背景；Hero对比度至少4.5，26点导航至少3。只覆盖该夹具采样区，不代表所有图片/字号或无障碍验收。
 - 播放截图必须从正式`RootView.fullScreenCover`呈现并断言深色trait；直接把PlayerView放在外层浅色`preferredColorScheme`下会覆盖呈现偏好，造成黑字压黑底的测试假象。合成视频表面、截图与trait断言不证明Aether解码或遥控行为。
+
+## 根页返回与详情预热（2026-11-02）
+
+- 根页返回按 Apple HIG 一次退一级：下钻页 → 内容焦点回顶栏 → 私密空间先退出 → 普通空间顶栏已有焦点时 `tvExitCommand(perform: nil)`，由系统回主屏幕。空闭包同样会吞掉返回键；不用 `dismiss()`、`exit()` 或 `model.notice` 弹窗做“再按一次退出”，alert 会吃掉第二次返回。手机伴侣在该状态无法让系统回主屏，按焦点不支持提示。单击回主屏仍待真机确认。
+- `prefs.preloadCancel` 无参数，取消核心全局单槽预热；不要在详情页 `onDisappear` 调用，旧页晚到的离开回调会误取消新详情预热。确需离页即时取消时另做 owner/generation 级协议，并补 A→B 迟到取消回归。

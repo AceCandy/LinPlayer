@@ -178,10 +178,6 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         precondition(seasonDone.calibrated(MediaPage(items: [unknownEpisode], total: 1)) == nil, "无实时已看状态不能校准")
         let seasonArt = seasonUnknown.artwork(series: "series")
         precondition(seasonArt.artworkSources == [ArtworkSource(id: "series", kind: "Primary")], "缺季图必须回退剧海报")
-        let history = try json(#"{"record_id":"r","title":"E1","series_title":"Series","media_kind":"episode","last_emby_item_id":"e1","last_played_at":1000,"last_position_ticks":500000000,"run_time_ticks":1000000000,"played":false}"#).decode(WatchHistoryRecord.self)
-        precondition(history.item?.id == "e1" && history.item?.type_ == "Episode" && history.item?.resume_secs == 50)
-        let orphan = try json(#"{"record_id":"r","title":"Old","media_kind":"movie","last_emby_item_id":null,"last_played_at":1000,"last_position_ticks":0,"played":true}"#).decode(WatchHistoryRecord.self)
-        precondition(orphan.item == nil, "历史缺少服务器条目时不能猜测路由")
         let cachedDetail = try json(#"{"id":"item","name":"Name","overview":"Overview","has_primary":true,"rating":8.1}"#).decode(DetailPresentation.self)
         precondition(cachedDetail.name == "Name" && cachedDetail.rating == 8.1)
         let detailMetadata = try json(#"{"id":"fixture","name":"Fixture","type_":"Movie","overview":"Overview","is_favorite":false,"played":false,"runtime_secs":3600,"resume_secs":0,"has_primary":true,"has_backdrop":true,"rating":8.2,"DoubanRating":8.8,"premiere_date":"2026-01-01","official_rating":"PG","status":"Ended","tagline":"Tagline"}"#).decode(MediaDetail.self)
@@ -204,6 +200,10 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         precondition(invalid.ratingText() == nil && invalid.ratingText(douban: true) == "0.0")
         invalid.rating = 11; invalid.DoubanRating = .infinity
         precondition(invalid.ratingText() == nil && invalid.ratingText(douban: true) == nil)
+        let version = try json(#"{"id":"v","name":"default","preferred":false,"container":"mkv","path":"https://USER_PLACEHOLDER:PASSWORD_PLACEHOLDER@example.invalid/media/file.mkv?token=TOKEN_PLACEHOLDER"}"#).decode(MediaVersion.self)
+        precondition(version.displayName == "file.mkv" && version.displayPath == "/media/file.mkv", "版本展示不能泄漏默认名或 URL 凭据")
+        let account = try json(#"{"server":"https://example.invalid","user_name":"user","name":"服务器","active":true,"user_id":"u","line_url":"https://example.invalid","active_line":1,"lines":[{"url":"https://a.invalid"},{"name":"线路二","url":"https://b.invalid"}]}"#).decode(MediaAccount.self)
+        precondition(account.activeLineName == "线路二", "详情线路入口必须显示当前生效线路")
         let prefetch = try json(#"{"servers":["https://a.invalid","https://b.invalid"],"threads":3,"cache_bytes":536870912,"media_cache_bytes":1073741824}"#).decode(PrefetchSettings.self)
         let disabled = prefetch.arguments(server: "https://a.invalid", enabled: false, threads: 4, cacheMiB: 256)
         precondition(disabled["settings"] == .object([

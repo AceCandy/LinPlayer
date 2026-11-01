@@ -168,7 +168,6 @@ enum VisualCatalog {
             let values = (start..<min(start + 30, 65)).map { Self.item("\(type)-\($0)", "作品 \($0 + 1)", type: type) }
             return .object(["items": .array(values), "total": .number(65), "next_index": .number(Double(start + values.count)), "has_more": .bool(start + values.count < 65)])
         case "account.probeLine": return .object(["ms": .number(12)])
-        case "emby.getFilters": return VisualCatalog.data["filters"]
         case "account.listAccounts": return .array([Self.account])
         case "emby.aggregateOverview": return .array([.object(["server_id": .string("fixture"), "server_name": .string("演示媒体库"), "line_url": .string("https://fixture.invalid"), "counts_known": .bool(true), "counts": .object(["movie": .number(128), "series": .number(32), "episode": .number(400), "boxset": .number(6)]), "resume": .array(movies)])])
         case "emby.blockedList": return .array([.object(["id": .string("blocked"), "name": .string("演示屏蔽条目")])])
@@ -182,14 +181,15 @@ enum VisualCatalog {
             return .array((start..<(start + 5)).map { .object(["id": .string("rank\($0)"), "source": .string("fixture"), "external_id": .string("rank\($0)"), "media_type": .string("Movie"), "title": .string("第 \($0) 部演示影片"), "subtitle": .string("2024 · 科幻 / 冒险"), "rank": .number(Double($0)), "rating": .number(8.6), "image_url": .string("https://fixture.invalid/poster"), "weekday": .number(Double(($0 - 1) % 7 + 1)), "broadcast_time": .string("20:30"), "timezone": .string("Asia/Tokyo")]) })
         case "emby.heroCandidates": return VisualCatalog.data["hero"]
         case "prefs.getHomeSettings": return .object(["collections_enabled": .bool(false)])
-        case "prefs.getPrefs", "player.getPlaybackPrefs": return .object(["sub_enabled": .bool(true), "default_speed": .number(1), "search_history": .array([.string("沙丘"), .string("星河"), .string("夏天")])])
+        case "prefs.getPrefs": return .object([:])
+        case "prefs.getUpdateSettings": return .object(["channel": .string("stable"), "auto_check": .bool(false), "proxy": .string("")])
+        case "player.getPlaybackPrefs": return .object(["skip_intro": .bool(false), "skip_outro": .bool(false), "skip_auto": .bool(false)])
         case "prefs.getPrefetchSettings": return .object(["servers": .array([.string("fixture")]), "threads": .number(3), "cache_bytes": .number(268435456), "media_cache_bytes": .number(1073741824)])
         case "prefs.getPrimaryProgressServer": return .object(["server": .string("fixture"), "valid": .bool(true), "pending": .number(2), "conflicts": .number(0)])
-        case "account.getCrossServerResume": return .bool(true)
         case "system.cacheSize": return .object(["bytes": .number(134217728)])
         case "emby.itemDetail": return VisualCatalog.rows[args["item_id"]!.string!]!
-        case "emby.itemMedia": return VisualCatalog.media
-        case "player.setPlaybackPrefs", "prefs.setPrefetchSettings": return .object([:])
+        case "emby.itemMedia", "prefs.preloadItem": return VisualCatalog.media
+        case "player.setPlaybackPrefs", "prefs.setPrefetchSettings", "prefs.setUpdateSettings": return .object([:])
         case "account.testConnection": return .object(["name": .string("演示媒体库"), "version": .string("1.0")])
         default: fatalError("视觉夹具缺少命令：" + command)
         }

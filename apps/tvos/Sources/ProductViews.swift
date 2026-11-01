@@ -81,7 +81,8 @@ struct ProductRoot: View {
     @State private var homeOffset: CGFloat = 0
     @State private var homeRefresh = 0
     @State private var homeTop = 0
-    @State private var homeFocus = 0
+    @State private var topFocus = ""
+    @State private var topFocusRequest = 0
     init(api: MediaAPI, initialTab: String = "home") {
         self.api = api
         _tab = State(initialValue: initialTab)
@@ -101,24 +102,56 @@ struct ProductRoot: View {
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).focusSection()
                 HStack(spacing: 16) {
-                    TVNavigationButton(title: model.account?.name ?? "服务器", icon: "chevron.down", selected: tab == "servers", width: 300, selectOnFocus: false) {
+                    TVNavigationButton(title: model.account?.name ?? "服务器", icon: "chevron.down", selected: tab == "servers", width: 300, selectOnFocus: false,
+                                       requestFocus: topFocusRequest, focusKey: "servers", focusRequestKey: topFocus,
+                                       focusChanged: { focused in
+                                           if focused { topFocus = "servers" }
+                                           else if topFocus == "servers" { topFocus = "" }
+                                       }) {
                         if model.privateSpace { Task { do { try await model.changePrivateSpace(false) } catch { model.notice = error.localizedDescription } } }
                         else { select("servers") }
                     }
                     .contextMenu {
                         if !model.privateSpace {
-                            Button("进入隐私空间") { Task { do { try await model.changePrivateSpace(true) } catch { model.notice = error.localizedDescription } } }
+                            Button("进入隐私空间") {
+                                Task {
+                                    do { try await model.changePrivateSpace(true); select("home") }
+                                    catch { model.notice = error.localizedDescription }
+                                }
+                            }
                         }
                     }
-                    TVNavigationButton(title: "首页", selected: tab == "home", requestFocus: homeFocus, focusAction: { select("home") }) {
+                    TVNavigationButton(title: "首页", selected: tab == "home", requestFocus: topFocusRequest, focusKey: "home", focusRequestKey: topFocus,
+                                       focusAction: { select("home") }, focusChanged: { focused in
+                                           if focused { topFocus = "home" }
+                                           else if topFocus == "home" { topFocus = "" }
+                                       }) {
                         if tab == "home" { homeRefresh += 1 } else { select("home") }
                     }
-                    TVNavigationButton(title: "收藏", selected: tab == "favorites") { select("favorites") }
-                    TVNavigationButton(title: "聚合视界", selected: tab == "aggregate", width: 180) { select("aggregate") }
+                    TVNavigationButton(title: "收藏", selected: tab == "favorites", requestFocus: topFocusRequest, focusKey: "favorites", focusRequestKey: topFocus,
+                                       focusChanged: { focused in
+                                           if focused { topFocus = "favorites" }
+                                           else if topFocus == "favorites" { topFocus = "" }
+                                       }) { select("favorites") }
+                    TVNavigationButton(title: "聚合视界", selected: tab == "aggregate", width: 180, requestFocus: topFocusRequest,
+                                       focusKey: "aggregate", focusRequestKey: topFocus, focusChanged: { focused in
+                                           if focused { topFocus = "aggregate" }
+                                           else if topFocus == "aggregate" { topFocus = "" }
+                                       }) { select("aggregate") }
                     Spacer()
-                    TVNavigationButton(title: "搜索", icon: "magnifyingglass", iconOnly: true, selected: tab == "search", width: 72, selectOnFocus: false) { select("search") }
+                    TVNavigationButton(title: "搜索", icon: "magnifyingglass", iconOnly: true, selected: tab == "search", width: 72, selectOnFocus: false,
+                                       requestFocus: topFocusRequest, focusKey: "search", focusRequestKey: topFocus,
+                                       focusChanged: { focused in
+                                           if focused { topFocus = "search" }
+                                           else if topFocus == "search" { topFocus = "" }
+                                       }) { select("search") }
                     if !model.privateSpace {
-                        TVNavigationButton(title: "设置", icon: "gearshape", iconOnly: true, selected: tab == "settings", width: 72, selectOnFocus: false) { select("settings") }
+                        TVNavigationButton(title: "设置", icon: "gearshape", iconOnly: true, selected: tab == "settings", width: 72, selectOnFocus: false,
+                                           requestFocus: topFocusRequest, focusKey: "settings", focusRequestKey: topFocus,
+                                           focusChanged: { focused in
+                                               if focused { topFocus = "settings" }
+                                               else if topFocus == "settings" { topFocus = "" }
+                                           }) { select("settings") }
                     }
                 }
                 .padding(.horizontal, 64).frame(height: 112).padding(.top, 28)
@@ -137,12 +170,26 @@ struct ProductRoot: View {
                 else { DetailView(api: api, item: item) }
             }
         }
+        // 普通空间顶栏已有焦点时不拦截返回，由 tvOS 直接回到主屏幕。
+        .tvExitCommand(perform: path.isEmpty && !topFocus.isEmpty && !model.privateSpace ? nil : {
+            if !path.isEmpty {
+                path.removeLast()
+            } else if topFocus.isEmpty {
+                topFocus = tab
+                topFocusRequest += 1
+            } else {
+                Task {
+                    do { try await model.changePrivateSpace(false) }
+                    catch { model.notice = error.localizedDescription }
+                }
+            }
+        })
         .onAppear {
             if let item = model.pendingItem { path = [item]; model.pendingItem = nil }
             model.remoteNavigation = { key in
                 switch key {
-                case "home": path = []; select("home"); homeTop += 1; homeFocus += 1; return true
-                case "menu": guard path.isEmpty else { return false }; select("settings"); return true
+                case "home": path = []; select("home"); homeTop += 1; topFocus = "home"; topFocusRequest += 1; return true
+                case "menu": guard path.isEmpty, !model.privateSpace else { return false }; select("settings"); return true
                 case "back": guard !path.isEmpty else { return false }; path.removeLast(); return true
                 default: return false
                 }
@@ -164,7 +211,7 @@ struct ProductRoot: View {
         case "search": SearchView(api: api)
         case "settings": SettingsView(api: api)
         default: HomeView(api: api, active: tab == "home" && path.isEmpty, refreshToken: homeRefresh, topToken: homeTop,
-                          onScroll: { homeOffset = $0 }, onTop: { homeFocus += 1 })
+                          onScroll: { homeOffset = $0 }, onTop: { topFocus = "home"; topFocusRequest += 1 })
         }
     }
 }
@@ -178,7 +225,10 @@ private struct TVNavigationButton: View {
     var width: CGFloat = 132
     var selectOnFocus = true
     var requestFocus = 0
+    var focusKey = ""
+    var focusRequestKey: String? = nil
     var focusAction: (() -> Void)? = nil
+    var focusChanged: ((Bool) -> Void)? = nil
     let action: () -> Void
     @FocusState private var focused: Bool
     var body: some View {
@@ -198,8 +248,13 @@ private struct TVNavigationButton: View {
                 if selected { Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme)).frame(width: 26, height: 4).padding(.bottom, 5) }
             }
         }.buttonStyle(TVCardStyle()).focused($focused).focusEffectDisabled()
-            .onChange(of: focused) { _, value in if value && selectOnFocus && !selected { (focusAction ?? action)() } }
-            .onChange(of: requestFocus) { _, _ in focused = true }
+            .onChange(of: focused) { _, value in
+                focusChanged?(value)
+                if value && selectOnFocus && !selected { (focusAction ?? action)() }
+            }
+            .onChange(of: requestFocus) { _, _ in
+                if focusRequestKey == focusKey { focused = true }
+            }
             .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -253,14 +308,6 @@ struct SearchView: View {
                             }
                         }.padding(.vertical, 4)
                     }
-                    if !history.isEmpty {
-                        Button("清空历史") {
-                            Task {
-                                do { _ = try await api.core.call("prefs.setPrefs", ["search_history": .array([])]); history = [] }
-                                catch { if invalidatesDisplay(error) { items = []; groups = [] }; self.error = error.localizedDescription }
-                            }
-                        }
-                    }
                 }
                 }.padding(.vertical, 28) }.frame(width: controlsWidth).focusSection()
                 ScrollView { LazyVStack(alignment: .leading, spacing: 30) {
@@ -292,8 +339,7 @@ struct SearchView: View {
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .task {
             guard !model.privateSpace else { return }
-            do { history = try await api.core.call("prefs.getPrefs", [:])["search_history"].decode([String].self) }
-            catch is CancellationError {} catch { if invalidatesDisplay(error) { items = []; groups = [] }; self.error = error.localizedDescription }
+            history = UserDefaults.standard.stringArray(forKey: "searchHistory") ?? []
         }
         .task(id: aggregate) {
             guard aggregate, !model.privateSpace else { return }
@@ -314,9 +360,8 @@ struct SearchView: View {
                     items = try await api.request("emby.search", args, snapshot: { value in if generation == request, let cached = try? value.decode([MediaItem].self) { items = cached } }).decode([MediaItem].self)
                 }
                 guard !model.privateSpace else { return }
-                let result = try await api.request("prefs.pushSearch", ["query": .string(submitted)])
-                try Task.checkCancellation()
-                history = try result["items"].decode([String].self)
+                history = Array(([submitted] + history.filter { $0 != submitted }).prefix(10))
+                UserDefaults.standard.set(history, forKey: "searchHistory")
             } catch is CancellationError {} catch { if invalidatesDisplay(error) { items = []; groups = [] }; self.error = error.localizedDescription }
         }
     }
@@ -348,8 +393,6 @@ struct FavoritesView: View {
     let api: MediaAPI
     var groupID: String? = nil
     var title = "收藏"
-    var watched = false
-    @State private var watchedType = "Movie"
     @State private var libraries: [MediaItem] = []
     private var groups: [FavoriteGroup] { FavoriteGroup.make(items: items, libraries: libraries) }
     private var visible: [MediaItem] {
@@ -359,34 +402,15 @@ struct FavoritesView: View {
         return groupID.flatMap { id in groups.first { $0.id == id }?.items } ?? (groupID == nil ? items : [])
     }
     @State private var items: [MediaItem] = []
-    @State private var sort = "name"
-    @State private var descending = false
-    @State private var cursor = 0
-    @State private var more = true
     @State private var loading = false
     @State private var error: String?
     @State private var reload = 0
-    @State private var generation = UUID()
-    @State private var loadedRange = ""
-    @State private var loadedRevision = -1
     @FocusState private var focus: String?
-    private var range: String { "\(watched):\(watchedType):\(sort):\(descending)" }
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
                 Text(title).font(.system(size: 38, weight: .semibold))
-                if groupID == nil && !watched {
-                    HStack(spacing: 20) {
-                        NavigationLink("历史已看") { FavoritesView(api: api, title: "历史已看", watched: true) }
-                        if !model.privateSpace { NavigationLink("观看历史") { WatchHistoryView(api: api) } }
-                    }
-                }
-                if groupID != nil || watched {
-                    HStack(spacing: 20) {
-                        if watched { TVChoice(title: "类型", selection: $watchedType, options: [("Movie", "电影"), ("Series", "剧集")]) }
-                        TVChoice(title: "排序", selection: $sort, options: [("name", "名称"), ("rating", "评分"), ("year", "年份"), ("updated", "更新时间")])
-                        Button(descending ? "降序" : "升序") { descending.toggle() }.buttonStyle(TVActionStyle(compact: true))
-                    }
+                if groupID != nil {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: groupID == "type:Episode" ? posterWidth * 1.4 : posterWidth), spacing: 20)], alignment: .leading, spacing: 40) {
                         ForEach(visible) { item in
                             NavigationLink(value: item) { MediaCard(item: item, images: model.images, wide: groupID == "type:Episode") }
@@ -407,107 +431,34 @@ struct FavoritesView: View {
                 }
                 if let error { RetryMessage(text: error) { reload += 1 } }
                 if loading { TVLoading() }
-                else if more { Button("加载更多") { reload += 1 } }
-                else if visible.isEmpty { Text(watched ? "暂无已看内容" : "暂无收藏").foregroundStyle(.secondary) }
+                else if visible.isEmpty { Text("暂无收藏").foregroundStyle(.secondary) }
             }.padding(.horizontal, 64).padding(.vertical, 28)
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .ignoresSafeArea(.container, edges: .horizontal)
         .task(id: items.contains { !($0.library_ids ?? []).isEmpty }) {
-            guard !watched, items.contains(where: { !($0.library_ids ?? []).isEmpty }) else { return }
+            guard items.contains(where: { !($0.library_ids ?? []).isEmpty }) else { return }
             do { libraries = try await api.request("emby.views").decode([MediaItem].self) }
             catch is CancellationError {} catch { /* 库名只增强分组，失败仍按类型展示全部收藏。 */ }
         }
-        .task(id: "\(range):\(model.userStateRevision):\(reload)") {
-            await load(refresh: loadedRange != range || loadedRevision != model.userStateRevision)
-        }
-        .onChange(of: focus) { _, next in
-            if let next, let index = visible.firstIndex(where: { $0.id == next }),
-               index >= max(0, visible.count - 8), more, !loading, error == nil { reload += 1 }
-        }
-    }
-    private func load(refresh: Bool) async {
-        let request = UUID(), requestedRange = range, revision = model.userStateRevision
-        generation = request
-        let requestedSort = sort, requestedDescending = descending
-        loading = true
-        defer { if generation == request { loading = false } }
-        do {
-            // 刷新已加载范围后一次提交，后页失败保留旧列表。
-            var next = refresh ? 0 : cursor
-            var result: [MediaItem] = refresh ? [] : items
-            let target = refresh ? (loadedRange == requestedRange ? max(cursor, 40) : 40) : cursor + 40
-            var hasMore = true
-            repeat {
-                let prefix = result
-                var args: [String: JSONValue] = ["start_index": .number(Double(next)), "limit": .number(40),
-                    "sort_by": .string(requestedSort), "sort_order": .string(requestedDescending ? "desc" : "asc")]
-                if watched { args["type"] = .string(watchedType) }
-                let value = try await api.request(watched ? "emby.listWatched" : "emby.listFavorites", args, snapshot: { value in
-                        guard generation == request, items.isEmpty, let page = try? value.decode(MediaPage.self) else { return }
-                        var seen = Set(prefix.map(\.id))
-                        items = prefix + page.items.filter { seen.insert($0.id).inserted }
-                    })
-                let page = try value.decode(MediaPage.self)
-                var seen = Set(result.map(\.id)); result += page.items.filter { seen.insert($0.id).inserted }
-                let previous = next
-                next = Int(value["next_index"].number ?? Double(next + page.items.count))
-                hasMore = value["has_more"].bool ?? (!page.items.isEmpty && next < page.total)
-                if hasMore && next <= previous { throw CoreFailure(code: "E_PROTOCOL") }
-            } while refresh && hasMore && next < target
-            try Task.checkCancellation()
-            guard generation == request else { return }
-            items = result; cursor = next; more = hasMore; error = nil
-            loadedRange = requestedRange; loadedRevision = revision
-        } catch is CancellationError {} catch {
-            if generation == request { if invalidatesDisplay(error) { items = []; cursor = 0; more = true; loadedRange = ""; loadedRevision = -1 }; self.error = error.localizedDescription }
-        }
-    }
-}
-
-struct WatchHistoryView: View {
-    @EnvironmentObject private var model: AppModel
-    let api: MediaAPI
-    @State private var records: [WatchHistoryRecord] = []
-    @State private var loading = true
-    @State private var error: String?
-    @State private var reload = 0
-    var body: some View {
-        ScrollView {
-            LazyVStack(alignment: .leading, spacing: 24) {
-                TVSectionHeading("观看历史 · 当前服务器")
-                Text("本机观看记录，与服务器的历史已看列表分别保存。").foregroundStyle(.secondary)
-                ForEach(records) { record in
-                    if let item = record.item {
-                        NavigationLink(value: item) {
-                            HStack {
-                                VStack(alignment: .leading, spacing: 8) {
-                                    Text(item.title).font(.system(size: 26))
-                                    Text(Date(timeIntervalSince1970: record.last_played_at / 1000), style: .date).foregroundStyle(.secondary)
-                                }
-                                Spacer()
-                                Text(record.played ? "已看完" : item.resumeTimeText ?? "未完成").foregroundStyle(.secondary)
-                            }.frame(maxWidth: .infinity, alignment: .leading)
-                        }.buttonStyle(TVRowStyle()).focusEffectDisabled()
-                    } else {
-                        Text(record.title + " · 暂无对应条目").foregroundStyle(.secondary)
-                    }
-                }
-                if let error { RetryMessage(text: error) { reload += 1 } }
-                if loading { TVLoading() }
-                else if records.isEmpty && error == nil { Text("暂无观看记录").foregroundStyle(.secondary) }
-            }.padding(.horizontal, 64).padding(.vertical, 28)
-        }
         .task(id: "\(model.userStateRevision):\(reload)") {
-            guard !model.privateSpace else { records = []; loading = false; return }
-            loading = true
-            do {
-                let result = try await api.request("emby.watchHistoryList", ["current_only": .bool(true)]).decode([WatchHistoryRecord].self)
-                try Task.checkCancellation()
-                records = result.sorted { $0.last_played_at > $1.last_played_at }; error = nil; loading = false
-            } catch is CancellationError {} catch {
-                if invalidatesDisplay(error) { records = [] }
-                self.error = error.localizedDescription; loading = false
-            }
+            await load()
+        }
+    }
+    private func load() async {
+        loading = true
+        defer { loading = false }
+        do {
+            let value = try await api.request("emby.listFavorites", [
+                "start_index": .number(0), "limit": .number(150),
+                "sort": .string("更新时间")
+            ], snapshot: { value in
+                if let page = try? value.decode(MediaPage.self), items.isEmpty { items = page.items }
+            })
+            items = try value.decode(MediaPage.self).items
+            error = nil
+        } catch is CancellationError {} catch {
+            if invalidatesDisplay(error) { items = [] }
+            self.error = error.localizedDescription
         }
     }
 }
@@ -826,14 +777,11 @@ struct SettingsView: View {
     let api: MediaAPI
     @State private var group = "播放与外观"
     @FocusState private var focusedGroup: String?
-    @State private var logout = false
-    @State private var error: String?
-    @State private var working = false
     var body: some View {
         HStack(alignment: .top, spacing: 48) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 18) {
-                    ForEach(["播放与外观", "网络", "内容与数据", "扩展与账号", "应用"], id: \.self) { title in
+                    ForEach(["播放与外观", "手机遥控", "网络", "内容与数据", "关于"], id: \.self) { title in
                         Button(title) { group = title }.focused($focusedGroup, equals: title)
                     }
                 }
@@ -848,9 +796,13 @@ struct SettingsView: View {
                 NavigationLink("弹幕") { TVDanmakuSettings(api: api) }
             }
             }
+            if !model.privateSpace && group == "手机遥控" {
+                TVSettingsSection("手机遥控") {
+                    NavigationLink("手机扫码遥控") { CompanionView() }
+                }
+            }
             if !model.privateSpace && group == "网络" {
                 TVSettingsSection("网络") {
-                    NavigationLink("手机遥控") { CompanionView() }
                     settingsLink("多线程加载", icon: "network", page: .prefetch)
                     settingsLink("主进度服", icon: "arrow.triangle.2.circlepath", page: .progress)
                 }
@@ -862,32 +814,13 @@ struct SettingsView: View {
                     settingsLink("存储与数据目录", icon: "internaldrive", page: .storage)
                 }
             }
-            if group == "扩展与账号" { TVSettingsSection("扩展与账号") {
-                if !model.privateSpace {
-                    NavigationLink { ServersView(api: api) } label: { HStack { Label("服务器与线路", systemImage: "server.rack"); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) } }
-                }
-                Button(model.privateSpace ? "退出隐私空间" : "进入隐私空间") {
-                    working = true
-                    Task {
-                        defer { working = false }
-                        do { try await model.changePrivateSpace(!model.privateSpace) }
-                        catch is CancellationError {} catch { self.error = error.localizedDescription }
-                    }
-                }
-                Button("退出当前账号", role: .destructive) { logout = true }
-            }
-            }
-            if group == "应用" { TVSettingsSection("应用") {
+            if group == "关于" { TVSettingsSection("关于") {
                 NavigationLink("关于与更新") { TVAboutView(api: api) }
             }
             }
-            if let error { Text(error).foregroundStyle(.orange) }
             }
             }.frame(maxWidth: .infinity).focusSection()
-        }.padding(.horizontal, 64).padding(.vertical, 28).buttonStyle(TVRowStyle()).focusEffectDisabled().disabled(working)
-        .confirmationDialog("确定退出当前账号？", isPresented: $logout, titleVisibility: .visible) {
-            Button("退出账号", role: .destructive) { Task { await model.logout() } }
-        }
+        }.padding(.horizontal, 64).padding(.vertical, 28).buttonStyle(TVRowStyle()).focusEffectDisabled()
     }
     private func settingsLink(_ title: String, icon: String, page: SettingsPane) -> some View {
         NavigationLink { SettingsDetailView(api: api, pane: page, title: title) } label: { HStack { Label(title, systemImage: icon); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) } }
@@ -903,17 +836,9 @@ struct SettingsDetailView: View {
     let title: String
     @AppStorage("appearance") private var appearance = "dark"
     @AppStorage("hideLibraryPosters") private var hideLibraryPosters = false
-    @State private var audio = ""
-    @State private var subtitle = ""
-    @State private var subtitles = true
-    @State private var audioRegex = ""
-    @State private var subtitleRegex = ""
-    @State private var versionRegex = ""
-    @State private var defaultSpeed = 1.0
     @State private var skipIntro = false
     @State private var skipOutro = false
     @State private var skipAuto = false
-    @State private var skipOnline = false
     @State private var prefetch = false
     @State private var threads = 3
     @State private var cacheMiB = 512
@@ -921,7 +846,6 @@ struct SettingsDetailView: View {
     @State private var selectedServer = ""
     @State private var progress: PrimaryProgressSettings?
     @State private var accounts: [MediaAccount] = []
-    @State private var crossResume = false
     @State private var bytes: Double = 0
     @State private var error: String?
     @State private var message: String?
@@ -945,39 +869,15 @@ struct SettingsDetailView: View {
                 case .player:
                     TVSettingsSection("播放器") {
                         Text("播放内核：AetherEngine")
-                        TVTextInput("首选音轨语言", text: saved($audio) { value in
-                            _ = try await api.request("prefs.setPrefs", ["audio_lang": .string(value)])
-                        })
-                        TVTextInput("首选字幕语言", text: saved($subtitle) { value in
-                            _ = try await api.request("prefs.setPrefs", ["sub_lang": .string(value)])
-                        })
-                        Toggle("默认启用字幕", isOn: saved($subtitles) { value in
-                            _ = try await api.request("prefs.setPrefs", ["sub_enabled": .bool(value)])
-                        })
-                    }
-                    TVSettingsSection("选轨与版本规则") {
-                        TVTextInput("版本正则", text: $versionRegex)
-                        TVTextInput("音轨正则", text: $audioRegex)
-                        TVTextInput("字幕正则", text: $subtitleRegex)
-                        Button("保存规则") { perform {
-                            _ = try await api.request("player.setTrackRegexes", ["version_regex": .string(versionRegex), "audio_regex": .string(audioRegex), "sub_regex": .string(subtitleRegex)])
-                        } }
-                    }
-                    TVSettingsSection("播放偏好") {
-                        TVChoice(title: "默认倍速", selection: saved($defaultSpeed) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["default_speed": .number(value)])]) }, options: Array(Set([0.5, 0.75, 1, 1.25, 1.5, 2, defaultSpeed])).sorted().map { ($0, String(format: "%.2g×", $0)) })
                         Toggle("跳过片头", isOn: saved($skipIntro) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_intro": .bool(value)])]) })
                         Toggle("跳过片尾", isOn: saved($skipOutro) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_outro": .bool(value)])]) })
-                        Toggle("自动跳过", isOn: saved($skipAuto) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_auto": .bool(value)])]) })
-                        Toggle("从在线来源补全片头片尾", isOn: saved($skipOnline) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_use_online": .bool(value)])]) })
-                        Text("下次播放生效；关闭自动跳过时，在播放页显示跳过按钮。")
-
+                        Toggle("到了就自己跳", isOn: saved($skipAuto) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_auto": .bool(value)])]) })
+                        Text("关闭自动跳过时，在播放页显示跳过按钮。")
                     }
                 case .prefetch:
                     TVSettingsSection("多线程加载") {
                         Toggle("当前服务器启用", isOn: saved($prefetch) { value in try await savePrefetch(enabled: value, threads: threads, cache: cacheMiB) }).disabled(model.account == nil)
                         TVChoice(title: "并发连接数", selection: saved($threads) { value in try await savePrefetch(enabled: prefetch, threads: value, cache: cacheMiB) }, options: (2...4).map { ($0, "\($0) 个连接") })
-                        capacityPicker("预取缓存上限", selection: saved($cacheMiB) { value in try await savePrefetch(enabled: prefetch, threads: threads, cache: value) }, allowOff: false)
-
                     }
                 case .progress:
                     TVSettingsSection("主进度服") {
@@ -1000,11 +900,6 @@ struct SettingsDetailView: View {
                         } }.disabled(progress?.valid != true)
                         Button("刷新状态") { reload += 1 }
                     }
-                    TVSettingsSection("续播") {
-                        Toggle("跨服务器续播", isOn: saved($crossResume) { value in
-                            _ = try await api.request("account.setCrossServerResume", ["enabled": .bool(value)])
-                        })
-                    }
                 case .storage:
                     TVSettingsSection("存储与数据目录") {
                         Text("缓存：\(ByteCountFormatter.string(fromByteCount: Int64(bytes), countStyle: .file))")
@@ -1016,7 +911,6 @@ struct SettingsDetailView: View {
                             if let server = api.session?.server { model.images.use(server: server) }
                             bytes = try await api.request("system.cacheSize")["bytes"].number ?? 0
                         } }
-                        Button("清空搜索历史") { perform { _ = try await api.request("prefs.setPrefs", ["search_history": .array([])]) } }
                     }
                 }
             } else { TVLoading("正在读取设置") }
@@ -1031,15 +925,9 @@ struct SettingsDetailView: View {
                 switch pane {
                 case .appearance: break
                 case .player:
-                    let prefs = try await api.request("prefs.getPrefs")
-                    audio = prefs["audio_lang"].string ?? ""; subtitle = prefs["sub_lang"].string ?? ""
-                    subtitles = prefs["sub_enabled"].bool ?? true
-                    audioRegex = prefs["audio_regex"].string ?? ""; subtitleRegex = prefs["sub_regex"].string ?? ""
-                    versionRegex = prefs["version_regex"].string ?? ""
                     let playback = try await api.request("player.getPlaybackPrefs")
-                    defaultSpeed = playback["default_speed"].number ?? 1
                     skipIntro = playback["skip_intro"].bool ?? false; skipOutro = playback["skip_outro"].bool ?? false
-                    skipAuto = playback["skip_auto"].bool ?? false; skipOnline = playback["skip_use_online"].bool ?? false
+                    skipAuto = playback["skip_auto"].bool ?? false
                 case .prefetch:
                     let value = try await api.request("prefs.getPrefetchSettings").decode(PrefetchSettings.self)
                     prefetch = value.servers.contains(model.account?.server ?? "")
@@ -1047,11 +935,10 @@ struct SettingsDetailView: View {
                 case .progress:
                     async let accountValue = api.request("account.listAccounts")
                     async let progressValue = api.request("prefs.getPrimaryProgressServer")
-                    async let resumeValue = api.request("account.getCrossServerResume")
-                    let values = try await (accountValue, progressValue, resumeValue)
+                    let values = try await (accountValue, progressValue)
                     let status = try values.1.decode(PrimaryProgressSettings.self)
                     accounts = try values.0.decode([MediaAccount].self)
-                    progress = status; selectedServer = status.server; crossResume = try values.2.decode(Bool.self)
+                    progress = status; selectedServer = status.server
                 case .storage:
                     async let settingsValue = api.request("prefs.getPrefetchSettings")
                     async let sizeValue = api.request("system.cacheSize")
@@ -1316,7 +1203,9 @@ struct DiscoveryView: View {
                 let result = try await api.request("emby.extResolve", ["server_id": .string(server), "source": .string(entry.source),
                     "external_id": .string(entry.external_id), "media_type": .string(entry.media_type)])
                 guard let id = result["item_id"].string, let type = result["item_type"].string else { throw CoreFailure(code: "E_PROTOCOL") }
-                try await model.switchServer(server, opening: .route(id: id, name: entry.title, type: type))
+                let target = MediaItem.route(id: id, name: entry.title, type: type)
+                if model.account?.server == server { model.pendingItem = target }
+                else { try await model.switchServer(server, opening: target) }
             } catch is CancellationError {} catch { actionError = error.localizedDescription }
         }
     }
