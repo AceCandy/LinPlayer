@@ -905,3 +905,42 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 165: 收敛 tvOS 对齐差异并按系统约定处理根页返回
+<!-- trellis-session: v=2 fp=a53b13bff242b75d -->
+
+**Date**: 2026-11-02
+**Task**: 收敛 tvOS 对齐差异并按系统约定处理根页返回
+**Branch**: `fix/tvos-parity-followup`
+
+### Summary
+
+按当前 Android TV 修正 tvOS 首页、详情、播放器、设置与设计正本；根页返回改为顶栏焦点时交给 tvOS 回主屏幕，移除再按一次退出。Apple SDK 与真机未验证。
+
+### Main Changes
+
+- 首页/详情/播放器/设置对齐 Android TV，移除 tvOS 独有入口与倒计时
+- 根页普通空间顶栏焦点时 tvExitCommand 传 nil，交给系统回主屏幕；私密空间先退出私密
+- 同步 UI_TV、UI_TVOS 与 tvOS 规范；新增 MediaVersion.displayName、MediaAccount.activeLineName 断言
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `af40c1a8` | fix(tvOS): 收敛 Android TV 对齐差异并按系统约定处理根页返回 |
+
+### Testing
+
+- [OK] [OK] git diff --check、gen-bindings --check（233 条命令，ABI=1）、check-tvos-speed-controls、暂存敏感扫描
+- [OK] [OK] go vet ./net/preload ./player；go test -race ./net/preload 与 player 跳过/偏好定向用例
+- [OK] [未验证] 本机无 Swift 工具链，未做 tvOS 编译；player 全量测试因缺 libmpv 失败，与本次无关
+
+### Status
+
+[OK] **Completed**
+
+### Next Steps
+
+- Apple 环境运行 fetch-tvos --verify、build-core-tvos、check-tvos-ui、check-tvos
+- 真机确认顶栏单击返回回主屏、内容焦点回顶栏、私密空间退出、手机伴侣返回与完播切集
