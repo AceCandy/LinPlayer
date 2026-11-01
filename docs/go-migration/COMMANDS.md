@@ -50,7 +50,7 @@
 | 设置与偏好 | `prefs.*` | 33 | 24 |
 | 系统 | `system.*` | 18 | 8 |
 | 手机扫码遥控(电视端) | `companion.*` | 4 | 0 |
-| **合计** | | **231** | **180** |
+| **合计** | | **233** | **180** |
 
 ### Emby 浏览与详情 · `emby.*` — 56 条
 
@@ -328,7 +328,7 @@
 | [x] | `system.ping` | **新增** | `-` | `{ pong: true, ... }` | — | <!-- 核心层活着吗。契约测试的第一条 -->
 | [x] | `system.updateProgress` | **新增** | `-` | `Result<system::UpdateProgress, String>` | ✅ | <!-- 轮询下载进度 -->
 
-### 手机扫码遥控(电视端) · `companion.*` — 4 条
+### 手机扫码遥控(电视端) · `companion.*` — 6 条
 
 | 移植 | 新命令名 | 现有名 | 参数 | 返回 | 安卓已注册 |
 |:--:|---|---|---|---|:--:|
@@ -336,6 +336,8 @@
 | [x] | `companion.status` | **新增** | `—` | `{enabled, running, url, port, error, ip_error, connected}` | — | <!-- url 拿不到 IP 时为空串;error 是起服失败原话;connected = 15 秒内收到过手机页请求 -->
 | [x] | `companion.setEnabled` | **新增** | `enabled: bool` | `{enabled, running, url, port, error, ip_error, connected}` | — | <!-- 持久化 companion_enabled;关=停监听,开=换新 token 起 -->
 | [x] | `companion.setNowPlaying` | **新增** | `title: String` | `{title}` | — | <!-- 播放页起播/离页时报片名,空串=清空。事件:companion.key{key} / companion.open{item_id,type,server_id} / companion.status / account.status{} -->
+| [x] | `companion.hostSession` | **新增** | `private: bool, backup?: bool` | `{epoch}` | — | <!-- tvOS 宿主撤销旧二维码和待执行请求，私密时停监听，退出按原开关恢复；不开放给手机HTTP -->
+| [x] | `companion.hostReply` | **新增** | `request_id: String, validate?: bool, data?: JSON, error?: String` | `{accepted?: bool, valid?: bool, epoch?: String}` | — | <!-- tvOS companion.request{request_id,epoch,name,args} 的执行前校验和最终回执；过期/重复请求拒绝，HTTP不可调用 -->
 
 <!-- END GENERATED -->
 

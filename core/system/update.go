@@ -156,6 +156,8 @@ func assetKeywordSets() [][]string { return assetKeywordSetsFor(runtime.GOOS, ru
 
 func assetKeywordSetsFor(goos, goarch string) [][]string {
 	switch goos {
+	case "ios", "tvos":
+		return nil
 	case "windows":
 		return [][]string{{"windows", ".zip"}}
 	case "android":
@@ -378,7 +380,7 @@ func registerUpdateCommands() {
 		// 而这两件事对用户的下一步动作完全不同。
 		return CheckResult{
 			HasUpdate: info != nil, Current: Version, Update: info,
-			CanSelfUpdate: CanSelfUpdate(),
+			CanSelfUpdate: checkUpdatePlatform(runtime.GOOS) == nil && CanSelfUpdate(),
 		}, nil
 	})
 }

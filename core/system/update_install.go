@@ -537,6 +537,9 @@ func spawnDetached(script string) error {
 func registerInstallCommands() {
 	// system.downloadUpdate —— 开下载,**立刻返回**,进度轮询 system.updateProgress。
 	bus.Register("system.downloadUpdate", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		if err := checkUpdatePlatform(runtime.GOOS); err != nil {
+			return nil, err
+		}
 		ch := config.Current().PrefsOf().UpdateChannel
 		info, err := CheckUpdate(ctx, ch, Version)
 		if err != nil {
@@ -576,6 +579,9 @@ func registerInstallCommands() {
 	// 桌面端:解包 → 生成覆盖脚本 → 起脚本 → 返回 restart,宿主随即退出,
 	// 脚本等到进程没了才动手。安卓端不走这条路,把 APK 交给系统装包器。
 	bus.Register("system.installUpdate", func(ctx context.Context, seq int64, a map[string]any) (any, error) {
+		if err := checkUpdatePlatform(runtime.GOOS); err != nil {
+			return nil, err
+		}
 		upd.mu.Lock()
 		if upd.installing {
 			upd.mu.Unlock()
@@ -644,4 +650,12 @@ func registerInstallCommands() {
 type InstallResult struct {
 	Action string `json:"action"`
 	File   string `json:"file"`
+}
+
+// Apple 移动平台由分发渠道签名安装，不能沿用桌面覆盖脚本。
+func checkUpdatePlatform(goos string) error {
+	if goos == "ios" || goos == "tvos" {
+		return bus.NewErr(bus.EUnsupported, "请通过原安装渠道更新 Apple TV 应用")
+	}
+	return nil
 }

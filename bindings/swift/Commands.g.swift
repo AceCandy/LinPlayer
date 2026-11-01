@@ -241,6 +241,8 @@ enum LinPlayerCommandNames {
         "companion.status",
         "companion.setEnabled",
         "companion.setNowPlaying",
+        "companion.hostSession",
+        "companion.hostReply",
     ]
 }
 
@@ -946,5 +948,11 @@ extension LinPlayerCommands {
     }
     func companionSetNowPlaying(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
         try await call("companion.setNowPlaying", args)
+    }
+    func companionHostSession(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("companion.hostSession", args)
+    }
+    func companionHostReply(_ args: [String: JSONValue] = [:]) async throws -> JSONValue {
+        try await call("companion.hostReply", args)
     }
 }

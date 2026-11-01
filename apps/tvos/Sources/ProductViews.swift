@@ -1,4 +1,5 @@
 import SwiftUI
+import UIKit
 
 // 浏览页保留同主题的输入入口，编辑时使用系统键盘与安全输入。
 struct TVTextInput: View {
@@ -34,7 +35,7 @@ struct TVTextInput: View {
                     Button("完成") { apply() }.buttonStyle(TVActionStyle(primary: true))
                     Button("取消") { showing = false }.buttonStyle(TVActionStyle())
                 }.focusEffectDisabled()
-            }.padding(64).onAppear { editing = true }.onExitCommand { showing = false }
+            }.padding(64).onAppear { editing = true }.tvExitCommand { showing = false }
         }
     }
     private func apply() { text = draft; showing = false; onSubmit?() }
@@ -65,7 +66,7 @@ struct TVChoice<Value: Hashable>: View {
                     }
                     Button("返回") { showing = false }.buttonStyle(TVRowStyle()).focusEffectDisabled()
                 }.padding(64)
-            }.onExitCommand { showing = false }
+            }.tvExitCommand { showing = false }
         }
     }
 }
@@ -77,6 +78,10 @@ struct ProductRoot: View {
     @State private var tab = "home"
     @State private var path: [MediaItem] = []
     @State private var visited: Set<String> = ["home"]
+    @State private var homeOffset: CGFloat = 0
+    @State private var homeRefresh = 0
+    @State private var homeTop = 0
+    @State private var homeFocus = 0
     init(api: MediaAPI, initialTab: String = "home") {
         self.api = api
         _tab = State(initialValue: initialTab)
@@ -84,6 +89,7 @@ struct ProductRoot: View {
     }
     private let tabs = ["servers", "home", "favorites", "aggregate", "search", "settings"]
     var body: some View {
+        GeometryReader { geometry in
         NavigationStack(path: $path) {
             ZStack(alignment: .top) {
                 ZStack {
@@ -99,14 +105,21 @@ struct ProductRoot: View {
                         if model.privateSpace { Task { do { try await model.changePrivateSpace(false) } catch { model.notice = error.localizedDescription } } }
                         else { select("servers") }
                     }
-                    TVNavigationButton(title: "首页", selected: tab == "home") { select("home") }
-                    TVNavigationButton(title: "收藏", selected: tab == "favorites") { select("favorites") }
-                    if !model.privateSpace {
-                        TVNavigationButton(title: "聚合视界", selected: tab == "aggregate", width: 180) { select("aggregate") }
+                    .contextMenu {
+                        if !model.privateSpace {
+                            Button("进入隐私空间") { Task { do { try await model.changePrivateSpace(true) } catch { model.notice = error.localizedDescription } } }
+                        }
                     }
+                    TVNavigationButton(title: "首页", selected: tab == "home", requestFocus: homeFocus, focusAction: { select("home") }) {
+                        if tab == "home" { homeRefresh += 1 } else { select("home") }
+                    }
+                    TVNavigationButton(title: "收藏", selected: tab == "favorites") { select("favorites") }
+                    TVNavigationButton(title: "聚合视界", selected: tab == "aggregate", width: 180) { select("aggregate") }
                     Spacer()
-                    TVNavigationButton(title: "搜索", icon: "magnifyingglass", iconOnly: true, selected: tab == "search", width: 72) { select("search") }
-                    TVNavigationButton(title: "设置", icon: "gearshape", iconOnly: true, selected: tab == "settings", width: 72) { select("settings") }
+                    TVNavigationButton(title: "搜索", icon: "magnifyingglass", iconOnly: true, selected: tab == "search", width: 72, selectOnFocus: false) { select("search") }
+                    if !model.privateSpace {
+                        TVNavigationButton(title: "设置", icon: "gearshape", iconOnly: true, selected: tab == "settings", width: 72, selectOnFocus: false) { select("settings") }
+                    }
                 }
                 .padding(.horizontal, 64).frame(height: 112).padding(.top, 28)
                 .background {
@@ -115,7 +128,7 @@ struct ProductRoot: View {
                         .init(color: TVPalette.background(model.privateSpace).opacity(0.92), location: 0.8),
                         .init(color: TVPalette.background(model.privateSpace).opacity(0), location: 1)
                     ], startPoint: .top, endPoint: .bottom)
-                }.focusSection()
+                }.focusSection().offset(y: tab == "home" ? -min(140, max(0, homeOffset)) : 0)
             }.ignoresSafeArea(.container)
             .navigationDestination(for: MediaItem.self) { item in
                 if item.type_ == "Person" { PersonView(api: api, item: item) }
@@ -126,9 +139,23 @@ struct ProductRoot: View {
         }
         .onAppear {
             if let item = model.pendingItem { path = [item]; model.pendingItem = nil }
+            model.remoteNavigation = { key in
+                switch key {
+                case "home": path = []; select("home"); homeTop += 1; homeFocus += 1; return true
+                case "menu": guard path.isEmpty else { return false }; select("settings"); return true
+                case "back": guard !path.isEmpty else { return false }; path.removeLast(); return true
+                default: return false
+                }
+            }
+        }
+        .onChange(of: model.pendingItem) { _, item in if let item { path = [item]; model.pendingItem = nil } }
+        .environment(\.tvPosterWidth, tvPosterWidth(geometry.size.width - 128))
         }
     }
-    private func select(_ key: String) { visited.insert(key); tab = key }
+    private func select(_ key: String) {
+        if key == "home", tab != key { homeTop += 1 }
+        visited.insert(key); tab = key
+    }
     @ViewBuilder private func page(_ key: String) -> some View {
         switch key {
         case "servers": ServersView(api: api)
@@ -136,7 +163,8 @@ struct ProductRoot: View {
         case "aggregate": AggregateView(api: api)
         case "search": SearchView(api: api)
         case "settings": SettingsView(api: api)
-        default: HomeView(api: api, active: tab == "home" && path.isEmpty)
+        default: HomeView(api: api, active: tab == "home" && path.isEmpty, refreshToken: homeRefresh, topToken: homeTop,
+                          onScroll: { homeOffset = $0 }, onTop: { homeFocus += 1 })
         }
     }
 }
@@ -149,6 +177,8 @@ private struct TVNavigationButton: View {
     let selected: Bool
     var width: CGFloat = 132
     var selectOnFocus = true
+    var requestFocus = 0
+    var focusAction: (() -> Void)? = nil
     let action: () -> Void
     @FocusState private var focused: Bool
     var body: some View {
@@ -161,13 +191,15 @@ private struct TVNavigationButton: View {
             .foregroundStyle(TVPalette.foreground(model.privateSpace).opacity(selected || focused ? 1 : 0.62))
             .frame(width: width, height: 68)
             .background(focused ? TVPalette.foreground(model.privateSpace).opacity(0.10) : .clear, in: Capsule())
-            .overlay { Capsule().strokeBorder(TVPalette.foreground(model.privateSpace).opacity(focused ? 0.55 : 0), lineWidth: 2) }
+            .shadow(color: .black.opacity(focused ? 0.25 : 0), radius: 12, y: 6)
+            .scaleEffect(focused ? 1.06 : 1)
             .animation(.easeOut(duration: 0.16), value: focused)
             .overlay(alignment: .bottom) {
                 if selected { Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme)).frame(width: 26, height: 4).padding(.bottom, 5) }
             }
         }.buttonStyle(TVCardStyle()).focused($focused).focusEffectDisabled()
-            .onChange(of: focused) { _, value in if value && selectOnFocus && !selected { action() } }
+            .onChange(of: focused) { _, value in if value && selectOnFocus && !selected { (focusAction ?? action)() } }
+            .onChange(of: requestFocus) { _, _ in focused = true }
             .accessibilityLabel(title).accessibilityAddTraits(selected ? .isSelected : [])
     }
 
@@ -176,10 +208,11 @@ private struct TVNavigationButton: View {
 struct SearchView: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
+    var parent: String? = nil
     @State private var query = ""
     @State private var submitted = ""
     @State private var aggregate = false
-    @State private var type = ""
+    @State private var type = "Movie"
     @State private var history: [String] = []
     @State private var items: [MediaItem] = []
     @State private var groups: [ServerResults] = []
@@ -189,30 +222,32 @@ struct SearchView: View {
     @State private var reload = 0
     @State private var generation = UUID()
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                Text("搜索").font(.system(size: 38, weight: .semibold))
-                HStack(spacing: 24) {
+        GeometryReader { geometry in
+            let controlsWidth = min(560, geometry.size.width * 0.32)
+            let width = tvPosterWidth(geometry.size.width - controlsWidth - 164)
+            HStack(alignment: .top, spacing: 36) {
+                ScrollView { VStack(alignment: .leading, spacing: 24) {
+                VStack(alignment: .leading, spacing: 24) {
                     TVTextInput("片名、剧名或人物", text: $query, onSubmit: submit)
                     Button("搜索") { submit() }.buttonStyle(TVActionStyle(primary: true))
                         .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
                 ScrollView(.horizontal) {
                     HStack(spacing: 16) {
-                        if !model.privateSpace {
+                        if !model.privateSpace && parent == nil {
                             Button(aggregate ? "聚合搜索" : "当前服务器") { aggregate.toggle() }
                                 .buttonStyle(TVActionStyle(primary: aggregate, compact: true))
                         }
-                        ForEach([("", "全部"), ("Movie", "电影"), ("Series", "剧集"), ("Episode", "分集"), ("Person", "人物")], id: \.0) { value in
+                        ForEach([("Movie", "电影"), ("Series", "剧集"), ("Person", "人物")], id: \.0) { value in
                             Button(value.1) { type = value.0 }
                                 .buttonStyle(TVActionStyle(primary: type == value.0, compact: true)).disabled(aggregate)
                         }
                     }.padding(.vertical, 4)
                 }
-                if submitted.isEmpty && !model.privateSpace {
+                if !model.privateSpace && !history.isEmpty {
                     TVSectionHeading("搜索历史")
-                    ScrollView(.horizontal) {
-                        HStack(spacing: 16) {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 16) {
                             ForEach(history, id: \.self) { term in
                                 Button(term) { query = term; submit() }.buttonStyle(TVActionStyle(compact: true))
                             }
@@ -227,6 +262,8 @@ struct SearchView: View {
                         }
                     }
                 }
+                }.padding(.vertical, 28) }.frame(width: controlsWidth).focusSection()
+                ScrollView { LazyVStack(alignment: .leading, spacing: 30) {
                 if loading { TVLoading("正在搜索") }
                 if let error { RetryMessage(text: error) { reload += 1 } }
                 if !submitted.isEmpty && !loading && error == nil && items.isEmpty && groups.isEmpty { Text("没有找到内容").foregroundStyle(.secondary) }
@@ -238,7 +275,7 @@ struct SearchView: View {
                         CrossServerRow(server: group.server_id, lineURL: accounts.first { $0.server == group.server_id }?.line_url, items: group.items)
                     }
                 } else {
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 36)], alignment: .leading, spacing: 40) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: width), spacing: 20)], alignment: .leading, spacing: 40) {
                         ForEach(items.filter { $0.type_ != "Episode" }) { item in
                             NavigationLink(value: item) { MediaCard(item: item, images: model.images) }
                                 .buttonStyle(TVCardStyle()).focusEffectDisabled()
@@ -249,7 +286,9 @@ struct SearchView: View {
                     TVSectionHeading("分集")
                     MediaRow(items: items.filter { $0.type_ == "Episode" }, wide: true, inset: 0)
                 }
-            }.padding(.horizontal, 64).padding(.vertical, 28)
+                }.padding(.vertical, 28) }.frame(maxWidth: .infinity).focusSection()
+                    .environment(\.tvPosterWidth, width)
+            }.padding(.horizontal, 64)
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .task {
             guard !model.privateSpace else { return }
@@ -267,10 +306,11 @@ struct SearchView: View {
             loading = true; error = nil; items = []; groups = []
             defer { if generation == request { loading = false } }
             do {
-                if aggregate { groups = try await api.request("emby.aggregateSearch", ["query": .string(submitted)], snapshot: { value in if generation == request, let cached = try? value.decode([ServerResults].self) { groups = cached } }).decode([ServerResults].self) }
+                if aggregate { groups = try await api.aggregateSearch(submitted) { rows in if generation == request { groups = rows } } }
                 else {
                     var args: [String: JSONValue] = ["query": .string(submitted), "limit": .number(100)]
-                    if !type.isEmpty { args["types"] = .array([.string(type)]) }
+                    args["types"] = .array([.string(type)])
+                    if let parent { args["parent_id"] = .string(parent) }
                     items = try await api.request("emby.search", args, snapshot: { value in if generation == request, let cached = try? value.decode([MediaItem].self) { items = cached } }).decode([MediaItem].self)
                 }
                 guard !model.privateSpace else { return }
@@ -303,6 +343,7 @@ struct FavoriteGroup: Identifiable {
 }
 
 struct FavoritesView: View {
+    @Environment(\.tvPosterWidth) private var posterWidth
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
     var groupID: String? = nil
@@ -346,7 +387,7 @@ struct FavoritesView: View {
                         TVChoice(title: "排序", selection: $sort, options: [("name", "名称"), ("rating", "评分"), ("year", "年份"), ("updated", "更新时间")])
                         Button(descending ? "降序" : "升序") { descending.toggle() }.buttonStyle(TVActionStyle(compact: true))
                     }
-                    LazyVGrid(columns: [GridItem(.adaptive(minimum: groupID == "type:Episode" ? 400 : 250), spacing: 36)], alignment: .leading, spacing: 40) {
+                    LazyVGrid(columns: [GridItem(.adaptive(minimum: groupID == "type:Episode" ? posterWidth * 1.4 : posterWidth), spacing: 20)], alignment: .leading, spacing: 40) {
                         ForEach(visible) { item in
                             NavigationLink(value: item) { MediaCard(item: item, images: model.images, wide: groupID == "type:Episode") }
                                 .buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focus, equals: item.id)
@@ -507,6 +548,13 @@ struct AggregateView: View {
     @State private var loading = true
     @State private var generation = UUID()
     var body: some View {
+        if model.privateSpace {
+            HStack(spacing: 30) {
+                NavigationLink("流影") { LiuYingView(api: api) }
+                NavigationLink("排行榜") { DiscoveryView(api: api, calendar: false) }
+                Spacer()
+            }.padding(.horizontal, 64).padding(.vertical, 28).buttonStyle(TVActionStyle())
+        } else {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 36) {
                 Text("聚合视界").font(.system(size: 38, weight: .semibold))
@@ -531,10 +579,12 @@ struct AggregateView: View {
             }.padding(.horizontal, 64).padding(.vertical, 28)
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .task(id: "\(reload):\(model.userStateRevision)") {
+            guard !model.privateSpace else { return }
             let request = UUID(); generation = request
             loading = true; defer { if generation == request { loading = false } }
             do { servers = try await api.request("emby.aggregateOverview", snapshot: { value in if generation == request, let cached = try? value.decode([ServerOverview].self) { servers = cached } }).decode([ServerOverview].self); error = nil }
             catch is CancellationError {} catch { if invalidatesDisplay(error) { servers = [] }; self.error = error.localizedDescription }
+        }
         }
     }
 }
@@ -717,15 +767,17 @@ struct AccountEditor: View {
     }
 }
 
-struct TVRowStyle: ButtonStyle {
+struct TVRowStyle: PrimitiveButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
-        TVRowLabel(destructive: configuration.role == .destructive, pressed: configuration.isPressed) { configuration.label }
+        TVRemoteButton(action: configuration.trigger) {
+            TVRowLabel(destructive: configuration.role == .destructive) { configuration.label }
+        }
     }
 }
 
 private struct TVRowLabel<Content: View>: View {
     let destructive: Bool
-    let pressed: Bool
+    @Environment(\.tvPressed) private var pressed
     @ViewBuilder let content: () -> Content
     @EnvironmentObject private var model: AppModel
     @Environment(\.isFocused) private var focused
@@ -733,9 +785,9 @@ private struct TVRowLabel<Content: View>: View {
     var body: some View {
         content().font(.system(size: 26)).frame(maxWidth: .infinity, minHeight: 64, alignment: .leading)
             .padding(.horizontal, 20).padding(.vertical, 8)
-            .foregroundStyle(destructive ? Color.red : TVPalette.foreground(model.privateSpace))
-            .background(TVPalette.foreground(model.privateSpace).opacity(focused ? 0.10 : 0), in: RoundedRectangle(cornerRadius: 14))
-            .overlay { RoundedRectangle(cornerRadius: 14).strokeBorder(.primary.opacity(focused ? 0.55 : 0), lineWidth: 2) }
+            .foregroundStyle(destructive ? Color.red : focused ? TVPalette.background(model.privateSpace) : TVPalette.foreground(model.privateSpace))
+            .background(TVPalette.foreground(model.privateSpace).opacity(focused ? 1 : 0), in: RoundedRectangle(cornerRadius: 14))
+            .shadow(color: .black.opacity(focused ? 0.25 : 0), radius: 10, y: 6)
             .opacity(enabled ? (pressed ? 0.7 : 1) : 0.45)
             .animation(.easeOut(duration: 0.14), value: focused)
     }
@@ -772,28 +824,45 @@ struct TVToggleStyle: ToggleStyle {
 struct SettingsView: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
+    @State private var group = "播放与外观"
+    @FocusState private var focusedGroup: String?
     @State private var logout = false
     @State private var error: String?
     @State private var working = false
     var body: some View {
-        ScrollView {
+        HStack(alignment: .top, spacing: 48) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 18) {
+                    ForEach(["播放与外观", "网络", "内容与数据", "扩展与账号", "应用"], id: \.self) { title in
+                        Button(title) { group = title }.focused($focusedGroup, equals: title)
+                    }
+                }
+            }.frame(width: 360).focusSection()
+                .onChange(of: focusedGroup) { _, value in if let value { group = value } }
+            ScrollView {
             VStack(alignment: .leading, spacing: 30) {
-            Text("设置").font(.system(size: 38, weight: .semibold))
+            if group == "播放与外观" {
             TVSettingsSection("播放与外观") {
                 settingsLink("外观", icon: "paintpalette", page: .appearance)
                 settingsLink("播放器", icon: "play.rectangle", page: .player)
+                NavigationLink("弹幕") { TVDanmakuSettings(api: api) }
             }
-            if !model.privateSpace {
+            }
+            if !model.privateSpace && group == "网络" {
                 TVSettingsSection("网络") {
+                    NavigationLink("手机遥控") { CompanionView() }
                     settingsLink("多线程加载", icon: "network", page: .prefetch)
                     settingsLink("主进度服", icon: "arrow.triangle.2.circlepath", page: .progress)
                 }
+            }
+            if !model.privateSpace && group == "内容与数据" {
                 TVSettingsSection("内容与数据") {
                     NavigationLink { BlockedView(api: api) } label: { HStack { Label("已屏蔽的内容", systemImage: "eye.slash"); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) } }
+                    NavigationLink("备份与还原") { TVBackupView() }
                     settingsLink("存储与数据目录", icon: "internaldrive", page: .storage)
                 }
             }
-            TVSettingsSection("扩展与账号") {
+            if group == "扩展与账号" { TVSettingsSection("扩展与账号") {
                 if !model.privateSpace {
                     NavigationLink { ServersView(api: api) } label: { HStack { Label("服务器与线路", systemImage: "server.rack"); Spacer(); Image(systemName: "chevron.right").foregroundStyle(.secondary) } }
                 }
@@ -807,17 +876,15 @@ struct SettingsView: View {
                 }
                 Button("退出当前账号", role: .destructive) { logout = true }
             }
-            TVSettingsSection("应用") {
-                NavigationLink("关于") {
-                    ScrollView { TVSettingsSection("关于") {
-                        Text("LinPlayer \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "")")
-                        Text("播放内核：AetherEngine")
-                    }.padding(64) }.navigationTitle("关于")
-                }
+            }
+            if group == "应用" { TVSettingsSection("应用") {
+                NavigationLink("关于与更新") { TVAboutView(api: api) }
+            }
             }
             if let error { Text(error).foregroundStyle(.orange) }
-            }.padding(.horizontal, 64).padding(.vertical, 28)
-        }.buttonStyle(TVRowStyle()).focusEffectDisabled().disabled(working)
+            }
+            }.frame(maxWidth: .infinity).focusSection()
+        }.padding(.horizontal, 64).padding(.vertical, 28).buttonStyle(TVRowStyle()).focusEffectDisabled().disabled(working)
         .confirmationDialog("确定退出当前账号？", isPresented: $logout, titleVisibility: .visible) {
             Button("退出账号", role: .destructive) { Task { await model.logout() } }
         }
@@ -1156,8 +1223,11 @@ struct DiscoveryView: View {
         .toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
         .task {
             do {
-                let accounts = try await api.request("account.listAccounts").decode([MediaAccount].self)
-                primary = accounts.first { $0.aggregate_primary == true }?.server ?? model.account?.server ?? ""
+                if model.privateSpace { primary = model.account?.server ?? "" }
+                else {
+                    let accounts = try await api.request("account.listAccounts").decode([MediaAccount].self)
+                    primary = accounts.first { $0.aggregate_primary == true }?.server ?? model.account?.server ?? ""
+                }
                 if !calendar {
                     categories = try await api.request("emby.extRankings", ["server_id": .string(primary), "include_disabled": .bool(true)], snapshot: { value in if let cached = try? value.decode([DiscoveryCategory].self) { categories = cached } }).decode([DiscoveryCategory].self)
                     category = categories.first { $0.enabled }?.id ?? categories.first?.id ?? ""
@@ -1311,6 +1381,7 @@ struct PersonView: View {
 }
 
 private struct PersonWorksView: View {
+    @Environment(\.tvPosterWidth) private var posterWidth
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
     let person: String
@@ -1326,7 +1397,7 @@ private struct PersonWorksView: View {
         VStack(alignment: .leading, spacing: 24) {
             Text("已加载 \(state.items.count)" + (state.more ? "+" : "") + (state.total.map { " · 共 \($0) 部" } ?? ""))
                 .font(.system(size: 22)).foregroundStyle(.secondary)
-            LazyVGrid(columns: [GridItem(.adaptive(minimum: 250), spacing: 36)], alignment: .leading, spacing: 40) {
+            LazyVGrid(columns: [GridItem(.adaptive(minimum: posterWidth), spacing: 20)], alignment: .leading, spacing: 40) {
                 ForEach(state.items) { entry in
                     NavigationLink(value: entry) { MediaCard(item: entry, images: model.images) }
                         .buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focus, equals: entry.id)

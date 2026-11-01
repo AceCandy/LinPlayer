@@ -6,9 +6,10 @@ import Lottie
 enum NativeCore {
     static func initialize(dataRoot: URL, version: String) throws -> CoreClient { throw CoreFailure(code: "E_UNSUPPORTED") }
 }
-struct VisualPlayerEngine {
+final class VisualPlayerEngine {
     struct Track: Identifiable { let id: Int; let name: String; var codec = "aac"; var language: String? = "jpn"; var isExternal = false }
     struct Chapter: Identifiable { let id: Int; let name: String; let startSeconds: Double }
+    let currentTime: Double = 1517
     let duration: Double = 2729
     let isBuffering = false
     let maxSupportedRate: Float = 2
@@ -25,14 +26,21 @@ struct VideoSurface: View {
     }
 }
 @MainActor final class PlaybackController: ObservableObject {
+    let danmaku: TVDanmakuSession
     let item: String
     let title: String
     let version: String?
     let fromStart: Bool
+    let speedScope: String
     var syncWarning: String?
     let engine: VisualPlayerEngine? = VisualPlayerEngine()
     let subtitleText: String
     let subtitleNote: String? = nil
+    let subtitleStyle: JSONValue = .null
+    let subtitleStyleError: String? = nil
+    let canChangeSubtitleStyle = false
+    func loadSubtitleStyle() {}
+    func setSubtitleStyle(_ key: String, _ value: JSONValue) {}
     let message: String? = nil
     let loading = false, changingTrack = false, closing = false, ended = false, queueLoading = false, paused = false, audioSelectable = true, canSeek = true
     let queueError: String? = nil
@@ -51,13 +59,23 @@ struct VideoSurface: View {
     let skipInfo: PlaybackSkip?
     let skipError: String? = nil
     var activeSkip: PlaybackSkip.Range? { skipInfo?.active(at: position, duration: engine?.duration ?? 0) }
+    let markers: SkipMarkerSelection? = nil
+    let markerBusy = false
+    let markerError: String? = nil
+    func loadMarkers(scope: String? = nil) {}
+    func mark(_ action: String) {}
+    func setSkipAuto(_ value: Bool) {}
     func retrySkip() {}
     func skip(_ range: PlaybackSkip.Range) {}
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, showSkip: Bool = false) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", showSkip: Bool = false) {
+        self.speedScope = speedScope
+        danmaku = TVDanmakuSession(api: api, item: item)
         self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
         subtitleText = showSkip ? "这是一条用于检查位置和遮挡的示例字幕。" : ""
         skipInfo = showSkip ? PlaybackSkip(intro: .init(start: 1500, end: 1600), outro: nil, skip_auto: false, skip_source: "合成区间") : nil
     }
+    func setMuted(_ value: Bool) {}
+    func restart() async {}
     func suspend() {}
     func close() async {}
     func start() async {}

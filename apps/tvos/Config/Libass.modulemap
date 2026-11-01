@@ -1,0 +1,4 @@
+module Libass [system] {
+    header "../../../.toolchain/tvos/mpv-input/Libass/Headers/ass/ass.h"
+    export *
+}

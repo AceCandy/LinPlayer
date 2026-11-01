@@ -22,7 +22,7 @@ def check(root: Path) -> None:
     assert success.count("message = nil") == 1, "不能额外无条件清空播放错误"
     assert re.search(r'onChange\(of: controller\.message\).*?if next != nil \{ showControls\(\) \} else \{ touch\(\) \}', view, re.S), \
         "错误解除后必须重启控制栏收起计时，覆盖保存超过五秒的情况"
-    assert re.search(r'Button\("倍速"\).*?\.disabled\(!controller.canSetSpeed\)', view), "入口未禁用"
+    assert re.search(r'accessibilityLabel\("倍速"\)\.disabled\(!controller.canSetSpeed\)', view), "入口未禁用"
     assert re.search(r"if controller\.setSpeed\(rate\) \{ closePanel\(\) \}", view), "拒绝的操作不能关闭面板"
     assert re.search(r"if controller\.setSpeed\(rate\).*?\.disabled\(!controller.canSetSpeed\)", view, re.S), "选项未禁用"
     assert "canSetSpeed" in fixture and re.search(r"func setSpeed\(_ rate: Float\) -> Bool", fixture), "渲染夹具接口未同步"

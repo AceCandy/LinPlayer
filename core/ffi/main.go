@@ -26,6 +26,7 @@ import (
 	"linplayer/core/blocklist"
 	"linplayer/core/bus"
 	"linplayer/core/commands"
+	"linplayer/core/companion"
 	"linplayer/core/config"
 	"linplayer/core/download"
 	"linplayer/core/httpx"
@@ -109,6 +110,7 @@ func lp_init(configJSON *C.char) (ret C.int32_t) {
 		//   顺序错了不报错,只是用户升级后「服务器全没了」(SPEC §16.1)。
 		paths.SetRoot(hostCfg.DataDir)
 		player.SetHostPlatform(hostCfg.Platform)
+		companion.SetHostPlatform(hostCfg.Platform)
 		// tvOS 先恢复安全状态，再开放命令和后台任务。失败状态在重复 init 时仍保留。
 		if platformStateRequired {
 			if err := paths.EnsureDirs(); err != nil {
@@ -271,6 +273,7 @@ func lp_free(p *C.char) {
 func lp_shutdown() {
 	defer guard("lp_shutdown", nil, 0)
 	bus.BeginShutdown()
+	companion.Close()
 	// ★ 关 mpv 必须排在 lp_gl_uninit 之后(S1.2 实测:反过来宿主合成器当场抛异常)。
 	//   这里只关核心;GL 通道由宿主在销毁 GL 上下文前自己调 lp_gl_uninit。
 	player.Close()

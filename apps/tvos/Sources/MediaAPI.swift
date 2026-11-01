@@ -53,7 +53,7 @@ struct MediaItem: Decodable, Identifiable, Hashable {
             : String(format: "%d:%02d", total / 60, total % 60)
         return remaining ? "剩余 " + duration : duration
     }
-    var opensFolder: Bool { is_folder && type_ != "Series" }
+    var opensFolder: Bool { is_folder && !["Series", "Season"].contains(type_) }
 }
 
 struct ArtworkSource: Equatable {
@@ -360,6 +360,26 @@ struct ServerResults: Decodable, Identifiable {
     var id: String { server_id }
 }
 
+struct SourceSearchRow: Decodable {
+    let server_id: String
+    let server_name: String?
+    let emby_items: [MediaItem]?
+    let error: String?
+    let warning: String?
+    func apply(to rows: inout [ServerResults]) {
+        let index = rows.firstIndex { $0.server_id == server_id }
+        let old = index.map { rows[$0] }
+        let items = emby_items ?? []
+        if error == nil && items.isEmpty && (warning ?? "").isEmpty {
+            if let index { rows.remove(at: index) }
+            return
+        }
+        let row = ServerResults(server_id: server_id, server_name: server_name ?? old?.server_name ?? server_id,
+            items: error == nil ? items : old?.items ?? [], error: error, warning: warning)
+        if let index { rows[index] = row } else { rows.append(row) }
+    }
+}
+
 struct ServerOverview: Decodable, Identifiable {
     let line_url: String?
     struct Counts: Decodable { let movie: Int; let series: Int; let episode: Int; let boxset: Int }
@@ -517,13 +537,26 @@ struct PlayTarget: Decodable {
         try await request("emby.playbackSeason", ["item_id": .string(item)]).decode([MediaItem].self)
     }
 
+    func aggregateSearch(_ query: String, update: @escaping ([ServerResults]) -> Void) async throws -> [ServerResults] {
+        guard !privateSpace else { throw CoreFailure(code: "E_PERMISSION") }
+        var rows: [ServerResults] = []
+        let result = try await request("source.aggregateSearch", ["query": .string(query)], snapshot: { value in
+            if let row = try? value.decode(SourceSearchRow.self) { row.apply(to: &rows); update(rows) }
+        }).decode([SourceSearchRow].self)
+        let ids = Set(result.map(\.server_id))
+        rows.removeAll { !ids.contains($0.server_id) }
+        for row in result { row.apply(to: &rows) }
+        return rows
+    }
+
     func homePlaybackTarget(_ item: MediaItem) async throws -> MediaItem {
         guard item.type_ == "Series" else { return item }
         return try await request("emby.seriesPlaybackTarget", ["series_id": .string(item.id)]).decode(MediaItem.self)
     }
 
-    func play(item: String, version: String?, fromStart: Bool) async throws -> PlayTarget {
+    func play(item: String, version: String?, fromStart: Bool, speedScope: String = "normal") async throws -> PlayTarget {
         var args: [String: JSONValue] = ["item_id": .string(item), "engine": .string("exo")]
+        if speedScope == "liuying" { args["speed_scope"] = .string("liuying") }
         if let version, !version.isEmpty { args["media_source_id"] = .string(version) }
         if fromStart { args["from_start"] = .bool(true) }
         return try await request("player.play", args).decode(PlayTarget.self)
@@ -577,5 +610,82 @@ struct PlaybackSkip: Decodable {
     }
     func active(at position: Double, duration: Double) -> Range? {
         [intro, outro].compactMap { $0 }.first { $0.contains(position, duration: duration) }
+    }
+    static func nextUp(at position: Double, duration: Double, outro: Range?) -> Bool {
+        guard position.isFinite, position >= 0, duration.isFinite, duration > 0 else { return false }
+        if let outro { return outro.end >= duration && position >= outro.start }
+        return duration - position <= min(30, max(10, duration * 0.1))
+    }
+}
+
+struct SkipMarkerSelection: Decodable {
+    let scope: String
+    let can_season: Bool
+    let intro: PlaybackSkip.Range?
+    let outro: PlaybackSkip.Range?
+}
+
+struct LiuYingItem: Decodable, Identifiable {
+    let item_id: String
+    let title: String
+    let author: String?
+    let tab: String
+    let feed: String
+    var favorite: Bool
+    var id: String { item_id }
+}
+
+struct LiuYingPage: Decodable {
+    var items: [LiuYingItem]
+    let has_more: Bool
+    let offset: Int
+    mutating func setFavorite(_ id: String, _ value: Bool) {
+        for index in items.indices where items[index].item_id == id { items[index].favorite = value }
+    }
+}
+
+struct TVDanmakuLayout: Decodable {
+    struct Line: Decodable {
+        let t: Double
+        let m: Int
+        let l: Int
+        let w: Double
+        let c: Int
+        let u: String
+    }
+    let res_y: Double
+    let area_height: Double
+    let lane_height: Double
+    let roll_seconds: Double
+    let fix_seconds: Double
+    let font_size: Double
+    let opacity: Double
+    let bold: Bool
+    let revision: Double
+    let items: [Line]
+    func candidates(at time: Double) -> ArraySlice<Line> {
+        let from = time - max(roll_seconds, fix_seconds)
+        var low = 0, high = items.count
+        while low < high {
+            let mid = (low + high) / 2
+            if items[mid].t < from { low = mid + 1 } else { high = mid }
+        }
+        return items[low...].prefix { $0.t <= time }
+    }
+}
+
+struct TVRemoteFrame {
+    let id: UUID
+    let x: Double
+    let y: Double
+    static func next(_ direction: String, x: Double, y: Double, candidates: [TVRemoteFrame]) -> UUID? {
+        let horizontal = direction == "left" || direction == "right"
+        let sign: Double = direction == "left" || direction == "up" ? -1 : 1
+        return candidates.compactMap { candidate -> (UUID, Double)? in
+            let primary = (horizontal ? candidate.x - x : candidate.y - y) * sign
+            let cross = abs(horizontal ? candidate.y - y : candidate.x - x)
+            guard primary > 1, primary.isFinite, cross.isFinite else { return nil }
+            return (candidate.id, primary + cross * 3)
+        }.min { $0.1 < $1.1 }?.0
     }
 }
