@@ -73,7 +73,7 @@ struct VideoSurface: View {
     func setSkipPref(_ key: String, _ value: Bool) {}
     func retrySkip() {}
     func skip(_ range: PlaybackSkip.Range) {}
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil, previous: PlaybackController? = nil, showSkip: Bool = false) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory? = nil, preparedID: String? = nil, previous: PlaybackController? = nil, showSkip: Bool = false) {
         self.speedScope = speedScope
         initialSubtitle = subtitle; initialAudio = audio
         danmaku = TVDanmakuSession(api: api, item: item)

@@ -84,10 +84,10 @@ import SwiftUI
     private var adopted = false
     private var staleClock: Bool { adopted && loading }
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil, previous: PlaybackController? = nil) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory? = nil, preparedID: String? = nil, previous: PlaybackController? = nil) {
         self.speedScope = speedScope
         self.preparedID = preparedID
-        self.trackMemory = trackMemory
+        self.trackMemory = trackMemory ?? SessionTrackMemory()
         danmaku = TVDanmakuSession(api: api, item: item)
         initialAudio = audio; initialSubtitle = subtitle
         self.api = api; self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
