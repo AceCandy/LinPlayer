@@ -231,14 +231,14 @@ import SwiftUI
         guard let old = playback, let api, !switchingPlayback, !exitingPlayback else { return }
         switchingPlayback = true; defer { switchingPlayback = false }
         let prepared = old.takePrepared(for: item)
-        await old.close()
-        guard playback === old, !exitingPlayback else { return }
+        await old.close(handOver: true)
+        guard playback === old, !exitingPlayback else { old.releaseEngine(); return }
         // 切换版本时旧轨道身份不再可信。
         if version != nil && item == old.item && version != old.version { trackMemory.clear() }
         // 同条目同版本重试时保留详情页显式预选的轨道。
         let retry = item == old.item && version == old.version
         let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart,
-            subtitle: retry ? old.initialSubtitle : nil, audio: retry ? old.initialAudio : nil, speedScope: old.speedScope, trackMemory: trackMemory, preparedID: prepared)
+            subtitle: retry ? old.initialSubtitle : nil, audio: retry ? old.initialAudio : nil, speedScope: old.speedScope, trackMemory: trackMemory, preparedID: prepared, previous: old)
         if !sceneActive { next.suspend() }
         playback = next
         userStateRevision += 1

@@ -74,10 +74,17 @@ import SwiftUI
     private var loadingEngine = false
     private var trackWasPaused = false
     // 下一集预解析（Android prepareEpisode / player.prepareNext）；切到该集时由新控制器以 prepared_id 消费。
-    private var preparedNext: (item: String, request: String)?
+    private var preparedNext: (item: String, request: String, url: URL?)?
     private let preparedID: String?
+    private var warming = false
+    private var warmSend: Task<Void, Never>?
+    private var prewarmWork: Task<Void, Never>?
+    private var handedOver: AetherEngine?
+    // 沿用的引擎在新条目加载完成前，时钟与字幕仍是上一集的。
+    private var adopted = false
+    private var staleClock: Bool { adopted && loading }
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil, previous: PlaybackController? = nil) {
         self.speedScope = speedScope
         self.preparedID = preparedID
         self.trackMemory = trackMemory
@@ -85,7 +92,10 @@ import SwiftUI
         initialAudio = audio; initialSubtitle = subtitle
         self.api = api; self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
         do {
-            let player = try AetherEngine()
+            // 换集沿用上一集的引擎，旧画面保留到新条目接管，避免切换黑屏。
+            let reused = previous?.takeEngine()
+            adopted = reused != nil
+            let player = try reused ?? AetherEngine()
             player.deactivatesAudioSessionOnStop = true
             engine = player
             player.objectWillChange.sink { [weak self] in self?.objectWillChange.send() }.store(in: &subscriptions)
@@ -96,13 +106,13 @@ import SwiftUI
                 Task { @MainActor in self?.applyTrackPreferences() }
             }.store(in: &subscriptions)
             player.clock.$currentTime.sink { [weak self] value in
-                guard let self else { return }
+                guard let self, !self.staleClock else { return }
                 if value.isFinite && value >= 0 && abs(self.position - value) >= 1 { self.position = value }
-                Task { @MainActor in self.updateSkip(); self.prepareNextIfNeeded() }
+                Task { @MainActor in self.updateSkip(); self.prepareNextIfNeeded(); self.updateWarm() }
             }.store(in: &subscriptions)
             player.clock.$bufferedPosition.sink { [weak self] value in
                 guard let self, value.isFinite, value >= 0 else { return }
-                if value == 0 || abs(self.bufferedPosition - value) >= 1 { self.bufferedPosition = value }
+                if value == 0 || abs(self.bufferedPosition - value) >= 1 { self.bufferedPosition = value; Task { @MainActor in self.updateWarm() } }
             }.store(in: &subscriptions)
             player.clock.$sourceTime.sink { [weak self] time in self?.refreshSubtitles(at: time) }.store(in: &subscriptions)
             player.$subtitleCues.sink { [weak self] _ in
@@ -116,7 +126,8 @@ import SwiftUI
                         if state == .playing { self.engine?.pause() }
                     }
                     if case .error = state { self.failure = "播放失败，请重试或返回。" }
-                    if state == .ended {
+                    // 沿用的引擎在新条目加载前仍带着上一集的结束状态。
+                    if state == .ended && !self.loading {
                         let duration = self.engine?.duration ?? 0
                         let position = max(self.position, self.engine?.currentTime ?? 0)
                         if duration.isFinite && duration > 0 && position > 0 && position >= duration - 5 {
@@ -587,7 +598,7 @@ import SwiftUI
     }
 
     private func refreshSubtitles(at time: Double? = nil) {
-        guard !closing, let engine else { subtitleText = ""; return }
+        guard !closing, !staleClock, let engine else { subtitleText = ""; return }
         let now = time ?? engine.sourceTime
         let text = engine.subtitleCues.filter { $0.startTime <= now && now < $0.endTime }.compactMap(\.text).joined(separator: "\n")
         if subtitleText != text { subtitleText = text }
@@ -619,9 +630,38 @@ import SwiftUI
               engine.currentTime >= max(0, engine.duration - 60), let next = nextEpisode, preparedNext?.item != next.id else { return }
         cancelPreparedNext()
         let request = UUID().uuidString
-        preparedNext = (next.id, request)
-        Task { _ = try? await api.request("player.prepareNext", ["item_id": .string(next.id), "request_id": .string(request)]) }
+        preparedNext = (next.id, request, nil)
+        Task {
+            let result = try? await api.request("player.prepareNext", ["item_id": .string(next.id), "request_id": .string(request)])
+            guard preparedNext?.request == request, result?["request_id"].string == request,
+                  let url = result?["play_url"].string.flatMap({ URL(string: $0) }) else { return }
+            preparedNext?.url = url
+            updateWarm()
+        }
     }
+
+    // 与 Android nextPreloadAllowed 一致：缓冲余量按倍速折算够 30 秒才开始预热，预热中降到 10 秒才停。
+    private func updateWarm() {
+        guard let prepared = preparedNext, let url = prepared.url, let engine else { return }
+        let rate = Double(holdRate ?? speed), pos = engine.currentTime, duration = engine.duration, buffered = bufferedPosition
+        var allow = !loading && !closing && !engine.isBuffering && rate > 0 && pos.isFinite && duration.isFinite && buffered.isFinite
+            && pos >= max(0, duration - 60) && duration > pos && buffered > pos
+        if allow && buffered < duration - 1 { allow = (buffered - pos) / rate >= (warming ? 10 : 30) }
+        guard allow != warming else { return }
+        warming = allow
+        // 核心预热拉取下一集源数据，引擎预读核心准备代理的开头；起播消费 prepared_id 时核心返回同一代理地址。
+        prewarmWork?.cancel(); prewarmWork = nil
+        if allow && !AetherEngine.isPrewarmed(url: url) {
+            prewarmWork = Task.detached { _ = await AetherEngine.prewarm(url: url) }
+        }
+        // 串行发送启停，避免慢的开始响应越过后来的暂停。
+        let previous = warmSend
+        warmSend = Task {
+            await previous?.value
+            _ = try? await api.request("player.warmPrepared", ["request_id": .string(prepared.request), "enabled": .bool(allow)])
+        }
+    }
+
     func takePrepared(for target: String) -> String? {
         guard let prepared = preparedNext, prepared.item == target else { return nil }
         preparedNext = nil
@@ -629,16 +669,29 @@ import SwiftUI
     }
     private func cancelPreparedNext() {
         guard let request = preparedNext?.request else { return }
-        preparedNext = nil
+        preparedNext = nil; warming = false
+        prewarmWork?.cancel(); prewarmWork = nil
+        AetherEngine.discardPrewarmedSources()
         Task { _ = try? await api.request("player.cancelPrepared", ["request_id": .string(request)]) }
     }
 
-    func close() async {
+    // 换集接管：新控制器取走上一集保留的引擎；未被接管时由 releaseEngine 停止。
+    fileprivate func takeEngine() -> AetherEngine? {
+        defer { handedOver = nil }
+        return handedOver
+    }
+    func releaseEngine() {
+        takeEngine()?.stop()
+    }
+
+    /// handOver 为 true 且本集未失败时保留引擎与当前画面，交给下一集的控制器接管。
+    func close(handOver: Bool = false) async {
         if let closeWork { await closeWork.value; return }
         closing = true
+        let keepEngine = handOver && failure == nil
         cancelPreparedNext()
         audioPreferenceWork?.cancel(); subtitlePreferenceWork?.cancel()
-        let lastPosition = engine?.currentTime ?? position
+        let lastPosition = staleClock ? position : engine?.currentTime ?? position
         engine?.pause(); ticker?.cancel(); trackWork?.cancel(); queueWork?.cancel(); versionWork?.cancel(); skipWork?.cancel(); skipSeekWork?.cancel()
         // 核心起播先收齐结果再停；引擎加载则有公开取消处理，可直接中断网络探测。
         if loadingEngine { startWork?.cancel() }
@@ -649,8 +702,12 @@ import SwiftUI
             await markerWork?.value
             await subtitleStyleWork?.value
             await danmaku.close()
-            let pos = max(lastPosition, engine?.currentTime ?? 0)
-            engine?.stop(); subtitleText = ""
+            let pos = staleClock ? lastPosition : max(lastPosition, engine?.currentTime ?? 0)
+            if keepEngine, let engine {
+                // 下一次 load 原位替换条目，期间旧画面不撤；不调用 stop，否则会取消这次接管。
+                engine.clearSubtitle(); engine.prepareForItemReplacement(); handedOver = engine
+            } else { engine?.stop() }
+            subtitleText = ""
             await reportWork?.value
             if resolved {
                 do {
