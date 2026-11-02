@@ -988,3 +988,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 168: tvOS 下一集预热与换集无黑屏衔接
+<!-- trellis-session: v=2 fp=d1e2cfa65837d96e -->
+
+**Date**: 2026-11-02
+**Task**: tvOS 下一集预热与换集无黑屏衔接
+**Branch**: `feat/tvos-next-episode-warm`
+
+### Summary
+
+接入 player.warmPrepared 与 AetherEngine.prewarm；换集沿用引擎并 prepareForItemReplacement；隔离沿用引擎的旧状态；仅静态检查，Swift 类型检查与真机待 Mac 验证
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `0f662d1e` | feat(tvOS): 下一集预热与换集无黑屏衔接 |
+
+### Status
+
+[OK] **Completed**
