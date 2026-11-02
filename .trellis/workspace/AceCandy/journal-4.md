@@ -944,3 +944,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 
 - Apple 环境运行 fetch-tvos --verify、build-core-tvos、check-tvos-ui、check-tvos
 - 真机确认顶栏单击返回回主屏、内容焦点回顶栏、私密空间退出、手机伴侣返回与完播切集
+
+
+## Session 166: tvOS 补齐 Android TV 剩余缺口
+<!-- trellis-session: v=2 fp=f915c9a92bd51745 -->
+
+**Date**: 2026-11-02
+**Task**: tvOS 补齐 Android TV 剩余缺口
+**Branch**: `feat/tvos-atv-gap-closure`
+
+### Summary
+
+按 A/B/C 顺序补齐 15 项缺口并加长按确认临时倍速；视频引擎上限 2×；未做本地图片图标；未经 Mac 类型检查与真机验证。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `736f3615` | feat(tvOS): 补齐 Android TV 剩余功能与界面缺口 |
+
+### Status
+
+[OK] **Completed**
