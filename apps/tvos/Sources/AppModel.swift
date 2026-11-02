@@ -30,6 +30,7 @@ import SwiftUI
     @Published var pendingItem: MediaItem?
     @Published var liuying: TVLiuYingSession?
     @Published var playback: PlaybackController?
+    let trackMemory = SessionTrackMemory()
     let remoteFocus = TVRemoteFocus()
     let images: ImageLoader
 
@@ -212,7 +213,8 @@ import SwiftUI
     func openPlayer(item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, origin: String? = nil, speedScope: String = "normal") {
         guard playback == nil, let api else { return }
         playbackOrigin = origin ?? item
-        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle, audio: audio, speedScope: speedScope)
+        trackMemory.clear()
+        playback = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, subtitle: subtitle, audio: audio, speedScope: speedScope, trackMemory: trackMemory)
     }
 
     func switchPlayer(item: String, title: String, version: String? = nil, fromStart: Bool = false) async {
@@ -220,7 +222,12 @@ import SwiftUI
         switchingPlayback = true; defer { switchingPlayback = false }
         await old.close()
         guard playback === old, !exitingPlayback else { return }
-        let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart, speedScope: old.speedScope)
+        // 切换版本时旧轨道身份不再可信。
+        if version != nil && item == old.item && version != old.version { trackMemory.clear() }
+        // 同条目同版本重试时保留详情页显式预选的轨道。
+        let retry = item == old.item && version == old.version
+        let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart,
+            subtitle: retry ? old.initialSubtitle : nil, audio: retry ? old.initialAudio : nil, speedScope: old.speedScope, trackMemory: trackMemory)
         if !sceneActive { next.suspend() }
         playback = next
         userStateRevision += 1
@@ -233,6 +240,7 @@ import SwiftUI
         }
         exitingPlayback = true
         defer { exitingPlayback = false }
+        trackMemory.clear()
         let wasLiuYing = liuying != nil
         await liuying?.stop(); liuying = nil
         await player.close()

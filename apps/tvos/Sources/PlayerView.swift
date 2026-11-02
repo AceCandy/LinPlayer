@@ -26,6 +26,14 @@ struct PlayerView: View {
     @State private var advancedMarkers = false
     @State private var preview: Double?
     @State private var interaction = 0
+    @State private var flash: Bool?
+    @AppStorage("tvSeekStep") private var seekStep = 10
+    @State private var seekCommit = 0
+    @State private var seekRepeat = 0
+    @State private var lastSeekMove = Date.distantPast
+    @AppStorage("tvHoldSpeed") private var holdSpeed = 3
+    @State private var holdTask: Task<Void, Never>?
+    @State private var holdUsed = false
     @FocusState private var focus: String?
 
     private var episodeLabel: String? {
@@ -47,13 +55,17 @@ struct PlayerView: View {
 #endif
             TVDanmakuOverlay(session: controller.danmaku, position: { controller.engine?.currentTime ?? controller.position }, duration: controller.engine?.duration ?? 0, paused: controller.paused)
                 .ignoresSafeArea()
-            if !controls {
-                Color.clear.contentShape(Rectangle()).focusable().focused($focus, equals: "surface")
-                    .onTapGesture { controller.toggle(); touch() }
+            if !controls && controller.failure == nil {
+                // 确认键按住 600ms 为临时倍速，松开恢复；短按在松手时才切换暂停，与 Android TV 一致。
+                Button { if holdUsed { holdUsed = false } else { togglePlayback() } } label: { Color.clear.contentShape(Rectangle()) }
+                    .buttonStyle(TVPressStyle { holdPressing($0) }).focusEffectDisabled().focused($focus, equals: "surface")
                     .onMoveCommand { _ in showControls() }
+                    .onDisappear { holdPressing(false) }
             }
-            if controller.loading || controller.engine?.isBuffering == true { TVLoading("正在缓冲").frame(maxHeight: .infinity) }
-            if controls {
+            if controller.failure == nil && (controller.loading || controller.engine?.isBuffering == true) { TVLoading("正在缓冲").frame(maxHeight: .infinity) }
+            if let failure = controller.failure, !controller.ended {
+                failurePage(failure)
+            } else if controls {
                 VStack(alignment: .leading, spacing: 0) {
                     Spacer()
                     nextEpisodeCard
@@ -81,6 +93,19 @@ struct PlayerView: View {
                     }.frame(height: 2).allowsHitTesting(false)
                 }
             }
+            if let flash {
+                Image(systemName: flash ? "play.fill" : "pause.fill").font(.system(size: 44))
+                    .frame(width: 120, height: 120).background(.black.opacity(0.6), in: Circle())
+                    .allowsHitTesting(false).task(id: flash) {
+                        do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+                        self.flash = nil
+                    }
+            }
+            if let rate = controller.holdRate {
+                Label(String(format: "%.1f×", rate), systemImage: "forward.fill").font(.system(size: 30, weight: .bold))
+                    .padding(.horizontal, 28).padding(.vertical, 12).background(.black.opacity(0.6), in: Capsule())
+                    .frame(maxHeight: .infinity, alignment: .top).padding(.top, 48).allowsHitTesting(false)
+            }
             VStack { HStack { Spacer(); TimelineView(.periodic(from: .now, by: 30)) { context in
                 Text(context.date, style: .time).font(.system(size: 24)).monospacedDigit().shadow(color: .black, radius: 3)
             }.padding(.trailing, 64).padding(.top, 32) }; Spacer() }.allowsHitTesting(false)
@@ -91,24 +116,28 @@ struct PlayerView: View {
         .foregroundStyle(.white)
         .tint(TVPalette.accent(false, palette: model.colorScheme))
         .interactiveDismissDisabled()
-        .onPlayPauseCommand { controller.toggle(); touch() }
+        .onPlayPauseCommand { togglePlayback() }
         .tvExitCommand {
-            if panel != nil { closePanel() }
+            if controller.failure != nil && !controller.ended { Task { await model.closePlayer() } }
+            else if panel != nil { closePanel() }
             else if preview != nil { preview = nil }
             else if controls { controls = false; focus = "surface" }
             else { Task { await model.closePlayer() } }
         }
         .onMoveCommand { _ in touch() }
-        .onChange(of: focus) { _, _ in touch() }
+        .onChange(of: focus) { _, next in if next != "progress" { preview = nil }; touch() }
         .onChange(of: controller.message) { _, next in if next != nil { showControls() } else { touch() } }
+        .onChange(of: controller.failure) { _, next in
+            if next != nil { panel = nil; panelParent = nil; preview = nil; focus = "retry" }
+        }
         .onAppear {
             model.remotePlayback = { key in
+                if controller.failure != nil && !controller.ended { if key == "ok" { retryPlayback() }; return true }
                 if ["up", "down", "left", "right"].contains(key), !controls { showControls(); return true }
-                if key == "ok", !controls { controller.toggle(); return true }
+                if key == "ok", !controls { togglePlayback(); return true }
                 if key == "menu" { openPanel("more"); return true }
                 if panel == nil, focus == "progress", ["left", "right"].contains(key), controller.canSeek {
-                    preview = min(max(0, (preview ?? controller.position) + (key == "left" ? -10 : 10)), controller.engine?.duration ?? 0)
-                    touch(); return true
+                    movePreview(forward: key == "right"); return true
                 }
                 return false
             }
@@ -121,9 +150,18 @@ struct PlayerView: View {
             if let next = controller.nextEpisode { switchEpisode(next) }
             else { await model.closePlayer() }
         }
-        .task(id: interaction) {
+        // 与 Android TV 一致：最后一次方向键后 700ms 自动提交预览位置。
+        .task(id: seekCommit) {
+            guard seekCommit > 0 else { return }
+            do { try await Task.sleep(for: .milliseconds(700)) } catch { return }
+            guard let value = preview else { return }
+            preview = nil
+            await controller.seek(to: value)
+        }
+        // 暂停时保持控制栏，恢复播放后重新计时。
+        .task(id: "\(interaction):\(controller.paused)") {
             do { try await Task.sleep(for: .seconds(5)) } catch { return }
-            if panel == nil && preview == nil && !controller.loading && controller.engine?.isBuffering != true && !controller.changingTrack && controller.message == nil && !controller.closing {
+            if panel == nil && preview == nil && !controller.paused && !controller.loading && controller.engine?.isBuffering != true && !controller.changingTrack && controller.message == nil && !controller.closing {
                 controls = false; focus = "surface"
             }
         }
@@ -139,6 +177,45 @@ struct PlayerView: View {
     @State private var lastPanel = "subtitles"
     private func showControls() { controls = true; focus = "progress"; touch() }
     private func touch() { interaction += 1 }
+    private func movePreview(forward: Bool) {
+        guard let duration = controller.engine?.duration, duration > 0 else { return }
+        let now = Date()
+        // shortcut: tvOS 方向事件不带重复计数，间隔小于 0.2 秒视为按住；真机重复间隔不同需调整阈值。
+        seekRepeat = now.timeIntervalSince(lastSeekMove) < 0.2 ? seekRepeat + 1 : 0
+        lastSeekMove = now
+        let step = seekRepeat < 3 ? Double(seekStep) : seekRepeat < 10 ? 30 : seekRepeat < 20 ? 60 : 300
+        preview = min(max(0, (preview ?? controller.position) + (forward ? step : -step)), duration)
+        seekCommit += 1; touch()
+    }
+    private func holdPressing(_ pressing: Bool) {
+        holdTask?.cancel(); holdTask = nil
+        guard pressing else { controller.endHoldSpeed(); return }
+        holdUsed = false
+        holdTask = Task {
+            do { try await Task.sleep(for: .milliseconds(600)) } catch { return }
+            holdUsed = true
+            controller.beginHoldSpeed(Float(holdSpeed))
+        }
+    }
+    private func togglePlayback() {
+        let wasPaused = controller.paused
+        if controller.toggle() { flash = wasPaused }
+        touch()
+    }
+    private func retryPlayback() {
+        Task { await model.switchPlayer(item: controller.item, title: controller.title, version: controller.version, fromStart: controller.fromStart) }
+    }
+    private func failurePage(_ reason: String) -> some View {
+        VStack(spacing: 24) {
+            Image(systemName: "exclamationmark.circle").font(.system(size: 72)).foregroundStyle(.orange)
+            Text("这一片没能播起来").font(.title2)
+            if controller.autoRetried { Text("已自动重试 1 次仍然失败").foregroundStyle(.secondary) }
+            Text(reason).foregroundStyle(.secondary).multilineTextAlignment(.center)
+            Button("重试") { retryPlayback() }.buttonStyle(TVActionStyle()).focusEffectDisabled()
+                .disabled(model.switchingPlayback || controller.closing).focused($focus, equals: "retry")
+        }.padding(64).frame(maxWidth: .infinity, maxHeight: .infinity).background(.black.opacity(0.92))
+        .onAppear { focus = "retry" }
+    }
 
     @FocusState private var panelFocus: String?
     private func closePanel() {
@@ -150,6 +227,7 @@ struct PlayerView: View {
         if panel == "more" { panelParent = "more" } else { lastPanel = key; panelParent = nil }
         panel = key
         if key == "markers" { controller.loadMarkers() }
+        if key == "more" { controller.loadSkipPrefs() }
         touch()
     }
     private var nextUp: Bool {
@@ -200,7 +278,7 @@ struct PlayerView: View {
         if controller.canSeek, let duration = controller.engine?.duration, duration > 0 {
             Button {
                 if let value = preview { preview = nil; Task { await controller.seek(to: value) } }
-                else { controller.toggle(); touch() }
+                else { togglePlayback() }
             } label: {
                 VStack(spacing: 16) {
                     if let preview, controller.skipInfo?.thumbs == true,
@@ -244,9 +322,7 @@ struct PlayerView: View {
             }.buttonStyle(TVCardStyle()).focusEffectDisabled().focused($focus, equals: "progress")
                 .onMoveCommand { direction in
                     guard focus == "progress" else { return }
-                    if direction == .left || direction == .right {
-                        preview = min(max(0, (preview ?? controller.position) + (direction == .left ? -10 : 10)), duration); touch()
-                    }
+                    if direction == .left || direction == .right { movePreview(forward: direction == .right) }
                 }
         } else if !controller.loading { Text("当前内容暂不支持定位").font(.caption).foregroundStyle(.secondary) }
     }
@@ -288,15 +364,19 @@ struct PlayerView: View {
                     }
                     if let previous = controller.previousEpisode { Button("上一集") { switchEpisode(previous) } }
                     Button("片头片尾标记") { openPanel("markers") }.focused($panelFocus, equals: "markers")
-                    Toggle("自动跳过片头片尾", isOn: Binding(get: { controller.skipInfo?.skip_auto == true }, set: { controller.setSkipAuto($0) }))
-                        .disabled(controller.markerBusy || controller.skipInfo == nil)
+                    if let enabled = controller.skipIntroEnabled {
+                        Toggle("自动跳过片头", isOn: Binding(get: { enabled }, set: { controller.setSkipPref("skip_intro", $0) })).disabled(controller.markerBusy)
+                    }
+                    if let enabled = controller.skipOutroEnabled {
+                        Toggle("自动跳过片尾", isOn: Binding(get: { enabled }, set: { controller.setSkipPref("skip_outro", $0) })).disabled(controller.markerBusy)
+                    }
                     if let error = controller.markerError { Text(error).foregroundStyle(.orange) }
                     if controller.engine?.mediaChapters.isEmpty == false {
                         Button("章节") { openPanel("chapters") }.focused($panelFocus, equals: "chapters")
                     }
                     Button("媒体信息") { openPanel("info") }.focused($panelFocus, equals: "info")
                     if controller.message != nil && !controller.ended {
-                        Button("重试播放") { Task { await model.switchPlayer(item: controller.item, title: controller.title, version: controller.version, fromStart: controller.fromStart) } }
+                        Button("重试播放") { retryPlayback() }
                     }
                     Button(controller.closing ? "正在保存…" : "退出播放") { Task { await model.closePlayer() } }.disabled(controller.closing)
                 } else if panel == "markers" {
@@ -433,5 +513,12 @@ struct PlayerView: View {
         guard value.isFinite, value >= 0 else { return "--:--" }
         let secs = Int(value)
         return String(format: "%d:%02d:%02d", secs / 3600, (secs / 60) % 60, secs % 60)
+    }
+}
+
+private struct TVPressStyle: ButtonStyle {
+    let onPressing: (Bool) -> Void
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label.onChange(of: configuration.isPressed) { _, pressing in onPressing(pressing) }
     }
 }

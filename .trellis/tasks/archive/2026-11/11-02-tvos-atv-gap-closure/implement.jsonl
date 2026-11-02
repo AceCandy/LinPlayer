@@ -1,0 +1,5 @@
+{"file": ".trellis/spec/frontend/tvos.md", "reason": "tvOS 层约束"}
+{"file": "docs/go-migration/UI_TVOS.md", "reason": "对齐设计正本"}
+{"file": ".trellis/spec/frontend/hook-guidelines.md", "reason": "请求生命周期与旧结果"}
+{"file": ".trellis/spec/frontend/state-management.md", "reason": "设备偏好归属"}
+{"file": ".trellis/spec/shared/development.md", "reason": "开发纪律"}

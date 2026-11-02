@@ -476,6 +476,8 @@ struct CrossServerRow: View {
                 LazyHStack(spacing: 30) {
                     ForEach(items) { item in
                         Button {
+                            // 当前服直接打开；切服会结束播放并重建会话。
+                            if model.account?.server == server { model.pendingItem = item; return }
                             Task {
                                 do { try await model.switchServer(server, opening: item) }
                                 catch { self.error = error.localizedDescription }
@@ -517,7 +519,11 @@ struct AggregateView: View {
                 if loading { TVLoading() }
                 ForEach(servers) { server in
                     VStack(alignment: .leading, spacing: 20) {
-                    TVSectionHeading(server.server_name)
+                    HStack(spacing: 18) {
+                        TVSectionHeading(server.server_name)
+                        if server.active == true { Text("当前").foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
+                        if server.aggregate_primary == true { Text("主服").foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
+                    }
                     if server.counts_known {
                         Text("电影 \(server.counts.movie) · 剧集 \(server.counts.series) · 分集 \(server.counts.episode) · 合集 \(server.counts.boxset)").foregroundStyle(.secondary)
                     }
@@ -581,7 +587,7 @@ struct ServersView: View {
                                     catch { self.error = error.localizedDescription }
                                 }
                             }.disabled(account.active || model.busy || working)
-                            NavigationLink("编辑与线路") { AccountEditor(api: api, account: account) }
+                            NavigationLink("编辑与线路") { AccountEditor(api: api, account: account) { reload += 1 } }
                             Button(account.aggregate == true ? "退出聚合" : "参与聚合") {
                                 mutate("source.setAggregate", ["server_id": .string(account.server), "allow": .bool(account.aggregate != true)])
                             }
@@ -629,8 +635,17 @@ struct AccountEditor: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
     let account: MediaAccount
+    var onSaved: (() -> Void)? = nil
     @State private var name = ""
     @State private var remark = ""
+    @State private var username = ""
+    @State private var password = ""
+    @State private var renaming: Int?
+    @State private var renameText = ""
+    @State private var icons: JSONValue = .null
+    @State private var iconQuery = ""
+    @State private var iconSource = ""
+    @State private var iconURL: String?
     @State private var lines: [MediaLine] = []
     @State private var lineName = ""
     @State private var lineURL = ""
@@ -644,8 +659,13 @@ struct AccountEditor: View {
                 Text("编辑服务器").font(.system(size: 38, weight: .semibold))
                 TVSettingsSection("资料") {
                 TVTextInput("名称", text: $name)
+                TVTextInput("账号", text: $username, contentType: .username)
+                TVTextInput("密码（留空则不改）", text: $password, secure: true, contentType: .password)
                 TVTextInput("备注", text: $remark)
-                Button("保存资料") { perform("account.updateAccount", ["name": .string(name), "remark": .string(remark)]) }
+                Button("保存资料") { saveProfile() }
+                }
+                TVSettingsSection("图标") {
+                    iconPicker
                 }
                 TVSettingsSection("线路") {
                 ForEach(Array(lines.enumerated()), id: \.offset) { index, line in
@@ -659,6 +679,7 @@ struct AccountEditor: View {
                         }
                         Text(probes[index] ?? "").foregroundStyle(.secondary)
                         Spacer()
+                        Button("改名") { renaming = index; renameText = line.name ?? "" }
                         Button("测速") {
                             Task {
                                 do {
@@ -671,6 +692,18 @@ struct AccountEditor: View {
                         Button("删除", role: .destructive) {
                             var revised = lines; revised.remove(at: index); saveLines(revised)
                         }.disabled(lines.count <= 1)
+                    }
+                    if renaming == index {
+                        HStack {
+                            TVTextInput("线路名称", text: $renameText)
+                            // 核心按 url 找回生效线路，整表送回不会切走当前线路。
+                            Button("保存") {
+                                var revised = lines
+                                revised[index] = MediaLine(id: line.id, name: renameText, url: line.url, remark: line.remark)
+                                saveLines(revised)
+                            }
+                            Button("取消") { renaming = nil }
+                        }
                     }
                 }
                 }
@@ -688,7 +721,95 @@ struct AccountEditor: View {
             }.padding(.horizontal, 64).padding(.vertical, 28).disabled(working)
         }.buttonStyle(TVActionStyle()).focusEffectDisabled()
         .toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
-        .task { name = account.name; remark = account.remark ?? ""; lines = account.lines ?? []; activeLine = account.active_line ?? 0 }
+        .task {
+            name = account.name; remark = account.remark ?? ""; username = account.user_name; iconURL = account.icon_url
+            lines = account.lines ?? []; activeLine = account.active_line ?? 0
+            await loadIcons(force: false)
+        }
+        .onDisappear { password = "" }
+    }
+    @ViewBuilder private var iconPicker: some View {
+        let entries = icons["items"].array.filter { iconQuery.isEmpty || ($0["name"].string ?? "").localizedCaseInsensitiveContains(iconQuery) }
+        let sources = icons["sources"].array.compactMap(\.string)
+        let builtin = Int(icons["builtin"].number ?? 0)
+        HStack {
+            RemoteArtwork(url: iconURL, loader: model.images, width: 80, height: 80)
+            Button("恢复默认") { setIcon("") }
+        }
+        TVTextInput("搜索图标名", text: $iconQuery)
+        if icons == .null { TVLoading("正在获取图标库") }
+        else if entries.isEmpty { Text(builtin == 0 && sources.isEmpty ? "还没有任何图标源，可以在下面添加网络源。" : "没有匹配的图标。").foregroundStyle(.secondary) }
+        else {
+            ScrollView(.horizontal) {
+                LazyHStack(spacing: 20) {
+                    ForEach(Array(entries.enumerated()), id: \.offset) { _, entry in
+                        Button { setIcon(entry["url"].string ?? "") } label: {
+                            RemoteArtwork(url: entry["url"].string, loader: model.images, width: 96, height: 96)
+                        }.buttonStyle(TVCardStyle()).accessibilityLabel(entry["name"].string ?? "图标")
+                    }
+                }.padding(.vertical, 12)
+            }
+        }
+        // 内置源地址随构建注入，只报条数不显示地址。
+        Text(builtin > 0 ? "内置图标源 \(builtin) 个" : "这个构建没有内置图标源。").font(.system(size: 22)).foregroundStyle(.secondary)
+        ForEach(sources, id: \.self) { source in
+            HStack {
+                Text(source).font(.system(size: 22)).lineLimit(1)
+                Spacer()
+                Button("移除") { saveIconSources(sources.filter { $0 != source }) }
+            }
+        }
+        HStack {
+            TVTextInput("图标源 JSON 地址", text: $iconSource, contentType: .URL)
+            Button("添加源") {
+                let source = iconSource.trimmingCharacters(in: .whitespacesAndNewlines)
+                guard source.hasPrefix("http://") || source.hasPrefix("https://") else { error = "网络源要以 http:// 或 https:// 开头"; return }
+                saveIconSources(sources + [source])
+            }.disabled(iconSource.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+        }
+    }
+    private func loadIcons(force: Bool) async {
+        do { icons = try await api.request("prefs.iconLibrary", ["force": .bool(force)]) }
+        catch is CancellationError {} catch { self.error = error.localizedDescription }
+    }
+    private func saveIconSources(_ sources: [String]) {
+        guard !working else { return }; working = true
+        Task {
+            defer { working = false }
+            do {
+                _ = try await api.request("prefs.setIconSources", ["sources": .array(sources.map { .string($0) })])
+                iconSource = ""; icons = .null; error = nil
+                await loadIcons(force: true)
+            } catch is CancellationError {} catch { self.error = error.localizedDescription }
+        }
+    }
+    // 先清缓存再写地址，否则旧图标仍命中缓存。
+    private func setIcon(_ url: String) {
+        guard !working else { return }; working = true
+        Task {
+            defer { working = false }
+            do {
+                _ = try await api.request("account.clearAccountIcon", ["server_id": .string(account.server)])
+                _ = try await api.request("account.updateAccount", ["server_id": .string(account.server), "icon_url": .string(url)])
+                iconURL = url.isEmpty ? nil : url; error = nil; onSaved?()
+            } catch is CancellationError {} catch { self.error = error.localizedDescription }
+        }
+    }
+    // 改账号或密码必须在资料保存后走 emby.relogin 换 token，只改字段会留下旧用户的 token。
+    private func saveProfile() {
+        guard !working else { return }; working = true
+        Task {
+            defer { working = false }
+            do {
+                _ = try await api.request("account.updateAccount", ["server_id": .string(account.server), "name": .string(name), "remark": .string(remark)])
+                if !password.isEmpty || username != account.user_name {
+                    _ = try await api.request("emby.relogin", ["server_id": .string(account.server), "username": .string(username), "password": .string(password)])
+                    password = ""
+                    if account.active { try await model.reloadAccounts() }
+                }
+                error = nil; onSaved?()
+            } catch is CancellationError {} catch { self.error = error.localizedDescription }
+        }
     }
     private func saveLines(_ revised: [MediaLine]) {
         let values = revised.map { line -> JSONValue in
@@ -711,7 +832,7 @@ struct AccountEditor: View {
                 let updated = accounts.first { $0.server == account.server }
                 lines = updated?.lines ?? []
                 activeLine = updated?.active_line ?? 0
-                lineURL = ""; lineName = ""; probes = [:]; error = nil
+                lineURL = ""; lineName = ""; probes = [:]; renaming = nil; error = nil; onSaved?()
                 if restore { try await model.reloadAccounts() }
             } catch is CancellationError {} catch { self.error = error.localizedDescription }
         }
@@ -836,6 +957,8 @@ struct SettingsDetailView: View {
     let title: String
     @AppStorage("appearance") private var appearance = "dark"
     @AppStorage("hideLibraryPosters") private var hideLibraryPosters = false
+    @AppStorage("tvSeekStep") private var seekStep = 10
+    @AppStorage("tvHoldSpeed") private var holdSpeed = 3
     @State private var skipIntro = false
     @State private var skipOutro = false
     @State private var skipAuto = false
@@ -872,6 +995,9 @@ struct SettingsDetailView: View {
                         Toggle("跳过片头", isOn: saved($skipIntro) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_intro": .bool(value)])]) })
                         Toggle("跳过片尾", isOn: saved($skipOutro) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_outro": .bool(value)])]) })
                         Toggle("到了就自己跳", isOn: saved($skipAuto) { value in _ = try await api.request("player.setPlaybackPrefs", ["settings": .object(["skip_auto": .bool(value)])]) })
+                        TVChoice(title: "快进步长", selection: $seekStep, options: [5, 10, 15, 30].map { ($0, "\($0) 秒") })
+                        TVChoice(title: "长按倍速", selection: $holdSpeed, options: [2, 3, 4].map { ($0, "\($0)×") })
+                        Text("播放时按住确认键临时加速，松开恢复。视频最高 2×，超出部分按引擎上限播放。")
                         Text("关闭自动跳过时，在播放页显示跳过按钮。")
                     }
                 case .prefetch:
@@ -1029,9 +1155,18 @@ struct DiscoveryEntry: Decodable, Identifiable {
     var image_url: String? = nil
     let rank: Int?
     let rating: Double?
+    var score: Int64? = nil
     let weekday: Int?
     let broadcast_time: String?
     let timezone: String?
+    // 与 Android 一致：番号榜显示番号与战力，不显示评分。
+    private var isJav: Bool { source == "javranking" }
+    var shownRating: Double? { isJav ? nil : rating.flatMap { $0 > 0 ? $0 : nil } }
+    var meta: String? {
+        let text = [subtitle, isJav ? external_id : nil, isJav ? score.map { "战力 \($0)" } : nil]
+            .compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: " · ")
+        return text.isEmpty ? nil : text
+    }
     var explicitTime: String? {
         guard timezone == "Asia/Tokyo", let value = broadcast_time else { return nil }
         let parts = value.split(separator: ":", omittingEmptySubsequences: false)
@@ -1069,44 +1204,7 @@ struct DiscoveryView: View {
         _day = State(initialValue: calendar ? (dates.component(.weekday, from: Date()) + 5) % 7 + 1 : 0)
     }
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 30) {
-                Text(calendar ? "追剧日历" : "排行榜").font(.system(size: 38, weight: .semibold))
-                if calendar { weekBar }
-                else { TVChoice(title: "榜单", selection: $category, options: categories.map { ($0.id, $0.label + ($0.enabled ? "" : " · 未开启")) }) }
-                if let error { RetryMessage(text: error) { reload += 1 } }
-                if let actionError { Text(actionError).foregroundStyle(.orange) }
-                if calendar {
-                    ForEach(Array(Set(visibleRows.map { $0.explicitTime ?? "未提供" })).sorted(), id: \.self) { time in
-                        HStack(alignment: .top, spacing: 24) {
-                            VStack(spacing: 10) {
-                                Text(time).font(.system(size: 24, weight: .semibold)).monospacedDigit()
-                                Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(0.35)).frame(width: 3, height: 130)
-                            }.frame(width: 110)
-                            VStack(spacing: 20) {
-                                ForEach(visibleRows.filter { ($0.explicitTime ?? "未提供") == time }) { entry in discoveryRow(entry) }
-                            }
-                        }
-                    }
-                    if visibleRows.isEmpty && !loading && error == nil { Text("这一天没有放送").foregroundStyle(.secondary) }
-                    Text("周历：日本时区 · 未提供的时间不作推算").font(.system(size: 22)).foregroundStyle(.secondary)
-                } else {
-                    if hasPodium {
-                        HStack(alignment: .bottom, spacing: 32) {
-                            podium(rows[1], place: 2)
-                            podium(rows[0], place: 1)
-                            podium(rows[2], place: 3)
-                        }.padding(.vertical, 20)
-                    }
-                    ForEach(hasPodium ? Array(rows.dropFirst(3)) : rows) { entry in discoveryRow(entry) }
-                }
-                if loading { TVLoading() }
-                else if rows.isEmpty && error == nil { Text("暂无内容").foregroundStyle(.secondary) }
-                if !calendar && !loading && page > 0 && !ended && page < 500 {
-                    Button("加载更多") { requestedPage = page + 1 }
-                }
-            }.padding(.horizontal, 64).padding(.vertical, 28)
-        }.buttonStyle(TVActionStyle()).focusEffectDisabled()
+        Group { if calendar { calendarBody } else { rankingBody } }
         .toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
         .task {
             do {
@@ -1138,13 +1236,97 @@ struct DiscoveryView: View {
                 try Task.checkCancellation()
                 guard generation == request else { return }
                 var seen = Set(prefix.map(\.id)); rows = prefix + list.filter { seen.insert($0.id).inserted }
-                loadedScope = requestedScope; page = target; requestedPage = target; ended = list.isEmpty; error = nil
+                // 与 Android 一致：空页、没有新条目或到达第 500 页时停止续页。
+                loadedScope = requestedScope; page = target; requestedPage = target
+                ended = list.isEmpty || (target > 1 && rows.count == prefix.count) || target >= 500; error = nil
             } catch is CancellationError {} catch {
                 guard generation == request else { return }
                 if invalidatesDisplay(error) { rows = []; page = 0; ended = false }
                 self.error = error.localizedDescription
             }
         }
+    }
+    private var calendarBody: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 30) {
+                Text("追剧日历").font(.system(size: 38, weight: .semibold))
+                weekBar
+                if let error { RetryMessage(text: error) { reload += 1 } }
+                if let actionError { Text(actionError).foregroundStyle(.orange) }
+                ForEach(Array(Set(visibleRows.map { $0.explicitTime ?? "未提供" })).sorted(), id: \.self) { time in
+                    HStack(alignment: .top, spacing: 24) {
+                        VStack(spacing: 10) {
+                            Text(time).font(.system(size: 24, weight: .semibold)).monospacedDigit()
+                            Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(0.35)).frame(width: 3, height: 130)
+                        }.frame(width: 110)
+                        VStack(spacing: 20) {
+                            ForEach(visibleRows.filter { ($0.explicitTime ?? "未提供") == time }) { entry in discoveryRow(entry) }
+                        }
+                    }
+                }
+                if visibleRows.isEmpty && !loading && error == nil { Text("这一天没有放送").foregroundStyle(.secondary) }
+                Text("周历：日本时区 · 未提供的时间不作推算").font(.system(size: 22)).foregroundStyle(.secondary)
+                if loading { TVLoading() }
+                else if rows.isEmpty && error == nil { Text("暂无内容").foregroundStyle(.secondary) }
+            }.padding(.horizontal, 64).padding(.vertical, 28)
+        }.buttonStyle(TVActionStyle()).focusEffectDisabled()
+    }
+    private var rankingSources: [String] { categories.map(\.source).reduce(into: []) { if !$0.contains($1) { $0.append($1) } } }
+    private static func sourceLabel(_ source: String) -> String {
+        switch source {
+        case "tmdb": return "TMDb"
+        case "douban": return "豆瓣"
+        case "bangumi": return "Bangumi"
+        case "hongguo": return "红果"
+        case "huangguoai": return "黄果 AI"
+        case "javranking": return "JavRanking"
+        default: return source.isEmpty ? "其它" : source
+        }
+    }
+    // Android TV 榜单墙：左侧按来源分组目录，右侧前三名大卡及两列紧凑行，靠近末尾自动续页。
+    private var rankingBody: some View {
+        HStack(alignment: .top, spacing: 0) {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    Text("排行榜").font(.system(size: 38, weight: .semibold))
+                    ForEach(rankingSources, id: \.self) { source in
+                        Text(Self.sourceLabel(source)).font(.system(size: 20)).foregroundStyle(.secondary).padding(.top, 14)
+                        ForEach(categories.filter { $0.source == source }) { entry in
+                            Button(entry.label + (entry.enabled ? "" : " · 未开启")) { category = entry.id }
+                                .buttonStyle(TVActionStyle(primary: category == entry.id, compact: true)).focusEffectDisabled()
+                        }
+                    }
+                }.padding(.horizontal, 48).padding(.vertical, 28)
+            }.frame(width: 400).focusSection()
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 24) {
+                    if let selected = categories.first(where: { $0.id == category }) {
+                        Text(Self.sourceLabel(selected.source) + " · " + selected.label).font(.system(size: 26)).foregroundStyle(.secondary)
+                    }
+                    if let error { RetryMessage(text: error) { reload += 1 } }
+                    if let actionError { Text(actionError).foregroundStyle(.orange) }
+                    if hasPodium {
+                        HStack(alignment: .bottom, spacing: 32) {
+                            podium(rows[1], place: 2)
+                            podium(rows[0], place: 1)
+                            podium(rows[2], place: 3)
+                        }.padding(.vertical, 20)
+                    }
+                    LazyVGrid(columns: [GridItem(.flexible(), spacing: 20), GridItem(.flexible())], alignment: .leading, spacing: 20) {
+                        ForEach(rankRest) { entry in
+                            discoveryRow(entry).onAppear { if rankRest.suffix(4).contains(where: { $0.id == entry.id }) { loadMore() } }
+                        }
+                    }
+                    if loading { TVLoading() }
+                    else if rows.isEmpty && error == nil { Text("暂无内容").foregroundStyle(.secondary) }
+                }.padding(.horizontal, 48).padding(.vertical, 28)
+            }.focusSection()
+        }.buttonStyle(TVActionStyle()).focusEffectDisabled()
+    }
+    private var rankRest: [DiscoveryEntry] { hasPodium ? Array(rows.dropFirst(3)) : rows }
+    private func loadMore() {
+        guard !loading, error == nil, !ended, page > 0, scope == loadedScope else { return }
+        requestedPage = page + 1
     }
     private var visibleRows: [DiscoveryEntry] { rows.filter { day == 0 || $0.weekday == day } }
     private var weekBar: some View {
@@ -1176,7 +1358,8 @@ struct DiscoveryView: View {
                 Text(place == 1 ? "冠军" : place == 2 ? "亚军" : "季军").foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme))
                 RemoteArtwork(url: entry.image_url, loader: model.images, width: place == 1 ? 250 : 220, height: place == 1 ? 375 : 330)
                 Text(entry.title).font(.system(size: 26, weight: .semibold)).lineLimit(2)
-                if let score = entry.rating { Text(String(format: "%.1f", score)).foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
+                if let score = entry.shownRating { Text(String(format: "%.1f", score)).foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
+                if let meta = entry.meta { Text(meta).font(.system(size: 22)).foregroundStyle(.secondary).lineLimit(1) }
             }.frame(maxWidth: .infinity).padding(24)
         }.buttonStyle(TVRowStyle()).focusEffectDisabled().disabled(opening || model.busy)
     }
@@ -1187,10 +1370,10 @@ struct DiscoveryView: View {
                 RemoteArtwork(url: entry.image_url, loader: model.images, width: 112, height: 168)
                 VStack(alignment: .leading, spacing: 12) {
                     Text(entry.title).font(.system(size: 26, weight: .medium)).lineLimit(2)
-                    if let subtitle = entry.subtitle, !subtitle.isEmpty { Text(subtitle).font(.system(size: 22)).foregroundStyle(.secondary) }
+                    if let meta = entry.meta { Text(meta).font(.system(size: 22)).foregroundStyle(.secondary).lineLimit(1) }
                 }
                 Spacer()
-                if let rating = entry.rating { Text(String(format: "%.1f", rating)).foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
+                if let rating = entry.shownRating { Text(String(format: "%.1f", rating)).foregroundStyle(TVPalette.accent(model.privateSpace, palette: model.colorScheme)) }
             }.padding(.vertical, 12)
         }.buttonStyle(TVRowStyle()).focusEffectDisabled().background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 14)).disabled(opening || model.busy)
     }

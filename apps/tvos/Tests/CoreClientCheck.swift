@@ -90,7 +90,7 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let rejecting = FakeTransport(); rejecting.rejection = -4
         let rejected = CoreClient(transport: rejecting); rejected.start()
         do { _ = try await rejected.call("reject", [:]); preconditionFailure("接受失败被当作成功") }
-        catch { precondition((error as? CoreFailure)?.code == "E_BUSY") }
+        catch { precondition((error as? CoreFailure)?.code == "E_BUSY" && (error as? CoreFailure)?.retryable == false) }
         await rejected.shutdown()
 
         let malformed = FakeTransport(), bad = CoreClient(transport: malformed); bad.start()
@@ -127,9 +127,9 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let failed = Task { try await api.request("emby.views", snapshot: { snapshots.append($0) }) }
         let last = await transport.sent(3)
         transport.emit("{\"t\":\"partial\",\"seq\":\(last[2].0),\"data\":[5]}")
-        transport.emit("{\"t\":\"result\",\"seq\":\(last[2].0),\"ok\":false,\"err\":{\"code\":\"E_NETWORK\"}}")
+        transport.emit("{\"t\":\"result\",\"seq\":\(last[2].0),\"ok\":false,\"err\":{\"code\":\"E_NETWORK\",\"retryable\":true}}")
         do { _ = try await failed.value; preconditionFailure("缓存命中不得吞掉实时失败") }
-        catch { precondition((error as? CoreFailure)?.code == "E_NETWORK") }
+        catch { precondition((error as? CoreFailure)?.code == "E_NETWORK" && (error as? CoreFailure)?.retryable == true, "核心可重试标记丢失") }
         precondition(snapshots.last == .array([.number(5)]))
         let cancelled = Task { try await api.request("emby.views", snapshot: { snapshots.append($0) }) }
         let cancelledCalls = await transport.sent(4)
@@ -350,6 +350,9 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         precondition(!PlaybackSkip.nextUp(at: 89, duration: 100, outro: nil))
         precondition(PlaybackSkip.nextUp(at: 90, duration: 100, outro: nil))
         precondition(!PlaybackSkip.nextUp(at: .nan, duration: 100, outro: nil))
+        let overviews = try json(#"[{"server_id":"a","server_name":"A","active":true,"line_url":"https://a.invalid","aggregate_primary":true,"counts":{"movie":1,"series":2,"episode":3,"boxset":0},"counts_known":true,"resume":[]},{"server_id":"b","server_name":"B","active":false,"line_url":"","counts":{"movie":0,"series":0,"episode":0,"boxset":0},"counts_known":false,"resume":[]}]"#).decode([ServerOverview].self)
+        precondition(overviews[0].active == true && overviews[0].aggregate_primary == true, "聚合当前服与主服标记丢失")
+        precondition(overviews[1].active == false && overviews[1].aggregate_primary == nil, "未设主服时核心省略字段")
         precondition(!PlaybackSkip.nextUp(at: 100, duration: 0, outro: nil))
         precondition(!PlaybackSkip.nextUp(at: 98, duration: 100, outro: .init(start: 70, end: 90)), "片尾后内容被自动下一集截断")
         precondition(PlaybackSkip.nextUp(at: 70, duration: 100, outro: .init(start: 70, end: 100)))
@@ -379,6 +382,17 @@ final class FakeTransport: CoreTransport, @unchecked Sendable {
         let audioStream = try json(#"{"index":2,"type_":"Audio","codec":"aac","title":"日语原声","language":"jpn","is_external":false}"#).decode(MediaStream.self)
         let audioTrack = TrackCandidate(id: 9, title: "日语原声", language: "jpn", codec: "aac", external: false, selected: false)
         precondition(TrackPreference.explicit(audioStream, tracks: [audioTrack]) == 9, "音轨预选误用媒体流序号代替引擎ID")
+
+        let remembered = SessionTrackMemory.Identity(title: "简体中文", language: "zh", codec: "SubRip", external: true)
+        precondition(SessionTrackMemory.match(remembered, tracks: [traditional, one]) == 100, "下一集没有按语言归一和格式沿用字幕")
+        precondition(SessionTrackMemory.match(remembered, tracks: [one, two]) == nil, "下一集歧义字幕被猜成首轨")
+        precondition(SessionTrackMemory.match(.init(title: "", language: "und", codec: "aac", external: false), tracks: [audioTrack]) == nil)
+        let memory = SessionTrackMemory(), seriesA = SessionTrackMemory.Scope(server: "s", user: "u", series: "a")
+        memory.record(seriesA, kind: "sub", .off)
+        precondition(memory.choice(seriesA, kind: "sub") == .off)
+        precondition(memory.choice(.init(server: "s", user: "u", series: "b"), kind: "sub") == nil && memory.choice(nil, kind: "sub") == nil)
+        memory.enter(.init(server: "s", user: "u2", series: "a"))
+        precondition(memory.choice(seriesA, kind: "sub") == nil, "换账号后仍沿用旧剧集手选")
 
         let old = api.epoch
         let late = Task { try await api.request("held") }

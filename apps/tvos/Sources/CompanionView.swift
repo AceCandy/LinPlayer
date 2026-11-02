@@ -156,27 +156,67 @@ struct CompanionView: View {
     }
 }
 
+// 登录页常驻扫码块：三种「扫不了」分开说明，状态事件之外每 5 秒补拉一次，随页面取消。
+struct CompanionPairBlock: View {
+    @EnvironmentObject private var model: AppModel
+    var body: some View {
+        let s = model.companionStatus
+        VStack(alignment: .leading, spacing: 14) {
+            if s == .null { ProgressView().frame(width: 320, height: 320) }
+            else if s["enabled"].bool != true { Text("手机遥控已关闭 · 可在「使用手机添加服务器」里打开").foregroundStyle(.secondary) }
+            else if let error = s["error"].string, !error.isEmpty {
+                Text("手机遥控没有启动").font(.headline)
+                Text(error).foregroundStyle(.secondary).lineLimit(4)
+            } else if let url = s["url"].string, !url.isEmpty, let image = CompanionView.qrImage(url) {
+                Image(uiImage: image).interpolation(.none).resizable().frame(width: 320, height: 320).padding(16).background(.white)
+                Text("用手机扫码添加").font(.headline)
+                Text("手机和电视连同一个 Wi-Fi，扫码后在手机上填好提交，电视会自动进入。").foregroundStyle(.secondary).lineLimit(3)
+                Text(url).font(.caption.monospaced()).foregroundStyle(.secondary)
+                Text(s["connected"].bool == true ? "手机已连接" : "等待手机连接").foregroundStyle(.secondary)
+            } else {
+                let port = Int(s["port"].number ?? 0)
+                Text("电视没拿到局域网地址。服务在 \(port) 端口监听，可在手机浏览器访问 http://电视的IP:\(port)").foregroundStyle(.secondary).lineLimit(4)
+                if let ip = s["ip_error"].string, !ip.isEmpty { Text(ip).font(.caption).foregroundStyle(.secondary).lineLimit(2) }
+            }
+        }.frame(width: 420, alignment: .leading).task {
+            if let value = try? await model.companion("companion.start") { model.companionStatus = value }
+            while !Task.isCancelled {
+                do { try await Task.sleep(for: .seconds(5)) } catch { return }
+                if let value = try? await model.companion("companion.status") { model.companionStatus = value }
+            }
+        }
+    }
+}
+
 struct TVAboutView: View {
     let api: MediaAPI
     @State private var update: JSONValue = .null
     @State private var error: String?
     @State private var checking = false
     @State private var channel = "stable"
-    @State private var channelTouched = false
+    @State private var autoCheck = false
+    @State private var proxy = ""
+    @State private var proxies: [String] = []
+    @State private var settingsLoaded = false
+    @State private var saving = false
     var body: some View {
         ScrollView { VStack(alignment: .leading, spacing: 28) {
             TVSectionHeading("关于 LinPlayer")
             Text("版本 " + (Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? ""))
             Text("播放内核：AetherEngine")
             TVChoice(title: "更新渠道", selection: Binding(get: { channel }, set: { value in
-                channelTouched = true
-                checking = true
-                Task {
-                    defer { checking = false }
-                    do { _ = try await api.request("prefs.setUpdateSettings", ["channel": .string(value)]); channel = value; update = .null; error = nil }
-                    catch { self.error = error.localizedDescription }
-                }
-            }), options: [("stable", "稳定版"), ("prerelease", "预发布版")]).disabled(checking)
+                save(["channel": .string(value)]) { channel = value; update = .null }
+            }), options: [("stable", "稳定版"), ("prerelease", "预发布版")]).disabled(saving || !settingsLoaded)
+            Toggle("启动时自动检查更新", isOn: Binding(get: { autoCheck }, set: { value in
+                save(["auto_check": .bool(value)]) { autoCheck = value }
+            })).toggleStyle(TVToggleStyle()).disabled(saving || !settingsLoaded)
+            TVChoice(title: "GitHub 代理（GitHub 连不上时使用）", selection: Binding(get: { proxy }, set: { value in
+                save(["proxy": .string(value)]) { proxy = value }
+            }), options: proxyOptions).disabled(saving || !settingsLoaded)
+            TVTextInput("自定义代理（留空为直连）", text: Binding(get: { proxy }, set: { value in
+                let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+                save(["proxy": .string(trimmed)]) { proxy = trimmed }
+            })).disabled(saving || !settingsLoaded)
             Button(checking ? "正在检查…" : "检查更新") {
                 checking = true
                 Task {
@@ -194,10 +234,29 @@ struct TVAboutView: View {
         }.padding(64) }.buttonStyle(TVActionStyle())
             .task {
                 do {
-                    let value = try await api.request("prefs.getUpdateSettings")["channel"].string ?? "stable"
-                    if !channelTouched { channel = value }
+                    let value = try await api.request("prefs.getUpdateSettings")
+                    channel = value["channel"].string ?? "stable"
+                    autoCheck = value["auto_check"].bool ?? false
+                    proxy = value["proxy"].string ?? ""
+                    proxies = value["proxies"].array.compactMap(\.string)
+                    settingsLoaded = true
                 } catch { self.error = error.localizedDescription }
             }
+    }
+    private var proxyOptions: [(String, String)] {
+        let label = { (url: String) in url.components(separatedBy: "://").last.map { $0.hasSuffix("/") ? String($0.dropLast()) : $0 } ?? url }
+        var values = [("", "直连")] + proxies.filter { !$0.isEmpty }.map { ($0, label($0)) }
+        if !proxy.isEmpty && !values.contains(where: { $0.0 == proxy }) { values.append((proxy, label(proxy))) }
+        return values
+    }
+    // 只写入改动字段，核心按「传了才改」合并；成功后才更新界面。
+    private func save(_ args: [String: JSONValue], applied: @escaping () -> Void) {
+        saving = true
+        Task {
+            defer { saving = false }
+            do { _ = try await api.request("prefs.setUpdateSettings", args); applied(); error = nil }
+            catch { self.error = error.localizedDescription }
+        }
     }
 }
 
