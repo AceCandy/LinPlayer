@@ -8,8 +8,8 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 168
-- **Last Active**: 2026-11-02
+- **Total Sessions**: 169
+- **Last Active**: 2026-11-03
 <!-- @@@/auto:current-status -->
 
 ---
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~1012 | Active |
+| `journal-4.md` | ~1034 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 169 | 2026-11-03 | tvOS 对齐 Android TV 页面样式 | `d9e20e39` | `main` |
 | 168 | 2026-11-02 | tvOS 下一集预热与换集无黑屏衔接 | `0f662d1e` | `feat/tvos-next-episode-warm` |
 | 167 | 2026-11-02 | tvOS 对齐 Android TV 低优先级差异 | `1bfef8d7` | `feat/tvos-atv-gap-closure-2` |
 | 166 | 2026-11-02 | tvOS 补齐 Android TV 剩余缺口 | `736f3615` | `feat/tvos-atv-gap-closure` |

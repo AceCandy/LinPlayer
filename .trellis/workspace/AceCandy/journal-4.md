@@ -1010,3 +1010,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 169: tvOS 对齐 Android TV 页面样式
+<!-- trellis-session: v=2 fp=f1aee6540040d3c0 -->
+
+**Date**: 2026-11-03
+**Task**: tvOS 对齐 Android TV 页面样式
+**Branch**: `main`
+
+### Summary
+
+按 Android TV 当前页面结构对齐 tvOS 顶栏、首页 Hero 与横轨、一级页标题和聚合背景、详情沉浸顶栏、横轨焦点边界及播放侧面板；完成静态检查并提交 d9e20e39。Linux 缺少 Xcode/tvOS SDK，未做 Apple TV 截图与真机遥控验收。
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `d9e20e39` | feat(tvOS): 对齐 Android TV 页面样式与焦点 |
+
+### Status
+
+[OK] **Completed**
