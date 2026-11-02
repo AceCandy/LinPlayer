@@ -4,6 +4,7 @@ import SwiftUI
     struct Target {
         let rect: CGRect
         let probe: UIView
+        let row: UUID?
         let focus: () -> Void
         let activate: () -> Void
         let back: () -> Bool
@@ -45,7 +46,10 @@ import SwiftUI
         guard let focused, let current = visible[focused] else { return false }
         if key == "ok" { current.activate(); return true }
         guard ["up", "down", "left", "right"].contains(key) else { return false }
-        let frames = visible.filter { $0.key != focused }.map { id, target in
+        let candidates = (key == "left" || key == "right") && current.row != nil
+            ? visible.filter { $0.key != focused && $0.value.row == current.row }
+            : visible.filter { $0.key != focused }
+        let frames = candidates.map { id, target in
             TVRemoteFrame(id: id, x: target.rect.midX, y: target.rect.midY)
         }
         guard let id = TVRemoteFrame.next(key, x: current.rect.midX, y: current.rect.midY, candidates: frames), let target = visible[id] else { return false }
@@ -73,6 +77,7 @@ struct TVRemoteButton<Content: View>: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.isPresented) private var presented
     @Environment(\.tvPageActive) private var active
+    @Environment(\.tvFocusRow) private var focusRow
     @FocusState private var focused: Bool
     @State private var id = UUID()
     @State private var visible = false
@@ -93,14 +98,19 @@ struct TVRemoteButton<Content: View>: View {
     }
     private func register() {
         guard visible, enabled, active, let probe else { model.remoteFocus.remove(id); return }
-        model.remoteFocus.targets[id] = .init(rect: rect, probe: probe, focus: { focused = true }, activate: action, back: { if presented { dismiss(); return true }; return false })
+        model.remoteFocus.targets[id] = .init(rect: rect, probe: probe, row: focusRow, focus: { focused = true }, activate: action, back: { if presented { dismiss(); return true }; return false })
     }
 }
 
 private struct TVPressedKey: EnvironmentKey { static let defaultValue = false }
 extension EnvironmentValues {
     var tvPressed: Bool { get { self[TVPressedKey.self] } set { self[TVPressedKey.self] = newValue } }
+    var tvFocusRow: UUID? {
+        get { self[TVFocusRowKey.self] }
+        set { self[TVFocusRowKey.self] = newValue }
+    }
 }
+private struct TVFocusRowKey: EnvironmentKey { static let defaultValue: UUID? = nil }
 private struct TVRemoteNativeStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label.environment(\.tvPressed, configuration.isPressed).opacity(configuration.isPressed ? 0.8 : 1)

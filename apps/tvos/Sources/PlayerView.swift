@@ -176,7 +176,9 @@ struct PlayerView: View {
         }
         .overlay(alignment: .trailing) {
             if panel != nil {
-                trackPanel.frame(width: 620).frame(maxHeight: .infinity).background(.black.opacity(0.96))
+                trackPanel.frame(width: 560).frame(maxHeight: .infinity).padding(.vertical, 24)
+                    .background(TVPalette.background(model.privateSpace).opacity(0.96), in: RoundedRectangle(cornerRadius: 14))
+                    .shadow(color: .black.opacity(0.45), radius: 24, x: -8)
                     .task(id: panel) { await Task.yield(); panelFocus = panelReturnFocus ?? selectedPanelKey; panelReturnFocus = nil }
             }
         }

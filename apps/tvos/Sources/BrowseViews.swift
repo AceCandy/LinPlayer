@@ -297,7 +297,7 @@ struct TVSectionHeading: View {
     let title: String
     init(_ title: String) { self.title = title }
     var body: some View {
-        Text(title).font(.system(size: 30, weight: .semibold))
+        Text(title).font(.system(size: 26, weight: .semibold))
     }
 }
 
@@ -351,7 +351,7 @@ struct MediaCard: View {
                         ProgressView(value: min(item.resume_secs / item.runtime_secs, 1)).padding(.horizontal, 2)
                     }
                 }
-                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(focused ? Color.white.opacity(0.95) : TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(currentEpisode || targetEpisode ? 1 : 0), lineWidth: focused ? 3 : 2) }
+                .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(TVPalette.accent(model.privateSpace, palette: model.colorScheme).opacity(currentEpisode || targetEpisode ? 1 : 0), lineWidth: 2) }
                 .shadow(color: .black.opacity(focused ? 0.65 : 0), radius: 24, y: 16)
             if episodeCaption {
                 HStack {
@@ -362,7 +362,7 @@ struct MediaCard: View {
                 Text(item.name).font(.system(size: 26, weight: .medium)).lineLimit(2)
             } else {
                 Text(item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
-                    .font(.system(size: 26, weight: .medium)).lineLimit(1)
+                    .font(.system(size: 22, weight: .medium)).lineLimit(1)
                 if let season = item.season_no, let episode = item.episode_no, item.type_ == "Episode" {
                     Text("S\(season)E\(episode)").font(.system(size: 20)).foregroundStyle(.secondary)
                 } else if let year = item.year, !wide {
@@ -405,8 +405,9 @@ private struct LibraryCard: View {
     let images: ImageLoader
     @Environment(\.isFocused) private var focused
     var body: some View {
-        Poster(id: item.id, enabled: item.has_primary, loader: images, width: 316, height: 178, fit: true, placeholder: item.name)
-            .overlay { RoundedRectangle(cornerRadius: 12).strokeBorder(.primary.opacity(focused ? 0.65 : 0), lineWidth: 2) }
+        Poster(id: item.id, enabled: item.has_primary, loader: images, width: 300, height: 169, fit: true, placeholder: item.name)
+            .scaleEffect(focused ? 1.06 : 1)
+            .shadow(color: .black.opacity(focused ? 0.5 : 0), radius: 18, y: 10)
     }
 }
 
@@ -474,18 +475,18 @@ private struct HomeBanner: View {
                         .accessibilityLabel(item.name)
                 } else {
                     Text(item.type_ == "Episode" ? item.series_name ?? item.name : item.name)
-                        .font(.system(size: 52, weight: .bold)).lineLimit(2)
+                        .font(.system(size: 44, weight: .bold)).lineLimit(2)
                 }
                 HStack(spacing: 18) {
                     if let score = item.ratingText() { Label(score, systemImage: "star.fill").foregroundStyle(.yellow) }
                     if (item.DoubanRating ?? 0) > 0, let score = item.ratingText(douban: true) { Text("豆瓣 " + score).foregroundStyle(.green) }
                     Text(([item.year.map(String.init)].compactMap { $0 } + (item.genres ?? []).prefix(2)).joined(separator: " · "))
                         .foregroundStyle(.white.opacity(0.8))
-                }.font(.system(size: 22)).lineLimit(1)
+                }.font(.system(size: 20)).lineLimit(1)
                 if let overview = overviews[item.id], !overview.isEmpty {
-                    Text(overview).font(.system(size: 22)).foregroundStyle(.white.opacity(0.8)).lineLimit(2).frame(maxWidth: 900, alignment: .leading)
+                    Text(overview).font(.system(size: 20)).foregroundStyle(.white.opacity(0.8)).lineLimit(2).frame(maxWidth: 900, alignment: .leading)
                 }
-            }.padding(.horizontal, 64).padding(.bottom, 58)
+            }.padding(.horizontal, 48).padding(.bottom, 58)
         }.frame(height: height).foregroundStyle(.white).allowsHitTesting(false)
         .task(id: "\(item.id):\(item.has_logo == true):\(model.images.revision)") {
             logo = nil
@@ -567,6 +568,7 @@ struct HomeView: View {
     @State private var configError: String?
     @State private var libraryError: String?
     @State private var reload = 0
+    @State private var libraryFocusRow = UUID()
 
     private struct CandidateRequest: Equatable {
         let items: [MediaItem]
@@ -581,16 +583,16 @@ struct HomeView: View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 28) {
                 Color.clear.frame(height: 0).id("home-top")
-                if !banners.isEmpty { HomeBanner(items: banners, active: active && heroVisible && !scrolling, height: max(560, min(760, geometry.size.height * 0.64))) }
+                if !banners.isEmpty { HomeBanner(items: banners, active: active && heroVisible && !scrolling, height: max(500, min(640, geometry.size.height * 0.60))) }
                 else if bannerResolved { Color.clear.frame(height: 140) }
-                else { RoundedRectangle(cornerRadius: 0).fill(.primary.opacity(0.035)).frame(height: max(560, min(760, geometry.size.height * 0.64))) }
+                else { RoundedRectangle(cornerRadius: 0).fill(.primary.opacity(0.035)).frame(height: max(500, min(640, geometry.size.height * 0.60))) }
                 if let bannerError { RetryMessage(text: bannerError) { reload += 1 } }
                 if let libraryError { RetryMessage(text: libraryError) { reload += 1 } }
                 else if librariesLoaded && libraries.isEmpty && !hideLibraryPosters {
                     VStack(alignment: .leading, spacing: 8) {
                         Text("这个账号下没有媒体库").font(.system(size: 30, weight: .semibold))
                         Text("在服务器上建一个库，或者换一台服务器试试。").foregroundStyle(.secondary)
-                    }.padding(.horizontal, 64)
+                    }.padding(.horizontal, 48)
                 }
                 if !hideLibraryPosters { ScrollView(.horizontal) {
                     LazyHStack(spacing: 20) {
@@ -599,12 +601,12 @@ struct HomeView: View {
                                 LibraryCard(item: library, images: model.images)
                             }.buttonStyle(TVCardStyle()).focusEffectDisabled().accessibilityLabel(library.name)
                         }
-                    }.padding(.horizontal, 64).padding(.vertical, 12)
-                }.onMoveCommand { direction in
+                    }.padding(.horizontal, 48).padding(.vertical, 10)
+                }.environment(\.tvFocusRow, libraryFocusRow).onMoveCommand { direction in
                     if direction == .up { proxy.scrollTo("home-top", anchor: .top); onTop() }
                 } }
                 if !resume.isEmpty {
-                    if !hideLibraryPosters { TVSectionHeading("继续观看").padding(.horizontal, 64) }
+                    if !hideLibraryPosters { TVSectionHeading("继续观看").padding(.horizontal, 48) }
                     MediaRow(items: resume, wide: true, resume: true, onHideResume: canHideResume ? hideResume : nil)
                         .onMoveCommand { direction in
                             if direction == .up && (hideLibraryPosters || libraries.isEmpty) {
@@ -624,6 +626,9 @@ struct HomeView: View {
         }
         .onScrollGeometryChange(for: CGFloat.self) { $0.contentOffset.y + $0.contentInsets.top } action: { _, value in heroVisible = value < 500; onScroll(value) }
         .onScrollPhaseChange { _, phase in scrolling = phase != .idle }
+        .onMoveCommand { direction in
+            if direction == .up { proxy.scrollTo("home-top", anchor: .top); onTop() }
+        }
         .onChange(of: topToken) { _, _ in proxy.scrollTo("home-top", anchor: .top) }
         .onChange(of: refreshToken) { _, _ in
             guard !resumeLoading, !librariesLoading else { return }
@@ -690,6 +695,7 @@ struct MediaRow: View {
     var resume = false
     var onHideResume: ((MediaItem) -> Void)? = nil
     @Environment(\.tvPosterWidth) private var posterWidth
+    @State private var focusRow = UUID()
     var body: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: 20) {
@@ -698,7 +704,8 @@ struct MediaRow: View {
                         .buttonStyle(TVCardStyle()).focusEffectDisabled().id(item.id)
                 }
             }.padding(.horizontal, inset).padding(.vertical, 20)
-        }.frame(height: (wide ? posterWidth * 1.4 * 9 / 16 : posterWidth * 1.5) + 112).focusSection()
+        }.frame(height: (wide ? posterWidth * 1.4 * 9 / 16 : posterWidth * 1.5) + 96)
+            .focusSection().environment(\.tvFocusRow, focusRow)
     }
 }
 
@@ -726,16 +733,16 @@ struct MediaSection: View {
                         .buttonStyle(TVCardStyle()).focusEffectDisabled()
                 } else { TVSectionHeading(title) }
                 Spacer()
-            }.padding(.horizontal, 64)
+            }.padding(.horizontal, 48)
             if let error { RetryMessage(text: error) { reload += 1 } }
             if let items {
-                if items.isEmpty { Text("暂无内容").foregroundStyle(.secondary).padding(.horizontal, 64) }
+                if items.isEmpty { Text("暂无内容").foregroundStyle(.secondary).padding(.horizontal, 48) }
                 else { MediaRow(items: items) }
             } else if error == nil { ScrollView(.horizontal) {
                 HStack(spacing: 20) {
                     ForEach(0..<6) { _ in RoundedRectangle(cornerRadius: 12).fill(.primary.opacity(0.05)).frame(width: posterWidth, height: posterWidth * 1.5) }
-                }.padding(.horizontal, 64)
-            }.frame(height: posterWidth * 1.5 + 112).allowsHitTesting(false).accessibilityLabel("正在加载") }
+                }.padding(.horizontal, 48)
+            }.frame(height: posterWidth * 1.5 + 96).allowsHitTesting(false).accessibilityLabel("正在加载") }
         }
         }
         }
@@ -1037,7 +1044,12 @@ struct DetailView: View {
                     .background {
                         GeometryReader { header in
                             Backdrop(item: artwork, loader: model.images, height: header.size.height, primaryEnabled: presentation?.has_primary, whiteForeground: true)
-                            LinearGradient(colors: [.black.opacity(0.7), .black.opacity(0.2), .clear], startPoint: .leading, endPoint: .trailing)
+                            LinearGradient(stops: [
+                                .init(color: .black.opacity(0.88), location: 0),
+                                .init(color: .black.opacity(0.72), location: 0.32),
+                                .init(color: .black.opacity(0.24), location: 0.58),
+                                .init(color: .clear, location: 0.8)
+                            ], startPoint: .leading, endPoint: .trailing)
                         }
                     }
                 if current.type_ == "Episode", let seasonID = current.season_id ?? detail?.season_id, !seasonID.isEmpty {

@@ -83,6 +83,7 @@ struct ProductRoot: View {
     @State private var homeTop = 0
     @State private var topFocus = ""
     @State private var topFocusRequest = 0
+    @State private var topFocusRow = UUID()
     init(api: MediaAPI, initialTab: String = "home") {
         self.api = api
         _tab = State(initialValue: initialTab)
@@ -96,13 +97,13 @@ struct ProductRoot: View {
                 ZStack {
                     // 栏目按需创建，保留已访问页面的筛选、滚动和焦点状态。
                     ForEach(tabs.filter { visited.contains($0) }, id: \.self) { key in
-                        page(key).padding(.top, key == "home" ? 0 : 140).opacity(tab == key ? 1 : 0).disabled(tab != key)
+                        page(key).padding(.top, key == "home" ? 0 : 96).opacity(tab == key ? 1 : 0).disabled(tab != key)
                             .allowsHitTesting(tab == key).accessibilityHidden(tab != key)
                             .environment(\.tvPageActive, tab == key && path.isEmpty && model.playback == nil)
                     }
                 }.frame(maxWidth: .infinity, maxHeight: .infinity).focusSection()
-                HStack(spacing: 16) {
-                    TVNavigationButton(title: model.account?.name ?? "服务器", icon: "chevron.down", selected: tab == "servers", width: 300, selectOnFocus: false,
+                if path.isEmpty { HStack(spacing: 16) {
+                    TVNavigationButton(title: model.account?.name ?? "服务器", icon: "chevron.down", selected: tab == "servers", server: true, width: 180, selectOnFocus: false,
                                        requestFocus: topFocusRequest, focusKey: "servers", focusRequestKey: topFocus,
                                        focusChanged: { focused in
                                            if focused { topFocus = "servers" }
@@ -157,14 +158,15 @@ struct ProductRoot: View {
                                            }) { select("settings") }
                     }
                 }
-                .padding(.horizontal, 64).frame(height: 112).padding(.top, 28)
+                .padding(.horizontal, 48).frame(height: 72).padding(.top, 20)
                 .background {
                     LinearGradient(stops: [
-                        .init(color: TVPalette.background(model.privateSpace).opacity(0.92), location: 0),
-                        .init(color: TVPalette.background(model.privateSpace).opacity(0.92), location: 0.8),
+                        .init(color: TVPalette.background(model.privateSpace).opacity(0.34), location: 0),
+                        .init(color: TVPalette.background(model.privateSpace).opacity(0.16), location: 0.65),
                         .init(color: TVPalette.background(model.privateSpace).opacity(0), location: 1)
                     ], startPoint: .top, endPoint: .bottom)
-                }.focusSection().offset(y: tab == "home" ? -min(140, max(0, homeOffset)) : 0)
+                }.focusSection().environment(\.tvFocusRow, topFocusRow)
+                    .offset(y: tab == "home" ? -min(92, max(0, homeOffset)) : 0) }
             }.ignoresSafeArea(.container)
             .navigationDestination(for: MediaItem.self) { item in
                 if item.type_ == "Person" { PersonView(api: api, item: item) }
@@ -225,6 +227,7 @@ private struct TVNavigationButton: View {
     var icon: String? = nil
     var iconOnly = false
     let selected: Bool
+    var server = false
     var width: CGFloat = 132
     var selectOnFocus = true
     var requestFocus = 0
@@ -238,17 +241,17 @@ private struct TVNavigationButton: View {
         Button(action: action) {
             HStack(spacing: 14) {
                 if !iconOnly { Text(title).lineLimit(1) }
-                if let icon { Image(systemName: icon).font(.system(size: iconOnly ? 28 : 18)) }
+                if let icon { Image(systemName: icon).font(.system(size: iconOnly ? 20 : 16)) }
             }
-            .font(.system(size: 26, weight: selected ? .semibold : .medium))
-            .foregroundStyle(TVPalette.foreground(model.privateSpace).opacity(selected || focused ? 1 : 0.62))
-            .frame(width: width, height: 68)
-            .background(focused ? TVPalette.foreground(model.privateSpace).opacity(0.10) : .clear, in: Capsule())
+            .font(.system(size: 22, weight: selected ? .semibold : .medium))
+            .foregroundStyle(server && focused ? TVPalette.background(model.privateSpace) : TVPalette.foreground(model.privateSpace).opacity(selected || focused ? 1 : 0.62))
+            .frame(width: width, height: 40)
+            .background(focused ? TVPalette.foreground(model.privateSpace).opacity(server ? 1 : 0.10) : .clear, in: Capsule())
             .shadow(color: .black.opacity(focused ? 0.25 : 0), radius: 12, y: 6)
-            .scaleEffect(focused ? 1.06 : 1)
+            .scaleEffect(focused ? 1.04 : 1)
             .animation(.easeOut(duration: 0.16), value: focused)
             .overlay(alignment: .bottom) {
-                if selected { Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme)).frame(width: 26, height: 4).padding(.bottom, 5) }
+                if selected && !server { Capsule().fill(TVPalette.accent(model.privateSpace, palette: model.colorScheme)).frame(width: 14, height: 2).padding(.bottom, 3) }
             }
         }.buttonStyle(TVCardStyle()).focused($focused).focusEffectDisabled()
             .onChange(of: focused) { _, value in
@@ -418,7 +421,7 @@ struct FavoritesView: View {
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 28) {
-                Text(title).font(.system(size: 38, weight: .semibold))
+                if groupID != nil { Text(title).font(.system(size: 30, weight: .semibold)) }
                 if groupID != nil {
                     LazyVGrid(columns: [GridItem(.adaptive(minimum: groupID == "type:Episode" ? posterWidth * 1.4 : posterWidth), spacing: 20)], alignment: .leading, spacing: 40) {
                         ForEach(visible) { item in
@@ -521,7 +524,6 @@ struct AggregateView: View {
         } else {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 36) {
-                Text("聚合视界").font(.system(size: 38, weight: .semibold))
                 HStack(spacing: 30) {
                     NavigationLink("排行榜") { DiscoveryView(api: api, calendar: false) }
                     NavigationLink("追剧日历") { DiscoveryView(api: api, calendar: true) }
@@ -541,7 +543,7 @@ struct AggregateView: View {
                     if let error = server.counts_error { Text(error).foregroundStyle(.orange) }
                     if let error = server.error { Text(error).foregroundStyle(.orange) }
                     CrossServerRow(server: server.server_id, lineURL: server.line_url, items: server.resume ?? [], resume: true)
-                    }.padding(24).background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 22))
+                    }.padding(.vertical, 8)
                 }
                 if !loading && servers.isEmpty && error == nil { Text("暂无参与聚合的服务器").foregroundStyle(.secondary) }
             }.padding(.horizontal, 64).padding(.vertical, 28)
@@ -570,7 +572,7 @@ struct ServersView: View {
     var body: some View {
         ScrollView {
             LazyVStack(alignment: .leading, spacing: 30) {
-                HStack { Text("服务器").font(.system(size: 38, weight: .semibold)); Spacer(); Button("添加服务器") { adding = true } }
+                HStack { Spacer(); Button("添加服务器") { adding = true } }
                 if let error { RetryMessage(text: error) { reload += 1 } }
                 ForEach(accounts, id: \.server) { account in
                     VStack(alignment: .leading, spacing: 20) {
@@ -917,7 +919,7 @@ struct SettingsView: View {
                         Button(title) { group = title }.focused($focusedGroup, equals: title)
                     }
                 }
-            }.frame(width: 360).focusSection()
+            }.frame(width: 220).focusSection()
                 .onChange(of: focusedGroup) { _, value in if let value { group = value } }
             ScrollView {
             VStack(alignment: .leading, spacing: 30) {
