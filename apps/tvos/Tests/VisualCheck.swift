@@ -73,7 +73,7 @@ struct VideoSurface: View {
     func setSkipPref(_ key: String, _ value: Bool) {}
     func retrySkip() {}
     func skip(_ range: PlaybackSkip.Range) {}
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), showSkip: Bool = false) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil, showSkip: Bool = false) {
         self.speedScope = speedScope
         initialSubtitle = subtitle; initialAudio = audio
         danmaku = TVDanmakuSession(api: api, item: item)
@@ -91,6 +91,8 @@ struct VideoSurface: View {
     func loadQueue() {}
     func loadVersions() {}
     func setSpeed(_ rate: Float) -> Bool { true }
+    var mediaInfo: [(String, String)] { [("播放内核", "AetherEngine")] }
+    func takePrepared(for target: String) -> String? { nil }
     @Published var holdRate: Float?
     func beginHoldSpeed(_ rate: Float) {}
     func endHoldSpeed() {}

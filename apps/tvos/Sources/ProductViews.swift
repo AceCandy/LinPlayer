@@ -116,7 +116,10 @@ struct ProductRoot: View {
                             Button("进入隐私空间") {
                                 Task {
                                     do { try await model.changePrivateSpace(true); select("home") }
-                                    catch { model.notice = error.localizedDescription }
+                                    catch {
+                                        model.notice = (error as? CoreFailure)?.code == "E_UNSUPPORTED"
+                                            ? "当前服务器未提供成人库分类，无法进入隐私空间" : error.localizedDescription
+                                    }
                                 }
                             }
                         }
@@ -263,8 +266,8 @@ private struct TVNavigationButton: View {
 struct SearchView: View {
     @EnvironmentObject private var model: AppModel
     let api: MediaAPI
-    var parent: String? = nil
     @State private var query = ""
+    // 聚合搜索只在提交或打开聚合时执行（Android aggQuery）；单服按关键词防抖自动搜索。
     @State private var submitted = ""
     @State private var aggregate = false
     @State private var type = "Movie"
@@ -283,14 +286,12 @@ struct SearchView: View {
             HStack(alignment: .top, spacing: 36) {
                 ScrollView { VStack(alignment: .leading, spacing: 24) {
                 VStack(alignment: .leading, spacing: 24) {
-                    TVTextInput("片名、剧名或人物", text: $query, onSubmit: submit)
-                    Button("搜索") { submit() }.buttonStyle(TVActionStyle(primary: true))
-                        .disabled(query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    TVTextInput("搜片名、剧名或演员", text: $query, onSubmit: submit)
                 }
                 ScrollView(.horizontal) {
                     HStack(spacing: 16) {
-                        if !model.privateSpace && parent == nil {
-                            Button(aggregate ? "聚合搜索" : "当前服务器") { aggregate.toggle() }
+                        if !model.privateSpace {
+                            Button(aggregate ? "聚合搜索" : "当前服务器") { aggregate.toggle(); if aggregate { submit() } }
                                 .buttonStyle(TVActionStyle(primary: aggregate, compact: true))
                         }
                         ForEach([("Movie", "电影"), ("Series", "剧集"), ("Person", "人物")], id: \.0) { value in
@@ -300,11 +301,11 @@ struct SearchView: View {
                     }.padding(.vertical, 4)
                 }
                 if !model.privateSpace && !history.isEmpty {
-                    TVSectionHeading("搜索历史")
+                    TVSectionHeading("最近搜过")
                     ScrollView {
                         VStack(alignment: .leading, spacing: 16) {
                             ForEach(history, id: \.self) { term in
-                                Button(term) { query = term; submit() }.buttonStyle(TVActionStyle(compact: true))
+                                Button(term) { query = term }.buttonStyle(TVActionStyle(compact: true))
                             }
                         }.padding(.vertical, 4)
                     }
@@ -313,7 +314,9 @@ struct SearchView: View {
                 ScrollView { LazyVStack(alignment: .leading, spacing: 30) {
                 if loading { TVLoading("正在搜索") }
                 if let error { RetryMessage(text: error) { reload += 1 } }
-                if !submitted.isEmpty && !loading && error == nil && items.isEmpty && groups.isEmpty { Text("没有找到内容").foregroundStyle(.secondary) }
+                if !searchText.isEmpty && !loading && error == nil && items.isEmpty && groups.isEmpty { Text("没有找到内容").foregroundStyle(.secondary) }
+                if !aggregate && items.count >= 50 { Text("最多显示 50 条，请缩小关键词").font(.system(size: 22)).foregroundStyle(.secondary) }
+                if aggregate && submitted.isEmpty { Text("在所有来源里搜：输入关键词后完成输入，每个来源各占一行。").foregroundStyle(.secondary) }
                 if aggregate {
                     ForEach(groups) { group in
                         TVSectionHeading(group.server_name)
@@ -346,26 +349,32 @@ struct SearchView: View {
             do { accounts = try await api.request("account.listAccounts").decode([MediaAccount].self) }
             catch is CancellationError {} catch { self.error = error.localizedDescription }
         }
-        .task(id: "\(submitted):\(aggregate):\(type):\(reload):\(model.userStateRevision)") {
-            guard !submitted.isEmpty else { return }
+        .task(id: "\(searchText):\(aggregate):\(type):\(reload):\(model.userStateRevision)") {
+            let text = searchText
+            guard !text.isEmpty else { items = []; groups = []; return }
+            if !aggregate { do { try await Task.sleep(for: .milliseconds(250)) } catch { return } }
             let request = UUID(); generation = request
             loading = true; error = nil; items = []; groups = []
             defer { if generation == request { loading = false } }
             do {
-                if aggregate { groups = try await api.aggregateSearch(submitted) { rows in if generation == request { groups = rows } } }
+                if aggregate { groups = try await api.aggregateSearch(text) { rows in if generation == request { groups = rows } } }
                 else {
-                    var args: [String: JSONValue] = ["query": .string(submitted), "limit": .number(100)]
-                    args["types"] = .array([.string(type)])
-                    if let parent { args["parent_id"] = .string(parent) }
-                    items = try await api.request("emby.search", args, snapshot: { value in if generation == request, let cached = try? value.decode([MediaItem].self) { items = cached } }).decode([MediaItem].self)
+                    items = try await api.request("emby.search", ["query": .string(text), "types": .array([.string(type)])], snapshot: { value in
+                        if generation == request, let cached = try? value.decode([MediaItem].self) { items = cached }
+                    }).decode([MediaItem].self)
                 }
-                guard !model.privateSpace else { return }
-                history = Array(([submitted] + history.filter { $0 != submitted }).prefix(10))
-                UserDefaults.standard.set(history, forKey: "searchHistory")
             } catch is CancellationError {} catch { if invalidatesDisplay(error) { items = []; groups = [] }; self.error = error.localizedDescription }
         }
     }
-    private func submit() { submitted = query.trimmingCharacters(in: .whitespacesAndNewlines); reload += 1 }
+    private var searchText: String { aggregate ? submitted : query.trimmingCharacters(in: .whitespacesAndNewlines) }
+    // 历史只在提交时记录（Android recordSearch：去重、最新在前、最多 10 条，隐私空间不记）。
+    private func submit() {
+        let text = query.trimmingCharacters(in: .whitespacesAndNewlines)
+        submitted = text; reload += 1
+        guard !text.isEmpty, !model.privateSpace else { return }
+        history = Array(([text] + history.filter { $0 != text }).prefix(10))
+        UserDefaults.standard.set(history, forKey: "searchHistory")
+    }
 }
 
 struct FavoriteGroup: Identifiable {
@@ -468,6 +477,8 @@ struct CrossServerRow: View {
     let server: String
     let lineURL: String?
     let items: [MediaItem]
+    // 聚合页续播行显示剩余时长、仅当前服可写；搜索结果按来源服写入。
+    var resume = false
     @State private var error: String?
     var body: some View {
         VStack(alignment: .leading) {
@@ -483,7 +494,7 @@ struct CrossServerRow: View {
                                 catch { self.error = error.localizedDescription }
                             }
                         } label: {
-                            MediaCard(item: item, images: model.images, wide: true, imageServer: lineURL ?? "")
+                            MediaCard(item: item, images: model.images, wide: true, imageServer: lineURL ?? "", resume: resume, serverID: resume ? nil : server)
                         }.buttonStyle(TVCardStyle()).focusEffectDisabled().disabled(model.busy)
                     }
                 }.padding(.vertical, 12)
@@ -529,7 +540,7 @@ struct AggregateView: View {
                     }
                     if let error = server.counts_error { Text(error).foregroundStyle(.orange) }
                     if let error = server.error { Text(error).foregroundStyle(.orange) }
-                    CrossServerRow(server: server.server_id, lineURL: server.line_url, items: server.resume ?? [])
+                    CrossServerRow(server: server.server_id, lineURL: server.line_url, items: server.resume ?? [], resume: true)
                     }.padding(24).background(.primary.opacity(0.045), in: RoundedRectangle(cornerRadius: 22))
                 }
                 if !loading && servers.isEmpty && error == nil { Text("暂无参与聚合的服务器").foregroundStyle(.secondary) }
@@ -970,6 +981,7 @@ struct SettingsDetailView: View {
     @State private var progress: PrimaryProgressSettings?
     @State private var accounts: [MediaAccount] = []
     @State private var bytes: Double = 0
+    @State private var dataPaths: JSONValue = .null
     @State private var error: String?
     @State private var message: String?
     @State private var ready = false
@@ -1038,6 +1050,12 @@ struct SettingsDetailView: View {
                             bytes = try await api.request("system.cacheSize")["bytes"].number ?? 0
                         } }
                     }
+                    // tvOS 无文件选择器，不提供 Android 的「导出日志」；其余项与 Android 目录与日志分组一致。
+                    TVSettingsSection("目录与日志") {
+                        Text("数据目录：" + (dataPaths["root"].string ?? "读取失败"))
+                        Text("日志目录：" + (dataPaths["logs"].string ?? "读取失败"))
+                        Button("发送日志给开发者（地址、账号与令牌会先抹掉）") { sendLogs() }
+                    }
                 }
             } else { TVLoading("正在读取设置") }
             if let error { RetryMessage(text: error) { reload += 1 } }
@@ -1071,6 +1089,7 @@ struct SettingsDetailView: View {
                     let values = try await (settingsValue, sizeValue)
                     mediaMiB = try values.0.decode(PrefetchSettings.self).media_cache_bytes / (1024 * 1024)
                     bytes = values.1["bytes"].number ?? 0
+                    dataPaths = (try? await api.request("system.dataPaths")) ?? .null
                 }
                 ready = true; error = nil
             } catch is CancellationError {} catch { self.error = error.localizedDescription }
@@ -1094,6 +1113,25 @@ struct SettingsDetailView: View {
     private func capacityPicker(_ label: String, selection: Binding<Int>, allowOff: Bool) -> some View {
         let values = Array(Set([64, 128, 256, 512, 1024, 2048, 4096] + (allowOff ? [0] : []) + [selection.wrappedValue])).sorted()
         return TVChoice(title: label, selection: selection, options: values.map { ($0, $0 == 0 ? "关闭" : "\($0) MiB") })
+    }
+    // 与 Android Report.feedback 同一命令；tvOS 宿主无本地日志，附核心诊断与核心日志目录内文件，由核心脱敏截断。
+    private func sendLogs() {
+        guard !working else { return }; working = true; message = nil; error = nil
+        Task {
+            defer { working = false }
+            do {
+                var log = "== 诊断 ==\n"
+                if let value = try? await api.request("system.exportDiagnostics"), let data = try? JSONEncoder().encode(value) { log += String(decoding: data, as: UTF8.self) }
+                else { log += "取不到" }
+                if let dir = dataPaths["logs"].string, let names = try? FileManager.default.contentsOfDirectory(atPath: dir) {
+                    for name in names.sorted() where name.hasSuffix(".log") {
+                        if let text = try? String(contentsOfFile: (dir as NSString).appendingPathComponent(name), encoding: .utf8) { log += "\n== \(name) ==\n" + text }
+                    }
+                }
+                _ = try await api.request("system.sendReport", ["kind": .string("feedback"), "crash": .string(""), "log": .string(log), "dry": .bool(false)])
+                message = "已发给开发者，谢谢"
+            } catch is CancellationError {} catch { self.error = error.localizedDescription }
+        }
     }
     private func perform(_ action: @escaping @MainActor () async throws -> Void) {
         guard !working else { return }; working = true; message = nil; error = nil

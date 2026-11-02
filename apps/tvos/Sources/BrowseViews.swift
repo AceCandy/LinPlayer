@@ -69,6 +69,17 @@ struct RootView: View {
             if let session = model.liuying { LiuYingStage(session: session).environmentObject(model) }
             else if let controller = model.playback { PlayerView(controller: controller).environmentObject(model).id(ObjectIdentifier(controller)) }
         }
+        .overlay(alignment: .bottom) {
+            if let toast = model.toast {
+                Text(toast).font(.system(size: 26, weight: .medium)).padding(.horizontal, 32).padding(.vertical, 16)
+                    .background(.black.opacity(0.8), in: Capsule()).foregroundStyle(.white).padding(.bottom, 80)
+                    .allowsHitTesting(false)
+                    .task(id: toast) {
+                        do { try await Task.sleep(for: .seconds(2)) } catch { return }
+                        model.toast = nil
+                    }
+            }
+        }
         .alert("提示", isPresented: Binding(get: { model.notice != nil }, set: { if !$0 { model.notice = nil } })) {
             Button("知道了") { model.notice = nil }
         } message: { Text(model.notice ?? "") }
@@ -298,7 +309,11 @@ struct MediaCard: View {
     var currentEpisode = false
     var targetEpisode = false
     var imageServer: String? = nil
+    // 只有续播行显示剩余时长角标（Android Cards.kt resume）。
+    var resume = false
     var onHideResume: (() -> Void)? = nil
+    // 跨服搜索结果的来源服务器：菜单写入带 server_id。
+    var serverID: String? = nil
     @EnvironmentObject private var model: AppModel
     @Environment(\.isFocused) private var focused
     @Environment(\.tvPosterWidth) private var posterWidth
@@ -317,7 +332,7 @@ struct MediaCard: View {
                     }
                 }
                 .overlay(alignment: .bottomLeading) {
-                    if wide, let time = item.resumeTimeText {
+                    if resume, let time = item.resumeTimeText {
                         Text(time).font(.system(size: 20, weight: .medium)).foregroundStyle(.white)
                             .padding(.horizontal, 10).padding(.vertical, 5)
                             .background(.black.opacity(0.72), in: RoundedRectangle(cornerRadius: 6)).padding(12)
@@ -359,15 +374,14 @@ struct MediaCard: View {
             .offset(y: focused ? -12 : 0)
             .animation(.easeOut(duration: 0.16), value: focused)
             .contextMenu {
-                if imageServer == nil || imageServer == model.api?.session?.server {
-                    if ["Movie", "Series", "Season", "Episode"].contains(item.type_) {
-                        Button(item.played == true ? "标记为未看" : "标记为已看") {
-                            model.setItemState(item.id, played: item.played != true)
-                        }.disabled(model.writingItems.contains(item.id))
-                    }
-                    if ["Movie", "Series", "BoxSet"].contains(item.type_) {
+                if item.type_ != "Person", imageServer == nil || imageServer == model.api?.session?.server || serverID != nil {
+                    Button(item.played == true ? "标为未看" : "标为已看") {
+                        model.setItemState(item.id, played: item.played != true, server: serverID)
+                    }.disabled(model.writingItems.contains(item.id))
+                    // 分集横轨与 Android 分集行一致不提供收藏。
+                    if !episodeCaption {
                         Button(item.is_favorite == true ? "取消收藏" : "收藏") {
-                            model.setItemState(item.id, favorite: item.is_favorite != true)
+                            model.setItemState(item.id, favorite: item.is_favorite != true, server: serverID)
                         }.disabled(model.writingItems.contains(item.id))
                     }
                     if let onHideResume { Button("取消观看记录", action: onHideResume) }
@@ -441,7 +455,14 @@ private struct HomeBanner: View {
     @State private var overviews: [String: String] = [:]
     @State private var progress: CGFloat = 0
     @State private var selected = ""
+    // 播放顺序：到末尾整体重洗，首张与当前相同则与第二张互换（Android HomePage advance）。
+    @State private var order: [String] = []
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    private var ids: [String] {
+        let current = Set(items.map(\.id))
+        let kept = order.filter(current.contains)
+        return kept + items.map(\.id).filter { !kept.contains($0) }
+    }
     private var item: MediaItem { items.first { $0.id == selected } ?? items[0] }
     private var timerIdentity: String { "\(item.id):\(active):\(model.sceneActive):\(reduceMotion):\(items.count):\(model.playback != nil)" }
     var body: some View {
@@ -475,9 +496,10 @@ private struct HomeBanner: View {
         }
         // 列表数据不含简介；当前与下一张一起读取，轮换时文字不再跳动。
         .task(id: item.id) {
-            guard let api = model.api, let index = items.firstIndex(where: { $0.id == item.id }) else { return }
-            let upcoming = items.count > 1 ? [items[(index + 1) % items.count]] : []
-            for entry in [items[index]] + upcoming where overviews[entry.id] == nil {
+            let ids = self.ids
+            guard let api = model.api, let index = ids.firstIndex(of: item.id) else { return }
+            let upcoming = ids.count > 1 ? items.filter { $0.id == ids[(index + 1) % ids.count] } : []
+            for entry in [item] + upcoming where overviews[entry.id] == nil {
                 let value = try? await api.request("emby.itemDetail", ["item_id": .string(entry.series_id ?? entry.id), "with_children": .bool(false)],
                     snapshot: { cached in if let text = cached["overview"].string { overviews[entry.id] = text } })
                 guard !Task.isCancelled else { return }
@@ -486,11 +508,14 @@ private struct HomeBanner: View {
         }
         .overlay(alignment: .bottomTrailing) {
             if items.count > 1 {
+                // 指示点最多 6 个，按顺序位置取模（Android home.hero.indicators）。
+                let count = min(items.count, 6)
+                let active = (ids.firstIndex(of: item.id) ?? 0) % count
                 HStack(spacing: 14) {
-                    ForEach(items) { candidate in
-                        Capsule().fill(.white.opacity(0.25)).frame(width: candidate.id == item.id ? 72 : 32, height: 6)
+                    ForEach(0..<count, id: \.self) { page in
+                        Capsule().fill(.white.opacity(0.25)).frame(width: page == active ? 72 : 32, height: 6)
                             .overlay(alignment: .leading) {
-                                if candidate.id == item.id { Capsule().fill(.white).frame(width: 72 * progress, height: 6) }
+                                if page == active { Capsule().fill(.white).frame(width: 72 * progress, height: 6) }
                             }
                     }
                 }.padding(.trailing, 64).padding(.bottom, 24).accessibilityHidden(true)
@@ -503,8 +528,13 @@ private struct HomeBanner: View {
                 withAnimation(.linear(duration: 5)) { progress = 1 }
                 try await Task.sleep(for: .seconds(5))
                 try Task.checkCancellation()
-                let index = items.firstIndex { $0.id == item.id } ?? 0
-                selected = items[(index + 1) % items.count].id
+                let ids = self.ids
+                let index = ids.firstIndex(of: item.id) ?? 0
+                if index == ids.count - 1 {
+                    var next = ids.shuffled()
+                    if next.first == item.id { next.swapAt(0, 1) }
+                    order = next; selected = next[0]
+                } else { order = ids; selected = ids[index + 1] }
             } catch {}
         }
     }
@@ -556,6 +586,12 @@ struct HomeView: View {
                 else { RoundedRectangle(cornerRadius: 0).fill(.primary.opacity(0.035)).frame(height: max(560, min(760, geometry.size.height * 0.64))) }
                 if let bannerError { RetryMessage(text: bannerError) { reload += 1 } }
                 if let libraryError { RetryMessage(text: libraryError) { reload += 1 } }
+                else if librariesLoaded && libraries.isEmpty && !hideLibraryPosters {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("这个账号下没有媒体库").font(.system(size: 30, weight: .semibold))
+                        Text("在服务器上建一个库，或者换一台服务器试试。").foregroundStyle(.secondary)
+                    }.padding(.horizontal, 64)
+                }
                 if !hideLibraryPosters { ScrollView(.horizontal) {
                     LazyHStack(spacing: 20) {
                         ForEach(libraries) { library in
@@ -569,7 +605,7 @@ struct HomeView: View {
                 } }
                 if !resume.isEmpty {
                     if !hideLibraryPosters { TVSectionHeading("继续观看").padding(.horizontal, 64) }
-                    MediaRow(items: resume, wide: true, onHideResume: canHideResume ? hideResume : nil)
+                    MediaRow(items: resume, wide: true, resume: true, onHideResume: canHideResume ? hideResume : nil)
                         .onMoveCommand { direction in
                             if direction == .up && (hideLibraryPosters || libraries.isEmpty) {
                                 proxy.scrollTo("home-top", anchor: .top); onTop()
@@ -603,7 +639,7 @@ struct HomeView: View {
                 let byID = Dictionary(candidates.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
                 let retained = banners.compactMap { byID[$0.id] }
                 let ids = Set(retained.map(\.id))
-                banners = Array((retained + candidates.filter { !ids.contains($0.id) }).prefix(6))
+                banners = retained + candidates.filter { !ids.contains($0.id) }.shuffled()
                 bannerError = nil; bannerResolved = true
             } catch is CancellationError {} catch { if invalidatesDisplay(error) { banners = [] }; bannerError = error.localizedDescription; bannerResolved = true }
         }
@@ -640,6 +676,7 @@ struct HomeView: View {
             do {
                 _ = try await api.request("emby.hideResume", ["item_id": .string(item.id), "hide": .bool(true)])
                 resume.removeAll { $0.id == item.id }
+                model.toast = "已从继续观看中移除"
             } catch is CancellationError {} catch { model.notice = error.localizedDescription }
         }
     }
@@ -650,13 +687,14 @@ struct MediaRow: View {
     let items: [MediaItem]
     var wide = false
     var inset: CGFloat = 64
+    var resume = false
     var onHideResume: ((MediaItem) -> Void)? = nil
     @Environment(\.tvPosterWidth) private var posterWidth
     var body: some View {
         ScrollView(.horizontal) {
             LazyHStack(alignment: .top, spacing: 20) {
                 ForEach(items) { item in
-                    NavigationLink(value: item) { MediaCard(item: item, images: model.images, wide: wide, onHideResume: onHideResume == nil ? nil : { onHideResume?(item) }) }
+                    NavigationLink(value: item) { MediaCard(item: item, images: model.images, wide: wide, resume: resume, onHideResume: onHideResume == nil ? nil : { onHideResume?(item) }) }
                         .buttonStyle(TVCardStyle()).focusEffectDisabled().id(item.id)
                 }
             }.padding(.horizontal, inset).padding(.vertical, 20)
@@ -770,9 +808,6 @@ struct LibraryView: View {
                     Text(item.name).font(.system(size: 38, weight: .semibold))
                     Text("已加载 \(loaded)" + (more ? "+" : "")).font(.system(size: 22)).foregroundStyle(.secondary)
                 }
-                Spacer()
-                NavigationLink { SearchView(api: api, parent: item.id) } label: { Image(systemName: "magnifyingglass").accessibilityLabel("库内搜索") }
-                    .buttonStyle(TVActionStyle(compact: true)).focusEffectDisabled()
             }.padding(.horizontal, 64)
             ItemGrid(api: api, parent: item.id, episodes: false, query: query, onLoaded: { count, hasMore in loaded = count; more = hasMore })
         }.padding(.top, 28).toolbar(.hidden, for: .navigationBar).ignoresSafeArea(.container, edges: .horizontal)
@@ -911,8 +946,8 @@ struct DetailView: View {
                     }
                     if let shown = presentation {
                         HStack(spacing: 22) {
-                            if let score = artwork.ratingText() { Label(score, systemImage: "star.fill").foregroundStyle(.yellow) }
-                            if let score = artwork.ratingText(douban: true) { Text("豆瓣 " + score).foregroundStyle(.green) }
+                            // Android TV 详情数据行只有普通评分，分集不显示。
+                            if item.type_ != "Episode", let score = artwork.ratingText() { Label(score, systemImage: "star.fill").foregroundStyle(.yellow) }
                             if let date = shown.premiere_date, !date.isEmpty { Text(String(date.prefix(10))) }
                             else if let year = shown.year { Text(String(year)) }
                             if let time = current.resumeTimeText { Text(time) }
@@ -943,15 +978,13 @@ struct DetailView: View {
                             }.buttonStyle(TVActionStyle()).disabled(!versionsReady || mediaItem == nil)
                         }
                         if let detail {
-                            Button { update("emby.setFavorite", key: "fav", value: !detail.is_favorite) } label: {
-                                Image(systemName: detail.is_favorite ? "heart.fill" : "heart").accessibilityLabel(detail.is_favorite ? "取消收藏" : "收藏")
-                            }.disabled(writing)
+                            // 与 Android TV 详情工具行一致：先已看，分集不提供收藏，详情页不提供隐藏续播。
                             Button { update("emby.setPlayed", key: "played", value: !detail.played) } label: {
-                                Image(systemName: detail.played ? "checkmark.circle.fill" : "checkmark.circle").accessibilityLabel(detail.played ? "标为未看" : "标为已看")
+                                Image(systemName: detail.played ? "checkmark.circle.fill" : "checkmark.circle").accessibilityLabel(detail.played ? "标未看" : "标已看")
                             }.disabled(writing)
-                            if detail.resume_secs > 0 {
-                                Button { update("emby.hideResume", key: "hide", value: true) } label: {
-                                    Image(systemName: "eye.slash").accessibilityLabel("从继续观看中隐藏")
+                            if item.type_ != "Episode" {
+                                Button { update("emby.setFavorite", key: "fav", value: !detail.is_favorite) } label: {
+                                    Image(systemName: detail.is_favorite ? "heart.fill" : "heart").accessibilityLabel(detail.is_favorite ? "取消收藏" : "收藏")
                                 }.disabled(writing)
                             }
                             if !model.privateSpace {
@@ -973,12 +1006,21 @@ struct DetailView: View {
                                 if let video = source.streams?.first(where: { $0.type_ == "Video" }) {
                                     Label(video.summary, systemImage: "video").font(.system(size: 22))
                                 }
-                                if let streams = source.streams, streams.contains(where: { $0.type_ == "Audio" }) {
-                                    TVChoice(title: "音轨", selection: $selectedAudio,
+                                if let streams = source.streams, streams.filter({ $0.type_ == "Audio" }).count > 1 {
+                                    TVChoice(title: "音轨", selection: Binding(get: { selectedAudio }, set: { value in
+                                        selectedAudio = value
+                                        if let lang = streams.first(where: { $0.type_ == "Audio" && $0.index == value })?.language { savePrefs(["audio_lang": .string(lang)]) }
+                                    }),
                                         options: [(nil, "自动")] + streams.filter { $0.type_ == "Audio" }.map { (Optional($0.index), $0.label) })
                                 }
                                 if let streams = source.streams, streams.contains(where: { $0.type_ == "Subtitle" }) {
-                                    TVChoice(title: "字幕", selection: $selectedSubtitle,
+                                    TVChoice(title: "字幕", selection: Binding(get: { selectedSubtitle }, set: { value in
+                                        selectedSubtitle = value
+                                        if value == -1 { savePrefs(["sub_lang": .string(""), "sub_enabled": .bool(false)]) }
+                                        else if let stream = streams.first(where: { $0.type_ == "Subtitle" && $0.index == value }) {
+                                            savePrefs(["sub_lang": .string(stream.language ?? ""), "sub_enabled": .bool(true)])
+                                        }
+                                    }),
                                         options: [(nil, "自动"), (-1, "关闭字幕")] + streams.filter { $0.type_ == "Subtitle" }.map { (Optional($0.index), $0.label) })
                                 }
                                 if let account = model.account, (account.lines?.count ?? 0) > 1, !model.privateSpace {
@@ -1175,6 +1217,14 @@ struct DetailView: View {
         Task {
             defer { writing = false }
             do { _ = try await api.request(command, ["item_id": .string(current.id), key: .bool(value)]); actionError = nil }
+            catch is CancellationError {} catch { actionError = error.localizedDescription }
+        }
+    }
+
+    // 与 Android 详情页一致：选择即写入全局语言偏好（核心只改传入的键）；「自动」不写。
+    private func savePrefs(_ args: [String: JSONValue]) {
+        Task {
+            do { _ = try await api.request("prefs.setPrefs", args) }
             catch is CancellationError {} catch { actionError = error.localizedDescription }
         }
     }

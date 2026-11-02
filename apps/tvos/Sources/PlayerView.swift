@@ -45,7 +45,16 @@ struct PlayerView: View {
     var body: some View {
         ZStack(alignment: .bottom) {
             Color.black.ignoresSafeArea()
-            if let engine = controller.engine { VideoSurface(engine: engine).id(ObjectIdentifier(engine)).ignoresSafeArea() }
+            if let engine = controller.engine {
+                // 强制比例时按比例居中收窄表面，保持同一视图身份，不重新绑定引擎。
+                GeometryReader { geometry in
+                    let ratio: CGFloat? = ["4:3": 4.0 / 3, "16:9": 16.0 / 9][controller.pictureMode]
+                    let width = ratio.map { min(geometry.size.width, geometry.size.height * $0) } ?? geometry.size.width
+                    let height = ratio.map { width / $0 } ?? geometry.size.height
+                    VideoSurface(engine: engine).frame(width: width, height: height)
+                        .position(x: geometry.size.width / 2, y: geometry.size.height / 2)
+                }.id(ObjectIdentifier(engine)).ignoresSafeArea()
+            }
 #if UI_RENDER_CHECK
             if !controller.subtitleText.isEmpty { Text(controller.subtitleText).padding(.bottom, controls ? controlHeight + 24 : 60) }
 #else
@@ -356,7 +365,7 @@ struct PlayerView: View {
             VStack(spacing: 24) {
                 Text(panelTitle).font(.title)
                 if panel == "danmaku" {
-                    TVDanmakuPanel(session: controller.danmaku)
+                    TVDanmakuPanel(session: controller.danmaku, title: controller.title)
                 } else if panel == "more" {
                     Button("画面比例") { openPanel("picture") }.focused($panelFocus, equals: "picture")
                     if controller.versions.count > 1 || controller.versionError != nil {
@@ -382,25 +391,26 @@ struct PlayerView: View {
                 } else if panel == "markers" {
                     markerControls
                 } else if panel == "info" {
-                    Text("播放内核：AetherEngine")
                     if let source = controller.versions.first(where: { $0.id == controller.actualVersion }) {
-                        Text(source.displayName)
-                        if let path = source.displayPath { Text(path).font(.system(size: 20)).foregroundStyle(.secondary) }
-                        if let size = source.size_bytes { Text(ByteCountFormatter.string(fromByteCount: size, countStyle: .file)) }
-                        ForEach(source.streams ?? []) { stream in
-                            VStack(alignment: .leading, spacing: 8) { Text(stream.label); Text(stream.summary).foregroundStyle(.secondary) }
-                        }
+                        infoRow("当前版本", source.displayName)
                     }
+                    ForEach(Array(controller.mediaInfo.enumerated()), id: \.offset) { _, row in infoRow(row.0, row.1) }
                 } else if panel == "speed", let engine = controller.engine {
-                    ForEach([Float(0.25), 0.5, 0.75, 1, 1.25, 1.5, 1.75, 2, 2.5, 3, 3.5, 4].filter { $0 <= engine.maxSupportedRate }, id: \.self) { rate in
+                    // Android 为 0.25–4.0 共 16 档；引擎上限之外的档位不提供。
+                    ForEach((1...16).map { Float($0) * 0.25 }.filter { $0 <= engine.maxSupportedRate }, id: \.self) { rate in
                         Button((controller.speed == rate ? "✓ " : "") + "\(rate)×") {
                             if controller.setSpeed(rate) { closePanel() }
                         }.disabled(!controller.canSetSpeed).focused($panelFocus, equals: "speed:\(rate)")
                     }
                 } else if panel == "picture" {
-                    Button((controller.pictureMode == "fit" ? "✓ " : "") + "适应画面") { controller.setPictureMode("fit"); closePanel() }.focused($panelFocus, equals: "picture:fit")
-                    Button((controller.pictureMode == "fill" ? "✓ " : "") + "填满画面") { controller.setPictureMode("fill"); closePanel() }.focused($panelFocus, equals: "picture:fill")
-                    Button((controller.pictureMode == "stretch" ? "✓ " : "") + "拉伸") { controller.setPictureMode("stretch"); closePanel() }.focused($panelFocus, equals: "picture:stretch")
+                    ForEach([("fit", "原始", "按片源比例，完整显示"), ("fill", "自适应", "铺满屏幕，超出的裁掉"), ("4:3", "4:3", "强制 4:3"), ("16:9", "16:9", "强制 16:9")], id: \.0) { mode, title, detail in
+                        Button { controller.setPictureMode(mode); closePanel() } label: {
+                            VStack(alignment: .leading, spacing: 6) {
+                                Text((controller.pictureMode == mode ? "✓ " : "") + title)
+                                Text(detail).font(.system(size: 20)).foregroundStyle(.secondary)
+                            }
+                        }.focused($panelFocus, equals: "picture:\(mode)")
+                    }
                 } else if panel == "chapters", let engine = controller.engine {
                     ForEach(engine.mediaChapters) { chapter in
                         Button(chapter.name + " · " + time(chapter.startSeconds)) {
@@ -509,6 +519,9 @@ struct PlayerView: View {
         Task { await model.switchPlayer(item: episode.id, title: episode.title) }
     }
 
+    private func infoRow(_ title: String, _ value: String) -> some View {
+        HStack { Text(title); Spacer(); Text(value).foregroundStyle(.secondary).lineLimit(1) }
+    }
     private func time(_ value: Double) -> String {
         guard value.isFinite, value >= 0 else { return "--:--" }
         let secs = Int(value)

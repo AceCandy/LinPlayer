@@ -13,6 +13,8 @@ import SwiftUI
     @Published var needsLogin = false
     @Published var fatalError: String?
     @Published var notice: String?
+    // 成功结果的短暂提示（对应 Android toast）；错误仍用 notice 弹窗。
+    @Published var toast: String?
     @Published var busy = false
     @Published var identity = UUID()
     @Published var userStateRevision = 0
@@ -48,15 +50,23 @@ import SwiftUI
     @Published var returnRevision = 0
 
     // 写入归宿主所有，懒列表回收单张卡片不能取消已确认的操作。
-    func setItemState(_ id: String, favorite: Bool? = nil, played: Bool? = nil) {
+    // 卡片菜单写入；server 为跨服搜索结果的来源服务器，成功提示与 Android cardActions 一致。
+    func setItemState(_ id: String, favorite: Bool? = nil, played: Bool? = nil, server: String? = nil) {
         guard let api, !id.isEmpty, !writingItems.contains(id) else { return }
         let epoch = api.epoch
         writingItems.insert(id)
         Task {
             defer { writingItems.remove(id) }
             do {
-                if let favorite { _ = try await api.request("emby.setFavorite", ["item_id": .string(id), "fav": .bool(favorite)]) }
-                else if let played { _ = try await api.request("emby.setPlayed", ["item_id": .string(id), "played": .bool(played)]) }
+                var args: [String: JSONValue] = ["item_id": .string(id)]
+                if let server { args["server_id"] = .string(server) }
+                if let favorite {
+                    args["fav"] = .bool(favorite); _ = try await api.request("emby.setFavorite", args)
+                    if api.epoch == epoch { toast = favorite ? "已加入收藏" : "已取消收藏" }
+                } else if let played {
+                    args["played"] = .bool(played); _ = try await api.request("emby.setPlayed", args)
+                    if api.epoch == epoch { toast = played ? "已标为已看" : "已标为未看" }
+                }
                 // 成功刷新由核心 data.userState 通知，不再重复推进代次。
             } catch is CancellationError {} catch {
                 if api.epoch == epoch { notice = error.localizedDescription }
@@ -220,6 +230,7 @@ import SwiftUI
     func switchPlayer(item: String, title: String, version: String? = nil, fromStart: Bool = false) async {
         guard let old = playback, let api, !switchingPlayback, !exitingPlayback else { return }
         switchingPlayback = true; defer { switchingPlayback = false }
+        let prepared = old.takePrepared(for: item)
         await old.close()
         guard playback === old, !exitingPlayback else { return }
         // 切换版本时旧轨道身份不再可信。
@@ -227,7 +238,7 @@ import SwiftUI
         // 同条目同版本重试时保留详情页显式预选的轨道。
         let retry = item == old.item && version == old.version
         let next = PlaybackController(api: api, item: item, title: title, version: version, fromStart: fromStart,
-            subtitle: retry ? old.initialSubtitle : nil, audio: retry ? old.initialAudio : nil, speedScope: old.speedScope, trackMemory: trackMemory)
+            subtitle: retry ? old.initialSubtitle : nil, audio: retry ? old.initialAudio : nil, speedScope: old.speedScope, trackMemory: trackMemory, preparedID: prepared)
         if !sceneActive { next.suspend() }
         playback = next
         userStateRevision += 1

@@ -100,3 +100,6 @@
 - 同剧轨道沿用：`SessionTrackMemory` 作用域为 server+user+series，只记手选；按标题/归一语言/编码/内外挂唯一匹配，歧义交回核心偏好。详情页显式预选与本集手选优先；切版本、退出播放、切服/换账号清空。
 - 服务器编辑改账号/密码必须先 `account.updateAccount` 再 `emby.relogin`，只改字段会保留旧用户 token。换图标先 `account.clearAccountIcon` 再写 `icon_url`；内置图标源地址不显示。tvOS 不提供本地图片图标。
 - 换源用 `source.switchCandidates`（partial 为候选数组），私密空间不显示入口；选中后复用 `AppModel.switchServer(opening:)`。
+- 对齐口径（用户 2026-11-02）：只以 Android TV 为准，tvOS 多出的入口删除，不新增 Android TV 没有的功能；平台做不到的（文件选择器导出/导入、Exo/MPV 预热与无缝排队）记录原因不做替代功能。
+- 跨服卡片写操作传 `server_id`，核心 `sessionFrom` 以该服自身会话执行；不要以为只能写当前服。成功提示用 `AppModel.toast`（自动消失），`notice` 是阻塞弹窗只用于错误。
+- 下一集预解析：剩余 60 秒调用 `player.prepareNext{item_id,request_id}`，切到该集时 `player.play` 带 `prepared_id` 一次性消费，未用则 `player.cancelPrepared`；自动重试不再带 `prepared_id`。

@@ -73,9 +73,13 @@ import SwiftUI
     private var resolved = false
     private var loadingEngine = false
     private var trackWasPaused = false
+    // 下一集预解析（Android prepareEpisode / player.prepareNext）；切到该集时由新控制器以 prepared_id 消费。
+    private var preparedNext: (item: String, request: String)?
+    private let preparedID: String?
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory()) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), preparedID: String? = nil) {
         self.speedScope = speedScope
+        self.preparedID = preparedID
         self.trackMemory = trackMemory
         danmaku = TVDanmakuSession(api: api, item: item)
         initialAudio = audio; initialSubtitle = subtitle
@@ -94,7 +98,7 @@ import SwiftUI
             player.clock.$currentTime.sink { [weak self] value in
                 guard let self else { return }
                 if value.isFinite && value >= 0 && abs(self.position - value) >= 1 { self.position = value }
-                Task { @MainActor in self.updateSkip() }
+                Task { @MainActor in self.updateSkip(); self.prepareNextIfNeeded() }
             }.store(in: &subscriptions)
             player.clock.$bufferedPosition.sink { [weak self] value in
                 guard let self, value.isFinite, value >= 0 else { return }
@@ -151,7 +155,8 @@ import SwiftUI
             let prefs = try await api.request("prefs.getPrefs")
             trackPrefs = prefs
             loadSubtitleStyle()
-            let result = try await api.play(item: item, version: version, fromStart: fromStart, speedScope: speedScope)
+            // 预解析结果只能消费一次，自动重试走普通起播。
+            let result = try await api.play(item: item, version: version, fromStart: fromStart, speedScope: speedScope, preparedID: autoRetried ? nil : preparedID)
             resolved = true
             actualVersion = result.media_source_id
             guard !closing else { loading = false; return }
@@ -381,14 +386,33 @@ import SwiftUI
         return true
     }
 
+    // 与 Android VideoFit 一致：原始/自适应/4:3/16:9；强制比例由 PlayerView 按比例收窄视频表面后拉伸填充。
     func setPictureMode(_ mode: String) {
         guard let engine else { return }
         switch mode {
         case "fill": engine.videoGravity = .resizeAspectFill
-        case "stretch": engine.videoGravity = .resize
+        case "4:3", "16:9": engine.videoGravity = .resize
         default: engine.videoGravity = .resizeAspect
         }
         pictureMode = mode
+    }
+
+    // 媒体信息字段表对齐 Android PlaybackMediaInfo（Media3 分支），只列当前已知参数。
+    var mediaInfo: [(String, String)] {
+        var rows = [("播放内核", "AetherEngine")]
+        guard let engine else { return rows + [("媒体参数", "当前暂无可用信息")] }
+        rows.append(("实际倍速", String(format: "%.2f×", holdRate ?? speed)))
+        if let codec = engine.sourceVideoCodecName, !codec.isEmpty { rows.append(("视频编码", codec)) }
+        if engine.sourceVideoWidth > 0 && engine.sourceVideoHeight > 0 { rows.append(("分辨率", "\(engine.sourceVideoWidth) × \(engine.sourceVideoHeight)")) }
+        if let fps = engine.sourceVideoFrameRate, fps.isFinite, fps > 0 { rows.append(("帧率", String(format: "%.3f fps", fps))) }
+        if engine.sourceVideoBitrate > 0 { rows.append(("视频码率", String(format: "%.2f Mbps", Double(engine.sourceVideoBitrate) / 1_000_000))) }
+        if let audio = engine.audioTracks.first(where: { $0.id == engine.activeAudioTrackIndex }) {
+            if !audio.codec.isEmpty { rows.append(("音频编码", audio.codec)) }
+            if audio.sampleRate > 0 { rows.append(("采样率", "\(audio.sampleRate) Hz")) }
+            if audio.channels > 0 { rows.append(("声道数", String(audio.channels))) }
+            if audio.bitrate > 0 { rows.append(("音频码率", "\(audio.bitrate / 1000) kbps")) }
+        }
+        return rows
     }
 
     func setMuted(_ muted: Bool) { engine?.volume = muted ? 0 : 1 }
@@ -589,9 +613,30 @@ import SwiftUI
         }
     }
 
+    // 剩余 60 秒、未缓冲且有下一集时预解析一次（Android prepareSoon 条件）。
+    private func prepareNextIfNeeded() {
+        guard !loading, !closing, !ended, let engine, engine.duration > 0, !engine.isBuffering,
+              engine.currentTime >= max(0, engine.duration - 60), let next = nextEpisode, preparedNext?.item != next.id else { return }
+        cancelPreparedNext()
+        let request = UUID().uuidString
+        preparedNext = (next.id, request)
+        Task { _ = try? await api.request("player.prepareNext", ["item_id": .string(next.id), "request_id": .string(request)]) }
+    }
+    func takePrepared(for target: String) -> String? {
+        guard let prepared = preparedNext, prepared.item == target else { return nil }
+        preparedNext = nil
+        return prepared.request
+    }
+    private func cancelPreparedNext() {
+        guard let request = preparedNext?.request else { return }
+        preparedNext = nil
+        Task { _ = try? await api.request("player.cancelPrepared", ["request_id": .string(request)]) }
+    }
+
     func close() async {
         if let closeWork { await closeWork.value; return }
         closing = true
+        cancelPreparedNext()
         audioPreferenceWork?.cancel(); subtitlePreferenceWork?.cancel()
         let lastPosition = engine?.currentTime ?? position
         engine?.pause(); ticker?.cancel(); trackWork?.cancel(); queueWork?.cancel(); versionWork?.cancel(); skipWork?.cancel(); skipSeekWork?.cancel()

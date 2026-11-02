@@ -168,6 +168,8 @@ struct TVDanmakuOverlay: View {
 
 struct TVDanmakuPanel: View {
     @ObservedObject var session: TVDanmakuSession
+    // 与 Android 一致：搜索框预填播放标题「 · 」之前的部分（分集即剧名）。
+    var title = ""
     @State private var query = ""
     @State private var results: JSONValue = .null
     @State private var episodes: JSONValue = .null
@@ -183,7 +185,9 @@ struct TVDanmakuPanel: View {
             if let error = session.error { Text(error).foregroundStyle(.orange) }
             Button("重新匹配") { session.resolve(ignoreMemory: true) }
             Button("清除匹配记忆") { Task { await session.forget() } }
-            TVTextInput("搜索弹幕", text: $query, onSubmit: search)
+            TVTextInput("搜索弹幕", text: $query, onSubmit: search).onAppear {
+                if query.isEmpty { query = title.components(separatedBy: " · ").first ?? "" }
+            }
             Button("搜索") { search() }.disabled(searching || query.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             ForEach(Array(results.array.enumerated()), id: \.offset) { _, source in
                 Text(source["source_name"].string ?? "弹幕源")
@@ -280,7 +284,14 @@ struct TVDanmakuSettings: View {
                 }
             }
             Button("添加弹幕源") { editing = .object(["id": .string(UUID().uuidString), "auth_type": .string("none")]) }
-            if official["enabled"].bool == false { Text("此版本未提供官方弹幕源凭据，可添加自己的弹幕源。").foregroundStyle(.secondary) }
+            if official != .null {
+                VStack(alignment: .leading, spacing: 6) {
+                    HStack { Text("弹弹Play 官方源"); Spacer(); Text(official["enabled"].bool == true ? "可用" : "不可用").foregroundStyle(.secondary) }
+                    if official["enabled"].bool != true, let reason = official["reason"].string, !reason.isEmpty {
+                        Text(reason).font(.system(size: 22)).foregroundStyle(.secondary)
+                    }
+                }
+            }
             TVTextInput("屏蔽词（每行一个）", text: $words).disabled(!loaded)
             Button("保存屏蔽词") {
                 saving = true
@@ -291,6 +302,8 @@ struct TVDanmakuSettings: View {
                     } catch { self.error = error.localizedDescription }
                 }
             }.disabled(saving || !loaded)
+            // shortcut: tvOS 无文件选择器，只显示屏蔽用户数，导入弹弹Play 屏蔽表需在其它端完成。
+            if loaded { HStack { Text("屏蔽用户"); Spacer(); Text("\(users.array.count) 个").foregroundStyle(.secondary) } }
             if let error { RetryMessage(text: error) { reload += 1 } }
         }.padding(64) }.buttonStyle(TVRowStyle())
             .task(id: reload) {
