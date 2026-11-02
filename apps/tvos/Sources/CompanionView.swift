@@ -30,13 +30,14 @@ extension AppModel {
             guard valid["valid"].bool == true, valid["epoch"].string == epoch, remoteEpoch == epoch, !privateSpace else { throw CoreFailure(code: "E_PERMISSION") }
             let name = event["name"].string ?? ""
             guard case .object(let args) = event["args"] else { throw CoreFailure(code: "E_INVALID") }
+            let argv = JSONValue.object(args)
             let output: JSONValue
             switch name {
             case "prefs.backupExport":
-                guard backupEnabled, backupExport != .null, args["path"] == .null else { throw TVRemoteFailure(message: "请先在电视上准备导出") }
+                guard backupEnabled, backupExport != .null, argv["path"] == .null else { throw TVRemoteFailure(message: "请先在电视上准备导出") }
                 output = backupExport; backupExport = .null
             case "prefs.backupPreview":
-                guard backupEnabled, backupContent == nil, args["path"] == .null, let content = args["content"].string,
+                guard backupEnabled, backupContent == nil, argv["path"] == .null, let content = argv["content"].string,
                       content.utf8.count <= 2 * 1024 * 1024 else { throw TVRemoteFailure(message: "请先处理电视上的备份预览，文件不得超过 2 MiB") }
                 let preview = try await companion("prefs.backupPreview", ["content": .string(content)])
                 try checkSession(); guard backupEnabled else { throw CoreFailure(code: "E_PERMISSION") }
@@ -47,13 +48,13 @@ extension AppModel {
                         "position": .number(engine.currentTime), "duration": .number(engine.duration), "paused": .bool(player.paused)]), "backup": .bool(backupEnabled)])
                 } else { output = .object(["title": .string(""), "player": .null, "backup": .bool(backupEnabled)]) }
             case "player.setPause":
-                guard let player = playback, let paused = args["paused"].bool, !player.loading, !player.closing, !player.changingTrack else { throw CoreFailure(code: "E_BUSY") }
+                guard let player = playback, let paused = argv["paused"].bool, !player.loading, !player.closing, !player.changingTrack else { throw CoreFailure(code: "E_BUSY") }
                 if player.paused != paused { player.toggle() }
                 for _ in 0..<20 where player.paused != paused { try await Task.sleep(for: .milliseconds(50)) }
                 guard player.paused == paused, playback === player else { throw TVRemoteFailure(message: "播放状态没有完成切换") }
                 output = .bool(true)
             case "player.seek":
-                guard let player = playback, player.canSeek, let position = args["pos"].number, position.isFinite,
+                guard let player = playback, player.canSeek, let position = argv["pos"].number, position.isFinite,
                       let duration = player.engine?.duration, duration > 0 else { throw CoreFailure(code: "E_INVALID") }
                 let target = min(max(0, position), duration)
                 await player.seek(to: target)
@@ -67,10 +68,10 @@ extension AppModel {
                 if let warning = player?.syncWarning { throw TVRemoteFailure(message: warning) }
                 output = .bool(true)
             case "open":
-                guard let item = args["item_id"].string, !item.isEmpty, let api else { throw CoreFailure(code: "E_INVALID") }
+                guard let item = argv["item_id"].string, !item.isEmpty, let api else { throw CoreFailure(code: "E_INVALID") }
                 await closePlayer()
                 try checkSession()
-                if let server = args["server_id"].string, !server.isEmpty, server != account?.server {
+                if let server = argv["server_id"].string, !server.isEmpty, server != account?.server {
                     try await switchServer(server, refreshCompanion: false); try checkSession()
                 }
                 let value = try await api.request("emby.itemDetail", ["item_id": .string(item), "with_children": .bool(false)])
@@ -81,7 +82,7 @@ extension AppModel {
                 guard pendingItem == nil else { throw TVRemoteFailure(message: "详情页尚未打开，请重试") }
                 output = .bool(true)
             case "key":
-                guard let key = args["key"].string else { throw CoreFailure(code: "E_INVALID") }
+                guard let key = argv["key"].string else { throw CoreFailure(code: "E_INVALID") }
                 if key == "playpause", let player = playback {
                     guard !player.loading, !player.closing, !player.changingTrack else { throw CoreFailure(code: "E_BUSY") }
                     let before = player.paused; player.toggle()
