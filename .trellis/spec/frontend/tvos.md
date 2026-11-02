@@ -92,3 +92,11 @@
 
 - 根页返回按 Apple HIG 一次退一级：下钻页 → 内容焦点回顶栏 → 私密空间先退出 → 普通空间顶栏已有焦点时 `tvExitCommand(perform: nil)`，由系统回主屏幕。空闭包同样会吞掉返回键；不用 `dismiss()`、`exit()` 或 `model.notice` 弹窗做“再按一次退出”，alert 会吃掉第二次返回。手机伴侣在该状态无法让系统回主屏，按焦点不支持提示。单击回主屏仍待真机确认。
 - `prefs.preloadCancel` 无参数，取消核心全局单槽预热；不要在详情页 `onDisappear` 调用，旧页晚到的离开回调会误取消新详情预热。确需离页即时取消时另做 owner/generation 级协议，并补 A→B 迟到取消回归。
+
+## Android TV 缺口收敛（2026-11-02，未经 Mac 类型检查与真机）
+
+- 播放失败：核心错误信封的 `err.retryable` 解码到 `CoreFailure.retryable`；仅可重试错误自动重试一次，致命错误写 `failure` 走整页提示，普通提示仍用 `message`。重试走 `switchPlayer`，同条目同版本时保留详情页显式音轨/字幕预选。
+- 长按倍速：确认键按住 600ms 临时加速、松开恢复，不写倍速偏好；短按改为松手时切换暂停，依据 ButtonStyle `isPressed`，未拿到按压状态时退回为普通短按。Aether 7.39.0 视频 `maxSupportedRate` 为 2×（纯音频 3×），设置 3×/4× 在视频上按引擎上限生效，界面显示实际倍率，不宣称达到设置值。
+- 同剧轨道沿用：`SessionTrackMemory` 作用域为 server+user+series，只记手选；按标题/归一语言/编码/内外挂唯一匹配，歧义交回核心偏好。详情页显式预选与本集手选优先；切版本、退出播放、切服/换账号清空。
+- 服务器编辑改账号/密码必须先 `account.updateAccount` 再 `emby.relogin`，只改字段会保留旧用户 token。换图标先 `account.clearAccountIcon` 再写 `icon_url`；内置图标源地址不显示。tvOS 不提供本地图片图标。
+- 换源用 `source.switchCandidates`（partial 为候选数组），私密空间不显示入口；选中后复用 `AppModel.switchServer(opening:)`。

@@ -42,6 +42,8 @@ struct VideoSurface: View {
     func loadSubtitleStyle() {}
     func setSubtitleStyle(_ key: String, _ value: JSONValue) {}
     let message: String? = nil
+    let failure: String? = nil
+    let autoRetried = false
     let loading = false, changingTrack = false, closing = false, ended = false, queueLoading = false, paused = false, audioSelectable = true, canSeek = true
     let queueError: String? = nil
     let versionError: String? = nil
@@ -64,11 +66,16 @@ struct VideoSurface: View {
     let markerError: String? = nil
     func loadMarkers(scope: String? = nil) {}
     func mark(_ action: String) {}
-    func setSkipAuto(_ value: Bool) {}
+    let skipIntroEnabled: Bool? = true, skipOutroEnabled: Bool? = false
+    let initialAudio: InitialAudio?
+    let initialSubtitle: InitialSubtitle?
+    func loadSkipPrefs() {}
+    func setSkipPref(_ key: String, _ value: Bool) {}
     func retrySkip() {}
     func skip(_ range: PlaybackSkip.Range) {}
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", showSkip: Bool = false) {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory(), showSkip: Bool = false) {
         self.speedScope = speedScope
+        initialSubtitle = subtitle; initialAudio = audio
         danmaku = TVDanmakuSession(api: api, item: item)
         self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
         subtitleText = showSkip ? "这是一条用于检查位置和遮挡的示例字幕。" : ""
@@ -80,10 +87,13 @@ struct VideoSurface: View {
     func close() async {}
     func start() async {}
     func seek(to: Double) async {}
-    func toggle() {}
+    @discardableResult func toggle() -> Bool { true }
     func loadQueue() {}
     func loadVersions() {}
     func setSpeed(_ rate: Float) -> Bool { true }
+    @Published var holdRate: Float?
+    func beginHoldSpeed(_ rate: Float) {}
+    func endHoldSpeed() {}
     func setPictureMode(_ value: String) {}
     func selectAudio(_ id: Int) {}
     func selectSubtitle(_ id: Int?) {}

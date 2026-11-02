@@ -305,6 +305,37 @@ struct TrackPreference {
     }
 }
 
+/// 同一剧连续播放时沿用的手选音轨/字幕；只保存在本次播放期间，不持久化，不跨服或跨账号。
+@MainActor final class SessionTrackMemory {
+    struct Scope: Equatable { let server: String; let user: String; let series: String }
+    struct Identity: Equatable { let title: String; let language: String; let codec: String; let external: Bool }
+    // 关闭字幕是明确意图，与无法辨识轨道身份不同。
+    enum Choice: Equatable { case track(Identity), off }
+    private var scope: Scope?
+    private var choices: [String: Choice] = [:]
+
+    func enter(_ next: Scope?) { if scope != next { scope = next; choices = [:] } }
+    func record(_ key: Scope, kind: String, _ choice: Choice) {
+        enter(key); choices[kind] = choice
+    }
+    func choice(_ key: Scope?, kind: String) -> Choice? { key != nil && key == scope ? choices[kind] : nil }
+    func clear() { scope = nil; choices = [:] }
+
+    /// 引擎轨道 ID 每集不同；按标题、语言、编码与外挂属性唯一匹配，不按位置猜测。
+    nonisolated static func match(_ identity: Identity, tracks: [TrackCandidate]) -> Int? {
+        func language(_ value: String) -> String {
+            let value = value.lowercased()
+            return value == "und" ? "" : ["chi", "zho", "zh"].contains(value) ? "zh" : value
+        }
+        guard !identity.title.isEmpty || !language(identity.language).isEmpty else { return nil }
+        let matches = tracks.filter {
+            $0.title == identity.title && language($0.language) == language(identity.language) &&
+                $0.codec.lowercased() == identity.codec.lowercased() && $0.external == identity.external
+        }
+        return matches.count == 1 ? matches[0].id : nil
+    }
+}
+
 struct MediaAccount: Decodable {
     let server: String
     let user_name: String
@@ -363,6 +394,15 @@ struct SourceSearchRow: Decodable {
     }
 }
 
+// 换源候选：tier 0 同一部 / 1 可能是 / 2 不像。
+struct SwitchCandidate: Decodable, Identifiable {
+    let server_id: String
+    let server_name: String
+    let tier: Int
+    let emby_item: MediaItem?
+    var id: String { server_id + "/" + (emby_item?.id ?? "") }
+}
+
 struct ServerOverview: Decodable, Identifiable {
     let line_url: String?
     struct Counts: Decodable { let movie: Int; let series: Int; let episode: Int; let boxset: Int }
@@ -373,6 +413,8 @@ struct ServerOverview: Decodable, Identifiable {
     let counts_error: String?
     let resume: [MediaItem]?
     let error: String?
+    var active: Bool? = nil
+    var aggregate_primary: Bool? = nil
     var id: String { server_id }
 }
 
@@ -518,6 +560,14 @@ struct PlayTarget: Decodable {
 
     func playbackSeason(item: String) async throws -> [MediaItem] {
         try await request("emby.playbackSeason", ["item_id": .string(item)]).decode([MediaItem].self)
+    }
+
+    func switchCandidates(title: String, year: Int?, update: @escaping ([SwitchCandidate]) -> Void) async throws -> [SwitchCandidate] {
+        guard !privateSpace, let session else { throw CoreFailure(code: "E_PERMISSION") }
+        var rows: [SwitchCandidate] = []
+        return try await request("source.switchCandidates", ["server_id": .string(session.server), "title": .string(title), "year": .number(Double(year ?? 0))], snapshot: { value in
+            rows += (try? value.decode([SwitchCandidate].self)) ?? []; update(rows)
+        }).decode([SwitchCandidate].self)
     }
 
     func aggregateSearch(_ query: String, update: @escaping ([ServerResults]) -> Void) async throws -> [ServerResults] {

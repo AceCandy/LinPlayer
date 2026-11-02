@@ -10,6 +10,7 @@ protocol CoreTransport: AnyObject {
 
 struct CoreFailure: Error, LocalizedError, Equatable {
     let code: String
+    var retryable = false
     var errorDescription: String? {
         switch code {
         case "E_AUTH": return "登录失败或已失效，请检查账号、密码后重新连接。"
@@ -134,7 +135,7 @@ final class CoreClient: DisplayCommands, @unchecked Sendable {
         switch e["t"].string {
         case "result":
             if e["ok"].bool == true { finish(seq, .success(e["data"])) }
-            else { finish(seq, .failure(CoreFailure(code: e["err"]["code"].string ?? "E_INTERNAL"))) }
+            else { finish(seq, .failure(CoreFailure(code: e["err"]["code"].string ?? "E_INTERNAL", retryable: e["err"]["retryable"].bool == true))) }
         case "partial": if let ticket = pending[seq], !ticket.cancelled { ticket.partial?(e["data"]); onPartial?(seq, e["data"]) }
         case "event": onEvent?(e["name"].string ?? "", e["data"])
         case "eof": finishAll(CoreFailure(code: "E_SHUTDOWN"))

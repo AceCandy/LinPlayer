@@ -204,7 +204,7 @@ struct LiuYingPlayerView: View {
                 Spacer()
                 if session.busy || controller.loading { TVLoading("正在加载") }
                 if let error = session.error { RetryMessage(text: error) { session.retry() } }
-                if let error = controller.message, !controller.ended { RetryMessage(text: error) { session.retry() } }
+                if let error = controller.failure ?? controller.message, !controller.ended { RetryMessage(text: error) { session.retry() } }
                 Text(session.current?.title ?? "暂无可播放的入库资源").font(.system(size: 30)).lineLimit(1)
                 if let author = session.current?.author { Text(author).foregroundStyle(.secondary) }
                 Button { if let preview { self.preview = nil; Task { await controller.seek(to: preview) } } else { controller.toggle() } } label: {

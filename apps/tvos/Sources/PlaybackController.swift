@@ -12,6 +12,9 @@ import SwiftUI
     let speedScope: String
     @Published private(set) var engine: AetherEngine?
     @Published var message: String?
+    // 无法继续播放的失败，与倍率保存、音轨切换等可恢复提示分开呈现。
+    @Published var failure: String?
+    @Published private(set) var autoRetried = false
     @Published var syncWarning: String?
     @Published var loading = true
     @Published var closing = false
@@ -36,6 +39,8 @@ import SwiftUI
     @Published var markers: SkipMarkerSelection?
     @Published var markerBusy = false
     @Published var markerError: String?
+    @Published var skipIntroEnabled: Bool?
+    @Published var skipOutroEnabled: Bool?
     private var markerWork: Task<Void, Never>?
     private var skipWork: Task<Void, Never>?
     private var skipSeekWork: Task<Void, Never>?
@@ -43,12 +48,16 @@ import SwiftUI
     private var suppressSavedSkip = false
     private var queueWork: Task<Void, Never>?
     private var versionWork: Task<Void, Never>?
-    private let initialAudio: InitialAudio?
-    private let initialSubtitle: InitialSubtitle?
+    let initialAudio: InitialAudio?
+    let initialSubtitle: InitialSubtitle?
     @Published private(set) var actualVersion = ""
     private var trackPrefs: JSONValue = .null
     private var manualAudio = false
     private var manualSubtitle = false
+    private let trackMemory: SessionTrackMemory
+    private var manualChoices: [String: SessionTrackMemory.Choice] = [:]
+    private var restoredAudio = false
+    private var restoredSubtitle = false
     private var appliedAudio: [TrackInfo] = []
     private var appliedSubtitles: [TrackInfo] = []
     private var subscriptions = Set<AnyCancellable>()
@@ -65,8 +74,9 @@ import SwiftUI
     private var loadingEngine = false
     private var trackWasPaused = false
 
-    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal") {
+    init(api: MediaAPI, item: String, title: String, version: String?, fromStart: Bool, subtitle: InitialSubtitle? = nil, audio: InitialAudio? = nil, speedScope: String = "normal", trackMemory: SessionTrackMemory = SessionTrackMemory()) {
         self.speedScope = speedScope
+        self.trackMemory = trackMemory
         danmaku = TVDanmakuSession(api: api, item: item)
         initialAudio = audio; initialSubtitle = subtitle
         self.api = api; self.item = item; self.title = title; self.version = version; self.fromStart = fromStart
@@ -101,18 +111,18 @@ import SwiftUI
                     if self.suspended || self.closing || (self.changingTrack && self.trackWasPaused) {
                         if state == .playing { self.engine?.pause() }
                     }
-                    if case .error = state { self.message = "播放失败，请重试或返回。" }
+                    if case .error = state { self.failure = "播放失败，请重试或返回。" }
                     if state == .ended {
                         let duration = self.engine?.duration ?? 0
                         let position = max(self.position, self.engine?.currentTime ?? 0)
                         if duration.isFinite && duration > 0 && position > 0 && position >= duration - 5 {
                             self.ended = true; self.message = "播放结束"
-                        } else { self.message = "播放提前中断，请重试。" }
+                        } else { self.failure = "播放提前中断，请重试。" }
                         self.report()
                     }
                 }
             }.store(in: &subscriptions)
-        } catch { message = "播放器初始化失败，请返回后重试。"; loading = false }
+        } catch { failure = "播放器初始化失败，请返回后重试。"; loading = false }
     }
 
     var paused: Bool { engine?.state != .playing }
@@ -185,8 +195,12 @@ import SwiftUI
                 }
             }
         } catch {
+            // 与 Android TV 一致：核心标记可重试的起播错误先自动重来一次。
+            if !autoRetried, !closing, !Task.isCancelled, (error as? CoreFailure)?.retryable == true {
+                autoRetried = true; await load(); return
+            }
             loading = false
-            message = (error as? CoreFailure)?.errorDescription ?? "无法开始播放，请检查网络后重试。"
+            failure = (error as? CoreFailure)?.errorDescription ?? "无法开始播放，请检查网络后重试。"
         }
     }
 
@@ -207,6 +221,10 @@ import SwiftUI
                 try Task.checkCancellation()
                 guard !closing else { return }
                 episodes = list; queueLoading = false
+                // 剧集身份确定后进入记忆作用域，补记先于队列完成的手选，再尝试沿用上一集手选。
+                trackMemory.enter(trackScope)
+                if let scope = trackScope { manualChoices.forEach { trackMemory.record(scope, kind: $0.key, $0.value) } }
+                restoreSessionTracks()
             } catch is CancellationError {} catch {
                 guard !closing else { return }
                 queueError = "无法加载当前季，请重试。"; queueLoading = false
@@ -309,20 +327,42 @@ import SwiftUI
         }
     }
 
-    func setSkipAuto(_ enabled: Bool) {
+    func loadSkipPrefs() {
+        Task {
+            guard let prefs = try? await api.request("player.getPlaybackPrefs"), !closing else { return }
+            skipIntroEnabled = prefs["skip_intro"].bool; skipOutroEnabled = prefs["skip_outro"].bool
+        }
+    }
+
+    // key 为 skip_intro / skip_outro；关闭的一段核心不再返回区间，保存后刷新片头片尾信息。
+    func setSkipPref(_ key: String, _ enabled: Bool) {
         guard !markerBusy, !closing else { return }
         markerBusy = true; markerError = nil
         markerWork = Task {
             defer { markerBusy = false; markerWork = nil }
             do {
-                _ = try await api.request("player.setPlaybackPrefs", ["skip_auto": .bool(enabled)])
+                _ = try await api.request("player.setPlaybackPrefs", [key: .bool(enabled)])
                 guard !closing else { return }
+                if key == "skip_intro" { skipIntroEnabled = enabled } else { skipOutroEnabled = enabled }
                 markerBusy = false; skipInfo = nil; retrySkip()
             } catch is CancellationError {} catch { if !closing { markerError = error.localizedDescription } }
         }
     }
 
     var canSetSpeed: Bool { !closing && !loading && !changingTrack && speedWork == nil && engine != nil }
+    @Published private(set) var holdRate: Float?
+
+    // 长按临时倍速：不写偏好，只在播放中生效；引擎按 maxSupportedRate 截断，界面显示实际值。
+    func beginHoldSpeed(_ rate: Float) {
+        guard holdRate == nil, canSetSpeed, !paused, let engine else { return }
+        let value = min(rate, engine.maxSupportedRate)
+        guard value > speed else { return }
+        holdRate = value; engine.setRate(value)
+    }
+    func endHoldSpeed() {
+        guard holdRate != nil else { return }
+        holdRate = nil; engine?.setRate(speed)
+    }
 
     func setSpeed(_ value: Float) -> Bool {
         guard canSetSpeed, let engine,
@@ -358,11 +398,13 @@ import SwiftUI
         if !closing && !suspended { engine?.play() }
     }
 
-    func toggle() {
-        guard !loading, !closing, !changingTrack, let engine else { return }
+    @discardableResult func toggle() -> Bool {
+        guard !loading, !closing, !changingTrack, let engine else { return false }
         if engine.state == .playing { engine.pause() }
         else if engine.state == .paused { suspended = false; engine.play() }
+        else { return false }
         report()
+        return true
     }
 
     func seek(to value: Double) async {
@@ -391,6 +433,7 @@ import SwiftUI
                 if case .error = engine.state { break }
                 if engine.activeAudioTrackIndex == id && (engine.state == .playing || engine.state == .paused) {
                     if wasPaused || self.suspended { engine.pause() }
+                    if manual, let track = engine.audioTracks.first(where: { $0.id == id }) { self.rememberTrack("audio", .track(Self.identity(track))) }
                     self.report(); return
                 }
             }
@@ -421,18 +464,57 @@ import SwiftUI
 
     func selectSubtitle(_ id: Int?, manual: Bool = true) {
         guard !closing, let engine else { return }
-        if manual { manualSubtitle = true }
+        if manual {
+            manualSubtitle = true
+            if let id { if let track = textTracks.first(where: { $0.id == id }) { rememberTrack("sub", .track(Self.identity(track))) } }
+            else { rememberTrack("sub", .off) }
+        }
         subtitleText = ""
         if let id, textTracks.contains(where: { $0.id == id }) { engine.selectSubtitleTrack(index: id) }
         else { engine.clearSubtitle() }
     }
 
+    private var trackScope: SessionTrackMemory.Scope? {
+        guard let session = api.session, let episode = episodes.first(where: { $0.id == item }), episode.type_ == "Episode",
+              let series = episode.series_id, !series.isEmpty else { return nil }
+        return .init(server: session.server, user: session.user_id, series: series)
+    }
+    private static func identity(_ track: TrackInfo) -> SessionTrackMemory.Identity {
+        .init(title: track.name, language: track.language ?? "", codec: track.codec, external: track.isExternal)
+    }
+    private func rememberTrack(_ kind: String, _ choice: SessionTrackMemory.Choice) {
+        manualChoices[kind] = choice
+        if let scope = trackScope { trackMemory.record(scope, kind: kind, choice) }
+    }
+    private func candidates(_ tracks: [TrackInfo], selected: Int?) -> [TrackCandidate] {
+        tracks.map { TrackCandidate(id: $0.id, title: $0.name, language: $0.language ?? "", codec: $0.codec, external: $0.isExternal, selected: $0.id == selected) }
+    }
+
+    // 只沿用本次同剧手选；详情页显式预选和本集手选优先，匹配不唯一时交给核心偏好。
+    private func restoreSessionTracks() {
+        guard !loading, !closing, let engine else { return }
+        let scope = trackScope
+        if !manualAudio, !restoredAudio, !changingTrack, initialAudio == nil, audioSelectable,
+           case .track(let identity)? = trackMemory.choice(scope, kind: "audio"),
+           let id = SessionTrackMemory.match(identity, tracks: candidates(engine.audioTracks, selected: engine.activeAudioTrackIndex)) {
+            restoredAudio = true; audioPreferenceWork?.cancel(); appliedAudio = engine.audioTracks
+            if id != engine.activeAudioTrackIndex { selectAudio(id, manual: false) }
+        }
+        if !manualSubtitle, !restoredSubtitle, initialSubtitle == nil, let choice = trackMemory.choice(scope, kind: "sub") {
+            switch choice {
+            case .off:
+                restoredSubtitle = true; subtitlePreferenceWork?.cancel(); appliedSubtitles = textTracks; selectSubtitle(nil, manual: false)
+            case .track(let identity):
+                guard let id = SessionTrackMemory.match(identity, tracks: candidates(textTracks, selected: engine.activeSubtitleTrackIndex)) else { break }
+                restoredSubtitle = true; subtitlePreferenceWork?.cancel(); appliedSubtitles = textTracks; selectSubtitle(id, manual: false)
+            }
+        }
+    }
+
     private func applyTrackPreferences() {
         guard !loading, !closing, let engine else { return }
-        func candidates(_ tracks: [TrackInfo], selected: Int?) -> [TrackCandidate] {
-            tracks.map { TrackCandidate(id: $0.id, title: $0.name, language: $0.language ?? "", codec: $0.codec, external: $0.isExternal, selected: $0.id == selected) }
-        }
-        if !manualAudio && !changingTrack && !engine.audioTracks.isEmpty && engine.audioTracks != appliedAudio {
+        restoreSessionTracks()
+        if !manualAudio && !restoredAudio && !changingTrack && !engine.audioTracks.isEmpty && engine.audioTracks != appliedAudio {
             let tracks = engine.audioTracks
             let rows = candidates(tracks, selected: engine.activeAudioTrackIndex)
             audioPreferenceWork?.cancel()
@@ -450,13 +532,13 @@ import SwiftUI
                 audioPreferenceWork = Task {
                     do {
                         let chosen = try await api.trackPreference(rows, kind: "audio", prefs: trackPrefs)
-                        guard !Task.isCancelled, !closing, !manualAudio, engine.audioTracks == tracks else { return }
+                        guard !Task.isCancelled, !closing, !manualAudio, !restoredAudio, engine.audioTracks == tracks else { return }
                         if let id = Int(chosen), id != engine.activeAudioTrackIndex { selectAudio(id, manual: false) }
                     } catch is CancellationError {} catch { if !closing { subtitleNote = "音轨偏好读取失败，请手动选择。" } }
                 }
             }
         }
-        if !manualSubtitle && !textTracks.isEmpty && textTracks != appliedSubtitles {
+        if !manualSubtitle && !restoredSubtitle && !textTracks.isEmpty && textTracks != appliedSubtitles {
             let tracks = textTracks
             if let initialSubtitle, initialSubtitle.version == actualVersion {
                 if let stream = initialSubtitle.stream {
@@ -471,7 +553,7 @@ import SwiftUI
                 subtitlePreferenceWork = Task {
                     do {
                         let chosen = try await api.trackPreference(rows, kind: "sub", prefs: trackPrefs)
-                        guard !Task.isCancelled, !closing, !manualSubtitle, textTracks == tracks else { return }
+                        guard !Task.isCancelled, !closing, !manualSubtitle, !restoredSubtitle, textTracks == tracks else { return }
                         if chosen == "no" { selectSubtitle(nil, manual: false) }
                         else if let id = Int(chosen) { selectSubtitle(id, manual: false) }
                     } catch is CancellationError {} catch { if !closing { subtitleNote = "字幕偏好读取失败，请手动选择。" } }
