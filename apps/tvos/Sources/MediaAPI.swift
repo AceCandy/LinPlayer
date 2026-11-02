@@ -587,8 +587,9 @@ struct PlayTarget: Decodable {
         return try await request("emby.seriesPlaybackTarget", ["series_id": .string(item.id)]).decode(MediaItem.self)
     }
 
-    func play(item: String, version: String?, fromStart: Bool, speedScope: String = "normal") async throws -> PlayTarget {
+    func play(item: String, version: String?, fromStart: Bool, speedScope: String = "normal", preparedID: String? = nil) async throws -> PlayTarget {
         var args: [String: JSONValue] = ["item_id": .string(item), "engine": .string("exo")]
+        if let preparedID { args["prepared_id"] = .string(preparedID) }
         if speedScope == "liuying" { args["speed_scope"] = .string("liuying") }
         if let version, !version.isEmpty { args["media_source_id"] = .string(version) }
         if fromStart { args["from_start"] = .bool(true) }

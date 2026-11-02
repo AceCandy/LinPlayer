@@ -966,3 +966,25 @@ TV 二级及更深页面隐藏顶栏与返回按钮并铺对齐的氛围色，�
 ### Status
 
 [OK] **Completed**
+
+
+## Session 167: tvOS 对齐 Android TV 低优先级差异
+<!-- trellis-session: v=2 fp=3c809e270f01518b -->
+
+**Date**: 2026-11-02
+**Task**: tvOS 对齐 Android TV 低优先级差异
+**Branch**: `feat/tvos-atv-gap-closure-2`
+
+### Summary
+
+按 Android TV 删除多余入口、补齐搜索/卡片菜单/语言偏好/轮播/存储日志/流影空态/画面比例/倍速/媒体信息/下一集预解析/弹幕状态；仅做静态检查，Swift 类型检查与真机待 Mac 验证
+
+### Git Commits
+
+| Hash | Message |
+|------|---------|
+| `1bfef8d7` | feat(tvOS): 对齐 Android TV 低优先级差异 |
+
+### Status
+
+[OK] **Completed**

@@ -8,7 +8,7 @@
 
 <!-- @@@auto:current-status -->
 - **Active File**: `journal-4.md`
-- **Total Sessions**: 166
+- **Total Sessions**: 167
 - **Last Active**: 2026-11-02
 <!-- @@@/auto:current-status -->
 
@@ -19,7 +19,7 @@
 <!-- @@@auto:active-documents -->
 | File | Lines | Status |
 |------|-------|--------|
-| `journal-4.md` | ~968 | Active |
+| `journal-4.md` | ~990 | Active |
 | `journal-3.md` | ~1965 | Archived |
 | `journal-2.md` | ~102 | Archived |
 | `journal-1.md` | ~1995 | Archived |
@@ -32,6 +32,7 @@
 <!-- @@@auto:session-history -->
 | # | Date | Title | Commits | Branch |
 |---|------|-------|---------|--------|
+| 167 | 2026-11-02 | tvOS 对齐 Android TV 低优先级差异 | `1bfef8d7` | `feat/tvos-atv-gap-closure-2` |
 | 166 | 2026-11-02 | tvOS 补齐 Android TV 剩余缺口 | `736f3615` | `feat/tvos-atv-gap-closure` |
 | 165 | 2026-11-02 | 收敛 tvOS 对齐差异并按系统约定处理根页返回 | `af40c1a8` | `fix/tvos-parity-followup` |
 | 164 | 2026-11-01 | 完成 tvOS Android TV 对齐实现与代码审查 | `00fd773f` | `refactor/settings-cleanup` |

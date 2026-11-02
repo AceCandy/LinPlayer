@@ -16,6 +16,8 @@ import SwiftUI
     @Published var muted = false
     @Published var busy = false
     @Published var error: String?
+    // 能力读取失败与服务器不提供能力是终态说明，与 Android 一致不给重试。
+    @Published var unavailable: (title: String, detail: String)?
     private var previous: (String, LiuYingPage)?
     private var seed = UUID().uuidString
     private var work: Task<Void, Never>?
@@ -27,8 +29,14 @@ import SwiftUI
         guard api.privateSpace, !closed else { return }
         self.model = model; model.liuying = self
         run {
-            let capability = try await self.api.request("emby.extCapabilities")
-            guard capability["liuying"]["enabled"].bool == true else { throw CoreFailure(code: "E_UNSUPPORTED") }
+            let capability: JSONValue
+            do { capability = try await self.api.request("emby.extCapabilities") }
+            catch is CancellationError { throw CancellationError() }
+            catch { self.unavailable = ("流影暂不可用", error.localizedDescription); return }
+            guard capability["liuying"]["enabled"].bool == true else {
+                self.unavailable = ("服务器未提供流影能力", "请刷新普通首页更新能力，或检查账号权限"); return
+            }
+            self.unavailable = nil
             self.labels = try await self.api.request("emby.extLiuYingLabels")
             try await self.load(seed: self.seed, offset: 0)
         }
@@ -125,8 +133,9 @@ struct LiuYingView: View {
         VStack(alignment: .leading, spacing: 30) {
             TVSectionHeading("流影")
             if session.busy { TVLoading() }
-            if let error = session.error { RetryMessage(text: error) { session.start(model: model) } }
-            else if !session.busy && session.current == nil { Text("暂无可播放的入库资源"); LiuYingFilters(session: session) }
+            if let unavailable = session.unavailable { LiuYingEmpty(title: unavailable.title, detail: unavailable.detail) }
+            else if let error = session.error { RetryMessage(text: error) { session.start(model: model) } }
+            else if !session.busy && session.current == nil { LiuYingEmpty.noItems; LiuYingFilters(session: session) }
             Button("返回") { Task { await model.closePlayer(); dismiss() } }
         }.padding(64).buttonStyle(TVActionStyle())
             .task { session.start(model: model) }
@@ -154,11 +163,22 @@ private struct LiuYingFilters: View {
                     TVChoice(title: title, selection: Binding(get: { kind == "channel" ? session.channel : session.exposure }, set: {
                         if kind == "channel" { session.reset(channel: $0) } else { session.reset(exposure: $0) }
                     }), options: [("", "全部")] + session.labels.array.filter { $0["kind"].string == kind }.compactMap { label in
-                        guard let name = label["name"].string else { return nil }; return (name, label["title"].string ?? name)
+                        guard let name = label["name"].string else { return nil }
+                        let title = label["title"].string ?? name
+                        return (name, label["count"].number.map { "\(title) · \(Int($0)) 部" } ?? title)
                     })
                 }
             }
         }.disabled(session.busy)
+    }
+}
+
+private struct LiuYingEmpty: View {
+    let title: String
+    let detail: String
+    static let noItems = LiuYingEmpty(title: "暂无可播放的入库资源", detail: "可以切换来源、分类或标签；资料中心内容不会直接播放")
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) { Text(title); Text(detail).font(.system(size: 22)).foregroundStyle(.secondary) }
     }
 }
 
@@ -174,7 +194,7 @@ struct LiuYingStage: View {
                     TVSectionHeading("流影")
                     if session.busy { TVLoading("正在加载") }
                     else if let error = session.error { RetryMessage(text: error) { session.retry() } }
-                    else { Text("暂无可播放的入库资源") }
+                    else { LiuYingEmpty.noItems }
                     LiuYingFilters(session: session)
                     Button("上一条") { session.move(-1) }.disabled(!session.canGoBack || session.busy)
                     Button("返回") { Task { await model.closePlayer() } }
