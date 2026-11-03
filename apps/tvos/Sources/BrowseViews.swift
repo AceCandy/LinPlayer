@@ -469,6 +469,7 @@ private struct HomeBanner: View {
     var body: some View {
         ZStack(alignment: .bottomLeading) {
             Backdrop(item: item, loader: model.images, height: height, whiteForeground: true, heroForeground: true)
+            Rectangle().fill(.black.opacity(0.72)).frame(height: 220).frame(maxWidth: .infinity, alignment: .bottom)
             VStack(alignment: .leading, spacing: 18) {
                 if let logo {
                     Image(uiImage: logo).resizable().scaledToFit().frame(maxWidth: 620, maxHeight: 180, alignment: .leading)
