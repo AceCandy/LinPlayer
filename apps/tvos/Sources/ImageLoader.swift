@@ -123,6 +123,7 @@ struct Backdrop: View {
     var height: CGFloat = 460
     var primaryEnabled: Bool? = nil
     var whiteForeground = false
+    var heroForeground = false
     @EnvironmentObject private var model: AppModel
     @State private var image: UIImage?
     var body: some View {
@@ -136,8 +137,8 @@ struct Backdrop: View {
                 LinearGradient(stops: whiteForeground ? [
                     .init(color: .black.opacity(0.45), location: 0),
                     .init(color: .black.opacity(0.1), location: 0.25),
-                    .init(color: .black.opacity(0.7), location: 0.65),
-                    .init(color: .black.opacity(0.96), location: 0.92),
+                    .init(color: .black.opacity(heroForeground ? 0.9 : 0.7), location: 0.65),
+                    .init(color: .black.opacity(heroForeground ? 1 : 0.96), location: 0.92),
                     .init(color: TVPalette.background(model.privateSpace), location: 1)
                 ] : [
                     .init(color: TVPalette.background(model.privateSpace).opacity(0.45), location: 0),

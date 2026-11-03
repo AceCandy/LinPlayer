@@ -468,7 +468,7 @@ private struct HomeBanner: View {
     private var timerIdentity: String { "\(item.id):\(active):\(model.sceneActive):\(reduceMotion):\(items.count):\(model.playback != nil)" }
     var body: some View {
         ZStack(alignment: .bottomLeading) {
-            Backdrop(item: item, loader: model.images, height: height, whiteForeground: true)
+            Backdrop(item: item, loader: model.images, height: height, whiteForeground: true, heroForeground: true)
             VStack(alignment: .leading, spacing: 18) {
                 if let logo {
                     Image(uiImage: logo).resizable().scaledToFit().frame(maxWidth: 620, maxHeight: 180, alignment: .leading)
