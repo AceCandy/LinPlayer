@@ -416,6 +416,7 @@ final class VisualImages: URLProtocol {
                 let background = luminances(source, in: CGRect(origin: point, size: CGSize(width: 1, height: 1)))[0]
                 let values = [point.y < 140 ? navigationText : point.y < 500 ? title : metadata, background]
                 let contrast = (values.max()! + 0.05) / (values.min()! + 0.05)
+                print("\(name) \(point) title=\(title) metadata=\(metadata) background=\(background)")
                 precondition(contrast >= (point.y < 140 ? 3 : 4.5), "\(name)叠图文字对比度不足：\(contrast)，位置：\(point)")
             }
         }
