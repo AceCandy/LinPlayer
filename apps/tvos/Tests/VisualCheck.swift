@@ -159,6 +159,8 @@ enum VisualCatalog {
     func call(_ command: String, _ args: [String: JSONValue]) async throws -> JSONValue {
         switch command {
         case "emby.permissions": return .object(["capabilities": .object(["hide_resume": .bool(false)])])
+        case "prefs.iconLibrary": return .object(["items": .array([]), "configured": .bool(false), "builtin": .number(0), "sources": .array([])])
+        case "system.dataPaths": return .object(["root": .string("/tmp/linplayer"), "config": .string("/tmp/linplayer/config.json"), "history": .string("/tmp/linplayer/history.json"), "cache": .string("/tmp/linplayer/cache"), "logs": .string("/tmp/linplayer/logs"), "downloads": .string("/tmp/linplayer/downloads"), "exe_dir": .string("/tmp/linplayer"), "kind": .string("unknown")])
         case "emby.views": return .array(VisualCatalog.data["libraries"].array.map(VisualCatalog.item))
         case "emby.listLatest", "emby.search", "emby.personItems": return .array(movies)
         case "emby.cachedItems": return .array(VisualCatalog.selected("hero"))
