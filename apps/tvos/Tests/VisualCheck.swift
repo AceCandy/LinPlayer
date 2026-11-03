@@ -158,6 +158,7 @@ enum VisualCatalog {
     static let account: JSONValue = .object(["server": .string("fixture"), "name": VisualCatalog.data["server_name"], "user_name": .string("演示账号"), "user_id": .string("fixture"), "active": .bool(true), "line_url": .string("https://fixture.invalid"), "aggregate": .bool(true), "aggregate_primary": .bool(true), "lines": .array([.object(["name": .string("默认线路"), "url": .string("https://fixture.invalid")])])])
     func call(_ command: String, _ args: [String: JSONValue]) async throws -> JSONValue {
         switch command {
+        case "emby.permissions": return .object(["capabilities": .object(["hide_resume": .bool(false)])])
         case "emby.views": return .array(VisualCatalog.data["libraries"].array.map(VisualCatalog.item))
         case "emby.listLatest", "emby.search", "emby.personItems": return .array(movies)
         case "emby.cachedItems": return .array(VisualCatalog.selected("hero"))
